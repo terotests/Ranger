@@ -96,6 +96,44 @@ describe("Rust Code Generation", () => {
     });
   });
 
+  describe("Clippy-clean emission on the flagship program", () => {
+    // The jpeg scaler reached zero clippy warnings; these greps pin the
+    // shapes that used to produce the big warning classes.
+    const result = getGeneratedRustCode(
+      "gallery/pdf_writer/src/tools/jpeg_scaler.rgr"
+    );
+
+    it("compiles the scaler", () => {
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+    });
+
+    it("has no doubled parens or literal casts", () => {
+      expect(result.code).not.toContain("((0) as usize)");
+      expect(result.code).not.toContain("[(0) as usize]");
+      // a pair directly containing another complete pair is clippy's
+      // double_parens: `((x))`
+      expect(result.code).not.toMatch(/\(\([a-zA-Z0-9_. ]+\)\)/);
+    });
+
+    it("has no join/concat chains and no unit returns", () => {
+      expect(result.code).not.toContain('.join("")');
+      expect(result.code).not.toContain(".concat()");
+      expect(result.code).not.toContain("-> ()");
+      expect(result.code).not.toContain("&mut self, )");
+    });
+
+    it("compares booleans and strings idiomatically", () => {
+      expect(result.code).not.toMatch(/== false\b/);
+      expect(result.code).not.toContain('!= "".to_string()');
+    });
+
+    it("keeps the documented allows only", () => {
+      expect(result.code).toContain("#![allow(clippy::manual_clamp)]");
+      expect(result.code).toContain("#![allow(clippy::too_many_arguments)]");
+      expect(result.code).not.toContain("#![allow(clippy::all)]");
+    });
+  });
+
   describe("Borrowed collection parameters as slices", () => {
     const result = getGeneratedRustCode(`${FIXTURES_DIR}/rust_slice_params.rgr`);
 

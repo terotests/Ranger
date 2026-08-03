@@ -390,6 +390,40 @@ return, no trailing comma, Weak gating).
   parameters stay `String` for now — `&str` changes every call-site
   conversion and is left with the open items.
 
+**Fourth round — to zero.** clippy on the jpeg output: **1395 → 0**.
+Everything mechanical fell to emission fixes; four statement-shape lints
+that mirror the Ranger source itself are named allows with a comment in the
+generated header.
+
+- **Double parens are gone structurally.** Argument slots and
+  already-delimited operands tell the next operator emission it needs no
+  pair of its own (a one-shot flag the expression walker consumes), and the
+  operators whose templates are self-delimiting — the bit ops, casts,
+  format! — are declared as such, so the walker never wraps them twice. The
+  bit operators became writer customs that parenthesize once around the
+  whole and only around non-atomic operands: `(oldVal | (1 << bit))`, not
+  `((oldVal) | (((1) << (bit))))`.
+- **Literal positions carry no casts**: indexes, ranges, `vec!` sizes, u8
+  stores and f64 casts emit `0`, `255`, `256.0` where the templates wrote
+  `(0) as usize`, `255 as u8`, `(256) as f64` — and a macro's paren-wrapped
+  literal unwraps before the test. `int / int` emits
+  `x as f64 / y as f64` with literals as f64 literals.
+- **Comparisons are idiomatic**: `x == false` is `!x`, `s != ""` is
+  `!s.is_empty()`, a literal string compares as `&str` (no
+  `"lit".to_string()` allocation), and `a >= lo && a <= hi` becomes
+  `(lo..=hi).contains(&a)`.
+- **References pass bare**: a borrowed or mut-reference parameter handed
+  straight to the next call goes as `x`, not `&x` / `&mut x` — the 35
+  needless_borrow warnings.
+- **No `let x = …; x`**: a class without a constructor body returns its
+  struct literal as the tail expression directly.
+- **The named allows** (each a shape the transpiler must not rewrite):
+  `clippy::manual_clamp` and `clippy::collapsible_if` — user statement
+  sequences; `clippy::too_many_arguments` — user function arity;
+  `clippy::upper_case_acronyms` — user type names like `IDCT`; and
+  `unused_assignments` joins the header's init-discipline family. The
+  header comments say exactly this.
+
 **Still open, with the reason each is parked:**
 
 - **Double parens (306, now the largest row).** `walkCommandList`

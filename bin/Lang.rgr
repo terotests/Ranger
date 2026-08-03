@@ -1540,7 +1540,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
             templates {
                 es6 ( "(" (e 1) " & " (e 2) ")" )
                 go ( "int64(" (e 1) " & " (e 2) ")" )
-                rust ( "((" (e 1) ") & (" (e 2) "))" )
+                rust ( (custom _) )
                 cpp ( "((" (e 1) ") & (" (e 2) "))" )
                 java7 ( "((" (e 1) ") & (" (e 2) "))" )
                 python ( "((" (e 1) ") & (" (e 2) "))" )
@@ -1555,7 +1555,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
             templates {
                 es6 ( "(" (e 1) " | " (e 2) ")" )
                 go ( "int64(" (e 1) " | " (e 2) ")" )
-                rust ( "((" (e 1) ") | (" (e 2) "))" )
+                rust ( (custom _) )
                 cpp ( "((" (e 1) ") | (" (e 2) "))" )
                 java7 ( "((" (e 1) ") | (" (e 2) "))" )
                 python ( "((" (e 1) ") | (" (e 2) "))" )
@@ -1570,7 +1570,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
             templates {
                 es6 ( "(" (e 1) " ^ " (e 2) ")" )
                 go ( "int64(" (e 1) " ^ " (e 2) ")" )
-                rust ( "((" (e 1) ") ^ (" (e 2) "))" )
+                rust ( (custom _) )
                 cpp ( "((" (e 1) ") ^ (" (e 2) "))" )
                 java7 ( "((" (e 1) ") ^ (" (e 2) "))" )
                 python ( "((" (e 1) ") ^ (" (e 2) "))" )
@@ -1585,7 +1585,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
             templates {
                 es6 ( "(~" (e 1) ")" )
                 go ( "int64(^" (e 1) ")" )
-                rust ( "(!" (e 1) ")" )
+                rust ( (custom _) )
                 cpp ( "(~" (e 1) ")" )
                 java7 ( "(~" (e 1) ")" )
                 python ( "(~" (e 1) ")" )
@@ -1600,7 +1600,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
             templates {
                 es6 ( "(" (e 1) " << " (e 2) ")" )
                 go ( "int64(" (e 1) " << uint(" (e 2) "))" )
-                rust ( "((" (e 1) ") << (" (e 2) "))" )
+                rust ( (custom _) )
                 cpp ( "((" (e 1) ") << (" (e 2) "))" )
                 java7 ( "((" (e 1) ") << (" (e 2) "))" )
                 python ( "((" (e 1) ") << (" (e 2) "))" )
@@ -1615,7 +1615,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
             templates {
                 es6 ( "(" (e 1) " >> " (e 2) ")" )
                 go ( "int64(" (e 1) " >> uint(" (e 2) "))" )
-                rust ( "((" (e 1) ") >> (" (e 2) "))" )
+                rust ( (custom _) )
                 cpp ( "((" (e 1) ") >> (" (e 2) "))" )
                 java7 ( "((" (e 1) ") >> (" (e 2) "))" )
                 python ( "((" (e 1) ") >> (" (e 2) "))" )
@@ -1676,7 +1676,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
         } }
         /               cmdDivOp:double         ( left:int right:int ) { templates {
             go ( "float64(" (e 1) ") / float64(" (e 2) ")" )
-            rust ( "(" (e 1) " as f64) / (" (e 2) " as f64)" )
+            rust ( (custom _) )
             kotlin ( (e 1) ".toDouble() / " (e 2) ".toDouble()" )
             cpp ( "((double)(" (e 1) ") / (double)(" (e 2) "))" )
             * ( (e 1) " / " (e 2) )
@@ -2363,7 +2363,7 @@ case class customException(smth:String)  extends Exception
                 kotlin ( (forkctx _ ) (def 2) (def 3) "for ( " (e 3) " in " (e 1) ".indices ) {" nl I "val " (e 2) " = " (e 1) "[" (e 3) "]" nl (block 4) nl i "}" )
 
                 ; Use index-based loop for Rust with cloned item - no reassignment needed as item is cloned
-                rust ( (forkctx _ ) (def 2) (def 3) "for " (e 3) " in 0.." (e 1) ".len() {" nl I "let mut " (e 2) " = " (e 1) "[" (e 3) " as usize]" (cloneif 2) ";" nl (block 4) nl i "}" )
+                rust ( (forkctx _ ) (def 2) (def 3) "for " (e 3) " in 0.." (e 1) ".len() {" nl I "let mut " (e 2) " = " (e 1) "[" (e 3) "]" (cloneif 2) ";" nl (block 4) nl i "}" )
 
                 ; idea of go for macro implementation, not working yet...         
                 go_idea  @macro(true) (nl 
@@ -2715,7 +2715,7 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
                 ranger ( "(buffer_set " (e 1) " " (e 2) " " (e 3) ")" )
                 es6 ( (e 1) "._view.setUint8(" (e 2) ", " (e 3) ")" )
                 go ( (e 1) "[" (e 2) "] = byte(" (e 3) ")" )
-                rust ( (e 1) "[" (idx 2) "] = " (e 3) " as u8" )
+                rust ( (e 1) "[" (idx 2) "] = " (u8v 3) )
                 cpp ( (e 1) "[" (e 2) "] = static_cast<uint8_t>(" (e 3) ")" )
                 java7 ( (e 1) "[(int)" (e 2) "] = (byte)" (e 3) )
                 python ( (e 1) "[" (e 2) "] = " (e 3) )
@@ -2839,7 +2839,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 ranger ( "(buffer_copy " (e 1) " " (e 2) " " (e 3) " " (e 4) " " (e 5) ")" )
                 es6 ( "(function(d,dOff,s,sOff,len){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(" (e 1) "," (e 2) "," (e 3) "," (e 4) "," (e 5) ")" )
                 go ( "copy(" (e 1) "[" (e 2) ":], " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "])" )
-                rust ( (e 1) "[" (e 2) " as usize..(" (e 2) "+" (e 5) ") as usize].copy_from_slice(&" (e 3) "[" (e 4) " as usize..(" (e 4) "+" (e 5) ") as usize])" )
+                rust ( (e 1) "[" (idx 2) "..(" (e 2) "+" (e 5) ") as usize].copy_from_slice(&" (e 3) "[" (idx 4) "..(" (e 4) "+" (e 5) ") as usize])" )
                 cpp ( "std::copy(" (e 3) ".begin()+" (e 4) ", " (e 3) ".begin()+" (e 4) "+" (e 5) ", " (e 1) ".begin()+" (e 2) ")" (imp "<algorithm>") )
                 java7 ( "System.arraycopy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
                 python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
@@ -2854,7 +2854,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 ranger ( "(buffer_fill " (e 1) " " (e 2) " " (e 3) " " (e 4) ")" )
                 es6 ( "(function(b,v,s,e){ var arr = new Uint8Array(b); for(var i=s;i<e;i++) arr[i]=v; })(" (e 1) "," (e 2) "," (e 3) "," (e 4) ")" )
                 go ( "for i := " (e 3) "; i < " (e 4) "; i++ { " (e 1) "[i] = byte(" (e 2) ") }" )
-                rust ( (e 1) "[" (e 3) " as usize.." (e 4) " as usize].fill(" (e 2) " as u8)" )
+                rust ( (e 1) "[" (idx 3) ".." (idx 4) "].fill(" (u8v 2) ")" )
                 cpp ( "std::fill(" (e 1) ".begin()+" (e 3) ", " (e 1) ".begin()+" (e 4) ", static_cast<uint8_t>(" (e 2) "))" (imp "<algorithm>") )
                 java7 ( "java.util.Arrays.fill(" (e 1) ", (int)" (e 3) ", (int)" (e 4) ", (byte)" (e 2) ")" )
                 python ( (e 1) "[" (e 3) ":" (e 4) "] = [" (e 2) "] * (" (e 4) " - " (e 3) ")" )
@@ -2869,7 +2869,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 ranger ( "(buffer_slice " (e 1) " " (e 2) " " (e 3) ")" )
                 es6 ( "(function(b,s,e){ var slice = b.slice(s,e); slice._view = new DataView(slice); return slice; })(" (e 1) "," (e 2) "," (e 3) ")" )
                 go ( "append([]byte{}, " (e 1) "[" (e 2) ":" (e 3) "]...)" )
-                rust ( (e 1) "[" (e 2) " as usize.." (e 3) " as usize].to_vec()" )
+                rust ( (e 1) "[" (idx 2) ".." (idx 3) "].to_vec()" )
                 cpp ( "std::vector<uint8_t>(" (e 1) ".begin()+" (e 2) ", " (e 1) ".begin()+" (e 3) ")" )
                 java7 ( "java.util.Arrays.copyOfRange(" (e 1) ", (int)" (e 2) ", (int)" (e 3) ")" )
                 python ( "bytearray(" (e 1) "[" (e 2) ":" (e 3) "])" )
@@ -2956,7 +2956,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 ranger ( "(int_buffer_fill " (e 1) " " (e 2) " " (e 3) " " (e 4) ")" )
                 es6 ( (e 1) ".fill(" (e 2) ", " (e 3) ", " (e 4) ")" )
                 go ( "for i := " (e 3) "; i < " (e 4) "; i++ { " (e 1) "[i] = " (e 2) " }" )
-                rust ( (e 1) "[" (e 3) " as usize.." (e 4) " as usize].fill(" (e 2) ")" )
+                rust ( (e 1) "[" (idx 3) ".." (idx 4) "].fill(" (e 2) ")" )
                 cpp ( "std::fill(" (e 1) ".begin()+" (e 3) ", " (e 1) ".begin()+" (e 4) ", " (e 2) ")" (imp "<algorithm>") )
                 java7 ( "java.util.Arrays.fill(" (e 1) ", (int)" (e 3) ", (int)" (e 4) ", " (e 2) ")" )
                 python ( (e 1) "[" (e 3) ":" (e 4) "] = [" (e 2) "] * (" (e 4) " - " (e 3) ")" )
@@ -2971,7 +2971,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 ranger ( "(int_buffer_copy " (e 1) " " (e 2) " " (e 3) " " (e 4) " " (e 5) ")" )
                 es6 ( (e 1) ".set(" (e 3) ".subarray(" (e 4) ", " (e 4) "+" (e 5) "), " (e 2) ")" )
                 go ( "copy(" (e 1) "[" (e 2) ":], " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "])" )
-                rust ( (e 1) "[" (e 2) " as usize..(" (e 2) "+" (e 5) ") as usize].copy_from_slice(&" (e 3) "[" (e 4) " as usize..(" (e 4) "+" (e 5) ") as usize])" )
+                rust ( (e 1) "[" (idx 2) "..(" (e 2) "+" (e 5) ") as usize].copy_from_slice(&" (e 3) "[" (idx 4) "..(" (e 4) "+" (e 5) ") as usize])" )
                 cpp ( "std::copy(" (e 3) ".begin()+" (e 4) ", " (e 3) ".begin()+" (e 4) "+" (e 5) ", " (e 1) ".begin()+" (e 2) ")" (imp "<algorithm>") )
                 java7 ( "System.arraycopy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
                 python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
@@ -3071,7 +3071,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 ranger ( "(double_buffer_fill " (e 1) " " (e 2) " " (e 3) " " (e 4) ")" )
                 es6 ( (e 1) ".fill(" (e 2) ", " (e 3) ", " (e 4) ")" )
                 go ( "for i := " (e 3) "; i < " (e 4) "; i++ { " (e 1) "[i] = " (e 2) " }" )
-                rust ( (e 1) "[" (e 3) " as usize.." (e 4) " as usize].fill(" (e 2) ")" )
+                rust ( (e 1) "[" (idx 3) ".." (idx 4) "].fill(" (e 2) ")" )
                 cpp ( "std::fill(" (e 1) ".begin()+" (e 3) ", " (e 1) ".begin()+" (e 4) ", " (e 2) ")" (imp "<algorithm>") )
                 java7 ( "java.util.Arrays.fill(" (e 1) ", (int)" (e 3) ", (int)" (e 4) ", " (e 2) ")" )
                 python ( (e 1) "[" (e 3) ":" (e 4) "] = [" (e 2) "] * (" (e 4) " - " (e 3) ")" )
@@ -3086,7 +3086,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 ranger ( "(double_buffer_copy " (e 1) " " (e 2) " " (e 3) " " (e 4) " " (e 5) ")" )
                 es6 ( (e 1) ".set(" (e 3) ".subarray(" (e 4) ", " (e 4) "+" (e 5) "), " (e 2) ")" )
                 go ( "copy(" (e 1) "[" (e 2) ":], " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "])" )
-                rust ( (e 1) "[" (e 2) " as usize..(" (e 2) "+" (e 5) ") as usize].copy_from_slice(&" (e 3) "[" (e 4) " as usize..(" (e 4) "+" (e 5) ") as usize])" )
+                rust ( (e 1) "[" (idx 2) "..(" (e 2) "+" (e 5) ") as usize].copy_from_slice(&" (e 3) "[" (idx 4) "..(" (e 4) "+" (e 5) ") as usize])" )
                 cpp ( "std::copy(" (e 3) ".begin()+" (e 4) ", " (e 3) ".begin()+" (e 4) "+" (e 5) ", " (e 1) ".begin()+" (e 2) ")" (imp "<algorithm>") )
                 java7 ( "System.arraycopy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
                 python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
@@ -3121,7 +3121,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 swift6 ( "Int(" (e 1 ) ")" )
                 kotlin ( (e 1 ) ".toInt()" )
                 scala ( (e 1 ) ".toInt" )
-                rust ( "(" (e 1 ) ").floor() as i64 " )
+                rust ( (custom _) )
                 go ( "int64(math.Floor(" (e 1) "))" (imp "math"))
                 php ( "floor(" (e 1) ")")
                 java7 ( "Double.valueOf(" (e 1) ").intValue()")
@@ -3343,7 +3343,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 swift3 ( (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")]" )
                 swift6 ( "String(" (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")])" )
                 python ( (e 1) "[" (e 2) ":" (e 3) "]" )
-                rust ( (e 1) ".chars().skip(" (idx 2) ").take((" (e 3) " - " (e 2) ") as usize).collect::<String>()")
+                rust ( (custom _) )
                 * ( (e 1) ".substring(" (e 2) ", " (e 3) " )")
             }
         }
@@ -3380,7 +3380,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 scala ( "(" (e 1) ".toChar)")      
                 go ("string([]rune{rune(" (e 1) ")})")      
                 cpp ( "std::string(1, char(" (e 1) "))") 
-                rust ( "(char::from_u32(" (e 1) " as u32).unwrap_or('\\0').to_string())" )
+                rust ( (custom _) )
                 * ( "String.fromCharCode(" (e 1) ")")
             }
         }
@@ -3398,7 +3398,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 scala ( "(" (e 1) ".toChar)")      
                 go ("string([]rune{rune(" (e 1) ")})")        
                 cpp ( "std::string(1, char(" (e 1) "))") 
-                rust ( "(char::from_u32(" (e 1) " as u32).unwrap_or('\\0').to_string())" )
+                rust ( (custom _) )
                 * ( "String.fromCharCode(" (e 1) ")")
             }
         }
@@ -4449,7 +4449,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  php ( "count(" (e 1) ")")
                  java7 ( (e 1) ".size()" )                                                              
                  scala ( (e 1) ".length" )
-                 rust ( "(" (e 1 ) ".len() as i64)" )
+                 rust ( (e 1 ) ".len() as i64" )
                  go ( "int64(len(" (e 1 ) "))" )
                  kotlin ( (e 1) ".size" )       
                  csharp ( (e 1) ".Count")
@@ -5435,7 +5435,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 kotlin ( (e 1) ".toDouble()" )
                 cpp ("(double)(" (e 1) ")")
                 php ( (e 1) )
-                rust ("(" (e 1) " as f64)")
+                rust ( (custom _) )
             }
         }
 
@@ -5447,14 +5447,20 @@ std::string r_cpp_str_to_uppercase(std::string original)
 
         ; ----------------------------------------------------------------------------------------------------------
 
-        ==              cmdEqual:boolean ( left:string right:string ) { 
-            templates { 
-                java7 ( (e 1) ".equals(" (e 2) ")" ) 
-                * ( (e 1) " == " (e 2) ) 
-            } 
+        ==              cmdEqual:boolean ( left:string right:string ) {
+            templates {
+                java7 ( (e 1) ".equals(" (e 2) ")" )
+                rust ( (custom _) )
+                * ( (e 1) " == " (e 2) )
+            }
         }
 
-        ==              cmdEqual:boolean ( left:T right:T ) { templates { * ( (e 1) " == " (e 2) ) } }
+        ==              cmdEqual:boolean ( left:T right:T ) {
+            templates {
+                rust ( (custom _) )
+                * ( (e 1) " == " (e 2) )
+            }
+        }
         ==              cmdEqual:boolean ( left:enum right:enum ) { templates { * ( (e 1) " == " (e 2) ) } }
 
         ==              cmdEqual:boolean ( left:int right:char ) { 
@@ -5472,7 +5478,12 @@ std::string r_cpp_str_to_uppercase(std::string original)
 
         ==              cmdEqual:boolean ( left:int right:int ) { templates { * ( (e 1) " == " (e 2) ) } }
         ==              cmdEqual:boolean ( left:double right:double ) { templates { * ( (e 1) " == " (e 2) ) } }
-        ==              cmdEqual:boolean ( left:boolean right:boolean ) { templates { * ( (e 1) " == " (e 2) ) } }
+        ==              cmdEqual:boolean ( left:boolean right:boolean ) {
+            templates {
+                rust ( (custom _) )
+                * ( (e 1) " == " (e 2) )
+            }
+        }
         
         
         >               cmdGt:boolean ( left:double right:double ) { templates { * ( (e 1) " > " (e 2) ) } }
@@ -5527,12 +5538,13 @@ std::string r_cpp_str_to_uppercase(std::string original)
             templates { * ( (e 1) " == " (e 2) ) } 
         }
 
-        !=               cmdNeq:boolean ( left:string right:string ) { 
-            templates { 
-                java7 ( "!" (e 1) ".equals(" (e 2) ")") 
-                * ( (e 1) " != " (e 2) ) 
-            } 
-        }        
+        !=               cmdNeq:boolean ( left:string right:string ) {
+            templates {
+                java7 ( "!" (e 1) ".equals(" (e 2) ")")
+                rust ( (custom _) )
+                * ( (e 1) " != " (e 2) )
+            }
+        }
 
         !=               cmdNeq:boolean ( left:int right:char ) { 
             templates { 
@@ -5553,8 +5565,11 @@ std::string r_cpp_str_to_uppercase(std::string original)
         }
 
 
-        !=               cmdNeq:boolean ( left:T right:T ) { 
-            templates { * ( (e 1) " != " (e 2) ) } 
+        !=               cmdNeq:boolean ( left:T right:T ) {
+            templates {
+                rust ( (custom _) )
+                * ( (e 1) " != " (e 2) )
+            }
         }
         
         >=               cmdGte:boolean ( left:int right:char ) { 
@@ -5656,11 +5671,12 @@ std::string r_cpp_str_to_uppercase(std::string original)
 
 
 
-        &&              cmdLogicAnd:boolean ( left:boolean right:boolean ) { 
-            templates { 
-                python ( (e 1) " and " (e 2) ) 
-                * ( (e 1) " && " (e 2) ) 
-            } 
+        &&              cmdLogicAnd:boolean ( left:boolean right:boolean ) {
+            templates {
+                python ( (e 1) " and " (e 2) )
+                rust ( (custom _) )
+                * ( (e 1) " && " (e 2) )
+            }
         }
         &&              cmdLogicAnd:boolean ( p1:boolean p2:boolean p3:boolean) { 
             templates { 
