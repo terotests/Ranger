@@ -1,4 +1,8 @@
 import { describe, it, expect } from "vitest";
+import { execSync } from "child_process";
+import * as fs from "fs";
+import * as path from "path";
+import { fileURLToPath } from "url";
 import {
   compileRangerToDart,
   expectCompileError,
@@ -16,6 +20,7 @@ import {
 
 const FIXTURES_DIR = "tests/fixtures";
 const SHAPE = `${FIXTURES_DIR}/shape_value.rgr`;
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
  * `shape` / `case` / `group` — closed variant families (PLAN_SHAPES.md, S1).
@@ -224,6 +229,62 @@ describe("shapes (closed variant families)", () => {
       const kotlin = getGeneratedKotlinCode(EQ);
       expect(kotlin.success, `Compile failed: ${kotlin.error}`).toBe(true);
       expect(kotlin.code).toMatch(/===/);
+    });
+  });
+
+  // PLAN_SHAPES.md S5: each target's own representation of the family, instead
+  // of the portable-but-slow union of classes S1 lowers to.
+  describe("per-target representation", () => {
+    it("TypeScript: a real union type, and the generated file type-checks", () => {
+      const out = path.join(ROOT, "tests", ".output");
+      execSync(
+        `node bin/output.js -es6 -typescript "${FIXTURES_DIR}/shape_match.rgr" -d=tests/.output -o=shape_match.ts`,
+        {
+          cwd: ROOT,
+          env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr;./lib/stdops.rgr" },
+          encoding: "utf-8",
+          stdio: "pipe",
+        }
+      );
+      const file = path.join(out, "shape_match.ts");
+      const code = fs.readFileSync(file, "utf-8");
+
+      // the family is a union type; the group is a union of its members
+      expect(code).toContain(
+        "type union_Value = Value_Nothing|Value_Num|Value_Text|Value_Items;"
+      );
+      expect(code).toContain("type union_Value_Ref = Value_Items;");
+      expect(code).toMatch(/describe\s*\(v : union_Value\)/);
+
+      // and tsc agrees: instanceof narrowing types each arm
+      execSync(
+        `npx tsc --noEmit --target es2017 --module commonjs "${file}"`,
+        { cwd: ROOT, encoding: "utf-8", stdio: "pipe" }
+      );
+    });
+
+    it("Kotlin: a sealed interface the cases implement", () => {
+      const result = getGeneratedKotlinCode(`${FIXTURES_DIR}/shape_match.rgr`);
+
+      expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("sealed interface union_Value");
+      expect(result.code).toContain("sealed interface union_Value_Ref");
+      // a case in both the family and a group implements both
+      expect(result.code).toMatch(
+        /class Value_Items\(.*\) : union_Value, union_Value_Ref/
+      );
+      // ...and the signatures carry the type instead of erasing it to Any
+      expect(result.code).toMatch(/describe\( v : union_Value\)/);
+      expect(result.code).not.toMatch(/describe\( v : Any\)/);
+    });
+
+    it("Kotlin: the compiler's own `Any` union is not made an interface", () => {
+      // `Any` is a union of EVERY declared class; turning it into a sealed
+      // interface would make every class in every program implement it
+      const result = getGeneratedKotlinCode(`${FIXTURES_DIR}/shape_match.rgr`);
+
+      expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+      expect(result.code).not.toContain("union_Any");
     });
   });
 

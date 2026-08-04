@@ -102,6 +102,10 @@ Every shape gets a generated equality: `Value.equals(a b)` and
 `Value.notEquals(a b)` compare content for value cases, identity for reference
 cases, and answer false across different cases.
 
+Each target represents the family its own way: a union type on TypeScript, a
+sealed interface on Kotlin, and one class per case plus a runtime type test
+everywhere else.
+
 ## Union Definition
 
 ```bnf

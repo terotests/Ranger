@@ -1,6 +1,69 @@
 class RangerKotlinClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
+  ; S5 (PLAN_SHAPES.md): a union becomes a `sealed interface` its members
+  ; implement, so the JVM keeps the static type a shape declares instead of
+  ; erasing it to Any. Declared once, before the first class of the file.
+  def kotlin_unions_written:boolean false
+
+  ; A union can be an interface only if every member is a class that can
+  ; implement it: a union over primitives (`union primitives (int string)`)
+  ; stays Any.
+  fn kotlinUnionIsSealable:boolean (ucl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if (ucl.name == "Any") {
+      return false
+    }
+    if ((array_length ucl.is_union_of) == 0) {
+      return false
+    }
+    def ok:boolean true
+    for ucl.is_union_of mname:string mi {
+      if (ctx.isDefinedClass(mname)) {
+        def mcl:RangerAppClassDesc (ctx.findClass(mname))
+        if (mcl.is_system || mcl.is_union) {
+          ok = false
+        }
+        if mcl.is_system_union {
+          ok = false
+        }
+      } {
+        ok = false
+      }
+    }
+    return ok
+  }
+
+  fn writeKotlinUnionInterfaces:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if kotlin_unions_written {
+      return
+    }
+    kotlin_unions_written = true
+    def rootCtx:RangerAppWriterContext (ctx.getRoot())
+    for rootCtx.definedClasses ucl:RangerAppClassDesc uci {
+      if ucl.is_union {
+        if (this.kotlinUnionIsSealable(ucl ctx)) {
+          wr.out("" true)
+          wr.out(("sealed interface union_" + ucl.name) true)
+        }
+      }
+    }
+  }
+
+  ; Every sealable union this class is a member of — its Kotlin supertypes.
+  fn kotlinUnionsOf:[string] (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    def out:[string]
+    def rootCtx:RangerAppWriterContext (ctx.getRoot())
+    for rootCtx.definedClasses ucl:RangerAppClassDesc uci {
+      if ucl.is_union {
+        if (this.kotlinUnionIsSealable(ucl ctx)) {
+          if ((indexOf ucl.is_union_of cl.name) >= 0) {
+            push out ("union_" + ucl.name)
+          }
+        }
+      }
+    }
+    return out
+  }
   fn WriteScalarValue:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     switch node.value_type {
       case RangerNodeType.Double {
@@ -53,6 +116,11 @@ class RangerKotlinClassWriter {
     if (ctx.isDefinedClass(type_string)) {
       def cc:RangerAppClassDesc (ctx.findClass(type_string))
       if (cc.is_union) {
+        ; a union of classes is a sealed interface; anything else (the
+        ; compiler's own `Any`, a union over primitives) stays the top type
+        if (this.kotlinUnionIsSealable(cc ctx)) {
+          return ("union_" + type_string)
+        }
         return "Any"
       }
     }
@@ -592,6 +660,7 @@ class RangerKotlinClassWriter {
     def declaredFunction:[string:boolean]
     def wr:CodeWriter orig_wr
     def importFork:CodeWriter (wr.fork())
+    this.writeKotlinUnionInterfaces(ctx wr)
     wr.out("" true)
     if (cl.is_extended_by_children || (cl.name == "RangerProcessBase")) {
       wr.out(("open class " + cl.name) false)
@@ -648,6 +717,22 @@ class RangerKotlinClassWriter {
           ; Kotlin requires explicit super constructor invocation: class Child : Parent()
           wr.out("()" false)
         }
+      }
+    }
+    ; the unions this class belongs to are its interfaces — nothing has to be
+    ; wrapped at a call site for a value to become a union member
+    def clUnions:[string] (this.kotlinUnionsOf((unwrap cl) ctx))
+    if ((array_length clUnions) > 0) {
+      if ((array_length cl.extends_classes) > 0) {
+        wr.out(", " false)
+      } {
+        wr.out(" : " false)
+      }
+      for clUnions uname:string ui {
+        if (ui > 0) {
+          wr.out(", " false)
+        }
+        wr.out(uname false)
       }
     }
     wr.out(" " true)

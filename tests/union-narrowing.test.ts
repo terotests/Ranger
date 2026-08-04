@@ -81,14 +81,20 @@ describe("union narrowing across targets", () => {
   });
 
   describe("Kotlin representation", () => {
-    it("writes the union as Any, not as an undeclared type name", () => {
+    it("writes the union as a sealed interface its members implement", () => {
+      // S0 made this `Any` — enough to compile, but the static type was gone.
+      // S5 replaced it with a sealed interface (PLAN_SHAPES.md §6.4), which
+      // needs no wrapping at any call site because a class simply implements it.
       const result = getGeneratedKotlinCode(FIXTURE);
 
       expect(result.success, `Compile failed: ${result.error}`).toBe(true);
       expect(result.code).toContain("is UnionCaseNumber");
-      // The union name declares no Kotlin type — it must not be written as one.
+      expect(result.code).toContain("sealed interface union_UnionCaseValue");
+      expect(result.code).toMatch(
+        /class UnionCaseNumber[^\n]*: union_UnionCaseValue/
+      );
+      // the bare union name still must not reach the output as a type
       expect(result.code).not.toMatch(/:\s*UnionCaseValue\b/);
-      expect(result.code).toMatch(/v\s*:\s*Any/);
     });
   });
 
