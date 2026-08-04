@@ -3,6 +3,8 @@
 #   /games/   -> the Ranger game engine compiled to JavaScript, running games
 #                in the browser via a virtual filesystem (Pong today; the WASM
 #                car game + a GPU 3D demo are the next entries).
+#   /games/v2/ -> v2 interpreter live demos (staged ComponentEngine +
+#                RgRegistryBridge / RgGameHost — ylos2 2D + live 3D guests).
 #   /docs/    -> the language documentation. The operator reference is generated
 #                from compiler/Lang.rgr and lib/*.rgr by docs/tools, and the
 #                examples on it are compiled by the compiler built in this job,
@@ -22,6 +24,7 @@ on:
     paths:
       - "playground/**"
       - "gallery/game_engine/web/**"
+      - "gallery/game_engine/v2/**"
       - "gallery/game_engine/tests/pong_runner_demo.rgr"
       - "gallery/game_engine/scripting/**"
       - "compiler/**"
@@ -77,6 +80,10 @@ jobs:
       # ---- Three.js cube on the GPU (.tsx interpreter -> Ranger Three -> WebGL)
       - name: Build tsx3d WebGL demo
         run: node gallery/game_engine/web/build-tsx3d.mjs --out "$GITHUB_WORKSPACE/_site/games/tsx3d"
+
+      # ---- v2 interpreter live demos (ComponentEngine migrate/src + registry)
+      - name: Build v2 interpreter Pages demos
+        run: node gallery/game_engine/v2/web/build-pages.mjs --out "$GITHUB_WORKSPACE/_site/games/v2"
 
       # ---- Documentation site at /docs/ ----------------------------------
       - name: Install documentation dependencies

@@ -17,10 +17,47 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 
-const require = createRequire("/opt/node22/lib/node_modules/x");
-const { chromium } = require("playwright");
-const CHROME = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
+function loadPlaywright() {
+  const anchors = [
+    "/opt/node22/lib/node_modules/x",
+    path.join(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../.."),
+      "package.json"
+    ),
+    path.join(process.cwd(), "package.json"),
+    import.meta.url,
+  ];
+  let last;
+  for (const anchor of anchors) {
+    try {
+      return createRequire(anchor)("playwright");
+    } catch (e) {
+      last = e;
+    }
+  }
+  throw new Error("playwright not resolvable: " + (last && last.message));
+}
+
+function findChrome() {
+  const env = process.env.CHROME_PATH || process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+  const candidates = [
+    env,
+    "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
+    "/opt/google/chrome/chrome",
+    "/usr/bin/google-chrome",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+  ].filter(Boolean);
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return undefined; // let Playwright pick its bundled Chromium
+}
+
+const { chromium } = loadPlaywright();
+const CHROME = findChrome();
 
 const argv = process.argv.slice(2);
 const DIR = path.resolve(argv[0] || "dist/tsx3d");
@@ -63,10 +100,11 @@ try {
   const port = server.address().port;
   const url = `http://127.0.0.1:${port}/`;
 
-  const browser = await chromium.launch({
-    executablePath: CHROME,
+  const launchOpts = {
     args: ["--use-gl=swiftshader", "--enable-webgl", "--ignore-gpu-blocklist", "--no-sandbox"],
-  });
+  };
+  if (CHROME) launchOpts.executablePath = CHROME;
+  const browser = await chromium.launch(launchOpts);
   const page = await browser.newPage({ viewport: { width: 640, height: 640 } });
   page.on("console", (m) => { if (m.type() === "error") consoleErrors.push(m.text()); });
   page.on("pageerror", (e) => consoleErrors.push("pageerror: " + e.message));
