@@ -21,10 +21,40 @@ The option `-l=<target>` selects the target language.
 | Kotlin | `-l=kotlin` | `.kt` | |
 | Dart | `-l=dart` | `.dart` | Flutter-ready packages via `-pubspec` (optional `-flutter`). Shared logic for Flutter apps, not full widget trees. |
 | Swift | `-l=swift6` | `.swift` | `-l=swift3` writes the older dialect. |
-| C# | `-l=csharp` | `.cs` | |
+| C# | `-l=csharp` | `.cs` | Verified on the TypeScript engine with Mono `mcs` (8/8 vs Node). |
 | C++ | `-l=cpp` | `.cpp` | Some operators add a polyfill function. |
 | PHP | `-l=php` | `.php` | The main routine is at the top level of the file. |
 | Scala | `-l=scala` | `.scala` | The main routine compiles to `object AppMain extends App`. |
+
+## Maturity
+
+The targets are not equal. The table below states what the test suite and the
+large gallery programs currently prove. The
+[coverage page](/Ranger/docs/reference/coverage/) counts operator templates; a
+high count does not mean a large program has run on that target.
+
+| Target | Ranger accepts | Builds with a toolchain | Matches a Node reference |
+| --- | --- | --- | --- |
+| JavaScript | yes | yes (`node`) | baseline |
+| Go | yes | yes | TS engine 8/8; syntax app |
+| Kotlin | yes | yes (`kotlinc`) | TS engine 8/8 |
+| Python | yes | yes (`python3`) | TS engine 8/8 |
+| C# | yes | yes (Mono `mcs` in CI; .NET also) | TS engine 8/8 |
+| Rust | yes | yes (`rustc`) | jpeg scaler; TS engine path |
+| C++ | yes | yes (`g++`) | jpeg scaler; TS engine path |
+| Dart | yes | yes (`dart`, when on `PATH`) | `gallery/ts_parser` AST = JS |
+| Swift 6 | yes | when `swiftc` is present | TS engine compiles (~31k lines); run not always in CI |
+| Java, PHP, Scala | yes, with more gaps | varies | syntax-app matrix; no large-engine golden |
+
+`npm run test:tsengine` compiles the TypeScript engine in
+`gallery/game_engine/v2/interp` to Go, Kotlin, Python, C# and Swift 6, and
+builds and runs the Go, Python and C# results when those tools are installed.
+`npm run test:dart` and `npm run test:dart:tsparser` exercise Dart.
+
+Each [operator page](/Ranger/docs/reference/operators/statements/) lists every
+command-line target in the support row, including Dart. A mark ✔ is an own
+template; ✱ is the default `*` template; ✕ means the operator has no template
+for that target.
 
 ## Other targets in the language file
 
