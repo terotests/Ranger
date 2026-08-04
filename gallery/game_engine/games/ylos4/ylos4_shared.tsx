@@ -262,8 +262,6 @@ function cfg(): LevelConfig {
   return activeLevel;
 }
 
-import { soundEvent, voiceEvent, particleEvent, rumbleEvent, musicScoreEvent, stopMusicEvent } from "../../scripting/game_helpers";
-
 // --- Core game structs (annotated so the native emitter unifies their types) ---
 
 interface Player {

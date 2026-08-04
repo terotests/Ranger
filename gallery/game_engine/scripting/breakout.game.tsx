@@ -30,6 +30,7 @@ import {
   makeAlive,
   placeBricks
 } from "./breakout_bricks";
+import { getScreen, soundEvent } from "./game_helpers";
 
 function screens(): string[] {
   return ["play", "gameOver"];
@@ -109,8 +110,8 @@ function goToGameOver(
 }
 
 function updatePlay(s: BreakoutState, props: EventProps): BreakoutState {
-
-  const play = s.screens.play;
+  const play = getScreen(s, "play");
+  const events: GameEvent[] = [];
   const dt = props.dt as number;
   let px = play.px;
   let py = play.py;
@@ -130,9 +131,9 @@ function updatePlay(s: BreakoutState, props: EventProps): BreakoutState {
   bx = bx + vx * dt;
   by = by + vy * dt;
 
-  if (by < 8) { by = 8; vy = 0 - vy; }
-  if (bx < 6) { bx = 6; vx = 0 - vx; }
-  if (bx > 474) { bx = 474; vx = 0 - vx; }
+  if (by < 8) { by = 8; vy = 0 - vy; events.push(soundEvent("wall")); }
+  if (bx < 6) { bx = 6; vx = 0 - vx; events.push(soundEvent("wall")); }
+  if (bx > 474) { bx = 474; vx = 0 - vx; events.push(soundEvent("wall")); }
 
   if (by > py - 14) {
     if (bx > px - PADDLE_HALF) {
@@ -141,12 +142,14 @@ function updatePlay(s: BreakoutState, props: EventProps): BreakoutState {
         vy = 0 - vy;
         const hit = (bx - px) / PADDLE_HALF;
         vx = vx + hit * 0.06;
+        events.push(soundEvent("bounce"));
       }
     }
   }
 
   if (by > 270) {
     lives = lives - 1;
+    events.push(soundEvent("lose"));
     const reset = resetBall(px, py);
     bx = reset.bx;
     by = reset.by;
@@ -168,7 +171,12 @@ function updatePlay(s: BreakoutState, props: EventProps): BreakoutState {
         score1: score,
         score2: 0
       };
-      return goToGameOver(s, frozen, 0);
+      const over = goToGameOver(s, frozen, 0);
+      return {
+        screen: over.screen,
+        screens: over.screens,
+        events: events
+      };
     }
   }
 
@@ -179,6 +187,7 @@ function updatePlay(s: BreakoutState, props: EventProps): BreakoutState {
         alive[i] = 0;
         vy = 0 - vy;
         score = score + 10;
+        events.push(soundEvent("brick"));
       }
     }
     i = i + 1;
@@ -200,7 +209,13 @@ function updatePlay(s: BreakoutState, props: EventProps): BreakoutState {
       score1: score,
       score2: lives
     };
-    return goToGameOver(s, frozen, 1);
+    const over = goToGameOver(s, frozen, 1);
+    events.push(soundEvent("win"));
+    return {
+      screen: over.screen,
+      screens: over.screens,
+      events: events
+    };
   }
 
   const entities: Record<string, EntityPose> = {};
@@ -228,7 +243,8 @@ function updatePlay(s: BreakoutState, props: EventProps): BreakoutState {
     screen: "play",
     screens: {
       play: nextPlay
-    }
+    },
+    events: events
   };
 }
 
@@ -237,7 +253,7 @@ function updateGameOver(s: BreakoutState, props: EventProps): BreakoutState {
     return {
       screen: "play",
       screens: {
-        gameOver: s.screens.gameOver,
+        gameOver: getScreen(s, "gameOver"),
         play: initPlayState()
       }
     };
