@@ -32,12 +32,23 @@ typedef struct {
   uint32_t size;
   const RangerTypeDesc *type;
   uint32_t _pad;
-  void *site; /* RANGER_MEM_SITES: allocation return address, for leak triage */
-  void *lnext; /* RANGER_MEM_SITES: live-object registry, for heap walking */
+#ifdef RANGER_MEM_DEBUG
+  /* Leak-triage fields, compiled in ONLY for debug builds: they add ~150 bytes
+   * to every object header, which is far more than most objects carry in
+   * fields. Build with -DRANGER_MEM_DEBUG and set RANGER_MEM_SITES to use them.
+   *   site   allocation return address
+   *   lnext/lprev  live-object registry, so the heap can be walked at exit
+   *   rets/rels    retain and release sites, to find the unmatched retain
+   */
+  void *site;
+  void *lnext;
   void *lprev;
-  void *rets[4];  /* RANGER_MEM_SITES: retain sites, to find the unmatched ones */
+  void *rets[8];
+  void *rels[8];
   uint32_t nret;
+  uint32_t nrel;
   void *lastret;
+#endif
 } RangerObjHeader;
 
 /* Must match buildRtPtrArrayNew in ng_LowIRRuntime.rgr:
@@ -62,11 +73,14 @@ static int g_live_objects = 0;
 /* RANGER_MEM_STATS=1 prints allocation balances at exit. */
 static long g_obj_new, g_obj_free, g_arr_new, g_arr_free, g_arr_retain;
 
+#ifdef RANGER_MEM_DEBUG
 /* RANGER_MEM_SITES=1 additionally tallies LIVE objects by allocation site, so a
  * steady leak can be attributed to the call that made it rather than guessed
  * at from the source. Off by default: it widens every object header. */
+#ifdef RANGER_MEM_DEBUG
 static int g_site_track = 0;
 static int g_site_depth = 0;
+#endif
 #define RT_SITES 4096
 static void *g_site_addr[RT_SITES];
 static long g_site_live[RT_SITES];
@@ -179,9 +193,13 @@ static void rt_dump_holders(void) {
         {
           RangerObjHeader *oh = (RangerObjHeader *)b;
           unsigned q;
-          fprintf(stderr, "  ORPHAN rc=%u alloc=%p retains=%u:", oh->rc, oh->site, oh->nret);
-          for (q = 0; q < oh->nret && q < 4; q++) {
+          fprintf(stderr, "  ORPHAN rc=%u alloc=%p\n    retains(%u):", oh->rc, oh->site, oh->nret);
+          for (q = 0; q < oh->nret && q < 8; q++) {
             fprintf(stderr, " %p", oh->rets[q]);
+          }
+          fprintf(stderr, "\n    releases(%u):", oh->nrel);
+          for (q = 0; q < oh->nrel && q < 8; q++) {
+            fprintf(stderr, " %p", oh->rels[q]);
           }
           fprintf(stderr, "\n");
         }
@@ -212,6 +230,8 @@ static void rt_dump_sites(void) {
   if (!shown) fprintf(stderr, "  (none)\n");
 }
 
+#endif /* RANGER_MEM_DEBUG */
+
 static void ranger_mem_dump_stats(void) {
   fprintf(stderr,
           "[mem] objects new=%ld freed=%ld live=%d | arrays freed=%ld retained=%ld"
@@ -229,6 +249,7 @@ void ranger_mem_stats_enable(void) {
   }
   if (getenv("RANGER_MEM_STATS")) {
     state = 1;
+#ifdef RANGER_MEM_DEBUG
     if (getenv("RANGER_MEM_SITES")) {
       g_site_track = 1;
       g_site_depth = (getenv("RANGER_MEM_SITES")[0] == '2') ? 1 : 0;
@@ -237,6 +258,7 @@ void ranger_mem_stats_enable(void) {
       }
       atexit(rt_dump_sites);
     }
+#endif
     atexit(ranger_mem_dump_stats);
   } else {
     state = 2;
@@ -312,6 +334,7 @@ int64_t ranger_obj_new(uint32_t size, const RangerTypeDesc *type) {
   g_live_objects++;
   g_obj_new++;
   ranger_mem_stats_enable();
+#ifdef RANGER_MEM_DEBUG
   if (g_site_track) {
     /* RANGER_MEM_SITES=2 records the CALLER of the allocating helper: every
      * EvalValue comes from the same few constructors, so level 0 only ever
@@ -320,6 +343,7 @@ int64_t ranger_obj_new(uint32_t size, const RangerTypeDesc *type) {
     rt_site_bump(h->site, 1);
     rt_live_add(block);
   }
+#endif
   return (int64_t)(block + RANGER_HEADER_SIZE);
 }
 
@@ -329,13 +353,15 @@ void ranger_obj_retain(int64_t body) {
     return;
   }
   h = (RangerObjHeader *)((char *)body - RANGER_HEADER_SIZE);
+#ifdef RANGER_MEM_DEBUG
   if (g_site_track) {
     h->lastret = __builtin_return_address(0);
-    if (h->nret < 4) {
+    if (h->nret < 8) {
       h->rets[h->nret] = h->lastret;
     }
     h->nret++;
   }
+#endif
   h->rc++;
 }
 
@@ -347,6 +373,14 @@ void ranger_obj_release(int64_t body) {
   }
   block = (char *)body - RANGER_HEADER_SIZE;
   h = (RangerObjHeader *)block;
+#ifdef RANGER_MEM_DEBUG
+  if (g_site_track) {
+    if (h->nrel < 8) {
+      h->rels[h->nrel] = __builtin_return_address(0);
+    }
+    h->nrel++;
+  }
+#endif
   if (h->rc == 0) {
     return;
   }
@@ -354,12 +388,14 @@ void ranger_obj_release(int64_t body) {
     return;
   }
   ranger_destroy_fields(body, h->type);
+#ifdef RANGER_MEM_DEBUG
   if (g_site_track) {
     if (h->site) {
       rt_site_bump(h->site, -1);
     }
     rt_live_remove(block);
   }
+#endif
   free(block);
   g_live_objects--;
   g_obj_free++;
