@@ -1,0 +1,57 @@
+; `match` over a closed family (PLAN_SHAPES.md, stage S2). Every case is
+; covered, so the compiler accepts it; leave one out and it says which.
+shape Value {
+    group Ref {
+        def identityId:int 0
+    }
+    case Nothing
+    case Num {
+        def value:double 0.0
+    }
+    case Text {
+        def value:string ""
+    }
+    case Items does Ref {
+        def items:[Value]
+    }
+}
+
+class MatchProbe {
+    ; one arm covering two cases, one qualified name, one group arm
+    fn describe:string (v:Value) {
+        def out:string "?"
+        match v {
+            Nothing | Text {
+                out = "primitive"
+            }
+            Value.Num n {
+                out = ("num:" + (to_string n.value))
+            }
+            Ref r {
+                out = ("ref:" + (to_string r.identityId))
+            }
+        }
+        return out
+    }
+
+    ; a match over a GROUP type is complete when it covers that group
+    fn describeRef:string (r:Value.Ref) {
+        def out:string "?"
+        match r {
+            Items a {
+                out = ("items:" + (to_string (array_length a.items)))
+            }
+        }
+        return out
+    }
+
+    sfn main:void () {
+        def p:MatchProbe (new MatchProbe())
+        def empty:[Value]
+        print (p.describe((new Value.Num(1.5))))
+        print (p.describe((new Value.Text("t"))))
+        print (p.describe((new Value.Items(3 empty))))
+        print (p.describe((new Value.Nothing())))
+        print (p.describeRef((new Value.Items(4 empty))))
+    }
+}

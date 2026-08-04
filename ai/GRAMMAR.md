@@ -63,7 +63,34 @@ shape Value {
 A case belongs to at most one group and carries that group's fields as well as
 its own. `Value` names the whole family, `Value.Num` one variant and `Value.Ref`
 the group — all three are usable as types. Construction is ordinary:
-`(new Value.Num(2.5))`. Narrowing uses the `case` statement:
+`(new Value.Num(2.5))`.
+
+## Match Statement
+
+```bnf
+<match-stmt>    ::= 'match' <identifier> '{' <match-arm>+ '}'
+
+<match-arm>     ::= <arm-names> <binding>? <block>
+
+<arm-names>     ::= <case-or-group> ('|' <case-or-group>)*
+
+<case-or-group> ::= <identifier> | <identifier> '.' <identifier>
+```
+
+```ranger
+match v {
+    Nothing | Text { out = "primitive" }   ; one arm, two cases
+    Value.Num n    { out = n.value }       ; binds the variant
+    Ref r          { out = r.identityId }  ; a group covers its members
+}
+```
+
+Every case of the shape must be covered exactly once — a missing case, a case
+covered twice and a `_` catch-all are all compile errors. A `match` whose arms
+cover exactly one group is complete for a value of that group's type. Lowers to
+a chain of `case` narrowings, so no target needs native pattern matching.
+
+Narrowing a single variant without a match is the `case` statement:
 `case v n:Value.Num { … }`.
 
 ## Union Definition

@@ -1,0 +1,20 @@
+; Two of the four cases are unhandled — the compiler names them.
+shape MValue {
+    case Nothing
+    case Num { def value:double 0.0 }
+    case Text { def value:string "" }
+}
+
+class MissingProbe {
+    fn f:string (v:MValue) {
+        match v {
+            Nothing {
+                return "a"
+            }
+        }
+        return "z"
+    }
+    sfn main:void () {
+        print "unreachable"
+    }
+}

@@ -9487,6 +9487,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.hasRootPath = false;     /** note: unused */
       this.rootPath = "";     /** note: unused */
       this._debug = false;     /** note: unused */
+      this.shapeCases = {};
+      this.shapeGroupCases = {};
+      this.caseAlias = {};
+      this.groupAlias = {};
+      this.caseShape = {};
+      this.caseDisplay = {};
       this.collectWalkAtEnd = [];     /** note: unused */
       this.walkAlso = [];
       this.serializedClasses = [];
@@ -12918,6 +12924,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.expandShapesIn(node, ctx, wr, renames);
       if ( ((Object.keys(renames)).length) > 0 ) {
         this.rewriteShapeRefs(node, renames);
+        this.expandMatchesIn(node, ctx, wr);
       }
     };
     isShapeDeclaration (node) {
@@ -12971,6 +12978,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
       };
     };
+    registerShapeAlias (target, alias, clsName) {
+      if ( ( typeof(target[alias] ) != "undefined" && Object.prototype.hasOwnProperty.call(target, alias) ) ) {
+        const prev = (( Object.prototype.hasOwnProperty.call(target, alias) ? target[alias] : undefined ));
+        if ( prev != clsName ) {
+          target[alias] = "";
+        }
+        return;
+      }
+      target[alias] = clsName;
+    };
     shapeMemberBlock (st) {
       let found = st;
       for ( let pi = 0; pi < st.children.length; pi++) {
@@ -13023,7 +13040,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const kind = head_1.vref;
         const isCase = (kind == "case") || (kind == "variant");
         if ( (isCase == false) && (kind != "group") ) {
-          ctx.addError(st_1, ("only `case` and `group` are allowed in a shape body, found `" + kind) + "` (shape methods and `match` come with stage S2)");
+          ctx.addError(st_1, ("only `case` and `group` are allowed in a shape body, found `" + kind) + "` (methods on a shape are not implemented yet — write the `match` in a class method instead)");
           bi = bi + 1;
           continue;
         }
@@ -13098,6 +13115,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         caseNames.push(caseName);
         caseGroup[caseName] = ownGroup;
         renames[(shapeName + ".") + caseName] = clsName;
+        this.caseShape[clsName] = shapeName;
+        this.caseDisplay[clsName] = (shapeName + ".") + caseName;
+        this.registerShapeAlias(this.caseAlias, caseName, clsName);
+        this.registerShapeAlias(this.caseAlias, clsName, clsName);
         bi = bi + 1;
       };
       if ( (caseNames.length) == 0 ) {
@@ -13123,15 +13144,29 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           parent.children.splice(insertAt, 0, gUnion);
           insertAt = insertAt + 1;
           renames[(shapeName + ".") + gn] = (shapeName + "_") + gn;
+          const gClsName = (shapeName + "_") + gn;
+          let gCaseList = [];
+          for ( let cni_1 = 0; cni_1 < caseNames.length; cni_1++) {
+            var cn_1 = caseNames[cni_1];
+            if ( ((( Object.prototype.hasOwnProperty.call(caseGroup, cn_1) ? caseGroup[cn_1] : undefined ))) == gn ) {
+              gCaseList.push((shapeName + "_") + cn_1);
+            }
+          };
+          this.shapeGroupCases[gClsName] = gCaseList;
+          this.registerShapeAlias(this.groupAlias, gn, gClsName);
+          this.registerShapeAlias(this.groupAlias, gClsName, gClsName);
         } else {
           ctx.addError(shapeNode, ("group " + gn) + " has no cases");
         }
       };
+      let allCaseClasses = [];
       const members = shapeNode.newExpressionNode();
-      for ( let cni_1 = 0; cni_1 < caseNames.length; cni_1++) {
-        var cn_1 = caseNames[cni_1];
-        members.children.push(shapeNode.newVRefNode(((shapeName + "_") + cn_1)));
+      for ( let cni_2 = 0; cni_2 < caseNames.length; cni_2++) {
+        var cn_2 = caseNames[cni_2];
+        members.children.push(shapeNode.newVRefNode(((shapeName + "_") + cn_2)));
+        allCaseClasses.push((shapeName + "_") + cn_2);
       };
+      this.shapeCases[shapeName] = allCaseClasses;
       const unionHead = shapeNode.newVRefNode("union");
       const unionName = shapeNode.newVRefNode(shapeName);
       shapeNode.children.length = 0;
@@ -13140,12 +13175,268 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       shapeNode.children.push(members);
       if ( ctx.hasCompilerFlag("shape-debug") ) {
         console.log(("shape " + shapeName) + " lowered to:");
-        for ( let cni_2 = 0; cni_2 < caseNames.length; cni_2++) {
-          var cn_2 = caseNames[cni_2];
-          console.log((("  record " + shapeName) + "_") + cn_2);
+        for ( let cni_3 = 0; cni_3 < caseNames.length; cni_3++) {
+          var cn_3 = caseNames[cni_3];
+          console.log((("  record " + shapeName) + "_") + cn_3);
         };
         console.log(((("  union " + shapeName) + " over ") + ("" + (caseNames.length))) + " cases");
       }
+    };
+    isMatchStatement (node) {
+      if ( (node.children.length) != 3 ) {
+        return false;
+      }
+      const head = node.getFirst();
+      if ( head.vref != "match" ) {
+        return false;
+      }
+      if ( (head.ns.length) > 1 ) {
+        return false;
+      }
+      const bodyNode = node.getThird();
+      return bodyNode.is_block_node;
+    };
+    expandMatchesIn (node, ctx, wr) {
+      this.expandMatchesInFn(node, node, ctx, wr);
+    };
+    expandMatchesInFn (node, enclosing, ctx, wr) {
+      for ( let i = 0; i < node.children.length; i++) {
+        var ch = node.children[i];
+        if ( this.isMatchStatement(ch) ) {
+          this.expandMatch(ch, node, i, enclosing, ctx, wr);
+        } else {
+          let nextFn = enclosing;
+          if ( ch.isFirstVref("fn") ) {
+            nextFn = ch;
+          }
+          if ( ch.isFirstVref("sfn") ) {
+            nextFn = ch;
+          }
+          if ( ch.isFirstVref("static") ) {
+            nextFn = ch;
+          }
+          if ( ch.isFirstVref("Constructor") ) {
+            nextFn = ch;
+          }
+          this.expandMatchesInFn(ch, nextFn, ctx, wr);
+        }
+      };
+    };
+    declaredTypeOf (fnNode, name) {
+      if ( (fnNode.children.length) > 2 ) {
+        const params = fnNode.children[2];
+        for ( let pi = 0; pi < params.children.length; pi++) {
+          var pn = params.children[pi];
+          if ( pn.vref == name ) {
+            if ( (pn.type_name.length) > 0 ) {
+              return pn.type_name;
+            }
+          }
+        };
+      }
+      return this.declaredTypeInBody(fnNode, name);
+    };
+    declaredTypeInBody (node, name) {
+      if ( (node.children.length) > 1 ) {
+        const head = node.getFirst();
+        if ( ((head.vref == "def") || (head.vref == "let")) || (head.vref == "var") ) {
+          const nameNode = node.getSecond();
+          if ( nameNode.vref == name ) {
+            if ( (nameNode.type_name.length) > 0 ) {
+              return nameNode.type_name;
+            }
+          }
+        }
+      }
+      for ( let i = 0; i < node.children.length; i++) {
+        var ch = node.children[i];
+        const found = this.declaredTypeInBody(ch, name);
+        if ( (found.length) > 0 ) {
+          return found;
+        }
+      };
+      return "";
+    };
+    matchArmCases (armName, node, ctx) {
+      let out = [];
+      if ( armName == "_" ) {
+        ctx.addError(node, "`match` has no catch-all arm — cover every case of the shape, or narrow with `case` instead");
+        return out;
+      }
+      if ( ( typeof(this.caseAlias[armName] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.caseAlias, armName) ) ) {
+        const cls = (( Object.prototype.hasOwnProperty.call(this.caseAlias, armName) ? this.caseAlias[armName] : undefined ));
+        if ( (cls.length) == 0 ) {
+          ctx.addError(node, ("`" + armName) + "` names a case in more than one shape — write it as Shape.Case");
+          return out;
+        }
+        out.push(cls);
+        return out;
+      }
+      if ( ( typeof(this.groupAlias[armName] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.groupAlias, armName) ) ) {
+        const gcls = (( Object.prototype.hasOwnProperty.call(this.groupAlias, armName) ? this.groupAlias[armName] : undefined ));
+        if ( (gcls.length) == 0 ) {
+          ctx.addError(node, ("`" + armName) + "` names a group in more than one shape — write it as Shape.Group");
+          return out;
+        }
+        if ( ( typeof(this.shapeGroupCases[gcls] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.shapeGroupCases, gcls) ) ) {
+          const members = (( Object.prototype.hasOwnProperty.call(this.shapeGroupCases, gcls) ? this.shapeGroupCases[gcls] : undefined ));
+          for ( let mi = 0; mi < members.length; mi++) {
+            var m = members[mi];
+            out.push(m);
+          };
+        }
+        return out;
+      }
+      ctx.addError(node, ("`" + armName) + "` is not a case or a group of any shape in this program");
+      return out;
+    };
+    expandMatch (matchNode, parent, matchIndex, enclosing, ctx, wr) {
+      const scrutinee = matchNode.getSecond();
+      if ( (scrutinee.vref.length) == 0 ) {
+        ctx.addError(matchNode, "`match` needs a plain value — bind the expression to a local first");
+        return;
+      }
+      const body = matchNode.getThird();
+      let armCases = [];
+      let covered = [];
+      let shapeName = "";
+      let generated = [];
+      let armIndex = 0;
+      for ( let ai = 0; ai < body.children.length; ai++) {
+        var arm = body.children[ai];
+        if ( (arm.children.length) < 2 ) {
+          ctx.addError(arm, "a match arm is `CaseName { … }`, `CaseName binding { … }` or `A | B { … }`");
+          continue;
+        }
+        let names = [];
+        let binding = "";
+        let sawBar = false;
+        let armBody = arm;
+        for ( let pi = 0; pi < arm.children.length; pi++) {
+          var part = arm.children[pi];
+          if ( part.is_block_node ) {
+            armBody = part;
+          } else {
+            if ( part.vref == "|" ) {
+              sawBar = true;
+            } else {
+              if ( (names.length) == 0 ) {
+                names.push(part.vref);
+              } else {
+                if ( sawBar ) {
+                  names.push(part.vref);
+                  sawBar = false;
+                } else {
+                  if ( (binding.length) > 0 ) {
+                    ctx.addError(arm, ("unexpected `" + part.vref) + "` in a match arm");
+                  } else {
+                    binding = part.vref;
+                  }
+                }
+              }
+            }
+          }
+        };
+        if ( armBody.is_block_node == false ) {
+          ctx.addError(arm, "a match arm needs a body block");
+          continue;
+        }
+        if ( (names.length) == 0 ) {
+          ctx.addError(arm, "a match arm needs a case or group name");
+          continue;
+        }
+        if ( ((names.length) > 1) && ((binding.length) > 0) ) {
+          ctx.addError(arm, "an arm covering several cases cannot bind one of them");
+          continue;
+        }
+        for ( let ni = 0; ni < names.length; ni++) {
+          var armName = names[ni];
+          const cases = this.matchArmCases(armName, arm, ctx);
+          for ( let cli = 0; cli < cases.length; cli++) {
+            var cls = cases[cli];
+            if ( (covered.indexOf(cls)) >= 0 ) {
+              let dup = cls;
+              if ( ( typeof(this.caseDisplay[cls] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.caseDisplay, cls) ) ) {
+                dup = (( Object.prototype.hasOwnProperty.call(this.caseDisplay, cls) ? this.caseDisplay[cls] : undefined ));
+              }
+              ctx.addError(arm, ("`" + dup) + "` is covered twice in this match");
+            } else {
+              covered.push(cls);
+            }
+            if ( ( typeof(this.caseShape[cls] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.caseShape, cls) ) ) {
+              const owner = (( Object.prototype.hasOwnProperty.call(this.caseShape, cls) ? this.caseShape[cls] : undefined ));
+              if ( (shapeName.length) == 0 ) {
+                shapeName = owner;
+              } else {
+                if ( owner != shapeName ) {
+                  ctx.addError(arm, (("this match mixes shapes: " + shapeName) + " and ") + owner);
+                }
+              }
+            }
+            let bindName = binding;
+            if ( (bindName.length) == 0 ) {
+              bindName = "__match" + ("" + armIndex);
+            }
+            const caseNode = matchNode.newExpressionNode();
+            caseNode.children.push(matchNode.newVRefNode("case"));
+            caseNode.children.push(scrutinee.copy());
+            const bindNode = matchNode.newVRefNode(bindName);
+            bindNode.type_name = cls;
+            caseNode.children.push(bindNode);
+            caseNode.children.push(armBody.copy());
+            generated.push(caseNode);
+            armIndex = armIndex + 1;
+          };
+        };
+      };
+      if ( (generated.length) == 0 ) {
+        ctx.addError(matchNode, "`match` needs at least one arm");
+        return;
+      }
+      if ( (shapeName.length) > 0 ) {
+        if ( ( typeof(this.shapeCases[shapeName] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.shapeCases, shapeName) ) ) {
+          let all = (( Object.prototype.hasOwnProperty.call(this.shapeCases, shapeName) ? this.shapeCases[shapeName] : undefined ));
+          const scrutineeType = this.declaredTypeOf(enclosing, scrutinee.vref);
+          if ( (scrutineeType.length) > 0 ) {
+            if ( ( typeof(this.shapeGroupCases[scrutineeType] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.shapeGroupCases, scrutineeType) ) ) {
+              all = (( Object.prototype.hasOwnProperty.call(this.shapeGroupCases, scrutineeType) ? this.shapeGroupCases[scrutineeType] : undefined ));
+            }
+          }
+          let missing = "";
+          let missingCount = 0;
+          for ( let ci = 0; ci < all.length; ci++) {
+            var cls_1 = all[ci];
+            if ( (covered.indexOf(cls_1)) < 0 ) {
+              let disp = cls_1;
+              if ( ( typeof(this.caseDisplay[cls_1] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.caseDisplay, cls_1) ) ) {
+                disp = (( Object.prototype.hasOwnProperty.call(this.caseDisplay, cls_1) ? this.caseDisplay[cls_1] : undefined ));
+              }
+              if ( missingCount > 0 ) {
+                missing = missing + ", ";
+              }
+              missing = missing + disp;
+              missingCount = missingCount + 1;
+            }
+          };
+          if ( missingCount > 0 ) {
+            ctx.addError(matchNode, ((("match on " + shapeName) + " does not cover ") + missing) + " — every case of a shape must be handled");
+          }
+        }
+      }
+      const firstCase = generated[0];
+      matchNode.children.length = 0;
+      for ( let fi = 0; fi < firstCase.children.length; fi++) {
+        var fch = firstCase.children[fi];
+        matchNode.children.push(fch);
+      };
+      let insertAt = matchIndex + 1;
+      let gi = 1;
+      const gcnt = generated.length;
+      while (gi < gcnt) {
+        parent.children.splice(insertAt, 0, generated[gi]);
+        insertAt = insertAt + 1;
+        gi = gi + 1;
+      };
     };
     rewriteShapeRefs (node, renames) {
       if ( ( typeof(renames[node.type_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(renames, node.type_name) ) ) {

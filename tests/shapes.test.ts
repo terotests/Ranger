@@ -120,7 +120,75 @@ describe("shapes (closed variant families)", () => {
     });
   });
 
+  describe("match", () => {
+    const MATCH = `${FIXTURES_DIR}/shape_match.rgr`;
+    // one arm over two cases, one qualified name, one group arm, and a match
+    // over a group type that covers only that group
+    const EXPECTED_MATCH = [
+      "num:1.5",
+      "primitive",
+      "ref:3",
+      "primitive",
+      "items:0",
+    ].join("\n");
+
+    it("ES6", () => {
+      expectOutput(MATCH, EXPECTED_MATCH);
+    });
+
+    it.skipIf(!isPythonAvailable())("Python", () => {
+      expectPythonOutput(MATCH, EXPECTED_MATCH);
+    });
+
+    it.skipIf(!isGoAvailable())("Go", () => {
+      expectGoOutput(MATCH, EXPECTED_MATCH);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(MATCH, EXPECTED_MATCH);
+    });
+
+    it("lowers to narrowings — no `match` survives into the output", () => {
+      const result = getGeneratedCppCode(MATCH);
+
+      expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+      expect(result.code).not.toMatch(/\bmatch\b/);
+      // the group arm expands to one narrowing per member of the group
+      expect(result.code).toContain("holds_alternative<std::shared_ptr<Value_Items>>");
+    });
+  });
+
   describe("diagnostics", () => {
+    it("names the cases a match does not cover", () => {
+      expectCompileError(
+        `${FIXTURES_DIR}/shape_match_missing.rgr`,
+        "does not cover MValue.Num, MValue.Text"
+      );
+    });
+
+    it("rejects a case covered twice", () => {
+      expectCompileError(
+        `${FIXTURES_DIR}/shape_match_duplicate.rgr`,
+        "`DValue.Num` is covered twice"
+      );
+    });
+
+    it("counts a group as complete only for a value of that group's type", () => {
+      // the same arm set is exhaustive in shape_match.rgr, where the parameter
+      // is declared as the group
+      expectCompileError(
+        `${FIXTURES_DIR}/shape_match_group_only.rgr`,
+        "does not cover GValue.Nothing, GValue.Num, GValue.Text"
+      );
+    });
+
+    it("rejects a catch-all arm", () => {
+      expectCompileError(
+        `${FIXTURES_DIR}/shape_match_wildcard.rgr`,
+        "has no catch-all arm"
+      );
+    });
+
     it("rejects a method in a shape body instead of dropping it", () => {
       expectCompileError(
         `${FIXTURES_DIR}/shape_bad_member.rgr`,

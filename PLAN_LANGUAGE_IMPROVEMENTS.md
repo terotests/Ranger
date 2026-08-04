@@ -16,7 +16,7 @@
 | Type-name diagnostics (no enum integers in errors) | 3.3 | Done |
 | `SPEC_SEMANTICS.md` | 1 | Done |
 | Cross-target conformance harness | 1 | Done |
-| Records / payload enums / `match` | 2 | Partial (`record`; the payload-carrying family shipped as `shape` / `case` / `group` — see `PLAN_SHAPES.md` S1; `match` + exhaustiveness not started) |
+| Records / payload enums / `match` | 2 | Done as `record` + `shape` / `case` / `group` + `match` with exhaustiveness — see `PLAN_SHAPES.md` (S1, S2). Payload `Enum` stays unbuilt on purpose: it would be sugar over `shape` |
 | Centralized type registry (#15/#59/#60) | 3.1 | Partial (`TTypeRegistry` routes core lookups; `primitivetype` Lang syntax and writer migration ongoing) |
 | Control-flow return analysis (#16) | 3.2 | Not started |
 | Predictable `-d`/`-o` for `-nodemodule` (#62) | 4 | Not started |
@@ -140,12 +140,13 @@ push mourners m
 
 ### 2.2 Enums with payloads (tagged unions)
 
-> **See `PLAN_SHAPES.md` — this section is now partly built.** That document works this
-> section and 2.3 out in detail against a real problem case (`EvalValue.rgr`), and lands the
-> payload-carrying family as its own construct (`shape` / `case` / `group`) rather than an
-> extension of `Enum` — so `Enum` stays a plain integer enum and each target may pick its own
-> physical representation. `shape` compiles and runs on nine targets today; `match` and its
-> exhaustiveness checking (2.3) are the next stage.
+> **See `PLAN_SHAPES.md` — this section and 2.3 are built.** That document works them out
+> against a real problem case (`EvalValue.rgr`) and lands the payload-carrying family as its
+> own construct (`shape` / `case` / `group`) rather than an extension of `Enum` — so `Enum`
+> stays a plain integer enum and each target may pick its own physical representation.
+> `shape` and `match` compile and run on nine targets today, with a missing, duplicated or
+> catch-all arm reported as a compile error. What remains is the semantics
+> (`@(value)` / `@(reference)`) and the native per-target representations.
 
 Extend the existing `Enum` construct (currently bare `Enum MyEnum ( Val1 Val2 )`):
 
@@ -162,6 +163,9 @@ enum Screen {
 - Bare enums stay source-compatible (a payload-less variant is just a tag).
 
 ### 2.3 `match` statement
+
+> **Built** — over a `shape` rather than an enum; see `PLAN_SHAPES.md` §6.2 for the
+> lowering and the exact diagnostics.
 
 ```ranger
 match screen {

@@ -2,11 +2,12 @@
 
 > **Status:** design + staging plan for `shape` / `case` / `group` — a closed variant
 > family whose *source* reads like a small type hierarchy while each target picks its
-> own physical representation. **Stages S0 and S1 are implemented** (§6): `union` +
-> `case` narrowing works on every target the plan builds on, and `shape` itself
-> parses, type-checks and lowers to a record class per case plus a union over them —
-> the same program running identically on nine targets. `match`, `@(value)` /
-> `@(reference)` and the native per-target representations are still ahead.
+> own physical representation. **Stages S0, S1 and S2 are implemented** (§6): `union` +
+> `case` narrowing works on every target the plan builds on; `shape` parses,
+> type-checks and lowers to a record class per case plus a union over them; and
+> `match` covers a family with the compiler checking that every case is handled
+> exactly once. `@(value)` / `@(reference)` and the native per-target
+> representations are still ahead, as are methods declared on a shape.
 >
 > **Origin:** a design discussion about `gallery/game_engine/v2/interp/migrate/src/EvalValue.rgr`,
 > the largest hand-rolled tagged union in this repo.
@@ -330,7 +331,7 @@ Default when a case is in no group: `@(value)` for a case with no fields or only
 immutable scalar fields, `@(reference)` otherwise — with a warning that asks for the
 annotation, because guessing wrong here is a semantic change.
 
-### 3.4 `match` and exhaustiveness
+### 3.4 `match` and exhaustiveness — implemented (S2, §6.2)
 
 ```ranger
 match value {
@@ -354,6 +355,8 @@ Rules:
   (`lib/stdlib.rgr:149`), generalized.
 - `match` is a statement, and it is an expression only if `all paths return` analysis
   lands first (`PLAN_LANGUAGE_IMPROVEMENTS.md`, Track 3.2). Statement-only in v1.
+- The scrutinee must be a plain name: each arm lowers to its own narrowing, so an
+  expression there would be evaluated once per arm. Bind it to a local first.
 
 ### 3.5 Construction and testing
 
@@ -406,8 +409,9 @@ The implemented subset, against the design above:
 | `Shape.Case` and `Shape.Group` as types | ✅ |
 | Construction `(new Shape.Case(…))`, positional or keyword | ✅ (record constructors) |
 | Narrowing `case v x:Shape.Case { … }` | ✅ (the existing operator) |
-| `match` + exhaustiveness | ✖ S2 |
-| Shape / group / case methods | ✖ S2 — a body holding anything else is an error naming the stage |
+| `match` + exhaustiveness | ✅ S2 |
+| `A \| B { … }` arms, group arms, qualified `Shape.Case` arms | ✅ S2 |
+| Shape / group / case methods | ✖ later — a shape body holding anything else is an error |
 | `@(value)` / `@(reference)`, identity, `===` | ✖ S4 |
 | `Shape.Case(…)` construction without `new` | ✖ sugar, S2 |
 | Native per-target representations | ✖ S5 |
@@ -571,8 +575,8 @@ Where the S0 changes live:
 | Rust | primitive arms of a union (`case v s:string`) still lower to `RJson::…`, i.e. JSON only | a shape with primitive-typed cases on the S1 lowering |
 | Kotlin / Dart | no toolchain in this environment — output is read, not built | build-verifying these two in CI |
 | C# / Swift | `dynamic` / `Any` erase the static type | nothing until S5, but both lose compile-time checking the other targets keep |
-| all | no exhaustiveness — a missing arm falls through silently | S2, which is where the payoff is |
-| all | a shape may not declare methods yet | S2 |
+| all | a `case` chain written by hand is still unchecked — only `match` is | nothing; `match` is the checked form |
+| all | a shape may not declare methods yet | a later stage; `match this` wants a per-case lowering |
 | all | every case is a heap class; `Nothing` allocates as much as `Items` | S5 |
 
 ## 6. Staging
@@ -583,7 +587,7 @@ Each stage is independently shippable and independently testable.
 |---|---|---|
 | **S0 — done** | Make `union` + `case` work on every target: Rust and Dart narrowing, the Kotlin/Dart union type, the Go unused binding, the C++ shim (§5.1). Cross-target fixture that runs. | ✅ `tests/union-narrowing.test.ts` runs the fixture on ES6, Python, Go and Rust and asserts the Rust/Kotlin/Dart representation |
 | **S1 — done** | `shape` + `case` + `group` parsed, registered, type-checked, lowered to `UnionOfClasses` (§6.1). **No writer knows the word `shape`.** | ✅ `tests/shapes.test.ts`: one shape program compiles on all nine targets and prints the same answer on ES6, Python, Go and Rust |
-| **S2** | `match` + exhaustiveness checking. Lowering: a chain of `case` narrowings. Error messages name missing variants by name. | A missing arm is a compile error on every target; a shape with a full `match` runs identically on es6, python, cpp |
+| **S2 — done** | `match` + exhaustiveness checking (§6.2). Lowering: a chain of `case` narrowings, so no target needs native pattern matching. | ✅ A missing case, a duplicate case and a `_` catch-all are compile errors naming what is wrong; the same `match` program runs identically on ES6, Python, Go and Rust |
 | **S3** | `group`, group-typed parameters, group patterns in `match`, group fields. | `fn f (v:EvalValue.Reference)` type-checks and rejects a primitive |
 | **S4** | `@(value)` / `@(reference)`: `==` lowering, copy semantics, identity, the immutability rule for value cases. | Cross-target conformance test: value cases compare by content, reference cases by identity, on every target |
 | **S5** | Representation selection + native representations for Rust, C++, TS, Kotlin, C#. One target at a time, `UnionOfClasses` remains the fallback. | Rust emits a real `enum`; C++ emits the compact handle; measured `sizeof` drops |
@@ -661,6 +665,65 @@ and a named value passed to a union parameter was moved rather than cloned,
 because the parameter's declared type is a union and the writer's clone rule
 looks for an object type. Both are handled at the one place every argument loop
 in the Rust writer now starts with.
+
+### 6.2 How S2 lowers a `match`
+
+```ranger
+match v {
+    Nothing | Text { out = "primitive" }
+    Value.Num n    { out = n.value }
+    Ref r          { out = r.identityId }
+}
+```
+
+becomes a chain of the narrowings S0 made work everywhere:
+
+```ranger
+case v __match0:Value_Nothing { out = "primitive" }
+case v __match1:Value_Text    { out = "primitive" }
+case v n:Value_Num            { out = n.value }
+case v r:Value_Items          { out = r.identityId }
+```
+
+The arms are mutually exclusive, so a chain and a switch mean the same thing —
+and a target that has no pattern matching at all needs nothing new to run it.
+
+**The exhaustiveness check is the point.** Coverage is computed from the arms
+themselves rather than from the scrutinee's inferred type: an arm names a case
+or a group, both of which resolve to a set of case classes through the registry
+the shape lowering records. Three things are compile errors:
+
+| Written | Error |
+|---|---|
+| an unhandled case | `match on Value does not cover Value.Text, Value.Items — every case of a shape must be handled` |
+| the same case twice | `` `Value.Num` is covered twice in this match `` |
+| a `_` catch-all | `` `match` has no catch-all arm — cover every case of the shape, or narrow with `case` instead `` |
+
+The catch-all is refused on purpose. It makes the check vacuous, and a case
+added to the shape later is exactly what it would swallow — the bug class the
+construct exists to remove. Partial handling is still available: `case` narrows
+one variant and says nothing about the others.
+
+**A match over a group type is complete when it covers that group.** The
+scrutinee of `fn f (r:Value.Ref)` can only be a member of `Ref`, so covering
+`Ref`'s members is exhaustive even though the shape has more cases. An arm may
+also *name* a group, which expands to one narrowing per member.
+
+That rule is read off the **declared** type — the enclosing function's parameter
+list, then a `def name:Type` in its body — and not from the arms. The first
+version accepted any arm set that happened to equal some group, which quietly
+passed `match v { Items a { … } }` for a `v` holding the whole family: three
+cases unhandled, no error, exactly the failure the construct is supposed to
+catch. When the declared type cannot be read, the full shape is required.
+
+Arm names resolve either qualified (`Value.Num`) or bare (`Num`); a bare name
+claimed by two shapes in the same program is an error that asks for the
+qualified spelling rather than picking one.
+
+**What S2 does not include:** methods declared on a shape. `match this { … }`
+inside a shape body wants a different lowering — one copy of the body per case,
+with the arm for that case inlined — which is a separate piece of work from the
+statement form. A shape body still accepts only `case` and `group`.
 
 **Where S1 lands, per target.** S1 touches no writer, so the S1 result on each target
 is exactly the row in §5 — Rust gets `Rc<dyn Any>`, C++ an `mpark::variant`, Kotlin an
