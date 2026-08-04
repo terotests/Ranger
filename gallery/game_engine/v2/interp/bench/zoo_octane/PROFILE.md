@@ -146,6 +146,51 @@ instructions, so removing *all* of it makes this loop ~3× faster. QuickJS is
 43× ahead. Pooling is worth doing; it is not the road to parity. Not creating a
 value object for a number is.
 
+## The engine's own value pool — the one thing that does work
+
+`EvalValue` already caches integers 0–4095 (`EvalConstPool.smallInt`,
+`EvalValue.rgr:1294`): 4096 instances built once and shared, because a number
+is immutable so one instance serves the whole program. That is a value pool, and
+it gives the cleanest measurement in this file — two loops doing identical work,
+differing only in whether the result lands in the cache:
+
+| 300,000 iterations | elapsed | objects allocated |
+| --- | ---: | ---: |
+| `s = i + 1` — result < 4096, **hits the pool** | 0.29 s | 4,787 |
+| `s = i + 1000000` — **misses** | 0.62 s | 604,787 |
+
+**2.1× and 600,000 allocations removed.** A hit skips all nine allocations for
+that value, which is why it beats the allocator-level pools above by an order of
+magnitude — those only make one of the nine cheaper.
+
+### Widening it is not the lever
+
+The obvious follow-up, 4096 → 65536, was tried and is a clear loss:
+
+| | trivial script | Richards |
+| --- | --- | --- |
+| pool 4096 | 0.01 s / 10.1 MB | 24.25 s / 31.5 MB |
+| pool 65536 | **0.09 s / 72.6 MB** | 23.35 s / **96.1 MB** |
+
+−3.7% on Richards for **+64 MB of baseline memory and a 9× slower startup**, and
+both microbenchmarks got *slower* — the eager fill dominates and the working set
+no longer fits the cache. Reverted.
+
+The hits come from hot *small* values — indices, loop counters, lengths, char
+codes — which 4096 already covers. Accumulators grow without bound and no cache
+of any size catches them.
+
+### What that implies
+
+A pool miss currently costs **nine** allocations. If a miss cost **one** — the
+collection fields allocated lazily instead of eagerly — the miss penalty would
+drop ~9× and no wider pool would be needed at all. That is a backend change, not
+a change to the value representation, and it is cheaper than either.
+
+A general "recycle any value" pool is a different proposition: it needs to know
+when a value dies, which reference counting already knows — and that path is
+exactly the allocator-level pool measured above at ~0–2.5%.
+
 ## Where the real headroom is, in rough order
 
 1. **Do not allocate a heap value per intermediate.** A NaN-boxed or tagged
@@ -155,7 +200,8 @@ value object for a number is.
 2. **Allocate the eight collection fields lazily.** An `EvalValue` that is a
    number never touches `objectMap` or `boundArgs`. NULL until first use would
    cut 8 allocations per value down to 0 for primitives, without touching the
-   value representation.
+   value representation — and it is what makes a small-integer pool *miss*
+   affordable, which is why widening the pool is not a substitute for it.
 3. **Intern property and variable names.** ~34 `strdup` calls per iteration
    exist because keys are copied strings; interned atoms (what QuickJS does)
    turn map lookups into pointer compares and delete the `strdup`/`strcmp`
