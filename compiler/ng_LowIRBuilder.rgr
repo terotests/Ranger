@@ -5348,6 +5348,21 @@ class LowIRBuilderPass {
         }
       }
     }
+    ; Operators that RETURN a string. Without these a concat operand built by
+    ; one was treated as an int -- `("x" + (at s i))` emitted %d and passed the
+    ; char pointer in an i32 slot.
+    if exprNode.has_operator {
+      def rOp (exprNode.getOperator())
+      if (rOp == "at") { return true }
+      if (rOp == "charAt") { return true }
+      if (rOp == "substring") { return true }
+      if (rOp == "to_string") { return true }
+      if (rOp == "strfromcode") { return true }
+      if (rOp == "to_lowercase") { return true }
+      if (rOp == "to_uppercase") { return true }
+      if (rOp == "read_file") { return true }
+      if (rOp == "shell_arg") { return true }
+    }
     ; An element READ out of a [string] array is a string. Without this the
     ; element was only ever a pointer-sized value to the comparison lowering, so
     ; `(itemAt names a) == (itemAt names b)` emitted an integer icmp -- which

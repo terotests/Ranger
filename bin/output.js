@@ -40563,6 +40563,36 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   }
                 }
                 if ( exprNode.has_operator ) {
+                  const rOp = exprNode.getOperator();
+                  if ( rOp == "at" ) {
+                    return true;
+                  }
+                  if ( rOp == "charAt" ) {
+                    return true;
+                  }
+                  if ( rOp == "substring" ) {
+                    return true;
+                  }
+                  if ( rOp == "to_string" ) {
+                    return true;
+                  }
+                  if ( rOp == "strfromcode" ) {
+                    return true;
+                  }
+                  if ( rOp == "to_lowercase" ) {
+                    return true;
+                  }
+                  if ( rOp == "to_uppercase" ) {
+                    return true;
+                  }
+                  if ( rOp == "read_file" ) {
+                    return true;
+                  }
+                  if ( rOp == "shell_arg" ) {
+                    return true;
+                  }
+                }
+                if ( exprNode.has_operator ) {
                   const sOp = exprNode.getOperator();
                   if ( (sOp == "itemAt") || (sOp == "get") ) {
                     const sColl = exprNode.getSecond();
