@@ -745,20 +745,33 @@ class LowIRBuilderPass {
     def sz (builder.emitConst("i32" "4096"))
     def raw (builder.emitHeapAlloc(sz))
     def buf (builder.emitIntToI8Ptr(raw lctx.ptrType))
-    def fmtLit:string "%s%s"
-    if (aStr && bStr) {
-      fmtLit = "%s%s"
+    ; Per-operand format AND argument type. A non-string operand used to be
+    ; assumed i32, so concatenating a DOUBLE emitted `%d` and passed the f64
+    ; value in an i32 slot -- invalid IR, and the wrong text if it had linked.
+    ; %g matches what to_string does for a double on this target.
+    def aFmt:string "%d"
+    def aType:string "i32"
+    if aStr {
+      aFmt = "%s"
+      aType = "i8*"
     } {
-      if (aStr && (bStr == false)) {
-        fmtLit = "%s%d"
-      } {
-        if ((aStr == false) && bStr) {
-          fmtLit = "%d%s"
-        } {
-          fmtLit = "%d%d"
-        }
+      if (this.exprIsF64(aNode)) {
+        aFmt = "%g"
+        aType = "f64"
       }
     }
+    def bFmt:string "%d"
+    def bType:string "i32"
+    if bStr {
+      bFmt = "%s"
+      bType = "i8*"
+    } {
+      if (this.exprIsF64(bNode)) {
+        bFmt = "%g"
+        bType = "f64"
+      }
+    }
+    def fmtLit:string (aFmt + bFmt)
     def args:[string]
     def argTypes:[string]
     push args buf
@@ -767,21 +780,11 @@ class LowIRBuilderPass {
     push args (builder.emitStrPtr(fmtG (this.stringGlobalByteLen(fmtG))))
     push argTypes "i8*"
     def aVal (this.lowerConcatOperand(aNode aStr lctx))
-    if aStr {
-      push args aVal
-      push argTypes "i8*"
-    } {
-      push args aVal
-      push argTypes "i32"
-    }
+    push args aVal
+    push argTypes aType
     def bVal (this.lowerConcatOperand(bNode bStr lctx))
-    if bStr {
-      push args bVal
-      push argTypes "i8*"
-    } {
-      push args bVal
-      push argTypes "i32"
-    }
+    push args bVal
+    push argTypes bType
     builder.emitCall("sprintf" "i32" args argTypes)
     def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
     if (memTarget.usesLibc) {
@@ -2200,9 +2203,12 @@ class LowIRBuilderPass {
       def size:int 0
       def fi:int 0
       for st.fields f:LowIRField i {
-        if (fi == fieldIndex) {
-          return size
-        }
+        ; Align to THIS field before answering for it. The check used to come
+        ; first, so a field following a narrower one reported the unaligned
+        ; running total: in a struct laid out { .. i32, i64 .. } the i64 was
+        ; reported at 44 where LLVM puts it at 48. Every reader of these offsets
+        ; then straddled two fields -- the object destructor read a garbage
+        ; pointer out of the seam and called free() on it.
         def fsize:int 4
         def falign:int 4
         if (f.irType != "i32") {
@@ -2212,6 +2218,9 @@ class LowIRBuilderPass {
         def rem:int (size % falign)
         if (rem != 0) {
           size = size + (falign - rem)
+        }
+        if (fi == fieldIndex) {
+          return size
         }
         size = size + fsize
         fi = fi + 1
@@ -4573,6 +4582,20 @@ class LowIRBuilderPass {
           if (this.isOwnedObjectLocal(varName lctx)) {
             this.releaseOwnedLocal(varName lctx)
           }
+        }
+      }
+      ; MOVE, not copy: `left = nullish` between two owned object locals leaves
+      ; both slots pointing at one object, and each would release it at scope
+      ; end. Marking the source escaped hands ownership to the destination, so
+      ; the object is freed exactly once -- by whoever still owns it.
+      ;
+      ; Without this, a function that builds a node and assigns it to the local
+      ; it returns (the shape every precedence level of an expression parser is
+      ; written in) freed the node it had just returned, and the caller then
+      ; wrote through a dangling pointer.
+      if (rhs.value_type == RangerNodeType.VRef) {
+        if (this.isOwnedObjectLocal(rhs.vref lctx)) {
+          set lctx.escapedLocals rhs.vref "1"
         }
       }
       def storeType (irType)

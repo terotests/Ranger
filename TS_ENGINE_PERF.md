@@ -590,6 +590,65 @@ type-representation mistake rather than a missing feature:
 | `if (node.left)` on an optional reference emitted `icmp ne i32 <i64 value>, 0` | pointer-sized conditions and comparisons are tested in the pointer type |
 | `push xs (this.parseThing())` widened an i64 with `zext i32` | a call returning a class counts as pointer-sized |
 
+### It no longer crashes — the parser is correct on both workloads
+
+Continued. The binary now parses the 1148-line sample and prints its AST
+**byte-for-byte identically to the JavaScript build** (147 lines on the demo,
+2440 on the large file), and valgrind reports **0 errors** on both.
+
+Three bugs, found by debugger and valgrind rather than by reading:
+
+**1. Type descriptors disagreed with the struct layout.** `fieldByteOffset`
+aligned each field before adding its *size*, but answered for the target field
+**without aligning it first**. In a struct laid out `{ … i32, i64 … }` the i64
+was reported at 44 where LLVM puts it at 48 — so the object destructor read a
+pointer out of the seam between two fields and called `free()` on it. It was
+`free(0x555c453000000000)`, a value made of two half-fields. Every class with a
+narrow field before a wide one had a wrong descriptor.
+
+**2. Assigning one owned local to another double-freed.** `left = nullish`
+between two owned object locals left both slots pointing at one object, and each
+released it at scope end. `x = (new T)` had release-before-reassign handling;
+`x = y` had none, so ownership was copied rather than moved. This is the shape
+every precedence level of an expression parser is written in —
+
+```ranger
+def left (this.parseTernary())
+while (this.matchValue("??")) {
+    def nullish (new TSNode())
+    nullish.left = left
+    left = nullish          ; <- two owners, one object
+}
+return left                 ; <- returned, then freed by the other owner
+```
+
+— so `parseNullishCoalescing` freed the node it had just returned and the caller
+wrote through a dangling pointer. The source local is now marked escaped:
+ownership moves.
+
+**3. Concatenating a double emitted `%d` and passed the f64 in an i32 slot.**
+Every non-string concat operand was assumed to be an int. Format and argument
+type are now chosen per operand, `%g` for a double — matching what `to_string`
+already did.
+
+### Size and speed, same program, same machine
+
+| Build | Binary | Stripped | Parses large.ts | Output |
+|---|---|---|---|---|
+| **LLVM** (`clang -O2`, `ranger_rt.c` + `ranger_mem.c`) | **297 KB** | 283 KB | **85.9 ms** | identical |
+| C++ (`g++ -O2`, libstdc++) | 469 KB | 426 KB | 1240.5 ms | identical |
+
+Both print the same 2440 lines. The LLVM build is **1.6x smaller and 14x
+faster** on this workload — the C++ figure is the `std::string`/`std::map` cost
+this document describes elsewhere, on a program that does nothing but build and
+walk a tree.
+
+For reference the JavaScript build runs the *demo* in 67.8 ms; it cannot be
+compared on `-i`, because its own file-reading path is broken — the ESM output
+calls `require`, which does not exist in a module. That is a pre-existing bug in
+the es6 target, unrelated to this work, and it means the native builds currently
+do something the JavaScript one cannot.
+
 ### The writer silently dropped unknown instructions
 
 Worth calling out separately, because it is why two of the above cost hours

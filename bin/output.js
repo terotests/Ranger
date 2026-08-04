@@ -36478,20 +36478,29 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const sz = builder.emitConst("i32", "4096");
                 const raw = builder.emitHeapAlloc(sz);
                 const buf = builder.emitIntToI8Ptr(raw, lctx.ptrType);
-                let fmtLit = "%s%s";
-                if ( aStr && bStr ) {
-                  fmtLit = "%s%s";
+                let aFmt = "%d";
+                let aType = "i32";
+                if ( aStr ) {
+                  aFmt = "%s";
+                  aType = "i8*";
                 } else {
-                  if ( aStr && (bStr == false) ) {
-                    fmtLit = "%s%d";
-                  } else {
-                    if ( (aStr == false) && bStr ) {
-                      fmtLit = "%d%s";
-                    } else {
-                      fmtLit = "%d%d";
-                    }
+                  if ( this.exprIsF64(aNode) ) {
+                    aFmt = "%g";
+                    aType = "f64";
                   }
                 }
+                let bFmt = "%d";
+                let bType = "i32";
+                if ( bStr ) {
+                  bFmt = "%s";
+                  bType = "i8*";
+                } else {
+                  if ( this.exprIsF64(bNode) ) {
+                    bFmt = "%g";
+                    bType = "f64";
+                  }
+                }
+                const fmtLit = aFmt + bFmt;
                 let args = [];
                 let argTypes = [];
                 args.push(buf);
@@ -36500,21 +36509,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 args.push(builder.emitStrPtr(fmtG, this.stringGlobalByteLen(fmtG)));
                 argTypes.push("i8*");
                 const aVal = this.lowerConcatOperand(aNode, aStr, lctx);
-                if ( aStr ) {
-                  args.push(aVal);
-                  argTypes.push("i8*");
-                } else {
-                  args.push(aVal);
-                  argTypes.push("i32");
-                }
+                args.push(aVal);
+                argTypes.push(aType);
                 const bVal = this.lowerConcatOperand(bNode, bStr, lctx);
-                if ( bStr ) {
-                  args.push(bVal);
-                  argTypes.push("i8*");
-                } else {
-                  args.push(bVal);
-                  argTypes.push("i32");
-                }
+                args.push(bVal);
+                argTypes.push(bType);
                 builder.emitCall("sprintf", "i32", args, argTypes);
                 const memTarget = LowIRTarget.resolve((lctx.ctx));
                 if ( memTarget.usesLibc ) {
@@ -37794,9 +37793,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   let fi = 0;
                   for ( let i_1 = 0; i_1 < st.fields.length; i_1++) {
                     var f = st.fields[i_1];
-                    if ( fi == fieldIndex ) {
-                      return size;
-                    }
                     let fsize = 4;
                     let falign = 4;
                     if ( f.irType != "i32" ) {
@@ -37806,6 +37802,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     const rem = size % falign;
                     if ( rem != 0 ) {
                       size = size + (falign - rem);
+                    }
+                    if ( fi == fieldIndex ) {
+                      return size;
                     }
                     size = size + fsize;
                     fi = fi + 1;
@@ -39894,6 +39893,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       if ( this.isOwnedObjectLocal(varName, lctx) ) {
                         this.releaseOwnedLocal(varName, lctx);
                       }
+                    }
+                  }
+                  if ( rhs.value_type == 11 ) {
+                    if ( this.isOwnedObjectLocal(rhs.vref, lctx) ) {
+                      lctx.escapedLocals[rhs.vref] = "1";
                     }
                   }
                   let storeType = irType;
