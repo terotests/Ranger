@@ -94,6 +94,58 @@ objects, arrays, strings and the maps that do get storage. glibc's tcache
 already makes same-size `malloc`/`free` cheap; the problem is not the price of
 an allocation, it is **making 28 of them to add two integers**.
 
+## Pooling the object blocks too — and why it changes almost nothing
+
+The obvious next step is to pool the `EvalValue` blocks the same way, and it was
+tried (`RANGER_OBJ_POOL=0` disables it): a per-size free list in
+`ranger_obj_new` / `ranger_obj_release`, so a released block is reused instead of
+returned to libc.
+
+| Configuration | 300k arithmetic loop | Richards |
+| --- | ---: | ---: |
+| no pools | 0.97 s | 24.25 s |
+| map headers pooled | 0.87 s (**−12%**) | 23.99 s (−2%) |
+| object blocks pooled | 0.99 s (**±0%**) | 23.64 s (−2.5%) |
+| both | 0.85 s | — |
+
+Allocation counts, same loop, measured under memcheck:
+
+| | allocs per iteration |
+| --- | ---: |
+| no pools | 28.0 |
+| both pools | 22.0 |
+| QuickJS | 0 |
+
+**glibc's tcache is already a per-size free list.** Putting another one in front
+of it saves the bookkeeping around a `malloc` call, not the allocation, which is
+why the object-block pool — 2.8 allocations per iteration — is worth nothing
+measurable, while the map pool — 14 per iteration — is worth 12%. The gain
+tracks the *number of allocations removed*, and per-allocation the saving is
+tiny.
+
+### Why a value pool cannot be pushed further without a compiler change
+
+The version that would actually pay is recycling a whole `EvalValue` *with its
+five maps and three arrays still attached*, so reuse costs zero allocations
+instead of one saved out of nine. That does not work today: the generated
+constructor calls `RtSMap_new_kind` for every map field on every `new`, so a
+recycled block's collections are immediately overwritten. The ratio is exact in
+the measurements — 14.0 maps per iteration against 2.8 objects is 5.0 fresh maps
+per value, every time.
+
+Reaching zero therefore needs one of:
+
+- **lazy or reusable collection fields** in the emitted constructor (NULL until
+  first use, or "clear if already present"), which is a backend change; or
+- **explicit acquire/release in the engine**, which means hand-managing
+  lifetimes that reference counting already manages, correctly only on the
+  native targets, with use-after-free as the failure mode.
+
+And the ceiling is bounded either way: allocation plus refcounting is ~68% of
+instructions, so removing *all* of it makes this loop ~3× faster. QuickJS is
+43× ahead. Pooling is worth doing; it is not the road to parity. Not creating a
+value object for a number is.
+
 ## Where the real headroom is, in rough order
 
 1. **Do not allocate a heap value per intermediate.** A NaN-boxed or tagged

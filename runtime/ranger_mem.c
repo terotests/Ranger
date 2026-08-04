@@ -818,10 +818,61 @@ static void ranger_gc_maybe_collect(void) {
 long ranger_gc_collections(void) { return g_gc_runs; }
 long ranger_gc_freed(void) { return g_gc_freed; }
 
+/* --- object block pool ---------------------------------------------------
+ * Interpreter values are the definition of allocation churn: one size, born
+ * and dead within a statement, millions of them. Measured on `s = s + i`, the
+ * engine makes 28 heap allocations per loop iteration where QuickJS makes zero.
+ * A block released here goes on a free list by size instead of back to libc,
+ * so the next value of the same shape costs a pop and a memset.
+ *
+ * Sizes are bucketed in 8-byte steps up to RT_POOL_MAX_SIZE; anything larger
+ * (or any bucket already full) falls through to malloc/free as before. The
+ * free-list link lives in the block's own bytes, which are dead while pooled.
+ *
+ * RANGER_OBJ_POOL=0 disables it, so the pooled and unpooled costs stay
+ * measurable against each other. */
+#define RT_POOL_MAX_SIZE 1024
+#define RT_POOL_BUCKETS ((RT_POOL_MAX_SIZE / 8) + 1)
+#define RT_POOL_PER_BUCKET 8192
+
+static char *g_obj_pool[RT_POOL_BUCKETS];
+static int32_t g_obj_pool_len[RT_POOL_BUCKETS];
+static int g_obj_pool_on = -1;
+static long g_pool_hit, g_pool_miss;
+
+static int rt_obj_pool_enabled(void) {
+  if (g_obj_pool_on < 0) {
+    const char *v = getenv("RANGER_OBJ_POOL");
+    g_obj_pool_on = (v != NULL && v[0] == '0') ? 0 : 1;
+  }
+  return g_obj_pool_on;
+}
+
+/* Bucket index for a body size, or -1 when the size is not poolable. */
+static int rt_pool_bucket(uint32_t size) {
+  if (size > RT_POOL_MAX_SIZE) {
+    return -1;
+  }
+  return (int)((size + 7u) / 8u);
+}
+
 int64_t ranger_obj_new(uint32_t size, const RangerTypeDesc *type) {
   size_t total = (size_t)RANGER_HEADER_SIZE + (size_t)size;
-  char *block = (char *)calloc(1, total);
+  char *block = NULL;
+  int bucket = rt_pool_bucket(size);
   RangerObjHeader *h;
+  if (bucket >= 0 && g_obj_pool[bucket] != NULL && rt_obj_pool_enabled()) {
+    block = g_obj_pool[bucket];
+    g_obj_pool[bucket] = *(char **)(block + RANGER_HEADER_SIZE);
+    g_obj_pool_len[bucket]--;
+    /* Same state calloc would have handed back: every constructor and every
+     * destroy path reads unset fields as zero. */
+    memset(block, 0, total);
+    g_pool_hit++;
+  } else {
+    block = (char *)calloc(1, total);
+    g_pool_miss++;
+  }
   if (block == NULL) {
     return 0;
   }
@@ -908,6 +959,18 @@ void ranger_obj_release(int64_t body) {
   }
 #endif
   rt_reg_remove(block);
+  {
+    int bucket = rt_pool_bucket(h->size);
+    if (bucket >= 0 && g_obj_pool_len[bucket] < RT_POOL_PER_BUCKET &&
+        rt_obj_pool_enabled()) {
+      *(char **)(block + RANGER_HEADER_SIZE) = g_obj_pool[bucket];
+      g_obj_pool[bucket] = block;
+      g_obj_pool_len[bucket]++;
+      g_live_objects--;
+      g_obj_free++;
+      return;
+    }
+  }
   free(block);
   g_live_objects--;
   g_obj_free++;
