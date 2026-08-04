@@ -1,5 +1,59 @@
 # TS engine — native compilation and performance
 
+> **Update (2026-08-04): three more targets.** The engine now compiles to
+> **Go, Kotlin and Swift 6** as well. Go and Kotlin were taken all the way —
+> both build with their own toolchain and answer **8 of 8** benchmark cases,
+> `keyorder` included, exactly as Node does. Swift 6 gets as far as the
+> compiler accepting the program and writing all ~31k lines; no Swift
+> toolchain is reachable from this machine, so the Swift build is unverified
+> beyond a read of the generated source.
+>
+> `tests/ts-engine-targets.test.ts` guards all three: it compiles the engine
+> to each target on every run, and where a Go toolchain exists it also builds
+> the binary and checks all seven workloads against Node.
+>
+> **What had to be fixed** — one compiler defect per target family, plus
+> operator coverage. `compiler/Lang.rgr`: Go refuses `1.0 / 0.0` at compile
+> time when both sides are constants, so double division goes through a
+> one-line inlined helper (the engine spells Infinity and NaN that way);
+> Kotlin gained the whole `buffer` / `int_buffer` / `double_buffer` family, the
+> bitwise operators (`and`/`or`/`xor`/`shl`/`shr`/`ushr`/`inv`, not the C
+> spellings), `file_mtime` and `file_exists`; Kotlin's `shell_arg_cnt`
+> counted one argument too few, because `main(args)` already excludes the
+> program name. The **Go writer** wrote an empty type assertion
+> (`.value.(())`) for `(unwrap (get map key))` — it read `type_name` where the
+> node carries its type in `eval_type_name` — had no `__singleton` accessor at
+> all, dropped an unused `def` whose initializer was a METHOD call (taking the
+> call with it), and emitted locals Go rejects as "declared and not used". The
+> **Kotlin writer** sliced double literals out of the source text by file
+> position, which a CRLF source file shifts (`def value:double 0.0` wrote
+> `= lue`); rewrote `EVGColor.create(...)` to `this.create(...)`, which cannot
+> reach a companion object; marked `equals(other:T)` `override` when
+> `Any.equals` takes `Any?`; left `$` unescaped in string literals; and called
+> methods on a nullable receiver without `!!`. The **Swift 6 writer** had that
+> last defect too.
+>
+> **Same-session measurement** (engine work-only ms, best of three, native
+> builds measured out-of-process with the `reps=0` startup cost subtracted —
+> the same subtraction `run.cjs` makes):
+>
+> | case | engine on Node | C++ | Go | Kotlin (JVM) |
+> |---|---|---|---|---|
+> | loop | 30.7 | 24.4 | 95.0 | 110.3 |
+> | fib | 15.4 | 18.5 | 24.7 | 78.6 |
+> | strcat | 18.9 | 29.4 | 161.6 | 176.6 |
+> | array | 63.5 | 109.0 | 117.4 | 128.7 |
+> | object | 32.0 | 31.8 | 59.7 | 83.9 |
+> | method | 43.4 | 43.0 | 99.1 | 134.4 |
+> | regex | 34.4 | 35.5 | 79.0 | 103.8 |
+>
+> Neither new target has had any of the optimization work C++ and Rust got,
+> so read these as a starting line rather than a verdict — and the Kotlin
+> column especially: three reps per process barely warms the JIT up, so it
+> understates the JVM by an unknown amount. Go's `strcat` is the one row worth
+> a look on its own; it is the same immutable-string accumulator cost the C++
+> build pays, without the reserve.
+>
 > **Update (branch `claude/ts-engine-native-perf-fixes`, 2026-08-03).** The
 > two headline defects below are found and fixed; the numbers in the body of
 > this document are kept as the historical baseline.

@@ -867,7 +867,7 @@ func r_io_get_env( name string) *GoNullable {
                 go ( "int64( len( os.Args) - 1 )"  (imp "os"))
                 es6 ( "(process.argv.length - 2)" )
                 rust ( "(std::env::args().len() as i64 - 1)")
-                kotlin ( "(args.size - 1)")
+                kotlin ( "args.size")
                 ranger ("( shell_arg_cnt )")
             }
         }        
@@ -997,6 +997,9 @@ func r_file_exists(pathName string, fileName string) bool {
 )                    
                 )
                 rust ( "std::path::Path::new(&format!(\"{}/{}\", " (e 1) ", " (e 2) ")).exists()" )
+                kotlin ( "java.io.File(" (e 1) " + \"/\" + " (e 2) ").isFile()" )
+                csharp ( "System.IO.File.Exists(" (e 1) " + \"/\" + " (e 2) ")" )
+                scala ( "new java.io.File(" (e 1) " + \"/\" + " (e 2) ").isFile()" )
            }
         }
 
@@ -1079,7 +1082,7 @@ func r_file_mtime(pathName string, fileName string) int64 {
     if err != nil {
         return 0
     }
-    return info.ModTime().Unix()
+    return info.ModTime().UnixNano() / 1000000
 }
 "
 )                    
@@ -1114,6 +1117,46 @@ fn r_file_mtime(path_name: &str, file_name: &str) -> i64 {
 }
 ")
                 )
+                ; Every entry answers in the same unit the es6 one does --
+                ; milliseconds since the epoch -- because a program compares the
+                ; number it stored against the number it reads back later, and a
+                ; target that answered in seconds would call a file unchanged
+                ; for the rest of the second it was written in.
+                ;
+                ; On a target whose `int` is 32 bits (Kotlin, Java, C#, Scala)
+                ; a millisecond stamp does not fit, so the value is its low 32
+                ; bits. That is still a number that changes whenever the file
+                ; changes, which is all a staleness check reads it for; it is
+                ; not a wall-clock time on those four.
+                swift3 ( "r_file_mtime(path:" (e 1) ", name:" (e 2) ")"
+(create_polyfill "
+func r_file_mtime ( path:String, name:String ) -> Int {
+    let full = path + \"/\" + name
+    if let attrs = try? FileManager.default.attributesOfItem(atPath: full),
+       let date = attrs[.modificationDate] as? Date {
+        return Int(date.timeIntervalSince1970 * 1000.0)
+    }
+    return 0
+}
+") (imp "Foundation")
+                )
+                swift6 ( "r_file_mtime(path:" (e 1) ", name:" (e 2) ")"
+(create_polyfill "
+func r_file_mtime ( path:String, name:String ) -> Int {
+    let full = path + \"/\" + name
+    if let attrs = try? FileManager.default.attributesOfItem(atPath: full),
+       let date = attrs[.modificationDate] as? Date {
+        return Int(date.timeIntervalSince1970 * 1000.0)
+    }
+    return 0
+}
+") (imp "Foundation")
+                )
+                kotlin ( "java.io.File(" (e 1) " + \"/\" + " (e 2) ").lastModified().toInt()" )
+                java7 ( "((int)(new File(" (e 1) " + \"/\" + " (e 2) ").lastModified()))" (imp "java.io.File") )
+                csharp ( "((int)(long)(System.IO.File.GetLastWriteTimeUtc(" (e 1) " + \"/\" + " (e 2) ") - new System.DateTime(1970, 1, 1)).TotalMilliseconds)" )
+                scala ( "new java.io.File(" (e 1) " + \"/\" + " (e 2) ").lastModified().toInt()" )
+                php ( "(filemtime(" (e 1) ".'/'." (e 2) ") * 1000)" )
                 ranger ( "(file_mtime " (e 1) " " (e 2) ")" )
            }
         }
@@ -1759,6 +1802,7 @@ inline std::string r_double_to_string(double v) {
                 java7 ( "((" (e 1) ") & (" (e 2) "))" )
                 python ( "((" (e 1) ") & (" (e 2) "))" )
                 swift6 ( "(Int64(" (e 1) ") & Int64(" (e 2) "))" )
+                kotlin ( "((" (e 1) ") and (" (e 2) "))" )
                 csharp ( "((" (e 1) ") & (" (e 2) "))" )
                 * ( "((" (e 1) ") & (" (e 2) "))" )
             }
@@ -1774,6 +1818,7 @@ inline std::string r_double_to_string(double v) {
                 java7 ( "((" (e 1) ") | (" (e 2) "))" )
                 python ( "((" (e 1) ") | (" (e 2) "))" )
                 swift6 ( "(Int64(" (e 1) ") | Int64(" (e 2) "))" )
+                kotlin ( "((" (e 1) ") or (" (e 2) "))" )
                 csharp ( "((" (e 1) ") | (" (e 2) "))" )
                 * ( "((" (e 1) ") | (" (e 2) "))" )
             }
@@ -1789,6 +1834,7 @@ inline std::string r_double_to_string(double v) {
                 java7 ( "((" (e 1) ") ^ (" (e 2) "))" )
                 python ( "((" (e 1) ") ^ (" (e 2) "))" )
                 swift6 ( "(Int64(" (e 1) ") ^ Int64(" (e 2) "))" )
+                kotlin ( "((" (e 1) ") xor (" (e 2) "))" )
                 csharp ( "((" (e 1) ") ^ (" (e 2) "))" )
                 * ( "((" (e 1) ") ^ (" (e 2) "))" )
             }
@@ -1804,6 +1850,7 @@ inline std::string r_double_to_string(double v) {
                 java7 ( "(~" (e 1) ")" )
                 python ( "(~" (e 1) ")" )
                 swift6 ( "(~Int64(" (e 1) "))" )
+                kotlin ( "((" (e 1) ").inv())" )
                 csharp ( "(~" (e 1) ")" )
                 * ( "(~" (e 1) ")" )
             }
@@ -1819,6 +1866,7 @@ inline std::string r_double_to_string(double v) {
                 java7 ( "((" (e 1) ") << (" (e 2) "))" )
                 python ( "((" (e 1) ") << (" (e 2) "))" )
                 swift6 ( "(Int64(" (e 1) ") << Int64(" (e 2) "))" )
+                kotlin ( "((" (e 1) ") shl (" (e 2) "))" )
                 csharp ( "((" (e 1) ") << (int)(" (e 2) "))" )
                 * ( "((" (e 1) ") << (" (e 2) "))" )
             }
@@ -1834,6 +1882,7 @@ inline std::string r_double_to_string(double v) {
                 java7 ( "((" (e 1) ") >> (" (e 2) "))" )
                 python ( "((" (e 1) ") >> (" (e 2) "))" )
                 swift6 ( "(Int64(" (e 1) ") >> Int64(" (e 2) "))" )
+                kotlin ( "((" (e 1) ") shr (" (e 2) "))" )
                 csharp ( "((" (e 1) ") >> (int)(" (e 2) "))" )
                 * ( "((" (e 1) ") >> (" (e 2) "))" )
             }
@@ -1849,6 +1898,7 @@ inline std::string r_double_to_string(double v) {
                 java7 ( "((" (e 1) ") >>> (" (e 2) "))" )
                 python ( "((" (e 1) " & 0xFFFFFFFF) >> (" (e 2) "))" )
                 swift6 ( "Int64(bitPattern: UInt64(bitPattern: Int64(" (e 1) ")) >> UInt64(" (e 2) "))" )
+                kotlin ( "((" (e 1) ") ushr (" (e 2) "))" )
                 csharp ( "(int)((uint)(" (e 1) ") >> (int)(" (e 2) "))" )
                 * ( "(" (e 1) " >>> " (e 2) ")" )
             }
@@ -1903,6 +1953,21 @@ inline std::string r_double_to_string(double v) {
 
         /               cmdDivOp:double         ( left:double right:double ) { templates {
             cpp ( "((double)(" (e 1) ") / (double)(" (e 2) "))" )
+            ; Go refuses `1.0 / 0.0` at COMPILE time when both sides are
+            ; constants, but IEEE division by zero is meaningful -- Infinity and
+            ; NaN are how a JavaScript engine spells them, and the interpreter in
+            ; gallery/game_engine writes them exactly that way. Going through a
+            ; function makes the operands non-constant. The body is a single
+            ; expression, so the Go inliner folds the call away.
+            go ( "r_div_f64(" (e 1) ", " (e 2) ")"
+(create_polyfill
+"
+func r_div_f64(a float64, b float64) float64 {
+    return a / b
+}
+"
+)
+            )
             * ( (e 1) " / " (e 2) )
         } }
         ; `/` between two integers is real division. A target whose own `/` is
@@ -1910,7 +1975,15 @@ inline std::string r_double_to_string(double v) {
         ; wrong number -- and Java refuses the program outright, because the
         ; result is declared double.
         /               cmdDivOp:double         ( left:int right:int ) { templates {
-            go ( "float64(" (e 1) ") / float64(" (e 2) ")" )
+            go ( "r_div_f64(float64(" (e 1) "), float64(" (e 2) "))"
+(create_polyfill
+"
+func r_div_f64(a float64, b float64) float64 {
+    return a / b
+}
+"
+)
+            )
             rust ( (custom _) )
             kotlin ( (e 1) ".toDouble() / " (e 2) ".toDouble()" )
             cpp ( "((double)(" (e 1) ") / (double)(" (e 2) "))" )
@@ -3114,6 +3187,7 @@ static bool r_regex_test_i(string pattern, string s) {
                 python ( "bytearray(" (e 1) ")" )
                 swift6 ( "[UInt8](repeating: 0, count: Int(" (e 1) "))" )
                 swift3 ( "[UInt8](repeating: 0, count: Int(" (e 1) "))" )
+                kotlin ( "ByteArray(" (e 1) ")" )
                 csharp ( "new byte[" (e 1) "]" )
             }
         }
@@ -3131,6 +3205,7 @@ static bool r_regex_test_i(string pattern, string s) {
                 python ( "len(" (e 1) ")" )
                 swift6 ( "Int64(" (e 1) ".count)" )
                 csharp ( (e 1) ".Length" )
+                kotlin ( (e 1) ".size" )
             }
         }
 
@@ -3147,6 +3222,7 @@ static bool r_regex_test_i(string pattern, string s) {
                 python ( (e 1) "[" (e 2) "]" )
                 swift6 ( "Int64(" (e 1) "[Int(" (e 2) ")])" )
                 csharp ( "((int)" (e 1) "[" (e 2) "])" )
+                kotlin ( "(" (e 1) "[" (e 2) "].toInt() and 0xFF)" )
             }
         }
 
@@ -3163,6 +3239,7 @@ static bool r_regex_test_i(string pattern, string s) {
                 python ( (e 1) "[" (e 2) "] = " (e 3) )
                 swift6 ( (e 1) "[Int(" (e 2) ")] = UInt8(" (e 3) ")" )
                 csharp ( (e 1) "[" (e 2) "] = (byte)" (e 3) )
+                kotlin ( (e 1) "[" (e 2) "] = (" (e 3) ").toByte()" )
             }
         }
 
@@ -3178,6 +3255,7 @@ static bool r_regex_test_i(string pattern, string s) {
                 python ( "bytearray(" (e 1) ", 'utf-8')" )
                 swift6 ( "Array(" (e 1) ".utf8)" )
                 csharp ( "System.Text.Encoding.UTF8.GetBytes(" (e 1) ")" )
+                kotlin ( (e 1) ".toByteArray(Charsets.UTF_8)" )
             }
         }
 
@@ -3193,6 +3271,7 @@ static bool r_regex_test_i(string pattern, string s) {
                 python ( (e 1) ".decode('utf-8')" )
                 swift6 ( "String(bytes: " (e 1) ", encoding: .utf8) ?? \"\"" )
                 csharp ( "System.Text.Encoding.UTF8.GetString(" (e 1) ")" )
+                kotlin ( "String(" (e 1) ", Charsets.UTF_8)" )
             }
         }
 
@@ -3226,6 +3305,7 @@ std::string r_buffer_to_base64(const std::vector<uint8_t>& data) {
                 python ( "base64.b64encode(" (e 1) ").decode('ascii')" (imp "base64") )
                 swift6 ( "Data(" (e 1) ").base64EncodedString()" (imp "Foundation") )
                 csharp ( "Convert.ToBase64String(" (e 1) ")" )
+                kotlin ( "java.util.Base64.getEncoder().encodeToString(" (e 1) ")" )
             }
         }
 
@@ -3249,6 +3329,7 @@ void r_buffer_write_file(const std::string& path, const std::string& filename, c
                 python ( "open(" (e 1) " + '/' + " (e 2) ", 'wb').write(" (e 3) ")" )
                 swift6 ( "try? Data(" (e 3) ").write(to: URL(fileURLWithPath: " (e 1) " + \"/\" + " (e 2) "))" (imp "Foundation") )
                 csharp ( "System.IO.File.WriteAllBytes(" (e 1) " + \"/\" + " (e 2) ", " (e 3) ")" )
+                kotlin ( "java.io.File(" (e 1) " + \"/\" + " (e 2) ").writeBytes(" (e 3) ")" )
             }
         }
 
@@ -3272,6 +3353,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( "bytearray(open(" (e 1) " + '/' + " (e 2) ", 'rb').read())" )
                 swift6 ( "(try? Data(contentsOf: URL(fileURLWithPath: " (e 1) " + \"/\" + " (e 2) "))).map { Array($0) } ?? []" (imp "Foundation") )
                 csharp ( "System.IO.File.ReadAllBytes(" (e 1) " + \"/\" + " (e 2) ")" )
+                kotlin ( "java.io.File(" (e 1) " + \"/\" + " (e 2) ").readBytes()" )
             }
         }
 
@@ -3287,6 +3369,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 2) ")..<Int(" (e 2) "+" (e 5) "), with: " (e 3) "[Int(" (e 4) ")..<Int(" (e 4) "+" (e 5) ")])" )
                 csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
+                kotlin ( "System.arraycopy(" (e 3) ", " (e 4) ", " (e 1) ", " (e 2) ", " (e 5) ")" )
             }
         }
 
@@ -3302,6 +3385,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( (e 1) "[" (e 3) ":" (e 4) "] = [" (e 2) "] * (" (e 4) " - " (e 3) ")" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 3) ")..<Int(" (e 4) "), with: repeatElement(UInt8(" (e 2) "), count: Int(" (e 4) "-" (e 3) ")))" )
                 csharp ( "Array.Fill(" (e 1) ", (byte)" (e 2) ", (int)" (e 3) ", (int)(" (e 4) "-" (e 3) "))" )
+                kotlin ( "java.util.Arrays.fill(" (e 1) ", " (e 3) ", " (e 4) ", (" (e 2) ").toByte())" )
             }
         }
 
@@ -3317,6 +3401,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( "bytearray(" (e 1) "[" (e 2) ":" (e 3) "])" )
                 swift6 ( "Array(" (e 1) "[Int(" (e 2) ")..<Int(" (e 3) ")])" )
                 csharp ( (e 1) "[((int)" (e 2) ")..((int)" (e 3) ")]" )
+                kotlin ( (e 1) ".copyOfRange(" (e 2) ", " (e 3) ")" )
             }
         }
 
@@ -3341,6 +3426,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( "[0] * " (e 1) )
                 swift6 ( "[Int64](repeating: 0, count: Int(" (e 1) "))" )
                 csharp ( "new long[" (e 1) "]" )
+                kotlin ( "LongArray(" (e 1) ")" )
             }
         }
 
@@ -3356,6 +3442,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( "len(" (e 1) ")" )
                 swift6 ( "Int64(" (e 1) ".count)" )
                 csharp ( (e 1) ".Length" )
+                kotlin ( (e 1) ".size" )
             }
         }
 
@@ -3372,6 +3459,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( (e 1) "[" (e 2) "]" )
                 swift6 ( (e 1) "[Int(" (e 2) ")]" )
                 csharp ( (e 1) "[" (e 2) "]" )
+                kotlin ( (e 1) "[" (e 2) "].toInt()" )
             }
         }
 
@@ -3388,6 +3476,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( (e 1) "[" (e 2) "] = " (e 3) )
                 swift6 ( (e 1) "[Int(" (e 2) ")] = " (e 3) )
                 csharp ( (e 1) "[" (e 2) "] = " (e 3) )
+                kotlin ( (e 1) "[" (e 2) "] = (" (e 3) ").toLong()" )
             }
         }
 
@@ -3404,6 +3493,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( (e 1) "[" (e 3) ":" (e 4) "] = [" (e 2) "] * (" (e 4) " - " (e 3) ")" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 3) ")..<Int(" (e 4) "), with: repeatElement(" (e 2) ", count: Int(" (e 4) "-" (e 3) ")))" )
                 csharp ( "Array.Fill(" (e 1) ", " (e 2) ", (int)" (e 3) ", (int)(" (e 4) "-" (e 3) "))" )
+                kotlin ( "java.util.Arrays.fill(" (e 1) ", " (e 3) ", " (e 4) ", (" (e 2) ").toLong())" )
             }
         }
 
@@ -3419,6 +3509,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 2) ")..<Int(" (e 2) "+" (e 5) "), with: " (e 3) "[Int(" (e 4) ")..<Int(" (e 4) "+" (e 5) ")])" )
                 csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
+                kotlin ( "System.arraycopy(" (e 3) ", " (e 4) ", " (e 1) ", " (e 2) ", " (e 5) ")" )
             }
         }
 
@@ -3459,6 +3550,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( "[0.0] * " (e 1) )
                 swift6 ( "[Double](repeating: 0.0, count: Int(" (e 1) "))" )
                 csharp ( "new double[" (e 1) "]" )
+                kotlin ( "DoubleArray(" (e 1) ")" )
             }
         }
 
@@ -3474,6 +3566,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( "len(" (e 1) ")" )
                 swift6 ( "Int64(" (e 1) ".count)" )
                 csharp ( (e 1) ".Length" )
+                kotlin ( (e 1) ".size" )
             }
         }
 
@@ -3489,6 +3582,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( (e 1) "[" (e 2) "]" )
                 swift6 ( (e 1) "[Int(" (e 2) ")]" )
                 csharp ( (e 1) "[" (e 2) "]" )
+                kotlin ( (e 1) "[" (e 2) "]" )
             }
         }
 
@@ -3504,6 +3598,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( (e 1) "[" (e 2) "] = " (e 3) )
                 swift6 ( (e 1) "[Int(" (e 2) ")] = " (e 3) )
                 csharp ( (e 1) "[" (e 2) "] = " (e 3) )
+                kotlin ( (e 1) "[" (e 2) "] = " (e 3) )
             }
         }
 
@@ -3519,6 +3614,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( (e 1) "[" (e 3) ":" (e 4) "] = [" (e 2) "] * (" (e 4) " - " (e 3) ")" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 3) ")..<Int(" (e 4) "), with: repeatElement(" (e 2) ", count: Int(" (e 4) "-" (e 3) ")))" )
                 csharp ( "Array.Fill(" (e 1) ", " (e 2) ", (int)" (e 3) ", (int)(" (e 4) "-" (e 3) "))" )
+                kotlin ( "java.util.Arrays.fill(" (e 1) ", " (e 3) ", " (e 4) ", " (e 2) ")" )
             }
         }
 
@@ -3534,6 +3630,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 2) ")..<Int(" (e 2) "+" (e 5) "), with: " (e 3) "[Int(" (e 4) ")..<Int(" (e 4) "+" (e 5) ")])" )
                 csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
+                kotlin ( "System.arraycopy(" (e 3) ", " (e 4) ", " (e 1) ", " (e 2) ", " (e 5) ")" )
             }
         }
 

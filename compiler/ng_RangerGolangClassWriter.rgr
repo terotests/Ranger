@@ -339,7 +339,11 @@ class RangerGolangClassWriter {
         wr.out(((this.getObjectTypeString(a_name ctx)) + "") false)
       }
       default {
-        if( (node.type_name == "void") || (! (has node.type_name)) )  {
+        ; t_name, not node.type_name: an expression node carries its type in
+        ; eval_type_name and leaves type_name empty, so testing the raw field
+        ; wrote the placeholder `()` for `(unwrap (get map key))` -- which is
+        ; an empty type assertion and does not parse.
+        if( (t_name == "void") || (! (has t_name)) )  {
           (wr.out("()" false))
           return
         }
@@ -944,12 +948,16 @@ class RangerGolangClassWriter {
         def b_can_skip true
         if ((array_length node.children) > 2) {
           def value:CodeNode (node.getThird())
-          if(value.has_call || value.has_lambda_call) {
+          ; hasFnCall as well as has_call: a METHOD call sets only the former,
+          ; so `def ignored:T (this.doWork())` -- the language's
+          ; evaluate-and-discard form -- was commented out and the call
+          ; silently disappeared, taking the reads inside it with it.
+          if((value.has_call || value.has_lambda_call) || value.hasFnCall) {
             b_can_skip = false
           }
           value.forTree({
-            ; can you detect operators with side effects ? 
-            if(item.has_call || item.has_lambda_call) {
+            ; can you detect operators with side effects ?
+            if((item.has_call || item.has_lambda_call) || item.hasFnCall) {
               b_can_skip = false
             }
           })
@@ -1073,6 +1081,16 @@ class RangerGolangClassWriter {
         }
       }
       wr.out(";" false)
+      ; Go refuses a local that is declared and never read -- and a flag that
+      ; every branch sets and no branch consults is ordinary code in every
+      ; other target, so dropping the declaration is not an option (the later
+      ; assignments to it still have to compile). A blank assignment marks it
+      ; used; the Go compiler discards `_ = x` entirely. Writing one for a
+      ; variable that is in fact read is harmless, so an under-count of
+      ; read_cnt costs nothing here.
+      if ((p.read_cnt <= 0) && (p.is_class_variable == false)) {
+        wr.out((" _ = " + p.compiledName) false)
+      }
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
         wr.out("     /** note: unused */" false)
       }
@@ -1568,6 +1586,64 @@ class RangerGolangClassWriter {
     wr.indent(-1)
     wr.out("}" true)     
   }
+  ; The Go body of the synthetic `__singleton` accessor the resolver advertises
+  ; for a @singleton(true) class. Call sites already emit
+  ; `ClassName_static___singleton()` through the ordinary static-call path, so
+  ; only the definition was missing. A package-level slot filled on first call:
+  ; first-call constructor arguments win, which is what es6, C++ and Rust do.
+  fn writeSingletonAccessor:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    def slot:string (cl.name + "__singleton_instance")
+    wr.newline()
+    wr.out((((("var " + slot) + " *") + cl.name) + " = nil") true)
+    wr.out((("func " + cl.name) + "_static___singleton(") false)
+    def written:int 0
+    if cl.has_constructor {
+      def sgc@(optional):RangerAppFunctionDesc cl.constructor_fn
+      if (!null? sgc) {
+        def sgcF:RangerAppFunctionDesc (unwrap sgc)
+        for sgcF.params arg:RangerAppParamDesc i {
+          if (arg.nameNode.hasFlag("keyword")) {
+            continue
+          }
+          if (written > 0) {
+            wr.out(", " false)
+          }
+          written = written + 1
+          wr.out((arg.name + " ") false)
+          this.writeTypeDef((unwrap arg.nameNode) ctx wr)
+        }
+      }
+    }
+    wr.out(((") *" + cl.name) + " {") true)
+    wr.indent(1)
+    wr.out((("if " + slot) + " == nil {") true)
+    wr.indent(1)
+    wr.out((((slot + " = CreateNew_") + cl.name) + "(") false)
+    def fwd:int 0
+    if cl.has_constructor {
+      def sgc2@(optional):RangerAppFunctionDesc cl.constructor_fn
+      if (!null? sgc2) {
+        def sgc2F:RangerAppFunctionDesc (unwrap sgc2)
+        for sgc2F.params arg:RangerAppParamDesc i {
+          if (arg.nameNode.hasFlag("keyword")) {
+            continue
+          }
+          if (fwd > 0) {
+            wr.out(", " false)
+          }
+          fwd = fwd + 1
+          wr.out(arg.name false)
+        }
+      }
+    }
+    wr.out(")" true)
+    wr.indent(-1)
+    wr.out("}" true)
+    wr.out(("return " + slot) true)
+    wr.indent(-1)
+    wr.out("}" true)
+  }
+
   fn writeClass:void  (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
     def cl:RangerAppClassDesc node.clDesc
     if (null? cl) {
@@ -1764,6 +1840,9 @@ class RangerGolangClassWriter {
     wr.indent(-1)
     wr.out("}" true)
     thisName = "this"
+    if (cl.isSingletonClass()) {
+      this.writeSingletonAccessor((unwrap cl) ctx wr)
+    }
     for cl.static_methods variant:RangerAppFunctionDesc i {
       if (variant.nameNode.hasFlag("main")) {
         continue _

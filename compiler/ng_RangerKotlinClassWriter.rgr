@@ -4,7 +4,18 @@ class RangerKotlinClassWriter {
   fn WriteScalarValue:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     switch node.value_type {
       case RangerNodeType.Double {
-        wr.out((node.getParsedString()) false)
+        ; the value, never a source slice: getParsedString reads the file back
+        ; by the node's recorded position, and a file with CRLF line endings --
+        ; or a macro-shifted position -- slices unrelated bytes into the
+        ; output. `def value:double 0.0` in a CRLF file wrote `= lue`.
+        ; The `.0` suffix is what makes the literal a Double rather than an Int.
+        def dd_str:string ("" + node.double_value)
+        def ii_str:string ("" + (to_int node.double_value))
+        if (dd_str == ii_str) {
+          wr.out((("" + node.double_value) + ".0") false)
+        } {
+          wr.out(("" + node.double_value) false)
+        }
       }
       case RangerNodeType.String {
         def s:string (this.EncodeString(node ctx wr))
@@ -211,8 +222,12 @@ class RangerKotlinClassWriter {
           if (!null? uc) {
             def currC:RangerAppClassDesc (unwrap uc)
             if (part == currC.name) {
-              ; Replace ClassName with this for instance method calls
-              if( false == (ctx.isInStatic()) ) {
+              ; Replace ClassName with this for instance method calls -- but
+              ; NOT when the member named after it is a static one. A static
+              ; method lives in the companion object, so `this.create(...)`
+              ; does not resolve; the class name in `EVGColor.create(...)` has
+              ; to survive.
+              if( (false == (ctx.isInStatic())) && (false == (this.namesStaticMember(currC node))) ) {
                 wr.out("this" false)
                 continue
               }
@@ -260,7 +275,7 @@ class RangerKotlinClassWriter {
         if (!null? uc) {
           def currC:RangerAppClassDesc (unwrap uc)
           if (part == currC.name) {
-            if( false == (ctx.isInStatic()) ) {
+            if( (false == (ctx.isInStatic())) && (false == (this.namesStaticMember(currC node))) ) {
               wr.out("this" false)
               continue
             }
@@ -270,6 +285,133 @@ class RangerKotlinClassWriter {
       wr.out((this.adjustType(part)) false)
     }
   }
+  ; Kotlin reads `$name` and `${expr}` inside a string literal as a template
+  ; substitution, so a dollar sign has to be escaped -- without this a program
+  ; that BUILDS a template string, as the TS engine does, either fails to parse
+  ; (`"${"`) or silently interpolates a local. Everything else is the encoding
+  ; RangerGenericClassWriter does.
+  fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def encoded_str:string ""
+    def str_length:int (strlen node.string_value)
+    def ii:int 0
+    while (ii < str_length) {
+      def cc:int (charAt node.string_value ii)
+      switch cc {
+        case 8 {
+          encoded_str = ((encoded_str + (strfromcode 92)) + (strfromcode 98))
+        }
+        case 9 {
+          encoded_str = ((encoded_str + (strfromcode 92)) + (strfromcode 116))
+        }
+        case 10 {
+          encoded_str = ((encoded_str + (strfromcode 92)) + (strfromcode 110))
+        }
+        case 12 {
+          encoded_str = ((encoded_str + (strfromcode 92)) + (strfromcode 102))
+        }
+        case 13 {
+          encoded_str = ((encoded_str + (strfromcode 92)) + (strfromcode 114))
+        }
+        case 34 {
+          encoded_str = ((encoded_str + (strfromcode 92)) + (strfromcode 34))
+        }
+        case 36 {
+          encoded_str = ((encoded_str + (strfromcode 92)) + (strfromcode 36))
+        }
+        case 92 {
+          encoded_str = ((encoded_str + (strfromcode 92)) + (strfromcode 92))
+        }
+        default {
+          encoded_str = (encoded_str + (strfromcode cc))
+        }
+      }
+      ii = (ii + 1)
+    }
+    return encoded_str
+  }
+
+  ; True when the receiver of a call is spelled with a nullable Kotlin type --
+  ; either the reference itself carries the optional flag, or it names a
+  ; variable whose declaration does. writeTypeDef gives such a declaration a
+  ; trailing `?`, and Kotlin then refuses a plain `.` call on it.
+  fn receiverIsNullable:boolean (obj:CodeNode) {
+    if (obj.hasFlag("optional")) {
+      return true
+    }
+    if obj.hasParamDesc {
+      def p:RangerAppParamDesc obj.paramDesc
+      def nn@(optional):CodeNode p.nameNode
+      if (!null? nn) {
+        if ((unwrap nn).hasFlag("optional")) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  ; Same shape as RangerGenericClassWriter.CreateCallExpression, plus the null
+  ; assertion Kotlin needs: a field declared without an initializer comes out
+  ; as `EvalContext?`, and `(moduleScope).has(k)` on it does not compile --
+  ; "only safe (?.) or non-null asserted (!!.) calls are allowed". The
+  ; namespaced path in WriteVRef already writes `!!`; a bare single-name
+  ; receiver reached this one instead and got neither that nor `this.`.
+  fn CreateCallExpression(node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if node.has_call {
+      def obj:CodeNode (node.getSecond())
+      def method:CodeNode (node.getThird())
+      def args:CodeNode (itemAt node.children 3)
+
+      wr.out("(" false)
+      ctx.setInExpr()
+      this.WalkNode( obj ctx wr)
+      ctx.unsetInExpr()
+      wr.out(")" false)
+      if (this.receiverIsNullable(obj)) {
+        wr.out("!!" false)
+      }
+      wr.out("." false)
+      def methodName method.vref
+      if ((!null? node.fnDesc) && ((strlen node.fnDesc.compiledName) > 0)) {
+        methodName = node.fnDesc.compiledName
+      }
+      wr.outMapped(methodName method false method.vref)
+      wr.out("(" false)
+      ctx.setInExpr()
+      def pms (filter (args.children) {
+        if( item.hasFlag('keyword')) {
+          return false
+        }
+        return true
+      })
+      for pms arg:CodeNode i {
+        if (i > 0) {
+          wr.out(", " false)
+        }
+        this.WalkNode(arg ctx wr)
+      }
+      ctx.unsetInExpr()
+      wr.out(")" false)
+      if ((ctx.expressionLevel()) == 0) {
+        wr.out(";" true)
+      }
+    }
+  }
+
+  ; True when a namespaced path whose root is the class name goes on to name a
+  ; static member of it -- `EVGColor.create` inside EVGColor. Kotlin puts those
+  ; in the companion object, where `this` cannot reach them.
+  fn namesStaticMember:boolean (cl:RangerAppClassDesc node:CodeNode) {
+    if ((array_length node.ns) < 2) {
+      return false
+    }
+    def member:string (itemAt node.ns 1)
+    if (cl.hasStaticMethod(member)) {
+      return true
+    }
+    return false
+  }
+
   fn writeVarDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasParamDesc {
       def nn:CodeNode (itemAt node.children 1)
@@ -613,8 +755,15 @@ class RangerKotlinClassWriter {
         if (has declaredFunction variant.name) {
           shouldOverride = true
         }
-        if ((variant.compiledName == "toString") || ((variant.compiledName == "hashCode") || (variant.compiledName == "equals"))) {
-          shouldOverride = true
+        ; toString() and hashCode() DO override the ones every Kotlin class
+        ; inherits -- but only in their no-argument form, and `equals` never
+        ; does: Any.equals takes Any?, so `equals(other:EvalValue)` is an
+        ; overload, and marking it `override` made the file refuse to compile
+        ; with "'equals' overrides nothing".
+        if ((variant.compiledName == "toString") || (variant.compiledName == "hashCode")) {
+          if ((array_length variant.params) == 0) {
+            shouldOverride = true
+          }
         }
         if shouldOverride {
           wr.out("override " false)

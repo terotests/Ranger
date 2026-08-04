@@ -1016,6 +1016,7 @@ class RangerFlowParser {
         node.ownParamDesc = vDef
         node.paramDesc = vDef
         vDef.ref_cnt = (1 + vDef.ref_cnt)
+        vDef.read_cnt = (1 + vDef.read_cnt)
         def vNameNode:CodeNode vDef.nameNode
 
         if( ctx.isDefinedClass( node.type_name)) {
@@ -2664,6 +2665,10 @@ class RangerFlowParser {
     if n1.hasParamDesc {
       n1.paramDesc.ref_cnt = (n1.paramDesc.ref_cnt + 1)
       n1.paramDesc.set_cnt = (n1.paramDesc.set_cnt + 1)
+      ; The walk above counted the assignment TARGET as a mention. It is a
+      ; write, not a read, so take it back out: `x = 1` alone must leave
+      ; read_cnt at zero, while `x = x + 1` leaves it at one.
+      n1.paramDesc.read_cnt = (n1.paramDesc.read_cnt - 1)
     }
     if n2.hasParamDesc {
       n2.paramDesc.ref_cnt = (n2.paramDesc.ref_cnt + 1)

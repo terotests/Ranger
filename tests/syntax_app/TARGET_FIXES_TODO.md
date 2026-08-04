@@ -12,8 +12,8 @@ Measured against `master` at the point this branch is based on.
 
 | | master | now |
 | --- | --- | --- |
-| cells the Ranger compiler rejects | 82 / 238 | **43 / 238** |
-| cells that compile, run and print the expected output | 42 / 238 | **58 / 238** |
+| cells the Ranger compiler rejects | 82 / 238 | **40 / 238** |
+| cells that compile, run and print the expected output | 42 / 238 | **60 / 238** |
 
 Per target, `ok` cells and cells the compiler rejects, out of 17 units:
 
@@ -21,11 +21,11 @@ Per target, `ok` cells and cells the compiler rejects, out of 17 units:
 | --- | --- | --- |
 | es6 | 15 → 15 | 0 → 0 |
 | typescript | 10 → 10 | 0 → 0 |
-| go | 5 → 6 | 2 → 1 |
+| go | 5 → 7 | 2 → 1 |
 | python | 2 → 6 | 5 → 1 |
 | rust | 0 → 0 | 7 → 3 |
-| cpp | 4 → 7 | 2 → 1 |
-| kotlin | 0 → 0 | 6 → 4 |
+| cpp | 4 → 8 | 2 → 1 |
+| kotlin | 0 → 0 | 6 → 1 |
 | swift6 | 0 → 0 | 3 → 2 |
 | swift3 | 0 → 0 | 6 → 4 |
 | java7 | 0 → 7 | 17 → 3 |
@@ -112,6 +112,20 @@ definitions, and four of its thirty-seven tests failed on `master` with
 `Could not match argument types for *`. `npm run compile:langserver` rebuilds
 it; all thirty-seven pass again. Worth running whenever `Lang.rgr` moves.
 
+**The TypeScript engine on Go, Kotlin and Swift.**
+`gallery/game_engine/v2/interp` — the JavaScript/TypeScript interpreter, the
+largest program in the repository — now compiles to all three. Go and Kotlin
+build with their own toolchain and answer all eight benchmark cases exactly as
+Node does; Swift 6 is accepted by the compiler and written out in full, but no
+Swift toolchain is reachable here, so it is unverified past a read of the
+generated source. `tests/ts-engine-targets.test.ts` compiles the engine to each
+target on every run and, where Go is installed, builds and runs the binary.
+The whole list of what it took is in `TS_ENGINE_PERF.md`; the parts that belong
+here are the **Kotlin buffer family** (item 1 of the list below, now done), the
+Kotlin bitwise operators — Kotlin spells them `and` / `or` / `xor` / `shl` /
+`shr` / `ushr` / `inv()`, not the C way — and `file_mtime` / `file_exists` on
+the targets that had no entry.
+
 **Test harness.** `tests/helpers/syntax-app.ts` looked for the single file that
 `-o` names. The Java target writes one file per class and ignores `-o`, so the
 whole java7 column read `compile-error` when Java in fact compiled. It now
@@ -121,30 +135,30 @@ TypeScript of the repository rather than whichever `tsc` is first on PATH.
 
 ## Next, in the order I would take them
 
-### 1. Buffers on Kotlin, Swift 3, Scala and PHP
+### 1. Buffers on Swift 3, Scala and PHP
 
-The largest single block left: the whole `buffer` / `int_buffer` /
-`double_buffer` family — 22 operators — has no entry on those four targets, so
-`section:buffers` and the whole app stop there. Kotlin and Swift 3 already have
-`buffer_alloc`; the rest is missing. Mechanical, and worth doing as one batch:
-`ByteArray` on Kotlin, `[UInt8]` on Swift, `Array[Byte]` on Scala and a plain
-`array` of ints on PHP.
+`buffer` / `int_buffer` / `double_buffer` — 22 operators. **Kotlin is done**
+(`ByteArray` / `LongArray` / `DoubleArray`); Swift 6 already had the family.
+Swift 3 has only `buffer_alloc`, and Scala and PHP have nothing, so
+`section:buffers` and the whole app still stop there on those three.
+Mechanical: `[UInt8]` on Swift 3, `Array[Byte]` on Scala, a plain `array` of
+ints on PHP.
 
 ### 2. The Go writer
 
-Two defects, both in `compiler/ng_RangerGolangClassWriter.rgr`, so they need
-`npm run compile`. (The third, `for` over an array of objects dropping the item
-binding, is fixed on `master` — the probe is gone and the shared `render()` of
-the app uses the natural loop again.)
+One defect left in `compiler/ng_RangerGolangClassWriter.rgr`, so it needs
+`npm run compile`. (Two others are now fixed: `for` over an array of objects
+dropping the item binding, on `master`; and `(unwrap (get map key))` writing
+the empty type assertion `.value.(())`, which is what stopped the TypeScript
+engine on Go.)
 
 - **`if!` with one block does not negate** — the program builds and prints the
   wrong answer. `gaps/go_if_not_single_branch.rgr`; `section:control` shows it
   as a `diff`. The `*` macro is right, so the defect is in how Go compiles
   `(false == (x > 100))`.
 - **Nested collection types.** `[[int]]` writes `[]*[int]` and
-  `[string:[int]]` writes `map[string]*[int]`, neither of which is Go. Also
-  `map[string]<class>` read back through `get` writes `.value.(())` — an empty
-  type assertion.
+  `[string:[int]]` writes `map[string]*[int]`, neither of which is Go.
+
 
 ### 3. The Python writer
 
@@ -210,20 +224,27 @@ methods `has` and `contains`.
 
 ## Verification
 
-Run against these changes, rebased onto `master` (`1c10f59`), with the compiler
+Run against these changes, rebased onto `master` (`84ed7fc`), with the compiler
 rebuilt from them (`npm run compile`) and the language server build regenerated
 (`npm run compile:langserver`):
 
 | | result |
 | --- | --- |
-| 30 test files, batch 1 | 27 passed, 3 skipped — 265 tests |
-| 28 test files, batch 2 | 28 passed — 225 tests, 5 skipped |
+| 20 test files, batch 1 | 18 passed, 2 skipped — 196 tests |
+| 32 test files, batch 2 | 31 passed, 1 skipped — 230 tests |
+| 8 Go / Kotlin / Swift codegen files | 6 passed, 2 skipped — 64 tests |
 | `runtime-conformance` | 1281 passed |
 | `physics-cannon` | 90 passed |
-| `tsx-engine` | 6 passed |
 | `game-runner` | 19 passed |
-| `introspection` | 37 passed (4 were failing on `master`) |
+| `tsx-engine` | 6 passed |
+| `introspection` | 37 passed |
+| `ts-engine-targets` (new) | 4 passed |
 | `syntax-app` | 6 passed; baseline and report re-recorded |
+
+The syntax app matrix moved five cells, all of them forward, none back:
+`app`, `section:buffers` and `http` on Kotlin from `compile-error` to
+`compiled`, `section:maps` on C++ from `output-differs` to `ok`, and
+`section:oop` on Go from `run-error` to `ok`.
 
 **One file still fails, and fails identically on pristine `master`:**
 `ts-to-ranger-native.test.ts`, one test, `function variable not found
@@ -232,9 +253,17 @@ voiceEvent` in a generated file.
 **`npm test` in one go stops early, before and after.** A test file that runs
 for two minutes or more starves the Vitest reporter under `singleFork`; the run
 ends with `Timeout calling "onTaskUpdate"` and the files after it never run. It
-lands on whichever long file comes first — `physics-cannon` (175 s),
-`game-runner` (150 s), the syntax app (145 s). Each of them passes when run on
+lands on whichever long file comes first — `physics-cannon` (112 s),
+`game-runner` (137 s), the syntax app (117 s). Each of them passes when run on
 its own, which is how the table above was produced.
 `syntax-app.test.ts` is out of the default config for that reason and has its
 own, `tests/vitest.syntaxapp.config.ts`. The underlying fragility is older than
 this branch and is worth a separate look.
+
+**Two toolchains are not on the machine that produced this table.** Swift has
+none — `download.swift.org` is not reachable through the proxy — so every
+Swift cell stops at `compiled` and the Swift build of the TypeScript engine is
+unverified beyond reading it. A Kotlin compiler was fetched to check the engine
+end to end, but deliberately left off `PATH`: the syntax app harness probes for
+toolchains, and a Kotlin column that only exists on one machine would make the
+recorded baseline machine-dependent.
