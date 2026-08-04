@@ -302,6 +302,86 @@ class EvalContext {
         return false
     }
 
+    ; Store a computed number into a slot binding, same ownership rule as the
+    ; bump above: write through only an object this slot minted, otherwise mint
+    ; a private one and adopt it. Used by `s += i` in statement position, where
+    ; the expression result is discarded and so cannot alias.
+    fn setNumberInSlot:boolean (name:string n:double) {
+        if withObject {
+            return false
+        }
+        if (has slotNames name) {
+            def cur@(optional):EvalValue (get bindings name)
+            if cur {
+                def c:EvalValue (unwrap cur)
+                if (c.valueType == 1) {
+                    if c.slotOwned {
+                        c.numberValue = n
+                        return true
+                    }
+                    def fresh:EvalValue (EvalValue.rawNumber(n))
+                    fresh.slotOwned = true
+                    set bindings name fresh
+                    return true
+                }
+            }
+            return false
+        }
+        if (has bindings name) {
+            return false
+        }
+        if parent {
+            def p:EvalContext (unwrap parent)
+            return (p.setNumberInSlot(name n))
+        }
+        return false
+    }
+
+    ; The current number under `name`, and whether there was one. Answers only
+    ; for a slot binding, so the caller pays nothing on the general path.
+    fn slotNumberOf:double (name:string) {
+        if (has slotNames name) {
+            def cur@(optional):EvalValue (get bindings name)
+            if cur {
+                def c:EvalValue (unwrap cur)
+                if (c.valueType == 1) {
+                    return c.numberValue
+                }
+            }
+            return 0.0
+        }
+        if (has bindings name) {
+            return 0.0
+        }
+        if parent {
+            def p:EvalContext (unwrap parent)
+            return (p.slotNumberOf(name))
+        }
+        return 0.0
+    }
+
+    fn hasNumberSlot:boolean (name:string) {
+        if withObject {
+            return false
+        }
+        if (has slotNames name) {
+            def cur@(optional):EvalValue (get bindings name)
+            if cur {
+                def c:EvalValue (unwrap cur)
+                return (c.valueType == 1)
+            }
+            return false
+        }
+        if (has bindings name) {
+            return false
+        }
+        if parent {
+            def p:EvalContext (unwrap parent)
+            return (p.hasNumberSlot(name))
+        }
+        return false
+    }
+
     fn bumpNumberInPlace:boolean (name:string delta:double) {
         if withObject {
             return false
@@ -5185,8 +5265,24 @@ class ComponentEngine {
         }
 
         if (seK == 6) {
-            completionValue = (this.evaluateAssignValue(node))
-            handledSE = true
+            ; `s += i` as a STATEMENT: the result is discarded, so nothing can
+            ; alias it and the slot may be written in place. The same shape in
+            ; value position (`a = (s += 1)`) hands the object to a second name
+            ; and must keep minting -- which is why this lives at the statement
+            ; call site rather than inside evaluateAssignValue.
+            if (this.assignNumberInSlot(node)) {
+                ; The completion value is the STORED value, and the slot object
+                ; is it -- read back rather than minted, so the statement stays
+                ; allocation-free. Only `eval` ever observes this, and a body
+                ; that mentions `eval` has no slots to begin with.
+                def seLhs:TSNode (unwrap node.left)
+                def seNm:string seLhs.name
+                completionValue = (this.lookupIdentifier(seNm))
+                handledSE = true
+            } {
+                completionValue = (this.evaluateAssignValue(node))
+                handledSE = true
+            }
         }
 
         ; Statement-position unary with a side effect (delete obj.x, void expr).
@@ -6153,6 +6249,53 @@ class ComponentEngine {
     }
 
     ; Evaluate an assignment/update as an expression, returning its value.
+    ; `name op= <expr>` where the target holds a slot number and the right-hand
+    ; side evaluates to a number: compute and store without minting a value.
+    ; Returns false for every other shape, so the caller falls through to the
+    ; general path unchanged.
+    ;
+    ; `+=` insists on numbers on BOTH sides -- with a string on either one it is
+    ; concatenation, and the slot holds no string.
+    fn assignNumberInSlot:boolean (node:TSNode) {
+        if anyWithScope {
+            return false
+        }
+        if node.left { } {
+            return false
+        }
+        def lhs:TSNode (unwrap node.left)
+        if ((this.nodeKindOf(lhs)) != 1) {
+            return false
+        }
+        ; `+=` `-=` `*=` `/=` only. `%=` is left out: its remainder helper
+        ; answers with a value object, so routing it here would save nothing.
+        def opK:int (this.opKindOf(node))
+        if ((opK < 2) || (opK > 5)) {
+            return false
+        }
+        def nm:string lhs.name
+        if (false == (context.hasNumberSlot(nm))) {
+            return false
+        }
+        if node.right { } {
+            return false
+        }
+        def rv:EvalValue (this.evaluateExpr((unwrap node.right)))
+        if scriptThrew {
+            return false
+        }
+        if (rv.valueType != 1) {
+            return false
+        }
+        def cur:double (context.slotNumberOf(nm))
+        def out:double cur
+        if (opK == 2) { out = (cur + rv.numberValue) }
+        if (opK == 3) { out = (cur - rv.numberValue) }
+        if (opK == 4) { out = (cur * rv.numberValue) }
+        if (opK == 5) { out = (cur / rv.numberValue) }
+        return (context.setNumberInSlot(nm out))
+    }
+
     fn evaluateAssignValue:EvalValue (node:TSNode) {
         if ((this.nodeKindOf(node)) == 7) {
             return (this.evaluateUpdateValue(node))
