@@ -1,0 +1,58 @@
+; RangerMem.refCount exposes the runtime's reference count for one object.
+; The exact numbers are codegen-dependent -- how many locals the surrounding
+; function retains -- so what is asserted here is the PROPERTY that matters:
+; holding a second reference makes the count strictly larger. That is what a
+; caller wanting to know "is this value uniquely owned" depends on.
+
+class RangerMem {
+    sfn liveObjects:int () { return 0 }
+    sfn resetStats:void () { }
+    sfn refCount:int (v:Val) { return 0 }
+}
+
+class Val {
+    def n:double 0.0
+    Constructor (x:double) { n = x }
+}
+
+class Holder {
+    def bindings:[string:Val]
+
+    fn define:void (name:string x:double) {
+        def v:Val (new Val(x))
+        set bindings name v
+    }
+
+    fn probe:int (name:string) {
+        def cur@(optional):Val (get bindings name)
+        if cur {
+            def c:Val (unwrap cur)
+            return (RangerMem.refCount(c))
+        }
+        return (0 - 1)
+    }
+
+    fn aliasIt@(optional):Val (name:string) {
+        return (get bindings name)
+    }
+}
+
+class RefCountMain {
+    sfn m@(main):int () {
+        def h (new Holder())
+        h.define("i" 1.0)
+        def alone:int (h.probe("i"))
+        def held:int alone
+        def keep@(optional):Val (h.aliasIt("i"))
+        if keep {
+            def k:Val (unwrap keep)
+            held = (h.probe("i"))
+            if (k.n < 0.0) { return 3 }
+        }
+        ; a live object always has at least one reference
+        if (alone < 1) { return 1 }
+        ; a second holder must be visible in the count
+        if (held <= alone) { return 2 }
+        return 0
+    }
+}

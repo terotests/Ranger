@@ -340,6 +340,18 @@ void ranger_mem_stats_enable(void) {
 
 int ranger_mem_live_objects(void) { return g_live_objects; }
 
+/* The reference count of one object, for callers that need to know whether a
+ * value is UNIQUELY owned. An interpreter can update a number in place instead
+ * of minting a new one when nothing else can observe the old one, and rc == 1
+ * -- only the binding holds it -- is exactly that condition. Returns 0 for a
+ * null body so a caller can treat "cannot tell" and "not unique" alike. */
+int ranger_obj_refcount(int64_t body) {
+  if (body == 0) {
+    return 0;
+  }
+  return (int)((RangerObjHeader *)((char *)(intptr_t)body - RANGER_HEADER_SIZE))->rc;
+}
+
 void ranger_mem_reset_stats(void) { g_live_objects = 0; }
 
 static void ranger_destroy_field(int64_t body, const RangerFieldDesc *f) {

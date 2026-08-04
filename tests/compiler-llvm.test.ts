@@ -604,6 +604,27 @@ describe("Ranger Compiler - LLVM / Low IR backend", () => {
     expect(ll).not.toContain("ownership[manual]");
   });
 
+  it("native RangerMem.refCount sees a second holder", () => {
+    if (!isLlvmAvailable()) {
+      return;
+    }
+    const outDir = path.join(__dirname, ".output-refcount");
+    const binPath = compileNativeWithMem(
+      `${FIXTURES}/llvm_refcount.rgr`,
+      "refcount",
+      outDir
+    );
+    // The fixture returns 0 only when a live object counts at least one
+    // reference AND taking a second reference makes the count strictly larger.
+    // The absolute numbers are codegen-dependent, so they are deliberately not
+    // asserted -- the ordering is the property callers can rely on.
+    const exitCode = execSync(`"${binPath}"; echo $?`, {
+      shell: "/bin/bash",
+      encoding: "utf-8",
+    }).trim();
+    expect(exitCode).toBe("0");
+  });
+
   it("native parser-sim workload stays flat at scale (1000 objects)", () => {
     if (!isLlvmAvailable()) {
       return;

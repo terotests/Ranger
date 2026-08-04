@@ -7170,6 +7170,28 @@ class LowIRBuilderPass {
       def argTypes:[string]
       return (builder.emitCall("ranger_mem_live_objects" "i32" args argTypes))
     }
+    ; RangerMem.refCount(v) -- how many references the runtime is tracking for
+    ; this object. Only meaningful where objects are reference counted; on the
+    ; targets that are not, the class body's `return 0` stands, and a caller
+    ; that uses it to decide whether a value is uniquely owned simply never
+    ; takes its fast path.
+    if (fnName == "RangerMem_refCount") {
+      if ((array_length argsNode.children) > 0) {
+        this.usedMemRuntime = true
+        this.ensureMemExtern((LowIRTarget.resolve((unwrap lctx.ctx))))
+        ; Declared here, not with the other mem externs: a diagnostic nothing
+        ; calls must not add a line to every module's IR.
+        def rcDecl:[string]
+        push rcDecl lctx.ptrType
+        this.ensureExternDecl("ranger_obj_refcount" "i32" rcDecl false)
+        def rcArgs:[string]
+        def rcArgTypes:[string]
+        push rcArgs (this.lowerExpr((itemAt argsNode.children 0) lctx))
+        push rcArgTypes lctx.ptrType
+        return (builder.emitCall("ranger_obj_refcount" "i32" rcArgs rcArgTypes))
+      }
+      return notIntrinsic
+    }
     if (fnName == "RangerMem_resetStats") {
       this.usedMemRuntime = true
       this.ensureMemExtern((LowIRTarget.resolve((unwrap lctx.ctx))))

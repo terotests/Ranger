@@ -225,6 +225,38 @@ A general "recycle any value" pool is a different proposition: it needs to know
 when a value dies, which reference counting already knows — and that path is
 exactly the allocator-level pool measured above at ~0–2.5%.
 
+## Getting the last allocation to zero: what stands in the way
+
+After literal interning, `for (var i = 0; i < 100000; i++) { }` allocates
+exactly one object per iteration — the incremented `i`. The binding is the same
+one every time and always holds a number, so nothing needs allocating: writing
+the new number into the existing value would do.
+
+The catch is aliasing. `var a = i; i++;` must not change `a`, so an in-place
+update is only legal when the value is **uniquely owned** — and reference
+counting already knows that. `RangerMem.refCount(v)` was added to check whether
+the signal is usable, and it is:
+
+| | rc |
+| --- | ---: |
+| only the scope binding holds the value | **3** |
+| binding plus one alias | **5** |
+
+The two cases separate. What is *not* usable is the threshold: the baseline is
+3 rather than 1 because the enclosing function's own locals (`cur`, `c`) each
+retain, so the number depends on the shape of whichever function performs the
+test. Hard-coding "3 means unique" would silently become wrong the next time
+that function is edited, and the failure mode is a mutated value that another
+binding can still see — silent corruption in a JavaScript engine. That check is
+therefore deliberately **not** shipped.
+
+The robust form is a backend one: the compiler emitted every retain in the
+scope, so it can lower an `isUniquelyOwned(v)` intrinsic as *"rc minus the
+references this scope is holding equals one"* without any hard-coded constant.
+That is the piece of work that takes the last allocation out of the loop, and
+it is independent of the value-representation question — it would pay off for
+strings and arrays on the same argument.
+
 ## Where the real headroom is, in rough order
 
 1. **Do not allocate a heap value per intermediate.** A NaN-boxed or tagged

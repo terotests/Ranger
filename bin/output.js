@@ -42090,6 +42090,21 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   let argTypes = [];
                   return builder.emitCall("ranger_mem_live_objects", "i32", args, argTypes);
                 }
+                if ( fnName == "RangerMem_refCount" ) {
+                  if ( (argsNode.children.length) > 0 ) {
+                    this.usedMemRuntime = true;
+                    this.ensureMemExtern(LowIRTarget.resolve((lctx.ctx)));
+                    let rcDecl = [];
+                    rcDecl.push(lctx.ptrType);
+                    this.ensureExternDecl("ranger_obj_refcount", "i32", rcDecl, false);
+                    let rcArgs = [];
+                    let rcArgTypes = [];
+                    rcArgs.push(this.lowerExpr((argsNode.children[0]), lctx));
+                    rcArgTypes.push(lctx.ptrType);
+                    return builder.emitCall("ranger_obj_refcount", "i32", rcArgs, rcArgTypes);
+                  }
+                  return notIntrinsic;
+                }
                 if ( fnName == "RangerMem_resetStats" ) {
                   this.usedMemRuntime = true;
                   this.ensureMemExtern(LowIRTarget.resolve((lctx.ctx)));
