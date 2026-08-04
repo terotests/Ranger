@@ -69,6 +69,16 @@ class TSNode {
   ; the names never change for a given node.
   def hoistScanned:boolean false
   def hoistedVarNames:[string]
+  ; Memo the EVALUATOR fills on first visit, alongside the hoist memo above:
+  ; which of this body's hoisted `var` names hold a number whose VALUE OBJECT
+  ; provably never leaves the frame. Such a binding can own ONE EvalValue for
+  ; the whole call and have `i++` write through it, instead of minting a
+  ; replacement per write -- the allocation `for (var i = 0; i < n; i++) {}`
+  ; paid once per iteration. Escape is decided syntactically and pessimistically
+  ; (see ComponentEngine.slotSafeVarNames), so a name absent from this list is
+  ; simply handled the old way.
+  def slotScanned:boolean false
+  def slotVarNames:[string]
   def method:boolean false    ; { foo() {} } method shorthand
   def generator:boolean false ; function* generators
   def async:boolean false     ; async functions

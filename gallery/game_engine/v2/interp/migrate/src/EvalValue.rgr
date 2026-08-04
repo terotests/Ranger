@@ -46,6 +46,12 @@ class EvalValue {
     def numberValue:double 0.0
     def stringValue:string ""
     def boolValue:boolean false
+    ; True only for a number minted to fill ONE binding's slot in a frame whose
+    ; body scan proved the name's value object never escapes. Nothing else can
+    ; be holding it, so `i++` writes `numberValue` in place. Every value the
+    ; script can alias -- and every pooled literal, which is shared by every
+    ; occurrence of that constant -- keeps false and takes the minting path.
+    def slotOwned:boolean false
     ; D-IDENTITY: immutable reference identity. Object/array/function/Map/Set/
     ; element values are stamped with a unique id (>= 1) at mint; primitives keep
     ; 0 and compare by value. Never changed by property writes, reparenting, or
