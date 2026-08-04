@@ -314,9 +314,9 @@ export function compileAndRunDart(sourceFile: string): { compile: CompileResult;
 
 1. ✅ Simple Ranger programs compile to valid Dart code
 2. ✅ Generated Dart code runs with `dart run`
-3. ✅ ts_parser compiles and works in Dart
-4. ✅ pdf_writer core components compile
-5. ✅ Can create a Flutter package from generated code
+3. ⬜ ts_parser compiles and works in Dart
+4. ⬜ pdf_writer core components compile
+5. ✅ Can create a Flutter package from generated code (`-pubspec` / `-flutter`)
 
 ## References
 
