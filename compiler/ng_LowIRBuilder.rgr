@@ -17,6 +17,7 @@ class LowIRLowerContext {
   ; Fields carry this on their LowIRField; locals have no field to carry it, and
   ; without it a `set m k true` stored an i1 into the i64 value slot.
   def smapValueTypes:[string:string]
+  def imapValueTypes:[string:string]
   def ownedObjectLocals:[string]
   def ownedCollectionLocals:[string]
   def ownedStringLocals:[string]
@@ -2103,6 +2104,104 @@ class LowIRBuilderPass {
     return false
   }
 
+  ; An `[int:T]` map whose values are NOT ints: object or string references,
+  ; which are pointer sized. The generated RtMap_* runtime stores 4-byte slots
+  ; and cannot hold one, and a reference in a map has to be retained or the map
+  ; outlives what it points at -- so these route to RtIMap_* in
+  ; runtime/ranger_rt.c, the integer-keyed twin of the string-map runtime.
+  fn isIntKeyValueMapTypeNode:boolean (node:CodeNode) {
+    if (node.value_type == RangerNodeType.Hash) {
+      if (node.key_type == "int") {
+        if ((strlen node.array_type) == 0) {
+          return false
+        }
+        return (node.array_type != "int")
+      }
+    }
+    return false
+  }
+
+  fn ensureIMapExterns:void () {
+    def pKV:[string]
+    push pKV "i64"
+    push pKV "i64"
+    push pKV "i64"
+    def pK:[string]
+    push pK "i64"
+    push pK "i64"
+    def pM:[string]
+    push pM "i64"
+    def pKind:[string]
+    push pKind "i32"
+    def none:[string]
+    this.ensureExternDecl("RtIMap_new" "i64" none false)
+    this.ensureExternDecl("RtIMap_new_kind" "i64" pKind false)
+    this.ensureExternDecl("RtIMap_set" "void" pKV false)
+    this.ensureExternDecl("RtIMap_get" "i64" pK false)
+    this.ensureExternDecl("RtIMap_has" "i32" pK false)
+    this.ensureExternDecl("RtIMap_remove" "void" pK false)
+    this.ensureExternDecl("RtIMap_size" "i32" pM false)
+    this.ensureExternDecl("RtIMap_free" "void" pM false)
+    this.ensureExternDecl("RtIMap_retain" "void" pM false)
+  }
+
+  ; An int key arrives as i32 (or i1 for a boolean-typed expression); RtIMap
+  ; takes i64, so widen rather than letting the call type-mismatch.
+  fn widenToI64:string (val:string keyNode:CodeNode lctx:LowIRLowerContext) {
+    if (this.exprProducesI1(keyNode lctx)) {
+      return (lctx.builder.emitCast("zext" "i64" "i1" val))
+    }
+    return (lctx.builder.emitCast("zext" "i64" "i32" val))
+  }
+
+  fn emitIMapCall:string (fnName:string retType:string desc:string rest:[string] restTypes:[string] lctx:LowIRLowerContext) {
+    this.ensureIMapExterns()
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes "i64"
+    def i:int 0
+    while (i < (array_length rest)) {
+      push args (itemAt rest i)
+      push argTypes (itemAt restTypes i)
+      i = (i + 1)
+    }
+    return (lctx.builder.emitCall(fnName retType args argTypes))
+  }
+
+  ; The map descriptor for a name bound to an int-keyed reference map, or "".
+  fn imapDescFromVref:string (vref:string lctx:LowIRLowerContext) {
+    if ((this.collectionKind(vref lctx)) == "imap") {
+      return (this.loadCollectionDesc(vref lctx))
+    }
+    return ""
+  }
+
+  fn imapValueKind:string (vref:string lctx:LowIRLowerContext) {
+    if (has lctx.imapValueTypes vref) {
+      def t:string (unwrap (get lctx.imapValueTypes vref))
+      if (LowIRUtil.isStringType(t)) {
+        return "string"
+      }
+      if (LowIRUtil.isSupportedPrimitive(t)) {
+        return "int"
+      }
+      return "object"
+    }
+    return "object"
+  }
+
+  ; 0 plain / 1 owned object / 2 owned string, matching RtIMap's valkind.
+  fn imapValueOwnKind:int (typeName:string) {
+    if (LowIRUtil.isStringType(typeName)) {
+      return 2
+    }
+    if (LowIRUtil.isSupportedPrimitive(typeName)) {
+      return 0
+    }
+    return 1
+  }
+
   fn isIntIntMapTypeNode:boolean (node:CodeNode) {
     if (node.value_type == RangerNodeType.Hash) {
       if (node.key_type == "int") {
@@ -2625,6 +2724,22 @@ class LowIRBuilderPass {
       }
       return gres
     }
+    def gim (this.imapDescFromVref(varName lctx))
+    if ((strlen gim) > 0) {
+      def giRest:[string]
+      def giTypes:[string]
+      push giRest (this.widenToI64(key keyNode lctx))
+      push giTypes "i64"
+      def gires (this.emitIMapCall("RtIMap_get" "i64" gim giRest giTypes lctx))
+      def gikind (this.imapValueKind(varName lctx))
+      if (gikind == "int") {
+        return (lctx.builder.emitCast("trunc" "i32" "i64" gires))
+      }
+      if (gikind == "string") {
+        return (lctx.builder.emitIntToI8Ptr(gires lctx.ptrType))
+      }
+      return gires
+    }
     if (kind == "map") {
       return (this.emitRtMapGet(desc key lctx))
     }
@@ -2647,6 +2762,12 @@ class LowIRBuilderPass {
       def lTypes:[string]
       return (this.emitSMapCall("RtSMap_size" "i32" lsm lRest lTypes lctx))
     }
+    def lim (this.imapDescFromVref(varName lctx))
+    if ((strlen lim) > 0) {
+      def liRest:[string]
+      def liTypes:[string]
+      return (this.emitIMapCall("RtIMap_size" "i32" lim liRest liTypes lctx))
+    }
     return (this.emitRtArrayLen(desc lctx))
   }
 
@@ -2663,6 +2784,14 @@ class LowIRBuilderPass {
       push hRest (this.strKeyPtr(keyNode key lctx))
       push hTypes "i8*"
       return (this.toI1((this.emitSMapCall("RtSMap_has" "i32" hsm hRest hTypes lctx)) lctx))
+    }
+    def him (this.imapDescFromVref(varName lctx))
+    if ((strlen him) > 0) {
+      def hiRest:[string]
+      def hiTypes:[string]
+      push hiRest (this.widenToI64(key keyNode lctx))
+      push hiTypes "i64"
+      return (this.toI1((this.emitIMapCall("RtIMap_has" "i32" him hiRest hiTypes lctx)) lctx))
     }
     return (this.emitRtMapHas(desc key lctx))
   }
@@ -2682,6 +2811,30 @@ class LowIRBuilderPass {
     if (collNode.value_type == RangerNodeType.VRef) {
       def varName:string collNode.vref
       def kind (this.collectionKind(varName lctx))
+      def sim (this.imapDescFromVref(varName lctx))
+      if ((strlen sim) > 0) {
+        def siRest:[string]
+        def siTypes:[string]
+        push siRest (this.widenToI64(key keyNode lctx))
+        push siTypes "i64"
+        def sival:string val
+        def sikind (this.imapValueKind(varName lctx))
+        if (sikind == "int") {
+          if (this.exprProducesI1((unwrap valNode) lctx)) {
+            sival = (lctx.builder.emitCast("zext" "i64" "i1" val))
+          } {
+            sival = (lctx.builder.emitCast("zext" "i64" "i32" val))
+          }
+        }
+        if (sikind == "string") {
+          sival = (lctx.builder.emitPtrToInt(val))
+        }
+        push siRest sival
+        push siTypes "i64"
+        def voidI:string "void"
+        this.emitIMapCall("RtIMap_set" voidI sim siRest siTypes lctx)
+        return
+      }
       def ssm (this.smapDescFromVref(varName lctx))
       if ((strlen ssm) > 0) {
         def sdesc:string ssm
@@ -5045,6 +5198,9 @@ class LowIRBuilderPass {
     if ((this.collectionKind(varName lctx)) == "smap") {
       relFn = "RtSMap_free"
     }
+    if ((this.collectionKind(varName lctx)) == "imap") {
+      relFn = "RtIMap_free"
+    }
     lctx.builder.emitCall(relFn "void" args argTypes)
   }
 
@@ -5414,6 +5570,17 @@ class LowIRBuilderPass {
         def newSMap (this.emitSMapNewKind((this.smapValueOwnKind(nameNode.array_type)) lctx))
         this.bindCollectionSlot(varName "smap" newSMap lctx)
         set lctx.smapValueTypes varName nameNode.array_type
+        return
+      }
+      if (this.isIntKeyValueMapTypeNode(nameNode)) {
+        this.ensureIMapExterns()
+        def ikArgs:[string]
+        def ikTypes:[string]
+        push ikArgs (lctx.builder.emitConst("i32" (to_string (this.imapValueOwnKind(nameNode.array_type)))))
+        push ikTypes "i32"
+        def newIMap (lctx.builder.emitCall("RtIMap_new_kind" "i64" ikArgs ikTypes))
+        this.bindCollectionSlot(varName "imap" newIMap lctx)
+        set lctx.imapValueTypes varName nameNode.array_type
         return
       }
       if (this.isIntIntMapTypeNode(nameNode)) {

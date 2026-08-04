@@ -604,6 +604,29 @@ describe("Ranger Compiler - LLVM / Low IR backend", () => {
     expect(ll).not.toContain("ownership[manual]");
   });
 
+  it("compiles [int:T] to the RtIMap runtime and runs it", () => {
+    if (!isLlvmAvailable()) {
+      return;
+    }
+    const outDir = path.join(__dirname, ".output-int-map");
+    const binPath = compileNativeWithMem(
+      `${FIXTURES}/llvm_int_map.rgr`,
+      "int_map",
+      outDir
+    );
+    const ll = fs.readFileSync(path.join(outDir, "llvm_int_map.ll"), "utf-8");
+    // The int-keyed map must NOT go to the generated RtMap_* runtime, whose
+    // 4-byte slots cannot hold an object reference.
+    expect(ll).toContain("RtIMap_new_kind");
+    expect(ll).toContain("RtIMap_set");
+    expect(ll).toContain("RtIMap_get");
+    const exitCode = execSync(`"${binPath}"; echo $?`, {
+      shell: "/bin/bash",
+      encoding: "utf-8",
+    }).trim();
+    expect(exitCode).toBe("0");
+  });
+
   it("RtIMap holds 64-bit owned values under a dense key range", () => {
     if (!isLlvmAvailable()) {
       return;
