@@ -17,6 +17,10 @@ class RangerRustClassWriter {
   ; call must borrow mutably (every method takes &mut self), where a plain
   ; field read borrows shared so that two reads of one cell can overlap.
   def rust_writing_call_receiver:boolean false
+  ; the receiver borrow mode for the call being written: false when the
+  ; called method takes &self, so WriteVRef borrows shared and an argument
+  ; aliasing the receiver cannot panic the RefCell at runtime
+  def rust_call_receiver_mut:boolean true
   ; set when a signature has just written `&self`/`&mut self` so that
   ; writeArgsDef knows to lead with a comma — and only then, so an empty
   ; parameter list closes as `(&mut self)` and not `(&mut self, )`
@@ -69,6 +73,21 @@ class RangerRustClassWriter {
       case "virtual" { return "r#virtual" }
       case "yield" { return "r#yield" }
       case "try" { return "r#try" }
+      case "fn" { return "r#fn" }
+      case "let" { return "r#let" }
+      case "loop" { return "r#loop" }
+      case "if" { return "r#if" }
+      case "else" { return "r#else" }
+      case "while" { return "r#while" }
+      case "for" { return "r#for" }
+      case "in" { return "r#in" }
+      case "return" { return "r#return" }
+      case "break" { return "r#break" }
+      case "continue" { return "r#continue" }
+      case "struct" { return "r#struct" }
+      case "enum" { return "r#enum" }
+      ; `self` cannot be a raw identifier — suffix it
+      case "self" { return "self_" }
     }
     return tn
   }
@@ -293,7 +312,7 @@ class RangerRustClassWriter {
           helem = (("Rc<RefCell<" + helem) + ">>")
         }
         wr.out((((("HashMap<" + (this.getObjectTypeString(node.key_type ctx))) + ",") + helem) + ">") false)
-        wr.addImport("std::collections::HashMap")
+
       }
       case RangerNodeType.Array {
         def aelem:string (this.getObjectTypeString(node.array_type ctx))
@@ -348,8 +367,44 @@ class RangerRustClassWriter {
   }
   fn WriteVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (node.vref == "this") {
+      ; `this` as a VALUE in a shared-class method is the receiver's Rc,
+      ; held as the hidden __self_rc argument — `self` there is only the
+      ; borrowed struct and cannot become an Rc<RefCell<T>> (E0308)
+      if (rust_writing_call_receiver == false) {
+        def tvCls@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+        def tvM@(optional):RangerAppFunctionDesc (ctx.getCurrentMethod())
+        if ((!null? tvCls) && (!null? tvM)) {
+          def tvC:RangerAppClassDesc (unwrap tvCls)
+          def tvF:RangerAppFunctionDesc (unwrap tvM)
+          if (this.rustClassIsShared(tvC.name ctx)) {
+            if tvF.rust_needs_self_rc {
+              wr.out("__self_rc" false)
+              return
+            }
+          }
+        }
+      }
       wr.out(thisName false)
       return
+    }
+
+    ; a field tail after a parenthesised expression keeps its dot in the
+    ; vref — `.isHole` after `(itemAt xs i)`. When the field's class is
+    ; shared, the expression yields an Rc: borrow before the field.
+    if ((strlen node.vref) > 1) {
+      if ((charAt node.vref 0) == 46) {
+        if node.hasParamDesc {
+          def dotP:RangerAppParamDesc node.paramDesc
+          def dotCls@(optional):RangerAppClassDesc dotP.propertyClass
+          if (!null? dotCls) {
+            def dotC:RangerAppClassDesc (unwrap dotCls)
+            if (this.rustClassIsShared(dotC.name ctx)) {
+              wr.out((".borrow()" + node.vref) false)
+              return
+            }
+          }
+        }
+      }
     }
 
     if (node.eval_type == RangerNodeType.Enum) {
@@ -364,6 +419,32 @@ class RangerRustClassWriter {
       }
     }
 
+    ; a bare field tail after a parenthesised expression: no desc, a lone
+    ; name that is no variable, class or enum — `(itemAt xs i)` then
+    ; `isHole`, the dot already written upstream. When every class that
+    ; declares the field is shared, the expression before it yields an Rc:
+    ; borrow before the field.
+    if (((node.hasParamDesc == false) && ((array_length node.ns) == 1)) && ((strlen node.vref) > 0)) {
+      if (((ctx.isVarDefined(node.vref)) == false) && ((ctx.hasClass(node.vref)) == false)) {
+        def dotDecl:int 0
+        def dotShared:int 0
+        def dotRoot:RangerAppWriterContext (ctx.getRoot())
+        for dotRoot.definedClasses dcl:RangerAppClassDesc dci {
+          def dfv@(optional):RangerAppParamDesc (dcl.findVariable(node.vref))
+          if (!null? dfv) {
+            dotDecl = dotDecl + 1
+            if (this.rustClassIsShared(dcl.name ctx)) {
+              dotShared = dotShared + 1
+            }
+          }
+        }
+        if ((dotDecl > 0) && (dotDecl == dotShared)) {
+          wr.out(("borrow()." + node.vref) false)
+          return
+        }
+      }
+    }
+
     if ((array_length node.nsp) > 0) {
       def had_static:boolean false
       def nsp_len:int (array_length node.nsp)
@@ -373,8 +454,8 @@ class RangerRustClassWriter {
           if(part == "this") {
             wr.out(thisName false)
             continue
-          } 
-        }        
+          }
+        }
 
         if (i > 0) {
           if had_static {
@@ -422,7 +503,11 @@ class RangerRustClassWriter {
           }
           if (rcw_skip == false) {
             if (rust_writing_call_receiver || ctx.in_lhs_of_assignment) {
-              wr.out(".borrow_mut()" false)
+              if ((ctx.in_lhs_of_assignment == false) && (rust_call_receiver_mut == false)) {
+                wr.out(".borrow()" false)
+              } {
+                wr.out(".borrow_mut()" false)
+              }
             } {
               wr.out(".borrow()" false)
             }
@@ -516,8 +601,19 @@ class RangerRustClassWriter {
                   }
                 }
                 
-                if root_is_immutable_borrow {
-                  ; Root parameter is immutable borrow - must use as_ref()
+                ; a strong optional field of a shared class is
+                ; Option<Rc<RefCell<T>>>: the unwrap hands out the Rc —
+                ; through as_ref, since mutation goes through the CELL, and
+                ; an as_mut here holds the whole field mutably through the
+                ; call, conflicting with a __self_rc re-borrow (E0502)
+                def optSharedT:string ""
+                def pOptNN@(optional):CodeNode p.nameNode
+                if (!null? pOptNN) {
+                  def pOptN:CodeNode (unwrap pOptNN)
+                  optSharedT = pOptN.type_name
+                }
+                def optSegShared:boolean (this.rustClassIsShared(optSharedT ctx))
+                if (root_is_immutable_borrow || optSegShared) {
                   wr.out(".as_ref().unwrap()" false)
                 } {
                   ; Check if we're on LHS of assignment - need as_mut
@@ -528,18 +624,13 @@ class RangerRustClassWriter {
                     wr.out(".as_mut().unwrap()" false)
                   }
                 }
-                ; a strong optional field of a shared class is
-                ; Option<Rc<RefCell<T>>>: the unwrap hands out the Rc, and
-                ; the next segment must go through the cell
-                def optSharedT:string ""
-                def pOptNN@(optional):CodeNode p.nameNode
-                if (!null? pOptNN) {
-                  def pOptN:CodeNode (unwrap pOptNN)
-                  optSharedT = pOptN.type_name
-                }
-                if (this.rustClassIsShared(optSharedT ctx)) {
+                if optSegShared {
                   if (rust_writing_call_receiver || ctx.in_lhs_of_assignment) {
-                    wr.out(".borrow_mut()" false)
+                    if ((ctx.in_lhs_of_assignment == false) && (rust_call_receiver_mut == false)) {
+                      wr.out(".borrow()" false)
+                    } {
+                      wr.out(".borrow_mut()" false)
+                    }
                   } {
                     wr.out(".borrow()" false)
                   }
@@ -620,7 +711,12 @@ class RangerRustClassWriter {
     def vnn:CodeNode (unwrap variant.nameNode)
     if (((strlen vnn.array_type) == 0) && ((strlen vnn.key_type) == 0)) {
       if (this.rustClassIsShared(vnn.type_name ctx)) {
-        wr.out((("Rc<RefCell<" + (this.getObjectTypeString(vnn.type_name ctx))) + ">>") false)
+        ; an @(optional) return keeps its Option around the Rc
+        if (vnn.hasFlag("optional")) {
+          wr.out((("Option<Rc<RefCell<" + (this.getObjectTypeString(vnn.type_name ctx))) + ">>>") false)
+        } {
+          wr.out((("Rc<RefCell<" + (this.getObjectTypeString(vnn.type_name ctx))) + ">>") false)
+        }
         return
       }
     }
@@ -683,8 +779,34 @@ class RangerRustClassWriter {
     if node.hasParamDesc {
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc nn.paramDesc
-      if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
+      ; a nested self-call ARGUMENT inside a `let` initializer: the
+      ; statement-level extraction cannot run inside the initializer, and
+      ; two mutable self borrows collide (E0499/E0502) — pull the inner
+      ; calls into temporaries first, the arg loops substitute them
+      if ((p.ref_cnt > 0) && ((array_length node.children) > 2)) {
+        this.rustExtractSelfCallConflicts((node.getThird()) ctx wr)
+      }
+      ; an unused def whose initializer CALLS something still runs for its
+      ; side effects — `def ignored:T (this.doWork(...))` is the language's
+      ; evaluate-and-discard form. Commenting it out silently dropped the
+      ; call (the for-loop update clause vanished this way). It emits as a
+      ; live `let` with an underscore name; only a call-free initializer
+      ; stays commented out.
+      def unused_def:boolean ((p.ref_cnt == 0) && (p.is_class_variable == false))
+      def unused_keeps_call:boolean false
+      if unused_def {
+        if ((array_length node.children) > 2) {
+          if (this.rustNodeContainsCall((node.getThird()))) {
+            unused_keeps_call = true
+          }
+        }
+      }
+      if (unused_def && (unused_keeps_call == false)) {
         wr.out("// unused:  " false)
+      }
+      def unused_pfx:string ""
+      if unused_keeps_call {
+        unused_pfx = "_"
       }
       def map_or_hash:boolean ((nn.value_type == RangerNodeType.Array) || (nn.value_type == RangerNodeType.Hash))
       ; Buffer type needs mut since buffer_set/buffer_fill/buffer_copy modify in place
@@ -700,13 +822,17 @@ class RangerRustClassWriter {
       def local_needs_rc_wrap:boolean p.rust_needs_rc_wrap
       
       if (needs_mut || is_object) {
-        wr.out((("let mut " + p.compiledName) + " : ") false)
+        wr.out(((("let mut " + unused_pfx) + (this.adjustType(p.compiledName))) + " : ") false)
       } {
-        wr.out((("let " + p.compiledName) + " : ") false)
+        wr.out(((("let " + unused_pfx) + (this.adjustType(p.compiledName))) + " : ") false)
       }
       def nameN:CodeNode (unwrap p.nameNode)
       
-      ; Rust: Check if RHS is an optional field - we need to unwrap it and use non-optional type
+      ; Rust: Check if RHS is an optional field - we need to unwrap it and use non-optional type.
+      ; An uninitialized member COLLECTION carries is_optional on its desc,
+      ; but the Rust field is a plain Vec/HashMap, never Option — treating it
+      ; as optional dropped the declared type (`let x :  = …`) and added a
+      ; spurious .unwrap() to a field that was never Option.
       def rhs_is_optional_field:boolean false
       if ((array_length node.children) > 2) {
         def value:CodeNode (node.getThird())
@@ -716,6 +842,13 @@ class RangerRustClassWriter {
             def lastParam:RangerAppParamDesc (itemAt value.nsp lastIdx)
             if lastParam.is_optional {
               rhs_is_optional_field = true
+              def lpNN@(optional):CodeNode lastParam.nameNode
+              if (!null? lpNN) {
+                def lpN:CodeNode (unwrap lpNN)
+                if (((strlen lpN.array_type) > 0) || ((strlen lpN.key_type) > 0)) {
+                  rhs_is_optional_field = false
+                }
+              }
             }
           } {
             ; Simple variable reference (no dots) - check paramDesc directly
@@ -723,18 +856,47 @@ class RangerRustClassWriter {
               def vp:RangerAppParamDesc value.paramDesc
               if vp.is_optional {
                 rhs_is_optional_field = true
+                def vpNN@(optional):CodeNode vp.nameNode
+                if (!null? vpNN) {
+                  def vpN:CodeNode (unwrap vpNN)
+                  if (((strlen vpN.array_type) > 0) || ((strlen vpN.key_type) > 0)) {
+                    rhs_is_optional_field = false
+                  }
+                }
               }
             }
           }
         }
       }
       
+      ; a `def x@(optional):T (init)` keeps its optionality on the name
+      ; node's flag alone — the desc's is_optional stays false when an
+      ; initializer is present, so read both
+      def eff_optional:boolean p.is_optional
+      if (eff_optional == false) {
+        if (nameN.hasFlag("optional")) {
+          eff_optional = true
+        }
+      }
       ; Write type - with Rc<RefCell<>> wrapper if needed for weak ref pattern
       if local_needs_rc_wrap {
-        ; Variable needs Rc<RefCell<T>> type
-        wr.out("Rc<RefCell<" false)
-        this.writeTypeDef(nameN ctx wr)
-        wr.out(">>" false)
+        ; Variable needs Rc<RefCell<T>> type. An OPTIONAL shared local is
+        ; Option<Rc<RefCell<T>>> — the Option outside the cell, the same
+        ; shape a field takes — never Rc<RefCell<Option<T>>>. A
+        ; non-optional local writes the bare class type: writeTypeDef reads
+        ; the node's optional flag, which an initializer that was unwrapped
+        ; from an optional field leaks onto the def.
+        if (eff_optional && (((strlen nameN.array_type) == 0) && ((strlen nameN.key_type) == 0))) {
+          wr.out((("Option<Rc<RefCell<" + (this.getObjectTypeString(nameN.type_name ctx))) + ">>>") false)
+        } {
+          wr.out("Rc<RefCell<" false)
+          if ((((strlen nameN.type_name) > 0) && ((strlen nameN.array_type) == 0)) && ((strlen nameN.key_type) == 0)) {
+            wr.out((this.getObjectTypeString(nameN.type_name ctx)) false)
+          } {
+            this.writeTypeDef(nameN ctx wr)
+          }
+          wr.out(">>" false)
+        }
       } {
         if rhs_is_optional_field {
           ; Write the underlying type without Option wrapper
@@ -766,8 +928,25 @@ class RangerRustClassWriter {
           init_rc_state = (this.rustInitRcState(value ctx))
         }
 
+        ; an optional shared local holds Option<Rc<RefCell<T>>> — a real
+        ; initializer goes in as Some(…); one that is itself optional (a
+        ; hash get, an optional-returning call) passes through unchanged
+        def optInitPassthrough:boolean false
+        if (local_needs_rc_wrap && eff_optional) {
+          if (value.hasFlag("optional")) {
+            optInitPassthrough = true
+          }
+          ; an optional FIELD initializer is already Option<Rc<…>>: it
+          ; passes through whole — no Some, no wrap, no unwrap
+          if rhs_is_optional_field {
+            optInitPassthrough = true
+          }
+          if (optInitPassthrough == false) {
+            wr.out("Some(" false)
+          }
+        }
         ; Wrap initialization in Rc::new(RefCell::new(...)) if needed
-        if (local_needs_rc_wrap && (init_rc_state == 0)) {
+        if ((local_needs_rc_wrap && (init_rc_state == 0)) && (optInitPassthrough == false)) {
           wr.out("Rc::new(RefCell::new(" false)
         }
 
@@ -776,7 +955,7 @@ class RangerRustClassWriter {
         ctx.unsetInExpr()
 
         ; Close Rc::new(RefCell::new(...)) if we opened it
-        if local_needs_rc_wrap {
+        if (local_needs_rc_wrap && (optInitPassthrough == false)) {
           if (init_rc_state == 0) {
             wr.out("))" false)
           }
@@ -784,9 +963,13 @@ class RangerRustClassWriter {
             wr.out(".clone()" false)
           }
         }
+        if ((local_needs_rc_wrap && eff_optional) && (optInitPassthrough == false)) {
+          wr.out(")" false)
+        }
         
-        ; If RHS was optional field, unwrap it
-        if rhs_is_optional_field {
+        ; If RHS was optional field, unwrap it — unless the local itself
+        ; keeps the Option (an optional shared local): Option = Option
+        if (rhs_is_optional_field && ((local_needs_rc_wrap && eff_optional) == false)) {
           ; Clone before unwrap for object types to avoid move issues
           def v_type:RangerNodeType nameN.value_type
           if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
@@ -816,6 +999,19 @@ class RangerRustClassWriter {
               }
             }
           }
+          ; a borrowed parameter (&Vec<T> / &[T] / &String) read into an
+          ; owned local clones — the reference cannot move (E0308)
+          if value.hasParamDesc {
+            def vpB:RangerAppParamDesc value.paramDesc
+            if (vpB.rust_borrow_type > 0) {
+              if ((nn.value_type == RangerNodeType.Array) || (nn.value_type == RangerNodeType.Hash)) {
+                should_clone_vardef = true
+              }
+              if (nameN.type_name == "string") {
+                should_clone_vardef = true
+              }
+            }
+          }
           ; Clone objects/arrays when reading from self fields (prevents E0507)
           if value.hasParamDesc {
             def vp:RangerAppParamDesc value.paramDesc
@@ -839,7 +1035,7 @@ class RangerRustClassWriter {
           wr.out(" = Vec::new()" false)
         }
         if (nn.value_type == RangerNodeType.Hash) {
-          wr.out(" = HashMap::new()" false)
+          wr.out(" = HashMap::default()" false)
         }
         ; Initialize optional variables to None in Rust
         if (nameN.hasFlag("optional")) {
@@ -994,14 +1190,51 @@ class RangerRustClassWriter {
       wr.out("__self_rc" false)
       return true
     }
-    def path:string root
+    ; build the receiver path: a bare member roots at self, and a strong
+    ; optional segment holds Option<Rc<…>> — reach the Rc with
+    ; .as_ref().unwrap() so the hidden __self_rc argument is the live Rc
+    def path:string ""
+    def segIdx:int 0
     if (root == "this") {
       path = "self"
+      segIdx = 1
     }
-    def i 1
-    while (i < (nsLen - 1)) {
-      path = ((path + ".") + (itemAt fc.ns i))
-      i = i + 1
+    while (segIdx < (nsLen - 1)) {
+      def segName:string (this.adjustType((itemAt fc.ns segIdx)))
+      def haveSegD:boolean false
+      def segOptional:boolean false
+      def segMember:boolean false
+      if ((array_length fc.nsp) > segIdx) {
+        def segD:RangerAppParamDesc (itemAt fc.nsp segIdx)
+        haveSegD = true
+        segMember = segD.is_class_variable
+        if segD.is_optional {
+          def sdNN@(optional):CodeNode segD.nameNode
+          def segColl:boolean false
+          if (!null? sdNN) {
+            def sdN:CodeNode (unwrap sdNN)
+            if (((strlen sdN.array_type) > 0) || ((strlen sdN.key_type) > 0)) {
+              segColl = true
+            }
+          }
+          if (segColl == false) {
+            segOptional = true
+          }
+        }
+      }
+      if ((strlen path) == 0) {
+        if segMember {
+          path = ("self." + segName)
+        } {
+          path = segName
+        }
+      } {
+        path = ((path + ".") + segName)
+      }
+      if segOptional {
+        path = (path + ".as_ref().unwrap()")
+      }
+      segIdx = segIdx + 1
     }
     wr.out(("&" + path) false)
     return true
@@ -1129,6 +1362,24 @@ class RangerRustClassWriter {
   ; Override CreateCallExpression to handle optional types in Rust
   ; When calling a method on an optional object, we need to unwrap it first
   ; Helper: Check if a node tree contains any self (this) reference
+  ; Any function or method call anywhere in the tree. Used to decide
+  ; whether an argument can re-enter the object graph while the
+  ; receiver's RefCell borrow is held.
+  fn rustNodeContainsCall:boolean (node:CodeNode) {
+    if node.hasFnCall {
+      return true
+    }
+    if node.has_call {
+      return true
+    }
+    for node.children ch:CodeNode ci {
+      if (this.rustNodeContainsCall(ch)) {
+        return true
+      }
+    }
+    return false
+  }
+
   fn containsSelfReference:boolean (node:CodeNode) {
     ; Check if this node references a class variable (member of self)
     if node.hasParamDesc {
@@ -1670,6 +1921,34 @@ class RangerRustClassWriter {
           needs_arg_preevaluation = true
         }
       }
+      ; A borrowed receiver holds its RefCell borrow WHILE the argument
+      ; expressions run (the receiver place evaluates first in Rust): an
+      ; argument that calls back into the object graph can hit the same
+      ; cell — a runtime `already mutably borrowed` panic. Pre-evaluate
+      ; call-carrying arguments to temporaries first.
+      if (needs_arg_preevaluation == false) {
+        def recvBorrows:boolean obj_is_optional
+        if (recvBorrows == false) {
+          if obj.hasParamDesc {
+            def rbP:RangerAppParamDesc obj.paramDesc
+            if rbP.rust_needs_rc_wrap {
+              recvBorrows = true
+            }
+          }
+        }
+        if (recvBorrows == false) {
+          if (obj.hasNewOper == false) {
+            if (this.rustClassIsShared(obj.eval_type_name ctx)) {
+              recvBorrows = true
+            }
+          }
+        }
+        if recvBorrows {
+          if (this.rustNodeContainsCall(args)) {
+            needs_arg_preevaluation = true
+          }
+        }
+      }
       
       ; DEBUG: Log detection for self member calls
       if obj_is_self_member {
@@ -1687,21 +1966,56 @@ class RangerRustClassWriter {
         
         def tmpVarIdx:int 0
         for pms arg:CodeNode i {
-          def tmpVarName:string ("__arg_" + (to_string tmpVarIdx))
-          tmpVarIdx = tmpVarIdx + 1
-          
-          ; Generate: let __arg_N = <arg>;
-          wr.out(("let " + tmpVarName + " = ") false)
-          ctx.setInExpr()
-          this.WalkNode(arg ctx wr)
-          ctx.unsetInExpr()
-          wr.out(";" true)
-          
-          ; Mark the arg node to use this temp var
-          arg.rust_use_tmpvar = tmpVarName
+          ; only an argument that can touch the graph needs the
+          ; temporary — a bare name or literal stays inline (extracting
+          ; it would MOVE the name and break later uses)
+          def argNeedsTmp:boolean (this.rustNodeContainsCall(arg))
+          if (argNeedsTmp == false) {
+            if (this.containsSelfReference(arg)) {
+              argNeedsTmp = true
+            }
+          }
+          if argNeedsTmp {
+            def tmpVarName:string ("__arg_" + (to_string tmpVarIdx))
+            tmpVarIdx = tmpVarIdx + 1
+
+            ; Generate: let __arg_N = <arg>;
+            wr.out(("let " + tmpVarName + " = ") false)
+            ctx.setInExpr()
+            this.WalkNode(arg ctx wr)
+            ctx.unsetInExpr()
+            wr.out(";" true)
+
+            ; Mark the arg node to use this temp var
+            arg.rust_use_tmpvar = tmpVarName
+          }
         }
       }
 
+      ; a method whose body never touches `this` was emitted as an
+      ; associated fn (no self receiver): the call takes the static
+      ; syntax, whatever the receiver expression was (E0599)
+      def hc_static:boolean false
+      if (!null? node.fnDesc) {
+        def stFnD:RangerAppFunctionDesc (unwrap node.fnDesc)
+        def stBody@(optional):CodeNode stFnD.fnBody
+        if (!null? stBody) {
+          def stCtxO@(optional):RangerAppWriterContext stFnD.fnCtx
+          def stUseCtx:RangerAppWriterContext ctx
+          if (!null? stCtxO) {
+            stUseCtx = (unwrap stCtxO)
+          }
+          if ((this.fnBodyUsesThis((unwrap stBody) stUseCtx)) == false) {
+            def stCC@(optional):RangerAppClassDesc stFnD.container_class
+            if (!null? stCC) {
+              def stC:RangerAppClassDesc (unwrap stCC)
+              wr.out(((stC.name + "::") + method.vref) false)
+              hc_static = true
+            }
+          }
+        }
+      }
+      if (hc_static == false) {
       if obj_is_optional {
         ; For optional objects with trait types: Rc<RefCell<dyn Trait>>
         ; Or for optional objects in trait-related classes: Option<RefCell<T>>
@@ -1713,7 +2027,38 @@ class RangerRustClassWriter {
           ; Fields in trait-related classes use Option<RefCell<T>>
           wr.out(".as_ref().unwrap().borrow_mut()." false)
         } {
-          wr.out(".as_mut().unwrap()." false)
+          ; a strong optional field of a shared class holds
+          ; Option<Rc<RefCell<T>>>: the unwrap yields the Rc and the call
+          ; must go through the cell
+          def optRecvShared:boolean false
+          if obj.hasParamDesc {
+            def orpD:RangerAppParamDesc obj.paramDesc
+            def orpNN@(optional):CodeNode orpD.nameNode
+            if (!null? orpNN) {
+              def orpN:CodeNode (unwrap orpNN)
+              if (this.rustClassIsShared(orpN.type_name ctx)) {
+                optRecvShared = true
+              }
+            }
+          }
+          if optRecvShared {
+            ; as_ref: mutation goes through the cell; an as_mut would hold
+            ; the field mutably through the call and conflict with a
+            ; __self_rc re-borrow of the same field. A &self method
+            ; borrows shared, so an aliasing argument cannot panic.
+            def orsMut:boolean true
+            if (!null? node.fnDesc) {
+              def orsFnD:RangerAppFunctionDesc (unwrap node.fnDesc)
+              orsMut = orsFnD.rust_mut_self
+            }
+            if orsMut {
+              wr.out(".as_ref().unwrap().borrow_mut()." false)
+            } {
+              wr.out(".as_ref().unwrap().borrow()." false)
+            }
+          } {
+            wr.out(".as_mut().unwrap()." false)
+          }
         }
       } {
         ; Standard case - wrap in parentheses
@@ -1764,7 +2109,16 @@ class RangerRustClassWriter {
             }
           }
           if obj_is_rc {
-            wr.out(").borrow_mut()." false)
+            def oirMut:boolean true
+            if (!null? node.fnDesc) {
+              def oirFnD:RangerAppFunctionDesc (unwrap node.fnDesc)
+              oirMut = oirFnD.rust_mut_self
+            }
+            if oirMut {
+              wr.out(").borrow_mut()." false)
+            } {
+              wr.out(").borrow()." false)
+            }
           } {
             wr.out(")." false)
           }
@@ -1772,6 +2126,7 @@ class RangerRustClassWriter {
       }
       
       wr.out(method.vref false)
+      }
       wr.out("(" false)
       ctx.setInExpr()
       ; the hidden Rc argument of a method that stores `this`
@@ -1857,11 +2212,25 @@ class RangerRustClassWriter {
             }
           }
           
+          ; an immutable-borrow target takes & — unless the source is
+          ; already a reference (a borrowed param passed through)
+          if (target_expects_owned == false) {
+            if ((this.rustArgIsAlreadyRef(arg)) == false) {
+              wr.out("&" false)
+            }
+          }
           this.WalkNode(arg ctx wr)
-          
+
           ; If source is reference and target expects owned, add .clone()
           if (source_is_reference && target_expects_owned) {
             wr.out(".clone()" false)
+          } {
+            ; a bare non-Copy name handed to an owned parameter MOVES and
+            ; breaks any later use of the name — clone, as the standard
+            ; call path does (dotted reads clone through WriteVRef already)
+            if (target_expects_owned && (this.rustBareArgNeedsClone(arg ctx))) {
+              wr.out(".clone()" false)
+            }
           }
         }
       }
@@ -1870,7 +2239,103 @@ class RangerRustClassWriter {
       if ((ctx.expressionLevel()) == 0) {
         wr.out(";" true)
       }
-    }    
+    }
+  }
+
+  ; True when an argument is a named local/param — or a dotted field read,
+  ; which comes out of a Ref and cannot move (E0507) — whose type moves on
+  ; a by-value pass (String, collection, object): the call would consume
+  ; the value, so the call site has to clone. Copy scalars, weak refs and
+  ; optionals stay untouched.
+  fn rustBareArgNeedsClone:boolean (arg:CodeNode ctx:RangerAppWriterContext) {
+    if arg.expression {
+      return false
+    }
+    if ((strlen arg.vref) == 0) {
+      return false
+    }
+    if ((array_length arg.children) > 0) {
+      return false
+    }
+    if ((array_length arg.ns) > 1) {
+      ; a dotted read: the FINAL segment's desc carries the value's type
+      if ((array_length arg.nsp) == 0) {
+        return false
+      }
+      def dLastIdx:int ((array_length arg.nsp) - 1)
+      def dLast:RangerAppParamDesc (itemAt arg.nsp dLastIdx)
+      if dLast.is_optional {
+        return false
+      }
+      def dNN@(optional):CodeNode dLast.nameNode
+      if (null? dNN) {
+        return false
+      }
+      def dN:CodeNode (unwrap dNN)
+      if (dN.hasFlag("weak")) {
+        return false
+      }
+      if ((strlen dN.array_type) > 0) {
+        return true
+      }
+      if ((strlen dN.key_type) > 0) {
+        return true
+      }
+      def dtn:string dN.type_name
+      if (dtn == "string") {
+        return true
+      }
+      if (dtn == "int") { return false }
+      if (dtn == "double") { return false }
+      if (dtn == "boolean") { return false }
+      if (dtn == "char") { return false }
+      if (TTypeRegistry.isIntAlias(dtn)) { return false }
+      if (TTypeRegistry.isFloatAlias(dtn)) { return false }
+      def dVT:RangerNodeType (dN.typeNameAsType(ctx))
+      if (dVT == RangerNodeType.Object) {
+        return true
+      }
+      return false
+    }
+    if (arg.hasParamDesc == false) {
+      return false
+    }
+    def spD:RangerAppParamDesc arg.paramDesc
+    if spD.is_optional {
+      return false
+    }
+    if (spD.rust_borrow_type > 0) {
+      return false
+    }
+    def spNN@(optional):CodeNode spD.nameNode
+    if (null? spNN) {
+      return false
+    }
+    def spN:CodeNode (unwrap spNN)
+    if (spN.hasFlag("weak")) {
+      return false
+    }
+    if ((strlen spN.array_type) > 0) {
+      return true
+    }
+    if ((strlen spN.key_type) > 0) {
+      return true
+    }
+    def stn:string spN.type_name
+    if (stn == "string") {
+      return true
+    }
+    if (stn == "int") { return false }
+    if (stn == "double") { return false }
+    if (stn == "boolean") { return false }
+    if (stn == "char") { return false }
+    if (TTypeRegistry.isIntAlias(stn)) { return false }
+    if (TTypeRegistry.isFloatAlias(stn)) { return false }
+    def spVT:RangerNodeType (spN.typeNameAsType(ctx))
+    if (spVT == RangerNodeType.Object) {
+      return true
+    }
+    return false
   }
 
   ; Override CreateMethodCall for Rust to handle borrow conflicts with optional self members
@@ -2189,14 +2654,26 @@ class RangerRustClassWriter {
             wr.out(((containerClass.name + "::") + methodName) false)
           } {
             ; Fallback to WriteVRef
+            rust_call_receiver_mut = true
+            if (!null? node.fnDesc) {
+              def rcvFnD:RangerAppFunctionDesc (unwrap node.fnDesc)
+              rust_call_receiver_mut = rcvFnD.rust_mut_self
+            }
             rust_writing_call_receiver = true
             this.WriteVRef(fc ctx wr)
             rust_writing_call_receiver = false
+            rust_call_receiver_mut = true
           }
         } {
+          rust_call_receiver_mut = true
+          if (!null? node.fnDesc) {
+            def rcvFnD:RangerAppFunctionDesc (unwrap node.fnDesc)
+            rust_call_receiver_mut = rcvFnD.rust_mut_self
+          }
           rust_writing_call_receiver = true
           this.WriteVRef(fc ctx wr)
           rust_writing_call_receiver = false
+          rust_call_receiver_mut = true
         }
         wr.out("(" false)
         def pre_wrote_selfrc:boolean (this.writeSelfRcReceiverArg(node fc ctx wr))
@@ -2270,6 +2747,31 @@ class RangerRustClassWriter {
                 def tgt_expects_owned:boolean (arg.rust_borrow_type == 0)
                 if (src_is_ref && tgt_expects_owned && (needsMutRef == false)) {
                   wr.out(".clone()" false)
+                } {
+                  ; a named String or collection handed to an owned
+                  ; parameter would MOVE and break any later use — clone,
+                  ; as the standard call path does
+                  if ((tgt_expects_owned && (needsMutRef == false)) && (nVal.value_type == RangerNodeType.VRef)) {
+                    def ownNN@(optional):CodeNode arg.nameNode
+                    if (!null? ownNN) {
+                      def ownN:CodeNode (unwrap ownNN)
+                      def ownT:string ownN.type_name
+                      def ownIsClone:boolean false
+                      if (ownT == "string") { ownIsClone = true }
+                      if ((strlen ownN.array_type) > 0) { ownIsClone = true }
+                      if ((strlen ownN.key_type) > 0) { ownIsClone = true }
+                      ; an object formal moves its Rc/struct in — same
+                      ; clone the standard path applies (line above for
+                      ; strings; typeNameAsType covers class types)
+                      if (ownIsClone == false) {
+                        def ownVT:RangerNodeType (ownN.typeNameAsType(ctx))
+                        if (ownVT == RangerNodeType.Object) { ownIsClone = true }
+                      }
+                      if ownIsClone {
+                        wr.out(".clone()" false)
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -2299,11 +2801,17 @@ class RangerRustClassWriter {
       def selfCallArgIdx:int (this.findSelfCallInArgs(node))
       
       ; If this is a self method call and has a self call in arguments, extract to temp var
-      if (is_self_call && (selfCallArgIdx >= 0)) {
+      ; — only at statement level: a `let` cannot be emitted inside an
+      ; expression, and two-phase borrows cover the nested-call shape there
+      if ((is_self_call && (selfCallArgIdx >= 0)) && ((ctx.expressionLevel()) == 0)) {
         ; Extract all self call arguments to temp variables first
         def tempVars:[string]
         for givenArgs.children argNode:CodeNode argIdx {
           if (this.isSelfMethodCall(argNode)) {
+            ; the extracted call may itself nest a self call in ITS
+            ; arguments — one more level of temporaries keeps the two
+            ; self borrows apart (E0502) inside the extracted `let`
+            this.rustExtractSelfCallConflicts(argNode ctx wr)
             def tempName:string (ctx.rustGetTempVar())
             push tempVars tempName
             ; Write temp variable assignment
@@ -2319,9 +2827,15 @@ class RangerRustClassWriter {
         
         ; Now write the actual function call with temp vars substituted
         ; Note: Don't add self. here as WriteVRef already handles member variables
+        rust_call_receiver_mut = true
+        if (!null? node.fnDesc) {
+          def rcvFnD:RangerAppFunctionDesc (unwrap node.fnDesc)
+          rust_call_receiver_mut = rcvFnD.rust_mut_self
+        }
         rust_writing_call_receiver = true
         this.WriteVRef(fc ctx wr)
         rust_writing_call_receiver = false
+        rust_call_receiver_mut = true
         wr.out("(" false)
         for node.fnDesc.params arg:RangerAppParamDesc i {
           def n@(optional):CodeNode (itemAt givenArgs.children i)
@@ -2664,10 +3178,48 @@ class RangerRustClassWriter {
       }
 
       ; Standard path - no double borrow issue
+      ; A receiver path with an Rc segment holds its RefCell borrow while
+      ; the arguments run (the receiver place evaluates first): an
+      ; argument that calls back into the graph can hit the same cell —
+      ; a runtime `already mutably borrowed` panic. Pre-evaluate
+      ; call-carrying arguments bound for OWNED parameters.
+      if ((ctx.expressionLevel()) == 0) {
+        def stdRecvBorrows:boolean false
+        for fc.nsp fseg:RangerAppParamDesc fsi {
+          if fseg.rust_needs_rc_wrap {
+            stdRecvBorrows = true
+          }
+        }
+        if stdRecvBorrows {
+          for node.fnDesc.params sarg:RangerAppParamDesc si {
+            def sn@(optional):CodeNode (itemAt givenArgs.children si)
+            if (!null? sn) {
+              def snVal:CodeNode (unwrap sn)
+              if ((strlen snVal.rust_use_tmpvar) == 0) {
+                if (((sarg.rust_borrow_type == 0) && (sarg.needs_cpp_reference == false)) && (this.rustNodeContainsCall(snVal))) {
+                  def stdTmp:string (ctx.rustGetTempVar())
+                  wr.out((("let " + stdTmp) + " = ") false)
+                  ctx.setInExpr()
+                  this.WalkNode(snVal ctx wr)
+                  ctx.unsetInExpr()
+                  wr.out(";" true)
+                  snVal.rust_use_tmpvar = stdTmp
+                }
+              }
+            }
+          }
+        }
+      }
       ; Note: Don't add self. here as WriteVRef already handles member variables
+      rust_call_receiver_mut = true
+      if (!null? node.fnDesc) {
+        def rcvFnD:RangerAppFunctionDesc (unwrap node.fnDesc)
+        rust_call_receiver_mut = rcvFnD.rust_mut_self
+      }
       rust_writing_call_receiver = true
       this.WriteVRef(fc ctx wr)
       rust_writing_call_receiver = false
+      rust_call_receiver_mut = true
       wr.out("(" false)
       def std_wrote_selfrc:boolean (this.writeSelfRcReceiverArg(node fc ctx wr))
       for node.fnDesc.params arg:RangerAppParamDesc i {
@@ -2690,6 +3242,13 @@ class RangerRustClassWriter {
           continue _
         }
         def nVal:CodeNode (unwrap n)
+        ; a pre-extracted argument (writeVarDef pulled a nested self-call
+        ; out of a `let` initializer) substitutes its temporary
+        if ((strlen nVal.rust_use_tmpvar) > 0) {
+          wr.out(nVal.rust_use_tmpvar false)
+          nVal.rust_use_tmpvar = ""
+          continue _
+        }
         ; Check if parameter needs mutable reference
         def needsMutRef:boolean false
         if arg.needs_cpp_reference {
@@ -2698,10 +3257,10 @@ class RangerRustClassWriter {
         if (arg.rust_borrow_type == 2) {
           needsMutRef = true
         }
-        
+
         ; Check for immutable borrow (rust_borrow_type = 1)
         def needsImmutableBorrow:boolean (arg.rust_borrow_type == 1)
-        
+
         ; Check if parameter type is a trait type - if so, wrap in Box::new()
         def arg_is_trait_type:boolean false
         def argNameN:CodeNode (unwrap arg.nameNode)
@@ -2758,6 +3317,11 @@ class RangerRustClassWriter {
             this.WalkNode(nVal ctx wr)
             wr.suppress_expr_parens = false
             ctx.unsetInExpr()
+            ; a SELF FIELD borrowed into a &mut-self call overlaps the
+            ; receiver borrow (E0502) — hand a reference to a clone instead
+            if (is_self_call && (this.containsSelfReference(nVal))) {
+              wr.out(".clone()" false)
+            }
           } {
           ; Standard case - target expects owned value
           ; Check if the SOURCE is a reference that needs to be cloned to convert to owned
@@ -2808,6 +3372,14 @@ class RangerRustClassWriter {
                     if valParam.rust_needs_rc_wrap {
                       value_already_rc_wrapped = true
                     }
+                  }
+                }
+                ; an expression that already carries the Rc — an unwrap of a
+                ; strong optional field, a call result — must not take a
+                ; second cell around it
+                if (value_already_rc_wrapped == false) {
+                  if ((this.rustInitRcState(nVal ctx)) == 2) {
+                    value_already_rc_wrapped = true
                   }
                 }
               }
@@ -2943,6 +3515,68 @@ class RangerRustClassWriter {
     })
     wr.out("]" false)
   }
+  ; The Rust body of the synthetic `__singleton` accessor the resolver
+  ; advertises for a @singleton(true) class (findStaticMethod builds the desc;
+  ; call sites already emit `ClassName::__singleton()`). One instance per
+  ; thread in a lazy slot: singletons are shared classes, so the accessor
+  ; hands out the Rc and first-call constructor arguments win, matching es6.
+  fn writeSingletonAccessor:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    wr.newline()
+    wr.out("pub fn __singleton(" false)
+    def sgWritten:int 0
+    if cl.has_constructor {
+      def sgc@(optional):RangerAppFunctionDesc cl.constructor_fn
+      if (!null? sgc) {
+        def sgcF:RangerAppFunctionDesc (unwrap sgc)
+        for sgcF.params arg:RangerAppParamDesc i {
+          if (arg.nameNode.hasFlag("keyword")) {
+            continue
+          }
+          if (sgWritten > 0) {
+            wr.out(", " false)
+          }
+          sgWritten = sgWritten + 1
+          wr.out((arg.name + " : ") false)
+          def sgNameN:CodeNode (unwrap arg.nameNode)
+          this.writeTypeDef(sgNameN ctx wr)
+        }
+      }
+    }
+    wr.out(((") -> Rc<RefCell<" + cl.name) + ">> {") true)
+    wr.indent(1)
+    wr.out(((("thread_local!(static __SINGLETON: RefCell<Option<Rc<RefCell<" + cl.name) + ">>>> = RefCell::new(None));")) true)
+    wr.out("__SINGLETON.with(|s| {" true)
+    wr.indent(1)
+    wr.out("let mut slot = s.borrow_mut();" true)
+    wr.out("if slot.is_none() {" true)
+    wr.indent(1)
+    wr.out((("*slot = Some(Rc::new(RefCell::new(" + cl.name) + "::new(") false)
+    def sgFwd:int 0
+    if cl.has_constructor {
+      def sgc2@(optional):RangerAppFunctionDesc cl.constructor_fn
+      if (!null? sgc2) {
+        def sgc2F:RangerAppFunctionDesc (unwrap sgc2)
+        for sgc2F.params arg:RangerAppParamDesc i {
+          if (arg.nameNode.hasFlag("keyword")) {
+            continue
+          }
+          if (sgFwd > 0) {
+            wr.out(", " false)
+          }
+          sgFwd = sgFwd + 1
+          wr.out(arg.name false)
+        }
+      }
+    }
+    wr.out("))));" true)
+    wr.indent(-1)
+    wr.out("}" true)
+    wr.out("slot.as_ref().unwrap().clone()" true)
+    wr.indent(-1)
+    wr.out("})" true)
+    wr.indent(-1)
+    wr.out("}" true)
+  }
   fn writeClass (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
     def ucl@(optional):RangerAppClassDesc node.clDesc
     if (null? ucl) {
@@ -2976,6 +3610,9 @@ class RangerRustClassWriter {
       header.out("#![allow(clippy::collapsible_if)]" true)
       header.out("#![allow(clippy::too_many_arguments)]" true)
       header.out("#![allow(clippy::upper_case_acronyms)]" true)
+      header.out("// A borrowed read-only string parameter is &String, not &str: call" true)
+      header.out("// sites pass &name and pass-through clones stay String::clone." true)
+      header.out("#![allow(clippy::ptr_arg)]" true)
       header.out("" true)
       header.out("use std::rc::Rc;" true)
       ; Weak only reaches the output through a @(weak) field; without one
@@ -3001,6 +3638,183 @@ class RangerRustClassWriter {
       }
       header.out("use std::cell::RefCell;" true)
       header.out("" true)
+      if (ctx.hasCompilerFlag("native-fast-alloc")) {
+        header.out("// -native-fast-alloc: thread-local size-class freelist over the system" true)
+        header.out("// allocator. Interpreter-style workloads spend a third of their time in" true)
+        header.out("// malloc/free; freed blocks park in per-size lists (32-byte classes up" true)
+        header.out("// to 1024 bytes) and are handed straight back. Memory is never returned" true)
+        header.out("// to the OS - fine for a benchmark or tool process, wrong for a daemon." true)
+        header.out("struct RgPoolAlloc;" true)
+        header.out("const RG_POOL_CLASSES: usize = 32;" true)
+        header.out("std::thread_local! {" true)
+        header.out("    static RG_POOL_HEADS: std::cell::UnsafeCell<[usize; RG_POOL_CLASSES + 1]> =" true)
+        header.out("        const { std::cell::UnsafeCell::new([0usize; RG_POOL_CLASSES + 1]) };" true)
+        header.out("}" true)
+        header.out("#[allow(unused_unsafe)]" true)
+        header.out("unsafe impl std::alloc::GlobalAlloc for RgPoolAlloc {" true)
+        header.out("    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {" true)
+        header.out("        let size = layout.size();" true)
+        header.out("        if size > 0 && size <= 1024 && layout.align() <= 16 {" true)
+        header.out("            let class = (size + 31) >> 5;" true)
+        header.out("            let took = RG_POOL_HEADS.try_with(|h| {" true)
+        header.out("                let heads = unsafe { &mut *h.get() };" true)
+        header.out("                let head = heads[class];" true)
+        header.out("                if head != 0 {" true)
+        header.out("                    heads[class] = unsafe { *(head as *mut usize) };" true)
+        header.out("                    return head as *mut u8;" true)
+        header.out("                }" true)
+        header.out("                std::ptr::null_mut()" true)
+        header.out("            });" true)
+        header.out("            if let Ok(p) = took {" true)
+        header.out("                if !p.is_null() {" true)
+        header.out("                    return p;" true)
+        header.out("                }" true)
+        header.out("            }" true)
+        header.out("            let l = unsafe { std::alloc::Layout::from_size_align_unchecked(class << 5, 16) };" true)
+        header.out("            return unsafe { std::alloc::System.alloc(l) };" true)
+        header.out("        }" true)
+        header.out("        unsafe { std::alloc::System.alloc(layout) }" true)
+        header.out("    }" true)
+        header.out("    unsafe fn dealloc(&self, ptr: *mut u8, layout: std::alloc::Layout) {" true)
+        header.out("        let size = layout.size();" true)
+        header.out("        if size > 0 && size <= 1024 && layout.align() <= 16 {" true)
+        header.out("            let class = (size + 31) >> 5;" true)
+        header.out("            let parked = RG_POOL_HEADS.try_with(|h| {" true)
+        header.out("                let heads = unsafe { &mut *h.get() };" true)
+        header.out("                unsafe { *(ptr as *mut usize) = heads[class] };" true)
+        header.out("                heads[class] = ptr as usize;" true)
+        header.out("            });" true)
+        header.out("            if parked.is_ok() {" true)
+        header.out("                return;" true)
+        header.out("            }" true)
+        header.out("            let l = unsafe { std::alloc::Layout::from_size_align_unchecked(class << 5, 16) };" true)
+        header.out("            unsafe { std::alloc::System.dealloc(ptr, l) };" true)
+        header.out("            return;" true)
+        header.out("        }" true)
+        header.out("        unsafe { std::alloc::System.dealloc(ptr, layout) }" true)
+        header.out("    }" true)
+        header.out("}" true)
+        header.out("#[global_allocator]" true)
+        header.out("static RG_POOL_ALLOC: RgPoolAlloc = RgPoolAlloc;" true)
+        header.out("" true)
+      }
+      header.out("// FxHash (rustc-hash style): these maps are keyed by short program" true)
+      header.out("// strings; SipHash's DoS resistance cost ~14% of all instructions in" true)
+      header.out("// map-heavy code. Swap back to std's default by deleting the alias." true)
+      header.out("#[derive(Default, Clone)]" true)
+      header.out("struct FxHasher { hash: u64 }" true)
+      header.out("impl std::hash::Hasher for FxHasher {" true)
+      header.out("    #[inline]" true)
+      header.out("    fn write(&mut self, bytes: &[u8]) {" true)
+      header.out("        const SEED: u64 = 0x517cc1b727220a95;" true)
+      header.out("        let mut b = bytes;" true)
+      header.out("        while b.len() >= 8 {" true)
+      header.out("            let v = u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]);" true)
+      header.out("            self.hash = (self.hash.rotate_left(5) ^ v).wrapping_mul(SEED);" true)
+      header.out("            b = &b[8..];" true)
+      header.out("        }" true)
+      header.out("        for &x in b {" true)
+      header.out("            self.hash = (self.hash.rotate_left(5) ^ (x as u64)).wrapping_mul(SEED);" true)
+      header.out("        }" true)
+      header.out("    }" true)
+      header.out("    #[inline]" true)
+      header.out("    fn finish(&self) -> u64 { self.hash }" true)
+      header.out("}" true)
+      header.out("// Insertion-ordered map (mirrors the C++ rg_ordered_map): entries in a" true)
+      header.out("// vector plus an open-addressed FxHash index. Lookups hash once; keys()" true)
+      header.out("// iterates in INSERTION order, which is what JS key enumeration needs." true)
+      header.out("// Aliased over the HashMap name so declarations stay untouched." true)
+      header.out("#[derive(Clone)]" true)
+      header.out("struct RgOrderedMap<K, V> {" true)
+      header.out("    entries: Vec<(K, V)>," true)
+      header.out("    index: Vec<i32>," true)
+      header.out("}" true)
+      header.out("impl<K, V> Default for RgOrderedMap<K, V> {" true)
+      header.out("    fn default() -> Self { RgOrderedMap { entries: Vec::new(), index: Vec::new() } }" true)
+      header.out("}" true)
+      header.out("impl<K: std::hash::Hash + Eq, V> RgOrderedMap<K, V> {" true)
+      header.out("    fn rg_hash<Q: std::hash::Hash + ?Sized>(k: &Q) -> u64 {" true)
+      header.out("        let mut h = FxHasher::default();" true)
+      header.out("        k.hash(&mut h);" true)
+      header.out("        std::hash::Hasher::finish(&h)" true)
+      header.out("    }" true)
+      header.out("    fn slot<Q>(&self, k: &Q) -> i32 where K: std::borrow::Borrow<Q>, Q: std::hash::Hash + Eq + ?Sized {" true)
+      header.out("        if self.index.is_empty() { return -1; }" true)
+      header.out("        let mask = self.index.len() - 1;" true)
+      header.out("        let mut h = (Self::rg_hash(k) as usize) & mask;" true)
+      header.out("        loop {" true)
+      header.out("            let s = self.index[h];" true)
+      header.out("            if s == -1 { return -1; }" true)
+      header.out("            if self.entries[s as usize].0.borrow() == k { return s; }" true)
+      header.out("            h = (h + 1) & mask;" true)
+      header.out("        }" true)
+      header.out("    }" true)
+      header.out("    fn rehash(&mut self) {" true)
+      header.out("        let mut cap = 8usize;" true)
+      header.out("        while cap < (self.entries.len() + 1) * 2 { cap <<= 1; }" true)
+      header.out("        self.index.clear();" true)
+      header.out("        self.index.resize(cap, -1);" true)
+      header.out("        for i in 0..self.entries.len() {" true)
+      header.out("            let mut h = (Self::rg_hash(&self.entries[i].0) as usize) & (cap - 1);" true)
+      header.out("            while self.index[h] != -1 { h = (h + 1) & (cap - 1); }" true)
+      header.out("            self.index[h] = i as i32;" true)
+      header.out("        }" true)
+      header.out("    }" true)
+      header.out("    fn insert(&mut self, k: K, v: V) -> Option<V> {" true)
+      header.out("        let s = self.slot(&k);" true)
+      header.out("        if s != -1 { return Some(std::mem::replace(&mut self.entries[s as usize].1, v)); }" true)
+      header.out("        self.entries.push((k, v));" true)
+      header.out("        if self.index.is_empty() || (self.entries.len() + 1) * 2 > self.index.len() {" true)
+      header.out("            self.rehash();" true)
+      header.out("        } else {" true)
+      header.out("            let mask = self.index.len() - 1;" true)
+      header.out("            let mut h = (Self::rg_hash(&self.entries[self.entries.len() - 1].0) as usize) & mask;" true)
+      header.out("            while self.index[h] != -1 { h = (h + 1) & mask; }" true)
+      header.out("            self.index[h] = (self.entries.len() - 1) as i32;" true)
+      header.out("        }" true)
+      header.out("        None" true)
+      header.out("    }" true)
+      header.out("    fn get<Q>(&self, k: &Q) -> Option<&V> where K: std::borrow::Borrow<Q>, Q: std::hash::Hash + Eq + ?Sized {" true)
+      header.out("        let s = self.slot(k);" true)
+      header.out("        if s == -1 { None } else { Some(&self.entries[s as usize].1) }" true)
+      header.out("    }" true)
+      header.out("    fn contains_key<Q>(&self, k: &Q) -> bool where K: std::borrow::Borrow<Q>, Q: std::hash::Hash + Eq + ?Sized {" true)
+      header.out("        self.slot(k) != -1" true)
+      header.out("    }" true)
+      header.out("    fn keys(&self) -> impl Iterator<Item = &K> { self.entries.iter().map(|e| &e.0) }" true)
+      header.out("    fn len(&self) -> usize { self.entries.len() }" true)
+      header.out("}" true)
+      header.out("type HashMap<K, V> = RgOrderedMap<K, V>;" true)
+      header.out("" true)
+      ; receiver-mutability pre-pass: every plain class method's
+      ; &self / &mut self verdict lands on its desc BEFORE any emission,
+      ; so call sites in earlier-emitted classes borrow the receiver's
+      ; cell in the matching mode. Trait-related classes keep the
+      ; conservative default (&mut) — their emission special-cases.
+      for hdrRoot.definedClasses mcl:RangerAppClassDesc mci {
+        def mclSpecial:boolean (((((mcl.is_system || mcl.is_trait) || mcl.is_template) || mcl.is_operator_class) || mcl.is_generic_instance) || mcl.is_union)
+        def mclTraitRel:boolean (mcl.is_extended_by_children || ((array_length mcl.extends_classes) > 0))
+        if ((mclSpecial == false) && (mclTraitRel == false)) {
+          def mDirect:[string:boolean]
+          def mGraph:[string:MethodCallList]
+          this.buildClassMutationGraph(mcl ctx mDirect mGraph)
+          for mcl.methods mm:RangerAppFunctionDesc mmi {
+            def mmB@(optional):CodeNode mm.fnBody
+            if (!null? mmB) {
+              def mmCtxO@(optional):RangerAppWriterContext mm.fnCtx
+              def mmCtx:RangerAppWriterContext ctx
+              if (!null? mmCtxO) {
+                mmCtx = (unwrap mmCtxO)
+              }
+              if (this.fnBodyUsesThis((unwrap mmB) mmCtx)) {
+                mm.rust_mut_self = (this.methodMutatesThis(mm.name mDirect mGraph))
+              } {
+                mm.rust_mut_self = false
+              }
+            }
+          }
+        }
+      }
       fileHeaderWritten = true
     }
     
@@ -3098,12 +3912,19 @@ class RangerRustClassWriter {
           wr.out(((this.adjustType(pvar.compiledName)) + ":") false)
           ; a strong field of a shared class holds the Rc: wrap the initializer
           def init_rc_wrap:boolean false
+          def fldRcState:int 0
           if pvar.rust_needs_rc_wrap {
             def pvNN:CodeNode (unwrap pvar.nameNode)
             if (pvNN.hasFlag("weak") == false) {
               if (((strlen pvNN.array_type) == 0) && ((strlen pvNN.key_type) == 0)) {
                 if (pvar.is_optional == false) {
                   init_rc_wrap = true
+                  ; a static call / element read of a shared class already
+                  ; yields the Rc — wrapping again double-wraps (E0308)
+                  fldRcState = (this.rustInitRcState(valueNode ctx))
+                  if (fldRcState != 0) {
+                    init_rc_wrap = false
+                  }
                 }
               }
             }
@@ -3117,6 +3938,9 @@ class RangerRustClassWriter {
           if init_rc_wrap {
             wr.out("))" false)
           }
+          if (fldRcState == 1) {
+            wr.out(".clone()" false)
+          }
           wr.out(", " true)
         } {
           ; Initialize array fields with Vec::new()
@@ -3127,8 +3951,7 @@ class RangerRustClassWriter {
             ; the constructor wrote `None` into a HashMap field and rustc
             ; rejected the struct literal.
             if (pvar.isHash()) {
-              wr.out(((this.adjustType(pvar.compiledName)) + ": HashMap::new(), ") true)
-              wr.addImport("std::collections::HashMap")
+              wr.out(((this.adjustType(pvar.compiledName)) + ": HashMap::default(), ") true)
             } {
               ; Initialize optional fields with None
               if pvar.is_optional {
@@ -3160,8 +3983,11 @@ class RangerRustClassWriter {
     }
     wr.indent(-1)
     wr.out("}" true)
+    if (cl.isSingletonClass()) {
+      this.writeSingletonAccessor(cl ctx wr)
+    }
     thisName = "self"
-    
+
     ; Build call graph for mutation analysis (detects transitive mutations via method calls)
     def directMutations:[string:boolean]
     def callGraph:[string:MethodCallList]
@@ -3590,11 +4416,12 @@ class RangerRustClassWriter {
     if (opName == "bit_shr") { return true }
     if (opName == "bit_ushr") { return true }
     if (opName == "bit_not") { return true }
-    if (opName == "array_length") { return true }
     if (opName == "itemAt") { return true }
-    ; cast tails: `as` binds tighter than every binary operator
-    if (opName == "to_int") { return true }
-    if (opName == "to_double") { return true }
+    ; NOTE: cast tails (to_int, to_double, array_length) must NOT be here:
+    ; `args.len() as i64 < 2` parses `i64 <` as generic arguments, so the
+    ; walker's parens around a cast in a comparison are load-bearing. The
+    ; argument-slot and operand suppression already keep them out of the
+    ; positions clippy warns about.
     if (opName == "+") {
       if (node.eval_type == RangerNodeType.String) {
         return true
@@ -3675,6 +4502,20 @@ class RangerRustClassWriter {
     if (oo.value_type == RangerNodeType.String) {
       wr.out(((("\"" + (this.EncodeString(oo ctx wr))) + "\"")) false)
       return
+    }
+    ; a borrowed &String operand derefs, so either side shape compares:
+    ; String == &String has no impl, String == String does
+    if (((oo.expression == false) && oo.hasParamDesc) && ((array_length oo.ns) == 1)) {
+      def cmpP:RangerAppParamDesc oo.paramDesc
+      if (cmpP.rust_borrow_type > 0) {
+        def cmpNN@(optional):CodeNode cmpP.nameNode
+        if (!null? cmpNN) {
+          def cmpN:CodeNode (unwrap cmpNN)
+          if (cmpN.type_name == "string") {
+            wr.out("*" false)
+          }
+        }
+      }
     }
     ctx.setInExpr()
     this.WalkNode(oo ctx wr)
@@ -3772,6 +4613,72 @@ class RangerRustClassWriter {
         ctx.unsetInExpr()
       }
     }
+  }
+
+  ; does this expression read through an Rc cell rooted at a body local or
+  ; parameter? A tail expression's temporaries drop AFTER the block's
+  ; locals, so a tail `tok.borrow()…` outlives `tok` (E0597) — such a
+  ; return keeps its statement form. A self-rooted read is safe: the
+  ; receiver outlives the block.
+  ; Pull the INNER self calls of a `self.f(self.g(...))` conflict out to
+  ; temporaries, wherever the shape sits in the given tree — a static or
+  ; expression wrapper hides it from the direct statement-level path.
+  ; Wrapper-aware: the extracted argument may be paren-wrapped, and the
+  ; substitution flag goes on the wrapper the arg loops iterate.
+  ; Statement level only: this writes `let` statements.
+  fn rustExtractSelfCallConflicts:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def real:CodeNode (this.rustUnwrapParens(node))
+    if (this.isSelfMethodCall(real)) {
+      def cArgs:CodeNode (real.getSecond())
+      for cArgs.children cA:CodeNode cI {
+        def cReal:CodeNode (this.rustUnwrapParens(cA))
+        if (this.isSelfMethodCall(cReal)) {
+          this.rustExtractSelfCallConflicts(cReal ctx wr)
+          def cTmp:string (ctx.rustGetTempVar())
+          wr.out((("let " + cTmp) + " = ") false)
+          ctx.setInExpr()
+          this.WalkNode(cReal ctx wr)
+          ctx.unsetInExpr()
+          wr.out(";" true)
+          cA.rust_use_tmpvar = cTmp
+        }
+      }
+      return
+    }
+    for real.children ch:CodeNode chI {
+      this.rustExtractSelfCallConflicts(ch ctx wr)
+    }
+  }
+
+  fn rustTailBorrowsLocal:boolean (node:CodeNode) {
+    if ((array_length node.ns) >= 2) {
+      if ((itemAt node.ns 0) != "this") {
+        for node.nsp seg:RangerAppParamDesc si {
+          if seg.rust_needs_rc_wrap {
+            if (seg.is_class_variable == false) {
+              return true
+            }
+          }
+        }
+      }
+    }
+    ; a method call on a local Rc receiver: the borrow_mut() temporary of
+    ; the tail expression outlives the local it borrows (E0597)
+    if node.has_call {
+      def hcObj:CodeNode (node.getSecond())
+      if hcObj.hasParamDesc {
+        def hcP:RangerAppParamDesc hcObj.paramDesc
+        if (hcP.rust_needs_rc_wrap && (hcP.is_class_variable == false)) {
+          return true
+        }
+      }
+    }
+    for node.children ch:CodeNode ci {
+      if (this.rustTailBorrowsLocal(ch)) {
+        return true
+      }
+    }
+    return false
   }
 
   ; walks a function body with the tail statement marked, so the return
@@ -3918,6 +4825,26 @@ class RangerRustClassWriter {
 
     ; to_int floors: `(x).floor() as i64`, with the operand bare when
     ; atomic — never the doubled `((…))` of the template form
+    ; String::contains takes a Pattern: a literal passes bare, anything
+    ; else borrows — a String BY VALUE is no Pattern (E0277)
+    if (cmd == "contains") {
+      ctx.setInExpr()
+      this.WalkNode((node.getSecond()) ctx wr)
+      ctx.unsetInExpr()
+      wr.out(".contains(" false)
+      def csub:CodeNode (this.rustUnwrapParens((node.getThird())))
+      if (csub.value_type == RangerNodeType.String) {
+        wr.out((("\"" + (this.EncodeString(csub ctx wr))) + "\"") false)
+      } {
+        wr.out("&" false)
+        ctx.setInExpr()
+        this.WalkNode(csub ctx wr)
+        ctx.unsetInExpr()
+      }
+      wr.out(")" false)
+      return
+    }
+
     if (cmd == "to_int") {
       this.rustWriteBitOperand((node.getSecond()) ctx wr)
       wr.out(".floor() as i64" false)
@@ -3992,11 +4919,7 @@ class RangerRustClassWriter {
     if (cmd == "strfromcode") {
       def sfcInFmt:boolean wr.in_format_args
       wr.out("char::from_u32(" false)
-      wr.suppress_expr_parens = true
-      ctx.setInExpr()
-      this.WalkNode((node.getSecond()) ctx wr)
-      ctx.unsetInExpr()
-      wr.suppress_expr_parens = false
+      this.rustWriteBitOperand((node.getSecond()) ctx wr)
       wr.out(" as u32).unwrap_or('\\0')" false)
       if (sfcInFmt == false) {
         wr.out(".to_string()" false)
@@ -4162,6 +5085,14 @@ class RangerRustClassWriter {
         if (!null? nameN) {
           def nn:CodeNode (unwrap nameN)
           field_type_name = nn.type_name
+          ; an uninitialized member COLLECTION carries is_optional on its
+          ; desc but the Rust field is a plain Vec/HashMap, never Option —
+          ; a Some(…) around its assignment is E0308
+          if is_optional {
+            if (((strlen nn.array_type) > 0) || ((strlen nn.key_type) > 0)) {
+              is_optional = false
+            }
+          }
           ; Check if field has weak annotation
           if (nn.hasFlag("weak")) {
             is_weak = true
@@ -4232,6 +5163,12 @@ class RangerRustClassWriter {
             rhs_is_object = true
           }
           if (rv_type == RangerNodeType.Array) {
+            rhs_is_object = true
+            rhs_is_array = true
+          }
+          ; a Hash is a plain HashMap the same way (phantom-optional),
+          ; and clones like an array when read whole
+          if ((rv_type == RangerNodeType.Hash) || ((strlen rnn.key_type) > 0)) {
             rhs_is_object = true
             rhs_is_array = true
           }
@@ -4315,6 +5252,12 @@ class RangerRustClassWriter {
               rhs_is_object = true
             }
             if (rv_type == RangerNodeType.Array) {
+              rhs_is_object = true
+              rhs_is_array = true
+            }
+            ; a Hash is a plain HashMap the same way (phantom-optional),
+            ; and clones like an array when read whole
+            if ((rv_type == RangerNodeType.Hash) || ((strlen rnn.key_type) > 0)) {
               rhs_is_object = true
               rhs_is_array = true
             }
@@ -4412,7 +5355,24 @@ class RangerRustClassWriter {
       ; right side goes to a temporary first, so the borrows never overlap.
       def preeval_rhs:boolean false
       def preeval_name:string ""
-      if ((((is_weak == false) && (is_optional == false)) && (rhs_is_optional == false)) && (left_is_trait_type == false)) {
+      ; an optional shared field is covered too: assigning
+      ; `self.f = Some(self.f...borrow_mut().mk(...))` holds the borrow
+      ; across the assignment (E0506) unless the right side lands in a
+      ; temporary first. Only the plain shared shape — the Box / RefCell
+      ; wrap variants keep their non-preeval branches.
+      def preeval_opt_ok:boolean true
+      if is_optional {
+        if is_self_ref {
+          preeval_opt_ok = false
+        }
+        if curr_class_is_trait_related {
+          preeval_opt_ok = false
+        }
+        if ((this.rustClassIsShared(field_type_name ctx)) == false) {
+          preeval_opt_ok = false
+        }
+      }
+      if ((((is_weak == false) && (rhs_is_optional == false)) && (left_is_trait_type == false)) && preeval_opt_ok) {
         if ((array_length left.ns) >= 2) {
           if ((array_length left.nsp) > 0) {
             def lhsRootP:RangerAppParamDesc (itemAt left.nsp 0)
@@ -4436,6 +5396,10 @@ class RangerRustClassWriter {
         }
       }
       if preeval_rhs {
+        ; the right side itself may nest a self-call conflict
+        ; (`this.f(this.g(...))`) — its inner call goes to a temporary
+        ; of its own before the pre-evaluation `let` (E0502)
+        this.rustExtractSelfCallConflicts(right ctx wr)
         preeval_name = (ctx.rustGetTempVar())
         wr.out((("let " + preeval_name) + " = ") false)
         ctx.setInExpr()
@@ -4519,6 +5483,14 @@ class RangerRustClassWriter {
       }
       
       if is_optional {
+        ; a pre-evaluated right side already owns its value (clone
+        ; applied at the temporary) — move it in, mirroring the standard
+        ; Some(…) branch below
+        if preeval_rhs {
+          wr.out(((" = Some(" + preeval_name) + ");") true)
+          ctx.unsetInExpr()
+          return
+        }
         if rhs_is_optional {
           ; Both sides are optional - just clone the RHS, don't wrap with Some()
           wr.out(" = " false)
@@ -4679,13 +5651,24 @@ class RangerRustClassWriter {
                 if (i > 0) {
                   wr.out(", " false)
                 }
+                ; an immutable-borrow parameter takes & — for the extracted
+                ; temporary and for a direct argument alike
+                def retArgRef:boolean (arg.rust_borrow_type == 1)
                 def tmpVar:string (itemAt tempVars i)
                 if ((strlen tmpVar) > 0) {
+                  if retArgRef {
+                    wr.out("&" false)
+                  }
                   wr.out(tmpVar false)
                 } {
                   def n@(optional):CodeNode (itemAt givenArgs.children i)
                   if (!null? n) {
                     def nVal:CodeNode (unwrap n)
+                    if retArgRef {
+                      if ((this.rustArgIsAlreadyRef(nVal)) == false) {
+                        wr.out("&" false)
+                      }
+                    }
                     ctx.setInExpr()
                     wr.suppress_expr_parens = true
                     this.WalkNode(nVal ctx wr)
@@ -4693,7 +5676,7 @@ class RangerRustClassWriter {
                     ctx.unsetInExpr()
                     ; Clone if needed for strings/objects
                     def argNameN:CodeNode (unwrap arg.nameNode)
-                    if ((argNameN.type_name == "string") && (nVal.value_type == RangerNodeType.VRef)) {
+                    if (((argNameN.type_name == "string") && (nVal.value_type == RangerNodeType.VRef)) && (retArgRef == false)) {
                       wr.out(".clone()" false)
                     }
                   }
@@ -4712,8 +5695,16 @@ class RangerRustClassWriter {
         }
         
         ; Default case - no nested self calls or not a self call.
+        ; A self-call conflict may hide under a static or expression
+        ; wrapper (`EvalValue.number(this.f(this.g(...)))`) — pull the
+        ; inner calls out before the return is written (E0499/E0502)
+        this.rustExtractSelfCallConflicts(retVal ctx wr)
         ; The last statement of the body is the tail expression: `x`, not
-        ; `return x;` — the marker was set when the body walk began.
+        ; `return x;` — the marker was set when the body walk began. A tail
+        ; that borrows a body local keeps the statement form (E0597).
+        if (node.rust_is_tail_return && (this.rustTailBorrowsLocal(retVal))) {
+          node.rust_is_tail_return = false
+        }
         if (node.rust_is_tail_return == false) {
           wr.out("return " false)
         }
@@ -4751,8 +5742,29 @@ class RangerRustClassWriter {
             }
           }
         }
-        if needs_ret_clone {
-          wr.out(".clone()" false)
+        ; a borrowed slice parameter returned as owned: `.clone()` of
+        ; `&[T]` is still `&[T]` — the owned Vec takes `.to_vec()`
+        def ret_to_vec:boolean false
+        if (retVal.value_type == RangerNodeType.VRef) {
+          if retVal.hasParamDesc {
+            def rbp:RangerAppParamDesc retVal.paramDesc
+            if (rbp.rust_borrow_type > 0) {
+              def rbNN@(optional):CodeNode rbp.nameNode
+              if (!null? rbNN) {
+                def rbN:CodeNode (unwrap rbNN)
+                if ((strlen rbN.array_type) > 0) {
+                  ret_to_vec = true
+                }
+              }
+            }
+          }
+        }
+        if ret_to_vec {
+          wr.out(".to_vec()" false)
+        } {
+          if needs_ret_clone {
+            wr.out(".clone()" false)
+          }
         }
         if node.rust_is_tail_return {
           wr.out("" true)
@@ -5000,8 +6012,27 @@ class RangerRustClassWriter {
         }
       } {
         this.WalkNode(arg ctx wr)
-        ; Clone self fields before unwrap to avoid moving out of self
-        if is_self_field {
+        ; Clone self fields before unwrap to avoid moving out of self.
+        ; A bare optional LOCAL clones too: unwrap takes the Option by
+        ; value, and a name unwrapped inside a loop or reused later is
+        ; gone after the move (E0382).
+        def unwrap_bare_local:boolean false
+        if ((arg.expression == false) && (arg.value_type == RangerNodeType.VRef)) {
+          if ((array_length arg.ns) <= 1) {
+            unwrap_bare_local = true
+          }
+        }
+        ; an Option of a Copy scalar copies by itself — cloning it is
+        ; clippy's clone_on_copy
+        if unwrap_bare_local {
+          if (inner_type == "int") { unwrap_bare_local = false }
+          if (inner_type == "double") { unwrap_bare_local = false }
+          if (inner_type == "boolean") { unwrap_bare_local = false }
+          if (inner_type == "char") { unwrap_bare_local = false }
+          if (TTypeRegistry.isIntAlias(inner_type)) { unwrap_bare_local = false }
+          if (TTypeRegistry.isFloatAlias(inner_type)) { unwrap_bare_local = false }
+        }
+        if (is_self_field || unwrap_bare_local) {
           wr.out(".clone().unwrap()" false)
         } {
           wr.out(".unwrap()" false)

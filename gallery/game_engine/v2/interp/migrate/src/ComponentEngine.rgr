@@ -247,6 +247,57 @@ class EvalContext {
         }
         return false
     }
+
+    ; PERF: ++/-- on a plain NUMBER binding in one walk. Returns the OLD
+    ; value when it applied; ABSENT when the name is missing here, shadowed
+    ; by a with-object, or bound to a non-number — the caller falls back to
+    ; the full read-convert-write path. The binding is REPLACED, never
+    ; mutated, so aliases keep the old immutable number.
+    fn bumpNumberOld@(optional):EvalValue (name:string delta:double) {
+        if withObject {
+            def noneW@(optional):EvalValue
+            return noneW
+        }
+        def cur@(optional):EvalValue (get bindings name)
+        if cur {
+            def c:EvalValue (unwrap cur)
+            if (c.valueType == 1) {
+                set bindings name (EvalValue.number((c.numberValue + delta)))
+                return cur
+            }
+            def noneT@(optional):EvalValue
+            return noneT
+        }
+        if parent {
+            def p:EvalContext (unwrap parent)
+            return (p.bumpNumberOld(name delta))
+        }
+        def noneM@(optional):EvalValue
+        return noneM
+    }
+
+    ; PERF: single-probe read. The has-then-lookup pair walked the scope
+    ; chain twice, hashing the name at every level both times; the missing
+    ; case here is an ABSENT optional, so callers pay one walk.
+    fn tryLookup@(optional):EvalValue (name:string) {
+        if withObject {
+            def wo:EvalValue (unwrap withObject)
+            if (has wo.objectMap name) {
+                def whit@(optional):EvalValue (get wo.objectMap name)
+                return whit
+            }
+        }
+        def found@(optional):EvalValue (get bindings name)
+        if found {
+            return found
+        }
+        if parent {
+            def p:EvalContext (unwrap parent)
+            return (p.tryLookup(name))
+        }
+        def missing@(optional):EvalValue
+        return missing
+    }
     
     ; Create child context (for function calls). Inherits moduleRoot so nested
     ; functions always resolve module-level const/let/array/object bindings.
@@ -287,6 +338,8 @@ class ComponentEngine {
     ; When false, scripts are parsed in non-JSX mode: `<` is only comparison /
     ; type-cast, never a JSX tag. Set false to run .as (AssemblyScript) sources.
     def jsxParsing:boolean true
+    ; compiled regex programs, keyed flags:source (flags never contain ':')
+    def regexProgCache:[string:RegexProgram]
     def source:string ""
     ; D-FNSRC: the source text the code being evaluated RIGHT NOW was parsed
     ; from. `source` is the main script and stays that; this one swaps for the
@@ -1014,14 +1067,14 @@ class ComponentEngine {
     ; Pass 1: functions become closures over the module scope; classes go to the
     ; per-module class table.
     fn materializeVirtualDecl:void (node:TSNode) {
-        if (node.nodeType == "FunctionDeclaration") {
+        if ((this.nodeKindOf(node)) == 40) {
             if ((strlen node.name) > 0) {
                 def fv:EvalValue (this.captureClosure(node))
                 context.define(node.name fv)
             }
             return
         }
-        if (node.nodeType == "ClassDeclaration") {
+        if ((this.nodeKindOf(node)) == 25) {
             if ((strlen node.name) > 0) {
                 def key:string (currentModule + ("::" + node.name))
                 set moduleClasses key node
@@ -1043,7 +1096,7 @@ class ComponentEngine {
 
     ; Pass 2: top-level const/let evaluate with the module scope as context.
     fn materializeVirtualVar:void (node:TSNode) {
-        if (node.nodeType == "VariableDeclaration") {
+        if ((this.nodeKindOf(node)) == 31) {
             def i:int 0
             while (i < (array_length node.children)) {
                 def decl:TSNode (itemAt node.children i)
@@ -1077,7 +1130,7 @@ class ComponentEngine {
         def i:int 0
         while (i < (array_length ast.children)) {
             def stmt:TSNode (itemAt ast.children i)
-            if (stmt.nodeType == "ExpressionStatement") {
+            if ((this.nodeKindOf(stmt)) == 30) {
                 if stmt.left {
                     this.evaluateExprForSideEffect((unwrap stmt.left))
                 }
@@ -1283,14 +1336,14 @@ class ComponentEngine {
         def i:int 0
         while (i < (array_length bodyNode.children)) {
             def st:TSNode (itemAt bodyNode.children i)
-            if (st.nodeType != "ExpressionStatement") {
+            if ((this.nodeKindOf(st)) != 30) {
                 return false
             }
             if (null? st.left) {
                 return false
             }
             def ex:TSNode (unwrap st.left)
-            if (ex.nodeType != "StringLiteral") {
+            if ((this.nodeKindOf(ex)) != 8) {
                 return false
             }
             ; §14.1: the directive is matched against the RAW text, so a
@@ -1316,7 +1369,7 @@ class ComponentEngine {
             return false
         }
         def bb:TSNode (unwrap fnNode.body)
-        if (bb.nodeType != "BlockStatement") {
+        if ((this.nodeKindOf(bb)) != 34) {
             return false
         }
         return (this.bodyIsStrict(bb))
@@ -1330,7 +1383,7 @@ class ComponentEngine {
             return false
         }
         def b:TSNode (unwrap fnNode.body)
-        if (b.nodeType != "BlockStatement") {
+        if ((this.nodeKindOf(b)) != 34) {
             return false
         }
         return (this.bodyIsStrict(b))
@@ -1457,7 +1510,7 @@ class ComponentEngine {
         }
         if ((array_length ast.children) > 0) {
             def decl:TSNode (itemAt ast.children 0)
-            if (decl.nodeType == "FunctionDeclaration") {
+            if ((this.nodeKindOf(decl)) == 40) {
                 ; D-FNSRC: the closure records the source it was parsed from, not
                 ; the caller's.
                 ; D-STRICT: a function built by the Function CONSTRUCTOR never
@@ -1591,10 +1644,10 @@ class ComponentEngine {
             if (false == (this.isTopLevelDeclaration(stmt))) {
                 this.runStatementValue(stmt)
             } {
-                if (stmt.nodeType == "VariableDeclaration") {
+                if ((this.nodeKindOf(stmt)) == 31) {
                     this.runStatementValue(stmt)
                 }
-                if (stmt.nodeType == "ClassDeclaration") {
+                if ((this.nodeKindOf(stmt)) == 25) {
                     if ((strlen stmt.name) > 0) {
                         set classes stmt.name stmt
                     }
@@ -1668,7 +1721,7 @@ class ComponentEngine {
         def i:int 0
         while (i < (array_length ast.children)) {
             def stmt:TSNode (itemAt ast.children i)
-            if (stmt.nodeType == "ExpressionStatement") {
+            if ((this.nodeKindOf(stmt)) == 30) {
                 if stmt.left {
                     this.evaluateExprForSideEffect((unwrap stmt.left))
                 }
@@ -1685,7 +1738,7 @@ class ComponentEngine {
                     ; D-TOPLEVEL: a VariableDeclaration's INITIALISER runs here,
                     ; in source order, rather than in a pass of its own before
                     ; the program starts. Only the binding is hoisted.
-                    if (stmt.nodeType == "VariableDeclaration") {
+                    if ((this.nodeKindOf(stmt)) == 31) {
                         this.runStatementValue(stmt)
                     }
                 }
@@ -1703,9 +1756,9 @@ class ComponentEngine {
     ; Statements already bound by registerComponents / processVariables before
     ; top-level execution; re-running them would double-evaluate initialisers.
     fn isTopLevelDeclaration:boolean (stmt:TSNode) {
-        if (stmt.nodeType == "FunctionDeclaration") { return true }
-        if (stmt.nodeType == "ClassDeclaration") { return true }
-        if (stmt.nodeType == "VariableDeclaration") { return true }
+        if ((this.nodeKindOf(stmt)) == 40) { return true }
+        if ((this.nodeKindOf(stmt)) == 25) { return true }
+        if ((this.nodeKindOf(stmt)) == 31) { return true }
         if (stmt.nodeType == "ImportDeclaration") { return true }
         if (stmt.nodeType == "ExportNamedDeclaration") { return true }
         if (stmt.nodeType == "ExportDefaultDeclaration") { return true }
@@ -2063,7 +2116,7 @@ class ComponentEngine {
         while (hk < (array_length importAstNode.children)) {
             def hstmt:TSNode (itemAt importAstNode.children hk)
             ; Collect non-exported function declarations as helpers
-            if (hstmt.nodeType == "FunctionDeclaration") {
+            if ((this.nodeKindOf(hstmt)) == 40) {
                 def hfnName:string hstmt.name
                 if ((this.isInList(hfnName importExportNames)) == false) {
                     push helperFns hstmt
@@ -2084,7 +2137,7 @@ class ComponentEngine {
             if (stmt.nodeType == "ExportNamedDeclaration") {
                 if stmt.left {
                     def declNode:TSNode (unwrap stmt.left)
-                    if (declNode.nodeType == "FunctionDeclaration") {
+                    if ((this.nodeKindOf(declNode)) == 40) {
                         def fnName:string declNode.name
                         if (this.isInList(fnName importExportNames)) {
                             def localName:string (this.localNameForImport(fnName importExportNames importLocalNames))
@@ -2095,7 +2148,7 @@ class ComponentEngine {
             }
             
             ; Also check for regular function declarations (may be exported separately)
-            if (stmt.nodeType == "FunctionDeclaration") {
+            if ((this.nodeKindOf(stmt)) == 40) {
                 def fnName:string stmt.name
                 if (this.isInList(fnName importExportNames)) {
                     def localName:string (this.localNameForImport(fnName importExportNames importLocalNames))
@@ -2124,7 +2177,7 @@ class ComponentEngine {
     }
 
     fn materializeImportedNode:void (node:TSNode) {
-        if (node.nodeType == "FunctionDeclaration") {
+        if ((this.nodeKindOf(node)) == 40) {
             if (node.name != "render") {
                 def __fnv:EvalValue (EvalValue.function(node))
                 __fnv.strictFn = (this.strictForBody(node))
@@ -2133,7 +2186,7 @@ class ComponentEngine {
             }
             return
         }
-        if (node.nodeType == "ClassDeclaration") {
+        if ((this.nodeKindOf(node)) == 25) {
             ; `classes` is a single engine-wide name->node map (see
             ; registerTopLevelNode / evaluateNewExpr), so a class declared in
             ; an imported module becomes constructible (`new Foo()`) by both
@@ -2144,7 +2197,7 @@ class ComponentEngine {
             }
             return
         }
-        if (node.nodeType == "VariableDeclaration") {
+        if ((this.nodeKindOf(node)) == 31) {
             this.processModuleVariableDeclaration(node)
             return
         }
@@ -2292,11 +2345,11 @@ class ComponentEngine {
     }
     
     fn registerTopLevelNode:void (node:TSNode) {
-        if (node.nodeType == "FunctionDeclaration") {
+        if ((this.nodeKindOf(node)) == 40) {
             this.registerFunctionDeclaration(node)
             return
         }
-        if (node.nodeType == "ClassDeclaration") {
+        if ((this.nodeKindOf(node)) == 25) {
             if ((strlen node.name) > 0) {
                 set classes node.name node
             }
@@ -2338,7 +2391,7 @@ class ComponentEngine {
         def i:int 0
         while (i < (array_length ast.children)) {
             def node:TSNode (itemAt ast.children i)
-            if (node.nodeType == "FunctionDeclaration") {
+            if ((this.nodeKindOf(node)) == 40) {
                 if (node.name == "render") {
                     return node
                 }
@@ -2372,7 +2425,7 @@ class ComponentEngine {
         def i:int 0
         while (i < (array_length ast.children)) {
             def node:TSNode (itemAt ast.children i)
-            if (node.nodeType == "VariableDeclaration") {
+            if ((this.nodeKindOf(node)) == 31) {
                 def ci:int 0
                 while (ci < (array_length node.children)) {
                     def d:TSNode (itemAt node.children ci)
@@ -2572,7 +2625,7 @@ class ComponentEngine {
     }
     
     fn processTopLevelVarNode:void (node:TSNode) {
-        if (node.nodeType == "VariableDeclaration") {
+        if ((this.nodeKindOf(node)) == 31) {
             this.processModuleVariableDeclaration(node)
             ; D-GLOBALTHIS: a top-level `var` is a property of the global object
             ; as well as a binding, so `var toString = f; String(this)` uses f.
@@ -2715,7 +2768,7 @@ class ComponentEngine {
     ; undefined — matching JS for the common "absent property" case (JS itself
     ; only defaults on undefined; explicit null is the sole practical divergence).
     fn bindPattern:void (pattern:TSNode value:EvalValue) {
-        if (pattern.nodeType == "Identifier") {
+        if ((this.nodeKindOf(pattern)) == 1) {
             context.define(pattern.name value)
             return
         }
@@ -2926,7 +2979,7 @@ class ComponentEngine {
             if (param.nodeType == "Parameter") {
                 context.define(param.name props)
             }
-            if (param.nodeType == "Identifier") {
+            if ((this.nodeKindOf(param)) == 1) {
                 context.define(param.name props)
             }
             
@@ -2979,12 +3032,12 @@ class ComponentEngine {
             def stmt:TSNode (itemAt body.children i)
             
             ; Process variable declarations
-            if (stmt.nodeType == "VariableDeclaration") {
+            if ((this.nodeKindOf(stmt)) == 31) {
                 this.processVariableDeclaration(stmt)
             }
             
             ; Process if statement
-            if (stmt.nodeType == "IfStatement") {
+            if ((this.nodeKindOf(stmt)) == 32) {
                 def ifResult:EVGElement (this.evaluateIfStatement(stmt))
                 if ifResult.hasReturn {
                     return ifResult
@@ -2992,7 +3045,7 @@ class ComponentEngine {
             }
             
             ; Process for loop
-            if (stmt.nodeType == "ForStatement") {
+            if ((this.nodeKindOf(stmt)) == 33) {
                 def forResult:EVGElement (this.evaluateForStatement(stmt))
                 if forResult.hasReturn {
                     return forResult
@@ -3000,7 +3053,7 @@ class ComponentEngine {
             }
             
             ; Process for...of loop
-            if (stmt.nodeType == "ForOfStatement") {
+            if ((this.nodeKindOf(stmt)) == 37) {
                 def forOfResult:EVGElement (this.evaluateForOfStatement(stmt))
                 if forOfResult.hasReturn {
                     return forOfResult
@@ -3008,7 +3061,7 @@ class ComponentEngine {
             }
             
             ; Process while loop
-            if (stmt.nodeType == "WhileStatement") {
+            if ((this.nodeKindOf(stmt)) == 36) {
                 def whileResult:EVGElement (this.evaluateWhileStatement(stmt))
                 if whileResult.hasReturn {
                     return whileResult
@@ -3016,7 +3069,7 @@ class ComponentEngine {
             }
             
             ; Process expression statement (e.g., arr.push(x))
-            if (stmt.nodeType == "ExpressionStatement") {
+            if ((this.nodeKindOf(stmt)) == 30) {
                 if stmt.left {
                     def exprNode:TSNode (unwrap stmt.left)
                     this.evaluateExprForSideEffect(exprNode)
@@ -3024,7 +3077,7 @@ class ComponentEngine {
             }
             
             ; Process return statement
-            if (stmt.nodeType == "ReturnStatement") {
+            if ((this.nodeKindOf(stmt)) == 35) {
                 if stmt.left {
                     def returnExpr:TSNode (unwrap stmt.left)
                     return (this.evaluateJSX(returnExpr))
@@ -3058,6 +3111,67 @@ class ComponentEngine {
             this.hoistVarsIn((itemAt stmts i) 0)
             i = (i + 1)
         }
+    }
+
+    ; PERF: the name DISCOVERY is memoised on the body node — the walk ran
+    ; on every single invocation of every function; the names it finds
+    ; never change for a given node. Defining them into the fresh call
+    ; context is the only per-call work left.
+    fn hoistVarNamesMemo:void (body:TSNode) {
+        if (false == body.hoistScanned) {
+            body.hoistScanned = true
+            def found:[string]
+            def i:int 0
+            while (i < (array_length body.children)) {
+                this.hoistCollectIn((itemAt body.children i) 0 found)
+                i = (i + 1)
+            }
+            body.hoistedVarNames = found
+        }
+        def n:int (array_length body.hoistedVarNames)
+        def k:int 0
+        while (k < n) {
+            def nm:string (itemAt body.hoistedVarNames k)
+            if (false == (context.hasOwnBinding(nm))) {
+                context.define(nm (EvalValue.undefined()))
+            }
+            k = (k + 1)
+        }
+    }
+
+    fn hoistCollectIn:void (node:TSNode depth:int out:[string]) {
+        if (depth > 24) {
+            return
+        }
+        def hk:int (this.nodeKindOf(node))
+        ; A nested function carries its own vars; stop here.
+        if (hk == 40) { return }
+        if (hk == 18) { return }
+        if (hk == 17) { return }
+        if (hk == 25) { return }
+        if (hk == 31) {
+            if ((node.kind == "var") || ((strlen node.kind) == 0)) {
+                def ci:int 0
+                while (ci < (array_length node.children)) {
+                    def decl:TSNode (itemAt node.children ci)
+                    def nm:string decl.name
+                    if ((strlen nm) > 0) {
+                        push out nm
+                    }
+                    ci = (ci + 1)
+                }
+            }
+            return
+        }
+        def nd:int (depth + 1)
+        def k:int 0
+        while (k < (array_length node.children)) {
+            this.hoistCollectIn((itemAt node.children k) nd out)
+            k = (k + 1)
+        }
+        if node.body { this.hoistCollectIn((unwrap node.body) nd out) }
+        if node.left { this.hoistCollectIn((unwrap node.left) nd out) }
+        if node.right { this.hoistCollectIn((unwrap node.right) nd out) }
     }
 
     fn hoistVarsIn:void (node:TSNode depth:int) {
@@ -3114,7 +3228,7 @@ class ComponentEngine {
         ; Value-returning control flow: a `return` inside an if/else or nested
         ; block propagates its value out of the function. Save/restore the flags
         ; so nested function calls during evaluation stay reentrancy-safe.
-        if (body.nodeType == "BlockStatement") {
+        if ((this.nodeKindOf(body)) == 34) {
             def savedDidReturn:boolean scriptDidReturn
             def savedReturnValue:EvalValue scriptReturnValue
             scriptDidReturn = false
@@ -3124,7 +3238,7 @@ class ComponentEngine {
             ; that reads a variable declared LATER -- which the suite does
             ; constantly to check that ToInteger(undefined) is 0 -- raised a
             ; ReferenceError instead.
-            this.hoistVarNames(body.children)
+            this.hoistVarNamesMemo(body)
             this.runStatementList(body.children)
             def blockOut:EvalValue scriptReturnValue
             scriptDidReturn = savedDidReturn
@@ -3137,12 +3251,12 @@ class ComponentEngine {
             def stmt:TSNode (itemAt body.children i)
             
             ; Process variable declarations
-            if (stmt.nodeType == "VariableDeclaration") {
+            if ((this.nodeKindOf(stmt)) == 31) {
                 this.processVariableDeclaration(stmt)
             }
             
             ; Process if statement
-            if (stmt.nodeType == "IfStatement") {
+            if ((this.nodeKindOf(stmt)) == 32) {
                 def ifResult:EVGElement (this.evaluateIfStatement(stmt))
                 if ifResult.hasReturn {
                     ; If returned from if statement, need to get the value
@@ -3151,22 +3265,22 @@ class ComponentEngine {
             }
             
             ; Process for loop
-            if (stmt.nodeType == "ForStatement") {
+            if ((this.nodeKindOf(stmt)) == 33) {
                 this.runForStatementValue(stmt)
             }
             
             ; Process for...of loop
-            if (stmt.nodeType == "ForOfStatement") {
+            if ((this.nodeKindOf(stmt)) == 37) {
                 this.runForOfStatementValue(stmt)
             }
             
             ; Process while loop
-            if (stmt.nodeType == "WhileStatement") {
+            if ((this.nodeKindOf(stmt)) == 36) {
                 this.runWhileStatementValue(stmt)
             }
             
             ; Process expression statement (e.g., arr.push(x))
-            if (stmt.nodeType == "ExpressionStatement") {
+            if ((this.nodeKindOf(stmt)) == 30) {
                 if stmt.left {
                     def exprNode:TSNode (unwrap stmt.left)
                     this.evaluateExprForSideEffect(exprNode)
@@ -3174,7 +3288,7 @@ class ComponentEngine {
             }
             
             ; Process return statement - evaluate as EvalValue
-            if (stmt.nodeType == "ReturnStatement") {
+            if ((this.nodeKindOf(stmt)) == 35) {
                 if stmt.left {
                     def returnExpr:TSNode (unwrap stmt.left)
                     return (this.evaluateExpr(returnExpr))
@@ -3192,7 +3306,7 @@ class ComponentEngine {
         }
         
         ; If body is a simple expression
-        if ((body.nodeType != "BlockStatement") && (body.nodeType != "")) {
+        if (((this.nodeKindOf(body)) != 34) && (body.nodeType != "")) {
             return (this.evaluateExpr(body))
         }
         
@@ -3213,7 +3327,7 @@ class ComponentEngine {
         loopContinue = false
         if stmt.init {
             def initNode:TSNode (unwrap stmt.init)
-            if (initNode.nodeType == "VariableDeclaration") {
+            if ((this.nodeKindOf(initNode)) == 31) {
                 this.processVariableDeclaration(initNode)
             } {
                 ; The init clause is an ExpressionNoIn when it is not a
@@ -3286,7 +3400,7 @@ class ComponentEngine {
         def varPattern@(optional):TSNode
         if stmt.left {
             def leftNode:TSNode (unwrap stmt.left)
-            if (leftNode.nodeType == "VariableDeclaration") {
+            if ((this.nodeKindOf(leftNode)) == 31) {
                 if ((array_length leftNode.children) > 0) {
                     def decl:TSNode (itemAt leftNode.children 0)
                     varName = decl.name
@@ -3543,20 +3657,20 @@ class ComponentEngine {
         def declaresVar:boolean false
         if stmt.left {
             def leftNode:TSNode (unwrap stmt.left)
-            if (leftNode.nodeType == "VariableDeclaration") {
+            if ((this.nodeKindOf(leftNode)) == 31) {
                 if ((array_length leftNode.children) > 0) {
                     def decl:TSNode (itemAt leftNode.children 0)
                     varName = decl.name
                     declaresVar = true
                 }
             } {
-                if (leftNode.nodeType == "Identifier") {
+                if ((this.nodeKindOf(leftNode)) == 1) {
                     varName = leftNode.name
                 }
-                if (leftNode.nodeType == "ExpressionStatement") {
+                if ((this.nodeKindOf(leftNode)) == 30) {
                     if leftNode.left {
                         def inner:TSNode (unwrap leftNode.left)
-                        if (inner.nodeType == "Identifier") {
+                        if ((this.nodeKindOf(inner)) == 1) {
                             varName = inner.name
                         }
                     }
@@ -3787,7 +3901,7 @@ class ComponentEngine {
         def i:int 0
         while (i < (array_length stmts)) {
             def s:TSNode (itemAt stmts i)
-            if (s.nodeType == "FunctionDeclaration") {
+            if ((this.nodeKindOf(s)) == 40) {
                 if ((strlen s.name) > 0) {
                     ; D-CATCHVAR: the CLOSURE is over the current scope -- the
                     ; body must see a catch parameter or a with object -- but the
@@ -3803,7 +3917,7 @@ class ComponentEngine {
             ; name rather than scoped, so an inner class is visible wider than
             ; the spec allows; that is strictly better than not resolving at all,
             ; and shadowing follows declaration order as it would anyway.
-            if (s.nodeType == "ClassDeclaration") {
+            if ((this.nodeKindOf(s)) == 25) {
                 if ((strlen s.name) > 0) {
                     set classes s.name s
                 }
@@ -3812,15 +3926,314 @@ class ComponentEngine {
         }
     }
 
+    ; PERF: nodeType dispatch was a string-compare chain on EVERY node visit.
+    ; A string compare is a memcmp on the native targets, where V8 compares
+    ; interned pointers for free -- so the natives paid for dispatch in a way
+    ; JS never did. The kind is computed ONCE per node, memoised on it, and
+    ; every hot dispatcher compares small integers instead. 0 = unscanned,
+    ; 99 = a type outside the table (JSX, TS casts, rare statements).
+    ; PERF: operator dispatch, same story as nodeKindOf — the operator
+    ; string of a Binary/Assignment/Update/Unary expression is compared
+    ; against up to forty literals per evaluation. Computed once per node,
+    ; memoised, integer compares after that. 0 = unscanned, 99 = other.
+    fn opKindOf:int (node:TSNode) {
+        if (node.evalOpKind > 0) {
+            return node.evalOpKind
+        }
+        def ov:string node.value
+        if (ov == "=") { node.evalOpKind = 1
+            return 1
+        }
+        if (ov == "+=") { node.evalOpKind = 2
+            return 2
+        }
+        if (ov == "-=") { node.evalOpKind = 3
+            return 3
+        }
+        if (ov == "*=") { node.evalOpKind = 4
+            return 4
+        }
+        if (ov == "/=") { node.evalOpKind = 5
+            return 5
+        }
+        if (ov == "%=") { node.evalOpKind = 6
+            return 6
+        }
+        if (ov == "**=") { node.evalOpKind = 7
+            return 7
+        }
+        if (ov == "<<=") { node.evalOpKind = 8
+            return 8
+        }
+        if (ov == ">>=") { node.evalOpKind = 9
+            return 9
+        }
+        if (ov == ">>>=") { node.evalOpKind = 10
+            return 10
+        }
+        if (ov == "&=") { node.evalOpKind = 11
+            return 11
+        }
+        if (ov == "|=") { node.evalOpKind = 12
+            return 12
+        }
+        if (ov == "^=") { node.evalOpKind = 13
+            return 13
+        }
+        if (ov == "&&=") { node.evalOpKind = 14
+            return 14
+        }
+        if (ov == "||=") { node.evalOpKind = 15
+            return 15
+        }
+        if (ov == "??=") { node.evalOpKind = 16
+            return 16
+        }
+        if (ov == "++") { node.evalOpKind = 17
+            return 17
+        }
+        if (ov == "--") { node.evalOpKind = 18
+            return 18
+        }
+        if (ov == "+") { node.evalOpKind = 20
+            return 20
+        }
+        if (ov == "-") { node.evalOpKind = 21
+            return 21
+        }
+        if (ov == "*") { node.evalOpKind = 22
+            return 22
+        }
+        if (ov == "/") { node.evalOpKind = 23
+            return 23
+        }
+        if (ov == "%") { node.evalOpKind = 24
+            return 24
+        }
+        if (ov == "**") { node.evalOpKind = 25
+            return 25
+        }
+        if (ov == "<") { node.evalOpKind = 26
+            return 26
+        }
+        if (ov == ">") { node.evalOpKind = 27
+            return 27
+        }
+        if (ov == "<=") { node.evalOpKind = 28
+            return 28
+        }
+        if (ov == ">=") { node.evalOpKind = 29
+            return 29
+        }
+        if (ov == "==") { node.evalOpKind = 30
+            return 30
+        }
+        if (ov == "!=") { node.evalOpKind = 31
+            return 31
+        }
+        if (ov == "===") { node.evalOpKind = 32
+            return 32
+        }
+        if (ov == "!==") { node.evalOpKind = 33
+            return 33
+        }
+        if (ov == "&&") { node.evalOpKind = 34
+            return 34
+        }
+        if (ov == "||") { node.evalOpKind = 35
+            return 35
+        }
+        if (ov == "??") { node.evalOpKind = 36
+            return 36
+        }
+        if (ov == "&") { node.evalOpKind = 37
+            return 37
+        }
+        if (ov == "|") { node.evalOpKind = 38
+            return 38
+        }
+        if (ov == "^") { node.evalOpKind = 39
+            return 39
+        }
+        if (ov == "<<") { node.evalOpKind = 40
+            return 40
+        }
+        if (ov == ">>") { node.evalOpKind = 41
+            return 41
+        }
+        if (ov == ">>>") { node.evalOpKind = 42
+            return 42
+        }
+        if (ov == "in") { node.evalOpKind = 43
+            return 43
+        }
+        if (ov == "instanceof") { node.evalOpKind = 44
+            return 44
+        }
+        if (ov == "typeof") { node.evalOpKind = 46
+            return 46
+        }
+        if (ov == "delete") { node.evalOpKind = 47
+            return 47
+        }
+        if (ov == "void") { node.evalOpKind = 48
+            return 48
+        }
+        if (ov == "!") { node.evalOpKind = 49
+            return 49
+        }
+        if (ov == "~") { node.evalOpKind = 50
+            return 50
+        }
+        node.evalOpKind = 99
+        return 99
+    }
+
+    fn nodeKindOf:int (node:TSNode) {
+        if (node.evalKind > 0) {
+            return node.evalKind
+        }
+        def nt:string node.nodeType
+        if (nt == "Identifier") { node.evalKind = 1
+            return 1
+        }
+        if (nt == "NumericLiteral") { node.evalKind = 2
+            return 2
+        }
+        if (nt == "MemberExpression") { node.evalKind = 3
+            return 3
+        }
+        if (nt == "CallExpression") { node.evalKind = 4
+            return 4
+        }
+        if (nt == "BinaryExpression") { node.evalKind = 5
+            return 5
+        }
+        if (nt == "AssignmentExpression") { node.evalKind = 6
+            return 6
+        }
+        if (nt == "UpdateExpression") { node.evalKind = 7
+            return 7
+        }
+        if (nt == "StringLiteral") { node.evalKind = 8
+            return 8
+        }
+        if (nt == "BooleanLiteral") { node.evalKind = 9
+            return 9
+        }
+        if (nt == "NullLiteral") { node.evalKind = 10
+            return 10
+        }
+        if (nt == "TemplateLiteral") { node.evalKind = 11
+            return 11
+        }
+        if (nt == "UnaryExpression") { node.evalKind = 12
+            return 12
+        }
+        if (nt == "ConditionalExpression") { node.evalKind = 13
+            return 13
+        }
+        if (nt == "ArrayExpression") { node.evalKind = 14
+            return 14
+        }
+        if (nt == "ObjectExpression") { node.evalKind = 15
+            return 15
+        }
+        if (nt == "NewExpression") { node.evalKind = 16
+            return 16
+        }
+        if (nt == "ArrowFunctionExpression") { node.evalKind = 17
+            return 17
+        }
+        if (nt == "FunctionExpression") { node.evalKind = 18
+            return 18
+        }
+        if (nt == "SequenceExpression") { node.evalKind = 19
+            return 19
+        }
+        if (nt == "ThisExpression") { node.evalKind = 20
+            return 20
+        }
+        if (nt == "RegExpLiteral") { node.evalKind = 21
+            return 21
+        }
+        if (nt == "ArrayHole") { node.evalKind = 22
+            return 22
+        }
+        if (nt == "ParenthesizedExpression") { node.evalKind = 23
+            return 23
+        }
+        if (nt == "ClassExpression") { node.evalKind = 24
+            return 24
+        }
+        if (nt == "ClassDeclaration") { node.evalKind = 25
+            return 25
+        }
+        if (nt == "ExpressionStatement") { node.evalKind = 30
+            return 30
+        }
+        if (nt == "VariableDeclaration") { node.evalKind = 31
+            return 31
+        }
+        if (nt == "IfStatement") { node.evalKind = 32
+            return 32
+        }
+        if (nt == "ForStatement") { node.evalKind = 33
+            return 33
+        }
+        if (nt == "BlockStatement") { node.evalKind = 34
+            return 34
+        }
+        if (nt == "ReturnStatement") { node.evalKind = 35
+            return 35
+        }
+        if (nt == "WhileStatement") { node.evalKind = 36
+            return 36
+        }
+        if (nt == "ForOfStatement") { node.evalKind = 37
+            return 37
+        }
+        if (nt == "BreakStatement") { node.evalKind = 38
+            return 38
+        }
+        if (nt == "ContinueStatement") { node.evalKind = 39
+            return 39
+        }
+        if (nt == "FunctionDeclaration") { node.evalKind = 40
+            return 40
+        }
+        if (nt == "LabeledStatement") { node.evalKind = 41
+            return 41
+        }
+        if (nt == "SwitchStatement") { node.evalKind = 42
+            return 42
+        }
+        if (nt == "DoWhileStatement") { node.evalKind = 43
+            return 43
+        }
+        if (nt == "ForInStatement") { node.evalKind = 44
+            return 44
+        }
+        if (nt == "ThrowStatement") { node.evalKind = 45
+            return 45
+        }
+        if (nt == "TryStatement") { node.evalKind = 46
+            return 46
+        }
+        node.evalKind = 99
+        return 99
+    }
+
     fn runStatementValue:void (stmt:TSNode) {
         if (scriptDidReturn || scriptThrew) {
             return
         }
+        def stmtK:int (this.nodeKindOf(stmt))
         ; Already bound by hoisting; the declaration itself does nothing here.
-        if (stmt.nodeType == "FunctionDeclaration") {
+        if (stmtK == 40) {
             return
         }
-        if (stmt.nodeType == "ReturnStatement") {
+        if (stmtK == 35) {
             if stmt.left {
                 scriptReturnValue = (this.evaluateExpr((unwrap stmt.left)))
             } {
@@ -3838,31 +4251,31 @@ class ComponentEngine {
             scriptDidReturn = true
             return
         }
-        if (stmt.nodeType == "VariableDeclaration") {
+        if (stmtK == 31) {
             this.processVariableDeclaration(stmt)
             return
         }
-        if (stmt.nodeType == "ExpressionStatement") {
+        if (stmtK == 30) {
             if stmt.left {
                 this.evaluateExprForSideEffect((unwrap stmt.left))
             }
             return
         }
-        if (stmt.nodeType == "IfStatement") {
+        if (stmtK == 32) {
             this.runIfValue(stmt)
             return
         }
-        if (stmt.nodeType == "BlockStatement") {
+        if (stmtK == 34) {
             this.clearStatementLabels()
             this.runStatementList(stmt.children)
             return
         }
-        if (stmt.nodeType == "BreakStatement") {
+        if (stmtK == 38) {
             loopBreak = true
             breakLabel = stmt.name
             return
         }
-        if (stmt.nodeType == "ContinueStatement") {
+        if (stmtK == 39) {
             loopContinue = true
             continueLabel = stmt.name
             return
@@ -3872,7 +4285,7 @@ class ComponentEngine {
         ; is consumed here, which is what makes `blk: { break blk; }` leave the
         ; block rather than the whole function. There was no case for the node
         ; type at all, so a labelled statement ran nothing whatsoever.
-        if (stmt.nodeType == "LabeledStatement") {
+        if (stmtK == 41) {
             push pendingLabels stmt.name
             if stmt.body {
                 this.runBlockOrStatement((unwrap stmt.body))
@@ -3886,31 +4299,31 @@ class ComponentEngine {
             }
             return
         }
-        if (stmt.nodeType == "ForStatement") {
+        if (stmtK == 33) {
             this.runForStatementValue(stmt)
             return
         }
-        if (stmt.nodeType == "ForOfStatement") {
+        if (stmtK == 37) {
             this.runForOfStatementValue(stmt)
             return
         }
-        if (stmt.nodeType == "WhileStatement") {
+        if (stmtK == 36) {
             this.runWhileStatementValue(stmt)
             return
         }
-        if (stmt.nodeType == "SwitchStatement") {
+        if (stmtK == 42) {
             this.runSwitchStatementValue(stmt)
             return
         }
-        if (stmt.nodeType == "DoWhileStatement") {
+        if (stmtK == 43) {
             this.runDoWhileStatementValue(stmt)
             return
         }
-        if (stmt.nodeType == "ForInStatement") {
+        if (stmtK == 44) {
             this.runForInStatementValue(stmt)
             return
         }
-        if (stmt.nodeType == "ThrowStatement") {
+        if (stmtK == 45) {
             if stmt.left {
                 def thrownV:EvalValue (this.evaluateExpr((unwrap stmt.left)))
                 ; A throw raised while EVALUATING the operand is the one that
@@ -3929,7 +4342,7 @@ class ComponentEngine {
             scriptThrew = true
             return
         }
-        if (stmt.nodeType == "TryStatement") {
+        if (stmtK == 46) {
             this.runTryStatementValue(stmt)
             return
         }
@@ -4080,7 +4493,7 @@ class ComponentEngine {
     }
 
     fn runBlockOrStatement:void (blk:TSNode) {
-        if (blk.nodeType == "BlockStatement") {
+        if ((this.nodeKindOf(blk)) == 34) {
             ; D-LABELS: a label on a BLOCK belongs to the block, not to the first
             ; statement inside it. `blk: { do { break blk } while (true); ... }`
             ; used to hand "blk" to the do-while, which then swallowed the break
@@ -4123,7 +4536,7 @@ class ComponentEngine {
                 if node.right {
                     def elseBlock:TSNode (unwrap node.right)
                     ; Could be another IfStatement (else if) or BlockStatement (else)
-                    if (elseBlock.nodeType == "IfStatement") {
+                    if ((this.nodeKindOf(elseBlock)) == 32) {
                         def elseIfResult:EVGElement (this.evaluateIfStatement(elseBlock))
                         if elseIfResult.hasReturn {
                             return elseIfResult
@@ -4160,15 +4573,15 @@ class ComponentEngine {
         result.hasReturn = false
         
         ; Handle single statement (not wrapped in BlockStatement)
-        if (block.nodeType == "ContinueStatement") {
+        if ((this.nodeKindOf(block)) == 39) {
             result.hasContinue = true
             return result
         }
-        if (block.nodeType == "BreakStatement") {
+        if ((this.nodeKindOf(block)) == 38) {
             result.hasBreak = true
             return result
         }
-        if (block.nodeType == "ReturnStatement") {
+        if ((this.nodeKindOf(block)) == 35) {
             if block.left {
                 def returnExpr:TSNode (unwrap block.left)
                 def returnedEl:EVGElement (this.evaluateJSX(returnExpr))
@@ -4181,16 +4594,16 @@ class ComponentEngine {
         }
         
         ; Handle BlockStatement with children
-        if (block.nodeType == "BlockStatement") {
+        if ((this.nodeKindOf(block)) == 34) {
             def i:int 0
             while (i < (array_length block.children)) {
                 def stmt:TSNode (itemAt block.children i)
                 
-                if (stmt.nodeType == "VariableDeclaration") {
+                if ((this.nodeKindOf(stmt)) == 31) {
                     this.processVariableDeclaration(stmt)
                 }
                 
-                if (stmt.nodeType == "IfStatement") {
+                if ((this.nodeKindOf(stmt)) == 32) {
                     def ifResult:EVGElement (this.evaluateIfStatement(stmt))
                     if ifResult.hasReturn {
                         return ifResult
@@ -4203,7 +4616,7 @@ class ComponentEngine {
                     }
                 }
                 
-                if (stmt.nodeType == "ForStatement") {
+                if ((this.nodeKindOf(stmt)) == 33) {
                     def forResult:EVGElement (this.evaluateForStatement(stmt))
                     if forResult.hasReturn {
                         return forResult
@@ -4216,7 +4629,7 @@ class ComponentEngine {
                     }
                 }
                 
-                if (stmt.nodeType == "ForOfStatement") {
+                if ((this.nodeKindOf(stmt)) == 37) {
                     def forOfResult:EVGElement (this.evaluateForOfStatement(stmt))
                     if forOfResult.hasReturn {
                         return forOfResult
@@ -4229,7 +4642,7 @@ class ComponentEngine {
                     }
                 }
                 
-                if (stmt.nodeType == "WhileStatement") {
+                if ((this.nodeKindOf(stmt)) == 36) {
                     def whileResult:EVGElement (this.evaluateWhileStatement(stmt))
                     if whileResult.hasReturn {
                         return whileResult
@@ -4242,14 +4655,14 @@ class ComponentEngine {
                     }
                 }
                 
-                if (stmt.nodeType == "ExpressionStatement") {
+                if ((this.nodeKindOf(stmt)) == 30) {
                     if stmt.left {
                         def exprNode:TSNode (unwrap stmt.left)
                         this.evaluateExprForSideEffect(exprNode)
                     }
                 }
                 
-                if (stmt.nodeType == "ReturnStatement") {
+                if ((this.nodeKindOf(stmt)) == 35) {
                     if stmt.left {
                         def returnExpr:TSNode (unwrap stmt.left)
                         def returnedEl:EVGElement (this.evaluateJSX(returnExpr))
@@ -4261,12 +4674,12 @@ class ComponentEngine {
                     }
                 }
                 
-                if (stmt.nodeType == "ContinueStatement") {
+                if ((this.nodeKindOf(stmt)) == 39) {
                     result.hasContinue = true
                     return result
                 }
                 
-                if (stmt.nodeType == "BreakStatement") {
+                if ((this.nodeKindOf(stmt)) == 38) {
                     result.hasBreak = true
                     return result
                 }
@@ -4283,37 +4696,38 @@ class ComponentEngine {
     ; completion value, so each branch records it. `eval` reads it back; nothing
     ; else does, which is why this stayed a void call.
     fn evaluateExprForSideEffect:void (node:TSNode) {
+        def seK:int (this.nodeKindOf(node))
         def handledSE:boolean false
         ; Handle CallExpression (method calls like arr.push(x))
-        if (node.nodeType == "CallExpression") {
+        if (seK == 4) {
             completionValue = (this.evaluateExpr(node))
             handledSE = true
         }
 
         ; Handle UpdateExpression (i++, ++i) and AssignmentExpression (x = 1).
-        if (node.nodeType == "UpdateExpression") {
+        if (seK == 7) {
             completionValue = (this.evaluateAssignValue(node))
             handledSE = true
         }
 
-        if (node.nodeType == "AssignmentExpression") {
+        if (seK == 6) {
             completionValue = (this.evaluateAssignValue(node))
             handledSE = true
         }
 
         ; Statement-position unary with a side effect (delete obj.x, void expr).
-        if (node.nodeType == "UnaryExpression") {
+        if (seK == 12) {
             completionValue = (this.evaluateUnaryExpr(node))
             handledSE = true
         }
 
         ; D-ERRORS: a bare reference in statement position still resolves, and an
         ; unresolvable one throws. `nope;` on its own line is a ReferenceError.
-        if (node.nodeType == "Identifier") {
+        if (seK == 1) {
             completionValue = (this.lookupIdentifier(node.name))
             handledSE = true
         }
-        if (node.nodeType == "MemberExpression") {
+        if (seK == 3) {
             completionValue = (this.evaluateMemberExpr(node))
             handledSE = true
         }
@@ -4331,13 +4745,13 @@ class ComponentEngine {
         ; Check if it's a method call: arr.push(x)
         if node.left {
             def calleeNode:TSNode (unwrap node.left)
-            if (calleeNode.nodeType == "MemberExpression") {
+            if ((this.nodeKindOf(calleeNode)) == 3) {
                 def methodName:string calleeNode.name
                 
                 ; Get the object being called on
                 if calleeNode.left {
                     def objNode:TSNode (unwrap calleeNode.left)
-                    if (objNode.nodeType == "Identifier") {
+                    if ((this.nodeKindOf(objNode)) == 1) {
                         def objName:string objNode.name
                         def objValue:EvalValue (context.lookup(objName))
                         
@@ -4378,7 +4792,7 @@ class ComponentEngine {
         if node.init {
             def initNode:TSNode (unwrap node.init)
             this.trace("For init nodeType: " + initNode.nodeType)
-            if (initNode.nodeType == "VariableDeclaration") {
+            if ((this.nodeKindOf(initNode)) == 31) {
                 this.processVariableDeclaration(initNode)
             } {
                 def ignoredInitE:EvalValue (this.evaluateExpr(initNode))
@@ -4443,7 +4857,7 @@ class ComponentEngine {
         def varName:string ""
         if node.left {
             def leftNode:TSNode (unwrap node.left)
-            if (leftNode.nodeType == "VariableDeclaration") {
+            if ((this.nodeKindOf(leftNode)) == 31) {
                 if ((array_length leftNode.children) > 0) {
                     def decl:TSNode (itemAt leftNode.children 0)
                     varName = decl.name
@@ -4761,11 +5175,19 @@ class ComponentEngine {
         return (EvalValue.number(rem))
     }
 
-    fn applyAssignOp:EvalValue (op:string current:EvalValue rightValue:EvalValue) {
-        if (op == "=") {
+    fn applyAssignOp:EvalValue (opK:int current:EvalValue rightValue:EvalValue) {
+        if (opK == 1) {
             return rightValue
         }
-        if (op == "+=") {
+        if (opK == 2) {
+            ; PERF fast path, mirroring `+`: plain strings and plain numbers
+            ; skip the conversion dance (each toStringOf copies on natives).
+            if ((current.valueType == 2) && (rightValue.valueType == 2)) {
+                return (EvalValue.string(current.stringValue + rightValue.stringValue))
+            }
+            if ((current.valueType == 1) && (rightValue.valueType == 1)) {
+                return (EvalValue.number(current.numberValue + rightValue.numberValue))
+            }
             ; Same rule as `+`: BOTH operands convert first, and only then does
             ; the string-vs-numeric decision get made. Testing isString() on the
             ; raw values missed a boxed string entirely, so
@@ -4777,13 +5199,13 @@ class ComponentEngine {
             }
             return (EvalValue.number((this.toNumberOf(lp)) + (this.toNumberOf(rp))))
         }
-        if (op == "-=") {
+        if (opK == 3) {
             return (EvalValue.number((this.toNumberOf(current)) - (this.toNumberOf(rightValue))))
         }
-        if (op == "*=") {
+        if (opK == 4) {
             return (EvalValue.number((this.toNumberOf(current)) * (this.toNumberOf(rightValue))))
         }
-        if (op == "/=") {
+        if (opK == 5) {
             ; Division by zero is an INFINITY, not a no-op. Returning `current`
             ; left the variable untouched, so `x = 1; x /= null` stayed 1.
             def rn:double (this.toNumberOf(rightValue))
@@ -4800,45 +5222,45 @@ class ComponentEngine {
             }
             return (EvalValue.number((ln / rn)))
         }
-        if (op == "%=") {
+        if (opK == 6) {
             ; The floating remainder, same as the `%` operator -- the integer
             ; version threw away the fraction.
             return (this.evaluateRemainder((this.toNumberOf(current)) (this.toNumberOf(rightValue))))
         }
-        if (op == "**=") {
+        if (opK == 7) {
             return (EvalValue.number((this.powNum((this.toNumberOf(current)) (to_int (this.toNumberOf(rightValue)))))))
         }
-        if (op == "&=") {
+        if (opK == 11) {
             return (EvalValue.fromInt((bit_and (to_int (this.toNumberOf(current))) (to_int (this.toNumberOf(rightValue))))))
         }
-        if (op == "|=") {
+        if (opK == 12) {
             return (EvalValue.fromInt((bit_or (to_int (this.toNumberOf(current))) (to_int (this.toNumberOf(rightValue))))))
         }
-        if (op == "^=") {
+        if (opK == 13) {
             return (EvalValue.fromInt((bit_xor (to_int (this.toNumberOf(current))) (to_int (this.toNumberOf(rightValue))))))
         }
-        if (op == "<<=") {
+        if (opK == 8) {
             return (EvalValue.fromInt((bit_shl (to_int (this.toNumberOf(current))) (bit_and (to_int (this.toNumberOf(rightValue))) 31))))
         }
-        if (op == ">>=") {
+        if (opK == 9) {
             return (EvalValue.fromInt((bit_shr (to_int (this.toNumberOf(current))) (bit_and (to_int (this.toNumberOf(rightValue))) 31))))
         }
-        if (op == ">>>=") {
+        if (opK == 10) {
             return (EvalValue.fromInt((bit_ushr (to_int (this.toNumberOf(current))) (bit_and (to_int (this.toNumberOf(rightValue))) 31))))
         }
-        if (op == "&&=") {
+        if (opK == 14) {
             if (current.toBool()) {
                 return rightValue
             }
             return current
         }
-        if (op == "||=") {
+        if (opK == 15) {
             if (current.toBool()) {
                 return current
             }
             return rightValue
         }
-        if (op == "??=") {
+        if (opK == 16) {
             ; nullish: assign when the current value is null OR undefined
             ; (a missing member now reads as undefined — D-IDENTITY rule 6).
             if ((current.isNull()) || (current.isUndefined())) {
@@ -4851,12 +5273,12 @@ class ComponentEngine {
 
     ; Apply a (compound) assignment to a member/index target (o.x, o["k"], a[i]),
     ; returning the assigned value. Read-modify-write for the compound forms.
-    fn assignMember:EvalValue (leftNode:TSNode op:string rightValue:EvalValue) {
+    fn assignMember:EvalValue (leftNode:TSNode opK:int rightValue:EvalValue) {
         def obj:EvalValue (EvalValue.null())
         def objName:string ""
         if leftNode.left {
             def objNode:TSNode (unwrap leftNode.left)
-            if (objNode.nodeType == "Identifier") {
+            if ((this.nodeKindOf(objNode)) == 1) {
                 objName = objNode.name
                 ; D-GLOBALOBJ: resolve through lookupIdentifier, not the raw
                 ; scope, so a write to a built-in global (`Math.value = 1`)
@@ -4916,7 +5338,7 @@ class ComponentEngine {
             def wMapCtx:EvalContext (this.argMapScopeOf(obj))
             if (wMapCtx.has(wMapped)) {
                 def curMapped:EvalValue (wMapCtx.lookup(wMapped))
-                def mappedRes:EvalValue (this.applyAssignOp(op curMapped rightValue))
+                def mappedRes:EvalValue (this.applyAssignOp(opK curMapped rightValue))
                 if scriptThrew {
                     return (EvalValue.undefined())
                 }
@@ -4956,7 +5378,7 @@ class ComponentEngine {
             if (numIdx > 10000000) {
                 def farKey:string (this.toPropertyKey((EvalValue.fromInt(numIdx))))
                 def farCur:EvalValue (obj.getMember(farKey))
-                result = (this.applyAssignOp(op farCur rightValue))
+                result = (this.applyAssignOp(opK farCur rightValue))
                 obj.setMember(farKey result)
                 ; The element is past the dense store, but it still moves the
                 ; length -- `a[2147483648] = 1` makes a.length 2147483649.
@@ -4965,7 +5387,7 @@ class ComponentEngine {
                 }
             } {
                 def curIdx:EvalValue (obj.getIndex(numIdx))
-                result = (this.applyAssignOp(op curIdx rightValue))
+                result = (this.applyAssignOp(opK curIdx rightValue))
                 obj.setIndexAt(numIdx result)
             }
         } {
@@ -4977,7 +5399,7 @@ class ComponentEngine {
             if (obj.valueType == 4) {
                 if (key == "length") {
                     def lenCur:EvalValue (EvalValue.fromInt((obj.arrayLength())))
-                    def lenWant:EvalValue (this.applyAssignOp(op lenCur rightValue))
+                    def lenWant:EvalValue (this.applyAssignOp(opK lenCur rightValue))
                     if scriptThrew {
                         return (EvalValue.undefined())
                     }
@@ -5027,7 +5449,7 @@ class ComponentEngine {
                             cur0 = (this.callFnValueWithValues(gb0 noArgs0))
                         }
                     }
-                    result = (this.applyAssignOp(op cur0 rightValue))
+                    result = (this.applyAssignOp(opK cur0 rightValue))
                     def sArgs:[EvalValue]
                     push sArgs result
                     def sBound:EvalValue (sFn.withThis(obj))
@@ -5045,7 +5467,7 @@ class ComponentEngine {
                 }
             }
             def cur:EvalValue (obj.getMember(key))
-            result = (this.applyAssignOp(op cur rightValue))
+            result = (this.applyAssignOp(opK cur rightValue))
             ; D-STRICT: sloppy mode drops a refused write on the floor; strict
             ; mode reports it. This is the single most-tested strict-mode rule
             ; in the suite -- assigning to a non-writable property, to a frozen
@@ -5111,14 +5533,28 @@ class ComponentEngine {
     ; (postfix yields the pre-value, prefix the post-value), applying the mutation.
     fn evaluateUpdateValue:EvalValue (node:TSNode) {
         def op:string node.value
+        def opK:int (this.opKindOf(node))
         def delta:double 1.0
-        if (op == "--") {
+        if (opK == 18) {
             delta = (0.0 - 1.0)
         }
         if node.left {
             def leftNode:TSNode (unwrap node.left)
-            if (leftNode.nodeType == "Identifier") {
+            if ((this.nodeKindOf(leftNode)) == 1) {
                 def varName:string leftNode.name
+                ; PERF fast path: a plain number binding bumps in ONE scope
+                ; walk — the general path below walks the chain up to four
+                ; times per i++ (with-host probe, has, read, assign).
+                if (false == anyWithScope) {
+                    def bumped@(optional):EvalValue (context.bumpNumberOld(varName delta))
+                    if bumped {
+                        def oldB:EvalValue (unwrap bumped)
+                        if node.prefix {
+                            return (EvalValue.number((oldB.numberValue + delta)))
+                        }
+                        return oldB
+                    }
+                }
                 ; D-WITH: ++ and -- go through the with object too, accessors
                 ; included, and the base is fixed before the getter runs -- a
                 ; getter that deletes itself still has the new value written
@@ -5197,7 +5633,7 @@ class ComponentEngine {
                 }
                 return (EvalValue.number(oldNum))
             }
-            if (leftNode.nodeType == "MemberExpression") {
+            if ((this.nodeKindOf(leftNode)) == 3) {
                 ; `o.p++` is ToNumber(o.p) + 1, never a compound `+=` -- for a
                 ; STRING property the compound form concatenated, so
                 ; `({foo:"bar"}).foo++` produced "bar1" where the spec says NaN.
@@ -5210,7 +5646,7 @@ class ComponentEngine {
                     return (EvalValue.undefined())
                 }
                 def newNumM:EvalValue (EvalValue.number((oldNumM + delta)))
-                def newV:EvalValue (this.assignMember(leftNode "=" newNumM))
+                def newV:EvalValue (this.assignMember(leftNode 1 newNumM))
                 if scriptThrew {
                     return (EvalValue.undefined())
                 }
@@ -5244,13 +5680,14 @@ class ComponentEngine {
 
     ; Evaluate an assignment/update as an expression, returning its value.
     fn evaluateAssignValue:EvalValue (node:TSNode) {
-        if (node.nodeType == "UpdateExpression") {
+        if ((this.nodeKindOf(node)) == 7) {
             return (this.evaluateUpdateValue(node))
         }
-        if (node.nodeType == "AssignmentExpression") {
+        if ((this.nodeKindOf(node)) == 6) {
             if node.left {
                 def leftNode:TSNode (unwrap node.left)
                 def op:string node.value
+                def opK:int (this.opKindOf(node))
                 ; D-WITH: the REFERENCE is resolved before the right-hand side
                 ; runs. `with (o) { x = (delete o.x, 2) }` still writes to o,
                 ; even though o no longer has an `x` by the time the value
@@ -5259,7 +5696,7 @@ class ComponentEngine {
                 def preWith:EvalValue (EvalValue.null())
                 def preScope:EvalContext context
                 def preScopeValid:boolean false
-                if (leftNode.nodeType == "Identifier") {
+                if ((this.nodeKindOf(leftNode)) == 1) {
                     preWith = (this.withHostFor(leftNode.name))
                     if (context.has(leftNode.name)) {
                         preScope = (context.contextOwning(leftNode.name))
@@ -5273,7 +5710,7 @@ class ComponentEngine {
                 if scriptThrew {
                     return (EvalValue.undefined())
                 }
-                if (leftNode.nodeType == "Identifier") {
+                if ((this.nodeKindOf(leftNode)) == 1) {
                     def varName:string leftNode.name
                     ; D-WITH: a name the with object owns is read and written
                     ; THROUGH that object, accessors included. Checked before
@@ -5296,7 +5733,7 @@ class ComponentEngine {
                         if scriptThrew {
                             return (EvalValue.undefined())
                         }
-                        def wres:EvalValue (this.applyAssignOp(op wcur rightValue))
+                        def wres:EvalValue (this.applyAssignOp(opK wcur rightValue))
                         if scriptThrew {
                             return (EvalValue.undefined())
                         }
@@ -5356,7 +5793,7 @@ class ComponentEngine {
                     ; use f. Inside a function the implicit global is created the
                     ; same way, so both routes see one object.
                     if (false == declared) {
-                        if (op == "=") {
+                        if (opK == 1) {
                             def gObjA:EvalValue (this.theGlobalObject())
                             gObjA.setMember(varName rightValue)
                             context.assign(varName rightValue)
@@ -5369,7 +5806,7 @@ class ComponentEngine {
                     if preScopeValid {
                         def owner:EvalContext preScope
                         def ownCur:EvalValue (owner.lookup(varName))
-                        def ownRes:EvalValue (this.applyAssignOp(op ownCur rightValue))
+                        def ownRes:EvalValue (this.applyAssignOp(opK ownCur rightValue))
                         if scriptThrew {
                             return (EvalValue.undefined())
                         }
@@ -5378,13 +5815,13 @@ class ComponentEngine {
                         return ownRes
                     }
                     def current:EvalValue (context.lookup(varName))
-                    def result:EvalValue (this.applyAssignOp(op current rightValue))
+                    def result:EvalValue (this.applyAssignOp(opK current rightValue))
                     context.assign(varName result)
                     this.syncGlobalVar(varName result)
                     return result
                 }
-                if (leftNode.nodeType == "MemberExpression") {
-                    return (this.assignMember(leftNode op rightValue))
+                if ((this.nodeKindOf(leftNode)) == 3) {
+                    return (this.assignMember(leftNode opK rightValue))
                 }
             }
         }
@@ -5421,7 +5858,7 @@ class ComponentEngine {
         ; (or of `eval`, which could reach it from text the scan cannot see) and
         ; the answer memoised on the node.
         def needsArgs:boolean false
-        if (fnNode.nodeType != "ArrowFunctionExpression") {
+        if ((this.nodeKindOf(fnNode)) != 17) {
             if (false == fnNode.argScanned) {
                 fnNode.argScanned = true
                 fnNode.usesArguments = (this.fnMentionsArguments(fnNode 0))
@@ -5545,7 +5982,7 @@ class ComponentEngine {
     }
 
     fn mapArgumentsObject:void (fnNode:TSNode argVals:[EvalValue]) {
-        if (fnNode.nodeType == "ArrowFunctionExpression") {
+        if ((this.nodeKindOf(fnNode)) == 17) {
             return
         }
         ; PERF: no arguments object was built for this call, so there is nothing
@@ -5580,7 +6017,7 @@ class ComponentEngine {
                     nm = prm.name
                 }
             }
-            if (prm.nodeType == "Identifier") {
+            if ((this.nodeKindOf(prm)) == 1) {
                 nm = prm.name
             }
             if (mp < (array_length argVals)) {
@@ -5753,7 +6190,7 @@ class ComponentEngine {
         def result:EvalValue (EvalValue.null())
         if fnNode.body {
             def body:TSNode (unwrap fnNode.body)
-            if (body.nodeType == "BlockStatement") {
+            if ((this.nodeKindOf(body)) == 34) {
                 result = (this.callResultOf((this.evaluateFunctionBodyValue(body))))
             } {
                 result = (this.evaluateExpr(body))
@@ -5769,10 +6206,10 @@ class ComponentEngine {
     ; arrow/function expression is used directly; anything else is evaluated and,
     ; if it is a function value, its node is used. Returns an empty node on miss.
     fn resolveCallbackNode:TSNode (argNode:TSNode) {
-        if (argNode.nodeType == "ArrowFunctionExpression") {
+        if ((this.nodeKindOf(argNode)) == 17) {
             return argNode
         }
-        if (argNode.nodeType == "FunctionExpression") {
+        if ((this.nodeKindOf(argNode)) == 18) {
             return argNode
         }
         def v:EvalValue (this.evaluateExpr(argNode))
@@ -5803,7 +6240,7 @@ class ComponentEngine {
         ; while `fact` stays invisible outside. The name was never bound at all,
         ; so every such recursion was a ReferenceError.
         def capturedCtx:EvalContext context
-        if (fnNode.nodeType == "FunctionExpression") {
+        if ((this.nodeKindOf(fnNode)) == 18) {
             if ((strlen fnNode.name) > 0) {
                 capturedCtx = (context.createChild())
                 capturedCtx.define(fnNode.name fv)
@@ -5821,10 +6258,10 @@ class ComponentEngine {
     ; Resolve a callback arg to a function value, capturing a closure for inline
     ; arrow/function expressions. Non-inline args are evaluated (already values).
     fn resolveCallbackValue:EvalValue (argNode:TSNode) {
-        if (argNode.nodeType == "ArrowFunctionExpression") {
+        if ((this.nodeKindOf(argNode)) == 17) {
             return (this.captureClosure(argNode))
         }
-        if (argNode.nodeType == "FunctionExpression") {
+        if ((this.nodeKindOf(argNode)) == 18) {
             return (this.captureClosure(argNode))
         }
         return (this.evaluateExpr(argNode))
@@ -6125,7 +6562,7 @@ class ComponentEngine {
             if (this.bodyOnlyStrict(fnNode)) {
                 bareStrict = true
             }
-            if (fnNode.nodeType == "ArrowFunctionExpression") {
+            if ((this.nodeKindOf(fnNode)) == 17) {
                 bareStrict = true
             }
             if (false == bareStrict) {
@@ -6136,7 +6573,7 @@ class ComponentEngine {
                 ; the enclosing function had, so a strict function nested in a
                 ; sloppy one saw the sloppy one's global object. An arrow is the
                 ; exception: it genuinely has no `this` of its own.
-                if (fnNode.nodeType != "ArrowFunctionExpression") {
+                if ((this.nodeKindOf(fnNode)) != 17) {
                     context.define("this" (EvalValue.undefined()))
                 }
             }
@@ -6185,7 +6622,7 @@ class ComponentEngine {
         def result:EvalValue (EvalValue.null())
         if fnNode.body {
             def body:TSNode (unwrap fnNode.body)
-            if (body.nodeType == "BlockStatement") {
+            if ((this.nodeKindOf(body)) == 34) {
                 result = (this.callResultOf((this.evaluateFunctionBodyValue(body))))
             } {
                 result = (this.evaluateExpr(body))
@@ -6218,7 +6655,7 @@ class ComponentEngine {
             return element
         }
         
-        if (node.nodeType == "ParenthesizedExpression") {
+        if ((this.nodeKindOf(node)) == 23) {
             if node.left {
                 def inner:TSNode (unwrap node.left)
                 return (this.evaluateJSX(inner))
@@ -6471,7 +6908,7 @@ class ComponentEngine {
             def rightNode:TSNode (unwrap attr.right)
             
             ; String literal
-            if (rightNode.nodeType == "StringLiteral") {
+            if ((this.nodeKindOf(rightNode)) == 8) {
                 return (EvalValue.string((this.unquote(rightNode.value))))
             }
             
@@ -6627,11 +7064,11 @@ class ComponentEngine {
             def exprNode:TSNode (unwrap exprContainer.left)
             
             ; Handle CallExpression - both array.map() and regular function calls
-            if (exprNode.nodeType == "CallExpression") {
+            if ((this.nodeKindOf(exprNode)) == 4) {
                 ; Check if it's a method call like array.map()
                 if exprNode.left {
                     def calleeNode:TSNode (unwrap exprNode.left)
-                    if (calleeNode.nodeType == "MemberExpression") {
+                    if ((this.nodeKindOf(calleeNode)) == 3) {
                         ; Method call - check for .map()
                         def methodName:string calleeNode.name
                         if (methodName == "map") {
@@ -6686,13 +7123,13 @@ class ComponentEngine {
             }
             
             ; Handle ternary conditionals
-            if (exprNode.nodeType == "ConditionalExpression") {
+            if ((this.nodeKindOf(exprNode)) == 13) {
                 this.evaluateTernaryChild(element exprNode)
                 return
             }
             
             ; Handle && conditionals
-            if (exprNode.nodeType == "BinaryExpression") {
+            if ((this.nodeKindOf(exprNode)) == 5) {
                 if (exprNode.value == "&&") {
                     this.evaluateAndChild(element exprNode)
                     return
@@ -6746,7 +7183,7 @@ class ComponentEngine {
         ; Get the array being mapped
         if callNode.left {
             def calleeNode:TSNode (unwrap callNode.left)
-            if (calleeNode.nodeType == "MemberExpression") {
+            if ((this.nodeKindOf(calleeNode)) == 3) {
                 def methodName:string calleeNode.name
                 if (methodName == "map") {
                     ; Get the array
@@ -6789,7 +7226,7 @@ class ComponentEngine {
     }
     
     fn bindMapCallback:void (callback:TSNode item:EvalValue index:int) {
-        if (callback.nodeType == "ArrowFunctionExpression") {
+        if ((this.nodeKindOf(callback)) == 17) {
             ; Get parameter name
             if ((array_length callback.params) > 0) {
                 def param:TSNode (itemAt callback.params 0)
@@ -6807,14 +7244,14 @@ class ComponentEngine {
     fn evaluateMapCallbackBody:EVGElement (callback:TSNode) {
         def empty (new EVGElement())
         
-        if (callback.nodeType == "ArrowFunctionExpression") {
+        if ((this.nodeKindOf(callback)) == 17) {
             ; Arrow function body
             if callback.body {
                 def body:TSNode (unwrap callback.body)
                 if ((body.nodeType == "JSXElement") || (body.nodeType == "JSXFragment")) {
                     return (this.evaluateJSX(body))
                 }
-                if (body.nodeType == "BlockStatement") {
+                if ((this.nodeKindOf(body)) == 34) {
                     return (this.evaluateFunctionBody(body))
                 }
                 ; generic expression body — e.g. (e, i) => buildTile(e, i) — is
@@ -6889,19 +7326,18 @@ class ComponentEngine {
     ; ==========================================================================
     
     fn evaluateExpr:EvalValue (node:TSNode) {
+        def exprK:int (this.nodeKindOf(node))
         ; Fast dispatch: the node types that dominate evaluation of real scripts
         ; (variable reads, member/array access, calls, arithmetic) are checked
         ; first so the common case does not fall through the whole if-chain.
-        def nt:string node.nodeType
-
-        if (nt == "Identifier") {
+        if (exprK == 1) {
             return (this.lookupIdentifier(node.name))
         }
         ; PERF: a numeric literal is held as source TEXT, so evaluating it means
         ; parsing that text -- and a loop bound is evaluated once per iteration.
         ; The parse is memoised on the node, and the case sits at the front
         ; rather than fifteen string comparisons down the chain.
-        if (nt == "NumericLiteral") {
+        if (exprK == 2) {
             if (false == node.numScanned) {
                 node.numScanned = true
                 def parsedNum@(optional):double (to_double node.value)
@@ -6911,28 +7347,28 @@ class ComponentEngine {
             }
             return (EvalValue.number(node.numValue))
         }
-        if (nt == "MemberExpression") {
+        if (exprK == 3) {
             return (this.evaluateMemberExpr(node))
         }
-        if (nt == "CallExpression") {
+        if (exprK == 4) {
             return (this.evaluateCallExpr(node))
         }
-        if (nt == "NewExpression") {
+        if (exprK == 16) {
             return (this.evaluateNewExpr(node))
         }
         ; D-HOLES: an array elision is an ABSENT element. It reads as undefined
         ; wherever a value is wanted, and `0 in [,1]` is false.
-        if (nt == "ArrayHole") {
+        if (exprK == 22) {
             return (EvalValue.hole())
         }
         ; D-REGEX: `/pattern/flags` as a value.
-        if (nt == "RegExpLiteral") {
+        if (exprK == 21) {
             return (this.regexFromLiteral(node.value))
         }
         ; The comma operator evaluates every operand and yields the LAST. It had
         ; no case at all, so `(1, 2)` evaluated to undefined and any side effect
         ; in an earlier operand never ran.
-        if (nt == "SequenceExpression") {
+        if (exprK == 19) {
             def seqOut:EvalValue (EvalValue.undefined())
             def si:int 0
             while (si < (array_length node.children)) {
@@ -6944,7 +7380,7 @@ class ComponentEngine {
             }
             return seqOut
         }
-        if (nt == "ThisExpression") {
+        if (exprK == 20) {
             ; D-GLOBALTHIS: outside any function, `this` is the global object.
             if (false == (context.has("this"))) {
                 ; D-STRICT: a strict function called without a receiver has
@@ -6960,14 +7396,14 @@ class ComponentEngine {
             }
             return (context.lookup("this"))
         }
-        if (nt == "BinaryExpression") {
+        if (exprK == 5) {
             return (this.evaluateBinaryExpr(node))
         }
         ; Assignment / update in value position: x = (y = 5), let d = c++, arr[i]++
-        if (nt == "AssignmentExpression") {
+        if (exprK == 6) {
             return (this.evaluateAssignValue(node))
         }
-        if (nt == "UpdateExpression") {
+        if (exprK == 7) {
             return (this.evaluateUpdateValue(node))
         }
         ; Arrow / function expression as a value: capture the defining scope so the
@@ -6976,17 +7412,17 @@ class ComponentEngine {
         ; so an anonymous class expression is registered under a generated one
         ; and the value carries that key. `new C()` then resolves through the
         ; value rather than through the source-level name, which it does not have.
-        if (nt == "ClassExpression") {
+        if (exprK == 24) {
             return (this.registerClassExpression(node))
         }
-        if (nt == "ArrowFunctionExpression") {
+        if (exprK == 17) {
             return (this.captureClosure(node))
         }
-        if (nt == "FunctionExpression") {
+        if (exprK == 18) {
             return (this.captureClosure(node))
         }
         ; Literals
-        if (node.nodeType == "NumericLiteral") {
+        if (exprK == 2) {
             def numVal@(optional):double (to_double node.value)
             if numVal {
                 return (EvalValue.number((unwrap numVal)))
@@ -6994,7 +7430,7 @@ class ComponentEngine {
             return (EvalValue.number(0.0))
         }
         
-        if (node.nodeType == "StringLiteral") {
+        if (exprK == 8) {
             ; The lexer already removed the delimiters, so unquoting again ate
             ; real characters whenever the CONTENT began and ended with the same
             ; quote: `'\'hi\''` became `hi`, and `eval('"BJ"')` was handed the
@@ -7003,7 +7439,7 @@ class ComponentEngine {
             return (EvalValue.string(node.value))
         }
         
-        if (node.nodeType == "TemplateLiteral") {
+        if (exprK == 11) {
             ; Template literals have TemplateElement children with the text
             ; The text may contain ${...} expressions that need to be evaluated
             def templateText:string ""
@@ -7021,51 +7457,51 @@ class ComponentEngine {
             return (EvalValue.string(templateText))
         }
         
-        if (node.nodeType == "BooleanLiteral") {
+        if (exprK == 9) {
             return (EvalValue.boolean((node.value == "true")))
         }
         
-        if (node.nodeType == "NullLiteral") {
+        if (exprK == 10) {
             return (EvalValue.null())
         }
         
         ; Identifier (variable lookup)
-        if (node.nodeType == "Identifier") {
+        if (exprK == 1) {
             return (this.lookupIdentifier(node.name))
         }
         
         ; Binary expression
-        if (node.nodeType == "BinaryExpression") {
+        if (exprK == 5) {
             return (this.evaluateBinaryExpr(node))
         }
         
         ; Unary expression
-        if (node.nodeType == "UnaryExpression") {
+        if (exprK == 12) {
             return (this.evaluateUnaryExpr(node))
         }
         
         ; Conditional expression (ternary)
-        if (node.nodeType == "ConditionalExpression") {
+        if (exprK == 13) {
             return (this.evaluateConditionalExpr(node))
         }
         
         ; Member expression
-        if (node.nodeType == "MemberExpression") {
+        if (exprK == 3) {
             return (this.evaluateMemberExpr(node))
         }
         
         ; Array expression
-        if (node.nodeType == "ArrayExpression") {
+        if (exprK == 14) {
             return (this.evaluateArrayExpr(node))
         }
         
         ; Object expression
-        if (node.nodeType == "ObjectExpression") {
+        if (exprK == 15) {
             return (this.evaluateObjectExpr(node))
         }
         
         ; Parenthesized expression
-        if (node.nodeType == "ParenthesizedExpression") {
+        if (exprK == 23) {
             if node.left {
                 def inner:TSNode (unwrap node.left)
                 return (this.evaluateExpr(inner))
@@ -7113,7 +7549,7 @@ class ComponentEngine {
         }
         
         ; Call Expression (function calls)
-        if (node.nodeType == "CallExpression") {
+        if (exprK == 4) {
             return (this.evaluateCallExpr(node))
         }
         
@@ -7127,7 +7563,7 @@ class ComponentEngine {
             def callee:TSNode (unwrap node.left)
             
             ; Handle method calls (e.g., arr.map(), num.toFixed())
-            if (callee.nodeType == "MemberExpression") {
+            if ((this.nodeKindOf(callee)) == 3) {
                 ; Get the object and method name
                 def obj:EvalValue (EvalValue.null())
                 def methodName:string ""
@@ -7254,7 +7690,7 @@ class ComponentEngine {
                             ; where they were written, so binding a receiver here
                             ; would shadow the correct one.
                             def mNode:TSNode (unwrap objMember.functionNode)
-                            def isArrow:boolean (mNode.nodeType == "ArrowFunctionExpression")
+                            def isArrow:boolean ((this.nodeKindOf(mNode)) == 17)
                             if (objMember.boundThis) {
                                 return (this.callFnValueWithValues(objMember objCargs))
                             }
@@ -7354,7 +7790,7 @@ class ComponentEngine {
                 def arrStaticName:string ""
                 if callee.left {
                     def arrObjNode:TSNode (unwrap callee.left)
-                    if (arrObjNode.nodeType == "Identifier") {
+                    if ((this.nodeKindOf(arrObjNode)) == 1) {
                         arrStaticName = arrObjNode.name
                     }
                 }
@@ -7938,7 +8374,7 @@ class ComponentEngine {
                 def mathObjName:string ""
                 if callee.left {
                     def mathObjNode:TSNode (unwrap callee.left)
-                    if (mathObjNode.nodeType == "Identifier") {
+                    if ((this.nodeKindOf(mathObjNode)) == 1) {
                         mathObjName = mathObjNode.name
                     }
                 }
@@ -7959,10 +8395,10 @@ class ComponentEngine {
                 ; from the class table by the callee's own name instead.
                 if callee.left {
                     def sObjNode:TSNode (unwrap callee.left)
-                    if (sObjNode.nodeType == "Identifier") {
+                    if ((this.nodeKindOf(sObjNode)) == 1) {
                         def sClsName:string sObjNode.name
                         def sCls:TSNode (this.classNodeByName(sClsName))
-                        if (sCls.nodeType == "ClassDeclaration") {
+                        if ((this.nodeKindOf(sCls)) == 25) {
                             def sM:TSNode (this.findStaticMethodOnClassNode(sCls methodName))
                             if (sM.nodeType == "MethodDefinition") {
                                 return (this.callUserFunctionNode(sM node.children (EvalValue.null()) false))
@@ -8185,7 +8621,7 @@ class ComponentEngine {
             ; base constructor against the instance being built. Previously it
             ; did nothing, so every field the base set was simply missing.
             def isSuperCall:boolean (callee.nodeType == "Super")
-            if (callee.nodeType == "Identifier") {
+            if ((this.nodeKindOf(callee)) == 1) {
                 if (callee.name == "super") {
                     isSuperCall = true
                 }
@@ -8196,7 +8632,7 @@ class ComponentEngine {
                     if (selfV.valueType == 5) {
                         def ownCls:string (this.instanceClassName(selfV))
                         def ownNode:TSNode (this.classNodeByName(ownCls))
-                        if (ownNode.nodeType == "ClassDeclaration") {
+                        if ((this.nodeKindOf(ownNode)) == 25) {
                             this.runSuperConstructor(ownNode selfV node.children 0)
                         }
                     }
@@ -8205,7 +8641,7 @@ class ComponentEngine {
             }
 
             ; Handle regular function calls
-            if (callee.nodeType == "Identifier") {
+            if ((this.nodeKindOf(callee)) == 1) {
                 def fnName:string callee.name
                 if (false == quiet) {
                     this.trace("Evaluating function call: " + fnName)
@@ -8519,7 +8955,7 @@ class ComponentEngine {
             ; vacuously: every call to an unimplemented global quietly did
             ; nothing and the assertion after it never ran.
             if strictReferences {
-                if (callee.nodeType == "Identifier") {
+                if ((this.nodeKindOf(callee)) == 1) {
                     def cName:string callee.name
                     if (false == (this.isCallableName(cName))) {
                         if (this.nameResolves(cName)) {
@@ -8532,22 +8968,22 @@ class ComponentEngine {
                 ; `true()`, `1()`, `null()`, `new Number(1)()` -- is a TypeError
                 ; too. It fell through to null, so the call did nothing.
                 def litCallee:boolean false
-                if (callee.nodeType == "ThisExpression") { litCallee = true }
-                if (callee.nodeType == "NumericLiteral") { litCallee = true }
-                if (callee.nodeType == "StringLiteral") { litCallee = true }
-                if (callee.nodeType == "BooleanLiteral") { litCallee = true }
-                if (callee.nodeType == "NullLiteral") { litCallee = true }
-                if (callee.nodeType == "NewExpression") { litCallee = true }
-                if (callee.nodeType == "ObjectExpression") { litCallee = true }
-                if (callee.nodeType == "ArrayExpression") { litCallee = true }
+                if ((this.nodeKindOf(callee)) == 20) { litCallee = true }
+                if ((this.nodeKindOf(callee)) == 2) { litCallee = true }
+                if ((this.nodeKindOf(callee)) == 8) { litCallee = true }
+                if ((this.nodeKindOf(callee)) == 9) { litCallee = true }
+                if ((this.nodeKindOf(callee)) == 10) { litCallee = true }
+                if ((this.nodeKindOf(callee)) == 16) { litCallee = true }
+                if ((this.nodeKindOf(callee)) == 15) { litCallee = true }
+                if ((this.nodeKindOf(callee)) == 14) { litCallee = true }
                 ; A REGEXP is not callable: `/[^a]*/()` is a TypeError. The node
                 ; type was missing from this list, so the call fell through to
                 ; null and did nothing at all.
-                if (callee.nodeType == "RegExpLiteral") { litCallee = true }
+                if ((this.nodeKindOf(callee)) == 21) { litCallee = true }
                 ; A callee that is itself a CALL -- `String("a")()` -- has to be
                 ; evaluated to know: `f()()` is legal when the inner call
                 ; returns a function.
-                if (callee.nodeType == "CallExpression") {
+                if ((this.nodeKindOf(callee)) == 4) {
                     def innerV:EvalValue (this.evaluateExpr(callee))
                     if scriptThrew {
                         return (EvalValue.undefined())
@@ -8569,7 +9005,7 @@ class ComponentEngine {
                 ; first, per spec -- the callability check comes after -- so a
                 ; call like `o.bar(foo())` must still run foo() before it
                 ; throws. Falling through to null skipped both.
-                if (callee.nodeType == "MemberExpression") {
+                if ((this.nodeKindOf(callee)) == 3) {
                     def missArgs:[EvalValue] (this.collectCallArgs(node))
                     if scriptThrew {
                         return (EvalValue.undefined())
@@ -8621,9 +9057,10 @@ class ComponentEngine {
     
     fn evaluateBinaryExpr:EvalValue (node:TSNode) {
         def op:string node.value
+        def opK:int (this.opKindOf(node))
         
         ; Logical operators with short-circuit evaluation
-        if (op == "&&") {
+        if (opK == 34) {
             if node.left {
                 def leftExpr:TSNode (unwrap node.left)
                 def left:EvalValue (this.evaluateExpr(leftExpr))
@@ -8637,7 +9074,7 @@ class ComponentEngine {
             }
         }
         
-        if (op == "||") {
+        if (opK == 35) {
             if node.left {
                 def leftExpr:TSNode (unwrap node.left)
                 def left:EvalValue (this.evaluateExpr(leftExpr))
@@ -8651,7 +9088,7 @@ class ComponentEngine {
             }
         }
 
-        if (op == "??") {
+        if (opK == 36) {
             if node.left {
                 def leftExpr:TSNode (unwrap node.left)
                 def left:EvalValue (this.evaluateExpr(leftExpr))
@@ -8669,7 +9106,7 @@ class ComponentEngine {
         
         ; instanceof: right side is a class NAME, not a value — compare against the
         ; instance's __class__ tag (no inheritance chain in this interpreter).
-        if (op == "instanceof") {
+        if (opK == 44) {
             if node.left {
                 def lv:EvalValue (this.evaluateExpr((unwrap node.left)))
                 def cname:string ""
@@ -8834,7 +9271,7 @@ class ComponentEngine {
         def right:EvalValue (this.evaluateExpr((unwrap node.right)))
 
         ; `key in obj` / `index in array` — property/element presence test.
-        if (op == "in") {
+        if (opK == 43) {
             ; The right operand must be an OBJECT. A primitive is a TypeError,
             ; not a quiet false -- and a FUNCTION is an object, which is what
             ; makes `"MAX_VALUE" in Number` true now that the built-in
@@ -8872,7 +9309,17 @@ class ComponentEngine {
         }
         
         ; Arithmetic
-        if (op == "+") {
+        if (opK == 20) {
+            ; PERF fast path: two plain strings concatenate directly. The
+            ; toPrimitive/toString dance below is a no-op for them, but on
+            ; the native targets each toStringOf COPIES its operand first.
+            if ((left.valueType == 2) && (right.valueType == 2)) {
+                return (EvalValue.string(left.stringValue + right.stringValue))
+            }
+            ; two plain numbers add directly the same way
+            if ((left.valueType == 1) && (right.valueType == 1)) {
+                return (EvalValue.number(left.numberValue + right.numberValue))
+            }
             ; D-TOPRIMITIVE: both operands convert FIRST, and only then does the
             ; string-vs-numeric decision get made -- an object with a valueOf
             ; returning a number must add, not concatenate.
@@ -8883,17 +9330,17 @@ class ComponentEngine {
             }
             return (EvalValue.number((this.toNumberOf(lp)) + (this.toNumberOf(rp))))
         }
-        if (op == "-") {
+        if (opK == 21) {
             return (EvalValue.number((this.toNumberOf(left)) - (this.toNumberOf(right))))
         }
-        if (op == "*") {
+        if (opK == 22) {
             return (EvalValue.number((this.toNumberOf(left)) * (this.toNumberOf(right))))
         }
         ; D-IEEE: division by zero is Infinity / -Infinity / NaN, not 0. The old
         ; guard returned 0, which is wrong arithmetic AND breaks the standard
         ; idiom for telling +0 from -0 (`1/a === 1/b`) — with both sides folding
         ; to 0 the two zeroes became indistinguishable.
-        if (op == "/") {
+        if (opK == 23) {
             ; ToNumber, not the raw value: a boxed number or an object with a
             ; valueOf has to convert, and reading numberValue off one gave 0.
             ; The LEFT operand converts first, so when both conversions throw it
@@ -8913,7 +9360,7 @@ class ComponentEngine {
             }
             return (EvalValue.number((leftNum / rightNum)))
         }
-        if (op == "%") {
+        if (opK == 24) {
             ; The remainder is a FLOATING-POINT one: 5.5 % 2 is 1.5. Truncating
             ; both operands to int threw the fraction away, and the sign follows
             ; the dividend.
@@ -8935,41 +9382,41 @@ class ComponentEngine {
         }
 
         ; Bitwise (JS coerces operands to int32; common idiom "x | 0" truncates to int)
-        if (op == "|") {
+        if (opK == 38) {
             def leftInt:int (to_int (this.toNumberOf(left)))
             def rightInt:int (to_int (this.toNumberOf(right)))
             return (EvalValue.fromInt((bit_or leftInt rightInt)))
         }
-        if (op == "&") {
+        if (opK == 37) {
             def leftInt:int (this.toInt32Of(left))
             def rightInt:int (this.toInt32Of(right))
             return (EvalValue.fromInt((bit_and leftInt rightInt)))
         }
-        if (op == "^") {
+        if (opK == 39) {
             def leftInt:int (this.toInt32Of(left))
             def rightInt:int (this.toInt32Of(right))
             return (EvalValue.fromInt((bit_xor leftInt rightInt)))
         }
         ; Shifts (JS coerces to int32; shift count masked to low 5 bits). Common in
         ; AssemblyScript fixed-point / bit-packing code.
-        if (op == "<<") {
+        if (opK == 40) {
             def leftInt:int (this.toInt32Of(left))
             def cnt:int (bit_and (this.toInt32Of(right)) 31)
             return (EvalValue.fromInt((bit_shl leftInt cnt)))
         }
-        if (op == ">>") {
+        if (opK == 41) {
             def leftInt:int (this.toInt32Of(left))
             def cnt:int (bit_and (this.toInt32Of(right)) 31)
             return (EvalValue.fromInt((bit_shr leftInt cnt)))
         }
-        if (op == ">>>") {
+        if (opK == 42) {
             def leftInt:int (this.toInt32Of(left))
             def cnt:int (bit_and (this.toInt32Of(right)) 31)
             return (EvalValue.fromInt((bit_ushr leftInt cnt)))
         }
         ; Exponentiation (a ** b). Integer-exponent fast path (covers game/AS use);
         ; falls back to repeated multiply for the truncated integer exponent.
-        if (op == "**") {
+        if (opK == 25) {
             return (EvalValue.number((this.powNum((left.toNumber()) (this.toInt32Of(right))))))
         }
 
@@ -8977,16 +9424,16 @@ class ComponentEngine {
         ; D-TOPRIMITIVE: the relational operators compare STRINGS when both
         ; operands convert to strings, and numbers otherwise. Comparing
         ; "10" < "9" numerically is wrong; lexicographic is correct.
-        if ((op == "<") || (op == ">") || (op == "<=") || (op == ">=")) {
+        if ((opK == 26) || (opK == 27) || (opK == 28) || (opK == 29)) {
             def lr:EvalValue (this.toPrimitive(left false))
             def rr:EvalValue (this.toPrimitive(right false))
             if ((lr.isString()) && (rr.isString())) {
                 def ls:string lr.stringValue
                 def rs:string rr.stringValue
                 def cmp:int (this.compareStrings(ls rs))
-                if (op == "<") { return (EvalValue.boolean((cmp < 0))) }
-                if (op == ">") { return (EvalValue.boolean((cmp > 0))) }
-                if (op == "<=") { return (EvalValue.boolean((cmp <= 0))) }
+                if (opK == 26) { return (EvalValue.boolean((cmp < 0))) }
+                if (opK == 27) { return (EvalValue.boolean((cmp > 0))) }
+                if (opK == 28) { return (EvalValue.boolean((cmp <= 0))) }
                 return (EvalValue.boolean((cmp >= 0)))
             }
             def ln2:double (this.toNumberOf(lr))
@@ -8994,9 +9441,9 @@ class ComponentEngine {
             ; Any NaN makes every relational comparison false.
             if (ln2 != ln2) { return (EvalValue.boolean(false)) }
             if (rn2 != rn2) { return (EvalValue.boolean(false)) }
-            if (op == "<") { return (EvalValue.boolean((ln2 < rn2))) }
-            if (op == ">") { return (EvalValue.boolean((ln2 > rn2))) }
-            if (op == "<=") { return (EvalValue.boolean((ln2 <= rn2))) }
+            if (opK == 26) { return (EvalValue.boolean((ln2 < rn2))) }
+            if (opK == 27) { return (EvalValue.boolean((ln2 > rn2))) }
+            if (opK == 28) { return (EvalValue.boolean((ln2 <= rn2))) }
             return (EvalValue.boolean((ln2 >= rn2)))
         }
         
@@ -9005,16 +9452,16 @@ class ComponentEngine {
         ; ONLY JS coercion this engine models is `null == undefined` (both are
         ; nullish), which matters now that a missing member reads as `undefined`
         ; (D-IDENTITY rule 6) — the guest idiom `x != null` must still hold.
-        if (op == "===") {
+        if (opK == 32) {
             return (EvalValue.boolean((left.equals(right))))
         }
-        if (op == "!==") {
+        if (opK == 33) {
             return (EvalValue.boolean(((left.equals(right)) == false)))
         }
-        if (op == "==") {
+        if (opK == 30) {
             return (EvalValue.boolean((this.looseEquals(left right))))
         }
-        if (op == "!=") {
+        if (opK == 31) {
             return (EvalValue.boolean(((this.looseEquals(left right)) == false)))
         }
         
@@ -9198,14 +9645,16 @@ class ComponentEngine {
     }
 
     fn isErrorCtorName:boolean (name:string) {
-        def names:[string] (this.errorKindNames())
-        def i:int 0
-        while (i < (array_length names)) {
-            if ((itemAt names i) == name) {
-                return true
-            }
-            i = (i + 1)
-        }
+        ; PERF: direct compares — building the name LIST here allocated a
+        ; vector and seven strings on every call-expression evaluation
+        ; (a third of all instructions in call-heavy native profiles)
+        if (name == "Error") { return true }
+        if (name == "TypeError") { return true }
+        if (name == "ReferenceError") { return true }
+        if (name == "RangeError") { return true }
+        if (name == "SyntaxError") { return true }
+        if (name == "EvalError") { return true }
+        if (name == "URIError") { return true }
         return false
     }
 
@@ -12328,9 +12777,28 @@ class ComponentEngine {
             ; method answered as though an array-like receiver were empty.
             ; The mutating methods below keep using recv.arrayValue: they write
             ; back into the receiver, which only a real array has.
-            def elems:[EvalValue] recv.arrayValue
-            if (false == (recv.isArray())) {
-                elems = (this.arrayLikeElements(recv))
+            ; PERF: the mutators below never read `elems` — they write through
+            ; recv.arrayValue directly. On the es6 target this def is an alias
+            ; and free; on C++ a local from a field is a full vector copy, so
+            ; taking it on every push turned the array path superlinear
+            ; (5.8x cost for 2x elements). The copy is skipped for the
+            ; mutator names; every branch that reads `elems` still gets it.
+            def isArrayMutator:boolean false
+            if (name == "push") { isArrayMutator = true }
+            if (name == "pop") { isArrayMutator = true }
+            if (name == "shift") { isArrayMutator = true }
+            if (name == "unshift") { isArrayMutator = true }
+            if (name == "splice") { isArrayMutator = true }
+            if (name == "reverse") { isArrayMutator = true }
+            if (name == "sort") { isArrayMutator = true }
+            if (name == "fill") { isArrayMutator = true }
+            def elems:[EvalValue]
+            if (false == isArrayMutator) {
+                if (recv.isArray()) {
+                    elems = recv.arrayValue
+                } {
+                    elems = (this.arrayLikeElements(recv))
+                }
             }
             def alen:int (array_length elems)
             ; D-ARRAYLIKE: reading `length` can THROW -- it may be an accessor --
@@ -14120,8 +14588,22 @@ class ComponentEngine {
     ; Compile the pattern a RegExp value carries. A malformed pattern is a
     ; SyntaxError to the guest, which is where the spec puts it.
     fn compileRegexOf:RegexProgram (v:EvalValue) {
+        ; PERF: the compiled program is CACHED by flags+source — exec/test in
+        ; a loop recompiled the pattern on every call (a third of the regex
+        ; benchmark's native instructions). The program is immutable after
+        ; compile (match state lives in RegexMatcher / on the regex value),
+        ; so one compilation serves every use of the same literal.
+        def src:string (this.regexSourceOf(v))
+        def flg:string (this.regexFlagsOf(v))
+        def ck:string (flg + (":" + src))
+        def hit@(optional):RegexProgram (get regexProgCache ck)
+        if hit {
+            return (unwrap hit)
+        }
         def c (new RegexCompiler)
-        return (c.compile((this.regexSourceOf(v)) (this.regexFlagsOf(v))))
+        def prog:RegexProgram (c.compile(src flg))
+        set regexProgCache ck prog
+        return prog
     }
 
     ; The `/.../flags` literal text the lexer hands over, split at the LAST
@@ -15721,7 +16203,11 @@ class ComponentEngine {
     }
 
     fn lookupIdentifier:EvalValue (name:string) {
-        if (name == "undefined") {
+        ; PERF: the three special names gate on LENGTH first — this runs for
+        ; every identifier read, and `s == "literal"` pays strlen(literal)
+        ; per compare on the C++ target
+        def nlen:int (strlen name)
+        if ((nlen == 9) && (name == "undefined")) {
             return (EvalValue.undefined())
         }
         ; D-WITH: a name the with object serves through a GETTER. EvalContext
@@ -15744,18 +16230,20 @@ class ComponentEngine {
         ; about. They were resolving to undefined, so `x === -Infinity` compared
         ; against NaN and was false for every x — a comparison that silently
         ; never held.
-        if (name == "Infinity") {
+        if ((nlen == 8) && (name == "Infinity")) {
             return (EvalValue.number((1.0 / 0.0)))
         }
-        if (name == "NaN") {
+        if ((nlen == 3) && (name == "NaN")) {
             return (EvalValue.number((0.0 / 0.0)))
         }
-        if (context.has(name)) {
-            return (context.lookup(name))
+        def ctxHit@(optional):EvalValue (context.tryLookup(name))
+        if ctxHit {
+            return (unwrap ctxHit)
         }
         this.ensureErrorCtors()
-        if (hostScope.has(name)) {
-            return (hostScope.lookup(name))
+        def hostHit@(optional):EvalValue (hostScope.tryLookup(name))
+        if hostHit {
+            return (unwrap hostHit)
         }
         ; D-GLOBALOBJ: the built-in namespaces are real OBJECTS, not merely names
         ; the engine recognises structurally. They resolved to undefined, so
@@ -15792,7 +16280,7 @@ class ComponentEngine {
         ; call was even attempted. A class name resolves to a value carrying the
         ; class name so it is both referenceable and dispatchable.
         def clsRef:TSNode (this.classNodeByName(name))
-        if (clsRef.nodeType == "ClassDeclaration") {
+        if ((this.nodeKindOf(clsRef)) == 25) {
             def cv:EvalValue (EvalValue.nativeFunction(name))
             cv.setMember("__classname__" (EvalValue.string(name)))
             cv.setMember("name" (EvalValue.string(name)))
@@ -15851,7 +16339,7 @@ class ComponentEngine {
     fn evaluateTypeofExpr:EvalValue (node:TSNode) {
         if node.left {
             def argNode:TSNode (unwrap node.left)
-            if (argNode.nodeType == "Identifier") {
+            if ((this.nodeKindOf(argNode)) == 1) {
                 def name:string argNode.name
                 if (name == "undefined") {
                     return (EvalValue.string("undefined"))
@@ -15892,12 +16380,13 @@ class ComponentEngine {
     
     fn evaluateUnaryExpr:EvalValue (node:TSNode) {
         def op:string node.value
-        if (op == "typeof") {
+        def opK:int (this.opKindOf(node))
+        if (opK == 46) {
             return (this.evaluateTypeofExpr(node))
         }
         ; delete obj.x / obj["k"] / arr[i] — remove the property (operand is a
         ; reference, so it must not be evaluated to a value first).
-        if (op == "delete") {
+        if (opK == 47) {
             if node.left {
                 def tgt:TSNode (unwrap node.left)
                 ; D-WITH: `delete name` had no case at all -- it answered true
@@ -15908,7 +16397,7 @@ class ComponentEngine {
                 ;   - a binding created by plain assignment (an implicit global):
                 ;     configurable, so it goes and the answer is true;
                 ;   - unresolvable: true, per spec.
-                if (tgt.nodeType == "Identifier") {
+                if ((this.nodeKindOf(tgt)) == 1) {
                     def delName:string tgt.name
                     def delWith:EvalValue (this.withHostFor(delName))
                     if (delWith.valueType == 5) {
@@ -15963,7 +16452,7 @@ class ComponentEngine {
                     }
                     return (EvalValue.boolean(true))
                 }
-                if (tgt.nodeType == "MemberExpression") {
+                if ((this.nodeKindOf(tgt)) == 3) {
                     def obj:EvalValue (EvalValue.null())
                     if tgt.left {
                         obj = (this.evaluateExpr((unwrap tgt.left)))
@@ -16030,27 +16519,27 @@ class ComponentEngine {
             def argExpr:TSNode (unwrap node.left)
             def arg:EvalValue (this.evaluateExpr(argExpr))
             
-            if (op == "!") {
+            if (opK == 49) {
                 return (EvalValue.boolean(((arg.toBool()) == false)))
             }
-            if (op == "-") {
+            if (opK == 21) {
                 ; D-IEEE: negate by MULTIPLYING by -1, not by subtracting from
                 ; zero. `0.0 - 0.0` is +0, so subtraction silently destroyed
                 ; negative zero and the engine had no -0 at all.
                 def negOne:double (0.0 - 1.0)
                 return (EvalValue.number((negOne * (this.toNumberOf(arg)))))
             }
-            if (op == "+") {
+            if (opK == 20) {
                 ; ToNumber, not the value's own idea of a number: `+"0xff"` is
                 ; 255 and `+{valueOf: …}` runs the method.
                 return (EvalValue.number((this.toNumberOf(arg))))
             }
             ; Bitwise NOT (~x == -(x)-1). Coerce to int32 like JS/AS.
-            if (op == "~") {
+            if (opK == 50) {
                 return (EvalValue.fromInt((bit_not (this.toInt32Of(arg)))))
             }
             ; void x evaluates the operand for side effects and yields undefined.
-            if (op == "void") {
+            if (opK == 48) {
                 return (EvalValue.undefined())
             }
         }
@@ -16160,7 +16649,7 @@ class ComponentEngine {
             return
         }
         def supCls:TSNode (this.classNodeByName(supName))
-        if (supCls.nodeType != "ClassDeclaration") {
+        if ((this.nodeKindOf(supCls)) != 25) {
             return
         }
         ; Base field initialisers first, then its constructor — the same order
@@ -16201,6 +16690,10 @@ class ComponentEngine {
         }
         def decl:TSNode node
         decl.nodeType = "ClassDeclaration"
+        ; the node's KIND is memoised on first visit — rewriting nodeType
+        ; must reset the memo or every later kind check sees the stale
+        ; ClassExpression (the one runtime nodeType rewrite in the engine)
+        decl.evalKind = 0
         decl.name = nm
         set classes nm decl
         def cv:EvalValue (EvalValue.nativeFunction(nm))
@@ -16234,7 +16727,7 @@ class ComponentEngine {
         if ((strlen name) == 0) { return empty }
         if ((strlen currentModule) > 0) {
             def mc:TSNode (this.moduleClassNode(currentModule name))
-            if (mc.nodeType == "ClassDeclaration") {
+            if ((this.nodeKindOf(mc)) == 25) {
                 return mc
             }
         }
@@ -16272,7 +16765,7 @@ class ComponentEngine {
                 return empty
             }
             def supCls:TSNode (this.classNodeByName(supName))
-            if (supCls.nodeType != "ClassDeclaration") {
+            if ((this.nodeKindOf(supCls)) != 25) {
                 return empty
             }
             cur = supCls
@@ -16566,7 +17059,7 @@ class ComponentEngine {
         if node.left {
             def callee:TSNode (unwrap node.left)
             className = callee.name
-            if (callee.nodeType == "MemberExpression") {
+            if ((this.nodeKindOf(callee)) == 3) {
                 if callee.left {
                     def baseNode:TSNode (unwrap callee.left)
                     def baseV:EvalValue (this.evaluateExpr(baseNode))
@@ -16761,7 +17254,7 @@ class ComponentEngine {
                             ; the class table has to be consulted too before
                             ; declaring the name unresolvable.
                             def ncCls:TSNode (this.classNodeByName(ncName))
-                            if (ncCls.nodeType != "ClassDeclaration") {
+                            if ((this.nodeKindOf(ncCls)) != 25) {
                                 return (this.throwSpecError("ReferenceError" (ncName + " is not defined")))
                             }
                         } {
@@ -16942,7 +17435,7 @@ class ComponentEngine {
                 }
             }
         }
-        if (cls.nodeType != "ClassDeclaration") {
+        if ((this.nodeKindOf(cls)) != 25) {
             return (EvalValue.null())
         }
         def keys0:[string]
@@ -17014,7 +17507,7 @@ class ComponentEngine {
             def propName:string node.name
 
             ; Math.PI / Math.E — no runtime Math object in interpreter
-            if (leftExpr.nodeType == "Identifier") {
+            if ((this.nodeKindOf(leftExpr)) == 1) {
                 if (leftExpr.name == "Math") {
                     if (propName == "PI") {
                         def pi:double (M_PI)
@@ -17479,7 +17972,97 @@ class ComponentEngine {
 
     ; Own enumerable keys of an object value (wrapper so callers where `keys` is
     ; shadowed by a local variable can still reach the builtin).
+    ; D-KEYORDER: ES2015 own-property order — integer-like keys first in
+    ; ascending numeric order, then everything else in INSERTION order. The
+    ; native map types keep insertion order (rg_ordered_map / RgOrderedMap),
+    ; and this is the one place the integer rule is applied, so Object.keys,
+    ; for-in and JSON.stringify agree with JavaScript on every target.
+    fn isArrayIndexKey:boolean (k:string) {
+        def n:int (strlen k)
+        if (n == 0) { return false }
+        if (n > 10) { return false }
+        if (((charAt k 0) == 48) && (n > 1)) { return false }
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt k i)
+            if ((c < 48) || (c > 57)) { return false }
+            i = (i + 1)
+        }
+        if (n == 10) {
+            ; the spec bound: an array index is < 2^32 - 1
+            def big@(optional):int (to_int k)
+            if big {
+                if ((unwrap big) >= 4294967295) { return false }
+            }
+        }
+        return true
+    }
+
+    fn orderEnumKeys:[string] (ks:[string]) {
+        def n:int (array_length ks)
+        def anyIdx:boolean false
+        def i:int 0
+        while (i < n) {
+            if (this.isArrayIndexKey((itemAt ks i))) { anyIdx = true }
+            i = (i + 1)
+        }
+        if (false == anyIdx) { return ks }
+        def idxKeys:[string]
+        def rest:[string]
+        i = 0
+        while (i < n) {
+            def k:string (itemAt ks i)
+            if (this.isArrayIndexKey(k)) {
+                push idxKeys k
+            } {
+                push rest k
+            }
+            i = (i + 1)
+        }
+        ; insertion sort ascending by numeric value; enumerations are small
+        def m:int (array_length idxKeys)
+        def a:int 1
+        while (a < m) {
+            def b:int a
+            while (b > 0) {
+                def kb:string (itemAt idxKeys b)
+                def ka:string (itemAt idxKeys (b - 1))
+                def vbO@(optional):int (to_int kb)
+                def vaO@(optional):int (to_int ka)
+                def vb:int 0
+                def va:int 0
+                if vbO { vb = (unwrap vbO) }
+                if vaO { va = (unwrap vaO) }
+                if (vb < va) {
+                    set idxKeys b ka
+                    set idxKeys (b - 1) kb
+                    b = (b - 1)
+                } {
+                    b = 0
+                }
+            }
+            a = (a + 1)
+        }
+        def out:[string]
+        def oi:int 0
+        while (oi < m) {
+            push out (itemAt idxKeys oi)
+            oi = (oi + 1)
+        }
+        def ri:int 0
+        def rn:int (array_length rest)
+        while (ri < rn) {
+            push out (itemAt rest ri)
+            ri = (ri + 1)
+        }
+        return out
+    }
+
     fn objectKeys:[string] (v:EvalValue) {
+        return (this.orderEnumKeys((this.objectKeysRaw(v))))
+    }
+
+    fn objectKeysRaw:[string] (v:EvalValue) {
         def out:[string]
         ; A FUNCTION holds ordinary properties too, and a descriptor map may be
         ; one -- `Object.defineProperties(o, function () {})` reads its own
@@ -17596,6 +18179,10 @@ class ComponentEngine {
     ; Before attributes existed the two were indistinguishable, so a property
     ; defined as non-enumerable still showed up in Object.keys.
     fn objectEnumerableKeys:[string] (v:EvalValue) {
+        return (this.orderEnumKeys((this.objectEnumerableKeysRaw(v))))
+    }
+
+    fn objectEnumerableKeysRaw:[string] (v:EvalValue) {
         def out:[string]
         if (v.isArray()) {
             ; An index is enumerable UNLESS defineProperty recorded otherwise --
@@ -18463,7 +19050,7 @@ class ComponentEngine {
         ; The AST should have a Program with one ExpressionStatement
         if ((array_length ast.children) > 0) {
             def stmt:TSNode (itemAt ast.children 0)
-            if (stmt.nodeType == "ExpressionStatement") {
+            if ((this.nodeKindOf(stmt)) == 30) {
                 if stmt.left {
                     def exprNode:TSNode (unwrap stmt.left)
                     def value:EvalValue (this.evaluateExpr(exprNode))

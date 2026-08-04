@@ -172,14 +172,38 @@ class EvalValue {
         return v
     }
     
-    sfn number:EvalValue (n:double) {
+    sfn rawNumber:EvalValue (n:double) {
         def v:EvalValue (new EvalValue())
         v.valueType = 1
         v.numberValue = n
         return v
     }
-    
+
+    sfn number:EvalValue (n:double) {
+        ; a small non-negative integer comes from the shared pool.
+        ; NEGATIVE ZERO must not: -0.0 >= 0.0 and -0.0 == 0.0 both hold,
+        ; but the pooled +0 loses the sign — 1/-0 is -Infinity, and
+        ; Object.is / toString / JSON all observe it.
+        if ((n >= 0.0) && (n < 4096.0)) {
+            def ni:int (to_int n)
+            if ((to_double ni) == n) {
+                if ((ni != 0) || ((1.0 / n) > 0.0)) {
+                    def pool:EvalConstPool (EvalConstPool.__singleton())
+                    return (pool.smallInt(ni))
+                }
+            }
+        }
+        def v:EvalValue (new EvalValue())
+        v.valueType = 1
+        v.numberValue = n
+        return v
+    }
+
     sfn fromInt:EvalValue (n:int) {
+        if ((n >= 0) && (n < 4096)) {
+            def pool:EvalConstPool (EvalConstPool.__singleton())
+            return (pool.smallInt(n))
+        }
         def v:EvalValue (new EvalValue())
         v.valueType = 1
         v.numberValue = (to_double n)
@@ -421,6 +445,17 @@ class EvalValue {
             return "undefined"
         }
         if (valueType == 1) {
+            ; NaN and the infinities print their JS names — the native f64
+            ; formatters say "inf"/"-inf" where JavaScript says "Infinity"
+            if (numberValue != numberValue) {
+                return "NaN"
+            }
+            if (numberValue == (1.0 / 0.0)) {
+                return "Infinity"
+            }
+            if (numberValue == ((0.0 - 1.0) / 0.0)) {
+                return "-Infinity"
+            }
             ; Format number - remove trailing zeros
             def s:string (to_string numberValue)
             ; Check if it's a whole number
@@ -1250,4 +1285,22 @@ class EvalConstPool @singleton(true) {
     def trueValue:EvalValue (EvalValue.rawBoolean(true))
     def falseValue:EvalValue (EvalValue.rawBoolean(false))
     def holeValue:EvalValue (EvalValue.rawHole())
+    ; PERF: shared SMALL INTEGER values, filled lazily on first use. A number
+    ; is immutable -- property writes on a primitive are discarded (see the
+    ; assignMember guard), nothing writes numberValue after construction --
+    ; so one instance per small int serves the whole program. Array indices,
+    ; loop counters, lengths and char codes hit this range constantly; on the
+    ; native targets each miss is a ~full-struct allocation.
+    def smallInts:[EvalValue]
+    fn smallInt:EvalValue (i:int) {
+        if ((array_length smallInts) == 0) {
+            def k:int 0
+            while (k < 4096) {
+                def v:EvalValue (EvalValue.rawNumber((to_double k)))
+                push smallInts v
+                k = (k + 1)
+            }
+        }
+        return (itemAt smallInts i)
+    }
 }

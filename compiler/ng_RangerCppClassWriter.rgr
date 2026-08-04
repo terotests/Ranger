@@ -141,7 +141,7 @@ class RangerCppClassWriter {
     if (sep >= 0) {
       def kt:string (substring inner 0 sep)
       def vt:string (substring inner (sep + 1) il)
-      return (((("std::map<" + (this.getObjectTypeString(kt ctx))) + ",") + (this.getObjectTypeString(vt ctx))) + ">")
+      return (((("rg_ordered_map<" + (this.getObjectTypeString(kt ctx))) + ",") + (this.getObjectTypeString(vt ctx))) + ">")
     }
     return (("std::vector<" + (this.getObjectTypeString(inner ctx))) + ">")
   }
@@ -297,7 +297,7 @@ class RangerCppClassWriter {
         wr.out("bool" false)
       }
       case RangerNodeType.Hash {
-        wr.out((((("std::map<" + (this.getObjectTypeString(k_name ctx))) + ",") + (this.getObjectTypeString(a_name ctx)))) + ">" , false)
+        wr.out((((("rg_ordered_map<" + (this.getObjectTypeString(k_name ctx))) + ",") + (this.getObjectTypeString(a_name ctx)))) + ">" , false)
         wr.addImport("<map>")
       }
       case RangerNodeType.Array {
@@ -730,10 +730,86 @@ class RangerCppClassWriter {
     }    
   }
 
+  ; one side of a string comparison: a literal compares as a bare char
+  ; pointer — operator==(const std::string&, const char*) — instead of
+  ; constructing a std::string per comparison
+  fn cppWriteCmpOperand:void (o:CodeNode otherIsLiteral:boolean ctx:RangerAppWriterContext wr:CodeWriter) {
+    def oo:CodeNode o
+    while (oo.expression && ((array_length oo.children) == 1)) {
+      oo = (oo.getFirst())
+    }
+    if ((oo.value_type == RangerNodeType.String) && (otherIsLiteral == false)) {
+      wr.out(((("\"" + (this.EncodeString(oo ctx wr))) + "\"")) false)
+      return
+    }
+    ctx.setInExpr()
+    this.WalkNode(oo ctx wr)
+    ctx.unsetInExpr()
+  }
+
   fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
     def fc:CodeNode (node.getFirst())
     def cmd:string fc.vref
+
+    ; string equality with a literal side stays allocation-free
+    if ((cmd == "==") || (cmd == "!=")) {
+      def cmpL:CodeNode (node.getSecond())
+      def cmpR:CodeNode (node.getThird())
+      def lLit:boolean false
+      def lc:CodeNode cmpL
+      while (lc.expression && ((array_length lc.children) == 1)) {
+        lc = (lc.getFirst())
+      }
+      if (lc.value_type == RangerNodeType.String) {
+        lLit = true
+      }
+      def rc:CodeNode cmpR
+      while (rc.expression && ((array_length rc.children) == 1)) {
+        rc = (rc.getFirst())
+      }
+      def rLit:boolean false
+      if (rc.value_type == RangerNodeType.String) {
+        rLit = true
+      }
+      ; exactly ONE literal side: compare as SIZED string_views. The bare
+      ; `s == "lit"` form pays strlen(lit) per compare (not folded through
+      ; the .isra clones), and no length gate — string_view(lit, N) makes
+      ; the length compile-time and mismatched lengths never memcmp.
+      ; ASCII literals only: N is the byte length of the compiled literal.
+      if (lLit != rLit) {
+        def svLitN:CodeNode rc
+        def svExprN:CodeNode cmpL
+        if lLit {
+          svLitN = lc
+          svExprN = cmpR
+        }
+        def svAscii:boolean true
+        def svLen:int (strlen svLitN.string_value)
+        def svI:int 0
+        while (svI < svLen) {
+          if ((charAt svLitN.string_value svI) > 126) {
+            svAscii = false
+          }
+          svI = (svI + 1)
+        }
+        if svAscii {
+          wr.out("(std::string_view(" false)
+          ctx.setInExpr()
+          this.WalkNode(svExprN ctx wr)
+          ctx.unsetInExpr()
+          wr.out((((") " + cmd) + " std::string_view(\"") + (this.EncodeString(svLitN ctx wr))) false)
+          wr.out((("\", " + svLen) + "))") false)
+          return
+        }
+      }
+      wr.out("(" false)
+      this.cppWriteCmpOperand(cmpL false ctx wr)
+      wr.out((((" " + cmd) + " ")) false)
+      this.cppWriteCmpOperand(cmpR lLit ctx wr)
+      wr.out(")" false)
+      return
+    }
 
     if( cmd == "return" ) {
       if(ctx.isInMain()) {
@@ -1566,6 +1642,154 @@ class RangerCppClassWriter {
       wr.createTag("c++unions")
       wr.createTag("utilities")
       wr.out("" true)
+      if (ctx.hasCompilerFlag("native-fast-alloc")) {
+        wr.out("// -native-fast-alloc: thread-local size-class freelist over the system" true)
+        wr.out("// allocator (32-byte classes up to 1024 bytes; memory is never returned" true)
+        wr.out("// to the OS - benchmark/tool builds only)." true)
+        wr.out("#include <cstdlib>" true)
+        wr.out("#include <new>" true)
+        wr.out("#include <malloc.h>" true)
+        wr.out("namespace rgpool {" true)
+        wr.out("    const size_t NCLASS = 32;" true)
+        wr.out("    thread_local void* heads[NCLASS + 1] = {};" true)
+        wr.out("    inline void* take(size_t size) {" true)
+        wr.out("        if (size == 0 || size > 1024) { return NULL; }" true)
+        wr.out("        size_t cls = (size + 31) >> 5;" true)
+        wr.out("        void* h = heads[cls];" true)
+        wr.out("        if (h) { heads[cls] = *(void**)h; return h; }" true)
+        wr.out("        // parked blocks are classified by USABLE size (>= cls<<5 here)" true)
+        wr.out("        return std::malloc(cls << 5);" true)
+        wr.out("    }" true)
+        wr.out("    inline bool park(void* p, size_t size) {" true)
+        wr.out("        if (size == 0 || size > 1024) { return false; }" true)
+        wr.out("        size_t cls = (size + 31) >> 5;" true)
+        wr.out("        *(void**)p = heads[cls];" true)
+        wr.out("        heads[cls] = p;" true)
+        wr.out("        return true;" true)
+        wr.out("    }" true)
+        wr.out("}" true)
+        wr.out("void* operator new(std::size_t n) {" true)
+        wr.out("    void* p = rgpool::take(n);" true)
+        wr.out("    if (!p) { p = std::malloc(n); }" true)
+        wr.out("    if (!p) { throw std::bad_alloc(); }" true)
+        wr.out("    return p;" true)
+        wr.out("}" true)
+        wr.out("void operator delete(void* p) noexcept {" true)
+        wr.out("    // unsized form: classify by the block's usable size (glibc) so these" true)
+        wr.out("    // deletions feed the pool too - take() only needs usable >= request" true)
+        wr.out("    if (p) {" true)
+        wr.out("        size_t u = malloc_usable_size(p);" true)
+        wr.out("        size_t cls = u >> 5;" true)
+        wr.out("        if (cls >= 1 && cls <= rgpool::NCLASS) {" true)
+        wr.out("            *(void**)p = rgpool::heads[cls];" true)
+        wr.out("            rgpool::heads[cls] = p;" true)
+        wr.out("        } else {" true)
+        wr.out("            std::free(p);" true)
+        wr.out("        }" true)
+        wr.out("    }" true)
+        wr.out("}" true)
+        wr.out("void operator delete(void* p, std::size_t n) noexcept {" true)
+        wr.out("    (void)n;" true)
+        wr.out("    if (p) {" true)
+        wr.out("        size_t u = malloc_usable_size(p);" true)
+        wr.out("        size_t cls = u >> 5;" true)
+        wr.out("        if (cls >= 1 && cls <= rgpool::NCLASS) {" true)
+        wr.out("            *(void**)p = rgpool::heads[cls];" true)
+        wr.out("            rgpool::heads[cls] = p;" true)
+        wr.out("        } else {" true)
+        wr.out("            std::free(p);" true)
+        wr.out("        }" true)
+        wr.out("    }" true)
+        wr.out("}" true)
+        wr.out("" true)
+      }
+      wr.out("#include <string_view>" true)
+      wr.out("// Insertion-ordered map: vector storage + open-addressed hash index." true)
+      wr.out("// Replaces std::map (sorted, O(log n) with a string compare per level):" true)
+      wr.out("// lookups hash once, and iteration follows INSERTION order, which is" true)
+      wr.out("// what JavaScript object key enumeration semantics need." true)
+      wr.out("template<typename K, typename V>" true)
+      wr.out("class rg_ordered_map {" true)
+      wr.out("public:" true)
+      wr.out("    typedef K key_type;" true)
+      wr.out("    typedef V mapped_type;" true)
+      wr.out("    std::vector<std::pair<K, V>> entries;" true)
+      wr.out("    std::vector<int32_t> index_;" true)
+      wr.out("    typedef typename std::vector<std::pair<K, V>>::iterator iterator;" true)
+      wr.out("    typedef typename std::vector<std::pair<K, V>>::const_iterator const_iterator;" true)
+      wr.out("    iterator begin() { return entries.begin(); }" true)
+      wr.out("    iterator end() { return entries.end(); }" true)
+      wr.out("    const_iterator begin() const { return entries.begin(); }" true)
+      wr.out("    const_iterator end() const { return entries.end(); }" true)
+      wr.out("    size_t size() const { return entries.size(); }" true)
+      wr.out("    void clear() { entries.clear(); index_.clear(); }" true)
+      wr.out("    void rehash_() {" true)
+      wr.out("        size_t cap = 8;" true)
+      wr.out("        while (cap < (entries.size() + 1) * 2) { cap <<= 1; }" true)
+      wr.out("        index_.assign(cap, -1);" true)
+      wr.out("        for (size_t i = 0; i < entries.size(); i++) {" true)
+      wr.out("            size_t h = std::hash<K>{}(entries[i].first) & (cap - 1);" true)
+      wr.out("            while (index_[h] != -1) { h = (h + 1) & (cap - 1); }" true)
+      wr.out("            index_[h] = (int32_t)i;" true)
+      wr.out("        }" true)
+      wr.out("    }" true)
+      wr.out("    int32_t slot_(const K& k) const {" true)
+      wr.out("        if (index_.empty()) { return -1; }" true)
+      wr.out("        size_t mask = index_.size() - 1;" true)
+      wr.out("        size_t h = std::hash<K>{}(k) & mask;" true)
+      wr.out("        while (true) {" true)
+      wr.out("            int32_t s = index_[h];" true)
+      wr.out("            if (s == -1) { return -1; }" true)
+      wr.out("            if (entries[(size_t)s].first == k) { return s; }" true)
+      wr.out("            h = (h + 1) & mask;" true)
+      wr.out("        }" true)
+      wr.out("    }" true)
+      wr.out("    size_t count(const K& k) const { return slot_(k) == -1 ? 0 : 1; }" true)
+      wr.out("    iterator find(const K& k) { int32_t s = slot_(k); return s == -1 ? entries.end() : entries.begin() + s; }" true)
+      wr.out("    const_iterator find(const K& k) const { int32_t s = slot_(k); return s == -1 ? entries.end() : entries.begin() + s; }" true)
+      wr.out("    V& at(const K& k) { int32_t s = slot_(k); if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); } return entries[(size_t)s].second; }" true)
+      wr.out("    const V& at(const K& k) const { int32_t s = slot_(k); if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); } return entries[(size_t)s].second; }" true)
+      wr.out("    // const char* overloads: a literal key probes WITHOUT constructing a" true)
+      wr.out("    // std::string temporary. C++17 guarantees hash<string> and" true)
+      wr.out("    // hash<string_view> agree on equal character sequences. Instantiated" true)
+      wr.out("    // lazily, so non-string-keyed maps never touch them." true)
+      wr.out("    int32_t slot_sv_(std::string_view k) const {" true)
+      wr.out("        if (index_.empty()) { return -1; }" true)
+      wr.out("        size_t mask = index_.size() - 1;" true)
+      wr.out("        size_t h = std::hash<std::string_view>{}(k) & mask;" true)
+      wr.out("        while (true) {" true)
+      wr.out("            int32_t s = index_[h];" true)
+      wr.out("            if (s == -1) { return -1; }" true)
+      wr.out("            if (entries[(size_t)s].first.compare(k) == 0) { return s; }" true)
+      wr.out("            h = (h + 1) & mask;" true)
+      wr.out("        }" true)
+      wr.out("    }" true)
+      wr.out("    size_t count(const char* k) const { return slot_sv_(k) == -1 ? 0 : 1; }" true)
+      wr.out("    iterator find(const char* k) { int32_t s = slot_sv_(k); return s == -1 ? entries.end() : entries.begin() + s; }" true)
+      wr.out("    const_iterator find(const char* k) const { int32_t s = slot_sv_(k); return s == -1 ? entries.end() : entries.begin() + s; }" true)
+      wr.out("    V& at(const char* k) { int32_t s = slot_sv_(k); if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); } return entries[(size_t)s].second; }" true)
+      wr.out("    const V& at(const char* k) const { int32_t s = slot_sv_(k); if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); } return entries[(size_t)s].second; }" true)
+      wr.out("    V& operator[](const char* k) {" true)
+      wr.out("        int32_t s = slot_sv_(k);" true)
+      wr.out("        if (s != -1) { return entries[(size_t)s].second; }" true)
+      wr.out("        return (*this)[K(k)];" true)
+      wr.out("    }" true)
+      wr.out("    V& operator[](const K& k) {" true)
+      wr.out("        int32_t s = slot_(k);" true)
+      wr.out("        if (s != -1) { return entries[(size_t)s].second; }" true)
+      wr.out("        entries.push_back(std::make_pair(k, V()));" true)
+      wr.out("        if (index_.empty() || (entries.size() + 1) * 2 > index_.size()) {" true)
+      wr.out("            rehash_();" true)
+      wr.out("        } else {" true)
+      wr.out("            size_t mask = index_.size() - 1;" true)
+      wr.out("            size_t h = std::hash<K>{}(k) & mask;" true)
+      wr.out("            while (index_[h] != -1) { h = (h + 1) & mask; }" true)
+      wr.out("            index_[h] = (int32_t)(entries.size() - 1);" true)
+      wr.out("        }" true)
+      wr.out("        return entries.back().second;" true)
+      wr.out("    }" true)
+      wr.out("};" true)
+      wr.out("" true)
       if (this.cppProgramHasWeakField(ctx)) {
         this.writeCppWeakHelper(wr)
         wr.out("" true)
@@ -1638,9 +1862,20 @@ class RangerCppClassWriter {
 ;      }
       if ((array_length nn.children) > 2) {
         def valueNode:CodeNode (itemAt nn.children 2)
-        wr.out((("this->" + pvar.compiledName) + " = ") false)
-        this.WalkNode(valueNode ctx wr)
-        wr.out(";" true)
+        ; assigning std::string("") to a default-constructed string member
+        ; is pure overhead — a temporary construction and an assignment per
+        ; field per object, and value-heavy programs construct constantly
+        def skipDefaultInit:boolean false
+        if (valueNode.value_type == RangerNodeType.String) {
+          if ((strlen valueNode.string_value) == 0) {
+            skipDefaultInit = true
+          }
+        }
+        if (skipDefaultInit == false) {
+          wr.out((("this->" + pvar.compiledName) + " = ") false)
+          this.WalkNode(valueNode ctx wr)
+          wr.out(";" true)
+        }
       }
       ; if (nn.hasFlag("optional")) {
     }

@@ -24,8 +24,10 @@ describe("Rust Code Generation", () => {
 
     it("detects mutation through push into a member collection", () => {
       // push never appears as an `=` node; without the operator check this
-      // method would take &self and rustc would reject the push
-      expect(result.code).toContain("fn tag(&mut self, s : String)");
+      // method would take &self and rustc would reject the push. The string
+      // parameter itself is read-only from the caller's view, so it borrows
+      // (&String) and the push stores a clone.
+      expect(result.code).toContain("fn tag(&mut self, s : &String)");
     });
 
     it("emits no unit return type and no trailing comma", () => {

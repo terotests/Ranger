@@ -1,0 +1,23 @@
+; probe_main — evaluate one JS snippet from argv in the interpreter and print
+; the answer. Scratch harness for conformance debugging of the Rust target.
+;
+;   probe <js-expression-body>   (the body of work(); must `return`)
+
+Import "../../migrate/src/ComponentEngine.rgr"
+
+class ProbeMain {
+    sfn m@(main):void () {
+        def argCnt:int (shell_arg_cnt)
+        if (argCnt < 1) {
+            print "usage: probe <js work() body>"
+            return
+        }
+        def body:string (shell_arg 0)
+        def src:string ("var __out__ = '';\nfunction work() {" + (body + "\n}\n__out__ = String(work());\nfunction __t__() { return String(__out__); }\n"))
+        def engine (new ComponentEngine())
+        engine.quiet = true
+        engine.loadScript(src)
+        def out:EvalValue (engine.callFunction("__t__" (EvalValue.null())))
+        print ("answer=" + out.stringValue)
+    }
+}

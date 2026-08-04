@@ -32,8 +32,8 @@ describe("C++ Code Generation", () => {
       );
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       expect(result.code).toContain("std::vector<std::vector<std::string>>");
-      expect(result.code).toContain("std::map<std::string,std::vector<int>>");
-      expect(result.code).toContain("std::vector<std::map<std::string,int>>");
+      expect(result.code).toContain("rg_ordered_map<std::string,std::vector<int>>");
+      expect(result.code).toContain("std::vector<rg_ordered_map<std::string,int>>");
       // no raw Ranger collection type strings should leak through
       expect(result.code).not.toContain("[string]");
       expect(result.code).not.toContain("[int]");

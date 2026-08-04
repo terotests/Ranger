@@ -10,18 +10,21 @@ SRC=gallery/game_engine/v2/interp/bench/native/bench_main.rgr
 mkdir -p "$OUT_DIR"
 
 echo "== Ranger -> $TARGET"
+EXT="$TARGET"
+if [ "$TARGET" = "rust" ]; then EXT="rs"; fi
 RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l="$TARGET" \
-  "$SRC" -d="$OUT_DIR" -o=engine_bench."${TARGET/cpp/cpp}" -nodecli
+  "$SRC" -d="$OUT_DIR" -o=engine_bench."$EXT" -nodecli -native-fast-alloc
 
 case "$TARGET" in
   cpp)
-    echo "== g++ -O2"
-    g++ -O2 -std=c++17 "$OUT_DIR/engine_bench.cpp" -o "$OUT_DIR/engine_bench"
+    echo "== g++ -O3"
+    g++ -O3 -march=native -std=c++17 "$OUT_DIR/engine_bench.cpp" -o "$OUT_DIR/engine_bench"
     echo "built: $OUT_DIR/engine_bench"
     ;;
   rust)
-    echo "== rustc -O"
-    rustc -O "$OUT_DIR/engine_bench.rust" -o "$OUT_DIR/engine_bench"
+    echo "== rustc -C opt-level=3"
+    rustc -C opt-level=3 -C target-cpu=native -C codegen-units=1 \
+      "$OUT_DIR/engine_bench.rs" -o "$OUT_DIR/engine_bench"
     echo "built: $OUT_DIR/engine_bench"
     ;;
 esac

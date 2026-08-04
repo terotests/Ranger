@@ -3268,11 +3268,11 @@ std::string r_utf8_char_at(const std::string& str, int pos_i)
                 python ( "list(" (e 1) ".keys())" )
                 rust ( "" (e 1) ".keys().cloned().collect::<Vec<String>>()" )
                 cpp (
-                    "r_get_keys_of_map<" (r_atype 1) ">(" (e 1) ")"
+                    "r_get_keys_of_map(" (e 1) ")"
 (create_polyfill
 "
-template< typename T >
-std::vector<std::string> r_get_keys_of_map(  std::map<std::string, T> orig_map )  { 
+template< typename M >
+std::vector<std::string> r_get_keys_of_map( const M & orig_map )  { 
     std::vector<std::string> res;
     for(auto it = orig_map.begin(); it != orig_map.end(); ++it) {
         res.push_back(it->first);
@@ -3769,7 +3769,7 @@ std::string join(const T& v, const std::string& delim) {
                 es6  ( "( typeof(" (e 1) "[" (e 2) "] ) != \"undefined\" && Object.prototype.hasOwnProperty.call(" (e 1) ", " (e 2) ") )" )
                 ts   ( "typeof(" (e 1) "[" (e 2) "] ) != \"undefined\"" )
                 flow ( "typeof(" (e 1) "[" (e 2) "] ) != \"undefined\"" )
-                cpp ( (e 1) ".count(" (e 2) ") > 0" )
+                cpp ( (e 1) ".count(" (ckey 2) ") > 0" )
                 php ( "array_key_exists(" (e 2) " , " (e 1) " )" )
                 java7 ( (e 1) ".containsKey(" (e 2) ")" )
                 kotlin ( (e 1) ".containsKey(" (e 2) ")" )
@@ -3781,7 +3781,7 @@ std::string join(const T& v, const std::string& delim) {
 }" nl ))                   
                     "r_has_key_" (r_ktype 1)  "_" (r_atype_fname 1) "(" (e 1) ", " (e 2) ")"
                 )
-                rust ( (e 1 ) ".contains_key(&" (e 2) ")")
+                rust ( (e 1 ) ".contains_key(" (kref 2) ")")
                 csharp ( (e 1) ".ContainsKey(" (e 2) ")" )
                 scala ( (e 1) ".contains(" (e 2) ")" )
                 swift3 ( (e 1) "[" (e 2) "] != nil" )
@@ -3802,7 +3802,7 @@ std::string join(const T& v, const std::string& delim) {
 
         get             cmdGet@(optional weak):int          ( map:[K:int] key:K ) { 
             templates {
-                cpp( "cpp_get_map_int_value<" (r_ktype 1) ">(" (e 1) ", " (e 2) ")"
+                cpp( "cpp_get_map_int_value(" (e 1) ", " (e 2) ")"
 (create_polyfill
 "
 template <class T>
@@ -3825,14 +3825,14 @@ class r_optional_primitive {
 ) 
 (macro
 ("
-template<typename T>
-r_optional_primitive<int> cpp_get_map_int_value( std::map<" (r_ktype 1) ", int> m , " (typeof 2) space "  key) {
+template<typename M, typename K>
+r_optional_primitive<int> cpp_get_map_int_value( const M & m , const K & key) {
     r_optional_primitive<int> result;
-    try {
-        result.value = m[key];
+    result.has_value = false;
+    auto it = m.find(key);
+    if (it != m.end()) {
+        result.value = it->second;
         result.has_value = true;
-    } catch (...) {
-        
     }
     return result;
 }")
@@ -3867,8 +3867,10 @@ class r_optional_primitive {
 )
 (macro
 ("
-r_optional_primitive<double> cpp_get_map_string_double_value( std::map<std::string, double> m , std::string key) {
+template<typename M, typename K>
+r_optional_primitive<double> cpp_get_map_string_double_value( const M & m , const K & key) {
     r_optional_primitive<double> result;
+    result.has_value = false;
     auto it = m.find(key);
     if (it != m.end()) {
         result.value = it->second;
@@ -3892,8 +3894,8 @@ r_optional_primitive<double> cpp_get_map_string_double_value( std::map<std::stri
                 java7 ( (e 1) ".get(" (e 2) ")" )
                 ; HashMap::get hands back Option<&T>, and the operator is typed
                 ; to give an optional T, so the borrow is cloned away.
-                rust ( (e 1) ".get(&" (e 2) ").cloned()" )
-                cpp ( "r_map_get_val(" (e 1) ", " (e 2) ")"
+                rust ( (e 1) ".get(" (kref 2) ").cloned()" )
+                cpp ( "r_map_get_val(" (e 1) ", " (ckey 2) ")"
 (create_polyfill
 "
 // Map read that never inserts on miss (unlike std::map::operator[]) and does a
@@ -3955,11 +3957,11 @@ i "}" nl ))
                 ranger ( "set " (e 1) " " (e 2) " " (e 3) )                
                 llvm ( "set " (e 1) " " (e 2) " " (e 3) )
                 java7 ( (e 1) ".put(" (e 2) ", " (e 3) ");" )
-                rust ( (e 1) ".insert(" (e 2) ", " (e 3) ");" )
+                rust ( (e 1) ".insert(" (mvarg 2) ", " (mvarg 3) ");" )
                 scala ( (e 1) ".put(" (e 2) ", " (e 3) ")" )
                 kotlin ( (e 1) ".set(" (e 2) ", " (e 3) ")" )
                 php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
-                cpp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+                cpp ( (e 1) "[" (ckey 2) "] = " (e 3) ";" )
                 * ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             }            
         }                 
@@ -4132,7 +4134,7 @@ bool r_string_ends_with(const std::string& str, const std::string& suffix) {
                 cpp ( (e 1) ".find(" (e 2) ") != std::string::npos" )
                 kotlin ( (e 1) ".contains(" (e 2) ")" )
                 python ( (e 2) " in " (e 1) )
-                rust ( (e 1) ".contains(" (e 2) ")" )
+                rust ( (custom _) )
             }
         }
 
@@ -5451,6 +5453,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
             templates {
                 java7 ( (e 1) ".equals(" (e 2) ")" )
                 rust ( (custom _) )
+                cpp ( (custom _) )
                 * ( (e 1) " == " (e 2) )
             }
         }
@@ -5542,6 +5545,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
             templates {
                 java7 ( "!" (e 1) ".equals(" (e 2) ")")
                 rust ( (custom _) )
+                cpp ( (custom _) )
                 * ( (e 1) " != " (e 2) )
             }
         }

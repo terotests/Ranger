@@ -1,5 +1,132 @@
 # TS engine — native compilation and performance
 
+> **Update (branch `claude/ts-engine-native-perf-fixes`, 2026-08-03).** The
+> two headline defects below are found and fixed; the numbers in the body of
+> this document are kept as the historical baseline.
+>
+> **Why C++ was slower than JavaScript — two causes, both measured by
+> callgrind on the `array_half` workload (62% of all instructions in
+> `std::vector` copy-construction/destruction, 14% in `std::string`
+> construction from literals):**
+>
+> 1. **The array path copied the whole backing vector on every builtin
+>    call.** `invokeBuiltin`'s array block opened with
+>    `def elems:[EvalValue] recv.arrayValue` — an alias on the es6 target,
+>    a full `std::vector` copy on C++ — before dispatching, so every
+>    `a.push(x)` copied the entire array first: O(n²) where the same source
+>    is linear on es6. The copy is now skipped for the eight mutator names
+>    (they write through `recv.arrayValue` directly and never read `elems`).
+>    `array` fell from 1296 ms to 116 ms and the scaling canary from 4.9x
+>    to ~1.9x for 2x elements (linear, same as the JS build).
+> 2. **Every string comparison against a literal allocated.** The C++
+>    writer emitted `name == std::string("push")` — 2016 sites, and the
+>    interpreter's dispatch is a chain of such comparisons per call. The
+>    writer now emits the literal bare (`name == "push"`,
+>    `operator==(const std::string&, const char*)` — no construction).
+>
+> With both fixes the C++ build's geometric mean improved from **190x to
+> 84x** vs Node (the JS build is 40x) — from ~4x slower than the JS build
+> to ~2x — with every workload still returning the same answer. The
+> remaining gap is the value model this document already describes (an
+> `EvalValue` allocation per arithmetic result, red-black-tree maps per
+> object), which suits V8's nursery and charges list price under malloc:
+> the flat profile is now string-compare dispatch, `std::map::find` and
+> `shared_ptr` traffic, with no single defect left on top.
+>
+> **Rust:** the backend work that landed on master since this document was
+> written (the shared-class `Rc<RefCell<T>>` default, `&self` receivers,
+> the borrow routing) plus this branch's fixes — the phantom-optional
+> collection type drop (`let x :  = …` with a spurious `.unwrap()`), the
+> statement-temp emitted inside a `let` initializer, `let`/`fn`/`mod` and
+> other keywords as identifiers, cast parens in `<` comparisons
+> (`x as i64 < 2` parses as generics), tail-expression borrows of body
+> locals (E0597), and a move of a named String argument — take the
+> **Both native targets now build AND answer correctly. The TS parser
+> went from 37 errors to 0, and the interpreter from 676 to 0 — it
+> compiles, runs, and produces the exact JavaScript answers on all 8
+> benchmark cases** (keyorder included — see the key-order note below).
+> Getting from "compiles" to "correct" took two runtime-semantics fixes
+> on top of the borrow work: an unused `def` whose initializer CALLS
+> something now emits as a live `let _x = …` instead of a comment (the
+> for-loop update clause was silently dropped this way), and call sites
+> borrow a receiver's RefCell in the mode the method actually needs —
+> `borrow()` for `&self` methods — so an argument aliasing the receiver
+> (`v.equals(objectProto)` where v IS the prototype) no longer panics.
+> A conformance probe binary (`bench/native/probe_main.rgr`) evaluates
+> one JS snippet from argv for quick divergence hunting.
+>
+> **Native benchmark, after the optimization rounds (engine work-only
+> ms, interleaved same-session best-of-3; all three builds produce the
+> same answers; the Node column runs the SAME improved engine source):**
+>
+> | case | engine on Node | Rust | C++ |
+> |---|---|---|---|
+> | loop | 53.5 | 34.4 | 33.9 |
+> | fib | 25.3 | 23.2 | 24.6 |
+> | strcat | 26.9 | 54.4 | 37.6 |
+> | array | 84.4 | 65.0 | 74.3 |
+> | object | 37.4 | 27.9 | 32.6 |
+> | method | 64.3 | 60.0 | 58.9 |
+> | regex | 39.8 | 33.7 | 38.8 |
+>
+> Geometric mean: **Rust 0.92x and C++ 0.93x — BOTH native targets are
+> now FASTER than the same engine running on Node** (stable across
+> repeated interleaved runs; Rust 0.89–0.93, C++ 0.91–0.94). Each beats
+> V8 on six of seven cases; only `strcat` still loses, because V8's rope
+> strings make `+=` amortized O(1) where immutable native strings copy
+> the accumulator. The last two C++ steps: dropping the
+> `std::string("")` assignments the constructor made to
+> already-default-constructed members, and comparing literal strings as
+> SIZED `std::string_view`s (the bare `s == "lit"` form paid a
+> non-folded `strlen(lit)` per compare and had no length gate), plus
+> converting the remaining ~134 `nodeType` string compares to the
+> integer kind memo. Both targets started this branch
+> unable to compile (Rust) or 4x-and-quadratic (C++). What got them
+> here, in measured order of impact: integer-interned nodeType/operator
+> dispatch, borrowed `&String` parameters, FxHash + bare-literal map
+> keys, an insertion-ordered C++ map replacing `std::map`, memoised
+> hoisting, a compiled-regex cache, small-integer value pooling,
+> single-walk scope updates, and a thread-local freelist allocator
+> (`-native-fast-alloc`). Remaining C++ gap: string local copies and
+> `shared_ptr` release chains — value-model flattening territory.
+>
+> **Calibration against real JS engines (same session, same workload
+> bodies run RAW — no interpreter — with JIT warmup; ms per run):**
+>
+> | case | raw V8 | raw QuickJS | engine/Node | engine/Rust | engine/C++ |
+> |---|---|---|---|---|---|
+> | loop | 0.036 | 0.78 | 55.4 | 34.2 | 33.8 |
+> | fib | 0.175 | 0.86 | 25.6 | 22.9 | 24.6 |
+> | strcat | 0.164 | 11.39 | 27.8 | 55.2 | 38.3 |
+> | array | 0.304 | 2.03 | 93.6 | 66.2 | 77.2 |
+> | object | 1.94 | 4.45 | 41.1 | 27.9 | 31.5 |
+> | method | 0.663 | 4.98 | 67.1 | 62.2 | 58.3 |
+> | regex | 1.50 | 7.23 | 45.1 | 35.4 | 39.2 |
+>
+> Geometric means: raw QuickJS is **8.8x** slower than warmed-up V8;
+> the interpreter is **116x** (native builds) / **133x** (on Node)
+> slower than raw V8, i.e. **~13x slower than QuickJS**. That is the
+> honest weight class for a tree-walking AST interpreter against a
+> bytecode interpreter (QuickJS) and a JIT (V8): the engine's closest
+> races against QuickJS are the cases dominated by runtime work rather
+> than dispatch — strcat 3.4x (C++), regex 4.9x, object 6.3x (Rust) —
+> and the widest is `loop` at ~44x, which is pure dispatch overhead per
+> AST node. Closing toward QuickJS's class would take a bytecode
+> compilation stage, not more peephole work.
+>
+> **Key order: CLOSED.** Both native targets now enumerate keys exactly
+> as JavaScript does — the `keyorder` canary answers
+> `1,2,zebra,apple,mango|{"1":5,"2":4,...}` identically on Node, Rust
+> and C++, making it **8 of 8 cases byte-identical across all three
+> builds**. Three pieces: the C++ `rg_ordered_map` and a mirrored Rust
+> `RgOrderedMap` (vector entries + open-addressed FxHash index, aliased
+> over the `HashMap` name so declarations are untouched) keep INSERTION
+> order, and the engine's two key-listing helpers apply the ES2015
+> integer-first rule (`orderEnumKeys`: canonical array indices ascending,
+> then insertion order) in one place, so `Object.keys`, `for-in` and
+> `JSON.stringify` all agree. The ordered maps cost nothing measurable —
+> the benchmark still reads Rust 0.91x / C++ 0.88x vs engine-on-Node.
+
 Where the TypeScript/JavaScript interpreter (`gallery/game_engine/v2/interp`)
 stands when compiled to a native target, why the C++ build is currently slower
 than the JavaScript one, and why the Rust build does not compile at all.
