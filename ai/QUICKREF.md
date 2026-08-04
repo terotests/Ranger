@@ -3,15 +3,17 @@
 ## Target Languages
 
 ```bash
--l=es6        # JavaScript (ES6)
--l=python     # Python 3
--l=go         # Go
--l=rust       # Rust (preliminary)
--l=java7      # Java 7+
--l=swift3     # Swift 3+
+-l=es6        # JavaScript (ES6) — baseline
+-l=python     # Python 3 — TS engine 8/8
+-l=go         # Go — TS engine 8/8
+-l=kotlin     # Kotlin — TS engine 8/8
+-l=csharp     # C# — TS engine 8/8 (Mono mcs or .NET)
+-l=rust       # Rust
+-l=dart       # Dart — Flutter-ready packages; ts_parser golden
 -l=swift6     # Swift 6 (modern entry point)
--l=csharp     # C# 7+
+-l=swift3     # Swift 3+
 -l=cpp        # C++14
+-l=java7      # Java 7+
 -l=scala      # Scala 2.x
 -l=php        # PHP 5.4+
 -typescript   # Add TypeScript annotations (with -l=es6)

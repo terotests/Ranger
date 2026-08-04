@@ -5,6 +5,22 @@ Capabilities and caveats that are specific to one target language. The
 Version-by-version changes belong in [CHANGELOG.md](CHANGELOG.md), and known
 bugs in [ISSUES.md](ISSUES.md).
 
+## Cross-target gate: TypeScript engine
+
+The interpreter in `gallery/game_engine/v2/interp` is the largest program used
+as a multi-target gate. Besides C++ and Rust, it compiles to **Go, Kotlin,
+Python, C# and Swift 6**. Go, Kotlin, Python and C# each build and answer all
+eight Node benchmark cases. C# in CI uses Mono 6.8 (`mcs`); a modern .NET SDK
+is fine when available. Swift 6 is accepted and written in full (~31k lines);
+run verification needs a local `swiftc`. See `TS_ENGINE_PERF.md` and
+`npm run test:tsengine`.
+
+One defect showed up on three targets at once: an unused `def` whose
+initializer is a call was commented out, so `def ignored:T (this.work())`
+dropped the call. That form is how the engine writes a for-loop update. Go and
+Python failed to compile; C# compiled and ran with infinite loops until the
+interpreter guard stopped them. The writers now keep the statement live.
+
 ## Dart (`-l=dart`)
 
 Flutter-ready **package** generation for shared application logic (models,

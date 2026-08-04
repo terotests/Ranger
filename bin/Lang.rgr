@@ -647,6 +647,7 @@ static final java.util.Random rg_random = new java.util.Random();
         if_swift _:void ( code:block ) @doc('run this code only for Swift target') {
             templates {
                 swift3 ( (block 1))
+                swift6 ( (block 1))
                 * ()
             }
         }
@@ -675,6 +676,34 @@ static final java.util.Random rg_random = new java.util.Random();
         if_scala _:void ( code:block ) @doc('run this code only for Scala target') {
             templates {
                 scala ( (block 1))
+                * ()
+            }
+        }
+
+        if_kotlin _:void ( code:block ) @doc('run this code only for Kotlin target') {
+            templates {
+                kotlin ( (block 1))
+                * ()
+            }
+        }
+
+        if_python _:void ( code:block ) @doc('run this code only for Python target') {
+            templates {
+                python ( (block 1))
+                * ()
+            }
+        }
+
+        if_rust _:void ( code:block ) @doc('run this code only for Rust target') {
+            templates {
+                rust ( (block 1))
+                * ()
+            }
+        }
+
+        if_dart _:void ( code:block ) @doc('run this code only for Dart target') {
+            templates {
+                dart ( (block 1))
                 * ()
             }
         }
@@ -3939,7 +3968,9 @@ std::string r_utf8_char_at(const std::string& str, int pos_i)
                 csharp ( (e 1) ".Substring(" (e 2) ", 1)")
                 php ( "substr(" (e 1) ", " (e 2) ", 1)")               
                 java7 ( (e 1) ".substring(" (e 2) ", " (e 2) " + 1)")  
-                kotlin ( (e 1) ".substring(" (e 2) ", " (e 2) " + 1)")  
+                kotlin ( (e 1) ".substring(" (e 2) ", " (e 2) " + 1)")
+                ; Dart `s[i]` is a code unit (int), not a one-character string.
+                dart ( (e 1) ".substring(" (e 2) ", " (e 2) " + 1)")
                 scala ( (e 1) "(" (e 2) ")")    
                 go ( "string([]rune(" (e 1) ")[" (e 2) "])")  
 

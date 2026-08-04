@@ -155,6 +155,18 @@ class HostOpsSection {
         if_scala {
             this.say("host" "scala")
         }
+        if_kotlin {
+            this.say("host" "kotlin")
+        }
+        if_python {
+            this.say("host" "python")
+        }
+        if_rust {
+            this.say("host" "rust")
+        }
+        if_dart {
+            this.say("host" "dart")
+        }
     }
 
     fn run:void () {

@@ -148,9 +148,9 @@ not use `@(weak)` in a program that must compile for Rust.
 | `lives` | The target code does not change. The compiler uses the annotation for its own lifetime bookkeeping. |
 | `temp` | The target code does not change, for the same reason. |
 
-On a target that collects memory — JavaScript, TypeScript, Java, Kotlin, C#,
-Go, Python, PHP and Scala — none of the four changes the output. The collector
-handles a cycle.
+On a target that collects memory — JavaScript, TypeScript, Java, Kotlin, Dart,
+C#, Go, Python, PHP and Scala — none of the four changes the output. The
+collector handles a cycle.
 
 [Ownership and lifetime](/Ranger/docs/language/ownership/) states the model
 behind these annotations, and the
@@ -199,8 +199,8 @@ reads a hash map, and only the body states the difference.
 
 ## Which target language does the compiler write?
 
-Twelve languages from the command line: JavaScript, TypeScript, Go, Rust,
-Python, Java, Kotlin, Swift, C#, C++, PHP and Scala. The
+Thirteen languages from the command line: JavaScript, TypeScript, Go, Rust,
+Python, Java, Kotlin, Dart, Swift, C#, C++, PHP and Scala. The
 [target page](/Ranger/docs/targets/overview/) states what each one supports,
 and each operator page states the support per operator.
 
