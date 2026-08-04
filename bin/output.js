@@ -37386,9 +37386,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( this.exprIsObjectPtr(itemNode, lctx) || elemIsObject ) {
                   if ( this.memEnabled(lctx) || this.wasmCollectionRcEnabled(lctx) ) {
                     let isMove = false;
-                    if ( itemNode.value_type == 11 ) {
-                      if ( this.isOwnedObjectLocal(itemNode.vref, lctx) ) {
-                        isMove = true;
+                    if ( this.memEnabled(lctx) == false ) {
+                      if ( itemNode.value_type == 11 ) {
+                        if ( this.isOwnedObjectLocal(itemNode.vref, lctx) ) {
+                          isMove = true;
+                        }
                       }
                     }
                     let freshNew = false;

@@ -1726,15 +1726,19 @@ class LowIRBuilderPass {
     def elemIsObject:boolean (this.isObjectTypeName((this.arrayElemTypeName(arrNode lctx))))
     if ((this.exprIsObjectPtr(itemNode lctx)) || elemIsObject) {
       if ((this.memEnabled(lctx)) || (this.wasmCollectionRcEnabled(lctx))) {
-        ; Move ownership of an owned local into the array (no retain): the array
-        ; owns the element and releases it once on free. Marking it escaped stops
-        ; the scope-end release, so the object is freed exactly once (by the
-        ; array). A non-owned element (fresh `new` result, borrowed ref) is
-        ; retained by push_owned so the array's release is balanced.
+        ; On the native path the array RETAINS what it is given, so nothing is
+        ; moved and no local is escaped. Escaping is per-NAME while ownership is
+        ; per-VALUE: a local pushed once and then reassigned kept the escape for
+        ; the rest of the function, which silently disabled the release of every
+        ; later value it held. That is what leaked one reference per property
+        ; assignment -- `result` in assignMember is pushed early and reassigned
+        ; on the plain-property path further down.
         def isMove:boolean false
-        if (itemNode.value_type == RangerNodeType.VRef) {
-          if (this.isOwnedObjectLocal(itemNode.vref lctx)) {
-            isMove = true
+        if ((this.memEnabled(lctx)) == false) {
+          if (itemNode.value_type == RangerNodeType.VRef) {
+            if (this.isOwnedObjectLocal(itemNode.vref lctx)) {
+              isMove = true
+            }
           }
         }
         ; A freshly-constructed `new T()` pushed directly has rc=1 and no other
