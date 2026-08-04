@@ -572,6 +572,20 @@ class ComponentEngine {
     ; undefined. Tracking it on the statement runner rather than at the top
     ; level is what makes a value produced INSIDE a loop or an if reach eval.
     def completionValue:EvalValue (EvalValue.undefined())
+    ; Expression slots. One value object per (call, expression node): the frame
+    ; owns the ID range [exprSlotBase, exprSlotBase + body.exprSlotCount) and an
+    ; expression writes its result into `exprSlots` at its own index rather than
+    ; minting a new one. The map is filled LAZILY -- an expression that never
+    ; runs, or never takes the transient path, costs nothing -- and the range is
+    ; bookkeeping only, so entering a call is two integer updates.
+    ;
+    ; The ranges are what make recursion safe: `fib(k-1) + fib(k-2)` gives each
+    ; activation its own band, so an inner call cannot land on the slot an outer
+    ; one is still holding.
+    def exprSlots:[int:EvalValue]
+    def exprSlotBase:int 0
+    def exprSlotNext:int 0
+    def exprNumberCounter:int 0
     def basePath:string "./"
     def assetPaths:[string]  ; Multiple asset directories for component resolution
     def pageWidth:double 595.0
@@ -3793,7 +3807,17 @@ class ComponentEngine {
             ; constantly to check that ToInteger(undefined) is 0 -- raised a
             ; ReferenceError instead.
             this.hoistVarNamesMemo(body)
+            ; This activation's expression-slot band. Bookkeeping only: two
+            ; integers on the way in and two on the way out, and the value
+            ; objects themselves appear in `exprSlots` only when an expression
+            ; actually asks for one.
+            def savedSlotBase:int exprSlotBase
+            def savedSlotNext:int exprSlotNext
+            exprSlotBase = exprSlotNext
+            exprSlotNext = (exprSlotNext + (this.exprSlotCountOf(body)))
             this.runStatementList(body.children)
+            exprSlotBase = savedSlotBase
+            exprSlotNext = savedSlotNext
             def blockOut:EvalValue scriptReturnValue
             scriptDidReturn = savedDidReturn
             scriptReturnValue = savedReturnValue
@@ -6249,6 +6273,166 @@ class ComponentEngine {
     }
 
     ; Evaluate an assignment/update as an expression, returning its value.
+    ; ---- expression slots --------------------------------------------------
+    ; How many slots this body needs, numbering it on first use. The walk is the
+    ; whole of the "analysis": every node below the body gets the next index,
+    ; and the count is the total. `(a + b) + c` is three nested expressions and
+    ; takes three indices, so both products are live at once without colliding
+    ; -- which is exactly why the index is per NODE and not one scratch value.
+    ;
+    ; A nested function is not descended into: its own body is numbered when it
+    ; is first called, and its activation gets its own range.
+    fn exprSlotCountOf:int (body:TSNode) {
+        if (body.exprSlotCount >= 0) {
+            return body.exprSlotCount
+        }
+        exprNumberCounter = 0
+        this.numberExprNodes(body 0)
+        body.exprSlotCount = exprNumberCounter
+        return body.exprSlotCount
+    }
+
+    fn numberExprNodes:void (node:TSNode depth:int) {
+        if (depth > 40) {
+            return
+        }
+        def k:int (this.nodeKindOf(node))
+        if ((k == 17) || (k == 18)) { return }
+        if (k == 40) { return }
+        node.exprId = exprNumberCounter
+        exprNumberCounter = (exprNumberCounter + 1)
+        def nd:int (depth + 1)
+        def c:int 0
+        while (c < (array_length node.children)) {
+            this.numberExprNodes((itemAt node.children c) nd)
+            c = (c + 1)
+        }
+        if node.body { this.numberExprNodes((unwrap node.body) nd) }
+        if node.left { this.numberExprNodes((unwrap node.left) nd) }
+        if node.right { this.numberExprNodes((unwrap node.right) nd) }
+        if node.init { this.numberExprNodes((unwrap node.init) nd) }
+        if node.test { this.numberExprNodes((unwrap node.test) nd) }
+        if node.consequent { this.numberExprNodes((unwrap node.consequent) nd) }
+        if node.alternate { this.numberExprNodes((unwrap node.alternate) nd) }
+    }
+
+    ; The value object for this node in the CURRENT activation, carrying `n`.
+    ; Created on first use and reused by every later evaluation of the same node
+    ; in the same call. Not pooled and never handed to a binding, so nothing
+    ; else can be holding it.
+    fn exprSlotNumber:EvalValue (node:TSNode n:double) {
+        def id:int (exprSlotBase + node.exprId)
+        def held@(optional):EvalValue (get exprSlots id)
+        if held {
+            def h:EvalValue (unwrap held)
+            h.numberValue = n
+            return h
+        }
+        def fresh:EvalValue (EvalValue.rawNumber(n))
+        set exprSlots id fresh
+        return fresh
+    }
+
+    ; `+` `-` `*` `/` only. `%` goes through a remainder helper that answers
+    ; with a value object, and the comparisons answer with booleans, which the
+    ; engine already hands out from a shared pair.
+    fn transientArithOp:boolean (op:string) {
+        if (op == "+") { return true }
+        if (op == "-") { return true }
+        if (op == "*") { return true }
+        if (op == "/") { return true }
+        return false
+    }
+
+    ; Evaluate an expression whose result the CALLER reads as a number and then
+    ; drops. Such a result cannot be retained by anything, so it may live in the
+    ; expression's slot instead of a fresh object. Operands are evaluated the
+    ; same way, which is what makes `(i + 1) * (i + 2)` allocation-free rather
+    ; than only its outermost product.
+    ;
+    ; Anything not recognised falls straight through to the ordinary evaluator,
+    ; so this is an optimisation of shape, never of meaning.
+    ; Is this a shape the transient path may drive? Only nodes that can be
+    ; evaluated TWICE with the same effect qualify: a name read, a numeric
+    ; literal, or an arithmetic binary of those. That matters because a string
+    ; operand sends the node back to the ordinary evaluator, which evaluates the
+    ; operands again -- harmless for these, a doubled side effect for a call.
+    fn transientOperandOk:boolean (node:TSNode depth:int) {
+        if (node.transientOk >= 0) {
+            return (node.transientOk == 1)
+        }
+        def ans:boolean (this.computeTransientOk(node depth))
+        if ans {
+            node.transientOk = 1
+        } {
+            node.transientOk = 0
+        }
+        return ans
+    }
+
+    fn computeTransientOk:boolean (node:TSNode depth:int) {
+        if (depth > 24) {
+            return false
+        }
+        if (node.exprId < 0) {
+            return false
+        }
+        def k:int (this.nodeKindOf(node))
+        if (k == 1) { return true }
+        if (k == 2) { return true }
+        if (k != 5) {
+            return false
+        }
+        if ((this.transientArithOp(node.value)) == false) {
+            return false
+        }
+        def nd:int (depth + 1)
+        if node.left { } { return false }
+        if node.right { } { return false }
+        if ((this.transientOperandOk((unwrap node.left) nd)) == false) {
+            return false
+        }
+        return (this.transientOperandOk((unwrap node.right) nd))
+    }
+
+    fn evaluateExprTransient:EvalValue (node:TSNode) {
+        if anyWithScope {
+            return (this.evaluateExpr(node))
+        }
+        if ((this.nodeKindOf(node)) != 5) {
+            return (this.evaluateExpr(node))
+        }
+        if ((this.transientOperandOk(node 0)) == false) {
+            return (this.evaluateExpr(node))
+        }
+        def lv:EvalValue (this.evaluateExprTransient((unwrap node.left)))
+        if scriptThrew {
+            return lv
+        }
+        ; A string operand turns `+` into concatenation and the others into a
+        ; ToNumber conversion; both are the general evaluator's business, so
+        ; hand the node back whole. Re-evaluating the operands there is safe --
+        ; transientOperandOk admitted only shapes that repeat without effect.
+        if (lv.valueType != 1) {
+            return (this.evaluateExpr(node))
+        }
+        def rv:EvalValue (this.evaluateExprTransient((unwrap node.right)))
+        if scriptThrew {
+            return rv
+        }
+        if (rv.valueType != 1) {
+            return (this.evaluateExpr(node))
+        }
+        def a:double lv.numberValue
+        def b:double rv.numberValue
+        def out:double 0.0
+        if (node.value == "+") { out = (a + b) }
+        if (node.value == "-") { out = (a - b) }
+        if (node.value == "*") { out = (a * b) }
+        if (node.value == "/") { out = (a / b) }
+        return (this.exprSlotNumber(node out))
+    }
+
     ; `name op= <expr>` where the target holds a slot number and the right-hand
     ; side evaluates to a number: compute and store without minting a value.
     ; Returns false for every other shape, so the caller falls through to the
@@ -6280,12 +6464,44 @@ class ComponentEngine {
         if node.right { } {
             return false
         }
-        def rv:EvalValue (this.evaluateExpr((unwrap node.right)))
+        ; The right-hand side is evaluated exactly ONCE, and this function never
+        ; bails after that point -- returning false here would send the whole
+        ; statement back to the general path, which evaluates it again, and
+        ; `s += f()` would call f twice.
+        ;
+        ; Transient where the shape repeats without effect, because then the
+        ; intermediates may live in expression slots: `t += (i + 1) * (i + 2)`
+        ; mints nothing at all. Otherwise the ordinary evaluator, whose result
+        ; still lands in the slot when it is a number.
+        ; Only a BINARY right-hand side can hold intermediates worth slotting;
+        ; `s += i` goes straight to the ordinary evaluator, so the common shape
+        ; pays nothing for the check.
+        def rhs:TSNode (unwrap node.right)
+        def rv:EvalValue (EvalValue.undefined())
+        if ((this.nodeKindOf(rhs)) == 5) {
+            rv = (this.evaluateExprTransient(rhs))
+        } {
+            rv = (this.evaluateExpr(rhs))
+        }
         if scriptThrew {
-            return false
+            return true
         }
         if (rv.valueType != 1) {
-            return false
+            ; Not a number after all -- a string `+=`, an object with a valueOf.
+            ; Finish the assignment here with the value already in hand. The
+            ; preconditions above make this the whole of the general path: no
+            ; `with` object, and a name that holds a slot is a binding of a
+            ; non-global frame, so it exists and is writable.
+            def curV:EvalValue (this.lookupIdentifier(nm))
+            if scriptThrew {
+                return true
+            }
+            def resV:EvalValue (this.applyAssignOp(opK curV rv))
+            if scriptThrew {
+                return true
+            }
+            def _ok:boolean (context.assignExisting(nm resV))
+            return true
         }
         def cur:double (context.slotNumberOf(nm))
         def out:double cur

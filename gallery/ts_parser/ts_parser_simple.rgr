@@ -79,6 +79,18 @@ class TSNode {
   ; simply handled the old way.
   def slotScanned:boolean false
   def slotVarNames:[string]
+  ; Expression slot numbering. Every node of a function body is given an index
+  ; the first time the body runs; a call then owns the ID range
+  ; [base, base + exprSlotCount), so the same expression evaluated again in that
+  ; call reuses one value object while a recursive call gets its own range.
+  ; -1 on the body means "not numbered yet"; -1 on a node means "no slot".
+  def exprId:int (0 - 1)
+  def exprSlotCount:int (0 - 1)
+  ; Memo: may this node be driven by the transient (slot-writing) evaluator?
+  ; The answer is a property of the shape and never changes, and the question
+  ; sits on the hot path -- asking it per evaluation walked the subtree again.
+  ; -1 not asked, 0 no, 1 yes.
+  def transientOk:int (0 - 1)
   def method:boolean false    ; { foo() {} } method shorthand
   def generator:boolean false ; function* generators
   def async:boolean false     ; async functions
