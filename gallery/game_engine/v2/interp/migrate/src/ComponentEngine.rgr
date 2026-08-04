@@ -10145,8 +10145,26 @@ class ComponentEngine {
         if (null? node.right) {
             return (EvalValue.null())
         }
-        def left:EvalValue (this.evaluateExpr((unwrap node.left)))
-        def right:EvalValue (this.evaluateExpr((unwrap node.right)))
+        ; A non-logical binary operator READS both operands and builds its own
+        ; result; it never hands an operand object on. So an operand may come
+        ; out of an expression slot, and `f(i * 2 + 1)` pays for the escaping
+        ; sum alone rather than for the product as well. The short-circuiting
+        ; operators are the exception -- `a || b` answers WITH an operand -- and
+        ; they returned above, before this point.
+        def lNode:TSNode (unwrap node.left)
+        def rNode:TSNode (unwrap node.right)
+        def left:EvalValue (EvalValue.null())
+        def right:EvalValue (EvalValue.null())
+        if ((this.nodeKindOf(lNode)) == 5) {
+            left = (this.evaluateExprTransient(lNode))
+        } {
+            left = (this.evaluateExpr(lNode))
+        }
+        if ((this.nodeKindOf(rNode)) == 5) {
+            right = (this.evaluateExprTransient(rNode))
+        } {
+            right = (this.evaluateExpr(rNode))
+        }
 
         ; `key in obj` / `index in array` — property/element presence test.
         if (opK == 43) {
