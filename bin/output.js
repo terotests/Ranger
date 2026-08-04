@@ -40602,7 +40602,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   }
                 }
                 if ( (val.has_call || val.is_direct_method_call) || val.hasFnCall ) {
-                  const callTmp = this.lowerCall(val, lctx);
+                  let callTmp = this.lowerCall(val, lctx);
                   let irTypeFromCall = "i32";
                   let typeName = this.varTypeName(nameNode);
                   if ( (typeName.length) == 0 ) {
@@ -40653,6 +40653,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   if ( this.isIntIntMapTypeNode(nameNode) ) {
                     this.bindCollectionSlot(varName, "map", callTmp, lctx);
                     return;
+                  }
+                  if ( irTypeFromCall == "i8*" ) {
+                    callTmp = this.emitOwnedStringInit(varName, val, callTmp, lctx);
                   }
                   this.bindSlot(varName, irTypeFromCall, callTmp, lctx);
                   return;

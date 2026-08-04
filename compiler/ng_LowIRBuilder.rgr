@@ -5409,6 +5409,15 @@ class LowIRBuilderPass {
         this.bindCollectionSlot(varName "map" callTmp lctx)
         return
       }
+      ; A STRING result takes a private copy, exactly as every other binding
+      ; path does (emitOwnedStringInit). Skipping it here was harmless only
+      ; while objects were never freed: a getter that returns a borrowed field
+      ; (`toPropertyKey` ends in `return v.stringValue`) handed back a pointer
+      ; into an EvalValue that the statement arena then released, so the local
+      ; was reading freed memory -- property keys came back as garbage bytes.
+      if (irTypeFromCall == "i8*") {
+        callTmp = (this.emitOwnedStringInit(varName val callTmp lctx))
+      }
       this.bindSlot(varName irTypeFromCall callTmp lctx)
       return
     }
