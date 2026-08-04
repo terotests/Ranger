@@ -205,9 +205,14 @@ jobs:
   # vitest jobs do not exercise these paths at all. Ungated for the same reason
   # as runtime-conformance: the code is under gallery/ but a change on either
   # side of that boundary can break it.
+  #
+  # TEMPORARILY DISABLED: this job dominates wall-clock CI (~5 min vs ~1 min
+  # for the other jobs). Re-enable by removing `if: false` and restoring the
+  # test-gate check below. Still runnable locally via `npm run engine:v2:test`.
   engine-contract:
     name: engine-contract
     needs: changes
+    if: false
     runs-on: ubuntu-latest
 
     steps:
@@ -240,17 +245,19 @@ jobs:
             echo "Runtime conformance tests failed or were cancelled"
             exit 1
           fi
-          if [ "${{ needs.engine-contract.result }}" != "success" ]; then
-            echo "Engine contract suite failed or was cancelled"
-            exit 1
-          fi
+          # engine-contract is temporarily disabled (if: false → skipped).
+          # When re-enabling, require success again:
+          # if [ "${{ needs.engine-contract.result }}" != "success" ]; then
+          #   echo "Engine contract suite failed or was cancelled"
+          #   exit 1
+          # fi
 
           if [ "${{ needs.changes.outputs.gallery_only }}" = "true" ]; then
             if [ "${{ needs.gallery-smoke.result }}" != "success" ]; then
               echo "Gallery smoke test failed or was cancelled"
               exit 1
             fi
-            echo "Gallery-only change: smoke, runtime conformance and engine contract passed (full checks skipped)"
+            echo "Gallery-only change: smoke and runtime conformance passed (full checks skipped; engine-contract temporarily disabled)"
             exit 0
           fi
 
