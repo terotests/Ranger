@@ -38325,9 +38325,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     fd.offset = this.fieldByteOffset(st.name, fi, this.irModule);
                     fd.kind = kind;
                     fd.owned = 1;
-                    if ( kind == 1 ) {
-                      fd.owned = 0;
-                    }
                     td.fields.push(fd);
                   }
                   fi = fi + 1;
@@ -38851,6 +38848,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   builder.emitCall("ranger_ptrarray_release", voidType, args, argTypes);
                   return;
                 }
+                if ( this.fieldIsStringMapSlot(className, fieldName) ) {
+                  args.push(rawVal);
+                  argTypes.push(lctx.ptrType);
+                  this.ensureSMapExterns();
+                  builder.emitCall("RtSMap_free", voidType, args, argTypes);
+                  return;
+                }
                 if ( this.fieldIsObjectSlot(className, fieldName) ) {
                   this.emitObjReleasePtr(rawVal, lctx);
                 }
@@ -38915,6 +38919,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
                 this.emitPtrArrayRetain(desc, lctx);
               };
+              emitSMapRetain (desc, lctx) {
+                let relParams = [];
+                relParams.push(lctx.ptrType);
+                this.ensureExternDecl("RtSMap_retain", "void", relParams, false);
+                let args = [];
+                let argTypes = [];
+                args.push(desc);
+                argTypes.push(lctx.ptrType);
+                lctx.builder.emitCall("RtSMap_retain", "void", args, argTypes);
+              };
               emitPtrArrayRetain (desc, lctx) {
                 let relParams = [];
                 relParams.push(lctx.ptrType);
@@ -38945,6 +38959,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   if ( this.fieldIsPtrArraySlot(className, fieldName) ) {
                     if ( srcIsFresh == false ) {
                       this.emitPtrArrayRetain(value, lctx);
+                    }
+                  }
+                  if ( this.fieldIsStringMapSlot(className, fieldName) ) {
+                    if ( srcIsFresh == false ) {
+                      this.emitSMapRetain(value, lctx);
                     }
                   }
                   if ( this.fieldIsObjectSlot(className, fieldName) ) {
@@ -39222,7 +39241,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     if ( f.isStringMap ) {
                       const smVal = this.fieldArrayElemType(className, f.name, lctx);
                       const sm = this.emitSMapNewKind(this.smapValueOwnKind(smVal), lctx);
-                      this.emitFieldStoreOn(className, objPtr, f.name, sm, lctx);
+                      this.emitFieldStoreOnEx(className, objPtr, f.name, sm, true, lctx);
                       continue;
                     }
                     if ( f.isPtrArray == false ) {
@@ -40794,17 +40813,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
                 return "";
               };
-              markMapMoveIntoField (cls, fld, rhs, lctx) {
-                if ( this.memEnabled(lctx) == false ) {
-                  return;
-                }
-                if ( rhs.value_type != 11 ) {
-                  return;
-                }
-                if ( this.fieldIsStringMapSlot(cls, fld) ) {
-                  lctx.escapedLocals[rhs.vref] = "1";
-                }
-              };
               lowerAssign (node, lctx) {
                 const lhs = node.getSecond();
                 const rhs = node.children[2];
@@ -40847,14 +40855,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                         }
                       }
-                      this.markMapMoveIntoField(cls, fld, rhs, lctx);
                       this.emitFieldStoreOnEx(cls, sptr, fld, tmp, rhs.hasNewOper, lctx);
                       return;
                     }
                   }
                 }
                 if ( this.isClassField(varName, lctx.className, this.irModule) ) {
-                  this.markMapMoveIntoField(lctx.className, varName, rhs, lctx);
                   if ( this.memEnabled(lctx) ) {
                     if ( this.fieldIsObjectSlot(lctx.className, varName) ) {
                       if ( rhs.value_type == 11 ) {

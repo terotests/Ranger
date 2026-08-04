@@ -327,6 +327,7 @@ typedef struct {
   int32_t *index;       /* open-addressed: entry slot + 1, or 0 when empty */
   int32_t index_cap;
   int32_t valkind;      /* 0 plain / 1 owned object / 2 owned string */
+  int32_t rc;           /* shared maps: a field and a local can both hold one */
 } RtSMap;
 
 static uint32_t rt_smap_hash(const char *s) {
@@ -387,6 +388,7 @@ int64_t RtSMap_new_kind(int valkind) {
   }
   m->cap = 8;
   m->valkind = valkind;
+  m->rc = 1;
   m->entries = (RtSMapEntry *)calloc((size_t)m->cap, sizeof(RtSMapEntry));
   rt_smap_reindex(m, 16);
   return (int64_t)(intptr_t)m;
@@ -518,12 +520,28 @@ const char *RtSMap_keyAt(int64_t map, int i) {
   return NULL;
 }
 
+void RtSMap_retain(int64_t map) {
+  RtSMap *m = (RtSMap *)(intptr_t)map;
+  if (m == NULL) {
+    return;
+  }
+  m->rc++;
+}
+
 void RtSMap_free(int64_t map) {
   RtSMap *m = (RtSMap *)(intptr_t)map;
   int32_t i;
   if (m == NULL) {
     return;
   }
+  /* A map stored into an object field and still named by the local that built
+   * it has two owners; only the last release frees it. rc==0 means the map
+   * predates refcounting -- treat it as a single owner. */
+  if (m->rc > 1) {
+    m->rc--;
+    return;
+  }
+  m->rc = 0;
   for (i = 0; i < m->count; i++) {
     free(m->entries[i].key);
     rt_smap_release_value(m, m->entries[i].value);

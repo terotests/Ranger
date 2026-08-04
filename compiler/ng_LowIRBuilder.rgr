@@ -2799,15 +2799,12 @@ class LowIRBuilderPass {
         ; original owner also releases). String fields (kind=0) stay owned, since
         ; each object holds its own strdup'd copy. Borrow analysis (Vaihe 3) can
         ; later promote provably-owned object/array fields back to owned.
+        ; Every field kind holds a COUNTED reference: emitFieldStoreOnEx retains
+        ; on store, so destruction has to release. Retaining on store while
+        ; leaving the field a borrow leaked one reference per assignment --
+        ; `new C(i)` in a loop leaked its instance, because `this.v = v` and the
+        ; protoRef store each added a reference nothing ever gave back.
         fd.owned = 1
-        ; An OBJECT field stays a borrow for now. It is the one kind with
-        ; genuine aliasing -- protoRef chains, bound receivers, shared
-        ; prototypes -- and releasing it recursively on destruction double-freed
-        ; live objects. Array and string-map fields hold a reference this object
-        ; alone put there, so they are released.
-        if (kind == 1) {
-          fd.owned = 0
-        }
         push td.fields fd
       }
       fi = fi + 1
@@ -3371,6 +3368,13 @@ class LowIRBuilderPass {
       builder.emitCall("ranger_ptrarray_release" voidType args argTypes)
       return
     }
+    if (this.fieldIsStringMapSlot(className fieldName)) {
+      push args rawVal
+      push argTypes lctx.ptrType
+      this.ensureSMapExterns()
+      builder.emitCall("RtSMap_free" voidType args argTypes)
+      return
+    }
     if (this.fieldIsObjectSlot(className fieldName)) {
       this.emitObjReleasePtr(rawVal lctx)
     }
@@ -3441,6 +3445,18 @@ class LowIRBuilderPass {
     this.emitPtrArrayRetain(desc lctx)
   }
 
+  ; Bump a string map's refcount: the value gains another owner.
+  fn emitSMapRetain:void (desc:string lctx:LowIRLowerContext) {
+    def relParams:[string]
+    push relParams lctx.ptrType
+    this.ensureExternDecl("RtSMap_retain" "void" relParams false)
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes lctx.ptrType
+    lctx.builder.emitCall("RtSMap_retain" "void" args argTypes)
+  }
+
   ; Bump a ptr-array descriptor's refcount: the value gains another owner.
   fn emitPtrArrayRetain:void (desc:string lctx:LowIRLowerContext) {
     def relParams:[string]
@@ -3482,6 +3498,11 @@ class LowIRBuilderPass {
       if (this.fieldIsPtrArraySlot(className fieldName)) {
         if (srcIsFresh == false) {
           this.emitPtrArrayRetain(value lctx)
+        }
+      }
+      if (this.fieldIsStringMapSlot(className fieldName)) {
+        if (srcIsFresh == false) {
+          this.emitSMapRetain(value lctx)
         }
       }
       if (this.fieldIsObjectSlot(className fieldName)) {
@@ -3794,7 +3815,7 @@ class LowIRBuilderPass {
         if f.isStringMap {
           def smVal:string (this.fieldArrayElemType(className f.name lctx))
           def sm (this.emitSMapNewKind((this.smapValueOwnKind(smVal)) lctx))
-          this.emitFieldStoreOn(className objPtr f.name sm lctx)
+          this.emitFieldStoreOnEx(className objPtr f.name sm true lctx)
           continue
         }
         if (f.isPtrArray == false) {
@@ -5599,22 +5620,6 @@ class LowIRBuilderPass {
     return ""
   }
 
-  ; Storing a MAP local into an object field MOVES it: unlike ptr-arrays, an
-  ; RtSMap carries no refcount, so the field and the local would each free it.
-  ; Marking the local escaped leaves exactly one owner -- the field, which frees
-  ; it when the object is destroyed (field kind 3).
-  fn markMapMoveIntoField:void (cls:string fld:string rhs:CodeNode lctx:LowIRLowerContext) {
-    if ((this.memEnabled(lctx)) == false) {
-      return
-    }
-    if (rhs.value_type != RangerNodeType.VRef) {
-      return
-    }
-    if (this.fieldIsStringMapSlot(cls fld)) {
-      set lctx.escapedLocals rhs.vref "1"
-    }
-  }
-
   fn lowerAssign:void (node:CodeNode lctx:LowIRLowerContext) {
     def lhs (node.getSecond())
     def rhs (itemAt node.children 2)
@@ -5668,7 +5673,6 @@ class LowIRBuilderPass {
               }
             }
           }
-          this.markMapMoveIntoField(cls fld rhs lctx)
           ; A string field takes a dup'd private copy (emitFieldStoreOn), so an
           ; owned string local stored into it is NOT consumed. An object field on
           ; WASM retains a borrowed value / moves a fresh `new` (rhs.hasNewOper).
@@ -5683,7 +5687,6 @@ class LowIRBuilderPass {
       ; for boolean fields. Pre-zexting produced an invalid double
       ; "zext i1 <i32> to i32" (the receiver "recv.fld" path above never did
       ; this, which is why only bare field assignments miscompiled).
-      this.markMapMoveIntoField(lctx.className varName rhs lctx)
       if (this.memEnabled(lctx)) {
         if (this.fieldIsObjectSlot(lctx.className varName)) {
           if (rhs.value_type == RangerNodeType.VRef) {
