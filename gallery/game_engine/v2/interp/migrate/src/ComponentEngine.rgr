@@ -316,6 +316,48 @@ class EvalContext {
     ; PERF: single-probe read. The has-then-lookup pair walked the scope
     ; chain twice, hashing the name at every level both times; the missing
     ; case here is an ABSENT optional, so callers pay one walk.
+    ; Read a name at a KNOWN depth: the resolution memo an identifier node
+    ; carries. Verified rather than trusted -- the scope at that depth must
+    ; actually hold the name, or the caller falls back to the full walk. The
+    ; check costs one probe and makes a stale memo impossible to observe, which
+    ; matters because the chain shape is only stable while no `with` or direct
+    ; `eval` is in play.
+    fn tryLookupAtDepth@(optional):EvalValue (name:string hops:int) {
+        if (hops <= 0) {
+            if withObject {
+                def noneW@(optional):EvalValue
+                return noneW
+            }
+            return (get bindings name)
+        }
+        if parent {
+            def p:EvalContext (unwrap parent)
+            return (p.tryLookupAtDepth(name (hops - 1)))
+        }
+        def noneD@(optional):EvalValue
+        return noneD
+    }
+
+    ; The number of parent hops at which `name` resolves, or -1. Walked once
+    ; per identifier NODE and then memoised on it.
+    fn depthOfBinding:int (name:string) {
+        if withObject {
+            return (0 - 1)
+        }
+        if (has bindings name) {
+            return 0
+        }
+        if parent {
+            def p:EvalContext (unwrap parent)
+            def d:int (p.depthOfBinding(name))
+            if (d < 0) {
+                return d
+            }
+            return (d + 1)
+        }
+        return (0 - 1)
+    }
+
     fn tryLookup@(optional):EvalValue (name:string) {
         if withObject {
             def wo:EvalValue (unwrap withObject)
@@ -7416,6 +7458,21 @@ class ComponentEngine {
         ; (variable reads, member/array access, calls, arithmetic) are checked
         ; first so the common case does not fall through the whole if-chain.
         if (exprK == 1) {
+            ; Resolution memo: an identifier read walks the scope chain hashing
+            ; its name at every level. The depth is a property of the syntactic
+            ; position, so it is walked once and reused -- and RE-VERIFIED, so a
+            ; stale memo costs one probe and a fallback rather than answering
+            ; with the wrong binding. A `with` scope makes depth meaningless.
+            if (false == anyWithScope) {
+                if (node.scopeHops >= 0) {
+                    def memoHit@(optional):EvalValue (context.tryLookupAtDepth(node.name node.scopeHops))
+                    if memoHit {
+                        return (unwrap memoHit)
+                    }
+                } {
+                    node.scopeHops = (context.depthOfBinding(node.name))
+                }
+            }
             return (this.lookupIdentifier(node.name))
         }
         ; PERF: a numeric literal is held as source TEXT, so evaluating it means

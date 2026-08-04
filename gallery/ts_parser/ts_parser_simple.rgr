@@ -53,6 +53,11 @@ class TSNode {
   ; outside the small-integer pool minted a fresh one on every iteration:
   ; measured at half of all allocations in `for (var i = 0; i < 100000; i++) {}`.
   def numCacheId:int (0 - 1)
+  ; Memo for an Identifier: how many scope hops up its binding was found last
+  ; time. A syntactic position always produces the same chain shape, so the
+  ; number is reusable -- but it is re-verified on every use, so a wrong memo
+  ; costs one probe rather than the wrong binding. -1 = not resolved yet.
+  def scopeHops:int (0 - 1)
   ; Memo the EVALUATOR fills on first visit: nodeType as a small integer, so
   ; hot dispatch compares ints instead of strings (a memcmp per visit on the
   ; native targets, where V8 compares interned pointers). 0 = not scanned.
