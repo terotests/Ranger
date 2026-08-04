@@ -42090,6 +42090,27 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   let argTypes = [];
                   return builder.emitCall("ranger_mem_live_objects", "i32", args, argTypes);
                 }
+                if ( fnName == "RangerMem_mapPutIfPresent" ) {
+                  if ( (argsNode.children.length) > 2 ) {
+                    this.usedMemRuntime = true;
+                    let ppDecl = [];
+                    ppDecl.push("i64");
+                    ppDecl.push("i8*");
+                    ppDecl.push("i64");
+                    this.ensureExternDecl("RtSMap_put_if_present", "i32", ppDecl, false);
+                    const ppMapNode = argsNode.children[0];
+                    const ppDesc = this.smapDescFromVref(ppMapNode.vref, lctx);
+                    let ppRest = [];
+                    let ppTypes = [];
+                    ppRest.push(this.lowerExpr((argsNode.children[1]), lctx));
+                    ppTypes.push("i8*");
+                    ppRest.push(this.lowerExpr((argsNode.children[2]), lctx));
+                    ppTypes.push("i64");
+                    const ppRes = this.emitSMapCall("RtSMap_put_if_present", "i32", ppDesc, ppRest, ppTypes, lctx);
+                    return this.toI1(ppRes, lctx);
+                  }
+                  return notIntrinsic;
+                }
                 if ( fnName == "RangerMem_mapValueUnique" ) {
                   if ( (argsNode.children.length) > 1 ) {
                     this.usedMemRuntime = true;

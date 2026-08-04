@@ -30,6 +30,15 @@ class RangerMem {
     ; counted runtime can answer; without one the honest answer is "cannot tell",
     ; which callers must read as "not unique".
     sfn mapValueUnique:boolean (m:[string:EvalValue] key:string) { return false }
+    ; "Assign only if the key is already there", answering whether it was. The
+    ; portable fallback is the two-lookup form the intrinsic replaces.
+    sfn mapPutIfPresent:boolean (m:[string:EvalValue] key:string v:EvalValue) {
+        if (has m key) {
+            set m key v
+            return true
+        }
+        return false
+    }
 }
 
 class EvalValue {

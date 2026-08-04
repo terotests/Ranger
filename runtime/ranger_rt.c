@@ -629,6 +629,30 @@ void rt_smap_clear_value_slot(int64_t map, int32_t i) {
   m->entries[i].value = 0;
 }
 
+/* Assign to `key` only if it already exists, answering whether it did.
+ *
+ * `if (has m k) { set m k v }` is the shape every scope-chain assignment walks,
+ * and it costs two full lookups -- two hashes and two key comparisons -- where
+ * one would do. Scope assignment is on the hot path of every statement that
+ * writes a variable, so the pair is collapsed here. */
+int RtSMap_put_if_present(int64_t map, const char *key, int64_t value) {
+  RtSMap *m = (RtSMap *)(intptr_t)map;
+  int32_t ei;
+  if (m == NULL || key == NULL) {
+    return 0;
+  }
+  ei = rt_smap_find(m, key, rt_smap_hash(key));
+  if (ei < 0) {
+    return 0;
+  }
+  /* retain BEFORE releasing, exactly as RtSMap_put does: assigning a value
+   * over itself must not free it. */
+  rt_smap_retain_value(m, value);
+  rt_smap_release_value(m, m->entries[ei].value);
+  m->entries[ei].value = value;
+  return 1;
+}
+
 /* Is the value under `key` held by NOBODY BUT this map?
  *
  * The reference count answers "is this value uniquely owned", which is the

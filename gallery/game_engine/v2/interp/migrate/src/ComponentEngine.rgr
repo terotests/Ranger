@@ -183,8 +183,9 @@ class EvalContext {
                 return true
             }
         }
-        if (has bindings name) {
-            set bindings name value
+        ; One lookup, not the has-then-set pair: this walks the scope chain on
+        ; every assignment to an existing variable.
+        if (RangerMem.mapPutIfPresent(bindings name value)) {
             return true
         }
         if parent {
@@ -265,17 +266,21 @@ class EvalContext {
         if withObject {
             return false
         }
-        if (has bindings name) {
-            if (RangerMem.mapValueUnique(bindings name)) {
-                def cur@(optional):EvalValue (get bindings name)
-                if cur {
-                    def c:EvalValue (unwrap cur)
-                    if (c.valueType == 1) {
-                        c.numberValue = (c.numberValue + delta)
-                        return true
-                    }
+        ; mapValueUnique already answers false for a key this scope does not
+        ; hold, so the separate `has` probe it used to sit behind was a third
+        ; lookup for one decision.
+        if (RangerMem.mapValueUnique(bindings name)) {
+            def cur@(optional):EvalValue (get bindings name)
+            if cur {
+                def c:EvalValue (unwrap cur)
+                if (c.valueType == 1) {
+                    c.numberValue = (c.numberValue + delta)
+                    return true
                 }
             }
+            return false
+        }
+        if (has bindings name) {
             return false
         }
         if parent {

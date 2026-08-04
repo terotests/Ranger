@@ -7170,6 +7170,29 @@ class LowIRBuilderPass {
       def argTypes:[string]
       return (builder.emitCall("ranger_mem_live_objects" "i32" args argTypes))
     }
+    ; RangerMem.mapPutIfPresent(m key v) -- one lookup instead of the two that
+    ; `if (has m k) { set m k v }` costs. Answers whether the key was there.
+    if (fnName == "RangerMem_mapPutIfPresent") {
+      if ((array_length argsNode.children) > 2) {
+        this.usedMemRuntime = true
+        def ppDecl:[string]
+        push ppDecl "i64"
+        push ppDecl "i8*"
+        push ppDecl "i64"
+        this.ensureExternDecl("RtSMap_put_if_present" "i32" ppDecl false)
+        def ppMapNode (itemAt argsNode.children 0)
+        def ppDesc (this.smapDescFromVref(ppMapNode.vref lctx))
+        def ppRest:[string]
+        def ppTypes:[string]
+        push ppRest (this.lowerExpr((itemAt argsNode.children 1) lctx))
+        push ppTypes "i8*"
+        push ppRest (this.lowerExpr((itemAt argsNode.children 2) lctx))
+        push ppTypes "i64"
+        def ppRes (this.emitSMapCall("RtSMap_put_if_present" "i32" ppDesc ppRest ppTypes lctx))
+        return (this.toI1(ppRes lctx))
+      }
+      return notIntrinsic
+    }
     ; RangerMem.mapValueUnique(m key) -- is the value under `key` held by
     ; nothing but the map itself? The test runs entirely in the runtime, where
     ; no local holds the value, so it needs no calibration: rc == 1 means the
