@@ -43,8 +43,8 @@ typedef struct {
   void *site;
   void *lnext;
   void *lprev;
-  void *rets[8];
-  void *rels[8];
+  void *rets[64];
+  void *rels[64];
   uint32_t nret;
   uint32_t nrel;
   void *lastret;
@@ -193,14 +193,17 @@ static void rt_dump_holders(void) {
         {
           RangerObjHeader *oh = (RangerObjHeader *)b;
           unsigned q;
-          fprintf(stderr, "  ORPHAN rc=%u alloc=%p\n    retains(%u):", oh->rc, oh->site, oh->nret);
-          for (q = 0; q < oh->nret && q < 8; q++) {
-            fprintf(stderr, " %p", oh->rets[q]);
-          }
-          fprintf(stderr, "\n    releases(%u):", oh->nrel);
-          for (q = 0; q < oh->nrel && q < 8; q++) {
-            fprintf(stderr, " %p", oh->rels[q]);
-          }
+          /* Diff the two lists per SITE: the site whose retains outnumber its
+           * releases is the unmatched one. Printing the raw sequences only
+           * showed which sites were involved, not which one failed to pair. */
+          unsigned nr = oh->nret < 64 ? oh->nret : 64;
+          unsigned ne = oh->nrel < 64 ? oh->nrel : 64;
+          fprintf(stderr, "  ORPHAN rc=%u alloc=%p retains=%u releases=%u\n",
+                  oh->rc, oh->site, oh->nret, oh->nrel);
+          fprintf(stderr, "    R:");
+          for (q = 0; q < nr; q++) { fprintf(stderr, " %p", oh->rets[q]); }
+          fprintf(stderr, "\n    F:");
+          for (q = 0; q < ne; q++) { fprintf(stderr, " %p", oh->rels[q]); }
           fprintf(stderr, "\n");
         }
         shown++;
@@ -356,7 +359,7 @@ void ranger_obj_retain(int64_t body) {
 #ifdef RANGER_MEM_DEBUG
   if (g_site_track) {
     h->lastret = __builtin_return_address(0);
-    if (h->nret < 8) {
+    if (h->nret < 64) {
       h->rets[h->nret] = h->lastret;
     }
     h->nret++;
@@ -375,7 +378,7 @@ void ranger_obj_release(int64_t body) {
   h = (RangerObjHeader *)block;
 #ifdef RANGER_MEM_DEBUG
   if (g_site_track) {
-    if (h->nrel < 8) {
+    if (h->nrel < 64) {
       h->rels[h->nrel] = __builtin_return_address(0);
     }
     h->nrel++;
