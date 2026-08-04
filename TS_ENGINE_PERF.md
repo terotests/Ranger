@@ -43,10 +43,8 @@
 > locals (E0597), and a move of a named String argument — take the
 > **Both native targets now build AND answer correctly. The TS parser
 > went from 37 errors to 0, and the interpreter from 676 to 0 — it
-> compiles, runs, and produces the exact JavaScript answers on 7 of the
-> 8 benchmark cases** (loop, fib, strcat, array, object, method, regex;
-> `keyorder` still shows the documented insertion-order divergence —
-> Rust's HashMap is unordered the same way C++'s std::map is sorted).
+> compiles, runs, and produces the exact JavaScript answers on all 8
+> benchmark cases** (keyorder included — see the key-order note below).
 > Getting from "compiles" to "correct" took two runtime-semantics fixes
 > on top of the borrow work: an unused `def` whose initializer CALLS
 > something now emits as a live `let _x = …` instead of a comment (the
@@ -116,9 +114,18 @@
 > AST node. Closing toward QuickJS's class would take a bytecode
 > compilation stage, not more peephole work.
 >
-> **Still open:** the key-order conformance divergence on BOTH native
-> targets (needs an insertion-ordered map in the compiler's map
-> runtime).
+> **Key order: CLOSED.** Both native targets now enumerate keys exactly
+> as JavaScript does — the `keyorder` canary answers
+> `1,2,zebra,apple,mango|{"1":5,"2":4,...}` identically on Node, Rust
+> and C++, making it **8 of 8 cases byte-identical across all three
+> builds**. Three pieces: the C++ `rg_ordered_map` and a mirrored Rust
+> `RgOrderedMap` (vector entries + open-addressed FxHash index, aliased
+> over the `HashMap` name so declarations are untouched) keep INSERTION
+> order, and the engine's two key-listing helpers apply the ES2015
+> integer-first rule (`orderEnumKeys`: canonical array indices ascending,
+> then insertion order) in one place, so `Object.keys`, `for-in` and
+> `JSON.stringify` all agree. The ordered maps cost nothing measurable —
+> the benchmark still reads Rust 0.91x / C++ 0.88x vs engine-on-Node.
 
 Where the TypeScript/JavaScript interpreter (`gallery/game_engine/v2/interp`)
 stands when compiled to a native target, why the C++ build is currently slower

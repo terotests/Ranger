@@ -17968,7 +17968,97 @@ class ComponentEngine {
 
     ; Own enumerable keys of an object value (wrapper so callers where `keys` is
     ; shadowed by a local variable can still reach the builtin).
+    ; D-KEYORDER: ES2015 own-property order — integer-like keys first in
+    ; ascending numeric order, then everything else in INSERTION order. The
+    ; native map types keep insertion order (rg_ordered_map / RgOrderedMap),
+    ; and this is the one place the integer rule is applied, so Object.keys,
+    ; for-in and JSON.stringify agree with JavaScript on every target.
+    fn isArrayIndexKey:boolean (k:string) {
+        def n:int (strlen k)
+        if (n == 0) { return false }
+        if (n > 10) { return false }
+        if (((charAt k 0) == 48) && (n > 1)) { return false }
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt k i)
+            if ((c < 48) || (c > 57)) { return false }
+            i = (i + 1)
+        }
+        if (n == 10) {
+            ; the spec bound: an array index is < 2^32 - 1
+            def big@(optional):int (to_int k)
+            if big {
+                if ((unwrap big) >= 4294967295) { return false }
+            }
+        }
+        return true
+    }
+
+    fn orderEnumKeys:[string] (ks:[string]) {
+        def n:int (array_length ks)
+        def anyIdx:boolean false
+        def i:int 0
+        while (i < n) {
+            if (this.isArrayIndexKey((itemAt ks i))) { anyIdx = true }
+            i = (i + 1)
+        }
+        if (false == anyIdx) { return ks }
+        def idxKeys:[string]
+        def rest:[string]
+        i = 0
+        while (i < n) {
+            def k:string (itemAt ks i)
+            if (this.isArrayIndexKey(k)) {
+                push idxKeys k
+            } {
+                push rest k
+            }
+            i = (i + 1)
+        }
+        ; insertion sort ascending by numeric value; enumerations are small
+        def m:int (array_length idxKeys)
+        def a:int 1
+        while (a < m) {
+            def b:int a
+            while (b > 0) {
+                def kb:string (itemAt idxKeys b)
+                def ka:string (itemAt idxKeys (b - 1))
+                def vbO@(optional):int (to_int kb)
+                def vaO@(optional):int (to_int ka)
+                def vb:int 0
+                def va:int 0
+                if vbO { vb = (unwrap vbO) }
+                if vaO { va = (unwrap vaO) }
+                if (vb < va) {
+                    set idxKeys b ka
+                    set idxKeys (b - 1) kb
+                    b = (b - 1)
+                } {
+                    b = 0
+                }
+            }
+            a = (a + 1)
+        }
+        def out:[string]
+        def oi:int 0
+        while (oi < m) {
+            push out (itemAt idxKeys oi)
+            oi = (oi + 1)
+        }
+        def ri:int 0
+        def rn:int (array_length rest)
+        while (ri < rn) {
+            push out (itemAt rest ri)
+            ri = (ri + 1)
+        }
+        return out
+    }
+
     fn objectKeys:[string] (v:EvalValue) {
+        return (this.orderEnumKeys((this.objectKeysRaw(v))))
+    }
+
+    fn objectKeysRaw:[string] (v:EvalValue) {
         def out:[string]
         ; A FUNCTION holds ordinary properties too, and a descriptor map may be
         ; one -- `Object.defineProperties(o, function () {})` reads its own
@@ -18085,6 +18175,10 @@ class ComponentEngine {
     ; Before attributes existed the two were indistinguishable, so a property
     ; defined as non-enumerable still showed up in Object.keys.
     fn objectEnumerableKeys:[string] (v:EvalValue) {
+        return (this.orderEnumKeys((this.objectEnumerableKeysRaw(v))))
+    }
+
+    fn objectEnumerableKeysRaw:[string] (v:EvalValue) {
         def out:[string]
         if (v.isArray()) {
             ; An index is enumerable UNLESS defineProperty recorded otherwise --

@@ -40,7 +40,71 @@ impl std::hash::Hasher for FxHasher {
     #[inline]
     fn finish(&self) -> u64 { self.hash }
 }
-type HashMap<K, V> = std::collections::HashMap<K, V, std::hash::BuildHasherDefault<FxHasher>>;
+// Insertion-ordered map (mirrors the C++ rg_ordered_map): entries in a
+// vector plus an open-addressed FxHash index. Lookups hash once; keys()
+// iterates in INSERTION order, which is what JS key enumeration needs.
+// Aliased over the HashMap name so declarations stay untouched.
+#[derive(Clone)]
+struct RgOrderedMap<K, V> {
+    entries: Vec<(K, V)>,
+    index: Vec<i32>,
+}
+impl<K, V> Default for RgOrderedMap<K, V> {
+    fn default() -> Self { RgOrderedMap { entries: Vec::new(), index: Vec::new() } }
+}
+impl<K: std::hash::Hash + Eq, V> RgOrderedMap<K, V> {
+    fn rg_hash<Q: std::hash::Hash + ?Sized>(k: &Q) -> u64 {
+        let mut h = FxHasher::default();
+        k.hash(&mut h);
+        std::hash::Hasher::finish(&h)
+    }
+    fn slot<Q>(&self, k: &Q) -> i32 where K: std::borrow::Borrow<Q>, Q: std::hash::Hash + Eq + ?Sized {
+        if self.index.is_empty() { return -1; }
+        let mask = self.index.len() - 1;
+        let mut h = (Self::rg_hash(k) as usize) & mask;
+        loop {
+            let s = self.index[h];
+            if s == -1 { return -1; }
+            if self.entries[s as usize].0.borrow() == k { return s; }
+            h = (h + 1) & mask;
+        }
+    }
+    fn rehash(&mut self) {
+        let mut cap = 8usize;
+        while cap < (self.entries.len() + 1) * 2 { cap <<= 1; }
+        self.index.clear();
+        self.index.resize(cap, -1);
+        for i in 0..self.entries.len() {
+            let mut h = (Self::rg_hash(&self.entries[i].0) as usize) & (cap - 1);
+            while self.index[h] != -1 { h = (h + 1) & (cap - 1); }
+            self.index[h] = i as i32;
+        }
+    }
+    fn insert(&mut self, k: K, v: V) -> Option<V> {
+        let s = self.slot(&k);
+        if s != -1 { return Some(std::mem::replace(&mut self.entries[s as usize].1, v)); }
+        self.entries.push((k, v));
+        if self.index.is_empty() || (self.entries.len() + 1) * 2 > self.index.len() {
+            self.rehash();
+        } else {
+            let mask = self.index.len() - 1;
+            let mut h = (Self::rg_hash(&self.entries[self.entries.len() - 1].0) as usize) & mask;
+            while self.index[h] != -1 { h = (h + 1) & mask; }
+            self.index[h] = (self.entries.len() - 1) as i32;
+        }
+        None
+    }
+    fn get<Q>(&self, k: &Q) -> Option<&V> where K: std::borrow::Borrow<Q>, Q: std::hash::Hash + Eq + ?Sized {
+        let s = self.slot(k);
+        if s == -1 { None } else { Some(&self.entries[s as usize].1) }
+    }
+    fn contains_key<Q>(&self, k: &Q) -> bool where K: std::borrow::Borrow<Q>, Q: std::hash::Hash + Eq + ?Sized {
+        self.slot(k) != -1
+    }
+    fn keys(&self) -> impl Iterator<Item = &K> { self.entries.iter().map(|e| &e.0) }
+    fn len(&self) -> usize { self.entries.len() }
+}
+type HashMap<K, V> = RgOrderedMap<K, V>;
 
 #[derive(Clone)]
 struct Token { 
