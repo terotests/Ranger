@@ -387,9 +387,44 @@ static void rt_smap_release_value(RtSMap *m, int64_t v) {
  * by a map nobody freed". */
 long g_smap_new = 0, g_smap_free = 0;
 
+/* Free list of RtSMap headers.
+ *
+ * Every EvalValue owns five string-map fields, so constructing one -- even for
+ * the number 42 -- costs five calloc/free round trips before a digit is stored.
+ * Measured on `s = s + i`: 28 heap allocations per loop iteration against
+ * QuickJS's zero, with 57% of all instructions inside malloc/free. The header
+ * is a fixed 64-odd bytes and its lifetime is a churn of same-size blocks,
+ * which is exactly the shape a free list handles better than the general
+ * allocator. Storage inside the map (entries/index) stays malloc'd, since those
+ * vary in size and most maps never get one.
+ *
+ * RANGER_SMAP_POOL=0 turns this off, so the pooled and unpooled costs stay
+ * measurable against each other. */
+static RtSMap *g_smap_pool = NULL;
+static long g_smap_pool_len = 0;
+static int g_smap_pool_on = -1;
+#define RT_SMAP_POOL_MAX 4096
+
+static int rt_smap_pool_enabled(void) {
+  if (g_smap_pool_on < 0) {
+    const char *v = getenv("RANGER_SMAP_POOL");
+    g_smap_pool_on = (v != NULL && v[0] == '0') ? 0 : 1;
+  }
+  return g_smap_pool_on;
+}
+
 int64_t RtSMap_new_kind(int valkind) {
   g_smap_new++;
-  RtSMap *m = (RtSMap *)calloc(1, sizeof(RtSMap));
+  RtSMap *m;
+  if (g_smap_pool != NULL && rt_smap_pool_enabled()) {
+    /* The `entries` pointer doubles as the free-list link while pooled. */
+    m = g_smap_pool;
+    g_smap_pool = (RtSMap *)(void *)m->entries;
+    g_smap_pool_len--;
+    memset(m, 0, sizeof(RtSMap));
+  } else {
+    m = (RtSMap *)calloc(1, sizeof(RtSMap));
+  }
   if (m == NULL) {
     return 0;
   }
@@ -622,6 +657,12 @@ void RtSMap_free(int64_t map) {
   }
   free(m->entries);
   free(m->index);
+  if (g_smap_pool_len < RT_SMAP_POOL_MAX && rt_smap_pool_enabled()) {
+    m->entries = (RtSMapEntry *)(void *)g_smap_pool;
+    g_smap_pool = m;
+    g_smap_pool_len++;
+    return;
+  }
   free(m);
 }
 
