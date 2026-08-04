@@ -313,6 +313,12 @@ typedef struct {
   uint32_t hash;
 } RtSMapEntry;
 
+/* Value ownership, set at construction (see RtSMap_new_kind):
+ *   0 = plain values (ints, borrowed pointers) -- nothing to release
+ *   1 = owned OBJECTS   -- retained on put, released on overwrite/remove/free
+ *   2 = owned STRINGS   -- copied on put, freed on overwrite/remove/free
+ * Without this a map was a pure borrow, so an EvalValue stored in an object's
+ * property map died the moment the local that produced it went out of scope. */
 typedef struct {
   RtSMapEntry *entries; /* insertion order, may contain removed holes */
   int32_t count;        /* entries used, holes included */
@@ -320,6 +326,7 @@ typedef struct {
   int32_t live;         /* entries with key != NULL */
   int32_t *index;       /* open-addressed: entry slot + 1, or 0 when empty */
   int32_t index_cap;
+  int32_t valkind;      /* 0 plain / 1 owned object / 2 owned string */
 } RtSMap;
 
 static uint32_t rt_smap_hash(const char *s) {
@@ -353,16 +360,39 @@ static void rt_smap_reindex(RtSMap *m, int32_t new_cap) {
   }
 }
 
-int64_t RtSMap_new(void) {
+extern void ranger_obj_retain(int64_t body);
+extern void ranger_obj_release(int64_t body);
+
+static void rt_smap_retain_value(RtSMap *m, int64_t v) {
+  if (m->valkind == 1 && v != 0) {
+    ranger_obj_retain(v);
+  }
+}
+
+static void rt_smap_release_value(RtSMap *m, int64_t v) {
+  if (v == 0) {
+    return;
+  }
+  if (m->valkind == 1) {
+    ranger_obj_release(v);
+  } else if (m->valkind == 2) {
+    free((void *)(intptr_t)v);
+  }
+}
+
+int64_t RtSMap_new_kind(int valkind) {
   RtSMap *m = (RtSMap *)calloc(1, sizeof(RtSMap));
   if (m == NULL) {
     return 0;
   }
   m->cap = 8;
+  m->valkind = valkind;
   m->entries = (RtSMapEntry *)calloc((size_t)m->cap, sizeof(RtSMapEntry));
   rt_smap_reindex(m, 16);
   return (int64_t)(intptr_t)m;
 }
+
+int64_t RtSMap_new(void) { return RtSMap_new_kind(0); }
 
 /* Entry index for `key`, or -1. */
 static int32_t rt_smap_find(RtSMap *m, const char *key, uint32_t h) {
@@ -392,9 +422,13 @@ void RtSMap_put(int64_t map, const char *key, int64_t value) {
   h = rt_smap_hash(key);
   ei = rt_smap_find(m, key, h);
   if (ei >= 0) {
+    /* retain BEFORE releasing: putting a value back over itself must not free it */
+    rt_smap_retain_value(m, value);
+    rt_smap_release_value(m, m->entries[ei].value);
     m->entries[ei].value = value; /* replace: keeps the original position */
     return;
   }
+  rt_smap_retain_value(m, value);
   if (m->count == m->cap) {
     int32_t nc = m->cap * 2;
     RtSMapEntry *ne = (RtSMapEntry *)realloc(m->entries, (size_t)nc * sizeof(RtSMapEntry));
@@ -452,6 +486,8 @@ void RtSMap_remove(int64_t map, const char *key) {
   }
   free(m->entries[ei].key);
   m->entries[ei].key = NULL; /* hole: later keys keep their positions */
+  rt_smap_release_value(m, m->entries[ei].value);
+  m->entries[ei].value = 0;
   m->live--;
   rt_smap_reindex(m, m->index_cap);
 }
@@ -490,6 +526,7 @@ void RtSMap_free(int64_t map) {
   }
   for (i = 0; i < m->count; i++) {
     free(m->entries[i].key);
+    rt_smap_release_value(m, m->entries[i].value);
   }
   free(m->entries);
   free(m->index);

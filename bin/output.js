@@ -36391,6 +36391,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       if ( ftype == "i32" ) {
                         return false;
                       }
+                      if ( ftype == "f64" ) {
+                        return false;
+                      }
                       return true;
                     }
                   }
@@ -37661,7 +37664,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 pIdx.push("i64");
                 pIdx.push("i32");
                 let none = [];
+                let pKind = [];
+                pKind.push("i32");
                 this.ensureExternDecl("RtSMap_new", "i64", none, false);
+                this.ensureExternDecl("RtSMap_new_kind", "i64", pKind, false);
                 this.ensureExternDecl("RtSMap_put", "void", pStrVal, false);
                 this.ensureExternDecl("RtSMap_get", "i64", pStr, false);
                 this.ensureExternDecl("RtSMap_has", "i32", pStr, false);
@@ -37671,10 +37677,21 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 this.ensureExternDecl("RtSMap_free", "void", pOnly, false);
               };
               emitSMapNew (lctx) {
+                return this.emitSMapNewKind(0, lctx);
+              };
+              emitSMapNewKind (valKind, lctx) {
                 this.ensureSMapExterns();
-                let noArgs = [];
-                let noTypes = [];
-                return lctx.builder.emitCall("RtSMap_new", "i64", noArgs, noTypes);
+                let kindArgs = [];
+                let kindTypes = [];
+                kindArgs.push(lctx.builder.emitConst("i32", ("" + valKind)));
+                kindTypes.push("i32");
+                return lctx.builder.emitCall("RtSMap_new_kind", "i64", kindArgs, kindTypes);
+              };
+              smapValueOwnKind (valueTypeName) {
+                if ( this.isObjectTypeName(valueTypeName) ) {
+                  return 1;
+                }
+                return 0;
               };
               emitSMapCall (fnName, retType, desc, rest, restTypes, lctx) {
                 this.ensureSMapExterns();
@@ -38720,6 +38737,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     if ( this.arrayElemIsDouble(arrNode, lctx) ) {
                       storeVal = lctx.builder.emitCast("bitcast", "i64", "f64", val);
                     }
+                    if ( this.isObjectTypeName(this.arrayElemTypeName(arrNode, lctx)) ) {
+                      this.emitObjRetainPtr(storeVal, lctx);
+                    }
                   }
                 }
                 let args = [];
@@ -38771,6 +38791,37 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   builder.emitCall("ranger_buffer_release", voidType, args, argTypes);
                   return;
                 }
+                if ( this.fieldIsPtrArraySlot(className, fieldName) ) {
+                  args.push(rawVal);
+                  argTypes.push(lctx.ptrType);
+                  builder.emitCall("ranger_ptrarray_release", voidType, args, argTypes);
+                  return;
+                }
+                if ( this.fieldIsObjectSlot(className, fieldName) ) {
+                  this.emitObjReleasePtr(rawVal, lctx);
+                }
+              };
+              exprCarriesFreshRef (node, lctx) {
+                const n = this.unwrapInfixExpr(node);
+                if ( n.hasNewOper ) {
+                  return true;
+                }
+                if ( (n.has_call || n.is_direct_method_call) || n.hasFnCall ) {
+                  return true;
+                }
+                if ( n.has_operator ) {
+                  const op = n.getOperator();
+                  if ( op == "keys" ) {
+                    return true;
+                  }
+                  if ( op == "strsplit" ) {
+                    return true;
+                  }
+                  if ( op == "make" ) {
+                    return true;
+                  }
+                }
+                return false;
               };
               exprIsBorrowedPtrArrayRef (node, lctx) {
                 const vr = node.vref;
@@ -38839,6 +38890,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( this.memEnabled(lctx) ) {
                   if ( this.fieldIsPtrArraySlot(className, fieldName) ) {
                     this.emitPtrArrayRetain(value, lctx);
+                  }
+                  if ( this.fieldIsObjectSlot(className, fieldName) ) {
+                    if ( srcIsFresh == false ) {
+                      this.emitObjRetainPtr(value, lctx);
+                    }
                   }
                   const oldRaw = builder.emitLoad(ftype, fieldPtr);
                   this.emitReleaseFieldValue(className, fieldName, oldRaw, lctx);
@@ -39108,7 +39164,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   for ( let i_1 = 0; i_1 < st.fields.length; i_1++) {
                     var f = st.fields[i_1];
                     if ( f.isStringMap ) {
-                      const sm = this.emitSMapNew(lctx);
+                      const smVal = this.fieldArrayElemType(className, f.name, lctx);
+                      const sm = this.emitSMapNewKind(this.smapValueOwnKind(smVal), lctx);
                       this.emitFieldStoreOn(className, objPtr, f.name, sm, lctx);
                       continue;
                     }
@@ -39525,8 +39582,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 builder.startBlock(initLabel);
                 const obj = this.lowerNewObject(cl.name, argsNode, lctx);
                 builder.emitGlobalSet(globalName, obj);
+                if ( this.memEnabled(lctx) ) {
+                  this.emitObjRetainPtr(obj, lctx);
+                }
                 builder.terminateRet(lctx.ptrType, obj);
                 builder.startBlock(retLabel);
+                if ( this.memEnabled(lctx) ) {
+                  this.emitObjRetainPtr(cur, lctx);
+                }
                 builder.terminateRet(lctx.ptrType, cur);
                 const fnName = LowIRUtil.mangleMethod(cl.name, "__singleton");
                 let params = [];
@@ -39952,6 +40015,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 };
                 return false;
               };
+              slotHoldsObject (varName, lctx) {
+                if ( (( typeof(lctx.objectSlots[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.objectSlots, varName) )) == false ) {
+                  return false;
+                }
+                if ( ( typeof(lctx.slotTypes[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slotTypes, varName) ) ) {
+                  const st = (( Object.prototype.hasOwnProperty.call(lctx.slotTypes, varName) ? lctx.slotTypes[varName] : undefined ));
+                  if ( st != lctx.ptrType ) {
+                    return false;
+                  }
+                }
+                return true;
+              };
               releaseOwnedLocal (varName, lctx) {
                 if ( this.objRcEnabled(lctx) == false ) {
                   return;
@@ -39961,6 +40036,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
                 if ( false == (( typeof(lctx.slots[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slots, varName) )) ) {
                   return;
+                }
+                if ( ( typeof(lctx.slotTypes[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slotTypes, varName) ) ) {
+                  const slotT = (( Object.prototype.hasOwnProperty.call(lctx.slotTypes, varName) ? lctx.slotTypes[varName] : undefined ));
+                  if ( slotT != lctx.ptrType ) {
+                    return;
+                  }
                 }
                 const builder = lctx.builder;
                 const voidType = "void";
@@ -40244,6 +40325,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   return;
                 }
                 if ( this.wasmStrEnabled(lctx) == false ) {
+                  if ( this.memEnabled(lctx) ) {
+                    const objMarkC = lctx.pendingObjectTemps.length;
+                    this.lowerStmtDispatch(node, lctx);
+                    if ( (typeof(lctx.builder.currentBlock) !== "undefined" && lctx.builder.currentBlock != null )  ) {
+                      const curBlockC = lctx.builder.currentBlock;
+                      if ( curBlockC.termKind == "" ) {
+                        this.flushObjectTempsFrom(objMarkC, lctx);
+                      }
+                    }
+                    return;
+                  }
                   this.lowerStmtDispatch(node, lctx);
                   return;
                 }
@@ -40407,7 +40499,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     return;
                   }
                   if ( this.isStringKeyMapTypeNode(nameNode) ) {
-                    const newSMap = this.emitSMapNew(lctx);
+                    const newSMap = this.emitSMapNewKind(this.smapValueOwnKind(nameNode.array_type), lctx);
                     this.bindCollectionSlot(varName, "smap", newSMap, lctx);
                     lctx.smapValueTypes[varName] = nameNode.array_type;
                     return;
@@ -40465,6 +40557,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     irTypeFromCall = this.llvmTypeForRanger(typeName, lctx.ptrType);
                     if ( this.isObjectTypeName(typeName) ) {
                       lctx.objectSlots[varName] = typeName;
+                      if ( this.objRcEnabled(lctx) ) {
+                        this.claimObjectTemp(callTmp, lctx);
+                        if ( this.isOwnedObjectLocal(varName, lctx) == false ) {
+                          lctx.ownedObjectLocals.push(varName);
+                        }
+                      }
                     }
                   }
                   if ( this.isStringArrayTypeNode(nameNode) ) {
@@ -40577,6 +40675,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
                 if ( this.isObjectTypeName(typeName_1) ) {
                   lctx.objectSlots[varName] = typeName_1;
+                  if ( this.memEnabled(lctx) ) {
+                    this.claimObjectTemp(tmp, lctx);
+                    if ( this.exprCarriesFreshRef(val, lctx) == false ) {
+                      this.emitObjRetainPtr(tmp, lctx);
+                    }
+                    if ( this.isOwnedObjectLocal(varName, lctx) == false ) {
+                      lctx.ownedObjectLocals.push(varName);
+                    }
+                  }
                 }
                 if ( irType == "i8*" ) {
                   tmp = this.emitOwnedStringInit(varName, val, tmp, lctx);
@@ -40683,6 +40790,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( ( typeof(lctx.slots[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slots, varName) ) ) {
                   const slot = (( Object.prototype.hasOwnProperty.call(lctx.slots, varName) ? lctx.slots[varName] : undefined ));
                   if ( this.memEnabled(lctx) ) {
+                    if ( this.slotHoldsObject(varName, lctx) ) {
+                      this.claimObjectTemp(tmp, lctx);
+                      if ( this.isOwnedObjectLocal(varName, lctx) ) {
+                        if ( this.exprCarriesFreshRef(rhs, lctx) == false ) {
+                          this.emitObjRetainPtr(tmp, lctx);
+                        }
+                      }
+                    }
+                  }
+                  if ( this.memEnabled(lctx) ) {
                     if ( this.collectionKind(varName, lctx) == "ptr_array" ) {
                       if ( this.isOwnedCollectionLocal(varName, lctx) ) {
                         this.emitPtrArrayRetain(tmp, lctx);
@@ -40726,10 +40843,21 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const retType = lctx.llvmRetType;
                 if ( (node.children.length) > 1 ) {
                   const valNode = node.getSecond();
+                  const retObj = this.isObjectTypeName(lctx.currentRetType);
+                  const retArr = LowIRUtil.isArrayTypeName(lctx.currentRetType);
+                  let retCounted = false;
+                  if ( this.memEnabled(lctx) ) {
+                    if ( retObj || retArr ) {
+                      retCounted = true;
+                    }
+                  }
                   if ( valNode.value_type == 11 ) {
                     if ( ( typeof(lctx.boxedLocals[valNode.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.boxedLocals, valNode.vref) ) ) {
                     } else {
-                      lctx.escapedLocals[valNode.vref] = "1";
+                      if ( retCounted ) {
+                      } else {
+                        lctx.escapedLocals[valNode.vref] = "1";
+                      }
                     }
                   }
                   let tmp = "";
@@ -40738,9 +40866,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   } else {
                     tmp = this.lowerExpr(valNode, lctx);
                   }
-                  if ( this.memEnabled(lctx) ) {
-                    if ( valNode.value_type == 11 ) {
-                      if ( this.exprIsBorrowedPtrArrayRef(valNode, lctx) ) {
+                  if ( retCounted ) {
+                    if ( this.exprCarriesFreshRef(valNode, lctx) == false ) {
+                      if ( retObj ) {
+                        this.emitObjRetainPtr(tmp, lctx);
+                      } else {
                         this.emitPtrArrayRetain(tmp, lctx);
                       }
                     }
@@ -42097,7 +42227,26 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   }
                   argIdx = argIdx + 1;
                 };
-                return builder.emitCall(fnName, retType, args, argTypes);
+                const callRes = builder.emitCall(fnName, retType, args, argTypes);
+                this.registerCallObjectTemp(node, callRes, lctx);
+                return callRes;
+              };
+              registerCallObjectTemp (node, tmp, lctx) {
+                if ( this.memEnabled(lctx) == false ) {
+                  return;
+                }
+                if ( typeof(node.fnDesc) === "undefined" ) {
+                  return;
+                }
+                const fd = node.fnDesc;
+                if ( typeof(fd.nameNode) === "undefined" ) {
+                  return;
+                }
+                const rn = fd.nameNode;
+                if ( this.isObjectTypeName(this.varTypeName(rn)) == false ) {
+                  return;
+                }
+                lctx.pendingObjectTemps.push(tmp);
               };
               lowerInstanceCall (node, lctx) {
                 let objNode;

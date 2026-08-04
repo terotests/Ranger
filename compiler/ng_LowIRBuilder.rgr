@@ -622,6 +622,10 @@ class LowIRBuilderPass {
           if (ftype == "i32") {
             return false
           }
+          ; a double is pointer-WIDTH but is not a reference
+          if (ftype == "f64") {
+            return false
+          }
           return true
         }
       }
@@ -2004,7 +2008,10 @@ class LowIRBuilderPass {
     push pIdx "i64"
     push pIdx "i32"
     def none:[string]
+    def pKind:[string]
+    push pKind "i32"
     this.ensureExternDecl("RtSMap_new" "i64" none false)
+    this.ensureExternDecl("RtSMap_new_kind" "i64" pKind false)
     this.ensureExternDecl("RtSMap_put" "void" pStrVal false)
     this.ensureExternDecl("RtSMap_get" "i64" pStr false)
     this.ensureExternDecl("RtSMap_has" "i32" pStr false)
@@ -2015,10 +2022,30 @@ class LowIRBuilderPass {
   }
 
   fn emitSMapNew:string (lctx:LowIRLowerContext) {
+    return (this.emitSMapNewKind(0 lctx))
+  }
+
+  ; valKind: 0 plain / 1 owned object / 2 owned string. A map that OWNS its
+  ; values retains on put and releases on overwrite, remove and free -- without
+  ; it an object stored in a map died with the local that produced it.
+  fn emitSMapNewKind:string (valKind:int lctx:LowIRLowerContext) {
     this.ensureSMapExterns()
-    def noArgs:[string]
-    def noTypes:[string]
-    return (lctx.builder.emitCall("RtSMap_new" "i64" noArgs noTypes))
+    def kindArgs:[string]
+    def kindTypes:[string]
+    push kindArgs (lctx.builder.emitConst("i32" ("" + valKind)))
+    push kindTypes "i32"
+    return (lctx.builder.emitCall("RtSMap_new_kind" "i64" kindArgs kindTypes))
+  }
+
+  ; The ownership kind implied by a map's declared VALUE type.
+  fn smapValueOwnKind:int (valueTypeName:string) {
+    ; NOT strings: a string value is stored as the borrowed pointer the caller
+    ; passed (no dup on put), so the map freeing it would free a literal.
+    ; Objects are refcounted, so owning one is always safe.
+    if (this.isObjectTypeName(valueTypeName)) {
+      return 1
+    }
+    return 0
   }
 
   fn emitSMapCall:string (fnName:string retType:string desc:string rest:[string] restTypes:[string] lctx:LowIRLowerContext) {
@@ -3185,6 +3212,12 @@ class LowIRBuilderPass {
         if (this.arrayElemIsDouble(arrNode lctx)) {
           storeVal = (lctx.builder.emitCast("bitcast" "i64" "f64" val))
         }
+        ; An object array OWNS its elements (kind 1 -- released with the array),
+        ; so a stored element gains a reference. push goes through
+        ; ranger_ptrarray_push_owned, which already retains; set did not.
+        if (this.isObjectTypeName((this.arrayElemTypeName(arrNode lctx)))) {
+          this.emitObjRetainPtr(storeVal lctx)
+        }
       }
     }
     def args:[string]
@@ -3241,10 +3274,39 @@ class LowIRBuilderPass {
       builder.emitCall("ranger_buffer_release" voidType args argTypes)
       return
     }
-    ; Object and ptr-array fields are borrows (owned elsewhere): an object
-    ; field aliases another node/array element, and an array field commonly
-    ; aliases a collection owned by the caller (e.g. parser.tokens = toks).
-    ; Neither is released on overwrite (the original owner frees it).
+    ; Object and ptr-array fields hold COUNTED references (emitFieldStoreOnEx
+    ; retains on store), so overwriting one drops its reference. Treating them
+    ; as pure borrows meant nothing a field pointed at was ever released --
+    ; 798554 objects allocated and 2 freed in one benchmark loop.
+    if (this.fieldIsPtrArraySlot(className fieldName)) {
+      push args rawVal
+      push argTypes lctx.ptrType
+      builder.emitCall("ranger_ptrarray_release" voidType args argTypes)
+      return
+    }
+    if (this.fieldIsObjectSlot(className fieldName)) {
+      this.emitObjReleasePtr(rawVal lctx)
+    }
+  }
+
+  ; An expression that already carries a reference the caller owns: a call
+  ; result, a `new`, or an operator that BUILDS a fresh collection. Everything
+  ; else names something someone else still owns.
+  fn exprCarriesFreshRef:boolean (node:CodeNode lctx:LowIRLowerContext) {
+    def n (this.unwrapInfixExpr(node))
+    if n.hasNewOper {
+      return true
+    }
+    if ((n.has_call || n.is_direct_method_call) || n.hasFnCall) {
+      return true
+    }
+    if n.has_operator {
+      def op (n.getOperator())
+      if (op == "keys") { return true }
+      if (op == "strsplit") { return true }
+      if (op == "make") { return true }
+    }
+    return false
   }
 
   ; A VRef naming a ptr-array the current scope does NOT own: a field, a
@@ -3326,10 +3388,17 @@ class LowIRBuilderPass {
       }
     }
     if (this.memEnabled(lctx)) {
-      ; An array field holds a COUNTED reference. Retain before releasing the
-      ; old value: storing an array over itself would otherwise free it.
+      ; Array and object fields hold COUNTED references. Retain before
+      ; releasing the old value: storing a value over itself would otherwise
+      ; free it. A freshly-constructed `new T` arrives with the only reference
+      ; and is moved in, so it is not retained.
       if (this.fieldIsPtrArraySlot(className fieldName)) {
         this.emitPtrArrayRetain(value lctx)
+      }
+      if (this.fieldIsObjectSlot(className fieldName)) {
+        if (srcIsFresh == false) {
+          this.emitObjRetainPtr(value lctx)
+        }
       }
       def oldRaw (builder.emitLoad(ftype fieldPtr))
       this.emitReleaseFieldValue(className fieldName oldRaw lctx)
@@ -3634,7 +3703,8 @@ class LowIRBuilderPass {
       }
       for st.fields f:LowIRField i {
         if f.isStringMap {
-          def sm (this.emitSMapNew(lctx))
+          def smVal:string (this.fieldArrayElemType(className f.name lctx))
+          def sm (this.emitSMapNewKind((this.smapValueOwnKind(smVal)) lctx))
           this.emitFieldStoreOn(className objPtr f.name sm lctx)
           continue
         }
@@ -4087,12 +4157,21 @@ class LowIRBuilderPass {
     def isZero (builder.emitIcmpTyped("eq" lctx.ptrType cur zero))
     builder.terminateBrIf(isZero initLabel retLabel)
 
+    ; The global keeps its own reference, so each caller gets a COUNTED one --
+    ; on both paths. Without this the first caller to bind the result to a local
+    ; released the singleton at scope end and every later use read freed memory.
     builder.startBlock(initLabel)
     def obj (this.lowerNewObject(cl.name argsNode lctx))
     builder.emitGlobalSet(globalName obj)
+    if (this.memEnabled(lctx)) {
+      this.emitObjRetainPtr(obj lctx)
+    }
     builder.terminateRet(lctx.ptrType obj)
 
     builder.startBlock(retLabel)
+    if (this.memEnabled(lctx)) {
+      this.emitObjRetainPtr(cur lctx)
+    }
     builder.terminateRet(lctx.ptrType cur)
 
     def fnName (LowIRUtil.mangleMethod(cl.name "__singleton"))
@@ -4575,6 +4654,22 @@ class LowIRBuilderPass {
     return false
   }
 
+  ; objectSlots records a CLASS for a name but is never cleared, so a name
+  ; redeclared with a scalar type later in the same function still looks like an
+  ; object there. The slot's recorded type is the current truth.
+  fn slotHoldsObject:boolean (varName:string lctx:LowIRLowerContext) {
+    if ((has lctx.objectSlots varName) == false) {
+      return false
+    }
+    if (has lctx.slotTypes varName) {
+      def st:string (unwrap (get lctx.slotTypes varName))
+      if (st != lctx.ptrType) {
+        return false
+      }
+    }
+    return true
+  }
+
   fn releaseOwnedLocal:void (varName:string lctx:LowIRLowerContext) {
     if (this.objRcEnabled(lctx) == false) {
       return
@@ -4584,6 +4679,15 @@ class LowIRBuilderPass {
     }
     if (false == (has lctx.slots varName)) {
       return
+    }
+    ; A name REDECLARED with a scalar type later in the same function ends up
+    ; with a non-pointer slot; releasing it would hand an i32 to obj_release.
+    ; The object binding lost its slot, so there is nothing left to release.
+    if (has lctx.slotTypes varName) {
+      def slotT:string (unwrap (get lctx.slotTypes varName))
+      if (slotT != lctx.ptrType) {
+        return
+      }
     }
     def builder (lctx.builder)
     def voidType:string "void"
@@ -4928,6 +5032,20 @@ class LowIRBuilderPass {
       return
     }
     if (this.wasmStrEnabled(lctx) == false) {
+      ; libc: only the OBJECT arena is statement-scoped here. String temps on
+      ; this path are freed where they are produced, so flushing them again
+      ; would double-free.
+      if (this.memEnabled(lctx)) {
+        def objMarkC (array_length lctx.pendingObjectTemps)
+        this.lowerStmtDispatch(node lctx)
+        if (!null? lctx.builder.currentBlock) {
+          def curBlockC (unwrap lctx.builder.currentBlock)
+          if (curBlockC.termKind == "") {
+            this.flushObjectTempsFrom(objMarkC lctx)
+          }
+        }
+        return
+      }
       this.lowerStmtDispatch(node lctx)
       return
     }
@@ -5096,7 +5214,7 @@ class LowIRBuilderPass {
         return
       }
       if (this.isStringKeyMapTypeNode(nameNode)) {
-        def newSMap (this.emitSMapNew(lctx))
+        def newSMap (this.emitSMapNewKind((this.smapValueOwnKind(nameNode.array_type)) lctx))
         this.bindCollectionSlot(varName "smap" newSMap lctx)
         set lctx.smapValueTypes varName nameNode.array_type
         return
@@ -5160,6 +5278,15 @@ class LowIRBuilderPass {
         irTypeFromCall = (this.llvmTypeForRanger(typeName lctx.ptrType))
         if (this.isObjectTypeName(typeName)) {
           set lctx.objectSlots varName typeName
+          ; The callee handed over a reference; this local owns it and releases
+          ; it at scope end. Without this `def v:T (this.f())` -- the shape every
+          ; line of an evaluator has -- kept its object alive forever.
+          if (this.objRcEnabled(lctx)) {
+            this.claimObjectTemp(callTmp lctx)
+            if (this.isOwnedObjectLocal(varName lctx) == false) {
+              push lctx.ownedObjectLocals varName
+            }
+          }
         }
       }
       ; A call returning a collection ([T] / [int] / map) yields a descriptor
@@ -5298,6 +5425,19 @@ class LowIRBuilderPass {
     }
     if (this.isObjectTypeName(typeName)) {
       set lctx.objectSlots varName typeName
+      ; EVERY object local holds a counted reference, borrowed or not. A local
+      ; that merely aliased a field (`def out:T scriptReturnValue`) dangled the
+      ; moment that field was overwritten later in the same function -- the
+      ; overwrite released the only reference while the local still named it.
+      if (this.memEnabled(lctx)) {
+        this.claimObjectTemp(tmp lctx)
+        if ((this.exprCarriesFreshRef(val lctx)) == false) {
+          this.emitObjRetainPtr(tmp lctx)
+        }
+        if (this.isOwnedObjectLocal(varName lctx) == false) {
+          push lctx.ownedObjectLocals varName
+        }
+      }
     }
     if (irType == "i8*") {
       tmp = (this.emitOwnedStringInit(varName val tmp lctx))
@@ -5433,6 +5573,22 @@ class LowIRBuilderPass {
     }
     if (has lctx.slots varName) {
       def slot (unwrap (get lctx.slots varName))
+      ; An object assigned into a local slot is no longer a loose statement
+      ; temp -- the slot holds it past the end of this statement, so the arena
+      ; must not release it. An owned local keeps a counted reference, so a
+      ; borrowed right-hand side is retained. (The value the slot held before is
+      ; not released: that leaks a reference, which is recoverable, where an
+      ; early free is not.)
+      if (this.memEnabled(lctx)) {
+        if (this.slotHoldsObject(varName lctx)) {
+          this.claimObjectTemp(tmp lctx)
+          if (this.isOwnedObjectLocal(varName lctx)) {
+            if ((this.exprCarriesFreshRef(rhs lctx)) == false) {
+              this.emitObjRetainPtr(tmp lctx)
+            }
+          }
+        }
+      }
       ; An array local reassigned to another array becomes an owner of the new
       ; one and stops owning the old. Storing the descriptor without adjusting
       ; either count left two locals releasing the same array.
@@ -5494,15 +5650,36 @@ class LowIRBuilderPass {
     def retType:string lctx.llvmRetType
     if ((array_length node.children) > 1) {
       def valNode (node.getSecond())
+      ; A REFERENCE result (object or collection) is counted, so the rule is
+      ; uniform and needs no analysis of where the value came from: the returned
+      ; reference is retained here and every local keeps releasing normally. The
+      ; one exception is an expression that already CARRIES a fresh reference --
+      ; a call result or a `new` -- which is handed straight through.
+      ;
+      ; Trying instead to classify each returned expression as owned-or-borrowed
+      ; is what broke: `return this.x` freed the field, and the list of shapes
+      ; to recognise (fields, parameters, elements, unwraps, conditionals) never
+      ; ends.
+      def retObj:boolean (this.isObjectTypeName(lctx.currentRetType))
+      def retArr:boolean (LowIRUtil.isArrayTypeName(lctx.currentRetType))
+      def retCounted:boolean false
+      if (this.memEnabled(lctx)) {
+        if (retObj || retArr) {
+          retCounted = true
+        }
+      }
       if (valNode.value_type == RangerNodeType.VRef) {
         ; A returned local escapes: the caller now owns it, so it must not be
-        ; released here. Covers owned objects AND owned collections (ptr-arrays).
-        ; A boxed value local (L3) is the exception: `return count` copies the
-        ; VALUE out through the cell, so the cell itself does NOT escape and must
-        ; still be released at scope end.
+        ; released here. A boxed value local (L3) is the exception: `return
+        ; count` copies the VALUE out through the cell, so the cell itself does
+        ; NOT escape. A counted reference does not escape either -- it is
+        ; retained below, and the local releases its own reference as usual.
         if (has lctx.boxedLocals valNode.vref) {
         } {
-          set lctx.escapedLocals valNode.vref "1"
+          if (retCounted) {
+          } {
+            set lctx.escapedLocals valNode.vref "1"
+          }
         }
       }
       def tmp:string ""
@@ -5511,13 +5688,11 @@ class LowIRBuilderPass {
       } {
         tmp = (this.lowerExpr(valNode lctx))
       }
-      ; Returning a BORROWED array (a field, a parameter) hands the caller a
-      ; reference it will release, so the count has to grow. An owned local is
-      ; a transfer instead -- it was marked escaped above and is not released
-      ; here, so its single reference simply moves to the caller.
-      if (this.memEnabled(lctx)) {
-        if (valNode.value_type == RangerNodeType.VRef) {
-          if (this.exprIsBorrowedPtrArrayRef(valNode lctx)) {
+      if (retCounted) {
+        if ((this.exprCarriesFreshRef(valNode lctx)) == false) {
+          if retObj {
+            this.emitObjRetainPtr(tmp lctx)
+          } {
             this.emitPtrArrayRetain(tmp lctx)
           }
         }
@@ -7029,7 +7204,32 @@ class LowIRBuilderPass {
       }
       argIdx = argIdx + 1
     }
-    return (builder.emitCall(fnName retType args argTypes))
+    def callRes (builder.emitCall(fnName retType args argTypes))
+    this.registerCallObjectTemp(node callRes lctx)
+    return callRes
+  }
+
+  ; A call that returns an OBJECT hands back a reference the caller owns. When
+  ; nothing binds it -- an intermediate like `(this.eval(x)).toNumber()` -- that
+  ; reference has no owner at all, which is what kept half the engine's values
+  ; alive forever. Registering it in the statement arena releases it once the
+  ; statement finishes; binding it to a local or returning it claims it back.
+  fn registerCallObjectTemp:void (node:CodeNode tmp:string lctx:LowIRLowerContext) {
+    if ((this.memEnabled(lctx)) == false) {
+      return
+    }
+    if (null? node.fnDesc) {
+      return
+    }
+    def fd (unwrap node.fnDesc)
+    if (null? fd.nameNode) {
+      return
+    }
+    def rn (unwrap fd.nameNode)
+    if ((this.isObjectTypeName((this.varTypeName(rn)))) == false) {
+      return
+    }
+    push lctx.pendingObjectTemps tmp
   }
 
   fn lowerInstanceCall:string (node:CodeNode lctx:LowIRLowerContext) {
