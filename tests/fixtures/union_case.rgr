@@ -1,0 +1,33 @@
+; A `union` narrowed with the `case` operator (lib/stdlib.rgr). The C++ writer
+; lowers the union to an mpark::variant of shared_ptr alternatives and the
+; narrowing to mpark::holds_alternative<T>, so the variant.hpp shim installed
+; next to the generated source has to declare that name — without it every
+; generated C++ program that narrows a union failed to compile.
+class UnionCaseNumber {
+    def value:double 0.0
+}
+
+class UnionCaseText {
+    def value:string ""
+}
+
+union UnionCaseValue (UnionCaseNumber UnionCaseText)
+
+class UnionCaseProbe {
+    fn describe:string (v:UnionCaseValue) {
+        case v n:UnionCaseNumber {
+            return "number"
+        }
+        case v s:UnionCaseText {
+            return "text"
+        }
+        return "unknown"
+    }
+
+    sfn main:void () {
+        def probe:UnionCaseProbe (new UnionCaseProbe())
+        def n:UnionCaseNumber (new UnionCaseNumber())
+        n.value = 2.0
+        print (probe.describe(n))
+    }
+}

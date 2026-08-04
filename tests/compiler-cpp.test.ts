@@ -1,8 +1,12 @@
 import { describe, it, expect } from "vitest";
+import * as fs from "fs";
+import * as path from "path";
+import { fileURLToPath } from "url";
 import { getGeneratedCppCode } from "./helpers/compiler";
 
 // Use relative paths from project root for fixtures
 const FIXTURES_DIR = "tests/fixtures";
+const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
  * C++ Target Compiler Tests
@@ -159,6 +163,31 @@ describe("Ranger Compiler - C++ Target", () => {
       expect(result.code).toMatch(/#include\s+<vector>/);
       expect(result.code).toMatch(/#include\s+<string>/);
       expect(result.code).toMatch(/#include\s+<memory>/);
+    });
+  });
+
+  describe("Union narrowing (`case`)", () => {
+    it("lowers a union to mpark::variant and narrows with holds_alternative", () => {
+      const result = getGeneratedCppCode(`${FIXTURES_DIR}/union_case.rgr`);
+
+      expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("mpark::variant<");
+      expect(result.code).toContain("mpark::holds_alternative<");
+    });
+
+    // The shim is what `installFile("variant.hpp", ...)` copies next to the
+    // generated source on the C++17 path. It has to declare every mpark symbol
+    // the writer and lib/stdlib.rgr emit — it was missing holds_alternative,
+    // so narrowing a union produced C++ that never compiled.
+    it("ships a variant.hpp shim declaring every mpark symbol codegen emits", () => {
+      const shim = fs.readFileSync(
+        path.join(ROOT_DIR, "bin", "variant.hpp"),
+        "utf8"
+      );
+
+      expect(shim).toMatch(/using variant\s*=/);
+      expect(shim).toMatch(/\bget\s*\(/);
+      expect(shim).toMatch(/\bholds_alternative\s*\(/);
     });
   });
 
