@@ -10,14 +10,17 @@ node run.cjs                  # the three-way comparison
 TARGET=rust bash build.sh     # Ranger -> Rust -> engine_bench; see RUST.md
 TARGET=go bash build.sh       # Ranger -> Go -> engine_bench
 TARGET=kotlin bash build.sh   # Ranger -> Kotlin -> engine_bench.jar
+TARGET=python bash build.sh   # Ranger -> Python -> engine_bench.py
+TARGET=csharp bash build.sh   # Ranger -> C# -> engine_bench.exe
 TARGET=swift6 bash build.sh   # Ranger -> Swift (needs a Swift toolchain to build)
 ```
 
 Each target after the Ranger step is skipped when its compiler is not on the
 machine; the generated source is still written, which is what
-`tests/ts-engine-targets.test.ts` checks. That test also builds and runs the Go
-binary wherever a Go toolchain exists and compares its answer on all seven
-workloads against the one Node gives for the same JavaScript.
+`npm run test:tsengine` (`tests/ts-engine-targets.test.ts`) checks. That test
+also builds and runs the Go, Python and C# results wherever those toolchains
+exist and compares their answers on all seven workloads against the ones Node
+gives for the same JavaScript.
 
 `bench_main.rgr` holds the same seven workloads as `../bench.cjs`, at the same
 sizes. The language has no clock operator, so the binary times nothing itself: a

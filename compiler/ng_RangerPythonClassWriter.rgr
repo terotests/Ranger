@@ -4,10 +4,22 @@ class RangerPythonClassWriter {
   def thisName:string "self"
   def wrote_header:boolean false
 
+  fn emptyBlockFiller:string () {
+    return "pass"
+  }
+
   fn adjustType:string (tn:string) {
     if (tn == "this") {
       return "self"
     } 
+    ; Python mangles any name that starts with two underscores and is written
+    ; INSIDE a class body: `EvalConstPool.__singleton()` in class EvalValue
+    ; becomes `EvalConstPool._EvalValue__singleton()`, which does not exist.
+    ; The synthetic singleton accessor is renamed on this target so that call
+    ; sites and the definition agree.
+    if (tn == "__singleton") {
+      return "rg_singleton"
+    }
     return tn
   }
 
@@ -170,6 +182,43 @@ class RangerPythonClassWriter {
     }
   }
 
+  ; True when a node, or anything under it, calls something. An unused `def`
+  ; whose initializer CALLS still has to run -- `def ignored:T (this.work())`
+  ; is the language's evaluate-and-discard form -- so commenting it out
+  ; silently dropped the call, and in Python left the block it was the only
+  ; statement of without a body at all.
+  fn pyNodeContainsCall:boolean (node:CodeNode) {
+    if node.hasFnCall {
+      return true
+    }
+    if node.has_call {
+      return true
+    }
+    if node.has_lambda_call {
+      return true
+    }
+    for node.children ch:CodeNode ci {
+      if (this.pyNodeContainsCall(ch)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; Walk a method body and write `pass` when it produced nothing. Python has
+  ; no empty suite: `def onEvent(self):` with no indented line under it is an
+  ; IndentationError, and an empty method is the usual way to write the
+  ; default of an overridable hook. The test is on what was WRITTEN, so a body
+  ; whose only statement the writer dropped counts as empty too.
+  fn pyWalkBody:void (body:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def lineBefore:int wr.lineNumber
+    def colBefore:int (strlen wr.currentLine)
+    this.WalkNode(body ctx wr)
+    if ((wr.lineNumber == lineBefore) && ((strlen wr.currentLine) == colBefore)) {
+      wr.out("pass" true)
+    }
+  }
+
   fn writeVarInitDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasParamDesc {
       def nn:CodeNode (itemAt node.children 1)
@@ -206,8 +255,21 @@ class RangerPythonClassWriter {
     if node.hasParamDesc {
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc nn.paramDesc
-      if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
+      def unusedDef:boolean ((p.ref_cnt == 0) && (p.is_class_variable == false))
+      def keepsCall:boolean false
+      if unusedDef {
+        if ((array_length node.children) > 2) {
+          if (this.pyNodeContainsCall((node.getThird()))) {
+            keepsCall = true
+          }
+        }
+      }
+      if (unusedDef && (keepsCall == false)) {
         wr.out("# unused:  " false)
+      }
+      if keepsCall {
+        ; the underscore is Python's own spelling for a binding nobody reads
+        wr.out("_" false)
       }
       wr.out(p.compiledName false)
       if ((array_length node.children) > 2) {
@@ -504,6 +566,11 @@ class RangerPythonClassWriter {
     if (wrote_header == false) {
       wr.out("# -*- coding: utf-8 -*-" true)
       wr.out("" true)
+      ; Where (create_polyfill "...") lands. Without the tag the helper text
+      ; is written to a writer nobody reads, and the call to it fails at
+      ; runtime with NameError.
+      wr.createTag("utilities")
+      wr.out("" true)
       wrote_header = true
     }
 
@@ -519,6 +586,12 @@ class RangerPythonClassWriter {
     }    
     wr.out(":" true)
     wr.indent(1)
+
+    ; The lazily filled slot the singleton accessor below reads. A class
+    ; attribute, so it is one per class rather than one per instance.
+    if (cl.isSingletonClass()) {
+      wr.out("_rg_singleton_instance = None" true)
+    }
 
     ; Constructor (__init__)
     wr.out("def __init__(self" false)
@@ -568,6 +641,51 @@ class RangerPythonClassWriter {
     wr.newline()
     wr.indent(-1)
 
+    ; The synthetic accessor of a @singleton(true) class. Call sites already
+    ; write `ClassName.rg_singleton()` through the ordinary static path (see
+    ; adjustType for why the name loses its underscores here); only the
+    ; definition was missing. First-call constructor arguments win, which is
+    ; what es6, C++, Rust, Go and Kotlin all do.
+    if (cl.isSingletonClass()) {
+      wr.out("@staticmethod" true)
+      wr.out("def rg_singleton(" false)
+      def sgWritten:int 0
+      if cl.has_constructor {
+        def sgc@(optional):RangerAppFunctionDesc cl.constructor_fn
+        if (!null? sgc) {
+          this.writeArgsDef((unwrap sgc) ctx wr)
+          sgWritten = 1
+        }
+      }
+      wr.out("):" true)
+      wr.indent(1)
+      wr.out((("if " + cl.name) + "._rg_singleton_instance is None:") true)
+      wr.indent(1)
+      wr.out((((cl.name + "._rg_singleton_instance = ") + cl.name) + "(") false)
+      if (sgWritten > 0) {
+        def sgc2@(optional):RangerAppFunctionDesc cl.constructor_fn
+        if (!null? sgc2) {
+          def sgc2F:RangerAppFunctionDesc (unwrap sgc2)
+          def fwd:int 0
+          for sgc2F.params arg:RangerAppParamDesc i {
+            if (arg.nameNode.hasFlag("keyword")) {
+              continue
+            }
+            if (fwd > 0) {
+              wr.out(", " false)
+            }
+            fwd = fwd + 1
+            wr.out(arg.compiledName false)
+          }
+        }
+      }
+      wr.out(")" true)
+      wr.indent(-1)
+      wr.out((("return " + cl.name) + "._rg_singleton_instance") true)
+      wr.indent(-1)
+      wr.newline()
+    }
+
     ; Static methods
     for cl.static_methods variant:RangerAppFunctionDesc i {
       if (variant.nameNode.hasFlag("main")) {
@@ -582,7 +700,7 @@ class RangerPythonClassWriter {
       def subCtx:RangerAppWriterContext ( unwrap variant.fnCtx )
       subCtx.is_function = true
       subCtx.in_static_method = true
-      this.WalkNode(( unwrap variant.fnBody ) subCtx wr)
+      this.pyWalkBody(( unwrap variant.fnBody ) subCtx wr)
       subCtx.in_static_method = false
       wr.newline()
       wr.indent(-1)
@@ -606,7 +724,7 @@ class RangerPythonClassWriter {
         def subCtx:RangerAppWriterContext ( unwrap variant.fnCtx )
         subCtx.is_function = true
         subCtx.in_static_method = false
-        this.WalkNode(( unwrap variant.fnBody ) subCtx wr)
+        this.pyWalkBody(( unwrap variant.fnBody ) subCtx wr)
         wr.newline()
         wr.indent(-1)
       }
@@ -622,7 +740,7 @@ class RangerPythonClassWriter {
         wr.out("# Main entry point" true)
         wr.out("def main():" true)
         wr.indent(1)
-        this.WalkNode(( unwrap variant.fnBody ) ctx wr)
+        this.pyWalkBody(( unwrap variant.fnBody ) ctx wr)
         wr.indent(-1)
         wr.newline()
         wr.out("if __name__ == \"__main__\":" true)

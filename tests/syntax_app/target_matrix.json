@@ -83,7 +83,7 @@
     "es6": "ok",
     "typescript": "ok",
     "go": "run-error",
-    "python": "run-error",
+    "python": "ok",
     "rust": "run-error",
     "cpp": "ok",
     "kotlin": "compiled",

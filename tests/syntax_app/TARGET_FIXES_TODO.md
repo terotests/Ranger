@@ -13,7 +13,7 @@ Measured against `master` at the point this branch is based on.
 | | master | now |
 | --- | --- | --- |
 | cells the Ranger compiler rejects | 82 / 238 | **40 / 238** |
-| cells that compile, run and print the expected output | 42 / 238 | **60 / 238** |
+| cells that compile, run and print the expected output | 42 / 238 | **61 / 238** |
 
 Per target, `ok` cells and cells the compiler rejects, out of 17 units:
 
@@ -22,7 +22,7 @@ Per target, `ok` cells and cells the compiler rejects, out of 17 units:
 | es6 | 15 → 15 | 0 → 0 |
 | typescript | 10 → 10 | 0 → 0 |
 | go | 5 → 7 | 2 → 1 |
-| python | 2 → 6 | 5 → 1 |
+| python | 2 → 7 | 5 → 1 |
 | rust | 0 → 0 | 7 → 3 |
 | cpp | 4 → 8 | 2 → 1 |
 | kotlin | 0 → 0 | 6 → 1 |
@@ -112,19 +112,32 @@ definitions, and four of its thirty-seven tests failed on `master` with
 `Could not match argument types for *`. `npm run compile:langserver` rebuilds
 it; all thirty-seven pass again. Worth running whenever `Lang.rgr` moves.
 
-**The TypeScript engine on Go, Kotlin and Swift.**
+**The TypeScript engine on five more targets.**
 `gallery/game_engine/v2/interp` — the JavaScript/TypeScript interpreter, the
-largest program in the repository — now compiles to all three. Go and Kotlin
-build with their own toolchain and answer all eight benchmark cases exactly as
-Node does; Swift 6 is accepted by the compiler and written out in full, but no
-Swift toolchain is reachable here, so it is unverified past a read of the
-generated source. `tests/ts-engine-targets.test.ts` compiles the engine to each
-target on every run and, where Go is installed, builds and runs the binary.
-The whole list of what it took is in `TS_ENGINE_PERF.md`; the parts that belong
-here are the **Kotlin buffer family** (item 1 of the list below, now done), the
-Kotlin bitwise operators — Kotlin spells them `and` / `or` / `xor` / `shl` /
-`shr` / `ushr` / `inv()`, not the C way — and `file_mtime` / `file_exists` on
-the targets that had no entry.
+largest program in the repository — now compiles to **Go, Kotlin, Python, C#
+and Swift 6** as well as the C++ and Rust it already had. Four of the five were
+taken all the way: Go, Kotlin, Python and C# each build with their own
+toolchain and answer all eight benchmark cases exactly as Node does. Swift 6 is
+accepted by the compiler and written out in full, but no Swift toolchain is
+reachable here, so it is unverified past a read of the generated source.
+`npm run test:tsengine` compiles the engine to each of the five and builds and
+runs the Go, Python and C# results.
+
+The whole list of what it took is in `TS_ENGINE_PERF.md`. The one worth
+repeating is that **an unused `def` whose initializer is a CALL was commented
+out** on Go, Python and C# — `def ignored:T (this.work())` is the language's
+evaluate-and-discard form, and the engine's for-loop update clause is written
+that way, so the call vanished. On C# the program still compiled and ran, with
+every `for` looping until the interpreter's own guard stopped it. Rust had the
+same bug and it was fixed on master.
+
+The parts of it that belong here are the **Kotlin buffer family** (item 1 of
+the list below, now done), the Kotlin bitwise operators — Kotlin spells them
+`and` / `or` / `xor` / `shl` / `shr` / `ushr` / `inv()`, not the C way — the
+Python `shell_arg` / `shell_arg_cnt` / `file_mtime` entries and its IEEE
+division, `random` and `to_string` on C#, `file_mtime` / `file_exists` on the
+targets that had none, and `(get map key)` on Python and C#, which both threw
+on a missing key rather than answering the empty optional.
 
 **Test harness.** `tests/helpers/syntax-app.ts` looked for the single file that
 `-o` names. The Java target writes one file per class and ignores `-o`, so the
@@ -162,12 +175,17 @@ engine on Go.)
 
 ### 3. The Python writer
 
-- **An empty method body emits nothing under `def`.**
-  `gaps/python_empty_method.rgr`. The app's base class works around it.
 - **A lambda whose body is more than one expression** writes `x = lambda n:`
   followed by statements. Python has no multi-statement lambda, so the writer
   has to hoist the body into a named nested function. This is what stops
-  `section:lambdas` and, through `stdlib`, most collection code.
+  `section:lambdas` and, through `stdlib`, most collection code. The one item
+  left here.
+
+(Two Python items are fixed and their entries are gone: an empty body emitting
+nothing under `def`, `if:` or `else:` — the `(block N)` template command and
+the method-body walk now write `pass` when the body produced no output — and
+`create_polyfill` writing to a tag the Python writer never created, so every
+polyfill was silently discarded. Both were found by the TypeScript engine.)
 
 ### 4. The Rust writer
 
@@ -230,40 +248,41 @@ rebuilt from them (`npm run compile`) and the language server build regenerated
 
 | | result |
 | --- | --- |
-| 20 test files, batch 1 | 18 passed, 2 skipped — 196 tests |
-| 32 test files, batch 2 | 31 passed, 1 skipped — 230 tests |
-| 8 Go / Kotlin / Swift codegen files | 6 passed, 2 skipped — 64 tests |
-| `runtime-conformance` | 1281 passed |
+| 61 test files (default config, less the two long ones) | 57 passed, 3 skipped — 1782 tests |
 | `physics-cannon` | 90 passed |
 | `game-runner` | 19 passed |
-| `tsx-engine` | 6 passed |
-| `introspection` | 37 passed |
-| `ts-engine-targets` (new) | 4 passed |
-| `syntax-app` | 6 passed; baseline and report re-recorded |
+| `ts-engine-targets` (new, own config) | 8 passed |
+| `syntax-app` (own config) | 6 passed; baseline and report re-recorded |
 
-The syntax app matrix moved five cells, all of them forward, none back:
+The syntax app matrix moved six cells, all of them forward, none back:
 `app`, `section:buffers` and `http` on Kotlin from `compile-error` to
-`compiled`, `section:maps` on C++ from `output-differs` to `ok`, and
-`section:oop` on Go from `run-error` to `ok`.
+`compiled`, `section:maps` on C++ from `output-differs` to `ok`,
+`section:oop` on Go from `run-error` to `ok`, and `section:maps` on Python from
+`run-error` to `ok`.
 
 **One file still fails, and fails identically on pristine `master`:**
 `ts-to-ranger-native.test.ts`, one test, `function variable not found
 voiceEvent` in a generated file.
 
 **`npm test` in one go stops early, before and after.** A test file that runs
-for two minutes or more starves the Vitest reporter under `singleFork`; the run
+for a minute or more starves the Vitest reporter under `singleFork`; the run
 ends with `Timeout calling "onTaskUpdate"` and the files after it never run. It
 lands on whichever long file comes first — `physics-cannon` (112 s),
-`game-runner` (137 s), the syntax app (117 s). Each of them passes when run on
-its own, which is how the table above was produced.
-`syntax-app.test.ts` is out of the default config for that reason and has its
-own, `tests/vitest.syntaxapp.config.ts`. The underlying fragility is older than
-this branch and is worth a separate look.
+`game-runner` (141 s), the syntax app (121 s). Each of them passes when run on
+its own, which is how the table above was produced. Two files are out of the
+default config for that reason and have their own:
+`tests/vitest.syntaxapp.config.ts` (`npm run test:syntaxapp`) and
+`tests/vitest.tsengine.config.ts` (`npm run test:tsengine`) — the latter was
+measured poisoning a combined run at 67 s, with the three files after it never
+starting. The underlying fragility is older than this branch and is worth a
+separate look.
 
-**Two toolchains are not on the machine that produced this table.** Swift has
-none — `download.swift.org` is not reachable through the proxy — so every
-Swift cell stops at `compiled` and the Swift build of the TypeScript engine is
-unverified beyond reading it. A Kotlin compiler was fetched to check the engine
-end to end, but deliberately left off `PATH`: the syntax app harness probes for
-toolchains, and a Kotlin column that only exists on one machine would make the
-recorded baseline machine-dependent.
+**Which toolchains this machine has.** Go, Python 3, `g++`, `rustc`, `javac`,
+`php` and `lli` were already here; a Kotlin compiler (2.1.0) and Mono's `mcs`
+were added to check the TypeScript engine end to end on those two targets.
+**Swift has none** — `download.swift.org` is not reachable through the proxy —
+so every Swift cell stops at `compiled` and the Swift build of the engine is
+unverified beyond reading it. `kotlinc` is deliberately left off `PATH`: the
+syntax app harness probes for toolchains, and a Kotlin column that only exists
+on one machine would make the recorded baseline machine-dependent. Mono is on
+`PATH`, but the harness looks for `csc`, so the C# column is unaffected too.

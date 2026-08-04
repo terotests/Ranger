@@ -914,6 +914,22 @@ class RangerAppWriterContext {
 
         }
     }
+    ; `null`, `true` and `false` cannot go in the reserved_words block: the
+    ; Ranger parser reads them as literals rather than names, so the
+    ; `word transform` pair does not parse. C# is the target that needs them
+    ; renamed -- the TypeScript engine declares a static method called `null`,
+    ; and C# has no way to spell that.
+    if ((this.getTargetLang()) == "csharp") {
+      if (input_word == "null") {
+        return "_null"
+      }
+      if (input_word == "true") {
+        return "_true"
+      }
+      if (input_word == "false") {
+        return "_false"
+      }
+    }
     def root (this.getRoot())
     root.initReservedWords()
     if(has root.refTransform input_word) {

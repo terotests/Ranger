@@ -16,10 +16,14 @@ const ROOT = path.resolve(__dirname, "..");
  * bench_main.rgr pulls in the whole interpreter -- ComponentEngine, EvalValue,
  * the regex engine, the TS lexer and parser, JSXToEVG, DateTime -- so it is the
  * largest single program in the repository and the one that finds target gaps
- * nothing else reaches. Every case here is the same shape: the Ranger compiler
- * must accept the program and write a complete file. Where a toolchain for the
- * target exists on the machine the file is built and run as well, and its
- * answer is compared against the one Node gives for the same JavaScript.
+ * nothing else reaches. Every target here has to be accepted by the Ranger
+ * compiler and written out in full. Where a toolchain for the target exists on
+ * the machine the file is built and run as well, and its answers are compared
+ * against the ones Node gives for the same JavaScript.
+ *
+ * Kotlin is compiled but not built: kotlinc takes several minutes on a file
+ * this size, which does not belong in a test run. It has been verified by hand
+ * -- see TS_ENGINE_PERF.md.
  */
 const ENGINE = "gallery/game_engine/v2/interp/bench/native/bench_main.rgr";
 const OUT = path.join(ROOT, "tests", ".output-ts-engine");
@@ -28,7 +32,21 @@ const EXT: Record<string, string> = {
   go: "go",
   kotlin: "kt",
   swift6: "swift",
+  python: "py",
+  csharp: "cs",
 };
+
+// Kept identical to bench_main.rgr's caseBody, which is itself kept identical
+// to bench/bench.cjs. Answers are what Node produces for the same source.
+const CASES: Array<[string, string]> = [
+  ["loop", "1249975000"],
+  ["fib", "6765"],
+  ["strcat", "40000"],
+  ["array", "400000000"],
+  ["object", "998725"],
+  ["method", "2021500"],
+  ["regex", "18890"],
+];
 
 function compileEngine(target: string): { out: string; file: string } {
   const dir = path.join(OUT, target);
@@ -67,8 +85,16 @@ function hasTool(name: string): boolean {
   }
 }
 
-describe("TS engine -> Go / Kotlin / Swift", () => {
-  for (const target of ["go", "kotlin", "swift6"]) {
+/** Run every workload through a built binary and compare against Node's answer. */
+function expectMatchesJavaScript(cmd: string, pre: string[] = []) {
+  for (const [name, want] of CASES) {
+    const out = execFileSync(cmd, [...pre, name, "1"], { encoding: "utf8" });
+    expect(out.trim(), `${name}`).toBe(`${name} reps=1 answer=${want}`);
+  }
+}
+
+describe("TS engine -> Go / Kotlin / Swift / Python / C#", () => {
+  for (const target of ["go", "kotlin", "swift6", "python", "csharp"]) {
     it(`compiles the whole engine to ${target}`, () => {
       const { out, file } = compileEngine(target);
       expect(out, `Ranger rejected the engine on ${target}:\n${out}`).not.toMatch(
@@ -76,7 +102,7 @@ describe("TS engine -> Go / Kotlin / Swift", () => {
       );
       expect(fs.existsSync(file)).toBe(true);
       // A truncated write is the failure mode a "no errors" check misses: the
-      // engine is ~30k lines on every target.
+      // engine is 20k lines or more on every target.
       expect(fs.readFileSync(file, "utf8").split("\n").length).toBeGreaterThan(
         20000
       );
@@ -86,28 +112,35 @@ describe("TS engine -> Go / Kotlin / Swift", () => {
   it.skipIf(!hasTool("go"))("the Go build runs and answers like JavaScript", () => {
     const { file } = compileEngine("go");
     const dir = path.dirname(file);
-    const bin = path.join(dir, "engine_bench");
     execFileSync("go", ["build", "-o", "engine_bench", path.basename(file)], {
       cwd: dir,
       encoding: "utf8",
-      env: { ...process.env, GOCACHE: process.env.GOCACHE || path.join(os.tmpdir(), "go-build-ranger") },
+      env: {
+        ...process.env,
+        GOCACHE: process.env.GOCACHE || path.join(os.tmpdir(), "go-build-ranger"),
+      },
     });
-
-    // Kept identical to bench_main.rgr's caseBody.
-    const cases: Array<[string, string]> = [
-      ["loop", "1249975000"],
-      ["fib", "6765"],
-      ["strcat", "40000"],
-      ["array", "400000000"],
-      ["object", "998725"],
-      ["method", "2021500"],
-      ["regex", "18890"],
-    ];
-    for (const [name, want] of cases) {
-      const out = execFileSync(bin, [name, "1"], { encoding: "utf8" });
-      expect(out.trim(), `${name} on the Go build`).toBe(
-        `${name} reps=1 answer=${want}`
-      );
-    }
+    expectMatchesJavaScript(path.join(dir, "engine_bench"));
   }, 600000);
+
+  it.skipIf(!hasTool("python3"))(
+    "the Python build runs and answers like JavaScript",
+    () => {
+      const { file } = compileEngine("python");
+      expectMatchesJavaScript("python3", [file]);
+    },
+    900000
+  );
+
+  it.skipIf(!hasTool("mcs") || !hasTool("mono"))(
+    "the C# build runs and answers like JavaScript",
+    () => {
+      const { file } = compileEngine("csharp");
+      const dir = path.dirname(file);
+      const exe = path.join(dir, "engine_bench.exe");
+      execFileSync("mcs", [`-out:${exe}`, file], { encoding: "utf8" });
+      expectMatchesJavaScript("mono", [exe]);
+    },
+    900000
+  );
 });

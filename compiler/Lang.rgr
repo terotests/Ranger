@@ -489,6 +489,22 @@ double rg_random_double() {
                 ; std-only (rustc, no crates): each RandomState::new() draws a fresh
                 ; OS-seeded key, so hashing a constant yields a varying 53-bit value.
                 rust ( '{ use std::hash::{BuildHasher, Hasher}; let mut h = std::collections::hash_map::RandomState::new().build_hasher(); h.write_u64(0); ((h.finish() >> 11) as f64) / ((1u64 << 53) as f64) }' )
+                ; One generator for the process. A fresh `new Random()` per call
+                ; is seeded from the clock on .NET Framework and repeats inside
+                ; a tick, which is the one bug a random number generator must
+                ; not have.
+                csharp ( "rg_random.NextDouble()"
+(create_polyfill "
+static readonly System.Random rg_random = new System.Random();
+")
+                )
+                java7 ( "rg_random.nextDouble()"
+(create_polyfill "
+static final java.util.Random rg_random = new java.util.Random();
+")
+                )
+                scala ( "scala.util.Random.nextDouble()" )
+                php ( "(mt_rand() / mt_getrandmax())" )
             }
         }
 
@@ -525,6 +541,18 @@ double rg_random_double() {
                 python ( "random.randint(" (e 1) ", " (e 2) ")" (imp "random") )
                 swift3 ( "(" (e 1) " + Int(arc4random_uniform(UInt32(" (e 2) " - " (e 1) " + 1))))" (imp "Foundation") )
                 kotlin ('(Math.floor(Math.random() * (' (e 2) ' - ' (e 1) ' + 1)).toInt() + ' (e 1) ')' (imp "java.lang.Math"))
+                csharp ( "rg_random.Next(" (e 1) ", (" (e 2) ") + 1)"
+(create_polyfill "
+static readonly System.Random rg_random = new System.Random();
+")
+                )
+                java7 ( "(" (e 1) " + rg_random.nextInt((" (e 2) " - " (e 1) ") + 1))"
+(create_polyfill "
+static final java.util.Random rg_random = new java.util.Random();
+")
+                )
+                scala ( "(" (e 1) " + scala.util.Random.nextInt((" (e 2) " - " (e 1) ") + 1))" )
+                php ( "mt_rand(" (e 1) ", " (e 2) ")" )
             }
         }
         
@@ -851,6 +879,9 @@ func r_io_get_env( name string) *GoNullable {
                 es6 ( "process.argv[ 2 + " (e 1) "]")
                 rust ( "std::env::args().nth((" (e 1) " + 1) as usize).unwrap_or_default()")
                 kotlin ( "args[" (e 1) "]")
+                ; sys.argv[0] is the script, so the +1 matches every other
+                ; target that keeps the program name in the list.
+                python ( "sys.argv[" (e 1) " + 1]" (imp "sys") )
                 ranger ("( shell_arg " (e 1) " )")
             }
         }
@@ -868,6 +899,7 @@ func r_io_get_env( name string) *GoNullable {
                 es6 ( "(process.argv.length - 2)" )
                 rust ( "(std::env::args().len() as i64 - 1)")
                 kotlin ( "args.size")
+                python ( "(len(sys.argv) - 1)" (imp "sys") )
                 ranger ("( shell_arg_cnt )")
             }
         }        
@@ -1153,6 +1185,7 @@ func r_file_mtime ( path:String, name:String ) -> Int {
 ") (imp "Foundation")
                 )
                 kotlin ( "java.io.File(" (e 1) " + \"/\" + " (e 2) ").lastModified().toInt()" )
+                python ( "int(os.path.getmtime(" (e 1) " + \"/\" + " (e 2) ") * 1000)" (imp "os") )
                 java7 ( "((int)(new File(" (e 1) " + \"/\" + " (e 2) ").lastModified()))" (imp "java.io.File") )
                 csharp ( "((int)(long)(System.IO.File.GetLastWriteTimeUtc(" (e 1) " + \"/\" + " (e 2) ") - new System.DateTime(1970, 1, 1)).TotalMilliseconds)" )
                 scala ( "new java.io.File(" (e 1) " + \"/\" + " (e 2) ").lastModified().toInt()" )
@@ -1516,11 +1549,15 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
         unwrap       cmdUnwrap:int        ( arg@(optional):int ) {
             templates {
                 cpp ( "/*unwrap int*/" (e 1) ".value" )
+                ; an optional int is `int?` on C#, and Nullable<T> does not
+                ; convert back to T on its own
+                csharp ( "(" (e 1) ").Value" )
             }
         } 
         unwrap       cmdUnwrap:double        ( arg@(optional):double ) {
             templates {
                 cpp ( "/*unwrap dbl*/" (e 1) ".value" )
+                csharp ( "(" (e 1) ").Value" )
             }
         }        
 
@@ -1968,6 +2005,22 @@ func r_div_f64(a float64, b float64) float64 {
 "
 )
             )
+            ; Python RAISES on division by zero rather than answering Infinity
+            ; or NaN, which is how the engine in gallery/game_engine spells
+            ; both. The helper restores the IEEE answer, sign of the zero
+            ; included.
+            python ( "r_div_f64(" (e 1) ", " (e 2) ")"
+(create_polyfill
+"
+def r_div_f64(a, b):
+    if b == 0.0:
+        if a == 0.0 or a != a:
+            return float('nan')
+        return math.copysign(float('inf'), a) * math.copysign(1.0, b)
+    return a / b
+"
+) (imp "math")
+            )
             * ( (e 1) " / " (e 2) )
         } }
         ; `/` between two integers is real division. A target whose own `/` is
@@ -1992,7 +2045,18 @@ func r_div_f64(a float64, b float64) float64 {
             scala ( "(" (e 1) ".toDouble / " (e 2) ".toDouble)" )
             swift3 ( "(Double(" (e 1) ") / Double(" (e 2) "))" )
             swift6 ( "(Double(" (e 1) ") / Double(" (e 2) "))" )
-            python ( "(" (e 1) " / " (e 2) ")" )
+            python ( "r_div_f64(float(" (e 1) "), float(" (e 2) "))"
+(create_polyfill
+"
+def r_div_f64(a, b):
+    if b == 0.0:
+        if a == 0.0 or a != a:
+            return float('nan')
+        return math.copysign(float('inf'), a) * math.copysign(1.0, b)
+    return a / b
+"
+) (imp "math")
+            )
             php ( "(" (e 1) " / " (e 2) ")" )
             * ( (e 1) " / " (e 2) )
         } }
@@ -2252,7 +2316,7 @@ func r_div_f64(a float64, b float64) float64 {
                 swift6 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 kotlin ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
                 java7 ( "if ( " (e 1) ".isPresent()) {" nl I (block 2) i nl "}" nl )
-                csharp ( "if ( " (e 1) ".HasValue) {" nl I (block 2) i nl "}" nl )
+                csharp ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 php ( "if ( isset( " (e 1) " ) ) {" nl I (block 2) i nl "}" nl )
                 go ( "if ( " (e 1) ".has_value) {" nl I (block 2) i nl "}" nl )
                 rust ( "if " (e 1) ".is_some() {" nl I (block 2) i nl "}" nl )
@@ -2270,7 +2334,7 @@ func r_div_f64(a float64, b float64) float64 {
                 swift6 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 kotlin ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
                 java7 ( "if ( " (e 1) ".isPresent()) {" nl I (block 2) i nl "}" nl )
-                csharp ( "if ( " (e 1) ".HasValue) {" nl I (block 2) i nl "}" nl )
+                csharp ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 php ( "if ( isset( " (e 1) " ) ) {" nl I (block 2) i nl "}" nl )
                 go ( "if ( " (e 1) ".has_value) {" nl I (block 2) i nl "}" nl )
                 rust ( "if " (e 1) ".is_some() {" nl I (block 2) i nl "}" nl )
@@ -2289,7 +2353,7 @@ func r_div_f64(a float64, b float64) float64 {
                 php ( "if ( isset(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 scala ( "if ( " (e 1) ".isDefined ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 java7 ( "if ( " (e 1) ".isPresent() ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
-                csharp ( "if ( " (e 1) ".HasValue ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                csharp ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 kotlin ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 rust ( "if " (e 1) ".is_some() {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 swift3 ( "if ( " (e 1) " != nil ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
@@ -2307,7 +2371,7 @@ func r_div_f64(a float64, b float64) float64 {
                 php ( "if ( isset(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 scala ( "if ( " (e 1) ".isDefined ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 java7 ( "if ( " (e 1) ".isPresent() ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
-                csharp ( "if ( " (e 1) ".HasValue ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                csharp ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 kotlin ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 rust ( "if " (e 1) ".is_some() {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 swift3 ( "if ( " (e 1) " != nil ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
@@ -2326,7 +2390,7 @@ func r_div_f64(a float64, b float64) float64 {
                 swift6 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 kotlin ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
                 java7 ( "if ( " (e 1) ".isPresent()) {" nl I (block 2) i nl "}" nl )
-                csharp ( "if ( " (e 1) ".HasValue) {" nl I (block 2) i nl "}" nl )
+                csharp ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 ; go ( "" (e 1 ) " == nil " ) 
                 ; is_some
                 php ( "if ( isset( " (e 1) " ) ) {" nl I (block 2) i nl "}" nl )
@@ -2345,7 +2409,7 @@ func r_div_f64(a float64, b float64) float64 {
                 php ( "if ( isset(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 scala ( "if ( " (e 1) ".isDefined ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 java7 ( "if ( " (e 1) ".isPresent() ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
-                csharp ( "if ( " (e 1) ".HasValue ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                csharp ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 kotlin ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 rust ( "if " (e 1) ".is_some() {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 swift3 ( "if ( " (e 1) " != nil ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
@@ -3238,7 +3302,7 @@ static bool r_regex_test_i(string pattern, string s) {
                 java7 ( (e 1) "[(int)" (e 2) "] = (byte)" (e 3) )
                 python ( (e 1) "[" (e 2) "] = " (e 3) )
                 swift6 ( (e 1) "[Int(" (e 2) ")] = UInt8(" (e 3) ")" )
-                csharp ( (e 1) "[" (e 2) "] = (byte)" (e 3) )
+                csharp ( (e 1) "[" (e 2) "] = (byte)" (e 3) ";" )
                 kotlin ( (e 1) "[" (e 2) "] = (" (e 3) ").toByte()" )
             }
         }
@@ -3475,7 +3539,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 java7 ( (e 1) "[(int)" (e 2) "] = " (e 3) )
                 python ( (e 1) "[" (e 2) "] = " (e 3) )
                 swift6 ( (e 1) "[Int(" (e 2) ")] = " (e 3) )
-                csharp ( (e 1) "[" (e 2) "] = " (e 3) )
+                csharp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
                 kotlin ( (e 1) "[" (e 2) "] = (" (e 3) ").toLong()" )
             }
         }
@@ -3597,7 +3661,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 java7 ( (e 1) "[(int)" (e 2) "] = " (e 3) )
                 python ( (e 1) "[" (e 2) "] = " (e 3) )
                 swift6 ( (e 1) "[Int(" (e 2) ")] = " (e 3) )
-                csharp ( (e 1) "[" (e 2) "] = " (e 3) )
+                csharp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
                 kotlin ( (e 1) "[" (e 2) "] = " (e 3) )
             }
         }
@@ -4044,6 +4108,11 @@ inline std::string r_double_to_string(double v) {
                 swift6 ("String(" (e 1) ")")
                 python ( "str(" (e 1) ")" )
                 rust ( (e 1) ".to_string()" )
+                ; "R" is the round-trip format -- the shortest text that reads
+                ; back as the same double, which is what every other target
+                ; writes. The invariant culture is not optional: the default
+                ; one puts a comma where the rest of the world expects a point.
+                csharp ( "(" (e 1) ").ToString(\"R\", System.Globalization.CultureInfo.InvariantCulture)" )
                 * ( "(" (e 1) ".toString())")
             }
         }
@@ -4063,6 +4132,9 @@ inline std::string r_double_to_string(double v) {
                 ; writes the lowercase word, and a program that compares the
                 ; text of two targets must not see the difference.
                 python ( "(\"true\" if " (e 1) " else \"false\")" )
+                ; C# ToString() on a bool gives "True"/"False"; the rest of the
+                ; targets write the lowercase word.
+                csharp ( "(" (e 1) " ? \"true\" : \"false\")" )
                 * ( "(" (e 1) ".toString())")
             }
         }
@@ -4389,6 +4461,7 @@ std::string join(const T& v, const std::string& delim) {
                 es6 ('( ' (e 1) '.length  > ' (e 2)'  && ' (e 2)' >= 0  ?  '(e 1) '[' (e 2)'] : null ) ')
                 ranger ( "(get " (e 1) " " (e 2) ")")
                 llvm ( "(get " (e 1) " " (e 2) ")")
+                python ( "(" (e 1) "[" (e 2) "] if (0 <= (" (e 2) ") < len(" (e 1) ")) else None)" )
                 * ( (e 1) "[" (e 2) "]" )
             } 
         }
@@ -4436,6 +4509,8 @@ r_optional_primitive<int> cpp_get_map_int_value( const M & m , const K & key) {
 ) 
 
                 )
+                python ( (e 1) ".get(" (e 2) ")" )
+                csharp ( "(" (e 1) ".ContainsKey(" (e 2) ") ? (int?)" (e 1) "[" (e 2) "] : null)" )
             }
         }
 
@@ -4483,6 +4558,8 @@ r_optional_primitive<double> cpp_get_map_string_double_value( const M & m , cons
                 ranger ( "(get " (e 1) " " (e 2) ")")
                 llvm ( "(get " (e 1) " " (e 2) ")")
                 es6 ( "( Object.prototype.hasOwnProperty.call(" (e 1) ", " (e 2) ") ? " (e 1) "[" (e 2) "] : undefined )" )
+                python ( (e 1) ".get(" (e 2) ")" )
+                csharp ( "(" (e 1) ".ContainsKey(" (e 2) ") ? (double?)" (e 1) "[" (e 2) "] : null)" )
                 * ( (e 1) "[" (e 2) "]" )
             }
         }
@@ -4533,6 +4610,8 @@ i "}" nl ))
                     "r_get_" (r_ktype 1)  "_" (r_atype_fname 1) "(" (e 1) ", " (e 2) ")"
                 )
                 es6 ( "( Object.prototype.hasOwnProperty.call(" (e 1) ", " (e 2) ") ? " (e 1) "[" (e 2) "] : undefined )" )
+                python ( (e 1) ".get(" (e 2) ")" )
+                csharp ( "(" (e 1) ".ContainsKey(" (e 2) ") ? " (e 1) "[" (e 2) "] : null)" )
                 * ( (e 1) "[" (e 2) "]" )
             }            
         }                 
@@ -6308,7 +6387,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
             templates { 
                 ranger ( "(" (e 1) " && " (e 2) ")" ) 
                 scala ( (e 1) ".isDefined  && " (e 2) ".isDefined") 
-                csharp ( (e 1) ".HasValue  && " (e 2) ".HasValue") 
+                csharp ( (e 1) " != null  && " (e 2) " != null") 
 
                 php ( "isset("(e 1) ") && isset(" (e 2) ")") 
                 java7 ( (e 1) ".isPresent()  && " (e 2) ".isPresent()") 
@@ -6329,7 +6408,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 php ( (e 1) " && isset(" (e 2) ")") 
                 scala ( (e 1) " && " (e 2) ".isDefined") 
                 java7 ( (e 1) " && " (e 2) ".isPresent()") 
-                csharp ( (e 1) " && " (e 2) "HasValue") 
+                csharp ( (e 1) " && " (e 2) " != null") 
 
                 rust ( (e 1) " && " (e 2) ".is_some()") 
                 swift3 ( (e 1) " && " (e 2) " != nil") 
@@ -6348,7 +6427,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 php ( "isset("(e 1) ") && " (e 2) ) 
                 scala ( ""(e 1) ".isDefined && " (e 2) ) 
                 java7 ( ""(e 1) ".isPresent() && " (e 2) ) 
-                csharp ( ""(e 1) ".HasValue && " (e 2) ) 
+                csharp ( ""(e 1) " != null && " (e 2) ) 
 
                 rust ( ""(e 1) ".is_some() && " (e 2) ) 
                 swift3 ( ""(e 1) " != nil && " (e 2) ) 

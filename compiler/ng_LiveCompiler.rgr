@@ -708,7 +708,20 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             def arg:CodeNode (itemAt node.children idx)
             def sCtx (ctx.fork())
             sCtx.restartExpressionLevel()
+            ; A block that writes nothing is a statement in every braced
+            ; language and a parse error in Python, where the `if:` or `else:`
+            ; above it is then left without a body. The test is on what was
+            ; WRITTEN rather than on the child count, so a block whose only
+            ; statement the writer dropped counts as empty as well.
+            def lineBefore:int wr.lineNumber
+            def colBefore:int (strlen wr.currentLine)
             this.WalkNode(arg sCtx wr)
+            if ((wr.lineNumber == lineBefore) && ((strlen wr.currentLine) == colBefore)) {
+              def filler:string (langWriter.emptyBlockFiller())
+              if ((strlen filler) > 0) {
+                wr.out(filler true)
+              }
+            }
           }
         }
         case "varname" {
