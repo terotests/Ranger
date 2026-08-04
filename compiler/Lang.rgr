@@ -1295,6 +1295,39 @@ func r_file_mtime ( path:String, name:String ) -> Int {
            }
         }
 
+        ; Wall-clock milliseconds since the Unix epoch. Used by embedders that
+        ; want Date.now() to advance (e.g. Octane); the TS engine's default
+        ; hostNowMs stays frozen for reproducible conformance.
+        wall_clock_ms       cmdWallClockMs:double () {
+            templates {
+                es6 ( "Date.now()" )
+                cpp ( "r_wall_clock_ms()" (imp "<chrono>")
+(create_polyfill "
+double r_wall_clock_ms() {
+    using namespace std::chrono;
+    return (double)duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+}
+")
+                )
+                rust ( "r_wall_clock_ms()"
+(create_polyfill "
+fn r_wall_clock_ms() -> f64 {
+    match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+        Ok(d) => d.as_secs_f64() * 1000.0,
+        Err(_) => 0.0,
+    }
+}
+")
+                )
+                go ( "float64(time.Now().UnixMilli())" (imp "time") )
+                python ( "(time.time() * 1000.0)" (imp "time") )
+                csharp ( "(DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalMilliseconds" )
+                kotlin ( "System.currentTimeMillis().toDouble()" )
+                java7 ( "((double)System.currentTimeMillis())" )
+                * ( "0.0" )
+            }
+        }
+
         create_dir          cmdCreateDir:void (path:string) {
             templates {
                 scala ( "/* create_dir not implemented */ ")
