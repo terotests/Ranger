@@ -63,21 +63,26 @@
 >
 > | case | engine on Node | Rust | C++ |
 > |---|---|---|---|
-> | loop | 45.6 | 33.0 | 35.7 |
-> | fib | 22.9 | 21.5 | 26.8 |
-> | strcat | 24.9 | 55.0 | 37.0 |
-> | array | 89.7 | 62.9 | 90.9 |
-> | object | 36.5 | 28.0 | 33.0 |
-> | method | 63.1 | 60.0 | 72.2 |
-> | regex | 42.1 | 35.1 | 43.2 |
+> | loop | 53.5 | 34.4 | 33.9 |
+> | fib | 25.3 | 23.2 | 24.6 |
+> | strcat | 26.9 | 54.4 | 37.6 |
+> | array | 84.4 | 65.0 | 74.3 |
+> | object | 37.4 | 27.9 | 32.6 |
+> | method | 64.3 | 60.0 | 58.9 |
+> | regex | 39.8 | 33.7 | 38.8 |
 >
-> Geometric mean: **Rust 0.94x — FASTER than the same engine on Node**,
-> beating V8 on six of seven cases (only `strcat` loses: V8's rope
-> strings make `+=` amortized O(1) where immutable native strings copy).
-> C++ is at **1.06x — effective parity**, down from 1.88x; its last big
-> step was dropping the `std::string("")` assignments the constructor
-> made to already-default-constructed members (a temporary per string
-> field per object). Both targets started this branch
+> Geometric mean: **Rust 0.92x and C++ 0.93x — BOTH native targets are
+> now FASTER than the same engine running on Node** (stable across
+> repeated interleaved runs; Rust 0.89–0.93, C++ 0.91–0.94). Each beats
+> V8 on six of seven cases; only `strcat` still loses, because V8's rope
+> strings make `+=` amortized O(1) where immutable native strings copy
+> the accumulator. The last two C++ steps: dropping the
+> `std::string("")` assignments the constructor made to
+> already-default-constructed members, and comparing literal strings as
+> SIZED `std::string_view`s (the bare `s == "lit"` form paid a
+> non-folded `strlen(lit)` per compare and had no length gate), plus
+> converting the remaining ~134 `nodeType` string compares to the
+> integer kind memo. Both targets started this branch
 > unable to compile (Rust) or 4x-and-quadratic (C++). What got them
 > here, in measured order of impact: integer-interned nodeType/operator
 > dispatch, borrowed `&String` parameters, FxHash + bare-literal map

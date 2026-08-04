@@ -1067,14 +1067,14 @@ class ComponentEngine {
     ; Pass 1: functions become closures over the module scope; classes go to the
     ; per-module class table.
     fn materializeVirtualDecl:void (node:TSNode) {
-        if (node.nodeType == "FunctionDeclaration") {
+        if ((this.nodeKindOf(node)) == 40) {
             if ((strlen node.name) > 0) {
                 def fv:EvalValue (this.captureClosure(node))
                 context.define(node.name fv)
             }
             return
         }
-        if (node.nodeType == "ClassDeclaration") {
+        if ((this.nodeKindOf(node)) == 25) {
             if ((strlen node.name) > 0) {
                 def key:string (currentModule + ("::" + node.name))
                 set moduleClasses key node
@@ -1096,7 +1096,7 @@ class ComponentEngine {
 
     ; Pass 2: top-level const/let evaluate with the module scope as context.
     fn materializeVirtualVar:void (node:TSNode) {
-        if (node.nodeType == "VariableDeclaration") {
+        if ((this.nodeKindOf(node)) == 31) {
             def i:int 0
             while (i < (array_length node.children)) {
                 def decl:TSNode (itemAt node.children i)
@@ -1130,7 +1130,7 @@ class ComponentEngine {
         def i:int 0
         while (i < (array_length ast.children)) {
             def stmt:TSNode (itemAt ast.children i)
-            if (stmt.nodeType == "ExpressionStatement") {
+            if ((this.nodeKindOf(stmt)) == 30) {
                 if stmt.left {
                     this.evaluateExprForSideEffect((unwrap stmt.left))
                 }
@@ -1336,14 +1336,14 @@ class ComponentEngine {
         def i:int 0
         while (i < (array_length bodyNode.children)) {
             def st:TSNode (itemAt bodyNode.children i)
-            if (st.nodeType != "ExpressionStatement") {
+            if ((this.nodeKindOf(st)) != 30) {
                 return false
             }
             if (null? st.left) {
                 return false
             }
             def ex:TSNode (unwrap st.left)
-            if (ex.nodeType != "StringLiteral") {
+            if ((this.nodeKindOf(ex)) != 8) {
                 return false
             }
             ; §14.1: the directive is matched against the RAW text, so a
@@ -1369,7 +1369,7 @@ class ComponentEngine {
             return false
         }
         def bb:TSNode (unwrap fnNode.body)
-        if (bb.nodeType != "BlockStatement") {
+        if ((this.nodeKindOf(bb)) != 34) {
             return false
         }
         return (this.bodyIsStrict(bb))
@@ -1383,7 +1383,7 @@ class ComponentEngine {
             return false
         }
         def b:TSNode (unwrap fnNode.body)
-        if (b.nodeType != "BlockStatement") {
+        if ((this.nodeKindOf(b)) != 34) {
             return false
         }
         return (this.bodyIsStrict(b))
@@ -1510,7 +1510,7 @@ class ComponentEngine {
         }
         if ((array_length ast.children) > 0) {
             def decl:TSNode (itemAt ast.children 0)
-            if (decl.nodeType == "FunctionDeclaration") {
+            if ((this.nodeKindOf(decl)) == 40) {
                 ; D-FNSRC: the closure records the source it was parsed from, not
                 ; the caller's.
                 ; D-STRICT: a function built by the Function CONSTRUCTOR never
@@ -1644,10 +1644,10 @@ class ComponentEngine {
             if (false == (this.isTopLevelDeclaration(stmt))) {
                 this.runStatementValue(stmt)
             } {
-                if (stmt.nodeType == "VariableDeclaration") {
+                if ((this.nodeKindOf(stmt)) == 31) {
                     this.runStatementValue(stmt)
                 }
-                if (stmt.nodeType == "ClassDeclaration") {
+                if ((this.nodeKindOf(stmt)) == 25) {
                     if ((strlen stmt.name) > 0) {
                         set classes stmt.name stmt
                     }
@@ -1721,7 +1721,7 @@ class ComponentEngine {
         def i:int 0
         while (i < (array_length ast.children)) {
             def stmt:TSNode (itemAt ast.children i)
-            if (stmt.nodeType == "ExpressionStatement") {
+            if ((this.nodeKindOf(stmt)) == 30) {
                 if stmt.left {
                     this.evaluateExprForSideEffect((unwrap stmt.left))
                 }
@@ -1738,7 +1738,7 @@ class ComponentEngine {
                     ; D-TOPLEVEL: a VariableDeclaration's INITIALISER runs here,
                     ; in source order, rather than in a pass of its own before
                     ; the program starts. Only the binding is hoisted.
-                    if (stmt.nodeType == "VariableDeclaration") {
+                    if ((this.nodeKindOf(stmt)) == 31) {
                         this.runStatementValue(stmt)
                     }
                 }
@@ -1756,9 +1756,9 @@ class ComponentEngine {
     ; Statements already bound by registerComponents / processVariables before
     ; top-level execution; re-running them would double-evaluate initialisers.
     fn isTopLevelDeclaration:boolean (stmt:TSNode) {
-        if (stmt.nodeType == "FunctionDeclaration") { return true }
-        if (stmt.nodeType == "ClassDeclaration") { return true }
-        if (stmt.nodeType == "VariableDeclaration") { return true }
+        if ((this.nodeKindOf(stmt)) == 40) { return true }
+        if ((this.nodeKindOf(stmt)) == 25) { return true }
+        if ((this.nodeKindOf(stmt)) == 31) { return true }
         if (stmt.nodeType == "ImportDeclaration") { return true }
         if (stmt.nodeType == "ExportNamedDeclaration") { return true }
         if (stmt.nodeType == "ExportDefaultDeclaration") { return true }
@@ -2116,7 +2116,7 @@ class ComponentEngine {
         while (hk < (array_length importAstNode.children)) {
             def hstmt:TSNode (itemAt importAstNode.children hk)
             ; Collect non-exported function declarations as helpers
-            if (hstmt.nodeType == "FunctionDeclaration") {
+            if ((this.nodeKindOf(hstmt)) == 40) {
                 def hfnName:string hstmt.name
                 if ((this.isInList(hfnName importExportNames)) == false) {
                     push helperFns hstmt
@@ -2137,7 +2137,7 @@ class ComponentEngine {
             if (stmt.nodeType == "ExportNamedDeclaration") {
                 if stmt.left {
                     def declNode:TSNode (unwrap stmt.left)
-                    if (declNode.nodeType == "FunctionDeclaration") {
+                    if ((this.nodeKindOf(declNode)) == 40) {
                         def fnName:string declNode.name
                         if (this.isInList(fnName importExportNames)) {
                             def localName:string (this.localNameForImport(fnName importExportNames importLocalNames))
@@ -2148,7 +2148,7 @@ class ComponentEngine {
             }
             
             ; Also check for regular function declarations (may be exported separately)
-            if (stmt.nodeType == "FunctionDeclaration") {
+            if ((this.nodeKindOf(stmt)) == 40) {
                 def fnName:string stmt.name
                 if (this.isInList(fnName importExportNames)) {
                     def localName:string (this.localNameForImport(fnName importExportNames importLocalNames))
@@ -2177,7 +2177,7 @@ class ComponentEngine {
     }
 
     fn materializeImportedNode:void (node:TSNode) {
-        if (node.nodeType == "FunctionDeclaration") {
+        if ((this.nodeKindOf(node)) == 40) {
             if (node.name != "render") {
                 def __fnv:EvalValue (EvalValue.function(node))
                 __fnv.strictFn = (this.strictForBody(node))
@@ -2186,7 +2186,7 @@ class ComponentEngine {
             }
             return
         }
-        if (node.nodeType == "ClassDeclaration") {
+        if ((this.nodeKindOf(node)) == 25) {
             ; `classes` is a single engine-wide name->node map (see
             ; registerTopLevelNode / evaluateNewExpr), so a class declared in
             ; an imported module becomes constructible (`new Foo()`) by both
@@ -2197,7 +2197,7 @@ class ComponentEngine {
             }
             return
         }
-        if (node.nodeType == "VariableDeclaration") {
+        if ((this.nodeKindOf(node)) == 31) {
             this.processModuleVariableDeclaration(node)
             return
         }
@@ -2345,11 +2345,11 @@ class ComponentEngine {
     }
     
     fn registerTopLevelNode:void (node:TSNode) {
-        if (node.nodeType == "FunctionDeclaration") {
+        if ((this.nodeKindOf(node)) == 40) {
             this.registerFunctionDeclaration(node)
             return
         }
-        if (node.nodeType == "ClassDeclaration") {
+        if ((this.nodeKindOf(node)) == 25) {
             if ((strlen node.name) > 0) {
                 set classes node.name node
             }
@@ -2391,7 +2391,7 @@ class ComponentEngine {
         def i:int 0
         while (i < (array_length ast.children)) {
             def node:TSNode (itemAt ast.children i)
-            if (node.nodeType == "FunctionDeclaration") {
+            if ((this.nodeKindOf(node)) == 40) {
                 if (node.name == "render") {
                     return node
                 }
@@ -2425,7 +2425,7 @@ class ComponentEngine {
         def i:int 0
         while (i < (array_length ast.children)) {
             def node:TSNode (itemAt ast.children i)
-            if (node.nodeType == "VariableDeclaration") {
+            if ((this.nodeKindOf(node)) == 31) {
                 def ci:int 0
                 while (ci < (array_length node.children)) {
                     def d:TSNode (itemAt node.children ci)
@@ -2625,7 +2625,7 @@ class ComponentEngine {
     }
     
     fn processTopLevelVarNode:void (node:TSNode) {
-        if (node.nodeType == "VariableDeclaration") {
+        if ((this.nodeKindOf(node)) == 31) {
             this.processModuleVariableDeclaration(node)
             ; D-GLOBALTHIS: a top-level `var` is a property of the global object
             ; as well as a binding, so `var toString = f; String(this)` uses f.
@@ -2768,7 +2768,7 @@ class ComponentEngine {
     ; undefined — matching JS for the common "absent property" case (JS itself
     ; only defaults on undefined; explicit null is the sole practical divergence).
     fn bindPattern:void (pattern:TSNode value:EvalValue) {
-        if (pattern.nodeType == "Identifier") {
+        if ((this.nodeKindOf(pattern)) == 1) {
             context.define(pattern.name value)
             return
         }
@@ -2979,7 +2979,7 @@ class ComponentEngine {
             if (param.nodeType == "Parameter") {
                 context.define(param.name props)
             }
-            if (param.nodeType == "Identifier") {
+            if ((this.nodeKindOf(param)) == 1) {
                 context.define(param.name props)
             }
             
@@ -3032,12 +3032,12 @@ class ComponentEngine {
             def stmt:TSNode (itemAt body.children i)
             
             ; Process variable declarations
-            if (stmt.nodeType == "VariableDeclaration") {
+            if ((this.nodeKindOf(stmt)) == 31) {
                 this.processVariableDeclaration(stmt)
             }
             
             ; Process if statement
-            if (stmt.nodeType == "IfStatement") {
+            if ((this.nodeKindOf(stmt)) == 32) {
                 def ifResult:EVGElement (this.evaluateIfStatement(stmt))
                 if ifResult.hasReturn {
                     return ifResult
@@ -3045,7 +3045,7 @@ class ComponentEngine {
             }
             
             ; Process for loop
-            if (stmt.nodeType == "ForStatement") {
+            if ((this.nodeKindOf(stmt)) == 33) {
                 def forResult:EVGElement (this.evaluateForStatement(stmt))
                 if forResult.hasReturn {
                     return forResult
@@ -3053,7 +3053,7 @@ class ComponentEngine {
             }
             
             ; Process for...of loop
-            if (stmt.nodeType == "ForOfStatement") {
+            if ((this.nodeKindOf(stmt)) == 37) {
                 def forOfResult:EVGElement (this.evaluateForOfStatement(stmt))
                 if forOfResult.hasReturn {
                     return forOfResult
@@ -3061,7 +3061,7 @@ class ComponentEngine {
             }
             
             ; Process while loop
-            if (stmt.nodeType == "WhileStatement") {
+            if ((this.nodeKindOf(stmt)) == 36) {
                 def whileResult:EVGElement (this.evaluateWhileStatement(stmt))
                 if whileResult.hasReturn {
                     return whileResult
@@ -3069,7 +3069,7 @@ class ComponentEngine {
             }
             
             ; Process expression statement (e.g., arr.push(x))
-            if (stmt.nodeType == "ExpressionStatement") {
+            if ((this.nodeKindOf(stmt)) == 30) {
                 if stmt.left {
                     def exprNode:TSNode (unwrap stmt.left)
                     this.evaluateExprForSideEffect(exprNode)
@@ -3077,7 +3077,7 @@ class ComponentEngine {
             }
             
             ; Process return statement
-            if (stmt.nodeType == "ReturnStatement") {
+            if ((this.nodeKindOf(stmt)) == 35) {
                 if stmt.left {
                     def returnExpr:TSNode (unwrap stmt.left)
                     return (this.evaluateJSX(returnExpr))
@@ -3228,7 +3228,7 @@ class ComponentEngine {
         ; Value-returning control flow: a `return` inside an if/else or nested
         ; block propagates its value out of the function. Save/restore the flags
         ; so nested function calls during evaluation stay reentrancy-safe.
-        if (body.nodeType == "BlockStatement") {
+        if ((this.nodeKindOf(body)) == 34) {
             def savedDidReturn:boolean scriptDidReturn
             def savedReturnValue:EvalValue scriptReturnValue
             scriptDidReturn = false
@@ -3251,12 +3251,12 @@ class ComponentEngine {
             def stmt:TSNode (itemAt body.children i)
             
             ; Process variable declarations
-            if (stmt.nodeType == "VariableDeclaration") {
+            if ((this.nodeKindOf(stmt)) == 31) {
                 this.processVariableDeclaration(stmt)
             }
             
             ; Process if statement
-            if (stmt.nodeType == "IfStatement") {
+            if ((this.nodeKindOf(stmt)) == 32) {
                 def ifResult:EVGElement (this.evaluateIfStatement(stmt))
                 if ifResult.hasReturn {
                     ; If returned from if statement, need to get the value
@@ -3265,22 +3265,22 @@ class ComponentEngine {
             }
             
             ; Process for loop
-            if (stmt.nodeType == "ForStatement") {
+            if ((this.nodeKindOf(stmt)) == 33) {
                 this.runForStatementValue(stmt)
             }
             
             ; Process for...of loop
-            if (stmt.nodeType == "ForOfStatement") {
+            if ((this.nodeKindOf(stmt)) == 37) {
                 this.runForOfStatementValue(stmt)
             }
             
             ; Process while loop
-            if (stmt.nodeType == "WhileStatement") {
+            if ((this.nodeKindOf(stmt)) == 36) {
                 this.runWhileStatementValue(stmt)
             }
             
             ; Process expression statement (e.g., arr.push(x))
-            if (stmt.nodeType == "ExpressionStatement") {
+            if ((this.nodeKindOf(stmt)) == 30) {
                 if stmt.left {
                     def exprNode:TSNode (unwrap stmt.left)
                     this.evaluateExprForSideEffect(exprNode)
@@ -3288,7 +3288,7 @@ class ComponentEngine {
             }
             
             ; Process return statement - evaluate as EvalValue
-            if (stmt.nodeType == "ReturnStatement") {
+            if ((this.nodeKindOf(stmt)) == 35) {
                 if stmt.left {
                     def returnExpr:TSNode (unwrap stmt.left)
                     return (this.evaluateExpr(returnExpr))
@@ -3306,7 +3306,7 @@ class ComponentEngine {
         }
         
         ; If body is a simple expression
-        if ((body.nodeType != "BlockStatement") && (body.nodeType != "")) {
+        if (((this.nodeKindOf(body)) != 34) && (body.nodeType != "")) {
             return (this.evaluateExpr(body))
         }
         
@@ -3327,7 +3327,7 @@ class ComponentEngine {
         loopContinue = false
         if stmt.init {
             def initNode:TSNode (unwrap stmt.init)
-            if (initNode.nodeType == "VariableDeclaration") {
+            if ((this.nodeKindOf(initNode)) == 31) {
                 this.processVariableDeclaration(initNode)
             } {
                 ; The init clause is an ExpressionNoIn when it is not a
@@ -3400,7 +3400,7 @@ class ComponentEngine {
         def varPattern@(optional):TSNode
         if stmt.left {
             def leftNode:TSNode (unwrap stmt.left)
-            if (leftNode.nodeType == "VariableDeclaration") {
+            if ((this.nodeKindOf(leftNode)) == 31) {
                 if ((array_length leftNode.children) > 0) {
                     def decl:TSNode (itemAt leftNode.children 0)
                     varName = decl.name
@@ -3657,20 +3657,20 @@ class ComponentEngine {
         def declaresVar:boolean false
         if stmt.left {
             def leftNode:TSNode (unwrap stmt.left)
-            if (leftNode.nodeType == "VariableDeclaration") {
+            if ((this.nodeKindOf(leftNode)) == 31) {
                 if ((array_length leftNode.children) > 0) {
                     def decl:TSNode (itemAt leftNode.children 0)
                     varName = decl.name
                     declaresVar = true
                 }
             } {
-                if (leftNode.nodeType == "Identifier") {
+                if ((this.nodeKindOf(leftNode)) == 1) {
                     varName = leftNode.name
                 }
-                if (leftNode.nodeType == "ExpressionStatement") {
+                if ((this.nodeKindOf(leftNode)) == 30) {
                     if leftNode.left {
                         def inner:TSNode (unwrap leftNode.left)
-                        if (inner.nodeType == "Identifier") {
+                        if ((this.nodeKindOf(inner)) == 1) {
                             varName = inner.name
                         }
                     }
@@ -3901,7 +3901,7 @@ class ComponentEngine {
         def i:int 0
         while (i < (array_length stmts)) {
             def s:TSNode (itemAt stmts i)
-            if (s.nodeType == "FunctionDeclaration") {
+            if ((this.nodeKindOf(s)) == 40) {
                 if ((strlen s.name) > 0) {
                     ; D-CATCHVAR: the CLOSURE is over the current scope -- the
                     ; body must see a catch parameter or a with object -- but the
@@ -3917,7 +3917,7 @@ class ComponentEngine {
             ; name rather than scoped, so an inner class is visible wider than
             ; the spec allows; that is strictly better than not resolving at all,
             ; and shadowing follows declaration order as it would anyway.
-            if (s.nodeType == "ClassDeclaration") {
+            if ((this.nodeKindOf(s)) == 25) {
                 if ((strlen s.name) > 0) {
                     set classes s.name s
                 }
@@ -4536,7 +4536,7 @@ class ComponentEngine {
                 if node.right {
                     def elseBlock:TSNode (unwrap node.right)
                     ; Could be another IfStatement (else if) or BlockStatement (else)
-                    if (elseBlock.nodeType == "IfStatement") {
+                    if ((this.nodeKindOf(elseBlock)) == 32) {
                         def elseIfResult:EVGElement (this.evaluateIfStatement(elseBlock))
                         if elseIfResult.hasReturn {
                             return elseIfResult
@@ -4573,15 +4573,15 @@ class ComponentEngine {
         result.hasReturn = false
         
         ; Handle single statement (not wrapped in BlockStatement)
-        if (block.nodeType == "ContinueStatement") {
+        if ((this.nodeKindOf(block)) == 39) {
             result.hasContinue = true
             return result
         }
-        if (block.nodeType == "BreakStatement") {
+        if ((this.nodeKindOf(block)) == 38) {
             result.hasBreak = true
             return result
         }
-        if (block.nodeType == "ReturnStatement") {
+        if ((this.nodeKindOf(block)) == 35) {
             if block.left {
                 def returnExpr:TSNode (unwrap block.left)
                 def returnedEl:EVGElement (this.evaluateJSX(returnExpr))
@@ -4594,16 +4594,16 @@ class ComponentEngine {
         }
         
         ; Handle BlockStatement with children
-        if (block.nodeType == "BlockStatement") {
+        if ((this.nodeKindOf(block)) == 34) {
             def i:int 0
             while (i < (array_length block.children)) {
                 def stmt:TSNode (itemAt block.children i)
                 
-                if (stmt.nodeType == "VariableDeclaration") {
+                if ((this.nodeKindOf(stmt)) == 31) {
                     this.processVariableDeclaration(stmt)
                 }
                 
-                if (stmt.nodeType == "IfStatement") {
+                if ((this.nodeKindOf(stmt)) == 32) {
                     def ifResult:EVGElement (this.evaluateIfStatement(stmt))
                     if ifResult.hasReturn {
                         return ifResult
@@ -4616,7 +4616,7 @@ class ComponentEngine {
                     }
                 }
                 
-                if (stmt.nodeType == "ForStatement") {
+                if ((this.nodeKindOf(stmt)) == 33) {
                     def forResult:EVGElement (this.evaluateForStatement(stmt))
                     if forResult.hasReturn {
                         return forResult
@@ -4629,7 +4629,7 @@ class ComponentEngine {
                     }
                 }
                 
-                if (stmt.nodeType == "ForOfStatement") {
+                if ((this.nodeKindOf(stmt)) == 37) {
                     def forOfResult:EVGElement (this.evaluateForOfStatement(stmt))
                     if forOfResult.hasReturn {
                         return forOfResult
@@ -4642,7 +4642,7 @@ class ComponentEngine {
                     }
                 }
                 
-                if (stmt.nodeType == "WhileStatement") {
+                if ((this.nodeKindOf(stmt)) == 36) {
                     def whileResult:EVGElement (this.evaluateWhileStatement(stmt))
                     if whileResult.hasReturn {
                         return whileResult
@@ -4655,14 +4655,14 @@ class ComponentEngine {
                     }
                 }
                 
-                if (stmt.nodeType == "ExpressionStatement") {
+                if ((this.nodeKindOf(stmt)) == 30) {
                     if stmt.left {
                         def exprNode:TSNode (unwrap stmt.left)
                         this.evaluateExprForSideEffect(exprNode)
                     }
                 }
                 
-                if (stmt.nodeType == "ReturnStatement") {
+                if ((this.nodeKindOf(stmt)) == 35) {
                     if stmt.left {
                         def returnExpr:TSNode (unwrap stmt.left)
                         def returnedEl:EVGElement (this.evaluateJSX(returnExpr))
@@ -4674,12 +4674,12 @@ class ComponentEngine {
                     }
                 }
                 
-                if (stmt.nodeType == "ContinueStatement") {
+                if ((this.nodeKindOf(stmt)) == 39) {
                     result.hasContinue = true
                     return result
                 }
                 
-                if (stmt.nodeType == "BreakStatement") {
+                if ((this.nodeKindOf(stmt)) == 38) {
                     result.hasBreak = true
                     return result
                 }
@@ -4745,13 +4745,13 @@ class ComponentEngine {
         ; Check if it's a method call: arr.push(x)
         if node.left {
             def calleeNode:TSNode (unwrap node.left)
-            if (calleeNode.nodeType == "MemberExpression") {
+            if ((this.nodeKindOf(calleeNode)) == 3) {
                 def methodName:string calleeNode.name
                 
                 ; Get the object being called on
                 if calleeNode.left {
                     def objNode:TSNode (unwrap calleeNode.left)
-                    if (objNode.nodeType == "Identifier") {
+                    if ((this.nodeKindOf(objNode)) == 1) {
                         def objName:string objNode.name
                         def objValue:EvalValue (context.lookup(objName))
                         
@@ -4792,7 +4792,7 @@ class ComponentEngine {
         if node.init {
             def initNode:TSNode (unwrap node.init)
             this.trace("For init nodeType: " + initNode.nodeType)
-            if (initNode.nodeType == "VariableDeclaration") {
+            if ((this.nodeKindOf(initNode)) == 31) {
                 this.processVariableDeclaration(initNode)
             } {
                 def ignoredInitE:EvalValue (this.evaluateExpr(initNode))
@@ -4857,7 +4857,7 @@ class ComponentEngine {
         def varName:string ""
         if node.left {
             def leftNode:TSNode (unwrap node.left)
-            if (leftNode.nodeType == "VariableDeclaration") {
+            if ((this.nodeKindOf(leftNode)) == 31) {
                 if ((array_length leftNode.children) > 0) {
                     def decl:TSNode (itemAt leftNode.children 0)
                     varName = decl.name
@@ -5278,7 +5278,7 @@ class ComponentEngine {
         def objName:string ""
         if leftNode.left {
             def objNode:TSNode (unwrap leftNode.left)
-            if (objNode.nodeType == "Identifier") {
+            if ((this.nodeKindOf(objNode)) == 1) {
                 objName = objNode.name
                 ; D-GLOBALOBJ: resolve through lookupIdentifier, not the raw
                 ; scope, so a write to a built-in global (`Math.value = 1`)
@@ -5540,7 +5540,7 @@ class ComponentEngine {
         }
         if node.left {
             def leftNode:TSNode (unwrap node.left)
-            if (leftNode.nodeType == "Identifier") {
+            if ((this.nodeKindOf(leftNode)) == 1) {
                 def varName:string leftNode.name
                 ; PERF fast path: a plain number binding bumps in ONE scope
                 ; walk — the general path below walks the chain up to four
@@ -5633,7 +5633,7 @@ class ComponentEngine {
                 }
                 return (EvalValue.number(oldNum))
             }
-            if (leftNode.nodeType == "MemberExpression") {
+            if ((this.nodeKindOf(leftNode)) == 3) {
                 ; `o.p++` is ToNumber(o.p) + 1, never a compound `+=` -- for a
                 ; STRING property the compound form concatenated, so
                 ; `({foo:"bar"}).foo++` produced "bar1" where the spec says NaN.
@@ -5680,10 +5680,10 @@ class ComponentEngine {
 
     ; Evaluate an assignment/update as an expression, returning its value.
     fn evaluateAssignValue:EvalValue (node:TSNode) {
-        if (node.nodeType == "UpdateExpression") {
+        if ((this.nodeKindOf(node)) == 7) {
             return (this.evaluateUpdateValue(node))
         }
-        if (node.nodeType == "AssignmentExpression") {
+        if ((this.nodeKindOf(node)) == 6) {
             if node.left {
                 def leftNode:TSNode (unwrap node.left)
                 def op:string node.value
@@ -5696,7 +5696,7 @@ class ComponentEngine {
                 def preWith:EvalValue (EvalValue.null())
                 def preScope:EvalContext context
                 def preScopeValid:boolean false
-                if (leftNode.nodeType == "Identifier") {
+                if ((this.nodeKindOf(leftNode)) == 1) {
                     preWith = (this.withHostFor(leftNode.name))
                     if (context.has(leftNode.name)) {
                         preScope = (context.contextOwning(leftNode.name))
@@ -5710,7 +5710,7 @@ class ComponentEngine {
                 if scriptThrew {
                     return (EvalValue.undefined())
                 }
-                if (leftNode.nodeType == "Identifier") {
+                if ((this.nodeKindOf(leftNode)) == 1) {
                     def varName:string leftNode.name
                     ; D-WITH: a name the with object owns is read and written
                     ; THROUGH that object, accessors included. Checked before
@@ -5820,7 +5820,7 @@ class ComponentEngine {
                     this.syncGlobalVar(varName result)
                     return result
                 }
-                if (leftNode.nodeType == "MemberExpression") {
+                if ((this.nodeKindOf(leftNode)) == 3) {
                     return (this.assignMember(leftNode opK rightValue))
                 }
             }
@@ -5858,7 +5858,7 @@ class ComponentEngine {
         ; (or of `eval`, which could reach it from text the scan cannot see) and
         ; the answer memoised on the node.
         def needsArgs:boolean false
-        if (fnNode.nodeType != "ArrowFunctionExpression") {
+        if ((this.nodeKindOf(fnNode)) != 17) {
             if (false == fnNode.argScanned) {
                 fnNode.argScanned = true
                 fnNode.usesArguments = (this.fnMentionsArguments(fnNode 0))
@@ -5982,7 +5982,7 @@ class ComponentEngine {
     }
 
     fn mapArgumentsObject:void (fnNode:TSNode argVals:[EvalValue]) {
-        if (fnNode.nodeType == "ArrowFunctionExpression") {
+        if ((this.nodeKindOf(fnNode)) == 17) {
             return
         }
         ; PERF: no arguments object was built for this call, so there is nothing
@@ -6017,7 +6017,7 @@ class ComponentEngine {
                     nm = prm.name
                 }
             }
-            if (prm.nodeType == "Identifier") {
+            if ((this.nodeKindOf(prm)) == 1) {
                 nm = prm.name
             }
             if (mp < (array_length argVals)) {
@@ -6190,7 +6190,7 @@ class ComponentEngine {
         def result:EvalValue (EvalValue.null())
         if fnNode.body {
             def body:TSNode (unwrap fnNode.body)
-            if (body.nodeType == "BlockStatement") {
+            if ((this.nodeKindOf(body)) == 34) {
                 result = (this.callResultOf((this.evaluateFunctionBodyValue(body))))
             } {
                 result = (this.evaluateExpr(body))
@@ -6206,10 +6206,10 @@ class ComponentEngine {
     ; arrow/function expression is used directly; anything else is evaluated and,
     ; if it is a function value, its node is used. Returns an empty node on miss.
     fn resolveCallbackNode:TSNode (argNode:TSNode) {
-        if (argNode.nodeType == "ArrowFunctionExpression") {
+        if ((this.nodeKindOf(argNode)) == 17) {
             return argNode
         }
-        if (argNode.nodeType == "FunctionExpression") {
+        if ((this.nodeKindOf(argNode)) == 18) {
             return argNode
         }
         def v:EvalValue (this.evaluateExpr(argNode))
@@ -6240,7 +6240,7 @@ class ComponentEngine {
         ; while `fact` stays invisible outside. The name was never bound at all,
         ; so every such recursion was a ReferenceError.
         def capturedCtx:EvalContext context
-        if (fnNode.nodeType == "FunctionExpression") {
+        if ((this.nodeKindOf(fnNode)) == 18) {
             if ((strlen fnNode.name) > 0) {
                 capturedCtx = (context.createChild())
                 capturedCtx.define(fnNode.name fv)
@@ -6258,10 +6258,10 @@ class ComponentEngine {
     ; Resolve a callback arg to a function value, capturing a closure for inline
     ; arrow/function expressions. Non-inline args are evaluated (already values).
     fn resolveCallbackValue:EvalValue (argNode:TSNode) {
-        if (argNode.nodeType == "ArrowFunctionExpression") {
+        if ((this.nodeKindOf(argNode)) == 17) {
             return (this.captureClosure(argNode))
         }
-        if (argNode.nodeType == "FunctionExpression") {
+        if ((this.nodeKindOf(argNode)) == 18) {
             return (this.captureClosure(argNode))
         }
         return (this.evaluateExpr(argNode))
@@ -6562,7 +6562,7 @@ class ComponentEngine {
             if (this.bodyOnlyStrict(fnNode)) {
                 bareStrict = true
             }
-            if (fnNode.nodeType == "ArrowFunctionExpression") {
+            if ((this.nodeKindOf(fnNode)) == 17) {
                 bareStrict = true
             }
             if (false == bareStrict) {
@@ -6573,7 +6573,7 @@ class ComponentEngine {
                 ; the enclosing function had, so a strict function nested in a
                 ; sloppy one saw the sloppy one's global object. An arrow is the
                 ; exception: it genuinely has no `this` of its own.
-                if (fnNode.nodeType != "ArrowFunctionExpression") {
+                if ((this.nodeKindOf(fnNode)) != 17) {
                     context.define("this" (EvalValue.undefined()))
                 }
             }
@@ -6622,7 +6622,7 @@ class ComponentEngine {
         def result:EvalValue (EvalValue.null())
         if fnNode.body {
             def body:TSNode (unwrap fnNode.body)
-            if (body.nodeType == "BlockStatement") {
+            if ((this.nodeKindOf(body)) == 34) {
                 result = (this.callResultOf((this.evaluateFunctionBodyValue(body))))
             } {
                 result = (this.evaluateExpr(body))
@@ -6655,7 +6655,7 @@ class ComponentEngine {
             return element
         }
         
-        if (node.nodeType == "ParenthesizedExpression") {
+        if ((this.nodeKindOf(node)) == 23) {
             if node.left {
                 def inner:TSNode (unwrap node.left)
                 return (this.evaluateJSX(inner))
@@ -6908,7 +6908,7 @@ class ComponentEngine {
             def rightNode:TSNode (unwrap attr.right)
             
             ; String literal
-            if (rightNode.nodeType == "StringLiteral") {
+            if ((this.nodeKindOf(rightNode)) == 8) {
                 return (EvalValue.string((this.unquote(rightNode.value))))
             }
             
@@ -7064,11 +7064,11 @@ class ComponentEngine {
             def exprNode:TSNode (unwrap exprContainer.left)
             
             ; Handle CallExpression - both array.map() and regular function calls
-            if (exprNode.nodeType == "CallExpression") {
+            if ((this.nodeKindOf(exprNode)) == 4) {
                 ; Check if it's a method call like array.map()
                 if exprNode.left {
                     def calleeNode:TSNode (unwrap exprNode.left)
-                    if (calleeNode.nodeType == "MemberExpression") {
+                    if ((this.nodeKindOf(calleeNode)) == 3) {
                         ; Method call - check for .map()
                         def methodName:string calleeNode.name
                         if (methodName == "map") {
@@ -7123,13 +7123,13 @@ class ComponentEngine {
             }
             
             ; Handle ternary conditionals
-            if (exprNode.nodeType == "ConditionalExpression") {
+            if ((this.nodeKindOf(exprNode)) == 13) {
                 this.evaluateTernaryChild(element exprNode)
                 return
             }
             
             ; Handle && conditionals
-            if (exprNode.nodeType == "BinaryExpression") {
+            if ((this.nodeKindOf(exprNode)) == 5) {
                 if (exprNode.value == "&&") {
                     this.evaluateAndChild(element exprNode)
                     return
@@ -7183,7 +7183,7 @@ class ComponentEngine {
         ; Get the array being mapped
         if callNode.left {
             def calleeNode:TSNode (unwrap callNode.left)
-            if (calleeNode.nodeType == "MemberExpression") {
+            if ((this.nodeKindOf(calleeNode)) == 3) {
                 def methodName:string calleeNode.name
                 if (methodName == "map") {
                     ; Get the array
@@ -7226,7 +7226,7 @@ class ComponentEngine {
     }
     
     fn bindMapCallback:void (callback:TSNode item:EvalValue index:int) {
-        if (callback.nodeType == "ArrowFunctionExpression") {
+        if ((this.nodeKindOf(callback)) == 17) {
             ; Get parameter name
             if ((array_length callback.params) > 0) {
                 def param:TSNode (itemAt callback.params 0)
@@ -7244,14 +7244,14 @@ class ComponentEngine {
     fn evaluateMapCallbackBody:EVGElement (callback:TSNode) {
         def empty (new EVGElement())
         
-        if (callback.nodeType == "ArrowFunctionExpression") {
+        if ((this.nodeKindOf(callback)) == 17) {
             ; Arrow function body
             if callback.body {
                 def body:TSNode (unwrap callback.body)
                 if ((body.nodeType == "JSXElement") || (body.nodeType == "JSXFragment")) {
                     return (this.evaluateJSX(body))
                 }
-                if (body.nodeType == "BlockStatement") {
+                if ((this.nodeKindOf(body)) == 34) {
                     return (this.evaluateFunctionBody(body))
                 }
                 ; generic expression body — e.g. (e, i) => buildTile(e, i) — is
@@ -7563,7 +7563,7 @@ class ComponentEngine {
             def callee:TSNode (unwrap node.left)
             
             ; Handle method calls (e.g., arr.map(), num.toFixed())
-            if (callee.nodeType == "MemberExpression") {
+            if ((this.nodeKindOf(callee)) == 3) {
                 ; Get the object and method name
                 def obj:EvalValue (EvalValue.null())
                 def methodName:string ""
@@ -7690,7 +7690,7 @@ class ComponentEngine {
                             ; where they were written, so binding a receiver here
                             ; would shadow the correct one.
                             def mNode:TSNode (unwrap objMember.functionNode)
-                            def isArrow:boolean (mNode.nodeType == "ArrowFunctionExpression")
+                            def isArrow:boolean ((this.nodeKindOf(mNode)) == 17)
                             if (objMember.boundThis) {
                                 return (this.callFnValueWithValues(objMember objCargs))
                             }
@@ -7790,7 +7790,7 @@ class ComponentEngine {
                 def arrStaticName:string ""
                 if callee.left {
                     def arrObjNode:TSNode (unwrap callee.left)
-                    if (arrObjNode.nodeType == "Identifier") {
+                    if ((this.nodeKindOf(arrObjNode)) == 1) {
                         arrStaticName = arrObjNode.name
                     }
                 }
@@ -8374,7 +8374,7 @@ class ComponentEngine {
                 def mathObjName:string ""
                 if callee.left {
                     def mathObjNode:TSNode (unwrap callee.left)
-                    if (mathObjNode.nodeType == "Identifier") {
+                    if ((this.nodeKindOf(mathObjNode)) == 1) {
                         mathObjName = mathObjNode.name
                     }
                 }
@@ -8395,10 +8395,10 @@ class ComponentEngine {
                 ; from the class table by the callee's own name instead.
                 if callee.left {
                     def sObjNode:TSNode (unwrap callee.left)
-                    if (sObjNode.nodeType == "Identifier") {
+                    if ((this.nodeKindOf(sObjNode)) == 1) {
                         def sClsName:string sObjNode.name
                         def sCls:TSNode (this.classNodeByName(sClsName))
-                        if (sCls.nodeType == "ClassDeclaration") {
+                        if ((this.nodeKindOf(sCls)) == 25) {
                             def sM:TSNode (this.findStaticMethodOnClassNode(sCls methodName))
                             if (sM.nodeType == "MethodDefinition") {
                                 return (this.callUserFunctionNode(sM node.children (EvalValue.null()) false))
@@ -8621,7 +8621,7 @@ class ComponentEngine {
             ; base constructor against the instance being built. Previously it
             ; did nothing, so every field the base set was simply missing.
             def isSuperCall:boolean (callee.nodeType == "Super")
-            if (callee.nodeType == "Identifier") {
+            if ((this.nodeKindOf(callee)) == 1) {
                 if (callee.name == "super") {
                     isSuperCall = true
                 }
@@ -8632,7 +8632,7 @@ class ComponentEngine {
                     if (selfV.valueType == 5) {
                         def ownCls:string (this.instanceClassName(selfV))
                         def ownNode:TSNode (this.classNodeByName(ownCls))
-                        if (ownNode.nodeType == "ClassDeclaration") {
+                        if ((this.nodeKindOf(ownNode)) == 25) {
                             this.runSuperConstructor(ownNode selfV node.children 0)
                         }
                     }
@@ -8641,7 +8641,7 @@ class ComponentEngine {
             }
 
             ; Handle regular function calls
-            if (callee.nodeType == "Identifier") {
+            if ((this.nodeKindOf(callee)) == 1) {
                 def fnName:string callee.name
                 if (false == quiet) {
                     this.trace("Evaluating function call: " + fnName)
@@ -8955,7 +8955,7 @@ class ComponentEngine {
             ; vacuously: every call to an unimplemented global quietly did
             ; nothing and the assertion after it never ran.
             if strictReferences {
-                if (callee.nodeType == "Identifier") {
+                if ((this.nodeKindOf(callee)) == 1) {
                     def cName:string callee.name
                     if (false == (this.isCallableName(cName))) {
                         if (this.nameResolves(cName)) {
@@ -8968,22 +8968,22 @@ class ComponentEngine {
                 ; `true()`, `1()`, `null()`, `new Number(1)()` -- is a TypeError
                 ; too. It fell through to null, so the call did nothing.
                 def litCallee:boolean false
-                if (callee.nodeType == "ThisExpression") { litCallee = true }
-                if (callee.nodeType == "NumericLiteral") { litCallee = true }
-                if (callee.nodeType == "StringLiteral") { litCallee = true }
-                if (callee.nodeType == "BooleanLiteral") { litCallee = true }
-                if (callee.nodeType == "NullLiteral") { litCallee = true }
-                if (callee.nodeType == "NewExpression") { litCallee = true }
-                if (callee.nodeType == "ObjectExpression") { litCallee = true }
-                if (callee.nodeType == "ArrayExpression") { litCallee = true }
+                if ((this.nodeKindOf(callee)) == 20) { litCallee = true }
+                if ((this.nodeKindOf(callee)) == 2) { litCallee = true }
+                if ((this.nodeKindOf(callee)) == 8) { litCallee = true }
+                if ((this.nodeKindOf(callee)) == 9) { litCallee = true }
+                if ((this.nodeKindOf(callee)) == 10) { litCallee = true }
+                if ((this.nodeKindOf(callee)) == 16) { litCallee = true }
+                if ((this.nodeKindOf(callee)) == 15) { litCallee = true }
+                if ((this.nodeKindOf(callee)) == 14) { litCallee = true }
                 ; A REGEXP is not callable: `/[^a]*/()` is a TypeError. The node
                 ; type was missing from this list, so the call fell through to
                 ; null and did nothing at all.
-                if (callee.nodeType == "RegExpLiteral") { litCallee = true }
+                if ((this.nodeKindOf(callee)) == 21) { litCallee = true }
                 ; A callee that is itself a CALL -- `String("a")()` -- has to be
                 ; evaluated to know: `f()()` is legal when the inner call
                 ; returns a function.
-                if (callee.nodeType == "CallExpression") {
+                if ((this.nodeKindOf(callee)) == 4) {
                     def innerV:EvalValue (this.evaluateExpr(callee))
                     if scriptThrew {
                         return (EvalValue.undefined())
@@ -9005,7 +9005,7 @@ class ComponentEngine {
                 ; first, per spec -- the callability check comes after -- so a
                 ; call like `o.bar(foo())` must still run foo() before it
                 ; throws. Falling through to null skipped both.
-                if (callee.nodeType == "MemberExpression") {
+                if ((this.nodeKindOf(callee)) == 3) {
                     def missArgs:[EvalValue] (this.collectCallArgs(node))
                     if scriptThrew {
                         return (EvalValue.undefined())
@@ -16203,7 +16203,11 @@ class ComponentEngine {
     }
 
     fn lookupIdentifier:EvalValue (name:string) {
-        if (name == "undefined") {
+        ; PERF: the three special names gate on LENGTH first — this runs for
+        ; every identifier read, and `s == "literal"` pays strlen(literal)
+        ; per compare on the C++ target
+        def nlen:int (strlen name)
+        if ((nlen == 9) && (name == "undefined")) {
             return (EvalValue.undefined())
         }
         ; D-WITH: a name the with object serves through a GETTER. EvalContext
@@ -16226,10 +16230,10 @@ class ComponentEngine {
         ; about. They were resolving to undefined, so `x === -Infinity` compared
         ; against NaN and was false for every x — a comparison that silently
         ; never held.
-        if (name == "Infinity") {
+        if ((nlen == 8) && (name == "Infinity")) {
             return (EvalValue.number((1.0 / 0.0)))
         }
-        if (name == "NaN") {
+        if ((nlen == 3) && (name == "NaN")) {
             return (EvalValue.number((0.0 / 0.0)))
         }
         def ctxHit@(optional):EvalValue (context.tryLookup(name))
@@ -16276,7 +16280,7 @@ class ComponentEngine {
         ; call was even attempted. A class name resolves to a value carrying the
         ; class name so it is both referenceable and dispatchable.
         def clsRef:TSNode (this.classNodeByName(name))
-        if (clsRef.nodeType == "ClassDeclaration") {
+        if ((this.nodeKindOf(clsRef)) == 25) {
             def cv:EvalValue (EvalValue.nativeFunction(name))
             cv.setMember("__classname__" (EvalValue.string(name)))
             cv.setMember("name" (EvalValue.string(name)))
@@ -16335,7 +16339,7 @@ class ComponentEngine {
     fn evaluateTypeofExpr:EvalValue (node:TSNode) {
         if node.left {
             def argNode:TSNode (unwrap node.left)
-            if (argNode.nodeType == "Identifier") {
+            if ((this.nodeKindOf(argNode)) == 1) {
                 def name:string argNode.name
                 if (name == "undefined") {
                     return (EvalValue.string("undefined"))
@@ -16393,7 +16397,7 @@ class ComponentEngine {
                 ;   - a binding created by plain assignment (an implicit global):
                 ;     configurable, so it goes and the answer is true;
                 ;   - unresolvable: true, per spec.
-                if (tgt.nodeType == "Identifier") {
+                if ((this.nodeKindOf(tgt)) == 1) {
                     def delName:string tgt.name
                     def delWith:EvalValue (this.withHostFor(delName))
                     if (delWith.valueType == 5) {
@@ -16448,7 +16452,7 @@ class ComponentEngine {
                     }
                     return (EvalValue.boolean(true))
                 }
-                if (tgt.nodeType == "MemberExpression") {
+                if ((this.nodeKindOf(tgt)) == 3) {
                     def obj:EvalValue (EvalValue.null())
                     if tgt.left {
                         obj = (this.evaluateExpr((unwrap tgt.left)))
@@ -16645,7 +16649,7 @@ class ComponentEngine {
             return
         }
         def supCls:TSNode (this.classNodeByName(supName))
-        if (supCls.nodeType != "ClassDeclaration") {
+        if ((this.nodeKindOf(supCls)) != 25) {
             return
         }
         ; Base field initialisers first, then its constructor — the same order
@@ -16719,7 +16723,7 @@ class ComponentEngine {
         if ((strlen name) == 0) { return empty }
         if ((strlen currentModule) > 0) {
             def mc:TSNode (this.moduleClassNode(currentModule name))
-            if (mc.nodeType == "ClassDeclaration") {
+            if ((this.nodeKindOf(mc)) == 25) {
                 return mc
             }
         }
@@ -16757,7 +16761,7 @@ class ComponentEngine {
                 return empty
             }
             def supCls:TSNode (this.classNodeByName(supName))
-            if (supCls.nodeType != "ClassDeclaration") {
+            if ((this.nodeKindOf(supCls)) != 25) {
                 return empty
             }
             cur = supCls
@@ -17051,7 +17055,7 @@ class ComponentEngine {
         if node.left {
             def callee:TSNode (unwrap node.left)
             className = callee.name
-            if (callee.nodeType == "MemberExpression") {
+            if ((this.nodeKindOf(callee)) == 3) {
                 if callee.left {
                     def baseNode:TSNode (unwrap callee.left)
                     def baseV:EvalValue (this.evaluateExpr(baseNode))
@@ -17246,7 +17250,7 @@ class ComponentEngine {
                             ; the class table has to be consulted too before
                             ; declaring the name unresolvable.
                             def ncCls:TSNode (this.classNodeByName(ncName))
-                            if (ncCls.nodeType != "ClassDeclaration") {
+                            if ((this.nodeKindOf(ncCls)) != 25) {
                                 return (this.throwSpecError("ReferenceError" (ncName + " is not defined")))
                             }
                         } {
@@ -17427,7 +17431,7 @@ class ComponentEngine {
                 }
             }
         }
-        if (cls.nodeType != "ClassDeclaration") {
+        if ((this.nodeKindOf(cls)) != 25) {
             return (EvalValue.null())
         }
         def keys0:[string]
@@ -17499,7 +17503,7 @@ class ComponentEngine {
             def propName:string node.name
 
             ; Math.PI / Math.E — no runtime Math object in interpreter
-            if (leftExpr.nodeType == "Identifier") {
+            if ((this.nodeKindOf(leftExpr)) == 1) {
                 if (leftExpr.name == "Math") {
                     if (propName == "PI") {
                         def pi:double (M_PI)
@@ -18948,7 +18952,7 @@ class ComponentEngine {
         ; The AST should have a Program with one ExpressionStatement
         if ((array_length ast.children) > 0) {
             def stmt:TSNode (itemAt ast.children 0)
-            if (stmt.nodeType == "ExpressionStatement") {
+            if ((this.nodeKindOf(stmt)) == 30) {
                 if stmt.left {
                     def exprNode:TSNode (unwrap stmt.left)
                     def value:EvalValue (this.evaluateExpr(exprNode))

@@ -764,6 +764,45 @@ class RangerCppClassWriter {
       if (lc.value_type == RangerNodeType.String) {
         lLit = true
       }
+      def rc:CodeNode cmpR
+      while (rc.expression && ((array_length rc.children) == 1)) {
+        rc = (rc.getFirst())
+      }
+      def rLit:boolean false
+      if (rc.value_type == RangerNodeType.String) {
+        rLit = true
+      }
+      ; exactly ONE literal side: compare as SIZED string_views. The bare
+      ; `s == "lit"` form pays strlen(lit) per compare (not folded through
+      ; the .isra clones), and no length gate — string_view(lit, N) makes
+      ; the length compile-time and mismatched lengths never memcmp.
+      ; ASCII literals only: N is the byte length of the compiled literal.
+      if (lLit != rLit) {
+        def svLitN:CodeNode rc
+        def svExprN:CodeNode cmpL
+        if lLit {
+          svLitN = lc
+          svExprN = cmpR
+        }
+        def svAscii:boolean true
+        def svLen:int (strlen svLitN.string_value)
+        def svI:int 0
+        while (svI < svLen) {
+          if ((charAt svLitN.string_value svI) > 126) {
+            svAscii = false
+          }
+          svI = (svI + 1)
+        }
+        if svAscii {
+          wr.out("(std::string_view(" false)
+          ctx.setInExpr()
+          this.WalkNode(svExprN ctx wr)
+          ctx.unsetInExpr()
+          wr.out((((") " + cmd) + " std::string_view(\"") + (this.EncodeString(svLitN ctx wr))) false)
+          wr.out((("\", " + svLen) + "))") false)
+          return
+        }
+      }
       wr.out("(" false)
       this.cppWriteCmpOperand(cmpL false ctx wr)
       wr.out((((" " + cmd) + " ")) false)

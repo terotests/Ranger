@@ -19615,6 +19615,40 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         if ( lc.value_type == 4 ) {
           lLit = true;
         }
+        let rc = cmpR;
+        while (rc.expression && ((rc.children.length) == 1)) {
+          rc = rc.getFirst();
+        };
+        let rLit = false;
+        if ( rc.value_type == 4 ) {
+          rLit = true;
+        }
+        if ( lLit != rLit ) {
+          let svLitN = rc;
+          let svExprN = cmpL;
+          if ( lLit ) {
+            svLitN = lc;
+            svExprN = cmpR;
+          }
+          let svAscii = true;
+          const svLen = svLitN.string_value.length;
+          let svI = 0;
+          while (svI < svLen) {
+            if ( (svLitN.string_value.charCodeAt(svI )) > 126 ) {
+              svAscii = false;
+            }
+            svI = svI + 1;
+          };
+          if ( svAscii ) {
+            wr.out("(std::string_view(", false);
+            ctx.setInExpr();
+            await this.WalkNode(svExprN, ctx, wr);
+            ctx.unsetInExpr();
+            wr.out(((") " + cmd) + " std::string_view(\"") + this.EncodeString(svLitN, ctx, wr), false);
+            wr.out(("\", " + svLen) + "))", false);
+            return;
+          }
+        }
         wr.out("(", false);
         await this.cppWriteCmpOperand(cmpL, false, ctx, wr);
         wr.out((" " + cmd) + " ", false);
