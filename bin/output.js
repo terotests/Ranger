@@ -441,6 +441,7 @@ class RangerAppParamDesc  {
     this.debugString = "";
     this.is_register = false;
     this.ref_cnt = 0;
+    this.read_cnt = 0;
     this.init_cnt = 0;
     this.set_cnt = 0;
     this.return_cnt = 0;
@@ -4026,6 +4027,17 @@ class RangerAppWriterContext  {
       default: 
         break;
     };
+    if ( operatorsOfRangerAppWriterContext_21.getTargetLang_22(this) == "csharp" ) {
+      if ( input_word == "null" ) {
+        return "_null";
+      }
+      if ( input_word == "true" ) {
+        return "_true";
+      }
+      if ( input_word == "false" ) {
+        return "_false";
+      }
+    }
     const root = this.getRoot();
     root.initReservedWords();
     if ( ( typeof(root.refTransform[input_word] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.refTransform, input_word) ) ) {
@@ -4048,7 +4060,7 @@ class RangerAppWriterContext  {
     };
     let cmds;
     const langNodes = lang.children[1];
-    const targetLang = operatorsOfRangerAppWriterContext_21.getTargetLang_22(this);
+    const targetLang = operatorsOf_21.getTargetLang_22(this);
     for ( let i_1 = 0; i_1 < langNodes.children.length; i_1++) {
       var lch = langNodes.children[i_1];
       const fc_1 = lch.getFirst();
@@ -10238,6 +10250,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           node.ownParamDesc = vDef;
           node.paramDesc = vDef;
           vDef.ref_cnt = 1 + vDef.ref_cnt;
+          vDef.read_cnt = 1 + vDef.read_cnt;
           const vNameNode = vDef.nameNode;
           if ( ctx.isDefinedClass(node.type_name) ) {
             const m = ctx.getCurrentMethod();
@@ -11674,6 +11687,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       if ( n1_1.hasParamDesc ) {
         n1_1.paramDesc.ref_cnt = n1_1.paramDesc.ref_cnt + 1;
         n1_1.paramDesc.set_cnt = n1_1.paramDesc.set_cnt + 1;
+        n1_1.paramDesc.read_cnt = n1_1.paramDesc.read_cnt - 1;
       }
       if ( n2_1.hasParamDesc ) {
         n2_1.paramDesc.ref_cnt = n2_1.paramDesc.ref_cnt + 1;
@@ -15601,6 +15615,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     getTypeString (type_string) {
       return type_string;
     };
+    emptyBlockFiller () {
+      return "";
+    };
     import_lib (lib_name, ctx, wr) {
       wr.addImport(lib_name);
     };
@@ -18367,6 +18384,21 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
       return false;
     };
+    receiverIsNullable (obj) {
+      if ( obj.hasFlag("optional") ) {
+        return true;
+      }
+      if ( obj.hasParamDesc ) {
+        const p = obj.paramDesc;
+        const nn = p.nameNode;
+        if ( (typeof(nn) !== "undefined" && nn != null )  ) {
+          if ( ((nn)).hasFlag("optional") ) {
+            return true;
+          }
+        }
+      }
+      return false;
+    };
     async CreateCallExpression (node, ctx, wr) {
       if ( node.has_call ) {
         const obj = node.getSecond();
@@ -18380,10 +18412,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         await this.WalkNode(obj, ctx, wr);
         ctx.unsetInExpr();
         if ( simpleReceiver == false ) {
-          wr.out(").", false);
-        } else {
-          wr.out(".", false);
+          wr.out(")", false);
         }
+        if ( this.receiverIsNullable(obj) ) {
+          wr.out("!", false);
+        }
+        wr.out(".", false);
         let methodName = method.vref;
         if ( ((typeof(node.fnDesc) !== "undefined" && node.fnDesc != null ) ) && ((node.fnDesc.compiledName.length) > 0) ) {
           methodName = node.fnDesc.compiledName;
@@ -19000,15 +19034,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           break;
         case 4 : 
           let s = this.EncodeString(node, ctx, wr);
-          s = s.replace("??=", "\\?\\?=");
-          s = s.replace("??(", "\\?\\?(");
-          s = s.replace("??/", "\\?\\?/");
-          s = s.replace("??)", "\\?\\?)");
-          s = s.replace("??'", "\\?\\?'");
-          s = s.replace("??<", "\\?\\?<");
-          s = s.replace("??!", "\\?\\?!");
-          s = s.replace("??>", "\\?\\?>");
-          s = s.replace("??-", "\\?\\?-");
+          s = s.split("??=").join("\\?\\?=");
+          s = s.split("??(").join("\\?\\?(");
+          s = s.split("??/").join("\\?\\?/");
+          s = s.split("??)").join("\\?\\?)");
+          s = s.split("??'").join("\\?\\?'");
+          s = s.split("??<").join("\\?\\?<");
+          s = s.split("??!").join("\\?\\?!");
+          s = s.split("??>").join("\\?\\?>");
+          s = s.split("??-").join("\\?\\?-");
           wr.out(("std::string(" + (("\"" + s) + "\"")) + ")", false);
           break;
         case 3 : 
@@ -26178,7 +26212,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               WriteScalarValue (node, ctx, wr) {
                 switch (node.value_type ) { 
                   case 2 : 
-                    wr.out(node.getParsedString(), false);
+                    const dd_str = "" + node.double_value;
+                    const ii_str = "" + (Math.floor( node.double_value));
+                    if ( dd_str == ii_str ) {
+                      wr.out(("" + node.double_value) + ".0", false);
+                    } else {
+                      wr.out("" + node.double_value, false);
+                    }
                     break;
                   case 4 : 
                     const s = this.EncodeString(node, ctx, wr);
@@ -26364,7 +26404,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       if ( (typeof(uc) !== "undefined" && uc != null )  ) {
                         const currC = uc;
                         if ( part == currC.name ) {
-                          if ( false == ctx.isInStatic() ) {
+                          if ( (false == ctx.isInStatic()) && (false == this.namesStaticMember(currC, node)) ) {
                             wr.out("this", false);
                             continue;
                           }
@@ -26411,7 +26451,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     if ( (typeof(uc_1) !== "undefined" && uc_1 != null )  ) {
                       const currC_1 = uc_1;
                       if ( part_1 == currC_1.name ) {
-                        if ( false == ctx.isInStatic() ) {
+                        if ( (false == ctx.isInStatic()) && (false == this.namesStaticMember(currC_1, node)) ) {
                           wr.out("this", false);
                           continue;
                         }
@@ -26420,6 +26460,111 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   }
                   wr.out(this.adjustType(part_1), false);
                 };
+              };
+              EncodeString (node, ctx, wr) {
+                let encoded_str = "";
+                const str_length = node.string_value.length;
+                let ii = 0;
+                while (ii < str_length) {
+                  const cc = node.string_value.charCodeAt(ii );
+                  switch (cc ) { 
+                    case 8 : 
+                      encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(98));
+                      break;
+                    case 9 : 
+                      encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(116));
+                      break;
+                    case 10 : 
+                      encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(110));
+                      break;
+                    case 12 : 
+                      encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(102));
+                      break;
+                    case 13 : 
+                      encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(114));
+                      break;
+                    case 34 : 
+                      encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(34));
+                      break;
+                    case 36 : 
+                      encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(36));
+                      break;
+                    case 92 : 
+                      encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(92));
+                      break;
+                    default: 
+                      encoded_str = encoded_str + (String.fromCharCode(cc));
+                      break;
+                  };
+                  ii = ii + 1;
+                };
+                return encoded_str;
+              };
+              receiverIsNullable (obj) {
+                if ( obj.hasFlag("optional") ) {
+                  return true;
+                }
+                if ( obj.hasParamDesc ) {
+                  const p = obj.paramDesc;
+                  const nn = p.nameNode;
+                  if ( (typeof(nn) !== "undefined" && nn != null )  ) {
+                    if ( ((nn)).hasFlag("optional") ) {
+                      return true;
+                    }
+                  }
+                }
+                return false;
+              };
+              async CreateCallExpression (node, ctx, wr) {
+                if ( node.has_call ) {
+                  const obj = node.getSecond();
+                  const method = node.getThird();
+                  const args = node.children[3];
+                  wr.out("(", false);
+                  ctx.setInExpr();
+                  await this.WalkNode(obj, ctx, wr);
+                  ctx.unsetInExpr();
+                  wr.out(")", false);
+                  if ( this.receiverIsNullable(obj) ) {
+                    wr.out("!!", false);
+                  }
+                  wr.out(".", false);
+                  let methodName = method.vref;
+                  if ( ((typeof(node.fnDesc) !== "undefined" && node.fnDesc != null ) ) && ((node.fnDesc.compiledName.length) > 0) ) {
+                    methodName = node.fnDesc.compiledName;
+                  }
+                  wr.outMapped(methodName, method, false, method.vref);
+                  wr.out("(", false);
+                  ctx.setInExpr();
+                  const pms = operatorsOf.filter_36(args.children, ((item, index) => { 
+                    if ( item.hasFlag("keyword") ) {
+                      return false;
+                    }
+                    return true;
+                  }));
+                  for ( let i = 0; i < pms.length; i++) {
+                    var arg = pms[i];
+                    if ( i > 0 ) {
+                      wr.out(", ", false);
+                    }
+                    await this.WalkNode(arg, ctx, wr);
+                  };
+                  ctx.unsetInExpr();
+                  wr.out(")", false);
+                  if ( ctx.expressionLevel() == 0 ) {
+                    wr.out(";", true);
+                  }
+                }
+              };
+              namesStaticMember (cl, node) {
+                if ( (node.ns.length) < 2 ) {
+                  return false;
+                }
+                const member = node.ns[1];
+                if ( cl.hasStaticMethod(member) ) {
+                  return true;
+                }
+                return false;
               };
               async writeVarDef (node, ctx, wr) {
                 if ( node.hasParamDesc ) {
@@ -26771,8 +26916,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     if ( ( typeof(declaredFunction[variant_2.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredFunction, variant_2.name) ) ) {
                       shouldOverride = true;
                     }
-                    if ( (variant_2.compiledName == "toString") || ((variant_2.compiledName == "hashCode") || (variant_2.compiledName == "equals")) ) {
-                      shouldOverride = true;
+                    if ( (variant_2.compiledName == "toString") || (variant_2.compiledName == "hashCode") ) {
+                      if ( (variant_2.params.length) == 0 ) {
+                        shouldOverride = true;
+                      }
                     }
                     if ( shouldOverride ) {
                       wr.out("override ", false);
@@ -26932,6 +27079,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   wr.out(">", false);
                 }
               };
+              writeNullableMark (node, wr) {
+                if ( node.hasFlag("optional") ) {
+                  wr.out("?", false);
+                }
+              };
               async writeTypeDef (node, ctx, wr) {
                 let v_type = node.value_type;
                 let t_name = node.type_name;
@@ -26958,15 +27110,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     break;
                   case 13 : 
                     wr.out("int", false);
+                    this.writeNullableMark(node, wr);
                     break;
                   case 3 : 
                     wr.out("int", false);
+                    this.writeNullableMark(node, wr);
                     break;
                   case 2 : 
                     wr.out("double", false);
+                    this.writeNullableMark(node, wr);
                     break;
                   case 14 : 
                     wr.out("byte", false);
+                    this.writeNullableMark(node, wr);
                     break;
                   case 15 : 
                     wr.out("byte[]", false);
@@ -26985,6 +27141,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     break;
                   case 5 : 
                     wr.out("bool", false);
+                    this.writeNullableMark(node, wr);
                     break;
                   case 7 : 
                     wr.out(((("Dictionary<" + this.getObjectTypeString(k_name, ctx)) + ",") + this.getObjectTypeString(a_name, ctx)) + ">", false);
@@ -27079,11 +27236,38 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   wr.out(this.adjustType(part_1), false);
                 };
               };
+              csNodeContainsCall (node) {
+                if ( node.hasFnCall ) {
+                  return true;
+                }
+                if ( node.has_call ) {
+                  return true;
+                }
+                if ( node.has_lambda_call ) {
+                  return true;
+                }
+                for ( let ci = 0; ci < node.children.length; ci++) {
+                  var ch = node.children[ci];
+                  if ( this.csNodeContainsCall(ch) ) {
+                    return true;
+                  }
+                };
+                return false;
+              };
               async writeVarDef (node, ctx, wr) {
                 if ( node.hasParamDesc ) {
                   const nn = node.children[1];
                   const p = nn.paramDesc;
-                  if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
+                  const unusedDef = (p.ref_cnt == 0) && (p.is_class_variable == false);
+                  let keepsCall = false;
+                  if ( unusedDef ) {
+                    if ( (node.children.length) > 2 ) {
+                      if ( this.csNodeContainsCall(node.getThird()) ) {
+                        keepsCall = true;
+                      }
+                    }
+                  }
+                  if ( unusedDef && (keepsCall == false) ) {
                     wr.out("/** unused:  ", false);
                   }
                   if ( (p.set_cnt > 0) || p.is_class_variable ) {
@@ -27093,6 +27277,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   }
                   await this.writeTypeDef(p.nameNode, ctx, wr);
                   wr.out(" ", false);
+                  if ( keepsCall ) {
+                    wr.out("_", false);
+                  }
                   wr.out(p.compiledName, false);
                   if ( (node.children.length) > 2 ) {
                     wr.out(" = ", false);
@@ -27111,11 +27298,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       await this.writeTypeDef(p.nameNode, ctx, wr);
                       wr.out("()", false);
                     }
+                    if ( (nn.value_type != 6) && (nn.value_type != 7) ) {
+                      if ( (p.is_class_variable == false) && nn.hasFlag("optional") ) {
+                        wr.out(" = null", false);
+                      }
+                    }
                   }
                   if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
                     wr.out("     /** note: unused */", false);
                   }
-                  if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
+                  if ( unusedDef && (keepsCall == false) ) {
                     wr.out("   **/ ;", true);
                   } else {
                     wr.out(";", false);
@@ -27214,6 +27406,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 };
                 if ( cl.has_constructor ) {
                   const constr = cl.constructor_fn;
+                  wr.out("public ", false);
                   wr.out(cl.name + "(", false);
                   await this.writeArgsDef(constr, ctx, wr);
                   wr.out(" ) {", true);
@@ -27226,8 +27419,49 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   wr.indent(-1);
                   wr.out("}", true);
                 }
-                for ( let i_2 = 0; i_2 < cl.static_methods.length; i_2++) {
-                  var variant = cl.static_methods[i_2];
+                if ( cl.isSingletonClass() ) {
+                  wr.out(("static " + cl.name) + " __singleton_instance = null;", true);
+                  wr.out(("public static " + cl.name) + " __singleton(", false);
+                  let sgHasArgs = false;
+                  if ( cl.has_constructor ) {
+                    const sgc = cl.constructor_fn;
+                    if ( (typeof(sgc) !== "undefined" && sgc != null )  ) {
+                      await this.writeArgsDef(sgc, ctx, wr);
+                      sgHasArgs = true;
+                    }
+                  }
+                  wr.out(") {", true);
+                  wr.indent(1);
+                  wr.out("if (__singleton_instance == null) {", true);
+                  wr.indent(1);
+                  wr.out(("__singleton_instance = new " + cl.name) + "(", false);
+                  if ( sgHasArgs ) {
+                    const sgc2 = cl.constructor_fn;
+                    if ( (typeof(sgc2) !== "undefined" && sgc2 != null )  ) {
+                      const sgc2F = sgc2;
+                      let fwd = 0;
+                      for ( let i_2 = 0; i_2 < sgc2F.params.length; i_2++) {
+                        var arg = sgc2F.params[i_2];
+                        if ( arg.nameNode.hasFlag("keyword") ) {
+                          continue;
+                        }
+                        if ( fwd > 0 ) {
+                          wr.out(", ", false);
+                        }
+                        fwd = fwd + 1;
+                        wr.out(arg.compiledName, false);
+                      };
+                    }
+                  }
+                  wr.out(");", true);
+                  wr.indent(-1);
+                  wr.out("}", true);
+                  wr.out("return __singleton_instance;", true);
+                  wr.indent(-1);
+                  wr.out("}", true);
+                }
+                for ( let i_3 = 0; i_3 < cl.static_methods.length; i_3++) {
+                  var variant = cl.static_methods[i_3];
                   if ( variant.nameNode.hasFlag("main") && (variant.nameNode.code.filename != ctx.getRootFile()) ) {
                     continue;
                   }
@@ -27237,7 +27471,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     wr.out("public static ", false);
                     await this.writeTypeDef(variant.nameNode, ctx, wr);
                     wr.out(" ", false);
-                    wr.out(variant.name + "(", false);
+                    wr.out(variant.compiledName + "(", false);
                     await this.writeArgsDef(variant, ctx, wr);
                     wr.out(") {", true);
                   }
@@ -27250,15 +27484,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   wr.indent(-1);
                   wr.out("}", true);
                 };
-                for ( let i_3 = 0; i_3 < cl.defined_variants.length; i_3++) {
-                  var fnVar = cl.defined_variants[i_3];
+                for ( let i_4 = 0; i_4 < cl.defined_variants.length; i_4++) {
+                  var fnVar = cl.defined_variants[i_4];
                   const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
-                  for ( let i_4 = 0; i_4 < mVs.variants.length; i_4++) {
-                    var variant_1 = mVs.variants[i_4];
+                  for ( let i_5 = 0; i_5 < mVs.variants.length; i_5++) {
+                    var variant_1 = mVs.variants[i_5];
                     wr.out("public ", false);
                     await this.writeTypeDef(variant_1.nameNode, ctx, wr);
                     wr.out(" ", false);
-                    wr.out(variant_1.name + "(", false);
+                    wr.out(variant_1.compiledName + "(", false);
                     await this.writeArgsDef(variant_1, ctx, wr);
                     wr.out(") {", true);
                     wr.indent(1);
@@ -28343,7 +28577,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     wr.out(this.getObjectTypeString(a_name, ctx) + "", false);
                     break;
                   default: 
-                    if ( (node.type_name == "void") || (false == ((node.type_name.length) > 0)) ) {
+                    if ( (t_name == "void") || (false == ((t_name.length) > 0)) ) {
                       wr.out("()", false);
                       return;
                     }
@@ -28862,11 +29096,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     let b_can_skip = true;
                     if ( (node.children.length) > 2 ) {
                       const value = node.getThird();
-                      if ( value.has_call || value.has_lambda_call ) {
+                      if ( (value.has_call || value.has_lambda_call) || value.hasFnCall ) {
                         b_can_skip = false;
                       }
                       await value.forTree(((item, i) => { 
-                        if ( item.has_call || item.has_lambda_call ) {
+                        if ( (item.has_call || item.has_lambda_call) || item.hasFnCall ) {
                           b_can_skip = false;
                         }
                       }));
@@ -28986,6 +29220,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     }
                   }
                   wr.out(";", false);
+                  if ( (p.read_cnt <= 0) && (p.is_class_variable == false) ) {
+                    wr.out(" _ = " + p.compiledName, false);
+                  }
                   if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
                     wr.out("     /** note: unused */", false);
                   }
@@ -29416,6 +29653,60 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 wr.indent(-1);
                 wr.out("}", true);
               };
+              async writeSingletonAccessor (cl, ctx, wr) {
+                const slot = cl.name + "__singleton_instance";
+                wr.newline();
+                wr.out(((("var " + slot) + " *") + cl.name) + " = nil", true);
+                wr.out(("func " + cl.name) + "_static___singleton(", false);
+                let written = 0;
+                if ( cl.has_constructor ) {
+                  const sgc = cl.constructor_fn;
+                  if ( (typeof(sgc) !== "undefined" && sgc != null )  ) {
+                    const sgcF = sgc;
+                    for ( let i = 0; i < sgcF.params.length; i++) {
+                      var arg = sgcF.params[i];
+                      if ( arg.nameNode.hasFlag("keyword") ) {
+                        continue;
+                      }
+                      if ( written > 0 ) {
+                        wr.out(", ", false);
+                      }
+                      written = written + 1;
+                      wr.out(arg.name + " ", false);
+                      await this.writeTypeDef(arg.nameNode, ctx, wr);
+                    };
+                  }
+                }
+                wr.out((") *" + cl.name) + " {", true);
+                wr.indent(1);
+                wr.out(("if " + slot) + " == nil {", true);
+                wr.indent(1);
+                wr.out(((slot + " = CreateNew_") + cl.name) + "(", false);
+                let fwd = 0;
+                if ( cl.has_constructor ) {
+                  const sgc2 = cl.constructor_fn;
+                  if ( (typeof(sgc2) !== "undefined" && sgc2 != null )  ) {
+                    const sgc2F = sgc2;
+                    for ( let i_1 = 0; i_1 < sgc2F.params.length; i_1++) {
+                      var arg_1 = sgc2F.params[i_1];
+                      if ( arg_1.nameNode.hasFlag("keyword") ) {
+                        continue;
+                      }
+                      if ( fwd > 0 ) {
+                        wr.out(", ", false);
+                      }
+                      fwd = fwd + 1;
+                      wr.out(arg_1.name, false);
+                    };
+                  }
+                }
+                wr.out(")", true);
+                wr.indent(-1);
+                wr.out("}", true);
+                wr.out("return " + slot, true);
+                wr.indent(-1);
+                wr.out("}", true);
+              };
               async writeClass (node, ctx, orig_wr) {
                 const cl = node.clDesc;
                 if ( typeof(cl) === "undefined" ) {
@@ -29603,6 +29894,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 wr.indent(-1);
                 wr.out("}", true);
                 this.thisName = "this";
+                if ( cl.isSingletonClass() ) {
+                  await this.writeSingletonAccessor(cl, ctx, wr);
+                }
                 for ( let i_12 = 0; i_12 < cl.static_methods.length; i_12++) {
                   var variant_1 = cl.static_methods[i_12];
                   if ( variant_1.nameNode.hasFlag("main") ) {
@@ -30710,9 +31004,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 this.thisName = "self";
                 this.wrote_header = false;
               }
+              emptyBlockFiller () {
+                return "pass";
+              };
               adjustType (tn) {
                 if ( tn == "this" ) {
                   return "self";
+                }
+                if ( tn == "__singleton" ) {
+                  return "rg_singleton";
                 }
                 return tn;
               };
@@ -30869,6 +31169,32 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   wr.out(this.adjustType(part_3), false);
                 };
               };
+              pyNodeContainsCall (node) {
+                if ( node.hasFnCall ) {
+                  return true;
+                }
+                if ( node.has_call ) {
+                  return true;
+                }
+                if ( node.has_lambda_call ) {
+                  return true;
+                }
+                for ( let ci = 0; ci < node.children.length; ci++) {
+                  var ch = node.children[ci];
+                  if ( this.pyNodeContainsCall(ch) ) {
+                    return true;
+                  }
+                };
+                return false;
+              };
+              async pyWalkBody (body, ctx, wr) {
+                const lineBefore = wr.lineNumber;
+                const colBefore = wr.currentLine.length;
+                await this.WalkNode(body, ctx, wr);
+                if ( (wr.lineNumber == lineBefore) && ((wr.currentLine.length) == colBefore) ) {
+                  wr.out("pass", true);
+                }
+              };
               async writeVarInitDef (node, ctx, wr) {
                 if ( node.hasParamDesc ) {
                   const nn = node.children[1];
@@ -30901,8 +31227,20 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( node.hasParamDesc ) {
                   const nn = node.children[1];
                   const p = nn.paramDesc;
-                  if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
+                  const unusedDef = (p.ref_cnt == 0) && (p.is_class_variable == false);
+                  let keepsCall = false;
+                  if ( unusedDef ) {
+                    if ( (node.children.length) > 2 ) {
+                      if ( this.pyNodeContainsCall(node.getThird()) ) {
+                        keepsCall = true;
+                      }
+                    }
+                  }
+                  if ( unusedDef && (keepsCall == false) ) {
                     wr.out("# unused:  ", false);
+                  }
+                  if ( keepsCall ) {
+                    wr.out("_", false);
                   }
                   wr.out(p.compiledName, false);
                   if ( (node.children.length) > 2 ) {
@@ -31164,6 +31502,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( this.wrote_header == false ) {
                   wr.out("# -*- coding: utf-8 -*-", true);
                   wr.out("", true);
+                  wr.createTag("utilities");
+                  wr.out("", true);
                   this.wrote_header = true;
                 }
                 wr.out("class " + cl.name, false);
@@ -31179,6 +31519,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
                 wr.out(":", true);
                 wr.indent(1);
+                if ( cl.isSingletonClass() ) {
+                  wr.out("_rg_singleton_instance = None", true);
+                }
                 wr.out("def __init__(self", false);
                 if ( cl.has_constructor ) {
                   const constr = cl.constructor_fn;
@@ -31224,8 +31567,48 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
                 wr.newline();
                 wr.indent(-1);
-                for ( let i_3 = 0; i_3 < cl.static_methods.length; i_3++) {
-                  var variant = cl.static_methods[i_3];
+                if ( cl.isSingletonClass() ) {
+                  wr.out("@staticmethod", true);
+                  wr.out("def rg_singleton(", false);
+                  let sgWritten = 0;
+                  if ( cl.has_constructor ) {
+                    const sgc = cl.constructor_fn;
+                    if ( (typeof(sgc) !== "undefined" && sgc != null )  ) {
+                      this.writeArgsDef(sgc, ctx, wr);
+                      sgWritten = 1;
+                    }
+                  }
+                  wr.out("):", true);
+                  wr.indent(1);
+                  wr.out(("if " + cl.name) + "._rg_singleton_instance is None:", true);
+                  wr.indent(1);
+                  wr.out(((cl.name + "._rg_singleton_instance = ") + cl.name) + "(", false);
+                  if ( sgWritten > 0 ) {
+                    const sgc2 = cl.constructor_fn;
+                    if ( (typeof(sgc2) !== "undefined" && sgc2 != null )  ) {
+                      const sgc2F = sgc2;
+                      let fwd = 0;
+                      for ( let i_3 = 0; i_3 < sgc2F.params.length; i_3++) {
+                        var arg_1 = sgc2F.params[i_3];
+                        if ( arg_1.nameNode.hasFlag("keyword") ) {
+                          continue;
+                        }
+                        if ( fwd > 0 ) {
+                          wr.out(", ", false);
+                        }
+                        fwd = fwd + 1;
+                        wr.out(arg_1.compiledName, false);
+                      };
+                    }
+                  }
+                  wr.out(")", true);
+                  wr.indent(-1);
+                  wr.out(("return " + cl.name) + "._rg_singleton_instance", true);
+                  wr.indent(-1);
+                  wr.newline();
+                }
+                for ( let i_4 = 0; i_4 < cl.static_methods.length; i_4++) {
+                  var variant = cl.static_methods[i_4];
                   if ( variant.nameNode.hasFlag("main") ) {
                     continue;
                   } else {
@@ -31238,16 +31621,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   const subCtx_1 = variant.fnCtx;
                   subCtx_1.is_function = true;
                   subCtx_1.in_static_method = true;
-                  await this.WalkNode(variant.fnBody, subCtx_1, wr);
+                  await this.pyWalkBody(variant.fnBody, subCtx_1, wr);
                   subCtx_1.in_static_method = false;
                   wr.newline();
                   wr.indent(-1);
                 };
-                for ( let i_4 = 0; i_4 < cl.defined_variants.length; i_4++) {
-                  var fnVar = cl.defined_variants[i_4];
+                for ( let i_5 = 0; i_5 < cl.defined_variants.length; i_5++) {
+                  var fnVar = cl.defined_variants[i_5];
                   const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
-                  for ( let i_5 = 0; i_5 < mVs.variants.length; i_5++) {
-                    var variant_1 = mVs.variants[i_5];
+                  for ( let i_6 = 0; i_6 < mVs.variants.length; i_6++) {
+                    var variant_1 = mVs.variants[i_6];
                     if ( ( typeof(declaredFunction[variant_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredFunction, variant_1.name) ) ) {
                       continue;
                     }
@@ -31262,22 +31645,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     const subCtx_2 = variant_1.fnCtx;
                     subCtx_2.is_function = true;
                     subCtx_2.in_static_method = false;
-                    await this.WalkNode(variant_1.fnBody, subCtx_2, wr);
+                    await this.pyWalkBody(variant_1.fnBody, subCtx_2, wr);
                     wr.newline();
                     wr.indent(-1);
                   };
                 };
                 wr.indent(-1);
                 wr.newline();
-                for ( let i_6 = 0; i_6 < cl.static_methods.length; i_6++) {
-                  var variant_2 = cl.static_methods[i_6];
+                for ( let i_7 = 0; i_7 < cl.static_methods.length; i_7++) {
+                  var variant_2 = cl.static_methods[i_7];
                   ctx.disableCurrentClass();
                   ctx.in_static_method = true;
                   if ( variant_2.nameNode.hasFlag("main") && (variant_2.nameNode.code.filename == ctx.getRootFile()) ) {
                     wr.out("# Main entry point", true);
                     wr.out("def main():", true);
                     wr.indent(1);
-                    await this.WalkNode(variant_2.fnBody, ctx, wr);
+                    await this.pyWalkBody(variant_2.fnBody, ctx, wr);
                     wr.indent(-1);
                     wr.newline();
                     wr.out("if __name__ == \"__main__\":", true);
@@ -41882,7 +42265,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         const arg_2 = node.children[idx_2];
                         const sCtx = ctx.fork();
                         sCtx.restartExpressionLevel();
+                        const lineBefore = wr.lineNumber;
+                        const colBefore = wr.currentLine.length;
                         await this.WalkNode(arg_2, sCtx, wr);
+                        if ( (wr.lineNumber == lineBefore) && ((wr.currentLine.length) == colBefore) ) {
+                          const filler = this.langWriter.emptyBlockFiller();
+                          if ( (filler.length) > 0 ) {
+                            wr.out(filler, true);
+                          }
+                        }
                       }
                       break;
                     case "varname" : 

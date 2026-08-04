@@ -174,17 +174,14 @@ builds, runs and prints the wrong answer; the `control` section shows it as a
 `diff` in the matrix.
 Probe: `gaps/go_if_not_single_branch.rgr`.
 
-### Python: an empty method body emits nothing under `def`
+### ~~Python: an empty method body emits nothing under `def`~~ (fixed)
 
-```python
-def run(self):
-def render(self):        # IndentationError
-```
-
-An empty method is the usual way to write the default of an overridable hook,
-so this stops any program that has one. The base class of the app gives its
-`run` a body because of it.
-Probe: `gaps/python_empty_method.rgr`.
+Python has no empty suite, so `def render(self):` with nothing indented under
+it is an `IndentationError` — and an empty method is the usual way to write the
+default of an overridable hook. The same held for an empty `if:` or `else:`
+block, which is what the TypeScript engine tripped over. Both are fixed: the
+`(block N)` template command and the Python writer's method-body walk each
+write `pass` when the body produced no output. The probe is deleted.
 
 ## Not gaps, but worth knowing
 
@@ -197,7 +194,6 @@ Things that surprised on the way and are documented at the site instead of in
   Of a double or an int they do not.
 - `get` gives an optional on an array as well as on a map. `itemAt` and `at` do
   not.
-- `replace` replaces the first occurrence only.
 - `buffer_copy` and its `int_` and `double_` siblings take the **destination**
   first: `(dest destOffset src srcOffset length)`.
 - `buffer_fill` takes `(buf value start end)` and the end is excluded.

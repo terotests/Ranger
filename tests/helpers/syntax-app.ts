@@ -127,8 +127,14 @@ const RUNNERS: Record<string, Runner> = {
     run: (file, cwd) => {
       const buildDir = path.join(cwd, "tsbuild");
       fs.mkdirSync(buildDir, { recursive: true });
+      // The TypeScript of the repository, not whichever one is first on PATH:
+      // a newer global tsc refuses a file argument while a tsconfig.json is in
+      // scope (TS5112), and the result of the target would then depend on the
+      // machine rather than on the generated code.
+      const local = path.join(ROOT_DIR, "node_modules", ".bin", "tsc");
+      const tsc = fs.existsSync(local) ? shellQuote(local) : "tsc";
       exec(
-        `tsc --target es2020 --module commonjs --skipLibCheck --outDir ${shellQuote(
+        `${tsc} --target es2020 --module commonjs --skipLibCheck --outDir ${shellQuote(
           buildDir
         )} ${shellQuote(file)}`,
         cwd
@@ -167,14 +173,23 @@ const RUNNERS: Record<string, Runner> = {
   },
   java: {
     tool: "javac",
+    // The Java target writes one file per class, so the whole directory is
+    // compiled and the class that holds main is looked up among them.
     run: (file, cwd) => {
       const classDir = path.join(cwd, "classes");
       fs.mkdirSync(classDir, { recursive: true });
-      exec(`javac -d ${shellQuote(classDir)} ${shellQuote(file)}`, cwd);
-      return exec(
-        `java -cp ${shellQuote(classDir)} ${javaMainClass(file)}`,
-        cwd
-      );
+      const sources = fs
+        .readdirSync(cwd)
+        .filter((f) => f.endsWith(".java"))
+        .map((f) => shellQuote(path.join(cwd, f)));
+      exec(`javac -d ${shellQuote(classDir)} ${sources.join(" ")}`, cwd);
+      const withMain = fs
+        .readdirSync(cwd)
+        .filter((f) => f.endsWith(".java"))
+        .map((f) => path.join(cwd, f))
+        .find((f) => /public\s+static\s+void\s+main\s*\(/.test(fs.readFileSync(f, "utf8")));
+      const mainClass = withMain ? javaMainClass(withMain) : javaMainClass(file);
+      return exec(`java -cp ${shellQuote(classDir)} ${mainClass}`, cwd);
     },
   },
   php: {
@@ -317,7 +332,21 @@ export function compile(unit: Unit, target: Target): CompileOutcome {
     .split(/\r?\n/)
     .filter((l) => l.includes("[FAIL]"))
     .map((l) => l.trim());
-  const outputFile = path.join(outDir, outputName);
+
+  // Most targets write the file that -o names. The Java target writes one file
+  // per class and ignores -o, so any file with the extension of the target
+  // counts, and the one holding main is preferred as the entry point.
+  let outputFile = path.join(outDir, outputName);
+  if (!fs.existsSync(outputFile)) {
+    const produced = fs
+      .readdirSync(outDir)
+      .filter((f) => f.endsWith(`.${target.ext}`))
+      .map((f) => path.join(outDir, f));
+    const withMain = produced.find((f) =>
+      /public\s+static\s+void\s+main\s*\(/.test(fs.readFileSync(f, "utf8"))
+    );
+    outputFile = withMain ?? produced[0] ?? outputFile;
+  }
   const ok =
     stdout.includes("[OK] Compilation successful") && fs.existsSync(outputFile);
 

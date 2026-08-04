@@ -1,5 +1,84 @@
 # TS engine — native compilation and performance
 
+> **Update (2026-08-04): five more targets.** The engine now compiles to
+> **Go, Kotlin, Python, C# and Swift 6** as well as C++ and Rust. Four of the
+> five were taken all the way — Go, Kotlin, Python and C# each build with their
+> own toolchain and answer **8 of 8** benchmark cases, `keyorder` included,
+> exactly as Node does. Swift 6 gets as far as the compiler accepting the
+> program and writing all ~31k lines; `download.swift.org` is not reachable
+> from the machine this was done on, so the Swift build is unverified beyond a
+> read of the generated source.
+>
+> `tests/ts-engine-targets.test.ts` guards all five: it compiles the engine to
+> each target, and builds and runs the Go, Python and C# results wherever those
+> toolchains exist. It has its own config for the reason `syntax-app` does —
+> a minute of blocking child processes starves the Vitest reporter — so it runs
+> as `npm run test:tsengine` rather than inside `npm test`. Kotlin is compiled
+> but not built there: `kotlinc` takes several minutes on a file this size.
+>
+> **What had to be fixed.** Two defects turned out to be the *same* defect on
+> three different targets, and it is the interesting one:
+>
+> **An unused `def` whose initializer is a CALL was being commented out**, so
+> the call disappeared. `def ignored:T (this.work())` is the language's
+> evaluate-and-discard form, and the TypeScript engine writes its for-loop
+> update clause that way. On Go and Python the result did not compile; on C#
+> it compiled and *ran*, with every `for` loop looping until the interpreter's
+> own iteration guard stopped it — `loop` answered 0 instead of
+> 1249975000. Rust had the same bug and it was fixed on master; Go, Python and
+> C# now keep the statement live under an underscore name.
+>
+> The rest, by target. `compiler/Lang.rgr`: **Go** refuses `1.0 / 0.0` at
+> compile time when both sides are constants, and **Python** raises on it —
+> both go through a helper now, because Infinity and NaN are how the engine
+> spells them. **Python** had no `shell_arg`, `shell_arg_cnt` or `file_mtime`,
+> and `(get map key)` fell through to `m[k]`, which raises instead of
+> answering the empty optional. **Kotlin** gained the whole `buffer` /
+> `int_buffer` / `double_buffer` family, the bitwise operators (`and`, `shl`,
+> `inv()` — not the C spellings), `file_mtime` and `file_exists`, and its
+> `shell_arg_cnt` counted one argument too few. **C#** had no `random`, no
+> `to_string` for a double or a boolean (it fell through to the JavaScript
+> `.toString()`), and `(get map key)` threw on a miss.
+>
+> In the writers: **Go** wrote an empty type assertion `.value.(())` for
+> `(unwrap (get map key))`, had no `__singleton` accessor, and emitted locals
+> Go rejects as "declared and not used". **Kotlin** sliced double literals out
+> of the source text by file position, which a CRLF file shifts
+> (`def value:double 0.0` wrote `= lue`); rewrote `EVGColor.create(...)` to
+> `this.create(...)`, which cannot reach a companion object; marked
+> `equals(other:T)` `override` when `Any.equals` takes `Any?`; left `$`
+> unescaped in string literals; and called methods on a nullable receiver
+> without `!!`. **Swift 6** had that last defect too. **Python** emitted
+> nothing for an empty block, so the `if:` above it had no body, and had no
+> `utilities` tag, so every `create_polyfill` was written to a writer nobody
+> read. **C#** declared an optional primitive as a plain value type rather
+> than `T?`, gave every constructor private visibility, and wrote method
+> *declarations* with the un-renamed name while the *call sites* already used
+> the reserved-word rename — so `EvalValue.string(...)` never resolved.
+>
+> **Same-session measurement** (engine work-only ms, best of three, native
+> builds measured out-of-process with the `reps=0` startup cost subtracted —
+> the same subtraction `run.cjs` makes):
+>
+> | case | engine on Node | C++ | Go | C# (Mono) | Kotlin (JVM) | Python |
+> |---|---|---|---|---|---|---|
+> | loop | 30.7 | 24.4 | 95.0 | 83.6 | 110.3 | 526.9 |
+> | fib | 15.4 | 18.5 | 24.7 | 47.0 | 78.6 | 487.2 |
+> | strcat | 18.9 | 29.4 | 161.6 | 429.1 | 176.6 | 245.6 |
+> | array | 63.5 | 109.0 | 117.4 | 174.9 | 128.7 | 955.3 |
+> | object | 32.0 | 31.8 | 59.7 | 82.1 | 83.9 | 472.4 |
+> | method | 43.4 | 43.0 | 99.1 | 132.0 | 134.4 | 969.4 |
+> | regex | 34.4 | 35.5 | 79.0 | 87.1 | 103.8 | 645.6 |
+>
+> None of the four new targets has had any of the optimization work C++ and
+> Rust got, so read these as a starting line rather than a verdict. Two
+> caveats on top of that: the Kotlin column runs three reps per process, which
+> barely warms the JIT up and understates the JVM by an unknown amount; and the
+> C# column is Mono 6.8, not .NET — a modern .NET build would very likely read
+> differently. The rows worth a look on their own are `strcat` on C# and Go
+> (the immutable-string accumulator cost the C++ build pays, without the
+> reserve) and everything on Python.
+>
 > **Update (branch `claude/ts-engine-native-perf-fixes`, 2026-08-03).** The
 > two headline defects below are found and fixed; the numbers in the body of
 > this document are kept as the historical baseline.

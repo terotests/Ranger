@@ -69,6 +69,12 @@ class RangerAppParamDesc {
   def debugString:string ""
   def is_register false
   def ref_cnt:int 0
+  ; Mentions in a READ position. ref_cnt counts every mention, so a variable
+  ; that is only ever assigned still has ref_cnt > 0; read_cnt does not. Go is
+  ; the target that needs the distinction -- it refuses to compile a local that
+  ; is declared and never read -- so the assignment handler in ng_FlowWork
+  ; takes the target's mention back out of this count.
+  def read_cnt:int 0
   def init_cnt:int 0
   def set_cnt:int 0
   def return_cnt:int 0

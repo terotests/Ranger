@@ -42,14 +42,20 @@ class NarrowSection {
         }
         this.say("sort" sortedText)
 
-        ; reverse turns the array around in place.
+        ; reverse gives a new array; it does not turn the argument around, so
+        ; the result has to be bound.
         def toReverse:[int] ([] _:int (1 2 3))
-        reverse toReverse
+        def reversed:[int] (reverse toReverse)
         def reversedText@(mutable):string ""
-        for toReverse v:int i {
+        for reversed v:int i {
             reversedText = (reversedText + (to_string v))
         }
         this.say("reverse" reversedText)
+        def sourceText@(mutable):string ""
+        for toReverse v:int i {
+            sourceText = (sourceText + (to_string v))
+        }
+        this.say("reverse_source_kept" sourceText)
 
         ; remove drops the item at an index.
         def work:[string] ([] _:string ("a" "b" "c"))

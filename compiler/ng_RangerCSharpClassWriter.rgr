@@ -143,6 +143,13 @@ class RangerCSharpClassWriter {
     }    
   }
 
+  ; `?` after a value type when the declaration is optional.
+  fn writeNullableMark:void (node:CodeNode wr:CodeWriter) {
+    if (node.hasFlag("optional")) {
+      wr.out("?" false)
+    }
+  }
+
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def v_type:RangerNodeType node.value_type    
     def t_name:string node.type_name
@@ -170,17 +177,25 @@ class RangerCSharpClassWriter {
         this.writeLambdaType( (unwrap node.expression_value) ctx wr)
       }   
       
+      ; An optional primitive is Nullable<T> on C#. Without the `?` the
+      ; declaration is a plain value type: it can never be null, the `!= null`
+      ; test the operator writes is always true, and `.Value` does not exist on
+      ; it. A reference type is already nullable and takes no marker.
       case RangerNodeType.Enum {
         wr.out("int" false)
+        this.writeNullableMark(node wr)
       }
       case RangerNodeType.Integer {
         wr.out("int" false)
+        this.writeNullableMark(node wr)
       }
       case RangerNodeType.Double {
         wr.out("double" false)
+        this.writeNullableMark(node wr)
       }
       case RangerNodeType.Char {
         wr.out("byte" false)
+        this.writeNullableMark(node wr)
       }
       case RangerNodeType.CharBuffer {
         wr.out("byte[]" false)
@@ -199,6 +214,7 @@ class RangerCSharpClassWriter {
       }
       case RangerNodeType.Boolean {
         wr.out("bool" false)
+        this.writeNullableMark(node wr)
       }
       case RangerNodeType.Hash {
         wr.out((((("Dictionary<" + (this.getObjectTypeString(k_name ctx))) + ",") + (this.getObjectTypeString(a_name ctx))) + ">") false)
@@ -303,11 +319,44 @@ class RangerCSharpClassWriter {
       wr.out((this.adjustType(part)) false)
     }
   }
+  ; True when a node, or anything under it, calls something.
+  fn csNodeContainsCall:boolean (node:CodeNode) {
+    if node.hasFnCall {
+      return true
+    }
+    if node.has_call {
+      return true
+    }
+    if node.has_lambda_call {
+      return true
+    }
+    for node.children ch:CodeNode ci {
+      if (this.csNodeContainsCall(ch)) {
+        return true
+      }
+    }
+    return false
+  }
+
   fn writeVarDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasParamDesc {
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc nn.paramDesc
-      if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
+      ; An unused `def` whose initializer CALLS still has to run --
+      ; `def ignored:T (this.work())` is the language's evaluate-and-discard
+      ; form. Commenting it out dropped the call: the TS engine's for-loop
+      ; update clause vanished this way, so every `for` ran until the
+      ; interpreter's own iteration guard stopped it.
+      def unusedDef:boolean ((p.ref_cnt == 0) && (p.is_class_variable == false))
+      def keepsCall:boolean false
+      if unusedDef {
+        if ((array_length node.children) > 2) {
+          if (this.csNodeContainsCall((node.getThird()))) {
+            keepsCall = true
+          }
+        }
+      }
+      if (unusedDef && (keepsCall == false)) {
         wr.out('/** unused:  ' false)
       }
       if ((p.set_cnt > 0) || p.is_class_variable) {
@@ -318,6 +367,9 @@ class RangerCSharpClassWriter {
       }
       this.writeTypeDef(( unwrap p.nameNode ) ctx wr)
       wr.out(' ' false)
+      if keepsCall {
+        wr.out("_" false)
+      }
       wr.out(p.compiledName false)
       if ((array_length node.children) > 2) {
         wr.out(' = ' false)
@@ -336,11 +388,21 @@ class RangerCSharpClassWriter {
           this.writeTypeDef(( unwrap p.nameNode ) ctx wr)
           wr.out('()' false)
         }
+        ; An optional with no initializer is `def x@(optional):T` -- the
+        ; language's empty value. C# calls a local that is never assigned
+        ; DEFINITELY UNASSIGNED and refuses to read it, so it needs the null
+        ; written out. (A field gets its default automatically; only locals
+        ; have the rule.)
+        if ((nn.value_type != RangerNodeType.Array) && (nn.value_type != RangerNodeType.Hash)) {
+          if ((p.is_class_variable == false) && (nn.hasFlag("optional"))) {
+            wr.out(' = null' false)
+          }
+        }
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
         wr.out('     /** note: unused */' false)
       }
-      if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
+      if (unusedDef && (keepsCall == false)) {
         wr.out("   **/ ;" true)
       } {
         wr.out(";" false)
@@ -463,6 +525,9 @@ class RangerCSharpClassWriter {
     }
     if cl.has_constructor {
       def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
+      ; A C# member with no access modifier is private, so every class with a
+      ; declared Constructor could only be instantiated from inside itself.
+      wr.out("public " false)
       wr.out((cl.name + "(") false)
       this.writeArgsDef(constr ctx wr)
       wr.out(' ) {' true)
@@ -472,6 +537,50 @@ class RangerCSharpClassWriter {
       subCtx.is_function = true
       this.WalkNode( (unwrap constr.fnBody ) subCtx wr)
       wr.newline()
+      wr.indent(-1)
+      wr.out("}" true)
+    }
+    ; The synthetic accessor of a @singleton(true) class. Call sites already
+    ; write `ClassName.__singleton()` through the ordinary static path; only
+    ; the definition was missing. First-call constructor arguments win, which
+    ; is what es6, C++, Rust, Go, Kotlin and Python all do.
+    if (cl.isSingletonClass()) {
+      wr.out((("static " + cl.name) + " __singleton_instance = null;") true)
+      wr.out((("public static " + cl.name) + " __singleton(") false)
+      def sgHasArgs:boolean false
+      if cl.has_constructor {
+        def sgc@(optional):RangerAppFunctionDesc cl.constructor_fn
+        if (!null? sgc) {
+          this.writeArgsDef((unwrap sgc) ctx wr)
+          sgHasArgs = true
+        }
+      }
+      wr.out(") {" true)
+      wr.indent(1)
+      wr.out("if (__singleton_instance == null) {" true)
+      wr.indent(1)
+      wr.out((("__singleton_instance = new " + cl.name) + "(") false)
+      if sgHasArgs {
+        def sgc2@(optional):RangerAppFunctionDesc cl.constructor_fn
+        if (!null? sgc2) {
+          def sgc2F:RangerAppFunctionDesc (unwrap sgc2)
+          def fwd:int 0
+          for sgc2F.params arg:RangerAppParamDesc i {
+            if (arg.nameNode.hasFlag("keyword")) {
+              continue
+            }
+            if (fwd > 0) {
+              wr.out(", " false)
+            }
+            fwd = fwd + 1
+            wr.out(arg.compiledName false)
+          }
+        }
+      }
+      wr.out(");" true)
+      wr.indent(-1)
+      wr.out("}" true)
+      wr.out("return __singleton_instance;" true)
       wr.indent(-1)
       wr.out("}" true)
     }
@@ -485,7 +594,11 @@ class RangerCSharpClassWriter {
         wr.out('public static ' false)
         this.writeTypeDef( (unwrap variant.nameNode ) ctx wr)
         wr.out(' ' false)
-        wr.out((variant.name + "(") false)
+        ; compiledName, not name: a method called `string` or `null` in Ranger
+        ; is a keyword in C#, and reserved_words already renames it -- the CALL
+        ; sites were writing `EvalValue._string(...)` while the declaration
+        ; still read `string(`, so nothing resolved.
+        wr.out((variant.compiledName + "(") false)
         this.writeArgsDef(variant ctx wr)
         wr.out(') {' true)
       }
@@ -504,7 +617,11 @@ class RangerCSharpClassWriter {
         wr.out('public ' false)
         this.writeTypeDef( (unwrap variant.nameNode) ctx wr)
         wr.out(' ' false)
-        wr.out((variant.name + "(") false)
+        ; compiledName, not name: a method called `string` or `null` in Ranger
+        ; is a keyword in C#, and reserved_words already renames it -- the CALL
+        ; sites were writing `EvalValue._string(...)` while the declaration
+        ; still read `string(`, so nothing resolved.
+        wr.out((variant.compiledName + "(") false)
         this.writeArgsDef(variant ctx wr)
         wr.out(') {' true)
         wr.indent(1)
