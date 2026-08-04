@@ -34237,6 +34237,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 this.name = "";
                 this.irType = "i32";
                 this.isPtrArray = false;
+                this.isStringMap = false;
+                this.isStringMapInt = false;
+                this.isStringMapStr = false;
                 this.isBool = false;
                 this.isString = false;
                 this.isBuffer = false;
@@ -34681,7 +34684,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const ins = new LowIRInstr();
                 ins.op = "global_get";
                 ins.dest = dest;
-                ins.irType = "i32";
+                ins.irType = this.irModule.ptrType;
                 ins.arg1 = name;
                 this.emit(ins);
                 return dest;
@@ -34692,6 +34695,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const ins = new LowIRInstr();
                 ins.op = "global_set";
                 ins.dest = "gs" + ("" + n);
+                ins.irType = this.irModule.ptrType;
                 ins.arg1 = name;
                 ins.arg2 = value;
                 this.emit(ins);
@@ -35801,6 +35805,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 this.objectSlots = {};
                 this.collectionSlots = {};
                 this.ptrArrayElemTypes = {};
+                this.smapValueTypes = {};
                 this.ownedObjectLocals = [];
                 this.ownedCollectionLocals = [];
                 this.ownedStringLocals = [];
@@ -35834,6 +35839,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 this.usedArrayRuntime = false;
                 this.usedPtrArrayRuntime = false;
                 this.usedMemRuntime = false;
+                this.exprRecvPtr = "";
                 this.lambdaSigMap = {};
                 this.lambdaByName = {};
                 this.lambdaNames = [];
@@ -35971,6 +35977,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( appCtx.hasCompilerFlag("wat") ) {
                   this.collectLambdas(appCtx);
                 }
+                for ( let i0 = 0; i0 < appCtx.definedClassList.length; i0++) {
+                  var cName0 = appCtx.definedClassList[i0];
+                  if ( cName0 == "RangerStaticMethods" ) {
+                    continue;
+                  }
+                  const cl0 = (( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName0) ? appCtx.definedClasses[cName0] : undefined ));
+                  if ( ((cl0.is_operator_class || cl0.is_trait) || cl0.is_system) || cl0.is_union ) {
+                    continue;
+                  }
+                  this.lowerStruct(cl0, appCtx);
+                };
                 for ( let i = 0; i < appCtx.definedClassList.length; i++) {
                   var cName = appCtx.definedClassList[i];
                   if ( cName == "RangerStaticMethods" ) {
@@ -35980,7 +35997,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   if ( ((cl.is_operator_class || cl.is_trait) || cl.is_system) || cl.is_union ) {
                     continue;
                   }
-                  this.lowerStruct(cl, appCtx);
                   for ( let i_1 = 0; i_1 < cl.static_methods.length; i_1++) {
                     var m = cl.static_methods[i_1];
                     if ( cl.name == "Mem" ) {
@@ -36020,10 +36036,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       this.lowerFunction(m_2, cl.name, appCtx, false, false, true);
                     }
                   };
-                  if ( appCtx.hasCompilerFlag("wat") ) {
-                    if ( cl.isSingletonClass() ) {
-                      this.lowerSingletonAccessor(cl, appCtx);
-                    }
+                  if ( cl.isSingletonClass() ) {
+                    this.lowerSingletonAccessor(cl, appCtx);
                   }
                 };
                 if ( appCtx.hasCompilerFlag("wat") ) {
@@ -36285,11 +36299,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     return ("[" + nameNode.array_type) + "]";
                   }
                 }
+                if ( nameNode.value_type == 7 ) {
+                  return ((("[" + nameNode.key_type) + ":") + nameNode.array_type) + "]";
+                }
                 return nameNode.eval_type_name;
               };
               exprIsObjectPtr (node, lctx) {
                 if ( node.hasNewOper ) {
                   return true;
+                }
+                if ( node.has_operator ) {
+                  if ( node.getOperator() == "unwrap" ) {
+                    return this.exprIsObjectPtr(node.getSecond(), lctx);
+                  }
                 }
                 if ( (node.has_call || node.is_direct_method_call) || node.hasFnCall ) {
                   if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
@@ -36377,6 +36399,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               exprIsString (node) {
                 if ( node.value_type == 4 ) {
                   return true;
+                }
+                if ( ((node.has_operator || node.has_call) || node.is_direct_method_call) || node.hasFnCall ) {
+                  return false;
                 }
                 if ( node.expression ) {
                   for ( let i = 0; i < node.children.length; i++) {
@@ -36804,6 +36829,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 argTypes.push("i32");
                 return lctx.builder.emitCall("ranger_buffer_alloc", lctx.ptrType, args, argTypes);
               };
+              emitPtrArrayLenOrBufferLen (bufVal, lctx) {
+                return lctx.builder.emitPtrLoadTyped(bufVal, "i32");
+              };
               lowerBufferLength (node, lctx) {
                 const bufNode = node.getSecond();
                 const buf = this.lowerExpr(bufNode, lctx);
@@ -36927,6 +36955,27 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
                 if ( node.eval_type_name == "double" ) {
                   return true;
+                }
+                if ( node.has_operator ) {
+                  const fop = node.getOperator();
+                  if ( this.isLibmUnaryOp(fop) ) {
+                    return true;
+                  }
+                  if ( this.isLibmBinaryOp(fop) ) {
+                    return true;
+                  }
+                  if ( fop == "M_PI" ) {
+                    return true;
+                  }
+                  if ( fop == "to_double" ) {
+                    return true;
+                  }
+                  if ( fop == "wall_clock_ms" ) {
+                    return true;
+                  }
+                  if ( fop == "random" ) {
+                    return true;
+                  }
                 }
                 return false;
               };
@@ -37188,6 +37237,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     if ( LowIRUtil.isStringType(this.arrayElemTypeName(arrNode, lctx)) ) {
                       itemAddr = lctx.builder.emitPtrToInt(itemAddr);
                     }
+                    if ( this.arrayElemIsDouble(arrNode, lctx) ) {
+                      itemAddr = lctx.builder.emitCast("bitcast", "i64", "f64", itemAddr);
+                    }
                   }
                 }
                 if ( this.wasmStrEnabled(lctx) ) {
@@ -37282,9 +37334,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const elemAddr = builder.emitCall("RtPtrArray_get", lctx.ptrType, elemArgs, elemTypes);
                 const itemName = itemNode.vref;
                 const itemClass = this.resolveItemClass(itemNode);
-                this.bindSlot(itemName, lctx.ptrType, elemAddr, lctx);
-                if ( (itemClass.length) > 0 ) {
-                  lctx.objectSlots[itemName] = itemClass;
+                const itemIsString = LowIRUtil.isStringType(itemNode.type_name);
+                if ( itemIsString ) {
+                  const elemStr = builder.emitIntToI8Ptr(elemAddr, lctx.ptrType);
+                  this.bindSlot(itemName, "i8*", elemStr, lctx);
+                } else {
+                  this.bindSlot(itemName, lctx.ptrType, elemAddr, lctx);
+                }
+                if ( itemIsString == false ) {
+                  if ( (itemClass.length) > 0 ) {
+                    lctx.objectSlots[itemName] = itemClass;
+                  }
                 }
                 this.lowerBlock(bodyNode, lctx);
                 const bodyBb = builder.currentBlock;
@@ -37311,11 +37371,124 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const zero = ctx.builder.emitConst("i32", "0");
                 return ctx.builder.emitIcmp("eq", cmp, zero);
               };
+              propertyReadClass (node, lctx) {
+                if ( this.isPropertyReadNode(node) == false ) {
+                  return "";
+                }
+                const objNode = node.getSecond();
+                if ( (objNode.eval_type_name.length) > 0 ) {
+                  return objNode.eval_type_name;
+                }
+                if ( objNode.value_type == 11 ) {
+                  return this.resolveObjectClass(objNode.vref, lctx);
+                }
+                return "";
+              };
+              isPropertyReadNode (node) {
+                if ( (node.children.length) != 3 ) {
+                  return false;
+                }
+                const head = node.getFirst();
+                if ( head.value_type != 11 ) {
+                  return false;
+                }
+                return head.vref == "property";
+              };
+              lowerPropertyRead (node, lctx) {
+                const objNode = node.getSecond();
+                const propNode = node.getThird();
+                const fieldName = propNode.vref;
+                let cls = objNode.eval_type_name;
+                if ( (cls.length) == 0 ) {
+                  if ( objNode.value_type == 11 ) {
+                    cls = this.resolveObjectClass(objNode.vref, lctx);
+                  }
+                }
+                if ( (cls.length) == 0 ) {
+                  return lctx.builder.emitConst("i32", "0");
+                }
+                const objVal = this.lowerExpr(objNode, lctx);
+                const objPtr = lctx.builder.emitIntToStructPtr(cls, objVal);
+                return this.emitFieldLoadOn(cls, objPtr, fieldName, lctx);
+              };
+              isLibmUnaryOp (op) {
+                if ( op == "tan" ) {
+                  return true;
+                }
+                if ( op == "sin" ) {
+                  return true;
+                }
+                if ( op == "cos" ) {
+                  return true;
+                }
+                if ( op == "asin" ) {
+                  return true;
+                }
+                if ( op == "acos" ) {
+                  return true;
+                }
+                if ( op == "atan" ) {
+                  return true;
+                }
+                if ( op == "sqrt" ) {
+                  return true;
+                }
+                if ( op == "log" ) {
+                  return true;
+                }
+                if ( op == "exp" ) {
+                  return true;
+                }
+                return false;
+              };
+              isLibmBinaryOp (op) {
+                if ( op == "atan2" ) {
+                  return true;
+                }
+                if ( op == "pow" ) {
+                  return true;
+                }
+                return false;
+              };
+              lowerLibmUnary (fnName, node, lctx) {
+                const aNode = node.getSecond();
+                const av = this.promoteToF64(aNode, this.lowerExpr(aNode, lctx), lctx);
+                let decl = [];
+                decl.push("double");
+                this.ensureExternDecl(fnName, "double", decl, false);
+                let cArgs = [];
+                let cTypes = [];
+                cArgs.push(av);
+                cTypes.push("f64");
+                return lctx.builder.emitCall(fnName, "f64", cArgs, cTypes);
+              };
+              lowerLibmBinary (fnName, node, lctx) {
+                const aNode = node.getSecond();
+                const bNode = node.getThird();
+                const av = this.promoteToF64(aNode, this.lowerExpr(aNode, lctx), lctx);
+                const bv = this.promoteToF64(bNode, this.lowerExpr(bNode, lctx), lctx);
+                let decl = [];
+                decl.push("double");
+                decl.push("double");
+                this.ensureExternDecl(fnName, "double", decl, false);
+                let cArgs = [];
+                let cTypes = [];
+                cArgs.push(av);
+                cTypes.push("f64");
+                cArgs.push(bv);
+                cTypes.push("f64");
+                return lctx.builder.emitCall(fnName, "f64", cArgs, cTypes);
+              };
               lowerToString (node, lctx) {
                 const builder = lctx.builder;
                 const valNode = node.getSecond();
                 const isF64 = this.exprIsF64(valNode);
-                const val = this.lowerExpr(valNode, lctx);
+                let val = this.lowerExpr(valNode, lctx);
+                if ( isF64 == false ) {
+                  if ( this.exprProducesI1(valNode, lctx) ) {
+                    val = builder.emitZextI1ToI32(val);
+                  }
+                }
                 if ( this.wasmStrEnabled(lctx) ) {
                   let iv = val;
                   if ( isF64 ) {
@@ -37406,6 +37579,133 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
                 return false;
               };
+              ensureSMapExterns () {
+                let pOnly = [];
+                pOnly.push("i64");
+                let pStr = [];
+                pStr.push("i64");
+                pStr.push("i8*");
+                let pStrVal = [];
+                pStrVal.push("i64");
+                pStrVal.push("i8*");
+                pStrVal.push("i64");
+                let pIdx = [];
+                pIdx.push("i64");
+                pIdx.push("i32");
+                let none = [];
+                this.ensureExternDecl("RtSMap_new", "i64", none, false);
+                this.ensureExternDecl("RtSMap_put", "void", pStrVal, false);
+                this.ensureExternDecl("RtSMap_get", "i64", pStr, false);
+                this.ensureExternDecl("RtSMap_has", "i32", pStr, false);
+                this.ensureExternDecl("RtSMap_remove", "void", pStr, false);
+                this.ensureExternDecl("RtSMap_size", "i32", pOnly, false);
+                this.ensureExternDecl("RtSMap_keyAt", "i8*", pIdx, false);
+                this.ensureExternDecl("RtSMap_free", "void", pOnly, false);
+              };
+              emitSMapNew (lctx) {
+                this.ensureSMapExterns();
+                let noArgs = [];
+                let noTypes = [];
+                return lctx.builder.emitCall("RtSMap_new", "i64", noArgs, noTypes);
+              };
+              emitSMapCall (fnName, retType, desc, rest, restTypes, lctx) {
+                this.ensureSMapExterns();
+                let args = [];
+                let argTypes = [];
+                args.push(desc);
+                argTypes.push("i64");
+                let i = 0;
+                while (i < (rest.length)) {
+                  args.push(rest[i]);
+                  argTypes.push(restTypes[i]);
+                  i = i + 1;
+                };
+                return lctx.builder.emitCall(fnName, retType, args, argTypes);
+              };
+              lowerSMapKeys (node, lctx) {
+                const builder = lctx.builder;
+                const collNode = node.getSecond();
+                const desc = this.smapDescFromVref(collNode.vref, lctx);
+                const outArr = this.emitPtrArrayNewEmpty(lctx, 2);
+                let nRest = [];
+                let nTypes = [];
+                const n = this.emitSMapCall("RtSMap_size", "i32", desc, nRest, nTypes, lctx);
+                const iSlot = builder.emitAlloca("i32", builder.freshTemp("smapki"));
+                const zero = builder.emitConst("i32", "0");
+                builder.emitStore("i32", zero, iSlot);
+                const condL = builder.freshLabel("smap_keys_cond");
+                const bodyL = builder.freshLabel("smap_keys_body");
+                const doneL = builder.freshLabel("smap_keys_done");
+                builder.terminateBr(condL);
+                builder.startBlock(condL);
+                const iNow = builder.emitLoad("i32", iSlot);
+                const more = builder.emitIcmp("slt", iNow, n);
+                builder.terminateBrIf(more, bodyL, doneL);
+                builder.startBlock(bodyL);
+                const iCur = builder.emitLoad("i32", iSlot);
+                let kRest = [];
+                let kTypes = [];
+                kRest.push(iCur);
+                kTypes.push("i32");
+                const keyPtr = this.emitSMapCall("RtSMap_keyAt", "i8*", desc, kRest, kTypes, lctx);
+                const keyInt = builder.emitPtrToInt(keyPtr);
+                let pArgs = [];
+                let pTypes = [];
+                pArgs.push(outArr);
+                pTypes.push(lctx.ptrType);
+                pArgs.push(keyInt);
+                pTypes.push(lctx.ptrType);
+                this.usedPtrArrayRuntime = true;
+                const voidT = "void";
+                builder.emitCall("RtPtrArray_push", voidT, pArgs, pTypes);
+                const one = builder.emitConst("i32", "1");
+                const iNext = builder.emitBin("add", "i32", iCur, one);
+                builder.emitStore("i32", iNext, iSlot);
+                builder.terminateBr(condL);
+                builder.startBlock(doneL);
+                return outArr;
+              };
+              toI1 (v, lctx) {
+                const zero = lctx.builder.emitConst("i32", "0");
+                return lctx.builder.emitIcmp("ne", v, zero);
+              };
+              lowerStr2Fn (node, fnName, retType, lctx) {
+                const aNode = node.getSecond();
+                const bNode = node.getThird();
+                const a = this.lowerExpr(aNode, lctx);
+                const b = this.lowerExpr(bNode, lctx);
+                let ps = [];
+                ps.push("i8*");
+                ps.push("i8*");
+                this.ensureExternDecl(fnName, retType, ps, false);
+                let args = [];
+                let argTypes = [];
+                args.push(a);
+                argTypes.push("i8*");
+                args.push(b);
+                argTypes.push("i8*");
+                return lctx.builder.emitCall(fnName, retType, args, argTypes);
+              };
+              lowerStr1Fn (node, fnName, lctx) {
+                const aNode = node.getSecond();
+                const a = this.lowerExpr(aNode, lctx);
+                let ps = [];
+                ps.push("i8*");
+                this.ensureExternDecl(fnName, "i8*", ps, false);
+                let args = [];
+                let argTypes = [];
+                args.push(a);
+                argTypes.push("i8*");
+                const res = lctx.builder.emitCall(fnName, "i8*", args, argTypes);
+                this.registerFreshStringTemp(res, lctx);
+                return res;
+              };
+              isStringKeyMapTypeNode (node) {
+                if ( node.value_type == 7 ) {
+                  return LowIRUtil.isStringType(node.key_type);
+                }
+                return false;
+              };
               isObjectPtrArrayTypeNode (node) {
                 if ( node.value_type == 6 ) {
                   if ( (node.array_type.length) > 0 ) {
@@ -37413,6 +37713,27 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       return true;
                     }
                   }
+                }
+                return false;
+              };
+              isDoubleArrayTypeNode (node) {
+                if ( node.value_type == 6 ) {
+                  if ( node.array_type == "double" ) {
+                    return true;
+                  }
+                  if ( node.array_type == "float" ) {
+                    return true;
+                  }
+                }
+                return false;
+              };
+              arrayElemIsDouble (arrNode, lctx) {
+                const et = this.arrayElemTypeName(arrNode, lctx);
+                if ( et == "double" ) {
+                  return true;
+                }
+                if ( et == "float" ) {
+                  return true;
                 }
                 return false;
               };
@@ -37627,6 +37948,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const kind = this.collectionKind(varName, lctx);
                 const desc = this.loadCollectionDesc(varName, lctx);
                 const key = this.lowerExpr(keyNode, lctx);
+                const gsm = this.smapDescFromVref(varName, lctx);
+                if ( (gsm.length) > 0 ) {
+                  let gRest = [];
+                  let gTypes = [];
+                  gRest.push(this.strKeyPtr(keyNode, key, lctx));
+                  gTypes.push("i8*");
+                  const gres = this.emitSMapCall("RtSMap_get", "i64", gsm, gRest, gTypes, lctx);
+                  const gkind = this.smapValueKind(varName, lctx);
+                  if ( gkind == "int" ) {
+                    return lctx.builder.emitCast("trunc", "i32", "i64", gres);
+                  }
+                  if ( gkind == "string" ) {
+                    return lctx.builder.emitIntToI8Ptr(gres, lctx.ptrType);
+                  }
+                  return gres;
+                }
                 if ( kind == "map" ) {
                   return this.emitRtMapGet(desc, key, lctx);
                 }
@@ -37642,6 +37979,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
                 const varName = collNode.vref;
                 const desc = this.loadCollectionDesc(varName, lctx);
+                const lsm = this.smapDescFromVref(varName, lctx);
+                if ( (lsm.length) > 0 ) {
+                  let lRest = [];
+                  let lTypes = [];
+                  return this.emitSMapCall("RtSMap_size", "i32", lsm, lRest, lTypes, lctx);
+                }
                 return this.emitRtArrayLen(desc, lctx);
               };
               lowerCollectionHas (node, lctx) {
@@ -37650,6 +37993,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const varName = collNode.vref;
                 const desc = this.loadCollectionDesc(varName, lctx);
                 const key = this.lowerExpr(keyNode, lctx);
+                const hsm = this.smapDescFromVref(varName, lctx);
+                if ( (hsm.length) > 0 ) {
+                  let hRest = [];
+                  let hTypes = [];
+                  hRest.push(this.strKeyPtr(keyNode, key, lctx));
+                  hTypes.push("i8*");
+                  return this.toI1(this.emitSMapCall("RtSMap_has", "i32", hsm, hRest, hTypes, lctx), lctx);
+                }
                 return this.emitRtMapHas(desc, key, lctx);
               };
               lowerCollectionSet (node, lctx) {
@@ -37667,6 +38018,30 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( collNode.value_type == 11 ) {
                   const varName = collNode.vref;
                   const kind = this.collectionKind(varName, lctx);
+                  const ssm = this.smapDescFromVref(varName, lctx);
+                  if ( (ssm.length) > 0 ) {
+                    const sdesc = ssm;
+                    let sRest = [];
+                    let sTypes = [];
+                    sRest.push(this.strKeyPtr(keyNode, key, lctx));
+                    sTypes.push("i8*");
+                    let sval = val;
+                    const skind = this.smapValueKind(varName, lctx);
+                    if ( skind == "int" ) {
+                      if ( this.exprProducesI1((valNode), lctx) ) {
+                        sval = lctx.builder.emitCast("zext", "i64", "i1", val);
+                      } else {
+                        sval = lctx.builder.emitCast("zext", "i64", "i32", val);
+                      }
+                    }
+                    if ( skind == "string" ) {
+                      sval = lctx.builder.emitPtrToInt(val);
+                    }
+                    sRest.push(sval);
+                    sTypes.push("i64");
+                    const _sp = this.emitSMapCall("RtSMap_put", "void", sdesc, sRest, sTypes, lctx);
+                    return;
+                  }
                   if ( kind == "map" ) {
                     const mdesc = this.loadCollectionDesc(varName, lctx);
                     this.emitRtMapPut(mdesc, key, val, lctx);
@@ -37713,27 +38088,47 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       }
                     }
                   }
-                  if ( isObjArray ) {
+                  let isStrMap = false;
+                  if ( nn.value_type == 7 ) {
+                    if ( LowIRUtil.isStringType(nn.key_type) ) {
+                      isStrMap = true;
+                    }
+                  }
+                  if ( isStrMap ) {
                     f.irType = ptrType;
-                    f.isPtrArray = true;
+                    f.isStringMap = true;
+                    if ( nn.array_type == "int" ) {
+                      f.isStringMapInt = true;
+                    }
+                    if ( nn.array_type == "boolean" ) {
+                      f.isStringMapInt = true;
+                    }
+                    if ( LowIRUtil.isStringType(nn.array_type) ) {
+                      f.isStringMapStr = true;
+                    }
                   } else {
-                    if ( LowIRUtil.isBufferTypeName(nn.type_name) ) {
+                    if ( isObjArray ) {
                       f.irType = ptrType;
-                      f.isBuffer = true;
+                      f.isPtrArray = true;
                     } else {
-                      if ( LowIRUtil.isStringType(nn.type_name) ) {
+                      if ( LowIRUtil.isBufferTypeName(nn.type_name) ) {
                         f.irType = ptrType;
-                        f.isString = true;
+                        f.isBuffer = true;
                       } else {
-                        if ( nn.type_name == "boolean" ) {
-                          f.irType = "i32";
-                          f.isBool = true;
+                        if ( LowIRUtil.isStringType(nn.type_name) ) {
+                          f.irType = ptrType;
+                          f.isString = true;
                         } else {
-                          if ( LowIRUtil.isSupportedPrimitive(nn.type_name) ) {
-                            f.irType = LowIRUtil.fieldIrType(nn.type_name);
+                          if ( nn.type_name == "boolean" ) {
+                            f.irType = "i32";
+                            f.isBool = true;
                           } else {
-                            f.irType = ptrType;
-                            f.isObject = true;
+                            if ( LowIRUtil.isSupportedPrimitive(nn.type_name) ) {
+                              f.irType = LowIRUtil.fieldIrType(nn.type_name);
+                            } else {
+                              f.irType = ptrType;
+                              f.isObject = true;
+                            }
                           }
                         }
                       }
@@ -37839,8 +38234,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   if ( ( typeof(lctx.slotTypes[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slotTypes, varName) ) ) {
                     loadType = (( Object.prototype.hasOwnProperty.call(lctx.slotTypes, varName) ? lctx.slotTypes[varName] : undefined ));
                   }
-                  if ( ( typeof(lctx.objectSlots[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.objectSlots, varName) ) ) {
-                    loadType = lctx.ptrType;
+                  if ( (( typeof(lctx.slotTypes[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slotTypes, varName) )) == false ) {
+                    if ( ( typeof(lctx.objectSlots[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.objectSlots, varName) ) ) {
+                      loadType = lctx.ptrType;
+                    }
                   }
                   return builder.emitLoad(loadType, slot);
                 }
@@ -37886,6 +38283,150 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     var f = st.fields[i_1];
                     if ( f.name == fieldName ) {
                       return f.isObject;
+                    }
+                  };
+                };
+                return false;
+              };
+              strKeyPtr (keyNode, key, lctx) {
+                if ( keyNode.value_type == 11 ) {
+                  if ( ( typeof(lctx.slotTypes[keyNode.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slotTypes, keyNode.vref) ) ) {
+                    const kst = (( Object.prototype.hasOwnProperty.call(lctx.slotTypes, keyNode.vref) ? lctx.slotTypes[keyNode.vref] : undefined ));
+                    if ( kst == "i8*" ) {
+                      return key;
+                    }
+                    return lctx.builder.emitIntToI8Ptr(key, lctx.ptrType);
+                  }
+                }
+                if ( this.exprIsStringish(keyNode, lctx) ) {
+                  return key;
+                }
+                if ( this.exprIsString(keyNode) ) {
+                  return key;
+                }
+                return lctx.builder.emitIntToI8Ptr(key, lctx.ptrType);
+              };
+              smapDescFromVref (vref, lctx) {
+                if ( this.collectionKind(vref, lctx) == "smap" ) {
+                  return this.loadCollectionDesc(vref, lctx);
+                }
+                if ( (vref.indexOf(".")) >= 0 ) {
+                  const parts = vref.split(".");
+                  if ( (parts.length) >= 2 ) {
+                    const recv = parts[0];
+                    const fld = parts[1];
+                    const cls = this.resolveObjectClass(recv, lctx);
+                    if ( (cls.length) > 0 ) {
+                      if ( this.fieldIsStringMapSlot(cls, fld) ) {
+                        return this.emitFieldLoadOn(cls, this.resolveObjectPtrChain(recv, cls, lctx), fld, lctx);
+                      }
+                    }
+                  }
+                  return "";
+                }
+                if ( this.isClassField(vref, lctx.className, this.irModule) ) {
+                  if ( this.fieldIsStringMapSlot(lctx.className, vref) ) {
+                    return this.emitFieldLoad(vref, lctx);
+                  }
+                }
+                return "";
+              };
+              smapValueKind (vref, lctx) {
+                if ( ( typeof(lctx.smapValueTypes[vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.smapValueTypes, vref) ) ) {
+                  const lvt = (( Object.prototype.hasOwnProperty.call(lctx.smapValueTypes, vref) ? lctx.smapValueTypes[vref] : undefined ));
+                  if ( lvt == "int" ) {
+                    return "int";
+                  }
+                  if ( lvt == "boolean" ) {
+                    return "int";
+                  }
+                  if ( LowIRUtil.isStringType(lvt) ) {
+                    return "string";
+                  }
+                  return "";
+                }
+                let cls = "";
+                let fld = "";
+                if ( (vref.indexOf(".")) >= 0 ) {
+                  const parts = vref.split(".");
+                  if ( (parts.length) >= 2 ) {
+                    cls = this.resolveObjectClass((parts[0]), lctx);
+                    fld = parts[1];
+                  }
+                } else {
+                  if ( this.isClassField(vref, lctx.className, this.irModule) ) {
+                    cls = lctx.className;
+                    fld = vref;
+                  }
+                }
+                if ( (cls.length) == 0 ) {
+                  return "";
+                }
+                for ( let i = 0; i < this.irModule.structs.length; i++) {
+                  var st = this.irModule.structs[i];
+                  if ( st.name != cls ) {
+                    continue;
+                  }
+                  for ( let i_1 = 0; i_1 < st.fields.length; i_1++) {
+                    var f = st.fields[i_1];
+                    if ( f.name == fld ) {
+                      if ( f.isStringMapInt ) {
+                        return "int";
+                      }
+                      if ( f.isStringMapStr ) {
+                        return "string";
+                      }
+                      return "";
+                    }
+                  };
+                };
+                return "";
+              };
+              smapValueIsInt (vref, lctx) {
+                if ( ( typeof(lctx.smapValueTypes[vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.smapValueTypes, vref) ) ) {
+                  return this.smapValueKind(vref, lctx) == "int";
+                }
+                let cls = "";
+                let fld = "";
+                if ( (vref.indexOf(".")) >= 0 ) {
+                  const parts = vref.split(".");
+                  if ( (parts.length) >= 2 ) {
+                    cls = this.resolveObjectClass((parts[0]), lctx);
+                    fld = parts[1];
+                  }
+                } else {
+                  if ( this.isClassField(vref, lctx.className, this.irModule) ) {
+                    cls = lctx.className;
+                    fld = vref;
+                  }
+                }
+                if ( (cls.length) == 0 ) {
+                  return false;
+                }
+                for ( let i = 0; i < this.irModule.structs.length; i++) {
+                  var st = this.irModule.structs[i];
+                  if ( st.name != cls ) {
+                    continue;
+                  }
+                  for ( let i_1 = 0; i_1 < st.fields.length; i_1++) {
+                    var f = st.fields[i_1];
+                    if ( f.name == fld ) {
+                      return f.isStringMapInt;
+                    }
+                  };
+                };
+                return false;
+              };
+              fieldIsStringMapSlot (className, fieldName) {
+                for ( let i = 0; i < this.irModule.structs.length; i++) {
+                  var st = this.irModule.structs[i];
+                  if ( st.name != className ) {
+                    continue;
+                  }
+                  for ( let i_1 = 0; i_1 < st.fields.length; i_1++) {
+                    var f = st.fields[i_1];
+                    if ( f.name == fieldName ) {
+                      return f.isStringMap;
                     }
                   };
                 };
@@ -38069,6 +38610,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   if ( LowIRUtil.isStringType(this.arrayElemTypeName(arrNode, lctx)) ) {
                     return lctx.builder.emitIntToI8Ptr(raw, lctx.ptrType);
                   }
+                  if ( this.arrayElemIsDouble(arrNode, lctx) ) {
+                    return lctx.builder.emitCast("bitcast", "f64", "i64", raw);
+                  }
                 }
                 return raw;
               };
@@ -38081,6 +38625,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   } else {
                     if ( LowIRUtil.isStringType(this.arrayElemTypeName(arrNode, lctx)) ) {
                       storeVal = lctx.builder.emitPtrToInt(val);
+                    }
+                    if ( this.arrayElemIsDouble(arrNode, lctx) ) {
+                      storeVal = lctx.builder.emitCast("bitcast", "i64", "f64", val);
                     }
                   }
                 }
@@ -38418,6 +38965,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   }
                   for ( let i_1 = 0; i_1 < st.fields.length; i_1++) {
                     var f = st.fields[i_1];
+                    if ( f.isStringMap ) {
+                      const sm = this.emitSMapNew(lctx);
+                      this.emitFieldStoreOn(className, objPtr, f.name, sm, lctx);
+                      continue;
+                    }
                     if ( f.isPtrArray == false ) {
                       continue;
                     }
@@ -38812,7 +39364,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 builder.startBlock("entry");
                 const cur = builder.emitGlobalGet(globalName);
                 const zero = builder.emitConst(lctx.ptrType, "0");
-                const isZero = builder.emitIcmp("eq", cur, zero);
+                const isZero = builder.emitIcmpTyped("eq", lctx.ptrType, cur, zero);
                 builder.terminateBrIf(isZero, initLabel, retLabel);
                 builder.startBlock(initLabel);
                 const obj = this.lowerNewObject(cl.name, argsNode, lctx);
@@ -39394,6 +39946,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( this.collectionKind(varName, lctx) == "map" ) {
                   relFn = "RtMap_free";
                 }
+                if ( this.collectionKind(varName, lctx) == "smap" ) {
+                  relFn = "RtSMap_free";
+                }
                 lctx.builder.emitCall(relFn, "void", args, argTypes);
               };
               emitOwnedStringInit (varName, valNode, strPtr, lctx) {
@@ -39683,9 +40238,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     lctx.ptrArrayElemTypes[varName] = "string";
                     return;
                   }
+                  if ( this.isDoubleArrayTypeNode(nameNode) ) {
+                    const emptyDblArr = this.emitPtrArrayNewEmpty(lctx, 0);
+                    this.bindPtrArraySlot(varName, emptyDblArr, lctx, false);
+                    lctx.ptrArrayElemTypes[varName] = nameNode.array_type;
+                    return;
+                  }
                   if ( this.isObjectPtrArrayTypeNode(nameNode) ) {
                     const emptyPtrArr = this.emitPtrArrayNewEmpty(lctx, 1);
                     this.bindPtrArraySlot(varName, emptyPtrArr, lctx, true);
+                    lctx.ptrArrayElemTypes[varName] = nameNode.array_type;
+                    return;
+                  }
+                  if ( this.isStringKeyMapTypeNode(nameNode) ) {
+                    const newSMap = this.emitSMapNew(lctx);
+                    this.bindCollectionSlot(varName, "smap", newSMap, lctx);
+                    lctx.smapValueTypes[varName] = nameNode.array_type;
                     return;
                   }
                   if ( this.isIntIntMapTypeNode(nameNode) ) {
@@ -39694,11 +40262,26 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     this.bindCollectionSlot(varName, "map", newMap, lctx);
                     return;
                   }
+                  const tnNoInit = this.varTypeName(nameNode);
+                  if ( (tnNoInit.length) > 0 ) {
+                    if ( this.isObjectTypeName(tnNoInit) ) {
+                      const nullObj = lctx.builder.emitConst(lctx.ptrType, "0");
+                      lctx.objectSlots[varName] = tnNoInit;
+                      this.bindSlot(varName, lctx.ptrType, nullObj, lctx);
+                      return;
+                    }
+                  }
                   return;
                 }
                 const val = valNode;
                 if ( val.has_operator ) {
                   const valOp = val.getOperator();
+                  if ( valOp == "keys" ) {
+                    const kArr = this.lowerSMapKeys(val, lctx);
+                    this.bindPtrArraySlot(varName, kArr, lctx, true);
+                    lctx.ptrArrayElemTypes[varName] = "string";
+                    return;
+                  }
                   if ( valOp == "make" ) {
                     const made = this.lowerCollectionMake(val, lctx);
                     if ( this.isObjectPtrArrayTypeNode(nameNode) ) {
@@ -39733,13 +40316,24 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     lctx.ptrArrayElemTypes[varName] = "string";
                     return;
                   }
+                  if ( this.isDoubleArrayTypeNode(nameNode) ) {
+                    this.bindPtrArraySlot(varName, callTmp, lctx, false);
+                    lctx.ptrArrayElemTypes[varName] = nameNode.array_type;
+                    return;
+                  }
                   if ( this.isObjectPtrArrayTypeNode(nameNode) ) {
                     this.bindPtrArraySlot(varName, callTmp, lctx, true);
+                    lctx.ptrArrayElemTypes[varName] = nameNode.array_type;
                     return;
                   }
                   if ( this.isIntArrayTypeNode(nameNode) ) {
                     this.bindPtrArraySlot(varName, callTmp, lctx, false);
                     lctx.ptrArrayElemTypes[varName] = "int";
+                    return;
+                  }
+                  if ( this.isStringKeyMapTypeNode(nameNode) ) {
+                    this.bindCollectionSlot(varName, "smap", callTmp, lctx);
+                    lctx.smapValueTypes[varName] = nameNode.array_type;
                     return;
                   }
                   if ( this.isIntIntMapTypeNode(nameNode) ) {
@@ -39774,6 +40368,24 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     }
                   }
                   this.bindSlot(varName, lctx.ptrType, rec, lctx);
+                  return;
+                }
+                if ( this.isStringArrayTypeNode(nameNode) ) {
+                  const sArrV = this.lowerExpr(val, lctx);
+                  this.bindPtrArraySlot(varName, sArrV, lctx, true);
+                  lctx.ptrArrayElemTypes[varName] = "string";
+                  return;
+                }
+                if ( this.isDoubleArrayTypeNode(nameNode) ) {
+                  const dArrV = this.lowerExpr(val, lctx);
+                  this.bindPtrArraySlot(varName, dArrV, lctx, false);
+                  lctx.ptrArrayElemTypes[varName] = nameNode.array_type;
+                  return;
+                }
+                if ( this.isObjectPtrArrayTypeNode(nameNode) ) {
+                  const oArrV = this.lowerExpr(val, lctx);
+                  this.bindPtrArraySlot(varName, oArrV, lctx, true);
+                  lctx.ptrArrayElemTypes[varName] = nameNode.array_type;
                   return;
                 }
                 let tmp = this.lowerExpr(val, lctx);
@@ -39815,7 +40427,21 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     tmp = lctx.builder.emitCast("sitofp", "f64", "i32", tmp);
                   }
                 }
+                if ( irType == "i32" ) {
+                  if ( this.exprIsI64Operator(val) ) {
+                    tmp = lctx.builder.emitCast("trunc", "i32", "i64", tmp);
+                  }
+                }
                 this.bindSlot(varName, irType, tmp, lctx);
+              };
+              exprIsI64Operator (node) {
+                const n = this.unwrapInfixExpr(node);
+                if ( n.has_operator ) {
+                  if ( n.getOperator() == "file_mtime" ) {
+                    return true;
+                  }
+                }
+                return false;
               };
               assignTargetFieldClass (varName, lctx) {
                 if ( (varName.indexOf(".")) >= 0 ) {
@@ -39997,6 +40623,25 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( exprNode.value_type == 5 ) {
                   return true;
                 }
+                const pi1cls = this.propertyReadClass(exprNode, lctx);
+                if ( (pi1cls.length) > 0 ) {
+                  const pi1Node = exprNode.getThird();
+                  if ( this.fieldIsBoolSlot(pi1cls, pi1Node.vref) ) {
+                    return true;
+                  }
+                }
+                if ( exprNode.has_operator ) {
+                  const bOp = exprNode.getOperator();
+                  if ( bOp == "has" ) {
+                    return true;
+                  }
+                  if ( bOp == "contains" ) {
+                    return true;
+                  }
+                  if ( bOp == "file_exists" ) {
+                    return true;
+                  }
+                }
                 if ( (exprNode.has_call || exprNode.is_direct_method_call) || exprNode.hasFnCall ) {
                   if ( (typeof(exprNode.fnDesc) !== "undefined" && exprNode.fnDesc != null )  ) {
                     const fd = exprNode.fnDesc;
@@ -40097,6 +40742,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     const zeroP = builder.emitConst(lctx.ptrType, "0");
                     return builder.emitIcmpTyped("ne", lctx.ptrType, v, zeroP);
                   }
+                }
+                if ( this.exprIsF64(condNode) ) {
+                  const zeroF = builder.emitConst("f64", "0.0");
+                  return builder.emitIcmpTyped("ne", "f64", v, zeroF);
                 }
                 const zero = builder.emitConst("i32", "0");
                 return builder.emitIcmp("ne", v, zero);
@@ -40244,6 +40893,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( node.has_call || node.is_direct_method_call ) {
                   return this.lowerCall(node, lctx);
                 }
+                if ( this.isPropertyReadNode(node) ) {
+                  return this.lowerPropertyRead(node, lctx);
+                }
                 if ( node.infix_operator ) {
                   if ( (typeof(node.infix_node) !== "undefined" && node.infix_node != null )  ) {
                     return this.lowerExpr((node.infix_node), lctx);
@@ -40259,6 +40911,91 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   }
                   if ( opName == "array_length" ) {
                     return this.lowerCollectionLen(node, lctx);
+                  }
+                  if ( opName == "keys" ) {
+                    return this.lowerSMapKeys(node, lctx);
+                  }
+                  if ( opName == "indexOf" ) {
+                    return this.lowerStr2Fn(node, "ranger_str_index_of", "i32", lctx);
+                  }
+                  if ( opName == "lastIndexOf" ) {
+                    return this.lowerStr2Fn(node, "ranger_str_last_index_of", "i32", lctx);
+                  }
+                  if ( opName == "contains" ) {
+                    return this.toI1(this.lowerStr2Fn(node, "ranger_str_contains", "i32", lctx), lctx);
+                  }
+                  if ( opName == "trim" ) {
+                    return this.lowerStr1Fn(node, "ranger_str_trim", lctx);
+                  }
+                  if ( opName == "to_lowercase" ) {
+                    return this.lowerStr1Fn(node, "ranger_str_lower", lctx);
+                  }
+                  if ( opName == "to_uppercase" ) {
+                    return this.lowerStr1Fn(node, "ranger_str_upper", lctx);
+                  }
+                  if ( opName == "file_exists" ) {
+                    return this.toI1(this.lowerStr2Fn(node, "ranger_file_exists", "i32", lctx), lctx);
+                  }
+                  if ( opName == "M_PI" ) {
+                    return lctx.builder.emitConst("f64", "3.141592653589793");
+                  }
+                  if ( this.isLibmUnaryOp(opName) ) {
+                    return this.lowerLibmUnary(opName, node, lctx);
+                  }
+                  if ( this.isLibmBinaryOp(opName) ) {
+                    return this.lowerLibmBinary(opName, node, lctx);
+                  }
+                  if ( opName == "buffer_to_string" ) {
+                    const bNode2 = node.getSecond();
+                    const bufV = this.lowerExpr(bNode2, lctx);
+                    const bLen = this.emitPtrArrayLenOrBufferLen(bufV, lctx);
+                    let bp = [];
+                    bp.push("i64");
+                    bp.push("i32");
+                    this.ensureExternDecl("ranger_buffer_to_string", "i8*", bp, false);
+                    let bArgs = [];
+                    let bTypes = [];
+                    bArgs.push(bufV);
+                    bTypes.push(lctx.ptrType);
+                    bArgs.push(bLen);
+                    bTypes.push("i32");
+                    const bRes = lctx.builder.emitCall("ranger_buffer_to_string", "i8*", bArgs, bTypes);
+                    this.registerFreshStringTemp(bRes, lctx);
+                    return bRes;
+                  }
+                  if ( opName == "file_mtime" ) {
+                    return this.lowerStr2Fn(node, "ranger_file_mtime", "i64", lctx);
+                  }
+                  if ( opName == "random" ) {
+                    let rp = [];
+                    this.ensureExternDecl("ranger_random", "double", rp, false);
+                    let rArgs = [];
+                    let rTypes = [];
+                    return lctx.builder.emitCall("ranger_random", "f64", rArgs, rTypes);
+                  }
+                  if ( opName == "wall_clock_ms" ) {
+                    let wp = [];
+                    this.ensureExternDecl("ranger_wall_clock_ms", "double", wp, false);
+                    let wArgs = [];
+                    let wTypes = [];
+                    return lctx.builder.emitCall("ranger_wall_clock_ms", "f64", wArgs, wTypes);
+                  }
+                  if ( opName == "strsplit" ) {
+                    const spA = node.getSecond();
+                    const spB = node.getThird();
+                    const spAv = this.lowerExpr(spA, lctx);
+                    const spBv = this.lowerExpr(spB, lctx);
+                    let spDecl = [];
+                    spDecl.push("i8*");
+                    spDecl.push("i8*");
+                    this.ensureExternDecl("ranger_str_split", lctx.ptrType, spDecl, false);
+                    let spArgs = [];
+                    let spTypes = [];
+                    spArgs.push(spAv);
+                    spTypes.push("i8*");
+                    spArgs.push(spBv);
+                    spTypes.push("i8*");
+                    return lctx.builder.emitCall("ranger_str_split", lctx.ptrType, spArgs, spTypes);
                   }
                   if ( opName == "strlen" ) {
                     return this.lowerStrlen(node, lctx);
@@ -40426,6 +41163,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   }
                 }
                 if ( node.value_type == 11 ) {
+                  if ( node.vref == "this" ) {
+                    if ( (lctx.selfPtr.length) > 0 ) {
+                      return builder.emitPtrToInt(lctx.selfPtr);
+                    }
+                  }
                   if ( ( typeof(lctx.boxedLocals[node.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.boxedLocals, node.vref) ) ) {
                     const cellPtr = this.loadSlot(node.vref, lctx.ptrType, lctx);
                     return builder.emitLoadI32At(cellPtr, 0);
@@ -40527,9 +41269,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   if ( this.operatorReturnsString(eop) ) {
                     return true;
                   }
-                  if ( node.getOperator() == "+" ) {
-                    const aNode = node.getSecond();
-                    const bNode = node.getThird();
+                  if ( eop == "+" ) {
+                    const aNode = exprNode.getSecond();
+                    const bNode = exprNode.getThird();
                     if ( this.exprIsStringish(aNode, lctx) || this.exprIsStringish(bNode, lctx) ) {
                       return true;
                     }
@@ -40565,9 +41307,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( exprNode.has_operator ) {
                   const rOp = exprNode.getOperator();
                   if ( rOp == "at" ) {
-                    return true;
-                  }
-                  if ( rOp == "charAt" ) {
                     return true;
                   }
                   if ( rOp == "substring" ) {
@@ -40723,10 +41462,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     const a_6 = this.lowerExpr(node.getSecond(), lctx);
                     const b_6 = this.lowerExpr(node.getThird(), lctx);
                     return builder.emitBin("ashr", irI32, a_6, b_6);
-                  case "bit_not" : 
+                  case "bit_ushr" : 
                     const a_7 = this.lowerExpr(node.getSecond(), lctx);
+                    const b_7 = this.lowerExpr(node.getThird(), lctx);
+                    return builder.emitBin("lshr", irI32, a_7, b_7);
+                  case "bit_not" : 
+                    const a_8 = this.lowerExpr(node.getSecond(), lctx);
                     const neg1 = builder.emitConst(irI32, "-1");
-                    return builder.emitBin("xor", irI32, a_7, neg1);
+                    return builder.emitBin("xor", irI32, a_8, neg1);
                   case "<" : 
                     return this.lowerCompareI32(node.getSecond(), node.getThird(), "slt", lctx);
                   case ">" : 
@@ -40754,13 +41497,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     }
                     return this.lowerCompareI32(aNode_2, bNode_2, "ne", lctx);
                   case "||" : 
-                    const a_8 = this.lowerExpr(node.getSecond(), lctx);
-                    const b_7 = this.lowerExpr(node.getThird(), lctx);
-                    return builder.emitBin("or", "i1", a_8, b_7);
-                  case "&&" : 
                     const a_9 = this.lowerExpr(node.getSecond(), lctx);
                     const b_8 = this.lowerExpr(node.getThird(), lctx);
-                    return builder.emitBin("and", "i1", a_9, b_8);
+                    return builder.emitBin("or", "i1", a_9, b_8);
+                  case "&&" : 
+                    const a_10 = this.lowerExpr(node.getSecond(), lctx);
+                    const b_9 = this.lowerExpr(node.getThird(), lctx);
+                    return builder.emitBin("and", "i1", a_10, b_9);
                 };
                 return "";
               };
@@ -40927,6 +41670,35 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 };
                 return builder.emitCall(fnName, retType, args, argTypes);
               };
+              exprRecvClassName (node, lctx) {
+                if ( this.isPropertyReadNode(node) ) {
+                  const pcls = this.propertyReadClass(node, lctx);
+                  if ( (pcls.length) > 0 ) {
+                    const pfld = node.getThird();
+                    return this.fieldObjectClassName(pcls, pfld.vref, lctx);
+                  }
+                  return "";
+                }
+                if ( node.has_operator == false ) {
+                  return "";
+                }
+                const rop = node.getOperator();
+                if ( rop == "unwrap" ) {
+                  return this.exprRecvClassName(node.getSecond(), lctx);
+                }
+                if ( (rop != "itemAt") && (rop != "get") ) {
+                  return "";
+                }
+                const rcoll = node.getSecond();
+                const relem = this.arrayElemTypeName(rcoll, lctx);
+                if ( (relem.length) == 0 ) {
+                  return "";
+                }
+                if ( this.isObjectTypeName(relem) ) {
+                  return relem;
+                }
+                return "";
+              };
               tryLowerObjectCall (node, lctx) {
                 if ( (node.children.length) < 2 ) {
                   return "";
@@ -40935,6 +41707,35 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   if ( (node.children.length) > 3 ) {
                     const recv = node.getSecond();
                     const meth = node.getThird();
+                    if ( (recv.vref.length) == 0 ) {
+                      if ( (recv.has_call || recv.is_direct_method_call) || recv.hasFnCall ) {
+                        const rp = this.lowerCall(recv, lctx);
+                        if ( (rp.length) > 0 ) {
+                          let rcls2 = "";
+                          if ( (typeof(recv.fnDesc) !== "undefined" && recv.fnDesc != null )  ) {
+                            const rfd = recv.fnDesc;
+                            if ( (typeof(rfd.nameNode) !== "undefined" && rfd.nameNode != null )  ) {
+                              const rnn = rfd.nameNode;
+                              rcls2 = rnn.type_name;
+                            }
+                          }
+                          const rptr = lctx.builder.emitIntToStructPtr(rcls2, rp);
+                          this.exprRecvPtr = rptr;
+                          recv.eval_type_name = rcls2;
+                          return this.finishObjectCall(this.lowerInstanceCallOn(node, "", recv, meth.vref, lctx));
+                        }
+                      }
+                      const opRecvCls = this.exprRecvClassName(recv, lctx);
+                      if ( (opRecvCls.length) > 0 ) {
+                        const orv = this.lowerExpr(recv, lctx);
+                        if ( (orv.length) > 0 ) {
+                          const orp = lctx.builder.emitIntToStructPtr(opRecvCls, orv);
+                          this.exprRecvPtr = orp;
+                          recv.eval_type_name = opRecvCls;
+                          return this.finishObjectCall(this.lowerInstanceCallOn(node, "", recv, meth.vref, lctx));
+                        }
+                      }
+                    }
                     if ( ( typeof(lctx.objectSlots[recv.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.objectSlots, recv.vref) ) ) {
                       recv.eval_type_name = (( Object.prototype.hasOwnProperty.call(lctx.objectSlots, recv.vref) ? lctx.objectSlots[recv.vref] : undefined ));
                       return this.finishObjectCall(this.lowerInstanceCallOn(node, recv.vref, recv, meth.vref, lctx));
@@ -41049,23 +41850,32 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const builder = lctx.builder;
                 let objPtr = "";
                 let className = recvNode.eval_type_name;
-                if ( receiverName == "this" ) {
-                  objPtr = lctx.selfPtr;
-                  className = lctx.className;
+                let haveExprRecv = false;
+                if ( (this.exprRecvPtr.length) > 0 ) {
+                  objPtr = this.exprRecvPtr;
+                  this.exprRecvPtr = "";
+                  haveExprRecv = true;
+                }
+                if ( haveExprRecv ) {
                 } else {
-                  if ( (className.length) == 0 ) {
-                    if ( ( typeof(lctx.objectSlots[receiverName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.objectSlots, receiverName) ) ) {
-                      className = (( Object.prototype.hasOwnProperty.call(lctx.objectSlots, receiverName) ? lctx.objectSlots[receiverName] : undefined ));
-                    }
-                  }
-                  if ( (receiverName.indexOf(".")) >= 0 ) {
-                    className = this.resolveObjectClassChain(receiverName, lctx);
+                  if ( receiverName == "this" ) {
+                    objPtr = lctx.selfPtr;
+                    className = lctx.className;
                   } else {
                     if ( (className.length) == 0 ) {
-                      className = this.resolveObjectClass(receiverName, lctx);
+                      if ( ( typeof(lctx.objectSlots[receiverName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.objectSlots, receiverName) ) ) {
+                        className = (( Object.prototype.hasOwnProperty.call(lctx.objectSlots, receiverName) ? lctx.objectSlots[receiverName] : undefined ));
+                      }
                     }
+                    if ( (receiverName.indexOf(".")) >= 0 ) {
+                      className = this.resolveObjectClassChain(receiverName, lctx);
+                    } else {
+                      if ( (className.length) == 0 ) {
+                        className = this.resolveObjectClass(receiverName, lctx);
+                      }
+                    }
+                    objPtr = this.resolveObjectPtrChain(receiverName, className, lctx);
                   }
-                  objPtr = this.resolveObjectPtrChain(receiverName, className, lctx);
                 }
                 let methName = this.resolveMethodName(node, methodName);
                 if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
@@ -41283,8 +42093,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     wr.out(("@heap_ptr = global " + module.ptrType) + " 0", true);
                   }
                 }
-                for ( let i = 0; i < module.stringGlobals.length; i++) {
-                  var g = module.stringGlobals[i];
+                for ( let i = 0; i < module.singletonClasses.length; i++) {
+                  var sc = module.singletonClasses[i];
+                  wr.out(((("@singleton_" + sc) + " = internal global ") + module.ptrType) + " 0", true);
+                };
+                for ( let i_1 = 0; i_1 < module.stringGlobals.length; i_1++) {
+                  var g = module.stringGlobals[i_1];
                   const esc = this.llvmEscapeCString(g.text);
                   if ( g.withNewline ) {
                     wr.out(((((("@" + g.name) + " = private unnamed_addr constant [") + ("" + g.byteLen)) + " x i8] c\"") + esc) + "\\0A\\00\"", true);
@@ -41292,8 +42106,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     wr.out(((((("@" + g.name) + " = private unnamed_addr constant [") + ("" + g.byteLen)) + " x i8] c\"") + esc) + "\\00\"", true);
                   }
                 };
-                for ( let i_1 = 0; i_1 < module.externDecls.length; i_1++) {
-                  var d = module.externDecls[i_1];
+                for ( let i_2 = 0; i_2 < module.externDecls.length; i_2++) {
+                  var d = module.externDecls[i_2];
                   if ( (d.declSig.length) > 0 ) {
                     wr.out(((("declare " + d.retType) + " @") + d.fnName) + d.declSig, true);
                     continue;
@@ -41317,15 +42131,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   }
                 };
                 wr.newline();
-                for ( let i_2 = 0; i_2 < module.structs.length; i_2++) {
-                  var st = module.structs[i_2];
+                for ( let i_3 = 0; i_3 < module.structs.length; i_3++) {
+                  var st = module.structs[i_3];
                   this.writeStruct(st, wr);
                 };
                 if ( (module.typeDescs.length) > 0 ) {
                   this.writeTypeDescs(module, wr);
                 }
-                for ( let i_3 = 0; i_3 < module.functions.length; i_3++) {
-                  var fn = module.functions[i_3];
+                for ( let i_4 = 0; i_4 < module.functions.length; i_4++) {
+                  var fn = module.functions[i_4];
                   this.writeFunction(fn, wr);
                 };
               };
@@ -41517,10 +42331,23 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     wr.out((((((ins.dest + " = fdiv ") + this.llTy(ins.irType)) + " ") + ins.arg1) + ", ") + ins.arg2, true);
                     break;
                   case "zext" : 
-                    wr.out((((ins.dest + " = zext i32 ") + ins.arg1) + " to ") + ins.irType, true);
+                    let zsrc = "i32";
+                    if ( (ins.arg2.length) > 0 ) {
+                      zsrc = ins.arg2;
+                    }
+                    wr.out((((((ins.dest + " = zext ") + zsrc) + " ") + ins.arg1) + " to ") + ins.irType, true);
                     break;
                   case "zext_i1" : 
                     wr.out(((ins.dest + " = zext i1 ") + ins.arg1) + " to i32", true);
+                    break;
+                  case "global_get" : 
+                    wr.out((((((ins.dest + " = load ") + this.llTy(ins.irType)) + ", ") + this.llTy(ins.irType)) + "* @") + ins.arg1, true);
+                    break;
+                  case "global_set" : 
+                    wr.out((((((("store " + this.llTy(ins.irType)) + " ") + ins.arg2) + ", ") + this.llTy(ins.irType)) + "* @") + ins.arg1, true);
+                    break;
+                  case "bitcast" : 
+                    wr.out((((((ins.dest + " = bitcast ") + this.llTy(ins.arg2)) + " ") + ins.arg1) + " to ") + this.llTy(ins.irType), true);
                     break;
                   case "trunc" : 
                     wr.out((((((ins.dest + " = trunc ") + this.llTy(ins.arg2)) + " ") + ins.arg1) + " to ") + this.llTy(ins.irType), true);
@@ -41530,7 +42357,30 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     if ( (ins.arg3.length) > 0 ) {
                       cmpType = ins.arg3;
                     }
-                    wr.out((((((((ins.dest + " = icmp ") + ins.pred) + " ") + cmpType) + " ") + ins.arg1) + ", ") + ins.arg2, true);
+                    if ( cmpType == "f64" ) {
+                      let fpred = ins.pred;
+                      if ( ins.pred == "eq" ) {
+                        fpred = "oeq";
+                      }
+                      if ( ins.pred == "ne" ) {
+                        fpred = "one";
+                      }
+                      if ( ins.pred == "slt" ) {
+                        fpred = "olt";
+                      }
+                      if ( ins.pred == "sgt" ) {
+                        fpred = "ogt";
+                      }
+                      if ( ins.pred == "sle" ) {
+                        fpred = "ole";
+                      }
+                      if ( ins.pred == "sge" ) {
+                        fpred = "oge";
+                      }
+                      wr.out((((((ins.dest + " = fcmp ") + fpred) + " double ") + ins.arg1) + ", ") + ins.arg2, true);
+                    } else {
+                      wr.out((((((((ins.dest + " = icmp ") + ins.pred) + " ") + cmpType) + " ") + ins.arg1) + ", ") + ins.arg2, true);
+                    }
                     break;
                   case "str_ptr" : 
                     wr.out(((((((ins.dest + " = getelementptr inbounds [") + ins.arg2) + " x i8], [") + ins.arg2) + " x i8]* @") + ins.arg1) + ", i64 0, i64 0", true);

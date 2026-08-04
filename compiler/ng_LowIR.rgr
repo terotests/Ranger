@@ -146,6 +146,14 @@ class LowIRField {
   def name:string ""
   def irType:string "i32"
   def isPtrArray:boolean false
+  ; A `[string:T]` field. Backed by the RtSMap_* runtime rather than the
+  ; generated integer-keyed RtMap_*, which cannot hash a string key.
+  def isStringMap:boolean false
+  ; `[string:int]` rather than `[string:<object>]`: the runtime hands back a
+  ; pointer-sized value, so an int-valued map has to narrow it.
+  def isStringMapInt:boolean false
+  ; `[string:string]`: the value is a pointer, not an integer.
+  def isStringMapStr:boolean false
   def isBool:boolean false
   def isString:boolean false
   def isBuffer:boolean false
@@ -635,7 +643,7 @@ class LowIRBuilder {
     def ins@(lives):LowIRInstr (new LowIRInstr())
     ins.op = "global_get"
     ins.dest = dest
-    ins.irType = "i32"
+    ins.irType = this.irModule.ptrType
     ins.arg1 = name
     this.emit(ins)
     return dest
@@ -648,6 +656,7 @@ class LowIRBuilder {
     def ins@(lives):LowIRInstr (new LowIRInstr())
     ins.op = "global_set"
     ins.dest = ("gs" + ("" + n))
+    ins.irType = this.irModule.ptrType
     ins.arg1 = name
     ins.arg2 = value
     this.emit(ins)

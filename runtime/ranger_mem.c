@@ -152,10 +152,21 @@ void ranger_ptrarray_release(int64_t desc_addr) {
     return;
   }
   d = (RtPtrArrayDesc *)(intptr_t)desc_addr;
-  if (d->owned && d->data != 0) {
+  /* The flag word is an element KIND, not a plain boolean: 0 = plain values,
+   * 1 = owned objects, 2 = owned strings. A string element is a malloc'd
+   * buffer with no object header, so releasing it as an object read memory
+   * before the allocation. */
+  if (d->data != 0 && (d->owned == 1 || d->owned == 2)) {
     int64_t *elems = (int64_t *)(intptr_t)d->data;
     for (i = 0; i < d->len; i++) {
-      ranger_obj_release(elems[i]);
+      if (elems[i] == 0) {
+        continue;
+      }
+      if (d->owned == 2) {
+        free((void *)(intptr_t)elems[i]);
+      } else {
+        ranger_obj_release(elems[i]);
+      }
     }
   }
   if (d->data != 0) {
@@ -173,7 +184,8 @@ void ranger_ptrarray_push_owned(int64_t desc_addr, int64_t val) {
     return;
   }
   d = (RtPtrArrayDesc *)(intptr_t)desc_addr;
-  if (d->owned && val != 0) {
+  /* Only an OBJECT element carries a refcount to bump (see the kinds above). */
+  if (d->owned == 1 && val != 0) {
     ranger_obj_retain(val);
   }
   if (d->len >= d->cap) {

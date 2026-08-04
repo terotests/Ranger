@@ -537,6 +537,7 @@ language {
         random        _:double () {
             templates {
                 es6 ('Math.random()')
+                llvm ( "(random)" )
                 swift6 ( "Double.random(in: 0..<1)" )
                 python ( "random.random()" (imp "random") )
                 swift3 ( "(Double(arc4random()) / Double(UInt32.max))" (imp "Foundation") )
@@ -800,6 +801,7 @@ func _r_sha256(value string) string {
                 dart ( "pi" (imp "dart:math"))
                 java7 ( "Math.PI" (imp "java.lang.Math"))
                 php ("pi()")
+                llvm ("(M_PI)")
                 cpp ("M_PI" (imp "<math.h>"))
                 kotlin ( "Math.PI" (imp "java.lang.Math"))
                 csharp ( "Math.PI" (imp "System"))
@@ -835,6 +837,7 @@ func _r_sha256(value string) string {
                 dart ( "tan(" (e 1) ")" (imp "dart:math"))
                 java7 ( "Math.tan(" (e 1) ")" (imp "java.lang.Math"))
                 php ( "tan(" (e 1) ")")
+                llvm ( "(tan " (e 1) ")" )
                 cpp ("tan(" (e 1) ")" (imp "<math.h>"))
                 kotlin ( "Math.tan(" (e 1) ")" (imp "java.lang.Math"))
                 csharp ( "Math.Tan(" (e 1) ")" (imp "System"))
@@ -1068,6 +1071,7 @@ std::string __cpp_curr_dir() {
 
         file_exists          cmdIsDir:boolean (path:string filename:string) {
             templates {
+                llvm ( "(file_exists " (e 1) " " (e 2) ")" )
                 cpp ( "r_cpp_file_exists( " (e 1) " + std::string(\"/\") + " (e 2) ")" (imp "<sys/stat.h>") (imp "<string>")
 (create_polyfill "
 bool r_cpp_file_exists(std::string name) 
@@ -1207,6 +1211,7 @@ func r_dir_exists(pathName string) bool {
         ; Returns the file modification time (ms on es6/cpp; seconds on go)
         file_mtime          cmdFileMTime:int (path:string filename:string) {
             templates {
+                llvm ( "(file_mtime " (e 1) " " (e 2) ")" )
                 go ( "r_file_mtime(" (e 1) ", " (e 2) ")"
 (create_polyfill
 "
@@ -3083,6 +3088,7 @@ case class customException(smth:String)  extends Exception
         trim             cmdTrim:string          ( value:string ) { 
             templates {
                 ranger ( "(trim " (e 1 ) ")")                
+                llvm ( "(trim " (e 1) ")" )
                 swift3 ( (e 1 ) ".trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)" (imp "Foundation"))                
                 swift6 ( (e 1 ) ".trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)" (imp "Foundation"))                
                 php ( "trim(" (e 1 ) ")")
@@ -3490,6 +3496,7 @@ static bool r_regex_test_i(string pattern, string s) {
         buffer_to_string    cmdBufferToString:string    ( buf:buffer ) {
             templates {
                 ranger ( "(buffer_to_string " (e 1) ")" )
+                llvm ( "(buffer_to_string " (e 1) ")" )
                 es6 ( "(function(b){ var v = new Uint8Array(b); return String.fromCharCode.apply(null, v); })(" (e 1) ")" )
                 go ( "string(" (e 1) ")" )
                 rust ( "String::from_utf8_lossy(&" (e 1) ").to_string()" )
@@ -4044,6 +4051,7 @@ std::string r_utf8_char_at(const std::string& str, int pos_i)
         keys        _:[string]           ( map:[string:T] ) {
             templates {
                 ranger ("(keys " (e 1) ")")
+                llvm ( "(keys " (e 1) ")" )
                 java7 ( "new ArrayList<>(" (e 1) ".keySet())")
                 kotlin ( "ArrayList(" (e 1) ".keys)")
                 dart ( (e 1) ".keys.toList()" )
@@ -4865,6 +4873,7 @@ i "}" nl ))
                 scala ( (e 1) ".indexOf(" (e 2) ")" )
                 go ( "int64(strings.Index(" (e 1) ", " (e 2) "))" (imp "strings"))
                 es6 ( (e 1) ".indexOf(" (e 2 ) ")" )
+                llvm ( "(indexOf " (e 1) " " (e 2) ")" )
                 java7 ( (e 1) ".indexOf(" (e 2 ) ")" )
                 kotlin ( (e 1) ".indexOf(" (e 2) ")" )
                 dart ( (e 1) ".indexOf(" (e 2) ")" )
@@ -4926,6 +4935,7 @@ int r_string_index_of_from( std::string str, std::string key, int start )  {
                 csharp ( (e 1) ".LastIndexOf(" (e 2) ")" )
                 scala ( (e 1) ".lastIndexOf(" (e 2) ")" )
                 es6 ( (e 1) ".lastIndexOf(" (e 2 ) ")" )
+                llvm ( "(lastIndexOf " (e 1) " " (e 2) ")" )
                 java7 ( (e 1) ".lastIndexOf(" (e 2 ) ")" )
                 python ( (e 1) ".rfind(" (e 2) ")" )
                 go ( "int64(strings.LastIndex(" (e 1) ", " (e 2) "))" (imp "strings"))
@@ -5001,6 +5011,7 @@ bool r_string_ends_with(const std::string& str, const std::string& suffix) {
         contains _:boolean (str:string sub:string) {
             templates {
                 ranger ( "(contains " (e 1) " " (e 2) ")")
+                llvm ( "(contains " (e 1) " " (e 2) ")" )
                 es6 ( (e 1) ".includes(" (e 2) ")" )
                 java7 ( (e 1) ".contains(" (e 2) ")" )
                 go ( "strings.Contains(" (e 1) ", " (e 2) ")" (imp "strings"))
@@ -6340,6 +6351,7 @@ fun r_read_key(): String {
                 swift6 ((e 1) ".lowercased()")
                 scala ((e 1) ".toLowerCase()")
                 python ((e 1) ".lower()")
+                llvm ( "(to_lowercase " (e 1) ")" )
                 rust ( (e 1) ".to_lowercase()" )
                 cpp (
                     "r_cpp_str_to_lowercase(" (e 1) ")"
@@ -6371,6 +6383,7 @@ std::string r_cpp_str_to_lowercase(std::string original)
                 php( "strtoupper(" (e 1) ")")
                 csharp ( (e 1) ".ToUpper()" )
                 python ( (e 1) ".upper()" )
+                llvm ( "(to_uppercase " (e 1) ")" )
                 rust ( (e 1) ".to_uppercase()" )
                 cpp (                     
                     "r_cpp_str_to_uppercase(" (e 1) ")"
