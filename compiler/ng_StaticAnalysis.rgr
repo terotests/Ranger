@@ -26,6 +26,12 @@ class StaticAnalyzer {
   def own_call_params:[RangerAppParamDesc]
   def own_call_callees:[RangerAppFunctionDesc]
   def own_call_indexes:[int]
+
+  ; Copy edges between string descs (static-string promotion): an assignment
+  ; `x = y` where both sides resolve to descs records (src=y, dst=x); the
+  ; fixpoint demotes dst whenever src loses its static-string status.
+  def rss_edge_src:[RangerAppParamDesc]
+  def rss_edge_dst:[RangerAppParamDesc]
   
   Constructor () {
     ; Initialize empty - will be set up when analyzeAll is called
@@ -2757,6 +2763,238 @@ class StaticAnalyzer {
       return false
     }
     return true
+  }
+
+  ; ============================================================================
+  ; STATIC STRING PROMOTION (rust_static_str)
+  ; ============================================================================
+  ; Ranger strings are immutable values, so a string field or local whose every
+  ; written value is a string LITERAL — or a copy of another such string — never
+  ; needs an owned String in Rust: it becomes `&'static str`. Assignment is a
+  ; pointer copy, reads are Copy, comparisons need no allocation. Only a
+  ; COMPUTED value flowing in (concat, call result, substring, element read)
+  ; disqualifies a name. The pass promotes every candidate optimistically,
+  ; records desc-to-desc copy edges, demotes on computed sources, then
+  ; propagates demotions over the edges to a fixpoint. Parameters and returns
+  ; stay owned/borrowed String — the writer converts with .to_string() where a
+  ; static value flows into an owned position, and the Rust type system turns
+  ; any flow this pass mis-judges into a compile error, never silent corruption.
+
+  ; a desc whose declared type could hold a static string: plain `string`,
+  ; no collection, no optional/weak — those shapes keep the owned form
+  fn rssPlainStringDesc:boolean (p:RangerAppParamDesc) {
+    if ((strlen p.name) == 0) {
+      return false
+    }
+    if (null? p.nameNode) {
+      return false
+    }
+    def nn:CodeNode (unwrap p.nameNode)
+    if ((strlen nn.array_type) > 0) {
+      return false
+    }
+    if ((strlen nn.key_type) > 0) {
+      return false
+    }
+    if (nn.type_name != "string") {
+      return false
+    }
+    if p.is_optional {
+      return false
+    }
+    if (nn.hasFlag("optional")) {
+      return false
+    }
+    if (nn.hasFlag("weak")) {
+      return false
+    }
+    return true
+  }
+
+  ; the desc a READ or an ASSIGNMENT TARGET resolves to: the terminal segment
+  ; of a member path, the plain name's own desc, or the dotted-tail desc of a
+  ; `(expr).field` target. Empty desc when the node names nothing trackable.
+  fn rssResolveDesc:RangerAppParamDesc (node:CodeNode) {
+    if node.expression {
+      ; `(expr).field` keeps the terminal field as a dotted-tail child vref
+      def tailIdx:int ((array_length node.children) - 1)
+      if (tailIdx > 0) {
+        def tail:CodeNode (itemAt node.children tailIdx)
+        if ((tail.expression == false) && tail.hasParamDesc) {
+          if ((strlen tail.vref) > 1) {
+            if ((charAt tail.vref 0) == 46) {
+              return (unwrap tail.paramDesc)
+            }
+          }
+        }
+      }
+      return (new RangerAppParamDesc())
+    }
+    if ((array_length node.nsp) > 0) {
+      return (itemAt node.nsp ((array_length node.nsp) - 1))
+    }
+    if node.hasParamDesc {
+      return (unwrap node.paramDesc)
+    }
+    return (new RangerAppParamDesc())
+  }
+
+  ; classify an assignment source: 0 = string literal, 1 = plain desc read
+  ; (copy — records an edge), 2 = computed (demotes the target)
+  fn rssSourceKind:int (value:CodeNode) {
+    def v:CodeNode value
+    while (v.expression && ((array_length v.children) == 1)) {
+      v = (v.getFirst())
+    }
+    if v.expression {
+      return 2
+    }
+    if (v.value_type == RangerNodeType.String) {
+      return 0
+    }
+    def src:RangerAppParamDesc (this.rssResolveDesc(v))
+    if ((strlen src.name) > 0) {
+      return 1
+    }
+    return 2
+  }
+
+  ; record one assignment into a (possibly promoted) string desc
+  fn rssRecordAssign:void (target:RangerAppParamDesc value:CodeNode) {
+    if ((this.rssPlainStringDesc(target)) == false) {
+      return
+    }
+    def kind:int (this.rssSourceKind(value))
+    if (kind == 0) {
+      return
+    }
+    if (kind == 1) {
+      def v:CodeNode value
+      while (v.expression && ((array_length v.children) == 1)) {
+        v = (v.getFirst())
+      }
+      def src:RangerAppParamDesc (this.rssResolveDesc(v))
+      push rss_edge_src src
+      push rss_edge_dst target
+      return
+    }
+    target.rust_static_str = false
+  }
+
+  ; a local `def` inside a body may join the candidate set; a parameter, a
+  ; class variable re-def or a lambda-captured name never does
+  fn rssLocalCandidate:boolean (p:RangerAppParamDesc) {
+    if (p.varType == RangerContextVarType.FunctionParameter) {
+      return false
+    }
+    if p.is_class_variable {
+      return false
+    }
+    if p.is_captured {
+      return false
+    }
+    if p.is_static {
+      return false
+    }
+    return (this.rssPlainStringDesc(p))
+  }
+
+  fn rssWalkBody:void (node:CodeNode) {
+    if node.expression {
+      if ((array_length node.children) > 0) {
+        def first:CodeNode (node.getFirst())
+        if ((first.vref == "def") && ((array_length node.children) >= 2)) {
+          def defName:CodeNode (node.getSecond())
+          if defName.hasParamDesc {
+            def dp:RangerAppParamDesc (unwrap defName.paramDesc)
+            if (this.rssLocalCandidate(dp)) {
+              dp.rust_static_str = true
+            }
+            if ((array_length node.children) > 2) {
+              this.rssRecordAssign(dp (itemAt node.children 2))
+            }
+          }
+        }
+        if ((first.vref == "=") && ((array_length node.children) >= 3)) {
+          def lhs:CodeNode (node.getSecond())
+          def target:RangerAppParamDesc (this.rssResolveDesc(lhs))
+          if ((strlen target.name) > 0) {
+            this.rssRecordAssign(target (itemAt node.children 2))
+          }
+        }
+      }
+    }
+    for node.children child:CodeNode i {
+      this.rssWalkBody(child)
+    }
+  }
+
+  fn rssWalkFn:void (fn:RangerAppFunctionDesc) {
+    if (!null? fn.fnBody) {
+      this.rssWalkBody((unwrap fn.fnBody))
+    }
+  }
+
+  fn analyzeRustStaticStrings:void () {
+    if (null? ctx) {
+      return
+    }
+    def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    ; phase 1: field candidates — plain classes only; trait-related, template,
+    ; operator, system and generic-instance classes keep owned fields (their
+    ; emission paths have their own rules and the saving is not worth the risk)
+    for root.definedClasses cl:RangerAppClassDesc ci {
+      def clExcluded:boolean ((((((cl.is_system || cl.is_union) || cl.is_system_union) || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_generic_instance)
+      if (clExcluded == false) {
+        if (cl.is_extended_by_children || ((array_length cl.extends_classes) > 0)) {
+          clExcluded = true
+        }
+      }
+      if (clExcluded == false) {
+        for cl.variables v:RangerAppParamDesc vi {
+          if ((v.is_static == false) && (v.is_captured == false)) {
+            if (this.rssPlainStringDesc(v)) {
+              v.rust_static_str = true
+              def vn@(optional):CodeNode v.node
+              if (!null? vn) {
+                def vnn:CodeNode (unwrap vn)
+                if ((array_length vnn.children) > 2) {
+                  this.rssRecordAssign(v (itemAt vnn.children 2))
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    ; phase 2: every function body in the program — assignments into promoted
+    ; descs can live anywhere, so the walk is unconditional even for classes
+    ; whose own fields were excluded above
+    for root.definedClasses cl:RangerAppClassDesc ci {
+      for cl.methods m:RangerAppFunctionDesc mi {
+        this.rssWalkFn(m)
+      }
+      for cl.static_methods sm:RangerAppFunctionDesc si {
+        this.rssWalkFn(sm)
+      }
+      if (!null? cl.constructor_fn) {
+        this.rssWalkFn((unwrap cl.constructor_fn))
+      }
+    }
+    ; phase 3: demotion fixpoint over the copy edges
+    def changed:boolean true
+    while (changed) {
+      changed = false
+      for rss_edge_dst dst:RangerAppParamDesc ei {
+        if dst.rust_static_str {
+          def src:RangerAppParamDesc (itemAt rss_edge_src ei)
+          if (src.rust_static_str == false) {
+            dst.rust_static_str = false
+            changed = true
+          }
+        }
+      }
+    }
   }
 
   fn applyOwnershipToRustBorrowsFn:void (cl:RangerAppClassDesc fn:RangerAppFunctionDesc) {

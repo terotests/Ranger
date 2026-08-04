@@ -745,6 +745,8 @@ class tester {
         ownAnalyzer.analyzeOwnershipAll(ownStrict)
         if (appCtx.targetLangName == "rust") {
           ownAnalyzer.applyOwnershipToRustBorrows()
+          ; never-computed strings become &'static str (rust_static_str)
+          ownAnalyzer.analyzeRustStaticStrings()
           ; shared classes as Rc<RefCell<T>> (PLAN_RUST_OWNERSHIP 2b) — the
           ; default; -rust-value-classes restores the plain-struct model
           if ((appCtx.hasCompilerFlag("rust-value-classes")) == false) {

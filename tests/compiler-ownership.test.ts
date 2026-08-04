@@ -340,7 +340,10 @@ describe("Ranger Compiler - Rc<RefCell> for shared classes, the Rust default (PL
   it("borrows mut for a write and shared for a read of one cell", () => {
     // A write keeps borrow_mut; a read borrows shared, so the print of two
     // aliases of one object does not panic with `RefCell already borrowed`.
-    expect(surfacesRs).toContain('n.borrow_mut().name = "x".to_string();');
+    // The literal is bare: `name` only ever receives literals, so the field
+    // is a promoted `&'static str` (rust_static_str) and assignment is a
+    // pointer copy.
+    expect(surfacesRs).toContain('n.borrow_mut().name = "x";');
     expect(surfacesRs).toContain("n.borrow().name");
   });
 });

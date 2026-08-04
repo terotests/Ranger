@@ -943,6 +943,26 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
               }
             }
             if (krefDone == false) {
+              ; a promoted static-string read is already &str — pass it bare
+              ; (a & on it would probe with &&str, which Borrow cannot match)
+              def ksd@(optional):RangerAppParamDesc
+              if (((array_length arg.ns) == 1) && arg.hasParamDesc) {
+                ksd = arg.paramDesc
+              }
+              if (((array_length arg.ns) > 1) && ((array_length arg.nsp) > 0)) {
+                ksd = (itemAt arg.nsp ((array_length arg.nsp) - 1))
+              }
+              if (!null? ksd) {
+                def ksp:RangerAppParamDesc (unwrap ksd)
+                if ksp.rust_static_str {
+                  ctx.setInExpr()
+                  this.WalkNode(arg ctx wr)
+                  ctx.unsetInExpr()
+                  krefDone = true
+                }
+              }
+            }
+            if (krefDone == false) {
               wr.out("&" false)
               ctx.setInExpr()
               this.WalkNode(arg ctx wr)
@@ -992,7 +1012,21 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
                     if (TTypeRegistry.isFloatAlias(btn)) { bCopy = true }
                     if (bN.hasFlag("weak")) { bCopy = true }
                     if (bCopy == false) {
-                      wr.out(".clone()" false)
+                      ; a str reference (static string / borrowed &str param)
+                      ; enters the container as an owned String
+                      def bStrRef:boolean bpd.rust_static_str
+                      if (bStrRef == false) {
+                        if ((btn == "string") && (bpd.rust_borrow_type == 1)) {
+                          if ((strlen bN.array_type) == 0) {
+                            bStrRef = true
+                          }
+                        }
+                      }
+                      if bStrRef {
+                        wr.out(".to_string()" false)
+                      } {
+                        wr.out(".clone()" false)
+                      }
                     }
                   }
                 }

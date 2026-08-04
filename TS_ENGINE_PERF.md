@@ -126,6 +126,36 @@
 > then insertion order) in one place, so `Object.keys`, `for-in` and
 > `JSON.stringify` all agree. The ordered maps cost nothing measurable —
 > the benchmark still reads Rust 0.91x / C++ 0.88x vs engine-on-Node.
+>
+> **Static-string promotion (`&'static str`), 2026-08-04.** Ranger
+> strings are immutable values, so a string field or local whose every
+> written value is a string LITERAL — or a copy of another such string —
+> never needs an owned `String`. A new whole-program fixpoint pass
+> (`StaticAnalyzer.analyzeRustStaticStrings`, rust-only) promotes such
+> descs to `rust_static_str`; the writer then emits the field/local as
+> `&'static str`, assignments as bare pointer copies
+> (`fnNode.borrow_mut().nodeType = "FunctionExpression";` — previously
+> `"FunctionExpression".to_string()`, an allocation per assignment), and
+> converts with `.to_string()` only where a static value flows into an
+> owned `String` position (returns, map inserts, array pushes, owned
+> parameters). Sources that demote: any computed value (concat, call
+> result, element read); demotions propagate over desc-to-desc copy
+> edges to a fixpoint, and the Rust type system turns any flow the pass
+> mis-judges into a compile error, never silent corruption. In the same
+> change, borrowed read-only string parameters moved from `&String` to
+> `&str` (call sites coerce, string-literal arguments now pass BARE
+> instead of `&"lit".to_string()`), which deleted that allocation from
+> every literal-argument call. In the engine: `nodeType`, `declKind` and
+> friends are `&'static str`, all 224 `nodeType = "…"` assignments are
+> pointer copies, and total `.to_string()` calls dropped 2592 → 2305.
+> A/B on one machine (same rustc flags, interleaved, best-of-3):
+> geomean **0.967x** vs the pre-change Rust engine — loop −6%, fib
+> −10%, nothing slower. C++ output is byte-identical (the analysis runs
+> only for the Rust target). Parameters and returns are not yet
+> promoted — a `kind:string` parameter assigned only literals at every
+> call site still takes owned `String` (`tokenType` stays owned for
+> this reason); interprocedural promotion through call-site arguments
+> is the natural next step.
 
 Where the TypeScript/JavaScript interpreter (`gallery/game_engine/v2/interp`)
 stands when compiled to a native target, why the C++ build is currently slower
