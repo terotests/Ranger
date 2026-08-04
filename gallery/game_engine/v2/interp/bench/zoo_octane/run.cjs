@@ -1,27 +1,24 @@
 #!/usr/bin/env node
 // Run zoo.js.org / V8 Octane benchmarks through the Ranger TS interpreter
-// (ComponentEngine) and through Node on the same machine for a fair ratio.
+// on es6 (Node module), C++, and/or Rust, plus same-machine Node as baseline.
 //
-// Benchmark sources: https://github.com/ivankra/javascript-zoo/tree/main/bench
-// Scores match Octane v9 (higher is faster). zoo.js.org's Score column is the
-// geometric mean of the non-Latency suite scores.
+//   node run.cjs                              # all suites, all available targets
+//   node run.cjs richards,deltablue,regexp
+//   node run.cjs --targets=es6,cpp,rust richards
 //
-//   node run.cjs                 # all downloaded suites
-//   node run.cjs richards        # one suite
-//   node run.cjs richards,splay  # several
-//
-// Requires: bash scripts/build-engine-module.sh
-// Suite files live next to this script (downloaded from javascript-zoo).
+// Requires:
+//   bash scripts/build-engine-module.sh          # es6
+//   bash gallery/game_engine/v2/interp/bench/zoo_octane/build-native.sh
 "use strict";
 
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
-const { ComponentEngine, EvalValue } = require(
-  path.join(__dirname, "..", "..", "bin", "engine_module.cjs"));
 
 const DIR = __dirname;
-const ALL = [
+const BIN_ROOT = path.join(__dirname, "..", "..", "bin");
+const ALL_SUITES = [
   "richards",
   "deltablue",
   "crypto",
@@ -31,15 +28,8 @@ const ALL = [
   "splay",
   "navier-stokes",
 ];
-const ONLY = (process.argv[2] || "")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
-const SUITES = ONLY.length ? ONLY : ALL.filter((n) => fs.existsSync(path.join(DIR, n + ".js")));
+const ALL_TARGETS = ["es6", "cpp", "rust"];
 
-// zoo.js.org amd64 V8 column (snapshot from the page the user linked). Used only
-// for "where would we sit on that table" percentages — same-machine Node is the
-// fairer baseline and is reported separately.
 const ZOO_V8 = {
   Richards: 37102,
   DeltaBlue: 106675,
@@ -53,47 +43,35 @@ const ZOO_V8 = {
   Score: 47285,
 };
 
-function enableLiveClock(engine) {
-  // Octane times with `new Date() - start`. The realm's clock is frozen at
-  // hostNowMs by design (reproducible Date); for a wall-clock bench we make
-  // that field track the host clock for the life of this instance.
-  Object.defineProperty(engine, "hostNowMs", {
-    configurable: true,
-    enumerable: true,
-    get() {
-      return Date.now();
-    },
-    set() {},
-  });
-}
-
-function raiseLoopGuards(engine) {
-  // Default safety cap is 100000; Octane suites exceed that.
-  engine.maxLoopIterations = 1000000000;
-}
-
-function runNode(filePath) {
-  // Run as a real Node process. A vm.createContext sandbox gives the script a
-  // different Object.prototype than the injected Object, which breaks Octane's
-  // Object.prototype.inheritsFrom pattern (DeltaBlue et al.).
-  const t0 = Date.now();
-  const r = spawnSync(process.execPath, [filePath], {
-    encoding: "utf8",
-    maxBuffer: 16 * 1024 * 1024,
-  });
-  const wallMs = Date.now() - t0;
-  if (r.error) return { lines: [], wallMs, err: r.error };
-  const out = String(r.stdout || "") + String(r.stderr || "");
-  const lines = out.split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.length);
-  if (r.status !== 0 && !lines.some((l) => /: /.test(l))) {
-    return { lines, wallMs, err: new Error(out.slice(0, 500) || "node exit " + r.status) };
+function parseArgs(argv) {
+  let targets = null;
+  const suites = [];
+  for (const a of argv) {
+    if (a.startsWith("--targets=")) {
+      targets = a
+        .slice("--targets=".length)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    } else if (a.startsWith("--")) {
+      console.error("unknown flag", a);
+      process.exit(2);
+    } else {
+      for (const s of a.split(",")) {
+        if (s.trim()) suites.push(s.trim());
+      }
+    }
   }
-  return { lines, wallMs };
+  return {
+    targets: targets || ALL_TARGETS.slice(),
+    suites: suites.length
+      ? suites
+      : ALL_SUITES.filter((n) => fs.existsSync(path.join(DIR, n + ".js"))),
+  };
 }
 
-// console.log is callable as a member but is not a first-class value in this
-// realm (`typeof console.log === "undefined"`), so Octane's
-// `print = console.log` assigns undefined. Install a real print first.
+const { targets: WANT_TARGETS, suites: SUITES } = parseArgs(process.argv.slice(2));
+
 const ENGINE_PRELUDE = `
 function print() {
   var s = "";
@@ -106,15 +84,10 @@ function print() {
 `;
 
 function prepareEngineSource(src) {
-  // Keep Octane's own print bootstrap from overwriting our working print with
-  // the non-value console.log binding.
   let s = src.replace(
     /if \(typeof print == "undefined" && typeof console != "undefined"\) \{[\s\S]*?\n\}\n/,
     "/* print provided by zoo_octane/run.cjs */\n"
   );
-  // Function objects in this realm do not see properties added to
-  // Object.prototype (DeltaBlue's inheritsFrom). Install the same helper on
-  // Function.prototype, which method lookup does find.
   s = s.replace(
     /Object\.defineProperty\(Object\.prototype,\s*["']inheritsFrom["']\s*,\s*\{[\s\S]*?\}\);/,
     `Function.prototype.inheritsFrom = function (shuper) {
@@ -127,44 +100,14 @@ function prepareEngineSource(src) {
   return ENGINE_PRELUDE + s;
 }
 
-function runEngine(src) {
-  const lines = [];
-  const oLog = console.log;
-  const oWarn = console.warn;
-  const oError = console.error;
-  console.log = (...a) => {
-    // ComponentEngine prefixes guest console.log with "[tsx] ".
-    const s = a.map(String).join(" ").replace(/^\[tsx\]\s*/, "");
-    lines.push(s);
-  };
-  console.warn = console.log;
-  console.error = console.log;
-  const e = new ComponentEngine();
-  e.quiet = true;
-  enableLiveClock(e);
-  raiseLoopGuards(e);
-  const t0 = Date.now();
-  let err = null;
-  try {
-    e.loadScript(prepareEngineSource(src) + "\nfunction __zoo_done__() { return 'done'; }\n");
-    e.callFunction("__zoo_done__", EvalValue.null());
-  } catch (ex) {
-    err = ex;
-  } finally {
-    console.log = oLog;
-    console.warn = oWarn;
-    console.error = oError;
-  }
-  return { lines, wallMs: Date.now() - t0, err, engine: e };
-}
-
 function parseScores(lines) {
   const scores = {};
   for (const line of lines) {
-    const m = /^([A-Za-z0-9]+): ([0-9.]+(?:e[+-][0-9]+)?)$/.exec(line.trim());
+    const cleaned = String(line).replace(/^\[tsx\]\s*/, "").trim();
+    const m = /^([A-Za-z0-9]+): ([0-9.]+(?:e[+-][0-9]+)?)$/.exec(cleaned);
     if (m) scores[m[1]] = Number(m[2]);
-    const err = /^([A-Za-z0-9]+): (.+)$/.exec(line.trim());
-    if (err && !(err[1] in scores) && /Error|error|Alert|undefined/.test(err[2])) {
+    const err = /^([A-Za-z0-9]+): (.+)$/.exec(cleaned);
+    if (err && !(err[1] in scores) && /Error|error|Alert|undefined|FAIL/.test(err[2])) {
       scores[err[1]] = null;
       scores[err[1] + "_error"] = err[2];
     }
@@ -175,8 +118,7 @@ function parseScores(lines) {
 function geoMean(nums) {
   const xs = nums.filter((n) => typeof n === "number" && n > 0);
   if (!xs.length) return null;
-  const log = xs.reduce((a, b) => a + Math.log(b), 0) / xs.length;
-  return Math.exp(log);
+  return Math.exp(xs.reduce((a, b) => a + Math.log(b), 0) / xs.length);
 }
 
 function pct(num, den) {
@@ -190,119 +132,239 @@ function fmt(n) {
   return n.toPrecision(3);
 }
 
-const engineScores = {};
+function summarizeScores(scores) {
+  return (
+    Object.entries(scores)
+      .filter(([k]) => !k.endsWith("_error"))
+      .map(([k, v]) => k + "=" + fmt(v))
+      .join(" ") || "(no scores)"
+  );
+}
+
+function runNode(filePath) {
+  const t0 = Date.now();
+  const r = spawnSync(process.execPath, [filePath], {
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  const wallMs = Date.now() - t0;
+  if (r.error) return { lines: [], wallMs, err: r.error };
+  const out = String(r.stdout || "") + String(r.stderr || "");
+  const lines = out.split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.length);
+  if (r.status !== 0 && !lines.some((l) => /: /.test(l))) {
+    return { lines, wallMs, err: new Error(out.slice(0, 500) || "node exit " + r.status) };
+  }
+  return { lines, wallMs };
+}
+
+function runEs6(preparedSrc) {
+  const { ComponentEngine, EvalValue } = require(path.join(BIN_ROOT, "engine_module.cjs"));
+  const lines = [];
+  const oLog = console.log;
+  const oWarn = console.warn;
+  const oError = console.error;
+  console.log = (...a) => {
+    lines.push(a.map(String).join(" ").replace(/^\[tsx\]\s*/, ""));
+  };
+  console.warn = console.log;
+  console.error = console.log;
+  const e = new ComponentEngine();
+  e.quiet = true;
+  e.liveClock = true;
+  e.maxLoopIterations = 1000000000;
+  const t0 = Date.now();
+  let err = null;
+  try {
+    e.loadScript(preparedSrc + "\nfunction __zoo_done__() { return 'done'; }\n");
+    e.callFunction("__zoo_done__", EvalValue.null());
+  } catch (ex) {
+    err = ex;
+  } finally {
+    console.log = oLog;
+    console.warn = oWarn;
+    console.error = oError;
+  }
+  return { lines, wallMs: Date.now() - t0, err };
+}
+
+function nativeBin(target) {
+  return path.join(BIN_ROOT, target, "octane_runner");
+}
+
+function runNative(target, preparedPath) {
+  const bin = nativeBin(target);
+  if (!fs.existsSync(bin)) {
+    return { lines: [], wallMs: 0, err: new Error("missing binary " + bin + " (run build-native.sh)") };
+  }
+  const dir = path.dirname(preparedPath);
+  const file = path.basename(preparedPath);
+  const t0 = Date.now();
+  const r = spawnSync(bin, [dir, file], {
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  const wallMs = Date.now() - t0;
+  if (r.error) return { lines: [], wallMs, err: r.error };
+  const out = String(r.stdout || "") + String(r.stderr || "");
+  const lines = out.split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.length);
+  if (r.status !== 0 && !lines.some((l) => /: /.test(l))) {
+    return {
+      lines,
+      wallMs,
+      err: new Error((out.slice(0, 800) || "exit " + r.status).replace(/\s+/g, " ")),
+    };
+  }
+  return { lines, wallMs };
+}
+
+function targetAvailable(t) {
+  if (t === "es6") return fs.existsSync(path.join(BIN_ROOT, "engine_module.cjs"));
+  if (t === "cpp" || t === "rust") return fs.existsSync(nativeBin(t));
+  return false;
+}
+
+const TARGETS = WANT_TARGETS.filter((t) => {
+  if (!ALL_TARGETS.includes(t)) {
+    console.error("unknown target", t);
+    process.exit(2);
+  }
+  if (!targetAvailable(t)) {
+    console.log("SKIP target", t, "(not built)");
+    return false;
+  }
+  return true;
+});
+
 const nodeScores = {};
+/** @type {Record<string, Record<string, number|null>>} */
+const byTarget = {};
+for (const t of TARGETS) byTarget[t] = {};
 const rows = [];
 
-console.log("Zoo Octane (v9) via Ranger TS engine vs Node");
+const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "zoo-octane-"));
+
+console.log("Zoo Octane (v9) — Ranger TS engine targets vs Node");
 console.log("Suites:", SUITES.join(", "));
+console.log("Targets:", TARGETS.join(", ") || "(none)");
 console.log("");
 
-for (const name of SUITES) {
-  const file = path.join(DIR, name + ".js");
-  if (!fs.existsSync(file)) {
-    console.log("SKIP missing", file);
-    continue;
-  }
-  const src = fs.readFileSync(file, "utf8");
-  process.stdout.write("Node  " + name + " ... ");
-  const n = runNode(file);
-  if (n.err) {
-    console.log("ERROR", n.err.message || n.err);
-    rows.push({ name, error: "node: " + String(n.err) });
-    continue;
-  }
-  const ns = parseScores(n.lines);
-  Object.assign(nodeScores, ns);
-  console.log(
-    Object.entries(ns)
-      .filter(([k]) => !k.endsWith("_error"))
-      .map(([k, v]) => k + "=" + fmt(v))
-      .join(" ") +
-      "  (" +
-      n.wallMs +
-      " ms)"
-  );
+try {
+  for (const name of SUITES) {
+    const file = path.join(DIR, name + ".js");
+    if (!fs.existsSync(file)) {
+      console.log("SKIP missing", file);
+      continue;
+    }
+    const raw = fs.readFileSync(file, "utf8");
+    const prepared = prepareEngineSource(raw);
+    const prepPath = path.join(tmpRoot, name + ".js");
+    fs.writeFileSync(prepPath, prepared);
 
-  process.stdout.write("Engine " + name + " ... ");
-  const e = runEngine(src);
-  if (e.err) {
-    console.log("ERROR", e.err && e.err.message ? e.err.message : e.err);
-    rows.push({ name, error: String(e.err) });
-    continue;
+    process.stdout.write("Node   " + name + " ... ");
+    const n = runNode(file);
+    if (n.err) {
+      console.log("ERROR", n.err.message || n.err);
+      rows.push({ name, error: "node: " + String(n.err) });
+      continue;
+    }
+    const ns = parseScores(n.lines);
+    Object.assign(nodeScores, ns);
+    console.log(summarizeScores(ns) + "  (" + n.wallMs + " ms)");
+
+    const row = { name, node: ns, nodeMs: n.wallMs, targets: {} };
+
+    for (const t of TARGETS) {
+      process.stdout.write((t + "     ").slice(0, 7) + name + " ... ");
+      const r = t === "es6" ? runEs6(prepared) : runNative(t, prepPath);
+      if (r.err) {
+        console.log("ERROR", r.err.message || r.err);
+        row.targets[t] = { error: String(r.err), lines: r.lines, wallMs: r.wallMs };
+        continue;
+      }
+      const scores = parseScores(r.lines);
+      Object.assign(byTarget[t], scores);
+      console.log(summarizeScores(scores) + "  (" + r.wallMs + " ms)");
+      row.targets[t] = { scores, wallMs: r.wallMs, lines: r.lines };
+    }
+    rows.push(row);
   }
-  const es = parseScores(e.lines);
-  Object.assign(engineScores, es);
-  const summary =
-    Object.entries(es)
-      .filter(([k]) => !k.endsWith("_error"))
-      .map(([k, v]) => k + "=" + fmt(v))
-      .join(" ") ||
-    "(no scores) " + e.lines.slice(0, 5).join(" | ");
-  console.log(summary + "  (" + e.wallMs + " ms)");
-  rows.push({ name, node: ns, engine: es, nodeMs: n.wallMs, engineMs: e.wallMs, lines: e.lines });
+} finally {
+  try {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  } catch (_) {
+    /* ignore */
+  }
 }
 
-const keys = Object.keys({ ...nodeScores, ...engineScores }).filter(
-  (k) => !k.endsWith("_error") && k !== "Score"
-);
-
-console.log("");
-console.log(
-  [
-    "suite".padEnd(14),
-    "engine".padStart(10),
-    "node".padStart(10),
-    "% of Node".padStart(12),
-    "zoo V8".padStart(10),
-    "% of zoo V8".padStart(12),
-  ].join(" ")
-);
-console.log("-".repeat(72));
-
-const engVals = [];
-const nodeVals = [];
-for (const k of keys) {
-  const eng = engineScores[k];
-  const nod = nodeScores[k];
-  const v8 = ZOO_V8[k];
-  if (typeof eng === "number" && eng > 0) engVals.push(eng);
-  if (typeof nod === "number" && nod > 0) nodeVals.push(nod);
+function printSection(title, scores) {
+  const keys = Object.keys({ ...nodeScores, ...scores }).filter(
+    (k) => !k.endsWith("_error") && k !== "Score"
+  );
+  console.log("");
+  console.log("## " + title);
   console.log(
     [
-      k.padEnd(14),
-      fmt(eng).padStart(10),
-      fmt(nod).padStart(10),
-      pct(eng, nod).padStart(12),
-      (v8 != null ? String(v8) : "—").padStart(10),
-      pct(eng, v8).padStart(12),
+      "suite".padEnd(14),
+      "engine".padStart(10),
+      "node".padStart(10),
+      "% of Node".padStart(12),
+      "zoo V8".padStart(10),
+      "% of zoo V8".padStart(12),
     ].join(" ")
   );
+  console.log("-".repeat(72));
+  const engVals = [];
+  const nodeVals = [];
+  for (const k of keys) {
+    const eng = scores[k];
+    const nod = nodeScores[k];
+    const v8 = ZOO_V8[k];
+    if (typeof eng === "number" && eng > 0) engVals.push(eng);
+    if (typeof nod === "number" && nod > 0) nodeVals.push(nod);
+    console.log(
+      [
+        k.padEnd(14),
+        fmt(eng).padStart(10),
+        fmt(nod).padStart(10),
+        pct(eng, nod).padStart(12),
+        (v8 != null ? String(v8) : "—").padStart(10),
+        pct(eng, v8).padStart(12),
+      ].join(" ")
+    );
+  }
+  const engGeo = geoMean(engVals);
+  const nodeGeo = geoMean(nodeVals);
+  console.log("-".repeat(72));
+  console.log(
+    [
+      "GEO MEAN".padEnd(14),
+      fmt(engGeo).padStart(10),
+      fmt(nodeGeo).padStart(10),
+      pct(engGeo, nodeGeo).padStart(12),
+      String(ZOO_V8.Score).padStart(10),
+      pct(engGeo, ZOO_V8.Score).padStart(12),
+    ].join(" ")
+  );
+  return { engGeo, nodeGeo };
 }
 
-const engGeo = geoMean(engVals);
-const nodeGeo = geoMean(nodeVals);
-console.log("-".repeat(72));
-console.log(
-  [
-    "GEO MEAN".padEnd(14),
-    fmt(engGeo).padStart(10),
-    fmt(nodeGeo).padStart(10),
-    pct(engGeo, nodeGeo).padStart(12),
-    String(ZOO_V8.Score).padStart(10),
-    pct(engGeo, ZOO_V8.Score).padStart(12),
-  ].join(" ")
-);
+const sectionMeta = {};
+const TITLE = {
+  es6: "es6 target (ComponentEngine as Node module)",
+  cpp: "C++ target (g++ -O3 native binary)",
+  rust: "Rust target (rustc -O native binary)",
+};
+for (const t of TARGETS) {
+  sectionMeta[t] = printSection(TITLE[t], byTarget[t]);
+}
 
 const out = {
   when: new Date().toISOString(),
   suites: SUITES,
-  engineScores,
+  targets: TARGETS,
   nodeScores,
-  engineGeoMean: engGeo,
-  nodeGeoMean: nodeGeo,
-  pctOfSameMachineNode: engGeo && nodeGeo ? (100 * engGeo) / nodeGeo : null,
-  pctOfZooV8Score: engGeo ? (100 * engGeo) / ZOO_V8.Score : null,
+  byTarget,
+  sectionMeta,
   zooV8: ZOO_V8,
   rows,
 };

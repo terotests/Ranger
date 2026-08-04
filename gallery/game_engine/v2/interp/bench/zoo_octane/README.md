@@ -9,11 +9,14 @@ Runs the same V8 Octane v9 suites published on
 ## Setup
 
 ```bash
-bash scripts/build-engine-module.sh
+bash scripts/build-engine-module.sh          # es6 Node module
+bash gallery/game_engine/v2/interp/bench/zoo_octane/build-native.sh  # cpp + rust
 # Suite .js files are vendored next to run.cjs (from ivankra/javascript-zoo).
 node gallery/game_engine/v2/interp/bench/zoo_octane/run.cjs
-node gallery/game_engine/v2/interp/bench/zoo_octane/run.cjs richards,deltablue
+node gallery/game_engine/v2/interp/bench/zoo_octane/run.cjs --targets=es6,cpp,rust richards,deltablue,regexp
 ```
+
+See `RESULTS.md` for the latest measured tables (separate sections per target).
 
 ## Scoring
 

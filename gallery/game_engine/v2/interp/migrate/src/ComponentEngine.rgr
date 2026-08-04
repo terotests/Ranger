@@ -534,6 +534,16 @@ class ComponentEngine {
     ; long-running correct loop) raise it on the instance before loadScript.
     def maxLoopIterations:int 100000
 
+    ; When true, Date.now() / new Date() read the host wall clock
+    ; (`wall_clock_ms`) instead of the frozen hostNowMs. Off by default so
+    ; conformance stays reproducible; Octane benches turn it on.
+    def liveClock:boolean false
+    ; Origin for liveClock readings. On targets where truncD goes through a
+    ; 32-bit int (C++), absolute epoch ms overflow; we therefore report
+    ; milliseconds since the first live read (plus a small bias), which is
+    ; enough for Octane's `new Date() - start` deltas.
+    def liveClockOriginMs:double -1.0
+
     ; User class declarations by name (ClassDeclaration nodes), so `new C()` can
     ; instantiate + init fields and instance method calls can dispatch with a
     ; bound `this`. Enables fluent OO guest code (e.g. an animation builder).
@@ -543,6 +553,18 @@ class ComponentEngine {
     def programAst@(optional):TSNode
     def astPatcher:TSAstPatcher (new TSAstPatcher())
     
+    ; Realm clock for Date. Frozen hostNowMs unless liveClock is set.
+    fn realmNowMs:double () {
+        if liveClock {
+            def now:double (wall_clock_ms)
+            if (liveClockOriginMs < 0.0) {
+                liveClockOriginMs = now
+            }
+            return (((now - liveClockOriginMs) + 1000.0))
+        }
+        return hostNowMs
+    }
+
     fn trace:void (msg:string) {
         if (quiet == false) {
             print msg
@@ -6356,7 +6378,7 @@ class ComponentEngine {
                 return (this.makeDateValue(args))
             }
             def dtc (new DateTime())
-            return (EvalValue.string((dtc.toFullString((dtc.timeClip(hostNowMs))))))
+            return (EvalValue.string((dtc.toFullString((dtc.timeClip((this.realmNowMs())))))))
         }
         if (this.isWrapperCtorName(name)) {
             def prim:EvalValue (EvalValue.null())
@@ -8721,7 +8743,7 @@ class ComponentEngine {
                         }
                         di = (di + 1)
                     }
-                    return (EvalValue.string((dtNoNew.toFullString((dtNoNew.timeClip(hostNowMs))))))
+                    return (EvalValue.string((dtNoNew.toFullString((dtNoNew.timeClip((this.realmNowMs())))))))
                 }
                 ; D-ERRORS: an error constructor called WITHOUT `new` builds the
                 ; same object -- `Error("x")` is `new Error("x")`. It was a
@@ -9901,7 +9923,7 @@ class ComponentEngine {
         if (nsName == "Date") {
             def dtS (new DateTime())
             if (name == "now") {
-                return (EvalValue.number((dtS.timeClip(hostNowMs))))
+                return (EvalValue.number((dtS.timeClip((this.realmNowMs())))))
             }
             if (name == "parse") {
                 if ((array_length args) == 0) {
@@ -11292,7 +11314,7 @@ class ComponentEngine {
         def valsDt:[EvalValue]
         def dt:EvalValue (EvalValue.object(keysDt valsDt))
         def n:int (array_length args)
-        def ms:double hostNowMs
+        def ms:double (this.realmNowMs())
         if (n == 1) {
             def only:EvalValue (this.toPrimitive((itemAt args 0) false))
             if scriptThrew {
@@ -11308,7 +11330,7 @@ class ComponentEngine {
             ms = (this.dateFromParts(args false))
         }
         if (n == 0) {
-            ms = (dtm.timeClip(hostNowMs))
+            ms = (dtm.timeClip((this.realmNowMs())))
         }
         dt.setMember("__date__" (EvalValue.number(ms)))
         dt.setAttrs("__date__" false false false)
