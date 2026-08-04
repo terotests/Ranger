@@ -35859,6 +35859,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 this.llvmRetType = "i32";
                 this.className = "";
                 this.selfPtr = "";
+                this.breakLabel = "";
+                this.continueLabel = "";
               }
             }
             class LambdaCaptureInfo  {
@@ -37417,7 +37419,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     lctx.objectSlots[itemName] = itemClass;
                   }
                 }
+                const savedBreakF = lctx.breakLabel;
+                const savedContF = lctx.continueLabel;
+                lctx.breakLabel = exitLabel;
+                lctx.continueLabel = incLabel;
                 this.lowerBlock(bodyNode, lctx);
+                lctx.breakLabel = savedBreakF;
+                lctx.continueLabel = savedContF;
                 const bodyBb = builder.currentBlock;
                 if ( bodyBb.termKind == "" ) {
                   builder.terminateBr(incLabel);
@@ -40432,6 +40440,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     this.lowerFor(node, lctx);
                     return;
                   }
+                  if ( opName_1 == "break" ) {
+                    this.lowerLoopJump(lctx.breakLabel, lctx);
+                    return;
+                  }
+                  if ( opName_1 == "continue" ) {
+                    this.lowerLoopJump(lctx.continueLabel, lctx);
+                    return;
+                  }
                   if ( opName_1 == "push" ) {
                     this.lowerPush(node, lctx);
                     return;
@@ -41109,6 +41125,20 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
                 builder.startBlock(mergeLabel);
               };
+              lowerLoopJump (target, lctx) {
+                if ( (target.length) == 0 ) {
+                  return;
+                }
+                const builder = lctx.builder;
+                if ( (typeof(builder.currentBlock) !== "undefined" && builder.currentBlock != null )  ) {
+                  const cur = builder.currentBlock;
+                  if ( cur.termKind != "" ) {
+                    return;
+                  }
+                }
+                builder.terminateBr(target);
+                builder.startBlock(builder.freshLabel("after_jump"));
+              };
               lowerWhile (node, lctx) {
                 const builder = lctx.builder;
                 const condNode = node.getSecond();
@@ -41131,7 +41161,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const ownedStrBefore = lctx.ownedStringLocals.length;
                 const ownedCollBefore = lctx.ownedCollectionLocals.length;
                 builder.startBlock(bodyLabel);
+                const savedBreakW = lctx.breakLabel;
+                const savedContW = lctx.continueLabel;
+                lctx.breakLabel = exitLabel;
+                lctx.continueLabel = condLabel;
                 this.lowerBlock(bodyNode, lctx);
+                lctx.breakLabel = savedBreakW;
+                lctx.continueLabel = savedContW;
                 const bodyBlock = builder.currentBlock;
                 if ( bodyBlock.termKind == "" ) {
                   this.releaseLoopBodyOwned(ownedBefore, ownedStrBefore, ownedCollBefore, lctx);

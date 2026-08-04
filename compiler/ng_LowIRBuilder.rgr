@@ -32,6 +32,12 @@ class LowIRLowerContext {
   def llvmRetType:string "i32"
   def className:string ""
   def selfPtr:string ""
+  ; Innermost loop's exit and continue targets. `break`/`continue` branch to
+  ; these; empty means "not inside a loop", where both are no-ops. Saved and
+  ; restored around each loop body rather than kept in a stack, which is what
+  ; makes nesting work.
+  def breakLabel:string ""
+  def continueLabel:string ""
 }
 
 ; Capture layout for one lambda's closure environment (L2+). The closure record
@@ -1751,7 +1757,14 @@ class LowIRBuilderPass {
         set lctx.objectSlots itemName itemClass
       }
     }
+    def savedBreakF:string lctx.breakLabel
+    def savedContF:string lctx.continueLabel
+    lctx.breakLabel = exitLabel
+    ; `continue` in a for-loop runs the INCREMENT, or the loop never advances.
+    lctx.continueLabel = incLabel
     this.lowerBlock(bodyNode lctx)
+    lctx.breakLabel = savedBreakF
+    lctx.continueLabel = savedContF
     def bodyBb (unwrap builder.currentBlock)
     if (bodyBb.termKind == "") {
       builder.terminateBr(incLabel)
@@ -5143,6 +5156,14 @@ class LowIRBuilderPass {
         this.lowerFor(node lctx)
         return
       }
+      if (opName == "break") {
+        this.lowerLoopJump(lctx.breakLabel lctx)
+        return
+      }
+      if (opName == "continue") {
+        this.lowerLoopJump(lctx.continueLabel lctx)
+        return
+      }
       if (opName == "push") {
         this.lowerPush(node lctx)
         return
@@ -5958,6 +5979,29 @@ class LowIRBuilderPass {
     builder.startBlock(mergeLabel)
   }
 
+  ; `break` / `continue`: branch to the innermost loop's exit or condition
+  ; block. Neither was lowered at all before -- they emitted NOTHING, so a loop
+  ; whose only way out was a `break` spun forever. That is what made every
+  ; exponent literal (`1e5`, whose lexer loop ends on a break) hang the engine.
+  ;
+  ; Statements after the jump are unreachable but still get lowered, so a fresh
+  ; block catches them: appending them to the block just terminated would put
+  ; instructions after a terminator, which is invalid IR.
+  fn lowerLoopJump:void (target:string lctx:LowIRLowerContext) {
+    if ((strlen target) == 0) {
+      return
+    }
+    def builder (lctx.builder)
+    if (!null? builder.currentBlock) {
+      def cur (unwrap builder.currentBlock)
+      if (cur.termKind != "") {
+        return
+      }
+    }
+    builder.terminateBr(target)
+    builder.startBlock((builder.freshLabel("after_jump")))
+  }
+
   fn lowerWhile:void (node:CodeNode lctx:LowIRLowerContext) {
     def builder (lctx.builder)
     def condNode (node.getSecond())
@@ -5988,7 +6032,13 @@ class LowIRBuilderPass {
     def ownedCollBefore (array_length lctx.ownedCollectionLocals)
 
     builder.startBlock(bodyLabel)
+    def savedBreakW:string lctx.breakLabel
+    def savedContW:string lctx.continueLabel
+    lctx.breakLabel = exitLabel
+    lctx.continueLabel = condLabel
     this.lowerBlock(bodyNode lctx)
+    lctx.breakLabel = savedBreakW
+    lctx.continueLabel = savedContW
     def bodyBlock (unwrap builder.currentBlock)
     if (bodyBlock.termKind == "") {
       this.releaseLoopBodyOwned(ownedBefore ownedStrBefore ownedCollBefore lctx)
