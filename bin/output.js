@@ -35446,10 +35446,95 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 return;
               }
               LowIRRuntimeGen.buildRtPtrArrayNew(module);
+              LowIRRuntimeGen.buildRtPtrArrayReserve(module);
               LowIRRuntimeGen.buildRtPtrArrayPush(module);
               LowIRRuntimeGen.buildRtPtrArrayGet(module);
               LowIRRuntimeGen.buildRtPtrArraySet(module);
               LowIRRuntimeGen.buildRtPtrArrayLen(module);
+            };
+            LowIRRuntimeGen.buildRtPtrArrayReserve = function(module) {
+              const builder = new LowIRBuilder(module);
+              builder.reset();
+              const pt = module.ptrType;
+              const pb = LowIRRuntimeGen.ptrBytes(module);
+              const meta = LowIRRuntimeGen.descMetaOff(module);
+              const capOff = meta + 4;
+              let params = [];
+              const descP = new LowIRParam();
+              descP.name = "desc";
+              descP.irType = pt;
+              params.push(descP);
+              const needP = new LowIRParam();
+              needP.name = "need";
+              needP.irType = "i32";
+              params.push(needP);
+              builder.startBlock("entry");
+              const cap = builder.emitI32At("%desc", capOff);
+              const enough = builder.emitIcmp("sge", cap, "%need");
+              const grow = builder.freshLabel("ptr_grow");
+              const done = builder.freshLabel("ptr_grown");
+              builder.terminateBrIf(enough, done, grow);
+              builder.startBlock(grow);
+              const __len = builder.emitI32At("%desc", meta);
+              const two = builder.emitConst("i32", "2");
+              const newCap = builder.emitBin("mul", "i32", "%need", two);
+              const data = builder.emitPtrLoad("%desc");
+              const elemBytes = builder.emitConst(pt, ("" + pb));
+              const newCapZ = builder.emitZextI32ToPtr(newCap);
+              const newBytes = builder.emitBin("mul", pt, newCapZ, elemBytes);
+              let ra = [];
+              let rat = [];
+              ra.push(data);
+              rat.push(pt);
+              ra.push(newBytes);
+              rat.push(pt);
+              let newData = "";
+              let hasRealloc = false;
+              if ( module.useLibcHeap ) {
+                hasRealloc = true;
+              }
+              if ( module.useFreeListHeap ) {
+                hasRealloc = true;
+              }
+              if ( hasRealloc ) {
+                let reallocFn = "realloc";
+                if ( module.useFreeListHeap ) {
+                  reallocFn = "Heap_realloc";
+                }
+                newData = builder.emitCall(reallocFn, pt, ra, rat);
+              } else {
+                newData = builder.emitHeapAlloc(newBytes);
+                const ci = builder.emitConst("i32", "0");
+                const idxSlot = builder.emitAlloca("i32", builder.freshTemp("ptrcpyi"));
+                builder.emitStore("i32", ci, idxSlot);
+                const cpCond = builder.freshLabel("ptr_cpy_cond");
+                const cpBody = builder.freshLabel("ptr_cpy_body");
+                const cpDone = builder.freshLabel("ptr_cpy_done");
+                builder.terminateBr(cpCond);
+                builder.startBlock(cpCond);
+                const iNow = builder.emitLoad("i32", idxSlot);
+                const more = builder.emitIcmp("slt", iNow, __len);
+                builder.terminateBrIf(more, cpBody, cpDone);
+                builder.startBlock(cpBody);
+                const iCur = builder.emitLoad("i32", idxSlot);
+                const iCurZ = builder.emitZextI32ToPtr(iCur);
+                const byteOff = builder.emitBin("mul", pt, iCurZ, elemBytes);
+                const srcAddr = builder.emitBin("add", pt, data, byteOff);
+                const dstAddr = builder.emitBin("add", pt, newData, byteOff);
+                const elemVal = builder.emitPtrLoadTyped(srcAddr, pt);
+                builder.emitPtrStoreTyped(dstAddr, elemVal, pt);
+                const one = builder.emitConst("i32", "1");
+                const iNext = builder.emitBin("add", "i32", iCur, one);
+                builder.emitStore("i32", iNext, idxSlot);
+                builder.terminateBr(cpCond);
+                builder.startBlock(cpDone);
+              }
+              builder.emitPtrStore("%desc", newData);
+              builder.emitStoreI32At("%desc", capOff, newCap);
+              builder.terminateBr(done);
+              builder.startBlock(done);
+              builder.terminateRet("void", "");
+              LowIRRuntimeGen.finishFn(builder, module, "RtPtrArray_reserve", "void", params, false);
             };
             LowIRRuntimeGen.buildRtPtrArrayNew = function(module) {
               const builder = new LowIRBuilder(module);
@@ -35537,6 +35622,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               params.push(valP);
               const meta = LowIRRuntimeGen.descMetaOff(module);
               builder.startBlock("entry");
+              const onePre = builder.emitConst("i32", "1");
+              const needSet = builder.emitBin("add", "i32", "%idx", onePre);
+              let rsa = [];
+              let rsat = [];
+              rsa.push("%desc");
+              rsat.push(pt);
+              rsa.push(needSet);
+              rsat.push("i32");
+              builder.emitCall("RtPtrArray_reserve", "void", rsa, rsat);
               const data = builder.emitPtrLoad("%desc");
               const elemBytes = builder.emitConst("i32", ("" + pb));
               const offI32 = builder.emitBin("mul", "i32", "%idx", elemBytes);
@@ -35563,7 +35657,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               const pt = module.ptrType;
               const pb = LowIRRuntimeGen.ptrBytes(module);
               const meta = LowIRRuntimeGen.descMetaOff(module);
-              const capOff = meta + 4;
               let params = [];
               const descP = new LowIRParam();
               descP.name = "desc";
@@ -35575,69 +35668,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               params.push(valP);
               builder.startBlock("entry");
               const __len = builder.emitI32At("%desc", meta);
-              const cap = builder.emitI32At("%desc", capOff);
-              const full = builder.emitIcmp("sge", __len, cap);
-              const grow = builder.freshLabel("ptr_grow");
-              const cont = builder.freshLabel("ptr_cont");
-              builder.terminateBrIf(full, grow, cont);
-              builder.startBlock(grow);
-              const two = builder.emitConst("i32", "2");
-              const newCap = builder.emitBin("mul", "i32", cap, two);
-              const data = builder.emitPtrLoad("%desc");
-              const elemBytes = builder.emitConst(pt, ("" + pb));
-              const newCapZ = builder.emitZextI32ToPtr(newCap);
-              const newBytes = builder.emitBin("mul", pt, newCapZ, elemBytes);
+              const one = builder.emitConst("i32", "1");
+              const need = builder.emitBin("add", "i32", __len, one);
               let ra = [];
               let rat = [];
-              ra.push(data);
+              ra.push("%desc");
               rat.push(pt);
-              ra.push(newBytes);
-              rat.push(pt);
-              let newData = "";
-              let hasRealloc = false;
-              if ( module.useLibcHeap ) {
-                hasRealloc = true;
-              }
-              if ( module.useFreeListHeap ) {
-                hasRealloc = true;
-              }
-              if ( hasRealloc ) {
-                let reallocFn = "realloc";
-                if ( module.useFreeListHeap ) {
-                  reallocFn = "Heap_realloc";
-                }
-                newData = builder.emitCall(reallocFn, pt, ra, rat);
-              } else {
-                newData = builder.emitHeapAlloc(newBytes);
-                const ci = builder.emitConst("i32", "0");
-                const idxSlot = builder.emitAlloca("i32", "%ptr_cpy_i");
-                builder.emitStore("i32", ci, idxSlot);
-                const cpCond = builder.freshLabel("ptr_cpy_cond");
-                const cpBody = builder.freshLabel("ptr_cpy_body");
-                const cpDone = builder.freshLabel("ptr_cpy_done");
-                builder.terminateBr(cpCond);
-                builder.startBlock(cpCond);
-                const iNow = builder.emitLoad("i32", idxSlot);
-                const more = builder.emitIcmp("slt", iNow, __len);
-                builder.terminateBrIf(more, cpBody, cpDone);
-                builder.startBlock(cpBody);
-                const iCur = builder.emitLoad("i32", idxSlot);
-                const iCurZ = builder.emitZextI32ToPtr(iCur);
-                const byteOff = builder.emitBin("mul", pt, iCurZ, elemBytes);
-                const srcAddr = builder.emitBin("add", pt, data, byteOff);
-                const dstAddr = builder.emitBin("add", pt, newData, byteOff);
-                const elemVal = builder.emitPtrLoadTyped(srcAddr, pt);
-                builder.emitPtrStoreTyped(dstAddr, elemVal, pt);
-                const one = builder.emitConst("i32", "1");
-                const iNext = builder.emitBin("add", "i32", iCur, one);
-                builder.emitStore("i32", iNext, idxSlot);
-                builder.terminateBr(cpCond);
-                builder.startBlock(cpDone);
-              }
-              builder.emitPtrStore("%desc", newData);
-              builder.emitStoreI32At("%desc", capOff, newCap);
-              builder.terminateBr(cont);
-              builder.startBlock(cont);
+              ra.push(need);
+              rat.push("i32");
+              builder.emitCall("RtPtrArray_reserve", "void", ra, rat);
               const len2 = builder.emitI32At("%desc", meta);
               const data2 = builder.emitPtrLoad("%desc");
               const elemBytes2 = builder.emitConst("i32", ("" + pb));
@@ -37779,7 +37818,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               emitPtrArrayNewEmpty (lctx, elemKind) {
                 this.usedPtrArrayRuntime = true;
                 const builder = lctx.builder;
-                const cap = builder.emitConst("i32", "256");
+                const cap = builder.emitConst("i32", "4");
                 let args = [];
                 let argTypes = [];
                 args.push(cap);
@@ -39076,7 +39115,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     if ( f.isPtrArray == false ) {
                       continue;
                     }
-                    const cap = lctx.builder.emitConst("i32", "256");
+                    const cap = lctx.builder.emitConst("i32", "4");
                     let args = [];
                     let argTypes = [];
                     args.push(cap);

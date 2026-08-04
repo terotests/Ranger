@@ -725,10 +725,102 @@ class LowIRRuntimeGen {
       return
     }
     LowIRRuntimeGen.buildRtPtrArrayNew(module)
+    LowIRRuntimeGen.buildRtPtrArrayReserve(module)
     LowIRRuntimeGen.buildRtPtrArrayPush(module)
     LowIRRuntimeGen.buildRtPtrArrayGet(module)
     LowIRRuntimeGen.buildRtPtrArraySet(module)
     LowIRRuntimeGen.buildRtPtrArrayLen(module)
+  }
+
+  ; Grow the backing store so at least `need` elements fit. Both push and set
+  ; go through this: set used to write at its index with no capacity check at
+  ; all, which was only safe because every array was born with room for 256.
+  static fn buildRtPtrArrayReserve:void (module:LowIRModule) {
+    def builder@(lives):LowIRBuilder (new LowIRBuilder(module))
+    builder.reset()
+    def pt (module.ptrType)
+    def pb (LowIRRuntimeGen.ptrBytes(module))
+    def meta (LowIRRuntimeGen.descMetaOff(module))
+    def capOff (meta + 4)
+    def params:[LowIRParam]
+    def descP@(lives):LowIRParam (new LowIRParam())
+    descP.name = "desc"
+    descP.irType = pt
+    push params descP
+    def needP@(lives):LowIRParam (new LowIRParam())
+    needP.name = "need"
+    needP.irType = "i32"
+    push params needP
+    builder.startBlock("entry")
+    def cap (builder.emitI32At("%desc" capOff))
+    def enough (builder.emitIcmp("sge" cap "%need"))
+    def grow (builder.freshLabel("ptr_grow"))
+    def done (builder.freshLabel("ptr_grown"))
+    builder.terminateBrIf(enough done grow)
+    builder.startBlock(grow)
+    def len (builder.emitI32At("%desc" meta))
+    def two (builder.emitConst("i32" "2"))
+    def newCap (builder.emitBin("mul" "i32" "%need" two))
+    def data (builder.emitPtrLoad("%desc"))
+    def elemBytes (builder.emitConst(pt ("" + pb)))
+    def newCapZ (builder.emitZextI32ToPtr(newCap))
+    def newBytes (builder.emitBin("mul" pt newCapZ elemBytes))
+    def ra:[string]
+    def rat:[string]
+    push ra data
+    push rat pt
+    push ra newBytes
+    push rat pt
+    ; Which reallocator exists depends on the target:
+    ;   libc            -> realloc
+    ;   free-list heap  -> Heap_realloc (supplied by the program under -wasmrc)
+    ;   neither         -> a bump allocator with no realloc AT ALL, so grow by
+    ;                      allocating a fresh block and copying the live
+    ;                      elements across; the old block leaks, which is what a
+    ;                      bump allocator does by construction.
+    def newData:string ""
+    def hasRealloc:boolean false
+    if module.useLibcHeap { hasRealloc = true }
+    if module.useFreeListHeap { hasRealloc = true }
+    if hasRealloc {
+      def reallocFn:string "realloc"
+      if module.useFreeListHeap {
+        reallocFn = "Heap_realloc"
+      }
+      newData = (builder.emitCall(reallocFn pt ra rat))
+    } {
+      newData = (builder.emitHeapAlloc(newBytes))
+      def ci (builder.emitConst("i32" "0"))
+      def idxSlot (builder.emitAlloca("i32" (builder.freshTemp("ptrcpyi"))))
+      builder.emitStore("i32" ci idxSlot)
+      def cpCond (builder.freshLabel("ptr_cpy_cond"))
+      def cpBody (builder.freshLabel("ptr_cpy_body"))
+      def cpDone (builder.freshLabel("ptr_cpy_done"))
+      builder.terminateBr(cpCond)
+      builder.startBlock(cpCond)
+      def iNow (builder.emitLoad("i32" idxSlot))
+      def more (builder.emitIcmp("slt" iNow len))
+      builder.terminateBrIf(more cpBody cpDone)
+      builder.startBlock(cpBody)
+      def iCur (builder.emitLoad("i32" idxSlot))
+      def iCurZ (builder.emitZextI32ToPtr(iCur))
+      def byteOff (builder.emitBin("mul" pt iCurZ elemBytes))
+      def srcAddr (builder.emitBin("add" pt data byteOff))
+      def dstAddr (builder.emitBin("add" pt newData byteOff))
+      def elemVal (builder.emitPtrLoadTyped(srcAddr pt))
+      builder.emitPtrStoreTyped(dstAddr elemVal pt)
+      def one (builder.emitConst("i32" "1"))
+      def iNext (builder.emitBin("add" "i32" iCur one))
+      builder.emitStore("i32" iNext idxSlot)
+      builder.terminateBr(cpCond)
+      builder.startBlock(cpDone)
+    }
+    builder.emitPtrStore("%desc" newData)
+    builder.emitStoreI32At("%desc" capOff newCap)
+    builder.terminateBr(done)
+    builder.startBlock(done)
+    builder.terminateRet("void" "")
+    LowIRRuntimeGen.finishFn(builder module "RtPtrArray_reserve" "void" params false)
   }
 
   static fn buildRtPtrArrayNew:void (module:LowIRModule) {
@@ -824,6 +916,15 @@ class LowIRRuntimeGen {
     push params valP
     def meta (LowIRRuntimeGen.descMetaOff(module))
     builder.startBlock("entry")
+    def onePre (builder.emitConst("i32" "1"))
+    def needSet (builder.emitBin("add" "i32" "%idx" onePre))
+    def rsa:[string]
+    def rsat:[string]
+    push rsa "%desc"
+    push rsat pt
+    push rsa needSet
+    push rsat "i32"
+    builder.emitCall("RtPtrArray_reserve" "void" rsa rsat)
     def data (builder.emitPtrLoad("%desc"))
     def elemBytes (builder.emitConst("i32" ("" + pb)))
     def offI32 (builder.emitBin("mul" "i32" "%idx" elemBytes))
@@ -851,7 +952,6 @@ class LowIRRuntimeGen {
     def pt (module.ptrType)
     def pb (LowIRRuntimeGen.ptrBytes(module))
     def meta (LowIRRuntimeGen.descMetaOff(module))
-    def capOff (meta + 4)
     def params:[LowIRParam]
     def descP@(lives):LowIRParam (new LowIRParam())
     descP.name = "desc"
@@ -863,76 +963,15 @@ class LowIRRuntimeGen {
     push params valP
     builder.startBlock("entry")
     def len (builder.emitI32At("%desc" meta))
-    def cap (builder.emitI32At("%desc" capOff))
-    def full (builder.emitIcmp("sge" len cap))
-    def grow (builder.freshLabel("ptr_grow"))
-    def cont (builder.freshLabel("ptr_cont"))
-    builder.terminateBrIf(full grow cont)
-    builder.startBlock(grow)
-    def two (builder.emitConst("i32" "2"))
-    def newCap (builder.emitBin("mul" "i32" cap two))
-    def data (builder.emitPtrLoad("%desc"))
-    def elemBytes (builder.emitConst(pt ("" + pb)))
-    def newCapZ (builder.emitZextI32ToPtr(newCap))
-    def newBytes (builder.emitBin("mul" pt newCapZ elemBytes))
+    def one (builder.emitConst("i32" "1"))
+    def need (builder.emitBin("add" "i32" len one))
     def ra:[string]
     def rat:[string]
-    push ra data
+    push ra "%desc"
     push rat pt
-    push ra newBytes
-    push rat pt
-    ; Growing the backing store needs a realloc, and which one exists depends on
-    ; the target:
-    ;   libc            -> realloc
-    ;   free-list heap  -> Heap_realloc (supplied by the program under -wasmrc)
-    ;   neither         -> a bump allocator with no realloc AT ALL
-    ; The third case used to emit `call realloc` regardless, so a plain
-    ; -freestanding module that grew an array referenced a function nothing
-    ; defines and wat2wasm rejected it. There it grows by allocating a fresh
-    ; block and copying the live elements across; the old block leaks, which is
-    ; what a bump allocator does by construction.
-    def newData:string ""
-    def hasRealloc:boolean false
-    if module.useLibcHeap { hasRealloc = true }
-    if module.useFreeListHeap { hasRealloc = true }
-    if hasRealloc {
-      def reallocFn:string "realloc"
-      if module.useFreeListHeap {
-        reallocFn = "Heap_realloc"
-      }
-      newData = (builder.emitCall(reallocFn pt ra rat))
-    } {
-      newData = (builder.emitHeapAlloc(newBytes))
-      ; Copy `len` elements, one pointer-sized slot at a time.
-      def ci (builder.emitConst("i32" "0"))
-      def idxSlot (builder.emitAlloca("i32" "%ptr_cpy_i"))
-      builder.emitStore("i32" ci idxSlot)
-      def cpCond (builder.freshLabel("ptr_cpy_cond"))
-      def cpBody (builder.freshLabel("ptr_cpy_body"))
-      def cpDone (builder.freshLabel("ptr_cpy_done"))
-      builder.terminateBr(cpCond)
-      builder.startBlock(cpCond)
-      def iNow (builder.emitLoad("i32" idxSlot))
-      def more (builder.emitIcmp("slt" iNow len))
-      builder.terminateBrIf(more cpBody cpDone)
-      builder.startBlock(cpBody)
-      def iCur (builder.emitLoad("i32" idxSlot))
-      def iCurZ (builder.emitZextI32ToPtr(iCur))
-      def byteOff (builder.emitBin("mul" pt iCurZ elemBytes))
-      def srcAddr (builder.emitBin("add" pt data byteOff))
-      def dstAddr (builder.emitBin("add" pt newData byteOff))
-      def elemVal (builder.emitPtrLoadTyped(srcAddr pt))
-      builder.emitPtrStoreTyped(dstAddr elemVal pt)
-      def one (builder.emitConst("i32" "1"))
-      def iNext (builder.emitBin("add" "i32" iCur one))
-      builder.emitStore("i32" iNext idxSlot)
-      builder.terminateBr(cpCond)
-      builder.startBlock(cpDone)
-    }
-    builder.emitPtrStore("%desc" newData)
-    builder.emitStoreI32At("%desc" capOff newCap)
-    builder.terminateBr(cont)
-    builder.startBlock(cont)
+    push ra need
+    push rat "i32"
+    builder.emitCall("RtPtrArray_reserve" "void" ra rat)
     def len2 (builder.emitI32At("%desc" meta))
     def data2 (builder.emitPtrLoad("%desc"))
     def elemBytes2 (builder.emitConst("i32" ("" + pb)))

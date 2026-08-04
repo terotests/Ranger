@@ -2199,7 +2199,12 @@ class LowIRBuilderPass {
   fn emitPtrArrayNewEmpty:string (lctx:LowIRLowerContext elemKind:int) {
     this.usedPtrArrayRuntime = true
     def builder (lctx.builder)
-    def cap (builder.emitConst("i32" "256"))
+    ; Start SMALL and let RtPtrArray_reserve grow it. Every array used to be
+    ; born with room for 256 elements -- 2 KB of backing store apiece -- and the
+    ; JS engine builds two per object, so a benchmark allocating millions of
+    ; objects moved gigabytes through malloc and spent its whole runtime in the
+    ; kernel rather than interpreting.
+    def cap (builder.emitConst("i32" "4"))
     def args:[string]
     def argTypes:[string]
     push args cap
@@ -3636,7 +3641,7 @@ class LowIRBuilderPass {
         if (f.isPtrArray == false) {
           continue
         }
-        def cap (lctx.builder.emitConst("i32" "256"))
+        def cap (lctx.builder.emitConst("i32" "4"))
         def args:[string]
         def argTypes:[string]
         push args cap
