@@ -4,6 +4,7 @@
  * Body pointer (i64) = address of struct bytes.
  */
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -48,6 +49,29 @@ void ranger_obj_release(int64_t body);
 void ranger_ptrarray_release(int64_t desc_addr);
 
 static int g_live_objects = 0;
+/* RANGER_MEM_STATS=1 prints allocation balances at exit. */
+static long g_obj_new, g_obj_free, g_arr_new, g_arr_free, g_arr_retain;
+
+static void ranger_mem_dump_stats(void) {
+  fprintf(stderr,
+          "[mem] objects new=%ld freed=%ld live=%d | arrays new=%ld freed=%ld retained=%ld\n",
+          g_obj_new, g_obj_free, g_live_objects, g_arr_new, g_arr_free, g_arr_retain);
+}
+
+/* Checked once: this sits on the object-allocation path, so a getenv per
+ * allocation would itself distort what it measures. */
+void ranger_mem_stats_enable(void) {
+  static int state = 0; /* 0 = unchecked, 1 = on, 2 = off */
+  if (state != 0) {
+    return;
+  }
+  if (getenv("RANGER_MEM_STATS")) {
+    state = 1;
+    atexit(ranger_mem_dump_stats);
+  } else {
+    state = 2;
+  }
+}
 
 int ranger_mem_live_objects(void) { return g_live_objects; }
 
@@ -110,6 +134,8 @@ int64_t ranger_obj_new(uint32_t size, const RangerTypeDesc *type) {
   h->size = size;
   h->type = type;
   g_live_objects++;
+  g_obj_new++;
+  ranger_mem_stats_enable();
   return (int64_t)(block + RANGER_HEADER_SIZE);
 }
 
@@ -139,6 +165,7 @@ void ranger_obj_release(int64_t body) {
   ranger_destroy_fields(body, h->type);
   free(block);
   g_live_objects--;
+  g_obj_free++;
 }
 
 void ranger_str_release(char *s) {
@@ -155,6 +182,7 @@ void ranger_ptrarray_retain(int64_t desc_addr) {
   }
   d = (RtPtrArrayDesc *)(intptr_t)desc_addr;
   d->rc++;
+  g_arr_retain++;
 }
 
 void ranger_ptrarray_release(int64_t desc_addr) {
@@ -194,6 +222,7 @@ void ranger_ptrarray_release(int64_t desc_addr) {
     free((void *)(intptr_t)d->data);
   }
   free(d);
+  g_arr_free++;
 }
 
 void ranger_ptrarray_push_owned(int64_t desc_addr, int64_t val) {
