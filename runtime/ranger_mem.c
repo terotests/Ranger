@@ -221,6 +221,11 @@ static void rt_dump_holders(void) {
           for (q = 0; q < depth; q++) {
             fprintf(stderr, "    UNMATCHED RETAIN at %p\n", open[q]);
           }
+          fprintf(stderr, "    LOG:");
+          for (q = 0; q < oh->nev && q < 96; q++) {
+            fprintf(stderr, " %c%p", oh->evret[q] ? '+' : '-', oh->evsite[q]);
+          }
+          fprintf(stderr, "\n");
         }
         shown++;
       }

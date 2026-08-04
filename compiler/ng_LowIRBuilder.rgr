@@ -5672,20 +5672,12 @@ class LowIRBuilderPass {
         def cls (this.resolveObjectClassChain(recvPrefix lctx))
         if ((strlen cls) > 0) {
           def sptr (this.resolveObjectPtrChain(recvPrefix cls lctx))
-          ; libc (borrow/move model): storing an owned local into an object field
-          ; moves it in, so the local must not be released at scope end (would
-          ; dangle the field) — mark it escaped. On WASM the field RETAINS the
-          ; value instead (emitFieldStoreOnEx), so the local keeps its own
-          ; reference and is freed normally; no escape.
-          if (this.memEnabled(lctx)) {
-            if (this.fieldIsObjectSlot(cls fld)) {
-              if (rhs.value_type == RangerNodeType.VRef) {
-                if (this.isOwnedObjectLocal(rhs.vref lctx)) {
-                  set lctx.escapedLocals rhs.vref "1"
-                }
-              }
-            }
-          }
+          ; An object field RETAINS what it is given (emitFieldStoreOnEx), so
+          ; the local keeps its own reference and is released normally. This
+          ; used to mark the local escaped -- correct under the old borrow/move
+          ; model, but once the field started retaining it meant the local's
+          ; reference was never given back: one leak per `field = local`, which
+          ; is what every `o.key = value` did through assignMember.
           ; A string field takes a dup'd private copy (emitFieldStoreOn), so an
           ; owned string local stored into it is NOT consumed. An object field on
           ; WASM retains a borrowed value / moves a fresh `new` (rhs.hasNewOper).
@@ -5700,15 +5692,6 @@ class LowIRBuilderPass {
       ; for boolean fields. Pre-zexting produced an invalid double
       ; "zext i1 <i32> to i32" (the receiver "recv.fld" path above never did
       ; this, which is why only bare field assignments miscompiled).
-      if (this.memEnabled(lctx)) {
-        if (this.fieldIsObjectSlot(lctx.className varName)) {
-          if (rhs.value_type == RangerNodeType.VRef) {
-            if (this.isOwnedObjectLocal(rhs.vref lctx)) {
-              set lctx.escapedLocals rhs.vref "1"
-            }
-          }
-        }
-      }
       this.emitFieldStoreOnEx(lctx.className lctx.selfPtr varName tmp rhs.hasNewOper lctx)
       return
     }

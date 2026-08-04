@@ -40855,30 +40855,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     const cls = this.resolveObjectClassChain(recvPrefix, lctx);
                     if ( (cls.length) > 0 ) {
                       const sptr = this.resolveObjectPtrChain(recvPrefix, cls, lctx);
-                      if ( this.memEnabled(lctx) ) {
-                        if ( this.fieldIsObjectSlot(cls, fld) ) {
-                          if ( rhs.value_type == 11 ) {
-                            if ( this.isOwnedObjectLocal(rhs.vref, lctx) ) {
-                              lctx.escapedLocals[rhs.vref] = "1";
-                            }
-                          }
-                        }
-                      }
                       this.emitFieldStoreOnEx(cls, sptr, fld, tmp, rhs.hasNewOper, lctx);
                       return;
                     }
                   }
                 }
                 if ( this.isClassField(varName, lctx.className, this.irModule) ) {
-                  if ( this.memEnabled(lctx) ) {
-                    if ( this.fieldIsObjectSlot(lctx.className, varName) ) {
-                      if ( rhs.value_type == 11 ) {
-                        if ( this.isOwnedObjectLocal(rhs.vref, lctx) ) {
-                          lctx.escapedLocals[rhs.vref] = "1";
-                        }
-                      }
-                    }
-                  }
                   this.emitFieldStoreOnEx(lctx.className, lctx.selfPtr, varName, tmp, rhs.hasNewOper, lctx);
                   return;
                 }
