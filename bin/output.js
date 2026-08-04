@@ -36653,6 +36653,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   freeArgTypes.push("i8*");
                   const voidType = "void";
                   builder.emitCall("free", voidType, freeArgs, freeArgTypes);
+                  this.registerFreshStringTemp(dup, lctx);
                   return dup;
                 }
                 return buf;
@@ -40174,13 +40175,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 return false;
               };
               registerFreshStringTemp (tmp, lctx) {
-                if ( this.wasmStrEnabled(lctx) == false ) {
+                if ( this.strRcEnabled(lctx) == false ) {
                   return;
                 }
                 lctx.pendingStringTemps.push(tmp);
               };
               claimStringTemp (tmp, lctx) {
-                if ( this.wasmStrEnabled(lctx) == false ) {
+                if ( this.strRcEnabled(lctx) == false ) {
                   return;
                 }
                 let kept = [];
@@ -40193,7 +40194,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 lctx.pendingStringTemps = kept;
               };
               flushStringTempsFrom (mark, lctx) {
-                if ( this.wasmStrEnabled(lctx) == false ) {
+                if ( this.strRcEnabled(lctx) == false ) {
                   return;
                 }
                 const n = lctx.pendingStringTemps.length;
@@ -40454,18 +40455,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( node.disabled_node ) {
                   return;
                 }
-                if ( this.wasmStrEnabled(lctx) == false ) {
-                  if ( this.memEnabled(lctx) ) {
-                    const objMarkC = lctx.pendingObjectTemps.length;
-                    this.lowerStmtDispatch(node, lctx);
-                    if ( (typeof(lctx.builder.currentBlock) !== "undefined" && lctx.builder.currentBlock != null )  ) {
-                      const curBlockC = lctx.builder.currentBlock;
-                      if ( curBlockC.termKind == "" ) {
-                        this.flushObjectTempsFrom(objMarkC, lctx);
-                      }
-                    }
-                    return;
-                  }
+                if ( this.strRcEnabled(lctx) == false ) {
                   this.lowerStmtDispatch(node, lctx);
                   return;
                 }
@@ -41759,7 +41749,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 return false;
               };
               exprIsFreshString (node, lctx) {
-                if ( this.wasmStrEnabled(lctx) == false ) {
+                if ( this.strRcEnabled(lctx) == false ) {
                   return false;
                 }
                 const exprNode = this.unwrapCondExpr(node);

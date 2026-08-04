@@ -15079,7 +15079,13 @@ class ComponentEngine {
         if (v.valueType == 4) { p = (this.toPrimitive(v true)) }
         if (v.valueType == 6) { p = (this.toPrimitive(v true)) }
         if (p.isString()) {
-            return p.stringValue
+            ; Bind before returning. `p` here is a value this scope OWNS --
+            ; toPrimitive handed back a fresh one -- so returning its stringValue
+            ; directly gave the caller a pointer into a value that scope exit
+            ; then released, and `String(Array.prototype)` read the freed bytes.
+            ; Binding takes a private copy the caller can outlive.
+            def owned:string p.stringValue
+            return owned
         }
         return (p.toString())
     }
@@ -15276,7 +15282,13 @@ class ComponentEngine {
         if (v.valueType == 4) { p = (this.toPrimitive(v true)) }
         if (v.valueType == 6) { p = (this.toPrimitive(v true)) }
         if (p.isString()) {
-            return p.stringValue
+            ; Bind before returning. `p` here is a value this scope OWNS --
+            ; toPrimitive handed back a fresh one -- so returning its stringValue
+            ; directly gave the caller a pointer into a value that scope exit
+            ; then released, and `String(Array.prototype)` read the freed bytes.
+            ; Binding takes a private copy the caller can outlive.
+            def owned:string p.stringValue
+            return owned
         }
         return (p.toString())
     }

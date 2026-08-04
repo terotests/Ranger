@@ -921,6 +921,10 @@ class LowIRBuilderPass {
       push freeArgTypes "i8*"
       def voidType:string "void"
       builder.emitCall("free" voidType freeArgs freeArgTypes)
+      ; Hand the result to the statement arena, exactly as the wasm path does
+      ; for ranger_str_concat: an inline throwaway like `print("n=" + n)` binds
+      ; to no local, so without this nobody ever frees it.
+      this.registerFreshStringTemp(dup lctx)
       return dup
     }
     return buf
@@ -4884,7 +4888,7 @@ class LowIRBuilderPass {
   ; result and its int->string temporaries — every statement, so a frame loop
   ; stays heap-flat without the value ever being bound to a named local.
   fn registerFreshStringTemp:void (tmp:string lctx:LowIRLowerContext) {
-    if (this.wasmStrEnabled(lctx) == false) {
+    if (this.strRcEnabled(lctx) == false) {
       return
     }
     push lctx.pendingStringTemps tmp
@@ -4893,7 +4897,7 @@ class LowIRBuilderPass {
   ; the temp became owned (moved to a local) or escaped (returned) -> drop it
   ; from the pending set so it is not double-freed at statement end.
   fn claimStringTemp:void (tmp:string lctx:LowIRLowerContext) {
-    if (this.wasmStrEnabled(lctx) == false) {
+    if (this.strRcEnabled(lctx) == false) {
       return
     }
     def kept:[string]
@@ -4909,7 +4913,7 @@ class LowIRBuilderPass {
   ; current block, so callers must flush while the temps still dominate (i.e. at
   ; the end of the linear statement / condition that produced them).
   fn flushStringTempsFrom:void (mark:int lctx:LowIRLowerContext) {
-    if (this.wasmStrEnabled(lctx) == false) {
+    if (this.strRcEnabled(lctx) == false) {
       return
     }
     def n (array_length lctx.pendingStringTemps)
@@ -5224,21 +5228,13 @@ class LowIRBuilderPass {
     if node.disabled_node {
       return
     }
-    if (this.wasmStrEnabled(lctx) == false) {
-      ; libc: only the OBJECT arena is statement-scoped here. String temps on
-      ; this path are freed where they are produced, so flushing them again
-      ; would double-free.
-      if (this.memEnabled(lctx)) {
-        def objMarkC (array_length lctx.pendingObjectTemps)
-        this.lowerStmtDispatch(node lctx)
-        if (!null? lctx.builder.currentBlock) {
-          def curBlockC (unwrap lctx.builder.currentBlock)
-          if (curBlockC.termKind == "") {
-            this.flushObjectTempsFrom(objMarkC lctx)
-          }
-        }
-        return
-      }
+    ; Both arenas are statement-scoped on every target that has them. The libc
+    ; path used to skip the STRING flush, which was fine only while it also
+    ; registered nothing; once it does, a temp registered inside an `if` branch
+    ; stays pending until some later `return` flushes it -- from a block the
+    ; producing branch does not dominate, so the release read an undefined
+    ; pointer. Flushing where the temps were produced keeps that impossible.
+    if (this.strRcEnabled(lctx) == false) {
       this.lowerStmtDispatch(node lctx)
       return
     }
@@ -6792,7 +6788,7 @@ class LowIRBuilderPass {
   ; private copy. Conservative: unknown shapes return false; the dup path is
   ; always safe (owns a private heap copy), it just costs one extra alloc/free.
   fn exprIsFreshString:boolean (node:CodeNode lctx:LowIRLowerContext) {
-    if (this.wasmStrEnabled(lctx) == false) {
+    if (this.strRcEnabled(lctx) == false) {
       return false
     }
     def exprNode (this.unwrapCondExpr(node))

@@ -7,7 +7,7 @@ Measured against the same Octane v9 suites published on
 bash scripts/build-engine-module.sh
 bash gallery/game_engine/v2/interp/bench/zoo_octane/build-native.sh
 node gallery/game_engine/v2/interp/bench/zoo_octane/run.cjs \
-  --targets=es6,cpp,rust richards,deltablue,regexp
+  --targets=es6,cpp,rust,llvm richards,deltablue,regexp
 ```
 
 Octane scores are higher-is-faster throughput numbers. Percentages are
@@ -68,6 +68,36 @@ Rough zoo.js placement (Richards): among the slowest scoring interpreters
 
 ---
 
+## LLVM target (`clang -O2` native binary)
+
+Ranger compile: `-l=llvm -target=native-linux-gnu` → `octane_runner.ll`, linked
+with `runtime/ranger_rt.c`, `runtime/ranger_mem.c` and `runtime/ranger_buffer.c`.
+This is the only target with reference counting plus a cycle collector, so it is
+also the only one whose heap stays flat across a whole benchmark.
+
+Measured in the same run as the Node baseline below (a different machine from
+the es6/C++/Rust tables above, so compare the **% of Node** column, not the raw
+Node numbers).
+
+| Suite | Engine score | Same-machine Node | % of Node | zoo.js V8 (amd64) | % of zoo V8 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Richards | 7.98 | 23585 | **0.034%** | 37102 | **0.022%** |
+| DeltaBlue | 5.50 | 44411 | **0.012%** | 106675 | **0.005%** |
+| Crypto | FAIL | 22864 | — | 39289 | — (`Crypto operation failed`) |
+| NavierStokes | FAIL | 27372 | — | 38655 | — (heap grows past 7 GB) |
+| **geo mean (passing 2)** | **6.62** | 28454 | **0.023%** | — | — |
+
+Heap behaviour, `RANGER_MEM_TRACE=200000` on richards: 16 MB → 28 MB across
+2.8 M object allocations, dropping back on each collection. Before the string
+and cycle work in this branch the same run grew 780 MB per 50,000 allocations
+and never finished.
+
+Crypto now runs to completion (~34 s) and returns a wrong result rather than
+crashing; it is the same engine bug the C++ and Rust targets hit. NavierStokes
+is the one suite still bounded by memory rather than correctness.
+
+---
+
 ## Suites that did not produce a valid score (any target)
 
 | Suite | Outcome |
@@ -83,11 +113,15 @@ Rough zoo.js placement (Richards): among the slowest scoring interpreters
 
 ## Target comparison (passing suites only)
 
-| Suite | es6 | C++ | Rust |
-| --- | ---: | ---: | ---: |
-| Richards | 59.0 | 21.7 | 7.98 |
-| DeltaBlue | 110 | 14.9 | 14.9 |
-| RegExp | 75.8 | FAIL | FAIL |
+| Suite | es6 | C++ | Rust | LLVM |
+| --- | ---: | ---: | ---: | ---: |
+| Richards | 59.0 | 21.7 | 7.98 | 7.98 |
+| DeltaBlue | 110 | 14.9 | 14.9 | 5.50 |
+| RegExp | 75.8 | FAIL | FAIL | not run |
+
+The LLVM column was measured on a different machine from the other three, so
+read it against its own **% of Node** row above rather than against these
+absolute scores.
 
 es6 is the fastest of the three host builds here (V8 nursery vs native
 `malloc` / refcount cost for `EvalValue`), matching the story in
