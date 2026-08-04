@@ -98,6 +98,76 @@ is the one suite still bounded by memory rather than correctness.
 
 ---
 
+## LLVM target vs QuickJS
+
+Both are single self-contained interpreter binaries linking nothing but libc
+and libm, which makes them directly comparable on size. QuickJS here is the
+distro build, version 2021-03-27.
+
+```bash
+qjs gallery/game_engine/v2/interp/bench/zoo_octane/richards.js
+gallery/game_engine/v2/interp/bin/llvm/octane_runner <dir> richards.js
+```
+
+### Binary size — the LLVM build is *smaller*
+
+| | on disk | stripped | `.text` | `.rodata` |
+| --- | ---: | ---: | ---: | ---: |
+| `octane_runner` (LLVM) | 906,016 B | 895,616 B | 799,810 B | 39,392 B |
+| `qjs` | 1,034,552 B | 1,034,552 B | 704,402 B | 124,704 B |
+| **difference** | **−128,536 B (−12.4%)** | −13.4% | +95 KB | −85 KB |
+
+The split is worth reading: our *code* is ~95 KB bigger, and QuickJS carries
+~85 KB more read-only data (Unicode tables, its atom table). A tree-walking
+interpreter generated from Ranger source lands in the same size class as a
+hand-written C bytecode VM — slightly under it.
+
+### Speed — QuickJS is 40–110× faster
+
+Octane scores, higher is better. Same machine, same run.
+
+| Suite | LLVM | QuickJS | Node | QuickJS / LLVM |
+| --- | ---: | ---: | ---: | ---: |
+| Richards | 7.98 | 611 | 19861 | **77×** |
+| DeltaBlue | 5.50 | 602 | 51162 | **109×** |
+
+A fixed-work microbenchmark (fib(24), a 300k-iteration arithmetic loop, 200k
+property stores, 20k string concatenations) removes the adaptive harness and
+gives the narrowest honest gap:
+
+| | elapsed |
+| --- | ---: |
+| LLVM | 2448 ms |
+| QuickJS | 57 ms |
+| ratio | **43×** |
+
+That is the expected shape: QuickJS compiles to bytecode and interprets that,
+while this engine walks the AST and boxes every intermediate as an `EvalValue`.
+
+### Memory and startup
+
+Peak RSS:
+
+| Workload | LLVM | QuickJS |
+| --- | ---: | ---: |
+| trivial script | 10.1 MB | 10.1 MB |
+| Richards | 31.2 MB | 10.1 MB |
+| DeltaBlue | 123.8 MB | 10.1 MB |
+
+Startup on a trivial script is under 10 ms for both. Richards is now flat
+enough to finish in 31 MB; DeltaBlue still climbs to 124 MB, so its allocation
+shape has a leak the current collector does not reach.
+
+### Language coverage (probe, not a claim of completeness)
+
+`let` / arrow / `class` / template literals / `async function` / `Symbol` /
+`Map` / RegExp captures / `JSON` work on both. **Generators, `Proxy` and
+`BigInt` work on QuickJS and not here** — so the size comparison above is
+between a smaller language and a complete one, and the ~12% size advantage
+would narrow if those were added.
+
+---
+
 ## Suites that did not produce a valid score (any target)
 
 | Suite | Outcome |
