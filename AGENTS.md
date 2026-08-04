@@ -2,6 +2,19 @@
 
 Notes for AI agents (Claude Code, Cursor, …) working in this repository.
 
+## Language docs (start here)
+
+Prefer the published docs over the old `ai/` guides:
+
+| Resource | Use for |
+| --- | --- |
+| [Questions and answers (FAQ)](https://terotests.github.io/Ranger/docs/faq/) | Arrays, `!`, singletons, JSON/`@serialize`, memory annotations, **why a call does not compile**, operator lookup |
+| [Documentation site](https://terotests.github.io/Ranger/docs/) | Install, types, optionals, ownership, generated operator reference |
+| [`ai/QUICKREF.md`](ai/QUICKREF.md) | Offline syntax card |
+| [`ai/README.md`](ai/README.md) | Index of the remaining local AI notes |
+
+Source files use the **`.rgr`** extension (not `.clj`). Entry point: `sfn main:void ()`.
+
 ## Git & pull-request workflow
 
 These rules exist because work has been lost or landed in the wrong place before —
@@ -35,41 +48,28 @@ follow them exactly.
 - [ ] It is a **new** branch/PR, not a push to an already-merged one.
 - [ ] `git log origin/master..HEAD` shows only the commits you intend to land.
 
-## Ranger language gotchas (save yourself hours)
+## Ranger language gotchas
 
-Ranger is **LISP / S-expression based**, so a function or method call passed as an
-argument needs its own parentheses. A few consequences bite repeatedly:
+Ranger is **LISP / S-expression based**. Full answers with compiled output are in
+the [FAQ](https://terotests.github.io/Ranger/docs/faq/#why-does-my-call-not-compile).
+Short form:
 
-- **`return` a call → parenthesize it.** Write `return (this.helper())`, never
-  `return this.helper()`. The bare form fails analysis on **all** targets with two
-  *misleading* errors — `Could not match argument types for return` +
-  `Function does not return any values!` — and the second error often points at an
-  **unrelated inherited method** in another file (e.g. a phantom
-  `function variable not found updateMatrixWorld`). If you see that, look for a
-  bare `return call()` first, not an inheritance/import problem. The call must be
-  the *direct* `( )` operand: `return (this.helper() + 0)` still fails — bind to a
-  local: `def v:int (this.helper()) return (v + 0)`. See ISSUES.md Issue #63.
-- **One statement per line.** `{ def c:int 5 return c }` on a single line is a
-  parse error; put each statement on its own line.
-- **Never start a statement with a parenthesised receiver.** `(expr).method()`
-  at statement level used to silently delete every remaining statement in the
-  block — no error, plausible-looking output (ISSUES.md #65; it made four
-  `game_provider.rgr` loops infinite). The compiler now rejects it, so bind
-  first: `def recv:T (expr)` then `recv.method()`. Inside an *expression*
-  (`return ((unwrap x).f())`, `def q:int ((a.b()).c())`) it is fine.
-- **Import each file via one consistent path form.** Importing the same file via
-  two different strings (a bare name on a library path vs. an explicit
-  `dir/x.rgr`) used to double-collect its classes and break inherited-method
-  resolution in a subclass — surfacing as a *phantom* `function variable not
-  found <inheritedMethod>` at an unrelated file. Fixed (ISSUES.md #64), but
-  consistent import paths remain good hygiene.
-- **Static array literals: mind the group parentheses.** `([] a b c)` (untyped)
-  and `([] _:T ( a b c ))` (typed, elements in a **parenthesised group**) are a
-  readable replacement for a run of `push` statements. `([] _:T a b c)` — type
-  marker, *no* group — used to compile silently and emit the `_` marker as a
-  literal element while degrading the element type to Any; it is now a parse
-  error naming the right spelling (ISSUES.md #67).
-- **Integer division is `idiv`,** not `/` (which is real division).
-- **No `abs` / `=== undefined` builtins;** inline the absolute value, and avoid
-  `x === undefined` checks (the TSX interpreter's `extends`/`super` are also
-  limited — flatten instead of relying on them).
+- **`return` a call → parenthesize it.** `return (this.helper())`, never
+  `return this.helper()`. The bare form fails on all targets with misleading
+  errors (often a phantom `function variable not found …` elsewhere). The call
+  must be the *direct* `( )` operand — bind first if you need arithmetic:
+  `def v:int (this.helper())` then `return (v + 0)`. See ISSUES.md #63.
+- **One statement per line.** `{ def c:int 5 return c }` is a parse error.
+- **Never start a statement with a parenthesised receiver.** Bind first:
+  `def recv:T (expr)` then `recv.method()`. Inside an expression it is fine.
+  See ISSUES.md #65.
+- **Import each file via one consistent path form.** Mixed bare vs path imports
+  of the same file used to break inherited-method resolution (ISSUES.md #64).
+- **Typed array literals need a parenthesised group:** `([] _:T ( a b c ))`,
+  not `([] _:T a b c)` (ISSUES.md #67). Untyped: `([] a b c)`.
+- **Integer division is `idiv`**, not `/` (real division).
+- **Elvis is prefix:** `(?? value fallback)`, not `(value ?? fallback)`.
+- **Do not name a method `toString`** — it can crash the compiler; use
+  `asString` / `getSymbol` instead (ISSUES.md).
+- No `abs` builtin; inline the absolute value. Prefer flattening over relying on
+  the TSX interpreter's limited `extends` / `super`.

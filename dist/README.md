@@ -96,9 +96,10 @@ node hello.js
 
 ## Documentation
 
-- [Full Documentation](https://github.com/terotests/Ranger#readme)
-- [Language Reference](https://github.com/terotests/Ranger/blob/master/ai/INSTRUCTIONS.md)
+- [Full Documentation](https://terotests.github.io/Ranger/docs/)
+- [FAQ](https://terotests.github.io/Ranger/docs/faq/)
 - [Quick Reference](https://github.com/terotests/Ranger/blob/master/ai/QUICKREF.md)
+- [Repository README](https://github.com/terotests/Ranger#readme)
 
 ## Examples
 

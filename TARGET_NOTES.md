@@ -298,5 +298,6 @@ when the operator is used.
 - **Platform-specific code** — polyfills may contain conditionals such as `#[cfg(windows)]` in Rust
 
 For example, `on_keypress` in Rust generates raw terminal input helpers that
-work on both Windows and Unix. See `ai/INSTRUCTIONS.md` for how to write
+work on both Windows and Unix. See `ai/GRAMMAR.md` (operator templates /
+`create_polyfill`) for how to write
 operators with polyfills.

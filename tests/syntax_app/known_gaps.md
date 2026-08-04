@@ -67,9 +67,9 @@ Probe: `gaps/empty_typed.rgr`.
 
 ### The elvis operator is not infix
 
-`ai/QUICKREF.md` and `README.md` both document `(value ?? fallback)`. That form
-fails with `Undefined variable ??`. The prefix form `(?? value fallback)` works,
-and the app uses it.
+Infix `(value ?? fallback)` fails with `Undefined variable ??`. The prefix form
+`(?? value fallback)` works, and the app uses it. (`ai/QUICKREF.md` documents
+the prefix form.)
 Probe: `gaps/elvis_infix.rgr`.
 
 ### `for` does not take an array of arrays

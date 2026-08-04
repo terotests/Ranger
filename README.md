@@ -66,7 +66,8 @@ host.notifyPath = (path) => { /* sync view model + re-render */ };
 - [`gallery/README.md`](gallery/README.md) - index of the larger examples: parsers, EVG/TSX document tooling, games, and `@process` host apps
 - [`TARGET_NOTES.md`](TARGET_NOTES.md) - what each target language supports and where it falls short
 - [`CHANGELOG.md`](CHANGELOG.md) - version history
-- `ai/` - the same language material condensed for AI assistants: `QUICKREF.md`, `INSTRUCTIONS.md`, `EXAMPLES.md`, `GRAMMAR.md`, `INTROSPECTION.md`
+- [`AGENTS.md`](AGENTS.md) — git/PR rules and Ranger gotchas for AI agents; links the [FAQ](https://terotests.github.io/Ranger/docs/faq/)
+- `ai/` — short offline notes for assistants (`README.md`, `QUICKREF.md`, `GRAMMAR.md`, `INTROSPECTION.md`); prefer the docs site when online
 
 ## Targets and compatibility
 
@@ -262,19 +263,19 @@ Python target has inheritance constructor argument issues. See
 
 ## AI documentation
 
-The `ai/` folder is written for AI assistants, and is also the shortest path
-for human readers who do not want to read this README front to back:
+Language questions for humans and agents belong on the
+[documentation site](https://terotests.github.io/Ranger/docs/), especially the
+[FAQ](https://terotests.github.io/Ranger/docs/faq/). Repo-local agent notes:
 
-- `ai/QUICKREF.md` - quick reference card
-- `ai/INSTRUCTIONS.md` - complete language guide
-- `ai/EXAMPLES.md` - code examples for common patterns
-- `ai/GRAMMAR.md` - formal grammar reference
-- `ai/INTROSPECTION.md` - compiler introspection API for IDE/AI integration
+- [`AGENTS.md`](AGENTS.md) — git/PR workflow and syntax gotchas
+- [`ai/README.md`](ai/README.md) — index of what remains under `ai/`
+- [`ai/QUICKREF.md`](ai/QUICKREF.md) — offline syntax card
+- [`ai/GRAMMAR.md`](ai/GRAMMAR.md) — simplified BNF and operator-template notation
+- [`ai/INTROSPECTION.md`](ai/INTROSPECTION.md) — compiler introspection API (type at
+  line/column, class shape) for IDE hover, autocomplete, and type-safe generation
 
-The introspection API answers what type is at a given line/column, converts
-between positions and byte offsets, and reports the properties, methods and
-inheritance of a class — enough for editor hover, autocomplete, and type-safe
-code generation. `ai/INTROSPECTION.md` has the API and examples.
+The long `ai/INSTRUCTIONS.md` / `ai/EXAMPLES.md` guides were removed; they
+duplicated the docs site and had drifted (`.clj` paths, obsolete operators).
 
 ## Installing the compiler
 

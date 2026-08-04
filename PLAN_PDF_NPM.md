@@ -564,7 +564,7 @@ Include all dependencies (fonts, etc.) in the package.
 ## References
 
 - Root `package.json` - Compilation scripts and patterns
-- `ai/INSTRUCTIONS.md` - Compiler flags documentation
+- Docs site / `ai/QUICKREF.md` - compiler flags and usage
 - `ISSUES.md` - Known issues (especially #62)
 - `gallery/pdf_writer/README.md` - Feature documentation
 - `compiler/ng_RangerJavaScriptClassWriter.rgr` - Module export implementation

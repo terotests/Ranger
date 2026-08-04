@@ -1,250 +1,213 @@
 # Ranger Quick Reference
 
-## Target Languages
+Offline card for agents. Prefer the
+[FAQ](https://terotests.github.io/Ranger/docs/faq/) and the
+[docs site](https://terotests.github.io/Ranger/docs/) when online.
+Repo gotchas: [`../AGENTS.md`](../AGENTS.md).
+
+## Compile
 
 ```bash
--l=es6        # JavaScript (ES6) — baseline
--l=python     # Python 3 — TS engine 8/8
--l=go         # Go — TS engine 8/8
--l=kotlin     # Kotlin — TS engine 8/8
--l=csharp     # C# — TS engine 8/8 (Mono mcs or .NET)
--l=rust       # Rust
--l=dart       # Dart — Flutter-ready packages; ts_parser golden
--l=swift6     # Swift 6 (modern entry point)
--l=swift3     # Swift 3+
--l=cpp        # C++14
--l=java7      # Java 7+
--l=scala      # Scala 2.x
--l=php        # PHP 5.4+
--typescript   # Add TypeScript annotations (with -l=es6)
+# From npm: ranger-compiler / rgrc
+rgrc hello.rgr -l=es6 -d=./bin -o=hello.js
+
+# From a checkout (after npm run compile)
+node bin/output.js -l=es6 ./hello.rgr -o=./bin/hello.js
 ```
 
-## File Structure
+| Flag | Target |
+| --- | --- |
+| `-l=es6` | JavaScript (add `-typescript` for `.ts`) |
+| `-l=python` | Python 3 |
+| `-l=go` | Go |
+| `-l=kotlin` | Kotlin |
+| `-l=csharp` | C# |
+| `-l=rust` | Rust |
+| `-l=dart` | Dart |
+| `-l=swift6` / `-l=swift3` | Swift |
+| `-l=cpp` | C++14 |
+| `-l=java7` | Java |
+| `-l=scala` | Scala |
+| `-l=php` | PHP |
 
-```clojure
-Import "dependency.clj"     ; imports
+Always pass `-o=` with the **full filename and extension**. Sources use **`.rgr`**.
 
-Enum MyEnum ( Val1 Val2 )   ; enum
+## File shape
 
-record Point {              ; lightweight record (fields only)
+```ranger
+Import "OtherFile.rgr"
+
+Enum Color ( Red Green Blue )
+
+record Point {
     def x:int 0
     def y:int 0
 }
 
-class MyClass {             ; class
-    def prop:Type value     ; property
-    Constructor (p:T) {}    ; constructor
-    fn method:T () {}       ; instance method
-    sfn static:T () {}      ; static method
-}
+class App {
+    def items:[string]
 
-operators { ... }           ; custom operators
+    Constructor () {}
+
+    fn greet:string (name:string) {
+        return ("hello " + name)
+    }
+
+    sfn main:void () {
+        print ( (new App).greet("world") )
+    }
+}
 ```
+
+`sfn main:void ()` is the entry point (`@(main)` is applied automatically when
+the name is `main`). Older `sfn m@(main):void ()` still works.
 
 ## Types
 
 ```
-int, double, string, boolean, char, charbuffer, void
-[T]              ; array of T
-[K:V]            ; map with K keys, V values
-fn:T (p:T)       ; function type
+int  double  string  boolean  char  charbuffer  void
+[T]          ; array
+[K:V]        ; map
+fn:T (p:T)   ; function type
 ```
 
-## Variable Declaration
-
-```clojure
-def x 10                    ; inferred type
-def x:int 10                ; explicit type
-def x@(optional):T          ; optional
-def x@(mutable):int 0       ; mutable (for reassignment)
+```ranger
+def x 10
+def x:int 10
+def maybe@(optional):string
+def counter@(mutable):int 0
 ```
 
-## Control Flow
+## Control flow
 
-```clojure
-if (cond) { } { }           ; if/else
+```ranger
+if (cond) { } { }           ; if / else
 if! (cond) { }              ; if NOT
-while (cond) { }            ; while loop
-for list item:T i { }       ; for loop
+while (cond) { }
+for list item:T i { }
 switch val { case x { } default { } }
-break                       ; break loop
-continue                    ; continue loop
-```
-
-## Functions
-
-```clojure
-fn name:ReturnType (p1:T1 p2:T2) { return value }
-sfn staticName:T () { }     ; static function
-sfn m@(main):void () { }    ; entry point
+break
+continue
 ```
 
 ## Expressions
 
-```clojure
-(operator arg1 arg2)        ; S-expression
-(a + b), (a - b)           ; math (infix in parens)
-(a == b), (a != b)         ; comparison
-(a && b), (a || b)         ; boolean
-(? cond then else)         ; ternary
+```ranger
+(operator arg1 arg2)        ; S-expression (always valid)
+(a + b)  (a - b)  (a * b)
+(a / b)                     ; real division
+(idiv a b)                  ; integer division
+(a == b)  (a != b)  (a < b)
+(a && b)  (a || b)  (! a)
+(? cond then else)
 ```
 
-## Classes and Records
+A call that yields a value needs its own parentheses:
+`return (this.helper())` — see [FAQ](https://terotests.github.io/Ranger/docs/faq/#why-does-my-call-not-compile).
 
-```clojure
-def obj (new MyClass)       ; no-arg constructor
-def obj (new MyClass(arg))  ; with args
-obj.method()                ; call method
-MyClass.staticMethod()      ; static call
-Extends(ParentClass)        ; inheritance
+## Classes and records
 
-record Point { def x:int 0 def y:int 0 }
-def p (new Point xpos 3 ypos 4)   ; keyword record construction
-def q (new Point 3 4)             ; positional shorthand
+```ranger
+def obj (new MyClass)
+def obj (new MyClass(arg))
+obj.method()
+MyClass.staticMethod()
+Extends(ParentClass)
+
+def p (new Point(3 4))      ; record: positional
 ```
 
 ## Arrays
 
-```clojure
-def arr:[T]                 ; declare
-push arr item               ; add
-(itemAt arr 0)              ; get
-(array_length arr)          ; length
-set arr i val               ; set element at index
-remove_array_at arr i       ; remove
-for arr item:T i { }        ; iterate
+```ranger
+def arr:[int]
+([] 1 2 3)                  ; literal (type from items)
+([] _:string ( "a" "b" ))   ; typed literal — group required
+
+push arr 1
+(itemAt arr 0)
+(array_length arr)
+set_at arr 0 99             ; or: set arr 0 99
+remove_index arr 0
+removeLast arr
+clear arr
+for arr item:int i { }
 ```
 
 ## Maps
 
-```clojure
-def map:[string:T]          ; declare
-set map "key" value         ; set
-(get map "key")             ; get (optional)
-(has map "key")             ; exists?
-(keys map)                  ; get keys
-remove map "key"            ; remove
+```ranger
+def map:[string:int]
+set map "k" 1
+(get map "k")               ; optional
+(has map "k")
+(keys map)
+remove map "k"
 ```
 
 ## Optionals
 
-```clojure
-(null? opt)                 ; is null?
-(!null? opt)                ; is not null?
-(unwrap opt)                ; get value
-(opt ?? default)            ; elvis operator
+Prefix form only:
+
+```ranger
+(null? opt)
+(!null? opt)
+(unwrap opt)                ; or (!! opt)
+(?? opt default)
 ```
 
 ## Strings
 
-```clojure
-(strlen s)                  ; length
-(substring s start end)     ; slice
-(charAt s i)                ; char code
-(at s i)                    ; char as string
-(strsplit s delim)          ; split
-(trim s)                    ; trim
-("a" + "b")                 ; concat
+```ranger
+(strlen s)
+(substring s start end)
+(charAt s i)
+(at s i)
+(strsplit s delim)
+(trim s)
+("a" + "b")
 ```
 
-## I/O
+## I/O and errors
 
-```clojure
-print "message"             ; console output
-(read_file path name)       ; read (optional)
-write_file path name data   ; write
-(file_exists path name)     ; exists?
-(dir_exists path)           ; dir exists?
-create_dir path             ; make dir
+```ranger
+print "message"
+(read_file path name)       ; optional string
+write_file path name data
+(file_exists path name)
+
+try { } { }
+throw "error"
+(error_msg)
 ```
 
-## Error Handling
+## Lambdas
 
-```clojure
-try { } { }                 ; try/catch
-throw "error"               ; throw
-(error_msg)                 ; get error message
+```ranger
+def fn1 (fn:int (p:int) { return (p + 1) })
+fn1(3)
+callback({ print item })
 ```
 
-## Lambda
-
-```clojure
-def fn1 (fn:ReturnT (p:T) { return value })
-fn1(arg)                    ; call lambda
-callback({ print item })    ; inline lambda
-```
-
-## Common Operators
+## Common operators
 
 ```
-Arithmetic: + - * / %
+Arithmetic: + - * / idiv %
 Comparison: == != < <= > >=
-Boolean: && || !
-Math: sin cos tan sqrt floor ceil (M_PI)
-Convert: to_int to_double to_string str2int
+Boolean:    && || !
+Math:       sin cos tan sqrt floor ceil (M_PI)
+Convert:    to_int to_double to_string str2int
 ```
 
-## Target Languages
+Full list: [operator reference](https://terotests.github.io/Ranger/docs/reference/operators/statements/).
 
-```
-es6       JavaScript ES6 (-l=es6)
-python    Python 3.x (-l=python)
-go        Go 1.8+ (-l=go)
-rust      Rust 2021 (-l=rust) [preliminary]
-java7     Java 7+ (-l=java7)
-swift3    Swift 3+ (-l=swift3)
-csharp    C# 7.0 (-l=csharp)
-cpp       C++14 (-l=cpp)
-scala     Scala 2.x (-l=scala)
-php       PHP 5.4+ (-l=php)
-```
-
-## Testing
-
-```bash
-npm test              # Run all tests
-npm run test:es6      # JavaScript tests
-npm run test:python   # Python tests
-npm run test:go       # Go tests
-npm run test:rust     # Rust tests
-```
-
-## Compiler Introspection (for IDE/AI)
+## Introspection (IDE / AI)
 
 ```typescript
-// Compile and get introspection result
 const result = await compileForIntrospection(sourceCode);
-
-// Check class structure
 classHasProperty(result, "MyClass", "propName", "string");
 classHasMethod(result, "MyClass", "methodName", "int");
-
-// Get all properties/methods
-getClassProperties(result, "MyClass"); // [{name, type, isOptional}]
-getClassMethods(result, "MyClass"); // [{name, returnType, params, isStatic}]
-
-// Query type at position (line/col are 1-based)
-getTypeAtPosition(rootNode, sourceCode, line, column);
-// Returns: {typeName, evalTypeName, vref, nodeType, ...}
-
-// Position conversion
-lineColumnToOffset(sourceCode, line, column);
-offsetToLineColumn(sourceCode, offset);
+getTypeAtPosition(rootNode, sourceCode, line, column); // 1-based
 ```
 
-See `INTROSPECTION.md` for full API documentation.
-
-## Compilation Examples
-
-```bash
-# JavaScript (ES6)
-node bin/output.js -l=es6 myfile.clj -o=myfile.js
-
-# Python
-node bin/output.js -l=python myfile.clj -o=myfile.py
-
-# Go
-node bin/output.js -l=go myfile.clj -o=myfile.go
-
-# Always specify full output filename with extension!
-```
+See [`INTROSPECTION.md`](INTROSPECTION.md).
