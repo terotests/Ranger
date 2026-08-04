@@ -6,7 +6,7 @@
   },
   "elvis_infix": {
     "outcome": "compile-error",
-    "note": "The elvis operator is documented as infix in ai/QUICKREF.md and README.md, but it is not auto-infixed. Use the prefix form (?? value fallback)."
+    "note": "The elvis operator is not auto-infixed. Use the prefix form (?? value fallback), not (value ?? fallback)."
   },
   "empty_typed": {
     "outcome": "compile-error",

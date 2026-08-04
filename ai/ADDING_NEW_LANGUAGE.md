@@ -1,5 +1,9 @@
 # Adding a New Language Target to Ranger
 
+Checklist for contributors. Language usage docs live on the
+[docs site](https://terotests.github.io/Ranger/docs/); local AI index:
+[`README.md`](README.md).
+
 This guide documents the steps required to add a new compilation target language to the Ranger compiler.
 
 ## Overview

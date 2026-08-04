@@ -235,7 +235,7 @@ Client JS: Replace specific page div instead of full content
 - [ ] Update `gallery/pdf_writer/README.md` with new CLI
 - [ ] Add watch mode examples
 - [ ] Document HTTP server annotations
-- [ ] Add examples to `/ai/EXAMPLES.md`
+- [ ] Add HTTP examples under `docs/examples/` (and FAQ if useful) — not `ai/`
 
 ---
 

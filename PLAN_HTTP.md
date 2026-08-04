@@ -1532,5 +1532,5 @@ Based on the Ranger language conventions in `/ai/ADDING_NEW_LANGUAGE.md` and `/a
 ### Documentation
 
 - [ ] Update `gallery/pdf_writer/README.md` with new CLI
-- [ ] Add HTTP server examples to `/ai/EXAMPLES.md`
+- [ ] Add HTTP server examples under `docs/examples/` (docs site / FAQ)
 - [ ] Update this plan with progress notes

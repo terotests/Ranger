@@ -1,8 +1,11 @@
 # Compiler Introspection API for AI Assistants
 
+Index of local AI notes: [`README.md`](README.md). Language FAQ:
+https://terotests.github.io/Ranger/docs/faq/
+
 ## Overview
 
-The Ranger compiler provides powerful introspection capabilities that allow querying type information, class structures, and AST positions from compiled source code. This is essential for:
+The Ranger compiler provides introspection capabilities that allow querying type information, class structures, and AST positions from compiled source code. This is essential for:
 
 - **IDE Integration**: Providing autocomplete, hover information, and go-to-definition
 - **Incremental Compilation**: Understanding what changed and what needs recompilation
