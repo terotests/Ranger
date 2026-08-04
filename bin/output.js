@@ -12786,6 +12786,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       while (i < cnt) {
         const v = cl.variables[i];
         let tname = v.nameNode.type_name;
+        const vKeyType = v.nameNode.key_type;
+        const vArrayType = v.nameNode.array_type;
+        if ( (vKeyType.length) > 0 ) {
+          tname = ((("[" + vKeyType) + ":") + vArrayType) + "]";
+        } else {
+          if ( (vArrayType.length) > 0 ) {
+            tname = ("[" + vArrayType) + "]";
+          }
+        }
         if ( (tname.length) == 0 ) {
           tname = "string";
         }
@@ -12904,7 +12913,272 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         };
       }
     };
+    DesugarShapes (node, ctx, wr) {
+      let renames = {};
+      this.expandShapesIn(node, ctx, wr, renames);
+      if ( ((Object.keys(renames)).length) > 0 ) {
+        this.rewriteShapeRefs(node, renames);
+      }
+    };
+    isShapeDeclaration (node) {
+      if ( (node.children.length) != 3 ) {
+        return false;
+      }
+      const head = node.getFirst();
+      if ( head.vref != "shape" ) {
+        return false;
+      }
+      if ( (head.ns.length) > 1 ) {
+        return false;
+      }
+      const nameNode = node.getSecond();
+      if ( (nameNode.vref.length) == 0 ) {
+        return false;
+      }
+      if ( nameNode.expression ) {
+        return false;
+      }
+      const bodyNode = node.getThird();
+      return bodyNode.is_block_node;
+    };
+    expandShapesIn (node, ctx, wr, renames) {
+      this.expandShapesInScope(node, true, ctx, wr, renames);
+    };
+    expandShapesInScope (node, atTopLevel, ctx, wr, renames) {
+      let childScope = atTopLevel;
+      if ( node.isFirstVref("class") ) {
+        childScope = false;
+      }
+      if ( node.isFirstVref("record") ) {
+        childScope = false;
+      }
+      if ( node.isFirstVref("extension") ) {
+        childScope = false;
+      }
+      if ( node.isFirstVref("operator") ) {
+        childScope = false;
+      }
+      for ( let i = 0; i < node.children.length; i++) {
+        var ch = node.children[i];
+        if ( this.isShapeDeclaration(ch) ) {
+          if ( childScope ) {
+            this.expandShape(ch, node, i, ctx, wr, renames);
+          } else {
+            ctx.addError(ch, "a shape must be declared at the top level, not inside a class or a method");
+          }
+        } else {
+          this.expandShapesInScope(ch, childScope, ctx, wr, renames);
+        }
+      };
+    };
+    shapeMemberBlock (st) {
+      let found = st;
+      for ( let pi = 0; pi < st.children.length; pi++) {
+        var part = st.children[pi];
+        if ( part.is_block_node ) {
+          found = part;
+        }
+      };
+      return found;
+    };
+    expandShape (shapeNode, parent, shapeIndex, ctx, wr, renames) {
+      let insertAt = shapeIndex + 1;
+      if ( (shapeNode.children.length) < 3 ) {
+        ctx.addError(shapeNode, "a shape needs a name and a body: shape Name { case A ... }");
+        return;
+      }
+      const nameNode = shapeNode.getSecond();
+      const shapeName = nameNode.vref;
+      if ( (shapeName.length) == 0 ) {
+        ctx.addError(shapeNode, "a shape needs a name");
+        return;
+      }
+      const body = shapeNode.getThird();
+      const bcnt = body.children.length;
+      let groupNames = [];
+      let groupStmt = {};
+      let bi = 0;
+      while (bi < bcnt) {
+        const st = body.children[bi];
+        if ( (st.children.length) > 1 ) {
+          const head = st.getFirst();
+          if ( head.vref == "group" ) {
+            const gnameNode = st.getSecond();
+            groupNames.push(gnameNode.vref);
+            groupStmt[gnameNode.vref] = bi;
+          }
+        }
+        bi = bi + 1;
+      };
+      let caseNames = [];
+      let caseGroup = {};
+      bi = 0;
+      while (bi < bcnt) {
+        const st_1 = body.children[bi];
+        if ( (st_1.children.length) == 0 ) {
+          bi = bi + 1;
+          continue;
+        }
+        const head_1 = st_1.getFirst();
+        const kind = head_1.vref;
+        const isCase = (kind == "case") || (kind == "variant");
+        if ( (isCase == false) && (kind != "group") ) {
+          ctx.addError(st_1, ("only `case` and `group` are allowed in a shape body, found `" + kind) + "` (shape methods and `match` come with stage S2)");
+          bi = bi + 1;
+          continue;
+        }
+        if ( isCase == false ) {
+          bi = bi + 1;
+          continue;
+        }
+        if ( (st_1.children.length) < 2 ) {
+          ctx.addError(st_1, "a case needs a name");
+          bi = bi + 1;
+          continue;
+        }
+        const cnameNode = st_1.getSecond();
+        const caseName = cnameNode.vref;
+        if ( (caseName.length) == 0 ) {
+          ctx.addError(st_1, "a case needs a name");
+          bi = bi + 1;
+          continue;
+        }
+        let ownGroup = "";
+        let ci = 2;
+        const ccnt = st_1.children.length;
+        while (ci < ccnt) {
+          const part = st_1.children[ci];
+          if ( part.is_block_node == false ) {
+            const word = part.vref;
+            if ( (word == "does") || (word == "extends") ) {
+              if ( (ci + 1) < ccnt ) {
+                const groupRef = st_1.children[(ci + 1)];
+                ownGroup = groupRef.vref;
+                ci = ci + 1;
+              } else {
+                ctx.addError(st_1, "`does` needs a group name");
+              }
+            } else {
+              ctx.addError(st_1, ("unexpected `" + word) + "` in a case — write `case Name does Group { … }`");
+            }
+          }
+          ci = ci + 1;
+        };
+        const clsName = (shapeName + "_") + caseName;
+        const recNode = shapeNode.newExpressionNode();
+        recNode.children.push(shapeNode.newVRefNode("record"));
+        recNode.children.push(shapeNode.newVRefNode(clsName));
+        const blk = shapeNode.newExpressionNode();
+        blk.is_block_node = true;
+        if ( (ownGroup.length) > 0 ) {
+          if ( ( typeof(groupStmt[ownGroup] ) != "undefined" && Object.prototype.hasOwnProperty.call(groupStmt, ownGroup) ) ) {
+            const gidx = (( Object.prototype.hasOwnProperty.call(groupStmt, ownGroup) ? groupStmt[ownGroup] : undefined ));
+            const gst = body.children[gidx];
+            const gblk = this.shapeMemberBlock(gst);
+            if ( gblk.is_block_node ) {
+              for ( let gfi = 0; gfi < gblk.children.length; gfi++) {
+                var gf = gblk.children[gfi];
+                blk.children.push(gf.copy());
+              };
+            }
+          } else {
+            ctx.addError(st_1, (("case " + caseName) + " belongs to an undeclared group ") + ownGroup);
+          }
+        }
+        const ownBlk = this.shapeMemberBlock(st_1);
+        if ( ownBlk.is_block_node ) {
+          for ( let cfi = 0; cfi < ownBlk.children.length; cfi++) {
+            var cf = ownBlk.children[cfi];
+            blk.children.push(cf.copy());
+          };
+        }
+        recNode.children.push(blk);
+        parent.children.splice(insertAt, 0, recNode);
+        insertAt = insertAt + 1;
+        caseNames.push(caseName);
+        caseGroup[caseName] = ownGroup;
+        renames[(shapeName + ".") + caseName] = clsName;
+        bi = bi + 1;
+      };
+      if ( (caseNames.length) == 0 ) {
+        ctx.addError(shapeNode, ("shape " + shapeName) + " has no cases");
+        return;
+      }
+      for ( let gni = 0; gni < groupNames.length; gni++) {
+        var gn = groupNames[gni];
+        const gMembers = shapeNode.newExpressionNode();
+        let gCount = 0;
+        for ( let cni = 0; cni < caseNames.length; cni++) {
+          var cn = caseNames[cni];
+          if ( ((( Object.prototype.hasOwnProperty.call(caseGroup, cn) ? caseGroup[cn] : undefined ))) == gn ) {
+            gMembers.children.push(shapeNode.newVRefNode(((shapeName + "_") + cn)));
+            gCount = gCount + 1;
+          }
+        };
+        if ( gCount > 0 ) {
+          const gUnion = shapeNode.newExpressionNode();
+          gUnion.children.push(shapeNode.newVRefNode("union"));
+          gUnion.children.push(shapeNode.newVRefNode(((shapeName + "_") + gn)));
+          gUnion.children.push(gMembers);
+          parent.children.splice(insertAt, 0, gUnion);
+          insertAt = insertAt + 1;
+          renames[(shapeName + ".") + gn] = (shapeName + "_") + gn;
+        } else {
+          ctx.addError(shapeNode, ("group " + gn) + " has no cases");
+        }
+      };
+      const members = shapeNode.newExpressionNode();
+      for ( let cni_1 = 0; cni_1 < caseNames.length; cni_1++) {
+        var cn_1 = caseNames[cni_1];
+        members.children.push(shapeNode.newVRefNode(((shapeName + "_") + cn_1)));
+      };
+      const unionHead = shapeNode.newVRefNode("union");
+      const unionName = shapeNode.newVRefNode(shapeName);
+      shapeNode.children.length = 0;
+      shapeNode.children.push(unionHead);
+      shapeNode.children.push(unionName);
+      shapeNode.children.push(members);
+      if ( ctx.hasCompilerFlag("shape-debug") ) {
+        console.log(("shape " + shapeName) + " lowered to:");
+        for ( let cni_2 = 0; cni_2 < caseNames.length; cni_2++) {
+          var cn_2 = caseNames[cni_2];
+          console.log((("  record " + shapeName) + "_") + cn_2);
+        };
+        console.log(((("  union " + shapeName) + " over ") + ("" + (caseNames.length))) + " cases");
+      }
+    };
+    rewriteShapeRefs (node, renames) {
+      if ( ( typeof(renames[node.type_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(renames, node.type_name) ) ) {
+        node.type_name = (( Object.prototype.hasOwnProperty.call(renames, node.type_name) ? renames[node.type_name] : undefined ));
+      }
+      if ( ( typeof(renames[node.array_type] ) != "undefined" && Object.prototype.hasOwnProperty.call(renames, node.array_type) ) ) {
+        node.array_type = (( Object.prototype.hasOwnProperty.call(renames, node.array_type) ? renames[node.array_type] : undefined ));
+      }
+      if ( ( typeof(renames[node.key_type] ) != "undefined" && Object.prototype.hasOwnProperty.call(renames, node.key_type) ) ) {
+        node.key_type = (( Object.prototype.hasOwnProperty.call(renames, node.key_type) ? renames[node.key_type] : undefined ));
+      }
+      if ( ( typeof(renames[node.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(renames, node.vref) ) ) {
+        const direct = (( Object.prototype.hasOwnProperty.call(renames, node.vref) ? renames[node.vref] : undefined ));
+        node.vref = direct;
+        node.ns.length = 0;
+        node.ns.push(direct);
+      }
+      if ( (node.ns.length) == 2 ) {
+        const joined = ((node.ns[0]) + ".") + (node.ns[1]);
+        if ( ( typeof(renames[joined] ) != "undefined" && Object.prototype.hasOwnProperty.call(renames, joined) ) ) {
+          const mangled = (( Object.prototype.hasOwnProperty.call(renames, joined) ? renames[joined] : undefined ));
+          node.vref = mangled;
+          node.ns.length = 0;
+          node.ns.push(mangled);
+        }
+      }
+      for ( let i = 0; i < node.children.length; i++) {
+        var ch = node.children[i];
+        this.rewriteShapeRefs(ch, renames);
+      };
+    };
     async CollectMethods (node, ctx, wr) {
+      this.DesugarShapes(node, ctx, wr);
       await this.WalkCollectMethods(node, ctx, wr);
       let allTypes = [];
       const serviceBuilder = new RangerServiceBuilder();
@@ -21528,7 +21802,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             const is_buffer = ((nn.value_type == 16) || (nn.value_type == 17)) || (nn.value_type == 18);
             const needs_mut = (((p.set_cnt > 0) || p.is_class_variable) || map_or_hash) || is_buffer;
             const is_object = nn.value_type == 10;
-            const local_needs_rc_wrap = p.rust_needs_rc_wrap;
+            let local_needs_rc_wrap = p.rust_needs_rc_wrap;
+            if ( (node.children.length) > 2 ) {
+              const initValue = node.getThird();
+              const initTargetOpt = ctx.findClass(nn.type_name);
+              if ( (typeof(initTargetOpt) !== "undefined" && initTargetOpt != null )  ) {
+                const initTarget = initTargetOpt;
+                if ( initTarget.is_union ) {
+                  if ( this.rustNewIntoUnion(initValue, ctx) ) {
+                    local_needs_rc_wrap = true;
+                  }
+                }
+              }
+            }
             if ( needs_mut || is_object ) {
               wr.out((("let mut " + unused_pfx) + this.adjustType(p.compiledName)) + " : ", false);
             } else {
@@ -21732,6 +22018,58 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               wr.newline();
             }
           }
+        };
+        rustNewIntoUnion (value, ctx) {
+          if ( value.hasNewOper == false ) {
+            return false;
+          }
+          const newClOpt = value.clDesc;
+          if ( typeof(newClOpt) === "undefined" ) {
+            return false;
+          }
+          const newCl = newClOpt;
+          if ( newCl.is_union ) {
+            return false;
+          }
+          return this.rustClassIsShared(newCl.name, ctx);
+        };
+        async rustWriteUnionArg (arg, nVal, ctx, wr) {
+          const argNN = arg.nameNode;
+          if ( typeof(argNN) === "undefined" ) {
+            return false;
+          }
+          if ( arg.rust_borrow_type != 0 ) {
+            return false;
+          }
+          if ( arg.needs_cpp_reference ) {
+            return false;
+          }
+          const argNameNode = argNN;
+          const tcOpt = ctx.findClass(argNameNode.type_name);
+          if ( typeof(tcOpt) === "undefined" ) {
+            return false;
+          }
+          const target = tcOpt;
+          if ( target.is_union == false ) {
+            return false;
+          }
+          if ( this.rustNewIntoUnion(nVal, ctx) ) {
+            wr.out("Rc::new(RefCell::new(", false);
+            ctx.setInExpr();
+            wr.suppress_expr_parens = true;
+            await this.WalkNode(nVal, ctx, wr);
+            wr.suppress_expr_parens = false;
+            ctx.unsetInExpr();
+            wr.out("))", false);
+            return true;
+          }
+          ctx.setInExpr();
+          wr.suppress_expr_parens = true;
+          await this.WalkNode(nVal, ctx, wr);
+          wr.suppress_expr_parens = false;
+          ctx.unsetInExpr();
+          wr.out(".clone()", false);
+          return true;
         };
         rustClassIsShared (typeName, ctx) {
           if ( (typeName.length) == 0 ) {
@@ -23180,6 +23518,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   } else {
                     if ( (typeof(n) !== "undefined" && n != null )  ) {
                       const nVal = n;
+                      if ( await this.rustWriteUnionArg(arg, nVal, ctx, wr) ) {
+                        continue;
+                      }
                       let needsMutRef = false;
                       if ( arg.needs_cpp_reference ) {
                         needsMutRef = true;
@@ -23347,6 +23688,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   wr.out(tempVar, false);
                 } else {
                   const nVal_1 = n_1;
+                  if ( await this.rustWriteUnionArg(arg_1, nVal_1, ctx, wr) ) {
+                    continue;
+                  }
+                  if ( await this.rustWriteUnionArg(arg_1, nVal_1, ctx, wr) ) {
+                    continue;
+                  }
                   let needsMutRef2 = false;
                   if ( arg_1.needs_cpp_reference ) {
                     needsMutRef2 = true;
@@ -23459,6 +23806,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     continue;
                   }
                   const nVal_2 = n_2;
+                  if ( await this.rustWriteUnionArg(arg_2, nVal_2, ctx, wr) ) {
+                    continue;
+                  }
+                  if ( await this.rustWriteUnionArg(arg_2, nVal_2, ctx, wr) ) {
+                    continue;
+                  }
                   let needsMutRef_1 = false;
                   if ( arg_2.needs_cpp_reference ) {
                     needsMutRef_1 = true;
@@ -23575,6 +23928,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     continue;
                   }
                   const nVal_3 = n_3;
+                  if ( await this.rustWriteUnionArg(arg_3, nVal_3, ctx, wr) ) {
+                    continue;
+                  }
+                  if ( await this.rustWriteUnionArg(arg_3, nVal_3, ctx, wr) ) {
+                    continue;
+                  }
                   let needsMutRef3 = false;
                   if ( arg_3.needs_cpp_reference ) {
                     needsMutRef3 = true;
@@ -23705,6 +24064,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 continue;
               }
               const nVal_4 = n_4;
+              if ( await this.rustWriteUnionArg(arg_4, nVal_4, ctx, wr) ) {
+                continue;
+              }
               if ( (nVal_4.rust_use_tmpvar.length) > 0 ) {
                 wr.out(nVal_4.rust_use_tmpvar, false);
                 nVal_4.rust_use_tmpvar = "";
@@ -25894,6 +26256,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 const n = givenArgs.children[i_1];
                                 if ( (typeof(n) !== "undefined" && n != null )  ) {
                                   const nVal = n;
+                                  if ( await this.rustWriteUnionArg(arg_2, nVal, ctx, wr) ) {
+                                    continue;
+                                  }
                                   let borrowedLitDone3 = false;
                                   if ( retArgRef ) {
                                     borrowedLitDone3 = this.rustTryBareStrLitArg(nVal, ctx, wr);

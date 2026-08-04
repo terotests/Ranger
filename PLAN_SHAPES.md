@@ -2,9 +2,11 @@
 
 > **Status:** design + staging plan for `shape` / `case` / `group` — a closed variant
 > family whose *source* reads like a small type hierarchy while each target picks its
-> own physical representation. The language construct is not implemented; **stage S0
-> (§6) is** — `union` + `case` narrowing now works on every target the plan builds on,
-> Rust and Dart included, where before it worked on six of nine.
+> own physical representation. **Stages S0 and S1 are implemented** (§6): `union` +
+> `case` narrowing works on every target the plan builds on, and `shape` itself
+> parses, type-checks and lowers to a record class per case plus a union over them —
+> the same program running identically on nine targets. `match`, `@(value)` /
+> `@(reference)` and the native per-target representations are still ahead.
 >
 > **Origin:** a design discussion about `gallery/game_engine/v2/interp/migrate/src/EvalValue.rgr`,
 > the largest hand-rolled tagged union in this repo.
@@ -391,7 +393,26 @@ the design intent) and accept `variant` as a synonym from day one, so tooling th
 cannot carry context has an unambiguous form to emit and users of `switch`-heavy code
 have an escape hatch. This costs one line in the shape-body walker.
 
-### 3.8 Explicitly not in v1
+### 3.8 What stage S1 actually shipped
+
+The implemented subset, against the design above:
+
+| Design | S1 |
+|---|---|
+| `shape Name { … }`, closed by definition | ✅ |
+| `case Name { def … }` (and `variant` as a synonym) | ✅ |
+| `case Name does Group` (`extends` accepted as a synonym) | ✅ |
+| `group Name { def … }` — fields shared by its members | ✅ |
+| `Shape.Case` and `Shape.Group` as types | ✅ |
+| Construction `(new Shape.Case(…))`, positional or keyword | ✅ (record constructors) |
+| Narrowing `case v x:Shape.Case { … }` | ✅ (the existing operator) |
+| `match` + exhaustiveness | ✖ S2 |
+| Shape / group / case methods | ✖ S2 — a body holding anything else is an error naming the stage |
+| `@(value)` / `@(reference)`, identity, `===` | ✖ S4 |
+| `Shape.Case(…)` construction without `new` | ✖ sugar, S2 |
+| Native per-target representations | ✖ S5 |
+
+### 3.9 Explicitly not in v1
 
 | Deferred | Why |
 |---|---|
@@ -544,13 +565,15 @@ Where the S0 changes live:
 
 ### 5.2 What is still missing per target
 
-| Target | Gap after S0 | Blocks |
+| Target | Gap | Blocks |
 |---|---|---|
 | Rust | `case` on an `:Any`-typed value (the universal union is excluded by name) | nothing in this plan; `Any` was unsupported before too |
 | Rust | primitive arms of a union (`case v s:string`) still lower to `RJson::…`, i.e. JSON only | a shape with primitive-typed cases on the S1 lowering |
 | Kotlin / Dart | no toolchain in this environment — output is read, not built | build-verifying these two in CI |
-| C# / Swift | `dynamic` / `Any` erase the static type | nothing until S5, but both lose compile-time checking that other targets keep |
-| all | no exhaustiveness anywhere — a missing arm falls through silently | S2, which is where the payoff is |
+| C# / Swift | `dynamic` / `Any` erase the static type | nothing until S5, but both lose compile-time checking the other targets keep |
+| all | no exhaustiveness — a missing arm falls through silently | S2, which is where the payoff is |
+| all | a shape may not declare methods yet | S2 |
+| all | every case is a heap class; `Nothing` allocates as much as `Items` | S5 |
 
 ## 6. Staging
 
@@ -559,7 +582,7 @@ Each stage is independently shippable and independently testable.
 | Stage | Content | Done when |
 |---|---|---|
 | **S0 — done** | Make `union` + `case` work on every target: Rust and Dart narrowing, the Kotlin/Dart union type, the Go unused binding, the C++ shim (§5.1). Cross-target fixture that runs. | ✅ `tests/union-narrowing.test.ts` runs the fixture on ES6, Python, Go and Rust and asserts the Rust/Kotlin/Dart representation |
-| **S1** | `shape` + `case` parsed, registered, type-checked. Lowering: `UnionOfClasses` — synthesize one class per case plus a `union`, exactly as `buildRecordConstructor` synthesizes a constructor (`ng_RangerFlowParser.rgr:3985`). **No writer is touched.** | A shape compiles and runs on every target where `union` works |
+| **S1 — done** | `shape` + `case` + `group` parsed, registered, type-checked, lowered to `UnionOfClasses` (§6.1). **No writer knows the word `shape`.** | ✅ `tests/shapes.test.ts`: one shape program compiles on all nine targets and prints the same answer on ES6, Python, Go and Rust |
 | **S2** | `match` + exhaustiveness checking. Lowering: a chain of `case` narrowings. Error messages name missing variants by name. | A missing arm is a compile error on every target; a shape with a full `match` runs identically on es6, python, cpp |
 | **S3** | `group`, group-typed parameters, group patterns in `match`, group fields. | `fn f (v:EvalValue.Reference)` type-checks and rejects a primitive |
 | **S4** | `@(value)` / `@(reference)`: `==` lowering, copy semantics, identity, the immutability rule for value cases. | Cross-target conformance test: value cases compare by content, reference cases by identity, on every target |
@@ -573,13 +596,77 @@ every target that can be executed in CI. S0 set that pattern for this feature:
 `tests/fixtures/union_case.rgr` is compiled by every target test, run wherever a
 toolchain exists, and skipped — not silently passed — where one does not.
 
-**Where S1 lands, per target.** S1 touches no writer: a shape becomes one class per
-case plus a `union` over them, synthesized as Ranger source and re-parsed the way
-`buildRecordConstructor` already does (`ng_RangerFlowParser.rgr:3985`). That means the
-S1 result on each target is exactly the row in §5 — Rust gets `Rc<dyn Any>`, C++ an
-`mpark::variant`, Kotlin an `Any`, Go an `interface{}`. Slow, but correct and uniform,
-and it is what makes S2's exhaustiveness checking testable everywhere before any
-target has a native representation.
+### 6.1 How S1 lowers a shape
+
+`shape` never reaches a writer. The flow parser rewrites it before class
+collection (`DesugarShapes`, `ng_RangerFlowParser.rgr`), so everything downstream
+sees ordinary declarations:
+
+```ranger
+shape Value {                       ; what you write
+    group Ref { def identityId:int 0 }
+    case Nothing
+    case Num { def value:double 0.0 }
+    case Items does Ref { def items:[Value] }
+}
+```
+
+```ranger
+record Value_Nothing { }            ; what the compiler collects
+record Value_Num     { def value:double 0.0 }
+record Value_Items   { def identityId:int 0  def items:[Value] }
+union  Value      ( Value_Nothing Value_Num Value_Items )
+union  Value_Ref  ( Value_Items )
+```
+
+Four decisions worth recording, each of which cost something to get right:
+
+1. **The lowering builds nodes, not source text.** The first version synthesized
+   Ranger source and re-parsed it, the way `buildRecordConstructor` does. It fails
+   on fidelity: `getCode()` writes a `double` default of `0.0` back as `0`, and
+   `def value:double 0` types the generated constructor's parameter as `int`, so
+   `(new Value.Num(2.5))` stopped type-checking. The lowering now reuses the
+   *parsed* field nodes (copied, since a node carries per-site analysis state),
+   which keeps annotations, collection types and defaults exactly as written.
+2. **The shape node becomes the union in place**, and the case classes are
+   spliced in at the shape's own position — not appended to the file. A target
+   that emits classes in source order and calls `main` at the end of it (Python)
+   otherwise had every case class defined after its first use.
+3. **A case takes the fields of its group**, so `group` is a real subset with
+   shared state and not only a name. The group also becomes a union of its
+   members, which is what makes `fn f (r:Value.Ref)` a type the compiler checks.
+4. **`shape` is recognised by its whole form**, not its first word: `shape` is an
+   ordinary identifier in existing code (`shape.initSphere(1.0)` in the physics
+   sources), and matching on the leading vref alone turned every one of those
+   calls into a malformed shape declaration. A declaration is three parts — the
+   word, a bare name, a block — and nothing else is one.
+5. **A shape must be top level.** Spliced into a class body the generated records
+   land inside the class and take the compiler down with them, so the walk tracks
+   whether it is still at file scope and a shape below it is a named error.
+
+The source spelling `Value.Num` is rewritten to `Value_Num` across the tree in
+the same pass — in type positions, in collection element types and in
+`(new Value.Num(…))` — so a shape reads as one type with variants while the
+compiler sees classes with ordinary names.
+
+**What S1 does not include:** shape methods and `match` (S2 — a body that holds
+anything but `case` / `group` is a compile error naming the stage rather than a
+silently dropped method), `@(value)` / `@(reference)` (S4), and the native
+per-target representations (S5). Construction is `(new Value.Num(2.5))`;
+`Value.Num(2.5)` without `new` is sugar that S2 can add.
+
+**Two S0 gaps closed by S1's Rust work.** A `new` in argument position had no
+local to take its cell from, so it never coerced into the union's `Rc<dyn Any>`;
+and a named value passed to a union parameter was moved rather than cloned,
+because the parameter's declared type is a union and the writer's clone rule
+looks for an object type. Both are handled at the one place every argument loop
+in the Rust writer now starts with.
+
+**Where S1 lands, per target.** S1 touches no writer, so the S1 result on each target
+is exactly the row in §5 — Rust gets `Rc<dyn Any>`, C++ an `mpark::variant`, Kotlin an
+`Any`, Go an `interface{}`. Slow, but correct and uniform, and it is what makes S2's
+exhaustiveness checking testable everywhere before any target has a native
+representation.
 
 ---
 

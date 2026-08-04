@@ -16,7 +16,7 @@
 | Type-name diagnostics (no enum integers in errors) | 3.3 | Done |
 | `SPEC_SEMANTICS.md` | 1 | Done |
 | Cross-target conformance harness | 1 | Done |
-| Records / payload enums / `match` | 2 | Partial (`record` + keyword/positional construction; enums/match not started — the payload half is designed in `PLAN_SHAPES.md`) |
+| Records / payload enums / `match` | 2 | Partial (`record`; the payload-carrying family shipped as `shape` / `case` / `group` — see `PLAN_SHAPES.md` S1; `match` + exhaustiveness not started) |
 | Centralized type registry (#15/#59/#60) | 3.1 | Partial (`TTypeRegistry` routes core lookups; `primitivetype` Lang syntax and writer migration ongoing) |
 | Control-flow return analysis (#16) | 3.2 | Not started |
 | Predictable `-d`/`-o` for `-nodemodule` (#62) | 4 | Not started |
@@ -140,12 +140,12 @@ push mourners m
 
 ### 2.2 Enums with payloads (tagged unions)
 
-> **See `PLAN_SHAPES.md`.** That document works this section and 2.3 out in detail against a
-> real problem case (`EvalValue.rgr`), and proposes the payload-carrying family as its own
-> construct (`shape` / `case` / `group`) rather than an extension of `Enum` — so `Enum` stays a
-> plain integer enum and each target may pick its own physical representation. It also measures
-> what the existing `union` + `case` narrowing already delivers per target, which is what any
-> implementation of this section would build on.
+> **See `PLAN_SHAPES.md` — this section is now partly built.** That document works this
+> section and 2.3 out in detail against a real problem case (`EvalValue.rgr`), and lands the
+> payload-carrying family as its own construct (`shape` / `case` / `group`) rather than an
+> extension of `Enum` — so `Enum` stays a plain integer enum and each target may pick its own
+> physical representation. `shape` compiles and runs on nine targets today; `match` and its
+> exhaustiveness checking (2.3) are the next stage.
 
 Extend the existing `Enum` construct (currently bare `Enum MyEnum ( Val1 Val2 )`):
 

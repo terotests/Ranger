@@ -26,10 +26,52 @@ and the [FAQ](https://terotests.github.io/Ranger/docs/faq/). Offline syntax card
 
 <top-level-def> ::= <class-def>
                   | <record-def>
+                  | <shape-def>
+                  | <union-def>
                   | <extension-def>
                   | <enum-def>
                   | <systemclass-def>
                   | <operators-def>
+```
+
+## Shape Definition
+
+A closed family of variants: one type, a fixed set of cases, and optional named
+subsets (`group`). Lowers to one record class per case plus a union over them.
+
+```bnf
+<shape-def>     ::= 'shape' <identifier> '{' <shape-member>* '}'
+
+<shape-member>  ::= <group-def> | <case-def>
+
+<group-def>     ::= 'group' <identifier> ('{' <property-def>* '}')?
+
+<case-def>      ::= ('case' | 'variant') <identifier>
+                    ('does' <identifier>)?
+                    ('{' <property-def>* '}')?
+```
+
+```ranger
+shape Value {
+    group Ref { def identityId:int 0 }
+    case Nothing
+    case Num  { def value:double 0.0 }
+    case Items does Ref { def items:[Value] }
+}
+```
+
+A case belongs to at most one group and carries that group's fields as well as
+its own. `Value` names the whole family, `Value.Num` one variant and `Value.Ref`
+the group — all three are usable as types. Construction is ordinary:
+`(new Value.Num(2.5))`. Narrowing uses the `case` statement:
+`case v n:Value.Num { … }`.
+
+## Union Definition
+
+```bnf
+<union-def>     ::= 'union' <identifier> '(' <identifier>+ ')'
+
+; Narrowing: case <value> <binding> ':' <member-type> '{' <block> '}'
 ```
 
 ## Record Definition

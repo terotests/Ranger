@@ -942,6 +942,19 @@ class RangerRustClassWriter {
       ; This is detected by static analysis when the variable is passed to a method 
       ; whose parameter is assigned to a @(weak) field
       def local_needs_rc_wrap:boolean p.rust_needs_rc_wrap
+      ; a local of union type initialized with `new`: the member takes its cell here
+      if ((array_length node.children) > 2) {
+        def initValue:CodeNode (node.getThird())
+        def initTargetOpt@(optional):RangerAppClassDesc (ctx.findClass(nn.type_name))
+        if (!null? initTargetOpt) {
+          def initTarget:RangerAppClassDesc (unwrap initTargetOpt)
+          if initTarget.is_union {
+            if (this.rustNewIntoUnion(initValue ctx)) {
+              local_needs_rc_wrap = true
+            }
+          }
+        }
+      }
       
       if (needs_mut || is_object) {
         wr.out(((("let mut " + unused_pfx) + (this.adjustType(p.compiledName))) + " : ") false)
@@ -1208,6 +1221,76 @@ class RangerRustClassWriter {
   ; as `pub fn new(xpos : , xpos : i64) -> Point`, which does not parse.
   ; PLAN_RUST_OWNERSHIP 2b support: is the named class one the sharing
   ; analysis marked? On by default; -rust-value-classes opts out.
+  ; D-UNION: is this expression a `new` of a class that lives in a cell? A
+  ; value going into a union-typed slot (Rc<dyn Any>) has to carry its own
+  ; cell; a local or a field already holds one, a fresh construction does not,
+  ; so the construction site is where the wrap has to go.
+  fn rustNewIntoUnion:boolean (value:CodeNode ctx:RangerAppWriterContext) {
+    if (value.hasNewOper == false) {
+      return false
+    }
+    ; the CONSTRUCTED class, from the new-expression's own descriptor: the
+    ; node's eval_type_name has already been widened to the union by then
+    def newClOpt@(optional):RangerAppClassDesc value.clDesc
+    if (null? newClOpt) {
+      return false
+    }
+    def newCl:RangerAppClassDesc (unwrap newClOpt)
+    if newCl.is_union {
+      return false
+    }
+    return (this.rustClassIsShared(newCl.name ctx))
+  }
+
+  ; Writes an argument bound for a union parameter (Rc<dyn Any>) and answers
+  ; true, or answers false and writes nothing when the normal path should
+  ; handle it. Two cases need this: a freshly constructed member has no local
+  ; to take its cell from, and a named value has to pass as a clone of its Rc
+  ; because the parameter's own type is not what tells the writer to clone.
+  fn rustWriteUnionArg:boolean (arg:RangerAppParamDesc nVal:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def argNN@(optional):CodeNode arg.nameNode
+    if (null? argNN) {
+      return false
+    }
+    ; a borrowed parameter keeps its own & / &mut handling
+    if (arg.rust_borrow_type != 0) {
+      return false
+    }
+    if arg.needs_cpp_reference {
+      return false
+    }
+    def argNameNode:CodeNode (unwrap argNN)
+    def tcOpt@(optional):RangerAppClassDesc (ctx.findClass(argNameNode.type_name))
+    if (null? tcOpt) {
+      return false
+    }
+    def target:RangerAppClassDesc (unwrap tcOpt)
+    if (target.is_union == false) {
+      return false
+    }
+    if (this.rustNewIntoUnion(nVal ctx)) {
+      wr.out("Rc::new(RefCell::new(" false)
+      ctx.setInExpr()
+      wr.suppress_expr_parens = true
+      this.WalkNode(nVal ctx wr)
+      wr.suppress_expr_parens = false
+      ctx.unsetInExpr()
+      wr.out("))" false)
+      return true
+    }
+    ; anything else — a name, a field read, a call result — passes as a clone
+    ; of its Rc so the caller keeps its own handle. The parameter's declared
+    ; type is the union, which is not an object type, so the writer's usual
+    ; clone rule never fires for it and the value would be moved instead.
+    ctx.setInExpr()
+    wr.suppress_expr_parens = true
+    this.WalkNode(nVal ctx wr)
+    wr.suppress_expr_parens = false
+    ctx.unsetInExpr()
+    wr.out(".clone()" false)
+    return true
+  }
+
   fn rustClassIsShared:boolean (typeName:string ctx:RangerAppWriterContext) {
     if ((strlen typeName) == 0) {
       return false
@@ -2904,6 +2987,10 @@ class RangerRustClassWriter {
               ; Output argument directly
               if (!null? n) {
                 def nVal:CodeNode (unwrap n)
+                ; a freshly constructed union member takes its cell here
+                if (this.rustWriteUnionArg(arg nVal ctx wr)) {
+                  continue _
+                }
                 ; Check if parameter needs mutable reference
                 def needsMutRef:boolean false
                 if arg.needs_cpp_reference {
@@ -3089,6 +3176,14 @@ class RangerRustClassWriter {
             wr.out(tempVar false)
           } {
             def nVal:CodeNode (unwrap n)
+        ; a freshly constructed union member takes its cell here
+        if (this.rustWriteUnionArg(arg nVal ctx wr)) {
+          continue _
+        }
+            ; a freshly constructed union member takes its cell here
+            if (this.rustWriteUnionArg(arg nVal ctx wr)) {
+              continue _
+            }
             ; Check if parameter needs mutable reference
             def needsMutRef2:boolean false
             if arg.needs_cpp_reference {
@@ -3215,6 +3310,14 @@ class RangerRustClassWriter {
               continue _
             }
             def nVal:CodeNode (unwrap n)
+        ; a freshly constructed union member takes its cell here
+        if (this.rustWriteUnionArg(arg nVal ctx wr)) {
+          continue _
+        }
+            ; a freshly constructed union member takes its cell here
+            if (this.rustWriteUnionArg(arg nVal ctx wr)) {
+              continue _
+            }
             ; Check if parameter needs mutable reference
             def needsMutRef:boolean false
             if arg.needs_cpp_reference {
@@ -3339,6 +3442,14 @@ class RangerRustClassWriter {
               continue _
             }
             def nVal:CodeNode (unwrap n)
+        ; a freshly constructed union member takes its cell here
+        if (this.rustWriteUnionArg(arg nVal ctx wr)) {
+          continue _
+        }
+            ; a freshly constructed union member takes its cell here
+            if (this.rustWriteUnionArg(arg nVal ctx wr)) {
+              continue _
+            }
             ; Check for mutable or immutable borrow
             def needsMutRef3:boolean false
             if arg.needs_cpp_reference { needsMutRef3 = true }
@@ -3471,6 +3582,10 @@ class RangerRustClassWriter {
           continue _
         }
         def nVal:CodeNode (unwrap n)
+        ; a freshly constructed union member takes its cell here
+        if (this.rustWriteUnionArg(arg nVal ctx wr)) {
+          continue _
+        }
         ; a pre-extracted argument (writeVarDef pulled a nested self-call
         ; out of a `let` initializer) substitutes its temporary
         if ((strlen nVal.rust_use_tmpvar) > 0) {
@@ -5975,6 +6090,10 @@ class RangerRustClassWriter {
                   def n@(optional):CodeNode (itemAt givenArgs.children i)
                   if (!null? n) {
                     def nVal:CodeNode (unwrap n)
+                ; a freshly constructed union member takes its cell here
+                if (this.rustWriteUnionArg(arg nVal ctx wr)) {
+                  continue _
+                }
                     def borrowedLitDone3:boolean false
                     if retArgRef {
                       ; a string literal passes bare (the parameter is &str)

@@ -1,0 +1,15 @@
+; A shape body may hold only `case` and `group` in stage S1 — a method has to
+; wait for `match` (S2), and a shape that silently dropped it would be worse
+; than one that says so.
+shape Broken {
+    case A
+    fn toBool:boolean () {
+        return true
+    }
+}
+
+class BrokenProbe {
+    sfn main:void () {
+        print "unreachable"
+    }
+}

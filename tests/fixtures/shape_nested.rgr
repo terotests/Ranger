@@ -1,0 +1,10 @@
+; A shape lowers to top-level declarations, so it cannot be declared inside a
+; class — the generated records would land in the class body.
+class Outer {
+    shape Inner {
+        case A
+    }
+    sfn main:void () {
+        print "unreachable"
+    }
+}
