@@ -26582,6 +26582,649 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 };
               };
             }
+            class RangerDartClassWriter  extends RangerGenericClassWriter {
+              constructor() {
+                super()
+                this.wrote_header = false;
+              }
+              WriteScalarValue (node, ctx, wr) {
+                switch (node.value_type ) { 
+                  case 2 : 
+                    wr.out(node.getParsedString(), false);
+                    break;
+                  case 4 : 
+                    const s = this.EncodeString(node, ctx, wr);
+                    wr.out(("\"" + s) + "\"", false);
+                    break;
+                  case 3 : 
+                    wr.out("" + node.int_value, false);
+                    break;
+                  case 5 : 
+                    if ( node.boolean_value ) {
+                      wr.out("true", false);
+                    } else {
+                      wr.out("false", false);
+                    }
+                    break;
+                };
+              };
+              adjustType (tn) {
+                if ( tn == "this" ) {
+                  return "this";
+                }
+                return tn;
+              };
+              getObjectTypeString (type_string, ctx) {
+                if ( (type_string.length) >= 2 ) {
+                  if ( (type_string.charCodeAt(0 )) == (91) ) {
+                    return this.collectionTypeStringToDart(type_string, ctx);
+                  }
+                }
+                switch (type_string ) { 
+                  case "int" : 
+                    return "int";
+                  case "string" : 
+                    return "String";
+                  case "chararray" : 
+                    return "List<int>";
+                  case "buffer" : 
+                    return "Uint8List";
+                  case "int_buffer" : 
+                    return "Int64List";
+                  case "double_buffer" : 
+                    return "Float64List";
+                  case "char" : 
+                    return "int";
+                  case "boolean" : 
+                    return "bool";
+                  case "double" : 
+                    return "double";
+                };
+                return type_string;
+              };
+              collectionTypeStringToDart (type_string, ctx) {
+                const n = type_string.length;
+                const inner = type_string.substring(1, (n - 1) );
+                const il = inner.length;
+                let depth = 0;
+                let sep = 0 - 1;
+                let i = 0;
+                while (i < il) {
+                  const c = inner.charCodeAt(i );
+                  if ( c == (91) ) {
+                    depth = depth + 1;
+                  }
+                  if ( c == (93) ) {
+                    depth = depth - 1;
+                  }
+                  if ( (c == (58)) && (depth == 0) ) {
+                    sep = i;
+                  }
+                  i = i + 1;
+                };
+                if ( sep >= 0 ) {
+                  const kt = inner.substring(0, sep );
+                  const vt = inner.substring((sep + 1), il );
+                  return ((("Map<" + this.getObjectTypeString(kt, ctx)) + ", ") + this.getObjectTypeString(vt, ctx)) + ">";
+                }
+                return ("List<" + this.getObjectTypeString(inner, ctx)) + ">";
+              };
+              getTypeString (type_string) {
+                switch (type_string ) { 
+                  case "int" : 
+                    return "int";
+                  case "string" : 
+                    return "String";
+                  case "chararray" : 
+                    return "List<int>";
+                  case "buffer" : 
+                    return "Uint8List";
+                  case "int_buffer" : 
+                    return "Int64List";
+                  case "double_buffer" : 
+                    return "Float64List";
+                  case "char" : 
+                    return "int";
+                  case "boolean" : 
+                    return "bool";
+                  case "double" : 
+                    return "double";
+                  case "void" : 
+                    return "void";
+                };
+                return type_string;
+              };
+              async writeTypeDef (node, ctx, wr) {
+                let v_type = node.value_type;
+                if ( node.eval_type != 0 ) {
+                  v_type = node.eval_type;
+                }
+                switch (v_type ) { 
+                  case 13 : 
+                    wr.out("int", false);
+                    break;
+                  case 3 : 
+                    wr.out("int", false);
+                    break;
+                  case 2 : 
+                    wr.out("double", false);
+                    break;
+                  case 14 : 
+                    wr.out("int", false);
+                    break;
+                  case 15 : 
+                    wr.out("List<int>", false);
+                    break;
+                  case 16 : 
+                    wr.out("Uint8List", false);
+                    wr.addImport("dart:typed_data");
+                    break;
+                  case 17 : 
+                    wr.out("Int64List", false);
+                    wr.addImport("dart:typed_data");
+                    break;
+                  case 18 : 
+                    wr.out("Float64List", false);
+                    wr.addImport("dart:typed_data");
+                    break;
+                  case 4 : 
+                    wr.out("String", false);
+                    break;
+                  case 5 : 
+                    wr.out("bool", false);
+                    break;
+                  case 7 : 
+                    wr.out(((("Map<" + this.getObjectTypeString(node.key_type, ctx)) + ", ") + this.getObjectTypeString(node.array_type, ctx)) + ">", false);
+                    break;
+                  case 6 : 
+                    wr.out(("List<" + this.getObjectTypeString(node.array_type, ctx)) + ">", false);
+                    break;
+                  default: 
+                    if ( node.type_name == "void" ) {
+                      wr.out("void", false);
+                    } else {
+                      wr.out(this.getTypeString(node.type_name), false);
+                    }
+                    break;
+                };
+                if ( node.hasFlag("optional") ) {
+                  wr.out("?", false);
+                }
+              };
+              async WriteVRef (node, ctx, wr) {
+                if ( node.vref == "this" ) {
+                  wr.out("this", false);
+                  return;
+                }
+                if ( node.eval_type == 13 ) {
+                  if ( (node.ns.length) > 1 ) {
+                    const rootObjName = node.ns[0];
+                    const enumName = node.ns[1];
+                    const e = ctx.getEnum(rootObjName);
+                    if ( (typeof(e) !== "undefined" && e != null )  ) {
+                      wr.out("" + ((( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined ))), false);
+                      return;
+                    }
+                  }
+                }
+                if ( (node.nsp.length) > 0 ) {
+                  for ( let i = 0; i < node.nsp.length; i++) {
+                    var p = node.nsp[i];
+                    if ( i == 0 ) {
+                      const part = node.ns[0];
+                      if ( part == "this" ) {
+                        wr.out("this", false);
+                        continue;
+                      }
+                      const uc = ctx.getCurrentClass();
+                      if ( (typeof(uc) !== "undefined" && uc != null )  ) {
+                        const currC = uc;
+                        if ( part == currC.name ) {
+                          if ( false == ctx.isInStatic() ) {
+                            wr.out("this", false);
+                            continue;
+                          }
+                        }
+                      }
+                      if ( ctx.isMemberVariable(part) ) {
+                        if ( false == ctx.isInStatic() ) {
+                          wr.out("this.", false);
+                        }
+                      }
+                    }
+                    if ( i > 0 ) {
+                      wr.out(".", false);
+                    }
+                    if ( (p.compiledName.length) > 0 ) {
+                      wr.out(this.adjustType(p.compiledName), false);
+                    } else {
+                      if ( (p.name.length) > 0 ) {
+                        wr.out(this.adjustType(p.name), false);
+                      } else {
+                        wr.out(this.adjustType((node.ns[i])), false);
+                      }
+                    }
+                    if ( i == 0 ) {
+                      if ( p.nameNode.hasFlag("optional") ) {
+                        wr.out("!", false);
+                      }
+                    }
+                  };
+                  return;
+                }
+                if ( node.hasParamDesc ) {
+                  const p_1 = node.paramDesc;
+                  wr.out(p_1.compiledName, false);
+                  return;
+                }
+                for ( let i_1 = 0; i_1 < node.ns.length; i_1++) {
+                  var part_1 = node.ns[i_1];
+                  if ( i_1 > 0 ) {
+                    wr.out(".", false);
+                  }
+                  if ( i_1 == 0 ) {
+                    const uc_1 = ctx.getCurrentClass();
+                    if ( (typeof(uc_1) !== "undefined" && uc_1 != null )  ) {
+                      const currC_1 = uc_1;
+                      if ( part_1 == currC_1.name ) {
+                        if ( false == ctx.isInStatic() ) {
+                          wr.out("this", false);
+                          continue;
+                        }
+                      }
+                    }
+                  }
+                  wr.out(this.adjustType(part_1), false);
+                };
+              };
+              async writeVarDef (node, ctx, wr) {
+                if ( node.hasParamDesc ) {
+                  const nn = node.children[1];
+                  const p = nn.paramDesc;
+                  if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
+                    if ( (node.children.length) > 2 ) {
+                      const value = node.getThird();
+                      if ( this.defValueHasSideEffects(value) ) {
+                        await this.writeSideEffectOnlyStmt(value, ctx, wr);
+                        return;
+                      }
+                    }
+                    wr.out("/* unused:  ", false);
+                  }
+                  await this.writeTypeDef(p.nameNode, ctx, wr);
+                  wr.out(" ", false);
+                  wr.out(p.compiledName, false);
+                  if ( (node.children.length) > 2 ) {
+                    wr.out(" = ", false);
+                    ctx.setInExpr();
+                    const value_1 = node.getThird();
+                    await this.WalkNode(value_1, ctx, wr);
+                    ctx.unsetInExpr();
+                  } else {
+                    if ( nn.hasFlag("optional") ) {
+                      wr.out(" = null", false);
+                    } else {
+                      if ( nn.value_type == 6 ) {
+                        wr.out(" = []", false);
+                      }
+                      if ( nn.value_type == 7 ) {
+                        wr.out(" = {}", false);
+                      }
+                    }
+                  }
+                  if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
+                    wr.out("     /* note: unused */", false);
+                  }
+                  if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
+                    wr.out("   */", true);
+                  } else {
+                    wr.out(";", false);
+                    wr.newline();
+                  }
+                }
+              };
+              paramEmitName (arg, ctx) {
+                if ( (arg.compiledName.length) > 0 ) {
+                  return arg.compiledName;
+                }
+                return ctx.transformWord(arg.name);
+              };
+              async writeArgsDef (fnDesc, ctx, wr) {
+                const pms = operatorsOf.filter_48(fnDesc.params, ((item, index) => { 
+                  if ( item.nameNode.hasFlag("keyword") ) {
+                    return false;
+                  }
+                  return true;
+                }));
+                for ( let i = 0; i < pms.length; i++) {
+                  var arg = pms[i];
+                  if ( i > 0 ) {
+                    wr.out(", ", false);
+                  }
+                  await this.writeTypeDef(arg.nameNode, ctx, wr);
+                  wr.out(" ", false);
+                  wr.out(this.paramEmitName(arg, ctx), false);
+                };
+              };
+              async writeFnCall (node, ctx, wr) {
+                if ( node.hasFnCall ) {
+                  ctx.setInExpr();
+                  const fc = node.getFirst();
+                  await this.WriteVRef(fc, ctx, wr);
+                  wr.out("(", false);
+                  const givenArgs = node.getSecond();
+                  for ( let i = 0; i < node.fnDesc.params.length; i++) {
+                    var arg = node.fnDesc.params[i];
+                    if ( i > 0 ) {
+                      wr.out(", ", false);
+                    }
+                    if ( (givenArgs.children.length) <= i ) {
+                      const defVal = arg.nameNode.getFlag("default");
+                      if ( (typeof(defVal) !== "undefined" && defVal != null )  ) {
+                        const fc_1 = defVal.vref_annotation.getFirst();
+                        await this.WalkNode(fc_1, ctx, wr);
+                      } else {
+                        ctx.addError(node, "Default argument was missing");
+                      }
+                      continue;
+                    }
+                    const n = givenArgs.children[i];
+                    await this.WalkNode(n, ctx, wr);
+                  };
+                  wr.out(")", false);
+                  ctx.unsetInExpr();
+                  if ( ctx.expressionLevel() == 0 ) {
+                    wr.out(";", true);
+                  }
+                }
+              };
+              async writeNewCall (node, ctx, wr) {
+                if ( node.hasNewOper ) {
+                  const cl = node.clDesc;
+                  const givenArgs = node.getThird();
+                  if ( await this.tryWriteProcessNewCall(node, ctx, wr) ) {
+                    return;
+                  }
+                  if ( cl.isSingletonClass() ) {
+                    wr.out(" ", false);
+                    wr.out(node.clDesc.name + ".__singleton", false);
+                    wr.out("(", false);
+                    for ( let i = 0; i < givenArgs.children.length; i++) {
+                      var n = givenArgs.children[i];
+                      if ( i > 0 ) {
+                        wr.out(", ", false);
+                      }
+                      await this.WalkNode(n, ctx, wr);
+                    };
+                    wr.out(")", false);
+                    return;
+                  }
+                  wr.out(" ", false);
+                  wr.out(node.clDesc.name, false);
+                  wr.out("(", false);
+                  const constr = cl.constructor_fn;
+                  if ( (typeof(constr) !== "undefined" && constr != null )  ) {
+                    let written = 0;
+                    for ( let i_1 = 0; i_1 < constr.params.length; i_1++) {
+                      var arg = constr.params[i_1];
+                      if ( arg.nameNode.hasFlag("keyword") ) {
+                        continue;
+                      }
+                      const n_1 = givenArgs.children[i_1];
+                      if ( written > 0 ) {
+                        wr.out(", ", false);
+                      }
+                      written = written + 1;
+                      await this.WalkNode(n_1, ctx, wr);
+                    };
+                  }
+                  wr.out(")", false);
+                }
+              };
+              async writePubspec (node, ctx, orig_wr) {
+                const wr = orig_wr.getFileWriter(".", "pubspec.yaml");
+                const opts = ["name", "version", "description"];
+                await operatorsOf.forEach_12(opts, ((item, index) => { 
+                  if ( ctx.hasCompilerSetting(item) == false ) {
+                    ctx.addError(node, ("Dart pubspec requires option -" + item) + "=<value>");
+                  }
+                }));
+                const pkgName = ctx.getCompilerSetting("name");
+                const pkgVersion = ctx.getCompilerSetting("version");
+                const pkgDesc = ctx.getCompilerSetting("description");
+                wr.out("name: " + pkgName, true);
+                wr.out("description: " + pkgDesc, true);
+                wr.out("version: " + pkgVersion, true);
+                wr.out("publish_to: none", true);
+                wr.out("", true);
+                wr.out("environment:", true);
+                wr.out("  sdk: '>=3.0.0 <4.0.0'", true);
+                if ( ctx.hasCompilerFlag("flutter") ) {
+                  wr.out("", true);
+                  wr.out("dependencies:", true);
+                  wr.out("  flutter:", true);
+                  wr.out("    sdk: flutter", true);
+                  wr.out("", true);
+                  wr.out("flutter:", true);
+                  wr.out("  uses-material-design: false", true);
+                }
+              };
+              async writeClass (node, ctx, orig_wr) {
+                const cl = node.clDesc;
+                if ( typeof(cl) === "undefined" ) {
+                  return;
+                }
+                let declaredFunction = {};
+                const wr = orig_wr;
+                if ( this.wrote_header == false ) {
+                  if ( ctx.hasCompilerFlag("pubspec") ) {
+                    await this.writePubspec(node, ctx, wr);
+                  }
+                  this.wrote_header = true;
+                }
+                wr.out("", true);
+                wr.out("class " + cl.name, false);
+                if ( (cl.extends_classes.length) > 0 ) {
+                  wr.out(" extends ", false);
+                  for ( let i = 0; i < cl.extends_classes.length; i++) {
+                    var pName = cl.extends_classes[i];
+                    if ( i > 0 ) {
+                      wr.out(", ", false);
+                    }
+                    const parentClass = ctx.findClass(pName);
+                    for ( let j = 0; j < parentClass.defined_variants.length; j++) {
+                      var fnVar = parentClass.defined_variants[j];
+                      const mVs = ( Object.prototype.hasOwnProperty.call(parentClass.method_variants, fnVar) ? parentClass.method_variants[fnVar] : undefined );
+                      for ( let k = 0; k < mVs.variants.length; k++) {
+                        var variant = mVs.variants[k];
+                        declaredFunction[variant.name] = true;
+                      };
+                    };
+                    wr.out(parentClass.compiledName, false);
+                  };
+                }
+                wr.out(" {", true);
+                wr.indent(1);
+                for ( let i_1 = 0; i_1 < cl.variables.length; i_1++) {
+                  var pvar = cl.variables[i_1];
+                  if ( pvar.is_static ) {
+                    continue;
+                  }
+                  await this.writeVarDef(pvar.node, ctx, wr);
+                };
+                for ( let i_2 = 0; i_2 < cl.variables.length; i_2++) {
+                  var pvar_1 = cl.variables[i_2];
+                  if ( false == pvar_1.is_static ) {
+                    continue;
+                  }
+                  wr.out("static ", false);
+                  await this.writeVarDef(pvar_1.node, ctx, wr);
+                };
+                if ( cl.isSingletonClass() ) {
+                  wr.out(("static " + cl.compiledName) + "? __singleton_instance;", true);
+                }
+                if ( cl.has_constructor ) {
+                  const constr = cl.constructor_fn;
+                  wr.out("", true);
+                  wr.out(cl.name + "(", false);
+                  await this.writeArgsDef(constr, ctx, wr);
+                  wr.out(")", false);
+                  if ( (cl.extends_classes.length) > 0 ) {
+                    const parentClass_1 = ctx.findClass((cl.extends_classes[0]));
+                    if ( parentClass_1.has_constructor ) {
+                      wr.out(" : super(", false);
+                      const pConstr = parentClass_1.constructor_fn;
+                      for ( let j_1 = 0; j_1 < pConstr.params.length; j_1++) {
+                        var pArg = pConstr.params[j_1];
+                        if ( j_1 > 0 ) {
+                          wr.out(", ", false);
+                        }
+                        let foundByName = false;
+                        for ( let k_1 = 0; k_1 < constr.params.length; k_1++) {
+                          var cArgByName = constr.params[k_1];
+                          if ( cArgByName.name == pArg.name ) {
+                            wr.out(cArgByName.compiledName, false);
+                            foundByName = true;
+                            break;
+                          }
+                        };
+                        if ( false == foundByName ) {
+                          if ( j_1 < (constr.params.length) ) {
+                            const cArg = constr.params[j_1];
+                            wr.out(cArg.compiledName, false);
+                          }
+                        }
+                      };
+                      wr.out(")", false);
+                    }
+                  }
+                  wr.out(" {", true);
+                  wr.indent(1);
+                  wr.newline();
+                  const subCtx = constr.fnCtx;
+                  subCtx.is_function = true;
+                  await this.WalkNode(constr.fnBody, subCtx, wr);
+                  wr.newline();
+                  wr.indent(-1);
+                  wr.out("}", true);
+                } else {
+                  if ( (cl.extends_classes.length) > 0 ) {
+                    const parentClass_2 = ctx.findClass((cl.extends_classes[0]));
+                    if ( false == parentClass_2.has_constructor ) {
+                    }
+                  }
+                }
+                if ( cl.isSingletonClass() ) {
+                  wr.out("", true);
+                  wr.out(("static " + cl.compiledName) + " __singleton(", false);
+                  if ( cl.has_constructor ) {
+                    const constr_1 = cl.constructor_fn;
+                    await this.writeArgsDef(constr_1, ctx, wr);
+                  }
+                  wr.out(") {", true);
+                  wr.indent(1);
+                  wr.out("if (__singleton_instance == null) {", true);
+                  wr.indent(1);
+                  wr.out(("__singleton_instance = " + cl.compiledName) + "(", false);
+                  if ( cl.has_constructor ) {
+                    const constr_2 = cl.constructor_fn;
+                    for ( let i_3 = 0; i_3 < constr_2.params.length; i_3++) {
+                      var arg = constr_2.params[i_3];
+                      if ( i_3 > 0 ) {
+                        wr.out(", ", false);
+                      }
+                      wr.out(arg.compiledName, false);
+                    };
+                  }
+                  wr.out(");", true);
+                  wr.indent(-1);
+                  wr.out("}", true);
+                  wr.out("return __singleton_instance!;", true);
+                  wr.indent(-1);
+                  wr.out("}", true);
+                }
+                for ( let i_4 = 0; i_4 < cl.static_methods.length; i_4++) {
+                  var variant_1 = cl.static_methods[i_4];
+                  if ( variant_1.nameNode.hasFlag("main") ) {
+                    continue;
+                  }
+                  wr.out("", true);
+                  wr.out("static ", false);
+                  await this.writeTypeDef(variant_1.nameNode, ctx, wr);
+                  wr.out(" ", false);
+                  wr.out(variant_1.compiledName + "(", false);
+                  await this.writeArgsDef(variant_1, ctx, wr);
+                  wr.out(") {", true);
+                  wr.indent(1);
+                  wr.newline();
+                  const subCtx_1 = variant_1.fnCtx;
+                  subCtx_1.is_function = true;
+                  subCtx_1.in_method = true;
+                  subCtx_1.in_static_method = true;
+                  subCtx_1.currentMethod = variant_1;
+                  subCtx_1.setCurrentClass(cl);
+                  await this.WalkNode(variant_1.fnBody, subCtx_1, wr);
+                  wr.newline();
+                  wr.indent(-1);
+                  wr.out("}", true);
+                };
+                for ( let i_5 = 0; i_5 < cl.defined_variants.length; i_5++) {
+                  var fnVar_1 = cl.defined_variants[i_5];
+                  const mVs_1 = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar_1) ? cl.method_variants[fnVar_1] : undefined );
+                  for ( let i_6 = 0; i_6 < mVs_1.variants.length; i_6++) {
+                    var variant_2 = mVs_1.variants[i_6];
+                    wr.out("", true);
+                    let shouldOverride = false;
+                    if ( variant_2.nameNode.hasFlag("override") ) {
+                      shouldOverride = true;
+                    }
+                    if ( ( typeof(declaredFunction[variant_2.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredFunction, variant_2.name) ) ) {
+                      shouldOverride = true;
+                    }
+                    if ( shouldOverride ) {
+                      wr.out("@override", true);
+                    }
+                    await this.writeTypeDef(variant_2.nameNode, ctx, wr);
+                    wr.out(" ", false);
+                    wr.out(variant_2.compiledName + "(", false);
+                    await this.writeArgsDef(variant_2, ctx, wr);
+                    wr.out(") {", true);
+                    wr.indent(1);
+                    wr.newline();
+                    const subCtx_2 = variant_2.fnCtx;
+                    subCtx_2.is_function = true;
+                    subCtx_2.in_method = true;
+                    subCtx_2.in_static_method = false;
+                    subCtx_2.currentMethod = variant_2;
+                    subCtx_2.setCurrentClass(cl);
+                    await this.WalkNode(variant_2.fnBody, subCtx_2, wr);
+                    wr.newline();
+                    wr.indent(-1);
+                    wr.out("}", true);
+                  };
+                };
+                wr.indent(-1);
+                wr.out("}", true);
+                for ( let i_7 = 0; i_7 < cl.static_methods.length; i_7++) {
+                  var variant_3 = cl.static_methods[i_7];
+                  if ( variant_3.nameNode.hasFlag("main") && (variant_3.nameNode.code.filename == ctx.getRootFile()) ) {
+                    wr.out("", true);
+                    wr.out("void main(List<String> args) {", true);
+                    wr.indent(1);
+                    wr.newline();
+                    const subCtx_3 = variant_3.fnCtx;
+                    subCtx_3.is_function = true;
+                    subCtx_3.in_method = false;
+                    subCtx_3.in_static_method = true;
+                    subCtx_3.currentMethod = variant_3;
+                    await this.WalkNode(variant_3.fnBody, subCtx_3, wr);
+                    wr.newline();
+                    wr.indent(-1);
+                    wr.out("}", true);
+                  }
+                };
+              };
+            }
             class RangerCSharpClassWriter  extends RangerGenericClassWriter {
               constructor() {
                 super()
@@ -41022,6 +41665,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   case "kotlin" : 
                     this.langWriter = new RangerKotlinClassWriter();
                     break;
+                  case "dart" : 
+                    this.langWriter = new RangerDartClassWriter();
+                    break;
                   case "php" : 
                     this.langWriter = new RangerPHPClassWriter();
                     break;
@@ -45599,6 +46245,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                 return "java7";
                                               case "kt" : 
                                                 return "kotlin";
+                                              case "dart" : 
+                                                return "dart";
                                               case "cs" : 
                                                 return "csharp";
                                               case "cpp" : 
@@ -45628,7 +46276,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                           async run (env) {
                                             const res = new CompilerResults();
                                             this.envObj = env;
-                                            const allowed_languages = ["es6", "go", "scala", "java7", "swift3", "swift6", "kotlin", "cpp", "php", "csharp", "python", "rust", "llvm"];
+                                            const allowed_languages = ["es6", "go", "scala", "java7", "swift3", "swift6", "kotlin", "dart", "cpp", "php", "csharp", "python", "rust", "llvm"];
                                             const params = env.commandLine;
                                             const cli = new CLIProgress();
                                             if ( ( typeof(params.flags["no-color"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "no-color") ) ) {
@@ -45637,7 +46285,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                             let the_file = "";
                                             let plugins_only = false;
                                             const valid_options = ["l", "Selected language, one of " + (allowed_languages.join(", ")), "d", "output directory, default directory is \"bin/\"", "o", "output file, default is \"output.<language>\"", "classdoc", "write class documentation .md file", "operatordoc", "write operator documention into .md file"];
-                                            const valid_flags = ["no-color", "Disable colored output", "deadcode", "Eliminate functions which are not called by any other functions", "dead4main", "Eliminate functions and classes which are unreachable from the main function", "forever", "Leave the main program into eternal loop (Go, Swift)", "allowti", "Allow type inference at target lang (creates slightly smaller code)", "plugins-only", "ignore built-in language output and use only plugins", "plugins", "(node compiler only) run specified npm plugins -plugins=\"plugin1,plugin2\"", "strict", "Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.", "strict-ownership", "Print the inferred ownership of each function parameter (borrowed, moved, shared, owned, unknown)", "rust-shared-classes", "Emit Rc<RefCell<T>> for classes the sharing analysis marks as shared (Rust target; the default since the conformance gate closed — kept for compatibility)", "rust-value-classes", "Every class is a plain value struct on Rust (the pre-ownership object model); disables the shared-class Rc<RefCell<T>> emission", "native-fast-alloc", "Rust/C++ targets: emit a thread-local size-class freelist allocator (never returns memory to the OS; single-process benchmark/tool builds)", "typescript", "Writes JavaScript code with TypeScript annotations", "esm", "Writes JavaScript code with ESM module syntax", "npm", "Write the package.json to the output directory", "nodecli", "Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file", "nodemodule", "Export the classes as Node.js CommonJS modules", "client", "the code is ment to be run in the client environment", "scalafiddle", "scalafiddle.io compatible output", "compiler", "recompile the compiler", "copysrc", "copy all the source codes into the target directory"];
+                                            const valid_flags = ["no-color", "Disable colored output", "deadcode", "Eliminate functions which are not called by any other functions", "dead4main", "Eliminate functions and classes which are unreachable from the main function", "forever", "Leave the main program into eternal loop (Go, Swift)", "allowti", "Allow type inference at target lang (creates slightly smaller code)", "plugins-only", "ignore built-in language output and use only plugins", "plugins", "(node compiler only) run specified npm plugins -plugins=\"plugin1,plugin2\"", "strict", "Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.", "strict-ownership", "Print the inferred ownership of each function parameter (borrowed, moved, shared, owned, unknown)", "rust-shared-classes", "Emit Rc<RefCell<T>> for classes the sharing analysis marks as shared (Rust target; the default since the conformance gate closed — kept for compatibility)", "rust-value-classes", "Every class is a plain value struct on Rust (the pre-ownership object model); disables the shared-class Rc<RefCell<T>> emission", "native-fast-alloc", "Rust/C++ targets: emit a thread-local size-class freelist allocator (never returns memory to the OS; single-process benchmark/tool builds)", "typescript", "Writes JavaScript code with TypeScript annotations", "esm", "Writes JavaScript code with ESM module syntax", "npm", "Write the package.json to the output directory", "pubspec", "Write pubspec.yaml for a Dart / Flutter package (requires -name= -version= -description=)", "flutter", "When used with -pubspec, emit a Flutter-oriented pubspec.yaml", "nodecli", "Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file", "nodemodule", "Export the classes as Node.js CommonJS modules", "client", "the code is ment to be run in the client environment", "scalafiddle", "scalafiddle.io compatible output", "compiler", "recompile the compiler", "copysrc", "copy all the source codes into the target directory"];
                                             const parser_pragmas = ["@noinfix(true)", "disable operator infix parsing and automatic type definition checking "];
                                             if ( ( typeof(params.flags["compiler"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "compiler") ) ) {
                                               cli.printHeader();
@@ -45925,6 +46573,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                               case "kotlin" : 
                                                 if ( false == (the_target.endsWith(".kt")) ) {
                                                   the_target = the_target + ".kt";
+                                                }
+                                                break;
+                                              case "dart" : 
+                                                if ( false == (the_target.endsWith(".dart")) ) {
+                                                  the_target = the_target + ".dart";
                                                 }
                                                 break;
                                               case "cpp" : 
@@ -46263,6 +46916,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                     break;
                                                   case "java7" : 
                                                     importFork.out(("import " + codeStr) + ";", true);
+                                                    break;
+                                                  case "dart" : 
+                                                    importFork.out(("import '" + codeStr) + "';", true);
                                                     break;
                                                   case "cpp" : 
                                                     importFork.out("#include  " + codeStr, true);

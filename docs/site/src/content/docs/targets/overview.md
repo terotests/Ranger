@@ -19,6 +19,7 @@ The option `-l=<target>` selects the target language.
 | Python | `-l=python` | `.py` | |
 | Java | `-l=java7` | `.java` | One file per class. |
 | Kotlin | `-l=kotlin` | `.kt` | |
+| Dart | `-l=dart` | `.dart` | Flutter-ready packages via `-pubspec` (optional `-flutter`). Shared logic for Flutter apps, not full widget trees. |
 | Swift | `-l=swift6` | `.swift` | `-l=swift3` writes the older dialect. |
 | C# | `-l=csharp` | `.cs` | |
 | C++ | `-l=cpp` | `.cpp` | Some operators add a polyfill function. |
@@ -42,6 +43,7 @@ The compiler writes the main routine in the form of the target:
 | Go, Rust, C++ | `func main`, `fn main`, `int main` |
 | Java, C# | A static `main` method of the class |
 | Python | `def main()` with a `__main__` guard |
+| Dart | Top-level `void main(List<String> args)` |
 | PHP | Statements at the top level |
 | Scala | `object AppMain extends App` |
 

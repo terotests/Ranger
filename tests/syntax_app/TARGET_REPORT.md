@@ -5,25 +5,25 @@ the expected output; `c` = compiled (not run here); `diff` = ran and
 printed something else; `run` = the target toolchain or the program
 failed; `-` = the Ranger compiler rejected it.
 
-| unit | es6 | typescript | go | python | rust | cpp | kotlin | swift6 | swift3 | java7 | csharp | scala | php | llvm |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| app | ok | run | run | - | - | run | - | c | - | - | - | - | - | - |
-| section:numeric | ok | run | ok | - | - | diff | - | c | c | - | - | - | ok | - |
-| section:bitwise | ok | ok | ok | ok | run | ok | c | c | c | - | c | c | run | run |
-| section:strings | ok | ok | run | run | run | run | c | c | c | - | - | - | run | - |
-| section:arrays | ok | ok | run | run | run | run | c | c | - | - | - | - | ok | - |
-| section:maps | ok | ok | run | run | run | diff | c | c | c | - | c | c | ok | - |
-| section:optionals | ok | ok | run | ok | run | run | c | c | c | - | c | c | ok | run |
-| section:control | ok | ok | diff | run | - | ok | c | c | c | - | c | c | ok | run |
-| section:oop | ok | run | run | - | - | run | c | c | c | - | - | - | run | - |
-| section:lambdas | ok | ok | ok | run | run | ok | c | c | c | - | c | c | ok | run |
-| section:buffers | ok | run | ok | run | run | diff | - | c | - | - | c | - | - | - |
-| section:operators | ok | run | ok | run | run | ok | c | c | c | - | c | c | run | run |
-| section:stdlib | ok | ok | run | run | run | ok | c | c | c | - | c | c | run | - |
-| narrow | ok | ok | - | - | - | - | - | - | - | - | - | - | - | - |
-| hostops | c | c | - | - | - | - | - | - | - | - | - | - | - | - |
-| http | c | c | c | c | c | c | - | - | - | - | - | - | - | - |
-| process | ok | ok | run | run | run | run | c | c | c | - | c | - | run | run |
+| unit | es6 | typescript | go | python | rust | cpp | kotlin | dart | swift6 | swift3 | java7 | csharp | scala | php | llvm |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| app | ok | run | run | - | - | run | - | run | c | - | - | - | - | - | - |
+| section:numeric | ok | run | ok | - | - | diff | - | run | c | c | - | - | - | c | - |
+| section:bitwise | ok | ok | ok | ok | run | ok | c | ok | c | c | - | c | c | c | c |
+| section:strings | ok | ok | run | run | run | run | c | run | c | c | - | - | - | c | - |
+| section:arrays | ok | ok | run | run | run | run | c | run | c | - | - | - | - | c | - |
+| section:maps | ok | ok | run | run | run | ok | c | ok | c | c | - | c | c | c | - |
+| section:optionals | ok | ok | run | ok | run | run | c | ok | c | c | - | c | c | c | c |
+| section:control | ok | ok | diff | run | - | ok | c | run | c | c | - | c | c | c | c |
+| section:oop | ok | run | run | - | - | run | c | ok | c | c | - | - | - | c | - |
+| section:lambdas | ok | ok | ok | run | run | ok | c | run | c | c | - | c | c | c | c |
+| section:buffers | ok | run | ok | run | run | diff | - | run | c | - | - | c | - | - | - |
+| section:operators | ok | run | ok | run | run | ok | c | ok | c | c | - | c | c | c | c |
+| section:stdlib | ok | ok | run | run | run | ok | c | run | c | c | - | c | c | c | - |
+| narrow | ok | ok | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| hostops | c | c | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| http | c | c | c | c | c | c | - | c | - | - | - | - | - | - | - |
+| process | ok | ok | run | run | run | run | c | run | c | c | - | c | - | c | c |
 
 ## Operators with no template for a target
 
@@ -55,6 +55,8 @@ unknown type does not match anything either.
 | kotlin | narrow | = error_msg for reverse sort |
 | kotlin | hostops | ! async_read_file buffer_from_string buffer_length buffer_read_file buffer_write_file create_dir create_immutable_array create_immutable_hash dir_exists env_var file_exists file_mtime if md5 sha256 strlen wait write_file |
 | kotlin | http | buffer_from_string |
+| dart | narrow | = error_msg for reverse sort |
+| dart | hostops | ! < > async_read_file buffer_read_file buffer_write_file create_dir create_immutable_array create_immutable_hash dir_exists env_var file_exists file_mtime if md5 random read_file sha256 shell_arg shell_arg_cnt strlen wait write_file |
 | swift6 | narrow | = error_msg for reverse sort |
 | swift6 | hostops | async_read_file create_immutable_array create_immutable_hash env_var file_mtime md5 sha256 strlen |
 | swift3 | app | + < = buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set insert int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set while |
@@ -108,8 +110,9 @@ Only the cells that are not `ok` and not a plain `compiled` appear here.
 - **app / go** (run-error): # command-line-arguments ./syntax_app.go:68:23: syntax error: missing type constraint ./syntax_app.go:507:58: syntax error: unexpected literal "C[a-z]+r" in argument list; possibly missing comma or ) ./syntax_app.go:508:59: syntax error: unexpected literal "^Compiler" in argument list; possibly missing comma or ) ./syntax_app.go:676:21: syntax error: unexpected =, expected type ./syntax_app.go:821
 - **app / python** (compile-error): no template for: cast to_double
 - **app / rust** (compile-error): no template for: cast fabs if
-- **app / cpp** (run-error): /home/user/Ranger/tests/.output-syntax-app/cpp/app/syntax_app.cpp: In member function 'virtual void StringsSection::run()': /home/user/Ranger/tests/.output-syntax-app/cpp/app/syntax_app.cpp:754:7: error: 'class std::vector<std::__cxx11::basic_string<char> >' has no member named 'push' 754 | acc.push(std::string("x")); | ^~~~ /home/user/Ranger/tests/.output-syntax-app/cpp/app/syntax_app.cpp:755:7: 
+- **app / cpp** (run-error): /workspace/tests/.output-syntax-app/cpp/app/syntax_app.cpp: In member function ‘virtual void StringsSection::run()’: /workspace/tests/.output-syntax-app/cpp/app/syntax_app.cpp:841:7: error: ‘class std::vector<std::__cxx11::basic_string<char> >’ has no member named ‘push’ 841 | acc.push(std::string("x")); | ^~~~ /workspace/tests/.output-syntax-app/cpp/app/syntax_app.cpp:842:7: error: ‘class std::ve
 - **app / kotlin** (compile-error): no template for: + < = M_PI buffer_alloc buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set fabs int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set tan while
+- **app / dart** (run-error): syntax_app.dart:818:3: Error: Operator declarations must be preceded by the keyword 'operator'. Try adding the keyword 'operator'. ? transform = null; ^ syntax_app.dart:818:3: Error: The string '?' isn't a user-definable operator. ? transform = null; ^ syntax_app.dart:818:3: Error: A method declaration needs an explicit list of parameters. Try adding a parameter list to the method declaration. ? t
 - **app / swift3** (compile-error): no template for: + < = buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set insert int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set while
 - **app / java7** (compile-error): no template for: insert
 - **app / csharp** (compile-error): no template for: M_PI cast fabs indexOf indexOfFrom insert lastIndexOf tan to_double
@@ -121,78 +124,91 @@ Only the cells that are not `ok` and not a plain `compiled` appear here.
 - **section:numeric / rust** (compile-error): no template for: fabs
 - **section:numeric / cpp** (output-differs): line 18: expected " double2str_len = 3", got " double2str_len = 8"
 - **section:numeric / kotlin** (compile-error): no template for: M_PI fabs tan
+- **section:numeric / dart** (run-error): drv_numeric.dart:110:23: Error: The method 'parseFloat' isn't defined for the type 'NumericSection'. - 'NumericSection' is from 'drv_numeric.dart'. Try correcting the name to the name of an existing method, or defining a method named 'parseFloat'. double promoted = parseFloat(a); ^^^^^^^^^^ drv_numeric.dart:126:24: Error: The getter 'Math' isn't defined for the type 'NumericSection'. - 'NumericSec
 - **section:numeric / csharp** (compile-error): no template for: M_PI fabs tan to_double
 - **section:numeric / scala** (compile-error): no template for: M_PI fabs tan
+- **section:numeric / php** (compiled): php not installed
 - **section:numeric / llvm** (compile-error): no template for: M_PI fabs tan
-- **section:bitwise / rust** (run-error): error[E0609]: no field `rows` on type `&mut BitwiseSection` --> /home/user/Ranger/tests/.output-syntax-app/rust/section_bitwise/drv_bitwise.rs:198:22 | 198 | for i in 0..self.rows.len() { | ^^^^ unknown field error[E0609]: no field `rows` on type `&mut BitwiseSection` --> /home/user/Ranger/tests/.output-syntax-app/rust/section_bitwise/drv_bitwise.rs:199:26 | 199 | let mut row = self.rows[i].clone(
-- **section:bitwise / php** (run-error): PHP Parse error: syntax error, unexpected token ">" in /home/user/Ranger/tests/.output-syntax-app/php/section_bitwise/drv_bitwise.php on line 94
-- **section:bitwise / llvm** (run-error): lli: lli: /home/user/Ranger/tests/.output-syntax-app/llvm/section_bitwise/drv_bitwise.ll:65:44: error: '%.v4' defined with type 'ptr' but expected 'i32' call void @RtPtrArray_push(i32 %.v1, i32 %.v4) ^
+- **section:bitwise / rust** (run-error): error[E0609]: no field `rows` on type `&mut BitwiseSection` --> /workspace/tests/.output-syntax-app/rust/section_bitwise/drv_bitwise.rs:289:22 | 289 | for i in 0..self.rows.len() { | ^^^^ unknown field error[E0609]: no field `rows` on type `&mut BitwiseSection` --> /workspace/tests/.output-syntax-app/rust/section_bitwise/drv_bitwise.rs:290:26 | 290 | let mut row = self.rows[i].clone(); | ^^^^ unkn
+- **section:bitwise / php** (compiled): php not installed
+- **section:bitwise / llvm** (compiled): lli not installed
 - **section:strings / go** (run-error): # command-line-arguments ./drv_strings.go:231:58: syntax error: unexpected literal "C[a-z]+r" in argument list; possibly missing comma or ) ./drv_strings.go:232:59: syntax error: unexpected literal "^Compiler" in argument list; possibly missing comma or )
-- **section:strings / python** (run-error): File "/home/user/Ranger/tests/.output-syntax-app/python/section_strings/drv_strings.py", line 124 self.sayBool("regex_hit", (RegexMatch.testIgnoreCase(s "C[a-z]+r"))) ^^^^^^^^^^ SyntaxError: invalid syntax
-- **section:strings / rust** (run-error): error: expected one of `!`, `)`, `,`, `.`, `::`, `?`, `{`, or an operator, found `"C[a-z]+r"` --> /home/user/Ranger/tests/.output-syntax-app/rust/section_strings/drv_strings.rs:220:72 | 220 | self.sayBool("regex_hit".to_string(), (RegexMatch.testIgnoreCase(s "C[a-z]+r".to_string()))); | -^^^^^^^^^^ expected one of 8 possible tokens | | | help: missing `,` error: expected one of `!`, `)`, `,`, `.`,
-- **section:strings / cpp** (run-error): /home/user/Ranger/tests/.output-syntax-app/cpp/section_strings/drv_strings.cpp: In member function 'virtual void StringsSection::run()': /home/user/Ranger/tests/.output-syntax-app/cpp/section_strings/drv_strings.cpp:370:7: error: 'class std::vector<std::__cxx11::basic_string<char> >' has no member named 'push' 370 | acc.push(std::string("x")); | ^~~~ /home/user/Ranger/tests/.output-syntax-app/cpp/
+- **section:strings / python** (run-error): File "/workspace/tests/.output-syntax-app/python/section_strings/drv_strings.py", line 124 self.sayBool("regex_hit", (RegexMatch.testIgnoreCase(s "C[a-z]+r"))) ^^^^^^^^^^ SyntaxError: invalid syntax
+- **section:strings / rust** (run-error): error: expected one of `!`, `)`, `,`, `.`, `::`, `?`, `{`, or an operator, found `"C[a-z]+r"` --> /workspace/tests/.output-syntax-app/rust/section_strings/drv_strings.rs:311:72 | 311 | self.sayBool("regex_hit".to_string(), (RegexMatch.testIgnoreCase(s "C[a-z]+r".to_string()))); | -^^^^^^^^^^ expected one of 8 possible tokens | | | help: missing `,` error: expected one of `!`, `)`, `,`, `.`, `::`, 
+- **section:strings / cpp** (run-error): /workspace/tests/.output-syntax-app/cpp/section_strings/drv_strings.cpp: In member function ‘virtual void StringsSection::run()’: /workspace/tests/.output-syntax-app/cpp/section_strings/drv_strings.cpp:455:7: error: ‘class std::vector<std::__cxx11::basic_string<char> >’ has no member named ‘push’ 455 | acc.push(std::string("x")); | ^~~~ /workspace/tests/.output-syntax-app/cpp/section_strings/drv_s
+- **section:strings / dart** (run-error): drv_strings.dart:143:60: Error: Expected ',' before this. this.sayBool("regex_hit", (RegexMatch.testIgnoreCase(s "C[a-z]+r"))); ^^^^^^^^^^ drv_strings.dart:144:61: Error: Expected ',' before this. this.sayBool("regex_miss", (RegexMatch.testIgnoreCase(s "^Compiler"))); ^^^^^^^^^^^ drv_strings.dart:105:39: Error: The method 'trimEnd' isn't defined for the type 'String'. Try correcting the name to th
 - **section:strings / csharp** (compile-error): no template for: indexOf indexOfFrom lastIndexOf
 - **section:strings / scala** (compile-error): no template for: indexOf indexOfFrom lastIndexOf
-- **section:strings / php** (run-error): PHP Parse error: syntax error, unexpected double-quoted string "C[a-z]+r", expecting ")" in /home/user/Ranger/tests/.output-syntax-app/php/section_strings/drv_strings.php on line 138
+- **section:strings / php** (compiled): php not installed
 - **section:strings / llvm** (compile-error): no template for: contains endsWith indexOf indexOfFrom lastIndexOf replace startsWith to_lowercase to_uppercase
 - **section:arrays / go** (run-error): # command-line-arguments ./drv_arrays.go:263:21: syntax error: unexpected =, expected type
-- **section:arrays / python** (run-error): Traceback (most recent call last): File "/home/user/Ranger/tests/.output-syntax-app/python/section_arrays/drv_arrays.py", line 155, in <module> main() File "/home/user/Ranger/tests/.output-syntax-app/python/section_arrays/drv_arrays.py", line 152, in main s.run() File "/home/user/Ranger/tests/.output-syntax-app/python/section_arrays/drv_arrays.py", line 92, in run self.say("after_insert", work.joi
-- **section:arrays / rust** (run-error): error[E0425]: cannot find type `int` in this scope --> /home/user/Ranger/tests/.output-syntax-app/rust/section_arrays/drv_arrays.rs:254:25 | 254 | let mut grid : Vec<[int]> = Vec::new(); | ^^^ not found in this scope | help: perhaps you intended to use this type | 254 - let mut grid : Vec<[int]> = Vec::new(); 254 + let mut grid : Vec<[i32]> = Vec::new(); | help: you might be missing a type paramet
-- **section:arrays / cpp** (run-error): /home/user/Ranger/tests/.output-syntax-app/cpp/section_arrays/drv_arrays.cpp: In member function 'virtual void ArraysSection::run()': /home/user/Ranger/tests/.output-syntax-app/cpp/section_arrays/drv_arrays.cpp:191:4: error: 'r_optional_primitive' was not declared in this scope 191 | r_optional_primitive<int> gotLast = nums[4]; | ^~~~~~~~~~~~~~~~~~~~ /home/user/Ranger/tests/.output-syntax-app/cpp/
+- **section:arrays / python** (run-error): Traceback (most recent call last): File "/workspace/tests/.output-syntax-app/python/section_arrays/drv_arrays.py", line 155, in <module> main() File "/workspace/tests/.output-syntax-app/python/section_arrays/drv_arrays.py", line 152, in main s.run() File "/workspace/tests/.output-syntax-app/python/section_arrays/drv_arrays.py", line 92, in run self.say("after_insert", work.join(",")) ^^^^^^^^^ Att
+- **section:arrays / rust** (run-error): error[E0412]: cannot find type `int` in this scope --> /workspace/tests/.output-syntax-app/rust/section_arrays/drv_arrays.rs:345:25 | 345 | let mut grid : Vec<[int]> = Vec::new(); | ^^^ not found in this scope | help: perhaps you intended to use this type | 345 | let mut grid : Vec<[i32]> = Vec::new(); | ~~~ help: you might be missing a type parameter | 250 | impl<int> ArraysSection { | +++++ erro
+- **section:arrays / cpp** (run-error): /workspace/tests/.output-syntax-app/cpp/section_arrays/drv_arrays.cpp: In member function ‘virtual void ArraysSection::run()’: /workspace/tests/.output-syntax-app/cpp/section_arrays/drv_arrays.cpp:276:4: error: ‘r_optional_primitive’ was not declared in this scope 276 | r_optional_primitive<int> gotLast = nums[4]; | ^~~~~~~~~~~~~~~~~~~~ /workspace/tests/.output-syntax-app/cpp/section_arrays/drv_ar
+- **section:arrays / dart** (run-error): drv_arrays.dart:130:10: Error: The method 'splice' isn't defined for the type 'List<String>'. - 'List' is from 'dart:core'. Try correcting the name to the name of an existing method, or defining a method named 'splice'. work.splice(0, 1).pop(); ^^^^^^ drv_arrays.dart:138:27: Error: The method 'splice' isn't defined for the type 'List<String>'. - 'List' is from 'dart:core'. Try correcting the name 
 - **section:arrays / swift3** (compile-error): no template for: insert
 - **section:arrays / java7** (compile-error): no template for: insert
 - **section:arrays / csharp** (compile-error): no template for: insert
 - **section:arrays / scala** (compile-error): no template for: insert
+- **section:arrays / php** (compiled): php not installed
 - **section:arrays / llvm** (compile-error): no template for: insert
 - **section:maps / go** (run-error): # command-line-arguments ./drv_maps.go:30:23: syntax error: missing type constraint ./drv_maps.go:253:33: syntax error: unexpected =, expected type ./drv_maps.go:262:80: syntax error: unexpected ), expected type
-- **section:maps / python** (run-error): Traceback (most recent call last): File "/home/user/Ranger/tests/.output-syntax-app/python/section_maps/drv_maps.py", line 118, in <module> main() File "/home/user/Ranger/tests/.output-syntax-app/python/section_maps/drv_maps.py", line 115, in main s.run() File "/home/user/Ranger/tests/.output-syntax-app/python/section_maps/drv_maps.py", line 68, in run missing = ages["nobody"] ~~~~^^^^^^^^^^ KeyEr
-- **section:maps / rust** (run-error): error[E0425]: cannot find type `int` in this scope --> /home/user/Ranger/tests/.output-syntax-app/rust/section_maps/drv_maps.rs:210:39 | 210 | let mut buckets : HashMap<String,[int]> = HashMap::new(); | ^^^ not found in this scope | help: perhaps you intended to use this type | 210 - let mut buckets : HashMap<String,[int]> = HashMap::new(); 210 + let mut buckets : HashMap<String,[i32]> = HashMap::
-- **section:maps / cpp** (output-differs): line 6: expected " get_miss = true", got " get_miss = false"
+- **section:maps / python** (run-error): Traceback (most recent call last): File "/workspace/tests/.output-syntax-app/python/section_maps/drv_maps.py", line 118, in <module> main() File "/workspace/tests/.output-syntax-app/python/section_maps/drv_maps.py", line 115, in main s.run() File "/workspace/tests/.output-syntax-app/python/section_maps/drv_maps.py", line 68, in run missing = ages["nobody"] ~~~~^^^^^^^^^^ KeyError: 'nobody'
+- **section:maps / rust** (run-error): error[E0412]: cannot find type `int` in this scope --> /workspace/tests/.output-syntax-app/rust/section_maps/drv_maps.rs:300:39 | 300 | let mut buckets : HashMap<String,[int]> = HashMap::default(); | ^^^ not found in this scope | help: perhaps you intended to use this type | 300 | let mut buckets : HashMap<String,[i32]> = HashMap::default(); | ~~~ help: you might be missing a type parameter | 250 
+- **section:maps / php** (compiled): php not installed
 - **section:maps / llvm** (compile-error): no template for: array_length for keys
 - **section:optionals / go** (run-error): # command-line-arguments ./drv_optionals.go:179:13: cannot use "here" (untyped string constant) as *GoNullable value in assignment ./drv_optionals.go:187:13: cannot use "temporary" (untyped string constant) as *GoNullable value in assignment ./drv_optionals.go:194:14: cannot use "yes" (untyped string constant) as *GoNullable value in assignment ./drv_optionals.go:204:14: cannot use int64(5) (const
-- **section:optionals / rust** (run-error): error[E0308]: mismatched types --> /home/user/Ranger/tests/.output-syntax-app/rust/section_optionals/drv_optionals.rs:172:5 | 171 | fn findNext(&mut self) -> Rc<RefCell<Holder>> { | ------------------- expected `Rc<RefCell<Holder>>` because of return type 172 | self.next.clone() | ^^^^^^^^^^^^^^^^^ expected `Rc<RefCell<Holder>>`, found `Option<Rc<RefCell<Holder>>>` | = note: expected struct `Rc<_>
-- **section:optionals / cpp** (run-error): /home/user/Ranger/tests/.output-syntax-app/cpp/section_optionals/drv_optionals.cpp: In member function 'virtual void OptionalsSection::run()': /home/user/Ranger/tests/.output-syntax-app/cpp/section_optionals/drv_optionals.cpp:184:17: error: no match for 'operator!=' (operand types are 'std::string' {aka 'std::__cxx11::basic_string<char>'} and 'long int') 184 | if ( maybeSet != NULL ) { | ^ In file
-- **section:optionals / llvm** (run-error): lli: lli: /home/user/Ranger/tests/.output-syntax-app/llvm/section_optionals/drv_optionals.ll:80:44: error: '%.v4' defined with type 'ptr' but expected 'i32' call void @RtPtrArray_push(i32 %.v1, i32 %.v4) ^
+- **section:optionals / rust** (run-error): error[E0308]: mismatched types --> /workspace/tests/.output-syntax-app/rust/section_optionals/drv_optionals.rs:289:36 | 289 | let wrapped : Option<String> = "here".to_string(); | -------------- ^^^^^^^^^^^^^^^^^^ expected `Option<String>`, found `String` | | | expected due to this | = note: expected enum `Option<String>` found struct `String` help: try wrapping the expression in `Some` | 289 | let
+- **section:optionals / cpp** (run-error): /workspace/tests/.output-syntax-app/cpp/section_optionals/drv_optionals.cpp: In member function ‘virtual void OptionalsSection::run()’: /workspace/tests/.output-syntax-app/cpp/section_optionals/drv_optionals.cpp:268:17: error: no match for ‘operator!=’ (operand types are ‘std::string’ {aka ‘std::__cxx11::basic_string<char>’} and ‘long int’) 268 | if ( maybeSet != NULL ) { | ^ In file included from
+- **section:optionals / php** (compiled): php not installed
+- **section:optionals / llvm** (compiled): lli not installed
 - **section:control / go** (output-differs): line 4: expected " if_not = not-huge", got " if_not = small"
-- **section:control / python** (run-error): File "/home/user/Ranger/tests/.output-syntax-app/python/section_control/drv_control.py", line 60 throw "negative value"; ^^^^^^^^^^^^^^^^ SyntaxError: invalid syntax
+- **section:control / python** (run-error): File "/workspace/tests/.output-syntax-app/python/section_control/drv_control.py", line 60 throw "negative value"; ^^^^^^^^^^^^^^^^ SyntaxError: invalid syntax
 - **section:control / rust** (compile-error): no template for: if
-- **section:control / llvm** (run-error): lli: lli: /home/user/Ranger/tests/.output-syntax-app/llvm/section_control/drv_control.ll:90:44: error: '%.v4' defined with type 'ptr' but expected 'i32' call void @RtPtrArray_push(i32 %.v1, i32 %.v4) ^
+- **section:control / dart** (run-error): drv_control.dart:174:22: Error: The method 'charCodeAt' isn't defined for the type 'String'. Try correcting the name to the name of an existing method, or defining a method named 'charCodeAt'. int letter = "b".charCodeAt(0); ^^^^^^^^^^ drv_control.dart:193:40: Error: A value of type 'int' can't be assigned to a variable of type 'String'. this.say("enum_concat", "level=" + current); ^
+- **section:control / php** (compiled): php not installed
+- **section:control / llvm** (compiled): lli not installed
 - **section:oop / typescript** (run-error): drv_oop.ts(114,11): error TS2554: Expected 0 arguments, but got 1. drv_oop.ts(132,11): error TS2554: Expected 0 arguments, but got 1.
 - **section:oop / go** (run-error): # command-line-arguments ./drv_oop.go:450:80: syntax error: unexpected ), expected type
 - **section:oop / python** (compile-error): no template for: cast
 - **section:oop / rust** (compile-error): no template for: cast
-- **section:oop / cpp** (run-error): /home/user/Ranger/tests/.output-syntax-app/cpp/section_oop/drv_oop.cpp: In member function 'virtual void OopSection::run()': /home/user/Ranger/tests/.output-syntax-app/cpp/section_oop/drv_oop.cpp:304:77: error: no matching function for call to 'get<std::shared_ptr<Rectangle> >(std::shared_ptr<Shape>&)' 304 | std::shared_ptr<Rectangle> asRect = mpark::get<std::shared_ptr<Rectangle>>(asShape); | ~~~
+- **section:oop / cpp** (run-error): /workspace/tests/.output-syntax-app/cpp/section_oop/drv_oop.cpp: In member function ‘virtual void OopSection::run()’: /workspace/tests/.output-syntax-app/cpp/section_oop/drv_oop.cpp:389:77: error: no matching function for call to ‘get<std::shared_ptr<Rectangle> >(std::shared_ptr<Shape>&)’ 389 | std::shared_ptr<Rectangle> asRect = mpark::get<std::shared_ptr<Rectangle>>(asShape); | ~~~~~~~~~~~~~~~~~
 - **section:oop / csharp** (compile-error): no template for: cast
 - **section:oop / scala** (compile-error): no template for: cast
-- **section:oop / php** (run-error): PHP Warning: Undefined variable $Shape in /home/user/Ranger/tests/.output-syntax-app/php/section_oop/drv_oop.php on line 164 PHP Fatal error: Uncaught Error: Call to a member function unit() on null in /home/user/Ranger/tests/.output-syntax-app/php/section_oop/drv_oop.php:164 Stack trace: #0 /home/user/Ranger/tests/.output-syntax-app/php/section_oop/drv_oop.php(223): OopSection->run() #1 {main} th
+- **section:oop / php** (compiled): php not installed
 - **section:oop / llvm** (compile-error): no template for: cast
-- **section:lambdas / python** (run-error): File "/home/user/Ranger/tests/.output-syntax-app/python/section_lambdas/drv_lambdas.py", line 66 double = lambda n: ^ SyntaxError: invalid syntax
-- **section:lambdas / rust** (run-error): error: expected type, found `)` --> /home/user/Ranger/tests/.output-syntax-app/rust/section_lambdas/drv_lambdas.rs:170:45 | 170 | fn eachNumber(values : &[i64], callback : ) { | ^ expected type error: expected type, found `)` --> /home/user/Ranger/tests/.output-syntax-app/rust/section_lambdas/drv_lambdas.rs:176:35 | 176 | fn applyTwice(value : i64, op : ) -> i64 { | ^ expected type error: expected
-- **section:lambdas / llvm** (run-error): lli: lli: /home/user/Ranger/tests/.output-syntax-app/llvm/section_lambdas/drv_lambdas.ll:67:44: error: '%.v4' defined with type 'ptr' but expected 'i32' call void @RtPtrArray_push(i32 %.v1, i32 %.v4) ^
+- **section:lambdas / python** (run-error): File "/workspace/tests/.output-syntax-app/python/section_lambdas/drv_lambdas.py", line 66 double = lambda n: ^ SyntaxError: invalid syntax
+- **section:lambdas / rust** (run-error): error: expected type, found `)` --> /workspace/tests/.output-syntax-app/rust/section_lambdas/drv_lambdas.rs:261:45 | 261 | fn eachNumber(values : &[i64], callback : ) { | ^ expected type error: expected type, found `)` --> /workspace/tests/.output-syntax-app/rust/section_lambdas/drv_lambdas.rs:267:35 | 267 | fn applyTwice(value : i64, op : ) -> i64 { | ^ expected type error: expected type, found `
+- **section:lambdas / dart** (run-error): drv_lambdas.dart:84:3: Error: Operator declarations must be preceded by the keyword 'operator'. Try adding the keyword 'operator'. ? transform = null; ^ drv_lambdas.dart:84:3: Error: The string '?' isn't a user-definable operator. ? transform = null; ^ drv_lambdas.dart:84:3: Error: A method declaration needs an explicit list of parameters. Try adding a parameter list to the method declaration. ? t
+- **section:lambdas / php** (compiled): php not installed
+- **section:lambdas / llvm** (compiled): lli not installed
 - **section:buffers / typescript** (run-error): drv_buffers.ts(87,11): error TS2740: Type 'ArrayBuffer' is missing the following properties from type 'Uint8Array<ArrayBufferLike>': BYTES_PER_ELEMENT, buffer, byteOffset, copyWithin, and 24 more. drv_buffers.ts(87,76): error TS2339: Property '_view' does not exist on type 'ArrayBuffer'. drv_buffers.ts(89,11): error TS2339: Property '_view' does not exist on type 'Uint8Array<ArrayBufferLike>'. drv
-- **section:buffers / python** (run-error): Traceback (most recent call last): File "/home/user/Ranger/tests/.output-syntax-app/python/section_buffers/drv_buffers.py", line 120, in <module> main() File "/home/user/Ranger/tests/.output-syntax-app/python/section_buffers/drv_buffers.py", line 117, in main s.run() File "/home/user/Ranger/tests/.output-syntax-app/python/section_buffers/drv_buffers.py", line 102, in run self.sayInt("charbuffer_le
-- **section:buffers / rust** (run-error): error[E0433]: failed to resolve: use of unresolved module or unlinked crate `base64` --> /home/user/Ranger/tests/.output-syntax-app/rust/section_buffers/drv_buffers.rs:188:46 | 188 | self.say("buffer_to_base64".to_string(), base64::encode(&text)); | ^^^^^^ use of unresolved module or unlinked crate `base64` | = help: you might be missing a crate named `base64` error[E0308]: mismatched types --> /h
+- **section:buffers / python** (run-error): Traceback (most recent call last): File "/workspace/tests/.output-syntax-app/python/section_buffers/drv_buffers.py", line 120, in <module> main() File "/workspace/tests/.output-syntax-app/python/section_buffers/drv_buffers.py", line 117, in main s.run() File "/workspace/tests/.output-syntax-app/python/section_buffers/drv_buffers.py", line 102, in run self.sayInt("charbuffer_length", chars.length) 
+- **section:buffers / rust** (run-error): error[E0433]: failed to resolve: use of undeclared crate or module `base64` --> /workspace/tests/.output-syntax-app/rust/section_buffers/drv_buffers.rs:279:46 | 279 | self.say("buffer_to_base64".to_string(), base64::encode(&text)); | ^^^^^^ use of undeclared crate or module `base64` error[E0308]: mismatched types --> /workspace/tests/.output-syntax-app/rust/section_buffers/drv_buffers.rs:302:50 | 
 - **section:buffers / cpp** (output-differs): line 10: expected " buffer_from_string = 6", got " buffer_from_string = 38"
 - **section:buffers / kotlin** (compile-error): no template for: + < = buffer_alloc buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set while
+- **section:buffers / dart** (run-error): drv_buffers.dart:135:23: Error: A value of type 'String' can't be assigned to a variable of type 'List<int>'. - 'List' is from 'dart:core'. List<int> chars = "Hello"; ^ drv_buffers.dart:137:45: Error: The method 'charCodeAt' isn't defined for the type 'List<int>'. - 'List' is from 'dart:core'. Try correcting the name to the name of an existing method, or defining a method named 'charCodeAt'. this.
 - **section:buffers / swift3** (compile-error): no template for: + < = buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set while
 - **section:buffers / scala** (compile-error): no template for: + < = buffer_alloc buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set while
 - **section:buffers / php** (compile-error): no template for: + < = buffer_alloc buffer_copy buffer_fill buffer_from_string buffer_get buffer_length buffer_set buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set int_buffer_alloc int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length int_buffer_set while
 - **section:buffers / llvm** (compile-error): no template for: < buffer_copy buffer_fill buffer_from_string buffer_slice buffer_to_base64 buffer_to_string double_buffer_alloc double_buffer_copy double_buffer_fill double_buffer_get double_buffer_length double_buffer_set int_buffer_copy int_buffer_length while
 - **section:operators / typescript** (run-error): drv_operators.ts(129,55): error TS2367: This comparison appears to be unintentional because the types '0' and '1' have no overlap. drv_operators.ts(130,40): error TS2367: This comparison appears to be unintentional because the types '2' and '0' have no overlap. drv_operators.ts(130,56): error TS2367: This comparison appears to be unintentional because the types '2' and '1' have no overlap.
-- **section:operators / python** (run-error): Traceback (most recent call last): File "/home/user/Ranger/tests/.output-syntax-app/python/section_operators/drv_operators.py", line 111, in <module> main() File "/home/user/Ranger/tests/.output-syntax-app/python/section_operators/drv_operators.py", line 108, in main s.run() File "/home/user/Ranger/tests/.output-syntax-app/python/section_operators/drv_operators.py", line 86, in run a.set(3, 4) ^^^
-- **section:operators / rust** (run-error): error: expected one of `)`, `,`, `@`, `if`, or `|`, found `_sx` --> /home/user/Ranger/tests/.output-syntax-app/rust/section_operators/drv_operators.rs:222:13 | 222 | for(int _sx=0;_sx<4;_sx++) { | ^^^ expected one of `)`, `,`, `@`, `if`, or `|` | help: there is a keyword `in` with a similar name | 222 - for(int _sx=0;_sx<4;_sx++) { 222 + for(in _sx=0;_sx<4;_sx++) { | error: expected one of `)`, `,
-- **section:operators / php** (run-error): PHP Parse error: syntax error, unexpected identifier "_sx", expecting ";" in /home/user/Ranger/tests/.output-syntax-app/php/section_operators/drv_operators.php on line 132
-- **section:operators / llvm** (run-error): lli: lli: /home/user/Ranger/tests/.output-syntax-app/llvm/section_operators/drv_operators.ll:68:44: error: '%.v4' defined with type 'ptr' but expected 'i32' call void @RtPtrArray_push(i32 %.v1, i32 %.v4) ^
+- **section:operators / python** (run-error): Traceback (most recent call last): File "/workspace/tests/.output-syntax-app/python/section_operators/drv_operators.py", line 111, in <module> main() File "/workspace/tests/.output-syntax-app/python/section_operators/drv_operators.py", line 108, in main s.run() File "/workspace/tests/.output-syntax-app/python/section_operators/drv_operators.py", line 86, in run a.set(3, 4) ^^^^^ AttributeError: 'V
+- **section:operators / rust** (run-error): error: expected one of `)`, `,`, `@`, or `|`, found `_sx` --> /workspace/tests/.output-syntax-app/rust/section_operators/drv_operators.rs:313:13 | 313 | for(int _sx=0;_sx<4;_sx++) { | ^^^ expected one of `)`, `,`, `@`, or `|` | help: there is a keyword `in` with a similar name | 313 | for(in _sx=0;_sx<4;_sx++) { | ~~ error: expected one of `)`, `,`, `@`, or `|`, found `=` --> /workspace/tests/.out
+- **section:operators / php** (compiled): php not installed
+- **section:operators / llvm** (compiled): lli not installed
 - **section:stdlib / go** (run-error): # command-line-arguments ./drv_stdlib.go:244:29: undefined: strings
-- **section:stdlib / python** (run-error): File "/home/user/Ranger/tests/.output-syntax-app/python/section_stdlib/drv_stdlib.py", line 61 operatorsOf.forEach_2(nums, lambda item, index: ^^^^^^^^^^^^^^^^^^^^ SyntaxError: expression cannot contain assignment, perhaps you meant "=="?
-- **section:stdlib / rust** (run-error): error: expected one of `)`, `,`, `.`, `?`, or an operator, found `=>` --> /home/user/Ranger/tests/.output-syntax-app/rust/section_stdlib/drv_stdlib.rs:172:49 | 172 | operatorsOf::forEach_2(&nums, (item, index) => { | ^^ expected one of `)`, `,`, `.`, `?`, or an operator error: expected one of `)`, `,`, `.`, `?`, or an operator, found `=>` --> /home/user/Ranger/tests/.output-syntax-app/rust/section
-- **section:stdlib / php** (run-error): PHP Warning: Undefined variable $operatorsOf in /home/user/Ranger/tests/.output-syntax-app/php/section_stdlib/drv_stdlib.php on line 89 PHP Fatal error: Uncaught Error: Call to a member function forEach_2() on null in /home/user/Ranger/tests/.output-syntax-app/php/section_stdlib/drv_stdlib.php:89 Stack trace: #0 /home/user/Ranger/tests/.output-syntax-app/php/section_stdlib/drv_stdlib.php(176): Std
+- **section:stdlib / python** (run-error): File "/workspace/tests/.output-syntax-app/python/section_stdlib/drv_stdlib.py", line 61 operatorsOf.forEach_2(nums, lambda item, index: ^^^^^^^^^^^^^^^^^^^^ SyntaxError: expression cannot contain assignment, perhaps you meant "=="?
+- **section:stdlib / rust** (run-error): error: expected one of `)`, `,`, `.`, `?`, or an operator, found `=>` --> /workspace/tests/.output-syntax-app/rust/section_stdlib/drv_stdlib.rs:262:49 | 262 | operatorsOf::forEach_2(&nums, (item, index) => { | ^^ expected one of `)`, `,`, `.`, `?`, or an operator error: expected one of `)`, `,`, `.`, `?`, or an operator, found `=>` --> /workspace/tests/.output-syntax-app/rust/section_stdlib/drv_st
+- **section:stdlib / dart** (run-error): drv_stdlib.dart:95:23: Error: Expected '}' before this. sum = sum + item; ^ drv_stdlib.dart:100:7: Error: Unexpected token 'return'. return item * 2; ^^^^^^ drv_stdlib.dart:100:22: Error: Expected '}' before this. return item * 2; ^ drv_stdlib.dart:107:7: Error: Unexpected token 'return'. return (item % 2) == 0; ^^^^^^ drv_stdlib.dart:107:29: Error: Expected '}' before this. return (item % 2) == 0
+- **section:stdlib / php** (compiled): php not installed
 - **section:stdlib / llvm** (compile-error): no template for: array_length for keys
 - **narrow / go** (compile-error): no template for: for remove reverse
 - **narrow / python** (compile-error): no template for: = error_msg for remove reverse sort
 - **narrow / rust** (compile-error): no template for: = error_msg for remove reverse sort
 - **narrow / cpp** (compile-error): no template for: for remove reverse sort
 - **narrow / kotlin** (compile-error): no template for: = error_msg for reverse sort
+- **narrow / dart** (compile-error): no template for: = error_msg for reverse sort
 - **narrow / swift6** (compile-error): no template for: = error_msg for reverse sort
 - **narrow / swift3** (compile-error): no template for: = error_msg for remove reverse sort
 - **narrow / java7** (compile-error): no template for: for remove reverse sort
@@ -205,6 +221,7 @@ Only the cells that are not `ok` and not a plain `compiled` appear here.
 - **hostops / rust** (compile-error): no template for: ! async_read_file create_dir create_immutable_array create_immutable_hash dir_exists env_var md5 random sha256 strlen wait
 - **hostops / cpp** (compile-error): no template for: async_read_file create_immutable_array create_immutable_hash md5 random strlen
 - **hostops / kotlin** (compile-error): no template for: ! async_read_file buffer_from_string buffer_length buffer_read_file buffer_write_file create_dir create_immutable_array create_immutable_hash dir_exists env_var file_exists file_mtime if md5 sha256 strlen wait write_file
+- **hostops / dart** (compile-error): no template for: ! < > async_read_file buffer_read_file buffer_write_file create_dir create_immutable_array create_immutable_hash dir_exists env_var file_exists file_mtime if md5 random read_file sha256 shell_arg shell_arg_cnt strlen wait write_file
 - **hostops / swift6** (compile-error): no template for: async_read_file create_immutable_array create_immutable_hash env_var file_mtime md5 sha256 strlen
 - **hostops / swift3** (compile-error): no template for: async_read_file buffer_from_string buffer_length buffer_read_file buffer_write_file create_immutable_array create_immutable_hash env_var file_mtime md5 sha256 strlen
 - **hostops / java7** (compile-error): no template for: < async_read_file create_immutable_array create_immutable_hash env_var file_mtime md5 random sha256 strlen
@@ -221,12 +238,13 @@ Only the cells that are not `ok` and not a plain `compiled` appear here.
 - **http / php** (compile-error): no template for: buffer_from_string
 - **http / llvm** (compile-error): no template for: buffer_from_string
 - **process / go** (run-error): # command-line-arguments ./sx_process.go:1141:51: syntax error: unexpected semicolon, expected expression ./sx_process.go:1143:36: syntax error: unexpected ) at end of statement ./sx_process.go:1145:3: syntax error: non-declaration statement outside function body ./sx_process.go:1145:43: method has no receiver
-- **process / python** (run-error): File "/home/user/Ranger/tests/.output-syntax-app/python/process/sx_process.py", line 54 def __rangerInvokeStart(self): ^ IndentationError: expected an indented block after function definition on line 53
-- **process / rust** (run-error): error: expected expression, found `;` --> /home/user/Ranger/tests/.output-syntax-app/rust/process/sx_process.rs:963:116 | 963 | let mut found : Rc<RefCell<Option<Rc<RefCell<dyn RangerProcessBaseTrait>>>>> = /* find_process not implemented */; | ^ expected expression warning: unnecessary trailing semicolon --> /home/user/Ranger/tests/.output-syntax-app/rust/process/sx_process.rs:576:37 | 576 | /* p
-- **process / cpp** (run-error): /home/user/Ranger/tests/.output-syntax-app/cpp/process/sx_process.cpp: In function 'int main(int, char**)': /home/user/Ranger/tests/.output-syntax-app/cpp/process/sx_process.cpp:860:80: error: expected primary-expression before ';' token 860 | std::shared_ptr<RangerProcessBase> found = /* find_process not implemented */; | ^
+- **process / python** (run-error): File "/workspace/tests/.output-syntax-app/python/process/sx_process.py", line 54 def __rangerInvokeStart(self): ^ IndentationError: expected an indented block after function definition on line 53
+- **process / rust** (run-error): warning: unnecessary trailing semicolon --> /workspace/tests/.output-syntax-app/rust/process/sx_process.rs:719:37 | 719 | /* proc_start not implemented */; | ^ help: remove this semicolon | = note: `#[warn(redundant_semicolons)]` on by default warning: unnecessary trailing semicolon --> /workspace/tests/.output-syntax-app/rust/process/sx_process.rs:1087:35 | 1087 | /* proc_start not implemented */
+- **process / cpp** (run-error): /workspace/tests/.output-syntax-app/cpp/process/sx_process.cpp: In function ‘int main(int, char**)’: /workspace/tests/.output-syntax-app/cpp/process/sx_process.cpp:941:80: error: expected primary-expression before ‘;’ token 941 | std::shared_ptr<RangerProcessBase> found = /* find_process not implemented */; | ^
+- **process / dart** (run-error): sx_process.dart:505:37: Error: Expected '(' after this. SxCounter page = (() => { const __rgr_proc = new SxCounter(); __rgr_proc.__rangerRegisterRoot(); return __rgr_proc; })(); ^^^^^^^^^^ sx_process.dart:505:37: Error: Not a constant expression. SxCounter page = (() => { const __rgr_proc = new SxCounter(); __rgr_proc.__rangerRegisterRoot(); return __rgr_proc; })(); ^^^^^^^^^^ sx_process.dart:505:
 - **process / scala** (compile-error): [FAIL] oops, sorry. Currently Scala output can not handle for-loops with continue :/
-- **process / php** (run-error): PHP Parse error: syntax error, unexpected token ";" in /home/user/Ranger/tests/.output-syntax-app/php/process/sx_process.php on line 613
-- **process / llvm** (run-error): lli: lli: /home/user/Ranger/tests/.output-syntax-app/llvm/process/sx_process.ll:111:47: error: invalid getelementptr indices %.f6 = getelementptr %struct.ProcessUiHost, %struct.ProcessUiHost* %.p5, i32 0, i32 -1 ^
+- **process / php** (compiled): php not installed
+- **process / llvm** (compiled): lli not installed
 
 ## Toolchains present on this machine
 
@@ -237,10 +255,11 @@ Only the cells that are not `ok` and not a plain `compiled` appear here.
 - rust: rustc present
 - cpp: g++ present
 - kotlin: no runner defined
+- dart: dart present
 - swift6: no runner defined
 - swift3: no runner defined
 - java7: javac present
 - csharp: no runner defined
 - scala: no runner defined
-- php: php present
-- llvm: lli present
+- php: php missing, compile only
+- llvm: lli missing, compile only

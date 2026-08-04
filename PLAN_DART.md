@@ -329,23 +329,23 @@ export function compileAndRunDart(sourceFile: string): { compile: CompileResult;
 ## Checklist
 
 ### Phase 1: Basic Support
-- [ ] Create `ng_RangerDartClassWriter.rgr`
-- [ ] Add to `Lang.rgr` targets
-- [ ] Import in `ng_RangerLanguageWriters.rgr`
-- [ ] Register in `ng_LiveCompiler.rgr`
-- [ ] Add to `VirtualCompiler.rgr`
-- [ ] Implement basic operator templates
-- [ ] Test with simple programs
+- [x] Create `ng_RangerDartClassWriter.rgr`
+- [x] Add to `Lang.rgr` targets
+- [x] Import in `ng_RangerLanguageWriters.rgr`
+- [x] Register in `ng_LiveCompiler.rgr`
+- [x] Add to `VirtualCompiler.rgr`
+- [x] Implement basic operator templates
+- [x] Test with simple programs
 
 ### Phase 2: Full Support
-- [ ] Null safety handling
-- [ ] Constructor patterns
-- [ ] Import system
-- [ ] Typed data (buffers)
+- [x] Null safety handling (`T?`, `!`, `== null`)
+- [x] Constructor patterns
+- [x] Import system (`import '…';` + `dart:math` / `dart:typed_data`)
+- [x] Typed data (buffers) — `Uint8List` / `Int64List` / `Float64List` operators
 - [ ] All standard operators
 
 ### Phase 3: Module Compilation
 - [ ] ts_parser compilation
 - [ ] EVG layout compilation
 - [ ] pdf_writer compilation
-- [ ] Flutter package generation
+- [x] Flutter package generation (`-pubspec`, optional `-flutter`)

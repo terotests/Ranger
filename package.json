@@ -56,6 +56,7 @@
     "test:es6": "vitest run --config tests/vitest.config.ts compiler.test.ts",
     "test:go": "vitest run --config tests/vitest.config.ts compiler-go.test.ts",
     "test:python": "vitest run --config tests/vitest.config.ts compiler-python.test.ts",
+    "test:dart": "vitest run --config tests/vitest.config.ts compiler-dart.test.ts",
     "test:rust": "vitest run --config tests/vitest.config.ts compiler-rust.test.ts",
     "test:llvm": "vitest run --config tests/vitest.config.ts compiler-llvm.test.ts",
     "test:syntaxapp": "vitest run --config tests/vitest.config.ts syntax-app.test.ts",

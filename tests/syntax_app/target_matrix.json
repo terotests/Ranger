@@ -7,6 +7,7 @@
     "rust": "compile-error",
     "cpp": "run-error",
     "kotlin": "compile-error",
+    "dart": "run-error",
     "swift6": "compiled",
     "swift3": "compile-error",
     "java7": "compile-error",
@@ -23,12 +24,13 @@
     "rust": "compile-error",
     "cpp": "output-differs",
     "kotlin": "compile-error",
+    "dart": "run-error",
     "swift6": "compiled",
     "swift3": "compiled",
     "java7": "compile-error",
     "csharp": "compile-error",
     "scala": "compile-error",
-    "php": "ok",
+    "php": "compiled",
     "llvm": "compile-error"
   },
   "section:bitwise": {
@@ -39,13 +41,14 @@
     "rust": "run-error",
     "cpp": "ok",
     "kotlin": "compiled",
+    "dart": "ok",
     "swift6": "compiled",
     "swift3": "compiled",
     "java7": "compile-error",
     "csharp": "compiled",
     "scala": "compiled",
-    "php": "run-error",
-    "llvm": "run-error"
+    "php": "compiled",
+    "llvm": "compiled"
   },
   "section:strings": {
     "es6": "ok",
@@ -55,12 +58,13 @@
     "rust": "run-error",
     "cpp": "run-error",
     "kotlin": "compiled",
+    "dart": "run-error",
     "swift6": "compiled",
     "swift3": "compiled",
     "java7": "compile-error",
     "csharp": "compile-error",
     "scala": "compile-error",
-    "php": "run-error",
+    "php": "compiled",
     "llvm": "compile-error"
   },
   "section:arrays": {
@@ -71,12 +75,13 @@
     "rust": "run-error",
     "cpp": "run-error",
     "kotlin": "compiled",
+    "dart": "run-error",
     "swift6": "compiled",
     "swift3": "compile-error",
     "java7": "compile-error",
     "csharp": "compile-error",
     "scala": "compile-error",
-    "php": "ok",
+    "php": "compiled",
     "llvm": "compile-error"
   },
   "section:maps": {
@@ -85,14 +90,15 @@
     "go": "run-error",
     "python": "run-error",
     "rust": "run-error",
-    "cpp": "output-differs",
+    "cpp": "ok",
     "kotlin": "compiled",
+    "dart": "ok",
     "swift6": "compiled",
     "swift3": "compiled",
     "java7": "compile-error",
     "csharp": "compiled",
     "scala": "compiled",
-    "php": "ok",
+    "php": "compiled",
     "llvm": "compile-error"
   },
   "section:optionals": {
@@ -103,13 +109,14 @@
     "rust": "run-error",
     "cpp": "run-error",
     "kotlin": "compiled",
+    "dart": "ok",
     "swift6": "compiled",
     "swift3": "compiled",
     "java7": "compile-error",
     "csharp": "compiled",
     "scala": "compiled",
-    "php": "ok",
-    "llvm": "run-error"
+    "php": "compiled",
+    "llvm": "compiled"
   },
   "section:control": {
     "es6": "ok",
@@ -119,13 +126,14 @@
     "rust": "compile-error",
     "cpp": "ok",
     "kotlin": "compiled",
+    "dart": "run-error",
     "swift6": "compiled",
     "swift3": "compiled",
     "java7": "compile-error",
     "csharp": "compiled",
     "scala": "compiled",
-    "php": "ok",
-    "llvm": "run-error"
+    "php": "compiled",
+    "llvm": "compiled"
   },
   "section:oop": {
     "es6": "ok",
@@ -135,12 +143,13 @@
     "rust": "compile-error",
     "cpp": "run-error",
     "kotlin": "compiled",
+    "dart": "ok",
     "swift6": "compiled",
     "swift3": "compiled",
     "java7": "compile-error",
     "csharp": "compile-error",
     "scala": "compile-error",
-    "php": "run-error",
+    "php": "compiled",
     "llvm": "compile-error"
   },
   "section:lambdas": {
@@ -151,13 +160,14 @@
     "rust": "run-error",
     "cpp": "ok",
     "kotlin": "compiled",
+    "dart": "run-error",
     "swift6": "compiled",
     "swift3": "compiled",
     "java7": "compile-error",
     "csharp": "compiled",
     "scala": "compiled",
-    "php": "ok",
-    "llvm": "run-error"
+    "php": "compiled",
+    "llvm": "compiled"
   },
   "section:buffers": {
     "es6": "ok",
@@ -167,6 +177,7 @@
     "rust": "run-error",
     "cpp": "output-differs",
     "kotlin": "compile-error",
+    "dart": "run-error",
     "swift6": "compiled",
     "swift3": "compile-error",
     "java7": "compile-error",
@@ -183,13 +194,14 @@
     "rust": "run-error",
     "cpp": "ok",
     "kotlin": "compiled",
+    "dart": "ok",
     "swift6": "compiled",
     "swift3": "compiled",
     "java7": "compile-error",
     "csharp": "compiled",
     "scala": "compiled",
-    "php": "run-error",
-    "llvm": "run-error"
+    "php": "compiled",
+    "llvm": "compiled"
   },
   "section:stdlib": {
     "es6": "ok",
@@ -199,12 +211,13 @@
     "rust": "run-error",
     "cpp": "ok",
     "kotlin": "compiled",
+    "dart": "run-error",
     "swift6": "compiled",
     "swift3": "compiled",
     "java7": "compile-error",
     "csharp": "compiled",
     "scala": "compiled",
-    "php": "run-error",
+    "php": "compiled",
     "llvm": "compile-error"
   },
   "narrow": {
@@ -215,6 +228,7 @@
     "rust": "compile-error",
     "cpp": "compile-error",
     "kotlin": "compile-error",
+    "dart": "compile-error",
     "swift6": "compile-error",
     "swift3": "compile-error",
     "java7": "compile-error",
@@ -231,6 +245,7 @@
     "rust": "compile-error",
     "cpp": "compile-error",
     "kotlin": "compile-error",
+    "dart": "compile-error",
     "swift6": "compile-error",
     "swift3": "compile-error",
     "java7": "compile-error",
@@ -247,6 +262,7 @@
     "rust": "compiled",
     "cpp": "compiled",
     "kotlin": "compile-error",
+    "dart": "compiled",
     "swift6": "compile-error",
     "swift3": "compile-error",
     "java7": "compile-error",
@@ -263,12 +279,13 @@
     "rust": "run-error",
     "cpp": "run-error",
     "kotlin": "compiled",
+    "dart": "run-error",
     "swift6": "compiled",
     "swift3": "compiled",
     "java7": "compile-error",
     "csharp": "compiled",
     "scala": "compile-error",
-    "php": "run-error",
-    "llvm": "run-error"
+    "php": "compiled",
+    "llvm": "compiled"
   }
 }

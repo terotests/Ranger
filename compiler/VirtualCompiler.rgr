@@ -146,6 +146,7 @@ class tester {
       case "swift" { return "swift6" }  ; Latest Swift version
       case "java" { return "java7" }
       case "kt" { return "kotlin" }
+      case "dart" { return "dart" }
       case "cs" { return "csharp" }
       case "cpp" { return "cpp" }
       case "hpp" { return "cpp" }
@@ -173,7 +174,7 @@ class tester {
 
     this.envObj = env
 
-    def allowed_languages:[string] ([] "es6" "go" "scala" "java7" "swift3" "swift6" "kotlin" "cpp" "php" "csharp" "python" "rust" "llvm" )
+    def allowed_languages:[string] ([] "es6" "go" "scala" "java7" "swift3" "swift6" "kotlin" "dart" "cpp" "php" "csharp" "python" "rust" "llvm" )
     def params (unwrap env.commandLine)
 
     ; Initialize CLI progress (after params is defined)
@@ -212,6 +213,8 @@ class tester {
       'typescript' 'Writes JavaScript code with TypeScript annotations'
       'esm' 'Writes JavaScript code with ESM module syntax'
       'npm' 'Write the package.json to the output directory' 
+      'pubspec' 'Write pubspec.yaml for a Dart / Flutter package (requires -name= -version= -description=)'
+      'flutter' 'When used with -pubspec, emit a Flutter-oriented pubspec.yaml'
       'nodecli' 'Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file'
       'nodemodule' 'Export the classes as Node.js CommonJS modules'
       'client'  'the code is ment to be run in the client environment'
@@ -567,6 +570,11 @@ class tester {
       case "kotlin" {
         if( false == (endsWith the_target ".kt")) {
           the_target = the_target + ".kt"
+        }
+      }
+      case "dart" {
+        if( false == (endsWith the_target ".dart")) {
+          the_target = the_target + ".dart"
         }
       }
       case "cpp" {
@@ -973,7 +981,11 @@ class tester {
             }
             case "java7" {
               importFork.out (("import "  + codeStr + ";") , true)
-            }            
+            }
+            case "dart" {
+              ; Dart imports are quoted library URIs: dart:math, package:foo/bar.dart
+              importFork.out (("import '" + codeStr + "';") , true)
+            }
             case "cpp" {
               importFork.out (( '#include  ' + codeStr ) , true)
             }
