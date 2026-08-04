@@ -561,6 +561,48 @@ addition to its content assertions. That is the part that matters for the
 future: all three bugs above satisfied every `toContain` check in the suite and
 failed at clang. A string match cannot see invalid IR.
 
+### The parser now links — 283 KB, and it is the smallest binary of the three
+
+Continued after the fixes above. The TypeScript parser reaches a **linked,
+running LLVM binary**, and its IR passes `opt -passes=verify` clean.
+
+Same program, same machine, both `-O2`:
+
+| Build | Binary | Stripped | Works |
+|---|---|---|---|
+| **LLVM** (`clang` + `ranger_rt.c` + `ranger_mem.c`) | **283 KB** | 278 KB | starts, prints help, **segfaults on the demo workload** |
+| C++ (`g++`, libstdc++) | 469 KB | 426 KB | yes |
+
+So the size premise holds — **the LLVM build is 1.7x smaller**, and that gap is
+the libstdc++ and STL instantiation weight the C++ target carries. It is not yet
+a working parser: something on the demo path faults, and that is the next thing
+to chase.
+
+Six more backend bugs were fixed to get there, each found by linking and each a
+type-representation mistake rather than a missing feature:
+
+| Bug | Fix |
+|---|---|
+| a string element read from a ptr array was a raw `i64` where every consumer takes `i8*` | `inttoptr` on the way out, `ptrtoint` on the way in — a `push(get(x))` round trip folds to a no-op |
+| `emitCast("ptrtoint" …)` produced an instruction the writer had no case for | use the existing `ptr_to_int` / `inttoptr_i8` ops |
+| `def names:[string] (this.collect())` never recorded its element type | the call path was missing the `isStringArrayTypeNode` case the no-initialiser path documents |
+| `(itemAt names a) == (itemAt names b)` compared ADDRESSES | `exprIsStringish` now recognises an element read from a `[string]` array, so it routes to `strcmp` |
+| `if (node.left)` on an optional reference emitted `icmp ne i32 <i64 value>, 0` | pointer-sized conditions and comparisons are tested in the pointer type |
+| `push xs (this.parseThing())` widened an i64 with `zext i32` | a call returning a class counts as pointer-sized |
+
+### The writer silently dropped unknown instructions
+
+Worth calling out separately, because it is why two of the above cost hours
+rather than minutes. `writeInstr` emitted the two-space indent, ran a `switch`
+on the op, and if no case matched wrote **nothing** — while the instruction's
+SSA temp had already been handed to whatever consumed it. The module then
+referenced a value nothing defined, and the only symptom was clang's "use of
+undefined value" a long way from the cause.
+
+It now compares the output line length across the switch and emits a
+deliberately invalid `UNHANDLED-LOWIR-OP <op>` line when no case ran — the build
+has to stop, not carry on producing a broken module.
+
 ### The original diagnosis, for the record
 
 `tests/vitest.config.ts` line 9 excludes the LLVM suite from `npm test`:

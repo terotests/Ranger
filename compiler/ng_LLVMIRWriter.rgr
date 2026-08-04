@@ -3,6 +3,9 @@ Import "ng_LowIR.rgr"
 
 class LLVMIRWriter {
 
+  ; Length of the current output line before an instruction's switch runs, so
+  ; writeInstr can tell whether any case actually matched.
+  def instrLineLen:int 0
   def varargNames:[string]
   def varargSigs:[string]
 
@@ -256,8 +259,24 @@ class LLVMIRWriter {
     wr.out("}" true)
   }
 
+  ; An op with no case in writeInstrBody used to write NOTHING -- the indent is
+  ; already out, so the instruction silently vanished while its SSA temp had
+  ; already been handed to whatever consumed it. The module then referenced a
+  ; value nothing defined, and the only symptom was clang's "use of undefined
+  ; value" a long way from the cause. Twice. Comparing the line length across
+  ; the switch says whether a case actually ran.
   fn writeInstr:void (ins:LowIRInstr wr:CodeWriter) {
     wr.out("  " false)
+    this.instrLineLen = (strlen wr.currentLine)
+    this.writeInstrBody(ins wr)
+    if ((strlen wr.currentLine) == this.instrLineLen) {
+      ; Deliberately invalid IR rather than a comment: this has to stop the
+      ; build, not decorate it.
+      wr.out(("UNHANDLED-LOWIR-OP " + (ins.op + (" dest=" + ins.dest))) true)
+    }
+  }
+
+  fn writeInstrBody:void (ins:LowIRInstr wr:CodeWriter) {
     switch ins.op {
       case "comment" {
         wr.out(("; " + ins.arg1) true)

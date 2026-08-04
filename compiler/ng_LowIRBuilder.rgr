@@ -542,6 +542,21 @@ class LowIRBuilderPass {
     if (node.hasNewOper) {
       return true
     }
+    ; A CALL returning a class is pointer-sized too. Only `new` and VRefs were
+    ; recognised, so `push node.children (this.parseBindingElement())` treated
+    ; the returned object as a 32-bit scalar and widened it -- `zext i32` over a
+    ; value that was already i64.
+    if ((node.has_call || node.is_direct_method_call) || node.hasFnCall) {
+      if (!null? node.fnDesc) {
+        def cfd (unwrap node.fnDesc)
+        if (!null? cfd.nameNode) {
+          def crn (unwrap cfd.nameNode)
+          if (this.isObjectTypeName(crn.type_name)) {
+            return true
+          }
+        }
+      }
+    }
     if (node.value_type != RangerNodeType.VRef) {
       return false
     }
@@ -1491,11 +1506,18 @@ class LowIRBuilderPass {
     } {
       itemAddr = (this.lowerExpr(itemNode lctx))
     }
-    ; A ptr-array stores pointer-sized (i64) elements. An int element is computed
-    ; as i32, so widen it; object and string elements are already pointer-sized.
+    ; A ptr-array stores pointer-sized (i64) INTEGERS. An int element is computed
+    ; as i32, so widen it; an object element is already an integer address; a
+    ; string element is a POINTER and has to be converted, which is the mirror of
+    ; the inttoptr emitPtrArrayElemGet does on the way out. Pushing one without
+    ; the conversion passed `i64 <ptr value>`, which clang rejects.
     if (lctx.ptrType == "i64") {
       if (this.pushItemNeedsWiden(itemNode lctx)) {
         itemAddr = (lctx.builder.emitCast("zext" "i64" "i32" itemAddr))
+      } {
+        if (LowIRUtil.isStringType((this.arrayElemTypeName(arrNode lctx)))) {
+          itemAddr = (lctx.builder.emitPtrToInt(itemAddr))
+        }
       }
     }
     ; Freestanding WASM [string] array: the array owns a dup'd private copy of
@@ -2462,6 +2484,13 @@ class LowIRBuilderPass {
       if (this.ptrArrayElemIsInt(arrNode lctx)) {
         return (lctx.builder.emitCast("trunc" "i32" "i64" raw))
       }
+      ; A pointer array stores pointer-sized INTEGERS. A string element is a
+      ; pointer to every consumer of it -- ranger_strdup, concat, compare -- so
+      ; it is converted back on the way out. The write side does the mirror, and
+      ; a push(get(x)) round trip folds to a no-op.
+      if (LowIRUtil.isStringType((this.arrayElemTypeName(arrNode lctx)))) {
+        return (lctx.builder.emitIntToI8Ptr(raw lctx.ptrType))
+      }
     }
     return raw
   }
@@ -2472,6 +2501,10 @@ class LowIRBuilderPass {
     if (lctx.ptrType == "i64") {
       if (this.ptrArrayElemIsInt(arrNode lctx)) {
         storeVal = (lctx.builder.emitCast("zext" "i64" "i32" val))
+      } {
+        if (LowIRUtil.isStringType((this.arrayElemTypeName(arrNode lctx)))) {
+          storeVal = (lctx.builder.emitPtrToInt(val))
+        }
       }
     }
     def args:[string]
@@ -4329,6 +4362,18 @@ class LowIRBuilderPass {
       ; A call returning a collection ([T] / [int] / map) yields a descriptor
       ; pointer. Register it as a collection slot so for/array_length/itemAt work;
       ; the caller takes ownership (escaped from callee) and releases at scope end.
+      ; A [string] local has to be recognised BEFORE the general object-array
+      ; case, which also matches non-int element types -- the same ordering the
+      ; no-initialiser branch above documents. Without it the element type went
+      ; unrecorded for `def names:[string] (this.collect())`, and every later
+      ; question about the element ("is it a string?") answered no: reads were
+      ; left as raw integers and `(itemAt a i) == (itemAt a j)` compiled to an
+      ; integer icmp rather than a string comparison.
+      if (this.isStringArrayTypeNode(nameNode)) {
+        this.bindPtrArraySlot(varName callTmp lctx true)
+        set lctx.ptrArrayElemTypes varName "string"
+        return
+      }
       if (this.isObjectPtrArrayTypeNode(nameNode)) {
         this.bindPtrArraySlot(varName callTmp lctx true)
         return
@@ -4736,6 +4781,17 @@ class LowIRBuilderPass {
         if (st == "i1") {
           return v
         }
+      }
+    }
+    ; A POINTER-sized condition -- `if (node.left)` on an optional reference
+    ; field, or on an object local -- has to be tested in the pointer type.
+    ; Testing it against an i32 zero emitted `icmp ne i32 <i64 value>, 0`, which
+    ; is invalid IR on a 64-bit target and would have looked only at the low
+    ; half of the address if it had been accepted.
+    if (lctx.ptrType != "i32") {
+      if (this.exprIsObjectPtr(condNode lctx)) {
+        def zeroP (builder.emitConst(lctx.ptrType "0"))
+        return (builder.emitIcmpTyped("ne" lctx.ptrType v zeroP))
       }
     }
     def zero (builder.emitConst("i32" "0"))
@@ -5269,6 +5325,20 @@ class LowIRBuilderPass {
         }
       }
     }
+    ; An element READ out of a [string] array is a string. Without this the
+    ; element was only ever a pointer-sized value to the comparison lowering, so
+    ; `(itemAt names a) == (itemAt names b)` emitted an integer icmp -- which
+    ; compares ADDRESSES, and would have answered "not equal" for two equal
+    ; strings even if the IR had type-checked.
+    if exprNode.has_operator {
+      def sOp (exprNode.getOperator())
+      if ((sOp == "itemAt") || (sOp == "get")) {
+        def sColl (exprNode.getSecond())
+        if (LowIRUtil.isStringType((this.arrayElemTypeName(sColl lctx)))) {
+          return true
+        }
+      }
+    }
     return false
   }
 
@@ -5312,6 +5382,33 @@ class LowIRBuilderPass {
     }
     if (bI1 || (bNode.value_type == RangerNodeType.Boolean)) {
       b = (builder.emitZextI1ToI32(b))
+    }
+    ; A pointer-sized operand -- an object reference, or an optional field
+    ; tested against null -- must be compared in the POINTER type. Defaulting to
+    ; i32 emitted `icmp ne i32 <i64 value>, 0`, which on a 64-bit target is both
+    ; invalid IR and, if it had been accepted, would have compared only the low
+    ; half of the address.
+    if (lctx.ptrType != "i32") {
+      def aPtr:boolean (this.exprIsObjectPtr(aNode lctx))
+      def bPtr:boolean (this.exprIsObjectPtr(bNode lctx))
+      if (aPtr || bPtr) {
+        if (aPtr && bPtr) {
+          return (builder.emitIcmpTyped(pred lctx.ptrType a b))
+        }
+        ; One side is a pointer and the other an integer literal (null is 0):
+        ; widen the literal rather than truncating the address.
+        if aPtr {
+          if (bNode.value_type == RangerNodeType.Integer) {
+            def bw (builder.emitCast("zext" lctx.ptrType "i32" b))
+            return (builder.emitIcmpTyped(pred lctx.ptrType a bw))
+          }
+        } {
+          if (aNode.value_type == RangerNodeType.Integer) {
+            def aw (builder.emitCast("zext" lctx.ptrType "i32" a))
+            return (builder.emitIcmpTyped(pred lctx.ptrType aw b))
+          }
+        }
+      }
     }
     return (builder.emitIcmp(pred a b))
   }
