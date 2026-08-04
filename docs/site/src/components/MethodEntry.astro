@@ -21,7 +21,9 @@ interface Props {
 const { method, examples, targets, description, repository } = Astro.props;
 const args = method.args.map((a: any) => `${a.name}: ${a.type || "?"}`).join(", ");
 const call = `receiver.${method.name}(${method.args.map((a: any) => a.name).join(" ")})`;
-const sourceUrl = `${repository}/blob/master/${method.file}#L${method.line}`;
+// Pin to the build commit. A `master` link goes stale when the source moves.
+const sourceRef = (import.meta.env.RANGER_COMMIT as string | undefined) || "master";
+const sourceUrl = `${repository}/blob/${sourceRef}/${method.file}#L${method.line}`;
 const scope =
   method.scope === "all"
     ? "The compiler writes this method for every target."

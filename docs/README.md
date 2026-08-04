@@ -65,6 +65,11 @@ definition with a forward scan of the source text. The test
 `tests/docs-tools.test.ts` checks the anchor of every definition of every
 source.
 
+Source links in the reference pin to the commit that built the site
+(`RANGER_COMMIT`), not to the `master` branch. A line number is only valid for
+the tree it was measured in; a `master` link goes to the wrong place as soon as
+`compiler/Lang.rgr` moves.
+
 ## Add content
 
 See
