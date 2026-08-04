@@ -577,8 +577,15 @@ describe("Ranger Compiler - LLVM / Low IR backend", () => {
       "utf-8"
     );
     expect(ll).toContain("; ownership[manual]: scope-exit disposition");
-    expect(ll).toContain("owned object 'b' -> escaped");
     expect(ll).toContain("owned array 'items' -> released");
+    // `b` is pushed into an object array. It used to be MOVED there (marked
+    // escaped, never released by the pushing scope); now the array retains its
+    // elements and `b` is released once per loop iteration, so it no longer
+    // reaches the scope-exit summary at all. The behavioural guarantee is
+    // unchanged and covered by "native ptr-array push releases all elements",
+    // which asserts zero live objects.
+    expect(ll).toContain("ranger_obj_release");
+    expect(ll).not.toContain("owned object 'b' -> escaped");
   });
 
   it("omits ownership summary without -strict-ownership", () => {

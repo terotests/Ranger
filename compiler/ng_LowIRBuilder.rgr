@@ -1713,7 +1713,13 @@ class LowIRBuilderPass {
     push args itemAddr
     push argTypes lctx.ptrType
     def voidType:string "void"
-    if (this.exprIsObjectPtr(itemNode lctx)) {
+    ; An array whose ELEMENT TYPE is a class owns its elements: release frees
+    ; each one. Ownership therefore has to be decided by the ARRAY, not by the
+    ; shape of the pushed expression -- `push arr (itemAt other i)` took the
+    ; plain path and stored an element the array had never retained, so freeing
+    ; the array over-released it.
+    def elemIsObject:boolean (this.isObjectTypeName((this.arrayElemTypeName(arrNode lctx))))
+    if ((this.exprIsObjectPtr(itemNode lctx)) || elemIsObject) {
       if ((this.memEnabled(lctx)) || (this.wasmCollectionRcEnabled(lctx))) {
         ; Move ownership of an owned local into the array (no retain): the array
         ; owns the element and releases it once on free. Marking it escaped stops
@@ -2762,7 +2768,7 @@ class LowIRBuilderPass {
     td.size = (this.structByteSize(st.name this.irModule))
     def fi:int 0
     for st.fields f:LowIRField i {
-      def kind:int 3
+      def kind:int 9
       if (f.isString) {
         kind = 0
       } {
@@ -2771,10 +2777,18 @@ class LowIRBuilderPass {
         } {
           if (f.isPtrArray) {
             kind = 2
+          } {
+            ; A string-keyed MAP field had no kind at all, so destroying an
+            ; object leaked its map AND every value in it. An EvalContext's
+            ; `bindings` is one of these: each JS call bound its arguments into a
+            ; map that was never freed, leaking one value per argument per call.
+            if (f.isStringMap) {
+              kind = 3
+            }
           }
         }
       }
-      if (kind != 3) {
+      if (kind != 9) {
         def fd@(lives):LowIRTypeFieldDesc (new LowIRTypeFieldDesc())
         fd.offset = (this.fieldByteOffset(st.name fi this.irModule))
         fd.kind = kind
@@ -2786,10 +2800,12 @@ class LowIRBuilderPass {
         ; each object holds its own strdup'd copy. Borrow analysis (Vaihe 3) can
         ; later promote provably-owned object/array fields back to owned.
         fd.owned = 1
+        ; An OBJECT field stays a borrow for now. It is the one kind with
+        ; genuine aliasing -- protoRef chains, bound receivers, shared
+        ; prototypes -- and releasing it recursively on destruction double-freed
+        ; live objects. Array and string-map fields hold a reference this object
+        ; alone put there, so they are released.
         if (kind == 1) {
-          fd.owned = 0
-        }
-        if (kind == 2) {
           fd.owned = 0
         }
         push td.fields fd
@@ -3464,7 +3480,9 @@ class LowIRBuilderPass {
       ; free it. A freshly-constructed `new T` arrives with the only reference
       ; and is moved in, so it is not retained.
       if (this.fieldIsPtrArraySlot(className fieldName)) {
-        this.emitPtrArrayRetain(value lctx)
+        if (srcIsFresh == false) {
+          this.emitPtrArrayRetain(value lctx)
+        }
       }
       if (this.fieldIsObjectSlot(className fieldName)) {
         if (srcIsFresh == false) {
@@ -3808,7 +3826,8 @@ class LowIRBuilderPass {
         }
         def one (lctx.builder.emitConst("i32" kindLit))
         lctx.builder.emitStoreI32At(desc (this.ptrArrayOwnedOff(lctx)) one)
-        this.emitFieldStoreOn(className objPtr f.name desc lctx)
+        ; freshly constructed: the field takes over its single reference
+        this.emitFieldStoreOnEx(className objPtr f.name desc true lctx)
       }
     }
   }
@@ -5580,6 +5599,22 @@ class LowIRBuilderPass {
     return ""
   }
 
+  ; Storing a MAP local into an object field MOVES it: unlike ptr-arrays, an
+  ; RtSMap carries no refcount, so the field and the local would each free it.
+  ; Marking the local escaped leaves exactly one owner -- the field, which frees
+  ; it when the object is destroyed (field kind 3).
+  fn markMapMoveIntoField:void (cls:string fld:string rhs:CodeNode lctx:LowIRLowerContext) {
+    if ((this.memEnabled(lctx)) == false) {
+      return
+    }
+    if (rhs.value_type != RangerNodeType.VRef) {
+      return
+    }
+    if (this.fieldIsStringMapSlot(cls fld)) {
+      set lctx.escapedLocals rhs.vref "1"
+    }
+  }
+
   fn lowerAssign:void (node:CodeNode lctx:LowIRLowerContext) {
     def lhs (node.getSecond())
     def rhs (itemAt node.children 2)
@@ -5633,6 +5668,7 @@ class LowIRBuilderPass {
               }
             }
           }
+          this.markMapMoveIntoField(cls fld rhs lctx)
           ; A string field takes a dup'd private copy (emitFieldStoreOn), so an
           ; owned string local stored into it is NOT consumed. An object field on
           ; WASM retains a borrowed value / moves a fresh `new` (rhs.hasNewOper).
@@ -5647,6 +5683,7 @@ class LowIRBuilderPass {
       ; for boolean fields. Pre-zexting produced an invalid double
       ; "zext i1 <i32> to i32" (the receiver "recv.fld" path above never did
       ; this, which is why only bare field assignments miscompiled).
+      this.markMapMoveIntoField(lctx.className varName rhs lctx)
       if (this.memEnabled(lctx)) {
         if (this.fieldIsObjectSlot(lctx.className varName)) {
           if (rhs.value_type == RangerNodeType.VRef) {
@@ -5749,7 +5786,15 @@ class LowIRBuilderPass {
       ; to recognise (fields, parameters, elements, unwraps, conditionals) never
       ; ends.
       def retObj:boolean (this.isObjectTypeName(lctx.currentRetType))
-      def retArr:boolean (LowIRUtil.isArrayTypeName(lctx.currentRetType))
+      ; A MAP type also starts with "[", but an RtSMap carries no refcount --
+      ; retaining one wrote through a ptr-array descriptor's rc field onto
+      ; unrelated bytes of the map and corrupted it. Maps stay a MOVE.
+      def retArr:boolean false
+      if (LowIRUtil.isArrayTypeName(lctx.currentRetType)) {
+        if ((indexOf lctx.currentRetType ":") < 0) {
+          retArr = true
+        }
+      }
       def retCounted:boolean false
       if (this.memEnabled(lctx)) {
         if (retObj || retArr) {
@@ -6119,16 +6164,60 @@ class LowIRBuilderPass {
   ; >= ownedBefore), then drop them from the function-level list so the scope-end
   ; cleanup does not double-release. Escaped locals are skipped by releaseOwned
   ; Local. Gated on -wasmrc so the native path's existing behaviour is unchanged.
+  ; Release a loop-body local and NULL its slot. The slot is zero-initialised
+  ; once, at function entry, not per iteration -- so a local declared inside a
+  ; branch that a later iteration does not take would still hold the pointer
+  ; released on the previous turn, and be released a second time.
+  fn releaseAndClearOwnedLocal:void (varName:string lctx:LowIRLowerContext) {
+    this.releaseOwnedLocal(varName lctx)
+    if (has lctx.escapedLocals varName) {
+      return
+    }
+    if (false == (has lctx.slots varName)) {
+      return
+    }
+    if ((this.slotHoldsObject(varName lctx)) == false) {
+      return
+    }
+    def slot (unwrap (get lctx.slots varName))
+    def zero (lctx.builder.emitConst(lctx.ptrType "0"))
+    lctx.builder.emitStore(lctx.ptrType zero slot)
+  }
+
+  ; The collection twin of releaseAndClearOwnedLocal: same stale-slot hazard,
+  ; and a descriptor released twice takes its refcount below zero and frees a
+  ; live array.
+  fn releaseAndClearOwnedCollection:void (varName:string lctx:LowIRLowerContext) {
+    this.releaseOwnedCollectionLocal(varName lctx)
+    if (has lctx.escapedLocals varName) {
+      return
+    }
+    if (false == (has lctx.slots varName)) {
+      return
+    }
+    def slot (unwrap (get lctx.slots varName))
+    def zero (lctx.builder.emitConst(lctx.ptrType "0"))
+    lctx.builder.emitStore(lctx.ptrType zero slot)
+  }
+
   fn releaseLoopBodyOwned:void (ownedBefore:int ownedStrBefore:int ownedCollBefore:int lctx:LowIRLowerContext) {
     def ctx (unwrap lctx.ctx)
-    if ((ctx.hasCompilerFlag("wasmrc")) == false) {
-      return
+    ; Per-iteration release is not a WASM nicety -- it is the difference between
+    ; a loop that holds one object and one that holds a million. Gating it on
+    ; -wasmrc meant every object a native loop body created stayed alive until
+    ; the FUNCTION returned: an interpreter loop leaked one EvalValue per
+    ; iteration, so a benchmark grew ~100 MB/s and never finished.
+    if (this.memEnabled(lctx)) {
+    } {
+      if ((ctx.hasCompilerFlag("wasmrc")) == false) {
+        return
+      }
     }
     def n (array_length lctx.ownedObjectLocals)
     if (n > ownedBefore) {
       def k ownedBefore
       while (< k n) {
-        this.releaseOwnedLocal((itemAt lctx.ownedObjectLocals k) lctx)
+        this.releaseAndClearOwnedLocal((itemAt lctx.ownedObjectLocals k) lctx)
         k = (+ k 1)
       }
       def kept:[string]
@@ -6160,7 +6249,7 @@ class LowIRBuilderPass {
     if (cn > ownedCollBefore) {
       def ck ownedCollBefore
       while (< ck cn) {
-        this.releaseOwnedCollectionLocal((itemAt lctx.ownedCollectionLocals ck) lctx)
+        this.releaseAndClearOwnedCollection((itemAt lctx.ownedCollectionLocals ck) lctx)
         ck = (+ ck 1)
       }
       def keptC:[string]
@@ -7055,7 +7144,13 @@ class LowIRBuilderPass {
       }
       argIdx = argIdx + 1
     }
-    return (builder.emitCall(fnName retType args argTypes))
+    ; A STATIC call returning an object hands back a reference the caller owns,
+    ; exactly as an instance call does. Registering only the instance path left
+    ; `EvalValue.number(...)` -- the most-called constructor in the engine --
+    ; with a reference nobody ever balanced, leaking one object per increment.
+    def sCallRes (builder.emitCall(fnName retType args argTypes))
+    this.registerCallObjectTemp(node sCallRes lctx)
+    return sCallRes
   }
 
   ; The object class produced by an EXPRESSION used as a call receiver

@@ -11,6 +11,7 @@
 #define RT_FIELD_STRING 0
 #define RT_FIELD_OBJECT 1
 #define RT_FIELD_PTR_ARRAY 2
+#define RT_FIELD_STRING_MAP 3
 
 typedef struct {
   uint32_t offset;
@@ -31,6 +32,7 @@ typedef struct {
   uint32_t size;
   const RangerTypeDesc *type;
   uint32_t _pad;
+  void *site; /* RANGER_MEM_SITES: allocation return address, for leak triage */
 } RangerObjHeader;
 
 /* Must match buildRtPtrArrayNew in ng_LowIRRuntime.rgr:
@@ -47,10 +49,52 @@ typedef struct {
 
 void ranger_obj_release(int64_t body);
 void ranger_ptrarray_release(int64_t desc_addr);
+extern void RtSMap_free(int64_t map); /* string-map fields (kind 3) */
 
 static int g_live_objects = 0;
 /* RANGER_MEM_STATS=1 prints allocation balances at exit. */
 static long g_obj_new, g_obj_free, g_arr_new, g_arr_free, g_arr_retain;
+
+/* RANGER_MEM_SITES=1 additionally tallies LIVE objects by allocation site, so a
+ * steady leak can be attributed to the call that made it rather than guessed
+ * at from the source. Off by default: it widens every object header. */
+static int g_site_track = 0;
+static int g_site_depth = 0;
+#define RT_SITES 4096
+static void *g_site_addr[RT_SITES];
+static long g_site_live[RT_SITES];
+
+static void rt_site_bump(void *site, int delta) {
+  unsigned h = (unsigned)(((uintptr_t)site >> 3) & (RT_SITES - 1));
+  unsigned probe;
+  for (probe = 0; probe < RT_SITES; probe++) {
+    unsigned k = (h + probe) & (RT_SITES - 1);
+    if (g_site_addr[k] == NULL || g_site_addr[k] == site) {
+      g_site_addr[k] = site;
+      g_site_live[k] += delta;
+      return;
+    }
+  }
+}
+
+static void rt_dump_sites(void) {
+  int shown = 0;
+  int round;
+  fprintf(stderr, "[mem] live objects by allocation site:\n");
+  for (round = 0; round < 12; round++) {
+    long best = 0;
+    int bi = -1;
+    int k;
+    for (k = 0; k < RT_SITES; k++) {
+      if (g_site_live[k] > best) { best = g_site_live[k]; bi = k; }
+    }
+    if (bi < 0) break;
+    fprintf(stderr, "  %p  live=%ld\n", g_site_addr[bi], g_site_live[bi]);
+    g_site_live[bi] = 0;
+    shown++;
+  }
+  if (!shown) fprintf(stderr, "  (none)\n");
+}
 
 static void ranger_mem_dump_stats(void) {
   fprintf(stderr,
@@ -67,6 +111,11 @@ void ranger_mem_stats_enable(void) {
   }
   if (getenv("RANGER_MEM_STATS")) {
     state = 1;
+    if (getenv("RANGER_MEM_SITES")) {
+      g_site_track = 1;
+      g_site_depth = (getenv("RANGER_MEM_SITES")[0] == '2') ? 1 : 0;
+      atexit(rt_dump_sites);
+    }
     atexit(ranger_mem_dump_stats);
   } else {
     state = 2;
@@ -107,6 +156,12 @@ static void ranger_destroy_field(int64_t body, const RangerFieldDesc *f) {
       ranger_ptrarray_release(val);
     }
     break;
+  case RT_FIELD_STRING_MAP:
+    val = *(int64_t *)(base + f->offset);
+    if (val != 0) {
+      RtSMap_free(val);
+    }
+    break;
   default:
     break;
   }
@@ -136,6 +191,13 @@ int64_t ranger_obj_new(uint32_t size, const RangerTypeDesc *type) {
   g_live_objects++;
   g_obj_new++;
   ranger_mem_stats_enable();
+  if (g_site_track) {
+    /* RANGER_MEM_SITES=2 records the CALLER of the allocating helper: every
+     * EvalValue comes from the same few constructors, so level 0 only ever
+     * names those. */
+    h->site = g_site_depth ? __builtin_return_address(1) : __builtin_return_address(0);
+    rt_site_bump(h->site, 1);
+  }
   return (int64_t)(block + RANGER_HEADER_SIZE);
 }
 
@@ -163,6 +225,9 @@ void ranger_obj_release(int64_t body) {
     return;
   }
   ranger_destroy_fields(body, h->type);
+  if (g_site_track && h->site) {
+    rt_site_bump(h->site, -1);
+  }
   free(block);
   g_live_objects--;
   g_obj_free++;
