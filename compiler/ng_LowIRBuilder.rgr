@@ -2174,6 +2174,25 @@ class LowIRBuilderPass {
     if ((this.collectionKind(vref lctx)) == "imap") {
       return (this.loadCollectionDesc(vref lctx))
     }
+    if ((indexOf vref ".") >= 0) {
+      def parts:[string] (strsplit vref ".")
+      if ((array_length parts) >= 2) {
+        def recv (itemAt parts 0)
+        def fld (itemAt parts 1)
+        def cls (this.resolveObjectClass(recv lctx))
+        if ((strlen cls) > 0) {
+          if (this.fieldIsIntMapSlot(cls fld)) {
+            return (this.emitFieldLoadOn(cls (this.resolveObjectPtrChain(recv cls lctx)) fld lctx))
+          }
+        }
+      }
+      return ""
+    }
+    if ((strlen lctx.className) > 0) {
+      if (this.fieldIsIntMapSlot(lctx.className vref)) {
+        return (this.emitFieldLoad(vref lctx))
+      }
+    }
     return ""
   }
 
@@ -2911,9 +2930,26 @@ class LowIRBuilderPass {
         }
       }
       def isStrMap:boolean false
+      def isIntRefMap:boolean false
       if (nn.value_type == RangerNodeType.Hash) {
         if (LowIRUtil.isStringType(nn.key_type)) {
           isStrMap = true
+        } {
+          ; `[int:T]` with a REFERENCE value: RtIMap_*, not the 4-byte RtMap_*.
+          if (nn.key_type == "int") {
+            if ((strlen nn.array_type) > 0) {
+              if (nn.array_type != "int") {
+                isIntRefMap = true
+              }
+            }
+          }
+        }
+      }
+      if isIntRefMap {
+        f.irType = ptrType
+        f.isIntMap = true
+        if (LowIRUtil.isStringType(nn.array_type)) {
+          f.isIntMapStr = true
         }
       }
       if isStrMap {
@@ -2985,6 +3021,13 @@ class LowIRBuilderPass {
             ; map that was never freed, leaking one value per argument per call.
             if (f.isStringMap) {
               kind = 3
+            } {
+              ; An int-keyed reference map field: same story as kind 3, other
+              ; runtime. Without a kind, destroying the object leaks the map and
+              ; every reference in it.
+              if (f.isIntMap) {
+                kind = 4
+              }
             }
           }
         }
@@ -3275,6 +3318,20 @@ class LowIRBuilderPass {
       for st.fields f:LowIRField i {
         if (f.name == fld) {
           return f.isStringMapInt
+        }
+      }
+    }
+    return false
+  }
+
+  fn fieldIsIntMapSlot:boolean (className:string fieldName:string) {
+    for this.irModule.structs st:LowIRStruct i {
+      if (st.name != className) {
+        continue
+      }
+      for st.fields f:LowIRField i {
+        if (f.name == fieldName) {
+          return f.isIntMap
         }
       }
     }
@@ -3576,6 +3633,18 @@ class LowIRBuilderPass {
       push args rawVal
       push argTypes lctx.ptrType
       builder.emitCall("ranger_ptrarray_release" voidType args argTypes)
+      return
+    }
+    if (this.fieldIsIntMapSlot(className fieldName)) {
+      if (this.memEnabled(lctx)) {
+        this.ensureIMapExterns()
+        def imArgs:[string]
+        def imTypes:[string]
+        push imArgs rawVal
+        push imTypes "i64"
+        def voidIM:string "void"
+        builder.emitCall("RtIMap_free" voidIM imArgs imTypes)
+      }
       return
     }
     if (this.fieldIsStringMapSlot(className fieldName)) {
@@ -4026,6 +4095,19 @@ class LowIRBuilderPass {
           def smVal:string (this.fieldArrayElemType(className f.name lctx))
           def sm (this.emitSMapNewKind((this.smapValueOwnKind(smVal)) lctx))
           this.emitFieldStoreOnEx(className objPtr f.name sm true lctx)
+          continue
+        }
+        ; An int-keyed reference map field needs the same constructor
+        ; allocation; without it every put wrote into a null map.
+        if f.isIntMap {
+          this.ensureIMapExterns()
+          def imVal:string (this.fieldArrayElemType(className f.name lctx))
+          def imArgs:[string]
+          def imTypes:[string]
+          push imArgs (lctx.builder.emitConst("i32" (to_string (this.imapValueOwnKind(imVal)))))
+          push imTypes "i32"
+          def im (lctx.builder.emitCall("RtIMap_new_kind" "i64" imArgs imTypes))
+          this.emitFieldStoreOnEx(className objPtr f.name im true lctx)
           continue
         }
         if (f.isPtrArray == false) {

@@ -13,6 +13,23 @@ class Node {
     Constructor (i:int) { id = i }
 }
 
+; An int-keyed reference map held as a FIELD: it needs its own field-descriptor
+; kind, or destroying the owner leaks the map and everything in it.
+class Registry {
+    def slots:[int:Node]
+
+    fn put:void (k:int n:Node) {
+        set slots k n
+    }
+    fn idAt:int (k:int) {
+        if (has slots k) {
+            def got:Node (unwrap (get slots k))
+            return got.id
+        }
+        return (0 - 1)
+    }
+}
+
 class IntMapProbe {
     sfn run:int () {
         def m:[int:Node]
@@ -45,6 +62,18 @@ class IntMapProbe {
         if (has m 1339) { return 8 }
         def d:Node (unwrap (get m 1400))
         if (d.id != 1400) { return 9 }
+        ; the same map as an owned FIELD, freed with its owner
+        RangerMem.resetStats()
+        def before:int (RangerMem.liveObjects())
+        def r:Registry (new Registry())
+        def q:int 0
+        while (q < 40) {
+            def rn:Node (new Node(q + 500))
+            r.put(q rn)
+            q = (q + 1)
+        }
+        if ((r.idAt(7)) != 507) { return 10 }
+        if ((r.idAt(99)) != (0 - 1)) { return 11 }
         return 0
     }
 }

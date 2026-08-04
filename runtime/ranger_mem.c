@@ -16,6 +16,7 @@
 #define RT_FIELD_OBJECT 1
 #define RT_FIELD_PTR_ARRAY 2
 #define RT_FIELD_STRING_MAP 3
+#define RT_FIELD_INT_MAP 4
 
 typedef struct {
   uint32_t offset;
@@ -85,6 +86,11 @@ typedef struct {
 void ranger_obj_release(int64_t body);
 void ranger_ptrarray_release(int64_t desc_addr);
 extern void RtSMap_free(int64_t map); /* string-map fields (kind 3) */
+extern void RtIMap_free(int64_t map);  /* int-keyed reference maps (kind 4) */
+extern int rt_imap_holds_value(int64_t map, int64_t value);
+extern int rt_imap_is_object_map(int64_t map);
+extern int32_t rt_imap_slot_count(int64_t map);
+extern int64_t rt_imap_value_slot(int64_t map, int32_t i);
 extern int rt_smap_holds_value(int64_t map, int64_t value);
 /* Map walking for the cycle collector (defined in ranger_rt.c). */
 extern int rt_smap_is_object_map(int64_t map);
@@ -189,6 +195,11 @@ static int rt_holder_points_at(char *holder_block, int64_t target) {
     }
     if (f->kind == RT_FIELD_STRING_MAP) {
       if (rt_smap_holds_value(val, target)) {
+        return 1;
+      }
+    }
+    if (f->kind == RT_FIELD_INT_MAP) {
+      if (rt_imap_holds_value(val, target)) {
         return 1;
       }
     }
@@ -388,6 +399,12 @@ static void ranger_destroy_field(int64_t body, const RangerFieldDesc *f) {
     val = *(int64_t *)(base + f->offset);
     if (val != 0) {
       RtSMap_free(val);
+    }
+    break;
+  case RT_FIELD_INT_MAP:
+    val = *(int64_t *)(base + f->offset);
+    if (val != 0) {
+      RtIMap_free(val);
     }
     break;
   default:
@@ -633,6 +650,18 @@ static void rt_walk_edges(int64_t body, const RangerTypeDesc *type, RtPtrSet *se
       n = rt_smap_slot_count(val);
       for (k = 0; k < n; k++) {
         rt_edge(rt_smap_value_slot(val, k), mode, work);
+      }
+    } else if (f->kind == RT_FIELD_INT_MAP) {
+      int32_t n, k;
+      if (!rt_imap_is_object_map(val)) {
+        continue;
+      }
+      if (!rt_set_add(seen, (uintptr_t)val)) {
+        continue;
+      }
+      n = rt_imap_slot_count(val);
+      for (k = 0; k < n; k++) {
+        rt_edge(rt_imap_value_slot(val, k), mode, work);
       }
     }
   }

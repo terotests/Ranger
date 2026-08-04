@@ -149,6 +149,11 @@ class LowIRField {
   ; A `[string:T]` field. Backed by the RtSMap_* runtime rather than the
   ; generated integer-keyed RtMap_*, which cannot hash a string key.
   def isStringMap:boolean false
+  ; An `[int:T]` field whose values are references. Distinct from isStringMap
+  ; because the runtimes differ (RtIMap_* vs RtSMap_*) and from `[int:int]`,
+  ; which stays on the 4-byte RtMap_*.
+  def isIntMap:boolean false
+  def isIntMapStr:boolean false
   ; `[string:int]` rather than `[string:<object>]`: the runtime hands back a
   ; pointer-sized value, so an int-valued map has to narrow it.
   def isStringMapInt:boolean false

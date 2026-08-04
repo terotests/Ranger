@@ -34238,6 +34238,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 this.irType = "i32";
                 this.isPtrArray = false;
                 this.isStringMap = false;
+                this.isIntMap = false;
+                this.isIntMapStr = false;
                 this.isStringMapInt = false;
                 this.isStringMapStr = false;
                 this.isBool = false;
@@ -37787,6 +37789,25 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( this.collectionKind(vref, lctx) == "imap" ) {
                   return this.loadCollectionDesc(vref, lctx);
                 }
+                if ( (vref.indexOf(".")) >= 0 ) {
+                  const parts = vref.split(".");
+                  if ( (parts.length) >= 2 ) {
+                    const recv = parts[0];
+                    const fld = parts[1];
+                    const cls = this.resolveObjectClass(recv, lctx);
+                    if ( (cls.length) > 0 ) {
+                      if ( this.fieldIsIntMapSlot(cls, fld) ) {
+                        return this.emitFieldLoadOn(cls, this.resolveObjectPtrChain(recv, cls, lctx), fld, lctx);
+                      }
+                    }
+                  }
+                  return "";
+                }
+                if ( (lctx.className.length) > 0 ) {
+                  if ( this.fieldIsIntMapSlot(lctx.className, vref) ) {
+                    return this.emitFieldLoad(vref, lctx);
+                  }
+                }
                 return "";
               };
               imapValueKind (vref, lctx) {
@@ -38416,9 +38437,25 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     }
                   }
                   let isStrMap = false;
+                  let isIntRefMap = false;
                   if ( nn.value_type == 7 ) {
                     if ( LowIRUtil.isStringType(nn.key_type) ) {
                       isStrMap = true;
+                    } else {
+                      if ( nn.key_type == "int" ) {
+                        if ( (nn.array_type.length) > 0 ) {
+                          if ( nn.array_type != "int" ) {
+                            isIntRefMap = true;
+                          }
+                        }
+                      }
+                    }
+                  }
+                  if ( isIntRefMap ) {
+                    f.irType = ptrType;
+                    f.isIntMap = true;
+                    if ( LowIRUtil.isStringType(nn.array_type) ) {
+                      f.isIntMapStr = true;
                     }
                   }
                   if ( isStrMap ) {
@@ -38486,6 +38523,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       } else {
                         if ( f.isStringMap ) {
                           kind = 3;
+                        } else {
+                          if ( f.isIntMap ) {
+                            kind = 4;
+                          }
                         }
                       }
                     }
@@ -38742,6 +38783,21 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     var f = st.fields[i_1];
                     if ( f.name == fld ) {
                       return f.isStringMapInt;
+                    }
+                  };
+                };
+                return false;
+              };
+              fieldIsIntMapSlot (className, fieldName) {
+                for ( let i = 0; i < this.irModule.structs.length; i++) {
+                  var st = this.irModule.structs[i];
+                  if ( st.name != className ) {
+                    continue;
+                  }
+                  for ( let i_1 = 0; i_1 < st.fields.length; i_1++) {
+                    var f = st.fields[i_1];
+                    if ( f.name == fieldName ) {
+                      return f.isIntMap;
                     }
                   };
                 };
@@ -39021,6 +39077,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   args.push(rawVal);
                   argTypes.push(lctx.ptrType);
                   builder.emitCall("ranger_ptrarray_release", voidType, args, argTypes);
+                  return;
+                }
+                if ( this.fieldIsIntMapSlot(className, fieldName) ) {
+                  if ( this.memEnabled(lctx) ) {
+                    this.ensureIMapExterns();
+                    let imArgs = [];
+                    let imTypes = [];
+                    imArgs.push(rawVal);
+                    imTypes.push("i64");
+                    const voidIM = "void";
+                    builder.emitCall("RtIMap_free", voidIM, imArgs, imTypes);
+                  }
                   return;
                 }
                 if ( this.fieldIsStringMapSlot(className, fieldName) ) {
@@ -39417,6 +39485,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       const smVal = this.fieldArrayElemType(className, f.name, lctx);
                       const sm = this.emitSMapNewKind(this.smapValueOwnKind(smVal), lctx);
                       this.emitFieldStoreOnEx(className, objPtr, f.name, sm, true, lctx);
+                      continue;
+                    }
+                    if ( f.isIntMap ) {
+                      this.ensureIMapExterns();
+                      const imVal = this.fieldArrayElemType(className, f.name, lctx);
+                      let imArgs = [];
+                      let imTypes = [];
+                      imArgs.push(lctx.builder.emitConst("i32", ((this.imapValueOwnKind(imVal).toString()))));
+                      imTypes.push("i32");
+                      const im = lctx.builder.emitCall("RtIMap_new_kind", "i64", imArgs, imTypes);
+                      this.emitFieldStoreOnEx(className, objPtr, f.name, im, true, lctx);
                       continue;
                     }
                     if ( f.isPtrArray == false ) {
