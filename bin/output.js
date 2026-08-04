@@ -34496,6 +34496,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 ins.arg2 = slotName;
                 this.emitToEntry(ins);
               };
+              emitNullInitToEntry (irType, slotName) {
+                const ins = new LowIRInstr();
+                ins.op = "store";
+                ins.irType = irType;
+                ins.arg1 = "null";
+                ins.arg2 = slotName;
+                this.emitToEntry(ins);
+              };
               emitLoad (irType, slotName) {
                 const tag = "v";
                 const dest = this.freshTemp(tag);
@@ -36190,6 +36198,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 let strdupParams = [];
                 strdupParams.push("i8*");
                 this.ensureExternDecl("ranger_strdup", "i8*", strdupParams, false);
+                let strRelDeclParams = [];
+                strRelDeclParams.push("i8*");
+                this.ensureExternDecl("ranger_str_release", "void", strRelDeclParams, false);
                 let fromCodeParams = [];
                 fromCodeParams.push("i32");
                 this.ensureExternDecl("ranger_str_fromcode", "i8*", fromCodeParams, false);
@@ -36299,6 +36310,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
                 const ctx = lctx.ctx;
                 return ctx.hasCompilerFlag("wasmrc");
+              };
+              strRcEnabled (lctx) {
+                const memTarget = LowIRTarget.resolve((lctx.ctx));
+                if ( memTarget.usesLibc ) {
+                  return true;
+                }
+                return this.wasmStrEnabled(lctx);
               };
               wasmStrEnabled (lctx) {
                 const memTarget = LowIRTarget.resolve((lctx.ctx));
@@ -37476,11 +37494,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 lctx.continueLabel = incLabel;
                 lctx.loopOwnedMark = lctx.ownedObjectLocals.length;
                 lctx.loopOwnedCollMark = lctx.ownedCollectionLocals.length;
+                const savedMarkStrF = lctx.loopOwnedStrMark;
+                lctx.loopOwnedStrMark = lctx.ownedStringLocals.length;
                 this.lowerBlock(bodyNode, lctx);
                 lctx.breakLabel = savedBreakF;
                 lctx.continueLabel = savedContF;
                 lctx.loopOwnedMark = savedMarkF;
                 lctx.loopOwnedCollMark = savedMarkCollF;
+                lctx.loopOwnedStrMark = savedMarkStrF;
                 const bodyBb = builder.currentBlock;
                 if ( bodyBb.termKind == "" ) {
                   builder.terminateBr(incLabel);
@@ -38386,6 +38407,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( this.memEnabled(lctx) ) {
                   if ( irType == lctx.ptrType ) {
                     builder.emitZeroInitToEntry(irType, slotName);
+                  }
+                }
+                if ( this.strRcEnabled(lctx) ) {
+                  if ( irType == "i8*" ) {
+                    builder.emitNullInitToEntry(irType, slotName);
                   }
                 }
                 builder.emitStore(irType, value, slotName);
@@ -40235,7 +40261,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 lctx.builder.emitCall("ranger_str_release", "void", args, argTypes);
               };
               releaseOwnedString (varName, lctx) {
-                if ( this.wasmStrEnabled(lctx) == false ) {
+                if ( this.strRcEnabled(lctx) == false ) {
                   return;
                 }
                 if ( ( typeof(lctx.escapedLocals[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.escapedLocals, varName) ) ) {
@@ -40252,6 +40278,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 args.push(val);
                 argTypes.push("i8*");
                 builder.emitCall("ranger_str_release", voidType, args, argTypes);
+                if ( ( typeof(lctx.slots[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slots, varName) ) ) {
+                  const slot = (( Object.prototype.hasOwnProperty.call(lctx.slots, varName) ? lctx.slots[varName] : undefined ));
+                  builder.emitStore("i8*", "null", slot);
+                }
               };
               releaseOwnedCollectionLocal (varName, lctx) {
                 if ( ( typeof(lctx.escapedLocals[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.escapedLocals, varName) ) ) {
@@ -40276,7 +40306,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               };
               emitOwnedStringInit (varName, valNode, strPtr, lctx) {
                 if ( this.wasmStrEnabled(lctx) == false ) {
-                  return this.emitStrdupExpr(strPtr, lctx);
+                  const libcOwned = this.emitStrdupExpr(strPtr, lctx);
+                  if ( this.strRcEnabled(lctx) ) {
+                    if ( this.isOwnedStringLocal(varName, lctx) == false ) {
+                      lctx.ownedStringLocals.push(varName);
+                    }
+                  }
+                  return libcOwned;
                 }
                 let owned = strPtr;
                 if ( this.exprIsFreshString(valNode, lctx) == false ) {
@@ -40291,7 +40327,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               };
               emitOwnedStringReassign (varName, valNode, strPtr, lctx) {
                 if ( this.wasmStrEnabled(lctx) == false ) {
-                  return this.emitStrdupExpr(strPtr, lctx);
+                  const libcNew = this.emitStrdupExpr(strPtr, lctx);
+                  if ( this.strRcEnabled(lctx) ) {
+                    if ( this.isOwnedStringLocal(varName, lctx) ) {
+                      this.releaseOwnedString(varName, lctx);
+                    } else {
+                      lctx.ownedStringLocals.push(varName);
+                    }
+                  }
+                  return libcNew;
                 }
                 if ( this.isOwnedStringLocal(varName, lctx) ) {
                   this.releaseOwnedString(varName, lctx);
@@ -41217,6 +41261,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 while (ck < cn) {
                   this.releaseAndClearOwnedCollection(lctx.ownedCollectionLocals[ck], lctx);
                   ck = ck + 1;
+                };
+                const sn = lctx.ownedStringLocals.length;
+                let sk = lctx.loopOwnedStrMark;
+                while (sk < sn) {
+                  this.releaseOwnedString(lctx.ownedStringLocals[sk], lctx);
+                  sk = sk + 1;
                 };
               };
               lowerLoopJump (target, lctx) {

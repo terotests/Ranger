@@ -46,7 +46,13 @@ for T in $TARGETS; do
       sed 's/@main(/@rgr_main(/g' "$OUT_DIR/octane_runner.ll" > "$OUT_DIR/octane_runner_main.ll"
       cat > "$OUT_DIR/octane_shim.c" <<'SHIM'
 extern int rgr_main(int argc, char **argv);
-int main(int argc, char **argv) { return rgr_main(argc, argv); }
+/* The cycle collector scans the C stack for borrowed object pointers; it needs
+ * to know where the stack bottoms out, and main's frame is that boundary. */
+extern void ranger_gc_stack_base(void *p);
+int main(int argc, char **argv) {
+  ranger_gc_stack_base(&argv);
+  return rgr_main(argc, argv);
+}
 SHIM
       clang -O2 -Wno-override-module         "$OUT_DIR/octane_runner_main.ll" "$OUT_DIR/octane_shim.c"         runtime/ranger_rt.c runtime/ranger_mem.c runtime/ranger_buffer.c         -o "$OUT_DIR/octane_runner" -lm
       echo "built: $OUT_DIR/octane_runner"

@@ -432,6 +432,17 @@ class LowIRBuilder {
     this.emitToEntry(ins)
   }
 
+  ; emitZeroInitToEntry for a POINTER slot. LLVM rejects an integer 0 as a
+  ; pointer operand, so a slot declared `i8*` has to be initialised with `null`.
+  fn emitNullInitToEntry:void (irType:string slotName:string) {
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "store"
+    ins.irType = irType
+    ins.arg1 = "null"
+    ins.arg2 = slotName
+    this.emitToEntry(ins)
+  }
+
   fn emitLoad:string (irType:string slotName:string) {
     def tag:string "v"
     def dest (this.freshTemp(tag))

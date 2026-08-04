@@ -401,6 +401,12 @@ class LowIRBuilderPass {
     def strdupParams:[string]
     push strdupParams "i8*"
     this.ensureExternDecl("ranger_strdup" "i8*" strdupParams false)
+    ; Every owned string local is a ranger_strdup copy, so the matching free has
+    ; to be declared for any libc target -- not only for programs that also use
+    ; the object runtime, which is where ensureMemExtern declares it.
+    def strRelDeclParams:[string]
+    push strRelDeclParams "i8*"
+    this.ensureExternDecl("ranger_str_release" "void" strRelDeclParams false)
     def fromCodeParams:[string]
     push fromCodeParams "i32"
     this.ensureExternDecl("ranger_str_fromcode" "i8*" fromCodeParams false)
@@ -523,6 +529,21 @@ class LowIRBuilderPass {
   ; The freestanding-WASM string runtime (ranger_str_*) is in play: non-libc
   ; target under -wasmrc. When true, string ops route to the WASM-native runtime
   ; (ranger_str_len/concat/from_int/dup/cmp) instead of libc (strlen/sprintf/...).
+  ; Owned string locals are freed on BOTH runtimes: the libc path frees the
+  ; ranger_strdup copy, the freestanding-WASM path frees the ranger_str_dup one.
+  ; This used to be wasmStrEnabled alone, which meant every `def s:string ...`
+  ; on a native target leaked its private copy for the lifetime of the process.
+  ; The engine saves the current script source into a local on every JS call, so
+  ; richards leaked a 32 KB copy of the whole benchmark per call -- gigabytes in
+  ; seconds, and the reason the native build could never finish one.
+  fn strRcEnabled:boolean (lctx:LowIRLowerContext) {
+    def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    if (memTarget.usesLibc) {
+      return true
+    }
+    return (this.wasmStrEnabled(lctx))
+  }
+
   fn wasmStrEnabled:boolean (lctx:LowIRLowerContext) {
     def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
     if (memTarget.usesLibc) {
@@ -1838,11 +1859,17 @@ class LowIRBuilderPass {
     ; jump out of it has nothing extra to drop.
     lctx.loopOwnedMark = (array_length lctx.ownedObjectLocals)
     lctx.loopOwnedCollMark = (array_length lctx.ownedCollectionLocals)
+    ; Strings need the same mark. Left at an enclosing loop's value, a `break`
+    ; inside this for-loop would release -- and NULL -- string locals belonging
+    ; to the loop around it, which then reads NULL for the rest of its body.
+    def savedMarkStrF:int lctx.loopOwnedStrMark
+    lctx.loopOwnedStrMark = (array_length lctx.ownedStringLocals)
     this.lowerBlock(bodyNode lctx)
     lctx.breakLabel = savedBreakF
     lctx.continueLabel = savedContF
     lctx.loopOwnedMark = savedMarkF
     lctx.loopOwnedCollMark = savedMarkCollF
+    lctx.loopOwnedStrMark = savedMarkStrF
     def bodyBb (unwrap builder.currentBlock)
     if (bodyBb.termKind == "") {
       builder.terminateBr(incLabel)
@@ -2884,6 +2911,15 @@ class LowIRBuilderPass {
     if (this.memEnabled(lctx)) {
       if (irType == lctx.ptrType) {
         builder.emitZeroInitToEntry(irType slotName)
+      }
+    }
+    ; String slots need the same guard, for the same reason: `def second:string
+    ; (at source i)` nested three ifs deep is still released on the exit path
+    ; that never reached it, and the alloca would hold whatever the stack had.
+    ; ranger_str_release treats NULL as nothing to free.
+    if (this.strRcEnabled(lctx)) {
+      if (irType == "i8*") {
+        builder.emitNullInitToEntry(irType slotName)
       }
     }
     builder.emitStore(irType value slotName)
@@ -4952,7 +4988,7 @@ class LowIRBuilderPass {
   }
 
   fn releaseOwnedString:void (varName:string lctx:LowIRLowerContext) {
-    if (this.wasmStrEnabled(lctx) == false) {
+    if (this.strRcEnabled(lctx) == false) {
       return
     }
     if (has lctx.escapedLocals varName) {
@@ -4969,6 +5005,15 @@ class LowIRBuilderPass {
     push args val
     push argTypes "i8*"
     builder.emitCall("ranger_str_release" voidType args argTypes)
+    ; NULL the slot, exactly as releaseAndClearOwnedLocal does for objects. A
+    ; string local declared inside a branch of a loop body -- `def esc:string
+    ; (substring body i (i + 1))` under an `if` -- is released at the end of
+    ; EVERY iteration, so an iteration that skipped the branch would otherwise
+    ; free the pointer the previous iteration already freed.
+    if (has lctx.slots varName) {
+      def slot (unwrap (get lctx.slots varName))
+      builder.emitStore("i8*" "null" slot)
+    }
   }
 
   ; Release one owned collection local (free backing store + descriptor, and, for
@@ -5005,7 +5050,17 @@ class LowIRBuilderPass {
   ; private copy. Non-wasm targets keep the legacy always-dup behaviour.
   fn emitOwnedStringInit:string (varName:string valNode:CodeNode strPtr:string lctx:LowIRLowerContext) {
     if (this.wasmStrEnabled(lctx) == false) {
-      return (this.emitStrdupExpr(strPtr lctx))
+      ; libc: always take a private copy -- the value may be a literal, a field,
+      ; or another local -- and record the local so scope exit frees that copy.
+      ; Storing a string into a field dups it again (emitFieldStoreOnEx) and a
+      ; returned local is marked escaped, so this copy is genuinely the local's.
+      def libcOwned (this.emitStrdupExpr(strPtr lctx))
+      if (this.strRcEnabled(lctx)) {
+        if (this.isOwnedStringLocal(varName lctx) == false) {
+          push lctx.ownedStringLocals varName
+        }
+      }
+      return libcOwned
     }
     def owned strPtr
     if ((this.exprIsFreshString(valNode lctx)) == false) {
@@ -5027,7 +5082,17 @@ class LowIRBuilderPass {
   ; even for `s = (s + "x")` (concat copied the old bytes into a fresh buffer).
   fn emitOwnedStringReassign:string (varName:string valNode:CodeNode strPtr:string lctx:LowIRLowerContext) {
     if (this.wasmStrEnabled(lctx) == false) {
-      return (this.emitStrdupExpr(strPtr lctx))
+      ; Copy FIRST, then free what the slot held. The other order breaks `s = s`
+      ; and any assignment whose right-hand side still reads the old buffer.
+      def libcNew (this.emitStrdupExpr(strPtr lctx))
+      if (this.strRcEnabled(lctx)) {
+        if (this.isOwnedStringLocal(varName lctx)) {
+          this.releaseOwnedString(varName lctx)
+        } {
+          push lctx.ownedStringLocals varName
+        }
+      }
+      return libcNew
     }
     if (this.isOwnedStringLocal(varName lctx)) {
       this.releaseOwnedString(varName lctx)
@@ -6140,6 +6205,15 @@ class LowIRBuilderPass {
     while (< ck cn) {
       this.releaseAndClearOwnedCollection((itemAt lctx.ownedCollectionLocals ck) lctx)
       ck = (+ ck 1)
+    }
+    ; Owned string locals leave through a jump too. releaseOwnedString NULLs the
+    ; slot, so the bottom-of-body release on the fall-through path sees NULL
+    ; rather than a pointer this one already freed.
+    def sn (array_length lctx.ownedStringLocals)
+    def sk lctx.loopOwnedStrMark
+    while (< sk sn) {
+      this.releaseOwnedString((itemAt lctx.ownedStringLocals sk) lctx)
+      sk = (+ sk 1)
     }
   }
 

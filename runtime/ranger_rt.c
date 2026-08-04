@@ -557,6 +557,42 @@ int rt_smap_holds_value(int64_t map, int64_t value) {
   return 0;
 }
 
+/* --- accessors the cycle collector uses to walk a map's OBJECT values ---
+ * The collector lives in ranger_mem.c and must not know the RtSMap layout, but
+ * it does have to enumerate the object references a map holds: a property map
+ * hanging off an object field is exactly where a JS-level cycle lives
+ * (`a.next = b; b.prev = a` is two puts into two property maps). Exposing the
+ * count and an indexed read keeps the layout private while making the edges
+ * visible. Index positions include removed holes, which read back as 0. */
+int rt_smap_is_object_map(int64_t map) {
+  RtSMap *m = (RtSMap *)(intptr_t)map;
+  return (m != NULL && m->valkind == 1) ? 1 : 0;
+}
+
+int32_t rt_smap_slot_count(int64_t map) {
+  RtSMap *m = (RtSMap *)(intptr_t)map;
+  return (m == NULL) ? 0 : m->count;
+}
+
+int64_t rt_smap_value_slot(int64_t map, int32_t i) {
+  RtSMap *m = (RtSMap *)(intptr_t)map;
+  if (m == NULL || i < 0 || i >= m->count) {
+    return 0;
+  }
+  return (m->entries[i].key != NULL) ? m->entries[i].value : 0;
+}
+
+/* Drop a slot's object value without touching the key, so the collector can
+ * break a cycle that runs through a map. The slot keeps its key and reads back
+ * as 0 afterwards, which every reader already treats as "no value". */
+void rt_smap_clear_value_slot(int64_t map, int32_t i) {
+  RtSMap *m = (RtSMap *)(intptr_t)map;
+  if (m == NULL || i < 0 || i >= m->count) {
+    return;
+  }
+  m->entries[i].value = 0;
+}
+
 void RtSMap_retain(int64_t map) {
   RtSMap *m = (RtSMap *)(intptr_t)map;
   if (m == NULL) {
