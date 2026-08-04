@@ -393,11 +393,15 @@ int64_t RtSMap_new_kind(int valkind) {
   if (m == NULL) {
     return 0;
   }
-  m->cap = 8;
+  /* Storage is allocated on the FIRST put, not here. Every EvalValue owns five
+   * string-map fields (objectMap, getterMap, setterMap, attrFlags,
+   * suppressedKeys) and almost every value -- every number, string and boolean
+   * the engine makes -- uses none of them. Allocating eagerly cost ~250 bytes
+   * per map, so a plain number carried more than a kilobyte of empty tables.
+   * Every reader already copes with the empty state: rt_smap_find returns -1 on
+   * a NULL index, and size/keyAt/free all work off count, which stays 0. */
   m->valkind = valkind;
   m->rc = 1;
-  m->entries = (RtSMapEntry *)calloc((size_t)m->cap, sizeof(RtSMapEntry));
-  rt_smap_reindex(m, 16);
   return (int64_t)(intptr_t)m;
 }
 
@@ -427,6 +431,17 @@ void RtSMap_put(int64_t map, const char *key, int64_t value) {
   int32_t ei;
   if (m == NULL || key == NULL) {
     return;
+  }
+  if (m->entries == NULL) {
+    m->cap = 8;
+    m->entries = (RtSMapEntry *)calloc((size_t)m->cap, sizeof(RtSMapEntry));
+    if (m->entries == NULL) {
+      return;
+    }
+    rt_smap_reindex(m, 16);
+    if (m->index == NULL) {
+      return;
+    }
   }
   h = rt_smap_hash(key);
   ei = rt_smap_find(m, key, h);

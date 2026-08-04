@@ -35861,6 +35861,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 this.selfPtr = "";
                 this.breakLabel = "";
                 this.continueLabel = "";
+                this.loopOwnedMark = 0;
+                this.loopOwnedStrMark = 0;
+                this.loopOwnedCollMark = 0;
               }
             }
             class LambdaCaptureInfo  {
@@ -37465,11 +37468,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
                 const savedBreakF = lctx.breakLabel;
                 const savedContF = lctx.continueLabel;
+                const savedMarkF = lctx.loopOwnedMark;
+                const savedMarkCollF = lctx.loopOwnedCollMark;
                 lctx.breakLabel = exitLabel;
                 lctx.continueLabel = incLabel;
+                lctx.loopOwnedMark = lctx.ownedObjectLocals.length;
+                lctx.loopOwnedCollMark = lctx.ownedCollectionLocals.length;
                 this.lowerBlock(bodyNode, lctx);
                 lctx.breakLabel = savedBreakF;
                 lctx.continueLabel = savedContF;
+                lctx.loopOwnedMark = savedMarkF;
+                lctx.loopOwnedCollMark = savedMarkCollF;
                 const bodyBb = builder.currentBlock;
                 if ( bodyBb.termKind == "" ) {
                   builder.terminateBr(incLabel);
@@ -41209,6 +41218,23 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
                 builder.startBlock(mergeLabel);
               };
+              emitLoopBodyReleases (lctx) {
+                if ( this.memEnabled(lctx) == false ) {
+                  return;
+                }
+                const n = lctx.ownedObjectLocals.length;
+                let k = lctx.loopOwnedMark;
+                while (k < n) {
+                  this.releaseAndClearOwnedLocal(lctx.ownedObjectLocals[k], lctx);
+                  k = k + 1;
+                };
+                const cn = lctx.ownedCollectionLocals.length;
+                let ck = lctx.loopOwnedCollMark;
+                while (ck < cn) {
+                  this.releaseAndClearOwnedCollection(lctx.ownedCollectionLocals[ck], lctx);
+                  ck = ck + 1;
+                };
+              };
               lowerLoopJump (target, lctx) {
                 if ( (target.length) == 0 ) {
                   return;
@@ -41220,6 +41246,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     return;
                   }
                 }
+                this.emitLoopBodyReleases(lctx);
                 builder.terminateBr(target);
                 builder.startBlock(builder.freshLabel("after_jump"));
               };
@@ -41247,11 +41274,20 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 builder.startBlock(bodyLabel);
                 const savedBreakW = lctx.breakLabel;
                 const savedContW = lctx.continueLabel;
+                const savedMarkW = lctx.loopOwnedMark;
+                const savedMarkStrW = lctx.loopOwnedStrMark;
+                const savedMarkCollW = lctx.loopOwnedCollMark;
                 lctx.breakLabel = exitLabel;
                 lctx.continueLabel = condLabel;
+                lctx.loopOwnedMark = ownedBefore;
+                lctx.loopOwnedStrMark = ownedStrBefore;
+                lctx.loopOwnedCollMark = ownedCollBefore;
                 this.lowerBlock(bodyNode, lctx);
                 lctx.breakLabel = savedBreakW;
                 lctx.continueLabel = savedContW;
+                lctx.loopOwnedMark = savedMarkW;
+                lctx.loopOwnedStrMark = savedMarkStrW;
+                lctx.loopOwnedCollMark = savedMarkCollW;
                 const bodyBlock = builder.currentBlock;
                 if ( bodyBlock.termKind == "" ) {
                   this.releaseLoopBodyOwned(ownedBefore, ownedStrBefore, ownedCollBefore, lctx);

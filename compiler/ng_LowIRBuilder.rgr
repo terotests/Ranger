@@ -38,6 +38,11 @@ class LowIRLowerContext {
   ; makes nesting work.
   def breakLabel:string ""
   def continueLabel:string ""
+  ; Where the innermost loop body's owned locals begin. `break`/`continue` jump
+  ; PAST the end-of-body release, so they have to emit it themselves.
+  def loopOwnedMark:int 0
+  def loopOwnedStrMark:int 0
+  def loopOwnedCollMark:int 0
 }
 
 ; Capture layout for one lambda's closure environment (L2+). The closure record
@@ -1820,12 +1825,20 @@ class LowIRBuilderPass {
     }
     def savedBreakF:string lctx.breakLabel
     def savedContF:string lctx.continueLabel
+    def savedMarkF:int lctx.loopOwnedMark
+    def savedMarkCollF:int lctx.loopOwnedCollMark
     lctx.breakLabel = exitLabel
     ; `continue` in a for-loop runs the INCREMENT, or the loop never advances.
     lctx.continueLabel = incLabel
+    ; This for-loop lowering does not itself scope-release body locals, so a
+    ; jump out of it has nothing extra to drop.
+    lctx.loopOwnedMark = (array_length lctx.ownedObjectLocals)
+    lctx.loopOwnedCollMark = (array_length lctx.ownedCollectionLocals)
     this.lowerBlock(bodyNode lctx)
     lctx.breakLabel = savedBreakF
     lctx.continueLabel = savedContF
+    lctx.loopOwnedMark = savedMarkF
+    lctx.loopOwnedCollMark = savedMarkCollF
     def bodyBb (unwrap builder.currentBlock)
     if (bodyBb.termKind == "") {
       builder.terminateBr(incLabel)
@@ -6122,6 +6135,27 @@ class LowIRBuilderPass {
   ; Statements after the jump are unreachable but still get lowered, so a fresh
   ; block catches them: appending them to the block just terminated would put
   ; instructions after a terminator, which is invalid IR.
+  ; Emit releases for the locals the innermost loop body introduced, WITHOUT
+  ; retiring them from the owned lists (unlike releaseLoopBodyOwned, which runs
+  ; once at the bottom of the body and does retire them).
+  fn emitLoopBodyReleases:void (lctx:LowIRLowerContext) {
+    if ((this.memEnabled(lctx)) == false) {
+      return
+    }
+    def n (array_length lctx.ownedObjectLocals)
+    def k lctx.loopOwnedMark
+    while (< k n) {
+      this.releaseAndClearOwnedLocal((itemAt lctx.ownedObjectLocals k) lctx)
+      k = (+ k 1)
+    }
+    def cn (array_length lctx.ownedCollectionLocals)
+    def ck lctx.loopOwnedCollMark
+    while (< ck cn) {
+      this.releaseAndClearOwnedCollection((itemAt lctx.ownedCollectionLocals ck) lctx)
+      ck = (+ ck 1)
+    }
+  }
+
   fn lowerLoopJump:void (target:string lctx:LowIRLowerContext) {
     if ((strlen target) == 0) {
       return
@@ -6133,6 +6167,13 @@ class LowIRBuilderPass {
         return
       }
     }
+    ; Everything this iteration allocated is released on the way out. The
+    ; end-of-body release is at the BOTTOM of the loop, which a jump never
+    ; reaches -- so a loop that exits through `break` leaked every object the
+    ; final iteration made, and one that `continue`s leaked on every turn.
+    ; The owned lists are not truncated here: lowering continues after the jump,
+    ; and the bottom-of-body release still needs to see them.
+    this.emitLoopBodyReleases(lctx)
     builder.terminateBr(target)
     builder.startBlock((builder.freshLabel("after_jump")))
   }
@@ -6169,11 +6210,20 @@ class LowIRBuilderPass {
     builder.startBlock(bodyLabel)
     def savedBreakW:string lctx.breakLabel
     def savedContW:string lctx.continueLabel
+    def savedMarkW:int lctx.loopOwnedMark
+    def savedMarkStrW:int lctx.loopOwnedStrMark
+    def savedMarkCollW:int lctx.loopOwnedCollMark
     lctx.breakLabel = exitLabel
     lctx.continueLabel = condLabel
+    lctx.loopOwnedMark = ownedBefore
+    lctx.loopOwnedStrMark = ownedStrBefore
+    lctx.loopOwnedCollMark = ownedCollBefore
     this.lowerBlock(bodyNode lctx)
     lctx.breakLabel = savedBreakW
     lctx.continueLabel = savedContW
+    lctx.loopOwnedMark = savedMarkW
+    lctx.loopOwnedStrMark = savedMarkStrW
+    lctx.loopOwnedCollMark = savedMarkCollW
     def bodyBlock (unwrap builder.currentBlock)
     if (bodyBlock.termKind == "") {
       this.releaseLoopBodyOwned(ownedBefore ownedStrBefore ownedCollBefore lctx)

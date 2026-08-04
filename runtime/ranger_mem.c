@@ -43,8 +43,13 @@ typedef struct {
   void *site;
   void *lnext;
   void *lprev;
-  void *rets[64];
-  void *rels[64];
+  /* A single CHRONOLOGICAL event log. Separate retain and release lists could
+   * only be compared statistically; with one ordered log the events pair like
+   * brackets -- each release closes the most recent open retain -- and whatever
+   * is still open at the end is the unmatched retain, by name. */
+  void *evsite[96];
+  unsigned char evret[96]; /* 1 = retain, 0 = release */
+  uint32_t nev;
   uint32_t nret;
   uint32_t nrel;
   void *lastret;
@@ -200,11 +205,22 @@ static void rt_dump_holders(void) {
           unsigned ne = oh->nrel < 64 ? oh->nrel : 64;
           fprintf(stderr, "  ORPHAN rc=%u alloc=%p retains=%u releases=%u\n",
                   oh->rc, oh->site, oh->nret, oh->nrel);
-          fprintf(stderr, "    R:");
-          for (q = 0; q < nr; q++) { fprintf(stderr, " %p", oh->rets[q]); }
-          fprintf(stderr, "\n    F:");
-          for (q = 0; q < ne; q++) { fprintf(stderr, " %p", oh->rels[q]); }
-          fprintf(stderr, "\n");
+          /* Bracket-match the log: a release closes the most recent still-open
+           * retain. What stays open is the retain nobody gave back. */
+          void *open[96];
+          unsigned depth = 0;
+          (void)nr; (void)ne;
+          fprintf(stderr, "  ORPHAN rc=%u alloc=%p events=%u\n", oh->rc, oh->site, oh->nev);
+          for (q = 0; q < oh->nev && q < 96; q++) {
+            if (oh->evret[q]) {
+              if (depth < 96) { open[depth++] = oh->evsite[q]; }
+            } else if (depth > 0) {
+              depth--;
+            }
+          }
+          for (q = 0; q < depth; q++) {
+            fprintf(stderr, "    UNMATCHED RETAIN at %p\n", open[q]);
+          }
         }
         shown++;
       }
@@ -359,8 +375,10 @@ void ranger_obj_retain(int64_t body) {
 #ifdef RANGER_MEM_DEBUG
   if (g_site_track) {
     h->lastret = __builtin_return_address(0);
-    if (h->nret < 64) {
-      h->rets[h->nret] = h->lastret;
+    if (h->nev < 96) {
+      h->evsite[h->nev] = h->lastret;
+      h->evret[h->nev] = 1;
+      h->nev++;
     }
     h->nret++;
   }
@@ -378,8 +396,10 @@ void ranger_obj_release(int64_t body) {
   h = (RangerObjHeader *)block;
 #ifdef RANGER_MEM_DEBUG
   if (g_site_track) {
-    if (h->nrel < 64) {
-      h->rels[h->nrel] = __builtin_return_address(0);
+    if (h->nev < 96) {
+      h->evsite[h->nev] = __builtin_return_address(0);
+      h->evret[h->nev] = 0;
+      h->nev++;
     }
     h->nrel++;
   }
