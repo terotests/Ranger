@@ -278,6 +278,46 @@ describe("shapes (closed variant families)", () => {
       expect(result.code).not.toMatch(/describe\( v : Any\)/);
     });
 
+    it("C#: an interface per union instead of dynamic", () => {
+      // `dynamic` compiled but gave up every compile-time check and routed
+      // each member access through the DLR
+      const out = path.join(ROOT, "tests", ".output-csharp");
+      execSync(
+        `node bin/output.js -l=csharp "${FIXTURES_DIR}/shape_match.rgr" -d=tests/.output-csharp -o=shape_match.cs`,
+        {
+          cwd: ROOT,
+          env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr;./lib/stdops.rgr" },
+          encoding: "utf-8",
+          stdio: "pipe",
+        }
+      );
+      const code = fs.readFileSync(path.join(out, "shape_match.cs"), "utf-8");
+
+      expect(code).toContain("public interface union_Value { }");
+      expect(code).toMatch(/class Value_Items\s*: union_Value, union_Value_Ref/);
+      expect(code).toMatch(/describe\( union_Value v \)/);
+      expect(code).not.toMatch(/describe\( dynamic v \)/);
+    });
+
+    it("Dart: an abstract class per union instead of dynamic", () => {
+      const outDir = path.join(ROOT, "tests", ".output-dart");
+      const compile = compileRangerToDart(
+        `${FIXTURES_DIR}/shape_match.rgr`,
+        outDir
+      );
+      expect(compile.success, `Compile failed: ${compile.error}`).toBe(true);
+
+      const code = fs.readFileSync(
+        path.join(outDir, "shape_match.dart"),
+        "utf-8"
+      );
+      expect(code).toContain("abstract class union_Value {}");
+      expect(code).toContain(
+        "class Value_Items implements union_Value, union_Value_Ref"
+      );
+      expect(code).toMatch(/describe\(union_Value v\)/);
+    });
+
     it("Kotlin: the compiler's own `Any` union is not made an interface", () => {
       // `Any` is a union of EVERY declared class; turning it into a sealed
       // interface would make every class in every program implement it

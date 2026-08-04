@@ -6,6 +6,21 @@ class RangerDartClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
   def wrote_header:boolean false
+  ; S5 (PLAN_SHAPES.md): a union is an abstract class its members implement, so
+  ; the static type a shape declares survives instead of erasing to dynamic.
+  def dart_unions_written:boolean false
+
+  fn writeDartUnionInterfaces:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if dart_unions_written {
+      return
+    }
+    dart_unions_written = true
+    def names:[string] (this.sealableUnionNames(ctx))
+    for names uname:string ui {
+      wr.out("" true)
+      wr.out(("abstract class " + (this.unionInterfaceName(uname)) + " {}") true)
+    }
+  }
 
   ; Dart double-quoted strings interpolate `$ident` / `${…}`, so `$` must be escaped.
   fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -84,11 +99,15 @@ class RangerDartClassWriter {
         return (this.collectionTypeStringToDart(type_string ctx))
       }
     }
-    ; A `union` declares no Dart type of its own; the narrowing `case` operator
-    ; tests with `is`, which needs a top type to test against.
+    ; A union of classes is an abstract class those classes implement; anything
+    ; else (a union over primitives, the compiler's own `Any`) has no Dart type
+    ; of its own and stays dynamic, which the `is` narrowing can still test.
     if (ctx.isDefinedClass(type_string)) {
       def cc:RangerAppClassDesc (ctx.findClass(type_string))
       if (cc.is_union) {
+        if (this.unionIsSealable(cc ctx)) {
+          return (this.unionInterfaceName(type_string))
+        }
         return "dynamic"
       }
     }
@@ -531,8 +550,10 @@ class RangerDartClassWriter {
       wrote_header = true
     }
 
+    this.writeDartUnionInterfaces(ctx wr)
     wr.out("" true)
     wr.out(("class " + cl.name) false)
+    def dartUnions:[string] (this.unionInterfacesOf((unwrap cl) ctx))
     if ((array_length cl.extends_classes) > 0) {
       wr.out(" extends " false)
       for cl.extends_classes pName:string i {
@@ -547,6 +568,16 @@ class RangerDartClassWriter {
           }
         }
         wr.out(parentClass.compiledName false)
+      }
+    }
+    ; `implements` is its own clause in Dart, after any `extends`
+    if ((array_length dartUnions) > 0) {
+      wr.out(" implements " false)
+      for dartUnions uname:string ui {
+        if (ui > 0) {
+          wr.out(", " false)
+        }
+        wr.out(uname false)
       }
     }
     wr.out(" {" true)

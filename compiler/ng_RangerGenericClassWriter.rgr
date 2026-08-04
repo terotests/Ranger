@@ -22,6 +22,73 @@ class RangerGenericClassWriter {
   def compiler:LiveCompiler
   def compFlags:[string:boolean]
 
+  ; ---------------------------------------------------------------------------
+  ; UNION INTERFACES (PLAN_SHAPES.md S5)
+  ;
+  ; On a class-based target a union is best written as an interface its members
+  ; implement: the static type a `shape` declares survives, and — unlike a
+  ; tagged handle or a native sum type — nothing has to be wrapped, converted or
+  ; unwrapped at any call site, because a class simply implements it.
+  ;
+  ; Two unions must NOT become interfaces: one whose members are not all classes
+  ; (`union prim (int string)` — Int cannot implement anything), and the
+  ; compiler's own `Any`, which contains every declared class in the program.
+  ; ---------------------------------------------------------------------------
+  fn unionIsSealable:boolean (ucl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if (ucl.is_union == false) {
+      return false
+    }
+    if (ucl.name == "Any") {
+      return false
+    }
+    if ((array_length ucl.is_union_of) == 0) {
+      return false
+    }
+    def ok:boolean true
+    for ucl.is_union_of mname:string mi {
+      if (ctx.isDefinedClass(mname)) {
+        def mcl:RangerAppClassDesc (ctx.findClass(mname))
+        if (((mcl.is_system || mcl.is_union) || mcl.is_system_union) || mcl.is_trait) {
+          ok = false
+        }
+      } {
+        ok = false
+      }
+    }
+    return ok
+  }
+
+  ; The interface name a union is written as.
+  fn unionInterfaceName:string (unionName:string) {
+    return ("union_" + unionName)
+  }
+
+  ; Every sealable union declared in the program, in declaration order.
+  fn sealableUnionNames:[string] (ctx:RangerAppWriterContext) {
+    def out:[string]
+    def rootCtx:RangerAppWriterContext (ctx.getRoot())
+    for rootCtx.definedClasses ucl:RangerAppClassDesc uci {
+      if (this.unionIsSealable(ucl ctx)) {
+        push out ucl.name
+      }
+    }
+    return out
+  }
+
+  ; The interfaces this class implements: one per sealable union it belongs to.
+  fn unionInterfacesOf:[string] (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    def out:[string]
+    def rootCtx:RangerAppWriterContext (ctx.getRoot())
+    for rootCtx.definedClasses ucl:RangerAppClassDesc uci {
+      if (this.unionIsSealable(ucl ctx)) {
+        if ((indexOf ucl.is_union_of cl.name) >= 0) {
+          push out (this.unionInterfaceName(ucl.name))
+        }
+      }
+    }
+    return out
+  }
+
   fn lineEnding:string () {
     return ""
   }

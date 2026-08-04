@@ -7,10 +7,10 @@
 > `shape` parses, type-checks and lowers to a record class per case plus a union
 > over them; `match` covers a family with the compiler checking that every case is
 > handled exactly once; `@(value)` / `@(reference)` give each case declared
-> copy-and-compare semantics with the equality generated per shape; and two
+> copy-and-compare semantics with the equality generated per shape; and four
 > targets now carry the family in their own representation — TypeScript as a
-> union type, Kotlin as a sealed interface. Rust's enum, C++'s compact handle and
-> methods declared on a shape are still ahead.
+> union type, Kotlin, C# and Dart as an interface the cases implement. Rust's
+> enum, C++'s compact handle and methods declared on a shape are still ahead.
 >
 > **Origin:** a design discussion about `gallery/game_engine/v2/interp/migrate/src/EvalValue.rgr`,
 > the largest hand-rolled tagged union in this repo.
@@ -511,12 +511,12 @@ never broken and were not touched (§2.1).
 | **C++** | `CompactTaggedHandle` | `mpark::variant<shared_ptr<A>, …>` — **works, runs** | `enum class Kind : uint8_t` + `double scalar_` + `shared_ptr<Payload>`: **32 bytes against today's 680**, primitives allocate nothing |
 | **TypeScript** | union type — **done (S5)** | `instanceof` on one class per case — works | ✅ `type union_Value = A\|B\|…`, narrowed by `instanceof`, verified with `tsc --noEmit` |
 | **ES6** | `FlatTaggedObject` | same as TS, no annotations — works | `{ kind, … }` objects; Null/Undefined/Hole as frozen singletons |
-| **C#** | `CompactTaggedHandle` | `dynamic` + `is` — works, but `dynamic` defeats every static check | `readonly struct` with tag + `double` + `object?`; an `EvalValue[]` stops boxing every element |
+| **C#** | interface — **done (S5)**; `CompactTaggedHandle` later | `dynamic` + `is` | ✅ `public interface union_Value` implemented by each case; a `readonly struct` with tag + scalar + payload is the later optimization |
 | **Kotlin** | `BoxedSealedHierarchy` — **done (S5)** | `Any` + `is`/`as` | ✅ `sealed interface union_Value` implemented by each case; no wrapping at any call site |
 | **Go** | tagged struct | `interface{}` + type switch — **works, runs** | struct with a tag field and per-variant pointers; the type switch becomes a tag switch |
 | **Python** | `FlatTaggedObject` | `isinstance` — works, runs | small classes with `__slots__`, or a tag + payload tuple |
 | **Swift 6** | `NativeSumType` | `Any` + `as!` — works | Swift enums carry payloads natively; `switch` is exhaustive by the language |
-| **Dart** | `BoxedSealedHierarchy` | `dynamic` + `is` — **valid output** | Dart 3 sealed classes give exhaustive `switch` for free |
+| **Dart** | `BoxedSealedHierarchy` — **done (S5)** | `dynamic` + `is` | ✅ `abstract class union_Value` implemented by each case; Dart 3 `sealed` would add exhaustive `switch` |
 | **PHP / Scala / Java7** | `UnionOfClasses` / sealed | works | Scala already emits a `match`; Java 17+ sealed classes if the target moves |
 
 ### 5.1 What S0 changed, per target
@@ -597,7 +597,7 @@ Each stage is independently shippable and independently testable.
 | **S2 — done** | `match` + exhaustiveness checking (§6.2). Lowering: a chain of `case` narrowings, so no target needs native pattern matching. | ✅ A missing case, a duplicate case and a `_` catch-all are compile errors naming what is wrong; the same `match` program runs identically on ES6, Python, Go and Rust |
 | **S3 — done in S1/S2** | `group`, group-typed parameters, group arms in `match`, group fields. | ✅ A group is a union of its members, carries fields its cases inherit, and types a parameter |
 | **S4 — done** | `@(value)` / `@(reference)`, the generated equality, the `identical` operator, the immutability rule for value cases (§6.3). | ✅ One program answers `true false false true false true` on ES6, Python, Go, C++ and Rust; mutating a value case and `@(value)` on a non-scalar case are compile errors |
-| **S5 — started** | Native representations, one target at a time; `UnionOfClasses` stays the fallback (§6.4). **TypeScript** and **Kotlin** done. | ✅ TS emits `type union_Value = …` and the generated file passes `tsc --noEmit`; Kotlin emits `sealed interface union_Value` implemented by each case. Rust's enum and C++'s compact handle still ahead |
+| **S5 — started** | Native representations, one target at a time; `UnionOfClasses` stays the fallback (§6.4). **TypeScript, Kotlin, C# and Dart** done. | ✅ TS emits `type union_Value = …` and passes `tsc --noEmit`; Kotlin, C# and Dart emit an interface each case implements, replacing `Any` / `dynamic`. Rust's enum and C++'s compact handle still ahead |
 | **S6** | Inline payload records, tag pinning, whole-program variant elimination, `match` as an expression. | — |
 
 Testing follows the pattern already in the repo: fixtures under `tests/fixtures/`,
@@ -798,7 +798,7 @@ describe (v : union_Value) : string { if (v instanceof Value_Num) { … } }
 with no cast. The test runs `tsc --noEmit` over the generated file: the check
 is not "the string looks right" but "the TypeScript compiler agrees".
 
-**Kotlin — a sealed interface per union.**
+**Kotlin, C# and Dart — an interface per union.**
 
 ```kotlin
 sealed interface union_Value
@@ -808,15 +808,32 @@ class Value_Items( identityId : Int, items : MutableList<union_Value> ) : union_
 fun describe( v : union_Value) : String
 ```
 
+C# and Dart take the same shape, which is the point:
+
+```csharp
+public interface union_Value { }
+class Value_Items : union_Value, union_Value_Ref { … }
+public String describe( union_Value v )        // was: dynamic v
+```
+
+```dart
+abstract class union_Value {}
+class Value_Items implements union_Value, union_Value_Ref { … }
+String describe(union_Value v)                 // was: dynamic v
+```
+
 This is the representation with the best cost/benefit ratio of the whole stage:
 a class *implements* an interface, so **nothing has to be wrapped, converted or
 unwrapped at any call site** — the reason S1's Rust work needed a hook in every
-argument loop and this needed none. The same trick fits C#, Java, Swift and
-Dart, which is where S5 should go next.
+argument loop and this needed none. On C# it also removes `dynamic`, which
+compiled but gave up every compile-time check and routed each access through the
+DLR. The decision lives once in `RangerGenericClassWriter` (`unionIsSealable`,
+`unionInterfacesOf`); each writer only spells its own syntax.
 
-Two rules keep it honest: a union whose members are not all classes (a union
-over primitives) stays `Any`, and the compiler's own `Any` union — which
-contains *every* class — is never made an interface.
+Two rules keep it honest, and they are shared: a union whose members are not all
+classes (a union over primitives — `Int` cannot implement anything) keeps the
+target's top type, and the compiler's own `Any` union — which contains *every*
+class — is never made an interface.
 
 Still ahead:
 
@@ -824,7 +841,7 @@ Still ahead:
 |---|---|---|
 | Rust | `enum Value { Num(Rc<RefCell<Value_Num>>), … }` | A member has to be *wrapped* into the enum at every site a value flows into the family — argument, local, field, return, push. The `dyn Any` handle needs none of that, which is why S1 could use it. |
 | C++ | `Kind` + scalar slot + payload pointer (32 bytes against 680) | Construction, narrowing and member access all change together; `mpark::variant` is correct today and only slow. |
-| C# / Dart / Swift | interface / protocol, as Kotlin | Same shape as the Kotlin change; none of the three has a toolchain in this environment to verify against. |
+| Swift | protocol, as Kotlin / C# / Dart | Same shape as the others; no Swift toolchain in this environment to verify against. |
 | Go | tag + per-variant pointers | An interface needs a method to be more than `interface{}`. |
 
 **Where S1 lands, per target.** S1 touches no writer, so the S1 result on each target
