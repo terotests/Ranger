@@ -36502,9 +36502,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   this.registerFreshStringTemp(cres, lctx);
                   return cres;
                 }
-                const sz = builder.emitConst("i32", "4096");
-                const raw = builder.emitHeapAlloc(sz);
-                const buf = builder.emitIntToI8Ptr(raw, lctx.ptrType);
                 let aFmt = "%d";
                 let aType = "i32";
                 if ( aStr ) {
@@ -36528,17 +36525,43 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   }
                 }
                 const fmtLit = aFmt + bFmt;
+                const fmtG = this.internStringGlobal(fmtLit, false);
+                const fmtPtr = builder.emitStrPtr(fmtG, this.stringGlobalByteLen(fmtG));
+                const aVal = this.lowerConcatOperand(aNode, aStr, lctx);
+                const bVal = this.lowerConcatOperand(bNode, bStr, lctx);
+                let measParams = [];
+                measParams.push("i8*");
+                measParams.push("i64");
+                measParams.push("i8*");
+                this.ensureExternDecl("snprintf", "i32", measParams, true);
+                const nullSized = builder.emitConst(lctx.ptrType, "0");
+                const nullBuf = builder.emitIntToI8Ptr(nullSized, lctx.ptrType);
+                const zeroLen = builder.emitConst("i64", "0");
+                let measArgs = [];
+                let measTypes = [];
+                measArgs.push(nullBuf);
+                measTypes.push("i8*");
+                measArgs.push(zeroLen);
+                measTypes.push("i64");
+                measArgs.push(fmtPtr);
+                measTypes.push("i8*");
+                measArgs.push(aVal);
+                measTypes.push(aType);
+                measArgs.push(bVal);
+                measTypes.push(bType);
+                const needLen = builder.emitCall("snprintf", "i32", measArgs, measTypes);
+                const onePad = builder.emitConst("i32", "1");
+                const sz = builder.emitBin("add", "i32", needLen, onePad);
+                const raw = builder.emitHeapAlloc(sz);
+                const buf = builder.emitIntToI8Ptr(raw, lctx.ptrType);
                 let args = [];
                 let argTypes = [];
                 args.push(buf);
                 argTypes.push("i8*");
-                const fmtG = this.internStringGlobal(fmtLit, false);
-                args.push(builder.emitStrPtr(fmtG, this.stringGlobalByteLen(fmtG)));
+                args.push(fmtPtr);
                 argTypes.push("i8*");
-                const aVal = this.lowerConcatOperand(aNode, aStr, lctx);
                 args.push(aVal);
                 argTypes.push(aType);
-                const bVal = this.lowerConcatOperand(bNode, bStr, lctx);
                 args.push(bVal);
                 argTypes.push(bType);
                 builder.emitCall("sprintf", "i32", args, argTypes);

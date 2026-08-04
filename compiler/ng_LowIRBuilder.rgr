@@ -790,9 +790,6 @@ class LowIRBuilderPass {
       this.registerFreshStringTemp(cres lctx)
       return cres
     }
-    def sz (builder.emitConst("i32" "4096"))
-    def raw (builder.emitHeapAlloc(sz))
-    def buf (builder.emitIntToI8Ptr(raw lctx.ptrType))
     ; Per-operand format AND argument type. A non-string operand used to be
     ; assumed i32, so concatenating a DOUBLE emitted `%d` and passed the f64
     ; value in an i32 slot -- invalid IR, and the wrong text if it had linked.
@@ -820,17 +817,46 @@ class LowIRBuilderPass {
       }
     }
     def fmtLit:string (aFmt + bFmt)
+    def fmtG (this.internStringGlobal(fmtLit false))
+    def fmtPtr (builder.emitStrPtr(fmtG (this.stringGlobalByteLen(fmtG))))
+    def aVal (this.lowerConcatOperand(aNode aStr lctx))
+    def bVal (this.lowerConcatOperand(bNode bStr lctx))
+    ; MEASURE, then allocate. The buffer used to be a fixed 4096 bytes, so any
+    ; concatenation whose result was longer wrote past it -- appending a suffix
+    ; to a 32 KB source file corrupted the heap before the program did anything.
+    def measParams:[string]
+    push measParams "i8*"
+    push measParams "i64"
+    push measParams "i8*"
+    this.ensureExternDecl("snprintf" "i32" measParams true)
+    def nullSized (builder.emitConst(lctx.ptrType "0"))
+    def nullBuf (builder.emitIntToI8Ptr(nullSized lctx.ptrType))
+    def zeroLen (builder.emitConst("i64" "0"))
+    def measArgs:[string]
+    def measTypes:[string]
+    push measArgs nullBuf
+    push measTypes "i8*"
+    push measArgs zeroLen
+    push measTypes "i64"
+    push measArgs fmtPtr
+    push measTypes "i8*"
+    push measArgs aVal
+    push measTypes aType
+    push measArgs bVal
+    push measTypes bType
+    def needLen (builder.emitCall("snprintf" "i32" measArgs measTypes))
+    def onePad (builder.emitConst("i32" "1"))
+    def sz (builder.emitBin("add" "i32" needLen onePad))
+    def raw (builder.emitHeapAlloc(sz))
+    def buf (builder.emitIntToI8Ptr(raw lctx.ptrType))
     def args:[string]
     def argTypes:[string]
     push args buf
     push argTypes "i8*"
-    def fmtG (this.internStringGlobal(fmtLit false))
-    push args (builder.emitStrPtr(fmtG (this.stringGlobalByteLen(fmtG))))
+    push args fmtPtr
     push argTypes "i8*"
-    def aVal (this.lowerConcatOperand(aNode aStr lctx))
     push args aVal
     push argTypes aType
-    def bVal (this.lowerConcatOperand(bNode bStr lctx))
     push args bVal
     push argTypes bType
     builder.emitCall("sprintf" "i32" args argTypes)

@@ -4,7 +4,7 @@
 //
 //   node run.cjs                              # all suites, all available targets
 //   node run.cjs richards,deltablue,regexp
-//   node run.cjs --targets=es6,cpp,rust richards
+//   node run.cjs --targets=es6,cpp,rust,llvm richards
 //
 // Requires:
 //   bash scripts/build-engine-module.sh          # es6
@@ -28,7 +28,7 @@ const ALL_SUITES = [
   "splay",
   "navier-stokes",
 ];
-const ALL_TARGETS = ["es6", "cpp", "rust"];
+const ALL_TARGETS = ["es6", "cpp", "rust", "llvm"];
 
 const ZOO_V8 = {
   Richards: 37102,
@@ -219,7 +219,7 @@ function runNative(target, preparedPath) {
 
 function targetAvailable(t) {
   if (t === "es6") return fs.existsSync(path.join(BIN_ROOT, "engine_module.cjs"));
-  if (t === "cpp" || t === "rust") return fs.existsSync(nativeBin(t));
+  if (t === "cpp" || t === "rust" || t === "llvm") return fs.existsSync(nativeBin(t));
   return false;
 }
 
