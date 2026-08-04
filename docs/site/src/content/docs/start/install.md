@@ -27,7 +27,7 @@ rgrc program.rgr -l=go -d=./bin -o=program.go
 
 | Option | Function |
 | --- | --- |
-| `-l=<target>` | The target language. One of `es6`, `go`, `scala`, `java7`, `swift3`, `swift6`, `kotlin`, `cpp`, `php`, `csharp`, `python`, `rust`. |
+| `-l=<target>` | The target language. One of `es6`, `go`, `scala`, `java7`, `swift3`, `swift6`, `kotlin`, `dart`, `cpp`, `php`, `csharp`, `python`, `rust`. |
 | `-d=<directory>` | The output directory. The default is `bin/`. |
 | `-o=<file>` | The output file. The default is `output.<extension>`. |
 | `-typescript` | Write JavaScript with TypeScript annotations. |

@@ -3,7 +3,7 @@ title: Memory and ownership
 description: How the compiler analyses object lifetime, what the analysis changes in the output, and what the memory annotations do for each target.
 ---
 
-Nine of the twelve target languages collect the memory that a program stops
+Ten of the thirteen target languages collect the memory that a program stops
 using. Three do not: C++ and Swift count references, and Rust owns and moves.
 For those three the compiler must decide where each object lives and who keeps
 it alive.
@@ -275,7 +275,7 @@ Ranger has four annotations for memory: `weak`, `strong`, `lives` and `temp`.
 The table states what each target does with them, measured by a compilation of
 the same program with and without each annotation.
 
-| Annotation | C++ | Swift | Rust | The nine other targets |
+| Annotation | C++ | Swift | Rust | The ten other targets |
 | --- | --- | --- | --- | --- |
 | `weak` | The field becomes `r_weak<T>`, which holds a `std::weak_ptr<T>` | With `optional`, the field becomes `weak var x : T?` | The field becomes `Option<Weak<RefCell<T>>>`. It works with the shared-class default and not under `-rust-value-classes`. See below. | No change, and none is necessary |
 | `strong` | No change | No change | — | No change |

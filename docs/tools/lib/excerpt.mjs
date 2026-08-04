@@ -17,6 +17,7 @@ const MAIN_PATTERNS = {
   python: [/^def\s+main\s*\(/],
   java7: [/public\s+static\s+void\s+main\s*\(/],
   kotlin: [/^fun\s+main\s*\(/],
+  dart: [/^void\s+main\s*\(/],
   swift6: [/static\s+func\s+main\s*\(/, /^func\s+__swift_main\s*\(/],
   swift3: [/static\s+func\s+main\s*\(/, /^func\s+__swift_main\s*\(/],
   csharp: [/static\s+void\s+Main\s*\(/, /public\s+static\s+void\s+main\s*\(/],
