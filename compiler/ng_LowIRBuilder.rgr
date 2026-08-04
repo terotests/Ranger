@@ -7170,6 +7170,30 @@ class LowIRBuilderPass {
       def argTypes:[string]
       return (builder.emitCall("ranger_mem_live_objects" "i32" args argTypes))
     }
+    ; RangerMem.mapValueUnique(m key) -- is the value under `key` held by
+    ; nothing but the map itself? The test runs entirely in the runtime, where
+    ; no local holds the value, so it needs no calibration: rc == 1 means the
+    ; map's reference and nothing else. The caller may then update that value in
+    ; place instead of allocating a replacement.
+    if (fnName == "RangerMem_mapValueUnique") {
+      if ((array_length argsNode.children) > 1) {
+        this.usedMemRuntime = true
+        this.ensureMemExtern((LowIRTarget.resolve((unwrap lctx.ctx))))
+        def uqDecl:[string]
+        push uqDecl "i64"
+        push uqDecl "i8*"
+        this.ensureExternDecl("rt_smap_value_unique" "i32" uqDecl false)
+        def mapNode (itemAt argsNode.children 0)
+        def uqDesc (this.smapDescFromVref(mapNode.vref lctx))
+        def uqRest:[string]
+        def uqTypes:[string]
+        push uqRest (this.lowerExpr((itemAt argsNode.children 1) lctx))
+        push uqTypes "i8*"
+        def uqRes (this.emitSMapCall("rt_smap_value_unique" "i32" uqDesc uqRest uqTypes lctx))
+        return (this.toI1(uqRes lctx))
+      }
+      return notIntrinsic
+    }
     ; RangerMem.refCount(v) -- how many references the runtime is tracking for
     ; this object. Only meaningful where objects are reference counted; on the
     ; targets that are not, the class body's `return 0` stands, and a caller

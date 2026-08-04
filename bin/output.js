@@ -42090,6 +42090,25 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   let argTypes = [];
                   return builder.emitCall("ranger_mem_live_objects", "i32", args, argTypes);
                 }
+                if ( fnName == "RangerMem_mapValueUnique" ) {
+                  if ( (argsNode.children.length) > 1 ) {
+                    this.usedMemRuntime = true;
+                    this.ensureMemExtern(LowIRTarget.resolve((lctx.ctx)));
+                    let uqDecl = [];
+                    uqDecl.push("i64");
+                    uqDecl.push("i8*");
+                    this.ensureExternDecl("rt_smap_value_unique", "i32", uqDecl, false);
+                    const mapNode = argsNode.children[0];
+                    const uqDesc = this.smapDescFromVref(mapNode.vref, lctx);
+                    let uqRest = [];
+                    let uqTypes = [];
+                    uqRest.push(this.lowerExpr((argsNode.children[1]), lctx));
+                    uqTypes.push("i8*");
+                    const uqRes = this.emitSMapCall("rt_smap_value_unique", "i32", uqDesc, uqRest, uqTypes, lctx);
+                    return this.toI1(uqRes, lctx);
+                  }
+                  return notIntrinsic;
+                }
                 if ( fnName == "RangerMem_refCount" ) {
                   if ( (argsNode.children.length) > 0 ) {
                     this.usedMemRuntime = true;

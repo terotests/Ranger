@@ -253,6 +253,38 @@ class EvalContext {
     ; by a with-object, or bound to a non-number — the caller falls back to
     ; the full read-convert-write path. The binding is REPLACED, never
     ; mutated, so aliases keep the old immutable number.
+    ; Update the binding's number IN PLACE when nothing but this scope's own
+    ; map holds it. `i++` in a loop header writes the same binding every time
+    ; and its result is discarded, so the replacement object it used to mint was
+    ; pure waste -- one allocation per iteration, the last one left in an empty
+    ; loop. The uniqueness test runs inside the runtime, where no local holds
+    ; the value, so a pooled small integer or a value a second binding aliases
+    ; is rejected by its reference count and takes the allocating path below.
+    ; Returns false when the fast path does not apply.
+    fn bumpNumberInPlace:boolean (name:string delta:double) {
+        if withObject {
+            return false
+        }
+        if (has bindings name) {
+            if (RangerMem.mapValueUnique(bindings name)) {
+                def cur@(optional):EvalValue (get bindings name)
+                if cur {
+                    def c:EvalValue (unwrap cur)
+                    if (c.valueType == 1) {
+                        c.numberValue = (c.numberValue + delta)
+                        return true
+                    }
+                }
+            }
+            return false
+        }
+        if parent {
+            def p:EvalContext (unwrap parent)
+            return (p.bumpNumberInPlace(name delta))
+        }
+        return false
+    }
+
     fn bumpNumberOld@(optional):EvalValue (name:string delta:double) {
         if withObject {
             def noneW@(optional):EvalValue
@@ -5862,6 +5894,27 @@ class ComponentEngine {
     ; anything, so the loop counter never moved and the loop ran until the
     ; iteration cap -- a hang, not a wrong answer.
     fn evaluateUpdateExpr:void (node:TSNode) {
+        ; Statement position: the value is discarded, so a plain `i++` on a
+        ; uniquely-owned number binding needs no result object at all.
+        if (false == anyWithScope) {
+            if ((this.nodeKindOf(node)) == 7) {
+                if node.left {
+                    def upLeft:TSNode (unwrap node.left)
+                    if ((this.nodeKindOf(upLeft)) == 1) {
+                        def upOp:int (this.opKindOf(node))
+                        def upDelta:double 1.0
+                        if (upOp == 18) {
+                            upDelta = (0.0 - 1.0)
+                        }
+                        if ((upOp == 17) || (upOp == 18)) {
+                            if (context.bumpNumberInPlace(upLeft.name upDelta)) {
+                                return
+                            }
+                        }
+                    }
+                }
+            }
+        }
         def ignored:EvalValue (this.evaluateExpr(node))
     }
 

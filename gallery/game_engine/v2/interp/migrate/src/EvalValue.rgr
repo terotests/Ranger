@@ -20,6 +20,18 @@ Import "../../../../../ts_parser/ts_parser_simple.rgr"
 ; 9 = Map  (ordered; keys in arrayValue, values in mapVals, matched by index)
 ; 10 = Set (ordered unique elements in arrayValue)
 
+; Runtime hooks the LLVM backend replaces with intrinsics. Every other target
+; keeps these bodies, so the optimisations they gate simply never fire there --
+; the answers below are the conservative ones.
+class RangerMem {
+    sfn liveObjects:int () { return 0 }
+    sfn resetStats:void () { }
+    ; "Is the value under `key` held by nothing but this map?" Only a reference
+    ; counted runtime can answer; without one the honest answer is "cannot tell",
+    ; which callers must read as "not unique".
+    sfn mapValueUnique:boolean (m:[string:EvalValue] key:string) { return false }
+}
+
 class EvalValue {
     def valueType:int 0         ; Type tag
     def numberValue:double 0.0

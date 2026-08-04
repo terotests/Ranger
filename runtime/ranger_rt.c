@@ -363,6 +363,7 @@ static void rt_smap_reindex(RtSMap *m, int32_t new_cap) {
 
 extern void ranger_obj_retain(int64_t body);
 extern void ranger_obj_release(int64_t body);
+extern int ranger_obj_refcount(int64_t body);
 
 static void rt_smap_retain_value(RtSMap *m, int64_t v) {
   if (m->valkind == 1 && v != 0) {
@@ -626,6 +627,38 @@ void rt_smap_clear_value_slot(int64_t map, int32_t i) {
     return;
   }
   m->entries[i].value = 0;
+}
+
+/* Is the value under `key` held by NOBODY BUT this map?
+ *
+ * The reference count answers "is this value uniquely owned", which is the
+ * exact condition for updating it in place instead of allocating a replacement
+ * -- an interpreter's `i++` writes the same binding every time and never needs
+ * a new object. Asking from Ranger does not work: the surrounding function's
+ * own locals each hold a reference, so the baseline is whatever that function's
+ * shape happens to produce, and a hard-coded threshold silently becomes wrong
+ * when the function is edited. Here there are no locals at all, so rc == 1 is
+ * unambiguous: the map's own reference and nothing else.
+ *
+ * A pooled small integer or an interned literal is rejected for free -- the
+ * pool array holds a second reference -- and so is a value a second binding
+ * aliases. Both are exactly the cases that must not be mutated. */
+int rt_smap_value_unique(int64_t map, const char *key) {
+  RtSMap *m = (RtSMap *)(intptr_t)map;
+  int32_t ei;
+  int64_t val;
+  if (m == NULL || key == NULL || m->valkind != 1) {
+    return 0;
+  }
+  ei = rt_smap_find(m, key, rt_smap_hash(key));
+  if (ei < 0) {
+    return 0;
+  }
+  val = m->entries[ei].value;
+  if (val == 0) {
+    return 0;
+  }
+  return (ranger_obj_refcount(val) == 1) ? 1 : 0;
 }
 
 void RtSMap_retain(int64_t map) {

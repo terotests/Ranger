@@ -225,7 +225,7 @@ A general "recycle any value" pool is a different proposition: it needs to know
 when a value dies, which reference counting already knows — and that path is
 exactly the allocator-level pool measured above at ~0–2.5%.
 
-## Getting the last allocation to zero: what stands in the way
+## Getting the last allocation to zero
 
 After literal interning, `for (var i = 0; i < 100000; i++) { }` allocates
 exactly one object per iteration — the incremented `i`. The binding is the same
@@ -250,12 +250,39 @@ that function is edited, and the failure mode is a mutated value that another
 binding can still see — silent corruption in a JavaScript engine. That check is
 therefore deliberately **not** shipped.
 
-The robust form is a backend one: the compiler emitted every retain in the
-scope, so it can lower an `isUniquelyOwned(v)` intrinsic as *"rc minus the
-references this scope is holding equals one"* without any hard-coded constant.
-That is the piece of work that takes the last allocation out of the loop, and
-it is independent of the value-representation question — it would pay off for
-strings and arrays on the same argument.
+There is a form that needs no calibration at all: run the test **inside the
+runtime**, reading the value straight out of the scope's binding map. No Ranger
+local holds it there, so `rc == 1` is unambiguous — the map's own reference and
+nothing else. `RangerMem.mapValueUnique(m, key)` does exactly that, and a
+statement-position `i++` on a uniquely-owned number binding now writes
+`numberValue` in place instead of minting a replacement.
+
+The safety cases fall out of the reference count rather than needing to be
+enumerated: a pooled small integer and an interned literal each carry a second
+reference from the pool array, and a value a second binding aliases carries one
+from that binding, so all three take the allocating path. Verified against Node:
+
+```js
+var i = 100000; var a = i; i++;   // a stays 100000
+var x = 5;      var y = x; x++;   // y stays 5, and 2+3 is still 5
+var o = {v: 200000}; var p = o.v; o.v++;
+var arr = [300000]; var e = arr[0]; arr[0]++;
+function f(n) { n++; return n; }  // the caller's binding is untouched
+```
+
+All six agree with Node exactly.
+
+| | at the start | + literal interning | + in-place `++` |
+| --- | ---: | ---: | ---: |
+| empty 100k loop | 200,641 objects / 0.16 s | 100,641 / 0.11 s | **4,737 / 0.04 s** |
+| `s = s + i`, 100k | 300,570 objects | 200,570 | **104,666** |
+| 300k arithmetic loop | 0.97 s | 0.68 s | **0.46 s** |
+| Richards | 24.25 s | 23.44 s | 23.24 s |
+
+**An empty loop now allocates nothing per iteration** — 4,737 objects is the
+fixed cost of loading the script — and the arithmetic loop is 2.1× faster than
+where this section started. The one allocation left in `s = s + i` is the sum
+itself: a binary expression has no destination binding to write into.
 
 ## Where the real headroom is, in rough order
 
