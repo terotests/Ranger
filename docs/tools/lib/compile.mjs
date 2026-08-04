@@ -18,6 +18,7 @@ export const TARGETS = [
   { id: "python", title: "Python", ext: "py", highlight: "python" },
   { id: "java7", title: "Java", ext: "java", highlight: "java" },
   { id: "kotlin", title: "Kotlin", ext: "kt", highlight: "kotlin" },
+  { id: "dart", title: "Dart", ext: "dart", highlight: "dart" },
   { id: "swift6", title: "Swift", ext: "swift", highlight: "swift" },
   { id: "csharp", title: "C#", ext: "cs", highlight: "csharp" },
   { id: "cpp", title: "C++", ext: "cpp", highlight: "cpp" },

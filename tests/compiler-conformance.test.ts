@@ -4,8 +4,10 @@ import * as path from "path";
 import { fileURLToPath } from "url";
 import {
   compileAndRun,
+  compileAndRunDart,
   compileAndRunGo,
   compileAndRunKotlin,
+  isDartAvailable,
   isGoAvailable,
   isKotlinAvailable,
 } from "./helpers/compiler";
@@ -100,6 +102,15 @@ describe("Cross-target conformance suite (Track 1)", () => {
       it(`should match expected output for ${caseName}`, () => {
         const program = `tests/conformance/${caseName}/program.rgr`;
         assertConformance("Kotlin", caseName, compileAndRunKotlin(program));
+      });
+    }
+  });
+
+  describe.skipIf(!isDartAvailable())("Dart target", () => {
+    for (const caseName of cases) {
+      it(`should match expected output for ${caseName}`, () => {
+        const program = `tests/conformance/${caseName}/program.rgr`;
+        assertConformance("Dart", caseName, compileAndRunDart(program));
       });
     }
   });

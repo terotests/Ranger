@@ -75,7 +75,7 @@ so it can run on several platforms. Node.js is the official host, because
 external plugins are only available as npm packages.
 
 **Primary targets** — exercised by the test suite: `JavaScript` / `TypeScript`
-(ES2015), `Go` (1.8), `Python` (3.x), `Rust`, `Kotlin`, `Swift` (3 and 6) and
+(ES2015), `Go` (1.8), `Python` (3.x), `Rust`, `Kotlin`, `Dart`, `Swift` (3 and 6) and
 `C++` (C++14).
 
 **Non-primary targets** — `PHP`, `Java 7`, `C#` and `Scala` still have operator
@@ -91,13 +91,13 @@ a compiler flag. Support is uneven:
 | Host/runtime | Node.js is the primary supported host for the compiler |
 | Self-hosting | Actively used, but full compiler generation quality is strongest in JavaScript |
 | JavaScript / ES6 | Best baseline target and most reliable place to start |
-| Go / Swift / Rust / Kotlin / C++ | Useful and increasingly capable, but expect edge cases and target-specific gaps |
+| Go / Swift / Rust / Kotlin / Dart / C++ | Useful and increasingly capable, but expect edge cases and target-specific gaps |
 | PHP / Java / C# / Scala | Untested. Templates exist; no CI coverage |
 | **LLVM / WASM** (`-l=llvm`) | **Experimental.** Lowers to LLVM IR; optional WAT export for freestanding WASM. Native libc builds work for demos like Space Invaders; browser WASM is still rough. Another codegen path from the same sources, not a separate surface language. See `npm run test:llvm`, `npm run game:build:llvm`. |
 | Gallery examples | Good for understanding direction and capability, but some require manual setup or platform-specific tooling |
 
 **Targets are not equally demanding of the source.** A target with a garbage
-collector — JavaScript, Go, Python, Kotlin, Java, C# — takes almost any Ranger
+collector — JavaScript, Go, Python, Kotlin, Dart, Java, C# — takes almost any Ranger
 source as written. A target without one — C++, Rust, and Swift's reference
 counting — needs the ownership annotations (`@(weak)`, `@(strong)`, `@(lives)`,
 `@(temp)`, see [Annotations](#annotations)) wherever the object graph has a
@@ -117,13 +117,13 @@ Regenerate the fixture list with `node scripts/generate-conformance-table.mjs`.
 <!-- BEGIN CONFORMANCE_TABLE -->
 | Fixture | Topic | Targets |
 | --- | --- | --- |
-| `array_param_mutate` | array parameters use reference semantics (Issue #58; Go known gap) | ES6, Go, Kotlin (when toolchain present) |
-| `clear_then_push` | clear resets slice without nil, push refills (Issue #59) | ES6, Go, Kotlin (when toolchain present) |
-| `int_division_to_double` | Conformance: integer division promoted to double (Issue #4) | ES6, Go, Kotlin (when toolchain present) |
-| `lf_line_endings` | LF-only source (Issue #12 class must not break operator spacing) | ES6, Go, Kotlin (when toolchain present) |
-| `math_ops` | Conformance: arithmetic and comparisons | ES6, Go, Kotlin (when toolchain present) |
-| `string_codepoint_index` | Conformance: Unicode code-point string indexing (Issue #57) | ES6, Go, Kotlin (when toolchain present) |
-| `while_loop` | Conformance: while loop control flow | ES6, Go, Kotlin (when toolchain present) |
+| `array_param_mutate` | array parameters use reference semantics (Issue #58; Go known gap) | ES6, Go, Kotlin, Dart (when toolchain present) |
+| `clear_then_push` | clear resets slice without nil, push refills (Issue #59) | ES6, Go, Kotlin, Dart (when toolchain present) |
+| `int_division_to_double` | Conformance: integer division promoted to double (Issue #4) | ES6, Go, Kotlin, Dart (when toolchain present) |
+| `lf_line_endings` | LF-only source (Issue #12 class must not break operator spacing) | ES6, Go, Kotlin, Dart (when toolchain present) |
+| `math_ops` | Conformance: arithmetic and comparisons | ES6, Go, Kotlin, Dart (when toolchain present) |
+| `string_codepoint_index` | Conformance: Unicode code-point string indexing (Issue #57) | ES6, Go, Kotlin, Dart (when toolchain present) |
+| `while_loop` | Conformance: while loop control flow | ES6, Go, Kotlin, Dart (when toolchain present) |
 <!-- END CONFORMANCE_TABLE -->
 
 ## Quick start
@@ -216,6 +216,7 @@ target, and the operator polyfill system are documented in
 npm test                  # Run all tests
 npm run test:es6          # JavaScript/ES6 tests only
 npm run test:python       # Python target tests
+npm run test:dart         # Dart target tests (requires Dart SDK)
 npm run test:go           # Go target tests
 npm run test:rust         # Rust target tests
 npm run test:syntaxapp    # The syntax app on every target
@@ -231,7 +232,7 @@ of the 207 core operator names of `compiler/Lang.rgr` together with classes,
 inheritance, traits, records, enums, extensions, lambdas, optionals, buffers,
 custom operators and the collection methods of `lib/stdlib.rgr`.
 `npm run test:syntaxapp` compiles it — and each of its sections on its own — to
-all fourteen targets the CLI accepts, then builds and runs the output with
+all fifteen targets the CLI accepts, then builds and runs the output with
 `node`, `tsc`, `go`, `python3`, `rustc`, `g++`, `javac`, `php` and `lli`,
 whichever of them the machine has, and compares what each one printed with the
 output of the reference target.

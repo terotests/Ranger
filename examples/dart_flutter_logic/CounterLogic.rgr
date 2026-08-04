@@ -1,0 +1,42 @@
+; Example: shared application logic for a Flutter UI.
+; Compile to a Dart package the Flutter app imports — do not generate widgets.
+;
+;   RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr" \
+;     node bin/output.js examples/dart_flutter_logic/CounterLogic.rgr \
+;       -l=dart -pubspec -name=counter_logic -version=0.1.0 \
+;       -description="Shared counter logic from Ranger" \
+;       -d=examples/dart_flutter_logic/generated -o=counter_logic.dart
+
+class CounterLogic {
+  def value:int 0
+
+  Constructor (initial:int) {
+    value = initial
+  }
+
+  fn increment:int (by:int) {
+    value = value + by
+    return value
+  }
+
+  fn decrement:int (by:int) {
+    value = value - by
+    return value
+  }
+
+  fn reset:void () {
+    value = 0
+  }
+
+  fn label:string () {
+    return ("count=" + value)
+  }
+
+  sfn m@(main):void () {
+    def c (new CounterLogic (0))
+    c.increment(3)
+    c.decrement(1)
+    print (c.label())
+    print "Done"
+  }
+}

@@ -3,9 +3,9 @@ title: Ownership and lifetime
 description: Who keeps an object alive in a Ranger program, what the compiler infers by itself, and the annotations that state what it cannot infer.
 ---
 
-Nine of the twelve target languages collect the memory that a program stops
+Ten of the thirteen target languages collect the memory that a program stops
 using. Three do not: C++ and Swift count references, and Rust owns and moves.
-One Ranger program compiles to all twelve, so the language needs one model.
+One Ranger program compiles to all thirteen, so the language needs one model.
 
 This page states the model. The
 [memory page](/Ranger/docs/targets/memory/) states what each target writes for

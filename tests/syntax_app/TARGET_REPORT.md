@@ -5,25 +5,25 @@ the expected output; `c` = compiled (not run here); `diff` = ran and
 printed something else; `run` = the target toolchain or the program
 failed; `-` = the Ranger compiler rejected it.
 
-| unit | es6 | typescript | go | python | rust | cpp | kotlin | swift6 | swift3 | java7 | csharp | scala | php | llvm |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| app | ok | run | run | run | - | run | c | c | - | run | c | - | - | - |
-| section:numeric | ok | run | ok | ok | run | ok | c | c | c | ok | c | c | ok | - |
-| section:bitwise | ok | ok | ok | ok | run | ok | c | c | c | ok | c | c | run | run |
-| section:strings | ok | ok | ok | ok | - | ok | c | c | c | run | c | c | ok | - |
-| section:arrays | ok | ok | run | run | run | run | c | c | c | run | c | - | ok | - |
-| section:maps | ok | ok | run | ok | run | ok | c | c | c | run | c | c | ok | - |
-| section:optionals | ok | ok | run | ok | run | run | c | c | c | run | c | c | ok | run |
-| section:control | ok | ok | diff | ok | run | ok | c | c | c | ok | c | c | ok | run |
-| section:oop | ok | run | ok | ok | run | run | c | c | c | ok | c | c | run | - |
-| section:lambdas | ok | ok | ok | run | run | ok | c | c | c | ok | c | c | ok | run |
-| section:buffers | ok | run | ok | run | run | diff | c | c | - | run | c | - | - | - |
-| section:operators | ok | run | ok | run | run | ok | c | c | c | ok | c | c | run | run |
-| section:stdlib | ok | ok | run | run | run | ok | c | c | c | ok | c | c | run | - |
-| narrow | ok | ok | run | run | run | run | c | c | c | - | - | c | run | - |
-| hostops | c | c | - | - | - | - | - | - | - | - | - | - | - | - |
-| http | c | c | c | c | c | c | c | - | - | - | - | - | - | - |
-| process | ok | ok | run | run | run | run | c | c | c | run | c | - | run | run |
+| unit | es6 | typescript | go | python | rust | cpp | kotlin | dart | swift6 | swift3 | java7 | csharp | scala | php | llvm |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| app | ok | run | run | run | - | run | c | run | c | - | run | c | - | - | - |
+| section:numeric | ok | run | ok | ok | run | ok | c | run | c | c | ok | c | c | ok | - |
+| section:bitwise | ok | ok | ok | ok | run | ok | c | ok | c | c | ok | c | c | run | run |
+| section:strings | ok | ok | ok | ok | - | ok | c | run | c | c | run | c | c | ok | - |
+| section:arrays | ok | ok | run | run | run | run | c | run | c | c | run | c | - | ok | - |
+| section:maps | ok | ok | run | ok | run | ok | c | ok | c | c | run | c | c | ok | - |
+| section:optionals | ok | ok | run | ok | run | run | c | ok | c | c | run | c | c | ok | run |
+| section:control | ok | ok | diff | ok | run | ok | c | run | c | c | ok | c | c | ok | run |
+| section:oop | ok | run | ok | ok | run | run | c | ok | c | c | ok | c | c | run | - |
+| section:lambdas | ok | ok | ok | run | run | ok | c | run | c | c | ok | c | c | ok | run |
+| section:buffers | ok | run | ok | run | run | diff | c | run | c | - | run | c | - | - | - |
+| section:operators | ok | run | ok | run | run | ok | c | ok | c | c | ok | c | c | run | run |
+| section:stdlib | ok | ok | run | run | run | ok | c | run | c | c | ok | c | c | run | - |
+| narrow | ok | ok | run | run | run | run | c | - | c | c | - | - | c | run | - |
+| hostops | c | c | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| http | c | c | c | c | c | c | c | c | - | - | - | - | - | - | - |
+| process | ok | ok | run | run | run | run | c | run | c | c | run | c | - | run | run |
 
 ## Operators with no template for a target
 
@@ -191,3 +191,4 @@ Only the cells that are not `ok` and not a plain `compiled` appear here.
 - scala: no runner defined
 - php: php present
 - llvm: lli present
+

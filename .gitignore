@@ -90,3 +90,6 @@ gallery/game_engine/v2/interp/bin/
 
 # TS parser — native binary built on demand (rustc -O ts_parser_main.rs)
 gallery/ts_parser/bin/ts_parser_native
+
+# Dart Flutter logic example generated package
+examples/dart_flutter_logic/generated/

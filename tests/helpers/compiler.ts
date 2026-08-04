@@ -95,6 +95,7 @@ export function compileRanger(
     python: ".py",
     rust: ".rs",
     kotlin: ".kt",
+    dart: ".dart",
     swift3: ".swift",
     swift6: ".swift",
     java7: ".java",
@@ -214,6 +215,7 @@ export function compileRangerWithFlags(
     python: ".py",
     rust: ".rs",
     kotlin: ".kt",
+    dart: ".dart",
     swift3: ".swift",
     swift6: ".swift",
     java7: ".java",
@@ -516,6 +518,7 @@ export function expectOutput(
 // ============================================================================
 
 const KOTLIN_OUTPUT_DIR = path.join(ROOT_DIR, "tests", ".output-kotlin");
+const DART_OUTPUT_DIR = path.join(ROOT_DIR, "tests", ".output-dart");
 
 /**
  * Check if Kotlin compiler is available on the system
@@ -736,6 +739,249 @@ export function expectKotlinOutput(
 
   if (!run.success) {
     throw new Error(`Kotlin runtime error: ${run.error}`);
+  }
+
+
+  const expected = Array.isArray(expectedOutput)
+    ? expectedOutput.join("\n")
+    : expectedOutput;
+
+  if (!run.output.includes(expected)) {
+    throw new Error(
+      `Expected output to contain "${expected}", got: "${run.output}"`
+    );
+  }
+
+  return run;
+}
+
+// ============================================================================
+// Dart compilation and execution helpers
+// ============================================================================
+
+/**
+ * Check if the Dart SDK is available on the system
+ */
+export function isDartAvailable(): boolean {
+  try {
+    execSync("dart --version", {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export interface DartCompileOptions {
+  /** Override RANGER_LIB (default includes Lang.rgr + stdops.rgr). */
+  rangerLib?: string;
+  /** Compile timeout in ms (default 30000; large programs need more). */
+  timeoutMs?: number;
+}
+
+/**
+ * Compile a Ranger source file to Dart
+ */
+export function compileRangerToDart(
+  sourceFile: string,
+  outputDir?: string,
+  extraFlags: string[] = [],
+  options: DartCompileOptions = {}
+): CompileResult {
+  const sourcePath = path.isAbsolute(sourceFile)
+    ? sourceFile
+    : `./${sourceFile.replace(/\\/g, "/")}`;
+
+  const absoluteSource = path.isAbsolute(sourceFile)
+    ? sourceFile
+    : path.join(ROOT_DIR, sourceFile);
+
+  if (!fs.existsSync(absoluteSource)) {
+    return {
+      success: false,
+      output: "",
+      error: `Source file not found: ${absoluteSource}`,
+    };
+  }
+
+  const sourceBasename = path.basename(
+    absoluteSource.replace(/\.clj$/, ".rgr"),
+    ".rgr"
+  );
+  const outputFile = `${sourceBasename}.dart`;
+  const targetDir = outputDir || DART_OUTPUT_DIR;
+
+  if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(targetDir, { recursive: true });
+  }
+
+  try {
+    const env = {
+      ...process.env,
+      RANGER_LIB:
+        options.rangerLib ?? `./compiler/Lang.rgr;./lib/stdops.rgr`,
+    };
+
+    const relativeTargetDir = path
+      .relative(ROOT_DIR, targetDir)
+      .replace(/\\/g, "/");
+
+    const flags = extraFlags.length ? ` ${extraFlags.join(" ")}` : "";
+    const cmd = `node "${OUTPUT_JS}" -l=dart "${sourcePath}"${flags} -d="${relativeTargetDir}" -o="${outputFile}"`;
+
+    const output = execSync(cmd, {
+      cwd: ROOT_DIR,
+      env,
+      encoding: "utf-8",
+      timeout: options.timeoutMs ?? 30000,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    const outputStr = output.toString();
+    const hasError =
+      outputStr.includes("TypeError:") ||
+      outputStr.includes("Compilation FAILED") ||
+      outputStr.includes("[FAIL]") ||
+      outputStr.includes("Got unknown compiler error") ||
+      outputStr.includes("Undefined variable") ||
+      outputStr.includes("invalid variable definition");
+
+    const outputPath = path.join(targetDir, outputFile);
+    if (!hasError && !fs.existsSync(outputPath)) {
+      return {
+        success: false,
+        output: outputStr,
+        error: `Compiler did not create expected output file: ${outputPath}\n${outputStr}`,
+      };
+    }
+
+    return {
+      success: !hasError,
+      output: outputStr,
+      error: hasError ? outputStr : undefined,
+    };
+  } catch (err: any) {
+    const stdout = err.stdout?.toString() || "";
+    const stderr = err.stderr?.toString() || "";
+    const combined = stdout + stderr;
+
+    return {
+      success: false,
+      output: stdout,
+      error: combined || err.message,
+    };
+  }
+}
+
+/**
+ * Run a compiled Dart file with the Dart SDK
+ */
+export function runCompiledDart(
+  dartFile: string,
+  args: string[] = [],
+  options: { cwd?: string; timeoutMs?: number } = {}
+): RunResult {
+  const absoluteDart = path.isAbsolute(dartFile)
+    ? dartFile
+    : path.join(ROOT_DIR, dartFile);
+
+  if (!fs.existsSync(absoluteDart)) {
+    return {
+      success: false,
+      output: "",
+      error: `Dart file not found: ${absoluteDart}`,
+    };
+  }
+
+  const dartDir = options.cwd || path.dirname(absoluteDart);
+  const argStr = args.map((a) => `"${a.replace(/"/g, '\\"')}"`).join(" ");
+
+  try {
+    const output = execSync(
+      `dart run "${absoluteDart}"${argStr ? ` ${argStr}` : ""}`,
+      {
+        cwd: dartDir,
+        encoding: "utf-8",
+        timeout: options.timeoutMs ?? 60000,
+        stdio: ["pipe", "pipe", "pipe"],
+      }
+    );
+
+    return {
+      success: true,
+      output: output.trim(),
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      output: err.stdout || "",
+      error: err.stderr || err.message,
+    };
+  }
+}
+
+/**
+ * Compile and run a Ranger source file as Dart
+ */
+export function compileAndRunDart(sourceFile: string): {
+  compile: CompileResult;
+  run?: RunResult;
+} {
+  const compileResult = compileRangerToDart(sourceFile);
+
+  if (!compileResult.success) {
+    return { compile: compileResult };
+  }
+
+  const absoluteSource = path.isAbsolute(sourceFile)
+    ? sourceFile
+    : path.join(ROOT_DIR, sourceFile);
+  const sourceBasename = path.basename(
+    absoluteSource.replace(/\.clj$/, ".rgr"),
+    ".rgr"
+  );
+  const outputDart = path.join(DART_OUTPUT_DIR, `${sourceBasename}.dart`);
+
+  if (!fs.existsSync(outputDart)) {
+    return {
+      compile: compileResult,
+      run: {
+        success: false,
+        output: "",
+        error: `Compiled Dart file not found: ${outputDart}. Compile output: ${compileResult.output}`,
+      },
+    };
+  }
+
+  const runResult = runCompiledDart(outputDart);
+
+  return {
+    compile: compileResult,
+    run: runResult,
+  };
+}
+
+/**
+ * Check that Dart compilation succeeds and program produces expected output
+ */
+export function expectDartOutput(
+  sourceFile: string,
+  expectedOutput: string | string[]
+): RunResult {
+  const { compile, run } = compileAndRunDart(sourceFile);
+
+  if (!compile.success) {
+    throw new Error(`Dart compilation failed: ${compile.error}`);
+  }
+
+  if (!run) {
+    throw new Error("No run result");
+  }
+
+  if (!run.success) {
+    throw new Error(`Dart runtime error: ${run.error}`);
   }
 
   const expected = Array.isArray(expectedOutput)

@@ -155,6 +155,10 @@ const RUNNERS: Record<string, Runner> = {
     tool: "python3",
     run: (file, cwd) => exec(`python3 ${shellQuote(file)}`, cwd),
   },
+  dart: {
+    tool: "dart",
+    run: (file, cwd) => exec(`dart run ${shellQuote(file)}`, cwd),
+  },
   rust: {
     tool: "rustc",
     run: (file, cwd) => {
@@ -217,6 +221,7 @@ export const TARGETS: Target[] = [
   { id: "rust", label: "Rust", flags: ["-l=rust"], ext: "rs", runner: RUNNERS.rust },
   { id: "cpp", label: "C++14", flags: ["-l=cpp"], ext: "cpp", runner: RUNNERS.cpp },
   { id: "kotlin", label: "Kotlin", flags: ["-l=kotlin"], ext: "kt" },
+  { id: "dart", label: "Dart", flags: ["-l=dart"], ext: "dart", runner: RUNNERS.dart },
   { id: "swift6", label: "Swift 6", flags: ["-l=swift6"], ext: "swift" },
   { id: "swift3", label: "Swift 3", flags: ["-l=swift3"], ext: "swift" },
   { id: "java7", label: "Java 7", flags: ["-l=java7"], ext: "java", runner: RUNNERS.java },

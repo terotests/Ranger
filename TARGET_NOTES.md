@@ -5,6 +5,37 @@ Capabilities and caveats that are specific to one target language. The
 Version-by-version changes belong in [CHANGELOG.md](CHANGELOG.md), and known
 bugs in [ISSUES.md](ISSUES.md).
 
+## Dart (`-l=dart`)
+
+Flutter-ready **package** generation for shared application logic (models,
+validation, parsers, algorithms). The first milestone does **not** emit Flutter
+widget trees.
+
+- Sound null safety: Ranger `@(optional)` → Dart `T?`; unwrap / `!!` → `!`
+- Collections: `List<T>`, `Map<K,V>`; buffers map to `dart:typed_data` types
+- Top-level `void main(List<String> args)`
+- Imports as `import 'dart:math';` / `import 'package:…';`
+- `-pubspec` writes `pubspec.yaml` (requires `-name=` `-version=` `-description=`)
+- `-flutter` with `-pubspec` adds a Flutter SDK dependency block
+- Conformance and `npm run test:dart` exercise the target when the Dart SDK is on `PATH`
+
+```bash
+RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr" \
+  node bin/output.js examples/dart_flutter_logic/CounterLogic.rgr \
+    -l=dart -pubspec -name=counter_logic -version=0.1.0 \
+    -description="Shared counter logic from Ranger" \
+    -d=examples/dart_flutter_logic/generated -o=counter_logic.dart
+dart run examples/dart_flutter_logic/generated/counter_logic.dart
+```
+
+See `PLAN_DART.md` and `examples/dart_flutter_logic/`.
+
+**Golden module:** `gallery/ts_parser` compiles with `-l=dart -nodecli` and the
+`-d` demo AST matches the JavaScript reference byte-for-byte
+(`npm run tsparser:compile:dart && npm run tsparser:run:dart`, or
+`npm run test:dart:tsparser`). String literals escape `$` as `\$` so Dart
+interpolation does not break the lexer.
+
 ## Swift 6 (`-l=swift6`)
 
 - Modern Swift 6 compatible code generation
