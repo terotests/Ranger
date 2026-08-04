@@ -804,6 +804,10 @@ class LowIRBuilderPass {
     ; assumed i32, so concatenating a DOUBLE emitted `%d` and passed the f64
     ; value in an i32 slot -- invalid IR, and the wrong text if it had linked.
     ; %g matches what to_string does for a double on this target.
+    ; A double operand is FORMATTED first and concatenated as a string: "%g"
+    ; would truncate it to six significant digits.
+    def aIsF64:boolean false
+    def bIsF64:boolean false
     def aFmt:string "%d"
     def aType:string "i32"
     if aStr {
@@ -811,8 +815,9 @@ class LowIRBuilderPass {
       aType = "i8*"
     } {
       if (this.exprIsF64(aNode)) {
-        aFmt = "%g"
-        aType = "f64"
+        aFmt = "%s"
+        aType = "i8*"
+        aIsF64 = true
       }
     }
     def bFmt:string "%d"
@@ -822,15 +827,26 @@ class LowIRBuilderPass {
       bType = "i8*"
     } {
       if (this.exprIsF64(bNode)) {
-        bFmt = "%g"
-        bType = "f64"
+        bFmt = "%s"
+        bType = "i8*"
+        bIsF64 = true
       }
     }
     def fmtLit:string (aFmt + bFmt)
     def fmtG (this.internStringGlobal(fmtLit false))
     def fmtPtr (builder.emitStrPtr(fmtG (this.stringGlobalByteLen(fmtG))))
-    def aVal (this.lowerConcatOperand(aNode aStr lctx))
-    def bVal (this.lowerConcatOperand(bNode bStr lctx))
+    def aVal0 (this.lowerConcatOperand(aNode aStr lctx))
+    def aVal:string aVal0
+    if aIsF64 {
+      aVal = (this.emitDoubleToString(aVal0 lctx))
+      this.registerFreshStringTemp(aVal lctx)
+    }
+    def bVal0 (this.lowerConcatOperand(bNode bStr lctx))
+    def bVal:string bVal0
+    if bIsF64 {
+      bVal = (this.emitDoubleToString(bVal0 lctx))
+      this.registerFreshStringTemp(bVal lctx)
+    }
     ; MEASURE, then allocate. The buffer used to be a fixed 4096 bytes, so any
     ; concatenation whose result was longer wrote past it -- appending a suffix
     ; to a 32 KB source file corrupted the heap before the program did anything.
@@ -1343,8 +1359,47 @@ class LowIRBuilderPass {
 
   fn lowerToDouble:string (node:CodeNode lctx:LowIRLowerContext) {
     def inNode (node.getSecond())
+    ; `(to_double (to_int x))` is the source idiom for "truncate toward zero,
+    ; stay a double" -- it is how floorD/truncD are written. Taken literally it
+    ; routes the value through a 32-bit int, so anything past 2^31 came back as
+    ; INT32_MIN: every Date in milliseconds (946684800000 for 2000-01-01) landed
+    ; on -2147483648. Lower the pair as one libm trunc instead, which is exact
+    ; over the whole double range.
+    if inNode.has_operator {
+      if ((inNode.getOperator()) == "to_int") {
+        def innerNode (inNode.getSecond())
+        if (this.exprIsF64(innerNode)) {
+          def iv (this.lowerExpr(innerNode lctx))
+          return (this.emitLibmCall("trunc" iv lctx))
+        }
+      }
+    }
     def val (this.lowerExpr(inNode lctx))
     return (this.promoteToF64(inNode val lctx))
+  }
+
+  ; Format a double the way JavaScript does (never "%g").
+  fn emitDoubleToString:string (value:string lctx:LowIRLowerContext) {
+    def decl:[string]
+    push decl "double"
+    this.ensureExternDecl("ranger_double_to_string" "i8*" decl false)
+    def cArgs:[string]
+    def cTypes:[string]
+    push cArgs value
+    push cTypes "f64"
+    return (lctx.builder.emitCall("ranger_double_to_string" "i8*" cArgs cTypes))
+  }
+
+  ; Call a one-argument libm double function on an already-lowered value.
+  fn emitLibmCall:string (fnName:string value:string lctx:LowIRLowerContext) {
+    def decl:[string]
+    push decl "double"
+    this.ensureExternDecl(fnName "double" decl false)
+    def cArgs:[string]
+    def cTypes:[string]
+    push cArgs value
+    push cTypes "f64"
+    return (lctx.builder.emitCall(fnName "f64" cArgs cTypes))
   }
 
   fn lowerToInt:string (node:CodeNode lctx:LowIRLowerContext) {
@@ -1918,15 +1973,18 @@ class LowIRBuilderPass {
       this.registerFreshStringTemp(sres lctx)
       return sres
     }
+    ; A double formats by JavaScript's rules, not "%g" -- see
+    ; ranger_double_to_string. sprintf stays for the integer case.
+    if isF64 {
+      def dstr (this.emitDoubleToString(val lctx))
+      this.registerFreshStringTemp(dstr lctx)
+      return dstr
+    }
     def sz (builder.emitConst("i32" "64"))
     def raw (builder.emitHeapAlloc(sz))
     def buf (builder.emitIntToI8Ptr(raw lctx.ptrType))
     def fmtLit:string "%d"
     def valType:string "i32"
-    if isF64 {
-      fmtLit = "%g"
-      valType = "f64"
-    }
     def fmtG (this.internStringGlobal(fmtLit false))
     def args:[string]
     def argTypes:[string]

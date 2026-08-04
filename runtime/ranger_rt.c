@@ -715,6 +715,45 @@ int64_t ranger_str_split(const char *text, const char *sep) {
   return (int64_t)(intptr_t)d;
 }
 
+/* JavaScript-style double formatting, which "%g" is not: %g carries six
+ * significant digits, so 946684800000 printed as 9.46685e+11 and every Date in
+ * milliseconds lost its value on the way to a string.
+ *
+ * The rules that matter here: an integral magnitude below 1e21 prints in full
+ * with no exponent, and everything else takes the SHORTEST representation that
+ * reads back as the same double. */
+char *ranger_double_to_string(double v) {
+  char buf[64];
+  int prec;
+  if (v != v) {
+    return ranger_strdup("NaN");
+  }
+  if (v > 1.7976931348623157e308) {
+    return ranger_strdup("Infinity");
+  }
+  if (v < -1.7976931348623157e308) {
+    return ranger_strdup("-Infinity");
+  }
+  if (v == 0.0) {
+    return ranger_strdup("0");
+  }
+  {
+    double a = v < 0 ? -v : v;
+    /* floor(a) == a means integral; below 1e21 JavaScript writes it out */
+    if (a < 1e21 && a == (double)(long long)a) {
+      snprintf(buf, sizeof(buf), "%lld", (long long)v);
+      return ranger_strdup(buf);
+    }
+  }
+  for (prec = 15; prec <= 17; prec++) {
+    snprintf(buf, sizeof(buf), "%.*g", prec, v);
+    if (strtod(buf, NULL) == v) {
+      break;
+    }
+  }
+  return ranger_strdup(buf);
+}
+
 double ranger_random(void) { return (double)rand() / ((double)RAND_MAX + 1.0); }
 
 /* Wall-clock milliseconds since the Unix epoch -- the LLVM target's

@@ -36546,6 +36546,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   this.registerFreshStringTemp(cres, lctx);
                   return cres;
                 }
+                let aIsF64 = false;
+                let bIsF64 = false;
                 let aFmt = "%d";
                 let aType = "i32";
                 if ( aStr ) {
@@ -36553,8 +36555,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   aType = "i8*";
                 } else {
                   if ( this.exprIsF64(aNode) ) {
-                    aFmt = "%g";
-                    aType = "f64";
+                    aFmt = "%s";
+                    aType = "i8*";
+                    aIsF64 = true;
                   }
                 }
                 let bFmt = "%d";
@@ -36564,15 +36567,26 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   bType = "i8*";
                 } else {
                   if ( this.exprIsF64(bNode) ) {
-                    bFmt = "%g";
-                    bType = "f64";
+                    bFmt = "%s";
+                    bType = "i8*";
+                    bIsF64 = true;
                   }
                 }
                 const fmtLit = aFmt + bFmt;
                 const fmtG = this.internStringGlobal(fmtLit, false);
                 const fmtPtr = builder.emitStrPtr(fmtG, this.stringGlobalByteLen(fmtG));
-                const aVal = this.lowerConcatOperand(aNode, aStr, lctx);
-                const bVal = this.lowerConcatOperand(bNode, bStr, lctx);
+                const aVal0 = this.lowerConcatOperand(aNode, aStr, lctx);
+                let aVal = aVal0;
+                if ( aIsF64 ) {
+                  aVal = this.emitDoubleToString(aVal0, lctx);
+                  this.registerFreshStringTemp(aVal, lctx);
+                }
+                const bVal0 = this.lowerConcatOperand(bNode, bStr, lctx);
+                let bVal = bVal0;
+                if ( bIsF64 ) {
+                  bVal = this.emitDoubleToString(bVal0, lctx);
+                  this.registerFreshStringTemp(bVal, lctx);
+                }
                 let measParams = [];
                 measParams.push("i8*");
                 measParams.push("i64");
@@ -37056,8 +37070,37 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               };
               lowerToDouble (node, lctx) {
                 const inNode = node.getSecond();
+                if ( inNode.has_operator ) {
+                  if ( inNode.getOperator() == "to_int" ) {
+                    const innerNode = inNode.getSecond();
+                    if ( this.exprIsF64(innerNode) ) {
+                      const iv = this.lowerExpr(innerNode, lctx);
+                      return this.emitLibmCall("trunc", iv, lctx);
+                    }
+                  }
+                }
                 const val = this.lowerExpr(inNode, lctx);
                 return this.promoteToF64(inNode, val, lctx);
+              };
+              emitDoubleToString (value, lctx) {
+                let decl = [];
+                decl.push("double");
+                this.ensureExternDecl("ranger_double_to_string", "i8*", decl, false);
+                let cArgs = [];
+                let cTypes = [];
+                cArgs.push(value);
+                cTypes.push("f64");
+                return lctx.builder.emitCall("ranger_double_to_string", "i8*", cArgs, cTypes);
+              };
+              emitLibmCall (fnName, value, lctx) {
+                let decl = [];
+                decl.push("double");
+                this.ensureExternDecl(fnName, "double", decl, false);
+                let cArgs = [];
+                let cTypes = [];
+                cArgs.push(value);
+                cTypes.push("f64");
+                return lctx.builder.emitCall(fnName, "f64", cArgs, cTypes);
               };
               lowerToInt (node, lctx) {
                 const inNode = node.getSecond();
@@ -37581,15 +37624,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   this.registerFreshStringTemp(sres, lctx);
                   return sres;
                 }
+                if ( isF64 ) {
+                  const dstr = this.emitDoubleToString(val, lctx);
+                  this.registerFreshStringTemp(dstr, lctx);
+                  return dstr;
+                }
                 const sz = builder.emitConst("i32", "64");
                 const raw = builder.emitHeapAlloc(sz);
                 const buf = builder.emitIntToI8Ptr(raw, lctx.ptrType);
-                let fmtLit = "%d";
-                let valType = "i32";
-                if ( isF64 ) {
-                  fmtLit = "%g";
-                  valType = "f64";
-                }
+                const fmtLit = "%d";
+                const valType = "i32";
                 const fmtG = this.internStringGlobal(fmtLit, false);
                 let args = [];
                 let argTypes = [];
