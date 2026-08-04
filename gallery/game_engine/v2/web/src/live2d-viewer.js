@@ -9,6 +9,9 @@
 // Arrow keys + space drive player 0's left/right/action through host.input().
 // Optional config.clearRgb (0xRRGGBB) sets the presenter clear colour (title
 // palettes stay in the viewer/demo, not the engine host).
+//
+// Live editor: getSource() / reload(src) write the guest into the VFS and rebuild
+// a fresh WebLive2dHost (RgGameHost.load already mints a new ComponentEngine).
 // ============================================================================
 
 (function (root) {
@@ -19,6 +22,10 @@
       this.canvas = config.canvas;
       this.ctx = this.canvas.getContext("2d");
       this.host = config.host; // engine WebLive2dHost instance
+      this.engine = config.engine; // Ranger engine module (for fresh hosts)
+      this.vfs = config.vfs;
+      this.gameDir = config.gameDir || "";
+      this.gameFile = config.gameFile || "index.tsx";
       this.w = config.width || 480;
       this.h = config.height || 270;
       this.clearRgb = config.clearRgb | 0;
@@ -28,7 +35,10 @@
       this._raf = 0;
       this._last = 0;
       this._keys = { left: false, right: false, action: false };
+      this._keysBound = false;
       this._tick = this._tick.bind(this);
+      this._onKeyDown = (e) => this._setKey(e, true);
+      this._onKeyUp = (e) => this._setKey(e, false);
     }
 
     // Register the ranger:* modules + evaluate the game + run __rgGameInit();
@@ -36,6 +46,8 @@
     // bridge packageDir to `dir` so pkg:// atlases + PNG sheets resolve against
     // the mounted VFS zip exactly like the headless boot. Render frame 0.
     load(dir, file) {
+      this.gameDir = dir;
+      this.gameFile = file;
       this.host.setup();
       if (this.host.setClearRgb) this.host.setClearRgb(this.clearRgb);
       const ok = this.host.loadFromVfs
@@ -46,6 +58,23 @@
       }
       this.renderOnce(0.016 * 1000);
       return ok;
+    }
+
+    getSource() {
+      if (!this.vfs || !this.gameDir) return "";
+      return this.vfs.readText(this.gameDir + "/" + this.gameFile);
+    }
+
+    // Persist edited source into the VFS and rebuild a fresh host.
+    reload(src) {
+      if (!this.vfs || !this.engine) throw new Error("live2d reload: missing vfs/engine");
+      this.vfs.writeText(this.gameDir + "/" + this.gameFile, src);
+      const wasRunning = !!this._raf;
+      this.stop();
+      this.host = new this.engine.WebLive2dHost();
+      this.load(this.gameDir, this.gameFile);
+      if (wasRunning) this.start();
+      return true;
     }
 
     _applyInput() {
@@ -67,20 +96,34 @@
       this.ctx.putImageData(this._image, 0, 0);
     }
 
+    _setKey(e, down) {
+      let hit = true;
+      switch (e.key) {
+        case "ArrowLeft": case "a": case "A": this._keys.left = down; break;
+        case "ArrowRight": case "d": case "D": this._keys.right = down; break;
+        case "ArrowUp": case " ": case "w": case "W": this._keys.action = down; break;
+        default: hit = false;
+      }
+      if (hit) e.preventDefault();
+    }
+
     bindKeys(target) {
-      const set = (e, down) => {
-        let hit = true;
-        switch (e.key) {
-          case "ArrowLeft": case "a": case "A": this._keys.left = down; break;
-          case "ArrowRight": case "d": case "D": this._keys.right = down; break;
-          case "ArrowUp": case " ": case "w": case "W": this._keys.action = down; break;
-          default: hit = false;
-        }
-        if (hit) e.preventDefault();
-      };
-      (target || root).addEventListener("keydown", (e) => set(e, true));
-      (target || root).addEventListener("keyup", (e) => set(e, false));
+      if (this._keysBound) return this;
+      const t = target || root;
+      t.addEventListener("keydown", this._onKeyDown);
+      t.addEventListener("keyup", this._onKeyUp);
+      this._keyTarget = t;
+      this._keysBound = true;
       return this;
+    }
+
+    dispose() {
+      this.stop();
+      if (this._keysBound && this._keyTarget) {
+        this._keyTarget.removeEventListener("keydown", this._onKeyDown);
+        this._keyTarget.removeEventListener("keyup", this._onKeyUp);
+        this._keysBound = false;
+      }
     }
 
     start() {
@@ -109,8 +152,15 @@
     const engine = root.RangerEngineHost.createEngine(config.bundleSource, vfs, {});
     const host = new engine.WebLive2dHost();
     const session = new Live2dSession({
-      canvas: config.canvas, host,
-      width: config.width, height: config.height,
+      canvas: config.canvas,
+      host,
+      engine,
+      vfs,
+      width: config.width,
+      height: config.height,
+      clearRgb: config.clearRgb | 0,
+      gameDir: config.gameDir,
+      gameFile: config.gameFile,
     });
     session.load(config.gameDir, config.gameFile);
     if (config.bindKeys !== false) session.bindKeys(root);

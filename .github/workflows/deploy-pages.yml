@@ -81,7 +81,11 @@ jobs:
       - name: Build tsx3d WebGL demo
         run: node gallery/game_engine/web/build-tsx3d.mjs --out "$GITHUB_WORKSPACE/_site/games/tsx3d"
 
-      # ---- v2 interpreter live demos (ComponentEngine migrate/src + registry)
+      # ---- v2 interpreter live demos + Monaco editor (ComponentEngine migrate/src)
+      - name: Install v2 games-site dependencies (Monaco + esbuild)
+        working-directory: gallery/game_engine/v2/web
+        run: npm ci
+
       - name: Build v2 interpreter Pages demos
         run: node gallery/game_engine/v2/web/build-pages.mjs --out "$GITHUB_WORKSPACE/_site/games/v2"
 

@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ranger v2 — live editor</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>⚡</text></svg>"
+    />
+    <link rel="stylesheet" href="./editor.bundle.css" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0c1020;
+        --panel: #151a2e;
+        --ink: #e6e9f3;
+        --muted: #97a0bd;
+        --accent: #6ea8ff;
+        --good: #58d38c;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        font: 14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        background: radial-gradient(1200px 600px at 50% -10%, #1b2140, var(--bg));
+        color: var(--ink);
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+      }
+      header { padding: 18px 22px 6px; }
+      h1 { margin: 0; font-size: 20px; letter-spacing: -0.02em; }
+      .sub { color: var(--muted); margin: 2px 0 0; font-size: 13px; }
+      .sub code, .sub a { color: var(--accent); }
+      .toolbar {
+        display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+        padding: 10px 22px;
+      }
+      select, button {
+        font: inherit; color: var(--ink); background: #1e2540;
+        border: 1px solid #313a5c; border-radius: 8px; padding: 7px 11px; cursor: pointer;
+      }
+      button:hover, select:hover { border-color: var(--accent); }
+      label.chk { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; }
+      .status { margin-left: auto; color: var(--muted); font-size: 13px; min-width: 0; }
+      .status .ok { color: var(--good); }
+      main {
+        --editor-pct: 55%;
+        flex: 1; display: flex; gap: 0; padding: 4px 22px 22px;
+        align-items: stretch; min-height: 0;
+      }
+      .card {
+        background: var(--panel); border: 1px solid #262d47; border-radius: 12px;
+        overflow: hidden; box-shadow: 0 20px 60px -30px #000a;
+        display: flex; flex-direction: column; min-height: 0;
+      }
+      .card .cap {
+        padding: 8px 12px; color: var(--muted); font-size: 12px;
+        border-bottom: 1px solid #262d47; flex: 0 0 auto;
+      }
+      .editor-pane {
+        flex: 0 0 var(--editor-pct); min-width: 240px; max-width: calc(100% - 210px);
+      }
+      .view-pane { flex: 1 1 auto; min-width: 200px; }
+      .splitter {
+        flex: 0 0 10px; margin: 0 2px; cursor: col-resize; touch-action: none;
+        position: relative; align-self: stretch; border-radius: 6px;
+        background: transparent;
+      }
+      .splitter::before {
+        content: ""; position: absolute; top: 12px; bottom: 12px; left: 3px; right: 3px;
+        border-radius: 3px; background: #262d47; transition: background 0.12s ease;
+      }
+      .splitter:hover::before,
+      .splitter:focus-visible::before,
+      body.splitting .splitter::before {
+        background: var(--accent);
+      }
+      .splitter:focus-visible { outline: none; }
+      body.splitting { cursor: col-resize; user-select: none; }
+      body.splitting iframe, body.splitting canvas { pointer-events: none; }
+      #editor { flex: 1; min-height: 280px; width: 100%; height: 100%; }
+      .stage { padding: 14px; flex: 1; min-width: 0; }
+      canvas {
+        display: block; image-rendering: pixelated;
+        width: 100%; max-width: 100%; height: auto; aspect-ratio: 16 / 9;
+        border-radius: 8px; background: #0a0e1a;
+      }
+      canvas.square { aspect-ratio: 1 / 1; image-rendering: auto; }
+      .controls { color: var(--muted); font-size: 12.5px; margin-top: 10px; }
+      .hint { color: var(--muted); font-size: 12px; padding: 0 22px 18px; }
+      .hint code, .hint a { color: var(--accent); }
+      main.no-editor .editor-pane,
+      main.no-editor .splitter { display: none; }
+      main.no-editor .view-pane { flex: 1 1 auto; max-width: none; }
+      @media (max-width: 900px) {
+        main { flex-direction: column; gap: 14px; }
+        .editor-pane { flex: none; width: 100%; max-width: none; min-width: 0; }
+        .view-pane { flex: none; width: 100%; min-width: 0; }
+        .splitter { display: none; }
+        #editor { height: 50vh; flex: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Ranger v2 — live editor</h1>
+      <p class="sub">
+        Staged <code>ComponentEngine</code> + live registry transport.
+        Edit the guest <code>.tsx</code> and it rebuilds in place.
+        <a href="../">v1 games editor</a>
+      </p>
+    </header>
+
+    <div class="toolbar">
+      <label>Game <select id="game"></select></label>
+      <label class="chk"><input type="checkbox" id="autoreload" checked /> Auto-reload on edit</label>
+      <button id="reload">Reload now</button>
+      <button id="restart">Restart</button>
+      <button id="pause">Pause</button>
+      <span class="status" id="status">loading…</span>
+    </div>
+
+    <main id="split">
+      <section class="card editor-pane">
+        <div class="cap" id="filecap">script</div>
+        <div id="editor"></div>
+      </section>
+      <div
+        class="splitter"
+        id="splitter"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize editor and game view"
+        aria-valuemin="20"
+        aria-valuemax="80"
+        aria-valuenow="55"
+        tabindex="0"
+      ></div>
+      <section class="card view-pane">
+        <div class="cap">canvas — v2 interpreter</div>
+        <div class="stage">
+          <canvas id="screen" width="480" height="270" tabindex="0"></canvas>
+          <div class="controls" id="controls"></div>
+        </div>
+      </section>
+    </main>
+
+    <p class="hint">
+      Live2d games use <code>ranger:core</code> / <code>ranger:2d</code>; live3d
+      guests import <code>ranger:three</code>. Edits rebuild a fresh host (state
+      resets). Standalone view-only demos remain under each game folder.
+    </p>
+
+    <script src="./vfs.js"></script>
+    <script src="./engine-host.js"></script>
+    <script src="./live2d-viewer.js"></script>
+    <script src="./live3d-viewer.js"></script>
+    <script src="./editor.bundle.js"></script>
+    <script src="./live-editor.js"></script>
+  </body>
+</html>

@@ -4,12 +4,14 @@
 
 VFS + canvas host + build scripts for running the engine in the browser / Pages.
 
-**GitHub Pages:** `build-pages.mjs` ships the v2 interpreter live demos to
-`/games/v2/` (see `deploy-pages.yml`). Locally:
+**GitHub Pages:** `build-pages.mjs` ships the v2 interpreter live demos **with a
+Monaco live editor** to `/games/v2/` (see `deploy-pages.yml`). Each game folder
+also gets its own editor page. Locally:
 
 ```
-npm run engine:v2:pages:build   # -> dist/pages (hub + live2d + live3d guests)
-npm run engine:v2:pages:smoke   # build + headless Chromium non-blank canvas gate
+cd gallery/game_engine/v2/web && npm ci   # Monaco + esbuild
+npm run engine:v2:pages:build            # -> dist/pages (hub + per-game editors)
+npm run engine:v2:pages:smoke            # headless Chromium non-blank canvas gate
 ```
 
 **Plan phase:** after v2 headless gates; point builds at v2 modules gradually.

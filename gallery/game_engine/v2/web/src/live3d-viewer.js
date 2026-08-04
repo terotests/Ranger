@@ -8,6 +8,9 @@
 // scene once; each rAF we call host.frame(dtMs) — which runs the guest's tick()
 // then software-renders the live scene — and blit host.framePixels() (w*h*3 RGB)
 // onto the canvas. Same VFS + engine-host runtime as the software model viewer.
+//
+// Live editor: getSource() / reload(src) rebuild a fresh WebLive3dHost with the
+// edited guest text (facade unchanged).
 // ============================================================================
 
 (function (root) {
@@ -18,6 +21,15 @@
       this.canvas = config.canvas;
       this.ctx = this.canvas.getContext("2d");
       this.host = config.host; // engine WebLive3dHost instance
+      this.engine = config.engine;
+      this.vfs = config.vfs;
+      this.facadeDir = config.facadeDir || "";
+      this.facadeFile = config.facadeFile || "";
+      this.guestDir = config.guestDir || "";
+      this.guestFile = config.guestFile || "";
+      this.packageDir = config.packageDir || "";
+      this.facadeSrc = config.facadeSrc || "";
+      this.guestSrc = config.guestSrc || "";
       this.size = config.size || 480;
       this.canvas.width = this.size;
       this.canvas.height = this.size;
@@ -33,15 +45,55 @@
     // (init() runs the model load), so pkg:// resolves against the mounted VFS
     // zip exactly like an in-engine game. Primitive guests leave it "".
     load(facadeDir, facadeFile, guestDir, guestFile, packageDir) {
+      this.facadeDir = facadeDir;
+      this.facadeFile = facadeFile;
+      this.guestDir = guestDir;
+      this.guestFile = guestFile;
+      if (packageDir != null) this.packageDir = packageDir || "";
       this.host.setup();
-      if (packageDir) this.host.bridge.packageDir = packageDir;
+      if (this.packageDir) this.host.bridge.packageDir = this.packageDir;
       const ok = this.host.loadFromVfs(
         facadeDir, facadeFile, guestDir, guestFile, this.size, this.size);
       if (ok !== "ok" || this.host.errorCount() > 0) {
         throw new Error("live scene load failed: " + this.host.lastError());
       }
+      if (this.vfs) {
+        this.facadeSrc = this.vfs.readText(facadeDir + "/" + facadeFile);
+        this.guestSrc = this.vfs.readText(guestDir + "/" + guestFile);
+      }
       this.renderOnce(0.016 * 1000);
       return ok;
+    }
+
+    loadSources(facadeSrc, guestSrc) {
+      this.facadeSrc = facadeSrc;
+      this.guestSrc = guestSrc;
+      this.host.setup();
+      if (this.packageDir) this.host.bridge.packageDir = this.packageDir;
+      const ok = this.host.load(facadeSrc, guestSrc, this.size, this.size);
+      if (ok !== "ok" || this.host.errorCount() > 0) {
+        throw new Error("live scene load failed: " + this.host.lastError());
+      }
+      this.renderOnce(0.016 * 1000);
+      return ok;
+    }
+
+    getSource() {
+      return this.guestSrc || "";
+    }
+
+    reload(src) {
+      if (!this.engine) throw new Error("live3d reload: missing engine");
+      this.guestSrc = src;
+      if (this.vfs && this.guestDir && this.guestFile) {
+        this.vfs.writeText(this.guestDir + "/" + this.guestFile, src);
+      }
+      const wasRunning = !!this._raf;
+      this.stop();
+      this.host = new this.engine.WebLive3dHost();
+      this.loadSources(this.facadeSrc, this.guestSrc);
+      if (wasRunning) this.start();
+      return true;
     }
 
     renderOnce(dtMs) {
@@ -55,6 +107,10 @@
         out[i + 3] = 255;
       }
       this.ctx.putImageData(this._image, 0, 0);
+    }
+
+    dispose() {
+      this.stop();
     }
 
     start() {
@@ -82,8 +138,25 @@
     if (config.zipBuffer) vfs.mountZip(config.zipBuffer);
     const engine = root.RangerEngineHost.createEngine(config.bundleSource, vfs, {});
     const host = new engine.WebLive3dHost();
-    const session = new Live3dSession({ canvas: config.canvas, host, size: config.size });
-    session.load(config.facadeDir, config.facadeFile, config.guestDir, config.guestFile, config.packageDir);
+    const session = new Live3dSession({
+      canvas: config.canvas,
+      host,
+      engine,
+      vfs,
+      size: config.size,
+      facadeDir: config.facadeDir,
+      facadeFile: config.facadeFile,
+      guestDir: config.guestDir,
+      guestFile: config.guestFile,
+      packageDir: config.packageDir || "",
+    });
+    session.load(
+      config.facadeDir,
+      config.facadeFile,
+      config.guestDir,
+      config.guestFile,
+      config.packageDir || ""
+    );
     if (config.autostart !== false) session.start();
     return session;
   }
