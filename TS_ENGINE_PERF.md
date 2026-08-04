@@ -92,6 +92,30 @@
 > (`-native-fast-alloc`). Remaining C++ gap: string local copies and
 > `shared_ptr` release chains — value-model flattening territory.
 >
+> **Calibration against real JS engines (same session, same workload
+> bodies run RAW — no interpreter — with JIT warmup; ms per run):**
+>
+> | case | raw V8 | raw QuickJS | engine/Node | engine/Rust | engine/C++ |
+> |---|---|---|---|---|---|
+> | loop | 0.036 | 0.78 | 55.4 | 34.2 | 33.8 |
+> | fib | 0.175 | 0.86 | 25.6 | 22.9 | 24.6 |
+> | strcat | 0.164 | 11.39 | 27.8 | 55.2 | 38.3 |
+> | array | 0.304 | 2.03 | 93.6 | 66.2 | 77.2 |
+> | object | 1.94 | 4.45 | 41.1 | 27.9 | 31.5 |
+> | method | 0.663 | 4.98 | 67.1 | 62.2 | 58.3 |
+> | regex | 1.50 | 7.23 | 45.1 | 35.4 | 39.2 |
+>
+> Geometric means: raw QuickJS is **8.8x** slower than warmed-up V8;
+> the interpreter is **116x** (native builds) / **133x** (on Node)
+> slower than raw V8, i.e. **~13x slower than QuickJS**. That is the
+> honest weight class for a tree-walking AST interpreter against a
+> bytecode interpreter (QuickJS) and a JIT (V8): the engine's closest
+> races against QuickJS are the cases dominated by runtime work rather
+> than dispatch — strcat 3.4x (C++), regex 4.9x, object 6.3x (Rust) —
+> and the widest is `loop` at ~44x, which is pure dispatch overhead per
+> AST node. Closing toward QuickJS's class would take a bytecode
+> compilation stage, not more peephole work.
+>
 > **Still open:** the key-order conformance divergence on BOTH native
 > targets (needs an insertion-ordered map in the compiler's map
 > runtime).
