@@ -158,7 +158,90 @@ describe("shapes (closed variant families)", () => {
     });
   });
 
+  describe("the `identical` operator", () => {
+    const ID = `${FIXTURES_DIR}/identical_op.rgr`;
+    const EXPECTED_ID = ["same", "different"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(ID, EXPECTED_ID);
+    });
+
+    it.skipIf(!isPythonAvailable())("Python", () => {
+      expectPythonOutput(ID, EXPECTED_ID);
+    });
+
+    it.skipIf(!isGoAvailable())("Go", () => {
+      expectGoOutput(ID, EXPECTED_ID);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      // the operand class is put in a cell so that Rc::ptr_eq has something to
+      // compare — identity of a plain struct is not a question Rust answers
+      expectRustOutput(ID, EXPECTED_ID);
+    });
+
+    it("uses each target's own identity test", () => {
+      const py = getGeneratedRustCode(ID);
+      expect(py.success).toBe(true);
+      expect(py.code).toContain("Rc::ptr_eq(");
+
+      const kt = getGeneratedKotlinCode(ID);
+      expect(kt.success).toBe(true);
+      expect(kt.code).toMatch(/a === c/);
+    });
+  });
+
+  describe("value and reference semantics", () => {
+    const EQ = `${FIXTURES_DIR}/shape_equality.rgr`;
+    // content, different case, two objects, same object, notEquals, no fields
+    const EXPECTED_EQ = ["true", "false", "false", "true", "false", "true"].join(
+      "\n"
+    );
+
+    it("ES6", () => {
+      expectOutput(EQ, EXPECTED_EQ);
+    });
+
+    it.skipIf(!isPythonAvailable())("Python", () => {
+      expectPythonOutput(EQ, EXPECTED_EQ);
+    });
+
+    it.skipIf(!isGoAvailable())("Go", () => {
+      expectGoOutput(EQ, EXPECTED_EQ);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(EQ, EXPECTED_EQ);
+    });
+
+    it("compares a reference case with the target's identity operator", () => {
+      // Rust cannot use == for identity (it wants a PartialEq bound) and Kotlin
+      // must not (== is structural there), so both go through `identical`
+      const rust = getGeneratedRustCode(EQ);
+      expect(rust.success, `Compile failed: ${rust.error}`).toBe(true);
+      expect(rust.code).toContain("Rc::ptr_eq(");
+
+      const kotlin = getGeneratedKotlinCode(EQ);
+      expect(kotlin.success, `Compile failed: ${kotlin.error}`).toBe(true);
+      expect(kotlin.code).toMatch(/===/);
+    });
+  });
+
   describe("diagnostics", () => {
+    it("refuses to mutate a value case", () => {
+      expectCompileError(
+        `${FIXTURES_DIR}/shape_value_assign.rgr`,
+        "cannot assign to a field of AValue.Num"
+      );
+    });
+
+    it("refuses @(value) on a case that holds a collection", () => {
+      expectCompileError(
+        `${FIXTURES_DIR}/shape_value_nonscalar.rgr`,
+        "is @(value) but holds a field that is not a scalar"
+      );
+    });
+
     it("names the cases a match does not cover", () => {
       expectCompileError(
         `${FIXTURES_DIR}/shape_match_missing.rgr`,

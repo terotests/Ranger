@@ -1,0 +1,16 @@
+; @(value) promises comparison by content, which a collection field cannot
+; give — the compiler says so rather than generating an equality that lies.
+shape NValue {
+    case Bad@(value) {
+        def items:[int]
+    }
+    case Num {
+        def value:double 0.0
+    }
+}
+
+class NonScalarProbe {
+    sfn main:void () {
+        print "unreachable"
+    }
+}

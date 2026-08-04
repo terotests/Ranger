@@ -9493,6 +9493,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.groupAlias = {};
       this.caseShape = {};
       this.caseDisplay = {};
+      this.caseIsValue = {};
+      this.caseFieldNames = {};
       this.collectWalkAtEnd = [];     /** note: unused */
       this.walkAlso = [];
       this.serializedClasses = [];
@@ -11648,6 +11650,24 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.repairAssignMethodCallRhs(node);
       const target = node.getSecond();
       await this.WalkNode(target, ctx, wr);
+      if ( (target.nsp.length) > 0 ) {
+        if ( (target.ns.length) > 1 ) {
+          const valDesc = target.nsp[0];
+          const valNN = valDesc.nameNode;
+          if ( (typeof(valNN) !== "undefined" && valNN != null )  ) {
+            const valNode = valNN;
+            if ( ( typeof(this.caseIsValue[valNode.type_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.caseIsValue, valNode.type_name) ) ) {
+              if ( (( Object.prototype.hasOwnProperty.call(this.caseIsValue, valNode.type_name) ? this.caseIsValue[valNode.type_name] : undefined )) ) {
+                let valDisp = valNode.type_name;
+                if ( ( typeof(this.caseDisplay[valNode.type_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.caseDisplay, valNode.type_name) ) ) {
+                  valDisp = (( Object.prototype.hasOwnProperty.call(this.caseDisplay, valNode.type_name) ? this.caseDisplay[valNode.type_name] : undefined ));
+                }
+                ctx.addError(node, ("cannot assign to a field of " + valDisp) + ": a value case is immutable, because it compares by content — build a new one instead");
+              }
+            }
+          }
+        }
+      }
       if ( target.hasParamDesc ) {
         if ( (typeof(target.paramDesc.propertyClass) !== "undefined" && target.paramDesc.propertyClass != null )  ) {
           const nn = target.paramDesc.propertyClass.nameNode;
@@ -12988,6 +13008,46 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
       target[alias] = clsName;
     };
+    shapeFieldIsScalar (fieldNode) {
+      if ( (fieldNode.children.length) < 2 ) {
+        return false;
+      }
+      const head = fieldNode.getFirst();
+      if ( ((head.vref != "def") && (head.vref != "let")) && (head.vref != "var") ) {
+        return false;
+      }
+      const nameNode = fieldNode.getSecond();
+      if ( (nameNode.array_type.length) > 0 ) {
+        return false;
+      }
+      if ( (nameNode.key_type.length) > 0 ) {
+        return false;
+      }
+      const tn = nameNode.type_name;
+      if ( tn == "int" ) {
+        return true;
+      }
+      if ( tn == "double" ) {
+        return true;
+      }
+      if ( tn == "string" ) {
+        return true;
+      }
+      if ( tn == "boolean" ) {
+        return true;
+      }
+      if ( tn == "char" ) {
+        return true;
+      }
+      return false;
+    };
+    shapeFieldName (fieldNode) {
+      if ( (fieldNode.children.length) < 2 ) {
+        return "";
+      }
+      const nameNode = fieldNode.getSecond();
+      return nameNode.vref;
+    };
     shapeMemberBlock (st) {
       let found = st;
       for ( let pi = 0; pi < st.children.length; pi++) {
@@ -13081,6 +13141,31 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
           ci = ci + 1;
         };
+        let isValue = true;
+        let semanticsGiven = false;
+        if ( cnameNode.hasFlag("value") ) {
+          isValue = true;
+          semanticsGiven = true;
+        }
+        if ( cnameNode.hasFlag("reference") ) {
+          isValue = false;
+          semanticsGiven = true;
+        }
+        if ( (semanticsGiven == false) && ((ownGroup.length) > 0) ) {
+          if ( ( typeof(groupStmt[ownGroup] ) != "undefined" && Object.prototype.hasOwnProperty.call(groupStmt, ownGroup) ) ) {
+            const gsIdx = (( Object.prototype.hasOwnProperty.call(groupStmt, ownGroup) ? groupStmt[ownGroup] : undefined ));
+            const gsNode = body.children[gsIdx];
+            const gsName = gsNode.getSecond();
+            if ( gsName.hasFlag("value") ) {
+              isValue = true;
+              semanticsGiven = true;
+            }
+            if ( gsName.hasFlag("reference") ) {
+              isValue = false;
+              semanticsGiven = true;
+            }
+          }
+        }
         const clsName = (shapeName + "_") + caseName;
         const recNode = shapeNode.newExpressionNode();
         recNode.children.push(shapeNode.newVRefNode("record"));
@@ -13109,6 +13194,25 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             blk.children.push(cf.copy());
           };
         }
+        let scalarFields = [];
+        let allScalar = true;
+        for ( let fldi = 0; fldi < blk.children.length; fldi++) {
+          var fld = blk.children[fldi];
+          if ( this.shapeFieldIsScalar(fld) ) {
+            scalarFields.push(this.shapeFieldName(fld));
+          } else {
+            allScalar = false;
+          }
+        };
+        if ( semanticsGiven == false ) {
+          isValue = allScalar;
+        }
+        if ( isValue && (allScalar == false) ) {
+          ctx.addError(st_1, ("case " + caseName) + " is @(value) but holds a field that is not a scalar — a value case must be comparable by content, so mark it @(reference) or move the field out");
+          isValue = false;
+        }
+        this.caseIsValue[clsName] = isValue;
+        this.caseFieldNames[clsName] = scalarFields;
         recNode.children.push(blk);
         parent.children.splice(insertAt, 0, recNode);
         insertAt = insertAt + 1;
@@ -13159,12 +13263,75 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           ctx.addError(shapeNode, ("group " + gn) + " has no cases");
         }
       };
-      let allCaseClasses = [];
-      const members = shapeNode.newExpressionNode();
+      const opsName = shapeName + "__ops";
+      let eqSrc = ("class " + opsName) + " {\n";
+      eqSrc = ((((eqSrc + "  sfn equals:boolean (a:") + shapeName) + " b:") + shapeName) + ") {\n";
+      let eci = 0;
       for ( let cni_2 = 0; cni_2 < caseNames.length; cni_2++) {
         var cn_2 = caseNames[cni_2];
-        members.children.push(shapeNode.newVRefNode(((shapeName + "_") + cn_2)));
-        allCaseClasses.push((shapeName + "_") + cn_2);
+        const ecls = (shapeName + "_") + cn_2;
+        const la = "__ea" + eci;
+        const lb = "__eb" + eci;
+        eqSrc = ((((eqSrc + "    case a ") + la) + ":") + ecls) + " {\n";
+        eqSrc = ((((eqSrc + "      case b ") + lb) + ":") + ecls) + " {\n";
+        let valueCase = false;
+        if ( ( typeof(this.caseIsValue[ecls] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.caseIsValue, ecls) ) ) {
+          valueCase = (( Object.prototype.hasOwnProperty.call(this.caseIsValue, ecls) ? this.caseIsValue[ecls] : undefined ));
+        }
+        if ( valueCase ) {
+          if ( ( typeof(this.caseFieldNames[ecls] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.caseFieldNames, ecls) ) ) {
+            const fields = (( Object.prototype.hasOwnProperty.call(this.caseFieldNames, ecls) ? this.caseFieldNames[ecls] : undefined ));
+            for ( let fni = 0; fni < fields.length; fni++) {
+              var fname = fields[fni];
+              eqSrc = ((((((((eqSrc + "        if (") + la) + ".") + fname) + " != ") + lb) + ".") + fname) + ") {\n";
+              eqSrc = eqSrc + "          return false\n";
+              eqSrc = eqSrc + "        }\n";
+            };
+          }
+          eqSrc = eqSrc + "        return true\n";
+        } else {
+          eqSrc = ((((eqSrc + "        return (identical ") + la) + " ") + lb) + ")\n";
+        }
+        eqSrc = eqSrc + "      }\n";
+        eqSrc = eqSrc + "      return false\n";
+        eqSrc = eqSrc + "    }\n";
+        eci = eci + 1;
+      };
+      eqSrc = eqSrc + "    return false\n";
+      eqSrc = eqSrc + "  }\n";
+      eqSrc = ((((eqSrc + "  sfn notEquals:boolean (a:") + shapeName) + " b:") + shapeName) + ") {\n";
+      eqSrc = ((eqSrc + "    if (") + opsName) + ".equals(a b)) {\n";
+      eqSrc = eqSrc + "      return false\n";
+      eqSrc = eqSrc + "    }\n";
+      eqSrc = eqSrc + "    return true\n";
+      eqSrc = eqSrc + "  }\n";
+      eqSrc = eqSrc + "}\n";
+      if ( ctx.hasCompilerFlag("shape-debug") ) {
+        console.log(eqSrc);
+      }
+      const eqCode = new SourceCode(eqSrc);
+      eqCode.filename = ("shape_ops_" + shapeName) + ".rgr";
+      const eqParser = new RangerLispParser(eqCode);
+      eqParser.parse(false);
+      const eqRootOpt = eqParser.rootNode;
+      if ( typeof(eqRootOpt) === "undefined" ) {
+        ctx.addError(shapeNode, "could not generate the equality of shape " + shapeName);
+      } else {
+        const eqRoot = eqRootOpt;
+        for ( let eqi = 0; eqi < eqRoot.children.length; eqi++) {
+          var eqch = eqRoot.children[eqi];
+          parent.children.splice(insertAt, 0, eqch);
+          insertAt = insertAt + 1;
+        };
+        renames[shapeName + ".equals"] = opsName + ".equals";
+        renames[shapeName + ".notEquals"] = opsName + ".notEquals";
+      }
+      let allCaseClasses = [];
+      const members = shapeNode.newExpressionNode();
+      for ( let cni_3 = 0; cni_3 < caseNames.length; cni_3++) {
+        var cn_3 = caseNames[cni_3];
+        members.children.push(shapeNode.newVRefNode(((shapeName + "_") + cn_3)));
+        allCaseClasses.push((shapeName + "_") + cn_3);
       };
       this.shapeCases[shapeName] = allCaseClasses;
       const unionHead = shapeNode.newVRefNode("union");
@@ -13175,9 +13342,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       shapeNode.children.push(members);
       if ( ctx.hasCompilerFlag("shape-debug") ) {
         console.log(("shape " + shapeName) + " lowered to:");
-        for ( let cni_3 = 0; cni_3 < caseNames.length; cni_3++) {
-          var cn_3 = caseNames[cni_3];
-          console.log((("  record " + shapeName) + "_") + cn_3);
+        for ( let cni_4 = 0; cni_4 < caseNames.length; cni_4++) {
+          var cn_4 = caseNames[cni_4];
+          console.log((("  record " + shapeName) + "_") + cn_4);
         };
         console.log(((("  union " + shapeName) + " over ") + ("" + (caseNames.length))) + " cases");
       }
@@ -13438,6 +13605,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         gi = gi + 1;
       };
     };
+    setShapeRef (node, replacement) {
+      node.vref = replacement;
+      node.ns.length = 0;
+      const parts = replacement.split(".");
+      for ( let si = 0; si < parts.length; si++) {
+        var seg = parts[si];
+        node.ns.push(seg);
+      };
+    };
     rewriteShapeRefs (node, renames) {
       if ( ( typeof(renames[node.type_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(renames, node.type_name) ) ) {
         node.type_name = (( Object.prototype.hasOwnProperty.call(renames, node.type_name) ? renames[node.type_name] : undefined ));
@@ -13450,17 +13626,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
       if ( ( typeof(renames[node.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(renames, node.vref) ) ) {
         const direct = (( Object.prototype.hasOwnProperty.call(renames, node.vref) ? renames[node.vref] : undefined ));
-        node.vref = direct;
-        node.ns.length = 0;
-        node.ns.push(direct);
+        this.setShapeRef(node, direct);
       }
       if ( (node.ns.length) == 2 ) {
         const joined = ((node.ns[0]) + ".") + (node.ns[1]);
         if ( ( typeof(renames[joined] ) != "undefined" && Object.prototype.hasOwnProperty.call(renames, joined) ) ) {
           const mangled = (( Object.prototype.hasOwnProperty.call(renames, joined) ? renames[joined] : undefined ));
-          node.vref = mangled;
-          node.ns.length = 0;
-          node.ns.push(mangled);
+          this.setShapeRef(node, mangled);
         }
       }
       for ( let i = 0; i < node.children.length; i++) {
@@ -21019,6 +21191,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             wr.out("", true);
           }
           wr.out("#include <string_view>", true);
+          wr.out("#include <vector>", true);
           wr.out("// Insertion-ordered map: vector storage + open-addressed hash index.", true);
           wr.out("// Replaces std::map (sorted, O(log n) with a string compare per level):", true);
           wr.out("// lookups hash once, and iteration follows INSERTION order, which is", true);
@@ -46856,6 +47029,32 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       this.walkForSharing(child, fnCtx, fnName, mutated);
                     };
                   };
+                  markIdenticalOperandsShared (node, fnName) {
+                    if ( (node.children.length) > 2 ) {
+                      const head = node.getFirst();
+                      if ( head.vref == "identical" ) {
+                        let opIdx = 1;
+                        while (opIdx < 3) {
+                          const operand = node.children[opIdx];
+                          if ( operand.hasParamDesc ) {
+                            const opDesc = operand.paramDesc;
+                            const opNN = opDesc.nameNode;
+                            if ( (typeof(opNN) !== "undefined" && opNN != null )  ) {
+                              const opNode = opNN;
+                              if ( ((opNode.array_type.length) == 0) && ((opNode.key_type.length) == 0) ) {
+                                this.markClassShared(opNode.type_name, "compared with identical in " + fnName);
+                              }
+                            }
+                          }
+                          opIdx = opIdx + 1;
+                        };
+                      }
+                    }
+                    for ( let i = 0; i < node.children.length; i++) {
+                      var ch = node.children[i];
+                      this.markIdenticalOperandsShared(ch, fnName);
+                    };
+                  };
                   analyzeClassSharingFn (fn) {
                     for ( let i = 0; i < fn.params.length; i++) {
                       var param = fn.params[i];
@@ -46871,6 +47070,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       }
                     };
                     if ( (typeof(fn.fnBody) !== "undefined" && fn.fnBody != null )  ) {
+                      this.markIdenticalOperandsShared(fn.fnBody, fn.name);
                       if ( (typeof(fn.fnCtx) !== "undefined" && fn.fnCtx != null )  ) {
                         this.currentFunction = fn;
                         let mutated = [];

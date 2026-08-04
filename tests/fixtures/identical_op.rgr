@@ -1,0 +1,22 @@
+; `identical` asks whether two names are the same object. `==` cannot be that
+; test on every target — Kotlin's is structural, Rust's needs a trait bound —
+; so identity has its own operator.
+class Cell {
+    def value:int 0
+}
+
+class IdenticalProbe {
+    sfn main:void () {
+        def a:Cell (new Cell())
+        def b:Cell (new Cell())
+        def c:Cell a
+        if (identical a c) {
+            print "same"
+        }
+        if (identical a b) {
+            print "WRONG"
+        } {
+            print "different"
+        }
+    }
+}

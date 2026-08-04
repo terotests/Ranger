@@ -1704,6 +1704,9 @@ class RangerCppClassWriter {
         wr.out("" true)
       }
       wr.out("#include <string_view>" true)
+      ; the map stores its entries in a vector, so the header is needed even in
+      ; a program that declares no array of its own
+      wr.out("#include <vector>" true)
       wr.out("// Insertion-ordered map: vector storage + open-addressed hash index." true)
       wr.out("// Replaces std::map (sorted, O(log n) with a string compare per level):" true)
       wr.out("// lookups hash once, and iteration follows INSERTION order, which is" true)

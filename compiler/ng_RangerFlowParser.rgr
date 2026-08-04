@@ -86,6 +86,10 @@ class RangerFlowParser {
   def groupAlias:[string:string]
   def caseShape:[string:string]
   def caseDisplay:[string:string]
+  ; S4: does this case compare by content (value) or by identity (reference),
+  ; and which fields its generated equality reads
+  def caseIsValue:[string:boolean]
+  def caseFieldNames:[string:[string]]
 
   def stdCommands@(optional):CodeNode
   def lastProcessedNode@(weak):CodeNode
@@ -2620,6 +2624,30 @@ class RangerFlowParser {
     def target:CodeNode (node.getSecond())
     this.WalkNode(target ctx wr)
 
+    ; S4: a @(value) case compares by CONTENT, so its fields must not change
+    ; after construction — otherwise two values that compared equal can drift
+    ; apart, and a target that copies the case (S5) and one that shares it stop
+    ; agreeing about what the program does.
+    if ((array_length target.nsp) > 0) {
+      if ((array_length target.ns) > 1) {
+        ; nsp[0] is the ROOT of the path: `a.value = …` assigns through `a`
+        def valDesc:RangerAppParamDesc (itemAt target.nsp 0)
+        def valNN@(optional):CodeNode valDesc.nameNode
+        if (!null? valNN) {
+          def valNode:CodeNode (unwrap valNN)
+          if (has caseIsValue valNode.type_name) {
+            if (unwrap (get caseIsValue valNode.type_name)) {
+              def valDisp:string valNode.type_name
+              if (has caseDisplay valNode.type_name) {
+                valDisp = (unwrap (get caseDisplay valNode.type_name))
+              }
+              ctx.addError(node ("cannot assign to a field of " + valDisp + ": a value case is immutable, because it compares by content — build a new one instead"))
+            }
+          }
+        }
+      }
+    }
+
     ; immutable check which denies assigent operation
     if(target.hasParamDesc) {
       if( !null? target.paramDesc.propertyClass) {
@@ -4263,6 +4291,51 @@ class RangerFlowParser {
     set target alias clsName
   }
 
+  ; A field the generated equality can compare with `==`: a scalar, not a
+  ; collection and not another object. A `@(value)` case may hold nothing else,
+  ; which is what makes "copies compare equal" true on every target.
+  fn shapeFieldIsScalar:boolean (fieldNode:CodeNode) {
+    if ((array_length fieldNode.children) < 2) {
+      return false
+    }
+    def head:CodeNode (fieldNode.getFirst())
+    if (((head.vref != "def") && (head.vref != "let")) && (head.vref != "var")) {
+      return false
+    }
+    def nameNode:CodeNode (fieldNode.getSecond())
+    if ((strlen nameNode.array_type) > 0) {
+      return false
+    }
+    if ((strlen nameNode.key_type) > 0) {
+      return false
+    }
+    def tn:string nameNode.type_name
+    if (tn == "int") {
+      return true
+    }
+    if (tn == "double") {
+      return true
+    }
+    if (tn == "string") {
+      return true
+    }
+    if (tn == "boolean") {
+      return true
+    }
+    if (tn == "char") {
+      return true
+    }
+    return false
+  }
+
+  fn shapeFieldName:string (fieldNode:CodeNode) {
+    if ((array_length fieldNode.children) < 2) {
+      return ""
+    }
+    def nameNode:CodeNode (fieldNode.getSecond())
+    return nameNode.vref
+  }
+
   ; The body block of a shape member (`case A { … }` / `group G { … }`). A
   ; member with no fields has no block, and answers the statement itself — the
   ; caller tests is_block_node rather than unwrapping an optional.
@@ -4371,6 +4444,37 @@ class RangerFlowParser {
         ci = ci + 1
       }
 
+      ; --- value or reference? (PLAN_SHAPES.md S4) ---
+      ; An explicit @(value) / @(reference) on the case wins, then the same on
+      ; its group; otherwise a case holding only scalars is a value and anything
+      ; else is a reference — which is the split EvalValue.equals already makes
+      ; by hand between numbers and arrays.
+      def isValue:boolean true
+      def semanticsGiven:boolean false
+      if (cnameNode.hasFlag("value")) {
+        isValue = true
+        semanticsGiven = true
+      }
+      if (cnameNode.hasFlag("reference")) {
+        isValue = false
+        semanticsGiven = true
+      }
+      if ((semanticsGiven == false) && ((strlen ownGroup) > 0)) {
+        if (has groupStmt ownGroup) {
+          def gsIdx:int (unwrap (get groupStmt ownGroup))
+          def gsNode:CodeNode (itemAt body.children gsIdx)
+          def gsName:CodeNode (gsNode.getSecond())
+          if (gsName.hasFlag("value")) {
+            isValue = true
+            semanticsGiven = true
+          }
+          if (gsName.hasFlag("reference")) {
+            isValue = false
+            semanticsGiven = true
+          }
+        }
+      }
+
       def clsName:string ((shapeName + "_") + caseName)
       def recNode:CodeNode (shapeNode.newExpressionNode())
       push recNode.children (shapeNode.newVRefNode("record"))
@@ -4400,6 +4504,28 @@ class RangerFlowParser {
           push blk.children (cf.copy())
         }
       }
+
+      ; the fields, now that group and own are both in: all scalar means the
+      ; case can be a value, and names the fields its equality compares
+      def scalarFields:[string]
+      def allScalar:boolean true
+      for blk.children fld:CodeNode fldi {
+        if (this.shapeFieldIsScalar(fld)) {
+          push scalarFields (this.shapeFieldName(fld))
+        } {
+          allScalar = false
+        }
+      }
+      if (semanticsGiven == false) {
+        isValue = allScalar
+      }
+      if (isValue && (allScalar == false)) {
+        ctx.addError(st ((("case " + caseName) + " is @(value) but holds a field that is not a scalar — a value case must be comparable by content, so mark it @(reference) or move the field out")))
+        isValue = false
+      }
+      set caseIsValue clsName isValue
+      set caseFieldNames clsName scalarFields
+
       push recNode.children blk
       insert parent.children insertAt recNode
       insertAt = insertAt + 1
@@ -4451,6 +4577,72 @@ class RangerFlowParser {
       } {
         ctx.addError(shapeNode (("group " + gn) + " has no cases"))
       }
+    }
+
+    ; --- the generated equality (PLAN_SHAPES.md S4) ---
+    ; `Value.equals(a b)` compares two values of the family: content for a value
+    ; case, identity for a reference case, false across different cases. This is
+    ; the split EvalValue.equals writes by hand for twelve kinds.
+    def opsName:string shapeName + "__ops"
+    def eqSrc:string "class " + opsName + " {\n"
+    eqSrc = eqSrc + "  sfn equals:boolean (a:" + shapeName + " b:" + shapeName + ") {\n"
+    def eci:int 0
+    for caseNames cn:string cni {
+      def ecls:string shapeName + "_" + cn
+      def la:string "__ea" + eci
+      def lb:string "__eb" + eci
+      eqSrc = eqSrc + "    case a " + la + ":" + ecls + " {\n"
+      eqSrc = eqSrc + "      case b " + lb + ":" + ecls + " {\n"
+      def valueCase:boolean false
+      if (has caseIsValue ecls) {
+        valueCase = (unwrap (get caseIsValue ecls))
+      }
+      if valueCase {
+        if (has caseFieldNames ecls) {
+          def fields:[string] (unwrap (get caseFieldNames ecls))
+          for fields fname:string fni {
+            eqSrc = eqSrc + "        if (" + la + "." + fname + " != " + lb + "." + fname + ") {\n"
+            eqSrc = eqSrc + "          return false\n"
+            eqSrc = eqSrc + "        }\n"
+          }
+        }
+        eqSrc = eqSrc + "        return true\n"
+      } {
+        eqSrc = eqSrc + "        return (identical " + la + " " + lb + ")\n"
+      }
+      eqSrc = eqSrc + "      }\n"
+      eqSrc = eqSrc + "      return false\n"
+      eqSrc = eqSrc + "    }\n"
+      eci = eci + 1
+    }
+    eqSrc = eqSrc + "    return false\n"
+    eqSrc = eqSrc + "  }\n"
+    eqSrc = eqSrc + "  sfn notEquals:boolean (a:" + shapeName + " b:" + shapeName + ") {\n"
+    eqSrc = eqSrc + "    if (" + opsName + ".equals(a b)) {\n"
+    eqSrc = eqSrc + "      return false\n"
+    eqSrc = eqSrc + "    }\n"
+    eqSrc = eqSrc + "    return true\n"
+    eqSrc = eqSrc + "  }\n"
+    eqSrc = eqSrc + "}\n"
+
+    if (ctx.hasCompilerFlag("shape-debug")) {
+      print eqSrc
+    }
+    def eqCode:SourceCode (new SourceCode (eqSrc))
+    eqCode.filename = "shape_ops_" + shapeName + ".rgr"
+    def eqParser:RangerLispParser (new RangerLispParser (eqCode))
+    eqParser.parse(false)
+    def eqRootOpt@(optional):CodeNode eqParser.rootNode
+    if (null? eqRootOpt) {
+      ctx.addError(shapeNode ("could not generate the equality of shape " + shapeName))
+    } {
+      def eqRoot:CodeNode (unwrap eqRootOpt)
+      for eqRoot.children eqch@(lives):CodeNode eqi {
+        insert parent.children insertAt eqch
+        insertAt = insertAt + 1
+      }
+      set renames (shapeName + ".equals") (opsName + ".equals")
+      set renames (shapeName + ".notEquals") (opsName + ".notEquals")
     }
 
     ; --- the shape node itself BECOMES the union over all of its cases ---
@@ -4771,6 +4963,18 @@ class RangerFlowParser {
     }
   }
 
+  ; Point a reference at its generated name. The replacement may itself be a
+  ; path (`Value.equals` becomes `Value__ops.equals`), and a call resolves
+  ; through the segments in `ns`, not through the joined spelling.
+  fn setShapeRef:void (node:CodeNode replacement:string) {
+    node.vref = replacement
+    clear node.ns
+    def parts:[string] (strsplit replacement ".")
+    for parts seg:string si {
+      push node.ns seg
+    }
+  }
+
   fn rewriteShapeRefs:void (node@(lives):CodeNode renames:[string:string]) {
     if (has renames node.type_name) {
       node.type_name = (unwrap (get renames node.type_name))
@@ -4783,18 +4987,14 @@ class RangerFlowParser {
     }
     if (has renames node.vref) {
       def direct:string (unwrap (get renames node.vref))
-      node.vref = direct
-      clear node.ns
-      push node.ns direct
+      this.setShapeRef(node direct)
     }
     ; a value reference reaches the parser split at the dot: (new EvalValue.Number())
     if ((array_length node.ns) == 2) {
       def joined:string (((itemAt node.ns 0) + ".") + (itemAt node.ns 1))
       if (has renames joined) {
         def mangled:string (unwrap (get renames joined))
-        node.vref = mangled
-        clear node.ns
-        push node.ns mangled
+        this.setShapeRef(node mangled)
       }
     }
     for node.children ch@(lives):CodeNode i {

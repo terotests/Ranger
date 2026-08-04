@@ -2358,6 +2358,32 @@ class StaticAnalyzer {
     }
   }
 
+  fn markIdenticalOperandsShared:void (node:CodeNode fnName:string) {
+    if ((array_length node.children) > 2) {
+      def head:CodeNode (node.getFirst())
+      if (head.vref == "identical") {
+        def opIdx:int 1
+        while (opIdx < 3) {
+          def operand:CodeNode (itemAt node.children opIdx)
+          if operand.hasParamDesc {
+            def opDesc:RangerAppParamDesc operand.paramDesc
+            def opNN@(optional):CodeNode opDesc.nameNode
+            if (!null? opNN) {
+              def opNode:CodeNode (unwrap opNN)
+              if (((strlen opNode.array_type) == 0) && ((strlen opNode.key_type) == 0)) {
+                this.markClassShared(opNode.type_name ("compared with identical in " + fnName))
+              }
+            }
+          }
+          opIdx = opIdx + 1
+        }
+      }
+    }
+    for node.children ch:CodeNode i {
+      this.markIdenticalOperandsShared(ch fnName)
+    }
+  }
+
   fn analyzeClassSharingFn:void (fn:RangerAppFunctionDesc) {
     ; a parameter the summary says escapes into a graph is held there while
     ; the caller's name stays live: the classic shared object
@@ -2374,6 +2400,10 @@ class StaticAnalyzer {
       }
     }
     if (!null? fn.fnBody) {
+      ; D-IDENTITY: `identical a b` asks whether two names are the same object,
+      ; which on Rust is Rc::ptr_eq — so the compared class has to be the one
+      ; that lives in a cell, whatever its own use pattern says.
+      this.markIdenticalOperandsShared((unwrap fn.fnBody) fn.name)
       if (!null? fn.fnCtx) {
         currentFunction = fn
         def mutated:[string]

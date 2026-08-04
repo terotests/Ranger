@@ -46,10 +46,15 @@ subsets (`group`). Lowers to one record class per case plus a union over them.
 
 <group-def>     ::= 'group' <identifier> ('{' <property-def>* '}')?
 
-<case-def>      ::= ('case' | 'variant') <identifier>
+<case-def>      ::= ('case' | 'variant') <identifier> <annotations>?
                     ('does' <identifier>)?
                     ('{' <property-def>* '}')?
 ```
+
+`@(value)` / `@(reference)` on a case or a group declare how it compares and
+copies: a value case compares by content and may not be mutated after
+construction; a reference case compares by identity. Unannotated, a case
+holding only scalars is a value and anything else is a reference.
 
 ```ranger
 shape Value {
@@ -92,6 +97,10 @@ a chain of `case` narrowings, so no target needs native pattern matching.
 
 Narrowing a single variant without a match is the `case` statement:
 `case v n:Value.Num { … }`.
+
+Every shape gets a generated equality: `Value.equals(a b)` and
+`Value.notEquals(a b)` compare content for value cases, identity for reference
+cases, and answer false across different cases.
 
 ## Union Definition
 
@@ -220,6 +229,13 @@ Entry point: `sfn main:void ()` (name `main` receives `@(main)` automatically).
 
 <annotation-list> ::= <identifier> (<identifier> | <string>)*
 ```
+
+### Identity
+
+`(identical a b)` — are these two names the same object? Distinct from `==`,
+which is structural on some targets and unavailable on others for object types.
+Lowers to `===`, `is`, `identical(...)`, `Object.ReferenceEquals`, `Rc::ptr_eq`
+or a pointer comparison, per target.
 
 ### Common annotations
 

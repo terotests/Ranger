@@ -1,0 +1,18 @@
+; A value case compares by content, so it may not be mutated after
+; construction — otherwise two values that compared equal drift apart.
+shape AValue {
+    case Num {
+        def value:double 0.0
+    }
+    case Text {
+        def value:string ""
+    }
+}
+
+class AssignProbe {
+    sfn main:void () {
+        def a:AValue.Num (new AValue.Num(2.5))
+        a.value = 3.0
+        print "unreachable"
+    }
+}

@@ -2,12 +2,13 @@
 
 > **Status:** design + staging plan for `shape` / `case` / `group` — a closed variant
 > family whose *source* reads like a small type hierarchy while each target picks its
-> own physical representation. **Stages S0, S1 and S2 are implemented** (§6): `union` +
+> own physical representation. **Stages S0–S4 are implemented** (§6): `union` +
 > `case` narrowing works on every target the plan builds on; `shape` parses,
-> type-checks and lowers to a record class per case plus a union over them; and
+> type-checks and lowers to a record class per case plus a union over them;
 > `match` covers a family with the compiler checking that every case is handled
-> exactly once. `@(value)` / `@(reference)` and the native per-target
-> representations are still ahead, as are methods declared on a shape.
+> exactly once; and `@(value)` / `@(reference)` give each case declared
+> copy-and-compare semantics, with the equality generated per shape. What remains
+> is the native per-target representations (S5) and methods declared on a shape.
 >
 > **Origin:** a design discussion about `gallery/game_engine/v2/interp/migrate/src/EvalValue.rgr`,
 > the largest hand-rolled tagged union in this repo.
@@ -305,7 +306,7 @@ Groups may nest (`PropertyCarrier does Reference`). They may not overlap in v1: 
 belongs to at most one group chain. Overlapping groups are a lattice, and a lattice
 needs a real subtyping algorithm in `ng_RangerArgMatch.rgr` — not a v1 problem.
 
-### 3.3 Value and reference semantics
+### 3.3 Value and reference semantics — implemented (S4, §6.3)
 
 This is the more important half of the proposal, and it is the half that is *not*
 about layout.
@@ -412,7 +413,9 @@ The implemented subset, against the design above:
 | `match` + exhaustiveness | ✅ S2 |
 | `A \| B { … }` arms, group arms, qualified `Shape.Case` arms | ✅ S2 |
 | Shape / group / case methods | ✖ later — a shape body holding anything else is an error |
-| `@(value)` / `@(reference)`, identity, `===` | ✖ S4 |
+| `@(value)` / `@(reference)`, generated equality, `identical` | ✅ S4 |
+| Immutability of value cases, enforced | ✅ S4 |
+| `==` rewritten to the generated equality | ✖ later — needs operand types during operator matching |
 | `Shape.Case(…)` construction without `new` | ✖ sugar, S2 |
 | Native per-target representations | ✖ S5 |
 
@@ -578,6 +581,7 @@ Where the S0 changes live:
 | all | a `case` chain written by hand is still unchecked — only `match` is | nothing; `match` is the checked form |
 | all | a shape may not declare methods yet | a later stage; `match this` wants a per-case lowering |
 | all | every case is a heap class; `Nothing` allocates as much as `Items` | S5 |
+| all | `==` on two shape values is the target's `==`, not the generated equality | a later round; `Shape.equals(a b)` is exact today |
 
 ## 6. Staging
 
@@ -588,8 +592,8 @@ Each stage is independently shippable and independently testable.
 | **S0 — done** | Make `union` + `case` work on every target: Rust and Dart narrowing, the Kotlin/Dart union type, the Go unused binding, the C++ shim (§5.1). Cross-target fixture that runs. | ✅ `tests/union-narrowing.test.ts` runs the fixture on ES6, Python, Go and Rust and asserts the Rust/Kotlin/Dart representation |
 | **S1 — done** | `shape` + `case` + `group` parsed, registered, type-checked, lowered to `UnionOfClasses` (§6.1). **No writer knows the word `shape`.** | ✅ `tests/shapes.test.ts`: one shape program compiles on all nine targets and prints the same answer on ES6, Python, Go and Rust |
 | **S2 — done** | `match` + exhaustiveness checking (§6.2). Lowering: a chain of `case` narrowings, so no target needs native pattern matching. | ✅ A missing case, a duplicate case and a `_` catch-all are compile errors naming what is wrong; the same `match` program runs identically on ES6, Python, Go and Rust |
-| **S3** | `group`, group-typed parameters, group patterns in `match`, group fields. | `fn f (v:EvalValue.Reference)` type-checks and rejects a primitive |
-| **S4** | `@(value)` / `@(reference)`: `==` lowering, copy semantics, identity, the immutability rule for value cases. | Cross-target conformance test: value cases compare by content, reference cases by identity, on every target |
+| **S3 — done in S1/S2** | `group`, group-typed parameters, group arms in `match`, group fields. | ✅ A group is a union of its members, carries fields its cases inherit, and types a parameter |
+| **S4 — done** | `@(value)` / `@(reference)`, the generated equality, the `identical` operator, the immutability rule for value cases (§6.3). | ✅ One program answers `true false false true false true` on ES6, Python, Go, C++ and Rust; mutating a value case and `@(value)` on a non-scalar case are compile errors |
 | **S5** | Representation selection + native representations for Rust, C++, TS, Kotlin, C#. One target at a time, `UnionOfClasses` remains the fallback. | Rust emits a real `enum`; C++ emits the compact handle; measured `sizeof` drops |
 | **S6** | Inline payload records, tag pinning, whole-program variant elimination, `match` as an expression. | — |
 
@@ -724,6 +728,53 @@ qualified spelling rather than picking one.
 inside a shape body wants a different lowering — one copy of the body per case,
 with the arm for that case inlined — which is a separate piece of work from the
 statement form. A shape body still accepts only `case` and `group`.
+
+### 6.3 How S4 gives a case its semantics
+
+```ranger
+shape Value {
+    group Ref@(reference) { def identityId:int 0 }
+    case Nothing                              ; no fields  → value
+    case Num  { def value:double 0.0 }        ; scalars    → value
+    case Items does Ref { def items:[Value] } ; from group → reference
+}
+```
+
+**Which is which.** An explicit `@(value)` / `@(reference)` on the case wins,
+then the same on its group; otherwise a case holding only scalars is a value and
+anything else is a reference. That default reproduces `EvalValue`'s hand-written
+split exactly — null, undefined, number, string and boolean by content, array,
+object, function, Map, Set and element by identity.
+
+**The equality is generated.** Every shape gets a `Shape.equals(a b)` and
+`Shape.notEquals(a b)`: field-by-field for a value case, `identical` for a
+reference case, false across different cases. The whole thing is Ranger source
+the compiler writes and re-parses, so it lowers through the same `case` chain as
+everything else and needs nothing per target.
+
+**`identical` is a new operator**, because identity is the one thing `==` cannot
+express portably: Kotlin's `==` is structural, Rust's needs a `PartialEq` bound,
+C#'s is overloadable. It lowers to `===`, `is`, `identical(…)`,
+`Object.ReferenceEquals`, `Rc::ptr_eq` or a pointer comparison per target — and
+on Rust the ownership analysis puts a class compared this way into a cell, since
+identity of a plain struct is not a question Rust answers.
+
+**Two rules the compiler now enforces:**
+
+| Written | Error |
+|---|---|
+| `a.value = 3.0` on a value case | `cannot assign to a field of Value.Num: a value case is immutable, because it compares by content — build a new one instead` |
+| `@(value)` on a case holding a collection | `case Bad is @(value) but holds a field that is not a scalar — a value case must be comparable by content, so mark it @(reference) or move the field out` |
+
+Immutability is not decoration: it is what makes "two names for one value stay
+interchangeable" true on a target that copies the case (S5's C++ handle, Rust's
+enum) as well as on one that shares it.
+
+**What S4 does not include:** `==` on shape values still means whatever the
+target's `==` means. Rewriting it to the generated equality needs the operand
+types, which are known during flow analysis rather than in the lowering pass,
+and doing it inside the operator-matching transaction is a change worth its own
+round. `Value.equals(a b)` is the spelling until then.
 
 **Where S1 lands, per target.** S1 touches no writer, so the S1 result on each target
 is exactly the row in §5 — Rust gets `Rc<dyn Any>`, C++ an `mpark::variant`, Kotlin an

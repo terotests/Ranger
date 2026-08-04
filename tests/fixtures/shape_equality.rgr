@@ -1,0 +1,44 @@
+; Value and reference semantics (PLAN_SHAPES.md, stage S4).
+;
+; `Num` and `Text` hold only scalars, so they are value cases: two of them
+; compare equal when their contents match. `Items` holds a collection, so it is
+; a reference case: two of them are equal only when they are the same object.
+; The generated `Value.equals` is the split EvalValue.equals writes by hand.
+shape Value {
+    group Ref@(reference) {
+        def identityId:int 0
+    }
+    case Nothing
+    case Num {
+        def value:double 0.0
+    }
+    case Text {
+        def value:string ""
+    }
+    case Items does Ref {
+        def items:[Value]
+    }
+}
+
+class EqProbe {
+    sfn main:void () {
+        def a:Value.Num (new Value.Num(2.5))
+        def b:Value.Num (new Value.Num(2.5))
+        def c:Value.Text (new Value.Text("x"))
+        def empty:[Value]
+        def i1:Value.Items (new Value.Items(1 empty))
+        def i2:Value.Items (new Value.Items(1 empty))
+        def i3:Value.Items i1
+        ; same content, different objects: a value case is equal
+        print (to_string (Value.equals(a b)))
+        ; different cases are never equal
+        print (to_string (Value.equals(a c)))
+        ; same content, different objects: a reference case is NOT equal
+        print (to_string (Value.equals(i1 i2)))
+        ; the same object is
+        print (to_string (Value.equals(i1 i3)))
+        print (to_string (Value.notEquals(a b)))
+        ; two cases with no fields at all
+        print (to_string (Value.equals((new Value.Nothing()) (new Value.Nothing()))))
+    }
+}
