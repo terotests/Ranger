@@ -180,6 +180,40 @@ The hits come from hot *small* values — indices, loop counters, lengths, char
 codes — which 4096 already covers. Accumulators grow without bound and no cache
 of any size catches them.
 
+### A literal was being re-allocated on every visit
+
+Isolating the loop header exposed something simpler than a representation
+problem. `for (var i = 0; i < 100000; i++) { }` — an **empty** body — allocated
+2 objects per iteration. Hoisting the bound to a variable removed one of them:
+
+| same 100,000 iterations | objects | elapsed |
+| --- | ---: | ---: |
+| `i < 100000` (literal) | 200,641 | 0.16 s |
+| `var B = 100000; i < B` | 100,649 | 0.11 s |
+
+Half the allocations in an empty loop were the constant `100000` being rebuilt
+every time the condition was evaluated. The literal's *text→double parse* was
+already memoised on the AST node; its value object was not, so any literal
+outside the 4096-entry pool minted a fresh `EvalValue` per visit.
+
+Interning it on the node (`TSNode.numCacheId` indexing a table in
+`EvalConstPool`, since an `EvalValue` field there would be a type cycle) is
+safe for exactly the reason `smallInts` is safe — a literal is a constant and a
+number is immutable:
+
+| | before | after |
+| --- | ---: | ---: |
+| empty 100k loop | 200,641 objects / 0.16 s | **100,641 / 0.11 s** |
+| `s = s + i`, 100k | 300,570 objects | **200,570** |
+| 300k arithmetic loop | 0.85 s | **0.68 s** (−20%) |
+| `s = f(s)`, 20k | 0.11 s | **0.08 s** (−27%) |
+| Richards | 24.25 s | 23.44 s |
+| DeltaBlue | — | 50.41 s |
+
+Richards barely moves because its literals are mostly small and the pool
+already answered them; the gain is real wherever a program's constants sit
+above 4096, which in an empty loop was *half of all allocation*.
+
 ### What that implies
 
 A pool miss currently costs **nine** allocations. If a miss cost **one** — the

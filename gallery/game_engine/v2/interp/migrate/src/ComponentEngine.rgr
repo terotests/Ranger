@@ -7372,7 +7372,16 @@ class ComponentEngine {
                     node.numValue = (unwrap parsedNum)
                 }
             }
-            return (EvalValue.number(node.numValue))
+            ; The VALUE is memoised too, not just the parse. Below 4096 the
+            ; shared pool already answers; above it, minting a fresh EvalValue
+            ; per evaluation made a loop bound cost one allocation per iteration.
+            def numPool:EvalConstPool (EvalConstPool.__singleton())
+            if (node.numCacheId >= 0) {
+                return (numPool.literalAt(node.numCacheId))
+            }
+            def litVal:EvalValue (EvalValue.number(node.numValue))
+            node.numCacheId = (numPool.addLiteral(litVal))
+            return litVal
         }
         if (exprK == 3) {
             return (this.evaluateMemberExpr(node))

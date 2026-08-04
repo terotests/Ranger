@@ -46,6 +46,13 @@ class TSNode {
   ; loop bound means once per iteration. Parsed on first use and kept.
   def numScanned:boolean false
   def numValue:double 0.0
+  ; Memo for the literal's VALUE object, held by index into the evaluator's
+  ; constant table (an EvalValue field here would be a type cycle -- the engine
+  ; imports the parser, not the other way round). -1 = not yet interned.
+  ; The parse above was memoised but the value object was not, so a loop bound
+  ; outside the small-integer pool minted a fresh one on every iteration:
+  ; measured at half of all allocations in `for (var i = 0; i < 100000; i++) {}`.
+  def numCacheId:int (0 - 1)
   ; Memo the EVALUATOR fills on first visit: nodeType as a small integer, so
   ; hot dispatch compares ints instead of strings (a memcmp per visit on the
   ; native targets, where V8 compares interned pointers). 0 = not scanned.
