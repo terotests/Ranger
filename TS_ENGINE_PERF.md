@@ -701,3 +701,72 @@ statement is about what is *linked*, not about a measurement.
    `compiler/ng_LowIRBuilder.rgr`, not just template text: the `llvm` entries in
    `Lang.rgr` are s-expressions consumed by the LowIR builder's intrinsic
    dispatch. This is a project, and it should follow (1)–(3), not precede them.
+
+---
+
+## `at` and `strlen` mean different things on different targets
+
+Found while chasing why the C++ TS parser was 27x slower than the LLVM one.
+The same four-character string, same program, three targets:
+
+```ranger
+def s:string "café"
+```
+
+| target | `strlen s` | `at s 3` | `at s 4` |
+|---|---:|---|---|
+| es6 / Node | **4** | `é` | undefined |
+| C++ | **5** | `é` | (empty) |
+| LLVM | **5** | `<0xC3>` | `<0xA9>` |
+
+es6 counts **codepoints**; C++ and LLVM count **bytes**. es6 and C++ return a
+codepoint from `at`; LLVM returns a single byte. Three targets, three
+behaviours, on a string every JavaScript engine calls length 4.
+
+### It also explains the speed gap
+
+`r_utf8_char_at` on C++ walks the string from byte 0 on every call to find
+codepoint `pos`. That is correct UTF-8 and **O(n²) to iterate one string** —
+callgrind put **99.65% of all instructions** in it for the parser workload. The
+LLVM runtime is O(1) because `ranger_char_at` indexes bytes, and
+`runtime/ranger_rt.c` says so:
+
+```c
+/* substring: heap-allocated copy of bytes [start, end) of text.
+ * Byte-indexed to match ranger_char_at semantics on this runtime. */
+```
+
+So the **27x LLVM-over-C++ figure on the parser is substantially a semantics
+difference, not an optimisation**. It is recorded here rather than claimed as a
+speedup.
+
+### Why the obvious fix does not work
+
+Detect ASCII, index bytes. Written and measured: **0% —** 1215.4 ms against
+1215.2. Checking whether a string is ASCII is itself O(n), the same walk it
+would replace, so there is nothing to gain per call.
+
+A win needs the flag **cached with the string**, and caching it on the
+`data()` pointer is unsound: allocators reuse addresses, so a later string of
+the same size but different content would be byte-indexed and answer wrongly.
+Ranger strings are immutable-ish (concat and substring allocate new ones), which
+makes same-address-same-size reuse *more* likely, not less.
+
+### The three options that do work
+
+Each changes behaviour, so the choice belongs to whoever owns the semantics:
+
+1. **Byte-index everywhere.** Make C++ `at`/`strlen` byte-based, matching LLVM.
+   O(1), all native targets agree — and es6 becomes the odd one out, which
+   matters because es6 is the target the conformance score is measured on.
+2. **Codepoint-index everywhere.** Give LLVM the UTF-8 walk. Correct and
+   consistent, and makes the LLVM build *slower* — the 27x would largely
+   disappear, because it was never a real gap.
+3. **Carry the flag on the string.** Replace raw `std::string` in the C++ target
+   with a thin wrapper holding an `is_ascii` bit computed once at construction.
+   Keeps UTF-8 correctness *and* gets O(1) for the ASCII case, which is the only
+   option that has both. It is also much the largest change: every string-typed
+   field, local, parameter and return in the emitted C++.
+
+Option 3 is the right end state if `at` is meant to be UTF-8-aware. Option 1 is
+the cheap one, and it is what the LLVM runtime already assumes.
