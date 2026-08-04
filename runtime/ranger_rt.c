@@ -629,6 +629,251 @@ void rt_smap_clear_value_slot(int64_t map, int32_t i) {
   m->entries[i].value = 0;
 }
 
+/* ---------------------------------------------------------------------------
+ * Integer-keyed maps (RtIMap).
+ *
+ * The generated RtMap_* runtime stores 4-byte slots, so it can hold `[int:int]`
+ * and nothing else -- an object reference does not fit. `[int:EvalValue]` needs
+ * 64-bit values AND ownership: a value put into the map has to be retained and
+ * released like a string map's, or a slot would outlive what it points at.
+ *
+ * So this lives in C for the same reason RtSMap does: widening the emitted IR
+ * would mean hand-writing the wider hash, resize and ownership in LLVM IR,
+ * where here they are ordinary code.
+ *
+ * Open addressing on the key itself. The intended use is a dense numeric range
+ * per call frame, which a multiplicative hash spreads evenly and which never
+ * needs insertion order -- unlike a string map, whose order JavaScript observes.
+ * ------------------------------------------------------------------------- */
+
+typedef struct {
+  int64_t key;
+  int64_t value;
+  uint8_t used;   /* 0 empty, 1 live, 2 tombstone */
+} RtIMapEntry;
+
+typedef struct {
+  RtIMapEntry *entries;
+  int32_t cap;    /* power of two, 0 until the first put */
+  int32_t live;
+  int32_t used;   /* live + tombstones, drives the resize */
+  int32_t valkind; /* 0 plain / 1 owned object / 2 owned string */
+  int32_t rc;
+} RtIMap;
+
+long g_imap_new = 0, g_imap_free = 0;
+
+static uint32_t rt_imap_hash(int64_t k) {
+  uint64_t x = (uint64_t)k;
+  x *= 0x9E3779B97F4A7C15ull; /* Fibonacci hashing: good spread for dense keys */
+  return (uint32_t)(x >> 32);
+}
+
+static void rt_imap_retain_value(RtIMap *m, int64_t v) {
+  if (m->valkind == 1 && v != 0) {
+    ranger_obj_retain(v);
+  }
+}
+
+static void rt_imap_release_value(RtIMap *m, int64_t v) {
+  if (v == 0) {
+    return;
+  }
+  if (m->valkind == 1) {
+    ranger_obj_release(v);
+  } else if (m->valkind == 2) {
+    free((void *)(intptr_t)v);
+  }
+}
+
+int64_t RtIMap_new_kind(int valkind) {
+  RtIMap *m = (RtIMap *)calloc(1, sizeof(RtIMap));
+  g_imap_new++;
+  if (m == NULL) {
+    return 0;
+  }
+  /* Storage waits for the first put, as RtSMap's does: most maps in an
+   * interpreter never receive one. */
+  m->valkind = valkind;
+  m->rc = 1;
+  return (int64_t)(intptr_t)m;
+}
+
+int64_t RtIMap_new(void) { return RtIMap_new_kind(0); }
+
+/* Slot for `key`: the live entry, or the first free slot to claim. */
+static int32_t rt_imap_slot(RtIMap *m, int64_t key, int wantFree) {
+  uint32_t mask;
+  uint32_t i;
+  int32_t firstFree = -1;
+  if (m == NULL || m->entries == NULL) {
+    return -1;
+  }
+  mask = (uint32_t)(m->cap - 1);
+  i = rt_imap_hash(key) & mask;
+  for (;;) {
+    RtIMapEntry *e = &m->entries[i];
+    if (e->used == 0) {
+      return wantFree ? ((firstFree >= 0) ? firstFree : (int32_t)i) : -1;
+    }
+    if (e->used == 1 && e->key == key) {
+      return (int32_t)i;
+    }
+    if (e->used == 2 && firstFree < 0) {
+      firstFree = (int32_t)i;
+    }
+    i = (i + 1) & mask;
+  }
+}
+
+static int rt_imap_grow(RtIMap *m, int32_t newCap) {
+  RtIMapEntry *old = m->entries;
+  int32_t oldCap = m->cap;
+  int32_t i;
+  RtIMapEntry *ne = (RtIMapEntry *)calloc((size_t)newCap, sizeof(RtIMapEntry));
+  if (ne == NULL) {
+    return 0;
+  }
+  m->entries = ne;
+  m->cap = newCap;
+  m->used = m->live;
+  for (i = 0; i < oldCap; i++) {
+    if (old[i].used == 1) {
+      int32_t s = rt_imap_slot(m, old[i].key, 1);
+      if (s >= 0) {
+        m->entries[s] = old[i];
+      }
+    }
+  }
+  free(old);
+  return 1;
+}
+
+void RtIMap_set(int64_t map, int64_t key, int64_t value) {
+  RtIMap *m = (RtIMap *)(intptr_t)map;
+  int32_t s;
+  if (m == NULL) {
+    return;
+  }
+  if (m->entries == NULL) {
+    if (!rt_imap_grow(m, 16)) {
+      return;
+    }
+  }
+  /* Resize at half full: open addressing degrades badly past that. */
+  if ((m->used + 1) * 2 > m->cap) {
+    if (!rt_imap_grow(m, m->cap * 2)) {
+      return;
+    }
+  }
+  s = rt_imap_slot(m, key, 1);
+  if (s < 0) {
+    return;
+  }
+  /* retain BEFORE releasing: storing a value over itself must not free it */
+  rt_imap_retain_value(m, value);
+  if (m->entries[s].used == 1) {
+    rt_imap_release_value(m, m->entries[s].value);
+  } else {
+    if (m->entries[s].used == 0) {
+      m->used++;
+    }
+    m->live++;
+  }
+  m->entries[s].key = key;
+  m->entries[s].value = value;
+  m->entries[s].used = 1;
+}
+
+int64_t RtIMap_get(int64_t map, int64_t key) {
+  RtIMap *m = (RtIMap *)(intptr_t)map;
+  int32_t s = rt_imap_slot(m, key, 0);
+  return (s >= 0) ? m->entries[s].value : 0;
+}
+
+int RtIMap_has(int64_t map, int64_t key) {
+  return (rt_imap_slot((RtIMap *)(intptr_t)map, key, 0) >= 0) ? 1 : 0;
+}
+
+void RtIMap_remove(int64_t map, int64_t key) {
+  RtIMap *m = (RtIMap *)(intptr_t)map;
+  int32_t s = rt_imap_slot(m, key, 0);
+  if (s < 0) {
+    return;
+  }
+  rt_imap_release_value(m, m->entries[s].value);
+  m->entries[s].value = 0;
+  m->entries[s].used = 2; /* tombstone: a probe chain through here must go on */
+  m->live--;
+}
+
+int RtIMap_size(int64_t map) {
+  RtIMap *m = (RtIMap *)(intptr_t)map;
+  return (m == NULL) ? 0 : m->live;
+}
+
+void RtIMap_retain(int64_t map) {
+  RtIMap *m = (RtIMap *)(intptr_t)map;
+  if (m != NULL) {
+    m->rc++;
+  }
+}
+
+void RtIMap_free(int64_t map) {
+  RtIMap *m = (RtIMap *)(intptr_t)map;
+  int32_t i;
+  if (m == NULL) {
+    return;
+  }
+  if (m->rc > 1) {
+    m->rc--;
+    return;
+  }
+  m->rc = 0;
+  g_imap_free++;
+  for (i = 0; i < m->cap; i++) {
+    if (m->entries[i].used == 1) {
+      rt_imap_release_value(m, m->entries[i].value);
+    }
+  }
+  free(m->entries);
+  free(m);
+}
+
+/* Does this map hold `value`? Used by the cycle collector's holder scan. */
+int rt_imap_holds_value(int64_t map, int64_t value) {
+  RtIMap *m = (RtIMap *)(intptr_t)map;
+  int32_t i;
+  if (m == NULL) {
+    return 0;
+  }
+  for (i = 0; i < m->cap; i++) {
+    if (m->entries[i].used == 1 && m->entries[i].value == value) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/* Slot walking for the cycle collector, mirroring the RtSMap accessors. */
+int rt_imap_is_object_map(int64_t map) {
+  RtIMap *m = (RtIMap *)(intptr_t)map;
+  return (m != NULL && m->valkind == 1) ? 1 : 0;
+}
+
+int32_t rt_imap_slot_count(int64_t map) {
+  RtIMap *m = (RtIMap *)(intptr_t)map;
+  return (m == NULL) ? 0 : m->cap;
+}
+
+int64_t rt_imap_value_slot(int64_t map, int32_t i) {
+  RtIMap *m = (RtIMap *)(intptr_t)map;
+  if (m == NULL || i < 0 || i >= m->cap) {
+    return 0;
+  }
+  return (m->entries[i].used == 1) ? m->entries[i].value : 0;
+}
+
 /* Assign to `key` only if it already exists, answering whether it did.
  *
  * `if (has m k) { set m k v }` is the shape every scope-chain assignment walks,

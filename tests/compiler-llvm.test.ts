@@ -604,6 +604,26 @@ describe("Ranger Compiler - LLVM / Low IR backend", () => {
     expect(ll).not.toContain("ownership[manual]");
   });
 
+  it("RtIMap holds 64-bit owned values under a dense key range", () => {
+    if (!isLlvmAvailable()) {
+      return;
+    }
+    const outDir = path.join(__dirname, ".output-rtimap");
+    fs.mkdirSync(outDir, { recursive: true });
+    const binPath = path.join(outDir, "rtimap_test");
+    execSync(
+      `clang -O1 "${__dirname}/rtimap_test.c" ${RUNTIME_C} -o "${binPath}" -lm`,
+      { stdio: "pipe" }
+    );
+    // The C file prints its own failures; a non-zero exit means at least one.
+    const out = execSync(`"${binPath}"; echo "exit=$?"`, {
+      shell: "/bin/bash",
+      encoding: "utf-8",
+    });
+    expect(out).toContain("all RtIMap checks passed");
+    expect(out).toContain("exit=0");
+  });
+
   it("native RangerMem.refCount sees a second holder", () => {
     if (!isLlvmAvailable()) {
       return;
