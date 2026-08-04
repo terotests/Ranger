@@ -743,7 +743,11 @@ class LowIRRuntimeGen {
     capP.irType = "i32"
     push params capP
     builder.startBlock("entry")
-    def descBytes (builder.emitConst("i32" ("" + (pb + 12))))
+    ; layout: data@0 | len@meta | cap@meta+4 | elemKind@meta+8 | rc@meta+12.
+    ; The refcount is what lets an array be shared -- a local handed to a
+    ; constructor that stores it in a field has two owners, and without a count
+    ; both released it.
+    def descBytes (builder.emitConst("i32" ("" + (pb + 16))))
     def desc (builder.emitHeapAlloc(descBytes))
     def elemBytes (builder.emitConst("i32" ("" + pb)))
     def capBytes (builder.emitBin("mul" "i32" "%cap" elemBytes))
@@ -753,6 +757,8 @@ class LowIRRuntimeGen {
     def zeroI32 (builder.emitConst("i32" "0"))
     builder.emitStoreI32At(desc meta zeroI32)
     builder.emitStoreI32At(desc (meta + 4) "%cap")
+    def oneRc (builder.emitConst("i32" "1"))
+    builder.emitStoreI32At(desc (meta + 12) oneRc)
     builder.terminateRet(pt desc)
     LowIRRuntimeGen.finishFn(builder module "RtPtrArray_new" pt params false)
   }

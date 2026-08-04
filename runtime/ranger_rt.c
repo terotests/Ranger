@@ -609,6 +609,7 @@ typedef struct {
   int32_t len;
   int32_t cap;
   int32_t owned;
+  int32_t rc;
 } RtSplitDesc;
 
 static void rt_split_push(RtSplitDesc *d, char *s) {
@@ -636,6 +637,7 @@ int64_t ranger_str_split(const char *text, const char *sep) {
     return 0;
   }
   d->owned = 2;
+  d->rc = 1;
   if (text == NULL) {
     return (int64_t)(intptr_t)d;
   }

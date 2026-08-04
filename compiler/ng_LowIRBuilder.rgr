@@ -1583,7 +1583,15 @@ class LowIRBuilderPass {
         itemAddr = (lctx.builder.emitCast("zext" "i64" "i32" itemAddr))
       } {
         if (LowIRUtil.isStringType((this.arrayElemTypeName(arrNode lctx)))) {
-          itemAddr = (lctx.builder.emitPtrToInt(itemAddr))
+          ; The array OWNS its string elements (element kind 2 -- released with
+          ; the array), so it stores a private copy. Storing the pointer as-is
+          ; made the array own a literal or a borrowed local, and freeing that
+          ; on release crashed.
+          def ownedStr:string itemAddr
+          if (this.memEnabled(lctx)) {
+            ownedStr = (this.emitStrdupExpr(itemAddr lctx))
+          }
+          itemAddr = (lctx.builder.emitPtrToInt(ownedStr))
         }
         if (this.arrayElemIsDouble(arrNode lctx)) {
           itemAddr = (lctx.builder.emitCast("bitcast" "i64" "f64" itemAddr))
@@ -2037,9 +2045,16 @@ class LowIRBuilderPass {
     push kRest iCur
     push kTypes "i32"
     def keyPtr (this.emitSMapCall("RtSMap_keyAt" "i8*" desc kRest kTypes lctx))
+    ; RtSMap_keyAt hands back the MAP's own key buffer. The result array owns
+    ; its elements (kind 2) and frees them on release, so it takes a private
+    ; copy -- otherwise releasing the key list freed the map's keys under it.
+    def keyOwned:string keyPtr
+    if (this.memEnabled(lctx)) {
+      keyOwned = (this.emitStrdupExpr(keyPtr lctx))
+    }
     ; The array stores pointer-sized integers, so the key pointer converts in --
     ; the same direction emitPtrArrayElemGet converts back out.
-    def keyInt (builder.emitPtrToInt(keyPtr))
+    def keyInt (builder.emitPtrToInt(keyOwned))
     def pArgs:[string]
     def pTypes:[string]
     push pArgs outArr
@@ -2171,9 +2186,24 @@ class LowIRBuilderPass {
     return desc
   }
 
+  fn isOwnedCollectionLocal:boolean (varName:string lctx:LowIRLowerContext) {
+    for lctx.ownedCollectionLocals own:string i {
+      if (own == varName) {
+        return true
+      }
+    }
+    return false
+  }
+
   fn bindPtrArraySlot:void (varName:string desc:string lctx:LowIRLowerContext owned:boolean) {
     this.bindSlot(varName lctx.ptrType desc lctx)
     set lctx.collectionSlots varName "ptr_array"
+    ; A name declared twice in one function (two branches of a long evaluator)
+    ; must be released ONCE at scope end. Registering it per declaration emitted
+    ; two releases of the same descriptor.
+    if (this.isOwnedCollectionLocal(varName lctx)) {
+      return
+    }
     if owned {
       push lctx.ownedCollectionLocals varName
     } {
@@ -2236,6 +2266,9 @@ class LowIRBuilderPass {
   fn bindCollectionSlot:void (varName:string kind:string desc:string lctx:LowIRLowerContext) {
     this.bindSlot(varName lctx.ptrType desc lctx)
     set lctx.collectionSlots varName kind
+    if (this.isOwnedCollectionLocal(varName lctx)) {
+      return
+    }
     ; On freestanding WASM a locally-created map is freed at scope end too. The
     ; release loop dispatches by collectionKind (map -> RtMap_free).
     if (this.wasmCollectionRcEnabled(lctx)) {
@@ -3112,7 +3145,11 @@ class LowIRBuilderPass {
         storeVal = (lctx.builder.emitCast("zext" "i64" "i32" val))
       } {
         if (LowIRUtil.isStringType((this.arrayElemTypeName(arrNode lctx)))) {
-          storeVal = (lctx.builder.emitPtrToInt(val))
+          def ownedSet:string val
+          if (this.memEnabled(lctx)) {
+            ownedSet = (this.emitStrdupExpr(val lctx))
+          }
+          storeVal = (lctx.builder.emitPtrToInt(ownedSet))
         }
         if (this.arrayElemIsDouble(arrNode lctx)) {
           storeVal = (lctx.builder.emitCast("bitcast" "i64" "f64" val))
@@ -3179,6 +3216,63 @@ class LowIRBuilderPass {
     ; Neither is released on overwrite (the original owner frees it).
   }
 
+  ; A VRef naming a ptr-array the current scope does NOT own: a field, a
+  ; parameter, or any array slot not registered as an owned local.
+  fn exprIsBorrowedPtrArrayRef:boolean (node:CodeNode lctx:LowIRLowerContext) {
+    def vr:string node.vref
+    if ((indexOf vr ".") >= 0) {
+      def parts:[string] (strsplit vr ".")
+      if ((array_length parts) >= 2) {
+        def n:int (array_length parts)
+        def recvPrefix:string (this.joinDotPrefix(parts (n - 1)))
+        def fld (itemAt parts (n - 1))
+        def cls (this.resolveObjectClassChain(recvPrefix lctx))
+        if ((strlen cls) > 0) {
+          return (this.fieldIsPtrArraySlot(cls fld))
+        }
+      }
+      return false
+    }
+    if (this.isClassField(vr lctx.className this.irModule)) {
+      return (this.fieldIsPtrArraySlot(lctx.className vr))
+    }
+    if ((this.collectionKind(vr lctx)) != "ptr_array") {
+      return false
+    }
+    for lctx.ownedCollectionLocals own:string i {
+      if (own == vr) {
+        return false
+      }
+    }
+    return true
+  }
+
+  ; `def b:[T] a` names the SAME array as `a`: the new local is a second owner
+  ; and releases it at scope end, so the count has to grow. Only an alias needs
+  ; this -- a fresh array (a call result, `keys`, `strsplit`) already arrives
+  ; with the caller's reference.
+  fn retainAliasedArray:void (valNode:CodeNode desc:string lctx:LowIRLowerContext) {
+    if ((this.memEnabled(lctx)) == false) {
+      return
+    }
+    if (valNode.value_type != RangerNodeType.VRef) {
+      return
+    }
+    this.emitPtrArrayRetain(desc lctx)
+  }
+
+  ; Bump a ptr-array descriptor's refcount: the value gains another owner.
+  fn emitPtrArrayRetain:void (desc:string lctx:LowIRLowerContext) {
+    def relParams:[string]
+    push relParams lctx.ptrType
+    this.ensureExternDecl("ranger_ptrarray_retain" "void" relParams false)
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes lctx.ptrType
+    lctx.builder.emitCall("ranger_ptrarray_retain" "void" args argTypes)
+  }
+
   fn emitFieldStoreOn:void (className:string structPtr:string fieldName:string value:string lctx:LowIRLowerContext) {
     this.emitFieldStoreOnEx(className structPtr fieldName value false lctx)
   }
@@ -3201,6 +3295,11 @@ class LowIRBuilderPass {
       }
     }
     if (this.memEnabled(lctx)) {
+      ; An array field holds a COUNTED reference. Retain before releasing the
+      ; old value: storing an array over itself would otherwise free it.
+      if (this.fieldIsPtrArraySlot(className fieldName)) {
+        this.emitPtrArrayRetain(value lctx)
+      }
       def oldRaw (builder.emitLoad(ftype fieldPtr))
       this.emitReleaseFieldValue(className fieldName oldRaw lctx)
     } {
@@ -3518,7 +3617,24 @@ class LowIRBuilderPass {
         push argTypes "i32"
         this.usedPtrArrayRuntime = true
         def desc (lctx.builder.emitCall("RtPtrArray_new" lctx.ptrType args argTypes))
-        def one (lctx.builder.emitConst("i32" "1"))
+        ; The flag word is the element KIND (0 plain / 1 object / 2 string).
+        ; Hardcoding 1 made a [string] field array release each element as an
+        ; object, reading memory before a plain malloc'd buffer.
+        def fElem:string (this.fieldArrayElemType(className f.name lctx))
+        def kindLit:string "1"
+        if (LowIRUtil.isStringType(fElem)) {
+          kindLit = "2"
+        }
+        if (fElem == "int") {
+          kindLit = "0"
+        }
+        if ((fElem == "double") || (fElem == "float")) {
+          kindLit = "0"
+        }
+        if (fElem == "boolean") {
+          kindLit = "0"
+        }
+        def one (lctx.builder.emitConst("i32" kindLit))
         lctx.builder.emitStoreI32At(desc (this.ptrArrayOwnedOff(lctx)) one)
         this.emitFieldStoreOn(className objPtr f.name desc lctx)
       }
@@ -5098,18 +5214,21 @@ class LowIRBuilderPass {
     ; came back as a raw integer where a string pointer was wanted.
     if (this.isStringArrayTypeNode(nameNode)) {
       def sArrV (this.lowerExpr(val lctx))
+      this.retainAliasedArray(val sArrV lctx)
       this.bindPtrArraySlot(varName sArrV lctx true)
       set lctx.ptrArrayElemTypes varName "string"
       return
     }
     if (this.isDoubleArrayTypeNode(nameNode)) {
       def dArrV (this.lowerExpr(val lctx))
+      this.retainAliasedArray(val dArrV lctx)
       this.bindPtrArraySlot(varName dArrV lctx false)
       set lctx.ptrArrayElemTypes varName nameNode.array_type
       return
     }
     if (this.isObjectPtrArrayTypeNode(nameNode)) {
       def oArrV (this.lowerExpr(val lctx))
+      this.retainAliasedArray(val oArrV lctx)
       this.bindPtrArraySlot(varName oArrV lctx true)
       set lctx.ptrArrayElemTypes varName nameNode.array_type
       return
@@ -5269,11 +5388,31 @@ class LowIRBuilderPass {
       ; for boolean fields. Pre-zexting produced an invalid double
       ; "zext i1 <i32> to i32" (the receiver "recv.fld" path above never did
       ; this, which is why only bare field assignments miscompiled).
+      if (this.memEnabled(lctx)) {
+        if (this.fieldIsObjectSlot(lctx.className varName)) {
+          if (rhs.value_type == RangerNodeType.VRef) {
+            if (this.isOwnedObjectLocal(rhs.vref lctx)) {
+              set lctx.escapedLocals rhs.vref "1"
+            }
+          }
+        }
+      }
       this.emitFieldStoreOnEx(lctx.className lctx.selfPtr varName tmp rhs.hasNewOper lctx)
       return
     }
     if (has lctx.slots varName) {
       def slot (unwrap (get lctx.slots varName))
+      ; An array local reassigned to another array becomes an owner of the new
+      ; one and stops owning the old. Storing the descriptor without adjusting
+      ; either count left two locals releasing the same array.
+      if (this.memEnabled(lctx)) {
+        if ((this.collectionKind(varName lctx)) == "ptr_array") {
+          if (this.isOwnedCollectionLocal(varName lctx)) {
+            this.emitPtrArrayRetain(tmp lctx)
+            this.releaseOwnedCollectionLocal(varName lctx)
+          }
+        }
+      }
       ; release-before-reassign: `x = (new T)` on an owned object local must free
       ; the previous object first (the new one is already allocated in `tmp`).
       ; releaseOwnedLocal self-gates on objRcEnabled + escaped, and loads the
@@ -5340,6 +5479,17 @@ class LowIRBuilderPass {
         tmp = (this.lowerCall(valNode lctx))
       } {
         tmp = (this.lowerExpr(valNode lctx))
+      }
+      ; Returning a BORROWED array (a field, a parameter) hands the caller a
+      ; reference it will release, so the count has to grow. An owned local is
+      ; a transfer instead -- it was marked escaped above and is not released
+      ; here, so its single reference simply moves to the caller.
+      if (this.memEnabled(lctx)) {
+        if (valNode.value_type == RangerNodeType.VRef) {
+          if (this.exprIsBorrowedPtrArrayRef(valNode lctx)) {
+            this.emitPtrArrayRetain(tmp lctx)
+          }
+        }
       }
       ; the returned value escapes to the caller: claim it out of the statement
       ; arena so it is not freed, then release the remaining intermediates (e.g.

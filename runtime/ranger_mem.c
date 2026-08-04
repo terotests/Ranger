@@ -32,11 +32,14 @@ typedef struct {
   uint32_t _pad;
 } RangerObjHeader;
 
+/* Must match buildRtPtrArrayNew in ng_LowIRRuntime.rgr:
+ * data | len | cap | owned (element KIND) | rc. */
 typedef struct {
   int64_t data;
   int32_t len;
   int32_t cap;
   int32_t owned;
+  int32_t rc;
 } RtPtrArrayDesc;
 
 #define RANGER_HEADER_SIZE ((int)sizeof(RangerObjHeader))
@@ -145,6 +148,15 @@ void ranger_str_release(char *s) {
   free(s);
 }
 
+void ranger_ptrarray_retain(int64_t desc_addr) {
+  RtPtrArrayDesc *d;
+  if (desc_addr == 0) {
+    return;
+  }
+  d = (RtPtrArrayDesc *)(intptr_t)desc_addr;
+  d->rc++;
+}
+
 void ranger_ptrarray_release(int64_t desc_addr) {
   RtPtrArrayDesc *d;
   int32_t i;
@@ -152,6 +164,15 @@ void ranger_ptrarray_release(int64_t desc_addr) {
     return;
   }
   d = (RtPtrArrayDesc *)(intptr_t)desc_addr;
+  /* Shared arrays: a local handed to a constructor that keeps it, or a field
+   * array handed back to a caller, has more than one owner. Only the last
+   * release frees. rc==0 means the descriptor predates refcounting (or was
+   * built by hand); treat it as a single owner. */
+  if (d->rc > 1) {
+    d->rc--;
+    return;
+  }
+  d->rc = 0;
   /* The flag word is an element KIND, not a plain boolean: 0 = plain values,
    * 1 = owned objects, 2 = owned strings. A string element is a malloc'd
    * buffer with no object header, so releasing it as an object read memory
