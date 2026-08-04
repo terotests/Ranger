@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Dart target for Flutter-ready packages** — `-l=dart` generates idiomatic Dart (`T?` null safety, `List`/`Map`, top-level `main`, `import '…';`) aimed at shared application logic a handwritten Flutter UI can import, not widget trees. `-pubspec` writes `pubspec.yaml` (`-name=` `-version=` `-description=`); `-flutter` adds a Flutter SDK dependency. Registration covers `Lang.rgr`, `RangerDartClassWriter`, LiveCompiler, VirtualCompiler, conformance, `npm run test:dart`, the syntax-app matrix, and `examples/dart_flutter_logic/`. See `PLAN_DART.md` and `TARGET_NOTES.md`.
+- **Dart golden: `gallery/ts_parser`** — the ~10k LOC TypeScript/ES5 parser compiles with `-l=dart -nodecli`; the `-d` demo AST is identical to the JS reference. Adds host ops (`shell_arg*`, `read_file`), `$` escaping in Dart string literals, `npm run tsparser:compile:dart` / `tsparser:run:dart`, and `npm run test:dart:tsparser`.
 
 ### Changed
 

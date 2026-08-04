@@ -314,7 +314,7 @@ export function compileAndRunDart(sourceFile: string): { compile: CompileResult;
 
 1. ✅ Simple Ranger programs compile to valid Dart code
 2. ✅ Generated Dart code runs with `dart run`
-3. ⬜ ts_parser compiles and works in Dart
+3. ✅ ts_parser compiles and works in Dart (`-d` demo AST identical to JS)
 4. ⬜ pdf_writer core components compile
 5. ✅ Can create a Flutter package from generated code (`-pubspec` / `-flutter`)
 
@@ -345,7 +345,7 @@ export function compileAndRunDart(sourceFile: string): { compile: CompileResult;
 - [ ] All standard operators
 
 ### Phase 3: Module Compilation
-- [ ] ts_parser compilation
+- [x] ts_parser compilation (golden: `npm run test:dart:tsparser` / `-d` demo == JS)
 - [ ] EVG layout compilation
 - [ ] pdf_writer compilation
 - [x] Flutter package generation (`-pubspec`, optional `-flutter`)

@@ -30,6 +30,12 @@ dart run examples/dart_flutter_logic/generated/counter_logic.dart
 
 See `PLAN_DART.md` and `examples/dart_flutter_logic/`.
 
+**Golden module:** `gallery/ts_parser` compiles with `-l=dart -nodecli` and the
+`-d` demo AST matches the JavaScript reference byte-for-byte
+(`npm run tsparser:compile:dart && npm run tsparser:run:dart`, or
+`npm run test:dart:tsparser`). String literals escape `$` as `\$` so Dart
+interpolation does not break the lexer.
+
 ## Swift 6 (`-l=swift6`)
 
 - Modern Swift 6 compatible code generation

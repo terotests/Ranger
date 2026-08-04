@@ -774,13 +774,21 @@ export function isDartAvailable(): boolean {
   }
 }
 
+export interface DartCompileOptions {
+  /** Override RANGER_LIB (default includes Lang.rgr + stdops.rgr). */
+  rangerLib?: string;
+  /** Compile timeout in ms (default 30000; large programs need more). */
+  timeoutMs?: number;
+}
+
 /**
  * Compile a Ranger source file to Dart
  */
 export function compileRangerToDart(
   sourceFile: string,
   outputDir?: string,
-  extraFlags: string[] = []
+  extraFlags: string[] = [],
+  options: DartCompileOptions = {}
 ): CompileResult {
   const sourcePath = path.isAbsolute(sourceFile)
     ? sourceFile
@@ -812,7 +820,8 @@ export function compileRangerToDart(
   try {
     const env = {
       ...process.env,
-      RANGER_LIB: `./compiler/Lang.rgr;./lib/stdops.rgr`,
+      RANGER_LIB:
+        options.rangerLib ?? `./compiler/Lang.rgr;./lib/stdops.rgr`,
     };
 
     const relativeTargetDir = path
@@ -826,7 +835,7 @@ export function compileRangerToDart(
       cwd: ROOT_DIR,
       env,
       encoding: "utf-8",
-      timeout: 30000,
+      timeout: options.timeoutMs ?? 30000,
       stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -869,7 +878,11 @@ export function compileRangerToDart(
 /**
  * Run a compiled Dart file with the Dart SDK
  */
-export function runCompiledDart(dartFile: string): RunResult {
+export function runCompiledDart(
+  dartFile: string,
+  args: string[] = [],
+  options: { cwd?: string; timeoutMs?: number } = {}
+): RunResult {
   const absoluteDart = path.isAbsolute(dartFile)
     ? dartFile
     : path.join(ROOT_DIR, dartFile);
@@ -882,15 +895,19 @@ export function runCompiledDart(dartFile: string): RunResult {
     };
   }
 
-  const dartDir = path.dirname(absoluteDart);
+  const dartDir = options.cwd || path.dirname(absoluteDart);
+  const argStr = args.map((a) => `"${a.replace(/"/g, '\\"')}"`).join(" ");
 
   try {
-    const output = execSync(`dart run "${absoluteDart}"`, {
-      cwd: dartDir,
-      encoding: "utf-8",
-      timeout: 60000,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    const output = execSync(
+      `dart run "${absoluteDart}"${argStr ? ` ${argStr}` : ""}`,
+      {
+        cwd: dartDir,
+        encoding: "utf-8",
+        timeout: options.timeoutMs ?? 60000,
+        stdio: ["pipe", "pipe", "pipe"],
+      }
+    );
 
     return {
       success: true,

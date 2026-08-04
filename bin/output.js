@@ -26587,6 +26587,45 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 super()
                 this.wrote_header = false;
               }
+              EncodeString (node, ctx, wr) {
+                let encoded_str = "";
+                const str_length = node.string_value.length;
+                let ii = 0;
+                while (ii < str_length) {
+                  const cc = node.string_value.charCodeAt(ii );
+                  switch (cc ) { 
+                    case 8 : 
+                      encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(98));
+                      break;
+                    case 9 : 
+                      encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(116));
+                      break;
+                    case 10 : 
+                      encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(110));
+                      break;
+                    case 12 : 
+                      encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(102));
+                      break;
+                    case 13 : 
+                      encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(114));
+                      break;
+                    case 34 : 
+                      encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(34));
+                      break;
+                    case 36 : 
+                      encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(36));
+                      break;
+                    case 92 : 
+                      encoded_str = (encoded_str + (String.fromCharCode(92))) + (String.fromCharCode(92));
+                      break;
+                    default: 
+                      encoded_str = encoded_str + (String.fromCharCode(cc));
+                      break;
+                  };
+                  ii = ii + 1;
+                };
+                return encoded_str;
+              };
               WriteScalarValue (node, ctx, wr) {
                 switch (node.value_type ) { 
                   case 2 : 

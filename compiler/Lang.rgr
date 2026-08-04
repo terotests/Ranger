@@ -732,6 +732,8 @@ func r_io_get_env( name string) *GoNullable {
                 es6 ( "process.argv[ 2 + " (e 1) "]")
                 rust ( "std::env::args().nth((" (e 1) " + 1) as usize).unwrap_or_default()")
                 kotlin ( "args[" (e 1) "]")
+                ; Dart main(List<String> args) — user args only, like Java.
+                dart ( "args[" (e 1) "]" )
                 ranger ("( shell_arg " (e 1) " )")
             }
         }
@@ -749,6 +751,7 @@ func r_io_get_env( name string) *GoNullable {
                 es6 ( "(process.argv.length - 2)" )
                 rust ( "(std::env::args().len() as i64 - 1)")
                 kotlin ( "(args.size - 1)")
+                dart ( "args.length" )
                 ranger ("( shell_arg_cnt )")
             }
         }        
@@ -1242,6 +1245,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
 "))
                 es6 ( "(require('fs').readFileSync( " (e 1) " + '/' + " (e 2) " , 'utf8'))" )
                 kotlin ( "try { java.io.File(if (" (e 1) ".isEmpty()) " (e 2) " else " (e 1) " + \"/\" + " (e 2) ").readText() } catch (_: Exception) { null }" (imp "java.io.File") )
+                dart ( (imp "dart:io") "(() { try { final __p = (" (e 1) ").isEmpty ? (" (e 2) ") : ((" (e 1) ") + \"/\" + (" (e 2) ")); return File(__p).readAsStringSync(); } catch (_) { return null; } })()" )
             }
         }
 
