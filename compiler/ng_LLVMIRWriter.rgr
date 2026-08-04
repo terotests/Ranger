@@ -430,7 +430,15 @@ class LLVMIRWriter {
         if (cmpType == "f64") {
           def fpred:string ins.pred
           if (ins.pred == "eq") { fpred = "oeq" }
-          if (ins.pred == "ne") { fpred = "one" }
+          ; `!=` is UNORDERED not-equal: `v != v` is the canonical NaN test and
+          ; must answer TRUE for NaN. The ordered `one` answers false whenever
+          ; either side is NaN, so every NaN guard in the engine silently failed
+          ; -- `Object.defineProperty(a, "length", {value: undefined})` fell past
+          ; its RangeError and tried to materialise an array of NaN elements,
+          ; which hung the process. The ORDERED forms are right for the others:
+          ; a NaN comparison with <, >, <=, >= or == is false in both IEEE and
+          ; JavaScript.
+          if (ins.pred == "ne") { fpred = "une" }
           if (ins.pred == "slt") { fpred = "olt" }
           if (ins.pred == "sgt") { fpred = "ogt" }
           if (ins.pred == "sle") { fpred = "ole" }

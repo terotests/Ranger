@@ -42778,7 +42778,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         fpred = "oeq";
                       }
                       if ( ins.pred == "ne" ) {
-                        fpred = "one";
+                        fpred = "une";
                       }
                       if ( ins.pred == "slt" ) {
                         fpred = "olt";
