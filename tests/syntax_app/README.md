@@ -14,6 +14,8 @@ answer to "how well does target X work" is data rather than memory.
   [`target_matrix.json`](target_matrix.json) (the baseline the test asserts).
 - What does not work at all: [`known_gaps.md`](known_gaps.md) and the probes in
   [`gaps/`](gaps/).
+- What has been fixed and what is next:
+  [`TARGET_FIXES_TODO.md`](TARGET_FIXES_TODO.md).
 
 ## Running it
 
@@ -25,11 +27,10 @@ RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr" \
 node tests/.output/syntax_app.js
 
 # the whole matrix
-npx vitest run --config tests/vitest.config.ts syntax-app.test.ts
+npm run test:syntaxapp
 
 # after a compiler change that moves the matrix
-UPDATE_SYNTAX_APP_BASELINE=1 \
-  npx vitest run --config tests/vitest.config.ts syntax-app.test.ts
+npm run test:syntaxapp:update
 ```
 
 The full run takes about one hundred seconds: it compiles eighteen units to

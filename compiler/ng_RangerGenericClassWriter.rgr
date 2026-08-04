@@ -146,6 +146,13 @@ class RangerGenericClassWriter {
   fn getTypeString:string (type_string:string) {
     return type_string
   }
+  ; What a target has to write when a block turns out to be empty. Braced
+  ; languages need nothing -- `{ }` is a statement. Python needs `pass`, or the
+  ; `if:` above it has no body and the file does not parse.
+  fn emptyBlockFiller:string () {
+    return ""
+  }
+
   fn import_lib:void (lib_name:string ctx:RangerAppWriterContext wr:CodeWriter) {
     wr.addImport(lib_name)
   }

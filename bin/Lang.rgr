@@ -254,6 +254,176 @@ language {
             static _static
             init _init
         }
+        ; A name that is a keyword of the target has to be renamed, or the
+        ; generated file does not parse. `def double (fn:int (n:int) ...)`
+        ; wrote `LambdaSignature1 double = ...` on Java, which is a syntax
+        ; error, and the same trap is open on C#, Scala and PHP.
+        java7 {
+            abstract _abstract
+            assert _assert
+            boolean _boolean
+            break _break
+            byte _byte
+            case _case
+            catch _catch
+            char _char
+            class _class
+            const _const
+            continue _continue
+            default _default
+            do _do
+            double _double
+            else _else
+            enum _enum
+            extends _extends
+            final _final
+            finally _finally
+            float _float
+            for _for
+            goto _goto
+            if _if
+            implements _implements
+            import _import
+            instanceof _instanceof
+            int _int
+            interface _interface
+            long _long
+            native _native
+            new _new
+            package _package
+            private _private
+            protected _protected
+            public _public
+            return _return
+            short _short
+            static _static
+            strictfp _strictfp
+            super _super
+            switch _switch
+            synchronized _synchronized
+            this _this
+            throw _throw
+            throws _throws
+            transient _transient
+            try _try
+            void _void
+            volatile _volatile
+            while _while
+        }
+        csharp {
+            abstract _abstract
+            as _as
+            base _base
+            bool _bool
+            break _break
+            byte _byte
+            case _case
+            catch _catch
+            char _char
+            checked _checked
+            class _class
+            const _const
+            continue _continue
+            decimal _decimal
+            default _default
+            delegate _delegate
+            do _do
+            double _double
+            else _else
+            enum _enum
+            event _event
+            explicit _explicit
+            extern _extern
+            finally _finally
+            fixed _fixed
+            float _float
+            for _for
+            foreach _foreach
+            goto _goto
+            if _if
+            implicit _implicit
+            in _in
+            int _int
+            interface _interface
+            internal _internal
+            is _is
+            lock _lock
+            long _long
+            namespace _namespace
+            new _new
+            object _object
+            operator _operator
+            out _out
+            override _override
+            params _params
+            private _private
+            protected _protected
+            public _public
+            readonly _readonly
+            ref _ref
+            return _return
+            sbyte _sbyte
+            sealed _sealed
+            short _short
+            sizeof _sizeof
+            stackalloc _stackalloc
+            static _static
+            string _string
+            struct _struct
+            switch _switch
+            this _this
+            throw _throw
+            try _try
+            typeof _typeof
+            uint _uint
+            ulong _ulong
+            unchecked _unchecked
+            unsafe _unsafe
+            ushort _ushort
+            using _using
+            virtual _virtual
+            void _void
+            volatile _volatile
+            while _while
+        }
+        scala {
+            abstract _abstract
+            case _case
+            catch _catch
+            class _class
+            def _def
+            do _do
+            else _else
+            extends _extends
+            final _final
+            finally _finally
+            for _for
+            forSome _forSome
+            if _if
+            implicit _implicit
+            import _import
+            lazy _lazy
+            match _match
+            new _new
+            object _object
+            override _override
+            package _package
+            private _private
+            protected _protected
+            return _return
+            sealed _sealed
+            super _super
+            this _this
+            throw _throw
+            trait _trait
+            try _try
+            type _type
+            val _val
+            var _var
+            while _while
+            with _with
+            yield _yield
+        }
         python {
             ; The keywords of the language. A field named `as` wrote
             ; `self.as = []`, which is a SyntaxError, so the program stopped
@@ -384,6 +554,22 @@ double rg_random_double() {
                 ; std-only (rustc, no crates): each RandomState::new() draws a fresh
                 ; OS-seeded key, so hashing a constant yields a varying 53-bit value.
                 rust ( '{ use std::hash::{BuildHasher, Hasher}; let mut h = std::collections::hash_map::RandomState::new().build_hasher(); h.write_u64(0); ((h.finish() >> 11) as f64) / ((1u64 << 53) as f64) }' )
+                ; One generator for the process. A fresh `new Random()` per call
+                ; is seeded from the clock on .NET Framework and repeats inside
+                ; a tick, which is the one bug a random number generator must
+                ; not have.
+                csharp ( "rg_random.NextDouble()"
+(create_polyfill "
+static readonly System.Random rg_random = new System.Random();
+")
+                )
+                java7 ( "rg_random.nextDouble()"
+(create_polyfill "
+static final java.util.Random rg_random = new java.util.Random();
+")
+                )
+                scala ( "scala.util.Random.nextDouble()" )
+                php ( "(mt_rand() / mt_getrandmax())" )
             }
         }
 
@@ -403,6 +589,14 @@ double rg_random_double() {
                 )
                 go ( (e 1) ".(" (typeof 2) ")" )
                 php ( (e 1) )
+                ; Python and Rust have no place to write the type: Python is
+                ; dynamic, and a Rust struct is not a subtype of another one.
+                ; The value passes through, which is what the es6 and the php
+                ; entry already did.
+                python ( (e 1) )
+                rust ( (e 1) )
+                csharp ( "((" (typeof 2) ")" (e 1) ")" )
+                scala ( (e 1) ".asInstanceOf[" (typeof 2) "]" )
             }
         }        
 
@@ -413,6 +607,18 @@ double rg_random_double() {
                 python ( "random.randint(" (e 1) ", " (e 2) ")" (imp "random") )
                 swift3 ( "(" (e 1) " + Int(arc4random_uniform(UInt32(" (e 2) " - " (e 1) " + 1))))" (imp "Foundation") )
                 kotlin ('(Math.floor(Math.random() * (' (e 2) ' - ' (e 1) ' + 1)).toInt() + ' (e 1) ')' (imp "java.lang.Math"))
+                csharp ( "rg_random.Next(" (e 1) ", (" (e 2) ") + 1)"
+(create_polyfill "
+static readonly System.Random rg_random = new System.Random();
+")
+                )
+                java7 ( "(" (e 1) " + rg_random.nextInt((" (e 2) " - " (e 1) ") + 1))"
+(create_polyfill "
+static final java.util.Random rg_random = new java.util.Random();
+")
+                )
+                scala ( "(" (e 1) " + scala.util.Random.nextInt((" (e 2) " - " (e 1) ") + 1))" )
+                php ( "mt_rand(" (e 1) ", " (e 2) ")" )
             }
         }
         
@@ -558,14 +764,17 @@ func _r_sha256(value string) string {
         M_PI mathPi:double () {
             templates {
                 es6 ("Math.PI")
-                go ( "math.Pi" (imp "math"))                                
+                go ( "math.Pi" (imp "math"))
                 swift3 ( "Double.pi" (imp "Foundation"))
                 swift6 ( "Double.pi" (imp "Foundation"))
-                python ( "math.pi" (imp "math") )   
+                python ( "math.pi" (imp "math") )
                 dart ( "pi" (imp "dart:math"))
-                java7 ( "Math.PI" (imp "java.lang.Math"))         
-                php ("pi()")        
-                cpp ("M_PI" (imp "<math.h>"))               
+                java7 ( "Math.PI" (imp "java.lang.Math"))
+                php ("pi()")
+                cpp ("M_PI" (imp "<math.h>"))
+                kotlin ( "Math.PI" (imp "java.lang.Math"))
+                csharp ( "Math.PI" (imp "System"))
+                scala ( "math.Pi" (imp "scala.math"))
                 rust ("std::f64::consts::PI")
             }
         }
@@ -578,9 +787,13 @@ func _r_sha256(value string) string {
                 swift6 ( "abs(" (e 1) ")" (imp "Foundation"))
                 python ( "math.fabs(" (e 1) ")" (imp "math") )   
                 dart ( "(" (e 1) ").abs()" )
-                java7 ( "Math.abs(" (e 1) ")" (imp "java.lang.Math"))       
-                php ( "abs(" (e 1) ")")      
-                cpp ("fabs(" (e 1) ")" (imp "<cmath>"))                       
+                java7 ( "Math.abs(" (e 1) ")" (imp "java.lang.Math"))
+                php ( "abs(" (e 1) ")")
+                cpp ("fabs(" (e 1) ")" (imp "<cmath>"))
+                kotlin ( "Math.abs(" (e 1) ")" (imp "java.lang.Math"))
+                csharp ( "Math.Abs(" (e 1) ")" (imp "System"))
+                scala ( "math.abs(" (e 1) ")" (imp "scala.math"))
+                rust ( "(" (e 1) ").abs()" )
             }
         }
         tan tan:double ( v:double ) {
@@ -594,6 +807,9 @@ func _r_sha256(value string) string {
                 java7 ( "Math.tan(" (e 1) ")" (imp "java.lang.Math"))
                 php ( "tan(" (e 1) ")")
                 cpp ("tan(" (e 1) ")" (imp "<math.h>"))
+                kotlin ( "Math.tan(" (e 1) ")" (imp "java.lang.Math"))
+                csharp ( "Math.Tan(" (e 1) ")" (imp "System"))
+                scala ( "math.tan(" (e 1) ")" (imp "scala.math"))
                 rust ( (e 1) ".tan()" )
             }
         }
@@ -734,6 +950,9 @@ func r_io_get_env( name string) *GoNullable {
                 kotlin ( "args[" (e 1) "]")
                 ; Dart main(List<String> args) — user args only, like Java.
                 dart ( "args[" (e 1) "]" )
+                ; sys.argv[0] is the script, so the +1 matches every other
+                ; target that keeps the program name in the list.
+                python ( "sys.argv[" (e 1) " + 1]" (imp "sys") )
                 ranger ("( shell_arg " (e 1) " )")
             }
         }
@@ -750,8 +969,9 @@ func r_io_get_env( name string) *GoNullable {
                 go ( "int64( len( os.Args) - 1 )"  (imp "os"))
                 es6 ( "(process.argv.length - 2)" )
                 rust ( "(std::env::args().len() as i64 - 1)")
-                kotlin ( "(args.size - 1)")
+                kotlin ( "args.size")
                 dart ( "args.length" )
+                python ( "(len(sys.argv) - 1)" (imp "sys") )
                 ranger ("( shell_arg_cnt )")
             }
         }        
@@ -881,6 +1101,9 @@ func r_file_exists(pathName string, fileName string) bool {
 )                    
                 )
                 rust ( "std::path::Path::new(&format!(\"{}/{}\", " (e 1) ", " (e 2) ")).exists()" )
+                kotlin ( "java.io.File(" (e 1) " + \"/\" + " (e 2) ").isFile()" )
+                csharp ( "System.IO.File.Exists(" (e 1) " + \"/\" + " (e 2) ")" )
+                scala ( "new java.io.File(" (e 1) " + \"/\" + " (e 2) ").isFile()" )
            }
         }
 
@@ -963,7 +1186,7 @@ func r_file_mtime(pathName string, fileName string) int64 {
     if err != nil {
         return 0
     }
-    return info.ModTime().Unix()
+    return info.ModTime().UnixNano() / 1000000
 }
 "
 )                    
@@ -998,6 +1221,47 @@ fn r_file_mtime(path_name: &str, file_name: &str) -> i64 {
 }
 ")
                 )
+                ; Every entry answers in the same unit the es6 one does --
+                ; milliseconds since the epoch -- because a program compares the
+                ; number it stored against the number it reads back later, and a
+                ; target that answered in seconds would call a file unchanged
+                ; for the rest of the second it was written in.
+                ;
+                ; On a target whose `int` is 32 bits (Kotlin, Java, C#, Scala)
+                ; a millisecond stamp does not fit, so the value is its low 32
+                ; bits. That is still a number that changes whenever the file
+                ; changes, which is all a staleness check reads it for; it is
+                ; not a wall-clock time on those four.
+                swift3 ( "r_file_mtime(path:" (e 1) ", name:" (e 2) ")"
+(create_polyfill "
+func r_file_mtime ( path:String, name:String ) -> Int {
+    let full = path + \"/\" + name
+    if let attrs = try? FileManager.default.attributesOfItem(atPath: full),
+       let date = attrs[.modificationDate] as? Date {
+        return Int(date.timeIntervalSince1970 * 1000.0)
+    }
+    return 0
+}
+") (imp "Foundation")
+                )
+                swift6 ( "r_file_mtime(path:" (e 1) ", name:" (e 2) ")"
+(create_polyfill "
+func r_file_mtime ( path:String, name:String ) -> Int {
+    let full = path + \"/\" + name
+    if let attrs = try? FileManager.default.attributesOfItem(atPath: full),
+       let date = attrs[.modificationDate] as? Date {
+        return Int(date.timeIntervalSince1970 * 1000.0)
+    }
+    return 0
+}
+") (imp "Foundation")
+                )
+                kotlin ( "java.io.File(" (e 1) " + \"/\" + " (e 2) ").lastModified().toInt()" )
+                python ( "int(os.path.getmtime(" (e 1) " + \"/\" + " (e 2) ") * 1000)" (imp "os") )
+                java7 ( "((int)(new File(" (e 1) " + \"/\" + " (e 2) ").lastModified()))" (imp "java.io.File") )
+                csharp ( "((int)(long)(System.IO.File.GetLastWriteTimeUtc(" (e 1) " + \"/\" + " (e 2) ") - new System.DateTime(1970, 1, 1)).TotalMilliseconds)" )
+                scala ( "new java.io.File(" (e 1) " + \"/\" + " (e 2) ").lastModified().toInt()" )
+                php ( "(filemtime(" (e 1) ".'/'." (e 2) ") * 1000)" )
                 ranger ( "(file_mtime " (e 1) " " (e 2) ")" )
            }
         }
@@ -1341,8 +1605,8 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
             templates {
                 ranger ( "( unwrap " (e 1) ")" )
                 scala ( (e 1) ".get" )
-                csharp ( (e 1) ".Value" )
-                java7 ( (e 1) ".get()" )
+                csharp ( (e 1) )
+                java7 ( (e 1) )
                 rust ( (e 1) ".unwrap()" )
                 php ( (e 1 ) )
                 kotlin ( (e 1) "!!" )
@@ -1359,11 +1623,15 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
         unwrap       cmdUnwrap:int        ( arg@(optional):int ) {
             templates {
                 cpp ( "/*unwrap int*/" (e 1) ".value" )
+                ; an optional int is `int?` on C#, and Nullable<T> does not
+                ; convert back to T on its own
+                csharp ( "(" (e 1) ").Value" )
             }
         } 
         unwrap       cmdUnwrap:double        ( arg@(optional):double ) {
             templates {
                 cpp ( "/*unwrap dbl*/" (e 1) ".value" )
+                csharp ( "(" (e 1) ").Value" )
             }
         }        
 
@@ -1531,16 +1799,23 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
         +               cmdPlusOp:int                ( left:int right:int ) { templates { * ( (e 1) " + " (e 2)  ) } }
 
         ; string + operations
-        +               cmdPlusOp:string             ( left:string right:enum ) { 
-            templates { 
+        +               cmdPlusOp:string             ( left:string right:enum ) {
+            templates {
                     go ( "strings.Join([]string{ " (e 1) ",strconv.FormatInt(" (e 2) ", 10) }, \"\")" (imp "strings") (imp "strconv"))
                     swift3 ( (e 1) " + String(" (e 2)")" )
                     swift6 ( (e 1) " + String(" (e 2)")" )
                     rust ( (custom _) )
-                    php ( (e 1) " . " (e 2) ) 
+                    php ( (e 1) " . " (e 2) )
                     cpp ( (e 1 ) " + std::to_string(" (e 2) ")")
-                    * ( (e 1) " + " (e 2) ) 
-                } 
+                    ; An enum value is an int on every target, and Python does
+                    ; not concatenate an int onto a str.
+                    python ( (e 1) " + str(" (e 2) ")" )
+                    kotlin ( (e 1) " + " (e 2) ".toString()" )
+                    java7 ( (e 1) " + String.valueOf(" (e 2) ")" )
+                    csharp ( (e 1) " + " (e 2) ".ToString()" )
+                    scala ( (e 1) " + " (e 2) ".toString" )
+                    * ( (e 1) " + " (e 2) )
+                }
             }
 
         +               cmdPlusOp:string             ( left:string right:string ) { 
@@ -1553,19 +1828,38 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
             } 
         }
         
-        +               cmdPlusOp:string             ( left:string right:double ) { 
-                templates { 
+        ; A double reaches a string in its shortest form that reads back as the
+        ; same value -- 1.5 is "1.5", not "1.500000". Go used 'f' with six
+        ; digits and C++ used std::to_string, which also fixes six digits, so
+        ; the same program printed a different number on those two targets than
+        ; on every other one. See r_double_to_string below.
+        +               cmdPlusOp:string             ( left:string right:double ) {
+                templates {
                     go ( "strings.Join([]string{ " (e 1) ",strconv.FormatFloat(" (e 2) ",'f', -1, 64) }, \"\")" (imp "strings") (imp "strconv"))
                     rust ( (custom _) )
                     swift3 ( (e 1) " + String(" (e 2)")" )
                     swift6 ( (e 1) " + String(" (e 2)")" )
                     kotlin ( (e 1) " + " (e 2)".toString()" )
                     dart ( (e 1) " + " (e 2)".toString()" )
-                    cpp ( (e 1 ) " + std::to_string(" (e 2) ")")
-                    php ( (e 1) " . " (e 2) ) 
+                    cpp ( (e 1 ) " + " "r_double_to_string(" (e 2) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>")
+(create_polyfill "
+inline std::string r_double_to_string(double v) {
+    for (int p = 1; p < 18; p++) {
+        std::ostringstream s;
+        s << std::setprecision(p) << v;
+        if (std::stod(s.str()) == v) {
+            return s.str();
+        }
+    }
+    std::ostringstream s;
+    s << std::setprecision(17) << v;
+    return s.str();
+}
+") )
+                    php ( (e 1) " . " (e 2) )
                     python ( (e 1) " + str(" (e 2) ")" )
-                    * ( (e 1) " + " (e 2) ) 
-                } 
+                    * ( (e 1) " + " (e 2) )
+                }
         }
         ; Go;
         ; strconv.Itoa
@@ -1623,6 +1917,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 java7 ( "((" (e 1) ") & (" (e 2) "))" )
                 python ( "((" (e 1) ") & (" (e 2) "))" )
                 swift6 ( "(Int64(" (e 1) ") & Int64(" (e 2) "))" )
+                kotlin ( "((" (e 1) ") and (" (e 2) "))" )
                 csharp ( "((" (e 1) ") & (" (e 2) "))" )
                 * ( "((" (e 1) ") & (" (e 2) "))" )
             }
@@ -1638,6 +1933,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 java7 ( "((" (e 1) ") | (" (e 2) "))" )
                 python ( "((" (e 1) ") | (" (e 2) "))" )
                 swift6 ( "(Int64(" (e 1) ") | Int64(" (e 2) "))" )
+                kotlin ( "((" (e 1) ") or (" (e 2) "))" )
                 csharp ( "((" (e 1) ") | (" (e 2) "))" )
                 * ( "((" (e 1) ") | (" (e 2) "))" )
             }
@@ -1653,6 +1949,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 java7 ( "((" (e 1) ") ^ (" (e 2) "))" )
                 python ( "((" (e 1) ") ^ (" (e 2) "))" )
                 swift6 ( "(Int64(" (e 1) ") ^ Int64(" (e 2) "))" )
+                kotlin ( "((" (e 1) ") xor (" (e 2) "))" )
                 csharp ( "((" (e 1) ") ^ (" (e 2) "))" )
                 * ( "((" (e 1) ") ^ (" (e 2) "))" )
             }
@@ -1668,6 +1965,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 java7 ( "(~" (e 1) ")" )
                 python ( "(~" (e 1) ")" )
                 swift6 ( "(~Int64(" (e 1) "))" )
+                kotlin ( "((" (e 1) ").inv())" )
                 csharp ( "(~" (e 1) ")" )
                 * ( "(~" (e 1) ")" )
             }
@@ -1683,6 +1981,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 java7 ( "((" (e 1) ") << (" (e 2) "))" )
                 python ( "((" (e 1) ") << (" (e 2) "))" )
                 swift6 ( "(Int64(" (e 1) ") << Int64(" (e 2) "))" )
+                kotlin ( "((" (e 1) ") shl (" (e 2) "))" )
                 csharp ( "((" (e 1) ") << (int)(" (e 2) "))" )
                 * ( "((" (e 1) ") << (" (e 2) "))" )
             }
@@ -1698,6 +1997,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 java7 ( "((" (e 1) ") >> (" (e 2) "))" )
                 python ( "((" (e 1) ") >> (" (e 2) "))" )
                 swift6 ( "(Int64(" (e 1) ") >> Int64(" (e 2) "))" )
+                kotlin ( "((" (e 1) ") shr (" (e 2) "))" )
                 csharp ( "((" (e 1) ") >> (int)(" (e 2) "))" )
                 * ( "((" (e 1) ") >> (" (e 2) "))" )
             }
@@ -1714,6 +2014,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 python ( "((" (e 1) " & 0xFFFFFFFF) >> (" (e 2) "))" )
                 dart ( "((" (e 1) " & 0xFFFFFFFF) >> (" (e 2) "))" )
                 swift6 ( "Int64(bitPattern: UInt64(bitPattern: Int64(" (e 1) ")) >> UInt64(" (e 2) "))" )
+                kotlin ( "((" (e 1) ") ushr (" (e 2) "))" )
                 csharp ( "(int)((uint)(" (e 1) ") >> (int)(" (e 2) "))" )
                 * ( "(" (e 1) " >>> " (e 2) ")" )
             }
@@ -1721,16 +2022,33 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
 
         ; ============================================================================
                 
-        +               cmdPlusOp:string             ( left:double right:string ) { 
-            templates { 
+        +               cmdPlusOp:string             ( left:double right:string ) {
+            templates {
                     swift3 ( "String(" (e 1) ") + " (e 2) )
                     swift6 ( "String(" (e 1) ") + " (e 2) )
                     kotlin ( (e 1) ".toString() + " (e 2) )
                     dart ( (e 1) ".toString() + " (e 2) )
-                    * ( (e 1) " + " (e 2) ) 
-                    php ( (e 1) " . " (e 2) ) 
+                    go ( "strings.Join([]string{ strconv.FormatFloat(" (e 1) ",'f', -1, 64)," (e 2) " }, \"\")" (imp "strings") (imp "strconv"))
+                    cpp ( "r_double_to_string(" (e 1) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>")
+(create_polyfill "
+inline std::string r_double_to_string(double v) {
+    for (int p = 1; p < 18; p++) {
+        std::ostringstream s;
+        s << std::setprecision(p) << v;
+        if (std::stod(s.str()) == v) {
+            return s.str();
+        }
+    }
+    std::ostringstream s;
+    s << std::setprecision(17) << v;
+    return s.str();
+}
+") " + " (e 2) )
+                    python ( "str(" (e 1) ") + " (e 2) )
+                    php ( (e 1) " . " (e 2) )
                     rust ( "format!(\"{}{}\", " (e 1) ", " (e 2) ")" )
-                } 
+                    * ( (e 1) " + " (e 2) )
+                }
             }
 
         +               cmdPlusOp:string             ( left:int right:string    ) { 
@@ -1753,13 +2071,74 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
 
         /               cmdDivOp:double         ( left:double right:double ) { templates {
             cpp ( "((double)(" (e 1) ") / (double)(" (e 2) "))" )
+            ; Go refuses `1.0 / 0.0` at COMPILE time when both sides are
+            ; constants, but IEEE division by zero is meaningful -- Infinity and
+            ; NaN are how a JavaScript engine spells them, and the interpreter in
+            ; gallery/game_engine writes them exactly that way. Going through a
+            ; function makes the operands non-constant. The body is a single
+            ; expression, so the Go inliner folds the call away.
+            go ( "r_div_f64(" (e 1) ", " (e 2) ")"
+(create_polyfill
+"
+func r_div_f64(a float64, b float64) float64 {
+    return a / b
+}
+"
+)
+            )
+            ; Python RAISES on division by zero rather than answering Infinity
+            ; or NaN, which is how the engine in gallery/game_engine spells
+            ; both. The helper restores the IEEE answer, sign of the zero
+            ; included.
+            python ( "r_div_f64(" (e 1) ", " (e 2) ")"
+(create_polyfill
+"
+def r_div_f64(a, b):
+    if b == 0.0:
+        if a == 0.0 or a != a:
+            return float('nan')
+        return math.copysign(float('inf'), a) * math.copysign(1.0, b)
+    return a / b
+"
+) (imp "math")
+            )
             * ( (e 1) " / " (e 2) )
         } }
+        ; `/` between two integers is real division. A target whose own `/` is
+        ; integer division has to be told, or the operator quietly returns the
+        ; wrong number -- and Java refuses the program outright, because the
+        ; result is declared double.
         /               cmdDivOp:double         ( left:int right:int ) { templates {
-            go ( "float64(" (e 1) ") / float64(" (e 2) ")" )
+            go ( "r_div_f64(float64(" (e 1) "), float64(" (e 2) "))"
+(create_polyfill
+"
+func r_div_f64(a float64, b float64) float64 {
+    return a / b
+}
+"
+)
+            )
             rust ( (custom _) )
             kotlin ( (e 1) ".toDouble() / " (e 2) ".toDouble()" )
             cpp ( "((double)(" (e 1) ") / (double)(" (e 2) "))" )
+            java7 ( "((double)(" (e 1) ") / (double)(" (e 2) "))" )
+            csharp ( "((double)(" (e 1) ") / (double)(" (e 2) "))" )
+            scala ( "(" (e 1) ".toDouble / " (e 2) ".toDouble)" )
+            swift3 ( "(Double(" (e 1) ") / Double(" (e 2) "))" )
+            swift6 ( "(Double(" (e 1) ") / Double(" (e 2) "))" )
+            python ( "r_div_f64(float(" (e 1) "), float(" (e 2) "))"
+(create_polyfill
+"
+def r_div_f64(a, b):
+    if b == 0.0:
+        if a == 0.0 or a != a:
+            return float('nan')
+        return math.copysign(float('inf'), a) * math.copysign(1.0, b)
+    return a / b
+"
+) (imp "math")
+            )
+            php ( "(" (e 1) " / " (e 2) ")" )
             * ( (e 1) " / " (e 2) )
         } }
 
@@ -1979,21 +2358,18 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
         }        
         if!              cmdIf:void              ( condition:boolean then_block:block else@(keyword) else_block:block )  {
             templates {
-                rust @macro(true) ('if false == ' (e 1) ' { ' (block 2)' } else { '(block 4) ' }' )
                 * @macro(true) ('if (false == (' (e 1) ' ) ) { ' (block 2)' } { '(block 4) ' }' )
             }
         }        
 
         if!              cmdIf:void              ( condition:boolean then_block:block else_block:block )  {
             templates {
-                rust @macro(true) ('if false == ' (e 1) ' { ' (block 2)' } else { '(block 3) ' }' )
                 * @macro(true) ('if (false == (' (e 1) ' ) ) { ' (block 2)' } { '(block 3) ' }' )
             }
         }        
 
         if!              cmdIf:void              ( condition:boolean then_block:block )  {
             templates {
-                rust @macro(true) ('if false == ' (e 1) ' { ' (block 2) ' } ' )
                 * @macro(true) ('if (false == (' (e 1) ' ) ) { ' (block 2) ' } ' )
             }
         }        
@@ -2022,12 +2398,36 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
         if              cmdIf:void              ( condition@(optional):int then_block:block )  {
             templates {
                 cpp ( "if ( " (e 1) ".has_value ) {" nl I (block 2) i nl "}" nl )
+                ranger ( "if ( " (e 1) " ) {" I nl (block 2) i nl "}" nl )
+                scala ( "if ( " (e 1) ".isDefined ) {" nl I (block 2) i nl "}" nl )
+                swift3 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
+                swift6 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
+                kotlin ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
+                java7 ( "if ( " (e 1) ".isPresent()) {" nl I (block 2) i nl "}" nl )
+                csharp ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
+                php ( "if ( isset( " (e 1) " ) ) {" nl I (block 2) i nl "}" nl )
+                go ( "if ( " (e 1) ".has_value) {" nl I (block 2) i nl "}" nl )
+                rust ( "if " (e 1) ".is_some() {" nl I (block 2) i nl "}" nl )
+                python ( "if " (e 1) " is not None:" nl I (block 2) i nl )
+                * ( "if ( typeof(" ( e 1 ) ") != \"undefined\" ) {" nl I (block 2) i nl "}" nl )
             }
         }  
 
         if              cmdIf:void              ( condition@(optional):double then_block:block )  {
             templates {
                 cpp ( "if ( " (e 1) ".has_value ) {" nl I (block 2) i nl "}" nl )
+                ranger ( "if ( " (e 1) " ) {" I nl (block 2) i nl "}" nl )
+                scala ( "if ( " (e 1) ".isDefined ) {" nl I (block 2) i nl "}" nl )
+                swift3 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
+                swift6 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
+                kotlin ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
+                java7 ( "if ( " (e 1) ".isPresent()) {" nl I (block 2) i nl "}" nl )
+                csharp ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
+                php ( "if ( isset( " (e 1) " ) ) {" nl I (block 2) i nl "}" nl )
+                go ( "if ( " (e 1) ".has_value) {" nl I (block 2) i nl "}" nl )
+                rust ( "if " (e 1) ".is_some() {" nl I (block 2) i nl "}" nl )
+                python ( "if " (e 1) " is not None:" nl I (block 2) i nl )
+                * ( "if ( typeof(" ( e 1 ) ") != \"undefined\" ) {" nl I (block 2) i nl "}" nl )
             }
         }
 
@@ -2037,12 +2437,36 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
         if              cmdIf:void              ( condition@(optional):int then_block:block else_block )  {
             templates {
                 cpp ( "if ( " (e 1) ".has_value ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl )
+                ranger ( "if ( " (e 1) " ) {" I nl (block 2) i nl "} {" nl I (block 3) i "}" nl)
+                php ( "if ( isset(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                scala ( "if ( " (e 1) ".isDefined ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                java7 ( "if ( " (e 1) ".isPresent() ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                csharp ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                kotlin ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                rust ( "if " (e 1) ".is_some() {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                swift3 ( "if ( " (e 1) " != nil ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                swift6 ( "if ( " (e 1) " != nil ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                go ( "if ( " (e 1) ".has_value ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                python ( "if " (e 1) " is not None:" I nl (block 2) i nl "else:" I nl (block 3) i nl)
+                * ( "if ( typeof(" ( e 1 ) ") != \"undefined\" ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
             }
         }
 
         if              cmdIf:void              ( condition@(optional):double then_block:block else_block )  {
             templates {
                 cpp ( "if ( " (e 1) ".has_value ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl )
+                ranger ( "if ( " (e 1) " ) {" I nl (block 2) i nl "} {" nl I (block 3) i "}" nl)
+                php ( "if ( isset(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                scala ( "if ( " (e 1) ".isDefined ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                java7 ( "if ( " (e 1) ".isPresent() ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                csharp ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                kotlin ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                rust ( "if " (e 1) ".is_some() {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                swift3 ( "if ( " (e 1) " != nil ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                swift6 ( "if ( " (e 1) " != nil ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                go ( "if ( " (e 1) ".has_value ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                python ( "if " (e 1) " is not None:" I nl (block 2) i nl "else:" I nl (block 3) i nl)
+                * ( "if ( typeof(" ( e 1 ) ") != \"undefined\" ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
             }
         }
 
@@ -2055,7 +2479,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 kotlin ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
                 dart ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
                 java7 ( "if ( " (e 1) ".isPresent()) {" nl I (block 2) i nl "}" nl )
-                csharp ( "if ( " (e 1) ".HasValue) {" nl I (block 2) i nl "}" nl )
+                csharp ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 ; go ( "" (e 1 ) " == nil " ) 
                 ; is_some
                 php ( "if ( isset( " (e 1) " ) ) {" nl I (block 2) i nl "}" nl )
@@ -2074,7 +2498,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 php ( "if ( isset(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 scala ( "if ( " (e 1) ".isDefined ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 java7 ( "if ( " (e 1) ".isPresent() ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
-                csharp ( "if ( " (e 1) ".HasValue ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                csharp ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 kotlin ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 dart ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl )
                 rust ( "if " (e 1) ".is_some() {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
@@ -2086,11 +2510,16 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 * ( "if ( typeof(" ( e 1 ) ") != \"undefined\" ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
             }
         }
+        ; Python and Rust have no C style switch. Python 3.10 `match` and the
+        ; Rust `match` expression take the same shape, so `switch` lowers onto
+        ; them and `case` / `default` carry the matching arm spelling.
         switch          cmdSwitch:void          ( condition:char case_list:block )  {
             templates {
                 go ( "switch (int64(" (e 1) " )) { " I (block 2) i "}" )
+                python ( nl "match (" (e 1) "):" I (block 2) i nl )
+                rust ( nl "match " (e 1) " {" I (block 2) i nl "}" nl )
             }
-        }       
+        }
 
         switch          cmdSwitch:void          ( condition:T case_list:block )  {
             templates {
@@ -2103,9 +2532,11 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
             templates {
                 scala ( (e 1) " match { " I (block 2) i "}" )
                 kotlin ( "when (" (e 1) ") { " I (block 2) i "}" )
+                python ( nl "match (" (e 1) "):" I (block 2) i nl )
+                rust ( nl "match " (e 1) " {" I (block 2) i nl "}" nl )
                 * ( "switch (" (e 1) " ) { " I (block 2) i "}" )
             }
-        }       
+        }
 
         case        cmdCase:void          (  condition:char case_block:block )  {
             templates {
@@ -2119,6 +2550,8 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 go ( nl "case " (e 1)" : " nl I (block 2) nl i )
                 kotlin ( nl (e 1) " -> {" nl I (block 2) nl i "}" )
                 cpp ( nl "case " (e 1)" : " nl I "{" nl I (block 2) nl "break;" i nl "}" i )
+                python ( nl "case " (e 1) ":" nl I "pass" nl (block 2) nl i )
+                rust ( nl (e 1) " => {" nl I (block 2) nl i "}" nl )
                 * ( nl "case " (e 1)" : " nl I (block 2) nl "break;" i )
             }
         }         
@@ -2132,6 +2565,8 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 go ( nl "case " (e 1)" : " nl I (block 2) nl i )
                 kotlin ( nl (e 1) " -> {" nl I (block 2) nl i "}" )
                 cpp ( nl "case " (e 1)" : " nl I "{" nl I (block 2) nl "break;" i nl "}" i )
+                python ( nl "case " (e 1) ":" nl I "pass" nl (block 2) nl i )
+                rust ( nl (e 1) " => {" nl I (block 2) nl i "}" nl )
                 es6 ( nl "case " (e 1)" : " nl I (java_case 2) nl i )
                 * ( nl "case " (e 1)" : " nl I (block 2) nl "break;" i )
             }
@@ -2139,12 +2574,15 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
 
         switch          cmdSwitch:void          ( condition:string case_list:block )  {
             templates {
-                cpp ( (custom _) )                                
+                cpp ( (custom _) )
                 scala ( (e 1) " match { " I (block 2) i "}" )
                 kotlin ( "when (" (e 1) ") { " I (block 2) i "}" )
+                python ( nl "match (" (e 1) "):" I (block 2) i nl )
+                ; Rust matches a &str, so a String subject needs as_str().
+                rust ( nl "match " (e 1) ".as_str() {" I (block 2) i nl "}" nl )
                 * ( "switch (" (e 1) " ) { " I (block 2) i "}" )
             }
-        }             
+        }
 
         switch          cmdSwitch:void          ( condition:T case_list:block )  {
             templates {
@@ -2154,6 +2592,28 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 * ( "switch (" (e 1) " ) { " I (block 2) i "}" )
             }
         }       
+
+        ; A case over a string needs its own entry for Rust only: a match arm is
+        ; a pattern, and the Rust writer gives a string literal in expression
+        ; position a `.to_string()`, which a pattern does not take. `(str 1)`
+        ; writes the text of the literal and nothing else. Every other target
+        ; keeps the spelling of the case above.
+        case        cmdCase:void          (  condition:string case_block:block )  {
+            templates {
+                ranger ( nl "case " (e 1)" { " nl I (block 2) i nl "}" )
+                scala ( nl "case " (e 1)" => " nl I (block 2) nl i )
+                swift3 ( nl "case " (e 1)" : " nl I (block 2) nl i )
+                swift6 ( nl "case " (e 1)" : " nl I (block 2) nl i )
+                java7 ( nl "case " (e 1)" : " nl I (java_case 2) nl i )
+                go ( nl "case " (e 1)" : " nl I (block 2) nl i )
+                kotlin ( nl (e 1) " -> {" nl I (block 2) nl i "}" )
+                es6 ( nl "case " (e 1)" : " nl I (java_case 2) nl i )
+                cpp ( nl "case " (e 1)" : " nl I "{" nl I (block 2) nl "break;" i nl "}" i )
+                python ( nl "case " (e 1) ":" nl I "pass" nl (block 2) nl i )
+                rust ( nl "\"" (str 1) "\" => {" nl I (block 2) nl i "}" nl )
+                * ( nl "case " (e 1)" : " nl I (block 2) nl "break;" i )
+            }
+        }
 
         case        cmdCase:void          (  condition:T case_block:block )  {
             templates {
@@ -2165,15 +2625,19 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 kotlin ( nl (e 1) " -> {" nl I (block 2) nl i "}" )
                 es6 ( nl "case " (e 1)" : " nl I (java_case 2) nl i )
                 cpp ( nl "case " (e 1)" : " nl I "{" nl I (block 2) nl "break;" i nl "}" i )
+                python ( nl "case " (e 1) ":" nl I "pass" nl (block 2) nl i )
+                rust ( nl (e 1) " => {" nl I (block 2) nl i "}" nl )
                 * ( nl "case " (e 1)" : " nl I (block 2) nl "break;" i )
             }
-        }        
+        }
 
         default        cmdDefault:void          (  default_block:block )  {
             templates {
                 ranger ( nl "default { " nl I (block 1) i nl "}" )
                 scala ( nl "case _ => " nl I (block 1) nl i )
                 go ( nl "default: " nl I (block 1) nl i )
+                python ( nl "case _:" nl I "pass" nl (block 1) nl i )
+                rust ( nl "_ => {" nl I (block 1) nl i "}" nl )
                 kotlin ( nl "else  -> { " nl I (block 2) nl i "}" )
                 java7 ( nl "default: " nl I (java_case 1) nl i )
                 * ( nl "default: " nl I (block 1) nl "break;" i )
@@ -2374,6 +2838,17 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
                 php ( "( $e->getMessage())" )
                 java7 ( "( e.getMessage())" )
                 cpp ( " \"unspecified error\" " )
+                ; The name each target binds in its catch clause. See the `try`
+                ; operator: python binds `e`, swift binds the implicit `error`.
+                python ( "str(e)" )
+                kotlin ( "(e.message ?: e.toString())" )
+                csharp ( "e.Message" )
+                scala ( "e.getMessage" )
+                swift3 ( "String(describing: error)" )
+                swift6 ( "String(describing: error)" )
+                ; Rust has no exceptions and the writer drops the catch block,
+                ; so nothing reads this. It still needs a value of the type.
+                rust ( "String::new()" )
             }
         }
 
@@ -2399,6 +2874,10 @@ extension String: Error {}
 case class customException(smth:String)  extends Exception
 ")                    
                 )
+                python ( nl "raise Exception(" (e 1) ")" nl )
+                ; Rust has no exceptions. `try` drops the catch block, so the
+                ; nearest thing a throw can be is a panic.
+                rust ( nl "panic!(\"{}\", " (e 1) ");" nl )
                 * ( nl "throw "  (e 1) ";" nl )
             }
         }
@@ -2436,7 +2915,7 @@ case class customException(smth:String)  extends Exception
                 ; Python needs a statement in each suite, and a generated catch
                 ; block is often empty (the @serialize writer emits one), so both
                 ; suites open with `pass`.
-                python ( nl "try:" nl I "pass" nl (block 1) i nl "except Exception:" nl I "pass" nl (block 2) i nl )
+                python ( nl "try:" nl I "pass" nl (block 1) i nl "except Exception as e:" nl I "pass" nl (block 2) i nl )
                 ; Rust has no exceptions and the target writes code that rustc
                 ; builds without a crate, so there is nothing for the catch block
                 ; to catch: the try block is written and the catch block is not.
@@ -2486,24 +2965,57 @@ case class customException(smth:String)  extends Exception
         }
 
         
+        ; Walking a hash map used to be an es6 only operator: the two `for`
+        ; shapes below carried one template each, so every other target
+        ; answered `Could not match argument types for for` and a program that
+        ; iterated a map compiled on JavaScript alone.
         for             cmdFor@(newcontext):void          ( hash:[string:T] item@(define):T itemName@(define ignore):string repeat_block:block)  {
             templates {
-                es6 ("for( var " (e 3) " in " (e 1) ") {" nl I "if(" (e 1) ".hasOwnProperty(" (e 3) ")) {" 
-                dart ( (forkctx _ ) (def 2) (def 3) "for ( var " (e 3) " in " (e 1) ".keys ) {" nl I "var " (e 2) " = " (e 1) "[" (e 3) "]!; " nl (block 4) nl i "}" )
-                        nl I "var " (e 2) " = " (e 1) "[" (e 3) "] " nl (block 4) 
+                ranger ( nl "for " (e 1) " " (e 2) ":" (typeof 2) " " (e 3) " {" nl I (block 4) nl i "}" )
+                es6 ("for( var " (e 3) " in " (e 1) ") {" nl I "if(" (e 1) ".hasOwnProperty(" (e 3) ")) {"
+                        nl I "var " (e 2) " = " (e 1) "[" (e 3) "] " nl (block 4)
                         nl i "} }"
                      )
+                dart ( (forkctx _ ) (def 2) (def 3) "for ( var " (e 3) " in " (e 1) ".keys ) {" nl I "var " (e 2) " = " (e 1) "[" (e 3) "]!; " nl (block 4) nl i "}" )
+                ; Go rejects a declared and unused loop variable, so both names
+                ; are read once before the block.
+                go ( (forkctx _ ) (def 2) (def 3) "for " (e 3) ", " (e 2) " := range " (e 1) " {" nl I "_ = " (e 3) nl "_ = " (e 2) nl (block 4) nl i "}" )
+                python ( (forkctx _ ) (def 2) (def 3) "for " (e 3) ", " (e 2) " in " (e 1) ".items():" nl I (block 4) nl i )
+                php ( (forkctx _ ) (def 2) (def 3) "foreach ( " (e 1) " as " (e 3) " => " (e 2) " ) {" nl I (block 4) nl i "}" )
+                kotlin ( (forkctx _ ) (def 2) (def 3) "for ( (" (e 3) ", " (e 2) ") in " (e 1) " ) {" nl I (block 4) nl i "}" )
+                swift3 ( (forkctx _ ) (def 2) (def 3) "for (" (e 3) ", " (e 2) ") in " (e 1) " {" nl I (block 4) nl i "}" )
+                swift6 ( (forkctx _ ) (def 2) (def 3) "for (" (e 3) ", " (e 2) ") in " (e 1) " {" nl I (block 4) nl i "}" )
+                scala ( (forkctx _ ) (def 2) (def 3) "for ((" (e 3) ", " (e 2) ") <- " (e 1) ") {" nl I (block 4) nl i "}" )
+                java7 ( (forkctx _ ) (def 2) (def 3) "for ( java.util.Map.Entry<String, " (typeof 2) "> __entry_" (e 3) " : " (e 1) ".entrySet()) {" nl I "String " (e 3) " = __entry_" (e 3) ".getKey();" nl (typeof 2) " " (e 2) " = __entry_" (e 3) ".getValue();" nl (block 4) nl i "}" )
+                csharp ( (forkctx _ ) (def 2) (def 3) "foreach ( var __entry_" (e 3) " in " (e 1) ") {" nl I "var " (e 3) " = __entry_" (e 3) ".Key;" nl "var " (e 2) " = __entry_" (e 3) ".Value;" nl (block 4) nl i "}" )
+                cpp ( (forkctx _ ) (def 2) (def 3) "for ( auto& __entry_" (e 3) " : " (e 1) ") {" nl I "std::string " (e 3) " = __entry_" (e 3) ".first;" nl (typeof 2) " " (e 2) " = __entry_" (e 3) ".second;" nl (block 4) nl i "}" )
+                ; The map is cloned so that the body owns the pair, in the same
+                ; way as the array loop clones the item.
+                rust ( (forkctx _ ) (def 2) (def 3) "for (" (e 3) ", " (e 2) ") in " (e 1) ".clone() {" nl I (block 4) nl i "}" )
             }
-        }    
+        }
 
         for             cmdFor@(newcontext):void          ( hash:[string:T] itemName@(define ignore):string repeat_block:block)  {
             templates {
-                es6 ("for( var " (e 2) " in " (e 1) ") {" nl I "if(" (e 1) ".hasOwnProperty(" (e 2) ")) {" 
-                        nl I (block 3) 
+                ranger ( nl "for " (e 1) " " (e 2) " {" nl I (block 3) nl i "}" )
+                es6 ("for( var " (e 2) " in " (e 1) ") {" nl I "if(" (e 1) ".hasOwnProperty(" (e 2) ")) {"
+                        nl I (block 3)
                         nl i "} " nl i "}"
                      )
+                dart ( (forkctx _ ) (def 2) "for ( var " (e 2) " in " (e 1) ".keys ) {" nl I (block 3) nl i "}" )
+                go ( (forkctx _ ) (def 2) "for " (e 2) " := range " (e 1) " {" nl I "_ = " (e 2) nl (block 3) nl i "}" )
+                python ( (forkctx _ ) (def 2) "for " (e 2) " in " (e 1) ":" nl I (block 3) nl i )
+                php ( (forkctx _ ) (def 2) "foreach ( array_keys(" (e 1) ") as " (e 2) " ) {" nl I (block 3) nl i "}" )
+                kotlin ( (forkctx _ ) (def 2) "for ( " (e 2) " in " (e 1) ".keys ) {" nl I (block 3) nl i "}" )
+                swift3 ( (forkctx _ ) (def 2) "for " (e 2) " in " (e 1) ".keys {" nl I (block 3) nl i "}" )
+                swift6 ( (forkctx _ ) (def 2) "for " (e 2) " in " (e 1) ".keys {" nl I (block 3) nl i "}" )
+                scala ( (forkctx _ ) (def 2) "for (" (e 2) " <- " (e 1) ".keys) {" nl I (block 3) nl i "}" )
+                java7 ( (forkctx _ ) (def 2) "for ( String " (e 2) " : " (e 1) ".keySet()) {" nl I (block 3) nl i "}" )
+                csharp ( (forkctx _ ) (def 2) "foreach ( var " (e 2) " in " (e 1) ".Keys) {" nl I (block 3) nl i "}" )
+                cpp ( (forkctx _ ) (def 2) "for ( auto& __entry_" (e 2) " : " (e 1) ") {" nl I "std::string " (e 2) " = __entry_" (e 2) ".first;" nl (block 3) nl i "}" )
+                rust ( (forkctx _ ) (def 2) "for " (e 2) " in " (e 1) ".keys().cloned().collect::<Vec<String>>() {" nl I (block 3) nl i "}" )
             }
-        }              
+        }
 
         trim             cmdTrim:string          ( value:string ) { 
             templates {
@@ -2615,7 +3127,7 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
                 )
 
                 python ( (e 1) ".split(" (e 2) ") if " (e 2) " else list(" (e 1) ")" )
-                rust ( (e 1) ".split(&*" (e 2) ").map(|s| s.to_string()).collect::<Vec<String>>()" )
+                rust ( (e 1) ".split(" (kref 2) ").map(|s| s.to_string()).collect::<Vec<String>>()" )
                 * ( (e 1) ".split(" (e 2) ")")
             }
         }
@@ -2674,11 +3186,79 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
             templates {
                 ranger ( "(RegexMatch.testIgnoreCase(" (e 1) " " (e 2) "))")
                 kotlin ( "try { Regex(" (e 1) ", RegexOption.IGNORE_CASE).containsMatchIn(" (e 2) ") } catch (_: Exception) { false }" )
-                java7 ( "try { java.util.regex.Pattern.compile(" (e 1) ", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(" (e 2) ").find() } catch (Exception e) { false }" (imp "java.util.regex.Pattern"))
+                java7 ( "r_regex_test_i(" (e 1) ", " (e 2) ")" (imp "java.util.regex.Pattern")
+(create_polyfill "
+static boolean r_regex_test_i(String pattern, String s) {
+    try {
+        return java.util.regex.Pattern.compile(pattern, java.util.regex.Pattern.CASE_INSENSITIVE).matcher(s).find();
+    } catch (Exception e) {
+        return false;
+    }
+}
+")
+                )
                 es6 ( "(()=>{try{return new RegExp(" (e 1) ",'i').test(" (e 2) ");}catch{return false;}})()" )
                 swift6 ( (e 2) ".range(of: " (e 1) ", options: [.regularExpression, .caseInsensitive]) != nil" )
                 swift3 ( (e 2) ".range(of: " (e 1) ", options: [.regularExpression, .caseInsensitive]) != nil" )
-                * ( "(RegexMatch.testIgnoreCase(" (e 1) " " (e 2) "))")
+                go ( "r_regex_test_i(" (e 1) ", " (e 2) ")" (imp "regexp")
+(create_polyfill "
+func r_regex_test_i(pattern string, s string) bool {
+	re, err := regexp.Compile(\"(?i)\" + pattern)
+	if err != nil {
+		return false
+	}
+	return re.MatchString(s)
+}
+")
+                )
+                python ( "r_regex_test_i(" (e 1) ", " (e 2) ")" (imp "re")
+(polyfill "after_imports" "
+def r_regex_test_i(pattern, s):
+  try:
+    return re.search(pattern, s, re.IGNORECASE) is not None
+  except Exception:
+    return False
+")
+                )
+                cpp ( "r_regex_test_i(" (e 1) ", " (e 2) ")" (imp "<regex>") (imp "<string>")
+(create_polyfill "
+inline bool r_regex_test_i(const std::string& pattern, const std::string& s) {
+  try {
+    std::regex re(pattern, std::regex::ECMAScript | std::regex::icase);
+    return std::regex_search(s, re);
+  } catch (const std::regex_error&) {
+    return false;
+  }
+}
+")
+                )
+                php ( "r_regex_test_i(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+function r_regex_test_i($pattern, $s) {
+    $delimited = '/' . str_replace('/', '\\\\/', $pattern) . '/i';
+    return @preg_match($delimited, $s) === 1;
+}
+")
+                )
+                scala ( "(try { (\"(?i)\" + " (e 1) ").r.findFirstIn(" (e 2) ").isDefined } catch { case _: Throwable => false })" (imp "scala.util.matching.Regex") )
+                csharp ( "r_regex_test_i(" (e 1) ", " (e 2) ")" (imp "System.Text.RegularExpressions")
+(create_polyfill "
+static bool r_regex_test_i(string pattern, string s) {
+    try {
+        return Regex.IsMatch(s, pattern, RegexOptions.IgnoreCase);
+    } catch (ArgumentException) {
+        return false;
+    }
+}
+")
+                )
+                ; No `*` fallback on purpose. It used to write
+                ; `RegexMatch.testIgnoreCase(a b)` -- Ranger spelling, with a
+                ; space where the target needs a comma -- so every target
+                ; without an entry of its own emitted source that does not
+                ; parse. A target with no regular expression engine in its
+                ; standard library, Rust among them, now fails the match at
+                ; compile time instead, which is where the absence belongs.
             }
         }
 
@@ -2767,6 +3347,7 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
                 dart ( (imp "dart:typed_data") "Uint8List(" (e 1) ")" )
                 swift6 ( "[UInt8](repeating: 0, count: Int(" (e 1) "))" )
                 swift3 ( "[UInt8](repeating: 0, count: Int(" (e 1) "))" )
+                kotlin ( "ByteArray(" (e 1) ")" )
                 csharp ( "new byte[" (e 1) "]" )
             }
         }
@@ -2785,6 +3366,7 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
                 dart ( (e 1) ".length" )
                 swift6 ( "Int64(" (e 1) ".count)" )
                 csharp ( (e 1) ".Length" )
+                kotlin ( (e 1) ".size" )
             }
         }
 
@@ -2802,6 +3384,7 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
                 dart ( (e 1) "[" (e 2) "]" )
                 swift6 ( "Int64(" (e 1) "[Int(" (e 2) ")])" )
                 csharp ( "((int)" (e 1) "[" (e 2) "])" )
+                kotlin ( "(" (e 1) "[" (e 2) "].toInt() and 0xFF)" )
             }
         }
 
@@ -2818,7 +3401,8 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
                 python ( (e 1) "[" (e 2) "] = " (e 3) )
                 dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
                 swift6 ( (e 1) "[Int(" (e 2) ")] = UInt8(" (e 3) ")" )
-                csharp ( (e 1) "[" (e 2) "] = (byte)" (e 3) )
+                csharp ( (e 1) "[" (e 2) "] = (byte)" (e 3) ";" )
+                kotlin ( (e 1) "[" (e 2) "] = (" (e 3) ").toByte()" )
             }
         }
 
@@ -2835,6 +3419,7 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
                 dart ( (imp "dart:convert") (imp "dart:typed_data") "Uint8List.fromList(utf8.encode(" (e 1) "))" )
                 swift6 ( "Array(" (e 1) ".utf8)" )
                 csharp ( "System.Text.Encoding.UTF8.GetBytes(" (e 1) ")" )
+                kotlin ( (e 1) ".toByteArray(Charsets.UTF_8)" )
             }
         }
 
@@ -2851,6 +3436,7 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
                 dart ( (imp "dart:convert") "utf8.decode(" (e 1) ")" )
                 swift6 ( "String(bytes: " (e 1) ", encoding: .utf8) ?? \"\"" )
                 csharp ( "System.Text.Encoding.UTF8.GetString(" (e 1) ")" )
+                kotlin ( "String(" (e 1) ", Charsets.UTF_8)" )
             }
         }
 
@@ -2885,6 +3471,7 @@ std::string r_buffer_to_base64(const std::vector<uint8_t>& data) {
                 python ( "base64.b64encode(" (e 1) ").decode('ascii')" (imp "base64") )
                 swift6 ( "Data(" (e 1) ").base64EncodedString()" (imp "Foundation") )
                 csharp ( "Convert.ToBase64String(" (e 1) ")" )
+                kotlin ( "java.util.Base64.getEncoder().encodeToString(" (e 1) ")" )
             }
         }
 
@@ -2908,6 +3495,7 @@ void r_buffer_write_file(const std::string& path, const std::string& filename, c
                 python ( "open(" (e 1) " + '/' + " (e 2) ", 'wb').write(" (e 3) ")" )
                 swift6 ( "try? Data(" (e 3) ").write(to: URL(fileURLWithPath: " (e 1) " + \"/\" + " (e 2) "))" (imp "Foundation") )
                 csharp ( "System.IO.File.WriteAllBytes(" (e 1) " + \"/\" + " (e 2) ", " (e 3) ")" )
+                kotlin ( "java.io.File(" (e 1) " + \"/\" + " (e 2) ").writeBytes(" (e 3) ")" )
             }
         }
 
@@ -2931,6 +3519,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( "bytearray(open(" (e 1) " + '/' + " (e 2) ", 'rb').read())" )
                 swift6 ( "(try? Data(contentsOf: URL(fileURLWithPath: " (e 1) " + \"/\" + " (e 2) "))).map { Array($0) } ?? []" (imp "Foundation") )
                 csharp ( "System.IO.File.ReadAllBytes(" (e 1) " + \"/\" + " (e 2) ")" )
+                kotlin ( "java.io.File(" (e 1) " + \"/\" + " (e 2) ").readBytes()" )
             }
         }
 
@@ -2947,6 +3536,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 2) ")..<Int(" (e 2) "+" (e 5) "), with: " (e 3) "[Int(" (e 4) ")..<Int(" (e 4) "+" (e 5) ")])" )
                 csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
+                kotlin ( "System.arraycopy(" (e 3) ", " (e 4) ", " (e 1) ", " (e 2) ", " (e 5) ")" )
             }
         }
 
@@ -2963,6 +3553,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( (e 1) "[" (e 3) ":" (e 4) "] = [" (e 2) "] * (" (e 4) " - " (e 3) ")" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 3) ")..<Int(" (e 4) "), with: repeatElement(UInt8(" (e 2) "), count: Int(" (e 4) "-" (e 3) ")))" )
                 csharp ( "Array.Fill(" (e 1) ", (byte)" (e 2) ", (int)" (e 3) ", (int)(" (e 4) "-" (e 3) "))" )
+                kotlin ( "java.util.Arrays.fill(" (e 1) ", " (e 3) ", " (e 4) ", (" (e 2) ").toByte())" )
             }
         }
 
@@ -2979,6 +3570,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( "bytearray(" (e 1) "[" (e 2) ":" (e 3) "])" )
                 swift6 ( "Array(" (e 1) "[Int(" (e 2) ")..<Int(" (e 3) ")])" )
                 csharp ( (e 1) "[((int)" (e 2) ")..((int)" (e 3) ")]" )
+                kotlin ( (e 1) ".copyOfRange(" (e 2) ", " (e 3) ")" )
             }
         }
 
@@ -3004,6 +3596,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 dart ( (imp "dart:typed_data") "Int64List(" (e 1) ")" )
                 swift6 ( "[Int64](repeating: 0, count: Int(" (e 1) "))" )
                 csharp ( "new long[" (e 1) "]" )
+                kotlin ( "LongArray(" (e 1) ")" )
             }
         }
 
@@ -3020,6 +3613,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( "len(" (e 1) ")" )
                 swift6 ( "Int64(" (e 1) ".count)" )
                 csharp ( (e 1) ".Length" )
+                kotlin ( (e 1) ".size" )
             }
         }
 
@@ -3037,6 +3631,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( (e 1) "[" (e 2) "]" )
                 swift6 ( (e 1) "[Int(" (e 2) ")]" )
                 csharp ( (e 1) "[" (e 2) "]" )
+                kotlin ( (e 1) "[" (e 2) "].toInt()" )
             }
         }
 
@@ -3053,7 +3648,8 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 java7 ( (e 1) "[(int)" (e 2) "] = " (e 3) )
                 python ( (e 1) "[" (e 2) "] = " (e 3) )
                 swift6 ( (e 1) "[Int(" (e 2) ")] = " (e 3) )
-                csharp ( (e 1) "[" (e 2) "] = " (e 3) )
+                csharp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+                kotlin ( (e 1) "[" (e 2) "] = (" (e 3) ").toLong()" )
             }
         }
 
@@ -3071,6 +3667,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( (e 1) "[" (e 3) ":" (e 4) "] = [" (e 2) "] * (" (e 4) " - " (e 3) ")" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 3) ")..<Int(" (e 4) "), with: repeatElement(" (e 2) ", count: Int(" (e 4) "-" (e 3) ")))" )
                 csharp ( "Array.Fill(" (e 1) ", " (e 2) ", (int)" (e 3) ", (int)(" (e 4) "-" (e 3) "))" )
+                kotlin ( "java.util.Arrays.fill(" (e 1) ", " (e 3) ", " (e 4) ", (" (e 2) ").toLong())" )
             }
         }
 
@@ -3087,6 +3684,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 2) ")..<Int(" (e 2) "+" (e 5) "), with: " (e 3) "[Int(" (e 4) ")..<Int(" (e 4) "+" (e 5) ")])" )
                 csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
+                kotlin ( "System.arraycopy(" (e 3) ", " (e 4) ", " (e 1) ", " (e 2) ", " (e 5) ")" )
             }
         }
 
@@ -3128,6 +3726,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 dart ( (imp "dart:typed_data") "Float64List(" (e 1) ")" )
                 swift6 ( "[Double](repeating: 0.0, count: Int(" (e 1) "))" )
                 csharp ( "new double[" (e 1) "]" )
+                kotlin ( "DoubleArray(" (e 1) ")" )
             }
         }
 
@@ -3144,6 +3743,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( "len(" (e 1) ")" )
                 swift6 ( "Int64(" (e 1) ".count)" )
                 csharp ( (e 1) ".Length" )
+                kotlin ( (e 1) ".size" )
             }
         }
 
@@ -3160,6 +3760,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( (e 1) "[" (e 2) "]" )
                 swift6 ( (e 1) "[Int(" (e 2) ")]" )
                 csharp ( (e 1) "[" (e 2) "]" )
+                kotlin ( (e 1) "[" (e 2) "]" )
             }
         }
 
@@ -3175,7 +3776,8 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 java7 ( (e 1) "[(int)" (e 2) "] = " (e 3) )
                 python ( (e 1) "[" (e 2) "] = " (e 3) )
                 swift6 ( (e 1) "[Int(" (e 2) ")] = " (e 3) )
-                csharp ( (e 1) "[" (e 2) "] = " (e 3) )
+                csharp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+                kotlin ( (e 1) "[" (e 2) "] = " (e 3) )
             }
         }
 
@@ -3192,6 +3794,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( (e 1) "[" (e 3) ":" (e 4) "] = [" (e 2) "] * (" (e 4) " - " (e 3) ")" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 3) ")..<Int(" (e 4) "), with: repeatElement(" (e 2) ", count: Int(" (e 4) "-" (e 3) ")))" )
                 csharp ( "Array.Fill(" (e 1) ", " (e 2) ", (int)" (e 3) ", (int)(" (e 4) "-" (e 3) "))" )
+                kotlin ( "java.util.Arrays.fill(" (e 1) ", " (e 3) ", " (e 4) ", " (e 2) ")" )
             }
         }
 
@@ -3208,6 +3811,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 2) ")..<Int(" (e 2) "+" (e 5) "), with: " (e 3) "[Int(" (e 4) ")..<Int(" (e 4) "+" (e 5) ")])" )
                 csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
+                kotlin ( "System.arraycopy(" (e 3) ", " (e 4) ", " (e 1) ", " (e 2) ", " (e 5) ")" )
             }
         }
 
@@ -3476,7 +4080,13 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 php ( "ord(" (e 1) ")") 
                 java7 ( "((" (e 1) ".getBytes())[0])") 
                 swift3 ( "UInt8( (  NSString(string: " (e 1) " )     ).character( at: 0 ) )" (imp "Foundation"))
-                swift3 ( "UInt8( String( " (e 1) ".characters[" (e 1) ".startIndex]))! ")  
+                swift3 ( "UInt8( String( " (e 1) ".characters[" (e 1) ".startIndex]))! ")
+                swift6 ( "UInt8(" (e 1) ".utf8.first ?? 0)" )
+                python ( "ord(" (e 1) "[0])" )
+                kotlin ( (e 1) "[0].code" )
+                csharp ( "(int)(" (e 1) "[0])" )
+                scala ( (e 1) ".charAt(0).toInt" )
+                rust ( "(" (e 1) ".as_bytes()[0] as i64)" )
                 * ( (e 1) ".charCodeAt(0)" )
             }
         }
@@ -3490,7 +4100,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
         strfromcode   cmdStrFromCode:string       ( code:char ) { 
             templates {
                 ranger ( "(strfromcode " (e 1) ")")
-                csharp ( "((char)" (e 1) ").toString()") 
+                csharp ( "((char)" (e 1) ").ToString()") 
                 java7 ( "(new String( new char[] {" (e 1) " }))") 
                 kotlin ( (e 1) ".toChar().toString()")
                 swift3 ( "(String( Character( UnicodeScalar(" (e 1) " ) )))") 
@@ -3500,6 +4110,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 go ("string([]rune{rune(" (e 1) ")})")      
                 cpp ( "std::string(1, char(" (e 1) "))") 
                 rust ( (custom _) )
+                python ( "chr(" (e 1) ")" )
                 * ( "String.fromCharCode(" (e 1) ")")
             }
         }
@@ -3508,7 +4119,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
         strfromcode   cmdStrFromCode:string       ( code:int ) { 
             templates {
                 ranger ( "(strfromcode " (e 1) ")")
-                csharp ( "((char)" (e 1) ").toString()") 
+                csharp ( "((char)" (e 1) ").ToString()") 
                 java7 ( "(new String( Character.toChars(" (e 1) ")))") 
                 kotlin ( (e 1) ".toChar().toString()")
                 swift3 ( "(String( Character( UnicodeScalar(" (e 1) " )! )))") 
@@ -3518,6 +4129,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 go ("string([]rune{rune(" (e 1) ")})")        
                 cpp ( "std::string(1, char(" (e 1) "))") 
                 rust ( (custom _) )
+                python ( "chr(" (e 1) ")" )
                 * ( "String.fromCharCode(" (e 1) ")")
             }
         }
@@ -3530,6 +4142,14 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 go ("string([]byte{byte(" (e 1) ")})")
                 cpp ( "std::string(1, char(" (e 1) "))") 
                 rust ( "String::from_utf8_lossy(&[" (e 1) " as u8]).to_string()" )
+                php ( "chr(" (e 1) ")" )
+                python ( "chr(" (e 1) ")" )
+                java7 ( "String.valueOf((char)(" (e 1) "))" )
+                kotlin ( "((" (e 1) ").toInt().toChar()).toString()" )
+                csharp ( "((char)(" (e 1) ")).ToString()" )
+                scala ( "(" (e 1) ".toChar).toString" )
+                swift3 ( "String(UnicodeScalar(UInt8(" (e 1) ")))" )
+                swift6 ( "String(UnicodeScalar(UInt8(" (e 1) ")))" )
                 * ( "String.fromCharCode(" (e 1) ")")
             }
         }
@@ -3555,9 +4175,23 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
         double2str   cmdDoubleToString:string       ( value:double ) { 
             templates {
                 ranger ( "(double2str " (e 1) ")")
-                cpp ("std::to_string(" (e 1) ")" (imp "<string>"))
-                java7 ( "String.valueOf(" (e 1) " )") 
-                php ( "strval(" (e 1) ")") 
+                cpp ( "r_double_to_string(" (e 1) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>")
+(create_polyfill "
+inline std::string r_double_to_string(double v) {
+    for (int p = 1; p < 18; p++) {
+        std::ostringstream s;
+        s << std::setprecision(p) << v;
+        if (std::stod(s.str()) == v) {
+            return s.str();
+        }
+    }
+    std::ostringstream s;
+    s << std::setprecision(17) << v;
+    return s.str();
+}
+") )
+                java7 ( "String.valueOf(" (e 1) " )")
+                php ( "strval(" (e 1) ")")
                 scala ( "(" (e 1) ".toString)")
                 go ("strconv.FormatFloat(" (e 1) ",'f', -1, 64)" (imp "strconv"))
                 swift3 ("String(" (e 1) ")")
@@ -3571,15 +4205,34 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
         to_string  _:string       ( value:double ) { 
             templates {
                 ranger ( "(double2str " (e 1) ")")
-                cpp ("std::to_string(" (e 1) ")" (imp "<string>"))
-                java7 ( "String.valueOf(" (e 1) " )") 
-                php ( "strval(" (e 1) ")") 
+                cpp ( "r_double_to_string(" (e 1) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>")
+(create_polyfill "
+inline std::string r_double_to_string(double v) {
+    for (int p = 1; p < 18; p++) {
+        std::ostringstream s;
+        s << std::setprecision(p) << v;
+        if (std::stod(s.str()) == v) {
+            return s.str();
+        }
+    }
+    std::ostringstream s;
+    s << std::setprecision(17) << v;
+    return s.str();
+}
+") )
+                java7 ( "String.valueOf(" (e 1) " )")
+                php ( "strval(" (e 1) ")")
                 scala ( "(" (e 1) ".toString)")
                 go ("strconv.FormatFloat(" (e 1) ",'f', -1, 64)" (imp "strconv"))
                 swift3 ("String(" (e 1) ")")
                 swift6 ("String(" (e 1) ")")
                 python ( "str(" (e 1) ")" )
                 rust ( (e 1) ".to_string()" )
+                ; "R" is the round-trip format -- the shortest text that reads
+                ; back as the same double, which is what every other target
+                ; writes. The invariant culture is not optional: the default
+                ; one puts a comma where the rest of the world expects a point.
+                csharp ( "(" (e 1) ").ToString(\"R\", System.Globalization.CultureInfo.InvariantCulture)" )
                 * ( "(" (e 1) ".toString())")
             }
         }
@@ -3595,7 +4248,13 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 rust ( "(" (e 1) ".to_string())" )
                 swift3 ("String(" (e 1) ")")
                 swift6 ("String(" (e 1) ")")
-                python ( "str(" (e 1) ")" )
+                ; Python spells its booleans True and False. Every other target
+                ; writes the lowercase word, and a program that compares the
+                ; text of two targets must not see the difference.
+                python ( "(\"true\" if " (e 1) " else \"false\")" )
+                ; C# ToString() on a bool gives "True"/"False"; the rest of the
+                ; targets write the lowercase word.
+                csharp ( "(" (e 1) " ? \"true\" : \"false\")" )
                 * ( "(" (e 1) ".toString())")
             }
         }
@@ -3616,8 +4275,11 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
 template <class T>
 class r_optional_primitive {
   public:
-    bool has_value;
-    T value;
+    // has_value has to start false: cpp_str_to_int and its siblings leave the
+    // field untouched when the conversion throws, and an indeterminate bool
+    // made a failed str2int read back as a value on the C++ target.
+    bool has_value = false;
+    T value = T();
     r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
         has_value = rhs.has_value;
         value = rhs.value;
@@ -3747,8 +4409,11 @@ def r_str_to_int(s):
 template <class T>
 class r_optional_primitive {
   public:
-    bool has_value;
-    T value;
+    // has_value has to start false: cpp_str_to_int and its siblings leave the
+    // field untouched when the conversion throws, and an indeterminate bool
+    // made a failed str2int read back as a value on the C++ target.
+    bool has_value = false;
+    T value = T();
     r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
         has_value = rhs.has_value;
         value = rhs.value;
@@ -3879,6 +4544,8 @@ std::string join(const T& v, const std::string& delim) {
                 swift6 ( (e 1) ".joined(separator:" (e 2) ")")
                 kotlin ( (e 1) ".joinToString(separator = " (e 2) ")" )
                 dart ( (e 1) ".join(" (e 2) ")" )
+                python ( (e 2) ".join(" (e 1) ")" )
+                rust ( (e 1) ".join(&*" (e 2) ")" )
                 * ( (e 1) ".join(" (e 2) ")" )
             }            
         }                 
@@ -3917,6 +4584,7 @@ std::string join(const T& v, const std::string& delim) {
                 es6 ('( ' (e 1) '.length  > ' (e 2)'  && ' (e 2)' >= 0  ?  '(e 1) '[' (e 2)'] : null ) ')
                 ranger ( "(get " (e 1) " " (e 2) ")")
                 llvm ( "(get " (e 1) " " (e 2) ")")
+                python ( "(" (e 1) "[" (e 2) "] if (0 <= (" (e 2) ") < len(" (e 1) ")) else None)" )
                 * ( (e 1) "[" (e 2) "]" )
             } 
         }
@@ -3930,8 +4598,11 @@ std::string join(const T& v, const std::string& delim) {
 template <class T>
 class r_optional_primitive {
   public:
-    bool has_value;
-    T value;
+    // has_value has to start false: cpp_str_to_int and its siblings leave the
+    // field untouched when the conversion throws, and an indeterminate bool
+    // made a failed str2int read back as a value on the C++ target.
+    bool has_value = false;
+    T value = T();
     r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
         has_value = rhs.has_value;
         value = rhs.value;
@@ -3961,6 +4632,8 @@ r_optional_primitive<int> cpp_get_map_int_value( const M & m , const K & key) {
 ) 
 
                 )
+                python ( (e 1) ".get(" (e 2) ")" )
+                csharp ( "(" (e 1) ".ContainsKey(" (e 2) ") ? (int?)" (e 1) "[" (e 2) "] : null)" )
             }
         }
 
@@ -3972,8 +4645,11 @@ r_optional_primitive<int> cpp_get_map_int_value( const M & m , const K & key) {
 template <class T>
 class r_optional_primitive {
   public:
-    bool has_value;
-    T value;
+    // has_value has to start false: cpp_str_to_int and its siblings leave the
+    // field untouched when the conversion throws, and an indeterminate bool
+    // made a failed str2int read back as a value on the C++ target.
+    bool has_value = false;
+    T value = T();
     r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
         has_value = rhs.has_value;
         value = rhs.value;
@@ -4005,6 +4681,8 @@ r_optional_primitive<double> cpp_get_map_string_double_value( const M & m , cons
                 ranger ( "(get " (e 1) " " (e 2) ")")
                 llvm ( "(get " (e 1) " " (e 2) ")")
                 es6 ( "( Object.prototype.hasOwnProperty.call(" (e 1) ", " (e 2) ") ? " (e 1) "[" (e 2) "] : undefined )" )
+                python ( (e 1) ".get(" (e 2) ")" )
+                csharp ( "(" (e 1) ".ContainsKey(" (e 2) ") ? (double?)" (e 1) "[" (e 2) "] : null)" )
                 * ( (e 1) "[" (e 2) "]" )
             }
         }
@@ -4055,6 +4733,8 @@ i "}" nl ))
                     "r_get_" (r_ktype 1)  "_" (r_atype_fname 1) "(" (e 1) ", " (e 2) ")"
                 )
                 es6 ( "( Object.prototype.hasOwnProperty.call(" (e 1) ", " (e 2) ") ? " (e 1) "[" (e 2) "] : undefined )" )
+                python ( (e 1) ".get(" (e 2) ")" )
+                csharp ( "(" (e 1) ".ContainsKey(" (e 2) ") ? " (e 1) "[" (e 2) "] : null)" )
                 * ( (e 1) "[" (e 2) "]" )
             }            
         }                 
@@ -4115,7 +4795,9 @@ i "}" nl ))
 
         indexOf cmdStringIndex:int (str:string key:string) {
             templates {
-                php( "strpos(" (e 1) ", " (e 2) ")")
+                php( "(($p = strpos(" (e 1) ", " (e 2) ")) !== false ? $p : -1)")
+                csharp ( (e 1) ".IndexOf(" (e 2) ")" )
+                scala ( (e 1) ".indexOf(" (e 2) ")" )
                 go ( "int64(strings.Index(" (e 1) ", " (e 2) "))" (imp "strings"))
                 es6 ( (e 1) ".indexOf(" (e 2 ) ")" )
                 java7 ( (e 1) ".indexOf(" (e 2 ) ")" )
@@ -4138,13 +4820,15 @@ int r_string_index_of( std::string str, std::string key )  {
 " )                   
                     
                 )
-                rust ( "(" (e 1) ".find(&*" (e 2) ").map(|i| i as i64).unwrap_or(-1))" )
+                rust ( "(" (e 1) ".find(" (kref 2) ").map(|i| i as i64).unwrap_or(-1))" )
             }        
         }
 
         indexOfFrom cmdStringIndexFrom:int (str:string key:string startPos:int) {
             templates {
                 php( "(($p = strpos(" (e 1) ", " (e 2) ", " (e 3) ")) !== false ? $p : -1)")
+                csharp ( (e 1) ".IndexOf(" (e 2) ", (int)(" (e 3) "))" )
+                scala ( (e 1) ".indexOf(" (e 2) ", (" (e 3) ").toInt)" )
                 go ( "func() int64 { idx := strings.Index(" (e 1) "[" (e 3) ":], " (e 2) "); if idx == -1 { return -1 }; return int64(idx) + " (e 3) " }()" (imp "strings"))
                 es6 ( (e 1) ".indexOf(" (e 2 ) ", " (e 3) ")" )
                 java7 ( (e 1) ".indexOf(" (e 2 ) ", (int)" (e 3) ")" )
@@ -4165,7 +4849,7 @@ int r_string_index_of_from( std::string str, std::string key, int start )  {
 }
 " )                   
                 )
-                rust ( "(" (e 1) "[" (e 3) " as usize..].find(&*" (e 2) ").map(|i| (i + " (e 3) " as usize) as i64).unwrap_or(-1))" )
+                rust ( "(" (e 1) "[" (e 3) " as usize..].find(" (kref 2) ").map(|i| (i + " (e 3) " as usize) as i64).unwrap_or(-1))" )
                 kotlin ( (e 1) ".indexOf(" (e 2 ) ", " (e 3) ")" )
                 dart ( (e 1) ".indexOf(" (e 2) ", " (e 3) ")" )
                 ranger ( "(indexOfFrom " (e 1) " " (e 2) " " (e 3) ")")
@@ -4174,6 +4858,8 @@ int r_string_index_of_from( std::string str, std::string key, int start )  {
 
         lastIndexOf cmdStringLastIndex:int (str:string key:string) {
             templates {
+                csharp ( (e 1) ".LastIndexOf(" (e 2) ")" )
+                scala ( (e 1) ".lastIndexOf(" (e 2) ")" )
                 es6 ( (e 1) ".lastIndexOf(" (e 2 ) ")" )
                 java7 ( (e 1) ".lastIndexOf(" (e 2 ) ")" )
                 python ( (e 1) ".rfind(" (e 2) ")" )
@@ -4194,7 +4880,7 @@ int r_string_last_index_of( std::string str, std::string key )  {
 }
 " )                   
                 )
-                rust ( "(" (e 1) ".rfind(&*" (e 2) ").map(|i| i as i64).unwrap_or(-1))" )
+                rust ( "(" (e 1) ".rfind(" (kref 2) ").map(|i| i as i64).unwrap_or(-1))" )
                 kotlin ( (e 1) ".lastIndexOf(" (e 2) ")" )
                 dart ( (e 1) ".lastIndexOf(" (e 2) ")" )
                 ranger ( "(lastIndexOf " (e 1) " " (e 2) ")")
@@ -4266,12 +4952,18 @@ bool r_string_ends_with(const std::string& str, const std::string& suffix) {
             }
         }
 
+        ; `replace` changes every occurrence. Half of the templates used to
+        ; change only the first one -- JavaScript, Go, C++ and Python -- and the
+        ; other half changed them all, so the same program gave two answers.
+        ; The compiler itself wants every occurrence: the trigraph escaping of
+        ; ng_RangerCppClassWriter.rgr calls `(replace s "??=" ...)` on a whole
+        ; generated file.
         replace _:string (str:string oldStr:string newStr:string) {
             templates {
                 ranger ( "(replace " (e 1) " " (e 2) " " (e 3) ")")
-                es6 ( (e 1) ".replace(" (e 2) ", " (e 3) ")" )
+                es6 ( (e 1) ".split(" (e 2) ").join(" (e 3) ")" )
                 java7 ( (e 1) ".replace(" (e 2) ", " (e 3) ")" )
-                go ( "strings.Replace(" (e 1) ", " (e 2) ", " (e 3) ", 1)" (imp "strings"))
+                go ( "strings.Replace(" (e 1) ", " (e 2) ", " (e 3) ", -1)" (imp "strings"))
                 php ( "str_replace(" (e 2) ", " (e 3) ", " (e 1) ")" )
                 swift3 ( (e 1) ".replacingOccurrences(of: " (e 2) ", with: " (e 3) ")" )
                 swift6 ( (e 1) ".replacingOccurrences(of: " (e 2) ", with: " (e 3) ")" )
@@ -4282,17 +4974,21 @@ bool r_string_ends_with(const std::string& str, const std::string& suffix) {
 (create_polyfill
 "
 std::string r_string_replace(std::string str, const std::string& from, const std::string& to) {
-    size_t pos = str.find(from);
-    if (pos != std::string::npos) {
+    if (from.empty()) {
+        return str;
+    }
+    size_t pos = 0;
+    while ((pos = str.find(from, pos)) != std::string::npos) {
         str.replace(pos, from.length(), to);
+        pos += to.length();
     }
     return str;
 }
 " )
                 )
                 kotlin ( (e 1) ".replace(" (e 2) ", " (e 3) ")" )
-                dart ( (e 1) ".replaceFirst(" (e 2) ", " (e 3) ")" )
-                python ( (e 1) ".replace(" (e 2) ", " (e 3) ", 1)" )
+                dart ( (e 1) ".replaceAll(" (e 2) ", " (e 3) ")" )
+                python ( (e 1) ".replace(" (e 2) ", " (e 3) ")" )
             }
         }
 
@@ -4361,8 +5057,8 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  swift6 ( (e 1) ".remove(at:" (e 2)")")
                  php ( "array_splice(" (e 1) ", " (e 2 )", 1);")
                  kotlin ( (e 1) ".removeAt(" (e 2) ")" ) 
-                 java7 ( (e 1) ".remove(" (e 2) ")" )
-                 scala ( (e 1) ".remove(" (e 2) ")" )
+                 java7 ( (e 1) ".remove((int)(" (e 2) "));" )
+                 scala ( (e 1) ".remove((" (e 2) ").toInt)" )
                  go ( (e 1) " = append(" (e 1) "[:" (e 2) "], " (e 1) "[" (e 2) "+1:]...)" )
                  python ( (e 1) ".pop(" (e 2) ")" )
                  * ( (e 1) ".splice(" (e 2) ", 1).pop();" )                                              
@@ -4382,16 +5078,29 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  php ( "array_splice(" (e 1) ", " (e 2) ", 0, " (e 3) ");")
                  python ( (e 1) ".insert(" (e 2) ", " (e 3) ")" )
                  rust ( (e 1) ".insert(" (idx 2) ", " (e 3) ");")
+                 swift3 ( (e 1) ".insert(" (e 3) ", at:" (e 2) ")")
+                 java7 ( (e 1) ".add((int)(" (e 2) "), " (e 3) ");" )
+                 csharp ( (e 1) ".Insert((int)(" (e 2) "), " (e 3) ");" )
+                 scala ( (e 1) ".insert((" (e 2) ").toInt, " (e 3) ")" )
             }
         }      
         
-        remove    cmdRemove@(moves@( 2 1 ) ):void  ( array@(mutates):[T] index:int ) { 
+        remove    cmdRemove@(moves@( 2 1 ) ):void  ( array@(mutates):[T] index:int ) {
             templates {
                  ranger ( nl "remove " (e 1) " " (e 2) nl)
-                 es6 ( (e 1) ".splice(" (e 2) ", 1);" )                                              
+                 es6 ( (e 1) ".splice(" (e 2) ", 1);" )
                  swift6 ( (e 1) ".remove(at:" (e 2) ")" )
+                 swift3 ( (e 1) ".remove(at:" (e 2) ")" )
                  kotlin ( (e 1) ".removeAt(" (e 2) ")" )
                  dart ( (e 1) ".removeAt(" (e 2) ");" )
+                 python ( "del " (e 1) "[" (e 2) "]" )
+                 php ( "array_splice(" (e 1) ", " (e 2) ", 1);" )
+                 go ( (e 1) " = append(" (e 1) "[:" (e 2) "], " (e 1) "[" (e 2) "+1:]...)" )
+                 cpp ( (e 1) ".erase(" (e 1) ".begin() + " (e 2) ");" )
+                 java7 ( (e 1) ".remove((int)(" (e 2) "));" )
+                 csharp ( (e 1) ".RemoveAt((int)(" (e 2) "));" )
+                 scala ( (e 1) ".remove((" (e 2) ").toInt)" )
+                 rust ( (e 1) ".remove(" (e 2) " as usize);" )
             }
         }
 
@@ -4438,10 +5147,25 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
         }
 
         ; push for string arrays in Rust - converts &str to String
-        pushString    cmdPushString@(moves@( 2 1 ) ):void  ( array@(mutates):[string] item:string ) { 
+        ; `pushString` exists so that a Rust `&str` reaches a `Vec<String>`.
+        ; Everywhere else it is `push`, and it has to carry the same per target
+        ; spelling: the `*` fallback writes the JavaScript `.push(...)`, which
+        ; is not what C++, Go, Python, Java, Kotlin, C#, PHP or Scala accept.
+        pushString    cmdPushString@(moves@( 2 1 ) ):void  ( array@(mutates):[string] item:string ) {
             templates {
+                ranger ( nl "pushString " (e 1) " " (e 2) "" nl)
                 rust ( (e 1) ".push(" (e 2) ".to_string());" )
-                 * ( (e 1) ".push(" (e 2) ");" )                                              
+                cpp ( (e 1) ".push_back( " (e 2) "  );")
+                swift3 ( (e 1) ".append(" (e 2) ")")
+                swift6 ( (e 1) ".append(" (e 2) ")")
+                php ( "array_push(" (e 1) ", " (e 2 ) ");")
+                python ( (e 1) ".append(" (e 2) ")")
+                java7 ( (e 1) ".add(" (e 2) ");" )
+                go ( (e 1) " = append("  (e 1) ","  (e 2) ");" )
+                kotlin ( (e 1) ".add(" (e 2) ");" )
+                csharp ( (e 1) ".Add(" (e 2) ");" )
+                scala ( (e 1) ".append(" (e 2) ")" )
+                * ( (e 1) ".push(" (e 2) ");" )
             }
         }
 
@@ -4554,9 +5278,20 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
         }
 
         ; go sort.slice...
+        ; `sort` gives a new array and leaves the argument alone. It had two
+        ; templates, es6 and go, so a program that sorted did not compile on
+        ; any other target.
         sort _:[T] ( array:[T] cb:(_:int (left:T right:T))) {
             templates {
                 es6 ( (e 1) ".slice().sort(" ( e 2) ")")
+                python ( "sorted(" (e 1) ", key=functools.cmp_to_key(" (e 2) "))" (imp "functools") )
+                php ( "(function($__arr, $__cb) { usort($__arr, $__cb); return $__arr; })(" (e 1) ", " (e 2) ")" )
+                rust ( "{ let mut __v = " (e 1) ".clone(); let __cb = " (e 2) "; __v.sort_by(|__a, __b| __cb(__a.clone(), __b.clone()).cmp(&0)); __v }" )
+                cpp ( "[&]() { auto __v = " (e 1) "; auto __cb = " (e 2) "; std::stable_sort(__v.begin(), __v.end(), [&](const auto& __a, const auto& __b) { return __cb(__a, __b) < 0; }); return __v; }()" (imp "<algorithm>") )
+                kotlin ( (e 1) ".sortedWith(Comparator { __a, __b -> (" (e 2) ")(__a, __b).toInt() })" )
+                scala ( (e 1) ".sortWith((__a, __b) => (" (e 2) ")(__a, __b) < 0)" )
+                swift3 ( (e 1) ".sorted(by: { (" (e 2) ")($0, $1) < 0 })" )
+                swift6 ( (e 1) ".sorted(by: { (" (e 2) ")($0, $1) < 0 })" )
                 go ( "(func(list " (typeof 1) ") " (typeof 1) " {" nl 
                     I "sort.Slice(" (e 1) ", func(i, j int) bool { " nl
                     I "sortfn := " (e 2) nl
@@ -4569,11 +5304,42 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
             }            
         }
 
+        ; `reverse` gives a new array and leaves the argument alone -- the es6
+        ; template has always been `.slice().reverse()`. Only es6 had one, so
+        ; the operator did not compile anywhere else.
         reverse _:[T] (array:[T]) {
             templates {
                 ranger ( '(reverse (' (e 1) '))')
                 es6 ( (e 1) ".slice().reverse()")
-            }            
+                python ( "list(reversed(" (e 1) "))" )
+                php ( "array_reverse(" (e 1) ")" )
+                kotlin ( (e 1) ".reversed()" )
+                scala ( (e 1) ".reverse" )
+                swift3 ( "Array(" (e 1) ".reversed())" )
+                swift6 ( "Array(" (e 1) ".reversed())" )
+                csharp ( "Enumerable.Reverse(" (e 1) ").ToList()" (imp "System.Linq") )
+                rust ( "{ let mut __rev = " (e 1) ".clone(); __rev.reverse(); __rev }" )
+                go ( "func(src " (typeof 1) ") " (typeof 1) " { out := make(" (typeof 1) ", len(src)); for i := range src { out[len(src)-1-i] = src[i] }; return out }(" (e 1) ")" )
+                cpp ( "r_reverse_copy(" (e 1) ")" (imp "<vector>") (imp "<algorithm>")
+(create_polyfill "
+template <typename T>
+std::vector<T> r_reverse_copy(const std::vector<T>& v) {
+    std::vector<T> out(v);
+    std::reverse(out.begin(), out.end());
+    return out;
+}
+")
+                )
+                java7 ( "r_reverse_copy(" (e 1) ")" (imp "java.util.Collections")
+(create_polyfill "
+static <T> ArrayList<T> r_reverse_copy(ArrayList<T> v) {
+    ArrayList<T> out = new ArrayList<T>(v);
+    java.util.Collections.reverse(out);
+    return out;
+}
+")
+                )
+            }
         }
 
         array_length    cmdArrayLength:int      ( array:[T] ) { 
@@ -5528,6 +6294,7 @@ std::string r_cpp_str_to_lowercase(std::string original)
         }
         to_uppercase _:string (s:string) {
             templates {
+                rust ((e 1) ".to_uppercase()")
                 swift3 ( (e 1) ".uppercased()")
                 swift6 ( (e 1) ".uppercased()")
                 kotlin ( (e 1) ".uppercase()" )
@@ -5577,6 +6344,8 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 cpp ("(double)(" (e 1) ")")
                 php ( (e 1) )
                 rust ( (custom _) )
+                python ("float(" (e 1) ")")
+                csharp ("(double)(" (e 1) ")")
             }
         }
 
@@ -5758,7 +6527,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
             templates { 
                 ranger ( "(" (e 1) " && " (e 2) ")" ) 
                 scala ( (e 1) ".isDefined  && " (e 2) ".isDefined") 
-                csharp ( (e 1) ".HasValue  && " (e 2) ".HasValue") 
+                csharp ( (e 1) " != null  && " (e 2) " != null") 
 
                 php ( "isset("(e 1) ") && isset(" (e 2) ")") 
                 java7 ( (e 1) ".isPresent()  && " (e 2) ".isPresent()") 
@@ -5779,7 +6548,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 php ( (e 1) " && isset(" (e 2) ")") 
                 scala ( (e 1) " && " (e 2) ".isDefined") 
                 java7 ( (e 1) " && " (e 2) ".isPresent()") 
-                csharp ( (e 1) " && " (e 2) "HasValue") 
+                csharp ( (e 1) " && " (e 2) " != null") 
 
                 rust ( (e 1) " && " (e 2) ".is_some()") 
                 swift3 ( (e 1) " && " (e 2) " != nil") 
@@ -5798,7 +6567,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 php ( "isset("(e 1) ") && " (e 2) ) 
                 scala ( ""(e 1) ".isDefined && " (e 2) ) 
                 java7 ( ""(e 1) ".isPresent() && " (e 2) ) 
-                csharp ( ""(e 1) ".HasValue && " (e 2) ) 
+                csharp ( ""(e 1) " != null && " (e 2) ) 
 
                 rust ( ""(e 1) ".is_some() && " (e 2) ) 
                 swift3 ( ""(e 1) " != nil && " (e 2) ) 

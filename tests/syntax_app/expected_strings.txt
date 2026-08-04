@@ -19,7 +19,7 @@
   startsWith = true
   endsWith = true
   contains = true
-  replace = a+b-c
+  replace = a+b+c
   lower = ranger compiler
   upper = RANGER COMPILER
   split_count = 3

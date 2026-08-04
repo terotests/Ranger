@@ -69,6 +69,12 @@ class RangerAppParamDesc {
   def debugString:string ""
   def is_register false
   def ref_cnt:int 0
+  ; Mentions in a READ position. ref_cnt counts every mention, so a variable
+  ; that is only ever assigned still has ref_cnt > 0; read_cnt does not. Go is
+  ; the target that needs the distinction -- it refuses to compile a local that
+  ; is declared and never read -- so the assignment handler in ng_FlowWork
+  ; takes the target's mention back out of this count.
+  def read_cnt:int 0
   def init_cnt:int 0
   def set_cnt:int 0
   def return_cnt:int 0
@@ -103,6 +109,10 @@ class RangerAppParamDesc {
   def escapes_function:boolean false
   def needs_cpp_reference:boolean false
   def rust_borrow_type:int 0  ; 0=owned, 1=borrow, 2=mut_borrow
+  ; Every value ever assigned to this string is a literal or a copy of another
+  ; such string (StaticAnalyzer.analyzeRustStaticStrings) — Rust emits it as
+  ; `&'static str`: assignment is a pointer copy, no allocation, Copy semantics.
+  def rust_static_str:boolean false
   def rust_assigned_to_weak:boolean false  ; Parameter is assigned to @(weak) field
   def rust_needs_rc_wrap:boolean false      ; Parameter needs Rc<RefCell<T>> type in Rust
   def rust_assigned_to_field:boolean false  ; Parameter is assigned to a class field (requires owned)

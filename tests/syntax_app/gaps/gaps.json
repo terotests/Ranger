@@ -57,11 +57,6 @@
     "outcome": "run-error",
     "note": "When a base class has a Constructor and a subclass declares its own, the JavaScript writer emits super(<base constructor parameter names>) inside the subclass constructor, and those names do not exist there. README.md notes the same."
   },
-  "python_empty_method": {
-    "outcome": "run-error",
-    "target": "python",
-    "note": "Python target: a method with an empty body emits `def name(self):` with nothing under it, and the module fails to import with IndentationError. An empty method is the usual default of an overridable hook, so the base class of the app gives its `run` a body."
-  },
   "go_if_not_single_branch": {
     "outcome": "wrong-output",
     "target": "go",

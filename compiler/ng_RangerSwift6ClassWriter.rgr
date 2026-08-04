@@ -551,6 +551,25 @@ class RangerSwift6ClassWriter {
     return false
   }
 
+  ; True when the receiver of a call is spelled with an optional Swift type --
+  ; either the reference itself carries the flag, or it names a variable whose
+  ; declaration does.
+  fn receiverIsNullable:boolean (obj:CodeNode) {
+    if (obj.hasFlag("optional")) {
+      return true
+    }
+    if obj.hasParamDesc {
+      def p:RangerAppParamDesc obj.paramDesc
+      def nn@(optional):CodeNode p.nameNode
+      if (!null? nn) {
+        if ((unwrap nn).hasFlag("optional")) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
   fn CreateCallExpression(node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.has_call {
       def obj:CodeNode (node.getSecond())
@@ -565,10 +584,17 @@ class RangerSwift6ClassWriter {
       this.WalkNode( obj ctx wr)
       ctx.unsetInExpr()
       if (simpleReceiver == false) {
-        wr.out(")." false)
-      } {
-        wr.out("." false)
+        wr.out(")" false)
       }
+      ; A receiver whose declaration carries the optional flag comes out as
+      ; `T?`, and Swift refuses a plain `.` call on one. The namespaced write
+      ; path already forces it -- `self.moduleScope!.define(...)` -- but a call
+      ; whose receiver reached here got `(self.moduleScope).has(...)`, which
+      ; does not compile.
+      if (this.receiverIsNullable(obj)) {
+        wr.out("!" false)
+      }
+      wr.out("." false)
       def methodName method.vref
       if ((!null? node.fnDesc) && ((strlen node.fnDesc.compiledName) > 0)) {
         methodName = node.fnDesc.compiledName

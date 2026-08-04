@@ -113,6 +113,99 @@ class RangerRustClassWriter {
       }
     }
   }
+  ; a plain read whose resolved desc is a promoted static string
+  ; (rust_static_str): the value is already `&'static str` — Copy, no clone,
+  ; and any owned-String sink converts with .to_string() instead
+  fn rustStaticStrRead:boolean (node:CodeNode) {
+    def v:CodeNode node
+    while (v.expression && ((array_length v.children) == 1)) {
+      v = (v.getFirst())
+    }
+    if v.expression {
+      return false
+    }
+    if (v.value_type != RangerNodeType.VRef) {
+      return false
+    }
+    if ((array_length v.nsp) > 0) {
+      def lastP:RangerAppParamDesc (itemAt v.nsp ((array_length v.nsp) - 1))
+      return lastP.rust_static_str
+    }
+    if v.hasParamDesc {
+      def p:RangerAppParamDesc v.paramDesc
+      return p.rust_static_str
+    }
+    return false
+  }
+
+  ; a VALUE flowing into a static-string slot: a literal writes bare — no
+  ; .to_string() — and a static read writes its Copy path; anything else
+  ; walks normally and a mis-judged flow becomes a type error, never
+  ; silent corruption
+  fn rustWriteStaticStrValue:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def v:CodeNode node
+    while (v.expression && ((array_length v.children) == 1)) {
+      v = (v.getFirst())
+    }
+    if ((v.expression == false) && (v.value_type == RangerNodeType.String)) {
+      wr.out((("\"" + (this.EncodeString(v ctx wr))) + "\"") false)
+      return
+    }
+    ctx.setInExpr()
+    this.WalkNode(v ctx wr)
+    ctx.unsetInExpr()
+  }
+
+  ; a string LITERAL argument for a borrowed parameter passes bare: the
+  ; parameter is &str, and `&"lit".to_string()` allocates a String just to
+  ; borrow it (clippy's unnecessary_to_owned). Call only when the target
+  ; parameter is an immutable borrow; writes the literal and returns true,
+  ; or writes nothing.
+  fn rustTryBareStrLitArg:boolean (nVal:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def v:CodeNode nVal
+    while (v.expression && ((array_length v.children) == 1)) {
+      v = (v.getFirst())
+    }
+    if v.expression {
+      return false
+    }
+    if (v.value_type != RangerNodeType.String) {
+      return false
+    }
+    wr.out((("\"" + (this.EncodeString(v ctx wr))) + "\"") false)
+    return true
+  }
+
+  ; a read that yields a str REFERENCE rather than an owned String — a
+  ; promoted static string, or a borrowed &str string parameter. An owned
+  ; sink converts such a read with .to_string(); .clone() would only copy
+  ; the reference.
+  fn rustStrRefRead:boolean (node:CodeNode) {
+    if (this.rustStaticStrRead(node)) {
+      return true
+    }
+    def v:CodeNode node
+    while (v.expression && ((array_length v.children) == 1)) {
+      v = (v.getFirst())
+    }
+    if v.expression {
+      return false
+    }
+    if (((v.value_type == RangerNodeType.VRef) && v.hasParamDesc) && ((array_length v.ns) == 1)) {
+      def p:RangerAppParamDesc v.paramDesc
+      if (p.rust_borrow_type == 1) {
+        def pNN@(optional):CodeNode p.nameNode
+        if (!null? pNN) {
+          def pN:CodeNode (unwrap pNN)
+          if ((pN.type_name == "string") && (((strlen pN.array_type) == 0) && ((strlen pN.key_type) == 0))) {
+            return true
+          }
+        }
+      }
+    }
+    return false
+  }
+
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
     switch type_string {
       case "int" {
@@ -770,7 +863,13 @@ class RangerRustClassWriter {
           wr.out((("Rc<RefCell<" + (this.getObjectTypeString(nameN.type_name ctx))) + ">>") false)
         }
       } {
-        this.writeTypeDef(nameN ctx wr)
+        if p.rust_static_str {
+          ; a never-computed string: a pointer to the literal, Copy, no
+          ; allocation on any assignment (rust_static_str)
+          wr.out("&'static str" false)
+        } {
+          this.writeTypeDef(nameN ctx wr)
+        }
       }
       wr.out(", " true)
     }
@@ -807,6 +906,22 @@ class RangerRustClassWriter {
       def unused_pfx:string ""
       if unused_keeps_call {
         unused_pfx = "_"
+      }
+      ; a promoted static-string local (rust_static_str): `&'static str` with
+      ; a bare-literal or Copy-read initializer — no allocation, no clone
+      if p.rust_static_str {
+        def s_mut:string "let "
+        if (p.set_cnt > 0) {
+          s_mut = "let mut "
+        }
+        wr.out((((s_mut + unused_pfx) + (this.adjustType(p.compiledName))) + " : &'static str = ") false)
+        if ((array_length node.children) > 2) {
+          this.rustWriteStaticStrValue((node.getThird()) ctx wr)
+        } {
+          wr.out("\"\"" false)
+        }
+        wr.out(";" true)
+        return
       }
       def map_or_hash:boolean ((nn.value_type == RangerNodeType.Array) || (nn.value_type == RangerNodeType.Hash))
       ; Buffer type needs mut since buffer_set/buffer_fill/buffer_copy modify in place
@@ -985,7 +1100,13 @@ class RangerRustClassWriter {
         ; Clone strings, objects, arrays when reading from self fields
         if (value.value_type == RangerNodeType.VRef) {
           def should_clone_vardef:boolean false
+          ; a static-string read into an owned String local always converts —
+          ; the &'static str cannot move into a String slot (E0308)
+          def vardef_src_ref_str:boolean (this.rustStaticStrRead(value))
           if (nameN.type_name == "string") {
+            if vardef_src_ref_str {
+              should_clone_vardef = true
+            }
             ; Clone if accessing a field (has dot path)
             if ((array_length value.ns) > 1) {
               should_clone_vardef = true
@@ -1027,7 +1148,27 @@ class RangerRustClassWriter {
             }
           }
           if should_clone_vardef {
-            wr.out(".clone()" false)
+            ; a str reference (static string, borrowed &str parameter) makes
+            ; an owned String with .to_string(); .clone() would copy the &str
+            if (vardef_src_ref_str == false) {
+              if (((value.expression == false) && value.hasParamDesc) && ((array_length value.ns) == 1)) {
+                def vbp:RangerAppParamDesc value.paramDesc
+                if (vbp.rust_borrow_type == 1) {
+                  def vbpNN@(optional):CodeNode vbp.nameNode
+                  if (!null? vbpNN) {
+                    def vbpN:CodeNode (unwrap vbpNN)
+                    if ((vbpN.type_name == "string") && ((strlen vbpN.array_type) == 0)) {
+                      vardef_src_ref_str = true
+                    }
+                  }
+                }
+              }
+            }
+            if vardef_src_ref_str {
+              wr.out(".to_string()" false)
+            } {
+              wr.out(".clone()" false)
+            }
           }
         }
       } {
@@ -1339,8 +1480,14 @@ class RangerRustClassWriter {
           if ((strlen slice_elem) > 0) {
             wr.out((((paramName + " : &[") + slice_elem) + "]") false)
           } {
-            wr.out((paramName + " : &") false)
-            this.writeTypeDef(nameN ctx wr)
+            ; a borrowed read-only string is &str: every call site coerces
+            ; (&String and &'static str alike), no allocation either way
+            if (((nameN.type_name == "string") && ((strlen nameN.array_type) == 0)) && ((strlen nameN.key_type) == 0)) {
+              wr.out((paramName + " : &str") false)
+            } {
+              wr.out((paramName + " : &") false)
+              this.writeTypeDef(nameN ctx wr)
+            }
           }
         } {
           if is_object {
@@ -2213,23 +2360,38 @@ class RangerRustClassWriter {
           }
           
           ; an immutable-borrow target takes & — unless the source is
-          ; already a reference (a borrowed param passed through)
+          ; already a reference (a borrowed param passed through); a string
+          ; literal passes bare (the parameter is &str)
+          def borrowedLitDone:boolean false
           if (target_expects_owned == false) {
-            if ((this.rustArgIsAlreadyRef(arg)) == false) {
-              wr.out("&" false)
+            borrowedLitDone = (this.rustTryBareStrLitArg(arg ctx wr))
+            if (borrowedLitDone == false) {
+              if ((this.rustArgIsAlreadyRef(arg)) == false) {
+                wr.out("&" false)
+              }
             }
           }
-          this.WalkNode(arg ctx wr)
+          if (borrowedLitDone == false) {
+            this.WalkNode(arg ctx wr)
+          }
 
           ; If source is reference and target expects owned, add .clone()
           if (source_is_reference && target_expects_owned) {
-            wr.out(".clone()" false)
+            if (this.rustStrRefRead(arg)) {
+              wr.out(".to_string()" false)
+            } {
+              wr.out(".clone()" false)
+            }
           } {
             ; a bare non-Copy name handed to an owned parameter MOVES and
             ; breaks any later use of the name — clone, as the standard
             ; call path does (dotted reads clone through WriteVRef already)
             if (target_expects_owned && (this.rustBareArgNeedsClone(arg ctx))) {
-              wr.out(".clone()" false)
+              if (this.rustStrRefRead(arg)) {
+                wr.out(".to_string()" false)
+              } {
+                wr.out(".clone()" false)
+              }
             }
           }
         }
@@ -2607,7 +2769,28 @@ class RangerRustClassWriter {
             if preevalScalar {
               wr.out(";" true)
             } {
-              wr.out(".clone();" true)
+              if (this.rustStrRefRead(argNode)) {
+                ; a &str value: an owned String target converts here so the
+                ; temp is what the parameter takes; a borrowed target just
+                ; copies the reference (Copy)
+                def preevalStrOwned:boolean true
+                if (!null? fnD3) {
+                  def fnD4:RangerAppFunctionDesc (unwrap fnD3)
+                  if (argIdx < (array_length fnD4.params)) {
+                    def argP4:RangerAppParamDesc (itemAt fnD4.params argIdx)
+                    if (argP4.rust_borrow_type == 1) {
+                      preevalStrOwned = false
+                    }
+                  }
+                }
+                if preevalStrOwned {
+                  wr.out(".to_string();" true)
+                } {
+                  wr.out(";" true)
+                }
+              } {
+                wr.out(".clone();" true)
+              }
             }
             ; a mutable temp is a copy of the argument; the callee's writes
             ; land in the copy, so a writable source takes the copy back
@@ -2719,20 +2902,27 @@ class RangerRustClassWriter {
                 ; Check if parameter needs immutable reference
                 def needsImmutableRef:boolean (arg.rust_borrow_type == 1)
                 
+                def borrowedLitDone2:boolean false
                 if needsMutRef {
                   wr.out("&mut " false)
                 } {
                   if needsImmutableRef {
-                    if ((this.rustArgIsAlreadyRef(nVal)) == false) {
-                      wr.out("&" false)
+                    ; a string literal passes bare (the parameter is &str)
+                    borrowedLitDone2 = (this.rustTryBareStrLitArg(nVal ctx wr))
+                    if (borrowedLitDone2 == false) {
+                      if ((this.rustArgIsAlreadyRef(nVal)) == false) {
+                        wr.out("&" false)
+                      }
                     }
                   }
                 }
-                ctx.setInExpr()
-                wr.suppress_expr_parens = true
-                this.WalkNode(nVal ctx wr)
-                wr.suppress_expr_parens = false
-                ctx.unsetInExpr()
+                if (borrowedLitDone2 == false) {
+                  ctx.setInExpr()
+                  wr.suppress_expr_parens = true
+                  this.WalkNode(nVal ctx wr)
+                  wr.suppress_expr_parens = false
+                  ctx.unsetInExpr()
+                }
                 
                 ; Check if source is reference and target expects owned - add clone
                 def src_is_ref:boolean false
@@ -2746,7 +2936,11 @@ class RangerRustClassWriter {
                 }
                 def tgt_expects_owned:boolean (arg.rust_borrow_type == 0)
                 if (src_is_ref && tgt_expects_owned && (needsMutRef == false)) {
-                  wr.out(".clone()" false)
+                  if (this.rustStrRefRead(nVal)) {
+                    wr.out(".to_string()" false)
+                  } {
+                    wr.out(".clone()" false)
+                  }
                 } {
                   ; a named String or collection handed to an owned
                   ; parameter would MOVE and break any later use — clone,
@@ -2768,7 +2962,11 @@ class RangerRustClassWriter {
                         if (ownVT == RangerNodeType.Object) { ownIsClone = true }
                       }
                       if ownIsClone {
-                        wr.out(".clone()" false)
+                        if (this.rustStrRefRead(nVal)) {
+                          wr.out(".to_string()" false)
+                        } {
+                          wr.out(".clone()" false)
+                        }
                       }
                     }
                   }
@@ -2932,7 +3130,11 @@ class RangerRustClassWriter {
                 }
                 if needs_clone {
                   if (nVal.value_type == RangerNodeType.VRef) {
-                    wr.out(".clone()" false)
+                    if (this.rustStrRefRead(nVal)) {
+                      wr.out(".to_string()" false)
+                    } {
+                      wr.out(".clone()" false)
+                    }
                   }
                 }
               }
@@ -3022,15 +3224,18 @@ class RangerRustClassWriter {
               ; Check for immutable borrow parameter
               def needsImmutableBorrow2:boolean (arg.rust_borrow_type == 1)
               if needsImmutableBorrow2 {
-                ; Immutable reference - pass & without clone
-                if ((this.rustArgIsAlreadyRef(nVal)) == false) {
-                  wr.out("&" false)
+                ; Immutable reference - pass & without clone; a string
+                ; literal passes bare (the parameter is &str)
+                if ((this.rustTryBareStrLitArg(nVal ctx wr)) == false) {
+                  if ((this.rustArgIsAlreadyRef(nVal)) == false) {
+                    wr.out("&" false)
+                  }
+                  ctx.setInExpr()
+                  wr.suppress_expr_parens = true
+                  this.WalkNode(nVal ctx wr)
+                  wr.suppress_expr_parens = false
+                  ctx.unsetInExpr()
                 }
-                ctx.setInExpr()
-                wr.suppress_expr_parens = true
-                this.WalkNode(nVal ctx wr)
-                wr.suppress_expr_parens = false
-                ctx.unsetInExpr()
               } {
                 ctx.setInExpr()
                 wr.suppress_expr_parens = true
@@ -3051,7 +3256,11 @@ class RangerRustClassWriter {
                 }
                 if needs_clone {
                   if (nVal.value_type == RangerNodeType.VRef) {
-                    wr.out(".clone()" false)
+                    if (this.rustStrRefRead(nVal)) {
+                      wr.out(".to_string()" false)
+                    } {
+                      wr.out(".clone()" false)
+                    }
                   }
                 }
               }
@@ -3134,15 +3343,18 @@ class RangerRustClassWriter {
               ctx.unsetInExpr()
             } {
               if needsImmutableBorrow3 {
-                ; Immutable reference - pass & without clone
-                if ((this.rustArgIsAlreadyRef(nVal)) == false) {
-                  wr.out("&" false)
+                ; Immutable reference - pass & without clone; a string
+                ; literal passes bare (the parameter is &str)
+                if ((this.rustTryBareStrLitArg(nVal ctx wr)) == false) {
+                  if ((this.rustArgIsAlreadyRef(nVal)) == false) {
+                    wr.out("&" false)
+                  }
+                  ctx.setInExpr()
+                  wr.suppress_expr_parens = true
+                  this.WalkNode(nVal ctx wr)
+                  wr.suppress_expr_parens = false
+                  ctx.unsetInExpr()
                 }
-                ctx.setInExpr()
-                wr.suppress_expr_parens = true
-                this.WalkNode(nVal ctx wr)
-                wr.suppress_expr_parens = false
-                ctx.unsetInExpr()
               } {
                 ctx.setInExpr()
                 wr.suppress_expr_parens = true
@@ -3163,7 +3375,11 @@ class RangerRustClassWriter {
                 }
                 if needs_clone {
                   if (nVal.value_type == RangerNodeType.VRef) {
-                    wr.out(".clone()" false)
+                    if (this.rustStrRefRead(nVal)) {
+                      wr.out(".to_string()" false)
+                    } {
+                      wr.out(".clone()" false)
+                    }
                   }
                 }
               }
@@ -3308,19 +3524,26 @@ class RangerRustClassWriter {
         } {
           ; Check for immutable borrow
           if needsImmutableBorrow {
-            ; Parameter takes immutable reference - output & prefix
-            if ((this.rustArgIsAlreadyRef(nVal)) == false) {
-              wr.out("&" false)
-            }
-            ctx.setInExpr()
-            wr.suppress_expr_parens = true
-            this.WalkNode(nVal ctx wr)
-            wr.suppress_expr_parens = false
-            ctx.unsetInExpr()
-            ; a SELF FIELD borrowed into a &mut-self call overlaps the
-            ; receiver borrow (E0502) — hand a reference to a clone instead
-            if (is_self_call && (this.containsSelfReference(nVal))) {
-              wr.out(".clone()" false)
+            ; Parameter takes immutable reference - output & prefix; a
+            ; string literal passes bare (the parameter is &str)
+            if ((this.rustTryBareStrLitArg(nVal ctx wr)) == false) {
+              if ((this.rustArgIsAlreadyRef(nVal)) == false) {
+                wr.out("&" false)
+              }
+              ctx.setInExpr()
+              wr.suppress_expr_parens = true
+              this.WalkNode(nVal ctx wr)
+              wr.suppress_expr_parens = false
+              ctx.unsetInExpr()
+              ; a SELF FIELD borrowed into a &mut-self call overlaps the
+              ; receiver borrow (E0502) — hand a reference to a clone instead.
+              ; A static-string field copies its &str out by value: no borrow
+              ; survives, and .clone() on a Copy type is clippy's clone_on_copy
+              if (is_self_call && (this.containsSelfReference(nVal))) {
+                if ((this.rustStaticStrRead(nVal)) == false) {
+                  wr.out(".clone()" false)
+                }
+              }
             }
           } {
           ; Standard case - target expects owned value
@@ -3425,7 +3648,11 @@ class RangerRustClassWriter {
               } {
                 if needs_clone {
                   if (nVal.value_type == RangerNodeType.VRef) {
-                    wr.out(".clone()" false)
+                    if (this.rustStrRefRead(nVal)) {
+                      wr.out(".to_string()" false)
+                    } {
+                      wr.out(".clone()" false)
+                    }
                   }
                 }
               }
@@ -3490,7 +3717,11 @@ class RangerRustClassWriter {
           }
           if needs_clone {
             if (n.value_type == RangerNodeType.VRef) {
-              wr.out(".clone()" false)
+              if (this.rustStrRefRead(n)) {
+                wr.out(".to_string()" false)
+              } {
+                wr.out(".clone()" false)
+              }
             }
           }
         }
@@ -3610,8 +3841,8 @@ class RangerRustClassWriter {
       header.out("#![allow(clippy::collapsible_if)]" true)
       header.out("#![allow(clippy::too_many_arguments)]" true)
       header.out("#![allow(clippy::upper_case_acronyms)]" true)
-      header.out("// A borrowed read-only string parameter is &String, not &str: call" true)
-      header.out("// sites pass &name and pass-through clones stay String::clone." true)
+      ; ptr_arg still fires on borrowed COLLECTION params (&Vec<T> of
+      ; non-scalar elements); borrowed strings are &str already
       header.out("#![allow(clippy::ptr_arg)]" true)
       header.out("" true)
       header.out("use std::rc::Rc;" true)
@@ -3932,9 +4163,14 @@ class RangerRustClassWriter {
           if init_rc_wrap {
             wr.out("Rc::new(RefCell::new(" false)
           }
-          ctx.setInExpr()
-          this.WalkNode(valueNode ctx wr)
-          ctx.unsetInExpr()
+          if pvar.rust_static_str {
+            ; a static-string field initializes from the bare literal
+            this.rustWriteStaticStrValue(valueNode ctx wr)
+          } {
+            ctx.setInExpr()
+            this.WalkNode(valueNode ctx wr)
+            ctx.unsetInExpr()
+          }
           if init_rc_wrap {
             wr.out("))" false)
           }
@@ -4456,6 +4692,11 @@ class RangerRustClassWriter {
   ; straight through? `f(&x)` where x is `&[u8]` is clippy's
   ; needless_borrow; the name alone re-borrows correctly.
   fn rustArgIsAlreadyRef:boolean (nVal:CodeNode) {
+    ; a static-string read is a &str value already — a & on it would pass
+    ; &&str and hold a borrow of the receiver through the call (E0502)
+    if (this.rustStaticStrRead(nVal)) {
+      return true
+    }
     if (nVal.value_type != RangerNodeType.VRef) {
       return false
     }
@@ -4503,11 +4744,11 @@ class RangerRustClassWriter {
       wr.out(((("\"" + (this.EncodeString(oo ctx wr))) + "\"")) false)
       return
     }
-    ; a borrowed &String operand derefs, so either side shape compares:
-    ; String == &String has no impl, String == String does
+    ; a &mut String operand derefs to compare as String; a read-only borrow
+    ; is &str and compares against every string shape without a deref
     if (((oo.expression == false) && oo.hasParamDesc) && ((array_length oo.ns) == 1)) {
       def cmpP:RangerAppParamDesc oo.paramDesc
-      if (cmpP.rust_borrow_type > 0) {
+      if (cmpP.rust_borrow_type == 2) {
         def cmpNN@(optional):CodeNode cmpP.nameNode
         if (!null? cmpNN) {
           def cmpN:CodeNode (unwrap cmpNN)
@@ -5047,6 +5288,21 @@ class RangerRustClassWriter {
         return
       }
 
+      ; a promoted static-string target (rust_static_str): the analysis
+      ; guarantees the value is a bare literal or another static read — the
+      ; assignment is a pointer copy, no allocation, no clone
+      if (this.rustStaticStrRead(left)) {
+        ctx.setInExpr()
+        ctx.setInLhs()
+        this.WalkNode(left ctx wr)
+        ctx.unsetInLhs()
+        wr.out(" = " false)
+        this.rustWriteStaticStrValue(right ctx wr)
+        wr.out(";" true)
+        ctx.unsetInExpr()
+        return
+      }
+
       ; Check if left side is an optional field with self-referential type
       def is_optional:boolean false
       def is_self_ref:boolean false
@@ -5141,6 +5397,9 @@ class RangerRustClassWriter {
       def rhs_is_object:boolean false
       def rhs_is_optional:boolean false
       def rhs_is_array:boolean false
+      ; a str-reference right side (static string / borrowed &str parameter)
+      ; converts into an owned String slot with .to_string(), never .clone()
+      def rhs_str_ref:boolean (this.rustStrRefRead(right))
       
       ; Debug: Check what kind of node the right side is
       ; print ("DEBUG right: value_type=" + (node_type_as_string right.value_type) + " hasParamDesc=" + (if right.hasParamDesc "true" "false"))
@@ -5405,7 +5664,11 @@ class RangerRustClassWriter {
         ctx.setInExpr()
         this.WalkNode(right ctx wr)
         if should_clone_rhs {
-          wr.out(".clone()" false)
+          if rhs_str_ref {
+            wr.out(".to_string()" false)
+          } {
+            wr.out(".clone()" false)
+          }
         }
         ctx.unsetInExpr()
         wr.out(";" true)
@@ -5549,7 +5812,11 @@ class RangerRustClassWriter {
                 wr.out(" = Some(" false)
                 this.WalkNode(right ctx wr)
                 if should_clone_rhs {
-                  wr.out(".clone()" false)
+                  if rhs_str_ref {
+                    wr.out(".to_string()" false)
+                  } {
+                    wr.out(".clone()" false)
+                  }
                 }
                 wr.out(");" true)
               }
@@ -5578,7 +5845,11 @@ class RangerRustClassWriter {
           } {
             this.WalkNode(right ctx wr)
             if should_clone_rhs {
-              wr.out(".clone()" false)
+              if rhs_str_ref {
+                wr.out(".to_string()" false)
+              } {
+                wr.out(".clone()" false)
+              }
             }
           }
         }
@@ -5664,20 +5935,31 @@ class RangerRustClassWriter {
                   def n@(optional):CodeNode (itemAt givenArgs.children i)
                   if (!null? n) {
                     def nVal:CodeNode (unwrap n)
+                    def borrowedLitDone3:boolean false
                     if retArgRef {
-                      if ((this.rustArgIsAlreadyRef(nVal)) == false) {
-                        wr.out("&" false)
+                      ; a string literal passes bare (the parameter is &str)
+                      borrowedLitDone3 = (this.rustTryBareStrLitArg(nVal ctx wr))
+                      if (borrowedLitDone3 == false) {
+                        if ((this.rustArgIsAlreadyRef(nVal)) == false) {
+                          wr.out("&" false)
+                        }
                       }
                     }
-                    ctx.setInExpr()
-                    wr.suppress_expr_parens = true
-                    this.WalkNode(nVal ctx wr)
-                    wr.suppress_expr_parens = false
-                    ctx.unsetInExpr()
+                    if (borrowedLitDone3 == false) {
+                      ctx.setInExpr()
+                      wr.suppress_expr_parens = true
+                      this.WalkNode(nVal ctx wr)
+                      wr.suppress_expr_parens = false
+                      ctx.unsetInExpr()
+                    }
                     ; Clone if needed for strings/objects
                     def argNameN:CodeNode (unwrap arg.nameNode)
                     if (((argNameN.type_name == "string") && (nVal.value_type == RangerNodeType.VRef)) && (retArgRef == false)) {
-                      wr.out(".clone()" false)
+                      if (this.rustStrRefRead(nVal)) {
+                        wr.out(".to_string()" false)
+                      } {
+                        wr.out(".clone()" false)
+                      }
                     }
                   }
                 }
@@ -5763,7 +6045,13 @@ class RangerRustClassWriter {
           wr.out(".to_vec()" false)
         } {
           if needs_ret_clone {
-            wr.out(".clone()" false)
+            ; a str reference (static string / borrowed &str param) returned
+            ; as owned String converts; .clone() would return the &str
+            if (this.rustStrRefRead(retVal)) {
+              wr.out(".to_string()" false)
+            } {
+              wr.out(".clone()" false)
+            }
           }
         }
         if node.rust_is_tail_return {
@@ -5919,8 +6207,17 @@ class RangerRustClassWriter {
         needs_clone = false
       }
       if needs_clone {
-        wr.out(".clone()" false)
+        ; a str-reference value (static string / borrowed &str param) makes
+        ; the owned element with .to_string()
+        if ((arr_type == "string") && (this.rustStrRefRead(right))) {
+          wr.out(".to_string()" false)
+        } {
+          wr.out(".clone()" false)
+        }
       } {
+        if ((arr_type == "string") && (this.rustStrRefRead(right))) {
+          wr.out(".to_string()" false)
+        }
         ; Add .clone() when pushing objects to arrays (the pushed value may be used later)
         if (right.value_type == RangerNodeType.VRef) {
           if (arr_type != "string") {

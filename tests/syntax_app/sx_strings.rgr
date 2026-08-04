@@ -40,6 +40,7 @@ class StringsSection {
         this.sayBool("startsWith" (startsWith s "Ran"))
         this.sayBool("endsWith" (endsWith s "ler"))
         this.sayBool("contains" (contains s "ger C"))
+        ; replace changes every occurrence, not only the first.
         this.say("replace" (replace "a-b-c" "-" "+"))
 
         this.say("lower" (to_lowercase s))

@@ -26,8 +26,8 @@ describe("Rust Code Generation", () => {
       // push never appears as an `=` node; without the operator check this
       // method would take &self and rustc would reject the push. The string
       // parameter itself is read-only from the caller's view, so it borrows
-      // (&String) and the push stores a clone.
-      expect(result.code).toContain("fn tag(&mut self, s : &String)");
+      // (&str) and the push stores an owned copy.
+      expect(result.code).toContain("fn tag(&mut self, s : &str)");
     });
 
     it("emits no unit return type and no trailing comma", () => {
