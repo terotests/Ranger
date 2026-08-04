@@ -16690,6 +16690,10 @@ class ComponentEngine {
         }
         def decl:TSNode node
         decl.nodeType = "ClassDeclaration"
+        ; the node's KIND is memoised on first visit — rewriting nodeType
+        ; must reset the memo or every later kind check sees the stale
+        ; ClassExpression (the one runtime nodeType rewrite in the engine)
+        decl.evalKind = 0
         decl.name = nm
         set classes nm decl
         def cv:EvalValue (EvalValue.nativeFunction(nm))
