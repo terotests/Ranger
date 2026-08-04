@@ -33,6 +33,11 @@ typedef struct {
   const RangerTypeDesc *type;
   uint32_t _pad;
   void *site; /* RANGER_MEM_SITES: allocation return address, for leak triage */
+  void *lnext; /* RANGER_MEM_SITES: live-object registry, for heap walking */
+  void *lprev;
+  void *rets[4];  /* RANGER_MEM_SITES: retain sites, to find the unmatched ones */
+  uint32_t nret;
+  void *lastret;
 } RangerObjHeader;
 
 /* Must match buildRtPtrArrayNew in ng_LowIRRuntime.rgr:
@@ -50,6 +55,8 @@ typedef struct {
 void ranger_obj_release(int64_t body);
 void ranger_ptrarray_release(int64_t desc_addr);
 extern void RtSMap_free(int64_t map); /* string-map fields (kind 3) */
+extern int rt_smap_holds_value(int64_t map, int64_t value);
+extern long g_smap_new, g_smap_free;
 
 static int g_live_objects = 0;
 /* RANGER_MEM_STATS=1 prints allocation balances at exit. */
@@ -77,6 +84,115 @@ static void rt_site_bump(void *site, int delta) {
   }
 }
 
+/* Live-object registry. Under RANGER_MEM_SITES every live object is threaded
+ * onto a list so the heap can be WALKED at exit: for each leaked object we can
+ * then count how many live objects still point at it. A leak with zero incoming
+ * references is an over-retain (a retain with no matching release); a leak with
+ * incoming references is genuinely still reachable, and the holder tells you
+ * where to look. Reading the code could not tell these apart. */
+static char *g_live_head = NULL;
+
+static void rt_live_add(char *block) {
+  RangerObjHeader *h = (RangerObjHeader *)block;
+  h->lprev = NULL;
+  h->lnext = g_live_head;
+  if (g_live_head) {
+    ((RangerObjHeader *)g_live_head)->lprev = block;
+  }
+  g_live_head = block;
+}
+
+static void rt_live_remove(char *block) {
+  RangerObjHeader *h = (RangerObjHeader *)block;
+  if (h->lprev) {
+    ((RangerObjHeader *)h->lprev)->lnext = h->lnext;
+  } else if (g_live_head == block) {
+    g_live_head = (char *)h->lnext;
+  }
+  if (h->lnext) {
+    ((RangerObjHeader *)h->lnext)->lprev = h->lprev;
+  }
+  h->lnext = NULL;
+  h->lprev = NULL;
+}
+
+/* Does live object `holder` reference `target` through any of its fields? */
+static int rt_holder_points_at(char *holder_block, int64_t target) {
+  RangerObjHeader *h = (RangerObjHeader *)holder_block;
+  int64_t body = (int64_t)(intptr_t)(holder_block + RANGER_HEADER_SIZE);
+  uint16_t i;
+  if (h->type == NULL || h->type->fields == NULL) {
+    return 0;
+  }
+  for (i = 0; i < h->type->field_count; i++) {
+    const RangerFieldDesc *f = &h->type->fields[i];
+    int64_t val = *(int64_t *)(intptr_t)(body + f->offset);
+    if (val == 0) {
+      continue;
+    }
+    if (f->kind == RT_FIELD_OBJECT && val == target) {
+      return 1;
+    }
+    if (f->kind == RT_FIELD_PTR_ARRAY) {
+      RtPtrArrayDesc *d = (RtPtrArrayDesc *)(intptr_t)val;
+      int32_t k;
+      if (d->owned == 1 && d->data != 0) {
+        int64_t *elems = (int64_t *)(intptr_t)d->data;
+        for (k = 0; k < d->len; k++) {
+          if (elems[k] == target) {
+            return 1;
+          }
+        }
+      }
+    }
+    if (f->kind == RT_FIELD_STRING_MAP) {
+      if (rt_smap_holds_value(val, target)) {
+        return 1;
+      }
+    }
+  }
+  return 0;
+}
+
+static void rt_dump_holders(void) {
+  char *b;
+  long orphan = 0, held = 0, shown = 0;
+  fprintf(stderr, "[mem] leak triage: who still points at live objects\n");
+  for (b = g_live_head; b != NULL; b = (char *)((RangerObjHeader *)b)->lnext) {
+    int64_t body = (int64_t)(intptr_t)(b + RANGER_HEADER_SIZE);
+    char *o;
+    int refs = 0;
+    for (o = g_live_head; o != NULL; o = (char *)((RangerObjHeader *)o)->lnext) {
+      if (o == b) {
+        continue;
+      }
+      refs += rt_holder_points_at(o, body);
+      if (refs) {
+        break;
+      }
+    }
+    if (refs) {
+      held++;
+    } else {
+      orphan++;
+      if (shown < 6) {
+        {
+          RangerObjHeader *oh = (RangerObjHeader *)b;
+          unsigned q;
+          fprintf(stderr, "  ORPHAN rc=%u alloc=%p retains=%u:", oh->rc, oh->site, oh->nret);
+          for (q = 0; q < oh->nret && q < 4; q++) {
+            fprintf(stderr, " %p", oh->rets[q]);
+          }
+          fprintf(stderr, "\n");
+        }
+        shown++;
+      }
+    }
+  }
+  fprintf(stderr, "  orphaned (over-retained): %ld,  still referenced: %ld\n",
+          orphan, held);
+}
+
 static void rt_dump_sites(void) {
   int shown = 0;
   int round;
@@ -98,8 +214,10 @@ static void rt_dump_sites(void) {
 
 static void ranger_mem_dump_stats(void) {
   fprintf(stderr,
-          "[mem] objects new=%ld freed=%ld live=%d | arrays new=%ld freed=%ld retained=%ld\n",
-          g_obj_new, g_obj_free, g_live_objects, g_arr_new, g_arr_free, g_arr_retain);
+          "[mem] objects new=%ld freed=%ld live=%d | arrays freed=%ld retained=%ld"
+          " | smaps new=%ld freed=%ld live=%ld\n",
+          g_obj_new, g_obj_free, g_live_objects, g_arr_free, g_arr_retain,
+          g_smap_new, g_smap_free, g_smap_new - g_smap_free);
 }
 
 /* Checked once: this sits on the object-allocation path, so a getenv per
@@ -114,6 +232,9 @@ void ranger_mem_stats_enable(void) {
     if (getenv("RANGER_MEM_SITES")) {
       g_site_track = 1;
       g_site_depth = (getenv("RANGER_MEM_SITES")[0] == '2') ? 1 : 0;
+      if (getenv("RANGER_MEM_HOLDERS")) {
+        atexit(rt_dump_holders);
+      }
       atexit(rt_dump_sites);
     }
     atexit(ranger_mem_dump_stats);
@@ -197,6 +318,7 @@ int64_t ranger_obj_new(uint32_t size, const RangerTypeDesc *type) {
      * names those. */
     h->site = g_site_depth ? __builtin_return_address(1) : __builtin_return_address(0);
     rt_site_bump(h->site, 1);
+    rt_live_add(block);
   }
   return (int64_t)(block + RANGER_HEADER_SIZE);
 }
@@ -207,6 +329,13 @@ void ranger_obj_retain(int64_t body) {
     return;
   }
   h = (RangerObjHeader *)((char *)body - RANGER_HEADER_SIZE);
+  if (g_site_track) {
+    h->lastret = __builtin_return_address(0);
+    if (h->nret < 4) {
+      h->rets[h->nret] = h->lastret;
+    }
+    h->nret++;
+  }
   h->rc++;
 }
 
@@ -225,8 +354,11 @@ void ranger_obj_release(int64_t body) {
     return;
   }
   ranger_destroy_fields(body, h->type);
-  if (g_site_track && h->site) {
-    rt_site_bump(h->site, -1);
+  if (g_site_track) {
+    if (h->site) {
+      rt_site_bump(h->site, -1);
+    }
+    rt_live_remove(block);
   }
   free(block);
   g_live_objects--;

@@ -381,7 +381,14 @@ static void rt_smap_release_value(RtSMap *m, int64_t v) {
   }
 }
 
+/* RANGER_MEM_STATS: maps are not objects, so a leaked one is invisible to the
+ * object registry -- yet it keeps every value it holds alive. Counting them
+ * separately is what distinguishes "value over-retained" from "value still held
+ * by a map nobody freed". */
+long g_smap_new = 0, g_smap_free = 0;
+
 int64_t RtSMap_new_kind(int valkind) {
+  g_smap_new++;
   RtSMap *m = (RtSMap *)calloc(1, sizeof(RtSMap));
   if (m == NULL) {
     return 0;
@@ -520,6 +527,21 @@ const char *RtSMap_keyAt(int64_t map, int i) {
   return NULL;
 }
 
+/* Leak triage (ranger_mem.c heap walk): does this map still hold `value`? */
+int rt_smap_holds_value(int64_t map, int64_t value) {
+  RtSMap *m = (RtSMap *)(intptr_t)map;
+  int32_t i;
+  if (m == NULL) {
+    return 0;
+  }
+  for (i = 0; i < m->count; i++) {
+    if (m->entries[i].key != NULL && m->entries[i].value == value) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
 void RtSMap_retain(int64_t map) {
   RtSMap *m = (RtSMap *)(intptr_t)map;
   if (m == NULL) {
@@ -542,6 +564,7 @@ void RtSMap_free(int64_t map) {
     return;
   }
   m->rc = 0;
+  g_smap_free++;
   for (i = 0; i < m->count; i++) {
     free(m->entries[i].key);
     rt_smap_release_value(m, m->entries[i].value);

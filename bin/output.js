@@ -40882,6 +40882,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         if ( this.exprCarriesFreshRef(rhs, lctx) == false ) {
                           this.emitObjRetainPtr(tmp, lctx);
                         }
+                        this.releaseOwnedLocal(varName, lctx);
                       }
                     }
                   }
@@ -40929,7 +40930,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const retType = lctx.llvmRetType;
                 if ( (node.children.length) > 1 ) {
                   const valNode = node.getSecond();
-                  const retObj = this.isObjectTypeName(lctx.currentRetType);
+                  let retObj = this.isObjectTypeName(lctx.currentRetType);
                   let retArr = false;
                   if ( LowIRUtil.isArrayTypeName(lctx.currentRetType) ) {
                     if ( (lctx.currentRetType.indexOf(":")) < 0 ) {
@@ -40940,6 +40941,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   if ( this.memEnabled(lctx) ) {
                     if ( retObj || retArr ) {
                       retCounted = true;
+                    }
+                    if ( valNode.value_type == 11 ) {
+                      if ( this.isOwnedObjectLocal(valNode.vref, lctx) ) {
+                        if ( this.slotHoldsObject(valNode.vref, lctx) ) {
+                          retCounted = true;
+                          retObj = true;
+                        }
+                      }
                     }
                   }
                   if ( valNode.value_type == 11 ) {

@@ -5703,10 +5703,15 @@ class LowIRBuilderPass {
       def slot (unwrap (get lctx.slots varName))
       ; An object assigned into a local slot is no longer a loose statement
       ; temp -- the slot holds it past the end of this statement, so the arena
-      ; must not release it. An owned local keeps a counted reference, so a
-      ; borrowed right-hand side is retained. (The value the slot held before is
-      ; not released: that leaks a reference, which is recoverable, where an
-      ; early free is not.)
+      ; must not release it. An owned local keeps a counted reference: a
+      ; borrowed right-hand side is retained, and the value the slot held BEFORE
+      ; is released, because the local has stopped being one of its owners.
+      ;
+      ; Skipping that release leaked one reference per overwrite. `def target
+      ; context` … `target = (context.varScope())` is the shape: the local
+      ; retained `context`, then dropped the pointer without giving the
+      ; reference back, orphaning a scope on every `var` declaration the engine
+      ; processed. Retain-before-release keeps `x = x` safe.
       if (this.memEnabled(lctx)) {
         if (this.slotHoldsObject(varName lctx)) {
           this.claimObjectTemp(tmp lctx)
@@ -5714,6 +5719,7 @@ class LowIRBuilderPass {
             if ((this.exprCarriesFreshRef(rhs lctx)) == false) {
               this.emitObjRetainPtr(tmp lctx)
             }
+            this.releaseOwnedLocal(varName lctx)
           }
         }
       }
@@ -5802,6 +5808,20 @@ class LowIRBuilderPass {
       if (this.memEnabled(lctx)) {
         if (retObj || retArr) {
           retCounted = true
+        }
+        ; The declared return type is not always usable -- an @(optional) return
+        ; can arrive without one -- so also count the case that matters: the
+        ; returned name is a local this scope RETAINED when it bound it. Marking
+        ; such a local escaped instead skips that release, so every lookup that
+        ; found its binding (`def found (get bindings name)` … `return found`)
+        ; leaked exactly one reference.
+        if (valNode.value_type == RangerNodeType.VRef) {
+          if (this.isOwnedObjectLocal(valNode.vref lctx)) {
+            if (this.slotHoldsObject(valNode.vref lctx)) {
+              retCounted = true
+              retObj = true
+            }
+          }
         }
       }
       if (valNode.value_type == RangerNodeType.VRef) {
