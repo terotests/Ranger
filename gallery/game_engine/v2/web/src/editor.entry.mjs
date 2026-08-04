@@ -12,12 +12,15 @@
 import * as monaco from "monaco-editor";
 
 // Workers are emitted next to this bundle by the esbuild build step.
+// Pages that load the editor from a parent folder (per-demo URLs) set
+// self.RangerEditorBase = "../" before this script runs.
+const EDITOR_BASE = (typeof self !== "undefined" && self.RangerEditorBase) || "./";
 self.MonacoEnvironment = {
   getWorker(_moduleId, label) {
     if (label === "typescript" || label === "javascript") {
-      return new Worker("./ts.worker.js");
+      return new Worker(EDITOR_BASE + "ts.worker.js");
     }
-    return new Worker("./editor.worker.js");
+    return new Worker(EDITOR_BASE + "editor.worker.js");
   },
 };
 

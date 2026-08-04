@@ -50,6 +50,9 @@ const FACADES = [
   "gallery/game_engine/v2/modules/ranger_core/ranger_core.tsx",
   "gallery/game_engine/v2/modules/ranger_2d/ranger_2d.tsx",
   "gallery/game_engine/v2/modules/ranger_three/ranger_three.tsx",
+  // RgGameHost.load registers ranger:cannon alongside the other façades even
+  // when the guest never imports it — omit and the browser VFS throws ENOENT.
+  "gallery/game_engine/v2/modules/ranger_cannon/ranger_cannon.tsx",
 ];
 
 // The real ylos2 game: index.tsx + the atlases it loads via pkg:// + the real
@@ -59,15 +62,25 @@ const FACADES = [
 // atlas's `image assets/p1_walk.png` → <GAME_DIR>/assets/p1_walk.png resolve.
 const GAME_DIR = "gallery/game_engine/v2/games/ylos2";
 const GAME_FILE = "index.tsx";
-const GAME_ASSETS = [
-  "gallery/game_engine/v2/games/ylos2/index.tsx",
-  "gallery/game_engine/v2/games/ylos2/p1.atlas",
-  "gallery/game_engine/v2/games/ylos2/p2.atlas",
-  "gallery/game_engine/v2/games/ylos2/enemy.atlas",
-  "gallery/game_engine/v2/games/ylos2/assets/p1_walk.png",
-  "gallery/game_engine/v2/games/ylos2/assets/p2_walk.png",
-  "gallery/game_engine/v2/games/ylos2/assets/enemy_walk.png",
-];
+// Package every file under the game dir (atlases + PNG sheets + index.tsx).
+// Skipping tests/ keeps the zip small; anything the guest loads via pkg:// must
+// be present or the browser VFS throws ENOENT at load time.
+function listGameAssets(relDir) {
+  const abs = path.join(ROOT, relDir);
+  const out = [];
+  const walk = (dir, rel) => {
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (ent.name === "tests" || ent.name === "." || ent.name === "..") continue;
+      const absPath = path.join(dir, ent.name);
+      const relPath = rel + "/" + ent.name;
+      if (ent.isDirectory()) walk(absPath, relPath);
+      else out.push(relPath.split(path.sep).join("/"));
+    }
+  };
+  walk(abs, relDir);
+  return out.sort();
+}
+const GAME_ASSETS = listGameAssets(GAME_DIR);
 
 const log = (...a) => console.log("[live2d-build]", ...a);
 const sh = (cmd, args, opts) => execFileSync(cmd, args, { stdio: "inherit", cwd: ROOT, ...opts });
