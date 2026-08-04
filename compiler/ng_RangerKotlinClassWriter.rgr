@@ -45,6 +45,17 @@ class RangerKotlinClassWriter {
         return (this.collectionTypeStringToKotlin(type_string ctx))
       }
     }
+    ; A `union` names no type of its own on the JVM — nothing declares it, so
+    ; the union name reached the output and kotlinc saw an undeclared type. The
+    ; narrowing `case` operator tests with `is` and casts, both of which work
+    ; off Any. (A sealed interface would be the better representation and is
+    ; what `shape` should generate; see PLAN_SHAPES.md.)
+    if (ctx.isDefinedClass(type_string)) {
+      def cc:RangerAppClassDesc (ctx.findClass(type_string))
+      if (cc.is_union) {
+        return "Any"
+      }
+    }
     switch type_string {
       case "int" {
         return "Int"
@@ -184,7 +195,10 @@ class RangerKotlinClassWriter {
         if (node.type_name == "void") {
           wr.out("Unit" false)
         } {
-          wr.out((this.getTypeString(node.type_name)) false)
+          ; getObjectTypeString, not getTypeString: a union has no Kotlin type
+          ; of its own and has to be written as Any here too, not only as a
+          ; collection element type.
+          wr.out((this.getObjectTypeString(node.type_name ctx)) false)
         }
       }
     }

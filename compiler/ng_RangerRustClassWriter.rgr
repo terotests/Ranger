@@ -234,6 +234,13 @@ class RangerRustClassWriter {
     def typeClass@(optional):RangerAppClassDesc (ctx.findClass(type_string))
     if (!null? typeClass) {
       def tc:RangerAppClassDesc (unwrap typeClass)
+      ; D-UNION: a `union` has no Rust type of its own and its members share no
+      ; trait, so it is written as Rc<dyn Any>. Members are always Rc<RefCell<T>>
+      ; (see rustClassIsShared), which coerces into it at every call, return and
+      ; assignment site; the `case` operator downcasts back out through RgNarrow.
+      if tc.is_union {
+        return "Rc<dyn std::any::Any>"
+      }
       if tc.is_extended_by_children {
         return ("Rc<RefCell<dyn " + type_string + "Trait>>")
       }
@@ -1213,6 +1220,12 @@ class RangerRustClassWriter {
       return false
     }
     def tc:RangerAppClassDesc (unwrap typeClass)
+    ; A union itself is Rc<dyn Any> already — never wrap it again. Its MEMBERS
+    ; are marked shared by StaticAnalyzer.analyzeClassSharing, so they arrive
+    ; here through rust_needs_ref_semantics like any other shared class.
+    if tc.is_union {
+      return false
+    }
     return (tc.rust_needs_ref_semantics)
   }
 
@@ -3869,6 +3882,33 @@ class RangerRustClassWriter {
       }
       header.out("use std::cell::RefCell;" true)
       header.out("" true)
+      ; D-UNION: only emitted when the program declares a union, so a file
+      ; without one is unchanged. `Any` is the compiler's own union of every
+      ; class (RangerFlowParser.registerAnyType) and exists in every program,
+      ; so it does not count — the same exclusion the sharing rule makes.
+      def anyUnion:boolean false
+      for hdrRoot.definedClasses ucl:RangerAppClassDesc uci {
+        if (ucl.is_union && (ucl.name != "Any")) {
+          anyUnion = true
+        }
+      }
+      if anyUnion {
+        header.out("// A `union` is written as Rc<dyn Any>: its members share no trait, and" true)
+        header.out("// an Rc<RefCell<T>> member coerces into it at every call, return and" true)
+        header.out("// assignment site. The `case` narrowing operator downcasts back out" true)
+        header.out("// through this trait, which is what lets it name the member type as" true)
+        header.out("// Rc<RefCell<T>> - the same spelling every other position uses - instead" true)
+        header.out("// of having to strip the wrapper to reach T." true)
+        header.out("trait RgNarrow: Sized {" true)
+        header.out("    fn rg_narrow(v: &Rc<dyn std::any::Any>) -> Option<Self>;" true)
+        header.out("}" true)
+        header.out("impl<T: 'static> RgNarrow for Rc<RefCell<T>> {" true)
+        header.out("    fn rg_narrow(v: &Rc<dyn std::any::Any>) -> Option<Self> {" true)
+        header.out("        v.clone().downcast::<RefCell<T>>().ok()" true)
+        header.out("    }" true)
+        header.out("}" true)
+        header.out("" true)
+      }
       if (ctx.hasCompilerFlag("native-fast-alloc")) {
         header.out("// -native-fast-alloc: thread-local size-class freelist over the system" true)
         header.out("// allocator. Interpreter-style workloads spend a third of their time in" true)

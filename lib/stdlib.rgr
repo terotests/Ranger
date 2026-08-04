@@ -169,6 +169,9 @@ operators {
                         "case " (typeof 2) ":" nl
                             I nl
                             "var " (e 2) " " (typeof 2) " = " (e 1) ".(" (typeof 2) ");" nl
+                            ; Go rejects a declared-and-unused local, and an arm
+                            ; that only tests the type never reads the binding.
+                            "_ = " (e 2) ";" nl
                             (block 3)
                             i nl
                         nl i "}"
@@ -228,6 +231,17 @@ operators {
                         nl i "}" nl
                   "case _ => {} " nl i 
                   "}" nl
+            ) 
+            dart (
+                (forkctx _ ) (def 2) "if( " (e 1) " is " (typeof 2) " ) /* union case */ {" nl I
+                        (typeof 2) " " (e 2) " = " (e 1) " as " (typeof 2) ";" nl
+                        (block 3)
+                        nl i "}"
+            ) 
+            rust (
+                (forkctx _ ) (def 2) "if let Some(" (e 2) ") = <Rc<RefCell<" (typeof 2) ">> as RgNarrow>::rg_narrow(&" (e 1) ") { /* union case */" nl I
+                        (block 3)
+                        nl i "}"
             ) 
             
         }

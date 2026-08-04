@@ -1,9 +1,10 @@
 # PLAN: Shapes — closed variant families
 
-> **Status:** proposal, nothing implemented yet. This document is the design and the
-> staging plan for `shape` / `case` / `group` — a closed variant family whose *source*
-> reads like a small type hierarchy while each target picks its own physical
-> representation.
+> **Status:** design + staging plan for `shape` / `case` / `group` — a closed variant
+> family whose *source* reads like a small type hierarchy while each target picks its
+> own physical representation. The language construct is not implemented; **stage S0
+> (§6) is** — `union` + `case` narrowing now works on every target the plan builds on,
+> Rust and Dart included, where before it worked on six of nine.
 >
 > **Origin:** a design discussion about `gallery/game_engine/v2/interp/migrate/src/EvalValue.rgr`,
 > the largest hand-rolled tagged union in this repo.
@@ -37,9 +38,11 @@ Three constructs, in this order of importance:
    copy/equality semantics, so the compiler knows what a target is allowed to do.
 
 Ranger already has the two pieces this can be bootstrapped from: `union` (a nominal
-set of classes) and the `case` narrowing operator. §2.1 measures exactly how far they
-carry today — **6 of 9 tested targets, and Rust, the target that would gain the most,
-is not one of them.**
+set of classes) and the `case` narrowing operator. §2.1 measured how far they carried:
+**6 of 9 targets, and Rust — the target that would gain the most — was not one of
+them.** Stage S0 closed that gap (§5.1): Rust, Dart, Kotlin, Go and C++ all narrow a
+union now, so S1 can lower a shape to constructs every target already understands
+without touching a single writer.
 
 ---
 
@@ -122,38 +125,83 @@ handles, with no writer touched at all.
 
 Two probe programs (Appendix A.1, A.2): a union narrowed with `case` in a function
 body, and a union used as a field type, an array element type and a return type.
+The first column is what the checkout measured **before** this work; the second is
+where each target stands now that S0 (§6) has landed.
 
-| Target | Type-checks | Generated code builds | Representation the writer picks |
+| Target | Before | Now | Representation the writer picks |
 |---|---|---|---|
-| ES6 / TS | yes | **yes, runs** | `instanceof` |
-| Python | yes | **yes, runs** | `isinstance` |
-| C++ | yes | **yes, runs** (after the shim fix below) | `mpark::variant<shared_ptr<A>, shared_ptr<B>, …>` |
-| Go | yes | **no** — `declared and not used: n` | `interface{}` + type switch |
-| Kotlin | yes | **no** — emits `v : EvalV`, a type nothing declares | none (bare union name) |
-| C# | yes | not built here | `dynamic` parameter + `is` test |
-| Swift 6 | yes | not built here | `Any` parameter + `as!` cast |
-| **Rust** | **no** — `Could not match argument types for case` | — | **no `case` template for class-typed arms** |
-| **Dart** | **no** — same | — | none |
+| ES6 / TS | runs | runs | `instanceof` |
+| Python | runs | runs | `isinstance` |
+| C++ | did not build — shim had no `mpark::holds_alternative` | **builds, runs** | `mpark::variant<shared_ptr<A>, …>` |
+| Go | did not build — `declared and not used: n` | **builds, runs** | `interface{}` + type switch |
+| Kotlin | did not build — `v : EvalV`, a type nothing declares | **valid output** (no toolchain here) | `Any` + `is` / `as` |
+| Dart | did not type-check — no `case` template | **valid output** (no toolchain here) | `dynamic` + `is` |
+| **Rust** | did not type-check — no `case` template | **builds, runs** | `Rc<dyn Any>` + `RgNarrow` downcast |
+| C# | type-checks; not built here | unchanged | `dynamic` parameter + `is` test |
+| Swift 6 | type-checks; not built here | unchanged | `Any` parameter + `as!` cast |
 
-Three findings matter for this plan:
+`tests/union-narrowing.test.ts` holds this table as executable form: it runs the
+fixture on ES6, Python, Go and Rust (a target whose toolchain is absent is skipped)
+and asserts the generated representation for Rust, Kotlin and Dart.
 
-- **Rust has no union narrowing at all.** `lib/stdlib.rgr` does carry `rust` templates
-  for the *primitive* arms (`:35`, `:69`, `:103`, `:138`) — but they are hardwired to
-  `RJson::Bool(...)`, i.e. they only work for the JSON value union. The class-typed
-  arm at `:149` has templates for es6, php, go, csharp, swift3, swift6, java7, kotlin,
-  python, cpp, scala and ranger — and not for rust or dart. Rust is the target where a
-  native `enum` would pay off most, and it is the one target that cannot narrow a
-  union today.
-- **Where unions do work, the lowering is the expensive kind**: `dynamic` (C#),
-  `interface{}` (Go), `Any` (Swift), `shared_ptr` per alternative (C++). Every
-  alternative is boxed, so a `Number` variant still costs an allocation. A shape must
-  not simply inherit this lowering — see §5.
-- **Fixed while measuring:** the `variant.hpp` shim installed next to generated C++
+**What each target needed** — the S0 changes, because they are also the first
+evidence for how each target will carry a `shape`:
+
+- **Rust.** Three pieces, none of which existed. (1) A `union` is written as
+  `Rc<dyn std::any::Any>` — its members share no trait, and nothing else can hold
+  values of unrelated types. (2) Every class named by a union is marked shared
+  (`StaticAnalyzer.analyzeClassSharing`), because only an `Rc<RefCell<T>>` coerces
+  into `Rc<dyn Any>`; the coercion then happens implicitly at call, return and
+  assignment sites. (3) The narrowing template downcasts back out through a small
+  generated trait:
+
+  ```rust
+  trait RgNarrow: Sized { fn rg_narrow(v: &Rc<dyn std::any::Any>) -> Option<Self>; }
+  impl<T: 'static> RgNarrow for Rc<RefCell<T>> {
+      fn rg_narrow(v: &Rc<dyn std::any::Any>) -> Option<Self> {
+          v.clone().downcast::<RefCell<T>>().ok()
+      }
+  }
+  ```
+
+  The trait exists so the template can name the member as `Rc<RefCell<T>>` — the
+  spelling every other position uses — instead of having to strip the wrapper to
+  reach `T`. The narrowed binding is registered as a shared local
+  (`walkForSharedLocals`), so field reads through it borrow the cell like any other
+  shared value.
+
+  One trap worth recording: `Any` is itself a union of **every** declared class
+  (`ng_RangerFlowParser.rgr:4404`), so "members of a union are shared" has to skip
+  it by name — without that exclusion every class in every Rust program becomes
+  `Rc<RefCell<T>>`. The same exclusion keeps the trait out of programs that declare
+  no union of their own. The cost is that a `case` narrowing on an `:Any`-typed
+  value is still unsupported on Rust; it was unsupported before as well.
+
+- **Kotlin / Dart.** The union name reached the output as a type. Both writers now
+  map a union to the target's top type (`Any`, `dynamic`) — in
+  `getObjectTypeString` *and* in `writeTypeDef`, since a parameter, a return type
+  and a field each take a different path to the type name. Dart additionally has to
+  suppress the `?` on an optional union field: `dynamic` is already nullable and
+  `dynamic?` is not valid Dart.
+
+- **Go.** The narrowed binding was declared and never read when an arm only tests
+  the type, which Go rejects outright. The template now emits `_ = binding`.
+
+- **C++.** The `variant.hpp` shim installed next to the generated source
   (`bin/variant.hpp`, copied by `installFile`, `ng_LiveCompiler.rgr:210`) declared
-  `mpark::variant` and `mpark::get` but **not** `mpark::holds_alternative`, which is
-  what the `case` template emits — so every generated C++ program that narrowed a
-  union failed to compile against the shim. Fixed in this change, with a regression
-  test in `tests/compiler-cpp.test.ts` and a fixture at `tests/fixtures/union_case.rgr`.
+  `mpark::variant` and `mpark::get` but not `mpark::holds_alternative`, which is
+  exactly what the `case` template emits.
+
+Two findings from the measurement stand unchanged by S0:
+
+- **Where unions work, the lowering is the expensive kind**: `dynamic` (C#),
+  `interface{}` (Go), `Any` (Swift/Kotlin), `dyn Any` (Rust), `shared_ptr` per
+  alternative (C++). Every alternative is boxed, so a `Number` variant still costs
+  an allocation, and every narrowing is a runtime type test. This is why the
+  `UnionOfClasses` lowering is a *stage*, not the destination: a shape knows its
+  variants are closed, so it can switch on a tag instead of asking the runtime.
+- **Nothing here is checked for exhaustiveness.** A `case` chain that forgets an
+  arm silently falls through on every one of these targets.
 
 **Conclusion.** `union` is a type-checker feature with an ad-hoc lowering per target.
 It is a fine *stage-0* desugaring target on the six targets where it works, and it is
@@ -423,31 +471,86 @@ in diagnostics (`--explain-shapes` or similar): "EvalValue → CompactTaggedHand
 
 ## 5. Per-target plan
 
-| Target | Representation | Notes / what exists today |
+The destination per target, and what each stage means there. `UnionOfClasses` — the
+S1 lowering — now works on every target in this table except C# and Swift, which were
+never broken and were not touched (§2.1).
+
+| Target | Destination | S1 (`UnionOfClasses`) today | S5 (native representation) |
+|---|---|---|---|
+| **Rust** | `NativeSumType` | `Rc<dyn Any>` + `RgNarrow` downcast — **works, runs** | `enum EvalValue { Number(f64), Array(Rc<RefCell<ArrayData>>), … }`; `match` maps 1:1 and the dyn-Any indirection disappears |
+| **C++** | `CompactTaggedHandle` | `mpark::variant<shared_ptr<A>, …>` — **works, runs** | `enum class Kind : uint8_t` + `double scalar_` + `shared_ptr<Payload>`: **32 bytes against today's 680**, primitives allocate nothing |
+| **TypeScript** | `FlatTaggedObject` | `instanceof` on one class per case — works | Discriminated union on `kind`, named subset types for groups, `never`-based exhaustiveness in the emitted code |
+| **ES6** | `FlatTaggedObject` | same as TS, no annotations — works | `{ kind, … }` objects; Null/Undefined/Hole as frozen singletons |
+| **C#** | `CompactTaggedHandle` | `dynamic` + `is` — works, but `dynamic` defeats every static check | `readonly struct` with tag + `double` + `object?`; an `EvalValue[]` stops boxing every element |
+| **Kotlin** | `BoxedSealedHierarchy` | `Any` + `is`/`as` — **valid output** | `sealed interface` + `data class` per variant; kotlinc checks `when` exhaustive, which independently validates our own analysis |
+| **Go** | tagged struct | `interface{}` + type switch — **works, runs** | struct with a tag field and per-variant pointers; the type switch becomes a tag switch |
+| **Python** | `FlatTaggedObject` | `isinstance` — works, runs | small classes with `__slots__`, or a tag + payload tuple |
+| **Swift 6** | `NativeSumType` | `Any` + `as!` — works | Swift enums carry payloads natively; `switch` is exhaustive by the language |
+| **Dart** | `BoxedSealedHierarchy` | `dynamic` + `is` — **valid output** | Dart 3 sealed classes give exhaustive `switch` for free |
+| **PHP / Scala / Java7** | `UnionOfClasses` / sealed | works | Scala already emits a `match`; Java 17+ sealed classes if the target moves |
+
+### 5.1 What S0 changed, per target
+
+S0 was the prerequisite round: make `union` + `case` actually work everywhere, since
+that is what S1 lowers a shape to. Each fix is small and independently useful, and
+each says something about how that target will carry a shape.
+
+**Rust** — from "does not type-check" to "builds and runs". Three pieces:
+
+```rust
+// A union type
+Rc<dyn std::any::Any>
+// Its members, always shared so they coerce into it
+Rc<RefCell<EvNumber>>
+// The narrowing, through a generated trait
+if let Some(n) = <Rc<RefCell<EvNumber>> as RgNarrow>::rg_narrow(&v) { … }
+```
+
+The trait is what makes the template writable: it lets the generated code name the
+member as `Rc<RefCell<T>>` — the spelling every other position already uses — rather
+than having to strip the wrapper to reach `T`. Marking union members shared belongs in
+the ownership analysis, not the writer, so the analyzer and the writer keep one answer
+between them; the narrowed binding is registered as a shared local so field reads
+through it borrow the cell like any other shared value.
+
+This is `UnionOfClasses` on Rust and it is deliberately the *slow* form: one
+allocation per member, a runtime type test per arm. S5 replaces the whole thing with
+a native `enum`, at which point `dyn Any` and `RgNarrow` disappear from the output.
+
+**Kotlin and Dart** — the union name was reaching the output as a type name nothing
+declares. Both now map it to the target's top type. The lesson for S5 is in *where*
+the fix had to go: a parameter, a return type and a field each reach the type name by
+a different path (`getObjectTypeString` vs `writeTypeDef`), so a shape's type must be
+resolved in one place both paths consult, not patched per position.
+
+**Go** — an arm that only tests the type left its binding unread, which Go rejects.
+`_ = binding` in the template. Trivial, but it is the kind of defect that only shows
+up when the generated code is actually built, which is why S0 ends with a test that
+builds and runs on every toolchain present.
+
+**C++** — the installed `variant.hpp` shim was missing `mpark::holds_alternative`.
+
+Where the S0 changes live:
+
+| Change | File |
+|---|---|
+| Rust / Dart narrowing templates, Go `_ = binding` | `lib/stdlib.rgr` (mirrored in `compiler/stdlib.rgr`) |
+| Rust union type, `RgNarrow` trait in the header | `compiler/ng_RangerRustClassWriter.rgr` |
+| Union members shared; narrowed binding is a shared local | `compiler/ng_StaticAnalysis.rgr` |
+| Kotlin union type | `compiler/ng_RangerKotlinClassWriter.rgr` |
+| Dart union type, no `?` on `dynamic` | `compiler/ng_RangerDartClassWriter.rgr` |
+| C++ shim | `bin/variant.hpp` (and the copy under `gallery/invaders/`) |
+| Fixture and tests | `tests/fixtures/union_case.rgr`, `tests/union-narrowing.test.ts`, `tests/compiler-cpp.test.ts` |
+
+### 5.2 What is still missing per target
+
+| Target | Gap after S0 | Blocks |
 |---|---|---|
-| **Rust** | `NativeSumType` | `enum EvalValue { Number(f64), Array(Rc<RefCell<ArrayData>>), … }`; `match` maps 1:1. **Blocked today:** no class-typed `case` template at all (§2.1). Highest payoff, highest prerequisite cost. |
-| **C++** | `CompactTaggedHandle` | `enum class Kind : uint8_t` + `double scalar_` + `shared_ptr<Payload>`: **32 bytes vs today's 680**, and primitives allocate nothing. The existing `mpark::variant` lowering is the fallback (`UnionOfClasses`) and stays correct. C++14 support argues against `std::variant` as the baseline. |
-| **TypeScript** | `FlatTaggedObject` | Discriminated union on `kind` + named subset types for groups; `never`-based exhaustiveness in the emitted code doubles as a check that the Ranger-side analysis agrees. |
-| **ES6** | `FlatTaggedObject` | Same runtime shape as TS, no annotations. Null/Undefined/Hole as frozen singletons. |
-| **C#** | `CompactTaggedHandle` | `readonly struct` with tag + `double` + `object?`; avoids boxing every element of an `EvalValue[]`. Replaces today's `dynamic`, which defeats every static check. |
-| **Kotlin** | `BoxedSealedHierarchy` default | `sealed interface` + `data class` per variant; `when` is checked exhaustive by kotlinc, which independently validates our analysis. A `CompactTaggedHandle` mode is the JVM optimization, later. **Fix first:** the union type name is currently emitted undeclared (§2.1). |
-| **Go** | `UnionOfClasses` → interface + type switch | Works today apart from the unused-binding defect (§2.1); a tagged struct is the later optimization. |
-| **Python** | `FlatTaggedObject` | `isinstance` narrowing works today; small classes with `__slots__` are the natural target. |
-| **Swift 6** | `NativeSumType` | Swift enums carry payloads natively; today's `Any` + `as!` is strictly worse. |
-| **Dart / PHP / Scala / Java7** | `UnionOfClasses` or `BoxedSealedHierarchy` | Follow the general path; Dart needs the missing `case` template first. |
-
-**Prerequisite defects** (all measured in §2.1) — these block the plan on the targets
-that need them, and each is independently useful:
-
-1. Rust: class-typed `case` template (or a native `match` lowering).
-2. Kotlin: emit a declared type for a union (a sealed interface is the natural answer,
-   and it is the same machinery a shape needs).
-3. Go: emit `_ = binding` (or use the binding) so an unused narrowed value compiles.
-4. Dart: class-typed `case` template.
-5. ~~C++: `holds_alternative` missing from the installed `variant.hpp` shim.~~ **Fixed
-   in this change.**
-
----
+| Rust | `case` on an `:Any`-typed value (the universal union is excluded by name) | nothing in this plan; `Any` was unsupported before too |
+| Rust | primitive arms of a union (`case v s:string`) still lower to `RJson::…`, i.e. JSON only | a shape with primitive-typed cases on the S1 lowering |
+| Kotlin / Dart | no toolchain in this environment — output is read, not built | build-verifying these two in CI |
+| C# / Swift | `dynamic` / `Any` erase the static type | nothing until S5, but both lose compile-time checking that other targets keep |
+| all | no exhaustiveness anywhere — a missing arm falls through silently | S2, which is where the payoff is |
 
 ## 6. Staging
 
@@ -455,7 +558,7 @@ Each stage is independently shippable and independently testable.
 
 | Stage | Content | Done when |
 |---|---|---|
-| **S0** | Fix the target defects in §5 (1–4). Add a conformance fixture per target that narrows a union and runs. | The §2.1 table is green everywhere |
+| **S0 — done** | Make `union` + `case` work on every target: Rust and Dart narrowing, the Kotlin/Dart union type, the Go unused binding, the C++ shim (§5.1). Cross-target fixture that runs. | ✅ `tests/union-narrowing.test.ts` runs the fixture on ES6, Python, Go and Rust and asserts the Rust/Kotlin/Dart representation |
 | **S1** | `shape` + `case` parsed, registered, type-checked. Lowering: `UnionOfClasses` — synthesize one class per case plus a `union`, exactly as `buildRecordConstructor` synthesizes a constructor (`ng_RangerFlowParser.rgr:3985`). **No writer is touched.** | A shape compiles and runs on every target where `union` works |
 | **S2** | `match` + exhaustiveness checking. Lowering: a chain of `case` narrowings. Error messages name missing variants by name. | A missing arm is a compile error on every target; a shape with a full `match` runs identically on es6, python, cpp |
 | **S3** | `group`, group-typed parameters, group patterns in `match`, group fields. | `fn f (v:EvalValue.Reference)` type-checks and rejects a primitive |
@@ -466,7 +569,17 @@ Each stage is independently shippable and independently testable.
 Testing follows the pattern already in the repo: fixtures under `tests/fixtures/`,
 per-target codegen assertions in `tests/compiler-*.test.ts`, and a runtime conformance
 case under `tests/conformance/` so the same shape program produces the same output on
-every target that can be executed in CI.
+every target that can be executed in CI. S0 set that pattern for this feature:
+`tests/fixtures/union_case.rgr` is compiled by every target test, run wherever a
+toolchain exists, and skipped — not silently passed — where one does not.
+
+**Where S1 lands, per target.** S1 touches no writer: a shape becomes one class per
+case plus a `union` over them, synthesized as Ranger source and re-parsed the way
+`buildRecordConstructor` already does (`ng_RangerFlowParser.rgr:3985`). That means the
+S1 result on each target is exactly the row in §5 — Rust gets `Rc<dyn Any>`, C++ an
+`mpark::variant`, Kotlin an `Any`, Go an `interface{}`. Slow, but correct and uniform,
+and it is what makes S2's exhaustiveness checking testable everywhere before any
+target has a native representation.
 
 ---
 
@@ -567,6 +680,7 @@ runnable test on both sides, and at no point does the engine stop working.
 | `case` used three ways | Shape bodies have their own walker; `variant` as a synonym gives tooling an unambiguous spelling (§3.7). |
 | Value semantics diverging across targets | The "no mutable fields on `@(value)` cases" rule (§3.3), enforced at declaration, plus a cross-target conformance test in S4. |
 | Big-bang `EvalValue` rewrite | Explicitly staged behind a compatibility layer (§7.4) with the benchmark suite as the gate. |
+| A per-target fix reaches further than intended | S0 hit this immediately: marking union members shared on Rust also matched the compiler's universal `Any` union, which would have made **every class in every Rust program** `Rc<RefCell<T>>`. Caught by diffing the generated output of a union-free program before and after — now a test (`tests/union-narrowing.test.ts`). Every representation change in S5 needs the same before/after diff on a program that does not use the feature. |
 
 Open questions worth settling before S1:
 
@@ -578,7 +692,10 @@ Open questions worth settling before S1:
    to reordering, tag is smaller.
 3. **`Any` interaction.** `Any` is itself a union of every declared class
    (`ng_RangerFlowParser.rgr:4404`). Do shape cases join it? They should not — a shape
-   case is not independently constructible outside its family.
+   case is not independently constructible outside its family. S0 already had to
+   exclude `Any` by name twice on the Rust target (§5.1); a shape must not add a third
+   place where the universal union has to be special-cased, which argues for giving it
+   an explicit flag on the class descriptor rather than matching on the name.
 4. **Does a case name live in the shape's namespace only?** `EvalValue.Number` should
    not collide with a top-level `Number`; the descriptor should store the qualified
    name and let writers mangle as their target requires.
@@ -614,22 +731,42 @@ class Probe {
 }
 ```
 
+Before S0 (the baseline this plan was written against):
+
 ```bash
 node bin/output.js -es6 probe.rgr -d=out -o=probe.js -nodecli   # OK, prints true
 node bin/output.js -l=python probe.rgr -d=out -o=probe.py       # OK, prints true
-node bin/output.js -l=cpp    probe.rgr -d=out -o=probe.cpp      # OK; g++ -std=c++17 builds, prints true
+node bin/output.js -l=cpp    probe.rgr -d=out -o=probe.cpp      # OK; g++ fails: no mpark::holds_alternative
 node bin/output.js -l=go     probe.rgr -d=out -o=probe.go       # compiles; go build fails: declared and not used
 node bin/output.js -l=kotlin probe.rgr -d=out -o=probe.kt       # compiles; emits `v : EvalV`, undeclared
 node bin/output.js -l=rust   probe.rgr -d=out -o=probe.rs       # FAILS: Could not match argument types for case
 node bin/output.js -l=dart   probe.rgr -d=out -o=probe.dart     # FAILS: same
 ```
 
+After S0, every one of those seven produces code that compiles, and the four with a
+toolchain in this environment run and print `true`:
+
+```bash
+node bin/output.js -l=rust probe.rgr -d=out -o=probe.rs
+(cd out && rustc --edition 2021 -A warnings probe.rs -o probe && ./probe)   # true
+node bin/output.js -l=go   probe.rgr -d=out -o=probe.go
+(cd out && go run probe.go)                                                 # true
+node bin/output.js -l=cpp  probe.rgr -d=out -o=probe.cpp
+(cd out && g++ -std=c++17 probe.cpp -o probe && ./probe)                    # true
+```
+
+The same fixture is checked in as `tests/fixtures/union_case.rgr` and driven by
+`tests/union-narrowing.test.ts`.
+
 ### A.2 Probe 2 — union as a field, array element and return type
 
 Same three classes; a `Box` with `def items:[EvalV]`, `def one@(optional):EvalV`,
 `fn add:void (v:EvalV)`, `fn first:EvalV ()` and a `for` loop narrowing each element.
-Type-checks on every target except Rust and Dart; es6, python and (after the shim fix)
-C++ build and print `ns`.
+This is the probe that exercises the positions a single `case` in a method body does
+not: an element type, an optional field and a return type each reach the type name by
+a different path in the writers, which is where the Kotlin and Dart fixes had to go.
+Before S0 it failed to type-check on Rust and Dart; now es6, python, go, C++ and Rust
+all build and print `ns`.
 
 ### A.3 `sizeof(EvalValue)` on the C++ target
 

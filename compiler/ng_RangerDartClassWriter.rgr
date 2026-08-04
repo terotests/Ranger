@@ -84,6 +84,14 @@ class RangerDartClassWriter {
         return (this.collectionTypeStringToDart(type_string ctx))
       }
     }
+    ; A `union` declares no Dart type of its own; the narrowing `case` operator
+    ; tests with `is`, which needs a top type to test against.
+    if (ctx.isDefinedClass(type_string)) {
+      def cc:RangerAppClassDesc (ctx.findClass(type_string))
+      if (cc.is_union) {
+        return "dynamic"
+      }
+    }
     switch type_string {
       case "int" {
         return "int"
@@ -231,12 +239,19 @@ class RangerDartClassWriter {
         if (node.type_name == "void") {
           wr.out("void" false)
         } {
-          wr.out((this.getTypeString(node.type_name)) false)
+          ; getObjectTypeString, not getTypeString: a union has no Dart type of
+          ; its own and has to be written as dynamic here too, not only as a
+          ; collection element type.
+          wr.out((this.getObjectTypeString(node.type_name ctx)) false)
         }
       }
     }
     if (node.hasFlag("optional")) {
-      wr.out("?" false)
+      ; `dynamic` is already nullable in Dart and `dynamic?` is not valid, so an
+      ; optional union field must not take the question mark.
+      if ((this.getObjectTypeString(node.type_name ctx)) != "dynamic") {
+        wr.out("?" false)
+      }
     }
   }
 
