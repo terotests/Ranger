@@ -1,0 +1,65 @@
+; =============================================================================
+; bench_parse — the TypeScript parser as a benchmark entry point.
+; =============================================================================
+; Does exactly what the cross-engine JavaScript driver does: read the source
+; once, then lex + parse it `reps` times and report a checksum. No AST printing,
+; so the measurement is the parser rather than the formatter, and the checksum
+; is what proves every engine did the same work.
+;
+;   bench_parse <file> <reps>
+; =============================================================================
+
+Import "../ts_parser_simple.rgr"
+
+class BenchParse {
+    sfn countNodes:int (n:TSNode) {
+        def c:int 1
+        for n.children ch:TSNode i {
+            c = (c + (BenchParse.countNodes(ch)))
+        }
+        if n.left { c = (c + (BenchParse.countNodes((unwrap n.left)))) }
+        if n.right { c = (c + (BenchParse.countNodes((unwrap n.right)))) }
+        if n.body { c = (c + (BenchParse.countNodes((unwrap n.body)))) }
+        if n.init { c = (c + (BenchParse.countNodes((unwrap n.init)))) }
+        if n.test { c = (c + (BenchParse.countNodes((unwrap n.test)))) }
+        if n.consequent { c = (c + (BenchParse.countNodes((unwrap n.consequent)))) }
+        if n.alternate { c = (c + (BenchParse.countNodes((unwrap n.alternate)))) }
+        if n.typeAnnotation { c = (c + (BenchParse.countNodes((unwrap n.typeAnnotation)))) }
+        return c
+    }
+
+    sfn m@(main):void () {
+        if ((shell_arg_cnt) < 2) {
+            print "usage: bench_parse <file> <reps>"
+            return
+        }
+        def path:string (shell_arg 0)
+        def repsOpt@(optional):int (to_int (shell_arg 1))
+        def reps:int 0
+        if repsOpt { reps = (unwrap repsOpt) }
+
+        def srcOpt@(optional):string (read_file "." path)
+        if (null? srcOpt) {
+            print ("could not read " + path)
+            return
+        }
+        def src:string (unwrap srcOpt)
+        if ((strlen src) == 0) {
+            print ("could not read " + path)
+            return
+        }
+
+        def total:int 0
+        def r:int 0
+        while (r < reps) {
+            def lexer (new TSLexer(src))
+            def tokens:[Token] (lexer.tokenize())
+            def parser (new TSParserSimple())
+            parser.initParser(tokens)
+            def ast:TSNode (parser.parseProgram())
+            total = ((BenchParse.countNodes(ast)) + (array_length tokens))
+            r = (r + 1)
+        }
+        print ("reps=" + ((to_string reps) + (" nodes=" + (to_string total))))
+    }
+}
