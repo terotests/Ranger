@@ -1018,6 +1018,42 @@ targets, where an `EvalValue` is 680 bytes with eight collections and no nursery
 to hide it; that share has not been measured and is the next thing to measure,
 not to assume.
 
+### 7.4b The first migration step, done and measured
+
+The function/element payload is split out (`shape EvalPayload { None | FnCore |
+ElemBox }`, `EvalValue.payload`), which is §7.3's core/binding idea applied to
+the whole kind-specific part rather than only to functions. Thirteen fields left
+the class; the 122 sites in `ComponentEngine.rgr` that read or wrote them go
+through accessors on `EvalValue`, so the payload's representation is now the
+shape's business alone.
+
+| | before | after |
+|---|---|---|
+| `sizeof(EvalValue)` on C++ | 680 B | **376 B** (−45%) |
+| `sizeof` of the payload slot | — | 24 B (`mpark::variant`) |
+| runtime conformance | 1281/1281 | 1281/1281 |
+| C++ engine, geometric mean of the 7 workloads | 1.00 | **0.99** |
+
+The size halved and **the speed did not move**: 0.987 geometric mean over
+`loop, fib, strcat, array, object, method, regex`, interleaved best-of-5 against
+a baseline binary built from the same commit's parent. Six of seven cases came
+out 1–5% faster; `fib` came out 7% slower, which is the one workload that is
+almost entirely calls, and a call now reads its core through a variant test
+instead of a field load.
+
+That is consistent with what the value layer already said (§7.4): the C++ engine
+constructs 4.7k–74k `EvalValue`s per case at ~40 ns each, so the construction is
+1–5% of a case, and halving the object cannot buy more than that. **On the
+native targets the interpreter is not allocation-bound**, and the remaining
+migration steps should be taken for the correctness and clarity they buy, not
+for a speedup that the measurement says is not there.
+
+What the step did buy, beyond the size: `withThis` copies eleven fields it used
+to copy fifteen of, "a value is a function or an element, never both" is
+enforced by the type rather than by convention, and three Rust writer faults
+that no `record` with a class-typed field could avoid are fixed
+(`tests/shapes.test.ts`, `a shape as a field`).
+
 ### 7.5 Migration order
 
 1. **S1–S2 land.** Define the shape beside the existing class; nothing calls it yet.

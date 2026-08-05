@@ -1,0 +1,26 @@
+; A record whose field is a class that the Rust analysis makes shared.
+; The synthesized constructor took the bare type while the field and every
+; call site had Rc<RefCell<T>>, so no such record compiled on Rust.
+class Node {
+    def name:string ""
+    def kids:[Node]
+    fn addKid:void (k:Node) {
+        push kids k
+    }
+}
+
+record Box {
+    def held:Node
+    def tag:string ""
+}
+
+class Main {
+    sfn main:void () {
+        def n:Node (new Node())
+        n.name = "root"
+        def kid:Node (new Node())
+        n.addKid(kid)
+        def b:Box (new Box(n "t"))
+        print (b.held.name + b.tag)
+    }
+}

@@ -437,4 +437,53 @@ describe("shapes (closed variant families)", () => {
       );
     });
   });
+
+  /**
+   * A shape held as a FIELD, which is the form the EvalValue migration needs
+   * (PLAN_SHAPES.md §7.3). Three writer faults were found by that migration
+   * and are covered here; each one made the generated program fail to build,
+   * so a target that RUNS the fixture proves the fix.
+   */
+  describe("a shape as a field", () => {
+    const FIELD = `${FIXTURES_DIR}/shape_field.rgr`;
+    const EXPECTED_FIELD = "empty:\ngreet/2\nelem:\n0";
+
+    it("ES6", () => {
+      expectOutput(FIELD, EXPECTED_FIELD);
+    });
+
+    it.skipIf(!isPythonAvailable())("Python", () => {
+      expectPythonOutput(FIELD, EXPECTED_FIELD);
+    });
+
+    it.skipIf(!isGoAvailable())("Go", () => {
+      expectGoOutput(FIELD, EXPECTED_FIELD);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(FIELD, EXPECTED_FIELD);
+    });
+
+    it("Rust wraps a union-typed field initializer and assignment in the variant", () => {
+      const result = getGeneratedRustCode(FIELD);
+
+      expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+      // the field starts as the `None` variant, not as a bare Payload_None
+      expect(result.code).toContain("load:union_Payload::Payload_None(");
+      // and an assignment into the field wraps the member the same way
+      expect(result.code).toMatch(
+        /self\.load\s*=\s*union_Payload::Payload_(FnCore|ElemBox)\(/
+      );
+    });
+
+    it.skipIf(!isRustAvailable())(
+      "Rust builds a record whose field is a shared class",
+      () => {
+        // The shape lowering makes one record per case, so a case that holds a
+        // class hits this path. The synthesized constructor took the bare type
+        // while the field and the call site both had Rc<RefCell<T>>.
+        expectRustOutput(`${FIXTURES_DIR}/record_shared_field.rgr`, "roott");
+      }
+    );
+  });
 });

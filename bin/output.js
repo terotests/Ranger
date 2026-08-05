@@ -25344,7 +25344,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           written = written + 1;
                           wr.out(arg.name + " : ", false);
                           const nameN_1 = arg.nameNode;
-                          await this.writeTypeDef(nameN_1, ctx, wr);
+                          let ctorArgShared = false;
+                          if ( arg.rust_needs_rc_wrap ) {
+                            if ( nameN_1.hasFlag("weak") == false ) {
+                              if ( ((nameN_1.array_type.length) == 0) && ((nameN_1.key_type.length) == 0) ) {
+                                ctorArgShared = true;
+                              }
+                            }
+                          }
+                          if ( ctorArgShared ) {
+                            wr.out(("Rc<RefCell<" + this.getObjectTypeString(nameN_1.type_name, ctx)) + ">>", false);
+                          } else {
+                            await this.writeTypeDef(nameN_1, ctx, wr);
+                          }
                         };
                       }
                     }
@@ -25398,12 +25410,28 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( init_rc_wrap ) {
                             wr.out("Rc::new(RefCell::new(", false);
                           }
-                          if ( pvar_2.rust_static_str ) {
-                            await this.rustWriteStaticStrValue(valueNode, ctx, wr);
-                          } else {
-                            ctx.setInExpr();
-                            await this.WalkNode(valueNode, ctx, wr);
-                            ctx.unsetInExpr();
+                          let fldTypeName = "";
+                          const pvNameOpt = pvar_2.nameNode;
+                          if ( (typeof(pvNameOpt) !== "undefined" && pvNameOpt != null )  ) {
+                            const pvName = pvNameOpt;
+                            fldTypeName = pvName.type_name;
+                          }
+                          let wroteUnionInitFld = false;
+                          if ( init_rc_wrap == false ) {
+                            if ( pvar_2.rust_static_str == false ) {
+                              ctx.setInExpr();
+                              wroteUnionInitFld = await this.rustWriteUnionValue(fldTypeName, valueNode, ctx, wr);
+                              ctx.unsetInExpr();
+                            }
+                          }
+                          if ( wroteUnionInitFld == false ) {
+                            if ( pvar_2.rust_static_str ) {
+                              await this.rustWriteStaticStrValue(valueNode, ctx, wr);
+                            } else {
+                              ctx.setInExpr();
+                              await this.WalkNode(valueNode, ctx, wr);
+                              ctx.unsetInExpr();
+                            }
                           }
                           if ( init_rc_wrap ) {
                             wr.out("))", false);
@@ -26839,6 +26867,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                         } else {
                           wr.out(" = ", false);
+                          if ( preeval_rhs == false ) {
+                            if ( await this.rustWriteUnionValue(field_type_name, right, ctx, wr) ) {
+                              if ( rhs_is_optional ) {
+                                wr.out(".unwrap()", false);
+                              }
+                              wr.out(";", true);
+                              ctx.unsetInExpr();
+                              return;
+                            }
+                          }
                           if ( left_is_trait_type ) {
                             if ( rhs_is_already_boxed_trait ) {
                               await this.WalkNode(right, ctx, wr);

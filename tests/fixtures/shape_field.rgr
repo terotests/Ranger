@@ -1,0 +1,76 @@
+; A shape held as a FIELD, which is what the EvalValue migration needs
+; (PLAN_SHAPES.md §7.3): the payload of a value is a closed family, `None`
+; until the value is given one, and the case that holds collections is a
+; reference case whose fields stay mutable.
+;
+; Three writer faults were found here and are fixed:
+;   Rust  a union-typed field initializer wrote the member bare, not the
+;         variant, so the struct literal was E0308
+;   Rust  an assignment INTO a union-typed field did the same
+;   Rust  the synthesized constructor of a record whose field is a shared
+;         class took the bare type while every call site had Rc<RefCell<T>>
+shape Payload {
+    case None
+    case FnCore {
+        def name:string ""
+        def args:[string]
+    }
+    case ElemBox {
+        def tag:string ""
+    }
+}
+
+class Holder {
+    def kind:int 0
+    def load:Payload (new Payload.None())
+
+    ; create on demand: a holder that is never given a core keeps `None`,
+    ; which the native targets carry inside the tag and never allocate
+    fn ensureFn:Payload.FnCore () {
+        case load have:Payload.FnCore {
+            return have
+        }
+        def empty:[string]
+        def made:Payload.FnCore (new Payload.FnCore("" empty))
+        load = made
+        return made
+    }
+
+    fn nameOf:string () {
+        case load f:Payload.FnCore {
+            return f.name
+        }
+        return ""
+    }
+
+    fn setName:void (s:string) {
+        def f:Payload.FnCore (this.ensureFn())
+        f.name = s
+    }
+
+    fn pushArg:void (s:string) {
+        def f:Payload.FnCore (this.ensureFn())
+        push f.args s
+    }
+
+    fn argCount:int () {
+        case load f:Payload.FnCore {
+            return (array_length f.args)
+        }
+        return 0
+    }
+
+    sfn main:void () {
+        def h:Holder (new Holder())
+        print ("empty:" + (h.nameOf()))
+        h.setName("greet")
+        h.pushArg("a")
+        h.pushArg("b")
+        print ((h.nameOf()) + ("/" + (to_string (h.argCount()))))
+        ; a different case in the same slot answers the defaults
+        def h2:Holder (new Holder())
+        h2.load = (new Payload.ElemBox("div"))
+        print ("elem:" + (h2.nameOf()))
+        print (to_string (h2.argCount()))
+    }
+}
