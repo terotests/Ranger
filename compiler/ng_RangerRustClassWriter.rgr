@@ -1368,6 +1368,27 @@ class RangerRustClassWriter {
     return tn
   }
 
+  ; A case the enum carries BY VALUE (a member of a sealable union that is not
+  ; shared). Its identity question has no object behind it, so the generated
+  ; RgIdentical arm compares content — which needs PartialEq on the struct.
+  fn rustUnionValueCase:boolean (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if (cl.is_union || cl.is_system) {
+      return false
+    }
+    if (this.rustClassIsShared(cl.name ctx)) {
+      return false
+    }
+    def rootCtx:RangerAppWriterContext (ctx.getRoot())
+    for rootCtx.definedClasses ucl:RangerAppClassDesc uci {
+      if (this.unionIsSealable(ucl ctx)) {
+        if ((indexOf ucl.is_union_of cl.name) >= 0) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
   fn rustWriteUnionArg:boolean (arg:RangerAppParamDesc nVal:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def argNN@(optional):CodeNode arg.nameNode
     if (null? argNN) {
@@ -4114,6 +4135,44 @@ class RangerRustClassWriter {
         }
         header.out("}" true)
       }
+      ; --- identity of a value of the family --------------------------------
+      ; `identical` asks whether two names hold the same object. On this target
+      ; that was `Rc::ptr_eq`, which an enum cannot be handed — so the operator
+      ; did not build at all for a value of a closed family. It goes through a
+      ; trait instead, so the same spelling serves both a shared class and a
+      ; family, and the answer follows the family's own split: a reference case
+      ; is the same object, a value case has no object to share (it rides
+      ; inside the tag) and answers on its content.
+      ; the trait is written for every program: `identical` on a plain shared
+      ; class goes through it too, so one spelling serves both
+      header.out("pub trait RgIdentical { fn rg_identical(&self, other: &Self) -> bool; }" true)
+      header.out("impl<T> RgIdentical for Rc<RefCell<T>> {" true)
+      header.out("    fn rg_identical(&self, other: &Self) -> bool { Rc::ptr_eq(self, other) }" true)
+      header.out("}" true)
+      if ((array_length unionNames) > 0) {
+        for unionNames uname:string uni2 {
+          def ucl2:RangerAppClassDesc (hdrRoot.findClass(uname))
+          def ename:string (this.unionInterfaceName(uname))
+          header.out((("impl RgIdentical for " + ename) + " {") true)
+          header.out("    fn rg_identical(&self, other: &Self) -> bool {" true)
+          header.out("        match (self, other) {" true)
+          for ucl2.is_union_of mname2:string mi2 {
+            if (this.rustClassIsShared(mname2 ctx)) {
+              def armS:string ((("            (" + ename) + "::") + mname2) + "(a), "
+              armS = ((((armS + ename) + "::") + mname2) + "(b)) => Rc::ptr_eq(a, b),")
+              header.out(armS true)
+            } {
+              def armV:string ((("            (" + ename) + "::") + mname2) + "(a), "
+              armV = ((((armV + ename) + "::") + mname2) + "(b)) => a == b,")
+              header.out(armV true)
+            }
+          }
+          header.out("            _ => false," true)
+          header.out("        }" true)
+          header.out("    }" true)
+          header.out("}" true)
+        }
+      }
       if ((array_length unionNames) > 0) {
         header.out("" true)
       }
@@ -4321,7 +4380,13 @@ class RangerRustClassWriter {
       ; Don't derive Clone for structs with trait object fields
       wr.out("// Cannot derive Clone due to trait object fields" true)
     } {
-      wr.out("#[derive(Clone)]" true)
+      ; a case carried inside the tag compares by content, so it derives the
+      ; comparison the generated RgIdentical arm uses
+      if (this.rustUnionValueCase(cl ctx)) {
+        wr.out("#[derive(Clone, PartialEq)]" true)
+      } {
+        wr.out("#[derive(Clone)]" true)
+      }
     }
     wr.out((("struct " + cl.name) + " { ") true)
     wr.indent(1)

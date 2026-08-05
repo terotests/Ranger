@@ -4732,6 +4732,7 @@ class RangerFlowParser {
     }
     eqSrc = eqSrc + "}\n"
 
+
     if (ctx.hasCompilerFlag("shape-debug")) {
       print eqSrc
     }

@@ -446,6 +446,61 @@ describe("shapes (closed variant families)", () => {
   });
 
   /**
+   * `identical` on a value of a closed family. It did not build on the two
+   * targets that give a family its own representation — the C++ variant has no
+   * operator== for a case it carries by value, and `Rc::ptr_eq` has no Rc to
+   * take when the value is an enum — so a program that asked this question was
+   * quietly limited to the reference targets.
+   *
+   * The fixture asks it of a REFERENCE case, where every target has an object,
+   * so every target must give the same three answers.
+   */
+  describe("identity of a family value", () => {
+    const IDENT = `${FIXTURES_DIR}/shape_identity.rgr`;
+    const EXPECTED_IDENT = ["alias", "distinct", "not equal"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(IDENT, EXPECTED_IDENT);
+    });
+
+    it.skipIf(!isPythonAvailable())("Python", () => {
+      expectPythonOutput(IDENT, EXPECTED_IDENT);
+    });
+
+    it.skipIf(!isGoAvailable())("Go", () => {
+      expectGoOutput(IDENT, EXPECTED_IDENT);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(IDENT, EXPECTED_IDENT);
+    });
+
+    it("Rust asks the trait, so one spelling serves a class and a family", () => {
+      const result = getGeneratedRustCode(IDENT);
+
+      expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("pub trait RgIdentical");
+      // a shared class keeps pointer identity...
+      expect(result.code).toContain("Rc::ptr_eq(self, other)");
+      // ...and the family dispatches per case: object for a reference case,
+      // content for one the tag carries by value
+      expect(result.code).toContain("impl RgIdentical for union_IValue");
+      expect(result.code).toMatch(/IValue_List\(a\), .*IValue_List\(b\)\) => Rc::ptr_eq/);
+      expect(result.code).toMatch(/IValue_Num\(a\), .*IValue_Num\(b\)\) => a == b/);
+    });
+
+    it("C++ gives a by-value case the comparison the variant needs", () => {
+      const result = getGeneratedCppCode(IDENT);
+
+      expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+      // IValue_Num rides inside the variant, so it carries its own operator==
+      expect(result.code).toMatch(/bool operator==\(const IValue_Num& o\) const/);
+      // IValue_List is a shared_ptr alternative — the variant compares pointers
+      expect(result.code).not.toMatch(/bool operator==\(const IValue_List& o\) const/);
+    });
+  });
+
+  /**
    * Methods on a shape (PLAN_SHAPES.md §3.6). A `fn` in a shape body moves to
    * the generated ops class and gains the value it acts on as `self`; an `sfn`
    * moves as it is. The body node is reused rather than reprinted, so a `match`

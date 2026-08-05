@@ -1657,6 +1657,35 @@ class RangerCppClassWriter {
         wr.out(");" true)
       }
     }
+    ; A case the variant carries BY VALUE needs an operator==, because the
+    ; variant's own == compares the alternative it holds and there is no
+    ; pointer to fall back on (PLAN_SHAPES.md S5). With it, `==` on a value of
+    ; the family is content for a value case and pointer identity for a
+    ; reference case — the split the family already declares — and `identical`,
+    ; which writes `==` on this target, answers the same.
+    if (this.cppUnionValueCase((unwrap cl) ctx)) {
+      wr.out("/* a value case of a closed family compares by content */ " true)
+      wr.out((("bool operator==(const " + cl.name) + "& o) const {") true)
+      wr.indent(1)
+      wr.out("return " false)
+      def cmpCnt:int 0
+      for cl.variables cmpVar:RangerAppParamDesc cvi {
+        if (cmpCnt > 0) {
+          wr.out(" && " false)
+        }
+        def cmpName:string cmpVar.compiledName
+        wr.out(((cmpName + " == o.") + cmpName) false)
+        cmpCnt = cmpCnt + 1
+      }
+      if (cmpCnt == 0) {
+        ; a case with no fields: every instance of it is the same value
+        wr.out("true" false)
+      }
+      wr.out(";" true)
+      wr.indent(-1)
+      wr.out("}" true)
+      wr.out((("bool operator!=(const " + cl.name) + "& o) const { return !(*this == o); }") true)
+    }
     wr.indent(-1)
     wr.indent(-1)
     wr.out("};" true)

@@ -332,6 +332,30 @@ Physical sharing stays a target decision: `@(value)` says nothing about whether 
 runtime may intern strings or pool small integers. It constrains what a program can
 *observe*.
 
+**`identical` on a family value.** The `Identity: none` row above is not a statement
+about the source, it is one the representation enforces. A value case rides *inside*
+the tag on C++ and Rust, so two names cannot share one — and the operator did not even
+build there until the writers were taught this shape (`Rc::ptr_eq` has no Rc to take
+from an enum; the C++ variant had no `operator==` for the alternative it carries by
+value). Both now answer per case:
+
+| case | `identical a b` |
+|---|---|
+| reference | the same object, on every target |
+| value | its content on C++ and Rust; the object on a target that boxes every case |
+
+So `identical` on a **reference** case means the same thing everywhere, and on a
+**value** case it asks a question the family does not define — use `Value.equals`,
+which is specified for both. What would remove the divergence entirely is rewriting
+`identical` and `==` on a family into the generated equality, and that needs an
+overload of a language operator to win over the generic one it specializes. It cannot
+today: `getOperators` returns candidates in registration order, the language is
+registered before the program, and `identical (a:T b:T)` matches everything, so the
+generated overload is never reached. Reversing that order was measured and is not a
+local change — the compiler stops compiling itself, because `lib/stdlib.rgr` resolves
+differently. A specificity rule (a candidate with no type parameter beats one with)
+would be the real fix and it belongs to operator resolution, not to shapes.
+
 Default when a case is in no group: `@(value)` for a case with no fields or only
 immutable scalar fields, `@(reference)` otherwise — with a warning that asks for the
 annotation, because guessing wrong here is a semantic change.
