@@ -1,0 +1,23 @@
+; A catch-all arm would swallow a case added to the shape later, which is the
+; bug class `match` exists to remove.
+shape WValue {
+    case Nothing
+    case Num { def value:double 0.0 }
+}
+
+class WildProbe {
+    fn f:string (v:WValue) {
+        match v {
+            Num n {
+                return "b"
+            }
+            _ {
+                return "rest"
+            }
+        }
+        return "z"
+    }
+    sfn main:void () {
+        print "unreachable"
+    }
+}

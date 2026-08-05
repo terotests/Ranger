@@ -1,0 +1,47 @@
+; Variant D — one small class per case (same allocation as the shape lowering)
+; but dispatch through an int tag instead of a type test. Isolates how much of
+; the shape's remaining cost is the `instanceof` chain rather than the object.
+; no inheritance: a case class is an independent record, exactly what the
+; shape lowering generates
+class TagNumber {
+    def kind:int 0
+    def value:double 0.0
+}
+
+class TagBench {
+    sfn mkNumber:TagNumber (n:double) {
+        def v:TagNumber (new TagNumber())
+        v.kind = 1
+        v.value = n
+        return v
+    }
+    sfn run:double (reps:int) {
+        def acc:double 0.0
+        def i:int 0
+        while (i < reps) {
+            def a:TagNumber (TagBench.mkNumber((to_double i)))
+            def b:TagNumber (TagBench.mkNumber(((to_double i) * 1.5)))
+            if (a.kind == 1) {
+                if (b.kind == 1) {
+                    def sum:TagNumber (TagBench.mkNumber(a.value + b.value))
+                    acc = acc + sum.value
+                    if (sum.kind == a.kind) {
+                        if (sum.value == a.value) {
+                            acc = acc + 1.0
+                        }
+                    }
+                }
+            }
+            i = i + 1
+        }
+        return acc
+    }
+    sfn main:void () {
+        def warm:double (TagBench.run(200000))
+        def r:double 0.0
+        timer "tagged" {
+            r = (TagBench.run(2000000))
+        }
+        print ("answer " + ("" + r) + " warm " + ("" + warm))
+    }
+}

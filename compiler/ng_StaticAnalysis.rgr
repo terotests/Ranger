@@ -1956,6 +1956,45 @@ class StaticAnalyzer {
   ; Weak has to have an Rc to downgrade). A class none of that ever happens to
   ; keeps the plain struct and pays nothing.
 
+  ; A union member that holds only scalar fields — no collection, no object, no
+  ; optional. Such a case is carried by value inside the family's enum.
+  fn unionMemberIsScalarOnly:boolean (typeName:string) {
+    if (null? ctx) {
+      return false
+    }
+    def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    if ((root.isDefinedClass(typeName)) == false) {
+      return false
+    }
+    def cl:RangerAppClassDesc (root.findClass(typeName))
+    if ((cl.is_union || cl.is_system) || cl.is_system_union) {
+      return false
+    }
+    def allScalar:boolean true
+    for cl.variables cv:RangerAppParamDesc cvi {
+      def cvNN@(optional):CodeNode cv.nameNode
+      if (null? cvNN) {
+        allScalar = false
+      } {
+        def cvNode:CodeNode (unwrap cvNN)
+        if (((strlen cvNode.array_type) > 0) || ((strlen cvNode.key_type) > 0)) {
+          allScalar = false
+        } {
+          if (cvNode.hasFlag("optional")) {
+            allScalar = false
+          } {
+            def tn:string cvNode.type_name
+            def isScalar:boolean (((((tn == "int") || (tn == "double")) || (tn == "string")) || (tn == "boolean")) || (tn == "char"))
+            if (isScalar == false) {
+              allScalar = false
+            }
+          }
+        }
+      }
+    }
+    return allScalar
+  }
+
   fn markClassShared:void (typeName:string reason:string) {
     if ((strlen typeName) == 0) {
       return
@@ -2358,6 +2397,32 @@ class StaticAnalyzer {
     }
   }
 
+  fn markIdenticalOperandsShared:void (node:CodeNode fnName:string) {
+    if ((array_length node.children) > 2) {
+      def head:CodeNode (node.getFirst())
+      if (head.vref == "identical") {
+        def opIdx:int 1
+        while (opIdx < 3) {
+          def operand:CodeNode (itemAt node.children opIdx)
+          if operand.hasParamDesc {
+            def opDesc:RangerAppParamDesc operand.paramDesc
+            def opNN@(optional):CodeNode opDesc.nameNode
+            if (!null? opNN) {
+              def opNode:CodeNode (unwrap opNN)
+              if (((strlen opNode.array_type) == 0) && ((strlen opNode.key_type) == 0)) {
+                this.markClassShared(opNode.type_name ("compared with identical in " + fnName))
+              }
+            }
+          }
+          opIdx = opIdx + 1
+        }
+      }
+    }
+    for node.children ch:CodeNode i {
+      this.markIdenticalOperandsShared(ch fnName)
+    }
+  }
+
   fn analyzeClassSharingFn:void (fn:RangerAppFunctionDesc) {
     ; a parameter the summary says escapes into a graph is held there while
     ; the caller's name stays live: the classic shared object
@@ -2374,6 +2439,10 @@ class StaticAnalyzer {
       }
     }
     if (!null? fn.fnBody) {
+      ; D-IDENTITY: `identical a b` asks whether two names are the same object,
+      ; which on Rust is Rc::ptr_eq — so the compared class has to be the one
+      ; that lives in a cell, whatever its own use pattern says.
+      this.markIdenticalOperandsShared((unwrap fn.fnBody) fn.name)
       if (!null? fn.fnCtx) {
         currentFunction = fn
         def mutated:[string]
@@ -2392,6 +2461,25 @@ class StaticAnalyzer {
     this.computeSharingMutations()
     def root:RangerAppWriterContext ((unwrap ctx).getRoot())
     for root.definedClasses cl:RangerAppClassDesc ci {
+      ; D-UNION: a union is written as Rc<dyn Any> on the Rust target, and only
+      ; an Rc<RefCell<T>> coerces into it — so every class named by a union is
+      ; shared however it is used on its own. Without this the member is a plain
+      ; struct, the value never converts, and the `case` narrowing has nothing
+      ; to downcast back to.
+      ; `Any` is the compiler's own union of EVERY declared class
+      ; (RangerFlowParser.registerAnyType), so it must be skipped — through it
+      ; the rule would make every class in every program shared, whether the
+      ; program declares a union or not.
+      if (cl.is_union && (cl.name != "Any")) {
+        for cl.is_union_of umember:string umi {
+          ; ...except a case that holds only scalars: it lives INSIDE the enum
+          ; variant, with no cell and no allocation (PLAN_SHAPES.md S5). Marking
+          ; it shared would put it back behind an Rc for nothing.
+          if ((this.unionMemberIsScalarOnly(umember)) == false) {
+            this.markClassShared(umember ("member of union " + cl.name))
+          }
+        }
+      }
       ; a singleton's one instance is aliased from every use site
       if (cl.isSingletonClass()) {
         this.markClassShared(cl.name ("singleton class " + cl.name))
@@ -2524,6 +2612,16 @@ class StaticAnalyzer {
           def itemNode:CodeNode (itemAt node.children 2)
           if (!null? itemNode.paramDesc) {
             this.markDescRcWrap((unwrap itemNode.paramDesc))
+          }
+        }
+        ; D-UNION: `case value binding:T { … }` binds the narrowed member, which
+        ; on a shared class is its Rc — the same as a for-loop element. A
+        ; `switch` arm has three children and no desc on the value, so it is not
+        ; touched here.
+        if ((first.vref == "case") && ((array_length node.children) >= 4)) {
+          def caseBind:CodeNode (itemAt node.children 2)
+          if (!null? caseBind.paramDesc) {
+            this.markDescRcWrap((unwrap caseBind.paramDesc))
           }
         }
       }

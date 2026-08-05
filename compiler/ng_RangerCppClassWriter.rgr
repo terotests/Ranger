@@ -110,7 +110,15 @@ class RangerCppClassWriter {
         ; TODO: how about optionals?
         return ("r_union_" + type_string)
       }
-      
+      ; D-UNION (PLAN_SHAPES.md S5): a case of a closed family that holds only
+      ; scalars lives INSIDE the variant, not behind a shared_ptr. Measured on
+      ; the value-layer benchmark: pointers in the variant 0.146 s, scalars in
+      ; the variant 0.003 s for the same two million values — the allocation was
+      ; the whole cost, and a value case has nothing that needs one.
+      if (this.cppUnionValueCase(cc ctx)) {
+        return type_string
+      }
+
       return "std::shared_ptr<" + type_string + ">"
     }
     return type_string
@@ -145,6 +153,51 @@ class RangerCppClassWriter {
     }
     return (("std::vector<" + (this.getObjectTypeString(inner ctx))) + ">")
   }
+  ; A class that is a member of a closed family and holds only scalar fields:
+  ; the variant can carry it by value, so constructing one allocates nothing.
+  ; Anything with a collection, an object field or an optional keeps its
+  ; shared_ptr — the variant would otherwise grow to the largest member.
+  fn cppUnionValueCase:boolean (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if (cl.is_union || cl.is_system) {
+      return false
+    }
+    def inFamily:boolean false
+    def rootCtx:RangerAppWriterContext (ctx.getRoot())
+    for rootCtx.definedClasses ucl:RangerAppClassDesc uci {
+      if (this.unionIsSealable(ucl ctx)) {
+        if ((indexOf ucl.is_union_of cl.name) >= 0) {
+          inFamily = true
+        }
+      }
+    }
+    if (inFamily == false) {
+      return false
+    }
+    def allScalar:boolean true
+    for cl.variables cv:RangerAppParamDesc cvi {
+      def cvNN@(optional):CodeNode cv.nameNode
+      if (null? cvNN) {
+        allScalar = false
+      } {
+        def cvNode:CodeNode (unwrap cvNN)
+        if (((strlen cvNode.array_type) > 0) || ((strlen cvNode.key_type) > 0)) {
+          allScalar = false
+        } {
+          if (cvNode.hasFlag("optional")) {
+            allScalar = false
+          } {
+            def tn:string cvNode.type_name
+            def isScalar:boolean (((((tn == "int") || (tn == "double")) || (tn == "string")) || (tn == "boolean")) || (tn == "char"))
+            if (isScalar == false) {
+              allScalar = false
+            }
+          }
+        }
+      }
+    }
+    return allScalar
+  }
+
   fn getTypeString2:string (type_string:string ctx:RangerAppWriterContext) {
     switch type_string {
       case "char" {
@@ -325,6 +378,13 @@ class RangerCppClassWriter {
             return
           }          
           def cc:RangerAppClassDesc (ctx.findClass(t_name))
+          ; a value case of a closed family is carried by value — the same rule
+          ; getObjectTypeString applies, so a narrowing binds what the variant
+          ; actually holds
+          if (this.cppUnionValueCase(cc ctx)) {
+            wr.out(cc.name false)
+            return
+          }
           wr.out("std::shared_ptr<" false)
           wr.out(cc.name false)
           wr.out(">" false)
@@ -498,6 +558,30 @@ class RangerCppClassWriter {
     }
   }
 
+  ; Is path segment `idx` of this reference a by-value case of a closed family?
+  fn cppSegmentIsValueCase:boolean (node:CodeNode idx:int ctx:RangerAppWriterContext) {
+    if (idx < 0) {
+      return false
+    }
+    if ((array_length node.nsp) <= idx) {
+      return false
+    }
+    def seg:RangerAppParamDesc (itemAt node.nsp idx)
+    def segNN@(optional):CodeNode seg.nameNode
+    if (null? segNN) {
+      return false
+    }
+    def segNode:CodeNode (unwrap segNN)
+    if (((strlen segNode.array_type) > 0) || ((strlen segNode.key_type) > 0)) {
+      return false
+    }
+    if ((ctx.isDefinedClass(segNode.type_name)) == false) {
+      return false
+    }
+    def segCl:RangerAppClassDesc (ctx.findClass(segNode.type_name))
+    return (this.cppUnionValueCase(segCl ctx))
+  }
+
   fn WriteVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (node.vref == "this") {
       ; std::dynamic_pointer_cast<RangerAppClassDesc>
@@ -531,7 +615,13 @@ class RangerCppClassWriter {
           if(had_static) {
             wr.out("::" false)
           } {
-            wr.out("->" false)
+            ; a value case is held by value inside the variant, so its fields
+            ; are reached with a dot — everything else is a shared_ptr
+            if (this.cppSegmentIsValueCase(node (i - 1) ctx)) {
+              wr.out("." false)
+            } {
+              wr.out("->" false)
+            }
           }
         }
         if (i == 0) {
@@ -1369,9 +1459,16 @@ class RangerCppClassWriter {
     if node.hasNewOper {
       def cl:RangerAppClassDesc node.clDesc
       def fc:CodeNode (node.getSecond())
-      wr.out(" std::make_shared<" false)
-      wr.out(node.clDesc.name false)
-      wr.out(">(" false)
+      ; a value case is constructed in place — the variant holds it, nothing is
+      ; allocated
+      if (this.cppUnionValueCase((unwrap cl) ctx)) {
+        wr.out((" " + cl.name) false)
+        wr.out("(" false)
+      } {
+        wr.out(" std::make_shared<" false)
+        wr.out(node.clDesc.name false)
+        wr.out(">(" false)
+      }
       def constr:RangerAppFunctionDesc cl.constructor_fn
       def givenArgs:CodeNode (node.getThird())
       if (!null? constr) {
@@ -1704,6 +1801,9 @@ class RangerCppClassWriter {
         wr.out("" true)
       }
       wr.out("#include <string_view>" true)
+      ; the map stores its entries in a vector, so the header is needed even in
+      ; a program that declares no array of its own
+      wr.out("#include <vector>" true)
       wr.out("#include <cstring>" true)
       wr.out("// String hashing for the map below. std::hash<std::string> is" true)
       wr.out("// _Hash_bytes, an out-of-line MurmurHash in libstdc++ that costs a call" true)

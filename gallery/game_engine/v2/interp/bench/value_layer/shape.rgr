@@ -1,0 +1,83 @@
+; Variant B — the shape lowering as it stands: one small class per case.
+shape ShValue {
+    group Ref@(reference) {
+        def identityId:int 0
+    }
+    case Number {
+        def value:double 0.0
+    }
+    case Text {
+        def value:string ""
+    }
+    case Items does Ref {
+        def items:[ShValue]
+    }
+}
+
+class ShapeBench {
+    sfn run:double (reps:int) {
+        def acc:double 0.0
+        def i:int 0
+        while (i < reps) {
+            def a:ShValue (new ShValue.Number((to_double i)))
+            def b:ShValue (new ShValue.Number(((to_double i) * 1.5)))
+            def aNum:boolean false
+            def aVal:double 0.0
+            match a {
+                Number n {
+                    aNum = true
+                    aVal = n.value
+                }
+                Text t {
+                    aNum = false
+                }
+                Ref r {
+                    aNum = false
+                }
+            }
+            def bNum:boolean false
+            def bVal:double 0.0
+            match b {
+                Number n2 {
+                    bNum = true
+                    bVal = n2.value
+                }
+                Text t2 {
+                    bNum = false
+                }
+                Ref r2 {
+                    bNum = false
+                }
+            }
+            if (aNum) {
+                if (bNum) {
+                    def sum:ShValue (new ShValue.Number(aVal + bVal))
+                    match sum {
+                        Number s3 {
+                            acc = acc + s3.value
+                        }
+                        Text t3 {
+                            acc = acc + 0.0
+                        }
+                        Ref r3 {
+                            acc = acc + 0.0
+                        }
+                    }
+                    if (ShValue.equals(sum a)) {
+                        acc = acc + 1.0
+                    }
+                }
+            }
+            i = i + 1
+        }
+        return acc
+    }
+    sfn main:void () {
+        def warm:double (ShapeBench.run(200000))
+        def r:double 0.0
+        timer "shape" {
+            r = (ShapeBench.run(2000000))
+        }
+        print ("answer " + ("" + r) + " warm " + ("" + warm))
+    }
+}

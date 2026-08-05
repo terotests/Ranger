@@ -1,6 +1,23 @@
 class RangerKotlinClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
+  ; S5 (PLAN_SHAPES.md): a union becomes a `sealed interface` its members
+  ; implement, so the JVM keeps the static type a shape declares instead of
+  ; erasing it to Any. Declared once, before the first class of the file.
+  def kotlin_unions_written:boolean false
+
+  fn writeKotlinUnionInterfaces:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if kotlin_unions_written {
+      return
+    }
+    kotlin_unions_written = true
+    def names:[string] (this.sealableUnionNames(ctx))
+    for names uname:string ui {
+      wr.out("" true)
+      wr.out(("sealed interface " + (this.unionInterfaceName(uname))) true)
+    }
+  }
+
   fn WriteScalarValue:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     switch node.value_type {
       case RangerNodeType.Double {
@@ -43,6 +60,22 @@ class RangerKotlinClassWriter {
     if ((strlen type_string) >= 2) {
       if ((charAt type_string 0) == (ccode "[")) {
         return (this.collectionTypeStringToKotlin(type_string ctx))
+      }
+    }
+    ; A `union` names no type of its own on the JVM — nothing declares it, so
+    ; the union name reached the output and kotlinc saw an undeclared type. The
+    ; narrowing `case` operator tests with `is` and casts, both of which work
+    ; off Any. (A sealed interface would be the better representation and is
+    ; what `shape` should generate; see PLAN_SHAPES.md.)
+    if (ctx.isDefinedClass(type_string)) {
+      def cc:RangerAppClassDesc (ctx.findClass(type_string))
+      if (cc.is_union) {
+        ; a union of classes is a sealed interface; anything else (the
+        ; compiler's own `Any`, a union over primitives) stays the top type
+        if (this.unionIsSealable(cc ctx)) {
+          return (this.unionInterfaceName(type_string))
+        }
+        return "Any"
       }
     }
     switch type_string {
@@ -184,7 +217,10 @@ class RangerKotlinClassWriter {
         if (node.type_name == "void") {
           wr.out("Unit" false)
         } {
-          wr.out((this.getTypeString(node.type_name)) false)
+          ; getObjectTypeString, not getTypeString: a union has no Kotlin type
+          ; of its own and has to be written as Any here too, not only as a
+          ; collection element type.
+          wr.out((this.getObjectTypeString(node.type_name ctx)) false)
         }
       }
     }
@@ -578,6 +614,7 @@ class RangerKotlinClassWriter {
     def declaredFunction:[string:boolean]
     def wr:CodeWriter orig_wr
     def importFork:CodeWriter (wr.fork())
+    this.writeKotlinUnionInterfaces(ctx wr)
     wr.out("" true)
     if (cl.is_extended_by_children || (cl.name == "RangerProcessBase")) {
       wr.out(("open class " + cl.name) false)
@@ -634,6 +671,22 @@ class RangerKotlinClassWriter {
           ; Kotlin requires explicit super constructor invocation: class Child : Parent()
           wr.out("()" false)
         }
+      }
+    }
+    ; the unions this class belongs to are its interfaces — nothing has to be
+    ; wrapped at a call site for a value to become a union member
+    def clUnions:[string] (this.unionInterfacesOf((unwrap cl) ctx))
+    if ((array_length clUnions) > 0) {
+      if ((array_length cl.extends_classes) > 0) {
+        wr.out(", " false)
+      } {
+        wr.out(" : " false)
+      }
+      for clUnions uname:string ui {
+        if (ui > 0) {
+          wr.out(", " false)
+        }
+        wr.out(uname false)
       }
     }
     wr.out(" " true)

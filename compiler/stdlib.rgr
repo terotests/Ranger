@@ -169,6 +169,9 @@ operators {
                         "case " (typeof 2) ":" nl
                             I nl
                             "var " (e 2) " " (typeof 2) " = " (e 1) ".(" (typeof 2) ");" nl
+                            ; Go rejects a declared-and-unused local, and an arm
+                            ; that only tests the type never reads the binding.
+                            "_ = " (e 2) ";" nl
                             (block 3)
                             i nl
                         nl i "}"
@@ -229,9 +232,42 @@ operators {
                   "case _ => {} " nl i 
                   "}" nl
             ) 
+            dart (
+                (forkctx _ ) (def 2) "if( " (e 1) " is " (typeof 2) " ) /* union case */ {" nl I
+                        (typeof 2) " " (e 2) " = " (e 1) " as " (typeof 2) ";" nl
+                        (block 3)
+                        nl i "}"
+            ) 
+            rust (
+                (forkctx _ ) (def 2) "if let " (typeof 1) "::" (typeof 2) "(" (e 2) ") = " (e 1) ".clone() { /* union case */" nl I
+                        (block 3)
+                        nl i "}"
+            ) 
             
         }
     }    
+    ; Reference identity: are these two names the same object? `==` means
+    ; something different on every target — structural on Kotlin, a trait bound
+    ; on Rust, pointer on C++ — so identity gets its own operator rather than a
+    ; per-target reading of equality. Used by the generated equality of a shape's
+    ; `@(reference)` cases (PLAN_SHAPES.md S4), and useful on its own.
+    identical  _:boolean ( a:T b:T ) {
+        templates {
+            es6    ( "(" (e 1) " === " (e 2) ")" )
+            python ( "(" (e 1) " is " (e 2) ")" )
+            kotlin ( "(" (e 1) " === " (e 2) ")" )
+            csharp ( "Object.ReferenceEquals(" (e 1) ", " (e 2) ")" )
+            dart   ( "identical(" (e 1) ", " (e 2) ")" )
+            swift3 ( "(" (e 1) " === " (e 2) ")" )
+            swift6 ( "(" (e 1) " === " (e 2) ")" )
+            scala  ( "(" (e 1) " eq " (e 2) ")" )
+            php    ( "(" (e 1) " === " (e 2) ")" )
+            rust   ( "Rc::ptr_eq(&" (e 1) ", &" (e 2) ")" )
+            ; java7, go and cpp compare the handle itself: a reference, a
+            ; pointer and a shared_ptr respectively
+            * ( "(" (e 1) " == " (e 2) ")" )
+        }
+    }
     to   _:T ( to@(union noeval):T item:T) {
         templates {
             cpp.disabled ( "(r_create_union<" (typeof 1) ", " (typeof 2)">(" (e 2) "))" 

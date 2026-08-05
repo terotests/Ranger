@@ -26,10 +26,93 @@ and the [FAQ](https://terotests.github.io/Ranger/docs/faq/). Offline syntax card
 
 <top-level-def> ::= <class-def>
                   | <record-def>
+                  | <shape-def>
+                  | <union-def>
                   | <extension-def>
                   | <enum-def>
                   | <systemclass-def>
                   | <operators-def>
+```
+
+## Shape Definition
+
+A closed family of variants: one type, a fixed set of cases, and optional named
+subsets (`group`). Lowers to one record class per case plus a union over them.
+
+```bnf
+<shape-def>     ::= 'shape' <identifier> '{' <shape-member>* '}'
+
+<shape-member>  ::= <group-def> | <case-def>
+
+<group-def>     ::= 'group' <identifier> ('{' <property-def>* '}')?
+
+<case-def>      ::= ('case' | 'variant') <identifier> <annotations>?
+                    ('does' <identifier>)?
+                    ('{' <property-def>* '}')?
+```
+
+`@(value)` / `@(reference)` on a case or a group declare how it compares and
+copies: a value case compares by content and may not be mutated after
+construction; a reference case compares by identity. Unannotated, a case
+holding only scalars is a value and anything else is a reference.
+
+```ranger
+shape Value {
+    group Ref { def identityId:int 0 }
+    case Nothing
+    case Num  { def value:double 0.0 }
+    case Items does Ref { def items:[Value] }
+}
+```
+
+A case belongs to at most one group and carries that group's fields as well as
+its own. `Value` names the whole family, `Value.Num` one variant and `Value.Ref`
+the group — all three are usable as types. Construction is ordinary:
+`(new Value.Num(2.5))`.
+
+## Match Statement
+
+```bnf
+<match-stmt>    ::= 'match' <identifier> '{' <match-arm>+ '}'
+
+<match-arm>     ::= <arm-names> <binding>? <block>
+
+<arm-names>     ::= <case-or-group> ('|' <case-or-group>)*
+
+<case-or-group> ::= <identifier> | <identifier> '.' <identifier>
+```
+
+```ranger
+match v {
+    Nothing | Text { out = "primitive" }   ; one arm, two cases
+    Value.Num n    { out = n.value }       ; binds the variant
+    Ref r          { out = r.identityId }  ; a group covers its members
+}
+```
+
+Every case of the shape must be covered exactly once — a missing case, a case
+covered twice and a `_` catch-all are all compile errors. A `match` whose arms
+cover exactly one group is complete for a value of that group's type. Lowers to
+a chain of `case` narrowings, so no target needs native pattern matching.
+
+Narrowing a single variant without a match is the `case` statement:
+`case v n:Value.Num { … }`.
+
+Every shape gets a generated equality: `Value.equals(a b)` and
+`Value.notEquals(a b)` compare content for value cases, identity for reference
+cases, and answer false across different cases.
+
+Each target represents the family its own way: a union type on TypeScript, a
+sealed interface on Kotlin (an interface on C# and Dart), a native `enum` on
+Rust, and a tagged variant on C++. On Rust and C++ a case that holds only
+scalars is carried *inside* the tag, so constructing one allocates nothing.
+
+## Union Definition
+
+```bnf
+<union-def>     ::= 'union' <identifier> '(' <identifier>+ ')'
+
+; Narrowing: case <value> <binding> ':' <member-type> '{' <block> '}'
 ```
 
 ## Record Definition
@@ -151,6 +234,13 @@ Entry point: `sfn main:void ()` (name `main` receives `@(main)` automatically).
 
 <annotation-list> ::= <identifier> (<identifier> | <string>)*
 ```
+
+### Identity
+
+`(identical a b)` — are these two names the same object? Distinct from `==`,
+which is structural on some targets and unavailable on others for object types.
+Lowers to `===`, `is`, `identical(...)`, `Object.ReferenceEquals`, `Rc::ptr_eq`
+or a pointer comparison, per target.
 
 ### Common annotations
 

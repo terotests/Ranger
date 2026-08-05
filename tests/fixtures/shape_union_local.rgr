@@ -1,0 +1,36 @@
+; A local declared as the FAMILY and initialised with a case: the local's type
+; stays the union handle and only the constructed member takes a cell. Wrapping
+; both produced Rc<RefCell<Rc<dyn Any>>> on Rust, which rustc rejects.
+shape ULValue {
+    case Num {
+        def value:double 0.0
+    }
+    case Text {
+        def value:string ""
+    }
+}
+
+class UnionLocalProbe {
+    sfn main:void () {
+        def a:ULValue (new ULValue.Num(2.5))
+        def b:ULValue (new ULValue.Text("hi"))
+        def out:string "?"
+        match a {
+            Num n {
+                out = ("num:" + (to_string n.value))
+            }
+            Text t {
+                out = ("text:" + t.value)
+            }
+        }
+        print out
+        match b {
+            Num n2 {
+                print "num"
+            }
+            Text t2 {
+                print ("text:" + t2.value)
+            }
+        }
+    }
+}

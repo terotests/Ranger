@@ -75,6 +75,22 @@ class RangerFlowParser {
   ; def is_chaining false
   ; def chainRoot:CodeNode
 
+  ; SHAPES (PLAN_SHAPES.md). What each shape declared, recorded while it is
+  ; lowered and read back when a `match` over it is checked for exhaustiveness.
+  ; Keys are the generated class names (`Value_Num`); the alias maps also carry
+  ; the unqualified spelling (`Num`) when it names exactly one case in the
+  ; program, and "" when more than one shape claims it.
+  def shapeCases:[string:[string]]
+  def shapeGroupCases:[string:[string]]
+  def caseAlias:[string:string]
+  def groupAlias:[string:string]
+  def caseShape:[string:string]
+  def caseDisplay:[string:string]
+  ; S4: does this case compare by content (value) or by identity (reference),
+  ; and which fields its generated equality reads
+  def caseIsValue:[string:boolean]
+  def caseFieldNames:[string:[string]]
+
   def stdCommands@(optional):CodeNode
   def lastProcessedNode@(weak):CodeNode
   def collectWalkAtEnd:[CodeNode]
@@ -2608,6 +2624,30 @@ class RangerFlowParser {
     def target:CodeNode (node.getSecond())
     this.WalkNode(target ctx wr)
 
+    ; S4: a @(value) case compares by CONTENT, so its fields must not change
+    ; after construction — otherwise two values that compared equal can drift
+    ; apart, and a target that copies the case (S5) and one that shares it stop
+    ; agreeing about what the program does.
+    if ((array_length target.nsp) > 0) {
+      if ((array_length target.ns) > 1) {
+        ; nsp[0] is the ROOT of the path: `a.value = …` assigns through `a`
+        def valDesc:RangerAppParamDesc (itemAt target.nsp 0)
+        def valNN@(optional):CodeNode valDesc.nameNode
+        if (!null? valNN) {
+          def valNode:CodeNode (unwrap valNN)
+          if (has caseIsValue valNode.type_name) {
+            if (unwrap (get caseIsValue valNode.type_name)) {
+              def valDisp:string valNode.type_name
+              if (has caseDisplay valNode.type_name) {
+                valDisp = (unwrap (get caseDisplay valNode.type_name))
+              }
+              ctx.addError(node ("cannot assign to a field of " + valDisp + ": a value case is immutable, because it compares by content — build a new one instead"))
+            }
+          }
+        }
+      }
+    }
+
     ; immutable check which denies assigent operation
     if(target.hasParamDesc) {
       if( !null? target.paramDesc.propertyClass) {
@@ -3993,6 +4033,19 @@ class RangerFlowParser {
     while (i < cnt) {
       def v:RangerAppParamDesc (at cl.variables i)
       def tname:string v.nameNode.type_name
+      ; A collection field carries its element type on array_type / key_type and
+      ; leaves type_name empty. Without this the parameter fell through to the
+      ; "string" default below, so `record R { def xs:[int] }` generated a
+      ; constructor whose assignment could not type-check.
+      def vKeyType:string v.nameNode.key_type
+      def vArrayType:string v.nameNode.array_type
+      if ((strlen vKeyType) > 0) {
+        tname = ((("[" + vKeyType) + ":") + vArrayType) + "]"
+      } {
+        if ((strlen vArrayType) > 0) {
+          tname = ("[" + vArrayType) + "]"
+        }
+      }
       if ((strlen tname) == 0) {
         tname = "string"
       }
@@ -4131,9 +4184,829 @@ class RangerFlowParser {
     }
   }
 
+  ; ---------------------------------------------------------------------------
+  ; SHAPES (PLAN_SHAPES.md, stage S1)
+  ;
+  ; A `shape` is a closed family of variants:
+  ;
+  ;   shape EvalValue {
+  ;       group Reference { def identityId:int 0 }
+  ;       case Null
+  ;       case Number { def value:double 0.0 }
+  ;       case Array does Reference { def items:[EvalValue] }
+  ;   }
+  ;
+  ; It lowers to constructs every target already has — one `record` per case
+  ; plus a `union` over them, and one `union` per group over that group's
+  ; members. Nothing below this pass knows the word `shape`, which is why no
+  ; writer had to change to support it. A case's fields are its own plus the
+  ; fields of the group it belongs to.
+  ;
+  ; The lowering runs before class collection and rewrites the source spelling
+  ; `EvalValue.Number` to the generated class name `EvalValue_Number` across the
+  ; whole tree, so a shape reads as one type with variants while the compiler
+  ; sees ordinary classes.
+  ; ---------------------------------------------------------------------------
+  fn DesugarShapes:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def renames:[string:string]
+    this.expandShapesIn(node ctx wr renames)
+    if ((array_length (keys renames)) > 0) {
+      this.rewriteShapeRefs(node renames)
+      ; after the rename, an arm written as `Value.Num` reads as `Value_Num`
+      this.expandMatchesIn(node ctx wr)
+    }
+  }
+
+  ; `shape Name { … }` and nothing else: `shape` is an ordinary identifier in
+  ; existing code (`shape.initSphere(1.0)` in the physics sources), so the
+  ; declaration is recognised by its whole form — three parts, a bare name, a
+  ; block — rather than by its first word alone.
+  fn isShapeDeclaration:boolean (node:CodeNode) {
+    if ((array_length node.children) != 3) {
+      return false
+    }
+    def head:CodeNode (node.getFirst())
+    if (head.vref != "shape") {
+      return false
+    }
+    if ((array_length head.ns) > 1) {
+      return false
+    }
+    def nameNode:CodeNode (node.getSecond())
+    if ((strlen nameNode.vref) == 0) {
+      return false
+    }
+    if nameNode.expression {
+      return false
+    }
+    def bodyNode:CodeNode (node.getThird())
+    return bodyNode.is_block_node
+  }
+
+  fn expandShapesIn:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter renames:[string:string]) {
+    this.expandShapesInScope(node true ctx wr renames)
+  }
+
+  ; A shape lowers to top-level declarations, so it has to BE one: spliced into
+  ; a class body the generated records would land inside the class and take the
+  ; compiler down with them. `atTopLevel` goes false the moment the walk enters
+  ; a declaration body, and a shape found there is a named error.
+  fn expandShapesInScope:void (node@(lives):CodeNode atTopLevel:boolean ctx:RangerAppWriterContext wr:CodeWriter renames:[string:string]) {
+    def childScope:boolean atTopLevel
+    if (node.isFirstVref("class")) {
+      childScope = false
+    }
+    if (node.isFirstVref("record")) {
+      childScope = false
+    }
+    if (node.isFirstVref("extension")) {
+      childScope = false
+    }
+    if (node.isFirstVref("operator")) {
+      childScope = false
+    }
+    for node.children ch:CodeNode i {
+      if (this.isShapeDeclaration(ch)) {
+        if childScope {
+          this.expandShape(ch node i ctx wr renames)
+        } {
+          ctx.addError(ch "a shape must be declared at the top level, not inside a class or a method")
+        }
+      } {
+        this.expandShapesInScope(ch childScope ctx wr renames)
+      }
+    }
+  }
+
+  ; One spelling may name one case only: a name claimed by two shapes is
+  ; recorded as empty, so a `match` arm using it can say so instead of picking.
+  fn registerShapeAlias:void (target:[string:string] alias:string clsName:string) {
+    if (has target alias) {
+      def prev:string (unwrap (get target alias))
+      if (prev != clsName) {
+        set target alias ""
+      }
+      return
+    }
+    set target alias clsName
+  }
+
+  ; A field the generated equality can compare with `==`: a scalar, not a
+  ; collection and not another object. A `@(value)` case may hold nothing else,
+  ; which is what makes "copies compare equal" true on every target.
+  fn shapeFieldIsScalar:boolean (fieldNode:CodeNode) {
+    if ((array_length fieldNode.children) < 2) {
+      return false
+    }
+    def head:CodeNode (fieldNode.getFirst())
+    if (((head.vref != "def") && (head.vref != "let")) && (head.vref != "var")) {
+      return false
+    }
+    def nameNode:CodeNode (fieldNode.getSecond())
+    if ((strlen nameNode.array_type) > 0) {
+      return false
+    }
+    if ((strlen nameNode.key_type) > 0) {
+      return false
+    }
+    def tn:string nameNode.type_name
+    if (tn == "int") {
+      return true
+    }
+    if (tn == "double") {
+      return true
+    }
+    if (tn == "string") {
+      return true
+    }
+    if (tn == "boolean") {
+      return true
+    }
+    if (tn == "char") {
+      return true
+    }
+    return false
+  }
+
+  fn shapeFieldName:string (fieldNode:CodeNode) {
+    if ((array_length fieldNode.children) < 2) {
+      return ""
+    }
+    def nameNode:CodeNode (fieldNode.getSecond())
+    return nameNode.vref
+  }
+
+  ; The body block of a shape member (`case A { … }` / `group G { … }`). A
+  ; member with no fields has no block, and answers the statement itself — the
+  ; caller tests is_block_node rather than unwrapping an optional.
+  fn shapeMemberBlock:CodeNode (st:CodeNode) {
+    def found:CodeNode st
+    for st.children part:CodeNode pi {
+      if part.is_block_node {
+        found = part
+      }
+    }
+    return found
+  }
+
+  fn expandShape:void (shapeNode@(lives):CodeNode parent@(lives):CodeNode shapeIndex:int ctx:RangerAppWriterContext wr:CodeWriter renames:[string:string]) {
+    ; generated classes are spliced in where the shape was written, not appended
+    ; to the end of the file: a target that emits classes in source order (and
+    ; calls main at the end of it) needs them declared before their first use
+    def insertAt:int (shapeIndex + 1)
+    if ((array_length shapeNode.children) < 3) {
+      ctx.addError(shapeNode "a shape needs a name and a body: shape Name { case A ... }")
+      return
+    }
+    def nameNode:CodeNode (shapeNode.getSecond())
+    def shapeName:string nameNode.vref
+    if ((strlen shapeName) == 0) {
+      ctx.addError(shapeNode "a shape needs a name")
+      return
+    }
+    def body:CodeNode (shapeNode.getThird())
+    def bcnt:int (array_length body.children)
+
+    ; --- groups first: a case may name one, and inherits its fields ---
+    def groupNames:[string]
+    def groupStmt:[string:int]
+    def bi:int 0
+    while (bi < bcnt) {
+      def st:CodeNode (itemAt body.children bi)
+      if ((array_length st.children) > 1) {
+        def head:CodeNode (st.getFirst())
+        if (head.vref == "group") {
+          def gnameNode:CodeNode (st.getSecond())
+          push groupNames gnameNode.vref
+          set groupStmt gnameNode.vref bi
+        }
+      }
+      bi = bi + 1
+    }
+
+    ; --- cases: one record class each ---
+    def caseNames:[string]
+    def caseGroup:[string:string]
+    bi = 0
+    while (bi < bcnt) {
+      def st:CodeNode (itemAt body.children bi)
+      if ((array_length st.children) == 0) {
+        bi = bi + 1
+        continue
+      }
+      def head:CodeNode (st.getFirst())
+      def kind:string head.vref
+      def isCase:boolean ((kind == "case") || (kind == "variant"))
+      if ((isCase == false) && (kind != "group")) {
+        ctx.addError(st (("only `case` and `group` are allowed in a shape body, found `" + kind) + "` (methods on a shape are not implemented yet — write the `match` in a class method instead)"))
+        bi = bi + 1
+        continue
+      }
+      if (isCase == false) {
+        bi = bi + 1
+        continue
+      }
+      if ((array_length st.children) < 2) {
+        ctx.addError(st "a case needs a name")
+        bi = bi + 1
+        continue
+      }
+      def cnameNode:CodeNode (st.getSecond())
+      def caseName:string cnameNode.vref
+      if ((strlen caseName) == 0) {
+        ctx.addError(st "a case needs a name")
+        bi = bi + 1
+        continue
+      }
+
+      ; `case Name does Group` / `case Name extends Group` — `extends` is
+      ; accepted so a shape written in the class-hierarchy spelling still
+      ; compiles, but it names a group, not a base class.
+      def ownGroup:string ""
+      def ci:int 2
+      def ccnt:int (array_length st.children)
+      while (ci < ccnt) {
+        def part:CodeNode (itemAt st.children ci)
+        if (part.is_block_node == false) {
+          def word:string part.vref
+          if ((word == "does") || (word == "extends")) {
+            if ((ci + 1) < ccnt) {
+              def groupRef:CodeNode (itemAt st.children (ci + 1))
+              ownGroup = groupRef.vref
+              ci = ci + 1
+            } {
+              ctx.addError(st "`does` needs a group name")
+            }
+          } {
+            ctx.addError(st (("unexpected `" + word) + "` in a case — write `case Name does Group { … }`"))
+          }
+        }
+        ci = ci + 1
+      }
+
+      ; --- value or reference? (PLAN_SHAPES.md S4) ---
+      ; An explicit @(value) / @(reference) on the case wins, then the same on
+      ; its group; otherwise a case holding only scalars is a value and anything
+      ; else is a reference — which is the split EvalValue.equals already makes
+      ; by hand between numbers and arrays.
+      def isValue:boolean true
+      def semanticsGiven:boolean false
+      if (cnameNode.hasFlag("value")) {
+        isValue = true
+        semanticsGiven = true
+      }
+      if (cnameNode.hasFlag("reference")) {
+        isValue = false
+        semanticsGiven = true
+      }
+      if ((semanticsGiven == false) && ((strlen ownGroup) > 0)) {
+        if (has groupStmt ownGroup) {
+          def gsIdx:int (unwrap (get groupStmt ownGroup))
+          def gsNode:CodeNode (itemAt body.children gsIdx)
+          def gsName:CodeNode (gsNode.getSecond())
+          if (gsName.hasFlag("value")) {
+            isValue = true
+            semanticsGiven = true
+          }
+          if (gsName.hasFlag("reference")) {
+            isValue = false
+            semanticsGiven = true
+          }
+        }
+      }
+
+      def clsName:string ((shapeName + "_") + caseName)
+      def recNode:CodeNode (shapeNode.newExpressionNode())
+      push recNode.children (shapeNode.newVRefNode("record"))
+      push recNode.children (shapeNode.newVRefNode(clsName))
+      def blk:CodeNode (shapeNode.newExpressionNode())
+      blk.is_block_node = true
+
+      ; the group's fields come first, so every member of a group shares one
+      ; field order — copies, because a node carries per-site analysis state
+      if ((strlen ownGroup) > 0) {
+        if (has groupStmt ownGroup) {
+          def gidx:int (unwrap (get groupStmt ownGroup))
+          def gst:CodeNode (itemAt body.children gidx)
+          def gblk:CodeNode (this.shapeMemberBlock(gst))
+          if gblk.is_block_node {
+            for gblk.children gf:CodeNode gfi {
+              push blk.children (gf.copy())
+            }
+          }
+        } {
+          ctx.addError(st ((("case " + caseName) + " belongs to an undeclared group ") + ownGroup))
+        }
+      }
+      def ownBlk:CodeNode (this.shapeMemberBlock(st))
+      if ownBlk.is_block_node {
+        for ownBlk.children cf:CodeNode cfi {
+          push blk.children (cf.copy())
+        }
+      }
+
+      ; the fields, now that group and own are both in: all scalar means the
+      ; case can be a value, and names the fields its equality compares
+      def scalarFields:[string]
+      def allScalar:boolean true
+      for blk.children fld:CodeNode fldi {
+        if (this.shapeFieldIsScalar(fld)) {
+          push scalarFields (this.shapeFieldName(fld))
+        } {
+          allScalar = false
+        }
+      }
+      if (semanticsGiven == false) {
+        isValue = allScalar
+      }
+      if (isValue && (allScalar == false)) {
+        ctx.addError(st ((("case " + caseName) + " is @(value) but holds a field that is not a scalar — a value case must be comparable by content, so mark it @(reference) or move the field out")))
+        isValue = false
+      }
+      set caseIsValue clsName isValue
+      set caseFieldNames clsName scalarFields
+
+      push recNode.children blk
+      insert parent.children insertAt recNode
+      insertAt = insertAt + 1
+
+      push caseNames caseName
+      set caseGroup caseName ownGroup
+      set renames ((shapeName + ".") + caseName) clsName
+      ; the registry `match` reads back (S2)
+      set caseShape clsName shapeName
+      set caseDisplay clsName ((shapeName + ".") + caseName)
+      this.registerShapeAlias(caseAlias caseName clsName)
+      this.registerShapeAlias(caseAlias clsName clsName)
+      bi = bi + 1
+    }
+
+    if ((array_length caseNames) == 0) {
+      ctx.addError(shapeNode (("shape " + shapeName) + " has no cases"))
+      return
+    }
+
+    ; --- a union per group, over that group's members ---
+    for groupNames gn:string gni {
+      def gMembers:CodeNode (shapeNode.newExpressionNode())
+      def gCount:int 0
+      for caseNames cn:string cni {
+        if ((unwrap (get caseGroup cn)) == gn) {
+          push gMembers.children (shapeNode.newVRefNode(((shapeName + "_") + cn)))
+          gCount = gCount + 1
+        }
+      }
+      if (gCount > 0) {
+        def gUnion:CodeNode (shapeNode.newExpressionNode())
+        push gUnion.children (shapeNode.newVRefNode("union"))
+        push gUnion.children (shapeNode.newVRefNode(((shapeName + "_") + gn)))
+        push gUnion.children gMembers
+        insert parent.children insertAt gUnion
+        insertAt = insertAt + 1
+        set renames ((shapeName + ".") + gn) ((shapeName + "_") + gn)
+        def gClsName:string ((shapeName + "_") + gn)
+        def gCaseList:[string]
+        for caseNames cn:string cni {
+          if ((unwrap (get caseGroup cn)) == gn) {
+            push gCaseList ((shapeName + "_") + cn)
+          }
+        }
+        set shapeGroupCases gClsName gCaseList
+        this.registerShapeAlias(groupAlias gn gClsName)
+        this.registerShapeAlias(groupAlias gClsName gClsName)
+      } {
+        ctx.addError(shapeNode (("group " + gn) + " has no cases"))
+      }
+    }
+
+    ; --- the generated equality (PLAN_SHAPES.md S4) ---
+    ; `Value.equals(a b)` compares two values of the family: content for a value
+    ; case, identity for a reference case, false across different cases. This is
+    ; the split EvalValue.equals writes by hand for twelve kinds.
+    def opsName:string shapeName + "__ops"
+    def eqSrc:string "class " + opsName + " {\n"
+    eqSrc = eqSrc + "  sfn equals:boolean (a:" + shapeName + " b:" + shapeName + ") {\n"
+    def eci:int 0
+    for caseNames cn:string cni {
+      def ecls:string shapeName + "_" + cn
+      def la:string "__ea" + eci
+      def lb:string "__eb" + eci
+      eqSrc = eqSrc + "    case a " + la + ":" + ecls + " {\n"
+      eqSrc = eqSrc + "      case b " + lb + ":" + ecls + " {\n"
+      def valueCase:boolean false
+      if (has caseIsValue ecls) {
+        valueCase = (unwrap (get caseIsValue ecls))
+      }
+      if valueCase {
+        if (has caseFieldNames ecls) {
+          def fields:[string] (unwrap (get caseFieldNames ecls))
+          for fields fname:string fni {
+            eqSrc = eqSrc + "        if (" + la + "." + fname + " != " + lb + "." + fname + ") {\n"
+            eqSrc = eqSrc + "          return false\n"
+            eqSrc = eqSrc + "        }\n"
+          }
+        }
+        eqSrc = eqSrc + "        return true\n"
+      } {
+        eqSrc = eqSrc + "        return (identical " + la + " " + lb + ")\n"
+      }
+      eqSrc = eqSrc + "      }\n"
+      eqSrc = eqSrc + "      return false\n"
+      eqSrc = eqSrc + "    }\n"
+      eci = eci + 1
+    }
+    eqSrc = eqSrc + "    return false\n"
+    eqSrc = eqSrc + "  }\n"
+    eqSrc = eqSrc + "  sfn notEquals:boolean (a:" + shapeName + " b:" + shapeName + ") {\n"
+    eqSrc = eqSrc + "    if (" + opsName + ".equals(a b)) {\n"
+    eqSrc = eqSrc + "      return false\n"
+    eqSrc = eqSrc + "    }\n"
+    eqSrc = eqSrc + "    return true\n"
+    eqSrc = eqSrc + "  }\n"
+    eqSrc = eqSrc + "}\n"
+
+    if (ctx.hasCompilerFlag("shape-debug")) {
+      print eqSrc
+    }
+    def eqCode:SourceCode (new SourceCode (eqSrc))
+    eqCode.filename = "shape_ops_" + shapeName + ".rgr"
+    def eqParser:RangerLispParser (new RangerLispParser (eqCode))
+    eqParser.parse(false)
+    def eqRootOpt@(optional):CodeNode eqParser.rootNode
+    if (null? eqRootOpt) {
+      ctx.addError(shapeNode ("could not generate the equality of shape " + shapeName))
+    } {
+      def eqRoot:CodeNode (unwrap eqRootOpt)
+      for eqRoot.children eqch@(lives):CodeNode eqi {
+        insert parent.children insertAt eqch
+        insertAt = insertAt + 1
+      }
+      set renames (shapeName + ".equals") (opsName + ".equals")
+      set renames (shapeName + ".notEquals") (opsName + ".notEquals")
+    }
+
+    ; --- the shape node itself BECOMES the union over all of its cases ---
+    def allCaseClasses:[string]
+    def members:CodeNode (shapeNode.newExpressionNode())
+    for caseNames cn:string cni {
+      push members.children (shapeNode.newVRefNode(((shapeName + "_") + cn)))
+      push allCaseClasses ((shapeName + "_") + cn)
+    }
+    set shapeCases shapeName allCaseClasses
+    def unionHead:CodeNode (shapeNode.newVRefNode("union"))
+    def unionName:CodeNode (shapeNode.newVRefNode(shapeName))
+    clear shapeNode.children
+    push shapeNode.children unionHead
+    push shapeNode.children unionName
+    push shapeNode.children members
+
+    if (ctx.hasCompilerFlag("shape-debug")) {
+      print (("shape " + shapeName) + " lowered to:")
+      for caseNames cn:string cni {
+        print ((("  record " + shapeName) + "_") + cn)
+      }
+      print ((("  union " + shapeName) + " over ") + ("" + (array_length caseNames)) + " cases")
+    }
+  }
+
+  ; ---------------------------------------------------------------------------
+  ; MATCH (PLAN_SHAPES.md, stage S2)
+  ;
+  ;   match value {
+  ;       Nothing | Text  { … }        ; several variants, one arm
+  ;       Num n           { … }        ; binds the variant
+  ;       Ref r           { … }        ; a group covers all of its members
+  ;   }
+  ;
+  ; Every variant of the shape must be covered exactly once — that check is the
+  ; reason the construct exists; without it a match is a `case` chain with extra
+  ; syntax. There is no catch-all arm: one added later to a shape would be
+  ; silently swallowed by it, which is the bug class this is meant to remove.
+  ;
+  ; The lowering is a chain of `case` narrowings, which every target already
+  ; runs (S0). The arms are mutually exclusive, so a chain and a switch mean the
+  ; same thing.
+  ; ---------------------------------------------------------------------------
+  fn isMatchStatement:boolean (node:CodeNode) {
+    if ((array_length node.children) != 3) {
+      return false
+    }
+    def head:CodeNode (node.getFirst())
+    if (head.vref != "match") {
+      return false
+    }
+    if ((array_length head.ns) > 1) {
+      return false
+    }
+    def bodyNode:CodeNode (node.getThird())
+    return bodyNode.is_block_node
+  }
+
+  fn expandMatchesIn:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    this.expandMatchesInFn(node node ctx wr)
+  }
+
+  ; `enclosing` is the nearest fn/sfn/Constructor node, which is where the
+  ; scrutinee's declared type is looked up — a match over a GROUP type is
+  ; complete when it covers that group, and without the declared type the check
+  ; would have to accept any complete group for any scrutinee.
+  fn expandMatchesInFn:void (node@(lives):CodeNode enclosing@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    for node.children ch:CodeNode i {
+      if (this.isMatchStatement(ch)) {
+        this.expandMatch(ch node i enclosing ctx wr)
+      } {
+        def nextFn:CodeNode enclosing
+        if (ch.isFirstVref("fn")) {
+          nextFn = ch
+        }
+        if (ch.isFirstVref("sfn")) {
+          nextFn = ch
+        }
+        if (ch.isFirstVref("static")) {
+          nextFn = ch
+        }
+        if (ch.isFirstVref("Constructor")) {
+          nextFn = ch
+        }
+        this.expandMatchesInFn(ch nextFn ctx wr)
+      }
+    }
+  }
+
+  ; The declared type of `name` inside this function: a parameter first, then a
+  ; `def name:Type` anywhere in the body. Empty when it cannot be read off the
+  ; source, which makes the exhaustiveness check demand the full shape.
+  fn declaredTypeOf:string (fnNode:CodeNode name:string) {
+    if ((array_length fnNode.children) > 2) {
+      def params:CodeNode (itemAt fnNode.children 2)
+      for params.children pn:CodeNode pi {
+        if (pn.vref == name) {
+          if ((strlen pn.type_name) > 0) {
+            return pn.type_name
+          }
+        }
+      }
+    }
+    return (this.declaredTypeInBody(fnNode name))
+  }
+
+  fn declaredTypeInBody:string (node:CodeNode name:string) {
+    if ((array_length node.children) > 1) {
+      def head:CodeNode (node.getFirst())
+      if (((head.vref == "def") || (head.vref == "let")) || (head.vref == "var")) {
+        def nameNode:CodeNode (node.getSecond())
+        if (nameNode.vref == name) {
+          if ((strlen nameNode.type_name) > 0) {
+            return nameNode.type_name
+          }
+        }
+      }
+    }
+    for node.children ch:CodeNode i {
+      def found:string (this.declaredTypeInBody(ch name))
+      if ((strlen found) > 0) {
+        return found
+      }
+    }
+    return ""
+  }
+
+  ; The case classes an arm name covers: one for a case, all of its members for
+  ; a group. An unknown or ambiguous name reports itself and answers empty.
+  fn matchArmCases:[string] (armName:string node:CodeNode ctx:RangerAppWriterContext) {
+    def out:[string]
+    if (armName == "_") {
+      ctx.addError(node "`match` has no catch-all arm — cover every case of the shape, or narrow with `case` instead")
+      return out
+    }
+    if (has caseAlias armName) {
+      def cls:string (unwrap (get caseAlias armName))
+      if ((strlen cls) == 0) {
+        ctx.addError(node (("`" + armName) + "` names a case in more than one shape — write it as Shape.Case"))
+        return out
+      }
+      push out cls
+      return out
+    }
+    if (has groupAlias armName) {
+      def gcls:string (unwrap (get groupAlias armName))
+      if ((strlen gcls) == 0) {
+        ctx.addError(node (("`" + armName) + "` names a group in more than one shape — write it as Shape.Group"))
+        return out
+      }
+      if (has shapeGroupCases gcls) {
+        def members:[string] (unwrap (get shapeGroupCases gcls))
+        for members m:string mi {
+          push out m
+        }
+      }
+      return out
+    }
+    ctx.addError(node (("`" + armName) + "` is not a case or a group of any shape in this program"))
+    return out
+  }
+
+  fn expandMatch:void (matchNode@(lives):CodeNode parent@(lives):CodeNode matchIndex:int enclosing@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def scrutinee:CodeNode (matchNode.getSecond())
+    if ((strlen scrutinee.vref) == 0) {
+      ctx.addError(matchNode "`match` needs a plain value — bind the expression to a local first")
+      return
+    }
+    def body:CodeNode (matchNode.getThird())
+
+    ; --- read the arms ---
+    def armCases:[string]
+    def covered:[string]
+    def shapeName:string ""
+    def generated:[CodeNode]
+    def armIndex:int 0
+
+    for body.children arm:CodeNode ai {
+      if ((array_length arm.children) < 2) {
+        ctx.addError(arm "a match arm is `CaseName { … }`, `CaseName binding { … }` or `A | B { … }`")
+        continue
+      }
+      ; split the arm head into names (separated by `|`) plus an optional binding
+      def names:[string]
+      def binding:string ""
+      def sawBar:boolean false
+      def armBody:CodeNode arm
+      for arm.children part:CodeNode pi {
+        if part.is_block_node {
+          armBody = part
+        } {
+          if (part.vref == "|") {
+            sawBar = true
+          } {
+            if ((array_length names) == 0) {
+              push names part.vref
+            } {
+              if sawBar {
+                push names part.vref
+                sawBar = false
+              } {
+                if ((strlen binding) > 0) {
+                  ctx.addError(arm (("unexpected `" + part.vref) + "` in a match arm"))
+                } {
+                  binding = part.vref
+                }
+              }
+            }
+          }
+        }
+      }
+      if (armBody.is_block_node == false) {
+        ctx.addError(arm "a match arm needs a body block")
+        continue
+      }
+      if ((array_length names) == 0) {
+        ctx.addError(arm "a match arm needs a case or group name")
+        continue
+      }
+      if (((array_length names) > 1) && ((strlen binding) > 0)) {
+        ctx.addError(arm "an arm covering several cases cannot bind one of them")
+        continue
+      }
+
+      ; --- one `case` narrowing per covered case class ---
+      for names armName:string ni {
+        def cases:[string] (this.matchArmCases(armName arm ctx))
+        for cases cls:string cli {
+          if ((indexOf covered cls) >= 0) {
+            def dup:string cls
+            if (has caseDisplay cls) {
+              dup = (unwrap (get caseDisplay cls))
+            }
+            ctx.addError(arm (("`" + dup) + "` is covered twice in this match"))
+          } {
+            push covered cls
+          }
+          if (has caseShape cls) {
+            def owner:string (unwrap (get caseShape cls))
+            if ((strlen shapeName) == 0) {
+              shapeName = owner
+            } {
+              if (owner != shapeName) {
+                ctx.addError(arm (((("this match mixes shapes: " + shapeName) + " and ") + owner)))
+              }
+            }
+          }
+          def bindName:string binding
+          if ((strlen bindName) == 0) {
+            bindName = ("__match" + ("" + armIndex))
+          }
+          def caseNode:CodeNode (matchNode.newExpressionNode())
+          push caseNode.children (matchNode.newVRefNode("case"))
+          push caseNode.children (scrutinee.copy())
+          def bindNode:CodeNode (matchNode.newVRefNode(bindName))
+          bindNode.type_name = cls
+          push caseNode.children bindNode
+          push caseNode.children (armBody.copy())
+          push generated caseNode
+          armIndex = armIndex + 1
+        }
+      }
+    }
+
+    if ((array_length generated) == 0) {
+      ctx.addError(matchNode "`match` needs at least one arm")
+      return
+    }
+
+    ; --- exhaustiveness ---
+    ; The required set is the shape's cases, unless the value's declared type is
+    ; one of the shape's groups: such a value can only ever be a member of that
+    ; group, so covering the group covers everything it can hold.
+    if ((strlen shapeName) > 0) {
+      if (has shapeCases shapeName) {
+        def all:[string] (unwrap (get shapeCases shapeName))
+        def scrutineeType:string (this.declaredTypeOf(enclosing scrutinee.vref))
+        if ((strlen scrutineeType) > 0) {
+          if (has shapeGroupCases scrutineeType) {
+            all = (unwrap (get shapeGroupCases scrutineeType))
+          }
+        }
+        def missing:string ""
+        def missingCount:int 0
+        for all cls:string ci {
+          if ((indexOf covered cls) < 0) {
+            def disp:string cls
+            if (has caseDisplay cls) {
+              disp = (unwrap (get caseDisplay cls))
+            }
+            if (missingCount > 0) {
+              missing = missing + ", "
+            }
+            missing = missing + disp
+            missingCount = missingCount + 1
+          }
+        }
+        if (missingCount > 0) {
+          ctx.addError(matchNode (((("match on " + shapeName) + " does not cover ") + missing) + " — every case of a shape must be handled"))
+        }
+      }
+    }
+
+    ; --- splice: the match node becomes the first narrowing, the rest follow ---
+    def firstCase:CodeNode (itemAt generated 0)
+    clear matchNode.children
+    for firstCase.children fch@(lives):CodeNode fi {
+      push matchNode.children fch
+    }
+    def insertAt:int (matchIndex + 1)
+    def gi:int 1
+    def gcnt:int (array_length generated)
+    while (gi < gcnt) {
+      insert parent.children insertAt (itemAt generated gi)
+      insertAt = insertAt + 1
+      gi = gi + 1
+    }
+  }
+
+  ; Point a reference at its generated name. The replacement may itself be a
+  ; path (`Value.equals` becomes `Value__ops.equals`), and a call resolves
+  ; through the segments in `ns`, not through the joined spelling.
+  fn setShapeRef:void (node:CodeNode replacement:string) {
+    node.vref = replacement
+    clear node.ns
+    def parts:[string] (strsplit replacement ".")
+    for parts seg:string si {
+      push node.ns seg
+    }
+  }
+
+  fn rewriteShapeRefs:void (node@(lives):CodeNode renames:[string:string]) {
+    if (has renames node.type_name) {
+      node.type_name = (unwrap (get renames node.type_name))
+    }
+    if (has renames node.array_type) {
+      node.array_type = (unwrap (get renames node.array_type))
+    }
+    if (has renames node.key_type) {
+      node.key_type = (unwrap (get renames node.key_type))
+    }
+    if (has renames node.vref) {
+      def direct:string (unwrap (get renames node.vref))
+      this.setShapeRef(node direct)
+    }
+    ; a value reference reaches the parser split at the dot: (new EvalValue.Number())
+    if ((array_length node.ns) == 2) {
+      def joined:string (((itemAt node.ns 0) + ".") + (itemAt node.ns 1))
+      if (has renames joined) {
+        def mangled:string (unwrap (get renames joined))
+        this.setShapeRef(node mangled)
+      }
+    }
+    for node.children ch@(lives):CodeNode i {
+      this.rewriteShapeRefs(ch renames)
+    }
+  }
+
   ;       this.CollectMethods( (unwrap parser.rootNode ) ctx wr)
   fn CollectMethods:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
+    ; shapes first: everything below this line sees ordinary records and unions
+    this.DesugarShapes(node ctx wr)
     this.WalkCollectMethods(node ctx wr)
     def allTypes:[string]
 

@@ -1,0 +1,25 @@
+; Covering one group is complete only for a value whose declared type IS that
+; group. Here the value is the whole family, so three cases are unhandled.
+shape GValue {
+    group Ref {
+        def identityId:int 0
+    }
+    case Nothing
+    case Num { def value:double 0.0 }
+    case Text { def value:string "" }
+    case Items does Ref { def items:[GValue] }
+}
+
+class GroupOnlyProbe {
+    fn f:string (v:GValue) {
+        match v {
+            Items a {
+                return "items"
+            }
+        }
+        return "z"
+    }
+    sfn main:void () {
+        print "unreachable"
+    }
+}

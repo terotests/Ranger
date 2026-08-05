@@ -1,0 +1,25 @@
+; The same case handled twice: one of the two arms is dead code.
+shape DValue {
+    case Nothing
+    case Num { def value:double 0.0 }
+}
+
+class DupProbe {
+    fn f:string (v:DValue) {
+        match v {
+            Nothing {
+                return "a"
+            }
+            Num n {
+                return "b"
+            }
+            Num m {
+                return "c"
+            }
+        }
+        return "z"
+    }
+    sfn main:void () {
+        print "unreachable"
+    }
+}

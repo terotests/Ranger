@@ -21,11 +21,31 @@ class RangerCSharpClassWriter {
     }
     return tn
   }
+  ; S5 (PLAN_SHAPES.md): a union is an interface its members implement, so the
+  ; static type survives. `dynamic` compiled but gave up every compile-time
+  ; check and routed each call through the DLR.
+  def csharp_unions_written:boolean false
+
+  fn writeCSharpUnionInterfaces:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if csharp_unions_written {
+      return
+    }
+    csharp_unions_written = true
+    def names:[string] (this.sealableUnionNames(ctx))
+    for names uname:string ui {
+      wr.out("" true)
+      wr.out(("public interface " + (this.unionInterfaceName(uname)) + " { }") true)
+    }
+  }
+
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
 
     if(ctx.isDefinedClass(type_string)) {
       def cc (ctx.findClass(type_string))
       if(cc.is_union) {
+        if (this.unionIsSealable(cc ctx)) {
+          return (this.unionInterfaceName(type_string))
+        }
         return "dynamic"
       }
 
@@ -235,6 +255,12 @@ class RangerCSharpClassWriter {
         if(ctx.isDefinedClass(t_name)) {
           def cc (ctx.findClass(t_name))
           if(cc.is_union) {
+            ; a union of classes is an interface those classes implement; a
+            ; union over primitives (and the compiler's own `Any`) stays dynamic
+            if (this.unionIsSealable(cc ctx)) {
+              wr.out((this.unionInterfaceName(t_name)) false)
+              return
+            }
             wr.out("dynamic" false)
             ;if (node.hasFlag("optional")) {
             ;  wr.out("?" false)
@@ -505,14 +531,30 @@ class RangerCSharpClassWriter {
     
     this.import_lib("System" ctx wr)
 
+    this.writeCSharpUnionInterfaces(ctx wr)
     wr.out(('class ' + cl.name + ' ') false )
+    def csUnions:[string] (this.unionInterfacesOf((unwrap cl) ctx))
     if ( ( array_length cl.extends_classes ) > 0 ) { 
       wr.out(' : ' false)
       for cl.extends_classes pName:string i {
         wr.out(pName false)
 ;        parentClass = (ctx.findClass(pName))
       }
-    }    
+      ; C# takes the base class first, then the interfaces
+      for csUnions uname:string ui {
+        wr.out((', ' + uname) false)
+      }
+    } {
+      if ((array_length csUnions) > 0) {
+        wr.out(' : ' false)
+        for csUnions uname:string ui {
+          if (ui > 0) {
+            wr.out(', ' false)
+          }
+          wr.out(uname false)
+        }
+      }
+    }
       
     wr.out(  " {" true)
     wr.indent(1)

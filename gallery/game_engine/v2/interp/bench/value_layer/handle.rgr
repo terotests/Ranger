@@ -1,0 +1,66 @@
+; Variant C — the compact tagged handle: a tag, one scalar slot, one payload
+; reference. No per-value collections; the heavy state lives behind the payload.
+class HandlePayload {
+    def identityId:int 0
+    def items:[HandleValue]
+    def objectMap:[string:HandleValue]
+}
+
+class HandleValue {
+    def kind:int 0
+    def scalar:double 0.0
+    def text:string ""
+    def payload@(optional):HandlePayload
+
+    sfn number:HandleValue (n:double) {
+        def v:HandleValue (new HandleValue())
+        v.kind = 1
+        v.scalar = n
+        return v
+    }
+    fn isNumber:boolean () {
+        return (kind == 1)
+    }
+    fn toNumber:double () {
+        return scalar
+    }
+    fn equals:boolean (other:HandleValue) {
+        if (kind != other.kind) {
+            return false
+        }
+        if (kind == 1) {
+            return (scalar == other.scalar)
+        }
+        return false
+    }
+}
+
+class HandleBench {
+    sfn run:double (reps:int) {
+        def acc:double 0.0
+        def i:int 0
+        while (i < reps) {
+            def a:HandleValue (HandleValue.number((to_double i)))
+            def b:HandleValue (HandleValue.number(((to_double i) * 1.5)))
+            if (a.isNumber()) {
+                if (b.isNumber()) {
+                    def sum:HandleValue (HandleValue.number((a.toNumber()) + (b.toNumber())))
+                    acc = acc + (sum.toNumber())
+                    if (sum.equals(a)) {
+                        acc = acc + 1.0
+                    }
+                }
+            }
+            i = i + 1
+        }
+        return acc
+    }
+    sfn main:void () {
+        def warm:double (HandleBench.run(200000))
+        def r:double 0.0
+        timer "handle" {
+            r = (HandleBench.run(2000000))
+        }
+        print ("answer " + ("" + r) + " warm " + ("" + warm))
+    }
+}

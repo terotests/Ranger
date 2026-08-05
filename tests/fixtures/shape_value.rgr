@@ -1,0 +1,70 @@
+; A closed variant family (PLAN_SHAPES.md, stage S1): one type, four variants
+; and one named subset. It lowers to a record class per case plus a union over
+; them, so every target that can narrow a union can carry it.
+shape Value {
+    group Ref {
+        def identityId:int 0
+    }
+    case Nothing
+    case Num {
+        def value:double 0.0
+    }
+    case Text {
+        def value:string ""
+    }
+    case Items does Ref {
+        def items:[Value]
+    }
+}
+
+class ShapeProbe {
+    def stored:[Value]
+
+    fn describe:string (v:Value) {
+        case v n:Value.Num {
+            return "num"
+        }
+        case v t:Value.Text {
+            return "text"
+        }
+        case v a:Value.Items {
+            return "items"
+        }
+        return "nothing"
+    }
+
+    ; a group type: only the variants that belong to `Ref` can be passed here
+    fn identityOf:int (r:Value.Ref) {
+        case r a:Value.Items {
+            return a.identityId
+        }
+        return 0
+    }
+
+    fn add:void (v:Value) {
+        push stored v
+    }
+
+    fn report:string () {
+        def out:string ""
+        for stored it:Value i {
+            out = (out + (this.describe(it)))
+            out = (out + ",")
+        }
+        return out
+    }
+
+    sfn main:void () {
+        def p:ShapeProbe (new ShapeProbe())
+        def n:Value.Num (new Value.Num(2.5))
+        def t:Value.Text (new Value.Text("hi"))
+        def empty:[Value]
+        def a:Value.Items (new Value.Items(7 empty))
+        p.add(n)
+        p.add(t)
+        p.add(a)
+        p.add((new Value.Nothing()))
+        print (p.report())
+        print (to_string (p.identityOf(a)))
+    }
+}
