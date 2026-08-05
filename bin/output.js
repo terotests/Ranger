@@ -19807,7 +19807,56 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           this.header_created = false;
           this.buf_ret_seen = false;
           this.buf_ret_all_safe = true;
+          this.cpp_single_thread = false;
         }
+        cppPtr (inner) {
+          if ( this.cpp_single_thread ) {
+            return ("rg_ptr<" + inner) + ">";
+          }
+          return ("std::shared_ptr<" + inner) + ">";
+        };
+        cppPtrOpen () {
+          if ( this.cpp_single_thread ) {
+            return "rg_ptr<";
+          }
+          return "std::shared_ptr<";
+        };
+        cppMakeOpen () {
+          if ( this.cpp_single_thread ) {
+            return "rg_make<";
+          }
+          return "std::make_shared<";
+        };
+        cppEsft (inner) {
+          if ( this.cpp_single_thread ) {
+            return ("rg_esft<" + inner) + ">";
+          }
+          return ("std::enable_shared_from_this<" + inner) + ">";
+        };
+        readCppPtrFlag (ctx) {
+          if ( ctx.hasCompilerFlag("cpp-single-thread") ) {
+            this.cpp_single_thread = true;
+          }
+        };
+        writeCppSingleThreadPrelude (wr) {
+          if ( this.cpp_single_thread == false ) {
+            return;
+          }
+          wr.out("// -cpp-single-thread: a shared_ptr whose reference count is NOT atomic.", true);
+          wr.out("// libstdc++ selects _S_atomic whenever the platform has threads, so a", true);
+          wr.out("// single-threaded program still pays a lock-prefixed increment on every", true);
+          wr.out("// pointer copy. _S_single is the same class, the same aliasing, the same", true);
+          wr.out("// one-allocation make -- with a plain integer counter.", true);
+          wr.out("//", true);
+          wr.out("// The trade this flag buys: a pointer copied ACROSS THREADS corrupts the", true);
+          wr.out("// count silently rather than crashing. Opt-in for that reason.", true);
+          wr.out("template<class T> using rg_ptr = std::__shared_ptr<T, __gnu_cxx::_S_single>;", true);
+          wr.out("template<class T> using rg_weak_ptr = std::__weak_ptr<T, __gnu_cxx::_S_single>;", true);
+          wr.out("template<class T> using rg_esft = std::__enable_shared_from_this<T, __gnu_cxx::_S_single>;", true);
+          wr.out("template<class T, class... A> inline rg_ptr<T> rg_make(A&&... a) {", true);
+          wr.out("    return std::__allocate_shared<T, __gnu_cxx::_S_single>(std::allocator<T>(), std::forward<A>(a)...);", true);
+          wr.out("}", true);
+        };
         lineEnding () {
           return ";";
         };
@@ -19894,7 +19943,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( this.cppUnionValueCase(cc, ctx) ) {
               return type_string;
             }
-            return ("std::shared_ptr<" + type_string) + ">";
+            return this.cppPtr(type_string);
           }
           return type_string;
         };
@@ -20136,13 +20185,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     wr.out(cc_1.name, false);
                     return;
                   }
-                  wr.out("std::shared_ptr<", false);
+                  wr.out(this.cppPtrOpen(), false);
                   wr.out(cc_1.name, false);
                   wr.out(">", false);
                   return;
                 }
                 if ( node.hasFlag("optional") ) {
-                  wr.out("std::shared_ptr<std::vector<", false);
+                  wr.out(this.cppPtrOpen() + "std::vector<", false);
                   wr.out(this.getTypeString2(t_name, ctx), false);
                   wr.out(">", false);
                   return;
@@ -20746,14 +20795,20 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               wr.out("// a `weak` field: it holds no reference count, and it reads like a std::shared_ptr", true);
               wr.out("template <class T> class r_weak {", true);
               wr.out("  public :", true);
-              wr.out("    std::weak_ptr<T> w;", true);
+              let wkT = "std::weak_ptr<T>";
+              let shT = "std::shared_ptr<T>";
+              if ( this.cpp_single_thread ) {
+                wkT = "rg_weak_ptr<T>";
+                shT = "rg_ptr<T>";
+              }
+              wr.out(("    " + wkT) + " w;", true);
               wr.out("    r_weak() { }", true);
               wr.out("    r_weak(std::nullptr_t) { }", true);
-              wr.out("    r_weak(const std::shared_ptr<T>& s) : w(s) { }", true);
-              wr.out("    r_weak<T>& operator=(const std::shared_ptr<T>& s) { w = s; return *this; }", true);
+              wr.out(("    r_weak(const " + shT) + "& s) : w(s) { }", true);
+              wr.out(("    r_weak<T>& operator=(const " + shT) + "& s) { w = s; return *this; }", true);
               wr.out("    r_weak<T>& operator=(std::nullptr_t) { w.reset(); return *this; }", true);
-              wr.out("    operator std::shared_ptr<T>() const { return w.lock(); }", true);
-              wr.out("    std::shared_ptr<T> lock() const { return w.lock(); }", true);
+              wr.out(("    operator " + shT) + "() const { return w.lock(); }", true);
+              wr.out(("    " + shT) + " lock() const { return w.lock(); }", true);
               wr.out("    T* operator->() const { return w.lock().get(); }", true);
               wr.out("    explicit operator bool() const { return !w.expired(); }", true);
               wr.out("    bool operator==(std::nullptr_t) const { return w.expired(); }", true);
@@ -21030,7 +21085,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   wr.out(" " + cl.name, false);
                   wr.out("(", false);
                 } else {
-                  wr.out(" std::make_shared<", false);
+                  wr.out(" " + this.cppMakeOpen(), false);
                   wr.out(node.clDesc.name, false);
                   wr.out(">(", false);
                 }
@@ -21141,7 +21196,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 };
               } else {
                 if ( await this.cppNeedsSharedFromThis(node) ) {
-                  wr.out((" : public std::enable_shared_from_this<" + cl.name) + "> ", false);
+                  wr.out((" : public " + this.cppEsft(cl.name)) + " ", false);
                 }
               }
               wr.out(" { ", true);
@@ -21173,8 +21228,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 wr.out(");", true);
               };
               if ( cl.isSingletonClass() ) {
-                wr.out(("static std::shared_ptr<" + cl.name) + "> __singleton_instance;", true);
-                wr.out(("static std::shared_ptr<" + cl.name) + "> __singleton(", false);
+                wr.out(("static " + this.cppPtr(cl.name)) + " __singleton_instance;", true);
+                wr.out(("static " + this.cppPtr(cl.name)) + " __singleton(", false);
                 if ( cl.has_constructor ) {
                   const constr_1 = cl.constructor_fn;
                   await this.writeArgsDef(constr_1, ctx, wr);
@@ -21203,6 +21258,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               wr.out("};", true);
             };
             async CreateUnions (parser, ctx, wr) {
+              this.readCppPtrFlag(ctx);
               const root = ctx.getRoot();
               await operatorsOf_13.forEach_14(root.definedClasses, (async (item, index) => { 
                 if ( item.is_union ) {
@@ -21237,6 +21293,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }));
             };
             async writeClass (node, ctx, orig_wr) {
+              this.readCppPtrFlag(ctx);
               const cl = node.clDesc;
               const wr = orig_wr;
               if ( typeof(cl) === "undefined" ) {
@@ -21257,6 +21314,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               if ( this.header_created == false ) {
                 wr.createTag("c++Imports");
                 wr.out("", true);
+                this.writeCppSingleThreadPrelude(wr);
                 wr.out("// define classes here to avoid compiler errors", true);
                 wr.createTag("c++ClassDefs");
                 wr.out("", true);
@@ -21519,8 +21577,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               wr.indent(-1);
               wr.out("}", true);
               if ( cl.isSingletonClass() ) {
-                wr.out(((("std::shared_ptr<" + cl.name) + "> ") + cl.name) + "::__singleton_instance = nullptr;", true);
-                wr.out(((("std::shared_ptr<" + cl.name) + "> ") + cl.name) + "::__singleton(", false);
+                wr.out(((this.cppPtr(cl.name) + " ") + cl.name) + "::__singleton_instance = nullptr;", true);
+                wr.out(((this.cppPtr(cl.name) + " ") + cl.name) + "::__singleton(", false);
                 if ( cl.has_constructor ) {
                   const constr_3 = cl.constructor_fn;
                   await this.writeArgsDef(constr_3, ctx, wr);
@@ -21529,7 +21587,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 wr.indent(1);
                 wr.out(("if (" + cl.name) + "::__singleton_instance == nullptr) {", true);
                 wr.indent(1);
-                wr.out(((cl.name + "::__singleton_instance = std::make_shared<") + cl.name) + ">(", false);
+                wr.out((((cl.name + "::__singleton_instance = ") + this.cppMakeOpen()) + cl.name) + ">(", false);
                 if ( cl.has_constructor ) {
                   const constr_4 = cl.constructor_fn;
                   for ( let i_4 = 0; i_4 < constr_4.params.length; i_4++) {
@@ -50332,7 +50390,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                       let the_file = "";
                                                       let plugins_only = false;
                                                       const valid_options = ["l", "Selected language, one of " + (allowed_languages.join(", ")), "d", "output directory, default directory is \"bin/\"", "o", "output file, default is \"output.<language>\"", "classdoc", "write class documentation .md file", "operatordoc", "write operator documention into .md file"];
-                                                      const valid_flags = ["no-color", "Disable colored output", "deadcode", "Eliminate functions which are not called by any other functions", "dead4main", "Eliminate functions and classes which are unreachable from the main function", "forever", "Leave the main program into eternal loop (Go, Swift)", "allowti", "Allow type inference at target lang (creates slightly smaller code)", "plugins-only", "ignore built-in language output and use only plugins", "plugins", "(node compiler only) run specified npm plugins -plugins=\"plugin1,plugin2\"", "strict", "Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.", "strict-ownership", "Print the inferred ownership of each function parameter (borrowed, moved, shared, owned, unknown)", "rust-shared-classes", "Emit Rc<RefCell<T>> for classes the sharing analysis marks as shared (Rust target; the default since the conformance gate closed — kept for compatibility)", "rust-value-classes", "Every class is a plain value struct on Rust (the pre-ownership object model); disables the shared-class Rc<RefCell<T>> emission", "native-fast-alloc", "Rust/C++ targets: emit a thread-local size-class freelist allocator (never returns memory to the OS; single-process benchmark/tool builds)", "typescript", "Writes JavaScript code with TypeScript annotations", "esm", "Writes JavaScript code with ESM module syntax", "npm", "Write the package.json to the output directory", "pubspec", "Write pubspec.yaml for a Dart / Flutter package (requires -name= -version= -description=)", "flutter", "When used with -pubspec, emit a Flutter-oriented pubspec.yaml", "nodecli", "Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file", "nodemodule", "Export the classes as Node.js CommonJS modules", "client", "the code is ment to be run in the client environment", "scalafiddle", "scalafiddle.io compatible output", "compiler", "recompile the compiler", "copysrc", "copy all the source codes into the target directory"];
+                                                      const valid_flags = ["no-color", "Disable colored output", "deadcode", "Eliminate functions which are not called by any other functions", "dead4main", "Eliminate functions and classes which are unreachable from the main function", "forever", "Leave the main program into eternal loop (Go, Swift)", "allowti", "Allow type inference at target lang (creates slightly smaller code)", "plugins-only", "ignore built-in language output and use only plugins", "plugins", "(node compiler only) run specified npm plugins -plugins=\"plugin1,plugin2\"", "strict", "Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.", "strict-ownership", "Print the inferred ownership of each function parameter (borrowed, moved, shared, owned, unknown)", "rust-shared-classes", "Emit Rc<RefCell<T>> for classes the sharing analysis marks as shared (Rust target; the default since the conformance gate closed — kept for compatibility)", "rust-value-classes", "Every class is a plain value struct on Rust (the pre-ownership object model); disables the shared-class Rc<RefCell<T>> emission", "native-fast-alloc", "Rust/C++ targets: emit a thread-local size-class freelist allocator (never returns memory to the OS; single-process benchmark/tool builds)", "cpp-single-thread", "C++ target: reference-count objects WITHOUT atomics (rg_ptr). Same aliasing as std::shared_ptr and no lock-prefixed increment per copy; a pointer copied across threads corrupts the count, so single-threaded builds only", "typescript", "Writes JavaScript code with TypeScript annotations", "esm", "Writes JavaScript code with ESM module syntax", "npm", "Write the package.json to the output directory", "pubspec", "Write pubspec.yaml for a Dart / Flutter package (requires -name= -version= -description=)", "flutter", "When used with -pubspec, emit a Flutter-oriented pubspec.yaml", "nodecli", "Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file", "nodemodule", "Export the classes as Node.js CommonJS modules", "client", "the code is ment to be run in the client environment", "scalafiddle", "scalafiddle.io compatible output", "compiler", "recompile the compiler", "copysrc", "copy all the source codes into the target directory"];
                                                       const parser_pragmas = ["@noinfix(true)", "disable operator infix parsing and automatic type definition checking "];
                                                       if ( ( typeof(params.flags["compiler"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "compiler") ) ) {
                                                         cli.printHeader();
