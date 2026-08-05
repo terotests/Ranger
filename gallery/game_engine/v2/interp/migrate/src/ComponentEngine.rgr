@@ -43,6 +43,12 @@ class CachedImportAst {
 ; =============================================================================
 class EvalContext {
     def bindings:[string:EvalValue]
+    ; The names this frame owns a private value SLOT for: hoisted `var`s whose
+    ; body scan proved their value object never escapes the frame. Filled once
+    ; per call from the memo on the body node. A name in here may have its
+    ; number written in place; every other name keeps the mint-a-replacement
+    ; semantics, which is what aliases rely on.
+    def slotNames:[string:boolean]
     ; D-WITH: `with (o) { ... }` puts an OBJECT at the front of the scope chain.
     ; A name is looked up as a property of that object before the ordinary
     ; bindings, and assignment to a name the object owns writes through to it.
@@ -183,8 +189,9 @@ class EvalContext {
                 return true
             }
         }
-        if (has bindings name) {
-            set bindings name value
+        ; One lookup, not the has-then-set pair: this walks the scope chain on
+        ; every assignment to an existing variable.
+        if (RangerMem.mapPutIfPresent(bindings name value)) {
             return true
         }
         if parent {
@@ -253,6 +260,159 @@ class EvalContext {
     ; by a with-object, or bound to a non-number — the caller falls back to
     ; the full read-convert-write path. The binding is REPLACED, never
     ; mutated, so aliases keep the old immutable number.
+    ; Update the binding's number IN PLACE when nothing but this scope's own
+    ; map holds it. `i++` in a loop header writes the same binding every time
+    ; and its result is discarded, so the replacement object it used to mint was
+    ; pure waste -- one allocation per iteration, the last one left in an empty
+    ; loop. The uniqueness test runs inside the runtime, where no local holds
+    ; the value, so a pooled small integer or a value a second binding aliases
+    ; is rejected by its reference count and takes the allocating path below.
+    ; Returns false when the fast path does not apply.
+    ; The runtime test above can only be answered by a reference-counted
+    ; runtime, so on every target but LLVM it says "cannot tell" and the loop
+    ; keeps allocating. The STATIC answer needs no refcount and holds on all of
+    ; them: if the body scan proved this name's value object never leaves the
+    ; frame, this frame's slot is its only holder by construction.
+    ;
+    ; The first write still MINTS, because the binding may be holding a value it
+    ; does not own -- `var i = 0` binds the pooled literal `0`, shared by every
+    ; occurrence of that constant in every script, and writing through it would
+    ; corrupt all of them. The minted replacement is stamped `slotOwned` and
+    ; every write after it lands in place, so a loop pays one allocation for the
+    ; whole run rather than one per iteration.
+    fn bumpNumberInSlot:boolean (name:string delta:double) {
+        def cur@(optional):EvalValue (get bindings name)
+        if cur {
+            def c:EvalValue (unwrap cur)
+            if (c.valueType == 1) {
+                if c.slotOwned {
+                    c.numberValue = (c.numberValue + delta)
+                    return true
+                }
+                ; rawNumber, not number: the pooling factory hands back the
+                ; SHARED small-integer object, and stamping that `slotOwned`
+                ; would licence every later `i++` to rewrite the constant `1`
+                ; for the whole program. A slot's value must be private.
+                def fresh:EvalValue (EvalValue.rawNumber((c.numberValue + delta)))
+                fresh.slotOwned = true
+                set bindings name fresh
+                return true
+            }
+        }
+        return false
+    }
+
+    ; Store a computed number into a slot binding, same ownership rule as the
+    ; bump above: write through only an object this slot minted, otherwise mint
+    ; a private one and adopt it. Used by `s += i` in statement position, where
+    ; the expression result is discarded and so cannot alias.
+    fn setNumberInSlot:boolean (name:string n:double) {
+        if withObject {
+            return false
+        }
+        if (has slotNames name) {
+            def cur@(optional):EvalValue (get bindings name)
+            if cur {
+                def c:EvalValue (unwrap cur)
+                if (c.valueType == 1) {
+                    if c.slotOwned {
+                        c.numberValue = n
+                        return true
+                    }
+                    def fresh:EvalValue (EvalValue.rawNumber(n))
+                    fresh.slotOwned = true
+                    set bindings name fresh
+                    return true
+                }
+            }
+            return false
+        }
+        if (has bindings name) {
+            return false
+        }
+        if parent {
+            def p:EvalContext (unwrap parent)
+            return (p.setNumberInSlot(name n))
+        }
+        return false
+    }
+
+    ; The current number under `name`, and whether there was one. Answers only
+    ; for a slot binding, so the caller pays nothing on the general path.
+    fn slotNumberOf:double (name:string) {
+        if (has slotNames name) {
+            def cur@(optional):EvalValue (get bindings name)
+            if cur {
+                def c:EvalValue (unwrap cur)
+                if (c.valueType == 1) {
+                    return c.numberValue
+                }
+            }
+            return 0.0
+        }
+        if (has bindings name) {
+            return 0.0
+        }
+        if parent {
+            def p:EvalContext (unwrap parent)
+            return (p.slotNumberOf(name))
+        }
+        return 0.0
+    }
+
+    fn hasNumberSlot:boolean (name:string) {
+        if withObject {
+            return false
+        }
+        if (has slotNames name) {
+            def cur@(optional):EvalValue (get bindings name)
+            if cur {
+                def c:EvalValue (unwrap cur)
+                return (c.valueType == 1)
+            }
+            return false
+        }
+        if (has bindings name) {
+            return false
+        }
+        if parent {
+            def p:EvalContext (unwrap parent)
+            return (p.hasNumberSlot(name))
+        }
+        return false
+    }
+
+    fn bumpNumberInPlace:boolean (name:string delta:double) {
+        if withObject {
+            return false
+        }
+        if (has slotNames name) {
+            return (this.bumpNumberInSlot(name delta))
+        }
+        ; mapValueUnique already answers false for a key this scope does not
+        ; hold, so the separate `has` probe it used to sit behind was a third
+        ; lookup for one decision.
+        if (RangerMem.mapValueUnique(bindings name)) {
+            def cur@(optional):EvalValue (get bindings name)
+            if cur {
+                def c:EvalValue (unwrap cur)
+                if (c.valueType == 1) {
+                    c.numberValue = (c.numberValue + delta)
+                    return true
+                }
+            }
+            return false
+        }
+        if (has bindings name) {
+            return false
+        }
+        if parent {
+            def p:EvalContext (unwrap parent)
+            return (p.bumpNumberInPlace(name delta))
+        }
+        return false
+    }
+
     fn bumpNumberOld@(optional):EvalValue (name:string delta:double) {
         if withObject {
             def noneW@(optional):EvalValue
@@ -279,6 +439,48 @@ class EvalContext {
     ; PERF: single-probe read. The has-then-lookup pair walked the scope
     ; chain twice, hashing the name at every level both times; the missing
     ; case here is an ABSENT optional, so callers pay one walk.
+    ; Read a name at a KNOWN depth: the resolution memo an identifier node
+    ; carries. Verified rather than trusted -- the scope at that depth must
+    ; actually hold the name, or the caller falls back to the full walk. The
+    ; check costs one probe and makes a stale memo impossible to observe, which
+    ; matters because the chain shape is only stable while no `with` or direct
+    ; `eval` is in play.
+    fn tryLookupAtDepth@(optional):EvalValue (name:string hops:int) {
+        if (hops <= 0) {
+            if withObject {
+                def noneW@(optional):EvalValue
+                return noneW
+            }
+            return (get bindings name)
+        }
+        if parent {
+            def p:EvalContext (unwrap parent)
+            return (p.tryLookupAtDepth(name (hops - 1)))
+        }
+        def noneD@(optional):EvalValue
+        return noneD
+    }
+
+    ; The number of parent hops at which `name` resolves, or -1. Walked once
+    ; per identifier NODE and then memoised on it.
+    fn depthOfBinding:int (name:string) {
+        if withObject {
+            return (0 - 1)
+        }
+        if (has bindings name) {
+            return 0
+        }
+        if parent {
+            def p:EvalContext (unwrap parent)
+            def d:int (p.depthOfBinding(name))
+            if (d < 0) {
+                return d
+            }
+            return (d + 1)
+        }
+        return (0 - 1)
+    }
+
     fn tryLookup@(optional):EvalValue (name:string) {
         if withObject {
             def wo:EvalValue (unwrap withObject)
@@ -370,6 +572,20 @@ class ComponentEngine {
     ; undefined. Tracking it on the statement runner rather than at the top
     ; level is what makes a value produced INSIDE a loop or an if reach eval.
     def completionValue:EvalValue (EvalValue.undefined())
+    ; Expression slots. One value object per (call, expression node): the frame
+    ; owns the ID range [exprSlotBase, exprSlotBase + body.exprSlotCount) and an
+    ; expression writes its result into `exprSlots` at its own index rather than
+    ; minting a new one. The map is filled LAZILY -- an expression that never
+    ; runs, or never takes the transient path, costs nothing -- and the range is
+    ; bookkeeping only, so entering a call is two integer updates.
+    ;
+    ; The ranges are what make recursion safe: `fib(k-1) + fib(k-2)` gives each
+    ; activation its own band, so an inner call cannot land on the slot an outer
+    ; one is still holding.
+    def exprSlots:[int:EvalValue]
+    def exprSlotBase:int 0
+    def exprSlotNext:int 0
+    def exprNumberCounter:int 0
     def basePath:string "./"
     def assetPaths:[string]  ; Multiple asset directories for component resolution
     def pageWidth:double 595.0
@@ -3164,6 +3380,331 @@ class ComponentEngine {
             }
             k = (k + 1)
         }
+        ; Which of those names get a private value slot in THIS frame. Scanned
+        ; once per body node, alongside the hoist memo; marking them on the
+        ; fresh context is the only per-call work.
+        ;
+        ; Never in the GLOBAL scope: a `var` bound there is also a property of
+        ; the global object, so `globalThis.i` names the same value object by a
+        ; route the body scan cannot see. Frame-local `var`s have no such second
+        ; name, which is the whole basis for the slot.
+        if (false == context.isGlobalScope) {
+            if (false == body.slotScanned) {
+                body.slotScanned = true
+                body.slotVarNames = (this.slotSafeVarNames(body))
+            }
+            def sc:int (array_length body.slotVarNames)
+            def si:int 0
+            while (si < sc) {
+                set context.slotNames (itemAt body.slotVarNames si) true
+                si = (si + 1)
+            }
+        }
+    }
+
+    ; ---- slot analysis -----------------------------------------------------
+    ; Which hoisted `var` names may own a private EvalValue for the whole call.
+    ;
+    ; The question is not "is this name a number" but "can any OTHER holder ever
+    ; see this name's value OBJECT". Numbers are immutable by contract in this
+    ; engine, and everything downstream relies on that: `var a = i` makes two
+    ; names share one object, and writing through it would change both. So a
+    ; name qualifies only when EVERY occurrence of it in the body sits in a
+    ; position that reads the NUMBER and cannot retain the object:
+    ;
+    ;   i++ / --i        the mutation itself
+    ;   i + 1, i < n     an arithmetic or relational operand
+    ;
+    ; Every other position -- an argument, a return, either side of a plain
+    ; assignment, an array element, an object property, a member base, a
+    ; template hole, anything inside a nested function -- disqualifies the name.
+    ; The test is syntactic and pessimistic: an unrecognised node shape counts
+    ; as an escape, so a name reaches the fast path only by being understood.
+    fn slotSafeVarNames:[string] (body:TSNode) {
+        def out:[string]
+        ; Candidates are collected here rather than taken from `hoistedVarNames`:
+        ; that memo walks only children/body/left/right, so it never sees the
+        ; declaration in a `for (var i = 0; ...)` header -- which is exactly the
+        ; loop counter this targets. The hoist list is also the wrong SET, since
+        ; `let`/`const` counters qualify just as well.
+        def names:[string]
+        this.collectSlotCandidates(body 0 names)
+        def n:int (array_length names)
+        if (n == 0) {
+            return out
+        }
+        ; `with` and direct `eval` can reach a binding through text this scan
+        ; cannot see, so neither is allowed anywhere in the body.
+        if (this.bodyBlocksSlots(body 0)) {
+            return out
+        }
+        def i:int 0
+        while (i < n) {
+            def nm:string (itemAt names i)
+            if ((strlen nm) > 0) {
+                if (false == (this.nameEscapesIn(body nm 0))) {
+                    push out nm
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Every name this body DECLARES, at any nesting level below it but not
+    ; inside a nested function (those belong to their own frame). A declarator's
+    ; identifier is a field on the declarator node, not a child Identifier, so
+    ; collecting names here and testing occurrences separately keeps the two
+    ; questions apart -- the declaration itself is never an escape.
+    fn collectSlotCandidates:void (node:TSNode depth:int out:[string]) {
+        if (depth > 24) {
+            return
+        }
+        def k:int (this.nodeKindOf(node))
+        if (k == 17) { return }
+        if (k == 18) { return }
+        if (k == 40) { return }
+        if (k == 25) { return }
+        if (k == 31) {
+            def ci:int 0
+            while (ci < (array_length node.children)) {
+                def decl:TSNode (itemAt node.children ci)
+                def nm:string decl.name
+                if ((strlen nm) > 0) {
+                    push out nm
+                }
+                ci = (ci + 1)
+            }
+            return
+        }
+        def nd:int (depth + 1)
+        def c:int 0
+        while (c < (array_length node.children)) {
+            this.collectSlotCandidates((itemAt node.children c) nd out)
+            c = (c + 1)
+        }
+        if node.body { this.collectSlotCandidates((unwrap node.body) nd out) }
+        if node.left { this.collectSlotCandidates((unwrap node.left) nd out) }
+        if node.right { this.collectSlotCandidates((unwrap node.right) nd out) }
+        if node.init { this.collectSlotCandidates((unwrap node.init) nd out) }
+        if node.test { this.collectSlotCandidates((unwrap node.test) nd out) }
+        if node.consequent { this.collectSlotCandidates((unwrap node.consequent) nd out) }
+        if node.alternate { this.collectSlotCandidates((unwrap node.alternate) nd out) }
+    }
+
+    ; `with` puts an object at the front of the chain and `eval` can name any
+    ; binding from text, so either one makes the syntactic scan unsound.
+    fn bodyBlocksSlots:boolean (node:TSNode depth:int) {
+        if (depth > 40) {
+            return true
+        }
+        if (node.nodeType == "WithStatement") {
+            return true
+        }
+        if (node.name == "eval") {
+            return true
+        }
+        def nd:int (depth + 1)
+        def k:int 0
+        while (k < (array_length node.children)) {
+            if (this.bodyBlocksSlots((itemAt node.children k) nd)) { return true }
+            k = (k + 1)
+        }
+        def p:int 0
+        while (p < (array_length node.params)) {
+            if (this.bodyBlocksSlots((itemAt node.params p) nd)) { return true }
+            p = (p + 1)
+        }
+        if node.body { if (this.bodyBlocksSlots((unwrap node.body) nd)) { return true } }
+        if node.left { if (this.bodyBlocksSlots((unwrap node.left) nd)) { return true } }
+        if node.right { if (this.bodyBlocksSlots((unwrap node.right) nd)) { return true } }
+        if node.init { if (this.bodyBlocksSlots((unwrap node.init) nd)) { return true } }
+        if node.test { if (this.bodyBlocksSlots((unwrap node.test) nd)) { return true } }
+        if node.consequent { if (this.bodyBlocksSlots((unwrap node.consequent) nd)) { return true } }
+        if node.alternate { if (this.bodyBlocksSlots((unwrap node.alternate) nd)) { return true } }
+        return false
+    }
+
+    ; True when `name` occurs anywhere in this subtree in a position that could
+    ; retain its value object. The PARENT classifies each link, because the
+    ; position is what decides -- an Identifier node says nothing on its own.
+    fn nameEscapesIn:boolean (node:TSNode name:string depth:int) {
+        if (depth > 40) {
+            return true
+        }
+        def k:int (this.nodeKindOf(node))
+        ; A nested function may capture the binding and outlive the frame.
+        ; Names it merely shadows would be safe, but telling the two apart needs
+        ; the nested scope's own declarations -- not worth it for the shapes
+        ; this targets, so any mention inside one is an escape.
+        if ((k == 17) || (k == 18)) {
+            return (this.subtreeMentions(node name (depth + 1)))
+        }
+        if (k == 40) {
+            return (this.subtreeMentions(node name (depth + 1)))
+        }
+        def nd:int (depth + 1)
+        ; i++ / --i: the target is the mutation, not a read of the object.
+        if (k == 7) {
+            if node.left {
+                def upl:TSNode (unwrap node.left)
+                if (this.identifierIs(upl name)) {
+                    return false
+                }
+            }
+        }
+        ; `return i` is NOT an escape. The value object leaves the frame, but
+        ; the frame leaves with it: nothing in this body can write the slot
+        ; again, so the caller's copy can never be mutated underneath it. (The
+        ; next call to this function builds a fresh frame and mints its own.)
+        if (k == 35) {
+            if node.left {
+                def rl:TSNode (unwrap node.left)
+                if (this.identifierIs(rl name)) {
+                    return false
+                }
+            }
+            if node.right {
+                def rr:TSNode (unwrap node.right)
+                if (this.identifierIs(rr name)) {
+                    return false
+                }
+            }
+        }
+        ; `s += i` and friends read the NUMBER out of both sides and store a
+        ; fresh result, so neither side leaks an object. Plain `=` is excluded
+        ; on purpose: `a = i` makes the two names share one object, and a later
+        ; `i++` would then rewrite `a` as well.
+        if (k == 6) {
+            if (this.slotSafeAssignOp(node.value)) {
+                def ae:boolean false
+                if node.left {
+                    def al:TSNode (unwrap node.left)
+                    if (false == (this.identifierIs(al name))) {
+                        if (this.nameEscapesIn(al name nd)) { ae = true }
+                    }
+                }
+                if node.right {
+                    def ar:TSNode (unwrap node.right)
+                    if (false == (this.identifierIs(ar name))) {
+                        if (this.nameEscapesIn(ar name nd)) { ae = true }
+                    }
+                }
+                return ae
+            }
+        }
+        ; Arithmetic and relational operands read the NUMBER. `&&`, `||` and
+        ; `??` are deliberately not here: their result IS one of the operand
+        ; objects, so the value would escape through them.
+        if (k == 5) {
+            if (this.slotSafeBinaryOp(node.value)) {
+                def le:boolean false
+                def re:boolean false
+                if node.left {
+                    def bl:TSNode (unwrap node.left)
+                    if (false == (this.identifierIs(bl name))) {
+                        le = (this.nameEscapesIn(bl name nd))
+                    }
+                }
+                if node.right {
+                    def br:TSNode (unwrap node.right)
+                    if (false == (this.identifierIs(br name))) {
+                        re = (this.nameEscapesIn(br name nd))
+                    }
+                }
+                if (le || re) {
+                    return true
+                }
+                return false
+            }
+        }
+        ; Any other appearance of the bare name is an escape.
+        if (k == 1) {
+            if (node.name == name) {
+                return true
+            }
+            return false
+        }
+        def c:int 0
+        while (c < (array_length node.children)) {
+            if (this.nameEscapesIn((itemAt node.children c) name nd)) { return true }
+            c = (c + 1)
+        }
+        def p:int 0
+        while (p < (array_length node.params)) {
+            if (this.nameEscapesIn((itemAt node.params p) name nd)) { return true }
+            p = (p + 1)
+        }
+        if node.body { if (this.nameEscapesIn((unwrap node.body) name nd)) { return true } }
+        if node.left { if (this.nameEscapesIn((unwrap node.left) name nd)) { return true } }
+        if node.right { if (this.nameEscapesIn((unwrap node.right) name nd)) { return true } }
+        if node.init { if (this.nameEscapesIn((unwrap node.init) name nd)) { return true } }
+        if node.test { if (this.nameEscapesIn((unwrap node.test) name nd)) { return true } }
+        if node.consequent { if (this.nameEscapesIn((unwrap node.consequent) name nd)) { return true } }
+        if node.alternate { if (this.nameEscapesIn((unwrap node.alternate) name nd)) { return true } }
+        return false
+    }
+
+    fn identifierIs:boolean (node:TSNode name:string) {
+        if ((this.nodeKindOf(node)) != 1) {
+            return false
+        }
+        return (node.name == name)
+    }
+
+    ; Compound arithmetic assignment only. `=` is absent by design (it aliases),
+    ; and so are the logical forms `&&=` / `||=` / `??=`, whose result is one of
+    ; the operand objects rather than a fresh number.
+    fn slotSafeAssignOp:boolean (op:string) {
+        if (op == "+=") { return true }
+        if (op == "-=") { return true }
+        if (op == "*=") { return true }
+        if (op == "/=") { return true }
+        if (op == "%=") { return true }
+        return false
+    }
+
+    fn slotSafeBinaryOp:boolean (op:string) {
+        if (op == "+") { return true }
+        if (op == "-") { return true }
+        if (op == "*") { return true }
+        if (op == "/") { return true }
+        if (op == "%") { return true }
+        if (op == "<") { return true }
+        if (op == "<=") { return true }
+        if (op == ">") { return true }
+        if (op == ">=") { return true }
+        return false
+    }
+
+    ; Does the name appear at all in this subtree, in any position? Used where
+    ; the position no longer matters because the subtree itself is unsafe.
+    fn subtreeMentions:boolean (node:TSNode name:string depth:int) {
+        if (depth > 40) {
+            return true
+        }
+        if (node.name == name) {
+            return true
+        }
+        def nd:int (depth + 1)
+        def c:int 0
+        while (c < (array_length node.children)) {
+            if (this.subtreeMentions((itemAt node.children c) name nd)) { return true }
+            c = (c + 1)
+        }
+        def p:int 0
+        while (p < (array_length node.params)) {
+            if (this.subtreeMentions((itemAt node.params p) name nd)) { return true }
+            p = (p + 1)
+        }
+        if node.body { if (this.subtreeMentions((unwrap node.body) name nd)) { return true } }
+        if node.left { if (this.subtreeMentions((unwrap node.left) name nd)) { return true } }
+        if node.right { if (this.subtreeMentions((unwrap node.right) name nd)) { return true } }
+        if node.init { if (this.subtreeMentions((unwrap node.init) name nd)) { return true } }
+        if node.test { if (this.subtreeMentions((unwrap node.test) name nd)) { return true } }
+        if node.consequent { if (this.subtreeMentions((unwrap node.consequent) name nd)) { return true } }
+        if node.alternate { if (this.subtreeMentions((unwrap node.alternate) name nd)) { return true } }
+        return false
     }
 
     fn hoistCollectIn:void (node:TSNode depth:int out:[string]) {
@@ -3266,7 +3807,17 @@ class ComponentEngine {
             ; constantly to check that ToInteger(undefined) is 0 -- raised a
             ; ReferenceError instead.
             this.hoistVarNamesMemo(body)
+            ; This activation's expression-slot band. Bookkeeping only: two
+            ; integers on the way in and two on the way out, and the value
+            ; objects themselves appear in `exprSlots` only when an expression
+            ; actually asks for one.
+            def savedSlotBase:int exprSlotBase
+            def savedSlotNext:int exprSlotNext
+            exprSlotBase = exprSlotNext
+            exprSlotNext = (exprSlotNext + (this.exprSlotCountOf(body)))
             this.runStatementList(body.children)
+            exprSlotBase = savedSlotBase
+            exprSlotNext = savedSlotNext
             def blockOut:EvalValue scriptReturnValue
             scriptDidReturn = savedDidReturn
             scriptReturnValue = savedReturnValue
@@ -4738,8 +5289,24 @@ class ComponentEngine {
         }
 
         if (seK == 6) {
-            completionValue = (this.evaluateAssignValue(node))
-            handledSE = true
+            ; `s += i` as a STATEMENT: the result is discarded, so nothing can
+            ; alias it and the slot may be written in place. The same shape in
+            ; value position (`a = (s += 1)`) hands the object to a second name
+            ; and must keep minting -- which is why this lives at the statement
+            ; call site rather than inside evaluateAssignValue.
+            if (this.assignNumberInSlot(node)) {
+                ; The completion value is the STORED value, and the slot object
+                ; is it -- read back rather than minted, so the statement stays
+                ; allocation-free. Only `eval` ever observes this, and a body
+                ; that mentions `eval` has no slots to begin with.
+                def seLhs:TSNode (unwrap node.left)
+                def seNm:string seLhs.name
+                completionValue = (this.lookupIdentifier(seNm))
+                handledSE = true
+            } {
+                completionValue = (this.evaluateAssignValue(node))
+                handledSE = true
+            }
         }
 
         ; Statement-position unary with a side effect (delete obj.x, void expr).
@@ -5706,6 +6273,245 @@ class ComponentEngine {
     }
 
     ; Evaluate an assignment/update as an expression, returning its value.
+    ; ---- expression slots --------------------------------------------------
+    ; How many slots this body needs, numbering it on first use. The walk is the
+    ; whole of the "analysis": every node below the body gets the next index,
+    ; and the count is the total. `(a + b) + c` is three nested expressions and
+    ; takes three indices, so both products are live at once without colliding
+    ; -- which is exactly why the index is per NODE and not one scratch value.
+    ;
+    ; A nested function is not descended into: its own body is numbered when it
+    ; is first called, and its activation gets its own range.
+    fn exprSlotCountOf:int (body:TSNode) {
+        if (body.exprSlotCount >= 0) {
+            return body.exprSlotCount
+        }
+        exprNumberCounter = 0
+        this.numberExprNodes(body 0)
+        body.exprSlotCount = exprNumberCounter
+        return body.exprSlotCount
+    }
+
+    fn numberExprNodes:void (node:TSNode depth:int) {
+        if (depth > 40) {
+            return
+        }
+        def k:int (this.nodeKindOf(node))
+        if ((k == 17) || (k == 18)) { return }
+        if (k == 40) { return }
+        node.exprId = exprNumberCounter
+        exprNumberCounter = (exprNumberCounter + 1)
+        def nd:int (depth + 1)
+        def c:int 0
+        while (c < (array_length node.children)) {
+            this.numberExprNodes((itemAt node.children c) nd)
+            c = (c + 1)
+        }
+        if node.body { this.numberExprNodes((unwrap node.body) nd) }
+        if node.left { this.numberExprNodes((unwrap node.left) nd) }
+        if node.right { this.numberExprNodes((unwrap node.right) nd) }
+        if node.init { this.numberExprNodes((unwrap node.init) nd) }
+        if node.test { this.numberExprNodes((unwrap node.test) nd) }
+        if node.consequent { this.numberExprNodes((unwrap node.consequent) nd) }
+        if node.alternate { this.numberExprNodes((unwrap node.alternate) nd) }
+    }
+
+    ; The value object for this node in the CURRENT activation, carrying `n`.
+    ; Created on first use and reused by every later evaluation of the same node
+    ; in the same call. Not pooled and never handed to a binding, so nothing
+    ; else can be holding it.
+    fn exprSlotNumber:EvalValue (node:TSNode n:double) {
+        def id:int (exprSlotBase + node.exprId)
+        def held@(optional):EvalValue (get exprSlots id)
+        if held {
+            def h:EvalValue (unwrap held)
+            h.numberValue = n
+            return h
+        }
+        def fresh:EvalValue (EvalValue.rawNumber(n))
+        set exprSlots id fresh
+        return fresh
+    }
+
+    ; `+` `-` `*` `/` only. `%` goes through a remainder helper that answers
+    ; with a value object, and the comparisons answer with booleans, which the
+    ; engine already hands out from a shared pair.
+    fn transientArithOp:boolean (op:string) {
+        if (op == "+") { return true }
+        if (op == "-") { return true }
+        if (op == "*") { return true }
+        if (op == "/") { return true }
+        return false
+    }
+
+    ; Evaluate an expression whose result the CALLER reads as a number and then
+    ; drops. Such a result cannot be retained by anything, so it may live in the
+    ; expression's slot instead of a fresh object. Operands are evaluated the
+    ; same way, which is what makes `(i + 1) * (i + 2)` allocation-free rather
+    ; than only its outermost product.
+    ;
+    ; Anything not recognised falls straight through to the ordinary evaluator,
+    ; so this is an optimisation of shape, never of meaning.
+    ; Is this a shape the transient path may drive? Only nodes that can be
+    ; evaluated TWICE with the same effect qualify: a name read, a numeric
+    ; literal, or an arithmetic binary of those. That matters because a string
+    ; operand sends the node back to the ordinary evaluator, which evaluates the
+    ; operands again -- harmless for these, a doubled side effect for a call.
+    fn transientOperandOk:boolean (node:TSNode depth:int) {
+        if (node.transientOk >= 0) {
+            return (node.transientOk == 1)
+        }
+        def ans:boolean (this.computeTransientOk(node depth))
+        if ans {
+            node.transientOk = 1
+        } {
+            node.transientOk = 0
+        }
+        return ans
+    }
+
+    fn computeTransientOk:boolean (node:TSNode depth:int) {
+        if (depth > 24) {
+            return false
+        }
+        if (node.exprId < 0) {
+            return false
+        }
+        def k:int (this.nodeKindOf(node))
+        if (k == 1) { return true }
+        if (k == 2) { return true }
+        if (k != 5) {
+            return false
+        }
+        if ((this.transientArithOp(node.value)) == false) {
+            return false
+        }
+        def nd:int (depth + 1)
+        if node.left { } { return false }
+        if node.right { } { return false }
+        if ((this.transientOperandOk((unwrap node.left) nd)) == false) {
+            return false
+        }
+        return (this.transientOperandOk((unwrap node.right) nd))
+    }
+
+    fn evaluateExprTransient:EvalValue (node:TSNode) {
+        if anyWithScope {
+            return (this.evaluateExpr(node))
+        }
+        if ((this.nodeKindOf(node)) != 5) {
+            return (this.evaluateExpr(node))
+        }
+        if ((this.transientOperandOk(node 0)) == false) {
+            return (this.evaluateExpr(node))
+        }
+        def lv:EvalValue (this.evaluateExprTransient((unwrap node.left)))
+        if scriptThrew {
+            return lv
+        }
+        ; A string operand turns `+` into concatenation and the others into a
+        ; ToNumber conversion; both are the general evaluator's business, so
+        ; hand the node back whole. Re-evaluating the operands there is safe --
+        ; transientOperandOk admitted only shapes that repeat without effect.
+        if (lv.valueType != 1) {
+            return (this.evaluateExpr(node))
+        }
+        def rv:EvalValue (this.evaluateExprTransient((unwrap node.right)))
+        if scriptThrew {
+            return rv
+        }
+        if (rv.valueType != 1) {
+            return (this.evaluateExpr(node))
+        }
+        def a:double lv.numberValue
+        def b:double rv.numberValue
+        def out:double 0.0
+        if (node.value == "+") { out = (a + b) }
+        if (node.value == "-") { out = (a - b) }
+        if (node.value == "*") { out = (a * b) }
+        if (node.value == "/") { out = (a / b) }
+        return (this.exprSlotNumber(node out))
+    }
+
+    ; `name op= <expr>` where the target holds a slot number and the right-hand
+    ; side evaluates to a number: compute and store without minting a value.
+    ; Returns false for every other shape, so the caller falls through to the
+    ; general path unchanged.
+    ;
+    ; `+=` insists on numbers on BOTH sides -- with a string on either one it is
+    ; concatenation, and the slot holds no string.
+    fn assignNumberInSlot:boolean (node:TSNode) {
+        if anyWithScope {
+            return false
+        }
+        if node.left { } {
+            return false
+        }
+        def lhs:TSNode (unwrap node.left)
+        if ((this.nodeKindOf(lhs)) != 1) {
+            return false
+        }
+        ; `+=` `-=` `*=` `/=` only. `%=` is left out: its remainder helper
+        ; answers with a value object, so routing it here would save nothing.
+        def opK:int (this.opKindOf(node))
+        if ((opK < 2) || (opK > 5)) {
+            return false
+        }
+        def nm:string lhs.name
+        if (false == (context.hasNumberSlot(nm))) {
+            return false
+        }
+        if node.right { } {
+            return false
+        }
+        ; The right-hand side is evaluated exactly ONCE, and this function never
+        ; bails after that point -- returning false here would send the whole
+        ; statement back to the general path, which evaluates it again, and
+        ; `s += f()` would call f twice.
+        ;
+        ; Transient where the shape repeats without effect, because then the
+        ; intermediates may live in expression slots: `t += (i + 1) * (i + 2)`
+        ; mints nothing at all. Otherwise the ordinary evaluator, whose result
+        ; still lands in the slot when it is a number.
+        ; Only a BINARY right-hand side can hold intermediates worth slotting;
+        ; `s += i` goes straight to the ordinary evaluator, so the common shape
+        ; pays nothing for the check.
+        def rhs:TSNode (unwrap node.right)
+        def rv:EvalValue (EvalValue.undefined())
+        if ((this.nodeKindOf(rhs)) == 5) {
+            rv = (this.evaluateExprTransient(rhs))
+        } {
+            rv = (this.evaluateExpr(rhs))
+        }
+        if scriptThrew {
+            return true
+        }
+        if (rv.valueType != 1) {
+            ; Not a number after all -- a string `+=`, an object with a valueOf.
+            ; Finish the assignment here with the value already in hand. The
+            ; preconditions above make this the whole of the general path: no
+            ; `with` object, and a name that holds a slot is a binding of a
+            ; non-global frame, so it exists and is writable.
+            def curV:EvalValue (this.lookupIdentifier(nm))
+            if scriptThrew {
+                return true
+            }
+            def resV:EvalValue (this.applyAssignOp(opK curV rv))
+            if scriptThrew {
+                return true
+            }
+            def _ok:boolean (context.assignExisting(nm resV))
+            return true
+        }
+        def cur:double (context.slotNumberOf(nm))
+        def out:double cur
+        if (opK == 2) { out = (cur + rv.numberValue) }
+        if (opK == 3) { out = (cur - rv.numberValue) }
+        if (opK == 4) { out = (cur * rv.numberValue) }
+        if (opK == 5) { out = (cur / rv.numberValue) }
+        return (context.setNumberInSlot(nm out))
+    }
+
     fn evaluateAssignValue:EvalValue (node:TSNode) {
         if ((this.nodeKindOf(node)) == 7) {
             return (this.evaluateUpdateValue(node))
@@ -5862,6 +6668,27 @@ class ComponentEngine {
     ; anything, so the loop counter never moved and the loop ran until the
     ; iteration cap -- a hang, not a wrong answer.
     fn evaluateUpdateExpr:void (node:TSNode) {
+        ; Statement position: the value is discarded, so a plain `i++` on a
+        ; uniquely-owned number binding needs no result object at all.
+        if (false == anyWithScope) {
+            if ((this.nodeKindOf(node)) == 7) {
+                if node.left {
+                    def upLeft:TSNode (unwrap node.left)
+                    if ((this.nodeKindOf(upLeft)) == 1) {
+                        def upOp:int (this.opKindOf(node))
+                        def upDelta:double 1.0
+                        if (upOp == 18) {
+                            upDelta = (0.0 - 1.0)
+                        }
+                        if ((upOp == 17) || (upOp == 18)) {
+                            if (context.bumpNumberInPlace(upLeft.name upDelta)) {
+                                return
+                            }
+                        }
+                    }
+                }
+            }
+        }
         def ignored:EvalValue (this.evaluateExpr(node))
     }
 
@@ -7358,6 +8185,21 @@ class ComponentEngine {
         ; (variable reads, member/array access, calls, arithmetic) are checked
         ; first so the common case does not fall through the whole if-chain.
         if (exprK == 1) {
+            ; Resolution memo: an identifier read walks the scope chain hashing
+            ; its name at every level. The depth is a property of the syntactic
+            ; position, so it is walked once and reused -- and RE-VERIFIED, so a
+            ; stale memo costs one probe and a fallback rather than answering
+            ; with the wrong binding. A `with` scope makes depth meaningless.
+            if (false == anyWithScope) {
+                if (node.scopeHops >= 0) {
+                    def memoHit@(optional):EvalValue (context.tryLookupAtDepth(node.name node.scopeHops))
+                    if memoHit {
+                        return (unwrap memoHit)
+                    }
+                } {
+                    node.scopeHops = (context.depthOfBinding(node.name))
+                }
+            }
             return (this.lookupIdentifier(node.name))
         }
         ; PERF: a numeric literal is held as source TEXT, so evaluating it means
@@ -7372,7 +8214,16 @@ class ComponentEngine {
                     node.numValue = (unwrap parsedNum)
                 }
             }
-            return (EvalValue.number(node.numValue))
+            ; The VALUE is memoised too, not just the parse. Below 4096 the
+            ; shared pool already answers; above it, minting a fresh EvalValue
+            ; per evaluation made a loop bound cost one allocation per iteration.
+            def numPool:EvalConstPool (EvalConstPool.__singleton())
+            if (node.numCacheId >= 0) {
+                return (numPool.literalAt(node.numCacheId))
+            }
+            def litVal:EvalValue (EvalValue.number(node.numValue))
+            node.numCacheId = (numPool.addLiteral(litVal))
+            return litVal
         }
         if (exprK == 3) {
             return (this.evaluateMemberExpr(node))
@@ -9294,8 +10145,26 @@ class ComponentEngine {
         if (null? node.right) {
             return (EvalValue.null())
         }
-        def left:EvalValue (this.evaluateExpr((unwrap node.left)))
-        def right:EvalValue (this.evaluateExpr((unwrap node.right)))
+        ; A non-logical binary operator READS both operands and builds its own
+        ; result; it never hands an operand object on. So an operand may come
+        ; out of an expression slot, and `f(i * 2 + 1)` pays for the escaping
+        ; sum alone rather than for the product as well. The short-circuiting
+        ; operators are the exception -- `a || b` answers WITH an operand -- and
+        ; they returned above, before this point.
+        def lNode:TSNode (unwrap node.left)
+        def rNode:TSNode (unwrap node.right)
+        def left:EvalValue (EvalValue.null())
+        def right:EvalValue (EvalValue.null())
+        if ((this.nodeKindOf(lNode)) == 5) {
+            left = (this.evaluateExprTransient(lNode))
+        } {
+            left = (this.evaluateExpr(lNode))
+        }
+        if ((this.nodeKindOf(rNode)) == 5) {
+            right = (this.evaluateExprTransient(rNode))
+        } {
+            right = (this.evaluateExpr(rNode))
+        }
 
         ; `key in obj` / `index in array` — property/element presence test.
         if (opK == 43) {
@@ -15079,7 +15948,13 @@ class ComponentEngine {
         if (v.valueType == 4) { p = (this.toPrimitive(v true)) }
         if (v.valueType == 6) { p = (this.toPrimitive(v true)) }
         if (p.isString()) {
-            return p.stringValue
+            ; Bind before returning. `p` here is a value this scope OWNS --
+            ; toPrimitive handed back a fresh one -- so returning its stringValue
+            ; directly gave the caller a pointer into a value that scope exit
+            ; then released, and `String(Array.prototype)` read the freed bytes.
+            ; Binding takes a private copy the caller can outlive.
+            def owned:string p.stringValue
+            return owned
         }
         return (p.toString())
     }
@@ -15276,7 +16151,13 @@ class ComponentEngine {
         if (v.valueType == 4) { p = (this.toPrimitive(v true)) }
         if (v.valueType == 6) { p = (this.toPrimitive(v true)) }
         if (p.isString()) {
-            return p.stringValue
+            ; Bind before returning. `p` here is a value this scope OWNS --
+            ; toPrimitive handed back a fresh one -- so returning its stringValue
+            ; directly gave the caller a pointer into a value that scope exit
+            ; then released, and `String(Array.prototype)` read the freed bytes.
+            ; Binding takes a private copy the caller can outlive.
+            def owned:string p.stringValue
+            return owned
         }
         return (p.toString())
     }

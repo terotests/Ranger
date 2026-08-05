@@ -10,6 +10,7 @@
 #   TARGET=python  none               -> engine_bench.py    (run with python3)
 #   TARGET=csharp  mcs                -> engine_bench.exe   (run with mono)
 #   TARGET=swift6  swiftc -O          -> engine_bench       (needs a Swift toolchain)
+#   TARGET=llvm    clang -O2          -> engine_bench       (LLVM IR + the C runtime)
 #
 # Every target after the Ranger step is skipped when its toolchain is absent;
 # the generated source is still written, which is what the target test checks.
@@ -28,9 +29,18 @@ case "$TARGET" in
   python) EXT="py" ;;
   csharp) EXT="cs" ;;
   swift6|swift3) EXT="swift" ;;
+  llvm) EXT="ll" ;;
 esac
+# LLVM needs a concrete triple: the reference counting and the object runtime
+# are gated on the target having libc, and without one the module comes out
+# freestanding and will not link against ranger_mem.c. `-native-fast-alloc` is
+# a Rust/C++ flag and does nothing here, but it is harmless to pass.
+EXTRA_ARGS=()
+if [ "$TARGET" = "llvm" ]; then
+  EXTRA_ARGS=(-target=native-linux-gnu)
+fi
 RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l="$TARGET" \
-  "$SRC" -d="$OUT_DIR" -o=engine_bench."$EXT" -nodecli -native-fast-alloc
+  "$SRC" -d="$OUT_DIR" -o=engine_bench."$EXT" -nodecli -native-fast-alloc "${EXTRA_ARGS[@]}"
 
 case "$TARGET" in
   cpp)
@@ -83,5 +93,28 @@ case "$TARGET" in
     else
       echo "no swiftc; generated $OUT_DIR/engine_bench.swift only"
     fi
+    ;;
+  llvm)
+    # The LLVM backend emits @main for the Ranger entry point, so it is renamed
+    # and called from a C host that hands the process arguments to the runtime
+    # first -- the same wrapper scripts/compile-ts-parser-llvm.sh uses.
+    #
+    # ranger_rt.c already contains the cli and terminal helpers; linking
+    # ranger_cli.c or ranger_term.c alongside it is a duplicate-symbol error.
+    # ranger_buffer.c is separate and IS needed: the engine reaches the buffer
+    # intrinsics through the JPEG paths its standard library pulls in.
+    echo "== clang -O2"
+    sed 's/@main(/@rgr_main(/g; s/define i32 @main(/define i32 @rgr_main(/g' \
+      "$OUT_DIR/engine_bench.ll" > "$OUT_DIR/engine_bench_fixed.ll"
+    cat > "$OUT_DIR/host_main.c" <<'HOSTEOF'
+#include <stdlib.h>
+void ranger_cli_init(int argc, char **argv);
+int rgr_main(void);
+int main(int argc, char **argv) { ranger_cli_init(argc, argv); return rgr_main(); }
+HOSTEOF
+    clang -O2 "$OUT_DIR/engine_bench_fixed.ll" "$OUT_DIR/host_main.c" \
+      runtime/ranger_rt.c runtime/ranger_mem.c runtime/ranger_buffer.c \
+      -o "$OUT_DIR/engine_bench" -Wno-override-module -lm
+    echo "built: $OUT_DIR/engine_bench   ($OUT_DIR/engine_bench loop 1)"
     ;;
 esac

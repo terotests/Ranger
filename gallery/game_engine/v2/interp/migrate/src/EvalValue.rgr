@@ -20,11 +20,38 @@ Import "../../../../../ts_parser/ts_parser_simple.rgr"
 ; 9 = Map  (ordered; keys in arrayValue, values in mapVals, matched by index)
 ; 10 = Set (ordered unique elements in arrayValue)
 
+; Runtime hooks the LLVM backend replaces with intrinsics. Every other target
+; keeps these bodies, so the optimisations they gate simply never fire there --
+; the answers below are the conservative ones.
+class RangerMem {
+    sfn liveObjects:int () { return 0 }
+    sfn resetStats:void () { }
+    ; "Is the value under `key` held by nothing but this map?" Only a reference
+    ; counted runtime can answer; without one the honest answer is "cannot tell",
+    ; which callers must read as "not unique".
+    sfn mapValueUnique:boolean (m:[string:EvalValue] key:string) { return false }
+    ; "Assign only if the key is already there", answering whether it was. The
+    ; portable fallback is the two-lookup form the intrinsic replaces.
+    sfn mapPutIfPresent:boolean (m:[string:EvalValue] key:string v:EvalValue) {
+        if (has m key) {
+            set m key v
+            return true
+        }
+        return false
+    }
+}
+
 class EvalValue {
     def valueType:int 0         ; Type tag
     def numberValue:double 0.0
     def stringValue:string ""
     def boolValue:boolean false
+    ; True only for a number minted to fill ONE binding's slot in a frame whose
+    ; body scan proved the name's value object never escapes. Nothing else can
+    ; be holding it, so `i++` writes `numberValue` in place. Every value the
+    ; script can alias -- and every pooled literal, which is shared by every
+    ; occurrence of that constant -- keeps false and takes the minting path.
+    def slotOwned:boolean false
     ; D-IDENTITY: immutable reference identity. Object/array/function/Map/Set/
     ; element values are stamped with a unique id (>= 1) at mint; primitives keep
     ; 0 and compare by value. Never changed by property writes, reparenting, or
@@ -1291,6 +1318,19 @@ class EvalConstPool @singleton(true) {
     ; so one instance per small int serves the whole program. Array indices,
     ; loop counters, lengths and char codes hit this range constantly; on the
     ; native targets each miss is a ~full-struct allocation.
+    ; Interned literal values, one per numeric-literal NODE in the program.
+    ; A literal is a constant and a number is immutable, so the same instance
+    ; serves every evaluation of that node -- the same argument that makes
+    ; smallInts safe, applied to the literals the small-integer range misses.
+    def litValues:[EvalValue]
+    fn addLiteral:int (v:EvalValue) {
+        push litValues v
+        return ((array_length litValues) - 1)
+    }
+    fn literalAt:EvalValue (i:int) {
+        return (itemAt litValues i)
+    }
+
     def smallInts:[EvalValue]
     fn smallInt:EvalValue (i:int) {
         if ((array_length smallInts) == 0) {

@@ -58,7 +58,7 @@
     "test:python": "vitest run --config tests/vitest.config.ts compiler-python.test.ts",
     "test:dart": "vitest run --config tests/vitest.config.ts compiler-dart.test.ts compiler-dart-tsparser.test.ts",
     "test:rust": "vitest run --config tests/vitest.config.ts compiler-rust.test.ts",
-    "test:llvm": "vitest run --config tests/vitest.config.ts compiler-llvm.test.ts",
+    "test:llvm": "vitest run --config tests/vitest.llvm.config.ts",
     "test:syntaxapp": "vitest run --config tests/vitest.syntaxapp.config.ts",
     "test:tsengine": "vitest run --config tests/vitest.tsengine.config.ts",
     "test:syntaxapp:update": "cross-env UPDATE_SYNTAX_APP_BASELINE=1 vitest run --config tests/vitest.syntaxapp.config.ts",

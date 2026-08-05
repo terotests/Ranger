@@ -491,3 +491,282 @@ npm run interp:bench                                       # JS build vs Node on
 See `gallery/game_engine/v2/interp/bench/native/README.md` and `RUST.md` for the
 harness details, and `gallery/game_engine/v2/interp/CONFORMANCE.md` for what the
 JavaScript build is measured against.
+
+---
+
+## 5. LLVM: an earlier-stage target than Rust
+
+Attempted 2026-08-03, clang/llc 18.1.3. **No binary was produced**, for either the
+engine or the parser.
+
+### The engine: 247 errors, all missing operator templates
+
+`-l=llvm` on the interpreter fails in Ranger codegen, before any IR is written.
+The LLVM backend has **40 operator templates in `compiler/Lang.rgr`, against 172
+for C++ and 148 for Rust** — roughly a quarter of the surface. Missing families,
+by error count: `indexOf` (35), `keys` (27), `itemAt` (17), `array_length` (17),
+plus `push`, `contains`, `unwrap`, `get`/`set` on several signatures, `M_PI`,
+`tan`, `to_lowercase`, `to_uppercase`.
+
+The apparent failures on core operators — `if` (20), `while` (16), `<` (16),
+`>=` (20) — are **cascades, not separate bugs**. An operator with no template
+for the active target resolves to *no type*, and every comparison and branch
+reading its result inherits that. It is the same failure shape the missing Rust
+operator templates produced, and the same shape that made those look like 15
+unrelated type-inference errors.
+
+### The parser: codegen passes, and the IR does not link
+
+The TypeScript parser is the useful calibration point, because it compiles to
+LLVM IR with **zero** Ranger-side errors and emits 3.4 MB of IR. clang then
+rejects that IR. Fixing each error exposes the next:
+
+| # | clang error | Cause | Status |
+|---|---|---|---|
+| 1 | ``use of undefined value `%floor` `` | `floor` had no `llvm` template, so it fell through to the `*` catch-all — which is JavaScript's `Math.floor(...)` — and became a bare SSA reference nothing defined | **fixed** |
+| 2 | ``'%.c13' defined with type 'i64' but expected 'i32'`` | pushing one ptr-array's element into another emitted `zext i32 <i64 value> to i64`; `exprIsObjectPtr` only recognises VRefs, so an `itemAt` result was treated as a scalar | **fixed** |
+| 3 | ``'%.c75' defined with type 'i64' but expected 'ptr'`` | a string element read from a ptr array is `i64`, and every consumer (`ranger_strdup`, concat, compare) takes `i8*` | open |
+| 4 | ``use of undefined value `%.cast14` `` | reached while attempting (3): a cast is *named* in an instruction but its defining instruction is never emitted | open |
+
+Fixes 1 and 2 are in this branch and were verified not to move any gate. Fix 3
+was attempted and reverted: casting at the read site alone leaves the write side
+inconsistent and surfaced (4), which is a builder-internals problem rather than a
+missing cast.
+
+The root issue behind (3) and (4) is representational: pointer-array elements are
+stored as `i64` and every use site needs its own cast rule, applied ad hoc.
+Making string elements pointer-typed means changing the read, the write and the
+push paths together.
+
+### Why it drifted: the gate was switched off — now fixed
+
+**Update: the gate is green and back in `npm test`.** All 37 LLVM/WAT tests
+pass, and the exclusion is gone from `tests/vitest.config.ts`.
+
+Three backend bugs were behind the red suite, all of the same kind — codegen
+reporting success while emitting IR the toolchain rejects:
+
+| Bug | Cause |
+|---|---|
+| `@ranger_cli_init` called but never declared | the declaration lived only in `ensureLibcExtern`, which runs for libc targets, while the call is emitted for every `@main` |
+| `%heap_next` defined twice in one function | the bump allocator used a fixed SSA name for its pointer update |
+| `call $realloc` against nothing | three targets, three answers: libc has `realloc`, the free-list heap has `Heap_realloc`, and plain `-freestanding` has a bump allocator with neither |
+
+Eleven of the seventeen failures were simpler: the native tests linked only
+`runtime/ranger_mem.c` and not `runtime/ranger_rt.c`, so they failed on the
+`ranger_cli_init` symbol at link time.
+
+Every `.ll` the suite produces is now checked with `opt -passes=verify` in
+addition to its content assertions. That is the part that matters for the
+future: all three bugs above satisfied every `toContain` check in the suite and
+failed at clang. A string match cannot see invalid IR.
+
+### The parser now links — 283 KB, and it is the smallest binary of the three
+
+Continued after the fixes above. The TypeScript parser reaches a **linked,
+running LLVM binary**, and its IR passes `opt -passes=verify` clean.
+
+Same program, same machine, both `-O2`:
+
+| Build | Binary | Stripped | Works |
+|---|---|---|---|
+| **LLVM** (`clang` + `ranger_rt.c` + `ranger_mem.c`) | **283 KB** | 278 KB | starts, prints help, **segfaults on the demo workload** |
+| C++ (`g++`, libstdc++) | 469 KB | 426 KB | yes |
+
+So the size premise holds — **the LLVM build is 1.7x smaller**, and that gap is
+the libstdc++ and STL instantiation weight the C++ target carries. It is not yet
+a working parser: something on the demo path faults, and that is the next thing
+to chase.
+
+Six more backend bugs were fixed to get there, each found by linking and each a
+type-representation mistake rather than a missing feature:
+
+| Bug | Fix |
+|---|---|
+| a string element read from a ptr array was a raw `i64` where every consumer takes `i8*` | `inttoptr` on the way out, `ptrtoint` on the way in — a `push(get(x))` round trip folds to a no-op |
+| `emitCast("ptrtoint" …)` produced an instruction the writer had no case for | use the existing `ptr_to_int` / `inttoptr_i8` ops |
+| `def names:[string] (this.collect())` never recorded its element type | the call path was missing the `isStringArrayTypeNode` case the no-initialiser path documents |
+| `(itemAt names a) == (itemAt names b)` compared ADDRESSES | `exprIsStringish` now recognises an element read from a `[string]` array, so it routes to `strcmp` |
+| `if (node.left)` on an optional reference emitted `icmp ne i32 <i64 value>, 0` | pointer-sized conditions and comparisons are tested in the pointer type |
+| `push xs (this.parseThing())` widened an i64 with `zext i32` | a call returning a class counts as pointer-sized |
+
+### It no longer crashes — the parser is correct on both workloads
+
+Continued. The binary now parses the 1148-line sample and prints its AST
+**byte-for-byte identically to the JavaScript build** (147 lines on the demo,
+2440 on the large file), and valgrind reports **0 errors** on both.
+
+Three bugs, found by debugger and valgrind rather than by reading:
+
+**1. Type descriptors disagreed with the struct layout.** `fieldByteOffset`
+aligned each field before adding its *size*, but answered for the target field
+**without aligning it first**. In a struct laid out `{ … i32, i64 … }` the i64
+was reported at 44 where LLVM puts it at 48 — so the object destructor read a
+pointer out of the seam between two fields and called `free()` on it. It was
+`free(0x555c453000000000)`, a value made of two half-fields. Every class with a
+narrow field before a wide one had a wrong descriptor.
+
+**2. Assigning one owned local to another double-freed.** `left = nullish`
+between two owned object locals left both slots pointing at one object, and each
+released it at scope end. `x = (new T)` had release-before-reassign handling;
+`x = y` had none, so ownership was copied rather than moved. This is the shape
+every precedence level of an expression parser is written in —
+
+```ranger
+def left (this.parseTernary())
+while (this.matchValue("??")) {
+    def nullish (new TSNode())
+    nullish.left = left
+    left = nullish          ; <- two owners, one object
+}
+return left                 ; <- returned, then freed by the other owner
+```
+
+— so `parseNullishCoalescing` freed the node it had just returned and the caller
+wrote through a dangling pointer. The source local is now marked escaped:
+ownership moves.
+
+**3. Concatenating a double emitted `%d` and passed the f64 in an i32 slot.**
+Every non-string concat operand was assumed to be an int. Format and argument
+type are now chosen per operand, `%g` for a double — matching what `to_string`
+already did.
+
+### Size and speed, same program, same machine
+
+| Build | Binary | Stripped | Parses large.ts | Output |
+|---|---|---|---|---|
+| **LLVM** (`clang -O2`, `ranger_rt.c` + `ranger_mem.c`) | **297 KB** | 283 KB | **85.9 ms** | identical |
+| C++ (`g++ -O2`, libstdc++) | 469 KB | 426 KB | 1240.5 ms | identical |
+
+Both print the same 2440 lines. The LLVM build is **1.6x smaller and 14x
+faster** on this workload — the C++ figure is the `std::string`/`std::map` cost
+this document describes elsewhere, on a program that does nothing but build and
+walk a tree.
+
+For reference the JavaScript build runs the *demo* in 67.8 ms; it cannot be
+compared on `-i`, because its own file-reading path is broken — the ESM output
+calls `require`, which does not exist in a module. That is a pre-existing bug in
+the es6 target, unrelated to this work, and it means the native builds currently
+do something the JavaScript one cannot.
+
+### The writer silently dropped unknown instructions
+
+Worth calling out separately, because it is why two of the above cost hours
+rather than minutes. `writeInstr` emitted the two-space indent, ran a `switch`
+on the op, and if no case matched wrote **nothing** — while the instruction's
+SSA temp had already been handed to whatever consumed it. The module then
+referenced a value nothing defined, and the only symptom was clang's "use of
+undefined value" a long way from the cause.
+
+It now compares the output line length across the switch and emits a
+deliberately invalid `UNHANDLED-LOWIR-OP <op>` line when no case ran — the build
+has to stop, not carry on producing a broken module.
+
+### The original diagnosis, for the record
+
+`tests/vitest.config.ts` line 9 excludes the LLVM suite from `npm test`:
+
+```js
+exclude: ["**/node_modules/**", "**/ranger-vscode-extension/**", "**/compiler-llvm.test.ts"],
+```
+
+Run explicitly, `tests/compiler-llvm.test.ts` is **20 passed / 17 failed** — and
+it fails identically with and without the fixes in this branch, so it was
+already red when it was excluded. Both committed LLVM demo scripts are broken
+too: `scripts/compile-ts-parser-llvm.sh` fails at the link step, and
+`scripts/compile-jpeg-scaler-llvm.sh` fails in codegen on `buffer_alloc`.
+
+```bash
+npm run test:llvm      # or just `npm test`, which now includes it
+```
+
+### Is LLVM still the right route to a small binary?
+
+Probably yes, and that is why the gap is worth closing. The LLVM path links
+against `runtime/ranger_rt.c` and `runtime/ranger_mem.c` — a small hand-written
+C runtime with **no libstdc++ dependency**. The 1.7 MB of the C++ binary is
+mostly STL: `std::map` and `std::vector` template instantiations, plus iostreams.
+An LLVM build would not pay for those.
+
+No size figure is claimed here, because no binary exists to measure. The
+statement is about what is *linked*, not about a measurement.
+
+### Order of work
+
+1. ~~Re-enable the gate~~ and ~~get the 17 failing tests passing~~ — **done**;
+   37/37, in `npm test`, with IR verification on every compile.
+2. **The ptr-array element representation** — (3) and (4) together. Reaching a
+   linked parser binary would give the first real size measurement.
+4. **The ~20 operator families for the engine.** Each needs a lowering in
+   `compiler/ng_LowIRBuilder.rgr`, not just template text: the `llvm` entries in
+   `Lang.rgr` are s-expressions consumed by the LowIR builder's intrinsic
+   dispatch. This is a project, and it should follow (1)–(3), not precede them.
+
+---
+
+## `at` and `strlen` mean different things on different targets
+
+Found while chasing why the C++ TS parser was 27x slower than the LLVM one.
+The same four-character string, same program, three targets:
+
+```ranger
+def s:string "café"
+```
+
+| target | `strlen s` | `at s 3` | `at s 4` |
+|---|---:|---|---|
+| es6 / Node | **4** | `é` | undefined |
+| C++ | **5** | `é` | (empty) |
+| LLVM | **5** | `<0xC3>` | `<0xA9>` |
+
+es6 counts **codepoints**; C++ and LLVM count **bytes**. es6 and C++ return a
+codepoint from `at`; LLVM returns a single byte. Three targets, three
+behaviours, on a string every JavaScript engine calls length 4.
+
+### It also explains the speed gap
+
+`r_utf8_char_at` on C++ walks the string from byte 0 on every call to find
+codepoint `pos`. That is correct UTF-8 and **O(n²) to iterate one string** —
+callgrind put **99.65% of all instructions** in it for the parser workload. The
+LLVM runtime is O(1) because `ranger_char_at` indexes bytes, and
+`runtime/ranger_rt.c` says so:
+
+```c
+/* substring: heap-allocated copy of bytes [start, end) of text.
+ * Byte-indexed to match ranger_char_at semantics on this runtime. */
+```
+
+So the **27x LLVM-over-C++ figure on the parser is substantially a semantics
+difference, not an optimisation**. It is recorded here rather than claimed as a
+speedup.
+
+### Why the obvious fix does not work
+
+Detect ASCII, index bytes. Written and measured: **0% —** 1215.4 ms against
+1215.2. Checking whether a string is ASCII is itself O(n), the same walk it
+would replace, so there is nothing to gain per call.
+
+A win needs the flag **cached with the string**, and caching it on the
+`data()` pointer is unsound: allocators reuse addresses, so a later string of
+the same size but different content would be byte-indexed and answer wrongly.
+Ranger strings are immutable-ish (concat and substring allocate new ones), which
+makes same-address-same-size reuse *more* likely, not less.
+
+### The three options that do work
+
+Each changes behaviour, so the choice belongs to whoever owns the semantics:
+
+1. **Byte-index everywhere.** Make C++ `at`/`strlen` byte-based, matching LLVM.
+   O(1), all native targets agree — and es6 becomes the odd one out, which
+   matters because es6 is the target the conformance score is measured on.
+2. **Codepoint-index everywhere.** Give LLVM the UTF-8 walk. Correct and
+   consistent, and makes the LLVM build *slower* — the 27x would largely
+   disappear, because it was never a real gap.
+3. **Carry the flag on the string.** Replace raw `std::string` in the C++ target
+   with a thin wrapper holding an `is_ascii` bit computed once at construction.
+   Keeps UTF-8 correctness *and* gets O(1) for the ASCII case, which is the only
+   option that has both. It is also much the largest change: every string-typed
+   field, local, parameter and return in the emitted C++.
+
+Option 3 is the right end state if `at` is meant to be UTF-8-aware. Option 1 is
+the cheap one, and it is what the LLVM runtime already assumes.

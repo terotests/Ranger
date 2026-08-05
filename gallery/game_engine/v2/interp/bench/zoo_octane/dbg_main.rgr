@@ -1,0 +1,38 @@
+; =============================================================================
+; octane_main — run one prepared Octane suite file through ComponentEngine.
+; =============================================================================
+; Native entry for zoo.js.org / V8 Octane benches. The Node harness prepares the
+; suite (print prelude, inheritsFrom on Function.prototype) into a temp file
+; and invokes this binary; scores are printed by the suite itself via print /
+; console.log.
+;
+;   octane_runner <dir> <file.js>
+;
+; Build: bash gallery/game_engine/v2/interp/bench/zoo_octane/build-native.sh
+; =============================================================================
+
+Import "../../migrate/src/ComponentEngine.rgr"
+
+class OctaneMain {
+    sfn m@(main):void () {
+        def argCnt:int (shell_arg_cnt)
+        if (argCnt < 2) {
+            print "usage: octane_runner <dir> <file.js>"
+            return
+        }
+        def dirPath:string (shell_arg 0)
+        def fileName:string (shell_arg 1)
+        def content@(optional):string (read_file dirPath fileName)
+        if (null? content) {
+            print ("error: could not read " + (dirPath + ("/" + fileName)))
+            return
+        }
+        def src:string (unwrap content)
+        def engine (new ComponentEngine())
+        engine.quiet = false
+        engine.liveClock = true
+        engine.maxLoopIterations = 1000000000
+        engine.loadScript((src + "\nfunction __zoo_done__() { return 'done'; }\n"))
+        def ignored:EvalValue (engine.callFunction("__zoo_done__" (EvalValue.null())))
+    }
+}

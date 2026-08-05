@@ -1645,10 +1645,12 @@ class GeneratedGameScript {
         tmp115.movingPlatforms = _fv122
         def entities:[string:EntityPoseNative] ((this.placeEntities(tmp115 (to_double cameraY) slots)))
         def s:NativeGameState (new NativeGameState)
-        s.showNet = 0
-        set s.numbers "playerSlots" (to_double slots)
-        set s.numbers "cameraY" (to_double cameraY)
         s.entities = entities
+        set s.numbers "cameraY" (to_double cameraY)
+        s.score1 = 0
+        s.score2 = 0
+        set s.numbers "playerSlots" (to_double slots)
+        s.showNet = 0
         st_p1 = p1
         st_p2 = p2
         st_enemies = enemies
@@ -1656,8 +1658,6 @@ class GeneratedGameScript {
         st_diamonds = diamonds
         st_bullets = bullets
         st_movingPlatforms = movingPlatforms
-        s.score1 = 0
-        s.score2 = 0
         set s.numbers "fireCd1" 0.0
         set s.numbers "fireCd2" 0.0
         set s.numbers "summitMusicStarted" 0.0
@@ -1827,6 +1827,7 @@ class GeneratedGameScript {
                     be134.kind = "playSound"
                     be134.id = "bounce"
                     push events (be134)
+                    push events ((this.voiceEvent("chuckle")))
                     push events ((this.rumbleForOwner(owner 90 18000)))
                 } {
                     def _at5:EnemyNative (itemAt enemies ei)
@@ -1854,6 +1855,7 @@ class GeneratedGameScript {
                             be137.kind = "playSound"
                             be137.id = "lose"
                             push events (be137)
+                            push events ((this.voiceEvent("gasp")))
                             push events ((this.rumbleForOwner(owner 280 40000)))
                         }
                     }
