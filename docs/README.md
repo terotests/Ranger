@@ -5,6 +5,9 @@ The Ranger documentation, published at
 and the games site holds `/games/`; one GitHub Pages deployment assembles all
 three (`.github/workflows/deploy-pages.yml`).
 
+Pages **Source** must be **GitHub Actions**. A branch/Jekyll source makes
+`pages-build-deployment` parse Astro `---` front matter as YAML and fail.
+
 The operator reference is generated. It is not written by hand and it is not a
 copy of the sources: the examples are compiled by the compiler of the commit
 that publishes the site, so the documentation cannot drift from the release.

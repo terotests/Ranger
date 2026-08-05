@@ -31,6 +31,12 @@ Outputs static files to `playground/dist/`. The build:
 
 ## GitHub Pages
 
-`.github/workflows/deploy-playground.yml` runs on push to `main` or `master`, builds the playground, and publishes `playground/dist`.
+`.github/workflows/deploy-pages.yml` builds the playground (plus `/games/` and
+`/docs/`) and publishes the combined artifact.
 
 In the repository: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+
+If Source is left on **Deploy from a branch**, GitHub's legacy Jekyll builder
+(`pages-build-deployment`) also runs against `master` and fails on Astro
+front matter under `docs/site/`. That job is not this workflow; flip Source to
+**GitHub Actions** so only `deploy-pages.yml` publishes.
