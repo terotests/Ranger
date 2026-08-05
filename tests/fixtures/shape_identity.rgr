@@ -1,0 +1,49 @@
+; `identical` on a value of a closed family.
+;
+; It did not build at all on the two targets that give a family its own
+; representation: the C++ variant has no operator== for a case it carries by
+; value, and Rust's `Rc::ptr_eq` has no Rc to take when the value is an enum. A
+; program that asked this question compiled on the reference targets and failed
+; in the native toolchain.
+;
+; The question is asked here of a REFERENCE case — one that holds a collection,
+; so every target really does have an object behind it — and every target
+; answers the same: two separately built values are not identical, and two
+; names for one value are.
+;
+; A VALUE case is a different matter, and the answer differs by target on
+; purpose: it is immutable, it compares by content, and C++ and Rust carry it
+; INSIDE the tag, where there is no object for two names to share. There the
+; answer is its content; on a target that boxes every case it is the object.
+; PLAN_SHAPES.md §3.3 states the rule; ask `Value.equals` when the answer has
+; to be the same everywhere.
+shape IValue {
+    case Num  { def value:double 0.0 }
+    case List { def items:[IValue] }
+}
+
+class IdentityProbe {
+    sfn main:void () {
+        def empty:[IValue]
+        def a:IValue (new IValue.List(empty))
+        def b:IValue (new IValue.List(empty))
+        def alias:IValue a
+
+        if (identical a alias) {
+            print "alias"
+        } {
+            print "WRONG: an alias is the same object"
+        }
+        if (identical a b) {
+            print "WRONG: two lists are two objects"
+        } {
+            print "distinct"
+        }
+        ; the same question, answered by the family's own equality
+        if (IValue.equals(a b)) {
+            print "WRONG: a reference case is equal only to itself"
+        } {
+            print "not equal"
+        }
+    }
+}

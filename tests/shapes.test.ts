@@ -423,10 +423,17 @@ describe("shapes (closed variant families)", () => {
       );
     });
 
-    it("rejects a method in a shape body instead of dropping it", () => {
+    it("rejects an unknown member of a shape body instead of dropping it", () => {
       expectCompileError(
         `${FIXTURES_DIR}/shape_bad_member.rgr`,
-        "only `case` and `group` are allowed in a shape body"
+        "only `case`, `group`, `fn` and `sfn` are allowed in a shape body"
+      );
+    });
+
+    it("checks exhaustiveness of a match inside a shape method", () => {
+      expectCompileError(
+        `${FIXTURES_DIR}/shape_method_missing.rgr`,
+        "does not cover MValue.Text"
       );
     });
 
@@ -436,5 +443,151 @@ describe("shapes (closed variant families)", () => {
         "must be declared at the top level"
       );
     });
+  });
+
+  /**
+   * `identical` on a value of a closed family. It did not build on the two
+   * targets that give a family its own representation — the C++ variant has no
+   * operator== for a case it carries by value, and `Rc::ptr_eq` has no Rc to
+   * take when the value is an enum — so a program that asked this question was
+   * quietly limited to the reference targets.
+   *
+   * The fixture asks it of a REFERENCE case, where every target has an object,
+   * so every target must give the same three answers.
+   */
+  describe("identity of a family value", () => {
+    const IDENT = `${FIXTURES_DIR}/shape_identity.rgr`;
+    const EXPECTED_IDENT = ["alias", "distinct", "not equal"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(IDENT, EXPECTED_IDENT);
+    });
+
+    it.skipIf(!isPythonAvailable())("Python", () => {
+      expectPythonOutput(IDENT, EXPECTED_IDENT);
+    });
+
+    it.skipIf(!isGoAvailable())("Go", () => {
+      expectGoOutput(IDENT, EXPECTED_IDENT);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(IDENT, EXPECTED_IDENT);
+    });
+
+    it("Rust asks the trait, so one spelling serves a class and a family", () => {
+      const result = getGeneratedRustCode(IDENT);
+
+      expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("pub trait RgIdentical");
+      // a shared class keeps pointer identity...
+      expect(result.code).toContain("Rc::ptr_eq(self, other)");
+      // ...and the family dispatches per case: object for a reference case,
+      // content for one the tag carries by value
+      expect(result.code).toContain("impl RgIdentical for union_IValue");
+      expect(result.code).toMatch(/IValue_List\(a\), .*IValue_List\(b\)\) => Rc::ptr_eq/);
+      expect(result.code).toMatch(/IValue_Num\(a\), .*IValue_Num\(b\)\) => a == b/);
+    });
+
+    it("C++ gives a by-value case the comparison the variant needs", () => {
+      const result = getGeneratedCppCode(IDENT);
+
+      expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+      // IValue_Num rides inside the variant, so it carries its own operator==
+      expect(result.code).toMatch(/bool operator==\(const IValue_Num& o\) const/);
+      // IValue_List is a shared_ptr alternative — the variant compares pointers
+      expect(result.code).not.toMatch(/bool operator==\(const IValue_List& o\) const/);
+    });
+  });
+
+  /**
+   * Methods on a shape (PLAN_SHAPES.md §3.6). A `fn` in a shape body moves to
+   * the generated ops class and gains the value it acts on as `self`; an `sfn`
+   * moves as it is. The body node is reused rather than reprinted, so a `match`
+   * inside a method is the same node the match expansion and its exhaustiveness
+   * check see — which the diagnostics block above asserts.
+   */
+  describe("methods on a shape", () => {
+    const METHODS = `${FIXTURES_DIR}/shape_methods.rgr`;
+    const EXPECTED_METHODS = "num 2.5\ntext hi\nnothing\ntrue\nnum 0";
+
+    it("ES6", () => {
+      expectOutput(METHODS, EXPECTED_METHODS);
+    });
+
+    it.skipIf(!isPythonAvailable())("Python", () => {
+      expectPythonOutput(METHODS, EXPECTED_METHODS);
+    });
+
+    it.skipIf(!isGoAvailable())("Go", () => {
+      expectGoOutput(METHODS, EXPECTED_METHODS);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(METHODS, EXPECTED_METHODS);
+    });
+
+    it("puts the methods on the ops class, not on the union", () => {
+      const result = getGeneratedRustCode(METHODS);
+
+      expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("impl Value__ops");
+      // the receiver is a parameter of the family, never a Rust `self`
+      expect(result.code).toMatch(/fn describe\(mut __self : union_Value/);
+      // and a case value returned from a function of the family is wrapped
+      expect(result.code).toMatch(/fn zero\(\) -> union_Value/);
+      expect(result.code).toContain("union_Value::Value_Num(");
+      // the prototype used to build the receiver never reaches the output
+      expect(result.code).not.toContain("__shape_self_proto");
+    });
+  });
+
+  /**
+   * A shape held as a FIELD, which is the form the EvalValue migration needs
+   * (PLAN_SHAPES.md §7.3). Three writer faults were found by that migration
+   * and are covered here; each one made the generated program fail to build,
+   * so a target that RUNS the fixture proves the fix.
+   */
+  describe("a shape as a field", () => {
+    const FIELD = `${FIXTURES_DIR}/shape_field.rgr`;
+    const EXPECTED_FIELD = "empty:\ngreet/2\nelem:\n0";
+
+    it("ES6", () => {
+      expectOutput(FIELD, EXPECTED_FIELD);
+    });
+
+    it.skipIf(!isPythonAvailable())("Python", () => {
+      expectPythonOutput(FIELD, EXPECTED_FIELD);
+    });
+
+    it.skipIf(!isGoAvailable())("Go", () => {
+      expectGoOutput(FIELD, EXPECTED_FIELD);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(FIELD, EXPECTED_FIELD);
+    });
+
+    it("Rust wraps a union-typed field initializer and assignment in the variant", () => {
+      const result = getGeneratedRustCode(FIELD);
+
+      expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+      // the field starts as the `None` variant, not as a bare Payload_None
+      expect(result.code).toContain("load:union_Payload::Payload_None(");
+      // and an assignment into the field wraps the member the same way
+      expect(result.code).toMatch(
+        /self\.load\s*=\s*union_Payload::Payload_(FnCore|ElemBox)\(/
+      );
+    });
+
+    it.skipIf(!isRustAvailable())(
+      "Rust builds a record whose field is a shared class",
+      () => {
+        // The shape lowering makes one record per case, so a case that holds a
+        // class hits this path. The synthesized constructor took the bare type
+        // while the field and the call site both had Rc<RefCell<T>>.
+        expectRustOutput(`${FIXTURES_DIR}/record_shared_field.rgr`, "roott");
+      }
+    );
   });
 });

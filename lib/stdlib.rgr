@@ -262,7 +262,7 @@ operators {
             swift6 ( "(" (e 1) " === " (e 2) ")" )
             scala  ( "(" (e 1) " eq " (e 2) ")" )
             php    ( "(" (e 1) " === " (e 2) ")" )
-            rust   ( "Rc::ptr_eq(&" (e 1) ", &" (e 2) ")" )
+            rust   ( (e 1) ".rg_identical(&" (e 2) ")" )
             ; java7, go and cpp compare the handle itself: a reference, a
             ; pointer and a shared_ptr respectively
             * ( "(" (e 1) " == " (e 2) ")" )

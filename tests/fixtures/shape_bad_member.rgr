@@ -1,11 +1,9 @@
-; A shape body may hold only `case` and `group` in stage S1 — a method has to
-; wait for `match` (S2), and a shape that silently dropped it would be worse
-; than one that says so.
+; A shape body holds cases, groups and methods. Anything else is an error
+; rather than something the lowering silently drops — `def` at the top level of
+; a shape looks like a field of the family, which no case would carry.
 shape Broken {
     case A
-    fn toBool:boolean () {
-        return true
-    }
+    def stray:int 0
 }
 
 class BrokenProbe {

@@ -332,6 +332,30 @@ Physical sharing stays a target decision: `@(value)` says nothing about whether 
 runtime may intern strings or pool small integers. It constrains what a program can
 *observe*.
 
+**`identical` on a family value.** The `Identity: none` row above is not a statement
+about the source, it is one the representation enforces. A value case rides *inside*
+the tag on C++ and Rust, so two names cannot share one — and the operator did not even
+build there until the writers were taught this shape (`Rc::ptr_eq` has no Rc to take
+from an enum; the C++ variant had no `operator==` for the alternative it carries by
+value). Both now answer per case:
+
+| case | `identical a b` |
+|---|---|
+| reference | the same object, on every target |
+| value | its content on C++ and Rust; the object on a target that boxes every case |
+
+So `identical` on a **reference** case means the same thing everywhere, and on a
+**value** case it asks a question the family does not define — use `Value.equals`,
+which is specified for both. What would remove the divergence entirely is rewriting
+`identical` and `==` on a family into the generated equality, and that needs an
+overload of a language operator to win over the generic one it specializes. It cannot
+today: `getOperators` returns candidates in registration order, the language is
+registered before the program, and `identical (a:T b:T)` matches everything, so the
+generated overload is never reached. Reversing that order was measured and is not a
+local change — the compiler stops compiling itself, because `lib/stdlib.rgr` resolves
+differently. A specificity rule (a candidate with no type parameter beats one with)
+would be the real fix and it belongs to operator resolution, not to shapes.
+
 Default when a case is in no group: `@(value)` for a case with no fields or only
 immutable scalar fields, `@(reference)` otherwise — with a warning that asks for the
 annotation, because guessing wrong here is a semantic change.
@@ -376,15 +400,40 @@ Keyword construction (`EvalValue.Array items xs declaredLength 4`) should reuse
 `record`'s existing keyword-argument path (`expandRecordCtorArgsIfNeeded`,
 `ng_RangerFlowParser.rgr:3947`) rather than growing a second one.
 
-### 3.6 Methods
+### 3.6 Methods — implemented (shape level)
 
-Methods may be declared on the shape (all variants), on a group (its members), or on a
-single case. A shape method may only touch fields the whole family has — in practice
-none, so shape methods almost always start with a `match`. A group method may touch the
-group's fields directly. Nothing here requires virtual dispatch: the lowering is a free
-function plus a tag switch, except where a target's chosen representation is a sealed
-hierarchy anyway (Kotlin's default, Swift), in which case the writer may use real
-methods.
+A method declared in a shape body moves onto the generated ops class:
+
+```ranger
+shape Value {
+    case Nothing
+    case Num { def value:double 0.0 }
+
+    fn describe:string () {
+        match self {
+            Nothing { return "nothing" }
+            Num n   { return ("num " + (to_string n.value)) }
+        }
+    }
+    sfn zero:Value () { return (new Value.Num(0.0)) }
+}
+
+(Value.describe v)      ; Value__ops.describe(v)
+```
+
+An `fn` becomes an `sfn` whose first parameter is the value it acts on, named
+`self`; an `sfn` moves as it is. A shape method may only touch what the whole family
+has — in practice nothing — so it almost always starts with a `match`, and that match
+is checked for exhaustiveness like any other.
+
+No virtual dispatch is involved and no target needs a method on a union: the call is a
+static one. That is also why the call spelling is `Value.describe(v)` rather than
+`v.describe()` — a receiver-form call through a union would need per-target dispatch,
+which is the same reason `Value.equals(a b)` is spelled that way.
+
+Methods on a **group** or on a single **case** are not implemented. A case is a record
+class, so its own methods have a natural home; a group method would need the group's
+fields, which every member already carries. Both are additive.
 
 ### 3.7 The `case` keyword collision
 
@@ -1017,6 +1066,42 @@ maps, a function's core split from its binding, an equality the compiler writes
 targets, where an `EvalValue` is 680 bytes with eight collections and no nursery
 to hide it; that share has not been measured and is the next thing to measure,
 not to assume.
+
+### 7.4b The first migration step, done and measured
+
+The function/element payload is split out (`shape EvalPayload { None | FnCore |
+ElemBox }`, `EvalValue.payload`), which is §7.3's core/binding idea applied to
+the whole kind-specific part rather than only to functions. Thirteen fields left
+the class; the 122 sites in `ComponentEngine.rgr` that read or wrote them go
+through accessors on `EvalValue`, so the payload's representation is now the
+shape's business alone.
+
+| | before | after |
+|---|---|---|
+| `sizeof(EvalValue)` on C++ | 680 B | **376 B** (−45%) |
+| `sizeof` of the payload slot | — | 24 B (`mpark::variant`) |
+| runtime conformance | 1281/1281 | 1281/1281 |
+| C++ engine, geometric mean of the 7 workloads | 1.00 | **0.99** |
+
+The size halved and **the speed did not move**: 0.987 geometric mean over
+`loop, fib, strcat, array, object, method, regex`, interleaved best-of-5 against
+a baseline binary built from the same commit's parent. Six of seven cases came
+out 1–5% faster; `fib` came out 7% slower, which is the one workload that is
+almost entirely calls, and a call now reads its core through a variant test
+instead of a field load.
+
+That is consistent with what the value layer already said (§7.4): the C++ engine
+constructs 4.7k–74k `EvalValue`s per case at ~40 ns each, so the construction is
+1–5% of a case, and halving the object cannot buy more than that. **On the
+native targets the interpreter is not allocation-bound**, and the remaining
+migration steps should be taken for the correctness and clarity they buy, not
+for a speedup that the measurement says is not there.
+
+What the step did buy, beyond the size: `withThis` copies eleven fields it used
+to copy fifteen of, "a value is a function or an element, never both" is
+enforced by the type rather than by convention, and three Rust writer faults
+that no `record` with a class-typed field could avoid are fixed
+(`tests/shapes.test.ts`, `a shape as a field`).
 
 ### 7.5 Migration order
 

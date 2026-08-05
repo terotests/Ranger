@@ -1,0 +1,50 @@
+; Methods on a shape (PLAN_SHAPES.md §3.6). A method moves to the generated
+; ops class, where `fn` gains the value it acts on as a first parameter named
+; `self` and `sfn` needs none — so `Value.describe(v)` reads like the generated
+; `Value.equals(a b)` beside it, and no target needs dispatch through a union.
+;
+; The body is the SAME node the shape was written with, so `match self` is
+; checked for exhaustiveness exactly as a match in a class method is.
+shape Value {
+    case Nothing
+    case Num  { def value:double 0.0 }
+    case Text { def value:string "" }
+
+    ; a method of the family: `self` is the value it acts on
+    fn describe:string () {
+        match self {
+            Nothing  { return "nothing" }
+            Num n    { return ("num " + (to_string n.value)) }
+            Text t   { return ("text " + t.value) }
+        }
+        return "?"
+    }
+
+    fn truthy:boolean () {
+        case self n:Value.Num {
+            return (n.value != 0.0)
+        }
+        case self t:Value.Text {
+            return ((strlen t.value) > 0)
+        }
+        return false
+    }
+
+    ; a static of the family needs no receiver
+    sfn zero:Value () {
+        return (new Value.Num(0.0))
+    }
+}
+
+class Main {
+    sfn main:void () {
+        def a:Value (new Value.Num(2.5))
+        def b:Value (new Value.Text("hi"))
+        def c:Value (new Value.Nothing())
+        print (Value.describe(a))
+        print (Value.describe(b))
+        print (Value.describe(c))
+        print (to_string (Value.truthy(b)))
+        print (Value.describe((Value.zero())))
+    }
+}

@@ -41,8 +41,73 @@ class RangerMem {
     }
 }
 
+; =============================================================================
+; EvalPayload - the part of a value that only ONE kind of value has
+; =============================================================================
+; A closed variant family (PLAN_SHAPES.md 7.3). A value is a function, or an
+; element, or neither: the three are mutually exclusive, which is what a shape
+; states and what thirteen fields on one class could not.
+;
+; Before this split every EvalValue -- including every number the interpreter
+; mints for an arithmetic result -- carried six strings, a map and a vector that
+; only a function value ever reads. On C++ that is sizeof(EvalValue) paid on
+; every allocation; on a target with a nursery it is wasted rather than slow.
+;
+; FnCore holds collections, so it is a REFERENCE case: its fields stay mutable
+; and two of them are equal only when they are the same object. `None` holds
+; nothing, so C++ and Rust carry it inside the tag and a value with no payload
+; allocates nothing for it.
+shape EvalPayload {
+    case None
+    case FnCore {
+        def functionName:string ""
+        ; Captured defining scope for a function/arrow value (lexical closures).
+        ; Held by integer id into ComponentEngine.closureScopes to avoid a type
+        ; cycle (EvalContext lives in ComponentEngine, which imports this file).
+        ; -1 = none.
+        def closureId:int (0 - 1)
+        ; Module provenance: the virtual-module name this function was defined
+        ; in ("" = the entry script). Consumed at call time so the body
+        ; evaluates rooted in its OWN module scope -- the D-MODULES contract.
+        def homeModule:string ""
+        ; D-FNSRC: the WHOLE source text this function's node was parsed from,
+        ; not a slice. Function.prototype.toString cuts [node.start, node.end)
+        ; out of it, and a nested function captured while this one runs inherits
+        ; it -- its own offsets are absolute in the same string, so a pre-cut
+        ; slice would be useless to it. Empty for a builtin ([native code]).
+        def srcText:string ""
+        ; D-REGISTRY: a built-in method held as a VALUE. Ranger has no function
+        ; pointers, so a built-in is identified by the pair (receiver kind, name)
+        ; and invoked through the engine's single type-keyed dispatcher.
+        def builtinKind:string ""
+        def builtinName:string ""
+        ; D-STATICS: the namespace a built-in STATIC belongs to ("Object",
+        ; "Math"). Empty for everything else, which is what distinguishes a
+        ; static from a prototype method held as a value.
+        def builtinNamespace:string ""
+        ; D-STRICT: whether this function is strict -- its own "use strict"
+        ; prologue OR the strictness of the scope that created it.
+        def strictFn:boolean false
+        ; D-CLASSOF: true only for a value produced by Function.prototype.bind.
+        ; Only an explicit bind() survives the rebinding a method call does.
+        def boundExplicit:boolean false
+        ; D-FNPROPS: names whose SYNTHESISED value has been deleted. A
+        ; function's length/name/prototype are computed on read rather than
+        ; stored, so there was nothing for `delete f.length` to remove.
+        def suppressedKeys:[string:boolean]
+        ; D-FNPROTO: arguments fixed by Function.prototype.bind, prepended ahead
+        ; of the call-site arguments every time the bound function is invoked.
+        def boundArgs:[EvalValue]
+    }
+    case ElemBox {
+        def evgElement:EVGElement   ; a JSX element held as a value
+    }
+}
+
 class EvalValue {
     def valueType:int 0         ; Type tag
+    ; The kind-specific part. `None` until a function or an element needs it.
+    def payload:EvalPayload (new EvalPayload.None())
     def numberValue:double 0.0
     def stringValue:string ""
     def boolValue:boolean false
@@ -60,20 +125,9 @@ class EvalValue {
     def arrayValue:[EvalValue]
     def mapVals:[EvalValue]     ; parallel to arrayValue for valueType 9 (Map)
     def objectMap:[string:EvalValue]
-    def functionName:string ""
-    def functionBody:string ""  ; For parsed functions
     ; For a bound method reference (obj.method held as a value): the receiver the
     ; method is called on. null for plain functions/closures.
     def boundThis@(optional):EvalValue
-    ; Captured defining scope for a function/arrow value (lexical closures). Held
-    ; by integer id into ComponentEngine.closureScopes to avoid a type cycle
-    ; (EvalContext lives in ComponentEngine, which imports this file). -1 = none.
-    def closureId:int (0 - 1)
-    ; Module provenance for a function value: the virtual-module name it was
-    ; defined in ("" = the entry script). Set at creation (captureClosure /
-    ; bound-method), consumed at call time so the body evaluates rooted in its
-    ; OWN module scope — the D-MODULES scope-isolation contract.
-    def homeModule:string ""
     ; D-PROTO: the prototype link. On a function value this is its `.prototype`
     ; object (created on first read, so `F.prototype.m = ...` persists); on an
     ; object it is the prototype it inherits from, set by `new F()`. A property
@@ -86,32 +140,6 @@ class EvalValue {
     ; the member-access sites in ComponentEngine look them up and call them.
     def getterMap:[string:EvalValue]
     def setterMap:[string:EvalValue]
-    ; D-FNPROTO: arguments fixed by Function.prototype.bind, prepended ahead of
-    ; the call-site arguments every time the bound function is invoked.
-    def boundArgs:[EvalValue]
-    ; D-REGISTRY: a built-in method held as a VALUE. Ranger has no function
-    ; pointers, so a built-in is identified by the pair (receiver kind, name)
-    ; and invoked through the engine's single type-keyed dispatcher. This is what
-    ; makes `Array.prototype.slice` an actual value: it can be read, passed
-    ; around, compared, and reached by .call/.apply/.bind like any function,
-    ; while the implementation still lives in one place.
-    def builtinKind:string ""
-    def builtinName:string ""
-    ; D-STATICS: the namespace a built-in STATIC belongs to ("Object", "Math").
-    ; Empty for everything else, which is what distinguishes a static from a
-    ; prototype method held as a value.
-    def builtinNamespace:string ""
-    ; D-CLASSOF: true only for a value produced by Function.prototype.bind. A
-    ; built-in read off an object carries that object as `boundThis` too, but a
-    ; METHOD CALL must rebind `this` to the call-site receiver -- which is what
-    ; makes `arr.getClass = Object.prototype.toString; arr.getClass()` brand the
-    ; array. Only an explicit bind() survives that rebinding, per spec.
-    def boundExplicit:boolean false
-    ; D-STRICT: whether this function is strict -- its own "use strict" prologue
-    ; OR the strictness of the scope that created it. Poisoning caller/arguments
-    ; turns on the accessed function's strictness, not the accessing code's, so
-    ; it has to travel with the value.
-    def strictFn:boolean false
     ; D-ATTRS: per-property attributes, as a bitmask keyed by property name.
     ;   bit 0 = writable, bit 1 = enumerable, bit 2 = configurable
     ; An ABSENT key means all three true, which is what plain assignment
@@ -133,19 +161,154 @@ class EvalValue {
     ; so the declared length is carried beside the elements instead. Every value
     ; that IS stored still lives in arrayValue or, past the cap, as a property.
     def declaredLength:int (0 - 1)
-    ; D-FNPROPS: names whose SYNTHESISED value has been deleted. A function's
-    ; length/name/prototype are computed on read rather than stored, so there was
-    ; nothing for `delete f.length` to remove and hasOwnProperty kept saying yes.
-    def suppressedKeys:[string:boolean]
     def functionNode@(optional):TSNode  ; For function AST nodes
-    ; D-FNSRC: the WHOLE source text this function's node was parsed from, not a
-    ; slice. Function.prototype.toString cuts [node.start, node.end) out of it,
-    ; and a nested function captured while this one runs inherits it -- its own
-    ; offsets are absolute in the same string, so a pre-cut slice would be
-    ; useless to it. Empty for a builtin, which stringifies as [native code].
-    def srcText:string ""
-    def evgElement@(optional):EVGElement  ; For JSX elements passed as props
-    
+
+    ; ---- the payload, read and written through these -----------------------
+    ; A read answers the default of the field when there is no FnCore, which is
+    ; what the flat class answered for a value that was not a function. A write
+    ; creates the FnCore, so only a value that is actually given function state
+    ; pays for one.
+
+    fn fnCore:EvalPayload.FnCore () {
+        case payload have:EvalPayload.FnCore {
+            return have
+        }
+        def sk:[string:boolean]
+        def ba:[EvalValue]
+        def made:EvalPayload.FnCore (new EvalPayload.FnCore("" (0 - 1) "" "" "" "" "" false false sk ba))
+        payload = made
+        return made
+    }
+
+    fn fnName:string () {
+        case payload f:EvalPayload.FnCore { return f.functionName }
+        return ""
+    }
+    fn setFnName:void (s:string) {
+        def f:EvalPayload.FnCore (this.fnCore())
+        f.functionName = s
+    }
+
+    fn closureIdOf:int () {
+        case payload f:EvalPayload.FnCore { return f.closureId }
+        return (0 - 1)
+    }
+    fn setClosureId:void (v:int) {
+        def f:EvalPayload.FnCore (this.fnCore())
+        f.closureId = v
+    }
+
+    fn homeModuleOf:string () {
+        case payload f:EvalPayload.FnCore { return f.homeModule }
+        return ""
+    }
+    fn setHomeModule:void (s:string) {
+        def f:EvalPayload.FnCore (this.fnCore())
+        f.homeModule = s
+    }
+
+    fn srcTextOf:string () {
+        case payload f:EvalPayload.FnCore { return f.srcText }
+        return ""
+    }
+    fn setSrcText:void (s:string) {
+        def f:EvalPayload.FnCore (this.fnCore())
+        f.srcText = s
+    }
+
+    fn builtinKindOf:string () {
+        case payload f:EvalPayload.FnCore { return f.builtinKind }
+        return ""
+    }
+    fn setBuiltinKind:void (s:string) {
+        def f:EvalPayload.FnCore (this.fnCore())
+        f.builtinKind = s
+    }
+
+    fn builtinNameOf:string () {
+        case payload f:EvalPayload.FnCore { return f.builtinName }
+        return ""
+    }
+    fn setBuiltinName:void (s:string) {
+        def f:EvalPayload.FnCore (this.fnCore())
+        f.builtinName = s
+    }
+
+    fn builtinNamespaceOf:string () {
+        case payload f:EvalPayload.FnCore { return f.builtinNamespace }
+        return ""
+    }
+    fn setBuiltinNamespace:void (s:string) {
+        def f:EvalPayload.FnCore (this.fnCore())
+        f.builtinNamespace = s
+    }
+
+    fn strictFnOf:boolean () {
+        case payload f:EvalPayload.FnCore { return f.strictFn }
+        return false
+    }
+    fn setStrictFn:void (b:boolean) {
+        def f:EvalPayload.FnCore (this.fnCore())
+        f.strictFn = b
+    }
+
+    fn boundExplicitOf:boolean () {
+        case payload f:EvalPayload.FnCore { return f.boundExplicit }
+        return false
+    }
+    fn setBoundExplicit:void (b:boolean) {
+        def f:EvalPayload.FnCore (this.fnCore())
+        f.boundExplicit = b
+    }
+
+    ; The collections are reached through operations rather than handed out: a
+    ; target that returns a collection by value would copy it, and a caller that
+    ; wrote into the copy would lose the write.
+    fn hasSuppressed:boolean (key:string) {
+        case payload f:EvalPayload.FnCore { return (has f.suppressedKeys key) }
+        return false
+    }
+    fn addSuppressed:void (key:string) {
+        def f:EvalPayload.FnCore (this.fnCore())
+        set f.suppressedKeys key true
+    }
+    fn suppressedKeyList:[string] () {
+        case payload f:EvalPayload.FnCore { return (keys f.suppressedKeys) }
+        def none:[string]
+        return none
+    }
+    fn setSuppressed:void (m:[string:boolean]) {
+        def f:EvalPayload.FnCore (this.fnCore())
+        f.suppressedKeys = m
+    }
+
+    fn boundArgCount:int () {
+        case payload f:EvalPayload.FnCore { return (array_length f.boundArgs) }
+        return 0
+    }
+    fn boundArgAt:EvalValue (index:int) {
+        case payload f:EvalPayload.FnCore { return (itemAt f.boundArgs index) }
+        return (EvalValue.undefined())
+    }
+    fn setBoundArgs:void (items:[EvalValue]) {
+        def f:EvalPayload.FnCore (this.fnCore())
+        f.boundArgs = items
+    }
+
+    ; ---- the element payload -----------------------------------------------
+    fn hasElement:boolean () {
+        case payload e:EvalPayload.ElemBox { return true }
+        return false
+    }
+    fn elementOf:EVGElement () {
+        case payload e:EvalPayload.ElemBox { return (unwrap e.evgElement) }
+        def pool:EvalConstPool (EvalConstPool.__singleton())
+        return pool.blankElement
+    }
+    fn setElement:void (el:EVGElement) {
+        payload = (new EvalPayload.ElemBox(el))
+    }
+
     ; Constructors
     ; null / undefined / true / false are immutable (never mutated in place — the
     ; mutating ops setMember/setIndexAt/push only act on objects/arrays), so they
@@ -295,7 +458,7 @@ class EvalValue {
         v.valueType = 6
         v.identityId = ((EvalIdentityMinter.__singleton()).mint())
         v.functionNode = fnNode
-        v.functionName = fnNode.name
+        v.setFnName(fnNode.name)
         return v
     }
 
@@ -308,7 +471,7 @@ class EvalValue {
         def v:EvalValue (new EvalValue())
         v.valueType = 6
         v.identityId = ((EvalIdentityMinter.__singleton()).mint())
-        v.functionName = name
+        v.setFnName(name)
         return v
     }
 
@@ -320,9 +483,10 @@ class EvalValue {
         def v:EvalValue (new EvalValue())
         v.valueType = 6
         v.identityId = ((EvalIdentityMinter.__singleton()).mint())
-        v.functionName = name
-        v.builtinKind = kind
-        v.builtinName = name
+        def core:EvalPayload.FnCore (v.fnCore())
+        core.functionName = name
+        core.builtinKind = kind
+        core.builtinName = name
         return v
     }
 
@@ -333,9 +497,10 @@ class EvalValue {
         def v:EvalValue (new EvalValue())
         v.valueType = 6
         v.identityId = ((EvalIdentityMinter.__singleton()).mint())
-        v.functionName = name
-        v.builtinNamespace = ns
-        v.builtinName = name
+        def core:EvalPayload.FnCore (v.fnCore())
+        core.functionName = name
+        core.builtinNamespace = ns
+        core.builtinName = name
         return v
     }
 
@@ -343,14 +508,14 @@ class EvalValue {
         if (valueType != 6) {
             return false
         }
-        return ((strlen builtinNamespace) > 0)
+        return ((strlen (this.builtinNamespaceOf())) > 0)
     }
 
     fn isBuiltinMethod:boolean () {
         if (valueType != 6) {
             return false
         }
-        return ((strlen builtinName) > 0)
+        return ((strlen (this.builtinNameOf())) > 0)
     }
 
     ; A method captured as a value (obj.method): the function node plus the
@@ -360,7 +525,7 @@ class EvalValue {
         v.valueType = 6
         v.identityId = ((EvalIdentityMinter.__singleton()).mint())
         v.functionNode = fnNode
-        v.functionName = fnNode.name
+        v.setFnName(fnNode.name)
         v.boundThis = thisVal
         return v
     }
@@ -374,17 +539,26 @@ class EvalValue {
         def v:EvalValue (new EvalValue())
         v.valueType = 6
         v.identityId = identityId
-        v.functionName = functionName
-        v.closureId = closureId
-        v.homeModule = homeModule
+        ; The payload is COPIED, not shared. Sharing it looks right — a rebinding
+        ; does not change what the function IS — but `bind` writes boundArgs and
+        ; `delete f.length` writes suppressedKeys on the value it was handed, and
+        ; with a shared core those writes reach the original too. Five
+        ; conformance cases said so. The core/binding split of PLAN_SHAPES 7.3 is
+        ; what makes sharing safe; until the binding is its own case, copy.
+        case payload src:EvalPayload.FnCore {
+            def dst:EvalPayload.FnCore (v.fnCore())
+            dst.functionName = src.functionName
+            dst.closureId = src.closureId
+            dst.homeModule = src.homeModule
+            dst.srcText = src.srcText
+            dst.builtinKind = src.builtinKind
+            dst.builtinName = src.builtinName
+            dst.builtinNamespace = src.builtinNamespace
+            dst.strictFn = src.strictFn
+            dst.suppressedKeys = src.suppressedKeys
+            dst.boundArgs = src.boundArgs
+        }
         v.objectMap = objectMap
-        v.boundArgs = boundArgs
-        v.builtinKind = builtinKind
-        v.builtinName = builtinName
-        v.builtinNamespace = builtinNamespace
-        v.strictFn = strictFn
-        v.srcText = srcText
-        v.suppressedKeys = suppressedKeys
         v.boundThis = recv
         if functionNode {
             v.functionNode = (unwrap functionNode)
@@ -399,7 +573,7 @@ class EvalValue {
         def v:EvalValue (new EvalValue())
         v.valueType = 7
         v.identityId = ((EvalIdentityMinter.__singleton()).mint())
-        v.evgElement = el
+        v.setElement(el)
         return v
     }
 
@@ -531,11 +705,11 @@ class EvalValue {
             return result + "}"
         }
         if (valueType == 6) {
-            return "[Function: " + functionName + "]"
+            return "[Function: " + (this.fnName()) + "]"
         }
         if (valueType == 7) {
-            if evgElement {
-                def el:EVGElement (unwrap evgElement)
+            if (this.hasElement()) {
+                def el:EVGElement (this.elementOf())
                 return "[EVGElement: " + el.tagName + "]"
             }
             return "[EVGElement: null]"
@@ -846,7 +1020,7 @@ class EvalValue {
             }
             ; D-FNPROPS: a synthesised property that was DELETED stays deleted,
             ; rather than being minted again on the next read.
-            if (has suppressedKeys key) {
+            if (this.hasSuppressed(key)) {
                 return (EvalValue.undefined())
             }
             ; D-PROTO: `F.prototype` is created on first read and stored, so
@@ -858,7 +1032,7 @@ class EvalValue {
                 ; constructor. Minting one on demand made
                 ; `String.prototype.slice.prototype` an object where the spec
                 ; says undefined.
-                if ((strlen builtinName) > 0) {
+                if ((strlen (this.builtinNameOf())) > 0) {
                     return (EvalValue.undefined())
                 }
                 def keys0:[string]
@@ -868,13 +1042,13 @@ class EvalValue {
                 return p
             }
             if (key == "name") {
-                return (EvalValue.string(functionName))
+                return (EvalValue.string((this.fnName())))
             }
             if (key == "length") {
                 ; Function.prototype.bind fixes arguments, so the bound
                 ; function's arity is the target's minus however many were
                 ; fixed, never below zero.
-                def ar:int ((this.functionArity()) - (array_length boundArgs))
+                def ar:int ((this.functionArity()) - (this.boundArgCount()))
                 if (ar < 0) { ar = 0 }
                 return (EvalValue.fromInt(ar))
             }
@@ -1045,7 +1219,7 @@ class EvalValue {
             ; `prototype` on an ordinary function is NON-CONFIGURABLE, so the
             ; delete simply fails; length and name are configurable and go.
             if (key != "prototype") {
-                set suppressedKeys key true
+                this.addSuppressed(key)
             }
         }
         ; D-ACCESSORS: an accessor property lives in getterMap/setterMap, so
@@ -1307,6 +1481,10 @@ class EvalIdentityMinter @singleton(true) {
 ; never mutated in place, so a single instance of each is reused for the whole
 ; program instead of allocating on every EvalValue.null()/boolean()/undefined().
 class EvalConstPool @singleton(true) {
+    ; A stand-in for the element of a value that has no element payload. The
+    ; read accessor has to answer something, and one shared blank costs nothing
+    ; -- every caller tests hasElement() first, so nothing ever reads it.
+    def blankElement:EVGElement (new EVGElement())
     def nullValue:EvalValue (EvalValue.rawNull())
     def undefinedValue:EvalValue (EvalValue.rawUndefined())
     def trueValue:EvalValue (EvalValue.rawBoolean(true))

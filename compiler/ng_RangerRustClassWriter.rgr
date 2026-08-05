@@ -29,6 +29,11 @@ class RangerRustClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
   def thisName:string "self"
+  ; The declared return type of the function being written, when it is a
+  ; sealable union: a `return` of one MEMBER of the family has to be wrapped in
+  ; its enum variant, exactly as an argument or a field assignment is.
+  ; Empty for every other function.
+  def rustFnReturnsUnion:string ""
   def fileHeaderWritten:boolean false
   
   ; Rust needs semicolons at end of statements
@@ -1338,6 +1343,50 @@ class RangerRustClassWriter {
     ctx.unsetInExpr()
     wr.out(".clone()" false)
     return true
+  }
+
+  ; The name of the sealable union a function returns, or "" when it returns
+  ; anything else.
+  fn rustUnionReturnOf:string (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
+    def nnOpt@(optional):CodeNode fnDesc.nameNode
+    if (null? nnOpt) {
+      return ""
+    }
+    def nn:CodeNode (unwrap nnOpt)
+    def tn:string nn.type_name
+    if ((strlen tn) == 0) {
+      return ""
+    }
+    def clOpt@(optional):RangerAppClassDesc (ctx.findClass(tn))
+    if (null? clOpt) {
+      return ""
+    }
+    def cl:RangerAppClassDesc (unwrap clOpt)
+    if ((this.unionIsSealable(cl ctx)) == false) {
+      return ""
+    }
+    return tn
+  }
+
+  ; A case the enum carries BY VALUE (a member of a sealable union that is not
+  ; shared). Its identity question has no object behind it, so the generated
+  ; RgIdentical arm compares content — which needs PartialEq on the struct.
+  fn rustUnionValueCase:boolean (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if (cl.is_union || cl.is_system) {
+      return false
+    }
+    if (this.rustClassIsShared(cl.name ctx)) {
+      return false
+    }
+    def rootCtx:RangerAppWriterContext (ctx.getRoot())
+    for rootCtx.definedClasses ucl:RangerAppClassDesc uci {
+      if (this.unionIsSealable(ucl ctx)) {
+        if ((indexOf ucl.is_union_of cl.name) >= 0) {
+          return true
+        }
+      }
+    }
+    return false
   }
 
   fn rustWriteUnionArg:boolean (arg:RangerAppParamDesc nVal:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -4086,6 +4135,44 @@ class RangerRustClassWriter {
         }
         header.out("}" true)
       }
+      ; --- identity of a value of the family --------------------------------
+      ; `identical` asks whether two names hold the same object. On this target
+      ; that was `Rc::ptr_eq`, which an enum cannot be handed — so the operator
+      ; did not build at all for a value of a closed family. It goes through a
+      ; trait instead, so the same spelling serves both a shared class and a
+      ; family, and the answer follows the family's own split: a reference case
+      ; is the same object, a value case has no object to share (it rides
+      ; inside the tag) and answers on its content.
+      ; the trait is written for every program: `identical` on a plain shared
+      ; class goes through it too, so one spelling serves both
+      header.out("pub trait RgIdentical { fn rg_identical(&self, other: &Self) -> bool; }" true)
+      header.out("impl<T> RgIdentical for Rc<RefCell<T>> {" true)
+      header.out("    fn rg_identical(&self, other: &Self) -> bool { Rc::ptr_eq(self, other) }" true)
+      header.out("}" true)
+      if ((array_length unionNames) > 0) {
+        for unionNames uname:string uni2 {
+          def ucl2:RangerAppClassDesc (hdrRoot.findClass(uname))
+          def ename:string (this.unionInterfaceName(uname))
+          header.out((("impl RgIdentical for " + ename) + " {") true)
+          header.out("    fn rg_identical(&self, other: &Self) -> bool {" true)
+          header.out("        match (self, other) {" true)
+          for ucl2.is_union_of mname2:string mi2 {
+            if (this.rustClassIsShared(mname2 ctx)) {
+              def armS:string ((("            (" + ename) + "::") + mname2) + "(a), "
+              armS = ((((armS + ename) + "::") + mname2) + "(b)) => Rc::ptr_eq(a, b),")
+              header.out(armS true)
+            } {
+              def armV:string ((("            (" + ename) + "::") + mname2) + "(a), "
+              armV = ((((armV + ename) + "::") + mname2) + "(b)) => a == b,")
+              header.out(armV true)
+            }
+          }
+          header.out("            _ => false," true)
+          header.out("        }" true)
+          header.out("    }" true)
+          header.out("}" true)
+        }
+      }
       if ((array_length unionNames) > 0) {
         header.out("" true)
       }
@@ -4293,7 +4380,13 @@ class RangerRustClassWriter {
       ; Don't derive Clone for structs with trait object fields
       wr.out("// Cannot derive Clone due to trait object fields" true)
     } {
-      wr.out("#[derive(Clone)]" true)
+      ; a case carried inside the tag compares by content, so it derives the
+      ; comparison the generated RgIdentical arm uses
+      if (this.rustUnionValueCase(cl ctx)) {
+        wr.out("#[derive(Clone, PartialEq)]" true)
+      } {
+        wr.out("#[derive(Clone)]" true)
+      }
     }
     wr.out((("struct " + cl.name) + " { ") true)
     wr.indent(1)
@@ -4325,7 +4418,24 @@ class RangerRustClassWriter {
           written = written + 1
           wr.out((arg.name + " : ") false)
           def nameN:CodeNode (unwrap arg.nameNode)
-          this.writeTypeDef(nameN ctx wr)
+          ; A parameter of a shared class carries the Rc, exactly as an
+          ; ordinary method parameter does. Without this the constructor of
+          ; `record Box { def held:Node }` took a bare `Node` while every call
+          ; site had an `Rc<RefCell<Node>>` and the field wanted one too — two
+          ; E0308s that no `record` with a class-typed field could avoid.
+          def ctorArgShared:boolean false
+          if arg.rust_needs_rc_wrap {
+            if (nameN.hasFlag("weak") == false) {
+              if (((strlen nameN.array_type) == 0) && ((strlen nameN.key_type) == 0)) {
+                ctorArgShared = true
+              }
+            }
+          }
+          if ctorArgShared {
+            wr.out((("Rc<RefCell<" + (this.getObjectTypeString(nameN.type_name ctx))) + ">>") false)
+          } {
+            this.writeTypeDef(nameN ctx wr)
+          }
         }
       }
     }
@@ -4383,13 +4493,32 @@ class RangerRustClassWriter {
           if init_rc_wrap {
             wr.out("Rc::new(RefCell::new(" false)
           }
-          if pvar.rust_static_str {
-            ; a static-string field initializes from the bare literal
-            this.rustWriteStaticStrValue(valueNode ctx wr)
-          } {
-            ctx.setInExpr()
-            this.WalkNode(valueNode ctx wr)
-            ctx.unsetInExpr()
+          ; PLAN_SHAPES S5: a union-typed field is a Rust enum, so an
+          ; initializer that is one MEMBER of the family is wrapped in its
+          ; variant — `load:Payload_None::new()` alone is E0308
+          def fldTypeName:string ""
+          def pvNameOpt@(optional):CodeNode pvar.nameNode
+          if (!null? pvNameOpt) {
+            def pvName:CodeNode (unwrap pvNameOpt)
+            fldTypeName = pvName.type_name
+          }
+          def wroteUnionInitFld:boolean false
+          if (init_rc_wrap == false) {
+            if (pvar.rust_static_str == false) {
+              ctx.setInExpr()
+              wroteUnionInitFld = (this.rustWriteUnionValue(fldTypeName valueNode ctx wr))
+              ctx.unsetInExpr()
+            }
+          }
+          if (wroteUnionInitFld == false) {
+            if pvar.rust_static_str {
+              ; a static-string field initializes from the bare literal
+              this.rustWriteStaticStrValue(valueNode ctx wr)
+            } {
+              ctx.setInExpr()
+              this.WalkNode(valueNode ctx wr)
+              ctx.unsetInExpr()
+            }
           }
           if init_rc_wrap {
             wr.out("))" false)
@@ -4465,7 +4594,9 @@ class RangerRustClassWriter {
         def sCtx:RangerAppWriterContext (unwrap subCtx)
         sCtx.is_function = true
         def fnB:CodeNode (unwrap variant.fnBody)
+        rustFnReturnsUnion = (this.rustUnionReturnOf(variant ctx))
         this.walkRustFnBody(fnB sCtx wr)
+        rustFnReturnsUnion = ""
       }
       wr.newline()
       wr.indent(-1)
@@ -4542,7 +4673,9 @@ class RangerRustClassWriter {
           def sCtx:RangerAppWriterContext (unwrap subCtx)
           sCtx.is_function = true
           def fnBNode:CodeNode (unwrap variant.fnBody)
+          rustFnReturnsUnion = (this.rustUnionReturnOf(variant ctx))
           this.walkRustFnBody(fnBNode sCtx wr)
+          rustFnReturnsUnion = ""
         }
         wr.newline()
         wr.indent(-1)
@@ -4618,7 +4751,9 @@ class RangerRustClassWriter {
                 def sCtx:RangerAppWriterContext (unwrap subCtx)
                 sCtx.is_function = true
                 def fnBNode:CodeNode (unwrap variant.fnBody)
+                rustFnReturnsUnion = (this.rustUnionReturnOf(variant ctx))
                 this.walkRustFnBody(fnBNode sCtx wr)
+                rustFnReturnsUnion = ""
               }
               wr.newline()
               wr.indent(-1)
@@ -4794,7 +4929,9 @@ class RangerRustClassWriter {
           def sCtx:RangerAppWriterContext (unwrap subCtx)
           sCtx.is_function = true
           def fnB:CodeNode (unwrap variant.fnBody)
+          rustFnReturnsUnion = (this.rustUnionReturnOf(variant ctx))
           this.walkRustFnBody(fnB sCtx wr)
+          rustFnReturnsUnion = ""
         }
         if mainReturns {
           wr.newline()
@@ -6046,6 +6183,18 @@ class RangerRustClassWriter {
       } {
         ; Non-optional assignment
         wr.out(" = " false)
+        ; PLAN_SHAPES S5: the slot is a Rust enum, so a member value is wrapped
+        ; in its variant here, exactly as a call argument is
+        if (preeval_rhs == false) {
+          if (this.rustWriteUnionValue(field_type_name right ctx wr)) {
+            if rhs_is_optional {
+              wr.out(".unwrap()" false)
+            }
+            wr.out(";" true)
+            ctx.unsetInExpr()
+            return
+          }
+        }
         if left_is_trait_type {
           if rhs_is_already_boxed_trait {
             ; RHS is already Rc<RefCell<dyn Trait>>, clone for shared ownership
@@ -6214,10 +6363,25 @@ class RangerRustClassWriter {
         if (node.rust_is_tail_return == false) {
           wr.out("return " false)
         }
+        ; PLAN_SHAPES S5: the slot is a Rust enum, so a member value returned
+        ; from a function of the family is wrapped in its variant here
+        ; rustWriteUnionValue manages the expression context itself; wrapping it
+        ; in another setInExpr/unsetInExpr pair leaves the walk in statement
+        ; context, and the value writes its own line ending
+        if ((strlen rustFnReturnsUnion) > 0) {
+          if (this.rustWriteUnionValue(rustFnReturnsUnion retVal ctx wr)) {
+            if node.rust_is_tail_return {
+              wr.out("" true)
+            } {
+              wr.out(";" true)
+            }
+            return
+          }
+        }
         ctx.setInExpr()
         this.WalkNode(retVal ctx wr)
         ctx.unsetInExpr()
-        ; Add .clone() for non-primitive types (String, objects, arrays, etc.) 
+        ; Add .clone() for non-primitive types (String, objects, arrays, etc.)
         ; Check if the return value needs cloning based on its evaluated type
         def tn:string retVal.eval_type_name
         def needs_ret_clone:boolean false

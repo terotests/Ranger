@@ -4349,6 +4349,75 @@ class RangerFlowParser {
     return found
   }
 
+  ; Moves the methods written in a shape body onto the generated ops class.
+  ;
+  ; The method node is REUSED rather than rewritten as text: only its head word
+  ; changes (`fn` becomes `sfn`, since the ops class is a namespace and not an
+  ; object) and, for a non-static method, the value it acts on is inserted as
+  ; the first parameter. The body node is untouched, so a `match` inside it is
+  ; the same node the later match expansion sees, and nothing has to survive a
+  ; round trip through the printer.
+  fn attachShapeMethods:void (eqRoot:CodeNode shapeName:string opsName:string methodNodes:[CodeNode] methodNames:[string] methodStatic:[boolean] ctx:RangerAppWriterContext) {
+    ; the class node the generated source declares, and its block
+    def clsBlockOpt@(optional):CodeNode
+    for eqRoot.children ch:CodeNode ci {
+      if (ch.isFirstVref("class")) {
+        for ch.children part:CodeNode pi {
+          if part.is_block_node {
+            clsBlockOpt = part
+          }
+        }
+      }
+    }
+    if (null? clsBlockOpt) {
+      ctx.addError(eqRoot ("could not attach the methods of shape " + shapeName))
+      return
+    }
+    def clsBlock:CodeNode (unwrap clsBlockOpt)
+
+    ; the `self:<Shape>` parameter to copy, and the prototype that carried it
+    def selfParamOpt@(optional):CodeNode
+    def protoIndex:int (0 - 1)
+    def bi:int 0
+    def bcnt:int (array_length clsBlock.children)
+    while (bi < bcnt) {
+      def st:CodeNode (itemAt clsBlock.children bi)
+      if ((array_length st.children) > 2) {
+        def nameNode:CodeNode (st.getSecond())
+        if (nameNode.vref == "__shape_self_proto") {
+          def argsNode:CodeNode (itemAt st.children 2)
+          if ((array_length argsNode.children) > 0) {
+            selfParamOpt = (itemAt argsNode.children 0)
+          }
+          protoIndex = bi
+        }
+      }
+      bi = bi + 1
+    }
+    if (null? selfParamOpt) {
+      ctx.addError(eqRoot ("could not build the receiver of the methods of shape " + shapeName))
+      return
+    }
+    def selfParam:CodeNode (unwrap selfParamOpt)
+
+    for methodNodes mNode@(lives):CodeNode mi {
+      def head:CodeNode (mNode.getFirst())
+      head.vref = "sfn"
+      def isStatic:boolean (itemAt methodStatic mi)
+      if (isStatic == false) {
+        def argsNode:CodeNode (itemAt mNode.children 2)
+        insert argsNode.children 0 (selfParam.copy())
+      }
+      push clsBlock.children mNode
+    }
+
+    ; the prototype has done its work; leaving it would put a function named
+    ; __shape_self_proto in the output of every shape that has a method
+    if (protoIndex >= 0) {
+      remove_index clsBlock.children protoIndex
+    }
+  }
+
   fn expandShape:void (shapeNode@(lives):CodeNode parent@(lives):CodeNode shapeIndex:int ctx:RangerAppWriterContext wr:CodeWriter renames:[string:string]) {
     ; generated classes are spliced in where the shape was written, not appended
     ; to the end of the file: a target that emits classes in source order (and
@@ -4387,6 +4456,10 @@ class RangerFlowParser {
     ; --- cases: one record class each ---
     def caseNames:[string]
     def caseGroup:[string:string]
+    ; methods of the family, moved onto the generated ops class below
+    def methodNodes:[CodeNode]
+    def methodNames:[string]
+    def methodStatic:[boolean]
     bi = 0
     while (bi < bcnt) {
       def st:CodeNode (itemAt body.children bi)
@@ -4397,8 +4470,35 @@ class RangerFlowParser {
       def head:CodeNode (st.getFirst())
       def kind:string head.vref
       def isCase:boolean ((kind == "case") || (kind == "variant"))
+      ; A METHOD of the family. It moves to the generated ops class, where an
+      ; `fn` gains the value it acts on as its first parameter, named `self`:
+      ;
+      ;   shape Value { case Num { … }  fn describe:string () { match self … } }
+      ;   (Value.describe v)     ->  Value__ops.describe(v)
+      ;
+      ; A union has no methods on most targets, so a dynamic call through the
+      ; family would need per-target dispatch; the static form needs none and
+      ; is what `Value.equals(a b)` already reads like.
+      if ((kind == "fn") || (kind == "sfn")) {
+        if ((array_length st.children) < 4) {
+          ctx.addError(st "a method of a shape needs a name, a parameter list and a body")
+          bi = bi + 1
+          continue
+        }
+        def mNameNode:CodeNode (st.getSecond())
+        if ((strlen mNameNode.vref) == 0) {
+          ctx.addError(st "a method of a shape needs a name")
+          bi = bi + 1
+          continue
+        }
+        push methodNodes st
+        push methodNames mNameNode.vref
+        push methodStatic (kind == "sfn")
+        bi = bi + 1
+        continue
+      }
       if ((isCase == false) && (kind != "group")) {
-        ctx.addError(st (("only `case` and `group` are allowed in a shape body, found `" + kind) + "` (methods on a shape are not implemented yet — write the `match` in a class method instead)"))
+        ctx.addError(st (("only `case`, `group`, `fn` and `sfn` are allowed in a shape body, found `" + kind) + "`"))
         bi = bi + 1
         continue
       }
@@ -4623,7 +4723,15 @@ class RangerFlowParser {
     eqSrc = eqSrc + "    }\n"
     eqSrc = eqSrc + "    return true\n"
     eqSrc = eqSrc + "  }\n"
+    ; A parsed `self:<Shape>` parameter to copy onto every method below. Writing
+    ; the node by hand would mean reproducing what the parser puts on a typed
+    ; vref; parsing one and copying it cannot drift from that.
+    if ((array_length methodNodes) > 0) {
+      eqSrc = eqSrc + "  sfn __shape_self_proto:void (self:" + shapeName + ") {\n"
+      eqSrc = eqSrc + "  }\n"
+    }
     eqSrc = eqSrc + "}\n"
+
 
     if (ctx.hasCompilerFlag("shape-debug")) {
       print eqSrc
@@ -4637,6 +4745,13 @@ class RangerFlowParser {
       ctx.addError(shapeNode ("could not generate the equality of shape " + shapeName))
     } {
       def eqRoot:CodeNode (unwrap eqRootOpt)
+      ; --- the methods of the family move onto the ops class ---
+      if ((array_length methodNodes) > 0) {
+        this.attachShapeMethods(eqRoot shapeName opsName methodNodes methodNames methodStatic ctx)
+        for methodNames mn:string mni {
+          set renames ((shapeName + ".") + mn) ((opsName + ".") + mn)
+        }
+      }
       for eqRoot.children eqch@(lives):CodeNode eqi {
         insert parent.children insertAt eqch
         insertAt = insertAt + 1

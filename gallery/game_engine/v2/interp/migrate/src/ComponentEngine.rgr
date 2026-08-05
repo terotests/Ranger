@@ -1050,8 +1050,8 @@ class ComponentEngine {
         sym.helperFunctions = helperFns
         this.upsertLocalComponent(sym)
         def __fnv:EvalValue (EvalValue.function(fnNode))
-        __fnv.strictFn = (this.strictForBody(fnNode))
-        __fnv.srcText = currentSource
+        __fnv.setStrictFn((this.strictForBody(fnNode)))
+        __fnv.setSrcText(currentSource)
         this.defineModuleBinding(localName __fnv)
         this.trace("Imported: " + localName + " (" + exportName + ") from " + sourcePath)
     }
@@ -1523,10 +1523,10 @@ class ComponentEngine {
     ; `strictFn` on the bound copy conflated the two and made
     ; `f.bind()()` keep an undefined `this` for a SLOPPY f.
     fn functionIsStrict:boolean (fv:EvalValue) {
-        if fv.boundExplicit {
+        if (fv.boundExplicitOf()) {
             return true
         }
-        return fv.strictFn
+        return (fv.strictFnOf())
     }
 
     fn insideFunctionCall:boolean () {
@@ -1799,10 +1799,10 @@ class ComponentEngine {
         if v.functionNode {
             return false
         }
-        if ((strlen v.builtinName) > 0) {
+        if ((strlen (v.builtinNameOf())) > 0) {
             return false
         }
-        return (v.functionName == "eval")
+        return ((v.fnName()) == "eval")
     }
 
     fn runIndirectEval:EvalValue (args:[EvalValue]) {
@@ -2069,8 +2069,8 @@ class ComponentEngine {
                             def fnNode:TSNode (unwrap ch.newNode)
                             this.updateLocalComponentNode(ch.name fnNode)
                             def __fnv:EvalValue (EvalValue.function(fnNode))
-                            __fnv.strictFn = (this.strictForBody(fnNode))
-                            __fnv.srcText = currentSource
+                            __fnv.setStrictFn((this.strictForBody(fnNode)))
+                            __fnv.setSrcText(currentSource)
                             moduleScope.define(ch.name __fnv)
                             this.trace("Patched function: " + ch.name)
                         }
@@ -2423,8 +2423,8 @@ class ComponentEngine {
         if ((this.nodeKindOf(node)) == 40) {
             if (node.name != "render") {
                 def __fnv:EvalValue (EvalValue.function(node))
-                __fnv.strictFn = (this.strictForBody(node))
-                __fnv.srcText = currentSource
+                __fnv.setStrictFn((this.strictForBody(node)))
+                __fnv.setSrcText(currentSource)
                 this.defineModuleBinding(node.name __fnv)
             }
             return
@@ -2622,8 +2622,8 @@ class ComponentEngine {
         sym.functionNode = node
         this.upsertLocalComponent(sym)
         def __fnv:EvalValue (EvalValue.function(node))
-        __fnv.strictFn = (this.strictForBody(node))
-        __fnv.srcText = currentSource
+        __fnv.setStrictFn((this.strictForBody(node)))
+        __fnv.setSrcText(currentSource)
         this.defineModuleBinding(node.name __fnv)
         this.trace("Registered local component: " + node.name)
     }
@@ -6031,7 +6031,7 @@ class ComponentEngine {
                 if (sFn.isBuiltinMethod()) {
                     def poisonArgs:[EvalValue]
                     push poisonArgs rightValue
-                    return (this.invokeBuiltin(sFn.builtinKind sFn.builtinName obj poisonArgs))
+                    return (this.invokeBuiltin((sFn.builtinKindOf()) (sFn.builtinNameOf()) obj poisonArgs))
                 }
                 if sFn.functionNode {
                     def cur0:EvalValue (EvalValue.undefined())
@@ -6737,7 +6737,7 @@ class ComponentEngine {
             if pendingCalleeValid {
                 if pendingCallee {
                     def calleeV:EvalValue (unwrap pendingCallee)
-                    if calleeV.strictFn {
+                    if (calleeV.strictFnOf()) {
                         argsStrict = true
                     }
                 }
@@ -7084,8 +7084,8 @@ class ComponentEngine {
         ; D-STRICT: a function is strict if its own body says so or if the scope
         ; that created it was strict. Recorded here rather than asked at use
         ; time, because by then the defining scope is gone.
-        fv.strictFn = (this.strictForBody(fnNode))
-        fv.srcText = currentSource
+        fv.setStrictFn((this.strictForBody(fnNode)))
+        fv.setSrcText(currentSource)
         def id:int (array_length closureScopes)
         def cell (new ClosureCell)
         ; D-FNEXPRNAME: a NAMED function expression binds its own name inside its
@@ -7102,10 +7102,10 @@ class ComponentEngine {
         }
         cell.ctx = capturedCtx
         push closureScopes cell
-        fv.closureId = id
+        fv.setClosureId(id)
         ; provenance: the module this function was DEFINED in ("" = entry), so a
         ; call can restore the right module register for bare-name `new`.
-        fv.homeModule = currentModule
+        fv.setHomeModule(currentModule)
         return fv
     }
 
@@ -7135,10 +7135,10 @@ class ComponentEngine {
         if v.functionNode {
             return ""
         }
-        if ((strlen v.builtinName) > 0) {
+        if ((strlen (v.builtinNameOf())) > 0) {
             return ""
         }
-        def nm:string v.functionName
+        def nm:string (v.fnName())
         def guard:int 0
         while (guard < 8) {
             if ((strlen nm) > 6) {
@@ -7292,7 +7292,7 @@ class ComponentEngine {
         ; a static passed as a callback. Checked ahead of the method path
         ; because a static carries a builtinName too.
         if (fnValue.isBuiltinStatic()) {
-            return (this.invokeBuiltinStatic(fnValue.builtinNamespace fnValue.builtinName argVals))
+            return (this.invokeBuiltinStatic((fnValue.builtinNamespaceOf()) (fnValue.builtinNameOf()) argVals))
         }
         ; D-CTORVALUE: a built-in CONSTRUCTOR held as a value is callable.
         if (fnValue.valueType == 6) {
@@ -7304,8 +7304,8 @@ class ComponentEngine {
         if ((strlen ctorNameV) > 0) {
             def mergedV:[EvalValue]
             def mvi:int 0
-            while (mvi < (array_length fnValue.boundArgs)) {
-                push mergedV (itemAt fnValue.boundArgs mvi)
+            while (mvi < (fnValue.boundArgCount())) {
+                push mergedV (fnValue.boundArgAt(mvi))
                 mvi = (mvi + 1)
             }
             def mvj:int 0
@@ -7327,11 +7327,11 @@ class ComponentEngine {
                 bRecv = (unwrap fnValue.boundThis)
             }
             def bArgs:[EvalValue] argVals
-            if ((array_length fnValue.boundArgs) > 0) {
+            if ((fnValue.boundArgCount()) > 0) {
                 def bMerged:[EvalValue]
                 def bi0:int 0
-                while (bi0 < (array_length fnValue.boundArgs)) {
-                    push bMerged (itemAt fnValue.boundArgs bi0)
+                while (bi0 < (fnValue.boundArgCount())) {
+                    push bMerged (fnValue.boundArgAt(bi0))
                     bi0 = (bi0 + 1)
                 }
                 def bi1:int 0
@@ -7341,7 +7341,7 @@ class ComponentEngine {
                 }
                 bArgs = bMerged
             }
-            return (this.invokeBuiltin(fnValue.builtinKind fnValue.builtinName bRecv bArgs))
+            return (this.invokeBuiltin((fnValue.builtinKindOf()) (fnValue.builtinNameOf()) bRecv bArgs))
         }
         if (this.isEvalFunctionValue(fnValue)) {
             return (this.runIndirectEval(argVals))
@@ -7357,9 +7357,9 @@ class ComponentEngine {
         scriptDidReturn = false
         scriptReturnValue = (EvalValue.null())
         def parent:EvalContext context
-        if (fnValue.closureId >= 0) {
-            if (fnValue.closureId < (array_length closureScopes)) {
-                def cell:ClosureCell (itemAt closureScopes fnValue.closureId)
+        if ((fnValue.closureIdOf()) >= 0) {
+            if ((fnValue.closureIdOf()) < (array_length closureScopes)) {
+                def cell:ClosureCell (itemAt closureScopes (fnValue.closureIdOf()))
                 if cell.ctx {
                     parent = (unwrap cell.ctx)
                 }
@@ -7369,15 +7369,15 @@ class ComponentEngine {
             ; value roots in its module scope; an entry-owned value invoked FROM
             ; module code roots in the entry module scope (never the module's
             ; chain). Pure entry→entry calls keep the legacy caller chain.
-            if ((strlen fnValue.homeModule) > 0) {
-                parent = (this.moduleScopeFor(fnValue.homeModule))
+            if ((strlen (fnValue.homeModuleOf())) > 0) {
+                parent = (this.moduleScopeFor((fnValue.homeModuleOf())))
             } {
                 if ((strlen currentModule) > 0) {
                     parent = moduleScope
                 }
             }
         }
-        currentModule = fnValue.homeModule
+        currentModule = (fnValue.homeModuleOf())
         context = (parent.createChild())
         if fnValue.boundThis {
             ; D-THISCOERCE: a SLOPPY function called with no receiver -- or with
@@ -7391,7 +7391,7 @@ class ComponentEngine {
             ; a sloppy function called from strict code kept an undefined
             ; `this`, which is exactly what `"use strict";
             ; Function("return typeof this")()` reports.
-            def calleeStrict:boolean fnValue.strictFn
+            def calleeStrict:boolean (fnValue.strictFnOf())
             if (this.bodyOnlyStrict(fnNode)) {
                 calleeStrict = true
             }
@@ -7412,7 +7412,7 @@ class ComponentEngine {
             ; to whatever the DEFINING scope had, which is not the same thing.
             ; An ARROW takes `this` lexically and must not be given one here --
             ; binding the global object would shadow the enclosing `this`.
-            def bareStrict:boolean fnValue.strictFn
+            def bareStrict:boolean (fnValue.strictFnOf())
             if (this.bodyOnlyStrict(fnNode)) {
                 bareStrict = true
             }
@@ -7434,11 +7434,11 @@ class ComponentEngine {
         }
         ; D-FNPROTO: arguments fixed by bind() come first, then the call site's.
         def effArgs:[EvalValue] argVals
-        if ((array_length fnValue.boundArgs) > 0) {
+        if ((fnValue.boundArgCount()) > 0) {
             def merged:[EvalValue]
             def bi:int 0
-            while (bi < (array_length fnValue.boundArgs)) {
-                push merged (itemAt fnValue.boundArgs bi)
+            while (bi < (fnValue.boundArgCount())) {
+                push merged (fnValue.boundArgAt(bi))
                 bi = (bi + 1)
             }
             def ci2:int 0
@@ -7462,7 +7462,7 @@ class ComponentEngine {
         ; a function built by the Function constructor inside strict code is
         ; sloppy, and calling it from that strict code has to run it sloppy.
         strictMode = (this.bodyOnlyStrict(fnNode))
-        if fnValue.strictFn {
+        if (fnValue.strictFnOf()) {
             strictMode = true
         }
         callDepth = (callDepth + 1)
@@ -7470,8 +7470,8 @@ class ComponentEngine {
         ; function IT defines belongs to the same string. Without the swap a
         ; closure returned by an eval'd factory would slice the main script.
         def savedSrcText:string currentSource
-        if ((strlen fnValue.srcText) > 0) {
-            currentSource = fnValue.srcText
+        if ((strlen (fnValue.srcTextOf())) > 0) {
+            currentSource = (fnValue.srcTextOf())
         }
         def result:EvalValue (EvalValue.null())
         if fnNode.body {
@@ -7520,8 +7520,8 @@ class ComponentEngine {
         ; like hud() -> playHud(...)). Evaluate it and unwrap the element result.
         def val:EvalValue (this.evaluateExpr(node))
         if (val.isElement()) {
-            if val.evgElement {
-                return (unwrap val.evgElement)
+            if (val.hasElement()) {
+                return (val.elementOf())
             }
         }
         
@@ -7633,8 +7633,8 @@ class ComponentEngine {
                     def helperFn:TSNode (itemAt sym.helperFunctions hi)
                     def helperName:string helperFn.name
                     def __fnv:EvalValue (EvalValue.function(helperFn))
-                    __fnv.strictFn = (this.strictForBody(helperFn))
-                    __fnv.srcText = currentSource
+                    __fnv.setStrictFn((this.strictForBody(helperFn)))
+                    __fnv.setSrcText(currentSource)
                     def helperValue:EvalValue __fnv
                     context.define(helperName helperValue)
                     print ("Registered helper function: " + helperName)
@@ -7941,8 +7941,8 @@ class ComponentEngine {
                     while (ai < (array_length callResult.arrayValue)) {
                         def arrItem:EvalValue (itemAt callResult.arrayValue ai)
                         if (arrItem.isElement()) {
-                            if arrItem.evgElement {
-                                def arrChildEl:EVGElement (unwrap arrItem.evgElement)
+                            if (arrItem.hasElement()) {
+                                def arrChildEl:EVGElement (arrItem.elementOf())
                                 if ((strlen arrChildEl.tagName) > 0) {
                                     element.addChild(arrChildEl)
                                 }
@@ -7955,8 +7955,8 @@ class ComponentEngine {
                 
                 ; Handle single element result
                 if (callResult.isElement()) {
-                    if callResult.evgElement {
-                        def childEl:EVGElement (unwrap callResult.evgElement)
+                    if (callResult.hasElement()) {
+                        def childEl:EVGElement (callResult.elementOf())
                         if ((strlen childEl.tagName) > 0) {
                             element.addChild(childEl)
                         }
@@ -7995,8 +7995,8 @@ class ComponentEngine {
             
             ; Handle EVGElement values (e.g., {children} prop containing JSX)
             if (value.isElement()) {
-                if value.evgElement {
-                    def childEl:EVGElement (unwrap value.evgElement)
+                if (value.hasElement()) {
+                    def childEl:EVGElement (value.elementOf())
                     if ((strlen childEl.tagName) > 0) {
                         element.addChild(childEl)
                     }
@@ -8010,8 +8010,8 @@ class ComponentEngine {
                 while (ai < (array_length value.arrayValue)) {
                     def arrItem:EvalValue (itemAt value.arrayValue ai)
                     if (arrItem.isElement()) {
-                        if arrItem.evgElement {
-                            def arrChildEl:EVGElement (unwrap arrItem.evgElement)
+                        if (arrItem.hasElement()) {
+                            def arrChildEl:EVGElement (arrItem.elementOf())
                             if ((strlen arrChildEl.tagName) > 0) {
                                 element.addChild(arrChildEl)
                             }
@@ -8112,8 +8112,8 @@ class ComponentEngine {
                 ; evaluated like any expression; an element result is the child.
                 def v:EvalValue (this.evaluateExpr(body))
                 if (v.isElement()) {
-                    if v.evgElement {
-                        return (unwrap v.evgElement)
+                    if (v.hasElement()) {
+                        return (v.elementOf())
                     }
                 }
             }
@@ -8545,15 +8545,15 @@ class ComponentEngine {
                         ; exists. The rest are still owned by the call-site
                         ; chains below, which read the AST; intercepting those
                         ; here would answer undefined for a static that works.
-                        if (this.hasInvocableStatic(objMember.builtinNamespace objMember.builtinName)) {
+                        if (this.hasInvocableStatic((objMember.builtinNamespaceOf()) (objMember.builtinNameOf()))) {
                             def stArgs:[EvalValue] (this.collectCallArgs(node))
-                            return (this.invokeBuiltinStatic(objMember.builtinNamespace objMember.builtinName stArgs))
+                            return (this.invokeBuiltinStatic((objMember.builtinNamespaceOf()) (objMember.builtinNameOf()) stArgs))
                         }
                     } {
                     if (objMember.isBuiltinMethod()) {
                         def biArgs:[EvalValue] (this.collectCallArgs(node))
                         def biFn:EvalValue objMember
-                        if (false == objMember.boundExplicit) {
+                        if (false == (objMember.boundExplicitOf())) {
                             biFn = (objMember.withThis(obj))
                         }
                         return (this.callFnValueWithValues(biFn biArgs))
@@ -8614,7 +8614,7 @@ class ComponentEngine {
                             def borrowed:EvalValue (unwrap (get kProto2.objectMap methodName))
                             if (borrowed.isBuiltinMethod()) {
                                 def bwArgs:[EvalValue] (this.collectCallArgs(node))
-                                return (this.invokeBuiltin(borrowed.builtinKind borrowed.builtinName obj bwArgs))
+                                return (this.invokeBuiltin((borrowed.builtinKindOf()) (borrowed.builtinNameOf()) obj bwArgs))
                             }
                             if (borrowed.valueType == 6) {
                                 if borrowed.functionNode {
@@ -9342,8 +9342,8 @@ class ComponentEngine {
                             ; The receiver is fixed permanently; partially applied
                             ; arguments are prepended at call time.
                             def bound:EvalValue (obj.withThis(bindThis))
-                            bound.boundArgs = partial
-                            bound.functionName = ("bound " + obj.functionName)
+                            bound.setBoundArgs(partial)
+                            bound.setFnName(("bound " + (obj.fnName())))
                             return bound
                         }
                     }
@@ -9761,8 +9761,8 @@ class ComponentEngine {
                         }
                         def merged0:[EvalValue]
                         def mi0:int 0
-                        while (mi0 < (array_length fnValue.boundArgs)) {
-                            push merged0 (itemAt fnValue.boundArgs mi0)
+                        while (mi0 < (fnValue.boundArgCount())) {
+                            push merged0 (fnValue.boundArgAt(mi0))
                             mi0 = (mi0 + 1)
                         }
                         def mj0:int 0
@@ -9813,8 +9813,8 @@ class ComponentEngine {
                     }
                     def merged2:[EvalValue]
                     def mi:int 0
-                    while (mi < (array_length calleeFn.boundArgs)) {
-                        push merged2 (itemAt calleeFn.boundArgs mi)
+                    while (mi < (calleeFn.boundArgCount())) {
+                        push merged2 (calleeFn.boundArgAt(mi))
                         mi = (mi + 1)
                     }
                     def mj:int 0
@@ -10127,7 +10127,7 @@ class ComponentEngine {
                             }
                         }
                         if ((strlen cname) > 0) {
-                            return (EvalValue.boolean(((ctorHere.functionName) == cname)))
+                            return (EvalValue.boolean((((ctorHere.fnName())) == cname)))
                         }
                     }
                 }
@@ -12481,7 +12481,7 @@ class ComponentEngine {
 
     fn registryMethodDeleted:boolean (v:EvalValue name:string) {
         if (this.isDescriptorObject(v)) {
-            if (has v.suppressedKeys name) {
+            if (v.hasSuppressed(name)) {
                 if (false == (has v.objectMap name)) {
                     return true
                 }
@@ -12523,7 +12523,7 @@ class ComponentEngine {
             return false
         }
         def p:EvalValue (unwrap (get builtinProtos cn))
-        if (false == (has p.suppressedKeys name)) {
+        if (false == (p.hasSuppressed(name))) {
             return false
         }
 
@@ -12561,7 +12561,7 @@ class ComponentEngine {
         ; cache lookup and an identity compare on EVERY built-in method call --
         ; only to conclude "not overridden" almost every time.
         if (m.isBuiltinMethod()) {
-            if ((m.builtinKind == kind) && (m.builtinName == name)) {
+            if (((m.builtinKindOf()) == kind) && ((m.builtinNameOf()) == name)) {
                 return (EvalValue.null())
             }
         }
@@ -14461,16 +14461,16 @@ class ComponentEngine {
                     j = (j + 1)
                 }
                 def b3:EvalValue (recv.withThis(bindThis))
-                b3.boundArgs = partial
-                b3.boundExplicit = true
-                b3.functionName = ("bound " + recv.functionName)
+                b3.setBoundArgs(partial)
+                b3.setBoundExplicit(true)
+                b3.setFnName(("bound " + (recv.fnName())))
                 ; D-STRICT: a BOUND function poisons caller and arguments the way
                 ; a strict one does, whatever the target was -- that is what
                 ; `boundExplicit` answers for -- and it has no `prototype` of its
                 ; own. Its STRICTNESS stays the target's, because that is what
                 ; decides the `this` a call supplies.
-                b3.strictFn = recv.strictFn
-                b3.suppressedKeys = (this.suppressPrototype(recv))
+                b3.setStrictFn((recv.strictFnOf()))
+                b3.setSuppressed((this.suppressPrototype(recv)))
                 return b3
             }
         }
@@ -14481,7 +14481,7 @@ class ComponentEngine {
     ; on the copy without touching the target's.
     fn suppressPrototype:[string:boolean] (recv:EvalValue) {
         def out:[string:boolean]
-        def ks:[string] (keys recv.suppressedKeys)
+        def ks:[string] (recv.suppressedKeyList())
         def i:int 0
         while (i < (array_length ks)) {
             set out (itemAt ks i) true
@@ -14720,11 +14720,11 @@ class ComponentEngine {
         ; non-callable receiver.
         if (m.isBuiltinMethod()) {
             def borrowedPrim:boolean false
-            if (m.builtinName != name) { borrowedPrim = true }
-            if (m.builtinKind != (this.receiverKind(obj))) { borrowedPrim = true }
+            if ((m.builtinNameOf()) != name) { borrowedPrim = true }
+            if ((m.builtinKindOf()) != (this.receiverKind(obj))) { borrowedPrim = true }
             if borrowedPrim {
                 def bpArgs:[EvalValue]
-                def bpOut:EvalValue (this.invokeBuiltin(m.builtinKind m.builtinName obj bpArgs))
+                def bpOut:EvalValue (this.invokeBuiltin((m.builtinKindOf()) (m.builtinNameOf()) obj bpArgs))
                 if scriptThrew {
                     return (EvalValue.undefined())
                 }
@@ -14804,20 +14804,20 @@ class ComponentEngine {
     ; it keeps the NativeFunction form the spec allows for one.
     fn functionSourceText:string (v:EvalValue) {
         if (null? v.functionNode) {
-            return ("function " + v.functionName + "() { [native code] }")
+            return ("function " + (v.fnName()) + "() { [native code] }")
         }
         def fnode:TSNode (unwrap v.functionNode)
-        def total:int (strlen v.srcText)
+        def total:int (strlen (v.srcTextOf()))
         if (total == 0) {
-            return ("function " + v.functionName + "() { [native code] }")
+            return ("function " + (v.fnName()) + "() { [native code] }")
         }
         if (fnode.end <= fnode.start) {
-            return ("function " + v.functionName + "() { [native code] }")
+            return ("function " + (v.fnName()) + "() { [native code] }")
         }
         if (fnode.end > total) {
-            return ("function " + v.functionName + "() { [native code] }")
+            return ("function " + (v.fnName()) + "() { [native code] }")
         }
-        return (substring v.srcText fnode.start fnode.end)
+        return (substring (v.srcTextOf()) fnode.start fnode.end)
     }
 
     ; The rendering an object-like value converts to when the step in force
@@ -15839,7 +15839,7 @@ class ComponentEngine {
                 return (this.callFnValueWithValues((m.withThis(recv)) args))
             }
             if (m.isBuiltinMethod()) {
-                return (this.invokeBuiltin(m.builtinKind m.builtinName recv args))
+                return (this.invokeBuiltin((m.builtinKindOf()) (m.builtinNameOf()) recv args))
             }
         }
         def rk:string (this.receiverKind(recv))
@@ -15912,7 +15912,7 @@ class ComponentEngine {
                 return (this.callFnValueWithValues((g.withThis(obj)) noArgsG))
             }
             if (g.isBuiltinMethod()) {
-                return (this.invokeBuiltin(g.builtinKind g.builtinName obj noArgsG))
+                return (this.invokeBuiltin((g.builtinKindOf()) (g.builtinNameOf()) obj noArgsG))
             }
         }
         if (obj.hasSetterFor(key)) {
@@ -17402,7 +17402,7 @@ class ComponentEngine {
                             obj.removeMember(dkey)
                             this.syncGlobalObjectDelete(obj dkey)
                             if (this.isBuiltinPrototypeObject(obj)) {
-                                set obj.suppressedKeys dkey true
+                                obj.addSuppressed(dkey)
                             }
                         }
                     } {
@@ -17416,7 +17416,7 @@ class ComponentEngine {
                         obj.removeMember(tgt.name)
                         this.syncGlobalObjectDelete(obj tgt.name)
                         if (this.isBuiltinPrototypeObject(obj)) {
-                            set obj.suppressedKeys tgt.name true
+                            obj.addSuppressed(tgt.name)
                         }
                     }
                 }
@@ -17764,8 +17764,8 @@ class ComponentEngine {
             if ((strlen bctor) > 0) {
                 def bvals:[EvalValue]
                 def bbi:int 0
-                while (bbi < (array_length fnV.boundArgs)) {
-                    push bvals (itemAt fnV.boundArgs bbi)
+                while (bbi < (fnV.boundArgCount())) {
+                    push bvals (fnV.boundArgAt(bbi))
                     bbi = (bbi + 1)
                 }
                 def bai:int 0
@@ -17793,7 +17793,7 @@ class ComponentEngine {
         ; to the TARGET's prototype, which the bound copy still shares through
         ; its property map. Without this the instance had no prototype at all
         ; and inherited nothing, not even from Object.prototype.
-        if fnV.boundExplicit {
+        if (fnV.boundExplicitOf()) {
             if (has fnV.objectMap "prototype") {
                 instProto = (unwrap (get fnV.objectMap "prototype"))
             } {
@@ -17822,11 +17822,11 @@ class ComponentEngine {
         ; the fixed arguments in front -- `new (f.bind(null, "a"))("b")` calls
         ; f("a", "b"). The bound `this` is ignored, as the spec says, because
         ; construction supplies its own.
-        if ((array_length fnV.boundArgs) > 0) {
+        if ((fnV.boundArgCount()) > 0) {
             def ctorVals:[EvalValue]
             def bi:int 0
-            while (bi < (array_length fnV.boundArgs)) {
-                push ctorVals (itemAt fnV.boundArgs bi)
+            while (bi < (fnV.boundArgCount())) {
+                push ctorVals (fnV.boundArgAt(bi))
                 bi = (bi + 1)
             }
             def ci:int 0
@@ -17860,8 +17860,8 @@ class ComponentEngine {
     ; needs -- callUserFunctionNode evaluates AST arguments it does not have.
     fn callUserFunctionValues:EvalValue (fnNode:TSNode argVals:[EvalValue] thisVal:EvalValue) {
         def fv:EvalValue (EvalValue.function(fnNode))
-        fv.srcText = currentSource
-        fv.strictFn = (this.strictForBody(fnNode))
+        fv.setSrcText(currentSource)
+        fv.setStrictFn((this.strictForBody(fnNode)))
         fv.boundThis = thisVal
         return (this.callFnValueWithValues(fv argVals))
     }
@@ -18197,7 +18197,7 @@ class ComponentEngine {
             if (context.has(className)) {
                 def ctorCand:EvalValue (context.lookup(className))
                 if (ctorCand.valueType == 6) {
-                    if ((strlen ctorCand.builtinName) > 0) {
+                    if ((strlen (ctorCand.builtinNameOf())) > 0) {
                         return (this.throwSpecError("TypeError" (className + " is not a constructor")))
                     }
                 }
@@ -18317,7 +18317,7 @@ class ComponentEngine {
                     return (EvalValue.undefined())
                 }
                 if (calledV.valueType == 6) {
-                    return (this.constructFromFunction(calledV calledV.functionName node.children))
+                    return (this.constructFromFunction(calledV (calledV.fnName()) node.children))
                 }
                 return (this.throwSpecError("TypeError" "expression is not a constructor"))
             }
@@ -18400,7 +18400,7 @@ class ComponentEngine {
                     }
                     if ((mk == "get") || (mk == "set")) {
                         def accFn:EvalValue (EvalValue.boundMethod(m inst))
-                        accFn.srcText = currentSource
+                        accFn.setSrcText(currentSource)
                         if (mk == "get") {
                             inst.defineGetter(m.name accFn)
                         } {
@@ -18531,7 +18531,7 @@ class ComponentEngine {
                             ; read fell through and answered undefined.
                             if (ownG.isBuiltinMethod()) {
                                 def ownBArgs:[EvalValue]
-                                return (this.invokeBuiltin(ownG.builtinKind ownG.builtinName obj ownBArgs))
+                                return (this.invokeBuiltin((ownG.builtinKindOf()) (ownG.builtinNameOf()) obj ownBArgs))
                             }
                         }
                     } {
@@ -18550,7 +18550,7 @@ class ComponentEngine {
                             ; the accessors on RegExp.prototype read as undefined.
                             if (gFn.isBuiltinMethod()) {
                                 def bgArgs:[EvalValue]
-                                return (this.invokeBuiltin(gFn.builtinKind gFn.builtinName obj bgArgs))
+                                return (this.invokeBuiltin((gFn.builtinKindOf()) (gFn.builtinNameOf()) obj bgArgs))
                             }
                         }
                         ; An inherited set-only accessor reads as undefined too.
@@ -18700,7 +18700,7 @@ class ComponentEngine {
                             ; getter too -- `re["source"]` is `re.source`.
                             if (cgFn.isBuiltinMethod()) {
                                 def cbgArgs:[EvalValue]
-                                return (this.invokeBuiltin(cgFn.builtinKind cgFn.builtinName obj cbgArgs))
+                                return (this.invokeBuiltin((cgFn.builtinKindOf()) (cgFn.builtinNameOf()) obj cbgArgs))
                             }
                         }
                     }
@@ -18784,10 +18784,10 @@ class ComponentEngine {
                 def mnode:TSNode (this.findMethodOnClassNode(mcls propName))
                 if (mnode.nodeType == "MethodDefinition") {
                     def bm:EvalValue (EvalValue.boundMethod(mnode obj))
-                    bm.srcText = currentSource
+                    bm.setSrcText(currentSource)
                     ; provenance travels with the value: a stored method of a
                     ; module instance still roots in its module when invoked
-                    bm.homeModule = (this.instanceModuleTag(obj))
+                    bm.setHomeModule((this.instanceModuleTag(obj)))
                     return bm
                 }
             }
@@ -19155,11 +19155,11 @@ class ComponentEngine {
             ; A BUILT-IN stores its length and name, so a missing one there was
             ; deleted and must stay deleted. Only a user function synthesises
             ; them on read, and only it gets the fallback.
-            if ((strlen v.builtinName) > 0) {
+            if ((strlen (v.builtinNameOf())) > 0) {
                 return false
             }
             ; A synthesised property that was DELETED stays deleted.
-            if (has v.suppressedKeys key) {
+            if (v.hasSuppressed(key)) {
                 return false
             }
             if (key == "length") { return true }
