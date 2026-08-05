@@ -210,6 +210,7 @@ class tester {
       'rust-shared-classes' 'Emit Rc<RefCell<T>> for classes the sharing analysis marks as shared (Rust target; the default since the conformance gate closed — kept for compatibility)'
       'rust-value-classes' 'Every class is a plain value struct on Rust (the pre-ownership object model); disables the shared-class Rc<RefCell<T>> emission'
       'native-fast-alloc' 'Rust/C++ targets: emit a thread-local size-class freelist allocator (never returns memory to the OS; single-process benchmark/tool builds)'
+      'cpp-single-thread' 'C++ target: reference-count objects WITHOUT atomics (rg_ptr). Same aliasing as std::shared_ptr and no lock-prefixed increment per copy; a pointer copied across threads corrupts the count, so single-threaded builds only'
       'typescript' 'Writes JavaScript code with TypeScript annotations'
       'esm' 'Writes JavaScript code with ESM module syntax'
       'npm' 'Write the package.json to the output directory' 
