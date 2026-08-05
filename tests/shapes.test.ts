@@ -234,6 +234,25 @@ describe("shapes (closed variant families)", () => {
 
   // PLAN_SHAPES.md S5: each target's own representation of the family, instead
   // of the portable-but-slow union of classes S1 lowers to.
+  describe("a local declared as the family", () => {
+    const LOCAL = `${FIXTURES_DIR}/shape_union_local.rgr`;
+    const EXPECTED_LOCAL = ["num:2.5", "text:hi"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(LOCAL, EXPECTED_LOCAL);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      // the local's type is the union handle and only the constructed member
+      // takes a cell — wrapping both gave Rc<RefCell<Rc<dyn Any>>>
+      expectRustOutput(LOCAL, EXPECTED_LOCAL);
+    });
+
+    it.skipIf(!isGoAvailable())("Go", () => {
+      expectGoOutput(LOCAL, EXPECTED_LOCAL);
+    });
+  });
+
   describe("per-target representation", () => {
     it("TypeScript: a real union type, and the generated file type-checks", () => {
       const out = path.join(ROOT, "tests", ".output");

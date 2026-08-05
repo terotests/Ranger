@@ -22319,7 +22319,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const is_buffer = ((nn.value_type == 16) || (nn.value_type == 17)) || (nn.value_type == 18);
                 const needs_mut = (((p.set_cnt > 0) || p.is_class_variable) || map_or_hash) || is_buffer;
                 const is_object = nn.value_type == 10;
-                let local_needs_rc_wrap = p.rust_needs_rc_wrap;
+                const local_needs_rc_wrap = p.rust_needs_rc_wrap;
+                let local_wraps_union_new = false;
                 if ( (node.children.length) > 2 ) {
                   const initValue = node.getThird();
                   const initTargetOpt = ctx.findClass(nn.type_name);
@@ -22327,7 +22328,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     const initTarget = initTargetOpt;
                     if ( initTarget.is_union ) {
                       if ( this.rustNewIntoUnion(initValue, ctx) ) {
-                        local_needs_rc_wrap = true;
+                        local_wraps_union_new = true;
                       }
                     }
                   }
@@ -22426,9 +22427,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   if ( (local_needs_rc_wrap && (init_rc_state == 0)) && (optInitPassthrough == false) ) {
                     wr.out("Rc::new(RefCell::new(", false);
                   }
+                  if ( local_wraps_union_new ) {
+                    wr.out("Rc::new(RefCell::new(", false);
+                  }
                   ctx.setInExpr();
                   await this.WalkNode(value_1, ctx, wr);
                   ctx.unsetInExpr();
+                  if ( local_wraps_union_new ) {
+                    wr.out("))", false);
+                  }
                   if ( local_needs_rc_wrap && (optInitPassthrough == false) ) {
                     if ( init_rc_state == 0 ) {
                       wr.out("))", false);

@@ -1,0 +1,126 @@
+; Variant A — today's model: one wide class, an int tag, a small-int pool.
+; The field list mirrors EvalValue.rgr's (33 members) so the allocation cost is
+; the real one, not a toy.
+class FatValue {
+    def valueType:int 0
+    def numberValue:double 0.0
+    def stringValue:string ""
+    def boolValue:boolean false
+    def identityId:int 0
+    def arrayValue:[FatValue]
+    def mapVals:[FatValue]
+    def objectMap:[string:FatValue]
+    def functionName:string ""
+    def functionBody:string ""
+    def boundThis@(optional):FatValue
+    def closureId:int (0 - 1)
+    def homeModule:string ""
+    def protoRef@(optional):FatValue
+    def getterMap:[string:FatValue]
+    def setterMap:[string:FatValue]
+    def boundArgs:[FatValue]
+    def builtinKind:string ""
+    def builtinName:string ""
+    def builtinNamespace:string ""
+    def boundExplicit:boolean false
+    def strictFn:boolean false
+    def attrFlags:[string:int]
+    def extensibleFlag:boolean true
+    def sealedFlag:boolean false
+    def frozenFlag:boolean false
+    def isHole:boolean false
+    def declaredLength:int (0 - 1)
+    def suppressedKeys:[string:boolean]
+    def srcText:string ""
+
+    sfn rawNumber:FatValue (n:double) {
+        def v:FatValue (new FatValue())
+        v.valueType = 1
+        v.numberValue = n
+        return v
+    }
+    sfn number:FatValue (n:double) {
+        if ((n >= 0.0) && (n < 4096.0)) {
+            def ni:int (to_int n)
+            if ((to_double ni) == n) {
+                def pool:FatPool (FatPool.__singleton())
+                return (pool.smallInt(ni))
+            }
+        }
+        return (FatValue.rawNumber(n))
+    }
+    sfn string:FatValue (s:string) {
+        def v:FatValue (new FatValue())
+        v.valueType = 2
+        v.stringValue = s
+        return v
+    }
+    fn toNumber:double () {
+        if (valueType == 1) {
+            return numberValue
+        }
+        return 0.0
+    }
+    fn isNumber:boolean () {
+        return (valueType == 1)
+    }
+    fn equals:boolean (other:FatValue) {
+        if (valueType != other.valueType) {
+            return false
+        }
+        if (valueType == 1) {
+            return (numberValue == other.numberValue)
+        }
+        if (valueType == 2) {
+            return (stringValue == other.stringValue)
+        }
+        return (identityId == other.identityId)
+    }
+}
+
+class FatPool @singleton(true) {
+    def smallInts:[FatValue]
+    fn smallInt:FatValue (i:int) {
+        if ((array_length smallInts) == 0) {
+            def k:int 0
+            while (k < 4096) {
+                push smallInts (FatValue.rawNumber((to_double k)))
+                k = k + 1
+            }
+        }
+        return (itemAt smallInts i)
+    }
+}
+
+class FatBench {
+    ; the interpreter's hot shape: allocate a result value per arithmetic step,
+    ; ask its type, read it back out
+    sfn run:double (reps:int) {
+        def acc:double 0.0
+        def i:int 0
+        while (i < reps) {
+            def a:FatValue (FatValue.number((to_double i)))
+            def b:FatValue (FatValue.number(((to_double i) * 1.5)))
+            if (a.isNumber()) {
+                if (b.isNumber()) {
+                    def sum:FatValue (FatValue.number((a.toNumber()) + (b.toNumber())))
+                    acc = acc + (sum.toNumber())
+                    if (sum.equals(a)) {
+                        acc = acc + 1.0
+                    }
+                }
+            }
+            i = i + 1
+        }
+        return acc
+    }
+    sfn main:void () {
+        ; warm up, then time
+        def warm:double (FatBench.run(200000))
+        def r:double 0.0
+        timer "fat" {
+            r = (FatBench.run(2000000))
+        }
+        print ("answer " + ("" + r) + " warm " + ("" + warm))
+    }
+}

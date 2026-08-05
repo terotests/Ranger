@@ -917,7 +917,55 @@ Function
 and identity preservation stops being a hand-maintained invariant because the identity
 lives in the shared core.
 
-### 7.4 Migration order
+### 7.4 What the migration is worth, measured
+
+Before migrating 288 call sites it is worth knowing what the migration buys.
+`gallery/game_engine/v2/interp/bench/value_layer/` holds four programs that run
+the interpreter's hot value pattern — construct, ask the type, read it back,
+compare — over two million iterations, in four representations:
+
+| variant | Node | C++ `-O2` | Rust `-O` |
+|---|---|---|---|
+| today's fat class | 490 ms | 0.240 s | 0.37 s |
+| the shape lowering as it stands | **78 ms** (6.3×) | **0.123 s** (2.0×) | **0.105 s** (3.5×) |
+| one class per case, dispatched on an int tag | 12.5 ms (39×) | 0.118 s (2.0×) | 0.008 s |
+| a compact handle (tag + scalar + payload) | 12.3 ms (40×) | 0.130 s (1.8×) | 0.008 s |
+
+Three readings, and the third is the one that matters:
+
+1. **The shape lowering already wins on the value layer** — 6.3× on Node, 2× on
+   C++, 3.5× on Rust — before any native representation exists.
+2. **On Node what remains is the dispatch, not the object.** A `kind` field and
+   an integer test buys another 6×; the single-object handle buys nothing on top
+   of it. This is the plan's `FlatTaggedObject` (§4.3) and it says S5's next JS
+   step is a tag, not a handle. On C++ the opposite holds: all four rows still
+   allocate through `shared_ptr`, so the tag changes little and the gain waits
+   for a handle that is a *value type*.
+3. **The value layer is not where the engine spends its time — on Node.**
+   Counting `EvalValue` constructions per benchmark case against the built
+   engine (`count_allocations.cjs`):
+
+   | case | case time | EvalValues | at the measured ~82 ns each |
+   |---|---|---|---|
+   | loop | 113 ms | 150 477 | ~12 ms — 11% |
+   | fib | 60 ms | 569 | 0% — the small-int pool absorbs it |
+   | array | 152 ms | 126 174 | ~10 ms — 7% |
+   | object | 59 ms | 76 573 | ~6 ms — 11% |
+   | method | 93 ms | 96 433 | ~8 ms — 9% |
+
+   So the honest expectation for the Node build is **5–10% end to end**, not a
+   multiple. V8's nursery makes the fat object cheaper than its 33 fields
+   suggest, and the small-integer pool already removes the hottest allocations.
+
+That reorders the case for the migration. Its value is **correctness and
+clarity** — `Hole` as its own case, one property slot instead of four parallel
+maps, a function's core split from its binding, an equality the compiler writes
+— with a modest speedup on Node attached. The large speedups live on the native
+targets, where an `EvalValue` is 680 bytes with eight collections and no nursery
+to hide it; that share has not been measured and is the next thing to measure,
+not to assume.
+
+### 7.5 Migration order
 
 1. **S1–S2 land.** Define the shape beside the existing class; nothing calls it yet.
 2. **Compatibility layer.** Keep every current entry point as a thin wrapper —

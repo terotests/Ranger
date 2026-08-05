@@ -943,6 +943,11 @@ class RangerRustClassWriter {
       ; whose parameter is assigned to a @(weak) field
       def local_needs_rc_wrap:boolean p.rust_needs_rc_wrap
       ; a local of union type initialized with `new`: the member takes its cell here
+      ; D-UNION: `def v:Shape (new Shape.Case(…))` — the local's TYPE stays the
+      ; union handle (Rc<dyn Any>); only the constructed member takes a cell, and
+      ; coerces into the handle from there. Wrapping the type as well produced
+      ; Rc<RefCell<Rc<dyn Any>>>, which rustc rejects.
+      def local_wraps_union_new:boolean false
       if ((array_length node.children) > 2) {
         def initValue:CodeNode (node.getThird())
         def initTargetOpt@(optional):RangerAppClassDesc (ctx.findClass(nn.type_name))
@@ -950,7 +955,7 @@ class RangerRustClassWriter {
           def initTarget:RangerAppClassDesc (unwrap initTargetOpt)
           if initTarget.is_union {
             if (this.rustNewIntoUnion(initValue ctx)) {
-              local_needs_rc_wrap = true
+              local_wraps_union_new = true
             }
           }
         }
@@ -1084,11 +1089,19 @@ class RangerRustClassWriter {
         if ((local_needs_rc_wrap && (init_rc_state == 0)) && (optInitPassthrough == false)) {
           wr.out("Rc::new(RefCell::new(" false)
         }
+        ; a member constructed straight into a union-typed local: the cell goes
+        ; around the VALUE, never around the handle
+        if local_wraps_union_new {
+          wr.out("Rc::new(RefCell::new(" false)
+        }
 
         ctx.setInExpr()
         this.WalkNode(value ctx wr)
         ctx.unsetInExpr()
 
+        if local_wraps_union_new {
+          wr.out("))" false)
+        }
         ; Close Rc::new(RefCell::new(...)) if we opened it
         if (local_needs_rc_wrap && (optInitPassthrough == false)) {
           if (init_rc_state == 0) {
