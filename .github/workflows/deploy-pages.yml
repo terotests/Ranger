@@ -104,6 +104,10 @@ jobs:
 
       - name: Generate the operator reference
         run: npm run docs:generate
+        env:
+          # Source links pin to this commit so line numbers stay correct when
+          # Lang.rgr moves on master after the pages are generated.
+          RANGER_COMMIT: ${{ github.sha }}
 
       - name: Build the documentation site
         working-directory: docs/site

@@ -23,7 +23,9 @@ const call =
   operator.args.length > 0
     ? `(${operator.name} ${operator.args.map((a: any) => a.name).join(" ")})`
     : `(${operator.name})`;
-const sourceUrl = `${repository}/blob/master/${operator.file}#L${operator.line}`;
+// Pin to the build commit. A `master` link goes stale when Lang.rgr moves.
+const sourceRef = (import.meta.env.RANGER_COMMIT as string | undefined) || "master";
+const sourceUrl = `${repository}/blob/${sourceRef}/${operator.file}#L${operator.line}`;
 ---
 
 <h3 id={operator.anchor}><code>{operator.name}</code></h3>
