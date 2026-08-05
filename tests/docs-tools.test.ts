@@ -17,6 +17,7 @@ const opid = await import(path.join(ROOT, "docs/tools/lib/opid.mjs"));
 const excerpt = await import(path.join(ROOT, "docs/tools/lib/excerpt.mjs"));
 const parse = await import(path.join(ROOT, "docs/tools/lib/parse.mjs"));
 const model = await import(path.join(ROOT, "docs/tools/lib/model.mjs"));
+const sourceUrl = await import(path.join(ROOT, "docs/tools/lib/source-url.mjs"));
 
 describe("operator identifiers", () => {
   it("keeps a symbol name readable in a URL", () => {
@@ -343,6 +344,40 @@ describe("operator sources", () => {
     const nullify = parsed.definitions.find((d: { name: string }) => d.name === "nullify");
     expect(nullify.args[0].optional).toBe(true);
     expect(nullify.doc).toContain("optional value");
+  });
+});
+
+describe("source links", () => {
+  it("pins a definition link to a commit, not to the master branch", () => {
+    // Line numbers are only valid for the tree that measured them. A link that
+    // opens master drifts as soon as Lang.rgr moves.
+    expect(
+      sourceUrl.blobUrl(
+        "https://github.com/terotests/Ranger",
+        "compiler/Lang.rgr",
+        2950,
+        "abc123def",
+      ),
+    ).toBe("https://github.com/terotests/Ranger/blob/abc123def/compiler/Lang.rgr#L2950");
+    expect(
+      sourceUrl.blobUrl(
+        "https://github.com/terotests/Ranger",
+        "lib/stdops.rgr",
+        0,
+        "abc123def",
+      ),
+    ).toBe("https://github.com/terotests/Ranger/blob/abc123def/lib/stdops.rgr");
+  });
+
+  it("does not hardcode master in the operator and method source links", () => {
+    for (const file of [
+      "docs/site/src/components/OperatorEntry.astro",
+      "docs/site/src/components/MethodEntry.astro",
+    ]) {
+      const text = fs.readFileSync(path.join(ROOT, file), "utf8");
+      expect(text, file).not.toMatch(/blob\/master/);
+      expect(text, file).toMatch(/RANGER_COMMIT/);
+    }
   });
 });
 

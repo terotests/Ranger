@@ -14,6 +14,7 @@ import path from "node:path";
 import { CATEGORIES, CATEGORY_BY_ID, defaultTemplateIsJavaScript } from "./lib/model.mjs";
 import { operatorFileName } from "./lib/opid.mjs";
 import { CONTENT, DATA, DESCRIPTIONS, ROOT, readJson } from "./lib/paths.mjs";
+import { blobUrl } from "./lib/source-url.mjs";
 
 const REPOSITORY = "https://github.com/terotests/Ranger";
 
@@ -191,7 +192,7 @@ function main() {
         ? `To use these operators, add the import to the program:\n\n\`\`\`lisp\nImport "${library.import}"\n\`\`\``
         : "The compiler loads this file with the core library.",
       "",
-      `Source: [${library.file}](${REPOSITORY}/blob/master/${library.file}).`,
+      `Source: [${library.file}](${blobUrl(REPOSITORY, library.file)}).`,
     ].join("\n");
     writePage(
       file,
@@ -254,7 +255,7 @@ function main() {
     }),
     "A macro is not an operator. The compiler replaces the call with the body of",
     "the macro before it writes the target code. The macros below are in",
-    `[lib/stdops.rgr](${REPOSITORY}/blob/master/lib/stdops.rgr).`,
+    `[lib/stdops.rgr](${blobUrl(REPOSITORY, "lib/stdops.rgr")}).`,
     "",
     "## How the compiler selects a macro",
     "",
@@ -265,7 +266,7 @@ function main() {
     "",
     "The compiler selects one of them at the call site, and it selects by trial.",
     "These are the steps, from `TransformOpFn` in",
-    `[compiler/ng_RangerFlowParser.rgr](${REPOSITORY}/blob/master/compiler/ng_RangerFlowParser.rgr):`,
+    `[compiler/ng_RangerFlowParser.rgr](${blobUrl(REPOSITORY, "compiler/ng_RangerFlowParser.rgr")}):`,
     "",
     "1. The compiler collects every macro with that name.",
     "2. A macro with a `?` in a type becomes one candidate per type: `string`,",
@@ -340,7 +341,7 @@ function main() {
     macroBody.push("```", "");
     macroBody.push(
       `Definition: [${macro.file}, line ${macro.line}]` +
-        `(${REPOSITORY}/blob/master/${macro.file}#L${macro.line}).`,
+        `(${blobUrl(REPOSITORY, macro.file, macro.line)}).`,
       "",
     );
   }
@@ -397,7 +398,7 @@ function methodPage(source, methods, examples) {
   if (source.import) {
     body.push("```lisp", `Import "${source.import}"`, "```", "");
   }
-  body.push(`Source: [${source.file}](${REPOSITORY}/blob/master/${source.file}).`, "");
+  body.push(`Source: [${source.file}](${blobUrl(REPOSITORY, source.file)}).`, "");
 
   for (const [receiver, list] of byReceiver) {
     body.push(`## \`${receiver}\``, "");
@@ -443,7 +444,7 @@ function notCoveredPage(model) {
     const operators = model.operators.filter((o) => o.source === source.id).length;
     const methods = (model.methods || []).filter((m) => m.source === source.id).length;
     return (
-      `| [\`${source.file}\`](${REPOSITORY}/blob/master/${source.file}) | ` +
+      `| [\`${source.file}\`](${blobUrl(REPOSITORY, source.file)}) | ` +
       `${operators} | ${methods} | ${source.reason || ""} |`
     );
   });

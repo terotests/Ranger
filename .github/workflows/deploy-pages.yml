@@ -14,6 +14,16 @@
 # deploy-playground.yml). GitHub Pages allows one deployment per repository, so
 # both surfaces are assembled into one artifact here to avoid clobbering.
 #
+# REQUIRED repo setting (Settings → Pages → Build and deployment → Source):
+#   GitHub Actions
+# If Source is still "Deploy from a branch" (master /), GitHub also runs the
+# automatic pages-build-deployment / jekyll-build-pages job on every push. That
+# legacy Jekyll pass reads docs/site/**/*.astro `---` blocks as YAML and fails
+# (Invalid YAML front matter). Do not "fix" that by adding a root .nojekyll or
+# a Jekyll _config.yml that makes the branch builder succeed — it would publish
+# the raw master tree and clobber this workflow's artifact. Switch Source to
+# GitHub Actions so only this workflow deploys.
+#
 # Runs automatically on pushes to master that touch the site, and can be run
 # independently at any time from the Actions tab (workflow_dispatch).
 name: Deploy site (playground + games) to GitHub Pages
@@ -104,6 +114,10 @@ jobs:
 
       - name: Generate the operator reference
         run: npm run docs:generate
+        env:
+          # Source links pin to this commit so line numbers stay correct when
+          # Lang.rgr moves on master after the pages are generated.
+          RANGER_COMMIT: ${{ github.sha }}
 
       - name: Build the documentation site
         working-directory: docs/site

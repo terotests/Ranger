@@ -7,6 +7,71 @@ class RangerCppClassWriter {
   ; cppBufferReturnByRef).
   def buf_ret_seen:boolean false
   def buf_ret_all_safe:boolean true
+  ; -cpp-single-thread: emit rg_ptr (a non-atomically counted shared_ptr)
+  ; instead of std::shared_ptr. Read from the flag the first time a class or a
+  ; union is written, which is before any type string is emitted.
+  def cpp_single_thread:boolean false
+
+  ; The smart pointer type for a class instance. Default is std::shared_ptr,
+  ; whose count libstdc++ makes ATOMIC on any platform that has threads --
+  ; a lock-prefixed increment for every copy, in a program that may well have
+  ; only one thread. rg_ptr is the same class with the same aliasing semantics
+  ; and a plain integer counter (__gnu_cxx::_S_single).
+  fn cppPtr:string (inner:string) {
+    if cpp_single_thread {
+      return (("rg_ptr<" + inner) + ">")
+    }
+    return (("std::shared_ptr<" + inner) + ">")
+  }
+
+  fn cppPtrOpen:string () {
+    if cpp_single_thread {
+      return "rg_ptr<"
+    }
+    return "std::shared_ptr<"
+  }
+
+  fn cppMakeOpen:string () {
+    if cpp_single_thread {
+      return "rg_make<"
+    }
+    return "std::make_shared<"
+  }
+
+  fn cppEsft:string (inner:string) {
+    if cpp_single_thread {
+      return (("rg_esft<" + inner) + ">")
+    }
+    return (("std::enable_shared_from_this<" + inner) + ">")
+  }
+
+  fn readCppPtrFlag:void (ctx:RangerAppWriterContext) {
+    if (ctx.hasCompilerFlag("cpp-single-thread")) {
+      cpp_single_thread = true
+    }
+  }
+
+  ; The aliases -cpp-single-thread needs. Emitted once, ahead of everything
+  ; that mentions a class type.
+  fn writeCppSingleThreadPrelude:void (wr:CodeWriter) {
+    if (cpp_single_thread == false) {
+      return
+    }
+    wr.out("// -cpp-single-thread: a shared_ptr whose reference count is NOT atomic." true)
+    wr.out("// libstdc++ selects _S_atomic whenever the platform has threads, so a" true)
+    wr.out("// single-threaded program still pays a lock-prefixed increment on every" true)
+    wr.out("// pointer copy. _S_single is the same class, the same aliasing, the same" true)
+    wr.out("// one-allocation make -- with a plain integer counter." true)
+    wr.out("//" true)
+    wr.out("// The trade this flag buys: a pointer copied ACROSS THREADS corrupts the" true)
+    wr.out("// count silently rather than crashing. Opt-in for that reason." true)
+    wr.out("template<class T> using rg_ptr = std::__shared_ptr<T, __gnu_cxx::_S_single>;" true)
+    wr.out("template<class T> using rg_weak_ptr = std::__weak_ptr<T, __gnu_cxx::_S_single>;" true)
+    wr.out("template<class T> using rg_esft = std::__enable_shared_from_this<T, __gnu_cxx::_S_single>;" true)
+    wr.out("template<class T, class... A> inline rg_ptr<T> rg_make(A&&... a) {" true)
+    wr.out("    return std::__allocate_shared<T, __gnu_cxx::_S_single>(std::allocator<T>(), std::forward<A>(a)...);" true)
+    wr.out("}" true)
+  }
 
   fn lineEnding:string () {
     return ";"
@@ -119,7 +184,7 @@ class RangerCppClassWriter {
         return type_string
       }
 
-      return "std::shared_ptr<" + type_string + ">"
+      return (this.cppPtr(type_string))
     }
     return type_string
   }
@@ -385,14 +450,14 @@ class RangerCppClassWriter {
             wr.out(cc.name false)
             return
           }
-          wr.out("std::shared_ptr<" false)
+          wr.out((this.cppPtrOpen()) false)
           wr.out(cc.name false)
           wr.out(">" false)
           return
         }
 
         if(node.hasFlag("optional")) {
-          wr.out("std::shared_ptr<std::vector<" false)
+          wr.out(((this.cppPtrOpen()) + "std::vector<") false)
           wr.out((this.getTypeString2(t_name ctx)) false)
           wr.out(">" false)
           return
@@ -1136,14 +1201,20 @@ class RangerCppClassWriter {
     wr.out("// a `weak` field: it holds no reference count, and it reads like a std::shared_ptr" true)
     wr.out("template <class T> class r_weak {" true)
     wr.out("  public :" true)
-    wr.out("    std::weak_ptr<T> w;" true)
+    def wkT:string "std::weak_ptr<T>"
+    def shT:string "std::shared_ptr<T>"
+    if cpp_single_thread {
+      wkT = "rg_weak_ptr<T>"
+      shT = "rg_ptr<T>"
+    }
+    wr.out((("    " + wkT) + " w;") true)
     wr.out("    r_weak() { }" true)
     wr.out("    r_weak(std::nullptr_t) { }" true)
-    wr.out("    r_weak(const std::shared_ptr<T>& s) : w(s) { }" true)
-    wr.out("    r_weak<T>& operator=(const std::shared_ptr<T>& s) { w = s; return *this; }" true)
+    wr.out((("    r_weak(const " + shT) + "& s) : w(s) { }") true)
+    wr.out((("    r_weak<T>& operator=(const " + shT) + "& s) { w = s; return *this; }") true)
     wr.out("    r_weak<T>& operator=(std::nullptr_t) { w.reset(); return *this; }" true)
-    wr.out("    operator std::shared_ptr<T>() const { return w.lock(); }" true)
-    wr.out("    std::shared_ptr<T> lock() const { return w.lock(); }" true)
+    wr.out((("    operator " + shT) + "() const { return w.lock(); }") true)
+    wr.out((("    " + shT) + " lock() const { return w.lock(); }") true)
     wr.out("    T* operator->() const { return w.lock().get(); }" true)
     wr.out("    explicit operator bool() const { return !w.expired(); }" true)
     wr.out("    bool operator==(std::nullptr_t) const { return w.expired(); }" true)
@@ -1465,7 +1536,7 @@ class RangerCppClassWriter {
         wr.out((" " + cl.name) false)
         wr.out("(" false)
       } {
-        wr.out(" std::make_shared<" false)
+        wr.out((" " + (this.cppMakeOpen())) false)
         wr.out(node.clDesc.name false)
         wr.out(">(" false)
       }
@@ -1603,7 +1674,7 @@ class RangerCppClassWriter {
       }
     } {
       if (this.cppNeedsSharedFromThis(node)) {
-        wr.out(" : public std::enable_shared_from_this<" + cl.name +  "> " , false)
+        wr.out(((" : public " + (this.cppEsft(cl.name))) + " ") , false)
       }
     }
 
@@ -1634,8 +1705,8 @@ class RangerCppClassWriter {
       wr.out(");" true)
     }
     if (cl.isSingletonClass()) {
-      wr.out((("static std::shared_ptr<" + cl.name) + "> __singleton_instance;") true)
-      wr.out((("static std::shared_ptr<" + cl.name) + "> __singleton(") false)
+      wr.out((("static " + (this.cppPtr(cl.name))) + " __singleton_instance;") true)
+      wr.out((("static " + (this.cppPtr(cl.name))) + " __singleton(") false)
       if cl.has_constructor {
         def constr:RangerAppFunctionDesc cl.constructor_fn
         this.writeArgsDef((unwrap constr) ctx wr)
@@ -1693,6 +1764,7 @@ class RangerCppClassWriter {
   }
 
   fn CreateUnions (parser:RangerFlowParser ctx:RangerAppWriterContext wr:CodeWriter) {
+    this.readCppPtrFlag(ctx)
     def root (ctx.getRoot())
     root.definedClasses.forEach({
       ; index == name
@@ -1739,6 +1811,7 @@ class RangerCppClassWriter {
 
 
   fn writeClass:void  (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+    this.readCppPtrFlag(ctx)
 
     def cl:RangerAppClassDesc node.clDesc
     def wr:CodeWriter orig_wr
@@ -1762,6 +1835,7 @@ class RangerCppClassWriter {
     if( header_created == false) {
       wr.createTag("c++Imports")
       wr.out("" true)
+      this.writeCppSingleThreadPrelude(wr)
       wr.out("// define classes here to avoid compiler errors" true)
       wr.createTag("c++ClassDefs")
       wr.out("" true)
@@ -2054,8 +2128,8 @@ class RangerCppClassWriter {
     wr.out("}" true)
     if (cl.isSingletonClass()) {
       ; Lazily-initialized process-wide singleton instance (matches JS/Swift).
-      wr.out((((("std::shared_ptr<" + cl.name) + "> ") + cl.name) + "::__singleton_instance = nullptr;") true)
-      wr.out((((("std::shared_ptr<" + cl.name) + "> ") + cl.name) + "::__singleton(") false)
+      wr.out(((((this.cppPtr(cl.name)) + " ") + cl.name) + "::__singleton_instance = nullptr;") true)
+      wr.out(((((this.cppPtr(cl.name)) + " ") + cl.name) + "::__singleton(") false)
       if cl.has_constructor {
         def constr:RangerAppFunctionDesc cl.constructor_fn
         this.writeArgsDef((unwrap constr) ctx wr)
@@ -2064,7 +2138,7 @@ class RangerCppClassWriter {
       wr.indent(1)
       wr.out(("if (" + cl.name + "::__singleton_instance == nullptr) {") true)
       wr.indent(1)
-      wr.out((((cl.name + "::__singleton_instance = std::make_shared<") + cl.name) + ">(") false)
+      wr.out(((((cl.name + "::__singleton_instance = ") + (this.cppMakeOpen())) + cl.name) + ">(") false)
       if cl.has_constructor {
         def constr:RangerAppFunctionDesc cl.constructor_fn
         for constr.params arg:RangerAppParamDesc i {

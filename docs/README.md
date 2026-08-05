@@ -5,6 +5,9 @@ The Ranger documentation, published at
 and the games site holds `/games/`; one GitHub Pages deployment assembles all
 three (`.github/workflows/deploy-pages.yml`).
 
+Pages **Source** must be **GitHub Actions**. A branch/Jekyll source makes
+`pages-build-deployment` parse Astro `---` front matter as YAML and fail.
+
 The operator reference is generated. It is not written by hand and it is not a
 copy of the sources: the examples are compiled by the compiler of the commit
 that publishes the site, so the documentation cannot drift from the release.
@@ -64,6 +67,11 @@ last, not to the head of the definition, so `tools/lib/parse.mjs` anchors each
 definition with a forward scan of the source text. The test
 `tests/docs-tools.test.ts` checks the anchor of every definition of every
 source.
+
+Source links in the reference pin to the commit that built the site
+(`RANGER_COMMIT`), not to the `master` branch. A line number is only valid for
+the tree it was measured in; a `master` link goes to the wrong place as soon as
+`compiler/Lang.rgr` moves.
 
 ## Add content
 

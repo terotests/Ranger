@@ -1,9 +1,32 @@
 // @ts-check
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
+import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
+
+/**
+ * Commit of the tree that the site describes. Source links pin to this ref so
+ * a line number in the operator reference stays correct when master moves.
+ * The Pages workflow sets RANGER_COMMIT; a local build reads HEAD.
+ */
+function rangerCommit() {
+  const fromEnv = (process.env.RANGER_COMMIT || "").trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+  try {
+    return execSync("git rev-parse HEAD", { encoding: "utf8" }).trim();
+  } catch {
+    return "";
+  }
+}
+
+const commit = rangerCommit();
+if (commit && !process.env.RANGER_COMMIT) {
+  process.env.RANGER_COMMIT = commit;
+}
 
 /**
  * The documentation is one directory of the GitHub Pages site of the
@@ -111,6 +134,8 @@ export default defineConfig({
   vite: {
     define: {
       __RANGER_VERSION__: JSON.stringify(pkg.version),
+      // Make the build commit visible to Astro components as import.meta.env.
+      "import.meta.env.RANGER_COMMIT": JSON.stringify(commit),
     },
   },
 });
