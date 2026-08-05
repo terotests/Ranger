@@ -60,7 +60,18 @@ int main(int argc, char **argv) {
 EOF
 
 echo "==> 3/4 clang"
-if ! clang "$LL_FIXED" "$HOST_C" "$RT_C" "$MEM_C" -o "$BIN_FILE" -Wno-override-module -Wl,-stack_size,0x1000000; then
+# The parser recurses per precedence level, so on macOS it wants more than the
+# 8 MB default stack. `-stack_size` is Darwin ld syntax and GNU ld rejects it,
+# which is what broke this script on Linux; GNU ld's own `-z stacksize` is
+# accepted-then-ignored for executables, so Linux just takes the default (the
+# usual `ulimit -s` there is already 8 MB, and it is raised from the shell).
+# `-lm` is likewise implicit in libSystem on macOS but separate in glibc, and
+# the double intrinsics the parser lowers (floor) need it.
+STACK_FLAGS=()
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  STACK_FLAGS=(-Wl,-stack_size,0x1000000)
+fi
+if ! clang "$LL_FIXED" "$HOST_C" "$RT_C" "$MEM_C" -o "$BIN_FILE" -Wno-override-module "${STACK_FLAGS[@]}" -lm; then
   echo ""
   echo "note: native link failed. Check undefined symbols above against runtime/ranger_rt.c + runtime/ranger_mem.c." >&2
   exit 1

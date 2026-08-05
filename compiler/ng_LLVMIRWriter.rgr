@@ -3,6 +3,9 @@ Import "ng_LowIR.rgr"
 
 class LLVMIRWriter {
 
+  ; Length of the current output line before an instruction's switch runs, so
+  ; writeInstr can tell whether any case actually matched.
+  def instrLineLen:int 0
   def varargNames:[string]
   def varargSigs:[string]
 
@@ -143,6 +146,11 @@ class LLVMIRWriter {
         wr.out(("@heap_ptr = global " + module.ptrType + " 0") true)
       }
     }
+    ; One mutable module global per @singleton class: the accessor builds the
+    ; instance on first call and reads it back afterwards.
+    for module.singletonClasses sc:string i {
+      wr.out(("@singleton_" + sc + " = internal global " + module.ptrType + " 0") true)
+    }
     for module.stringGlobals g:LowIRStringGlobal i {
       def esc (this.llvmEscapeCString(g.text))
       if g.withNewline {
@@ -256,8 +264,24 @@ class LLVMIRWriter {
     wr.out("}" true)
   }
 
+  ; An op with no case in writeInstrBody used to write NOTHING -- the indent is
+  ; already out, so the instruction silently vanished while its SSA temp had
+  ; already been handed to whatever consumed it. The module then referenced a
+  ; value nothing defined, and the only symptom was clang's "use of undefined
+  ; value" a long way from the cause. Twice. Comparing the line length across
+  ; the switch says whether a case actually ran.
   fn writeInstr:void (ins:LowIRInstr wr:CodeWriter) {
     wr.out("  " false)
+    this.instrLineLen = (strlen wr.currentLine)
+    this.writeInstrBody(ins wr)
+    if ((strlen wr.currentLine) == this.instrLineLen) {
+      ; Deliberately invalid IR rather than a comment: this has to stop the
+      ; build, not decorate it.
+      wr.out(("UNHANDLED-LOWIR-OP " + (ins.op + (" dest=" + ins.dest))) true)
+    }
+  }
+
+  fn writeInstrBody:void (ins:LowIRInstr wr:CodeWriter) {
     switch ins.op {
       case "comment" {
         wr.out(("; " + ins.arg1) true)
@@ -311,9 +335,15 @@ class LLVMIRWriter {
         wr.out((ins.dest + " = lshr " + ins.irType + " " + ins.arg1 + ", " + ins.arg2) true)
       }
       case "heap_alloc" {
+        ; The bump-pointer update needs a UNIQUE SSA name. It used to be the
+        ; fixed "%heap_next", so a function containing two allocations emitted
+        ; two definitions of the same value -- invalid IR that clang and
+        ; llvm-verify both reject. Derived from the destination, which is
+        ; already unique.
+        def nextName:string (ins.dest + "_next")
         wr.out((ins.dest + " = load " + ins.irType + ", " + ins.irType + "* @heap_ptr") true)
-        wr.out(("  %heap_next = add " + ins.irType + " " + ins.dest + ", " + ins.arg1) true)
-        wr.out(("  store " + ins.irType + " %heap_next, " + ins.irType + "* @heap_ptr") true)
+        wr.out(("  " + nextName + " = add " + ins.irType + " " + ins.dest + ", " + ins.arg1) true)
+        wr.out(("  store " + ins.irType + " " + nextName + ", " + ins.irType + "* @heap_ptr") true)
       }
       case "ptr_load" {
         def addrType:string ins.arg2
@@ -365,10 +395,25 @@ class LLVMIRWriter {
         wr.out((ins.dest + " = fdiv " + (this.llTy(ins.irType)) + " " + ins.arg1 + ", " + ins.arg2) true)
       }
       case "zext" {
-        wr.out((ins.dest + " = zext i32 " + ins.arg1 + " to " + ins.irType) true)
+        ; The SOURCE type was hard-coded to i32, so widening an i1 (a boolean
+        ; stored into a pointer-sized map slot) wrote `zext i32 <i1 value>`.
+        def zsrc:string "i32"
+        if ((strlen ins.arg2) > 0) {
+          zsrc = ins.arg2
+        }
+        wr.out((ins.dest + " = zext " + zsrc + " " + ins.arg1 + " to " + ins.irType) true)
       }
       case "zext_i1" {
         wr.out((ins.dest + " = zext i1 " + ins.arg1 + " to i32") true)
+      }
+      case "global_get" {
+        wr.out((ins.dest + " = load " + (this.llTy(ins.irType)) + ", " + (this.llTy(ins.irType)) + "* @" + ins.arg1) true)
+      }
+      case "global_set" {
+        wr.out(("store " + (this.llTy(ins.irType)) + " " + ins.arg2 + ", " + (this.llTy(ins.irType)) + "* @" + ins.arg1) true)
+      }
+      case "bitcast" {
+        wr.out((ins.dest + " = bitcast " + (this.llTy(ins.arg2)) + " " + ins.arg1 + " to " + (this.llTy(ins.irType))) true)
       }
       case "trunc" {
         wr.out((ins.dest + " = trunc " + (this.llTy(ins.arg2)) + " " + ins.arg1 + " to " + (this.llTy(ins.irType))) true)
@@ -378,7 +423,30 @@ class LLVMIRWriter {
         if ((strlen ins.arg3) > 0) {
           cmpType = ins.arg3
         }
-        wr.out((ins.dest + " = icmp " + ins.pred + " " + cmpType + " " + ins.arg1 + ", " + ins.arg2) true)
+        ; A FLOAT comparison is `fcmp` with an ordered predicate, not `icmp`.
+        ; The type and predicate were written through verbatim, so any f64
+        ; compare emitted `icmp ne f64 ...` -- which LLVM rejects at "expected
+        ; type". Nothing had exercised it until a `double` reached lowerCond.
+        if (cmpType == "f64") {
+          def fpred:string ins.pred
+          if (ins.pred == "eq") { fpred = "oeq" }
+          ; `!=` is UNORDERED not-equal: `v != v` is the canonical NaN test and
+          ; must answer TRUE for NaN. The ordered `one` answers false whenever
+          ; either side is NaN, so every NaN guard in the engine silently failed
+          ; -- `Object.defineProperty(a, "length", {value: undefined})` fell past
+          ; its RangeError and tried to materialise an array of NaN elements,
+          ; which hung the process. The ORDERED forms are right for the others:
+          ; a NaN comparison with <, >, <=, >= or == is false in both IEEE and
+          ; JavaScript.
+          if (ins.pred == "ne") { fpred = "une" }
+          if (ins.pred == "slt") { fpred = "olt" }
+          if (ins.pred == "sgt") { fpred = "ogt" }
+          if (ins.pred == "sle") { fpred = "ole" }
+          if (ins.pred == "sge") { fpred = "oge" }
+          wr.out((ins.dest + " = fcmp " + fpred + " double " + ins.arg1 + ", " + ins.arg2) true)
+        } {
+          wr.out((ins.dest + " = icmp " + ins.pred + " " + cmpType + " " + ins.arg1 + ", " + ins.arg2) true)
+        }
       }
       case "str_ptr" {
         wr.out((ins.dest + " = getelementptr inbounds [" + ins.arg2 + " x i8], [" + ins.arg2 + " x i8]* @" + ins.arg1 + ", i64 0, i64 0") true)

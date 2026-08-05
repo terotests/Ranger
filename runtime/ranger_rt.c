@@ -2,6 +2,9 @@
  * Shared C runtime for Ranger LLVM native targets (libc-linked).
  * Terminal I/O, CLI args, and small file/string helpers.
  */
+#include <sys/stat.h>
+#include <sys/time.h>
+#include <stdint.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -286,4 +289,982 @@ const char *ranger_poll_key(void) {
   key_buf[0] = c;
   key_buf[1] = '\0';
   return key_buf;
+}
+
+/* ---------------------------------------------------------------------------
+ * String-keyed maps (RtSMap).
+ *
+ * The generated RtMap_* runtime hashes an i32 key with `key % cap` and stores
+ * 4-byte slots, so it cannot hold a `[string:T]` map at all: the key needs
+ * hashing by CONTENT, and both key and value are pointer-sized. Rather than
+ * widen the emitted IR, string maps live here in C, where the hashing and the
+ * resize are ordinary code.
+ *
+ * Entries are kept in INSERTION ORDER in a flat array, with a separate open
+ * addressed index for lookup. JavaScript enumerates string keys in insertion
+ * order, and the TypeScript engine's object model depends on that -- an
+ * unordered map would be a third wrong answer, the way std::map's sorted order
+ * is on the C++ target.
+ * ------------------------------------------------------------------------- */
+
+typedef struct {
+  char *key;      /* owned copy; NULL once removed */
+  int64_t value;
+  uint32_t hash;
+} RtSMapEntry;
+
+/* Value ownership, set at construction (see RtSMap_new_kind):
+ *   0 = plain values (ints, borrowed pointers) -- nothing to release
+ *   1 = owned OBJECTS   -- retained on put, released on overwrite/remove/free
+ *   2 = owned STRINGS   -- copied on put, freed on overwrite/remove/free
+ * Without this a map was a pure borrow, so an EvalValue stored in an object's
+ * property map died the moment the local that produced it went out of scope. */
+typedef struct {
+  RtSMapEntry *entries; /* insertion order, may contain removed holes */
+  int32_t count;        /* entries used, holes included */
+  int32_t cap;
+  int32_t live;         /* entries with key != NULL */
+  int32_t *index;       /* open-addressed: entry slot + 1, or 0 when empty */
+  int32_t index_cap;
+  int32_t valkind;      /* 0 plain / 1 owned object / 2 owned string */
+  int32_t rc;           /* shared maps: a field and a local can both hold one */
+} RtSMap;
+
+static uint32_t rt_smap_hash(const char *s) {
+  uint32_t h = 2166136261u; /* FNV-1a */
+  while (*s) {
+    h ^= (unsigned char)*s++;
+    h *= 16777619u;
+  }
+  return h;
+}
+
+static void rt_smap_reindex(RtSMap *m, int32_t new_cap) {
+  int32_t i;
+  free(m->index);
+  m->index_cap = new_cap;
+  m->index = (int32_t *)calloc((size_t)new_cap, sizeof(int32_t));
+  if (m->index == NULL) {
+    m->index_cap = 0;
+    return;
+  }
+  for (i = 0; i < m->count; i++) {
+    uint32_t slot;
+    if (m->entries[i].key == NULL) {
+      continue;
+    }
+    slot = m->entries[i].hash & (uint32_t)(new_cap - 1);
+    while (m->index[slot] != 0) {
+      slot = (slot + 1) & (uint32_t)(new_cap - 1);
+    }
+    m->index[slot] = i + 1;
+  }
+}
+
+extern void ranger_obj_retain(int64_t body);
+extern void ranger_obj_release(int64_t body);
+extern int ranger_obj_refcount(int64_t body);
+
+static void rt_smap_retain_value(RtSMap *m, int64_t v) {
+  if (m->valkind == 1 && v != 0) {
+    ranger_obj_retain(v);
+  }
+}
+
+static void rt_smap_release_value(RtSMap *m, int64_t v) {
+  if (v == 0) {
+    return;
+  }
+  if (m->valkind == 1) {
+    ranger_obj_release(v);
+  } else if (m->valkind == 2) {
+    free((void *)(intptr_t)v);
+  }
+}
+
+/* RANGER_MEM_STATS: maps are not objects, so a leaked one is invisible to the
+ * object registry -- yet it keeps every value it holds alive. Counting them
+ * separately is what distinguishes "value over-retained" from "value still held
+ * by a map nobody freed". */
+long g_smap_new = 0, g_smap_free = 0;
+
+/* Free list of RtSMap headers.
+ *
+ * Every EvalValue owns five string-map fields, so constructing one -- even for
+ * the number 42 -- costs five calloc/free round trips before a digit is stored.
+ * Measured on `s = s + i`: 28 heap allocations per loop iteration against
+ * QuickJS's zero, with 57% of all instructions inside malloc/free. The header
+ * is a fixed 64-odd bytes and its lifetime is a churn of same-size blocks,
+ * which is exactly the shape a free list handles better than the general
+ * allocator. Storage inside the map (entries/index) stays malloc'd, since those
+ * vary in size and most maps never get one.
+ *
+ * RANGER_SMAP_POOL=0 turns this off, so the pooled and unpooled costs stay
+ * measurable against each other. */
+static RtSMap *g_smap_pool = NULL;
+static long g_smap_pool_len = 0;
+static int g_smap_pool_on = -1;
+#define RT_SMAP_POOL_MAX 4096
+
+static int rt_smap_pool_enabled(void) {
+  if (g_smap_pool_on < 0) {
+    const char *v = getenv("RANGER_SMAP_POOL");
+    g_smap_pool_on = (v != NULL && v[0] == '0') ? 0 : 1;
+  }
+  return g_smap_pool_on;
+}
+
+int64_t RtSMap_new_kind(int valkind) {
+  g_smap_new++;
+  RtSMap *m;
+  if (g_smap_pool != NULL && rt_smap_pool_enabled()) {
+    /* The `entries` pointer doubles as the free-list link while pooled. */
+    m = g_smap_pool;
+    g_smap_pool = (RtSMap *)(void *)m->entries;
+    g_smap_pool_len--;
+    memset(m, 0, sizeof(RtSMap));
+  } else {
+    m = (RtSMap *)calloc(1, sizeof(RtSMap));
+  }
+  if (m == NULL) {
+    return 0;
+  }
+  /* Storage is allocated on the FIRST put, not here. Every EvalValue owns five
+   * string-map fields (objectMap, getterMap, setterMap, attrFlags,
+   * suppressedKeys) and almost every value -- every number, string and boolean
+   * the engine makes -- uses none of them. Allocating eagerly cost ~250 bytes
+   * per map, so a plain number carried more than a kilobyte of empty tables.
+   * Every reader already copes with the empty state: rt_smap_find returns -1 on
+   * a NULL index, and size/keyAt/free all work off count, which stays 0. */
+  m->valkind = valkind;
+  m->rc = 1;
+  return (int64_t)(intptr_t)m;
+}
+
+int64_t RtSMap_new(void) { return RtSMap_new_kind(0); }
+
+/* Entry index for `key`, or -1. */
+static int32_t rt_smap_find(RtSMap *m, const char *key, uint32_t h) {
+  uint32_t slot;
+  if (m == NULL || m->index == NULL || key == NULL) {
+    return -1;
+  }
+  slot = h & (uint32_t)(m->index_cap - 1);
+  while (m->index[slot] != 0) {
+    int32_t ei = m->index[slot] - 1;
+    if (m->entries[ei].key != NULL && m->entries[ei].hash == h &&
+        strcmp(m->entries[ei].key, key) == 0) {
+      return ei;
+    }
+    slot = (slot + 1) & (uint32_t)(m->index_cap - 1);
+  }
+  return -1;
+}
+
+void RtSMap_put(int64_t map, const char *key, int64_t value) {
+  RtSMap *m = (RtSMap *)(intptr_t)map;
+  uint32_t h;
+  int32_t ei;
+  if (m == NULL || key == NULL) {
+    return;
+  }
+  if (m->entries == NULL) {
+    m->cap = 8;
+    m->entries = (RtSMapEntry *)calloc((size_t)m->cap, sizeof(RtSMapEntry));
+    if (m->entries == NULL) {
+      return;
+    }
+    rt_smap_reindex(m, 16);
+    if (m->index == NULL) {
+      return;
+    }
+  }
+  h = rt_smap_hash(key);
+  ei = rt_smap_find(m, key, h);
+  if (ei >= 0) {
+    /* retain BEFORE releasing: putting a value back over itself must not free it */
+    rt_smap_retain_value(m, value);
+    rt_smap_release_value(m, m->entries[ei].value);
+    m->entries[ei].value = value; /* replace: keeps the original position */
+    return;
+  }
+  rt_smap_retain_value(m, value);
+  if (m->count == m->cap) {
+    int32_t nc = m->cap * 2;
+    RtSMapEntry *ne = (RtSMapEntry *)realloc(m->entries, (size_t)nc * sizeof(RtSMapEntry));
+    if (ne == NULL) {
+      return;
+    }
+    memset(ne + m->cap, 0, (size_t)(nc - m->cap) * sizeof(RtSMapEntry));
+    m->entries = ne;
+    m->cap = nc;
+  }
+  m->entries[m->count].key = ranger_strdup(key);
+  m->entries[m->count].value = value;
+  m->entries[m->count].hash = h;
+  m->count++;
+  m->live++;
+  /* keep the open-addressed index under half full */
+  if (m->count * 2 >= m->index_cap) {
+    rt_smap_reindex(m, m->index_cap * 2);
+  } else {
+    uint32_t slot = h & (uint32_t)(m->index_cap - 1);
+    while (m->index[slot] != 0) {
+      slot = (slot + 1) & (uint32_t)(m->index_cap - 1);
+    }
+    m->index[slot] = m->count; /* count is (entry index + 1) */
+  }
+}
+
+int64_t RtSMap_get(int64_t map, const char *key) {
+  RtSMap *m = (RtSMap *)(intptr_t)map;
+  int32_t ei;
+  if (m == NULL || key == NULL) {
+    return 0;
+  }
+  ei = rt_smap_find(m, key, rt_smap_hash(key));
+  return (ei >= 0) ? m->entries[ei].value : 0;
+}
+
+int RtSMap_has(int64_t map, const char *key) {
+  RtSMap *m = (RtSMap *)(intptr_t)map;
+  if (m == NULL || key == NULL) {
+    return 0;
+  }
+  return rt_smap_find(m, key, rt_smap_hash(key)) >= 0 ? 1 : 0;
+}
+
+void RtSMap_remove(int64_t map, const char *key) {
+  RtSMap *m = (RtSMap *)(intptr_t)map;
+  int32_t ei;
+  if (m == NULL || key == NULL) {
+    return;
+  }
+  ei = rt_smap_find(m, key, rt_smap_hash(key));
+  if (ei < 0) {
+    return;
+  }
+  free(m->entries[ei].key);
+  m->entries[ei].key = NULL; /* hole: later keys keep their positions */
+  rt_smap_release_value(m, m->entries[ei].value);
+  m->entries[ei].value = 0;
+  m->live--;
+  rt_smap_reindex(m, m->index_cap);
+}
+
+/* Live entry count. */
+int RtSMap_size(int64_t map) {
+  RtSMap *m = (RtSMap *)(intptr_t)map;
+  return (m == NULL) ? 0 : m->live;
+}
+
+/* The i-th LIVE key in insertion order, or NULL. Callers walk 0..size-1. */
+const char *RtSMap_keyAt(int64_t map, int i) {
+  RtSMap *m = (RtSMap *)(intptr_t)map;
+  int32_t k;
+  int32_t seen = 0;
+  if (m == NULL || i < 0) {
+    return NULL;
+  }
+  for (k = 0; k < m->count; k++) {
+    if (m->entries[k].key == NULL) {
+      continue;
+    }
+    if (seen == i) {
+      return m->entries[k].key;
+    }
+    seen++;
+  }
+  return NULL;
+}
+
+/* Leak triage (ranger_mem.c heap walk): does this map still hold `value`? */
+int rt_smap_holds_value(int64_t map, int64_t value) {
+  RtSMap *m = (RtSMap *)(intptr_t)map;
+  int32_t i;
+  if (m == NULL) {
+    return 0;
+  }
+  for (i = 0; i < m->count; i++) {
+    if (m->entries[i].key != NULL && m->entries[i].value == value) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/* --- accessors the cycle collector uses to walk a map's OBJECT values ---
+ * The collector lives in ranger_mem.c and must not know the RtSMap layout, but
+ * it does have to enumerate the object references a map holds: a property map
+ * hanging off an object field is exactly where a JS-level cycle lives
+ * (`a.next = b; b.prev = a` is two puts into two property maps). Exposing the
+ * count and an indexed read keeps the layout private while making the edges
+ * visible. Index positions include removed holes, which read back as 0. */
+int rt_smap_is_object_map(int64_t map) {
+  RtSMap *m = (RtSMap *)(intptr_t)map;
+  return (m != NULL && m->valkind == 1) ? 1 : 0;
+}
+
+int32_t rt_smap_slot_count(int64_t map) {
+  RtSMap *m = (RtSMap *)(intptr_t)map;
+  return (m == NULL) ? 0 : m->count;
+}
+
+int64_t rt_smap_value_slot(int64_t map, int32_t i) {
+  RtSMap *m = (RtSMap *)(intptr_t)map;
+  if (m == NULL || i < 0 || i >= m->count) {
+    return 0;
+  }
+  return (m->entries[i].key != NULL) ? m->entries[i].value : 0;
+}
+
+/* Drop a slot's object value without touching the key, so the collector can
+ * break a cycle that runs through a map. The slot keeps its key and reads back
+ * as 0 afterwards, which every reader already treats as "no value". */
+void rt_smap_clear_value_slot(int64_t map, int32_t i) {
+  RtSMap *m = (RtSMap *)(intptr_t)map;
+  if (m == NULL || i < 0 || i >= m->count) {
+    return;
+  }
+  m->entries[i].value = 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * Integer-keyed maps (RtIMap).
+ *
+ * The generated RtMap_* runtime stores 4-byte slots, so it can hold `[int:int]`
+ * and nothing else -- an object reference does not fit. `[int:EvalValue]` needs
+ * 64-bit values AND ownership: a value put into the map has to be retained and
+ * released like a string map's, or a slot would outlive what it points at.
+ *
+ * So this lives in C for the same reason RtSMap does: widening the emitted IR
+ * would mean hand-writing the wider hash, resize and ownership in LLVM IR,
+ * where here they are ordinary code.
+ *
+ * Open addressing on the key itself. The intended use is a dense numeric range
+ * per call frame, which a multiplicative hash spreads evenly and which never
+ * needs insertion order -- unlike a string map, whose order JavaScript observes.
+ * ------------------------------------------------------------------------- */
+
+typedef struct {
+  int64_t key;
+  int64_t value;
+  uint8_t used;   /* 0 empty, 1 live, 2 tombstone */
+} RtIMapEntry;
+
+typedef struct {
+  RtIMapEntry *entries;
+  int32_t cap;    /* power of two, 0 until the first put */
+  int32_t live;
+  int32_t used;   /* live + tombstones, drives the resize */
+  int32_t valkind; /* 0 plain / 1 owned object / 2 owned string */
+  int32_t rc;
+} RtIMap;
+
+long g_imap_new = 0, g_imap_free = 0;
+
+static uint32_t rt_imap_hash(int64_t k) {
+  uint64_t x = (uint64_t)k;
+  x *= 0x9E3779B97F4A7C15ull; /* Fibonacci hashing: good spread for dense keys */
+  return (uint32_t)(x >> 32);
+}
+
+static void rt_imap_retain_value(RtIMap *m, int64_t v) {
+  if (m->valkind == 1 && v != 0) {
+    ranger_obj_retain(v);
+  }
+}
+
+static void rt_imap_release_value(RtIMap *m, int64_t v) {
+  if (v == 0) {
+    return;
+  }
+  if (m->valkind == 1) {
+    ranger_obj_release(v);
+  } else if (m->valkind == 2) {
+    free((void *)(intptr_t)v);
+  }
+}
+
+int64_t RtIMap_new_kind(int valkind) {
+  RtIMap *m = (RtIMap *)calloc(1, sizeof(RtIMap));
+  g_imap_new++;
+  if (m == NULL) {
+    return 0;
+  }
+  /* Storage waits for the first put, as RtSMap's does: most maps in an
+   * interpreter never receive one. */
+  m->valkind = valkind;
+  m->rc = 1;
+  return (int64_t)(intptr_t)m;
+}
+
+int64_t RtIMap_new(void) { return RtIMap_new_kind(0); }
+
+/* Slot for `key`: the live entry, or the first free slot to claim. */
+static int32_t rt_imap_slot(RtIMap *m, int64_t key, int wantFree) {
+  uint32_t mask;
+  uint32_t i;
+  int32_t firstFree = -1;
+  if (m == NULL || m->entries == NULL) {
+    return -1;
+  }
+  mask = (uint32_t)(m->cap - 1);
+  i = rt_imap_hash(key) & mask;
+  for (;;) {
+    RtIMapEntry *e = &m->entries[i];
+    if (e->used == 0) {
+      return wantFree ? ((firstFree >= 0) ? firstFree : (int32_t)i) : -1;
+    }
+    if (e->used == 1 && e->key == key) {
+      return (int32_t)i;
+    }
+    if (e->used == 2 && firstFree < 0) {
+      firstFree = (int32_t)i;
+    }
+    i = (i + 1) & mask;
+  }
+}
+
+static int rt_imap_grow(RtIMap *m, int32_t newCap) {
+  RtIMapEntry *old = m->entries;
+  int32_t oldCap = m->cap;
+  int32_t i;
+  RtIMapEntry *ne = (RtIMapEntry *)calloc((size_t)newCap, sizeof(RtIMapEntry));
+  if (ne == NULL) {
+    return 0;
+  }
+  m->entries = ne;
+  m->cap = newCap;
+  m->used = m->live;
+  for (i = 0; i < oldCap; i++) {
+    if (old[i].used == 1) {
+      int32_t s = rt_imap_slot(m, old[i].key, 1);
+      if (s >= 0) {
+        m->entries[s] = old[i];
+      }
+    }
+  }
+  free(old);
+  return 1;
+}
+
+void RtIMap_set(int64_t map, int64_t key, int64_t value) {
+  RtIMap *m = (RtIMap *)(intptr_t)map;
+  int32_t s;
+  if (m == NULL) {
+    return;
+  }
+  if (m->entries == NULL) {
+    if (!rt_imap_grow(m, 16)) {
+      return;
+    }
+  }
+  /* Resize at half full: open addressing degrades badly past that. */
+  if ((m->used + 1) * 2 > m->cap) {
+    if (!rt_imap_grow(m, m->cap * 2)) {
+      return;
+    }
+  }
+  s = rt_imap_slot(m, key, 1);
+  if (s < 0) {
+    return;
+  }
+  /* retain BEFORE releasing: storing a value over itself must not free it */
+  rt_imap_retain_value(m, value);
+  if (m->entries[s].used == 1) {
+    rt_imap_release_value(m, m->entries[s].value);
+  } else {
+    if (m->entries[s].used == 0) {
+      m->used++;
+    }
+    m->live++;
+  }
+  m->entries[s].key = key;
+  m->entries[s].value = value;
+  m->entries[s].used = 1;
+}
+
+int64_t RtIMap_get(int64_t map, int64_t key) {
+  RtIMap *m = (RtIMap *)(intptr_t)map;
+  int32_t s = rt_imap_slot(m, key, 0);
+  return (s >= 0) ? m->entries[s].value : 0;
+}
+
+int RtIMap_has(int64_t map, int64_t key) {
+  return (rt_imap_slot((RtIMap *)(intptr_t)map, key, 0) >= 0) ? 1 : 0;
+}
+
+void RtIMap_remove(int64_t map, int64_t key) {
+  RtIMap *m = (RtIMap *)(intptr_t)map;
+  int32_t s = rt_imap_slot(m, key, 0);
+  if (s < 0) {
+    return;
+  }
+  rt_imap_release_value(m, m->entries[s].value);
+  m->entries[s].value = 0;
+  m->entries[s].used = 2; /* tombstone: a probe chain through here must go on */
+  m->live--;
+}
+
+int RtIMap_size(int64_t map) {
+  RtIMap *m = (RtIMap *)(intptr_t)map;
+  return (m == NULL) ? 0 : m->live;
+}
+
+void RtIMap_retain(int64_t map) {
+  RtIMap *m = (RtIMap *)(intptr_t)map;
+  if (m != NULL) {
+    m->rc++;
+  }
+}
+
+void RtIMap_free(int64_t map) {
+  RtIMap *m = (RtIMap *)(intptr_t)map;
+  int32_t i;
+  if (m == NULL) {
+    return;
+  }
+  if (m->rc > 1) {
+    m->rc--;
+    return;
+  }
+  m->rc = 0;
+  g_imap_free++;
+  for (i = 0; i < m->cap; i++) {
+    if (m->entries[i].used == 1) {
+      rt_imap_release_value(m, m->entries[i].value);
+    }
+  }
+  free(m->entries);
+  free(m);
+}
+
+/* Does this map hold `value`? Used by the cycle collector's holder scan. */
+int rt_imap_holds_value(int64_t map, int64_t value) {
+  RtIMap *m = (RtIMap *)(intptr_t)map;
+  int32_t i;
+  if (m == NULL) {
+    return 0;
+  }
+  for (i = 0; i < m->cap; i++) {
+    if (m->entries[i].used == 1 && m->entries[i].value == value) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/* Slot walking for the cycle collector, mirroring the RtSMap accessors. */
+int rt_imap_is_object_map(int64_t map) {
+  RtIMap *m = (RtIMap *)(intptr_t)map;
+  return (m != NULL && m->valkind == 1) ? 1 : 0;
+}
+
+int32_t rt_imap_slot_count(int64_t map) {
+  RtIMap *m = (RtIMap *)(intptr_t)map;
+  return (m == NULL) ? 0 : m->cap;
+}
+
+int64_t rt_imap_value_slot(int64_t map, int32_t i) {
+  RtIMap *m = (RtIMap *)(intptr_t)map;
+  if (m == NULL || i < 0 || i >= m->cap) {
+    return 0;
+  }
+  return (m->entries[i].used == 1) ? m->entries[i].value : 0;
+}
+
+/* Assign to `key` only if it already exists, answering whether it did.
+ *
+ * `if (has m k) { set m k v }` is the shape every scope-chain assignment walks,
+ * and it costs two full lookups -- two hashes and two key comparisons -- where
+ * one would do. Scope assignment is on the hot path of every statement that
+ * writes a variable, so the pair is collapsed here. */
+int RtSMap_put_if_present(int64_t map, const char *key, int64_t value) {
+  RtSMap *m = (RtSMap *)(intptr_t)map;
+  int32_t ei;
+  if (m == NULL || key == NULL) {
+    return 0;
+  }
+  ei = rt_smap_find(m, key, rt_smap_hash(key));
+  if (ei < 0) {
+    return 0;
+  }
+  /* retain BEFORE releasing, exactly as RtSMap_put does: assigning a value
+   * over itself must not free it. */
+  rt_smap_retain_value(m, value);
+  rt_smap_release_value(m, m->entries[ei].value);
+  m->entries[ei].value = value;
+  return 1;
+}
+
+/* Is the value under `key` held by NOBODY BUT this map?
+ *
+ * The reference count answers "is this value uniquely owned", which is the
+ * exact condition for updating it in place instead of allocating a replacement
+ * -- an interpreter's `i++` writes the same binding every time and never needs
+ * a new object. Asking from Ranger does not work: the surrounding function's
+ * own locals each hold a reference, so the baseline is whatever that function's
+ * shape happens to produce, and a hard-coded threshold silently becomes wrong
+ * when the function is edited. Here there are no locals at all, so rc == 1 is
+ * unambiguous: the map's own reference and nothing else.
+ *
+ * A pooled small integer or an interned literal is rejected for free -- the
+ * pool array holds a second reference -- and so is a value a second binding
+ * aliases. Both are exactly the cases that must not be mutated. */
+int rt_smap_value_unique(int64_t map, const char *key) {
+  RtSMap *m = (RtSMap *)(intptr_t)map;
+  int32_t ei;
+  int64_t val;
+  if (m == NULL || key == NULL || m->valkind != 1) {
+    return 0;
+  }
+  ei = rt_smap_find(m, key, rt_smap_hash(key));
+  if (ei < 0) {
+    return 0;
+  }
+  val = m->entries[ei].value;
+  if (val == 0) {
+    return 0;
+  }
+  return (ranger_obj_refcount(val) == 1) ? 1 : 0;
+}
+
+void RtSMap_retain(int64_t map) {
+  RtSMap *m = (RtSMap *)(intptr_t)map;
+  if (m == NULL) {
+    return;
+  }
+  m->rc++;
+}
+
+void RtSMap_free(int64_t map) {
+  RtSMap *m = (RtSMap *)(intptr_t)map;
+  int32_t i;
+  if (m == NULL) {
+    return;
+  }
+  /* A map stored into an object field and still named by the local that built
+   * it has two owners; only the last release frees it. rc==0 means the map
+   * predates refcounting -- treat it as a single owner. */
+  if (m->rc > 1) {
+    m->rc--;
+    return;
+  }
+  m->rc = 0;
+  g_smap_free++;
+  for (i = 0; i < m->count; i++) {
+    free(m->entries[i].key);
+    rt_smap_release_value(m, m->entries[i].value);
+  }
+  free(m->entries);
+  free(m->index);
+  if (g_smap_pool_len < RT_SMAP_POOL_MAX && rt_smap_pool_enabled()) {
+    m->entries = (RtSMapEntry *)(void *)g_smap_pool;
+    g_smap_pool = m;
+    g_smap_pool_len++;
+    return;
+  }
+  free(m);
+}
+
+/* --- string helpers the LLVM target needs -------------------------------- */
+
+/* Byte index of `key` in `text`, or -1. Byte-indexed, matching
+ * ranger_char_at/ranger_substring on this runtime. */
+int ranger_str_index_of(const char *text, const char *key) {
+  const char *hit;
+  if (text == NULL || key == NULL) {
+    return -1;
+  }
+  hit = strstr(text, key);
+  return (hit == NULL) ? -1 : (int)(hit - text);
+}
+
+int ranger_str_last_index_of(const char *text, const char *key) {
+  const char *p;
+  int last = -1;
+  size_t klen;
+  if (text == NULL || key == NULL) {
+    return -1;
+  }
+  klen = strlen(key);
+  if (klen == 0) {
+    return (int)strlen(text);
+  }
+  for (p = text; (p = strstr(p, key)) != NULL; p++) {
+    last = (int)(p - text);
+  }
+  return last;
+}
+
+int ranger_str_contains(const char *text, const char *key) {
+  return ranger_str_index_of(text, key) >= 0 ? 1 : 0;
+}
+
+/* ASCII case mapping, which is what the es6 target's toLowerCase does for the
+ * engine's identifiers and keywords. Non-ASCII bytes are passed through. */
+char *ranger_str_lower(const char *text) {
+  char *out;
+  size_t i, n;
+  if (text == NULL) {
+    return ranger_strdup("");
+  }
+  n = strlen(text);
+  out = (char *)malloc(n + 1);
+  if (out == NULL) {
+    return ranger_strdup("");
+  }
+  for (i = 0; i < n; i++) {
+    unsigned char c = (unsigned char)text[i];
+    out[i] = (char)((c >= 'A' && c <= 'Z') ? (c - 'A' + 'a') : c);
+  }
+  out[n] = '\0';
+  return out;
+}
+
+char *ranger_str_upper(const char *text) {
+  char *out;
+  size_t i, n;
+  if (text == NULL) {
+    return ranger_strdup("");
+  }
+  n = strlen(text);
+  out = (char *)malloc(n + 1);
+  if (out == NULL) {
+    return ranger_strdup("");
+  }
+  for (i = 0; i < n; i++) {
+    unsigned char c = (unsigned char)text[i];
+    out[i] = (char)((c >= 'a' && c <= 'z') ? (c - 'a' + 'A') : c);
+  }
+  out[n] = '\0';
+  return out;
+}
+
+int ranger_file_exists(const char *path, const char *filename) {
+  char *full;
+  FILE *f;
+  size_t n;
+  if (path == NULL || filename == NULL) {
+    return 0;
+  }
+  n = strlen(path) + strlen(filename) + 2;
+  full = (char *)malloc(n);
+  if (full == NULL) {
+    return 0;
+  }
+  snprintf(full, n, "%s/%s", path, filename);
+  f = fopen(full, "rb");
+  free(full);
+  if (f == NULL) {
+    return 0;
+  }
+  fclose(f);
+  return 1;
+}
+
+/* ---------------------------------------------------------------------------
+ * strsplit -> a ptr-array of owned strings.
+ *
+ * The RtPtrArray_* runtime is emitted as LLVM IR, so it cannot build the
+ * result from a C loop -- but the descriptor layout is fixed (it is the same
+ * one ranger_mem.c releases), so the array is constructed here directly.
+ * Element kind 2 marks the elements as owned STRINGS, which is what makes the
+ * release path free them instead of treating them as objects.
+ *
+ * An empty separator splits into single BYTES, matching the C++ polyfill.
+ * ------------------------------------------------------------------------- */
+
+typedef struct {
+  int64_t data;
+  int32_t len;
+  int32_t cap;
+  int32_t owned;
+  int32_t rc;
+} RtSplitDesc;
+
+static void rt_split_push(RtSplitDesc *d, char *s) {
+  int64_t *data;
+  int32_t new_cap;
+  if (d->len >= d->cap) {
+    new_cap = (d->cap == 0) ? 8 : (d->cap * 2);
+    data = (int64_t *)realloc((void *)(intptr_t)d->data, (size_t)new_cap * sizeof(int64_t));
+    if (data == NULL) {
+      return;
+    }
+    d->data = (int64_t)(intptr_t)data;
+    d->cap = new_cap;
+  }
+  data = (int64_t *)(intptr_t)d->data;
+  data[d->len] = (int64_t)(intptr_t)s;
+  d->len = d->len + 1;
+}
+
+int64_t ranger_str_split(const char *text, const char *sep) {
+  RtSplitDesc *d = (RtSplitDesc *)calloc(1, sizeof(RtSplitDesc));
+  const char *cur;
+  size_t seplen;
+  if (d == NULL) {
+    return 0;
+  }
+  d->owned = 2;
+  d->rc = 1;
+  if (text == NULL) {
+    return (int64_t)(intptr_t)d;
+  }
+  seplen = (sep == NULL) ? 0 : strlen(sep);
+  if (seplen == 0) {
+    /* one element per byte */
+    size_t i;
+    size_t n = strlen(text);
+    for (i = 0; i < n; i++) {
+      char *one = (char *)malloc(2);
+      if (one == NULL) {
+        break;
+      }
+      one[0] = text[i];
+      one[1] = '\0';
+      rt_split_push(d, one);
+    }
+    return (int64_t)(intptr_t)d;
+  }
+  cur = text;
+  for (;;) {
+    const char *hit = strstr(cur, sep);
+    size_t n = (hit == NULL) ? strlen(cur) : (size_t)(hit - cur);
+    char *piece = (char *)malloc(n + 1);
+    if (piece == NULL) {
+      break;
+    }
+    if (n > 0) {
+      memcpy(piece, cur, n);
+    }
+    piece[n] = '\0';
+    rt_split_push(d, piece);
+    if (hit == NULL) {
+      break;
+    }
+    cur = hit + seplen;
+  }
+  return (int64_t)(intptr_t)d;
+}
+
+/* JavaScript-style double formatting, which "%g" is not: %g carries six
+ * significant digits, so 946684800000 printed as 9.46685e+11 and every Date in
+ * milliseconds lost its value on the way to a string.
+ *
+ * The rules that matter here: an integral magnitude below 1e21 prints in full
+ * with no exponent, and everything else takes the SHORTEST representation that
+ * reads back as the same double. */
+char *ranger_double_to_string(double v) {
+  char buf[64];
+  int prec;
+  if (v != v) {
+    return ranger_strdup("NaN");
+  }
+  if (v > 1.7976931348623157e308) {
+    return ranger_strdup("Infinity");
+  }
+  if (v < -1.7976931348623157e308) {
+    return ranger_strdup("-Infinity");
+  }
+  if (v == 0.0) {
+    return ranger_strdup("0");
+  }
+  {
+    double a = v < 0 ? -v : v;
+    /* floor(a) == a means integral; below 1e21 JavaScript writes it out */
+    if (a < 1e21 && a == (double)(long long)a) {
+      snprintf(buf, sizeof(buf), "%lld", (long long)v);
+      return ranger_strdup(buf);
+    }
+  }
+  for (prec = 15; prec <= 17; prec++) {
+    snprintf(buf, sizeof(buf), "%.*g", prec, v);
+    if (strtod(buf, NULL) == v) {
+      break;
+    }
+  }
+  return ranger_strdup(buf);
+}
+
+double ranger_random(void) { return (double)rand() / ((double)RAND_MAX + 1.0); }
+
+/* Wall-clock milliseconds since the Unix epoch -- the LLVM target's
+ * `wall_clock_ms`. Embedders that want Date.now() to advance (Octane) read
+ * this; the engine's default host clock stays frozen for conformance runs. */
+double ranger_wall_clock_ms(void) {
+  struct timeval tv;
+  if (gettimeofday(&tv, NULL) != 0) {
+    return 0.0;
+  }
+  return (double)tv.tv_sec * 1000.0 + (double)tv.tv_usec / 1000.0;
+}
+
+/* A buffer is a length-prefixed byte block on this runtime (see the
+ * buffer_alloc lowering); copy its bytes out as a NUL-terminated string. */
+char *ranger_buffer_to_string(int64_t buf, int len) {
+  char *out;
+  if (buf == 0 || len < 0) {
+    return ranger_strdup("");
+  }
+  out = (char *)malloc((size_t)len + 1);
+  if (out == NULL) {
+    return ranger_strdup("");
+  }
+  memcpy(out, (const void *)(intptr_t)buf, (size_t)len);
+  out[len] = '\0';
+  return out;
+}
+
+int64_t ranger_file_mtime(const char *path, const char *filename) {
+  char *full;
+  struct stat st;
+  size_t n;
+  int64_t r = 0;
+  if (path == NULL || filename == NULL) {
+    return 0;
+  }
+  n = strlen(path) + strlen(filename) + 2;
+  full = (char *)malloc(n);
+  if (full == NULL) {
+    return 0;
+  }
+  snprintf(full, n, "%s/%s", path, filename);
+  if (stat(full, &st) == 0) {
+    r = (int64_t)st.st_mtime * 1000;
+  }
+  free(full);
+  return r;
+}
+
+char *ranger_str_trim(const char *text) {
+  const char *b;
+  const char *e;
+  char *out;
+  size_t n;
+  if (text == NULL) {
+    return ranger_strdup("");
+  }
+  b = text;
+  while (*b == ' ' || *b == '\t' || *b == '\n' || *b == '\r') {
+    b++;
+  }
+  e = b + strlen(b);
+  while (e > b) {
+    char c = *(e - 1);
+    if (c != ' ' && c != '\t' && c != '\n' && c != '\r') {
+      break;
+    }
+    e--;
+  }
+  n = (size_t)(e - b);
+  out = (char *)malloc(n + 1);
+  if (out == NULL) {
+    return ranger_strdup("");
+  }
+  memcpy(out, b, n);
+  out[n] = '\0';
+  return out;
 }

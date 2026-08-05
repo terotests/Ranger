@@ -146,6 +146,19 @@ class LowIRField {
   def name:string ""
   def irType:string "i32"
   def isPtrArray:boolean false
+  ; A `[string:T]` field. Backed by the RtSMap_* runtime rather than the
+  ; generated integer-keyed RtMap_*, which cannot hash a string key.
+  def isStringMap:boolean false
+  ; An `[int:T]` field whose values are references. Distinct from isStringMap
+  ; because the runtimes differ (RtIMap_* vs RtSMap_*) and from `[int:int]`,
+  ; which stays on the 4-byte RtMap_*.
+  def isIntMap:boolean false
+  def isIntMapStr:boolean false
+  ; `[string:int]` rather than `[string:<object>]`: the runtime hands back a
+  ; pointer-sized value, so an int-valued map has to narrow it.
+  def isStringMapInt:boolean false
+  ; `[string:string]`: the value is a pointer, not an integer.
+  def isStringMapStr:boolean false
   def isBool:boolean false
   def isString:boolean false
   def isBuffer:boolean false
@@ -424,6 +437,17 @@ class LowIRBuilder {
     this.emitToEntry(ins)
   }
 
+  ; emitZeroInitToEntry for a POINTER slot. LLVM rejects an integer 0 as a
+  ; pointer operand, so a slot declared `i8*` has to be initialised with `null`.
+  fn emitNullInitToEntry:void (irType:string slotName:string) {
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "store"
+    ins.irType = irType
+    ins.arg1 = "null"
+    ins.arg2 = slotName
+    this.emitToEntry(ins)
+  }
+
   fn emitLoad:string (irType:string slotName:string) {
     def tag:string "v"
     def dest (this.freshTemp(tag))
@@ -635,7 +659,7 @@ class LowIRBuilder {
     def ins@(lives):LowIRInstr (new LowIRInstr())
     ins.op = "global_get"
     ins.dest = dest
-    ins.irType = "i32"
+    ins.irType = this.irModule.ptrType
     ins.arg1 = name
     this.emit(ins)
     return dest
@@ -648,6 +672,7 @@ class LowIRBuilder {
     def ins@(lives):LowIRInstr (new LowIRInstr())
     ins.op = "global_set"
     ins.dest = ("gs" + ("" + n))
+    ins.irType = this.irModule.ptrType
     ins.arg1 = name
     ins.arg2 = value
     this.emit(ins)

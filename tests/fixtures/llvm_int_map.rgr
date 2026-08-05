@@ -1,0 +1,85 @@
+; `[int:T]` where T is a reference: routes to the RtIMap runtime, because the
+; generated RtMap_* one stores 4-byte slots and cannot hold a pointer, and a
+; reference in a map has to be retained or the map outlives what it points at.
+; Exit 0 means every check held.
+
+class RangerMem {
+    sfn liveObjects:int () { return 0 }
+    sfn resetStats:void () { }
+}
+
+class Node {
+    def id:int 0
+    Constructor (i:int) { id = i }
+}
+
+; An int-keyed reference map held as a FIELD: it needs its own field-descriptor
+; kind, or destroying the owner leaks the map and everything in it.
+class Registry {
+    def slots:[int:Node]
+
+    fn put:void (k:int n:Node) {
+        set slots k n
+    }
+    fn idAt:int (k:int) {
+        if (has slots k) {
+            def got:Node (unwrap (get slots k))
+            return got.id
+        }
+        return (0 - 1)
+    }
+}
+
+class IntMapProbe {
+    sfn run:int () {
+        def m:[int:Node]
+        def i:int 1340
+        ; a dense numeric range, the shape a call frame uses
+        while (i < 1420) {
+            ; bound to a local first: `set <map> <key> (new T(...))` lowers the
+            ; value to an undefined name, a pre-existing bug on every map kind
+            def n:Node (new Node(i))
+            set m i n
+            i = (i + 1)
+        }
+        def a:Node (unwrap (get m 1340))
+        if (a.id != 1340) { return 2 }
+        def b:Node (unwrap (get m 1419))
+        if (b.id != 1419) { return 3 }
+        if (has m 1500) { return 4 }
+        ; overwriting must release the old value, not the new one
+        def seven:Node (new Node(7))
+        set m 1350 seven
+        def c:Node (unwrap (get m 1350))
+        if (c.id != 7) { return 5 }
+        ; a string-valued int map is the other ownership kind
+        ; every key in the range must still be there after the growth
+        def k:int 1340
+        while (k < 1420) {
+            if ((has m k) == false) { return 7 }
+            k = (k + 1)
+        }
+        if (has m 1339) { return 8 }
+        def d:Node (unwrap (get m 1400))
+        if (d.id != 1400) { return 9 }
+        ; the same map as an owned FIELD, freed with its owner
+        RangerMem.resetStats()
+        def before:int (RangerMem.liveObjects())
+        def r:Registry (new Registry())
+        def q:int 0
+        while (q < 40) {
+            def rn:Node (new Node(q + 500))
+            r.put(q rn)
+            q = (q + 1)
+        }
+        if ((r.idAt(7)) != 507) { return 10 }
+        if ((r.idAt(99)) != (0 - 1)) { return 11 }
+        return 0
+    }
+}
+
+class IntMapMain {
+    sfn m@(main):int () {
+        return (IntMapProbe.run())
+    }
+}
