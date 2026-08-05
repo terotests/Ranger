@@ -423,10 +423,17 @@ describe("shapes (closed variant families)", () => {
       );
     });
 
-    it("rejects a method in a shape body instead of dropping it", () => {
+    it("rejects an unknown member of a shape body instead of dropping it", () => {
       expectCompileError(
         `${FIXTURES_DIR}/shape_bad_member.rgr`,
-        "only `case` and `group` are allowed in a shape body"
+        "only `case`, `group`, `fn` and `sfn` are allowed in a shape body"
+      );
+    });
+
+    it("checks exhaustiveness of a match inside a shape method", () => {
+      expectCompileError(
+        `${FIXTURES_DIR}/shape_method_missing.rgr`,
+        "does not cover MValue.Text"
       );
     });
 
@@ -435,6 +442,48 @@ describe("shapes (closed variant families)", () => {
         `${FIXTURES_DIR}/shape_nested.rgr`,
         "must be declared at the top level"
       );
+    });
+  });
+
+  /**
+   * Methods on a shape (PLAN_SHAPES.md §3.6). A `fn` in a shape body moves to
+   * the generated ops class and gains the value it acts on as `self`; an `sfn`
+   * moves as it is. The body node is reused rather than reprinted, so a `match`
+   * inside a method is the same node the match expansion and its exhaustiveness
+   * check see — which the diagnostics block above asserts.
+   */
+  describe("methods on a shape", () => {
+    const METHODS = `${FIXTURES_DIR}/shape_methods.rgr`;
+    const EXPECTED_METHODS = "num 2.5\ntext hi\nnothing\ntrue\nnum 0";
+
+    it("ES6", () => {
+      expectOutput(METHODS, EXPECTED_METHODS);
+    });
+
+    it.skipIf(!isPythonAvailable())("Python", () => {
+      expectPythonOutput(METHODS, EXPECTED_METHODS);
+    });
+
+    it.skipIf(!isGoAvailable())("Go", () => {
+      expectGoOutput(METHODS, EXPECTED_METHODS);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(METHODS, EXPECTED_METHODS);
+    });
+
+    it("puts the methods on the ops class, not on the union", () => {
+      const result = getGeneratedRustCode(METHODS);
+
+      expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("impl Value__ops");
+      // the receiver is a parameter of the family, never a Rust `self`
+      expect(result.code).toMatch(/fn describe\(mut __self : union_Value/);
+      // and a case value returned from a function of the family is wrapped
+      expect(result.code).toMatch(/fn zero\(\) -> union_Value/);
+      expect(result.code).toContain("union_Value::Value_Num(");
+      // the prototype used to build the receiver never reaches the output
+      expect(result.code).not.toContain("__shape_self_proto");
     });
   });
 

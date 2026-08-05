@@ -29,6 +29,11 @@ class RangerRustClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
   def thisName:string "self"
+  ; The declared return type of the function being written, when it is a
+  ; sealable union: a `return` of one MEMBER of the family has to be wrapped in
+  ; its enum variant, exactly as an argument or a field assignment is.
+  ; Empty for every other function.
+  def rustFnReturnsUnion:string ""
   def fileHeaderWritten:boolean false
   
   ; Rust needs semicolons at end of statements
@@ -1338,6 +1343,29 @@ class RangerRustClassWriter {
     ctx.unsetInExpr()
     wr.out(".clone()" false)
     return true
+  }
+
+  ; The name of the sealable union a function returns, or "" when it returns
+  ; anything else.
+  fn rustUnionReturnOf:string (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
+    def nnOpt@(optional):CodeNode fnDesc.nameNode
+    if (null? nnOpt) {
+      return ""
+    }
+    def nn:CodeNode (unwrap nnOpt)
+    def tn:string nn.type_name
+    if ((strlen tn) == 0) {
+      return ""
+    }
+    def clOpt@(optional):RangerAppClassDesc (ctx.findClass(tn))
+    if (null? clOpt) {
+      return ""
+    }
+    def cl:RangerAppClassDesc (unwrap clOpt)
+    if ((this.unionIsSealable(cl ctx)) == false) {
+      return ""
+    }
+    return tn
   }
 
   fn rustWriteUnionArg:boolean (arg:RangerAppParamDesc nVal:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -4501,7 +4529,9 @@ class RangerRustClassWriter {
         def sCtx:RangerAppWriterContext (unwrap subCtx)
         sCtx.is_function = true
         def fnB:CodeNode (unwrap variant.fnBody)
+        rustFnReturnsUnion = (this.rustUnionReturnOf(variant ctx))
         this.walkRustFnBody(fnB sCtx wr)
+        rustFnReturnsUnion = ""
       }
       wr.newline()
       wr.indent(-1)
@@ -4578,7 +4608,9 @@ class RangerRustClassWriter {
           def sCtx:RangerAppWriterContext (unwrap subCtx)
           sCtx.is_function = true
           def fnBNode:CodeNode (unwrap variant.fnBody)
+          rustFnReturnsUnion = (this.rustUnionReturnOf(variant ctx))
           this.walkRustFnBody(fnBNode sCtx wr)
+          rustFnReturnsUnion = ""
         }
         wr.newline()
         wr.indent(-1)
@@ -4654,7 +4686,9 @@ class RangerRustClassWriter {
                 def sCtx:RangerAppWriterContext (unwrap subCtx)
                 sCtx.is_function = true
                 def fnBNode:CodeNode (unwrap variant.fnBody)
+                rustFnReturnsUnion = (this.rustUnionReturnOf(variant ctx))
                 this.walkRustFnBody(fnBNode sCtx wr)
+                rustFnReturnsUnion = ""
               }
               wr.newline()
               wr.indent(-1)
@@ -4830,7 +4864,9 @@ class RangerRustClassWriter {
           def sCtx:RangerAppWriterContext (unwrap subCtx)
           sCtx.is_function = true
           def fnB:CodeNode (unwrap variant.fnBody)
+          rustFnReturnsUnion = (this.rustUnionReturnOf(variant ctx))
           this.walkRustFnBody(fnB sCtx wr)
+          rustFnReturnsUnion = ""
         }
         if mainReturns {
           wr.newline()
@@ -6262,10 +6298,25 @@ class RangerRustClassWriter {
         if (node.rust_is_tail_return == false) {
           wr.out("return " false)
         }
+        ; PLAN_SHAPES S5: the slot is a Rust enum, so a member value returned
+        ; from a function of the family is wrapped in its variant here
+        ; rustWriteUnionValue manages the expression context itself; wrapping it
+        ; in another setInExpr/unsetInExpr pair leaves the walk in statement
+        ; context, and the value writes its own line ending
+        if ((strlen rustFnReturnsUnion) > 0) {
+          if (this.rustWriteUnionValue(rustFnReturnsUnion retVal ctx wr)) {
+            if node.rust_is_tail_return {
+              wr.out("" true)
+            } {
+              wr.out(";" true)
+            }
+            return
+          }
+        }
         ctx.setInExpr()
         this.WalkNode(retVal ctx wr)
         ctx.unsetInExpr()
-        ; Add .clone() for non-primitive types (String, objects, arrays, etc.) 
+        ; Add .clone() for non-primitive types (String, objects, arrays, etc.)
         ; Check if the return value needs cloning based on its evaluated type
         def tn:string retVal.eval_type_name
         def needs_ret_clone:boolean false

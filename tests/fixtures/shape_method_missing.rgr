@@ -1,0 +1,22 @@
+; A `match self` inside a shape method is checked like any other match: the
+; method knows the family it belongs to, so leaving a case out is an error
+; there too.
+shape MValue {
+    case Nothing
+    case Num  { def value:double 0.0 }
+    case Text { def value:string "" }
+
+    fn describe:string () {
+        match self {
+            Nothing { return "nothing" }
+            Num n   { return "num" }
+        }
+        return "?"
+    }
+}
+
+class Main {
+    sfn main:void () {
+        print (MValue.describe((new MValue.Nothing())))
+    }
+}

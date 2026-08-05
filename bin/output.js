@@ -13058,6 +13058,62 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       };
       return found;
     };
+    attachShapeMethods (eqRoot, shapeName, opsName, methodNodes, methodNames, methodStatic, ctx) {
+      let clsBlockOpt;
+      for ( let ci = 0; ci < eqRoot.children.length; ci++) {
+        var ch = eqRoot.children[ci];
+        if ( ch.isFirstVref("class") ) {
+          for ( let pi = 0; pi < ch.children.length; pi++) {
+            var part = ch.children[pi];
+            if ( part.is_block_node ) {
+              clsBlockOpt = part;
+            }
+          };
+        }
+      };
+      if ( typeof(clsBlockOpt) === "undefined" ) {
+        ctx.addError(eqRoot, "could not attach the methods of shape " + shapeName);
+        return;
+      }
+      const clsBlock = clsBlockOpt;
+      let selfParamOpt;
+      let protoIndex = 0 - 1;
+      let bi = 0;
+      const bcnt = clsBlock.children.length;
+      while (bi < bcnt) {
+        const st = clsBlock.children[bi];
+        if ( (st.children.length) > 2 ) {
+          const nameNode = st.getSecond();
+          if ( nameNode.vref == "__shape_self_proto" ) {
+            const argsNode = st.children[2];
+            if ( (argsNode.children.length) > 0 ) {
+              selfParamOpt = argsNode.children[0];
+            }
+            protoIndex = bi;
+          }
+        }
+        bi = bi + 1;
+      };
+      if ( typeof(selfParamOpt) === "undefined" ) {
+        ctx.addError(eqRoot, "could not build the receiver of the methods of shape " + shapeName);
+        return;
+      }
+      const selfParam = selfParamOpt;
+      for ( let mi = 0; mi < methodNodes.length; mi++) {
+        var mNode = methodNodes[mi];
+        const head = mNode.getFirst();
+        head.vref = "sfn";
+        const isStatic = methodStatic[mi];
+        if ( isStatic == false ) {
+          const argsNode_1 = mNode.children[2];
+          argsNode_1.children.splice(0, 0, selfParam.copy());
+        }
+        clsBlock.children.push(mNode);
+      };
+      if ( protoIndex >= 0 ) {
+        clsBlock.children.splice(protoIndex, 1).pop();
+      }
+    };
     expandShape (shapeNode, parent, shapeIndex, ctx, wr, renames) {
       let insertAt = shapeIndex + 1;
       if ( (shapeNode.children.length) < 3 ) {
@@ -13089,6 +13145,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       };
       let caseNames = [];
       let caseGroup = {};
+      let methodNodes = [];
+      let methodNames = [];
+      let methodStatic = [];
       bi = 0;
       while (bi < bcnt) {
         const st_1 = body.children[bi];
@@ -13099,8 +13158,26 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const head_1 = st_1.getFirst();
         const kind = head_1.vref;
         const isCase = (kind == "case") || (kind == "variant");
+        if ( (kind == "fn") || (kind == "sfn") ) {
+          if ( (st_1.children.length) < 4 ) {
+            ctx.addError(st_1, "a method of a shape needs a name, a parameter list and a body");
+            bi = bi + 1;
+            continue;
+          }
+          const mNameNode = st_1.getSecond();
+          if ( (mNameNode.vref.length) == 0 ) {
+            ctx.addError(st_1, "a method of a shape needs a name");
+            bi = bi + 1;
+            continue;
+          }
+          methodNodes.push(st_1);
+          methodNames.push(mNameNode.vref);
+          methodStatic.push(kind == "sfn");
+          bi = bi + 1;
+          continue;
+        }
         if ( (isCase == false) && (kind != "group") ) {
-          ctx.addError(st_1, ("only `case` and `group` are allowed in a shape body, found `" + kind) + "` (methods on a shape are not implemented yet — write the `match` in a class method instead)");
+          ctx.addError(st_1, ("only `case`, `group`, `fn` and `sfn` are allowed in a shape body, found `" + kind) + "`");
           bi = bi + 1;
           continue;
         }
@@ -13305,6 +13382,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       eqSrc = eqSrc + "    }\n";
       eqSrc = eqSrc + "    return true\n";
       eqSrc = eqSrc + "  }\n";
+      if ( (methodNodes.length) > 0 ) {
+        eqSrc = ((eqSrc + "  sfn __shape_self_proto:void (self:") + shapeName) + ") {\n";
+        eqSrc = eqSrc + "  }\n";
+      }
       eqSrc = eqSrc + "}\n";
       if ( ctx.hasCompilerFlag("shape-debug") ) {
         console.log(eqSrc);
@@ -13318,6 +13399,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         ctx.addError(shapeNode, "could not generate the equality of shape " + shapeName);
       } else {
         const eqRoot = eqRootOpt;
+        if ( (methodNodes.length) > 0 ) {
+          this.attachShapeMethods(eqRoot, shapeName, opsName, methodNodes, methodNames, methodStatic, ctx);
+          for ( let mni = 0; mni < methodNames.length; mni++) {
+            var mn = methodNames[mni];
+            renames[(shapeName + ".") + mn] = (opsName + ".") + mn;
+          };
+        }
         for ( let eqi = 0; eqi < eqRoot.children.length; eqi++) {
           var eqch = eqRoot.children[eqi];
           parent.children.splice(insertAt, 0, eqch);
@@ -21625,6 +21713,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               this.rust_call_receiver_mut = true;
               this.rust_receiver_written = false;
               this.thisName = "self";
+              this.rustFnReturnsUnion = "";
               this.fileHeaderWritten = false;
             }
             lineEnding () {
@@ -22741,6 +22830,26 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 ctx.unsetInExpr();
                 wr.out(".clone()", false);
                 return true;
+              };
+              rustUnionReturnOf (fnDesc, ctx) {
+                const nnOpt = fnDesc.nameNode;
+                if ( typeof(nnOpt) === "undefined" ) {
+                  return "";
+                }
+                const nn = nnOpt;
+                const tn = nn.type_name;
+                if ( (tn.length) == 0 ) {
+                  return "";
+                }
+                const clOpt = ctx.findClass(tn);
+                if ( typeof(clOpt) === "undefined" ) {
+                  return "";
+                }
+                const cl = clOpt;
+                if ( this.unionIsSealable(cl, ctx) == false ) {
+                  return "";
+                }
+                return tn;
               };
               async rustWriteUnionArg (arg, nVal, ctx, wr) {
                 const argNN = arg.nameNode;
@@ -25500,7 +25609,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         const sCtx_1 = subCtx_1;
                         sCtx_1.is_function = true;
                         const fnB_1 = variant.fnBody;
+                        this.rustFnReturnsUnion = this.rustUnionReturnOf(variant, ctx);
                         await this.walkRustFnBody(fnB_1, sCtx_1, wr);
+                        this.rustFnReturnsUnion = "";
                       }
                       wr.newline();
                       wr.indent(-1);
@@ -25565,7 +25676,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           const sCtx_2 = subCtx_2;
                           sCtx_2.is_function = true;
                           const fnBNode = variant_1.fnBody;
+                          this.rustFnReturnsUnion = this.rustUnionReturnOf(variant_1, ctx);
                           await this.walkRustFnBody(fnBNode, sCtx_2, wr);
+                          this.rustFnReturnsUnion = "";
                         }
                         wr.newline();
                         wr.indent(-1);
@@ -25631,7 +25744,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 const sCtx_3 = subCtx_3;
                                 sCtx_3.is_function = true;
                                 const fnBNode_1 = variant_2.fnBody;
+                                this.rustFnReturnsUnion = this.rustUnionReturnOf(variant_2, ctx);
                                 await this.walkRustFnBody(fnBNode_1, sCtx_3, wr);
+                                this.rustFnReturnsUnion = "";
                               }
                               wr.newline();
                               wr.indent(-1);
@@ -25794,7 +25909,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           const sCtx_4 = subCtx_4;
                           sCtx_4.is_function = true;
                           const fnB_4 = variant_6.fnBody;
+                          this.rustFnReturnsUnion = this.rustUnionReturnOf(variant_6, ctx);
                           await this.walkRustFnBody(fnB_4, sCtx_4, wr);
+                          this.rustFnReturnsUnion = "";
                         }
                         if ( mainReturns ) {
                           wr.newline();
@@ -27019,6 +27136,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                           if ( node.rust_is_tail_return == false ) {
                             wr.out("return ", false);
+                          }
+                          if ( (this.rustFnReturnsUnion.length) > 0 ) {
+                            if ( await this.rustWriteUnionValue(this.rustFnReturnsUnion, retVal, ctx, wr) ) {
+                              if ( node.rust_is_tail_return ) {
+                                wr.out("", true);
+                              } else {
+                                wr.out(";", true);
+                              }
+                              return;
+                            }
                           }
                           ctx.setInExpr();
                           await this.WalkNode(retVal, ctx, wr);
