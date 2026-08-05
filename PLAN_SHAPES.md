@@ -376,15 +376,40 @@ Keyword construction (`EvalValue.Array items xs declaredLength 4`) should reuse
 `record`'s existing keyword-argument path (`expandRecordCtorArgsIfNeeded`,
 `ng_RangerFlowParser.rgr:3947`) rather than growing a second one.
 
-### 3.6 Methods
+### 3.6 Methods — implemented (shape level)
 
-Methods may be declared on the shape (all variants), on a group (its members), or on a
-single case. A shape method may only touch fields the whole family has — in practice
-none, so shape methods almost always start with a `match`. A group method may touch the
-group's fields directly. Nothing here requires virtual dispatch: the lowering is a free
-function plus a tag switch, except where a target's chosen representation is a sealed
-hierarchy anyway (Kotlin's default, Swift), in which case the writer may use real
-methods.
+A method declared in a shape body moves onto the generated ops class:
+
+```ranger
+shape Value {
+    case Nothing
+    case Num { def value:double 0.0 }
+
+    fn describe:string () {
+        match self {
+            Nothing { return "nothing" }
+            Num n   { return ("num " + (to_string n.value)) }
+        }
+    }
+    sfn zero:Value () { return (new Value.Num(0.0)) }
+}
+
+(Value.describe v)      ; Value__ops.describe(v)
+```
+
+An `fn` becomes an `sfn` whose first parameter is the value it acts on, named
+`self`; an `sfn` moves as it is. A shape method may only touch what the whole family
+has — in practice nothing — so it almost always starts with a `match`, and that match
+is checked for exhaustiveness like any other.
+
+No virtual dispatch is involved and no target needs a method on a union: the call is a
+static one. That is also why the call spelling is `Value.describe(v)` rather than
+`v.describe()` — a receiver-form call through a union would need per-target dispatch,
+which is the same reason `Value.equals(a b)` is spelled that way.
+
+Methods on a **group** or on a single **case** are not implemented. A case is a record
+class, so its own methods have a natural home; a group method would need the group's
+fields, which every member already carries. Both are additive.
 
 ### 3.7 The `case` keyword collision
 

@@ -42,7 +42,7 @@ subsets (`group`). Lowers to one record class per case plus a union over them.
 ```bnf
 <shape-def>     ::= 'shape' <identifier> '{' <shape-member>* '}'
 
-<shape-member>  ::= <group-def> | <case-def>
+<shape-member>  ::= <group-def> | <case-def> | <method-def>
 
 <group-def>     ::= 'group' <identifier> ('{' <property-def>* '}')?
 
@@ -101,6 +101,20 @@ Narrowing a single variant without a match is the `case` statement:
 Every shape gets a generated equality: `Value.equals(a b)` and
 `Value.notEquals(a b)` compare content for value cases, identity for reference
 cases, and answer false across different cases.
+
+A shape body may also hold methods. An `fn` takes the value it acts on as `self`;
+an `sfn` takes nothing. Both are called on the family, not on the value:
+
+```ranger
+shape Value {
+    case Num { def value:double 0.0 }
+    fn describe:string () { match self { Num n { return "num" } } }
+    sfn zero:Value () { return (new Value.Num(0.0)) }
+}
+(Value.describe v)   (Value.zero())
+```
+
+Methods on a single case or on a group are not implemented.
 
 Each target represents the family its own way: a union type on TypeScript, a
 sealed interface on Kotlin (an interface on C# and Dart), a native `enum` on
