@@ -103,8 +103,9 @@ Every shape gets a generated equality: `Value.equals(a b)` and
 cases, and answer false across different cases.
 
 Each target represents the family its own way: a union type on TypeScript, a
-sealed interface on Kotlin, and one class per case plus a runtime type test
-everywhere else.
+sealed interface on Kotlin (an interface on C# and Dart), a native `enum` on
+Rust, and a tagged variant on C++. On Rust and C++ a case that holds only
+scalars is carried *inside* the tag, so constructing one allocates nothing.
 
 ## Union Definition
 

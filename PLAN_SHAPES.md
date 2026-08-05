@@ -7,10 +7,12 @@
 > `shape` parses, type-checks and lowers to a record class per case plus a union
 > over them; `match` covers a family with the compiler checking that every case is
 > handled exactly once; `@(value)` / `@(reference)` give each case declared
-> copy-and-compare semantics with the equality generated per shape; and four
+> copy-and-compare semantics with the equality generated per shape; and six
 > targets now carry the family in their own representation — TypeScript as a
-> union type, Kotlin, C# and Dart as an interface the cases implement. Rust's
-> enum, C++'s compact handle and methods declared on a shape are still ahead.
+> union type, Kotlin, C# and Dart as an interface the cases implement, Rust as a
+> native `enum` and C++ as a variant that holds its scalar cases inline, which
+> made the value layer **10× faster on C++ and 1.6× on Rust**. Swift, Go, the
+> ES6 tag dispatch and methods declared on a shape are still ahead.
 >
 > **Origin:** a design discussion about `gallery/game_engine/v2/interp/migrate/src/EvalValue.rgr`,
 > the largest hand-rolled tagged union in this repo.
@@ -507,8 +509,8 @@ never broken and were not touched (§2.1).
 
 | Target | Destination | S1 (`UnionOfClasses`) today | S5 (native representation) |
 |---|---|---|---|
-| **Rust** | `NativeSumType` | `Rc<dyn Any>` + `RgNarrow` downcast — **works, runs** | `enum EvalValue { Number(f64), Array(Rc<RefCell<ArrayData>>), … }`; `match` maps 1:1 and the dyn-Any indirection disappears |
-| **C++** | `CompactTaggedHandle` | `mpark::variant<shared_ptr<A>, …>` — **works, runs** | `enum class Kind : uint8_t` + `double scalar_` + `shared_ptr<Payload>`: **32 bytes against today's 680**, primitives allocate nothing |
+| **Rust** | `NativeSumType` — **done (S5)** | `Rc<dyn Any>` + `RgNarrow` downcast | ✅ `enum union_Value` with scalar cases inline and reference cases behind `Rc<RefCell<T>>`; `if let` narrowing, no trait object, no downcast |
+| **C++** | `CompactTaggedHandle` — **done (S5)** | `mpark::variant<shared_ptr<A>, …>` — one allocation per value | ✅ the variant carries scalar cases **by value**, so a primitive allocates nothing: 0.123 s → 0.0116 s on the value layer |
 | **TypeScript** | union type — **done (S5)** | `instanceof` on one class per case — works | ✅ `type union_Value = A\|B\|…`, narrowed by `instanceof`, verified with `tsc --noEmit` |
 | **ES6** | `FlatTaggedObject` | same as TS, no annotations — works | `{ kind, … }` objects; Null/Undefined/Hole as frozen singletons |
 | **C#** | interface — **done (S5)**; `CompactTaggedHandle` later | `dynamic` + `is` | ✅ `public interface union_Value` implemented by each case; a `readonly struct` with tag + scalar + payload is the later optimization |
@@ -597,7 +599,7 @@ Each stage is independently shippable and independently testable.
 | **S2 — done** | `match` + exhaustiveness checking (§6.2). Lowering: a chain of `case` narrowings, so no target needs native pattern matching. | ✅ A missing case, a duplicate case and a `_` catch-all are compile errors naming what is wrong; the same `match` program runs identically on ES6, Python, Go and Rust |
 | **S3 — done in S1/S2** | `group`, group-typed parameters, group arms in `match`, group fields. | ✅ A group is a union of its members, carries fields its cases inherit, and types a parameter |
 | **S4 — done** | `@(value)` / `@(reference)`, the generated equality, the `identical` operator, the immutability rule for value cases (§6.3). | ✅ One program answers `true false false true false true` on ES6, Python, Go, C++ and Rust; mutating a value case and `@(value)` on a non-scalar case are compile errors |
-| **S5 — started** | Native representations, one target at a time; `UnionOfClasses` stays the fallback (§6.4). **TypeScript, Kotlin, C# and Dart** done. | ✅ TS emits `type union_Value = …` and passes `tsc --noEmit`; Kotlin, C# and Dart emit an interface each case implements, replacing `Any` / `dynamic`. Rust's enum and C++'s compact handle still ahead |
+| **S5 — mostly done** | Native representations, one target at a time; `UnionOfClasses` stays the fallback (§6.4). **TypeScript, Kotlin, C#, Dart, Rust and C++** done. | ✅ TS passes `tsc --noEmit`; Kotlin/C#/Dart emit an interface each case implements; Rust a native `enum` with scalar cases inline; C++ a variant that carries them by value — 10× on the C++ value layer. Swift, Go and the ES6 tag remain |
 | **S6** | Inline payload records, tag pinning, whole-program variant elimination, `match` as an expression. | — |
 
 Testing follows the pattern already in the repo: fixtures under `tests/fixtures/`,
@@ -835,14 +837,65 @@ classes (a union over primitives — `Int` cannot implement anything) keeps the
 target's top type, and the compiler's own `Any` union — which contains *every*
 class — is never made an interface.
 
+**Rust — a native enum, with scalar cases carried inline.**
+
+```rust
+#[derive(Clone)]
+pub enum union_Value {
+    Value_Nothing(Value_Nothing),          // no fields  -> by value
+    Value_Num(Value_Num),                  // scalars    -> by value
+    Value_Text(Value_Text),
+    Value_Items(Rc<RefCell<Value_Items>>), // a reference case keeps its cell
+}
+…
+if let union_Value::Value_Num(n) = v.clone() { … }
+```
+
+The trait object and the downcast are gone: a closed set the compiler can see,
+narrowed with `if let`. A member is wrapped into its variant at the sites where a
+value flows into the family — argument and local initializer — which is the cost
+the `dyn Any` handle avoided and the reason S1 did not start here.
+
+The **inline payload** is what makes it fast. A case that holds only scalars has
+nothing that needs a cell, so it rides inside the variant; only a case with a
+collection, an object field or an optional keeps its `Rc<RefCell<T>>`. That is
+the `@(value)` / `@(reference)` split from S4 doing physical work, and it is
+computed the same way: all-scalar fields means by value.
+
+**C++ — the same rule, through the variant it already had.**
+
+```cpp
+typedef mpark::variant<Value_Nothing, Value_Num, Value_Text,
+                       std::shared_ptr<Value_Items>>  r_union_Value;
+```
+
+C++ was already a tagged union — of `shared_ptr`s, so every value cost an
+allocation. Putting the scalar cases *in* the variant removes it: construction
+is `Value_Num(2.5)` rather than `std::make_shared<Value_Num>(2.5)`, a narrowing
+binds the value, and its fields are reached with `.` instead of `->`. Three
+places in the writer decide all of that (the type mapping, `writeNewCall`, the
+path separator), which is why the change is small.
+
+Measured on the value-layer benchmark (§7.4), same program, same answer:
+
+| target | shape vs the fat class, before S5 | after S5 |
+|---|---|---|
+| C++ `-O2` | 2.0× | **30×** (0.354 s → 0.0117 s in the same run) |
+| Rust `-O` | 3.5× | **6.9×** (0.460 s → 0.0667 s in the same run) |
+
+Absolute times drift on a shared machine, so each figure is the ratio measured
+inside one interleaved run. The C++ result is the one the plan predicted from
+`sizeof`: the allocation per value was the entire cost, and a case that holds
+only scalars has nothing that needs one. Rust improves for the same reason; the
+distance left to its no-union ceiling is the string case and the loop itself.
+
 Still ahead:
 
 | Target | Destination | Why it is harder |
 |---|---|---|
-| Rust | `enum Value { Num(Rc<RefCell<Value_Num>>), … }` | A member has to be *wrapped* into the enum at every site a value flows into the family — argument, local, field, return, push. The `dyn Any` handle needs none of that, which is why S1 could use it. |
-| C++ | `Kind` + scalar slot + payload pointer (32 bytes against 680) | Construction, narrowing and member access all change together; `mpark::variant` is correct today and only slow. |
 | Swift | protocol, as Kotlin / C# / Dart | Same shape as the others; no Swift toolchain in this environment to verify against. |
 | Go | tag + per-variant pointers | An interface needs a method to be more than `interface{}`. |
+| ES6 / TS | a `kind` field and a switch, instead of `instanceof` | §7.4 measured this as the next 6× on Node; it needs a narrowing that tests a tag rather than a type. |
 
 **Where S1 lands, per target.** S1 touches no writer, so the S1 result on each target
 is exactly the row in §5 — Rust gets `Rc<dyn Any>`, C++ an `mpark::variant`, Kotlin an

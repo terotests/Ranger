@@ -56,16 +56,18 @@ describe("union narrowing across targets", () => {
   });
 
   describe("Rust representation", () => {
-    it("writes the union as Rc<dyn Any> and narrows through RgNarrow", () => {
+    it("writes the union as an enum and narrows with `if let`", () => {
+      // S0 made this work at all, as Rc<dyn Any> plus a downcast. S5 replaced
+      // that with a real enum (PLAN_SHAPES.md §6.4): a closed set the compiler
+      // can see, no trait object, and a scalar-only case carried by value.
       const result = getGeneratedRustCode(FIXTURE);
 
       expect(result.success, `Compile failed: ${result.error}`).toBe(true);
-      // The union type itself: nothing else can hold values of unrelated types.
-      expect(result.code).toContain("Rc<dyn std::any::Any>");
-      // Members are shared, so they coerce into it and downcast back out.
-      expect(result.code).toContain("as RgNarrow>::rg_narrow(");
-      expect(result.code).toContain("Rc<RefCell<UnionCaseNumber>>");
-      // The union name must never reach the output as a Rust type.
+      expect(result.code).toContain("pub enum union_UnionCaseValue");
+      expect(result.code).toContain("if let union_UnionCaseValue::UnionCaseNumber(");
+      expect(result.code).not.toContain("Rc<dyn std::any::Any>");
+      expect(result.code).not.toContain("RgNarrow");
+      // the bare union name must never reach the output as a Rust type
       expect(result.code).not.toMatch(/:\s*UnionCaseValue\b/);
     });
 

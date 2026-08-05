@@ -96,13 +96,15 @@ describe("shapes (closed variant families)", () => {
     });
 
     it("makes a group a type of its own", () => {
-      // identityOf takes Value.Ref: on Rust that is the group's union, so the
-      // parameter is the dyn-Any handle and not one concrete case class
+      // identityOf takes Value.Ref: on Rust that is the group's own enum, not
+      // one concrete case class (S5 replaced the dyn-Any handle with it)
       const result = getGeneratedRustCode(SHAPE);
 
       expect(result.success, `Compile failed: ${result.error}`).toBe(true);
-      expect(result.code).toMatch(/fn identityOf\(&self, mut r : Rc<dyn/);
-      expect(result.code).not.toContain("Value_Ref {");
+      expect(result.code).toContain("fn identityOf(&self, mut r : union_Value_Ref)");
+      expect(result.code).toContain("pub enum union_Value_Ref");
+      // the group is a type, never a struct of its own
+      expect(result.code).not.toContain("struct Value_Ref");
     });
 
     it("keeps generated classes where the shape was written", () => {
@@ -335,6 +337,35 @@ describe("shapes (closed variant families)", () => {
         "class Value_Items implements union_Value, union_Value_Ref"
       );
       expect(code).toMatch(/describe\(union_Value v\)/);
+    });
+
+    it("Rust: a native enum, scalar cases carried inline", () => {
+      const result = getGeneratedRustCode(`${FIXTURES_DIR}/shape_match.rgr`);
+
+      expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("pub enum union_Value {");
+      // a case that holds only scalars rides inside the variant...
+      expect(result.code).toContain("Value_Num(Value_Num),");
+      // ...a case with a collection keeps its cell
+      expect(result.code).toContain("Value_Items(Rc<RefCell<Value_Items>>),");
+      // narrowing is `if let` on the tag — no trait object, no downcast
+      expect(result.code).toContain("if let union_Value::Value_Num(");
+      expect(result.code).not.toContain("Rc<dyn std::any::Any>");
+    });
+
+    it("C++: the variant carries scalar cases by value", () => {
+      const result = getGeneratedCppCode(`${FIXTURES_DIR}/shape_match.rgr`);
+
+      expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+      // Value_Num and Value_Text by value, Value_Items still behind a pointer
+      expect(result.code).toContain(
+        "typedef mpark::variant<Value_Nothing, Value_Num, Value_Text, std::shared_ptr<Value_Items>>"
+      );
+      // constructing one allocates nothing
+      expect(result.code).toContain("( Value_Num(1.5))");
+      expect(result.code).not.toContain("std::make_shared<Value_Num>");
+      // and its fields are reached with a dot
+      expect(result.code).toMatch(/\.value\b/);
     });
 
     it("Kotlin: the compiler's own `Any` union is not made an interface", () => {

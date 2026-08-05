@@ -239,7 +239,7 @@ operators {
                         nl i "}"
             ) 
             rust (
-                (forkctx _ ) (def 2) "if let Some(" (e 2) ") = <Rc<RefCell<" (typeof 2) ">> as RgNarrow>::rg_narrow(&" (e 1) ") { /* union case */" nl I
+                (forkctx _ ) (def 2) "if let " (typeof 1) "::" (typeof 2) "(" (e 2) ") = " (e 1) ".clone() { /* union case */" nl I
                         (block 3)
                         nl i "}"
             ) 

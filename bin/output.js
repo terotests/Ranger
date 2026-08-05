@@ -19891,6 +19891,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( cc.is_union ) {
               return "r_union_" + type_string;
             }
+            if ( this.cppUnionValueCase(cc, ctx) ) {
+              return type_string;
+            }
             return ("std::shared_ptr<" + type_string) + ">";
           }
           return type_string;
@@ -19922,481 +19925,702 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
           return ("std::vector<" + this.getObjectTypeString(inner, ctx)) + ">";
         };
-        getTypeString2 (type_string, ctx) {
-          switch (type_string ) { 
-            case "char" : 
-              return "char";
-            case "charbuffer" : 
-              return "const char*";
-            case "buffer" : 
-              return "std::vector<uint8_t>";
-            case "int_buffer" : 
-              return "std::vector<int64_t>";
-            case "double_buffer" : 
-              return "std::vector<double>";
-            case "int" : 
-              return "int";
-            case "u8" : 
-              return "uint8_t";
-            case "u16" : 
-              return "uint16_t";
-            case "u32" : 
-              return "uint32_t";
-            case "i32" : 
-              return "int32_t";
-            case "f32" : 
-              return "float";
-            case "string" : 
-              return "std::string";
-            case "boolean" : 
-              return "bool";
-            case "double" : 
-              return "double";
-          };
-          if ( ctx.isEnumDefined(type_string) ) {
-            return "int";
+        cppUnionValueCase (cl, ctx) {
+          if ( cl.is_union || cl.is_system ) {
+            return false;
           }
-          return type_string;
-        };
-        writePtr (node, ctx, wr) {
-          if ( node.type_name == "void" ) {
-            return;
-          }
-        };
-        async writeTypeDef (node, ctx, wr) {
-          let v_type = node.value_type;
-          let t_name = node.type_name;
-          let a_name = node.array_type;
-          let k_name = node.key_type;
-          if ( ((v_type == 10) || (v_type == 11)) || (v_type == 0) ) {
-            v_type = node.typeNameAsType(ctx);
-          }
-          if ( node.eval_type != 0 ) {
-            v_type = node.eval_type;
-            if ( (node.eval_type_name.length) > 0 ) {
-              t_name = node.eval_type_name;
-            }
-            if ( (node.eval_array_type.length) > 0 ) {
-              a_name = node.eval_array_type;
-            }
-            if ( (node.eval_key_type.length) > 0 ) {
-              k_name = node.eval_key_type;
-            }
-          }
-          switch (v_type ) { 
-            case 20 : 
-              const rv = node.expression_value.children[0];
-              const sec = node.expression_value.children[1];
-              const fc = sec.getFirst();
-              this.import_lib("<functional>", ctx, wr);
-              wr.out("std::function<", false);
-              await this.writeTypeDef(rv, ctx, wr);
-              wr.out("(", false);
-              for ( let i = 0; i < sec.children.length; i++) {
-                var arg = sec.children[i];
-                if ( i > 0 ) {
-                  wr.out(", ", false);
+          let inFamily = false;
+          const rootCtx = ctx.getRoot();
+          for( var uci in rootCtx.definedClasses) {
+            if(rootCtx.definedClasses.hasOwnProperty(uci)) {
+              var ucl = rootCtx.definedClasses[uci] 
+              if ( this.unionIsSealable(ucl, ctx) ) {
+                if ( (ucl.is_union_of.indexOf(cl.name)) >= 0 ) {
+                  inFamily = true;
                 }
-                await this.writeTypeDef(arg, ctx, wr);
-              };
-              wr.out(")>", false);
-              break;
-            case 13 : 
-              wr.out("int", false);
-              break;
-            case 3 : 
-              let intCppType = "int";
-              if ( t_name == "u8" ) {
-                intCppType = "uint8_t";
               }
-              if ( t_name == "u16" ) {
-                intCppType = "uint16_t";
+            } };
+            if ( inFamily == false ) {
+              return false;
+            }
+            let allScalar = true;
+            for ( let cvi = 0; cvi < cl.variables.length; cvi++) {
+              var cv = cl.variables[cvi];
+              const cvNN = cv.nameNode;
+              if ( typeof(cvNN) === "undefined" ) {
+                allScalar = false;
+              } else {
+                const cvNode = cvNN;
+                if ( ((cvNode.array_type.length) > 0) || ((cvNode.key_type.length) > 0) ) {
+                  allScalar = false;
+                } else {
+                  if ( cvNode.hasFlag("optional") ) {
+                    allScalar = false;
+                  } else {
+                    const tn = cvNode.type_name;
+                    const isScalar = ((((tn == "int") || (tn == "double")) || (tn == "string")) || (tn == "boolean")) || (tn == "char");
+                    if ( isScalar == false ) {
+                      allScalar = false;
+                    }
+                  }
+                }
               }
-              if ( t_name == "u32" ) {
-                intCppType = "uint32_t";
+            };
+            return allScalar;
+          };
+          getTypeString2 (type_string, ctx) {
+            switch (type_string ) { 
+              case "char" : 
+                return "char";
+              case "charbuffer" : 
+                return "const char*";
+              case "buffer" : 
+                return "std::vector<uint8_t>";
+              case "int_buffer" : 
+                return "std::vector<int64_t>";
+              case "double_buffer" : 
+                return "std::vector<double>";
+              case "int" : 
+                return "int";
+              case "u8" : 
+                return "uint8_t";
+              case "u16" : 
+                return "uint16_t";
+              case "u32" : 
+                return "uint32_t";
+              case "i32" : 
+                return "int32_t";
+              case "f32" : 
+                return "float";
+              case "string" : 
+                return "std::string";
+              case "boolean" : 
+                return "bool";
+              case "double" : 
+                return "double";
+            };
+            if ( ctx.isEnumDefined(type_string) ) {
+              return "int";
+            }
+            return type_string;
+          };
+          writePtr (node, ctx, wr) {
+            if ( node.type_name == "void" ) {
+              return;
+            }
+          };
+          async writeTypeDef (node, ctx, wr) {
+            let v_type = node.value_type;
+            let t_name = node.type_name;
+            let a_name = node.array_type;
+            let k_name = node.key_type;
+            if ( ((v_type == 10) || (v_type == 11)) || (v_type == 0) ) {
+              v_type = node.typeNameAsType(ctx);
+            }
+            if ( node.eval_type != 0 ) {
+              v_type = node.eval_type;
+              if ( (node.eval_type_name.length) > 0 ) {
+                t_name = node.eval_type_name;
               }
-              if ( t_name == "i32" ) {
-                intCppType = "int32_t";
+              if ( (node.eval_array_type.length) > 0 ) {
+                a_name = node.eval_array_type;
               }
-              if ( intCppType != "int" ) {
+              if ( (node.eval_key_type.length) > 0 ) {
+                k_name = node.eval_key_type;
+              }
+            }
+            switch (v_type ) { 
+              case 20 : 
+                const rv = node.expression_value.children[0];
+                const sec = node.expression_value.children[1];
+                const fc = sec.getFirst();
+                this.import_lib("<functional>", ctx, wr);
+                wr.out("std::function<", false);
+                await this.writeTypeDef(rv, ctx, wr);
+                wr.out("(", false);
+                for ( let i = 0; i < sec.children.length; i++) {
+                  var arg = sec.children[i];
+                  if ( i > 0 ) {
+                    wr.out(", ", false);
+                  }
+                  await this.writeTypeDef(arg, ctx, wr);
+                };
+                wr.out(")>", false);
+                break;
+              case 13 : 
+                wr.out("int", false);
+                break;
+              case 3 : 
+                let intCppType = "int";
+                if ( t_name == "u8" ) {
+                  intCppType = "uint8_t";
+                }
+                if ( t_name == "u16" ) {
+                  intCppType = "uint16_t";
+                }
+                if ( t_name == "u32" ) {
+                  intCppType = "uint32_t";
+                }
+                if ( t_name == "i32" ) {
+                  intCppType = "int32_t";
+                }
+                if ( intCppType != "int" ) {
+                  wr.addImport("<cstdint>");
+                }
+                if ( node.hasFlag("optional") ) {
+                  wr.out((" r_optional_primitive<" + intCppType) + "> ", false);
+                } else {
+                  wr.out(intCppType, false);
+                }
+                break;
+              case 14 : 
+                wr.out("char", false);
+                break;
+              case 15 : 
+                wr.out("const char*", false);
+                break;
+              case 16 : 
+                wr.addImport("<vector>");
                 wr.addImport("<cstdint>");
-              }
-              if ( node.hasFlag("optional") ) {
-                wr.out((" r_optional_primitive<" + intCppType) + "> ", false);
-              } else {
-                wr.out(intCppType, false);
-              }
-              break;
-            case 14 : 
-              wr.out("char", false);
-              break;
-            case 15 : 
-              wr.out("const char*", false);
-              break;
-            case 16 : 
-              wr.addImport("<vector>");
-              wr.addImport("<cstdint>");
-              wr.out("std::vector<uint8_t>", false);
-              break;
-            case 17 : 
-              wr.addImport("<vector>");
-              wr.addImport("<cstdint>");
-              wr.out("std::vector<int64_t>", false);
-              break;
-            case 18 : 
-              wr.addImport("<vector>");
-              wr.out("std::vector<double>", false);
-              break;
-            case 2 : 
-              let dblCppType = "double";
-              if ( t_name == "f32" ) {
-                dblCppType = "float";
-              }
-              if ( node.hasFlag("optional") ) {
-                wr.out((" r_optional_primitive<" + dblCppType) + "> ", false);
-              } else {
-                wr.out(dblCppType, false);
-              }
-              break;
-            case 4 : 
-              wr.addImport("<string>");
-              wr.out("std::string", false);
-              break;
-            case 5 : 
-              wr.out("bool", false);
-              break;
-            case 7 : 
-              wr.out(((("rg_ordered_map<" + this.getObjectTypeString(k_name, ctx)) + ",") + this.getObjectTypeString(a_name, ctx)) + ">", false);
-              wr.addImport("<map>");
-              break;
-            case 6 : 
-              wr.out(("std::vector<" + this.getObjectTypeString(a_name, ctx)) + ">", false);
-              wr.addImport("<vector>");
-              break;
-            default: 
-              if ( node.type_name == "void" ) {
-                wr.out("void", false);
-                return;
-              }
-              if ( ctx.isDefinedClass(t_name) ) {
-                const cc = ctx.findClass(t_name);
-                if ( cc.is_union ) {
-                  wr.out("r_union_", false);
-                  wr.out(t_name, false);
+                wr.out("std::vector<uint8_t>", false);
+                break;
+              case 17 : 
+                wr.addImport("<vector>");
+                wr.addImport("<cstdint>");
+                wr.out("std::vector<int64_t>", false);
+                break;
+              case 18 : 
+                wr.addImport("<vector>");
+                wr.out("std::vector<double>", false);
+                break;
+              case 2 : 
+                let dblCppType = "double";
+                if ( t_name == "f32" ) {
+                  dblCppType = "float";
+                }
+                if ( node.hasFlag("optional") ) {
+                  wr.out((" r_optional_primitive<" + dblCppType) + "> ", false);
+                } else {
+                  wr.out(dblCppType, false);
+                }
+                break;
+              case 4 : 
+                wr.addImport("<string>");
+                wr.out("std::string", false);
+                break;
+              case 5 : 
+                wr.out("bool", false);
+                break;
+              case 7 : 
+                wr.out(((("rg_ordered_map<" + this.getObjectTypeString(k_name, ctx)) + ",") + this.getObjectTypeString(a_name, ctx)) + ">", false);
+                wr.addImport("<map>");
+                break;
+              case 6 : 
+                wr.out(("std::vector<" + this.getObjectTypeString(a_name, ctx)) + ">", false);
+                wr.addImport("<vector>");
+                break;
+              default: 
+                if ( node.type_name == "void" ) {
+                  wr.out("void", false);
                   return;
                 }
-                const cc_1 = ctx.findClass(t_name);
-                wr.out("std::shared_ptr<", false);
-                wr.out(cc_1.name, false);
-                wr.out(">", false);
-                return;
-              }
-              if ( node.hasFlag("optional") ) {
-                wr.out("std::shared_ptr<std::vector<", false);
+                if ( ctx.isDefinedClass(t_name) ) {
+                  const cc = ctx.findClass(t_name);
+                  if ( cc.is_union ) {
+                    wr.out("r_union_", false);
+                    wr.out(t_name, false);
+                    return;
+                  }
+                  const cc_1 = ctx.findClass(t_name);
+                  if ( this.cppUnionValueCase(cc_1, ctx) ) {
+                    wr.out(cc_1.name, false);
+                    return;
+                  }
+                  wr.out("std::shared_ptr<", false);
+                  wr.out(cc_1.name, false);
+                  wr.out(">", false);
+                  return;
+                }
+                if ( node.hasFlag("optional") ) {
+                  wr.out("std::shared_ptr<std::vector<", false);
+                  wr.out(this.getTypeString2(t_name, ctx), false);
+                  wr.out(">", false);
+                  return;
+                }
                 wr.out(this.getTypeString2(t_name, ctx), false);
-                wr.out(">", false);
-                return;
-              }
-              wr.out(this.getTypeString2(t_name, ctx), false);
-              break;
-          };
-        };
-        cppMemberPathOf (node) {
-          if ( (node.ns.length) >= 2 ) {
-            let path = "";
-            for ( let i = 0; i < node.ns.length; i++) {
-              var part = node.ns[i];
-              if ( i > 0 ) {
-                path = path + ".";
-              }
-              path = path + part;
+                break;
             };
-            return path;
-          }
-          if ( (node.vref.length) > 0 ) {
-            const idx = node.vref.indexOf(".");
-            if ( idx > 0 ) {
-              return node.vref;
+          };
+          cppMemberPathOf (node) {
+            if ( (node.ns.length) >= 2 ) {
+              let path = "";
+              for ( let i = 0; i < node.ns.length; i++) {
+                var part = node.ns[i];
+                if ( i > 0 ) {
+                  path = path + ".";
+                }
+                path = path + part;
+              };
+              return path;
             }
-          }
-          return "";
-        };
-        cppReturnIsSafeBufferLvalue (retValue) {
-          const path = this.cppMemberPathOf(retValue);
-          if ( (path.length) > 0 ) {
-            if ( (path.indexOf("this.")) == 0 ) {
-              return true;
+            if ( (node.vref.length) > 0 ) {
+              const idx = node.vref.indexOf(".");
+              if ( idx > 0 ) {
+                return node.vref;
+              }
             }
-          }
-          if ( retValue.expression ) {
-            if ( (retValue.children.length) >= 2 ) {
-              const head = retValue.getFirst();
-              const op = head.vref;
-              if ( (op == "itemAt") || (op == "get") ) {
-                const container = retValue.getSecond();
-                const cpath = this.cppMemberPathOf(container);
-                if ( (cpath.length) > 0 ) {
-                  if ( (cpath.indexOf("this.")) == 0 ) {
-                    return true;
+            return "";
+          };
+          cppReturnIsSafeBufferLvalue (retValue) {
+            const path = this.cppMemberPathOf(retValue);
+            if ( (path.length) > 0 ) {
+              if ( (path.indexOf("this.")) == 0 ) {
+                return true;
+              }
+            }
+            if ( retValue.expression ) {
+              if ( (retValue.children.length) >= 2 ) {
+                const head = retValue.getFirst();
+                const op = head.vref;
+                if ( (op == "itemAt") || (op == "get") ) {
+                  const container = retValue.getSecond();
+                  const cpath = this.cppMemberPathOf(container);
+                  if ( (cpath.length) > 0 ) {
+                    if ( (cpath.indexOf("this.")) == 0 ) {
+                      return true;
+                    }
                   }
                 }
               }
             }
-          }
-          return false;
-        };
-        cppScanBufferReturns (node) {
-          if ( (typeof(node.lambda_ctx) !== "undefined" && node.lambda_ctx != null )  ) {
-            return;
-          }
-          if ( node.expression ) {
-            if ( (node.children.length) > 0 ) {
-              const first = node.getFirst();
-              if ( first.vref == "return" ) {
-                if ( (node.children.length) >= 2 ) {
-                  this.buf_ret_seen = true;
-                  const retValue = node.getSecond();
-                  if ( false == this.cppReturnIsSafeBufferLvalue(retValue) ) {
+            return false;
+          };
+          cppScanBufferReturns (node) {
+            if ( (typeof(node.lambda_ctx) !== "undefined" && node.lambda_ctx != null )  ) {
+              return;
+            }
+            if ( node.expression ) {
+              if ( (node.children.length) > 0 ) {
+                const first = node.getFirst();
+                if ( first.vref == "return" ) {
+                  if ( (node.children.length) >= 2 ) {
+                    this.buf_ret_seen = true;
+                    const retValue = node.getSecond();
+                    if ( false == this.cppReturnIsSafeBufferLvalue(retValue) ) {
+                      this.buf_ret_all_safe = false;
+                    }
+                  } else {
+                    this.buf_ret_seen = true;
                     this.buf_ret_all_safe = false;
                   }
-                } else {
-                  this.buf_ret_seen = true;
-                  this.buf_ret_all_safe = false;
                 }
               }
             }
-          }
-          for ( let i = 0; i < node.children.length; i++) {
-            var child = node.children[i];
-            this.cppScanBufferReturns(child);
+            for ( let i = 0; i < node.children.length; i++) {
+              var child = node.children[i];
+              this.cppScanBufferReturns(child);
+            };
           };
-        };
-        cppBufferReturnByRef (variant, ctx) {
-          if ( typeof(variant.nameNode) === "undefined" ) {
-            return false;
-          }
-          const node = variant.nameNode;
-          if ( node.hasFlag("optional") ) {
-            return false;
-          }
-          let v_type = node.value_type;
-          if ( ((v_type == 10) || (v_type == 11)) || (v_type == 0) ) {
-            v_type = node.typeNameAsType(ctx);
-          }
-          if ( node.eval_type != 0 ) {
-            v_type = node.eval_type;
-          }
-          if ( ((v_type != 16) && (v_type != 17)) && (v_type != 18) ) {
-            return false;
-          }
-          if ( (typeof(variant.container_class) !== "undefined" && variant.container_class != null )  ) {
-            const cc = variant.container_class;
-            if ( cc.is_inherited ) {
+          cppBufferReturnByRef (variant, ctx) {
+            if ( typeof(variant.nameNode) === "undefined" ) {
               return false;
             }
-            if ( (cc.extends_classes.length) > 0 ) {
+            const node = variant.nameNode;
+            if ( node.hasFlag("optional") ) {
               return false;
             }
-          }
-          if ( typeof(variant.fnBody) === "undefined" ) {
-            return false;
-          }
-          this.buf_ret_seen = false;
-          this.buf_ret_all_safe = true;
-          this.cppScanBufferReturns(variant.fnBody);
-          if ( this.buf_ret_seen == false ) {
-            return false;
-          }
-          return this.buf_ret_all_safe;
-        };
-        async writeReturnTypeDef (variant, ctx, wr) {
-          await this.writeTypeDef(variant.nameNode, ctx, wr);
-          if ( this.cppBufferReturnByRef(variant, ctx) ) {
-            wr.out("&", false);
-          }
-        };
-        async WriteVRef (node, ctx, wr) {
-          if ( node.vref == "this" ) {
-            const currC = ctx.getCurrentClass();
-            if ( (typeof(currC) !== "undefined" && currC != null )  ) {
-              const cc = currC;
+            let v_type = node.value_type;
+            if ( ((v_type == 10) || (v_type == 11)) || (v_type == 0) ) {
+              v_type = node.typeNameAsType(ctx);
+            }
+            if ( node.eval_type != 0 ) {
+              v_type = node.eval_type;
+            }
+            if ( ((v_type != 16) && (v_type != 17)) && (v_type != 18) ) {
+              return false;
+            }
+            if ( (typeof(variant.container_class) !== "undefined" && variant.container_class != null )  ) {
+              const cc = variant.container_class;
+              if ( cc.is_inherited ) {
+                return false;
+              }
               if ( (cc.extends_classes.length) > 0 ) {
-                wr.out(("std::dynamic_pointer_cast<" + cc.name) + ">(shared_from_this())", false);
-                return;
+                return false;
               }
             }
-            wr.out("shared_from_this()", false);
-            return;
-          }
-          if ( node.eval_type == 13 ) {
-            const rootObjName = node.ns[0];
-            if ( (node.ns.length) > 1 ) {
-              const enumName = node.ns[1];
-              const e = ctx.getEnum(rootObjName);
-              if ( (typeof(e) !== "undefined" && e != null )  ) {
-                wr.out("" + ((( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined ))), false);
-                return;
+            if ( typeof(variant.fnBody) === "undefined" ) {
+              return false;
+            }
+            this.buf_ret_seen = false;
+            this.buf_ret_all_safe = true;
+            this.cppScanBufferReturns(variant.fnBody);
+            if ( this.buf_ret_seen == false ) {
+              return false;
+            }
+            return this.buf_ret_all_safe;
+          };
+          async writeReturnTypeDef (variant, ctx, wr) {
+            await this.writeTypeDef(variant.nameNode, ctx, wr);
+            if ( this.cppBufferReturnByRef(variant, ctx) ) {
+              wr.out("&", false);
+            }
+          };
+          cppSegmentIsValueCase (node, idx, ctx) {
+            if ( idx < 0 ) {
+              return false;
+            }
+            if ( (node.nsp.length) <= idx ) {
+              return false;
+            }
+            const seg = node.nsp[idx];
+            const segNN = seg.nameNode;
+            if ( typeof(segNN) === "undefined" ) {
+              return false;
+            }
+            const segNode = segNN;
+            if ( ((segNode.array_type.length) > 0) || ((segNode.key_type.length) > 0) ) {
+              return false;
+            }
+            if ( ctx.isDefinedClass(segNode.type_name) == false ) {
+              return false;
+            }
+            const segCl = ctx.findClass(segNode.type_name);
+            return this.cppUnionValueCase(segCl, ctx);
+          };
+          async WriteVRef (node, ctx, wr) {
+            if ( node.vref == "this" ) {
+              const currC = ctx.getCurrentClass();
+              if ( (typeof(currC) !== "undefined" && currC != null )  ) {
+                const cc = currC;
+                if ( (cc.extends_classes.length) > 0 ) {
+                  wr.out(("std::dynamic_pointer_cast<" + cc.name) + ">(shared_from_this())", false);
+                  return;
+                }
+              }
+              wr.out("shared_from_this()", false);
+              return;
+            }
+            if ( node.eval_type == 13 ) {
+              const rootObjName = node.ns[0];
+              if ( (node.ns.length) > 1 ) {
+                const enumName = node.ns[1];
+                const e = ctx.getEnum(rootObjName);
+                if ( (typeof(e) !== "undefined" && e != null )  ) {
+                  wr.out("" + ((( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined ))), false);
+                  return;
+                }
               }
             }
-          }
-          let had_static = false;
-          if ( (node.nsp.length) > 0 ) {
-            for ( let i = 0; i < node.nsp.length; i++) {
-              var p = node.nsp[i];
-              if ( i > 0 ) {
+            let had_static = false;
+            if ( (node.nsp.length) > 0 ) {
+              for ( let i = 0; i < node.nsp.length; i++) {
+                var p = node.nsp[i];
+                if ( i > 0 ) {
+                  if ( had_static ) {
+                    wr.out("::", false);
+                  } else {
+                    if ( this.cppSegmentIsValueCase(node, (i - 1), ctx) ) {
+                      wr.out(".", false);
+                    } else {
+                      wr.out("->", false);
+                    }
+                  }
+                }
+                if ( i == 0 ) {
+                  const part = node.ns[0];
+                  if ( part == "this" ) {
+                    wr.out("this", false);
+                    continue;
+                  }
+                }
+                if ( (p.compiledName.length) > 0 ) {
+                  wr.out(this.adjustType(p.compiledName), false);
+                } else {
+                  if ( (p.name.length) > 0 ) {
+                    wr.out(this.adjustType(p.name), false);
+                  } else {
+                    wr.out(this.adjustType((node.ns[i])), false);
+                  }
+                }
+                if ( p.isClass() ) {
+                  had_static = true;
+                }
+              };
+              return;
+            }
+            if ( node.hasParamDesc ) {
+              const p_1 = node.paramDesc;
+              wr.out(p_1.compiledName, false);
+              return;
+            }
+            for ( let i_1 = 0; i_1 < node.ns.length; i_1++) {
+              var part_1 = node.ns[i_1];
+              if ( i_1 > 0 ) {
                 if ( had_static ) {
                   wr.out("::", false);
                 } else {
                   wr.out("->", false);
                 }
               }
-              if ( i == 0 ) {
-                const part = node.ns[0];
-                if ( part == "this" ) {
-                  wr.out("this", false);
-                  continue;
-                }
-              }
-              if ( (p.compiledName.length) > 0 ) {
-                wr.out(this.adjustType(p.compiledName), false);
-              } else {
-                if ( (p.name.length) > 0 ) {
-                  wr.out(this.adjustType(p.name), false);
-                } else {
-                  wr.out(this.adjustType((node.ns[i])), false);
-                }
-              }
-              if ( p.isClass() ) {
+              if ( ctx.hasClass(part_1) ) {
                 had_static = true;
-              }
-            };
-            return;
-          }
-          if ( node.hasParamDesc ) {
-            const p_1 = node.paramDesc;
-            wr.out(p_1.compiledName, false);
-            return;
-          }
-          for ( let i_1 = 0; i_1 < node.ns.length; i_1++) {
-            var part_1 = node.ns[i_1];
-            if ( i_1 > 0 ) {
-              if ( had_static ) {
-                wr.out("::", false);
               } else {
-                wr.out("->", false);
+                had_static = false;
               }
-            }
-            if ( ctx.hasClass(part_1) ) {
-              had_static = true;
-            } else {
-              had_static = false;
-            }
-            wr.out(this.adjustType(part_1), false);
+              wr.out(this.adjustType(part_1), false);
+            };
           };
-        };
-        async writeVarDef (node, ctx, wr) {
-          if ( node.hasParamDesc ) {
-            const nn = node.children[1];
-            const p = nn.paramDesc;
-            let initHasSideEffect = false;
-            if ( (node.children.length) > 2 ) {
-              const initChk = node.getThird();
-              if ( initChk.hasFnCall ) {
-                initHasSideEffect = true;
+          async writeVarDef (node, ctx, wr) {
+            if ( node.hasParamDesc ) {
+              const nn = node.children[1];
+              const p = nn.paramDesc;
+              let initHasSideEffect = false;
+              if ( (node.children.length) > 2 ) {
+                const initChk = node.getThird();
+                if ( initChk.hasFnCall ) {
+                  initHasSideEffect = true;
+                }
+                if ( initChk.has_call ) {
+                  initHasSideEffect = true;
+                }
+                if ( initChk.hasNewOper ) {
+                  initHasSideEffect = true;
+                }
               }
-              if ( initChk.has_call ) {
-                initHasSideEffect = true;
+              const elideUnused = ((p.ref_cnt == 0) && (p.is_class_variable == false)) && (initHasSideEffect == false);
+              if ( elideUnused ) {
+                wr.out("/** unused:  ", false);
               }
-              if ( initChk.hasNewOper ) {
-                initHasSideEffect = true;
+              if ( (p.set_cnt > 0) || p.is_class_variable ) {
+                wr.out("", false);
+              } else {
+                wr.out("", false);
               }
-            }
-            const elideUnused = ((p.ref_cnt == 0) && (p.is_class_variable == false)) && (initHasSideEffect == false);
-            if ( elideUnused ) {
-              wr.out("/** unused:  ", false);
-            }
-            if ( (p.set_cnt > 0) || p.is_class_variable ) {
-              wr.out("", false);
-            } else {
-              wr.out("", false);
-            }
-            await this.writeTypeDef(p.nameNode, ctx, wr);
-            let useCppRef = p.needs_cpp_reference && p.is_assigned_from_member;
-            if ( (node.children.length) > 2 ) {
-              const initNode = node.getThird();
-              if ( initNode.hasNewOper ) {
-                useCppRef = false;
-              }
-              if ( initNode.hasFnCall ) {
-                useCppRef = false;
-              }
-              if ( initNode.has_call ) {
-                useCppRef = false;
-              }
-              if ( (typeof(p.nameNode) !== "undefined" && p.nameNode != null )  ) {
-                const typeNode = p.nameNode;
-                if ( ((typeNode.type_name == "buffer") || (typeNode.type_name == "int_buffer")) || (typeNode.type_name == "double_buffer") ) {
+              await this.writeTypeDef(p.nameNode, ctx, wr);
+              let useCppRef = p.needs_cpp_reference && p.is_assigned_from_member;
+              if ( (node.children.length) > 2 ) {
+                const initNode = node.getThird();
+                if ( initNode.hasNewOper ) {
                   useCppRef = false;
                 }
+                if ( initNode.hasFnCall ) {
+                  useCppRef = false;
+                }
+                if ( initNode.has_call ) {
+                  useCppRef = false;
+                }
+                if ( (typeof(p.nameNode) !== "undefined" && p.nameNode != null )  ) {
+                  const typeNode = p.nameNode;
+                  if ( ((typeNode.type_name == "buffer") || (typeNode.type_name == "int_buffer")) || (typeNode.type_name == "double_buffer") ) {
+                    useCppRef = false;
+                  }
+                }
+              }
+              if ( useCppRef ) {
+                wr.out("&", false);
+              }
+              wr.out(" ", false);
+              wr.out(p.compiledName, false);
+              if ( (node.children.length) > 2 ) {
+                wr.out(" = ", false);
+                ctx.setInExpr();
+                const value = node.getThird();
+                await this.WalkNode(value, ctx, wr);
+                ctx.unsetInExpr();
+              } else {
+              }
+              if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
+                wr.out("     /** note: unused */", false);
+              }
+              if ( elideUnused ) {
+                wr.out("   **/ ;", true);
+              } else {
+                wr.out(";", false);
+                wr.newline();
               }
             }
-            if ( useCppRef ) {
-              wr.out("&", false);
-            }
-            wr.out(" ", false);
-            wr.out(p.compiledName, false);
-            if ( (node.children.length) > 2 ) {
-              wr.out(" = ", false);
-              ctx.setInExpr();
-              const value = node.getThird();
-              await this.WalkNode(value, ctx, wr);
-              ctx.unsetInExpr();
-            } else {
-            }
-            if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
-              wr.out("     /** note: unused */", false);
-            }
-            if ( elideUnused ) {
-              wr.out("   **/ ;", true);
-            } else {
+          };
+          async disabledVarDef (node, ctx, wr) {
+            if ( node.hasParamDesc ) {
+              const nn = node.children[1];
+              const p = nn.paramDesc;
+              if ( (p.set_cnt > 0) || p.is_class_variable ) {
+                wr.out("", false);
+              } else {
+                wr.out("", false);
+              }
+              wr.out(p.compiledName, false);
+              if ( (node.children.length) > 2 ) {
+                wr.out(" = ", false);
+                ctx.setInExpr();
+                const value = node.getThird();
+                await this.WalkNode(value, ctx, wr);
+                ctx.unsetInExpr();
+              } else {
+              }
               wr.out(";", false);
               wr.newline();
             }
-          }
-        };
-        async disabledVarDef (node, ctx, wr) {
-          if ( node.hasParamDesc ) {
-            const nn = node.children[1];
-            const p = nn.paramDesc;
-            if ( (p.set_cnt > 0) || p.is_class_variable ) {
-              wr.out("", false);
-            } else {
-              wr.out("", false);
-            }
-            wr.out(p.compiledName, false);
-            if ( (node.children.length) > 2 ) {
-              wr.out(" = ", false);
+          };
+          async CreateCallExpression (node, ctx, wr) {
+            if ( node.has_call ) {
+              const obj = node.getSecond();
+              const method = node.getThird();
+              const args = node.children[3];
+              wr.out("(", false);
               ctx.setInExpr();
-              const value = node.getThird();
-              await this.WalkNode(value, ctx, wr);
+              await this.WalkNode(obj, ctx, wr);
               ctx.unsetInExpr();
-            } else {
+              wr.out(")->", false);
+              wr.out(method.vref, false);
+              wr.out("(", false);
+              ctx.setInExpr();
+              for ( let i = 0; i < args.children.length; i++) {
+                var arg = args.children[i];
+                if ( i > 0 ) {
+                  wr.out(", ", false);
+                }
+                await this.WalkNode(arg, ctx, wr);
+              };
+              ctx.unsetInExpr();
+              wr.out(")", false);
+              if ( ctx.expressionLevel() == 0 ) {
+                wr.out(";", true);
+              }
             }
-            wr.out(";", false);
-            wr.newline();
-          }
-        };
-        async CreateCallExpression (node, ctx, wr) {
-          if ( node.has_call ) {
-            const obj = node.getSecond();
-            const method = node.getThird();
-            const args = node.children[3];
-            wr.out("(", false);
+          };
+          async cppWriteCmpOperand (o, otherIsLiteral, ctx, wr) {
+            let oo = o;
+            while (oo.expression && ((oo.children.length) == 1)) {
+              oo = oo.getFirst();
+            };
+            if ( (oo.value_type == 4) && (otherIsLiteral == false) ) {
+              wr.out(("\"" + this.EncodeString(oo, ctx, wr)) + "\"", false);
+              return;
+            }
+            ctx.setInExpr();
+            await this.WalkNode(oo, ctx, wr);
+            ctx.unsetInExpr();
+          };
+          async CustomOperator (node, ctx, wr) {
+            const fc = node.getFirst();
+            const cmd = fc.vref;
+            if ( (cmd == "==") || (cmd == "!=") ) {
+              const cmpL = node.getSecond();
+              const cmpR = node.getThird();
+              let lLit = false;
+              let lc = cmpL;
+              while (lc.expression && ((lc.children.length) == 1)) {
+                lc = lc.getFirst();
+              };
+              if ( lc.value_type == 4 ) {
+                lLit = true;
+              }
+              let rc = cmpR;
+              while (rc.expression && ((rc.children.length) == 1)) {
+                rc = rc.getFirst();
+              };
+              let rLit = false;
+              if ( rc.value_type == 4 ) {
+                rLit = true;
+              }
+              if ( lLit != rLit ) {
+                let svLitN = rc;
+                let svExprN = cmpL;
+                if ( lLit ) {
+                  svLitN = lc;
+                  svExprN = cmpR;
+                }
+                let svAscii = true;
+                const svLen = svLitN.string_value.length;
+                let svI = 0;
+                while (svI < svLen) {
+                  if ( (svLitN.string_value.charCodeAt(svI )) > 126 ) {
+                    svAscii = false;
+                  }
+                  svI = svI + 1;
+                };
+                if ( svAscii ) {
+                  wr.out("(std::string_view(", false);
+                  ctx.setInExpr();
+                  await this.WalkNode(svExprN, ctx, wr);
+                  ctx.unsetInExpr();
+                  wr.out(((") " + cmd) + " std::string_view(\"") + this.EncodeString(svLitN, ctx, wr), false);
+                  wr.out(("\", " + svLen) + "))", false);
+                  return;
+                }
+              }
+              wr.out("(", false);
+              await this.cppWriteCmpOperand(cmpL, false, ctx, wr);
+              wr.out((" " + cmd) + " ", false);
+              await this.cppWriteCmpOperand(cmpR, lLit, ctx, wr);
+              wr.out(")", false);
+              return;
+            }
+            if ( cmd == "return" ) {
+              if ( ctx.isInMain() ) {
+                wr.out("return 0;", true);
+              } else {
+                wr.out("return;", true);
+              }
+              return;
+            }
+            if ( cmd == "switch" ) {
+              const condition = node.getSecond();
+              const case_nodes = node.getThird();
+              wr.newline();
+              const p = new RangerAppParamDesc();
+              p.name = "caseMatched";
+              p.value_type = 5;
+              ctx.defineVariable(p.name, p);
+              let b_has_default = false;
+              for ( let i = 0; i < case_nodes.children.length; i++) {
+                var ch = case_nodes.children[i];
+                const blockName = ch.getFirst();
+                if ( blockName.vref == "default" ) {
+                  b_has_default = true;
+                }
+              };
+              if ( b_has_default ) {
+                wr.out(("bool " + p.compiledName) + " = false;", true);
+              }
+              for ( let i_1 = 0; i_1 < case_nodes.children.length; i_1++) {
+                var ch_1 = case_nodes.children[i_1];
+                const blockName_1 = ch_1.getFirst();
+                if ( blockName_1.vref == "default" ) {
+                  const defBlock = ch_1.getSecond();
+                  wr.out("if( ! ", false);
+                  wr.out(p.compiledName, false);
+                  wr.out(") {", true);
+                  wr.indent(1);
+                  await this.WalkNode(defBlock, ctx, wr);
+                  wr.indent(-1);
+                  wr.out("}", true);
+                } else {
+                  const caseValue = ch_1.getSecond();
+                  const caseBlock = ch_1.getThird();
+                  wr.out("if( ", false);
+                  await this.WalkNode(condition, ctx, wr);
+                  wr.out(" == ", false);
+                  await this.WalkNode(caseValue, ctx, wr);
+                  wr.out(") {", true);
+                  wr.indent(1);
+                  if ( b_has_default ) {
+                    wr.out(p.compiledName + " = true;", true);
+                  }
+                  await this.WalkNode(caseBlock, ctx, wr);
+                  wr.indent(-1);
+                  wr.out("}", true);
+                }
+              };
+            }
+          };
+          async CreateMethodCall (node, ctx, wr) {
+            const obj = node.getFirst();
+            const args = node.getSecond();
             ctx.setInExpr();
             await this.WalkNode(obj, ctx, wr);
             ctx.unsetInExpr();
-            wr.out(")->", false);
-            wr.out(method.vref, false);
             wr.out("(", false);
             ctx.setInExpr();
             for ( let i = 0; i < args.children.length; i++) {
@@ -20408,397 +20632,87 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             };
             ctx.unsetInExpr();
             wr.out(")", false);
+          };
+          async CreatePropertyGet (node, ctx, wr) {
+            const obj = node.getSecond();
+            const prop = node.getThird();
+            wr.out("(", false);
+            ctx.setInExpr();
+            await this.WalkNode(obj, ctx, wr);
+            ctx.unsetInExpr();
+            wr.out(")->", false);
+            await this.WalkNode(prop, ctx, wr);
+          };
+          async CreateLambdaCall (node, ctx, wr) {
+            const fName = node.children[0];
+            const givenArgs = node.children[1];
+            let args;
+            if ( (typeof(fName.expression_value) !== "undefined" && fName.expression_value != null )  ) {
+              args = fName.expression_value.children[1];
+            } else {
+              const param = ctx.getVariableDef(fName.vref);
+              args = param.nameNode.expression_value.children[1];
+            }
+            ctx.setInExpr();
+            await this.WalkNode(fName, ctx, wr);
+            wr.out("(", false);
+            for ( let i = 0; i < args.children.length; i++) {
+              var arg = args.children[i];
+              const n = givenArgs.children[i];
+              if ( i > 0 ) {
+                wr.out(", ", false);
+              }
+              if ( arg.value_type != 0 ) {
+                await this.WalkNode(n, ctx, wr);
+              }
+            };
+            wr.out(")", false);
+            ctx.unsetInExpr();
             if ( ctx.expressionLevel() == 0 ) {
               wr.out(";", true);
             }
-          }
-        };
-        async cppWriteCmpOperand (o, otherIsLiteral, ctx, wr) {
-          let oo = o;
-          while (oo.expression && ((oo.children.length) == 1)) {
-            oo = oo.getFirst();
           };
-          if ( (oo.value_type == 4) && (otherIsLiteral == false) ) {
-            wr.out(("\"" + this.EncodeString(oo, ctx, wr)) + "\"", false);
-            return;
-          }
-          ctx.setInExpr();
-          await this.WalkNode(oo, ctx, wr);
-          ctx.unsetInExpr();
-        };
-        async CustomOperator (node, ctx, wr) {
-          const fc = node.getFirst();
-          const cmd = fc.vref;
-          if ( (cmd == "==") || (cmd == "!=") ) {
-            const cmpL = node.getSecond();
-            const cmpR = node.getThird();
-            let lLit = false;
-            let lc = cmpL;
-            while (lc.expression && ((lc.children.length) == 1)) {
-              lc = lc.getFirst();
-            };
-            if ( lc.value_type == 4 ) {
-              lLit = true;
-            }
-            let rc = cmpR;
-            while (rc.expression && ((rc.children.length) == 1)) {
-              rc = rc.getFirst();
-            };
-            let rLit = false;
-            if ( rc.value_type == 4 ) {
-              rLit = true;
-            }
-            if ( lLit != rLit ) {
-              let svLitN = rc;
-              let svExprN = cmpL;
-              if ( lLit ) {
-                svLitN = lc;
-                svExprN = cmpR;
-              }
-              let svAscii = true;
-              const svLen = svLitN.string_value.length;
-              let svI = 0;
-              while (svI < svLen) {
-                if ( (svLitN.string_value.charCodeAt(svI )) > 126 ) {
-                  svAscii = false;
-                }
-                svI = svI + 1;
-              };
-              if ( svAscii ) {
-                wr.out("(std::string_view(", false);
-                ctx.setInExpr();
-                await this.WalkNode(svExprN, ctx, wr);
-                ctx.unsetInExpr();
-                wr.out(((") " + cmd) + " std::string_view(\"") + this.EncodeString(svLitN, ctx, wr), false);
-                wr.out(("\", " + svLen) + "))", false);
-                return;
-              }
-            }
-            wr.out("(", false);
-            await this.cppWriteCmpOperand(cmpL, false, ctx, wr);
-            wr.out((" " + cmd) + " ", false);
-            await this.cppWriteCmpOperand(cmpR, lLit, ctx, wr);
-            wr.out(")", false);
-            return;
-          }
-          if ( cmd == "return" ) {
-            if ( ctx.isInMain() ) {
-              wr.out("return 0;", true);
-            } else {
-              wr.out("return;", true);
-            }
-            return;
-          }
-          if ( cmd == "switch" ) {
-            const condition = node.getSecond();
-            const case_nodes = node.getThird();
-            wr.newline();
-            const p = new RangerAppParamDesc();
-            p.name = "caseMatched";
-            p.value_type = 5;
-            ctx.defineVariable(p.name, p);
-            let b_has_default = false;
-            for ( let i = 0; i < case_nodes.children.length; i++) {
-              var ch = case_nodes.children[i];
-              const blockName = ch.getFirst();
-              if ( blockName.vref == "default" ) {
-                b_has_default = true;
+          async CreateLambda (node, ctx, wr) {
+            this.import_lib("<functional>", ctx, wr);
+            const lambdaCtx = node.lambda_ctx;
+            const fnNode = node.children[0];
+            const args = node.children[1];
+            const body = node.children[2];
+            wr.out("[&", false);
+            for ( let i = 0; i < lambdaCtx.captured_variables.length; i++) {
+              var cname = lambdaCtx.captured_variables[i];
+              const vD = lambdaCtx.getVariableDef(cname);
+              if ( vD.varType == 4 ) {
+                wr.out(", ", false);
+                wr.out(vD.compiledName, false);
               }
             };
-            if ( b_has_default ) {
-              wr.out(("bool " + p.compiledName) + " = false;", true);
-            }
-            for ( let i_1 = 0; i_1 < case_nodes.children.length; i_1++) {
-              var ch_1 = case_nodes.children[i_1];
-              const blockName_1 = ch_1.getFirst();
-              if ( blockName_1.vref == "default" ) {
-                const defBlock = ch_1.getSecond();
-                wr.out("if( ! ", false);
-                wr.out(p.compiledName, false);
-                wr.out(") {", true);
-                wr.indent(1);
-                await this.WalkNode(defBlock, ctx, wr);
-                wr.indent(-1);
-                wr.out("}", true);
-              } else {
-                const caseValue = ch_1.getSecond();
-                const caseBlock = ch_1.getThird();
-                wr.out("if( ", false);
-                await this.WalkNode(condition, ctx, wr);
-                wr.out(" == ", false);
-                await this.WalkNode(caseValue, ctx, wr);
-                wr.out(") {", true);
-                wr.indent(1);
-                if ( b_has_default ) {
-                  wr.out(p.compiledName + " = true;", true);
-                }
-                await this.WalkNode(caseBlock, ctx, wr);
-                wr.indent(-1);
-                wr.out("}", true);
+            wr.out("](", false);
+            for ( let i_1 = 0; i_1 < args.children.length; i_1++) {
+              var arg = args.children[i_1];
+              if ( i_1 > 0 ) {
+                wr.out(", ", false);
               }
-            };
-          }
-        };
-        async CreateMethodCall (node, ctx, wr) {
-          const obj = node.getFirst();
-          const args = node.getSecond();
-          ctx.setInExpr();
-          await this.WalkNode(obj, ctx, wr);
-          ctx.unsetInExpr();
-          wr.out("(", false);
-          ctx.setInExpr();
-          for ( let i = 0; i < args.children.length; i++) {
-            var arg = args.children[i];
-            if ( i > 0 ) {
-              wr.out(", ", false);
-            }
-            await this.WalkNode(arg, ctx, wr);
-          };
-          ctx.unsetInExpr();
-          wr.out(")", false);
-        };
-        async CreatePropertyGet (node, ctx, wr) {
-          const obj = node.getSecond();
-          const prop = node.getThird();
-          wr.out("(", false);
-          ctx.setInExpr();
-          await this.WalkNode(obj, ctx, wr);
-          ctx.unsetInExpr();
-          wr.out(")->", false);
-          await this.WalkNode(prop, ctx, wr);
-        };
-        async CreateLambdaCall (node, ctx, wr) {
-          const fName = node.children[0];
-          const givenArgs = node.children[1];
-          let args;
-          if ( (typeof(fName.expression_value) !== "undefined" && fName.expression_value != null )  ) {
-            args = fName.expression_value.children[1];
-          } else {
-            const param = ctx.getVariableDef(fName.vref);
-            args = param.nameNode.expression_value.children[1];
-          }
-          ctx.setInExpr();
-          await this.WalkNode(fName, ctx, wr);
-          wr.out("(", false);
-          for ( let i = 0; i < args.children.length; i++) {
-            var arg = args.children[i];
-            const n = givenArgs.children[i];
-            if ( i > 0 ) {
-              wr.out(", ", false);
-            }
-            if ( arg.value_type != 0 ) {
-              await this.WalkNode(n, ctx, wr);
-            }
-          };
-          wr.out(")", false);
-          ctx.unsetInExpr();
-          if ( ctx.expressionLevel() == 0 ) {
-            wr.out(";", true);
-          }
-        };
-        async CreateLambda (node, ctx, wr) {
-          this.import_lib("<functional>", ctx, wr);
-          const lambdaCtx = node.lambda_ctx;
-          const fnNode = node.children[0];
-          const args = node.children[1];
-          const body = node.children[2];
-          wr.out("[&", false);
-          for ( let i = 0; i < lambdaCtx.captured_variables.length; i++) {
-            var cname = lambdaCtx.captured_variables[i];
-            const vD = lambdaCtx.getVariableDef(cname);
-            if ( vD.varType == 4 ) {
-              wr.out(", ", false);
-              wr.out(vD.compiledName, false);
-            }
-          };
-          wr.out("](", false);
-          for ( let i_1 = 0; i_1 < args.children.length; i_1++) {
-            var arg = args.children[i_1];
-            if ( i_1 > 0 ) {
-              wr.out(", ", false);
-            }
-            await this.writeTypeDef(arg, ctx, wr);
-            wr.out(" ", false);
-            wr.out(arg.vref, false);
-          };
-          wr.out(") mutable { ", true);
-          wr.indent(1);
-          lambdaCtx.restartExpressionLevel();
-          for ( let i_2 = 0; i_2 < body.children.length; i_2++) {
-            var item = body.children[i_2];
-            await this.WalkNode(item, lambdaCtx, wr);
-          };
-          wr.newline();
-          wr.indent(-1);
-          wr.out("}", false);
-        };
-        cppIsWeakField (nn, ctx) {
-          if ( nn.hasFlag("weak") == false ) {
-            return false;
-          }
-          const tn = nn.type_name;
-          if ( (tn.length) == 0 ) {
-            return false;
-          }
-          if ( ctx.isDefinedClass(tn) == false ) {
-            return false;
-          }
-          const tc = ctx.findClass(tn);
-          if ( tc.isNormalClass() == false ) {
-            return false;
-          }
-          return true;
-        };
-        cppProgramHasWeakField (ctx) {
-          let found = false;
-          const root = ctx.getRoot();
-          for( var i in root.definedClasses) {
-            if(root.definedClasses.hasOwnProperty(i)) {
-              var cl = root.definedClasses[i] 
-              for ( let j = 0; j < cl.variables.length; j++) {
-                var pvar = cl.variables[j];
-                if ( (typeof(pvar.nameNode) !== "undefined" && pvar.nameNode != null )  ) {
-                  if ( this.cppIsWeakField((pvar.nameNode), ctx) ) {
-                    found = true;
-                  }
-                }
-              };
-            } };
-            return found;
-          };
-          writeCppWeakHelper (wr) {
-            wr.out("// a `weak` field: it holds no reference count, and it reads like a std::shared_ptr", true);
-            wr.out("template <class T> class r_weak {", true);
-            wr.out("  public :", true);
-            wr.out("    std::weak_ptr<T> w;", true);
-            wr.out("    r_weak() { }", true);
-            wr.out("    r_weak(std::nullptr_t) { }", true);
-            wr.out("    r_weak(const std::shared_ptr<T>& s) : w(s) { }", true);
-            wr.out("    r_weak<T>& operator=(const std::shared_ptr<T>& s) { w = s; return *this; }", true);
-            wr.out("    r_weak<T>& operator=(std::nullptr_t) { w.reset(); return *this; }", true);
-            wr.out("    operator std::shared_ptr<T>() const { return w.lock(); }", true);
-            wr.out("    std::shared_ptr<T> lock() const { return w.lock(); }", true);
-            wr.out("    T* operator->() const { return w.lock().get(); }", true);
-            wr.out("    explicit operator bool() const { return !w.expired(); }", true);
-            wr.out("    bool operator==(std::nullptr_t) const { return w.expired(); }", true);
-            wr.out("    bool operator!=(std::nullptr_t) const { return !w.expired(); }", true);
-            wr.out("};", true);
-          };
-          async writeCppHeaderVar (node, ctx, wr, do_initialize) {
-            if ( node.hasParamDesc ) {
-              const nn = node.children[1];
-              const p = nn.paramDesc;
-              if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
-                wr.out("/** unused:  ", false);
-              }
-              if ( (p.set_cnt > 0) || p.is_class_variable ) {
-                wr.out("", false);
-              } else {
-                wr.out("", false);
-              }
-              const pnn = p.nameNode;
-              if ( this.cppIsWeakField(pnn, ctx) ) {
-                wr.out(("r_weak<" + pnn.type_name) + ">", false);
-              } else {
-                await this.writeTypeDef(pnn, ctx, wr);
-              }
+              await this.writeTypeDef(arg, ctx, wr);
               wr.out(" ", false);
-              wr.out(p.compiledName, false);
-              if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
-                wr.out("     /** note: unused */", false);
-              }
-              if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
-                wr.out("   **/ ;", true);
-              } else {
-                wr.out(";", false);
-                wr.newline();
-              }
-            }
+              wr.out(arg.vref, false);
+            };
+            wr.out(") mutable { ", true);
+            wr.indent(1);
+            lambdaCtx.restartExpressionLevel();
+            for ( let i_2 = 0; i_2 < body.children.length; i_2++) {
+              var item = body.children[i_2];
+              await this.WalkNode(item, lambdaCtx, wr);
+            };
+            wr.newline();
+            wr.indent(-1);
+            wr.out("}", false);
           };
-          cppReadonlyValueParam (arg) {
-            if ( arg.set_cnt > 0 ) {
+          cppIsWeakField (nn, ctx) {
+            if ( nn.hasFlag("weak") == false ) {
               return false;
             }
-            if ( arg.needs_cpp_reference ) {
-              return false;
-            }
-            if ( typeof(arg.nameNode) === "undefined" ) {
-              return false;
-            }
-            const typeNode = arg.nameNode;
-            if ( typeNode.hasFlag("optional") ) {
-              return false;
-            }
-            const vt = typeNode.value_type;
-            if ( vt == 4 ) {
-              return true;
-            }
-            if ( vt == 7 ) {
-              return true;
-            }
-            if ( vt == 6 ) {
-              return true;
-            }
-            if ( vt == 16 ) {
-              return true;
-            }
-            if ( vt == 17 ) {
-              return true;
-            }
-            if ( vt == 18 ) {
-              return true;
-            }
-            const tn = typeNode.type_name;
-            if ( tn == "string" ) {
-              return true;
-            }
-            if ( tn == "buffer" ) {
-              return true;
-            }
-            if ( tn == "int_buffer" ) {
-              return true;
-            }
-            if ( tn == "double_buffer" ) {
-              return true;
-            }
-            if ( (tn.length) > 0 ) {
-              const firstCh = tn.substring(0, 1 );
-              if ( firstCh == "[" ) {
-                return true;
-              }
-            }
-            return false;
-          };
-          cppBorrowedObjectParam (fnDesc, arg, ctx) {
-            if ( fnDesc.is_lambda ) {
-              return false;
-            }
-            if ( arg.ownership_resolved == false ) {
-              return false;
-            }
-            if ( arg.ownership_kind != 2 ) {
-              return false;
-            }
-            if ( arg.set_cnt > 0 ) {
-              return false;
-            }
-            if ( typeof(arg.nameNode) === "undefined" ) {
-              return false;
-            }
-            if ( (typeof(fnDesc.container_class) !== "undefined" && fnDesc.container_class != null )  ) {
-              const cc = fnDesc.container_class;
-              if ( cc.is_inherited ) {
-                return false;
-              }
-              if ( cc.is_trait ) {
-                return false;
-              }
-              if ( (cc.extends_classes.length) > 0 ) {
-                return false;
-              }
-            }
-            const typeNode = arg.nameNode;
-            const tn = typeNode.type_name;
+            const tn = nn.type_name;
             if ( (tn.length) == 0 ) {
               return false;
             }
@@ -20806,168 +20720,292 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               return false;
             }
             const tc = ctx.findClass(tn);
-            if ( tc.is_system ) {
-              return false;
-            }
-            if ( tc.is_union ) {
-              return false;
-            }
-            if ( tc.is_system_union ) {
-              return false;
-            }
-            if ( tc.is_trait ) {
+            if ( tc.isNormalClass() == false ) {
               return false;
             }
             return true;
           };
-          cppNeedsCallTempCopy (fnDesc, arg, n, ctx) {
-            if ( this.cppBorrowedObjectParam(fnDesc, arg, ctx) == false ) {
-              return false;
-            }
-            if ( n.hasNewOper ) {
-              return false;
-            }
-            if ( n.expression ) {
-              if ( n.hasFnCall ) {
+          cppProgramHasWeakField (ctx) {
+            let found = false;
+            const root = ctx.getRoot();
+            for( var i in root.definedClasses) {
+              if(root.definedClasses.hasOwnProperty(i)) {
+                var cl = root.definedClasses[i] 
+                for ( let j = 0; j < cl.variables.length; j++) {
+                  var pvar = cl.variables[j];
+                  if ( (typeof(pvar.nameNode) !== "undefined" && pvar.nameNode != null )  ) {
+                    if ( this.cppIsWeakField((pvar.nameNode), ctx) ) {
+                      found = true;
+                    }
+                  }
+                };
+              } };
+              return found;
+            };
+            writeCppWeakHelper (wr) {
+              wr.out("// a `weak` field: it holds no reference count, and it reads like a std::shared_ptr", true);
+              wr.out("template <class T> class r_weak {", true);
+              wr.out("  public :", true);
+              wr.out("    std::weak_ptr<T> w;", true);
+              wr.out("    r_weak() { }", true);
+              wr.out("    r_weak(std::nullptr_t) { }", true);
+              wr.out("    r_weak(const std::shared_ptr<T>& s) : w(s) { }", true);
+              wr.out("    r_weak<T>& operator=(const std::shared_ptr<T>& s) { w = s; return *this; }", true);
+              wr.out("    r_weak<T>& operator=(std::nullptr_t) { w.reset(); return *this; }", true);
+              wr.out("    operator std::shared_ptr<T>() const { return w.lock(); }", true);
+              wr.out("    std::shared_ptr<T> lock() const { return w.lock(); }", true);
+              wr.out("    T* operator->() const { return w.lock().get(); }", true);
+              wr.out("    explicit operator bool() const { return !w.expired(); }", true);
+              wr.out("    bool operator==(std::nullptr_t) const { return w.expired(); }", true);
+              wr.out("    bool operator!=(std::nullptr_t) const { return !w.expired(); }", true);
+              wr.out("};", true);
+            };
+            async writeCppHeaderVar (node, ctx, wr, do_initialize) {
+              if ( node.hasParamDesc ) {
+                const nn = node.children[1];
+                const p = nn.paramDesc;
+                if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
+                  wr.out("/** unused:  ", false);
+                }
+                if ( (p.set_cnt > 0) || p.is_class_variable ) {
+                  wr.out("", false);
+                } else {
+                  wr.out("", false);
+                }
+                const pnn = p.nameNode;
+                if ( this.cppIsWeakField(pnn, ctx) ) {
+                  wr.out(("r_weak<" + pnn.type_name) + ">", false);
+                } else {
+                  await this.writeTypeDef(pnn, ctx, wr);
+                }
+                wr.out(" ", false);
+                wr.out(p.compiledName, false);
+                if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
+                  wr.out("     /** note: unused */", false);
+                }
+                if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
+                  wr.out("   **/ ;", true);
+                } else {
+                  wr.out(";", false);
+                  wr.newline();
+                }
+              }
+            };
+            cppReadonlyValueParam (arg) {
+              if ( arg.set_cnt > 0 ) {
                 return false;
               }
-              return true;
-            }
-            if ( n.vref == "this" ) {
-              return false;
-            }
-            if ( (n.ns.length) >= 2 ) {
-              return true;
-            }
-            if ( n.hasParamDesc ) {
-              const pd = n.paramDesc;
-              if ( pd.is_class_variable ) {
+              if ( arg.needs_cpp_reference ) {
+                return false;
+              }
+              if ( typeof(arg.nameNode) === "undefined" ) {
+                return false;
+              }
+              const typeNode = arg.nameNode;
+              if ( typeNode.hasFlag("optional") ) {
+                return false;
+              }
+              const vt = typeNode.value_type;
+              if ( vt == 4 ) {
                 return true;
               }
+              if ( vt == 7 ) {
+                return true;
+              }
+              if ( vt == 6 ) {
+                return true;
+              }
+              if ( vt == 16 ) {
+                return true;
+              }
+              if ( vt == 17 ) {
+                return true;
+              }
+              if ( vt == 18 ) {
+                return true;
+              }
+              const tn = typeNode.type_name;
+              if ( tn == "string" ) {
+                return true;
+              }
+              if ( tn == "buffer" ) {
+                return true;
+              }
+              if ( tn == "int_buffer" ) {
+                return true;
+              }
+              if ( tn == "double_buffer" ) {
+                return true;
+              }
+              if ( (tn.length) > 0 ) {
+                const firstCh = tn.substring(0, 1 );
+                if ( firstCh == "[" ) {
+                  return true;
+                }
+              }
               return false;
-            }
-            return true;
-          };
-          async writeArgsDef (fnDesc, ctx, wr) {
-            const pms = operatorsOf.filter_48(fnDesc.params, ((item, index) => { 
-              if ( item.nameNode.hasFlag("keyword") ) {
+            };
+            cppBorrowedObjectParam (fnDesc, arg, ctx) {
+              if ( fnDesc.is_lambda ) {
+                return false;
+              }
+              if ( arg.ownership_resolved == false ) {
+                return false;
+              }
+              if ( arg.ownership_kind != 2 ) {
+                return false;
+              }
+              if ( arg.set_cnt > 0 ) {
+                return false;
+              }
+              if ( typeof(arg.nameNode) === "undefined" ) {
+                return false;
+              }
+              if ( (typeof(fnDesc.container_class) !== "undefined" && fnDesc.container_class != null )  ) {
+                const cc = fnDesc.container_class;
+                if ( cc.is_inherited ) {
+                  return false;
+                }
+                if ( cc.is_trait ) {
+                  return false;
+                }
+                if ( (cc.extends_classes.length) > 0 ) {
+                  return false;
+                }
+              }
+              const typeNode = arg.nameNode;
+              const tn = typeNode.type_name;
+              if ( (tn.length) == 0 ) {
+                return false;
+              }
+              if ( ctx.isDefinedClass(tn) == false ) {
+                return false;
+              }
+              const tc = ctx.findClass(tn);
+              if ( tc.is_system ) {
+                return false;
+              }
+              if ( tc.is_union ) {
+                return false;
+              }
+              if ( tc.is_system_union ) {
+                return false;
+              }
+              if ( tc.is_trait ) {
                 return false;
               }
               return true;
-            }));
-            for ( let i = 0; i < pms.length; i++) {
-              var arg = pms[i];
-              if ( i > 0 ) {
-                wr.out(",", false);
+            };
+            cppNeedsCallTempCopy (fnDesc, arg, n, ctx) {
+              if ( this.cppBorrowedObjectParam(fnDesc, arg, ctx) == false ) {
+                return false;
               }
-              wr.out(" ", false);
-              let constRef = this.cppReadonlyValueParam(arg);
-              if ( constRef == false ) {
-                constRef = this.cppBorrowedObjectParam(fnDesc, arg, ctx);
+              if ( n.hasNewOper ) {
+                return false;
               }
-              if ( constRef ) {
-                wr.out("const ", false);
+              if ( n.expression ) {
+                if ( n.hasFnCall ) {
+                  return false;
+                }
+                return true;
               }
-              await this.writeTypeDef(arg.nameNode, ctx, wr);
-              if ( constRef ) {
-                wr.out("&", false);
+              if ( n.vref == "this" ) {
+                return false;
               }
-              if ( constRef == false ) {
-                if ( (typeof(arg.nameNode) !== "undefined" && arg.nameNode != null )  ) {
-                  const bufTypeNode = arg.nameNode;
-                  const bufTn = bufTypeNode.type_name;
-                  if ( ((bufTn == "buffer") || (bufTn == "int_buffer")) || (bufTn == "double_buffer") ) {
+              if ( (n.ns.length) >= 2 ) {
+                return true;
+              }
+              if ( n.hasParamDesc ) {
+                const pd = n.paramDesc;
+                if ( pd.is_class_variable ) {
+                  return true;
+                }
+                return false;
+              }
+              return true;
+            };
+            async writeArgsDef (fnDesc, ctx, wr) {
+              const pms = operatorsOf.filter_48(fnDesc.params, ((item, index) => { 
+                if ( item.nameNode.hasFlag("keyword") ) {
+                  return false;
+                }
+                return true;
+              }));
+              for ( let i = 0; i < pms.length; i++) {
+                var arg = pms[i];
+                if ( i > 0 ) {
+                  wr.out(",", false);
+                }
+                wr.out(" ", false);
+                let constRef = this.cppReadonlyValueParam(arg);
+                if ( constRef == false ) {
+                  constRef = this.cppBorrowedObjectParam(fnDesc, arg, ctx);
+                }
+                if ( constRef ) {
+                  wr.out("const ", false);
+                }
+                await this.writeTypeDef(arg.nameNode, ctx, wr);
+                if ( constRef ) {
+                  wr.out("&", false);
+                }
+                if ( constRef == false ) {
+                  if ( (typeof(arg.nameNode) !== "undefined" && arg.nameNode != null )  ) {
+                    const bufTypeNode = arg.nameNode;
+                    const bufTn = bufTypeNode.type_name;
+                    if ( ((bufTn == "buffer") || (bufTn == "int_buffer")) || (bufTn == "double_buffer") ) {
+                      wr.out("&", false);
+                    }
+                  }
+                }
+                if ( arg.needs_cpp_reference ) {
+                  let emitRef = true;
+                  if ( (typeof(arg.nameNode) !== "undefined" && arg.nameNode != null )  ) {
+                    const typeNode = arg.nameNode;
+                    const v_type = typeNode.value_type;
+                    if ( (v_type == 10) || (v_type == 11) ) {
+                      emitRef = false;
+                    }
+                    if ( (typeNode.type_name.length) > 0 ) {
+                      if ( ctx.isDefinedClass(typeNode.type_name) ) {
+                        emitRef = false;
+                      }
+                      const tn = typeNode.type_name;
+                      if ( ((tn == "buffer") || (tn == "int_buffer")) || (tn == "double_buffer") ) {
+                        emitRef = false;
+                      }
+                    }
+                  }
+                  if ( emitRef ) {
                     wr.out("&", false);
                   }
                 }
-              }
-              if ( arg.needs_cpp_reference ) {
-                let emitRef = true;
-                if ( (typeof(arg.nameNode) !== "undefined" && arg.nameNode != null )  ) {
-                  const typeNode = arg.nameNode;
-                  const v_type = typeNode.value_type;
-                  if ( (v_type == 10) || (v_type == 11) ) {
-                    emitRef = false;
-                  }
-                  if ( (typeNode.type_name.length) > 0 ) {
-                    if ( ctx.isDefinedClass(typeNode.type_name) ) {
-                      emitRef = false;
-                    }
-                    const tn = typeNode.type_name;
-                    if ( ((tn == "buffer") || (tn == "int_buffer")) || (tn == "double_buffer") ) {
-                      emitRef = false;
-                    }
-                  }
-                }
-                if ( emitRef ) {
-                  wr.out("&", false);
-                }
-              }
-              wr.out((" " + arg.compiledName) + " ", false);
-            };
-          };
-          async writeFnCall (node, ctx, wr) {
-            if ( node.hasFnCall ) {
-              const fc = node.getFirst();
-              await this.WriteVRef(fc, ctx, wr);
-              wr.out("(", false);
-              ctx.setInExpr();
-              const givenArgs = node.getSecond();
-              for ( let i = 0; i < node.fnDesc.params.length; i++) {
-                var arg = node.fnDesc.params[i];
-                if ( i > 0 ) {
-                  wr.out(", ", false);
-                }
-                if ( i >= (givenArgs.children.length) ) {
-                  const defVal = arg.nameNode.getFlag("default");
-                  if ( (typeof(defVal) !== "undefined" && defVal != null )  ) {
-                    const fc_1 = defVal.vref_annotation.getFirst();
-                    await this.WalkNode(fc_1, ctx, wr);
-                  } else {
-                    ctx.addError(node, "Default argument was missing");
-                  }
-                  continue;
-                }
-                const n = givenArgs.children[i];
-                const tempCopy = this.cppNeedsCallTempCopy((node.fnDesc), arg, n, ctx);
-                if ( tempCopy ) {
-                  await this.writeTypeDef(arg.nameNode, ctx, wr);
-                  wr.out("(", false);
-                }
-                await this.WalkNode(n, ctx, wr);
-                if ( tempCopy ) {
-                  wr.out(")", false);
-                }
+                wr.out((" " + arg.compiledName) + " ", false);
               };
-              ctx.unsetInExpr();
-              wr.out(")", false);
-              if ( ctx.expressionLevel() == 0 ) {
-                wr.out(";", true);
-              }
-            }
-          };
-          async writeNewCall (node, ctx, wr) {
-            if ( node.hasNewOper ) {
-              const cl = node.clDesc;
-              const fc = node.getSecond();
-              wr.out(" std::make_shared<", false);
-              wr.out(node.clDesc.name, false);
-              wr.out(">(", false);
-              const constr = cl.constructor_fn;
-              const givenArgs = node.getThird();
-              if ( (typeof(constr) !== "undefined" && constr != null )  ) {
-                let written = 0;
-                for ( let i = 0; i < constr.params.length; i++) {
-                  var arg = constr.params[i];
-                  if ( arg.nameNode.hasFlag("keyword") ) {
+            };
+            async writeFnCall (node, ctx, wr) {
+              if ( node.hasFnCall ) {
+                const fc = node.getFirst();
+                await this.WriteVRef(fc, ctx, wr);
+                wr.out("(", false);
+                ctx.setInExpr();
+                const givenArgs = node.getSecond();
+                for ( let i = 0; i < node.fnDesc.params.length; i++) {
+                  var arg = node.fnDesc.params[i];
+                  if ( i > 0 ) {
+                    wr.out(", ", false);
+                  }
+                  if ( i >= (givenArgs.children.length) ) {
+                    const defVal = arg.nameNode.getFlag("default");
+                    if ( (typeof(defVal) !== "undefined" && defVal != null )  ) {
+                      const fc_1 = defVal.vref_annotation.getFirst();
+                      await this.WalkNode(fc_1, ctx, wr);
+                    } else {
+                      ctx.addError(node, "Default argument was missing");
+                    }
                     continue;
                   }
                   const n = givenArgs.children[i];
-                  if ( written > 0 ) {
-                    wr.out(", ", false);
-                  }
-                  written = written + 1;
-                  const tempCopy = this.cppNeedsCallTempCopy((constr), arg, n, ctx);
+                  const tempCopy = this.cppNeedsCallTempCopy((node.fnDesc), arg, n, ctx);
                   if ( tempCopy ) {
                     await this.writeTypeDef(arg.nameNode, ctx, wr);
                     wr.out("(", false);
@@ -20977,2388 +21015,2872 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     wr.out(")", false);
                   }
                 };
-              }
-              wr.out(")", false);
-            }
-          };
-          async writeArrayLiteral (node, ctx, wr) {
-            wr.out("std::vector<", false);
-            wr.out(this.getObjectTypeString(node.eval_array_type, ctx), false);
-            wr.out(">{", false);
-            await operatorsOf.forEach_15(node.children, (async (item, index) => { 
-              if ( index > 0 ) {
-                wr.out(", ", false);
-              }
-              await this.WalkNode(item, ctx, wr);
-            }));
-            wr.out("}", false);
-          };
-          async cppUsesThisValue (body) {
-            let found = false;
-            if ( typeof(body) === "undefined" ) {
-              return false;
-            }
-            const b = body;
-            await b.forTree(((item, i) => { 
-              if ( item.vref == "this" ) {
-                found = true;
-              }
-            }));
-            return found;
-          };
-          async cppNeedsSharedFromThis (node) {
-            const cl = node.clDesc;
-            if ( typeof(cl) === "undefined" ) {
-              return true;
-            }
-            if ( cl.is_inherited ) {
-              return true;
-            }
-            let found = false;
-            for ( let i = 0; i < cl.defined_variants.length; i++) {
-              var fnVar = cl.defined_variants[i];
-              const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
-              for ( let j = 0; j < mVs.variants.length; j++) {
-                var variant = mVs.variants[j];
-                if ( await this.cppUsesThisValue(variant.fnBody) ) {
-                  found = true;
-                }
-              };
-            };
-            for ( let i_1 = 0; i_1 < cl.static_methods.length; i_1++) {
-              var variant_1 = cl.static_methods[i_1];
-              if ( await this.cppUsesThisValue(variant_1.fnBody) ) {
-                found = true;
-              }
-            };
-            if ( (typeof(cl.constructor_fn) !== "undefined" && cl.constructor_fn != null )  ) {
-              const cfn = cl.constructor_fn;
-              if ( await this.cppUsesThisValue(cfn.fnBody) ) {
-                found = true;
-              }
-            }
-            return found;
-          };
-          async writeClassHeader (node, ctx, wr) {
-            const cl = node.clDesc;
-            if ( typeof(cl) === "undefined" ) {
-              return;
-            }
-            let inheritedVars = {};
-            wr.out("class " + cl.name, false);
-            if ( (cl.extends_classes.length) > 0 ) {
-              wr.out(" : ", false);
-              for ( let i = 0; i < cl.extends_classes.length; i++) {
-                var pName = cl.extends_classes[i];
-                wr.out("public ", false);
-                wr.out(pName, false);
-                const extC = ctx.findClass(pName);
-                for ( let i_1 = 0; i_1 < extC.variables.length; i_1++) {
-                  var pvar = extC.variables[i_1];
-                  inheritedVars[pvar.name] = true;
-                };
-              };
-            } else {
-              if ( await this.cppNeedsSharedFromThis(node) ) {
-                wr.out((" : public std::enable_shared_from_this<" + cl.name) + "> ", false);
-              }
-            }
-            wr.out(" { ", true);
-            wr.indent(1);
-            wr.out("public :", true);
-            wr.indent(1);
-            for ( let i_2 = 0; i_2 < cl.variables.length; i_2++) {
-              var pvar_1 = cl.variables[i_2];
-              if ( (( typeof(inheritedVars[pvar_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(inheritedVars, pvar_1.name) )) == false ) {
-                await this.writeCppHeaderVar(pvar_1.node, ctx, wr, false);
-              }
-            };
-            wr.out("/* class constructor */ ", true);
-            wr.out(cl.name + "(", false);
-            if ( cl.has_constructor ) {
-              const constr = cl.constructor_fn;
-              await this.writeArgsDef(constr, ctx, wr);
-            }
-            wr.out(" );", true);
-            for ( let i_3 = 0; i_3 < cl.static_methods.length; i_3++) {
-              var variant = cl.static_methods[i_3];
-              if ( i_3 == 0 ) {
-                wr.out("/* static methods */ ", true);
-              }
-              wr.out("static ", false);
-              await this.writeReturnTypeDef(variant, ctx, wr);
-              wr.out((" " + variant.compiledName) + "(", false);
-              await this.writeArgsDef(variant, ctx, wr);
-              wr.out(");", true);
-            };
-            if ( cl.isSingletonClass() ) {
-              wr.out(("static std::shared_ptr<" + cl.name) + "> __singleton_instance;", true);
-              wr.out(("static std::shared_ptr<" + cl.name) + "> __singleton(", false);
-              if ( cl.has_constructor ) {
-                const constr_1 = cl.constructor_fn;
-                await this.writeArgsDef(constr_1, ctx, wr);
-              }
-              wr.out(");", true);
-            }
-            for ( let i_4 = 0; i_4 < cl.defined_variants.length; i_4++) {
-              var fnVar = cl.defined_variants[i_4];
-              if ( i_4 == 0 ) {
-                wr.out("/* instance methods */ ", true);
-              }
-              const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
-              for ( let i_5 = 0; i_5 < mVs.variants.length; i_5++) {
-                var variant_1 = mVs.variants[i_5];
-                if ( cl.is_inherited ) {
-                  wr.out("virtual ", false);
-                }
-                await this.writeReturnTypeDef(variant_1, ctx, wr);
-                wr.out((" " + variant_1.compiledName) + "(", false);
-                await this.writeArgsDef(variant_1, ctx, wr);
-                wr.out(");", true);
-              };
-            };
-            wr.indent(-1);
-            wr.indent(-1);
-            wr.out("};", true);
-          };
-          async CreateUnions (parser, ctx, wr) {
-            const root = ctx.getRoot();
-            await operatorsOf_13.forEach_14(root.definedClasses, (async (item, index) => { 
-              if ( item.is_union ) {
-                await this.compiler.installFile("variant.hpp", ctx, wr);
-                ctx.addPluginNode("makefile", CodeNode.fromList([CodeNode.fromList([CodeNode.vref1("dep"), CodeNode.newStr("variant.hpp"), CodeNode.newStr("https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp")])]));
-                wr.out("typedef mpark::variant<", false);
-                wr.indent(1);
-                let cnt = 0;
-                await operatorsOf.forEach_12(item.is_union_of, ((item, index) => { 
-                  if ( ctx.isDefinedClass(item) ) {
-                    const cl = ctx.findClass(item);
-                    if ( false == cl.isNormalClass() ) {
-                      return;
-                    }
-                    if ( cnt > 0 ) {
-                      wr.out(", ", false);
-                    }
-                    wr.out(this.getObjectTypeString(item, ctx), false);
-                    cnt = cnt + 1;
-                  } else {
-                    if ( cnt > 0 ) {
-                      wr.out(", ", false);
-                    }
-                    wr.out(this.getObjectTypeString(item, ctx), false);
-                    cnt = cnt + 1;
-                  }
-                }));
-                wr.indent(-1);
-                wr.out((">  r_union_" + index) + ";", true);
-                wr.addImport("\"variant.hpp\"");
-              }
-            }));
-          };
-          async writeClass (node, ctx, orig_wr) {
-            const cl = node.clDesc;
-            const wr = orig_wr;
-            if ( typeof(cl) === "undefined" ) {
-              return;
-            }
-            this.import_lib("<memory>", ctx, wr);
-            for ( let i = 0; i < cl.capturedLocals.length; i++) {
-              var dd = cl.capturedLocals[i];
-              if ( dd.is_class_variable == false ) {
-                if ( dd.set_cnt > 0 ) {
-                  if ( ctx.hasCompilerFlag("dont-allow-mutate") ) {
-                    ctx.addError(dd.nameNode, "Mutating captured variable is not allowed");
-                    return;
-                  }
-                }
-              }
-            };
-            if ( this.header_created == false ) {
-              wr.createTag("c++Imports");
-              wr.out("", true);
-              wr.out("// define classes here to avoid compiler errors", true);
-              wr.createTag("c++ClassDefs");
-              wr.out("", true);
-              wr.createTag("c++unions");
-              wr.createTag("utilities");
-              wr.out("", true);
-              if ( ctx.hasCompilerFlag("native-fast-alloc") ) {
-                wr.out("// -native-fast-alloc: thread-local size-class freelist over the system", true);
-                wr.out("// allocator (32-byte classes up to 1024 bytes; memory is never returned", true);
-                wr.out("// to the OS - benchmark/tool builds only).", true);
-                wr.out("#include <cstdlib>", true);
-                wr.out("#include <new>", true);
-                wr.out("#include <malloc.h>", true);
-                wr.out("namespace rgpool {", true);
-                wr.out("    const size_t NCLASS = 32;", true);
-                wr.out("    thread_local void* heads[NCLASS + 1] = {};", true);
-                wr.out("    inline void* take(size_t size) {", true);
-                wr.out("        if (size == 0 || size > 1024) { return NULL; }", true);
-                wr.out("        size_t cls = (size + 31) >> 5;", true);
-                wr.out("        void* h = heads[cls];", true);
-                wr.out("        if (h) { heads[cls] = *(void**)h; return h; }", true);
-                wr.out("        // parked blocks are classified by USABLE size (>= cls<<5 here)", true);
-                wr.out("        return std::malloc(cls << 5);", true);
-                wr.out("    }", true);
-                wr.out("    inline bool park(void* p, size_t size) {", true);
-                wr.out("        if (size == 0 || size > 1024) { return false; }", true);
-                wr.out("        size_t cls = (size + 31) >> 5;", true);
-                wr.out("        *(void**)p = heads[cls];", true);
-                wr.out("        heads[cls] = p;", true);
-                wr.out("        return true;", true);
-                wr.out("    }", true);
-                wr.out("}", true);
-                wr.out("void* operator new(std::size_t n) {", true);
-                wr.out("    void* p = rgpool::take(n);", true);
-                wr.out("    if (!p) { p = std::malloc(n); }", true);
-                wr.out("    if (!p) { throw std::bad_alloc(); }", true);
-                wr.out("    return p;", true);
-                wr.out("}", true);
-                wr.out("void operator delete(void* p) noexcept {", true);
-                wr.out("    // unsized form: classify by the block's usable size (glibc) so these", true);
-                wr.out("    // deletions feed the pool too - take() only needs usable >= request", true);
-                wr.out("    if (p) {", true);
-                wr.out("        size_t u = malloc_usable_size(p);", true);
-                wr.out("        size_t cls = u >> 5;", true);
-                wr.out("        if (cls >= 1 && cls <= rgpool::NCLASS) {", true);
-                wr.out("            *(void**)p = rgpool::heads[cls];", true);
-                wr.out("            rgpool::heads[cls] = p;", true);
-                wr.out("        } else {", true);
-                wr.out("            std::free(p);", true);
-                wr.out("        }", true);
-                wr.out("    }", true);
-                wr.out("}", true);
-                wr.out("void operator delete(void* p, std::size_t n) noexcept {", true);
-                wr.out("    (void)n;", true);
-                wr.out("    if (p) {", true);
-                wr.out("        size_t u = malloc_usable_size(p);", true);
-                wr.out("        size_t cls = u >> 5;", true);
-                wr.out("        if (cls >= 1 && cls <= rgpool::NCLASS) {", true);
-                wr.out("            *(void**)p = rgpool::heads[cls];", true);
-                wr.out("            rgpool::heads[cls] = p;", true);
-                wr.out("        } else {", true);
-                wr.out("            std::free(p);", true);
-                wr.out("        }", true);
-                wr.out("    }", true);
-                wr.out("}", true);
-                wr.out("", true);
-              }
-              wr.out("#include <string_view>", true);
-              wr.out("#include <vector>", true);
-              wr.out("// Insertion-ordered map: vector storage + open-addressed hash index.", true);
-              wr.out("// Replaces std::map (sorted, O(log n) with a string compare per level):", true);
-              wr.out("// lookups hash once, and iteration follows INSERTION order, which is", true);
-              wr.out("// what JavaScript object key enumeration semantics need.", true);
-              wr.out("template<typename K, typename V>", true);
-              wr.out("class rg_ordered_map {", true);
-              wr.out("public:", true);
-              wr.out("    typedef K key_type;", true);
-              wr.out("    typedef V mapped_type;", true);
-              wr.out("    std::vector<std::pair<K, V>> entries;", true);
-              wr.out("    std::vector<int32_t> index_;", true);
-              wr.out("    typedef typename std::vector<std::pair<K, V>>::iterator iterator;", true);
-              wr.out("    typedef typename std::vector<std::pair<K, V>>::const_iterator const_iterator;", true);
-              wr.out("    iterator begin() { return entries.begin(); }", true);
-              wr.out("    iterator end() { return entries.end(); }", true);
-              wr.out("    const_iterator begin() const { return entries.begin(); }", true);
-              wr.out("    const_iterator end() const { return entries.end(); }", true);
-              wr.out("    size_t size() const { return entries.size(); }", true);
-              wr.out("    void clear() { entries.clear(); index_.clear(); }", true);
-              wr.out("    void rehash_() {", true);
-              wr.out("        size_t cap = 8;", true);
-              wr.out("        while (cap < (entries.size() + 1) * 2) { cap <<= 1; }", true);
-              wr.out("        index_.assign(cap, -1);", true);
-              wr.out("        for (size_t i = 0; i < entries.size(); i++) {", true);
-              wr.out("            size_t h = std::hash<K>{}(entries[i].first) & (cap - 1);", true);
-              wr.out("            while (index_[h] != -1) { h = (h + 1) & (cap - 1); }", true);
-              wr.out("            index_[h] = (int32_t)i;", true);
-              wr.out("        }", true);
-              wr.out("    }", true);
-              wr.out("    int32_t slot_(const K& k) const {", true);
-              wr.out("        if (index_.empty()) { return -1; }", true);
-              wr.out("        size_t mask = index_.size() - 1;", true);
-              wr.out("        size_t h = std::hash<K>{}(k) & mask;", true);
-              wr.out("        while (true) {", true);
-              wr.out("            int32_t s = index_[h];", true);
-              wr.out("            if (s == -1) { return -1; }", true);
-              wr.out("            if (entries[(size_t)s].first == k) { return s; }", true);
-              wr.out("            h = (h + 1) & mask;", true);
-              wr.out("        }", true);
-              wr.out("    }", true);
-              wr.out("    size_t count(const K& k) const { return slot_(k) == -1 ? 0 : 1; }", true);
-              wr.out("    iterator find(const K& k) { int32_t s = slot_(k); return s == -1 ? entries.end() : entries.begin() + s; }", true);
-              wr.out("    const_iterator find(const K& k) const { int32_t s = slot_(k); return s == -1 ? entries.end() : entries.begin() + s; }", true);
-              wr.out("    V& at(const K& k) { int32_t s = slot_(k); if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); } return entries[(size_t)s].second; }", true);
-              wr.out("    const V& at(const K& k) const { int32_t s = slot_(k); if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); } return entries[(size_t)s].second; }", true);
-              wr.out("    // const char* overloads: a literal key probes WITHOUT constructing a", true);
-              wr.out("    // std::string temporary. C++17 guarantees hash<string> and", true);
-              wr.out("    // hash<string_view> agree on equal character sequences. Instantiated", true);
-              wr.out("    // lazily, so non-string-keyed maps never touch them.", true);
-              wr.out("    int32_t slot_sv_(std::string_view k) const {", true);
-              wr.out("        if (index_.empty()) { return -1; }", true);
-              wr.out("        size_t mask = index_.size() - 1;", true);
-              wr.out("        size_t h = std::hash<std::string_view>{}(k) & mask;", true);
-              wr.out("        while (true) {", true);
-              wr.out("            int32_t s = index_[h];", true);
-              wr.out("            if (s == -1) { return -1; }", true);
-              wr.out("            if (entries[(size_t)s].first.compare(k) == 0) { return s; }", true);
-              wr.out("            h = (h + 1) & mask;", true);
-              wr.out("        }", true);
-              wr.out("    }", true);
-              wr.out("    size_t count(const char* k) const { return slot_sv_(k) == -1 ? 0 : 1; }", true);
-              wr.out("    iterator find(const char* k) { int32_t s = slot_sv_(k); return s == -1 ? entries.end() : entries.begin() + s; }", true);
-              wr.out("    const_iterator find(const char* k) const { int32_t s = slot_sv_(k); return s == -1 ? entries.end() : entries.begin() + s; }", true);
-              wr.out("    V& at(const char* k) { int32_t s = slot_sv_(k); if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); } return entries[(size_t)s].second; }", true);
-              wr.out("    const V& at(const char* k) const { int32_t s = slot_sv_(k); if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); } return entries[(size_t)s].second; }", true);
-              wr.out("    V& operator[](const char* k) {", true);
-              wr.out("        int32_t s = slot_sv_(k);", true);
-              wr.out("        if (s != -1) { return entries[(size_t)s].second; }", true);
-              wr.out("        return (*this)[K(k)];", true);
-              wr.out("    }", true);
-              wr.out("    V& operator[](const K& k) {", true);
-              wr.out("        int32_t s = slot_(k);", true);
-              wr.out("        if (s != -1) { return entries[(size_t)s].second; }", true);
-              wr.out("        entries.push_back(std::make_pair(k, V()));", true);
-              wr.out("        if (index_.empty() || (entries.size() + 1) * 2 > index_.size()) {", true);
-              wr.out("            rehash_();", true);
-              wr.out("        } else {", true);
-              wr.out("            size_t mask = index_.size() - 1;", true);
-              wr.out("            size_t h = std::hash<K>{}(k) & mask;", true);
-              wr.out("            while (index_[h] != -1) { h = (h + 1) & mask; }", true);
-              wr.out("            index_[h] = (int32_t)(entries.size() - 1);", true);
-              wr.out("        }", true);
-              wr.out("        return entries.back().second;", true);
-              wr.out("    }", true);
-              wr.out("};", true);
-              wr.out("", true);
-              if ( this.cppProgramHasWeakField(ctx) ) {
-                this.writeCppWeakHelper(wr);
-                wr.out("", true);
-              }
-              wr.out("// header definitions", true);
-              wr.createTag("c++Header");
-              wr.out("", true);
-              wr.out("int __g_argc;", true);
-              wr.out("char **__g_argv;", true);
-              await this.CreateUnions(this.compiler.parser, ctx, wr.getTag("c++unions"));
-              this.header_created = true;
-            }
-            const classWriter = orig_wr.getTag("c++ClassDefs");
-            const headerWriter = orig_wr.getTag("c++Header");
-            const projectName = "project";
-            classWriter.out(("class " + cl.name) + ";", true);
-            await this.writeClassHeader(node, ctx, headerWriter);
-            wr.out(((cl.name + "::") + cl.name) + "(", false);
-            if ( cl.has_constructor ) {
-              const constr = cl.constructor_fn;
-              await this.writeArgsDef(constr, ctx, wr);
-            }
-            wr.out(" ) ", false);
-            if ( (cl.extends_classes.length) > 0 ) {
-              for ( let i_1 = 0; i_1 < cl.extends_classes.length; i_1++) {
-                var pName = cl.extends_classes[i_1];
-                const pcc = ctx.findClass(pName);
-                if ( pcc.has_constructor ) {
-                  wr.out((" : " + pcc.name) + "(", false);
-                  const constr_1 = cl.constructor_fn;
-                  for ( let i_2 = 0; i_2 < constr_1.params.length; i_2++) {
-                    var arg = constr_1.params[i_2];
-                    if ( i_2 > 0 ) {
-                      wr.out(",", false);
-                    }
-                    wr.out(" ", false);
-                    wr.out((" " + arg.name) + " ", false);
-                  };
-                  wr.out(")", false);
-                }
-              };
-            }
-            wr.out("{", true);
-            wr.indent(1);
-            for ( let i_3 = 0; i_3 < cl.variables.length; i_3++) {
-              var pvar = cl.variables[i_3];
-              const nn = pvar.node;
-              if ( (nn.children.length) > 2 ) {
-                const valueNode = nn.children[2];
-                let skipDefaultInit = false;
-                if ( valueNode.value_type == 4 ) {
-                  if ( (valueNode.string_value.length) == 0 ) {
-                    skipDefaultInit = true;
-                  }
-                }
-                if ( skipDefaultInit == false ) {
-                  wr.out(("this->" + pvar.compiledName) + " = ", false);
-                  await this.WalkNode(valueNode, ctx, wr);
+                ctx.unsetInExpr();
+                wr.out(")", false);
+                if ( ctx.expressionLevel() == 0 ) {
                   wr.out(";", true);
                 }
               }
             };
-            if ( cl.has_constructor ) {
-              const constr_2 = cl.constructor_fn;
-              wr.newline();
-              const subCtx = constr_2.fnCtx;
-              subCtx.is_function = true;
-              await this.WalkNode(constr_2.fnBody, subCtx, wr);
-              wr.newline();
-            }
-            wr.indent(-1);
-            wr.out("}", true);
-            if ( cl.isSingletonClass() ) {
-              wr.out(((("std::shared_ptr<" + cl.name) + "> ") + cl.name) + "::__singleton_instance = nullptr;", true);
-              wr.out(((("std::shared_ptr<" + cl.name) + "> ") + cl.name) + "::__singleton(", false);
-              if ( cl.has_constructor ) {
-                const constr_3 = cl.constructor_fn;
-                await this.writeArgsDef(constr_3, ctx, wr);
+            async writeNewCall (node, ctx, wr) {
+              if ( node.hasNewOper ) {
+                const cl = node.clDesc;
+                const fc = node.getSecond();
+                if ( this.cppUnionValueCase((cl), ctx) ) {
+                  wr.out(" " + cl.name, false);
+                  wr.out("(", false);
+                } else {
+                  wr.out(" std::make_shared<", false);
+                  wr.out(node.clDesc.name, false);
+                  wr.out(">(", false);
+                }
+                const constr = cl.constructor_fn;
+                const givenArgs = node.getThird();
+                if ( (typeof(constr) !== "undefined" && constr != null )  ) {
+                  let written = 0;
+                  for ( let i = 0; i < constr.params.length; i++) {
+                    var arg = constr.params[i];
+                    if ( arg.nameNode.hasFlag("keyword") ) {
+                      continue;
+                    }
+                    const n = givenArgs.children[i];
+                    if ( written > 0 ) {
+                      wr.out(", ", false);
+                    }
+                    written = written + 1;
+                    const tempCopy = this.cppNeedsCallTempCopy((constr), arg, n, ctx);
+                    if ( tempCopy ) {
+                      await this.writeTypeDef(arg.nameNode, ctx, wr);
+                      wr.out("(", false);
+                    }
+                    await this.WalkNode(n, ctx, wr);
+                    if ( tempCopy ) {
+                      wr.out(")", false);
+                    }
+                  };
+                }
+                wr.out(")", false);
               }
-              wr.out(") {", true);
-              wr.indent(1);
-              wr.out(("if (" + cl.name) + "::__singleton_instance == nullptr) {", true);
-              wr.indent(1);
-              wr.out(((cl.name + "::__singleton_instance = std::make_shared<") + cl.name) + ">(", false);
-              if ( cl.has_constructor ) {
-                const constr_4 = cl.constructor_fn;
-                for ( let i_4 = 0; i_4 < constr_4.params.length; i_4++) {
-                  var arg_1 = constr_4.params[i_4];
-                  if ( i_4 > 0 ) {
-                    wr.out(", ", false);
+            };
+            async writeArrayLiteral (node, ctx, wr) {
+              wr.out("std::vector<", false);
+              wr.out(this.getObjectTypeString(node.eval_array_type, ctx), false);
+              wr.out(">{", false);
+              await operatorsOf.forEach_15(node.children, (async (item, index) => { 
+                if ( index > 0 ) {
+                  wr.out(", ", false);
+                }
+                await this.WalkNode(item, ctx, wr);
+              }));
+              wr.out("}", false);
+            };
+            async cppUsesThisValue (body) {
+              let found = false;
+              if ( typeof(body) === "undefined" ) {
+                return false;
+              }
+              const b = body;
+              await b.forTree(((item, i) => { 
+                if ( item.vref == "this" ) {
+                  found = true;
+                }
+              }));
+              return found;
+            };
+            async cppNeedsSharedFromThis (node) {
+              const cl = node.clDesc;
+              if ( typeof(cl) === "undefined" ) {
+                return true;
+              }
+              if ( cl.is_inherited ) {
+                return true;
+              }
+              let found = false;
+              for ( let i = 0; i < cl.defined_variants.length; i++) {
+                var fnVar = cl.defined_variants[i];
+                const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
+                for ( let j = 0; j < mVs.variants.length; j++) {
+                  var variant = mVs.variants[j];
+                  if ( await this.cppUsesThisValue(variant.fnBody) ) {
+                    found = true;
                   }
-                  wr.out(arg_1.compiledName, false);
+                };
+              };
+              for ( let i_1 = 0; i_1 < cl.static_methods.length; i_1++) {
+                var variant_1 = cl.static_methods[i_1];
+                if ( await this.cppUsesThisValue(variant_1.fnBody) ) {
+                  found = true;
+                }
+              };
+              if ( (typeof(cl.constructor_fn) !== "undefined" && cl.constructor_fn != null )  ) {
+                const cfn = cl.constructor_fn;
+                if ( await this.cppUsesThisValue(cfn.fnBody) ) {
+                  found = true;
+                }
+              }
+              return found;
+            };
+            async writeClassHeader (node, ctx, wr) {
+              const cl = node.clDesc;
+              if ( typeof(cl) === "undefined" ) {
+                return;
+              }
+              let inheritedVars = {};
+              wr.out("class " + cl.name, false);
+              if ( (cl.extends_classes.length) > 0 ) {
+                wr.out(" : ", false);
+                for ( let i = 0; i < cl.extends_classes.length; i++) {
+                  var pName = cl.extends_classes[i];
+                  wr.out("public ", false);
+                  wr.out(pName, false);
+                  const extC = ctx.findClass(pName);
+                  for ( let i_1 = 0; i_1 < extC.variables.length; i_1++) {
+                    var pvar = extC.variables[i_1];
+                    inheritedVars[pvar.name] = true;
+                  };
+                };
+              } else {
+                if ( await this.cppNeedsSharedFromThis(node) ) {
+                  wr.out((" : public std::enable_shared_from_this<" + cl.name) + "> ", false);
+                }
+              }
+              wr.out(" { ", true);
+              wr.indent(1);
+              wr.out("public :", true);
+              wr.indent(1);
+              for ( let i_2 = 0; i_2 < cl.variables.length; i_2++) {
+                var pvar_1 = cl.variables[i_2];
+                if ( (( typeof(inheritedVars[pvar_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(inheritedVars, pvar_1.name) )) == false ) {
+                  await this.writeCppHeaderVar(pvar_1.node, ctx, wr, false);
+                }
+              };
+              wr.out("/* class constructor */ ", true);
+              wr.out(cl.name + "(", false);
+              if ( cl.has_constructor ) {
+                const constr = cl.constructor_fn;
+                await this.writeArgsDef(constr, ctx, wr);
+              }
+              wr.out(" );", true);
+              for ( let i_3 = 0; i_3 < cl.static_methods.length; i_3++) {
+                var variant = cl.static_methods[i_3];
+                if ( i_3 == 0 ) {
+                  wr.out("/* static methods */ ", true);
+                }
+                wr.out("static ", false);
+                await this.writeReturnTypeDef(variant, ctx, wr);
+                wr.out((" " + variant.compiledName) + "(", false);
+                await this.writeArgsDef(variant, ctx, wr);
+                wr.out(");", true);
+              };
+              if ( cl.isSingletonClass() ) {
+                wr.out(("static std::shared_ptr<" + cl.name) + "> __singleton_instance;", true);
+                wr.out(("static std::shared_ptr<" + cl.name) + "> __singleton(", false);
+                if ( cl.has_constructor ) {
+                  const constr_1 = cl.constructor_fn;
+                  await this.writeArgsDef(constr_1, ctx, wr);
+                }
+                wr.out(");", true);
+              }
+              for ( let i_4 = 0; i_4 < cl.defined_variants.length; i_4++) {
+                var fnVar = cl.defined_variants[i_4];
+                if ( i_4 == 0 ) {
+                  wr.out("/* instance methods */ ", true);
+                }
+                const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
+                for ( let i_5 = 0; i_5 < mVs.variants.length; i_5++) {
+                  var variant_1 = mVs.variants[i_5];
+                  if ( cl.is_inherited ) {
+                    wr.out("virtual ", false);
+                  }
+                  await this.writeReturnTypeDef(variant_1, ctx, wr);
+                  wr.out((" " + variant_1.compiledName) + "(", false);
+                  await this.writeArgsDef(variant_1, ctx, wr);
+                  wr.out(");", true);
+                };
+              };
+              wr.indent(-1);
+              wr.indent(-1);
+              wr.out("};", true);
+            };
+            async CreateUnions (parser, ctx, wr) {
+              const root = ctx.getRoot();
+              await operatorsOf_13.forEach_14(root.definedClasses, (async (item, index) => { 
+                if ( item.is_union ) {
+                  await this.compiler.installFile("variant.hpp", ctx, wr);
+                  ctx.addPluginNode("makefile", CodeNode.fromList([CodeNode.fromList([CodeNode.vref1("dep"), CodeNode.newStr("variant.hpp"), CodeNode.newStr("https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp")])]));
+                  wr.out("typedef mpark::variant<", false);
+                  wr.indent(1);
+                  let cnt = 0;
+                  await operatorsOf.forEach_12(item.is_union_of, ((item, index) => { 
+                    if ( ctx.isDefinedClass(item) ) {
+                      const cl = ctx.findClass(item);
+                      if ( false == cl.isNormalClass() ) {
+                        return;
+                      }
+                      if ( cnt > 0 ) {
+                        wr.out(", ", false);
+                      }
+                      wr.out(this.getObjectTypeString(item, ctx), false);
+                      cnt = cnt + 1;
+                    } else {
+                      if ( cnt > 0 ) {
+                        wr.out(", ", false);
+                      }
+                      wr.out(this.getObjectTypeString(item, ctx), false);
+                      cnt = cnt + 1;
+                    }
+                  }));
+                  wr.indent(-1);
+                  wr.out((">  r_union_" + index) + ";", true);
+                  wr.addImport("\"variant.hpp\"");
+                }
+              }));
+            };
+            async writeClass (node, ctx, orig_wr) {
+              const cl = node.clDesc;
+              const wr = orig_wr;
+              if ( typeof(cl) === "undefined" ) {
+                return;
+              }
+              this.import_lib("<memory>", ctx, wr);
+              for ( let i = 0; i < cl.capturedLocals.length; i++) {
+                var dd = cl.capturedLocals[i];
+                if ( dd.is_class_variable == false ) {
+                  if ( dd.set_cnt > 0 ) {
+                    if ( ctx.hasCompilerFlag("dont-allow-mutate") ) {
+                      ctx.addError(dd.nameNode, "Mutating captured variable is not allowed");
+                      return;
+                    }
+                  }
+                }
+              };
+              if ( this.header_created == false ) {
+                wr.createTag("c++Imports");
+                wr.out("", true);
+                wr.out("// define classes here to avoid compiler errors", true);
+                wr.createTag("c++ClassDefs");
+                wr.out("", true);
+                wr.createTag("c++unions");
+                wr.createTag("utilities");
+                wr.out("", true);
+                if ( ctx.hasCompilerFlag("native-fast-alloc") ) {
+                  wr.out("// -native-fast-alloc: thread-local size-class freelist over the system", true);
+                  wr.out("// allocator (32-byte classes up to 1024 bytes; memory is never returned", true);
+                  wr.out("// to the OS - benchmark/tool builds only).", true);
+                  wr.out("#include <cstdlib>", true);
+                  wr.out("#include <new>", true);
+                  wr.out("#include <malloc.h>", true);
+                  wr.out("namespace rgpool {", true);
+                  wr.out("    const size_t NCLASS = 32;", true);
+                  wr.out("    thread_local void* heads[NCLASS + 1] = {};", true);
+                  wr.out("    inline void* take(size_t size) {", true);
+                  wr.out("        if (size == 0 || size > 1024) { return NULL; }", true);
+                  wr.out("        size_t cls = (size + 31) >> 5;", true);
+                  wr.out("        void* h = heads[cls];", true);
+                  wr.out("        if (h) { heads[cls] = *(void**)h; return h; }", true);
+                  wr.out("        // parked blocks are classified by USABLE size (>= cls<<5 here)", true);
+                  wr.out("        return std::malloc(cls << 5);", true);
+                  wr.out("    }", true);
+                  wr.out("    inline bool park(void* p, size_t size) {", true);
+                  wr.out("        if (size == 0 || size > 1024) { return false; }", true);
+                  wr.out("        size_t cls = (size + 31) >> 5;", true);
+                  wr.out("        *(void**)p = heads[cls];", true);
+                  wr.out("        heads[cls] = p;", true);
+                  wr.out("        return true;", true);
+                  wr.out("    }", true);
+                  wr.out("}", true);
+                  wr.out("void* operator new(std::size_t n) {", true);
+                  wr.out("    void* p = rgpool::take(n);", true);
+                  wr.out("    if (!p) { p = std::malloc(n); }", true);
+                  wr.out("    if (!p) { throw std::bad_alloc(); }", true);
+                  wr.out("    return p;", true);
+                  wr.out("}", true);
+                  wr.out("void operator delete(void* p) noexcept {", true);
+                  wr.out("    // unsized form: classify by the block's usable size (glibc) so these", true);
+                  wr.out("    // deletions feed the pool too - take() only needs usable >= request", true);
+                  wr.out("    if (p) {", true);
+                  wr.out("        size_t u = malloc_usable_size(p);", true);
+                  wr.out("        size_t cls = u >> 5;", true);
+                  wr.out("        if (cls >= 1 && cls <= rgpool::NCLASS) {", true);
+                  wr.out("            *(void**)p = rgpool::heads[cls];", true);
+                  wr.out("            rgpool::heads[cls] = p;", true);
+                  wr.out("        } else {", true);
+                  wr.out("            std::free(p);", true);
+                  wr.out("        }", true);
+                  wr.out("    }", true);
+                  wr.out("}", true);
+                  wr.out("void operator delete(void* p, std::size_t n) noexcept {", true);
+                  wr.out("    (void)n;", true);
+                  wr.out("    if (p) {", true);
+                  wr.out("        size_t u = malloc_usable_size(p);", true);
+                  wr.out("        size_t cls = u >> 5;", true);
+                  wr.out("        if (cls >= 1 && cls <= rgpool::NCLASS) {", true);
+                  wr.out("            *(void**)p = rgpool::heads[cls];", true);
+                  wr.out("            rgpool::heads[cls] = p;", true);
+                  wr.out("        } else {", true);
+                  wr.out("            std::free(p);", true);
+                  wr.out("        }", true);
+                  wr.out("    }", true);
+                  wr.out("}", true);
+                  wr.out("", true);
+                }
+                wr.out("#include <string_view>", true);
+                wr.out("#include <vector>", true);
+                wr.out("// Insertion-ordered map: vector storage + open-addressed hash index.", true);
+                wr.out("// Replaces std::map (sorted, O(log n) with a string compare per level):", true);
+                wr.out("// lookups hash once, and iteration follows INSERTION order, which is", true);
+                wr.out("// what JavaScript object key enumeration semantics need.", true);
+                wr.out("template<typename K, typename V>", true);
+                wr.out("class rg_ordered_map {", true);
+                wr.out("public:", true);
+                wr.out("    typedef K key_type;", true);
+                wr.out("    typedef V mapped_type;", true);
+                wr.out("    std::vector<std::pair<K, V>> entries;", true);
+                wr.out("    std::vector<int32_t> index_;", true);
+                wr.out("    typedef typename std::vector<std::pair<K, V>>::iterator iterator;", true);
+                wr.out("    typedef typename std::vector<std::pair<K, V>>::const_iterator const_iterator;", true);
+                wr.out("    iterator begin() { return entries.begin(); }", true);
+                wr.out("    iterator end() { return entries.end(); }", true);
+                wr.out("    const_iterator begin() const { return entries.begin(); }", true);
+                wr.out("    const_iterator end() const { return entries.end(); }", true);
+                wr.out("    size_t size() const { return entries.size(); }", true);
+                wr.out("    void clear() { entries.clear(); index_.clear(); }", true);
+                wr.out("    void rehash_() {", true);
+                wr.out("        size_t cap = 8;", true);
+                wr.out("        while (cap < (entries.size() + 1) * 2) { cap <<= 1; }", true);
+                wr.out("        index_.assign(cap, -1);", true);
+                wr.out("        for (size_t i = 0; i < entries.size(); i++) {", true);
+                wr.out("            size_t h = std::hash<K>{}(entries[i].first) & (cap - 1);", true);
+                wr.out("            while (index_[h] != -1) { h = (h + 1) & (cap - 1); }", true);
+                wr.out("            index_[h] = (int32_t)i;", true);
+                wr.out("        }", true);
+                wr.out("    }", true);
+                wr.out("    int32_t slot_(const K& k) const {", true);
+                wr.out("        if (index_.empty()) { return -1; }", true);
+                wr.out("        size_t mask = index_.size() - 1;", true);
+                wr.out("        size_t h = std::hash<K>{}(k) & mask;", true);
+                wr.out("        while (true) {", true);
+                wr.out("            int32_t s = index_[h];", true);
+                wr.out("            if (s == -1) { return -1; }", true);
+                wr.out("            if (entries[(size_t)s].first == k) { return s; }", true);
+                wr.out("            h = (h + 1) & mask;", true);
+                wr.out("        }", true);
+                wr.out("    }", true);
+                wr.out("    size_t count(const K& k) const { return slot_(k) == -1 ? 0 : 1; }", true);
+                wr.out("    iterator find(const K& k) { int32_t s = slot_(k); return s == -1 ? entries.end() : entries.begin() + s; }", true);
+                wr.out("    const_iterator find(const K& k) const { int32_t s = slot_(k); return s == -1 ? entries.end() : entries.begin() + s; }", true);
+                wr.out("    V& at(const K& k) { int32_t s = slot_(k); if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); } return entries[(size_t)s].second; }", true);
+                wr.out("    const V& at(const K& k) const { int32_t s = slot_(k); if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); } return entries[(size_t)s].second; }", true);
+                wr.out("    // const char* overloads: a literal key probes WITHOUT constructing a", true);
+                wr.out("    // std::string temporary. C++17 guarantees hash<string> and", true);
+                wr.out("    // hash<string_view> agree on equal character sequences. Instantiated", true);
+                wr.out("    // lazily, so non-string-keyed maps never touch them.", true);
+                wr.out("    int32_t slot_sv_(std::string_view k) const {", true);
+                wr.out("        if (index_.empty()) { return -1; }", true);
+                wr.out("        size_t mask = index_.size() - 1;", true);
+                wr.out("        size_t h = std::hash<std::string_view>{}(k) & mask;", true);
+                wr.out("        while (true) {", true);
+                wr.out("            int32_t s = index_[h];", true);
+                wr.out("            if (s == -1) { return -1; }", true);
+                wr.out("            if (entries[(size_t)s].first.compare(k) == 0) { return s; }", true);
+                wr.out("            h = (h + 1) & mask;", true);
+                wr.out("        }", true);
+                wr.out("    }", true);
+                wr.out("    size_t count(const char* k) const { return slot_sv_(k) == -1 ? 0 : 1; }", true);
+                wr.out("    iterator find(const char* k) { int32_t s = slot_sv_(k); return s == -1 ? entries.end() : entries.begin() + s; }", true);
+                wr.out("    const_iterator find(const char* k) const { int32_t s = slot_sv_(k); return s == -1 ? entries.end() : entries.begin() + s; }", true);
+                wr.out("    V& at(const char* k) { int32_t s = slot_sv_(k); if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); } return entries[(size_t)s].second; }", true);
+                wr.out("    const V& at(const char* k) const { int32_t s = slot_sv_(k); if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); } return entries[(size_t)s].second; }", true);
+                wr.out("    V& operator[](const char* k) {", true);
+                wr.out("        int32_t s = slot_sv_(k);", true);
+                wr.out("        if (s != -1) { return entries[(size_t)s].second; }", true);
+                wr.out("        return (*this)[K(k)];", true);
+                wr.out("    }", true);
+                wr.out("    V& operator[](const K& k) {", true);
+                wr.out("        int32_t s = slot_(k);", true);
+                wr.out("        if (s != -1) { return entries[(size_t)s].second; }", true);
+                wr.out("        entries.push_back(std::make_pair(k, V()));", true);
+                wr.out("        if (index_.empty() || (entries.size() + 1) * 2 > index_.size()) {", true);
+                wr.out("            rehash_();", true);
+                wr.out("        } else {", true);
+                wr.out("            size_t mask = index_.size() - 1;", true);
+                wr.out("            size_t h = std::hash<K>{}(k) & mask;", true);
+                wr.out("            while (index_[h] != -1) { h = (h + 1) & mask; }", true);
+                wr.out("            index_[h] = (int32_t)(entries.size() - 1);", true);
+                wr.out("        }", true);
+                wr.out("        return entries.back().second;", true);
+                wr.out("    }", true);
+                wr.out("};", true);
+                wr.out("", true);
+                if ( this.cppProgramHasWeakField(ctx) ) {
+                  this.writeCppWeakHelper(wr);
+                  wr.out("", true);
+                }
+                wr.out("// header definitions", true);
+                wr.createTag("c++Header");
+                wr.out("", true);
+                wr.out("int __g_argc;", true);
+                wr.out("char **__g_argv;", true);
+                await this.CreateUnions(this.compiler.parser, ctx, wr.getTag("c++unions"));
+                this.header_created = true;
+              }
+              const classWriter = orig_wr.getTag("c++ClassDefs");
+              const headerWriter = orig_wr.getTag("c++Header");
+              const projectName = "project";
+              classWriter.out(("class " + cl.name) + ";", true);
+              await this.writeClassHeader(node, ctx, headerWriter);
+              wr.out(((cl.name + "::") + cl.name) + "(", false);
+              if ( cl.has_constructor ) {
+                const constr = cl.constructor_fn;
+                await this.writeArgsDef(constr, ctx, wr);
+              }
+              wr.out(" ) ", false);
+              if ( (cl.extends_classes.length) > 0 ) {
+                for ( let i_1 = 0; i_1 < cl.extends_classes.length; i_1++) {
+                  var pName = cl.extends_classes[i_1];
+                  const pcc = ctx.findClass(pName);
+                  if ( pcc.has_constructor ) {
+                    wr.out((" : " + pcc.name) + "(", false);
+                    const constr_1 = cl.constructor_fn;
+                    for ( let i_2 = 0; i_2 < constr_1.params.length; i_2++) {
+                      var arg = constr_1.params[i_2];
+                      if ( i_2 > 0 ) {
+                        wr.out(",", false);
+                      }
+                      wr.out(" ", false);
+                      wr.out((" " + arg.name) + " ", false);
+                    };
+                    wr.out(")", false);
+                  }
                 };
               }
-              wr.out(");", true);
-              wr.indent(-1);
-              wr.out("}", true);
-              wr.out(("return " + cl.name) + "::__singleton_instance;", true);
-              wr.indent(-1);
-              wr.out("}", true);
-            }
-            for ( let i_5 = 0; i_5 < cl.static_methods.length; i_5++) {
-              var variant = cl.static_methods[i_5];
-              if ( variant.nameNode.hasFlag("main") ) {
-                continue;
-              }
-              await this.writeReturnTypeDef(variant, ctx, wr);
-              wr.out(" ", false);
-              wr.out((" " + cl.name) + "::", false);
-              wr.out(variant.compiledName + "(", false);
-              await this.writeArgsDef(variant, ctx, wr);
-              wr.out(") {", true);
+              wr.out("{", true);
               wr.indent(1);
-              wr.newline();
-              const subCtx_1 = variant.fnCtx;
-              subCtx_1.is_function = true;
-              await this.WalkNode(variant.fnBody, subCtx_1, wr);
-              wr.newline();
+              for ( let i_3 = 0; i_3 < cl.variables.length; i_3++) {
+                var pvar = cl.variables[i_3];
+                const nn = pvar.node;
+                if ( (nn.children.length) > 2 ) {
+                  const valueNode = nn.children[2];
+                  let skipDefaultInit = false;
+                  if ( valueNode.value_type == 4 ) {
+                    if ( (valueNode.string_value.length) == 0 ) {
+                      skipDefaultInit = true;
+                    }
+                  }
+                  if ( skipDefaultInit == false ) {
+                    wr.out(("this->" + pvar.compiledName) + " = ", false);
+                    await this.WalkNode(valueNode, ctx, wr);
+                    wr.out(";", true);
+                  }
+                }
+              };
+              if ( cl.has_constructor ) {
+                const constr_2 = cl.constructor_fn;
+                wr.newline();
+                const subCtx = constr_2.fnCtx;
+                subCtx.is_function = true;
+                await this.WalkNode(constr_2.fnBody, subCtx, wr);
+                wr.newline();
+              }
               wr.indent(-1);
               wr.out("}", true);
-            };
-            for ( let i_6 = 0; i_6 < cl.defined_variants.length; i_6++) {
-              var fnVar = cl.defined_variants[i_6];
-              const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
-              for ( let i_7 = 0; i_7 < mVs.variants.length; i_7++) {
-                var variant_1 = mVs.variants[i_7];
-                await this.writeReturnTypeDef(variant_1, ctx, wr);
+              if ( cl.isSingletonClass() ) {
+                wr.out(((("std::shared_ptr<" + cl.name) + "> ") + cl.name) + "::__singleton_instance = nullptr;", true);
+                wr.out(((("std::shared_ptr<" + cl.name) + "> ") + cl.name) + "::__singleton(", false);
+                if ( cl.has_constructor ) {
+                  const constr_3 = cl.constructor_fn;
+                  await this.writeArgsDef(constr_3, ctx, wr);
+                }
+                wr.out(") {", true);
+                wr.indent(1);
+                wr.out(("if (" + cl.name) + "::__singleton_instance == nullptr) {", true);
+                wr.indent(1);
+                wr.out(((cl.name + "::__singleton_instance = std::make_shared<") + cl.name) + ">(", false);
+                if ( cl.has_constructor ) {
+                  const constr_4 = cl.constructor_fn;
+                  for ( let i_4 = 0; i_4 < constr_4.params.length; i_4++) {
+                    var arg_1 = constr_4.params[i_4];
+                    if ( i_4 > 0 ) {
+                      wr.out(", ", false);
+                    }
+                    wr.out(arg_1.compiledName, false);
+                  };
+                }
+                wr.out(");", true);
+                wr.indent(-1);
+                wr.out("}", true);
+                wr.out(("return " + cl.name) + "::__singleton_instance;", true);
+                wr.indent(-1);
+                wr.out("}", true);
+              }
+              for ( let i_5 = 0; i_5 < cl.static_methods.length; i_5++) {
+                var variant = cl.static_methods[i_5];
+                if ( variant.nameNode.hasFlag("main") ) {
+                  continue;
+                }
+                await this.writeReturnTypeDef(variant, ctx, wr);
                 wr.out(" ", false);
                 wr.out((" " + cl.name) + "::", false);
-                wr.out(variant_1.compiledName + "(", false);
-                await this.writeArgsDef(variant_1, ctx, wr);
+                wr.out(variant.compiledName + "(", false);
+                await this.writeArgsDef(variant, ctx, wr);
                 wr.out(") {", true);
                 wr.indent(1);
                 wr.newline();
-                const subCtx_2 = variant_1.fnCtx;
-                subCtx_2.is_function = true;
-                await this.WalkNode(variant_1.fnBody, subCtx_2, wr);
+                const subCtx_1 = variant.fnCtx;
+                subCtx_1.is_function = true;
+                await this.WalkNode(variant.fnBody, subCtx_1, wr);
                 wr.newline();
                 wr.indent(-1);
                 wr.out("}", true);
               };
-            };
-            for ( let i_8 = 0; i_8 < cl.static_methods.length; i_8++) {
-              var variant_2 = cl.static_methods[i_8];
-              if ( variant_2.nameNode.hasFlag("main") && (variant_2.nameNode.code.filename == ctx.getRootFile()) ) {
-                ctx.setCompilerSetting("mainclass", cl.name);
-                wr.out("int main(int argc, char* argv[]) {", true);
-                wr.indent(1);
-                wr.out("__g_argc = argc;", true);
-                wr.out("__g_argv = argv;", true);
-                const subCtx_3 = variant_2.fnCtx;
-                subCtx_3.in_main = true;
-                subCtx_3.is_function = true;
-                await this.WalkNode(variant_2.fnBody, subCtx_3, wr);
-                wr.newline();
-                wr.out("return 0;", true);
-                wr.indent(-1);
-                wr.out("}", true);
-              }
-            };
-          };
-        }
-        class MethodCallList  {
-          constructor() {
-            this.calls = [];
-            let c_1 = [];
-            this.calls = c_1;
-          }
-          add (methodName) {
-            this.calls.push(methodName);
-          };
-        }
-        class RangerRustClassWriter  extends RangerGenericClassWriter {
-          constructor() {
-            super()
-            this.rust_writing_call_receiver = false;
-            this.rust_call_receiver_mut = true;
-            this.rust_receiver_written = false;
-            this.thisName = "self";
-            this.fileHeaderWritten = false;
-          }
-          lineEnding () {
-            return ";";
-          };
-          adjustType (tn) {
-            switch (tn ) { 
-              case "type" : 
-                return "r#type";
-              case "static" : 
-                return "r#static";
-              case "async" : 
-                return "r#async";
-              case "await" : 
-                return "r#await";
-              case "dyn" : 
-                return "r#dyn";
-              case "impl" : 
-                return "r#impl";
-              case "trait" : 
-                return "r#trait";
-              case "mod" : 
-                return "r#mod";
-              case "pub" : 
-                return "r#pub";
-              case "use" : 
-                return "r#use";
-              case "extern" : 
-                return "r#extern";
-              case "crate" : 
-                return "r#crate";
-              case "super" : 
-                return "r#super";
-              case "where" : 
-                return "r#where";
-              case "unsafe" : 
-                return "r#unsafe";
-              case "move" : 
-                return "r#move";
-              case "ref" : 
-                return "r#ref";
-              case "mut" : 
-                return "r#mut";
-              case "const" : 
-                return "r#const";
-              case "match" : 
-                return "r#match";
-              case "as" : 
-                return "r#as";
-              case "abstract" : 
-                return "r#abstract";
-              case "become" : 
-                return "r#become";
-              case "box" : 
-                return "r#box";
-              case "do" : 
-                return "r#do";
-              case "final" : 
-                return "r#final";
-              case "macro" : 
-                return "r#macro";
-              case "override" : 
-                return "r#override";
-              case "priv" : 
-                return "r#priv";
-              case "typeof" : 
-                return "r#typeof";
-              case "unsized" : 
-                return "r#unsized";
-              case "virtual" : 
-                return "r#virtual";
-              case "yield" : 
-                return "r#yield";
-              case "try" : 
-                return "r#try";
-              case "fn" : 
-                return "r#fn";
-              case "let" : 
-                return "r#let";
-              case "loop" : 
-                return "r#loop";
-              case "if" : 
-                return "r#if";
-              case "else" : 
-                return "r#else";
-              case "while" : 
-                return "r#while";
-              case "for" : 
-                return "r#for";
-              case "in" : 
-                return "r#in";
-              case "return" : 
-                return "r#return";
-              case "break" : 
-                return "r#break";
-              case "continue" : 
-                return "r#continue";
-              case "struct" : 
-                return "r#struct";
-              case "enum" : 
-                return "r#enum";
-              case "self" : 
-                return "self_";
-            };
-            return tn;
-          };
-          WriteScalarValue (node, ctx, wr) {
-            switch (node.value_type ) { 
-              case 2 : 
-                wr.out(("" + node.double_value) + "_f64", false);
-                break;
-              case 4 : 
-                const s = this.EncodeString(node, ctx, wr);
-                wr.out((("\"" + s) + "\"") + ".to_string()", false);
-                break;
-              case 3 : 
-                wr.out("" + node.int_value, false);
-                break;
-              case 5 : 
-                if ( node.boolean_value ) {
-                  wr.out("true", false);
-                } else {
-                  wr.out("false", false);
-                }
-                break;
-            };
-          };
-          rustStaticStrRead (node) {
-            let v = node;
-            while (v.expression && ((v.children.length) == 1)) {
-              v = v.getFirst();
-            };
-            if ( v.expression ) {
-              return false;
-            }
-            if ( v.value_type != 11 ) {
-              return false;
-            }
-            if ( (v.nsp.length) > 0 ) {
-              const lastP = v.nsp[((v.nsp.length) - 1)];
-              return lastP.rust_static_str;
-            }
-            if ( v.hasParamDesc ) {
-              const p = v.paramDesc;
-              return p.rust_static_str;
-            }
-            return false;
-          };
-          async rustWriteStaticStrValue (node, ctx, wr) {
-            let v = node;
-            while (v.expression && ((v.children.length) == 1)) {
-              v = v.getFirst();
-            };
-            if ( (v.expression == false) && (v.value_type == 4) ) {
-              wr.out(("\"" + this.EncodeString(v, ctx, wr)) + "\"", false);
-              return;
-            }
-            ctx.setInExpr();
-            await this.WalkNode(v, ctx, wr);
-            ctx.unsetInExpr();
-          };
-          rustTryBareStrLitArg (nVal, ctx, wr) {
-            let v = nVal;
-            while (v.expression && ((v.children.length) == 1)) {
-              v = v.getFirst();
-            };
-            if ( v.expression ) {
-              return false;
-            }
-            if ( v.value_type != 4 ) {
-              return false;
-            }
-            wr.out(("\"" + this.EncodeString(v, ctx, wr)) + "\"", false);
-            return true;
-          };
-          rustStrRefRead (node) {
-            if ( this.rustStaticStrRead(node) ) {
-              return true;
-            }
-            let v = node;
-            while (v.expression && ((v.children.length) == 1)) {
-              v = v.getFirst();
-            };
-            if ( v.expression ) {
-              return false;
-            }
-            if ( ((v.value_type == 11) && v.hasParamDesc) && ((v.ns.length) == 1) ) {
-              const p = v.paramDesc;
-              if ( p.rust_borrow_type == 1 ) {
-                const pNN = p.nameNode;
-                if ( (typeof(pNN) !== "undefined" && pNN != null )  ) {
-                  const pN = pNN;
-                  if ( (pN.type_name == "string") && (((pN.array_type.length) == 0) && ((pN.key_type.length) == 0)) ) {
-                    return true;
-                  }
-                }
-              }
-            }
-            return false;
-          };
-          getObjectTypeString (type_string, ctx) {
-            switch (type_string ) { 
-              case "int" : 
-                return "i64";
-              case "string" : 
-                return "String";
-              case "boolean" : 
-                return "bool";
-              case "double" : 
-                return "f64";
-              case "buffer" : 
-                return "Vec<u8>";
-              case "int_buffer" : 
-                return "Vec<i64>";
-              case "double_buffer" : 
-                return "Vec<f64>";
-            };
-            const typeClass = ctx.findClass(type_string);
-            if ( (typeof(typeClass) !== "undefined" && typeClass != null )  ) {
-              const tc = typeClass;
-              if ( tc.is_union ) {
-                return "Rc<dyn std::any::Any>";
-              }
-              if ( tc.is_extended_by_children ) {
-                return ("Rc<RefCell<dyn " + type_string) + "Trait>>";
-              }
-              if ( tc.is_system ) {
-                const sysName = ( Object.prototype.hasOwnProperty.call(tc.systemNames, "rust") ? tc.systemNames["rust"] : undefined );
-                if ( (typeof(sysName) !== "undefined" && sysName != null )  ) {
-                  return sysName;
-                }
-              }
-            }
-            return type_string;
-          };
-          getTypeString (type_string) {
-            switch (type_string ) { 
-              case "int" : 
-                return "i64";
-              case "string" : 
-                return "String";
-              case "boolean" : 
-                return "bool";
-              case "double" : 
-                return "f64";
-              case "buffer" : 
-                return "Vec<u8>";
-              case "int_buffer" : 
-                return "Vec<i64>";
-              case "double_buffer" : 
-                return "Vec<f64>";
-            };
-            return type_string;
-          };
-          async writeTypeDef (node, ctx, wr) {
-            const is_optional = node.hasFlag("optional");
-            const is_weak = node.hasFlag("weak");
-            let is_self_referential = false;
-            const uc = ctx.getCurrentClass();
-            let class_is_trait_related = false;
-            if ( (typeof(uc) !== "undefined" && uc != null )  ) {
-              const currClass = uc;
-              if ( node.type_name == currClass.name ) {
-                is_self_referential = true;
-              }
-              if ( currClass.is_extended_by_children ) {
-                class_is_trait_related = true;
-              }
-              if ( class_is_trait_related == false ) {
-                for ( let epi = 0; epi < currClass.extends_classes.length; epi++) {
-                  var extParentName = currClass.extends_classes[epi];
-                  const extParentClass = ctx.findClass(extParentName);
-                  if ( (typeof(extParentClass) !== "undefined" && extParentClass != null )  ) {
-                    const epc = extParentClass;
-                    if ( epc.is_extended_by_children ) {
-                      class_is_trait_related = true;
-                    }
-                  }
+              for ( let i_6 = 0; i_6 < cl.defined_variants.length; i_6++) {
+                var fnVar = cl.defined_variants[i_6];
+                const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
+                for ( let i_7 = 0; i_7 < mVs.variants.length; i_7++) {
+                  var variant_1 = mVs.variants[i_7];
+                  await this.writeReturnTypeDef(variant_1, ctx, wr);
+                  wr.out(" ", false);
+                  wr.out((" " + cl.name) + "::", false);
+                  wr.out(variant_1.compiledName + "(", false);
+                  await this.writeArgsDef(variant_1, ctx, wr);
+                  wr.out(") {", true);
+                  wr.indent(1);
+                  wr.newline();
+                  const subCtx_2 = variant_1.fnCtx;
+                  subCtx_2.is_function = true;
+                  await this.WalkNode(variant_1.fnBody, subCtx_2, wr);
+                  wr.newline();
+                  wr.indent(-1);
+                  wr.out("}", true);
                 };
-              }
-            }
-            let field_type_is_trait = false;
-            const typeClass = ctx.findClass(node.type_name);
-            if ( (typeof(typeClass) !== "undefined" && typeClass != null )  ) {
-              const tc = typeClass;
-              if ( tc.is_extended_by_children ) {
-                field_type_is_trait = true;
-              }
-            }
-            let needs_refcell_wrap = (class_is_trait_related && is_optional) && (field_type_is_trait == false);
-            let is_object_type = false;
-            let v_type_check = node.value_type;
-            if ( ((v_type_check == 10) || (v_type_check == 11)) || (v_type_check == 0) ) {
-              v_type_check = node.typeNameAsType(ctx);
-            }
-            if ( node.eval_type != 0 ) {
-              v_type_check = node.eval_type;
-            }
-            if ( (((((((v_type_check != 3) && (v_type_check != 2)) && (v_type_check != 4)) && (v_type_check != 5)) && (v_type_check != 14)) && (v_type_check != 6)) && (v_type_check != 7)) && (v_type_check != 16) ) {
-              is_object_type = true;
-            }
-            if ( is_object_type == false ) {
-              needs_refcell_wrap = false;
-            }
-            if ( is_weak ) {
-              if ( is_optional ) {
-                wr.out("Option<Weak<RefCell<", false);
-              } else {
-                wr.out("Weak<RefCell<", false);
-              }
-            } else {
-              if ( is_optional ) {
-                if ( is_self_referential ) {
-                  wr.out("Option<Box<", false);
-                } else {
-                  if ( needs_refcell_wrap ) {
-                    wr.out("Option<RefCell<", false);
-                  } else {
-                    wr.out("Option<", false);
-                  }
+              };
+              for ( let i_8 = 0; i_8 < cl.static_methods.length; i_8++) {
+                var variant_2 = cl.static_methods[i_8];
+                if ( variant_2.nameNode.hasFlag("main") && (variant_2.nameNode.code.filename == ctx.getRootFile()) ) {
+                  ctx.setCompilerSetting("mainclass", cl.name);
+                  wr.out("int main(int argc, char* argv[]) {", true);
+                  wr.indent(1);
+                  wr.out("__g_argc = argc;", true);
+                  wr.out("__g_argv = argv;", true);
+                  const subCtx_3 = variant_2.fnCtx;
+                  subCtx_3.in_main = true;
+                  subCtx_3.is_function = true;
+                  await this.WalkNode(variant_2.fnBody, subCtx_3, wr);
+                  wr.newline();
+                  wr.out("return 0;", true);
+                  wr.indent(-1);
+                  wr.out("}", true);
                 }
-              }
-            }
-            let v_type = node.value_type;
-            if ( ((v_type == 10) || (v_type == 11)) || (v_type == 0) ) {
-              v_type = node.typeNameAsType(ctx);
-            }
-            if ( node.eval_type != 0 ) {
-              v_type = node.eval_type;
-            }
-            switch (v_type ) { 
-              case 13 : 
-                wr.out("i64", false);
-                break;
-              case 3 : 
-                wr.out("i64", false);
-                break;
-              case 2 : 
-                wr.out("f64", false);
-                break;
-              case 4 : 
-                wr.out("String", false);
-                break;
-              case 5 : 
-                wr.out("bool", false);
-                break;
-              case 14 : 
-                wr.out("i64", false);
-                break;
-              case 15 : 
-                wr.out("Vec<u8>", false);
-                break;
-              case 16 : 
-                wr.out("Vec<u8>", false);
-                break;
-              case 17 : 
-                wr.out("Vec<i64>", false);
-                break;
-              case 18 : 
-                wr.out("Vec<f64>", false);
-                break;
-              case 7 : 
-                let helem = this.getObjectTypeString(node.array_type, ctx);
-                if ( this.rustClassIsShared(node.array_type, ctx) ) {
-                  helem = ("Rc<RefCell<" + helem) + ">>";
-                }
-                wr.out(((("HashMap<" + this.getObjectTypeString(node.key_type, ctx)) + ",") + helem) + ">", false);
-                break;
-              case 6 : 
-                let aelem = this.getObjectTypeString(node.array_type, ctx);
-                if ( this.rustClassIsShared(node.array_type, ctx) ) {
-                  aelem = ("Rc<RefCell<" + aelem) + ">>";
-                }
-                wr.out(("Vec<" + aelem) + ">", false);
-                break;
-              default: 
-                if ( node.type_name == "void" ) {
-                  wr.out("()", false);
-                  return;
-                }
-                const typeClass_2 = ctx.findClass(node.type_name);
-                if ( (typeof(typeClass_2) !== "undefined" && typeClass_2 != null )  ) {
-                  const tc_1 = typeClass_2;
-                  if ( tc_1.is_extended_by_children ) {
-                    wr.out(("Rc<RefCell<dyn " + node.type_name) + "Trait>>", false);
-                  } else {
-                    wr.out(this.getObjectTypeString(node.type_name, ctx), false);
-                  }
-                } else {
-                  wr.out(this.getTypeString(node.type_name), false);
-                }
-                break;
+              };
             };
-            if ( is_weak ) {
-              if ( is_optional ) {
-                wr.out(">>>", false);
-              } else {
-                wr.out(">>", false);
-              }
-            } else {
-              if ( is_optional ) {
-                if ( is_self_referential ) {
-                  wr.out(">>", false);
-                } else {
-                  if ( needs_refcell_wrap ) {
-                    wr.out(">>", false);
+          }
+          class MethodCallList  {
+            constructor() {
+              this.calls = [];
+              let c_1 = [];
+              this.calls = c_1;
+            }
+            add (methodName) {
+              this.calls.push(methodName);
+            };
+          }
+          class RangerRustClassWriter  extends RangerGenericClassWriter {
+            constructor() {
+              super()
+              this.rust_writing_call_receiver = false;
+              this.rust_call_receiver_mut = true;
+              this.rust_receiver_written = false;
+              this.thisName = "self";
+              this.fileHeaderWritten = false;
+            }
+            lineEnding () {
+              return ";";
+            };
+            adjustType (tn) {
+              switch (tn ) { 
+                case "type" : 
+                  return "r#type";
+                case "static" : 
+                  return "r#static";
+                case "async" : 
+                  return "r#async";
+                case "await" : 
+                  return "r#await";
+                case "dyn" : 
+                  return "r#dyn";
+                case "impl" : 
+                  return "r#impl";
+                case "trait" : 
+                  return "r#trait";
+                case "mod" : 
+                  return "r#mod";
+                case "pub" : 
+                  return "r#pub";
+                case "use" : 
+                  return "r#use";
+                case "extern" : 
+                  return "r#extern";
+                case "crate" : 
+                  return "r#crate";
+                case "super" : 
+                  return "r#super";
+                case "where" : 
+                  return "r#where";
+                case "unsafe" : 
+                  return "r#unsafe";
+                case "move" : 
+                  return "r#move";
+                case "ref" : 
+                  return "r#ref";
+                case "mut" : 
+                  return "r#mut";
+                case "const" : 
+                  return "r#const";
+                case "match" : 
+                  return "r#match";
+                case "as" : 
+                  return "r#as";
+                case "abstract" : 
+                  return "r#abstract";
+                case "become" : 
+                  return "r#become";
+                case "box" : 
+                  return "r#box";
+                case "do" : 
+                  return "r#do";
+                case "final" : 
+                  return "r#final";
+                case "macro" : 
+                  return "r#macro";
+                case "override" : 
+                  return "r#override";
+                case "priv" : 
+                  return "r#priv";
+                case "typeof" : 
+                  return "r#typeof";
+                case "unsized" : 
+                  return "r#unsized";
+                case "virtual" : 
+                  return "r#virtual";
+                case "yield" : 
+                  return "r#yield";
+                case "try" : 
+                  return "r#try";
+                case "fn" : 
+                  return "r#fn";
+                case "let" : 
+                  return "r#let";
+                case "loop" : 
+                  return "r#loop";
+                case "if" : 
+                  return "r#if";
+                case "else" : 
+                  return "r#else";
+                case "while" : 
+                  return "r#while";
+                case "for" : 
+                  return "r#for";
+                case "in" : 
+                  return "r#in";
+                case "return" : 
+                  return "r#return";
+                case "break" : 
+                  return "r#break";
+                case "continue" : 
+                  return "r#continue";
+                case "struct" : 
+                  return "r#struct";
+                case "enum" : 
+                  return "r#enum";
+                case "self" : 
+                  return "self_";
+              };
+              return tn;
+            };
+            WriteScalarValue (node, ctx, wr) {
+              switch (node.value_type ) { 
+                case 2 : 
+                  wr.out(("" + node.double_value) + "_f64", false);
+                  break;
+                case 4 : 
+                  const s = this.EncodeString(node, ctx, wr);
+                  wr.out((("\"" + s) + "\"") + ".to_string()", false);
+                  break;
+                case 3 : 
+                  wr.out("" + node.int_value, false);
+                  break;
+                case 5 : 
+                  if ( node.boolean_value ) {
+                    wr.out("true", false);
                   } else {
-                    wr.out(">", false);
+                    wr.out("false", false);
                   }
-                }
+                  break;
+              };
+            };
+            rustStaticStrRead (node) {
+              let v = node;
+              while (v.expression && ((v.children.length) == 1)) {
+                v = v.getFirst();
+              };
+              if ( v.expression ) {
+                return false;
               }
-            }
-          };
-          async WriteVRef (node, ctx, wr) {
-            if ( node.vref == "this" ) {
-              if ( this.rust_writing_call_receiver == false ) {
-                const tvCls = ctx.getCurrentClass();
-                const tvM = ctx.getCurrentMethod();
-                if ( ((typeof(tvCls) !== "undefined" && tvCls != null ) ) && ((typeof(tvM) !== "undefined" && tvM != null ) ) ) {
-                  const tvC = tvCls;
-                  const tvF = tvM;
-                  if ( this.rustClassIsShared(tvC.name, ctx) ) {
-                    if ( tvF.rust_needs_self_rc ) {
-                      wr.out("__self_rc", false);
-                      return;
+              if ( v.value_type != 11 ) {
+                return false;
+              }
+              if ( (v.nsp.length) > 0 ) {
+                const lastP = v.nsp[((v.nsp.length) - 1)];
+                return lastP.rust_static_str;
+              }
+              if ( v.hasParamDesc ) {
+                const p = v.paramDesc;
+                return p.rust_static_str;
+              }
+              return false;
+            };
+            async rustWriteStaticStrValue (node, ctx, wr) {
+              let v = node;
+              while (v.expression && ((v.children.length) == 1)) {
+                v = v.getFirst();
+              };
+              if ( (v.expression == false) && (v.value_type == 4) ) {
+                wr.out(("\"" + this.EncodeString(v, ctx, wr)) + "\"", false);
+                return;
+              }
+              ctx.setInExpr();
+              await this.WalkNode(v, ctx, wr);
+              ctx.unsetInExpr();
+            };
+            rustTryBareStrLitArg (nVal, ctx, wr) {
+              let v = nVal;
+              while (v.expression && ((v.children.length) == 1)) {
+                v = v.getFirst();
+              };
+              if ( v.expression ) {
+                return false;
+              }
+              if ( v.value_type != 4 ) {
+                return false;
+              }
+              wr.out(("\"" + this.EncodeString(v, ctx, wr)) + "\"", false);
+              return true;
+            };
+            rustStrRefRead (node) {
+              if ( this.rustStaticStrRead(node) ) {
+                return true;
+              }
+              let v = node;
+              while (v.expression && ((v.children.length) == 1)) {
+                v = v.getFirst();
+              };
+              if ( v.expression ) {
+                return false;
+              }
+              if ( ((v.value_type == 11) && v.hasParamDesc) && ((v.ns.length) == 1) ) {
+                const p = v.paramDesc;
+                if ( p.rust_borrow_type == 1 ) {
+                  const pNN = p.nameNode;
+                  if ( (typeof(pNN) !== "undefined" && pNN != null )  ) {
+                    const pN = pNN;
+                    if ( (pN.type_name == "string") && (((pN.array_type.length) == 0) && ((pN.key_type.length) == 0)) ) {
+                      return true;
                     }
                   }
                 }
               }
-              wr.out(this.thisName, false);
-              return;
-            }
-            if ( (node.vref.length) > 1 ) {
-              if ( (node.vref.charCodeAt(0 )) == 46 ) {
-                if ( node.hasParamDesc ) {
-                  const dotP = node.paramDesc;
-                  const dotCls = dotP.propertyClass;
-                  if ( (typeof(dotCls) !== "undefined" && dotCls != null )  ) {
-                    const dotC = dotCls;
-                    if ( this.rustClassIsShared(dotC.name, ctx) ) {
-                      wr.out(".borrow()" + node.vref, false);
-                      return;
-                    }
+              return false;
+            };
+            getObjectTypeString (type_string, ctx) {
+              switch (type_string ) { 
+                case "int" : 
+                  return "i64";
+                case "string" : 
+                  return "String";
+                case "boolean" : 
+                  return "bool";
+                case "double" : 
+                  return "f64";
+                case "buffer" : 
+                  return "Vec<u8>";
+                case "int_buffer" : 
+                  return "Vec<i64>";
+                case "double_buffer" : 
+                  return "Vec<f64>";
+              };
+              const typeClass = ctx.findClass(type_string);
+              if ( (typeof(typeClass) !== "undefined" && typeClass != null )  ) {
+                const tc = typeClass;
+                if ( tc.is_union ) {
+                  if ( this.unionIsSealable(tc, ctx) ) {
+                    return this.unionInterfaceName(type_string);
+                  }
+                  return "Rc<dyn std::any::Any>";
+                }
+                if ( tc.is_extended_by_children ) {
+                  return ("Rc<RefCell<dyn " + type_string) + "Trait>>";
+                }
+                if ( tc.is_system ) {
+                  const sysName = ( Object.prototype.hasOwnProperty.call(tc.systemNames, "rust") ? tc.systemNames["rust"] : undefined );
+                  if ( (typeof(sysName) !== "undefined" && sysName != null )  ) {
+                    return sysName;
                   }
                 }
               }
-            }
-            if ( node.eval_type == 13 ) {
-              if ( (node.ns.length) > 1 ) {
-                const rootObjName = node.ns[0];
-                const enumName = node.ns[1];
-                const e = ctx.getEnum(rootObjName);
-                if ( (typeof(e) !== "undefined" && e != null )  ) {
-                  wr.out("" + ((( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined ))), false);
-                  return;
+              return type_string;
+            };
+            getTypeString (type_string) {
+              switch (type_string ) { 
+                case "int" : 
+                  return "i64";
+                case "string" : 
+                  return "String";
+                case "boolean" : 
+                  return "bool";
+                case "double" : 
+                  return "f64";
+                case "buffer" : 
+                  return "Vec<u8>";
+                case "int_buffer" : 
+                  return "Vec<i64>";
+                case "double_buffer" : 
+                  return "Vec<f64>";
+              };
+              return type_string;
+            };
+            async writeTypeDef (node, ctx, wr) {
+              const is_optional = node.hasFlag("optional");
+              const is_weak = node.hasFlag("weak");
+              let is_self_referential = false;
+              const uc = ctx.getCurrentClass();
+              let class_is_trait_related = false;
+              if ( (typeof(uc) !== "undefined" && uc != null )  ) {
+                const currClass = uc;
+                if ( node.type_name == currClass.name ) {
+                  is_self_referential = true;
                 }
-              }
-            }
-            if ( ((node.hasParamDesc == false) && ((node.ns.length) == 1)) && ((node.vref.length) > 0) ) {
-              if ( (ctx.isVarDefined(node.vref) == false) && (ctx.hasClass(node.vref) == false) ) {
-                let dotDecl = 0;
-                let dotShared = 0;
-                const dotRoot = ctx.getRoot();
-                for( var dci in dotRoot.definedClasses) {
-                  if(dotRoot.definedClasses.hasOwnProperty(dci)) {
-                    var dcl = dotRoot.definedClasses[dci] 
-                    const dfv = dcl.findVariable(node.vref);
-                    if ( (typeof(dfv) !== "undefined" && dfv != null )  ) {
-                      dotDecl = dotDecl + 1;
-                      if ( this.rustClassIsShared(dcl.name, ctx) ) {
-                        dotShared = dotShared + 1;
+                if ( currClass.is_extended_by_children ) {
+                  class_is_trait_related = true;
+                }
+                if ( class_is_trait_related == false ) {
+                  for ( let epi = 0; epi < currClass.extends_classes.length; epi++) {
+                    var extParentName = currClass.extends_classes[epi];
+                    const extParentClass = ctx.findClass(extParentName);
+                    if ( (typeof(extParentClass) !== "undefined" && extParentClass != null )  ) {
+                      const epc = extParentClass;
+                      if ( epc.is_extended_by_children ) {
+                        class_is_trait_related = true;
                       }
                     }
-                  } };
-                  if ( (dotDecl > 0) && (dotDecl == dotShared) ) {
-                    wr.out("borrow()." + node.vref, false);
+                  };
+                }
+              }
+              let field_type_is_trait = false;
+              const typeClass = ctx.findClass(node.type_name);
+              if ( (typeof(typeClass) !== "undefined" && typeClass != null )  ) {
+                const tc = typeClass;
+                if ( tc.is_extended_by_children ) {
+                  field_type_is_trait = true;
+                }
+              }
+              let needs_refcell_wrap = (class_is_trait_related && is_optional) && (field_type_is_trait == false);
+              let is_object_type = false;
+              let v_type_check = node.value_type;
+              if ( ((v_type_check == 10) || (v_type_check == 11)) || (v_type_check == 0) ) {
+                v_type_check = node.typeNameAsType(ctx);
+              }
+              if ( node.eval_type != 0 ) {
+                v_type_check = node.eval_type;
+              }
+              if ( (((((((v_type_check != 3) && (v_type_check != 2)) && (v_type_check != 4)) && (v_type_check != 5)) && (v_type_check != 14)) && (v_type_check != 6)) && (v_type_check != 7)) && (v_type_check != 16) ) {
+                is_object_type = true;
+              }
+              if ( is_object_type == false ) {
+                needs_refcell_wrap = false;
+              }
+              if ( is_weak ) {
+                if ( is_optional ) {
+                  wr.out("Option<Weak<RefCell<", false);
+                } else {
+                  wr.out("Weak<RefCell<", false);
+                }
+              } else {
+                if ( is_optional ) {
+                  if ( is_self_referential ) {
+                    wr.out("Option<Box<", false);
+                  } else {
+                    if ( needs_refcell_wrap ) {
+                      wr.out("Option<RefCell<", false);
+                    } else {
+                      wr.out("Option<", false);
+                    }
+                  }
+                }
+              }
+              let v_type = node.value_type;
+              if ( ((v_type == 10) || (v_type == 11)) || (v_type == 0) ) {
+                v_type = node.typeNameAsType(ctx);
+              }
+              if ( node.eval_type != 0 ) {
+                v_type = node.eval_type;
+              }
+              switch (v_type ) { 
+                case 13 : 
+                  wr.out("i64", false);
+                  break;
+                case 3 : 
+                  wr.out("i64", false);
+                  break;
+                case 2 : 
+                  wr.out("f64", false);
+                  break;
+                case 4 : 
+                  wr.out("String", false);
+                  break;
+                case 5 : 
+                  wr.out("bool", false);
+                  break;
+                case 14 : 
+                  wr.out("i64", false);
+                  break;
+                case 15 : 
+                  wr.out("Vec<u8>", false);
+                  break;
+                case 16 : 
+                  wr.out("Vec<u8>", false);
+                  break;
+                case 17 : 
+                  wr.out("Vec<i64>", false);
+                  break;
+                case 18 : 
+                  wr.out("Vec<f64>", false);
+                  break;
+                case 7 : 
+                  let helem = this.getObjectTypeString(node.array_type, ctx);
+                  if ( this.rustClassIsShared(node.array_type, ctx) ) {
+                    helem = ("Rc<RefCell<" + helem) + ">>";
+                  }
+                  wr.out(((("HashMap<" + this.getObjectTypeString(node.key_type, ctx)) + ",") + helem) + ">", false);
+                  break;
+                case 6 : 
+                  let aelem = this.getObjectTypeString(node.array_type, ctx);
+                  if ( this.rustClassIsShared(node.array_type, ctx) ) {
+                    aelem = ("Rc<RefCell<" + aelem) + ">>";
+                  }
+                  wr.out(("Vec<" + aelem) + ">", false);
+                  break;
+                default: 
+                  if ( node.type_name == "void" ) {
+                    wr.out("()", false);
+                    return;
+                  }
+                  const typeClass_2 = ctx.findClass(node.type_name);
+                  if ( (typeof(typeClass_2) !== "undefined" && typeClass_2 != null )  ) {
+                    const tc_1 = typeClass_2;
+                    if ( tc_1.is_extended_by_children ) {
+                      wr.out(("Rc<RefCell<dyn " + node.type_name) + "Trait>>", false);
+                    } else {
+                      wr.out(this.getObjectTypeString(node.type_name, ctx), false);
+                    }
+                  } else {
+                    wr.out(this.getTypeString(node.type_name), false);
+                  }
+                  break;
+              };
+              if ( is_weak ) {
+                if ( is_optional ) {
+                  wr.out(">>>", false);
+                } else {
+                  wr.out(">>", false);
+                }
+              } else {
+                if ( is_optional ) {
+                  if ( is_self_referential ) {
+                    wr.out(">>", false);
+                  } else {
+                    if ( needs_refcell_wrap ) {
+                      wr.out(">>", false);
+                    } else {
+                      wr.out(">", false);
+                    }
+                  }
+                }
+              }
+            };
+            async WriteVRef (node, ctx, wr) {
+              if ( node.vref == "this" ) {
+                if ( this.rust_writing_call_receiver == false ) {
+                  const tvCls = ctx.getCurrentClass();
+                  const tvM = ctx.getCurrentMethod();
+                  if ( ((typeof(tvCls) !== "undefined" && tvCls != null ) ) && ((typeof(tvM) !== "undefined" && tvM != null ) ) ) {
+                    const tvC = tvCls;
+                    const tvF = tvM;
+                    if ( this.rustClassIsShared(tvC.name, ctx) ) {
+                      if ( tvF.rust_needs_self_rc ) {
+                        wr.out("__self_rc", false);
+                        return;
+                      }
+                    }
+                  }
+                }
+                wr.out(this.thisName, false);
+                return;
+              }
+              if ( (node.vref.length) > 1 ) {
+                if ( (node.vref.charCodeAt(0 )) == 46 ) {
+                  if ( node.hasParamDesc ) {
+                    const dotP = node.paramDesc;
+                    const dotCls = dotP.propertyClass;
+                    if ( (typeof(dotCls) !== "undefined" && dotCls != null )  ) {
+                      const dotC = dotCls;
+                      if ( this.rustClassIsShared(dotC.name, ctx) ) {
+                        wr.out(".borrow()" + node.vref, false);
+                        return;
+                      }
+                    }
+                  }
+                }
+              }
+              if ( node.eval_type == 13 ) {
+                if ( (node.ns.length) > 1 ) {
+                  const rootObjName = node.ns[0];
+                  const enumName = node.ns[1];
+                  const e = ctx.getEnum(rootObjName);
+                  if ( (typeof(e) !== "undefined" && e != null )  ) {
+                    wr.out("" + ((( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined ))), false);
                     return;
                   }
                 }
               }
-              if ( (node.nsp.length) > 0 ) {
-                let had_static = false;
-                const nsp_len = node.nsp.length;
-                for ( let i = 0; i < node.nsp.length; i++) {
-                  var p = node.nsp[i];
-                  if ( i == 0 ) {
-                    const part = node.ns[0];
-                    if ( part == "this" ) {
-                      wr.out(this.thisName, false);
-                      continue;
+              if ( ((node.hasParamDesc == false) && ((node.ns.length) == 1)) && ((node.vref.length) > 0) ) {
+                if ( (ctx.isVarDefined(node.vref) == false) && (ctx.hasClass(node.vref) == false) ) {
+                  let dotDecl = 0;
+                  let dotShared = 0;
+                  const dotRoot = ctx.getRoot();
+                  for( var dci in dotRoot.definedClasses) {
+                    if(dotRoot.definedClasses.hasOwnProperty(dci)) {
+                      var dcl = dotRoot.definedClasses[dci] 
+                      const dfv = dcl.findVariable(node.vref);
+                      if ( (typeof(dfv) !== "undefined" && dfv != null )  ) {
+                        dotDecl = dotDecl + 1;
+                        if ( this.rustClassIsShared(dcl.name, ctx) ) {
+                          dotShared = dotShared + 1;
+                        }
+                      }
+                    } };
+                    if ( (dotDecl > 0) && (dotDecl == dotShared) ) {
+                      wr.out("borrow()." + node.vref, false);
+                      return;
                     }
                   }
-                  if ( i > 0 ) {
-                    if ( had_static ) {
+                }
+                if ( (node.nsp.length) > 0 ) {
+                  let had_static = false;
+                  const nsp_len = node.nsp.length;
+                  for ( let i = 0; i < node.nsp.length; i++) {
+                    var p = node.nsp[i];
+                    if ( i == 0 ) {
+                      const part = node.ns[0];
+                      if ( part == "this" ) {
+                        wr.out(this.thisName, false);
+                        continue;
+                      }
+                    }
+                    if ( i > 0 ) {
+                      if ( had_static ) {
+                        wr.out("::", false);
+                      } else {
+                        wr.out(".", false);
+                      }
+                    }
+                    if ( i == 0 ) {
+                      const part_1 = node.ns[0];
+                      if ( (part_1 != "this") && ctx.isMemberVariable(part_1) ) {
+                        const uc = ctx.getCurrentClass();
+                        const currC = uc;
+                        const up = currC.findVariable(part_1);
+                        if ( (typeof(up) !== "undefined" && up != null )  ) {
+                          if ( false == ctx.isInStatic() ) {
+                            wr.out(this.thisName + ".", false);
+                          }
+                        }
+                      }
+                    }
+                    if ( (p.compiledName.length) > 0 ) {
+                      wr.out(this.adjustType(p.compiledName), false);
+                    } else {
+                      if ( (p.name.length) > 0 ) {
+                        wr.out(this.adjustType(p.name), false);
+                      } else {
+                        wr.out(this.adjustType((node.ns[i])), false);
+                      }
+                    }
+                    if ( (i < (nsp_len - 1)) && p.rust_needs_rc_wrap ) {
+                      let rcw_skip = p.is_optional;
+                      const rcwNN = p.nameNode;
+                      if ( (typeof(rcwNN) !== "undefined" && rcwNN != null )  ) {
+                        if ( ((rcwNN)).hasFlag("weak") ) {
+                          rcw_skip = true;
+                        }
+                      }
+                      if ( rcw_skip == false ) {
+                        if ( this.rust_writing_call_receiver || ctx.in_lhs_of_assignment ) {
+                          if ( (ctx.in_lhs_of_assignment == false) && (this.rust_call_receiver_mut == false) ) {
+                            wr.out(".borrow()", false);
+                          } else {
+                            wr.out(".borrow_mut()", false);
+                          }
+                        } else {
+                          wr.out(".borrow()", false);
+                        }
+                      }
+                    }
+                    let field_is_weak = false;
+                    const pNameNWeak = p.nameNode;
+                    if ( (typeof(pNameNWeak) !== "undefined" && pNameNWeak != null )  ) {
+                      const pNNWeak = pNameNWeak;
+                      if ( pNNWeak.hasFlag("weak") ) {
+                        field_is_weak = true;
+                      }
+                    }
+                    if ( field_is_weak ) {
+                      if ( i < (nsp_len - 1) ) {
+                        if ( p.is_optional ) {
+                          wr.out(".as_ref().unwrap().upgrade().unwrap().borrow_mut()", false);
+                        } else {
+                          wr.out(".upgrade().unwrap().borrow_mut()", false);
+                        }
+                      }
+                    } else {
+                      if ( p.is_optional ) {
+                        if ( i < (nsp_len - 1) ) {
+                          let field_is_trait_type = false;
+                          const pNameN = p.nameNode;
+                          if ( (typeof(pNameN) !== "undefined" && pNameN != null )  ) {
+                            const pNN = pNameN;
+                            const pTypeName = pNN.type_name;
+                            const pTypeClass = ctx.findClass(pTypeName);
+                            if ( (typeof(pTypeClass) !== "undefined" && pTypeClass != null )  ) {
+                              const ptc = pTypeClass;
+                              if ( ptc.is_extended_by_children ) {
+                                field_is_trait_type = true;
+                              }
+                            }
+                          }
+                          let owning_class_is_trait_related = false;
+                          let pOwnerClass = p.propertyClass;
+                          if ( typeof(pOwnerClass) === "undefined" ) {
+                            if ( p.is_class_variable ) {
+                              pOwnerClass = ctx.getCurrentClass();
+                            }
+                          }
+                          if ( (typeof(pOwnerClass) !== "undefined" && pOwnerClass != null )  ) {
+                            const ownerC = pOwnerClass;
+                            if ( ownerC.is_extended_by_children ) {
+                              owning_class_is_trait_related = true;
+                            }
+                            if ( owning_class_is_trait_related == false ) {
+                              for ( let epi2 = 0; epi2 < ownerC.extends_classes.length; epi2++) {
+                                var extParentName2 = ownerC.extends_classes[epi2];
+                                const extParentClass2 = ctx.findClass(extParentName2);
+                                if ( (typeof(extParentClass2) !== "undefined" && extParentClass2 != null )  ) {
+                                  const epc2 = extParentClass2;
+                                  if ( epc2.is_extended_by_children ) {
+                                    owning_class_is_trait_related = true;
+                                  }
+                                }
+                              };
+                            }
+                          }
+                          if ( field_is_trait_type ) {
+                            wr.out(".as_ref().unwrap().borrow_mut()", false);
+                          } else {
+                            if ( owning_class_is_trait_related ) {
+                              wr.out(".as_ref().unwrap().borrow_mut()", false);
+                            } else {
+                              let root_is_immutable_borrow = false;
+                              if ( nsp_len > 0 ) {
+                                const rootParam = node.nsp[0];
+                                if ( rootParam.rust_borrow_type == 1 ) {
+                                  root_is_immutable_borrow = true;
+                                }
+                              }
+                              let optSharedT = "";
+                              const pOptNN = p.nameNode;
+                              if ( (typeof(pOptNN) !== "undefined" && pOptNN != null )  ) {
+                                const pOptN = pOptNN;
+                                optSharedT = pOptN.type_name;
+                              }
+                              const optSegShared = this.rustClassIsShared(optSharedT, ctx);
+                              if ( root_is_immutable_borrow || optSegShared ) {
+                                wr.out(".as_ref().unwrap()", false);
+                              } else {
+                                if ( ctx.isInLhs() ) {
+                                  wr.out(".as_mut().unwrap()", false);
+                                } else {
+                                  wr.out(".as_mut().unwrap()", false);
+                                }
+                              }
+                              if ( optSegShared ) {
+                                if ( this.rust_writing_call_receiver || ctx.in_lhs_of_assignment ) {
+                                  if ( (ctx.in_lhs_of_assignment == false) && (this.rust_call_receiver_mut == false) ) {
+                                    wr.out(".borrow()", false);
+                                  } else {
+                                    wr.out(".borrow_mut()", false);
+                                  }
+                                } else {
+                                  wr.out(".borrow()", false);
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                    if ( p.isClass() ) {
+                      had_static = true;
+                    }
+                  };
+                  return;
+                }
+                if ( node.hasParamDesc ) {
+                  const part_2 = node.ns[0];
+                  if ( (part_2 != "this") && ctx.isMemberVariable(part_2) ) {
+                    const uc_1 = ctx.getCurrentClass();
+                    const currC_1 = uc_1;
+                    const up_1 = currC_1.findVariable(part_2);
+                    if ( (typeof(up_1) !== "undefined" && up_1 != null )  ) {
+                      if ( false == ctx.isInStatic() ) {
+                        wr.out(this.thisName + ".", false);
+                      }
+                    }
+                  }
+                  const p_1 = node.paramDesc;
+                  wr.out(this.adjustType(p_1.compiledName), false);
+                  return;
+                }
+                let b_was_static = false;
+                for ( let i_1 = 0; i_1 < node.ns.length; i_1++) {
+                  var part_3 = node.ns[i_1];
+                  if ( i_1 > 0 ) {
+                    if ( (i_1 == 1) && b_was_static ) {
                       wr.out("::", false);
                     } else {
                       wr.out(".", false);
                     }
                   }
-                  if ( i == 0 ) {
-                    const part_1 = node.ns[0];
-                    if ( (part_1 != "this") && ctx.isMemberVariable(part_1) ) {
-                      const uc = ctx.getCurrentClass();
-                      const currC = uc;
-                      const up = currC.findVariable(part_1);
-                      if ( (typeof(up) !== "undefined" && up != null )  ) {
+                  if ( i_1 == 0 ) {
+                    if ( ctx.hasClass(part_3) ) {
+                      b_was_static = true;
+                    }
+                    if ( (part_3 != "this") && ctx.hasCurrentClass() ) {
+                      const uc_2 = ctx.getCurrentClass();
+                      const currC_2 = uc_2;
+                      const up_2 = currC_2.findVariable(part_3);
+                      if ( (typeof(up_2) !== "undefined" && up_2 != null )  ) {
                         if ( false == ctx.isInStatic() ) {
                           wr.out(this.thisName + ".", false);
                         }
                       }
                     }
                   }
-                  if ( (p.compiledName.length) > 0 ) {
-                    wr.out(this.adjustType(p.compiledName), false);
-                  } else {
-                    if ( (p.name.length) > 0 ) {
-                      wr.out(this.adjustType(p.name), false);
-                    } else {
-                      wr.out(this.adjustType((node.ns[i])), false);
-                    }
-                  }
-                  if ( (i < (nsp_len - 1)) && p.rust_needs_rc_wrap ) {
-                    let rcw_skip = p.is_optional;
-                    const rcwNN = p.nameNode;
-                    if ( (typeof(rcwNN) !== "undefined" && rcwNN != null )  ) {
-                      if ( ((rcwNN)).hasFlag("weak") ) {
-                        rcw_skip = true;
-                      }
-                    }
-                    if ( rcw_skip == false ) {
-                      if ( this.rust_writing_call_receiver || ctx.in_lhs_of_assignment ) {
-                        if ( (ctx.in_lhs_of_assignment == false) && (this.rust_call_receiver_mut == false) ) {
-                          wr.out(".borrow()", false);
-                        } else {
-                          wr.out(".borrow_mut()", false);
-                        }
-                      } else {
-                        wr.out(".borrow()", false);
-                      }
-                    }
-                  }
-                  let field_is_weak = false;
-                  const pNameNWeak = p.nameNode;
-                  if ( (typeof(pNameNWeak) !== "undefined" && pNameNWeak != null )  ) {
-                    const pNNWeak = pNameNWeak;
-                    if ( pNNWeak.hasFlag("weak") ) {
-                      field_is_weak = true;
-                    }
-                  }
-                  if ( field_is_weak ) {
-                    if ( i < (nsp_len - 1) ) {
-                      if ( p.is_optional ) {
-                        wr.out(".as_ref().unwrap().upgrade().unwrap().borrow_mut()", false);
-                      } else {
-                        wr.out(".upgrade().unwrap().borrow_mut()", false);
-                      }
-                    }
-                  } else {
-                    if ( p.is_optional ) {
-                      if ( i < (nsp_len - 1) ) {
-                        let field_is_trait_type = false;
-                        const pNameN = p.nameNode;
-                        if ( (typeof(pNameN) !== "undefined" && pNameN != null )  ) {
-                          const pNN = pNameN;
-                          const pTypeName = pNN.type_name;
-                          const pTypeClass = ctx.findClass(pTypeName);
-                          if ( (typeof(pTypeClass) !== "undefined" && pTypeClass != null )  ) {
-                            const ptc = pTypeClass;
-                            if ( ptc.is_extended_by_children ) {
-                              field_is_trait_type = true;
-                            }
-                          }
-                        }
-                        let owning_class_is_trait_related = false;
-                        let pOwnerClass = p.propertyClass;
-                        if ( typeof(pOwnerClass) === "undefined" ) {
-                          if ( p.is_class_variable ) {
-                            pOwnerClass = ctx.getCurrentClass();
-                          }
-                        }
-                        if ( (typeof(pOwnerClass) !== "undefined" && pOwnerClass != null )  ) {
-                          const ownerC = pOwnerClass;
-                          if ( ownerC.is_extended_by_children ) {
-                            owning_class_is_trait_related = true;
-                          }
-                          if ( owning_class_is_trait_related == false ) {
-                            for ( let epi2 = 0; epi2 < ownerC.extends_classes.length; epi2++) {
-                              var extParentName2 = ownerC.extends_classes[epi2];
-                              const extParentClass2 = ctx.findClass(extParentName2);
-                              if ( (typeof(extParentClass2) !== "undefined" && extParentClass2 != null )  ) {
-                                const epc2 = extParentClass2;
-                                if ( epc2.is_extended_by_children ) {
-                                  owning_class_is_trait_related = true;
-                                }
-                              }
-                            };
-                          }
-                        }
-                        if ( field_is_trait_type ) {
-                          wr.out(".as_ref().unwrap().borrow_mut()", false);
-                        } else {
-                          if ( owning_class_is_trait_related ) {
-                            wr.out(".as_ref().unwrap().borrow_mut()", false);
-                          } else {
-                            let root_is_immutable_borrow = false;
-                            if ( nsp_len > 0 ) {
-                              const rootParam = node.nsp[0];
-                              if ( rootParam.rust_borrow_type == 1 ) {
-                                root_is_immutable_borrow = true;
-                              }
-                            }
-                            let optSharedT = "";
-                            const pOptNN = p.nameNode;
-                            if ( (typeof(pOptNN) !== "undefined" && pOptNN != null )  ) {
-                              const pOptN = pOptNN;
-                              optSharedT = pOptN.type_name;
-                            }
-                            const optSegShared = this.rustClassIsShared(optSharedT, ctx);
-                            if ( root_is_immutable_borrow || optSegShared ) {
-                              wr.out(".as_ref().unwrap()", false);
-                            } else {
-                              if ( ctx.isInLhs() ) {
-                                wr.out(".as_mut().unwrap()", false);
-                              } else {
-                                wr.out(".as_mut().unwrap()", false);
-                              }
-                            }
-                            if ( optSegShared ) {
-                              if ( this.rust_writing_call_receiver || ctx.in_lhs_of_assignment ) {
-                                if ( (ctx.in_lhs_of_assignment == false) && (this.rust_call_receiver_mut == false) ) {
-                                  wr.out(".borrow()", false);
-                                } else {
-                                  wr.out(".borrow_mut()", false);
-                                }
-                              } else {
-                                wr.out(".borrow()", false);
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                  if ( p.isClass() ) {
-                    had_static = true;
-                  }
+                  wr.out(this.adjustType(part_3), false);
                 };
-                return;
-              }
-              if ( node.hasParamDesc ) {
-                const part_2 = node.ns[0];
-                if ( (part_2 != "this") && ctx.isMemberVariable(part_2) ) {
-                  const uc_1 = ctx.getCurrentClass();
-                  const currC_1 = uc_1;
-                  const up_1 = currC_1.findVariable(part_2);
-                  if ( (typeof(up_1) !== "undefined" && up_1 != null )  ) {
-                    if ( false == ctx.isInStatic() ) {
-                      wr.out(this.thisName + ".", false);
-                    }
-                  }
-                }
-                const p_1 = node.paramDesc;
-                wr.out(this.adjustType(p_1.compiledName), false);
-                return;
-              }
-              let b_was_static = false;
-              for ( let i_1 = 0; i_1 < node.ns.length; i_1++) {
-                var part_3 = node.ns[i_1];
-                if ( i_1 > 0 ) {
-                  if ( (i_1 == 1) && b_was_static ) {
-                    wr.out("::", false);
-                  } else {
-                    wr.out(".", false);
-                  }
-                }
-                if ( i_1 == 0 ) {
-                  if ( ctx.hasClass(part_3) ) {
-                    b_was_static = true;
-                  }
-                  if ( (part_3 != "this") && ctx.hasCurrentClass() ) {
-                    const uc_2 = ctx.getCurrentClass();
-                    const currC_2 = uc_2;
-                    const up_2 = currC_2.findVariable(part_3);
-                    if ( (typeof(up_2) !== "undefined" && up_2 != null )  ) {
-                      if ( false == ctx.isInStatic() ) {
-                        wr.out(this.thisName + ".", false);
-                      }
-                    }
-                  }
-                }
-                wr.out(this.adjustType(part_3), false);
               };
-            };
-            async writeRustFnClose (variant, ctx, wr) {
-              wr.out(")", false);
-              const fcnn = variant.nameNode;
-              if ( ((fcnn.array_type.length) == 0) && ((fcnn.key_type.length) == 0) ) {
-                if ( fcnn.type_name == "void" ) {
-                  return;
-                }
-              }
-              wr.out(" -> ", false);
-              await this.writeRustReturnType(variant, ctx, wr);
-            };
-            async writeRustReturnType (variant, ctx, wr) {
-              const vnn = variant.nameNode;
-              if ( ((vnn.array_type.length) == 0) && ((vnn.key_type.length) == 0) ) {
-                if ( this.rustClassIsShared(vnn.type_name, ctx) ) {
-                  if ( vnn.hasFlag("optional") ) {
-                    wr.out(("Option<Rc<RefCell<" + this.getObjectTypeString(vnn.type_name, ctx)) + ">>>", false);
-                  } else {
-                    wr.out(("Rc<RefCell<" + this.getObjectTypeString(vnn.type_name, ctx)) + ">>", false);
-                  }
-                  return;
-                }
-              }
-              await this.writeTypeDef(vnn, ctx, wr);
-            };
-            rustRhsReadsSharedCell (node) {
-              if ( (node.ns.length) >= 2 ) {
-                if ( (node.nsp.length) > 0 ) {
-                  const rp = node.nsp[0];
-                  if ( rp.rust_needs_rc_wrap ) {
-                    return true;
+              async writeRustFnClose (variant, ctx, wr) {
+                wr.out(")", false);
+                const fcnn = variant.nameNode;
+                if ( ((fcnn.array_type.length) == 0) && ((fcnn.key_type.length) == 0) ) {
+                  if ( fcnn.type_name == "void" ) {
+                    return;
                   }
                 }
-              }
-              if ( node.hasFnCall ) {
-                return true;
-              }
-              for ( let i = 0; i < node.children.length; i++) {
-                var child = node.children[i];
-                if ( this.rustRhsReadsSharedCell(child) ) {
+                wr.out(" -> ", false);
+                await this.writeRustReturnType(variant, ctx, wr);
+              };
+              async writeRustReturnType (variant, ctx, wr) {
+                const vnn = variant.nameNode;
+                if ( ((vnn.array_type.length) == 0) && ((vnn.key_type.length) == 0) ) {
+                  if ( this.rustClassIsShared(vnn.type_name, ctx) ) {
+                    if ( vnn.hasFlag("optional") ) {
+                      wr.out(("Option<Rc<RefCell<" + this.getObjectTypeString(vnn.type_name, ctx)) + ">>>", false);
+                    } else {
+                      wr.out(("Rc<RefCell<" + this.getObjectTypeString(vnn.type_name, ctx)) + ">>", false);
+                    }
+                    return;
+                  }
+                }
+                await this.writeTypeDef(vnn, ctx, wr);
+              };
+              rustRhsReadsSharedCell (node) {
+                if ( (node.ns.length) >= 2 ) {
+                  if ( (node.nsp.length) > 0 ) {
+                    const rp = node.nsp[0];
+                    if ( rp.rust_needs_rc_wrap ) {
+                      return true;
+                    }
+                  }
+                }
+                if ( node.hasFnCall ) {
                   return true;
                 }
+                for ( let i = 0; i < node.children.length; i++) {
+                  var child = node.children[i];
+                  if ( this.rustRhsReadsSharedCell(child) ) {
+                    return true;
+                  }
+                };
+                return false;
               };
-              return false;
-            };
-            async writeStructField (node, ctx, wr) {
-              if ( node.hasParamDesc ) {
-                const nn = node.children[1];
-                const p = nn.paramDesc;
-                wr.out(this.adjustType(p.compiledName) + " : ", false);
-                const nameN = p.nameNode;
-                let shared_field = false;
-                if ( p.rust_needs_rc_wrap ) {
-                  if ( nameN.hasFlag("weak") == false ) {
-                    if ( ((nameN.array_type.length) == 0) && ((nameN.key_type.length) == 0) ) {
-                      shared_field = true;
-                    }
-                  }
-                }
-                if ( shared_field ) {
-                  if ( p.is_optional ) {
-                    wr.out(("Option<Rc<RefCell<" + this.getObjectTypeString(nameN.type_name, ctx)) + ">>>", false);
-                  } else {
-                    wr.out(("Rc<RefCell<" + this.getObjectTypeString(nameN.type_name, ctx)) + ">>", false);
-                  }
-                } else {
-                  if ( p.rust_static_str ) {
-                    wr.out("&'static str", false);
-                  } else {
-                    await this.writeTypeDef(nameN, ctx, wr);
-                  }
-                }
-                wr.out(", ", true);
-              }
-            };
-            async writeVarDef (node, ctx, wr) {
-              if ( node.hasParamDesc ) {
-                const nn = node.children[1];
-                const p = nn.paramDesc;
-                if ( (p.ref_cnt > 0) && ((node.children.length) > 2) ) {
-                  await this.rustExtractSelfCallConflicts(node.getThird(), ctx, wr);
-                }
-                const unused_def = (p.ref_cnt == 0) && (p.is_class_variable == false);
-                let unused_keeps_call = false;
-                if ( unused_def ) {
-                  if ( (node.children.length) > 2 ) {
-                    if ( this.rustNodeContainsCall(node.getThird()) ) {
-                      unused_keeps_call = true;
-                    }
-                  }
-                }
-                if ( unused_def && (unused_keeps_call == false) ) {
-                  wr.out("// unused:  ", false);
-                }
-                let unused_pfx = "";
-                if ( unused_keeps_call ) {
-                  unused_pfx = "_";
-                }
-                if ( p.rust_static_str ) {
-                  let s_mut = "let ";
-                  if ( p.set_cnt > 0 ) {
-                    s_mut = "let mut ";
-                  }
-                  wr.out(((s_mut + unused_pfx) + this.adjustType(p.compiledName)) + " : &'static str = ", false);
-                  if ( (node.children.length) > 2 ) {
-                    await this.rustWriteStaticStrValue(node.getThird(), ctx, wr);
-                  } else {
-                    wr.out("\"\"", false);
-                  }
-                  wr.out(";", true);
-                  return;
-                }
-                const map_or_hash = (nn.value_type == 6) || (nn.value_type == 7);
-                const is_buffer = ((nn.value_type == 16) || (nn.value_type == 17)) || (nn.value_type == 18);
-                const needs_mut = (((p.set_cnt > 0) || p.is_class_variable) || map_or_hash) || is_buffer;
-                const is_object = nn.value_type == 10;
-                const local_needs_rc_wrap = p.rust_needs_rc_wrap;
-                let local_wraps_union_new = false;
-                if ( (node.children.length) > 2 ) {
-                  const initValue = node.getThird();
-                  const initTargetOpt = ctx.findClass(nn.type_name);
-                  if ( (typeof(initTargetOpt) !== "undefined" && initTargetOpt != null )  ) {
-                    const initTarget = initTargetOpt;
-                    if ( initTarget.is_union ) {
-                      if ( this.rustNewIntoUnion(initValue, ctx) ) {
-                        local_wraps_union_new = true;
+              async writeStructField (node, ctx, wr) {
+                if ( node.hasParamDesc ) {
+                  const nn = node.children[1];
+                  const p = nn.paramDesc;
+                  wr.out(this.adjustType(p.compiledName) + " : ", false);
+                  const nameN = p.nameNode;
+                  let shared_field = false;
+                  if ( p.rust_needs_rc_wrap ) {
+                    if ( nameN.hasFlag("weak") == false ) {
+                      if ( ((nameN.array_type.length) == 0) && ((nameN.key_type.length) == 0) ) {
+                        shared_field = true;
                       }
                     }
                   }
-                }
-                if ( needs_mut || is_object ) {
-                  wr.out((("let mut " + unused_pfx) + this.adjustType(p.compiledName)) + " : ", false);
-                } else {
-                  wr.out((("let " + unused_pfx) + this.adjustType(p.compiledName)) + " : ", false);
-                }
-                const nameN = p.nameNode;
-                let rhs_is_optional_field = false;
-                if ( (node.children.length) > 2 ) {
-                  const value = node.getThird();
-                  if ( value.value_type == 11 ) {
-                    if ( (value.nsp.length) > 0 ) {
-                      const lastIdx = (value.nsp.length) - 1;
-                      const lastParam = value.nsp[lastIdx];
-                      if ( lastParam.is_optional ) {
-                        rhs_is_optional_field = true;
-                        const lpNN = lastParam.nameNode;
-                        if ( (typeof(lpNN) !== "undefined" && lpNN != null )  ) {
-                          const lpN = lpNN;
-                          if ( ((lpN.array_type.length) > 0) || ((lpN.key_type.length) > 0) ) {
-                            rhs_is_optional_field = false;
-                          }
-                        }
-                      }
+                  if ( shared_field ) {
+                    if ( p.is_optional ) {
+                      wr.out(("Option<Rc<RefCell<" + this.getObjectTypeString(nameN.type_name, ctx)) + ">>>", false);
                     } else {
-                      if ( value.hasParamDesc ) {
-                        const vp = value.paramDesc;
-                        if ( vp.is_optional ) {
+                      wr.out(("Rc<RefCell<" + this.getObjectTypeString(nameN.type_name, ctx)) + ">>", false);
+                    }
+                  } else {
+                    if ( p.rust_static_str ) {
+                      wr.out("&'static str", false);
+                    } else {
+                      await this.writeTypeDef(nameN, ctx, wr);
+                    }
+                  }
+                  wr.out(", ", true);
+                }
+              };
+              async writeVarDef (node, ctx, wr) {
+                if ( node.hasParamDesc ) {
+                  const nn = node.children[1];
+                  const p = nn.paramDesc;
+                  if ( (p.ref_cnt > 0) && ((node.children.length) > 2) ) {
+                    await this.rustExtractSelfCallConflicts(node.getThird(), ctx, wr);
+                  }
+                  const unused_def = (p.ref_cnt == 0) && (p.is_class_variable == false);
+                  let unused_keeps_call = false;
+                  if ( unused_def ) {
+                    if ( (node.children.length) > 2 ) {
+                      if ( this.rustNodeContainsCall(node.getThird()) ) {
+                        unused_keeps_call = true;
+                      }
+                    }
+                  }
+                  if ( unused_def && (unused_keeps_call == false) ) {
+                    wr.out("// unused:  ", false);
+                  }
+                  let unused_pfx = "";
+                  if ( unused_keeps_call ) {
+                    unused_pfx = "_";
+                  }
+                  if ( p.rust_static_str ) {
+                    let s_mut = "let ";
+                    if ( p.set_cnt > 0 ) {
+                      s_mut = "let mut ";
+                    }
+                    wr.out(((s_mut + unused_pfx) + this.adjustType(p.compiledName)) + " : &'static str = ", false);
+                    if ( (node.children.length) > 2 ) {
+                      await this.rustWriteStaticStrValue(node.getThird(), ctx, wr);
+                    } else {
+                      wr.out("\"\"", false);
+                    }
+                    wr.out(";", true);
+                    return;
+                  }
+                  const map_or_hash = (nn.value_type == 6) || (nn.value_type == 7);
+                  const is_buffer = ((nn.value_type == 16) || (nn.value_type == 17)) || (nn.value_type == 18);
+                  const needs_mut = (((p.set_cnt > 0) || p.is_class_variable) || map_or_hash) || is_buffer;
+                  const is_object = nn.value_type == 10;
+                  const local_needs_rc_wrap = p.rust_needs_rc_wrap;
+                  let local_is_union_slot = false;
+                  if ( (node.children.length) > 2 ) {
+                    const initTargetOpt = ctx.findClass(nn.type_name);
+                    if ( (typeof(initTargetOpt) !== "undefined" && initTargetOpt != null )  ) {
+                      const initTarget = initTargetOpt;
+                      if ( this.unionIsSealable(initTarget, ctx) ) {
+                        local_is_union_slot = true;
+                      }
+                    }
+                  }
+                  if ( needs_mut || is_object ) {
+                    wr.out((("let mut " + unused_pfx) + this.adjustType(p.compiledName)) + " : ", false);
+                  } else {
+                    wr.out((("let " + unused_pfx) + this.adjustType(p.compiledName)) + " : ", false);
+                  }
+                  const nameN = p.nameNode;
+                  let rhs_is_optional_field = false;
+                  if ( (node.children.length) > 2 ) {
+                    const value = node.getThird();
+                    if ( value.value_type == 11 ) {
+                      if ( (value.nsp.length) > 0 ) {
+                        const lastIdx = (value.nsp.length) - 1;
+                        const lastParam = value.nsp[lastIdx];
+                        if ( lastParam.is_optional ) {
                           rhs_is_optional_field = true;
-                          const vpNN = vp.nameNode;
-                          if ( (typeof(vpNN) !== "undefined" && vpNN != null )  ) {
-                            const vpN = vpNN;
-                            if ( ((vpN.array_type.length) > 0) || ((vpN.key_type.length) > 0) ) {
+                          const lpNN = lastParam.nameNode;
+                          if ( (typeof(lpNN) !== "undefined" && lpNN != null )  ) {
+                            const lpN = lpNN;
+                            if ( ((lpN.array_type.length) > 0) || ((lpN.key_type.length) > 0) ) {
                               rhs_is_optional_field = false;
                             }
                           }
                         }
-                      }
-                    }
-                  }
-                }
-                let eff_optional = p.is_optional;
-                if ( eff_optional == false ) {
-                  if ( nameN.hasFlag("optional") ) {
-                    eff_optional = true;
-                  }
-                }
-                if ( local_needs_rc_wrap ) {
-                  if ( eff_optional && (((nameN.array_type.length) == 0) && ((nameN.key_type.length) == 0)) ) {
-                    wr.out(("Option<Rc<RefCell<" + this.getObjectTypeString(nameN.type_name, ctx)) + ">>>", false);
-                  } else {
-                    wr.out("Rc<RefCell<", false);
-                    if ( (((nameN.type_name.length) > 0) && ((nameN.array_type.length) == 0)) && ((nameN.key_type.length) == 0) ) {
-                      wr.out(this.getObjectTypeString(nameN.type_name, ctx), false);
-                    } else {
-                      await this.writeTypeDef(nameN, ctx, wr);
-                    }
-                    wr.out(">>", false);
-                  }
-                } else {
-                  if ( rhs_is_optional_field ) {
-                    let v_type = nameN.value_type;
-                    if ( ((v_type == 10) || (v_type == 11)) || (v_type == 0) ) {
-                      v_type = nameN.typeNameAsType(ctx);
-                    }
-                    if ( nameN.eval_type != 0 ) {
-                      v_type = nameN.eval_type;
-                    }
-                    wr.out(this.getTypeString(nameN.type_name), false);
-                  } else {
-                    await this.writeTypeDef(nameN, ctx, wr);
-                  }
-                }
-                if ( (node.children.length) > 2 ) {
-                  wr.out(" = ", false);
-                  const value_1 = node.getThird();
-                  let init_rc_state = 0;
-                  if ( local_needs_rc_wrap ) {
-                    init_rc_state = this.rustInitRcState(value_1, ctx);
-                  }
-                  let optInitPassthrough = false;
-                  if ( local_needs_rc_wrap && eff_optional ) {
-                    if ( value_1.hasFlag("optional") ) {
-                      optInitPassthrough = true;
-                    }
-                    if ( rhs_is_optional_field ) {
-                      optInitPassthrough = true;
-                    }
-                    if ( optInitPassthrough == false ) {
-                      wr.out("Some(", false);
-                    }
-                  }
-                  if ( (local_needs_rc_wrap && (init_rc_state == 0)) && (optInitPassthrough == false) ) {
-                    wr.out("Rc::new(RefCell::new(", false);
-                  }
-                  if ( local_wraps_union_new ) {
-                    wr.out("Rc::new(RefCell::new(", false);
-                  }
-                  ctx.setInExpr();
-                  await this.WalkNode(value_1, ctx, wr);
-                  ctx.unsetInExpr();
-                  if ( local_wraps_union_new ) {
-                    wr.out("))", false);
-                  }
-                  if ( local_needs_rc_wrap && (optInitPassthrough == false) ) {
-                    if ( init_rc_state == 0 ) {
-                      wr.out("))", false);
-                    }
-                    if ( init_rc_state == 1 ) {
-                      wr.out(".clone()", false);
-                    }
-                  }
-                  if ( (local_needs_rc_wrap && eff_optional) && (optInitPassthrough == false) ) {
-                    wr.out(")", false);
-                  }
-                  if ( rhs_is_optional_field && ((local_needs_rc_wrap && eff_optional) == false) ) {
-                    let v_type_1 = nameN.value_type;
-                    if ( ((v_type_1 == 10) || (v_type_1 == 11)) || (v_type_1 == 0) ) {
-                      v_type_1 = nameN.typeNameAsType(ctx);
-                    }
-                    if ( v_type_1 == 10 ) {
-                      wr.out(".clone().unwrap()", false);
-                    } else {
-                      wr.out(".unwrap()", false);
-                    }
-                  }
-                  if ( value_1.value_type == 11 ) {
-                    let should_clone_vardef = false;
-                    let vardef_src_ref_str = this.rustStaticStrRead(value_1);
-                    if ( nameN.type_name == "string" ) {
-                      if ( vardef_src_ref_str ) {
-                        should_clone_vardef = true;
-                      }
-                      if ( (value_1.ns.length) > 1 ) {
-                        should_clone_vardef = true;
                       } else {
-                        if ( value_1.hasParamDesc ) {
-                          const vp_1 = value_1.paramDesc;
-                          if ( vp_1.ref_cnt > 1 ) {
-                            should_clone_vardef = true;
-                          }
-                        }
-                      }
-                    }
-                    if ( value_1.hasParamDesc ) {
-                      const vpB = value_1.paramDesc;
-                      if ( vpB.rust_borrow_type > 0 ) {
-                        if ( (nn.value_type == 6) || (nn.value_type == 7) ) {
-                          should_clone_vardef = true;
-                        }
-                        if ( nameN.type_name == "string" ) {
-                          should_clone_vardef = true;
-                        }
-                      }
-                    }
-                    if ( value_1.hasParamDesc ) {
-                      const vp_2 = value_1.paramDesc;
-                      if ( vp_2.is_class_variable ) {
-                        let v_type_2 = nameN.value_type;
-                        if ( ((v_type_2 == 10) || (v_type_2 == 11)) || (v_type_2 == 0) ) {
-                          v_type_2 = nameN.typeNameAsType(ctx);
-                        }
-                        if ( (((v_type_2 == 10) || (v_type_2 == 6)) || (v_type_2 == 16)) || (v_type_2 == 17) ) {
-                          should_clone_vardef = true;
-                        }
-                      }
-                    }
-                    if ( should_clone_vardef ) {
-                      if ( vardef_src_ref_str == false ) {
-                        if ( ((value_1.expression == false) && value_1.hasParamDesc) && ((value_1.ns.length) == 1) ) {
-                          const vbp = value_1.paramDesc;
-                          if ( vbp.rust_borrow_type == 1 ) {
-                            const vbpNN = vbp.nameNode;
-                            if ( (typeof(vbpNN) !== "undefined" && vbpNN != null )  ) {
-                              const vbpN = vbpNN;
-                              if ( (vbpN.type_name == "string") && ((vbpN.array_type.length) == 0) ) {
-                                vardef_src_ref_str = true;
+                        if ( value.hasParamDesc ) {
+                          const vp = value.paramDesc;
+                          if ( vp.is_optional ) {
+                            rhs_is_optional_field = true;
+                            const vpNN = vp.nameNode;
+                            if ( (typeof(vpNN) !== "undefined" && vpNN != null )  ) {
+                              const vpN = vpNN;
+                              if ( ((vpN.array_type.length) > 0) || ((vpN.key_type.length) > 0) ) {
+                                rhs_is_optional_field = false;
                               }
                             }
                           }
                         }
                       }
-                      if ( vardef_src_ref_str ) {
-                        wr.out(".to_string()", false);
+                    }
+                  }
+                  let eff_optional = p.is_optional;
+                  if ( eff_optional == false ) {
+                    if ( nameN.hasFlag("optional") ) {
+                      eff_optional = true;
+                    }
+                  }
+                  if ( local_needs_rc_wrap ) {
+                    if ( eff_optional && (((nameN.array_type.length) == 0) && ((nameN.key_type.length) == 0)) ) {
+                      wr.out(("Option<Rc<RefCell<" + this.getObjectTypeString(nameN.type_name, ctx)) + ">>>", false);
+                    } else {
+                      wr.out("Rc<RefCell<", false);
+                      if ( (((nameN.type_name.length) > 0) && ((nameN.array_type.length) == 0)) && ((nameN.key_type.length) == 0) ) {
+                        wr.out(this.getObjectTypeString(nameN.type_name, ctx), false);
                       } else {
+                        await this.writeTypeDef(nameN, ctx, wr);
+                      }
+                      wr.out(">>", false);
+                    }
+                  } else {
+                    if ( rhs_is_optional_field ) {
+                      let v_type = nameN.value_type;
+                      if ( ((v_type == 10) || (v_type == 11)) || (v_type == 0) ) {
+                        v_type = nameN.typeNameAsType(ctx);
+                      }
+                      if ( nameN.eval_type != 0 ) {
+                        v_type = nameN.eval_type;
+                      }
+                      wr.out(this.getTypeString(nameN.type_name), false);
+                    } else {
+                      await this.writeTypeDef(nameN, ctx, wr);
+                    }
+                  }
+                  if ( (node.children.length) > 2 ) {
+                    wr.out(" = ", false);
+                    const value_1 = node.getThird();
+                    let init_rc_state = 0;
+                    if ( local_needs_rc_wrap ) {
+                      init_rc_state = this.rustInitRcState(value_1, ctx);
+                    }
+                    let optInitPassthrough = false;
+                    if ( local_needs_rc_wrap && eff_optional ) {
+                      if ( value_1.hasFlag("optional") ) {
+                        optInitPassthrough = true;
+                      }
+                      if ( rhs_is_optional_field ) {
+                        optInitPassthrough = true;
+                      }
+                      if ( optInitPassthrough == false ) {
+                        wr.out("Some(", false);
+                      }
+                    }
+                    if ( (local_needs_rc_wrap && (init_rc_state == 0)) && (optInitPassthrough == false) ) {
+                      wr.out("Rc::new(RefCell::new(", false);
+                    }
+                    let wroteUnionInit = false;
+                    if ( local_is_union_slot ) {
+                      wroteUnionInit = await this.rustWriteUnionValue(nn.type_name, value_1, ctx, wr);
+                    }
+                    if ( wroteUnionInit == false ) {
+                      ctx.setInExpr();
+                      await this.WalkNode(value_1, ctx, wr);
+                      ctx.unsetInExpr();
+                    }
+                    if ( local_needs_rc_wrap && (optInitPassthrough == false) ) {
+                      if ( init_rc_state == 0 ) {
+                        wr.out("))", false);
+                      }
+                      if ( init_rc_state == 1 ) {
                         wr.out(".clone()", false);
                       }
                     }
+                    if ( (local_needs_rc_wrap && eff_optional) && (optInitPassthrough == false) ) {
+                      wr.out(")", false);
+                    }
+                    if ( rhs_is_optional_field && ((local_needs_rc_wrap && eff_optional) == false) ) {
+                      let v_type_1 = nameN.value_type;
+                      if ( ((v_type_1 == 10) || (v_type_1 == 11)) || (v_type_1 == 0) ) {
+                        v_type_1 = nameN.typeNameAsType(ctx);
+                      }
+                      if ( v_type_1 == 10 ) {
+                        wr.out(".clone().unwrap()", false);
+                      } else {
+                        wr.out(".unwrap()", false);
+                      }
+                    }
+                    if ( value_1.value_type == 11 ) {
+                      let should_clone_vardef = false;
+                      let vardef_src_ref_str = this.rustStaticStrRead(value_1);
+                      if ( nameN.type_name == "string" ) {
+                        if ( vardef_src_ref_str ) {
+                          should_clone_vardef = true;
+                        }
+                        if ( (value_1.ns.length) > 1 ) {
+                          should_clone_vardef = true;
+                        } else {
+                          if ( value_1.hasParamDesc ) {
+                            const vp_1 = value_1.paramDesc;
+                            if ( vp_1.ref_cnt > 1 ) {
+                              should_clone_vardef = true;
+                            }
+                          }
+                        }
+                      }
+                      if ( value_1.hasParamDesc ) {
+                        const vpB = value_1.paramDesc;
+                        if ( vpB.rust_borrow_type > 0 ) {
+                          if ( (nn.value_type == 6) || (nn.value_type == 7) ) {
+                            should_clone_vardef = true;
+                          }
+                          if ( nameN.type_name == "string" ) {
+                            should_clone_vardef = true;
+                          }
+                        }
+                      }
+                      if ( value_1.hasParamDesc ) {
+                        const vp_2 = value_1.paramDesc;
+                        if ( vp_2.is_class_variable ) {
+                          let v_type_2 = nameN.value_type;
+                          if ( ((v_type_2 == 10) || (v_type_2 == 11)) || (v_type_2 == 0) ) {
+                            v_type_2 = nameN.typeNameAsType(ctx);
+                          }
+                          if ( (((v_type_2 == 10) || (v_type_2 == 6)) || (v_type_2 == 16)) || (v_type_2 == 17) ) {
+                            should_clone_vardef = true;
+                          }
+                        }
+                      }
+                      if ( should_clone_vardef ) {
+                        if ( vardef_src_ref_str == false ) {
+                          if ( ((value_1.expression == false) && value_1.hasParamDesc) && ((value_1.ns.length) == 1) ) {
+                            const vbp = value_1.paramDesc;
+                            if ( vbp.rust_borrow_type == 1 ) {
+                              const vbpNN = vbp.nameNode;
+                              if ( (typeof(vbpNN) !== "undefined" && vbpNN != null )  ) {
+                                const vbpN = vbpNN;
+                                if ( (vbpN.type_name == "string") && ((vbpN.array_type.length) == 0) ) {
+                                  vardef_src_ref_str = true;
+                                }
+                              }
+                            }
+                          }
+                        }
+                        if ( vardef_src_ref_str ) {
+                          wr.out(".to_string()", false);
+                        } else {
+                          wr.out(".clone()", false);
+                        }
+                      }
+                    }
+                  } else {
+                    if ( nn.value_type == 6 ) {
+                      wr.out(" = Vec::new()", false);
+                    }
+                    if ( nn.value_type == 7 ) {
+                      wr.out(" = HashMap::default()", false);
+                    }
+                    if ( nameN.hasFlag("optional") ) {
+                      wr.out(" = None", false);
+                    }
                   }
-                } else {
-                  if ( nn.value_type == 6 ) {
-                    wr.out(" = Vec::new()", false);
+                  wr.out(";", false);
+                  if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
+                    wr.out("     // note: unused", false);
                   }
-                  if ( nn.value_type == 7 ) {
-                    wr.out(" = HashMap::default()", false);
-                  }
-                  if ( nameN.hasFlag("optional") ) {
-                    wr.out(" = None", false);
+                  if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
+                    wr.newline();
+                  } else {
+                    wr.newline();
                   }
                 }
-                wr.out(";", false);
-                if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
-                  wr.out("     // note: unused", false);
+              };
+              rustNewIntoUnion (value, ctx) {
+                if ( value.hasNewOper == false ) {
+                  return false;
                 }
-                if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
-                  wr.newline();
-                } else {
-                  wr.newline();
+                const newClOpt = value.clDesc;
+                if ( typeof(newClOpt) === "undefined" ) {
+                  return false;
                 }
-              }
-            };
-            rustNewIntoUnion (value, ctx) {
-              if ( value.hasNewOper == false ) {
-                return false;
-              }
-              const newClOpt = value.clDesc;
-              if ( typeof(newClOpt) === "undefined" ) {
-                return false;
-              }
-              const newCl = newClOpt;
-              if ( newCl.is_union ) {
-                return false;
-              }
-              return this.rustClassIsShared(newCl.name, ctx);
-            };
-            async rustWriteUnionArg (arg, nVal, ctx, wr) {
-              const argNN = arg.nameNode;
-              if ( typeof(argNN) === "undefined" ) {
-                return false;
-              }
-              if ( arg.rust_borrow_type != 0 ) {
-                return false;
-              }
-              if ( arg.needs_cpp_reference ) {
-                return false;
-              }
-              const argNameNode = argNN;
-              const tcOpt = ctx.findClass(argNameNode.type_name);
-              if ( typeof(tcOpt) === "undefined" ) {
-                return false;
-              }
-              const target = tcOpt;
-              if ( target.is_union == false ) {
-                return false;
-              }
-              if ( this.rustNewIntoUnion(nVal, ctx) ) {
-                wr.out("Rc::new(RefCell::new(", false);
+                const newCl = newClOpt;
+                if ( newCl.is_union ) {
+                  return false;
+                }
+                return this.rustClassIsShared(newCl.name, ctx);
+              };
+              rustUnionHasMember (ucl, memberName) {
+                return (ucl.is_union_of.indexOf(memberName)) >= 0;
+              };
+              rustDeclaredClassOf (nVal) {
+                if ( nVal.hasNewOper ) {
+                  const newClOpt = nVal.clDesc;
+                  if ( (typeof(newClOpt) !== "undefined" && newClOpt != null )  ) {
+                    const newCl = newClOpt;
+                    return newCl.name;
+                  }
+                }
+                if ( nVal.hasParamDesc ) {
+                  const pd = nVal.paramDesc;
+                  const pdNN = pd.nameNode;
+                  if ( (typeof(pdNN) !== "undefined" && pdNN != null )  ) {
+                    const pdNode = pdNN;
+                    return pdNode.type_name;
+                  }
+                }
+                return "";
+              };
+              async rustWriteUnionValue (targetTypeName, nVal, ctx, wr) {
+                if ( (targetTypeName.length) == 0 ) {
+                  return false;
+                }
+                const tcOpt = ctx.findClass(targetTypeName);
+                if ( typeof(tcOpt) === "undefined" ) {
+                  return false;
+                }
+                const target = tcOpt;
+                if ( this.unionIsSealable(target, ctx) == false ) {
+                  return false;
+                }
+                const enumName = this.unionInterfaceName(targetTypeName);
+                const valClass = this.rustDeclaredClassOf(nVal);
+                if ( this.rustUnionHasMember(target, valClass) ) {
+                  wr.out((enumName + "::") + valClass, false);
+                  wr.out("(", false);
+                  if ( nVal.hasNewOper ) {
+                    const memberShared = this.rustClassIsShared(valClass, ctx);
+                    if ( memberShared ) {
+                      wr.out("Rc::new(RefCell::new(", false);
+                    }
+                    ctx.setInExpr();
+                    wr.suppress_expr_parens = true;
+                    await this.WalkNode(nVal, ctx, wr);
+                    wr.suppress_expr_parens = false;
+                    ctx.unsetInExpr();
+                    if ( memberShared ) {
+                      wr.out("))", false);
+                    }
+                  } else {
+                    ctx.setInExpr();
+                    wr.suppress_expr_parens = true;
+                    await this.WalkNode(nVal, ctx, wr);
+                    wr.suppress_expr_parens = false;
+                    ctx.unsetInExpr();
+                    wr.out(".clone()", false);
+                  }
+                  wr.out(")", false);
+                  return true;
+                }
                 ctx.setInExpr();
                 wr.suppress_expr_parens = true;
                 await this.WalkNode(nVal, ctx, wr);
                 wr.suppress_expr_parens = false;
                 ctx.unsetInExpr();
-                wr.out("))", false);
+                wr.out(".clone()", false);
                 return true;
-              }
-              ctx.setInExpr();
-              wr.suppress_expr_parens = true;
-              await this.WalkNode(nVal, ctx, wr);
-              wr.suppress_expr_parens = false;
-              ctx.unsetInExpr();
-              wr.out(".clone()", false);
-              return true;
-            };
-            rustClassIsShared (typeName, ctx) {
-              if ( (typeName.length) == 0 ) {
-                return false;
-              }
-              if ( ctx.hasCompilerFlag("rust-value-classes") ) {
-                return false;
-              }
-              const typeClass = ctx.findClass(typeName);
-              if ( typeof(typeClass) === "undefined" ) {
-                return false;
-              }
-              const tc = typeClass;
-              if ( tc.is_union ) {
-                return false;
-              }
-              return tc.rust_needs_ref_semantics;
-            };
-            rustNeedsSelfRc (fnDesc, ctx) {
-              return fnDesc.rust_needs_self_rc;
-            };
-            rustInitRcState (value, ctx) {
-              if ( value.expression == false ) {
-                if ( value.hasParamDesc ) {
-                  const ip = value.paramDesc;
-                  if ( ip.rust_needs_rc_wrap ) {
-                    return 1;
+              };
+              async rustWriteUnionArg (arg, nVal, ctx, wr) {
+                const argNN = arg.nameNode;
+                if ( typeof(argNN) === "undefined" ) {
+                  return false;
+                }
+                if ( arg.rust_borrow_type != 0 ) {
+                  return false;
+                }
+                if ( arg.needs_cpp_reference ) {
+                  return false;
+                }
+                const argNameNode = argNN;
+                return await this.rustWriteUnionValue(argNameNode.type_name, nVal, ctx, wr);
+              };
+              rustClassIsShared (typeName, ctx) {
+                if ( (typeName.length) == 0 ) {
+                  return false;
+                }
+                if ( ctx.hasCompilerFlag("rust-value-classes") ) {
+                  return false;
+                }
+                const typeClass = ctx.findClass(typeName);
+                if ( typeof(typeClass) === "undefined" ) {
+                  return false;
+                }
+                const tc = typeClass;
+                if ( tc.is_union ) {
+                  return false;
+                }
+                return tc.rust_needs_ref_semantics;
+              };
+              rustNeedsSelfRc (fnDesc, ctx) {
+                return fnDesc.rust_needs_self_rc;
+              };
+              rustInitRcState (value, ctx) {
+                if ( value.expression == false ) {
+                  if ( value.hasParamDesc ) {
+                    const ip = value.paramDesc;
+                    if ( ip.rust_needs_rc_wrap ) {
+                      return 1;
+                    }
+                  }
+                  return 0;
+                }
+                if ( (value.children.length) == 1 ) {
+                  const only = value.getFirst();
+                  if ( only.expression ) {
+                    return this.rustInitRcState(only, ctx);
+                  }
+                }
+                if ( value.hasNewOper == false ) {
+                  if ( this.rustClassIsShared(value.eval_type_name, ctx) ) {
+                    return 2;
+                  }
+                }
+                if ( value.hasFnCall ) {
+                  if ( (typeof(value.fnDesc) !== "undefined" && value.fnDesc != null )  ) {
+                    const cfd = value.fnDesc;
+                    if ( (typeof(cfd.nameNode) !== "undefined" && cfd.nameNode != null )  ) {
+                      const rt = cfd.nameNode;
+                      if ( ((rt.array_type.length) == 0) && ((rt.key_type.length) == 0) ) {
+                        if ( this.rustClassIsShared(rt.type_name, ctx) ) {
+                          return 2;
+                        }
+                      }
+                    }
+                  }
+                }
+                if ( (value.children.length) >= 2 ) {
+                  const first = value.getFirst();
+                  if ( first.vref == "unwrap" ) {
+                    const arg = value.getSecond();
+                    if ( arg.hasParamDesc ) {
+                      const pp = arg.paramDesc;
+                      if ( (typeof(pp.nameNode) !== "undefined" && pp.nameNode != null )  ) {
+                        const nn = pp.nameNode;
+                        if ( nn.hasFlag("weak") ) {
+                          if ( this.rustClassIsShared(nn.type_name, ctx) ) {
+                            return 2;
+                          }
+                        }
+                        if ( pp.rust_needs_rc_wrap ) {
+                          if ( ((nn.array_type.length) == 0) && ((nn.key_type.length) == 0) ) {
+                            return 2;
+                          }
+                        }
+                      }
+                    }
                   }
                 }
                 return 0;
-              }
-              if ( (value.children.length) == 1 ) {
-                const only = value.getFirst();
-                if ( only.expression ) {
-                  return this.rustInitRcState(only, ctx);
-                }
-              }
-              if ( value.hasNewOper == false ) {
-                if ( this.rustClassIsShared(value.eval_type_name, ctx) ) {
-                  return 2;
-                }
-              }
-              if ( value.hasFnCall ) {
-                if ( (typeof(value.fnDesc) !== "undefined" && value.fnDesc != null )  ) {
-                  const cfd = value.fnDesc;
-                  if ( (typeof(cfd.nameNode) !== "undefined" && cfd.nameNode != null )  ) {
-                    const rt = cfd.nameNode;
-                    if ( ((rt.array_type.length) == 0) && ((rt.key_type.length) == 0) ) {
-                      if ( this.rustClassIsShared(rt.type_name, ctx) ) {
-                        return 2;
-                      }
-                    }
-                  }
-                }
-              }
-              if ( (value.children.length) >= 2 ) {
-                const first = value.getFirst();
-                if ( first.vref == "unwrap" ) {
-                  const arg = value.getSecond();
-                  if ( arg.hasParamDesc ) {
-                    const pp = arg.paramDesc;
-                    if ( (typeof(pp.nameNode) !== "undefined" && pp.nameNode != null )  ) {
-                      const nn = pp.nameNode;
-                      if ( nn.hasFlag("weak") ) {
-                        if ( this.rustClassIsShared(nn.type_name, ctx) ) {
-                          return 2;
-                        }
-                      }
-                      if ( pp.rust_needs_rc_wrap ) {
-                        if ( ((nn.array_type.length) == 0) && ((nn.key_type.length) == 0) ) {
-                          return 2;
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-              return 0;
-            };
-            writeSelfRcReceiverArg (node, fc, ctx, wr) {
-              if ( typeof(node.fnDesc) === "undefined" ) {
-                return false;
-              }
-              if ( this.rustNeedsSelfRc((node.fnDesc), ctx) == false ) {
-                return false;
-              }
-              const nsLen = fc.ns.length;
-              if ( nsLen < 2 ) {
-                ctx.addError(node, "This method stores `this`, so its Rust form needs the receiver's Rc. Bind the receiver to a variable first: def recv:T (expr) — then recv.method(...).");
-                return false;
-              }
-              const root = fc.ns[0];
-              if ( (root == "this") && (nsLen == 2) ) {
-                const cm = ctx.getCurrentMethod();
-                if ( (typeof(cm) !== "undefined" && cm != null )  ) {
-                  const cmf = cm;
-                  if ( cmf.rust_needs_self_rc == false ) {
-                    ctx.addError(node, "A method that stores `this` cannot be called from here on Rust: the constructor runs before the object is inside its Rc. Call it on the constructed value instead.");
-                    return false;
-                  }
-                }
-                wr.out("__self_rc", false);
-                return true;
-              }
-              let path = "";
-              let segIdx = 0;
-              if ( root == "this" ) {
-                path = "self";
-                segIdx = 1;
-              }
-              while (segIdx < (nsLen - 1)) {
-                const segName = this.adjustType((fc.ns[segIdx]));
-                let haveSegD = false;
-                let segOptional = false;
-                let segMember = false;
-                if ( (fc.nsp.length) > segIdx ) {
-                  const segD = fc.nsp[segIdx];
-                  haveSegD = true;
-                  segMember = segD.is_class_variable;
-                  if ( segD.is_optional ) {
-                    const sdNN = segD.nameNode;
-                    let segColl = false;
-                    if ( (typeof(sdNN) !== "undefined" && sdNN != null )  ) {
-                      const sdN = sdNN;
-                      if ( ((sdN.array_type.length) > 0) || ((sdN.key_type.length) > 0) ) {
-                        segColl = true;
-                      }
-                    }
-                    if ( segColl == false ) {
-                      segOptional = true;
-                    }
-                  }
-                }
-                if ( (path.length) == 0 ) {
-                  if ( segMember ) {
-                    path = "self." + segName;
-                  } else {
-                    path = segName;
-                  }
-                } else {
-                  path = (path + ".") + segName;
-                }
-                if ( segOptional ) {
-                  path = path + ".as_ref().unwrap()";
-                }
-                segIdx = segIdx + 1;
               };
-              wr.out("&" + path, false);
-              return true;
-            };
-            writeRustReceiver (mutSelf, wr) {
-              this.rust_receiver_written = true;
-              if ( mutSelf ) {
-                wr.out("&mut self", false);
-              } else {
-                wr.out("&self", false);
-              }
-            };
-            async writeArgsDef (fnDesc, ctx, wr) {
-              const pms = operatorsOf.filter_48(fnDesc.params, ((item, index) => { 
-                if ( item.nameNode.hasFlag("keyword") ) {
+              writeSelfRcReceiverArg (node, fc, ctx, wr) {
+                if ( typeof(node.fnDesc) === "undefined" ) {
                   return false;
                 }
-                return true;
-              }));
-              const lead_comma = this.rust_receiver_written;
-              this.rust_receiver_written = false;
-              let wrote_selfrc = false;
-              if ( this.rustNeedsSelfRc(fnDesc, ctx) ) {
-                if ( lead_comma ) {
-                  wr.out(", ", false);
+                if ( this.rustNeedsSelfRc((node.fnDesc), ctx) == false ) {
+                  return false;
                 }
-                const scc = fnDesc.container_class;
-                wr.out(("__self_rc : &Rc<RefCell<" + scc.name) + ">>", false);
-                wrote_selfrc = true;
-              }
-              for ( let i = 0; i < pms.length; i++) {
-                var arg = pms[i];
-                if ( ((i > 0) || wrote_selfrc) || lead_comma ) {
-                  wr.out(", ", false);
+                const nsLen = fc.ns.length;
+                if ( nsLen < 2 ) {
+                  ctx.addError(node, "This method stores `this`, so its Rust form needs the receiver's Rc. Bind the receiver to a variable first: def recv:T (expr) — then recv.method(...).");
+                  return false;
                 }
-                const nameN = arg.nameNode;
-                let v_type = nameN.value_type;
-                if ( ((v_type == 10) || (v_type == 11)) || (v_type == 0) ) {
-                  v_type = nameN.typeNameAsType(ctx);
+                const root = fc.ns[0];
+                if ( (root == "this") && (nsLen == 2) ) {
+                  const cm = ctx.getCurrentMethod();
+                  if ( (typeof(cm) !== "undefined" && cm != null )  ) {
+                    const cmf = cm;
+                    if ( cmf.rust_needs_self_rc == false ) {
+                      ctx.addError(node, "A method that stores `this` cannot be called from here on Rust: the constructor runs before the object is inside its Rc. Call it on the constructed value instead.");
+                      return false;
+                    }
+                  }
+                  wr.out("__self_rc", false);
+                  return true;
                 }
-                const is_object = ((((((v_type == 10) || (v_type == 6)) || (v_type == 7)) || (v_type == 17)) || (v_type == 18)) || (v_type == 15)) || (v_type == 16);
-                const paramName = this.adjustType(arg.compiledName);
-                let needsMutRef = false;
-                if ( arg.needs_cpp_reference ) {
-                  needsMutRef = true;
+                let path = "";
+                let segIdx = 0;
+                if ( root == "this" ) {
+                  path = "self";
+                  segIdx = 1;
                 }
-                if ( arg.rust_borrow_type == 2 ) {
-                  needsMutRef = true;
-                }
-                if ( arg.rust_needs_rc_wrap ) {
-                  wr.out(("mut " + paramName) + " : Rc<RefCell<", false);
-                  await this.writeTypeDef(nameN, ctx, wr);
-                  wr.out(">>", false);
-                  continue;
-                }
-                const needsImmutableBorrow = arg.rust_borrow_type == 1;
-                if ( needsMutRef ) {
-                  wr.out(("mut " + paramName) + " : &mut ", false);
-                  await this.writeTypeDef(nameN, ctx, wr);
-                } else {
-                  if ( needsImmutableBorrow ) {
-                    let slice_elem = "";
-                    if ( (nameN.array_type.length) > 0 ) {
-                      const ael = nameN.array_type;
-                      if ( ((((ael == "int") || (ael == "double")) || (ael == "boolean")) || (ael == "string")) || (ael == "char") ) {
-                        slice_elem = this.getObjectTypeString(ael, ctx);
+                while (segIdx < (nsLen - 1)) {
+                  const segName = this.adjustType((fc.ns[segIdx]));
+                  let haveSegD = false;
+                  let segOptional = false;
+                  let segMember = false;
+                  if ( (fc.nsp.length) > segIdx ) {
+                    const segD = fc.nsp[segIdx];
+                    haveSegD = true;
+                    segMember = segD.is_class_variable;
+                    if ( segD.is_optional ) {
+                      const sdNN = segD.nameNode;
+                      let segColl = false;
+                      if ( (typeof(sdNN) !== "undefined" && sdNN != null )  ) {
+                        const sdN = sdNN;
+                        if ( ((sdN.array_type.length) > 0) || ((sdN.key_type.length) > 0) ) {
+                          segColl = true;
+                        }
                       }
-                    } else {
-                      if ( nameN.type_name == "buffer" ) {
-                        slice_elem = "u8";
-                      }
-                      if ( nameN.type_name == "int_buffer" ) {
-                        slice_elem = "i64";
-                      }
-                      if ( nameN.type_name == "double_buffer" ) {
-                        slice_elem = "f64";
+                      if ( segColl == false ) {
+                        segOptional = true;
                       }
                     }
-                    if ( (slice_elem.length) > 0 ) {
-                      wr.out(((paramName + " : &[") + slice_elem) + "]", false);
+                  }
+                  if ( (path.length) == 0 ) {
+                    if ( segMember ) {
+                      path = "self." + segName;
                     } else {
-                      if ( ((nameN.type_name == "string") && ((nameN.array_type.length) == 0)) && ((nameN.key_type.length) == 0) ) {
-                        wr.out(paramName + " : &str", false);
+                      path = segName;
+                    }
+                  } else {
+                    path = (path + ".") + segName;
+                  }
+                  if ( segOptional ) {
+                    path = path + ".as_ref().unwrap()";
+                  }
+                  segIdx = segIdx + 1;
+                };
+                wr.out("&" + path, false);
+                return true;
+              };
+              writeRustReceiver (mutSelf, wr) {
+                this.rust_receiver_written = true;
+                if ( mutSelf ) {
+                  wr.out("&mut self", false);
+                } else {
+                  wr.out("&self", false);
+                }
+              };
+              async writeArgsDef (fnDesc, ctx, wr) {
+                const pms = operatorsOf.filter_48(fnDesc.params, ((item, index) => { 
+                  if ( item.nameNode.hasFlag("keyword") ) {
+                    return false;
+                  }
+                  return true;
+                }));
+                const lead_comma = this.rust_receiver_written;
+                this.rust_receiver_written = false;
+                let wrote_selfrc = false;
+                if ( this.rustNeedsSelfRc(fnDesc, ctx) ) {
+                  if ( lead_comma ) {
+                    wr.out(", ", false);
+                  }
+                  const scc = fnDesc.container_class;
+                  wr.out(("__self_rc : &Rc<RefCell<" + scc.name) + ">>", false);
+                  wrote_selfrc = true;
+                }
+                for ( let i = 0; i < pms.length; i++) {
+                  var arg = pms[i];
+                  if ( ((i > 0) || wrote_selfrc) || lead_comma ) {
+                    wr.out(", ", false);
+                  }
+                  const nameN = arg.nameNode;
+                  let v_type = nameN.value_type;
+                  if ( ((v_type == 10) || (v_type == 11)) || (v_type == 0) ) {
+                    v_type = nameN.typeNameAsType(ctx);
+                  }
+                  const is_object = ((((((v_type == 10) || (v_type == 6)) || (v_type == 7)) || (v_type == 17)) || (v_type == 18)) || (v_type == 15)) || (v_type == 16);
+                  const paramName = this.adjustType(arg.compiledName);
+                  let needsMutRef = false;
+                  if ( arg.needs_cpp_reference ) {
+                    needsMutRef = true;
+                  }
+                  if ( arg.rust_borrow_type == 2 ) {
+                    needsMutRef = true;
+                  }
+                  if ( arg.rust_needs_rc_wrap ) {
+                    wr.out(("mut " + paramName) + " : Rc<RefCell<", false);
+                    await this.writeTypeDef(nameN, ctx, wr);
+                    wr.out(">>", false);
+                    continue;
+                  }
+                  const needsImmutableBorrow = arg.rust_borrow_type == 1;
+                  if ( needsMutRef ) {
+                    wr.out(("mut " + paramName) + " : &mut ", false);
+                    await this.writeTypeDef(nameN, ctx, wr);
+                  } else {
+                    if ( needsImmutableBorrow ) {
+                      let slice_elem = "";
+                      if ( (nameN.array_type.length) > 0 ) {
+                        const ael = nameN.array_type;
+                        if ( ((((ael == "int") || (ael == "double")) || (ael == "boolean")) || (ael == "string")) || (ael == "char") ) {
+                          slice_elem = this.getObjectTypeString(ael, ctx);
+                        }
                       } else {
-                        wr.out(paramName + " : &", false);
+                        if ( nameN.type_name == "buffer" ) {
+                          slice_elem = "u8";
+                        }
+                        if ( nameN.type_name == "int_buffer" ) {
+                          slice_elem = "i64";
+                        }
+                        if ( nameN.type_name == "double_buffer" ) {
+                          slice_elem = "f64";
+                        }
+                      }
+                      if ( (slice_elem.length) > 0 ) {
+                        wr.out(((paramName + " : &[") + slice_elem) + "]", false);
+                      } else {
+                        if ( ((nameN.type_name == "string") && ((nameN.array_type.length) == 0)) && ((nameN.key_type.length) == 0) ) {
+                          wr.out(paramName + " : &str", false);
+                        } else {
+                          wr.out(paramName + " : &", false);
+                          await this.writeTypeDef(nameN, ctx, wr);
+                        }
+                      }
+                    } else {
+                      if ( is_object ) {
+                        wr.out(("mut " + paramName) + " : ", false);
+                        await this.writeTypeDef(nameN, ctx, wr);
+                      } else {
+                        if ( arg.set_cnt > 0 ) {
+                          wr.out(("mut " + paramName) + " : ", false);
+                        } else {
+                          wr.out(paramName + " : ", false);
+                        }
                         await this.writeTypeDef(nameN, ctx, wr);
                       }
                     }
-                  } else {
-                    if ( is_object ) {
-                      wr.out(("mut " + paramName) + " : ", false);
-                      await this.writeTypeDef(nameN, ctx, wr);
-                    } else {
-                      if ( arg.set_cnt > 0 ) {
-                        wr.out(("mut " + paramName) + " : ", false);
-                      } else {
-                        wr.out(paramName + " : ", false);
-                      }
-                      await this.writeTypeDef(nameN, ctx, wr);
+                  }
+                };
+              };
+              rustNodeContainsCall (node) {
+                if ( node.hasFnCall ) {
+                  return true;
+                }
+                if ( node.has_call ) {
+                  return true;
+                }
+                for ( let ci = 0; ci < node.children.length; ci++) {
+                  var ch = node.children[ci];
+                  if ( this.rustNodeContainsCall(ch) ) {
+                    return true;
+                  }
+                };
+                return false;
+              };
+              containsSelfReference (node) {
+                if ( node.hasParamDesc ) {
+                  const pp = node.paramDesc;
+                  if ( pp.is_class_variable ) {
+                    return true;
+                  }
+                }
+                if ( node.hasFnCall ) {
+                  return true;
+                }
+                for ( let i = 0; i < node.children.length; i++) {
+                  var child = node.children[i];
+                  if ( this.containsSelfReference(child) ) {
+                    return true;
+                  }
+                };
+                return false;
+              };
+              fnBodyUsesThis (node, ctx) {
+                if ( node.vref == "this" ) {
+                  return true;
+                }
+                if ( (node.ns.length) > 0 ) {
+                  if ( (node.ns.length) > 0 ) {
+                    const firstPart = node.ns[0];
+                    if ( firstPart == "this" ) {
+                      return true;
+                    }
+                    if ( ctx.isMemberVariable(firstPart) ) {
+                      return true;
                     }
                   }
                 }
-              };
-            };
-            rustNodeContainsCall (node) {
-              if ( node.hasFnCall ) {
-                return true;
-              }
-              if ( node.has_call ) {
-                return true;
-              }
-              for ( let ci = 0; ci < node.children.length; ci++) {
-                var ch = node.children[ci];
-                if ( this.rustNodeContainsCall(ch) ) {
-                  return true;
+                if ( (node.vref.length) > 0 ) {
+                  if ( ctx.isMemberVariable(node.vref) ) {
+                    return true;
+                  }
                 }
-              };
-              return false;
-            };
-            containsSelfReference (node) {
-              if ( node.hasParamDesc ) {
-                const pp = node.paramDesc;
-                if ( pp.is_class_variable ) {
-                  return true;
+                if ( node.hasParamDesc ) {
+                  const pp = node.paramDesc;
+                  if ( pp.is_class_variable ) {
+                    return true;
+                  }
                 }
-              }
-              if ( node.hasFnCall ) {
-                return true;
-              }
-              for ( let i = 0; i < node.children.length; i++) {
-                var child = node.children[i];
-                if ( this.containsSelfReference(child) ) {
-                  return true;
-                }
+                for ( let i = 0; i < node.children.length; i++) {
+                  var child = node.children[i];
+                  if ( this.fnBodyUsesThis(child, ctx) ) {
+                    return true;
+                  }
+                };
+                return false;
               };
-              return false;
-            };
-            fnBodyUsesThis (node, ctx) {
-              if ( node.vref == "this" ) {
-                return true;
-              }
-              if ( (node.ns.length) > 0 ) {
+              accessesFieldOf (node, varName) {
                 if ( (node.ns.length) > 0 ) {
                   const firstPart = node.ns[0];
-                  if ( firstPart == "this" ) {
-                    return true;
-                  }
-                  if ( ctx.isMemberVariable(firstPart) ) {
-                    return true;
-                  }
-                }
-              }
-              if ( (node.vref.length) > 0 ) {
-                if ( ctx.isMemberVariable(node.vref) ) {
-                  return true;
-                }
-              }
-              if ( node.hasParamDesc ) {
-                const pp = node.paramDesc;
-                if ( pp.is_class_variable ) {
-                  return true;
-                }
-              }
-              for ( let i = 0; i < node.children.length; i++) {
-                var child = node.children[i];
-                if ( this.fnBodyUsesThis(child, ctx) ) {
-                  return true;
-                }
-              };
-              return false;
-            };
-            accessesFieldOf (node, varName) {
-              if ( (node.ns.length) > 0 ) {
-                const firstPart = node.ns[0];
-                if ( firstPart == varName ) {
-                  if ( (node.ns.length) > 1 ) {
-                    return true;
-                  }
-                }
-              }
-              for ( let i = 0; i < node.children.length; i++) {
-                var child = node.children[i];
-                if ( this.accessesFieldOf(child, varName) ) {
-                  return true;
-                }
-              };
-              return false;
-            };
-            getArgRootVar (node) {
-              if ( (node.ns.length) > 0 ) {
-                return node.ns[0];
-              }
-              if ( (node.vref.length) > 0 ) {
-                return node.vref;
-              }
-              return "";
-            };
-            hasMutRefConflict (node, fnDesc, argIdx, givenArgs) {
-              const paramCnt = fnDesc.params.length;
-              if ( argIdx >= paramCnt ) {
-                return false;
-              }
-              const param = fnDesc.params[argIdx];
-              let needsMut = false;
-              if ( param.needs_cpp_reference ) {
-                needsMut = true;
-              }
-              if ( param.rust_borrow_type == 2 ) {
-                needsMut = true;
-              }
-              if ( needsMut == false ) {
-                return false;
-              }
-              const argNode = givenArgs.children[argIdx];
-              if ( typeof(argNode) === "undefined" ) {
-                return false;
-              }
-              const varName = this.getArgRootVar((argNode));
-              if ( (varName.length) == 0 ) {
-                return false;
-              }
-              for ( let otherIdx = 0; otherIdx < givenArgs.children.length; otherIdx++) {
-                var otherArg = givenArgs.children[otherIdx];
-                if ( otherIdx != argIdx ) {
-                  if ( this.accessesFieldOf(otherArg, varName) ) {
-                    return true;
-                  }
-                }
-              };
-              return false;
-            };
-            collectSelfMethodCalls (node, ctx, calls) {
-              if ( (node.vref.length) > 5 ) {
-                const prefix = node.vref.substring(0, 5 );
-                if ( prefix == "this." ) {
-                  const methodName = node.vref.substring(5, (node.vref.length) );
-                  calls.push(methodName);
-                }
-              }
-              if ( node.has_call ) {
-                if ( (node.children.length) >= 3 ) {
-                  const callObj = node.getSecond();
-                  const methodNode = node.getThird();
-                  if ( callObj.vref == "this" ) {
-                    calls.push(methodNode.vref);
-                  }
-                }
-              }
-              for ( let i = 0; i < node.children.length; i++) {
-                var child = node.children[i];
-                this.collectSelfMethodCalls(child, ctx, calls);
-              };
-            };
-            fnBodyDirectlyMutatesThis (node, ctx) {
-              if ( (node.ns.length) > 0 ) {
-                if ( (node.ns.length) > 0 ) {
-                  const firstPart = node.ns[0];
-                  if ( firstPart == "this" ) {
+                  if ( firstPart == varName ) {
                     if ( (node.ns.length) > 1 ) {
-                      const secondPart = node.ns[1];
-                      if ( ctx.isVarDefined(secondPart) ) {
-                        const vDef = ctx.getVariableDef(secondPart);
-                        if ( vDef.is_optional ) {
+                      return true;
+                    }
+                  }
+                }
+                for ( let i = 0; i < node.children.length; i++) {
+                  var child = node.children[i];
+                  if ( this.accessesFieldOf(child, varName) ) {
+                    return true;
+                  }
+                };
+                return false;
+              };
+              getArgRootVar (node) {
+                if ( (node.ns.length) > 0 ) {
+                  return node.ns[0];
+                }
+                if ( (node.vref.length) > 0 ) {
+                  return node.vref;
+                }
+                return "";
+              };
+              hasMutRefConflict (node, fnDesc, argIdx, givenArgs) {
+                const paramCnt = fnDesc.params.length;
+                if ( argIdx >= paramCnt ) {
+                  return false;
+                }
+                const param = fnDesc.params[argIdx];
+                let needsMut = false;
+                if ( param.needs_cpp_reference ) {
+                  needsMut = true;
+                }
+                if ( param.rust_borrow_type == 2 ) {
+                  needsMut = true;
+                }
+                if ( needsMut == false ) {
+                  return false;
+                }
+                const argNode = givenArgs.children[argIdx];
+                if ( typeof(argNode) === "undefined" ) {
+                  return false;
+                }
+                const varName = this.getArgRootVar((argNode));
+                if ( (varName.length) == 0 ) {
+                  return false;
+                }
+                for ( let otherIdx = 0; otherIdx < givenArgs.children.length; otherIdx++) {
+                  var otherArg = givenArgs.children[otherIdx];
+                  if ( otherIdx != argIdx ) {
+                    if ( this.accessesFieldOf(otherArg, varName) ) {
+                      return true;
+                    }
+                  }
+                };
+                return false;
+              };
+              collectSelfMethodCalls (node, ctx, calls) {
+                if ( (node.vref.length) > 5 ) {
+                  const prefix = node.vref.substring(0, 5 );
+                  if ( prefix == "this." ) {
+                    const methodName = node.vref.substring(5, (node.vref.length) );
+                    calls.push(methodName);
+                  }
+                }
+                if ( node.has_call ) {
+                  if ( (node.children.length) >= 3 ) {
+                    const callObj = node.getSecond();
+                    const methodNode = node.getThird();
+                    if ( callObj.vref == "this" ) {
+                      calls.push(methodNode.vref);
+                    }
+                  }
+                }
+                for ( let i = 0; i < node.children.length; i++) {
+                  var child = node.children[i];
+                  this.collectSelfMethodCalls(child, ctx, calls);
+                };
+              };
+              fnBodyDirectlyMutatesThis (node, ctx) {
+                if ( (node.ns.length) > 0 ) {
+                  if ( (node.ns.length) > 0 ) {
+                    const firstPart = node.ns[0];
+                    if ( firstPart == "this" ) {
+                      if ( (node.ns.length) > 1 ) {
+                        const secondPart = node.ns[1];
+                        if ( ctx.isVarDefined(secondPart) ) {
+                          const vDef = ctx.getVariableDef(secondPart);
+                          if ( vDef.is_optional ) {
+                            return true;
+                          }
+                        }
+                      }
+                    }
+                    if ( ctx.isVarDefined(firstPart) ) {
+                      const vDef_1 = ctx.getVariableDef(firstPart);
+                      if ( vDef_1.is_optional && vDef_1.is_class_variable ) {
+                        let vDefIsColl = false;
+                        const vdNN = vDef_1.nameNode;
+                        if ( (typeof(vdNN) !== "undefined" && vdNN != null )  ) {
+                          const vdN = vdNN;
+                          if ( ((vdN.array_type.length) > 0) || ((vdN.key_type.length) > 0) ) {
+                            vDefIsColl = true;
+                          }
+                        }
+                        if ( vDefIsColl == false ) {
                           return true;
                         }
                       }
                     }
                   }
-                  if ( ctx.isVarDefined(firstPart) ) {
-                    const vDef_1 = ctx.getVariableDef(firstPart);
-                    if ( vDef_1.is_optional && vDef_1.is_class_variable ) {
-                      let vDefIsColl = false;
-                      const vdNN = vDef_1.nameNode;
-                      if ( (typeof(vdNN) !== "undefined" && vdNN != null )  ) {
-                        const vdN = vdNN;
-                        if ( ((vdN.array_type.length) > 0) || ((vdN.key_type.length) > 0) ) {
-                          vDefIsColl = true;
+                }
+                if ( (node.children.length) >= 3 ) {
+                  const fc = node.getFirst();
+                  const cmd = fc.vref;
+                  if ( cmd == "=" ) {
+                    const left = node.getSecond();
+                    if ( left.hasParamDesc ) {
+                      const pp = left.paramDesc;
+                      if ( pp.is_class_variable ) {
+                        return true;
+                      }
+                    }
+                    if ( (left.ns.length) > 0 ) {
+                      if ( (left.ns.length) > 0 ) {
+                        const firstPart_1 = left.ns[0];
+                        if ( firstPart_1 == "this" ) {
+                          return true;
+                        }
+                        if ( ctx.isMemberVariable(firstPart_1) ) {
+                          return true;
                         }
                       }
-                      if ( vDefIsColl == false ) {
+                    }
+                    if ( (left.vref.length) > 0 ) {
+                      if ( ctx.isMemberVariable(left.vref) ) {
                         return true;
                       }
                     }
                   }
                 }
-              }
-              if ( (node.children.length) >= 3 ) {
-                const fc = node.getFirst();
-                const cmd = fc.vref;
-                if ( cmd == "=" ) {
-                  const left = node.getSecond();
-                  if ( left.hasParamDesc ) {
-                    const pp = left.paramDesc;
-                    if ( pp.is_class_variable ) {
-                      return true;
-                    }
-                  }
-                  if ( (left.ns.length) > 0 ) {
-                    if ( (left.ns.length) > 0 ) {
-                      const firstPart_1 = left.ns[0];
-                      if ( firstPart_1 == "this" ) {
-                        return true;
-                      }
-                      if ( ctx.isMemberVariable(firstPart_1) ) {
-                        return true;
-                      }
-                    }
-                  }
-                  if ( (left.vref.length) > 0 ) {
-                    if ( ctx.isMemberVariable(left.vref) ) {
-                      return true;
-                    }
-                  }
-                }
-              }
-              if ( node.has_call ) {
-                if ( (node.children.length) >= 3 ) {
-                  const callObj = node.getSecond();
-                  const methodNode = node.getThird();
-                  let member_call_target = false;
-                  if ( (callObj.ns.length) > 0 ) {
+                if ( node.has_call ) {
+                  if ( (node.children.length) >= 3 ) {
+                    const callObj = node.getSecond();
+                    const methodNode = node.getThird();
+                    let member_call_target = false;
                     if ( (callObj.ns.length) > 0 ) {
-                      const firstPart_2 = callObj.ns[0];
-                      if ( firstPart_2 == "this" ) {
+                      if ( (callObj.ns.length) > 0 ) {
+                        const firstPart_2 = callObj.ns[0];
+                        if ( firstPart_2 == "this" ) {
+                          member_call_target = true;
+                        }
+                        if ( ctx.isMemberVariable(firstPart_2) ) {
+                          member_call_target = true;
+                        }
+                      }
+                    }
+                    if ( (callObj.vref.length) > 5 ) {
+                      const prefix = callObj.vref.substring(0, 5 );
+                      if ( prefix == "this." ) {
                         member_call_target = true;
                       }
-                      if ( ctx.isMemberVariable(firstPart_2) ) {
+                    }
+                    if ( (callObj.vref.length) > 0 ) {
+                      if ( ctx.isMemberVariable(callObj.vref) ) {
                         member_call_target = true;
                       }
                     }
-                  }
-                  if ( (callObj.vref.length) > 5 ) {
-                    const prefix = callObj.vref.substring(0, 5 );
-                    if ( prefix == "this." ) {
-                      member_call_target = true;
-                    }
-                  }
-                  if ( (callObj.vref.length) > 0 ) {
-                    if ( ctx.isMemberVariable(callObj.vref) ) {
-                      member_call_target = true;
-                    }
-                  }
-                  if ( member_call_target ) {
-                    if ( this.rustCallTargetIsCollection(callObj) ) {
-                      if ( this.rustIsMutatingOpName(methodNode.vref) ) {
+                    if ( member_call_target ) {
+                      if ( this.rustCallTargetIsCollection(callObj) ) {
+                        if ( this.rustIsMutatingOpName(methodNode.vref) ) {
+                          return true;
+                        }
+                      } else {
                         return true;
                       }
-                    } else {
-                      return true;
                     }
                   }
                 }
-              }
-              if ( (node.children.length) >= 2 ) {
-                const opFc = node.getFirst();
-                if ( this.rustIsMutatingOpName(opFc.vref) ) {
-                  const opTarget = node.getSecond();
-                  if ( opTarget.hasParamDesc ) {
-                    const opTP = opTarget.paramDesc;
-                    if ( opTP.is_class_variable ) {
-                      return true;
+                if ( (node.children.length) >= 2 ) {
+                  const opFc = node.getFirst();
+                  if ( this.rustIsMutatingOpName(opFc.vref) ) {
+                    const opTarget = node.getSecond();
+                    if ( opTarget.hasParamDesc ) {
+                      const opTP = opTarget.paramDesc;
+                      if ( opTP.is_class_variable ) {
+                        return true;
+                      }
                     }
-                  }
-                  let opRoot = opTarget.vref;
-                  if ( (opTarget.ns.length) > 0 ) {
+                    let opRoot = opTarget.vref;
                     if ( (opTarget.ns.length) > 0 ) {
-                      opRoot = opTarget.ns[0];
+                      if ( (opTarget.ns.length) > 0 ) {
+                        opRoot = opTarget.ns[0];
+                      }
+                    }
+                    if ( opRoot == "this" ) {
+                      return true;
+                    }
+                    if ( ctx.isMemberVariable(opRoot) ) {
+                      return true;
                     }
                   }
-                  if ( opRoot == "this" ) {
-                    return true;
-                  }
-                  if ( ctx.isMemberVariable(opRoot) ) {
-                    return true;
-                  }
                 }
-              }
-              for ( let i = 0; i < node.children.length; i++) {
-                var child = node.children[i];
-                if ( this.fnBodyDirectlyMutatesThis(child, ctx) ) {
-                  return true;
-                }
-              };
-              return false;
-            };
-            rustCallTargetIsCollection (callObj) {
-              if ( callObj.hasParamDesc == false ) {
-                return false;
-              }
-              const cp = callObj.paramDesc;
-              const cpNN = cp.nameNode;
-              if ( typeof(cpNN) === "undefined" ) {
-                return false;
-              }
-              const cpN = cpNN;
-              if ( (cpN.array_type.length) > 0 ) {
-                return true;
-              }
-              if ( (cpN.key_type.length) > 0 ) {
-                return true;
-              }
-              const tn = cpN.type_name;
-              if ( tn == "string" ) {
-                return true;
-              }
-              if ( tn == "buffer" ) {
-                return true;
-              }
-              if ( tn == "charbuffer" ) {
-                return true;
-              }
-              if ( tn == "intbuffer" ) {
-                return true;
-              }
-              if ( tn == "doublebuffer" ) {
-                return true;
-              }
-              return false;
-            };
-            rustIsMutatingOpName (n) {
-              if ( n == "buffer_set" ) {
-                return true;
-              }
-              if ( n == "int_buffer_set" ) {
-                return true;
-              }
-              if ( n == "double_buffer_set" ) {
-                return true;
-              }
-              if ( n == "buffer_fill" ) {
-                return true;
-              }
-              if ( n == "int_buffer_fill" ) {
-                return true;
-              }
-              if ( n == "double_buffer_fill" ) {
-                return true;
-              }
-              if ( n == "buffer_copy" ) {
-                return true;
-              }
-              if ( n == "int_buffer_copy" ) {
-                return true;
-              }
-              if ( n == "double_buffer_copy" ) {
-                return true;
-              }
-              if ( n == "push" ) {
-                return true;
-              }
-              if ( n == "set" ) {
-                return true;
-              }
-              if ( n == "put" ) {
-                return true;
-              }
-              if ( n == "insert" ) {
-                return true;
-              }
-              if ( n == "clear" ) {
-                return true;
-              }
-              if ( n == "remove" ) {
-                return true;
-              }
-              if ( n == "removeIndex" ) {
-                return true;
-              }
-              if ( n == "removeLast" ) {
-                return true;
-              }
-              if ( n == "removeFirst" ) {
-                return true;
-              }
-              if ( n == "nullify" ) {
-                return true;
-              }
-              return false;
-            };
-            buildClassMutationGraph (cl, ctx, directMutations, callGraph) {
-              for ( let i = 0; i < cl.defined_variants.length; i++) {
-                var fnVar = cl.defined_variants[i];
-                const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
-                for ( let i_1 = 0; i_1 < mVs.variants.length; i_1++) {
-                  var variant = mVs.variants[i_1];
-                  const fnB = variant.fnBody;
-                  if ( (typeof(fnB) !== "undefined" && fnB != null )  ) {
-                    const fnCtx = variant.fnCtx;
-                    let useCtx = ctx;
-                    if ( (typeof(fnCtx) !== "undefined" && fnCtx != null )  ) {
-                      useCtx = fnCtx;
-                    }
-                    const fnBody = fnB;
-                    const directlyMutates = this.fnBodyDirectlyMutatesThis(fnBody, useCtx);
-                    directMutations[variant.name] = directlyMutates;
-                    const callList = new MethodCallList();
-                    this.collectSelfMethodCalls(fnBody, useCtx, callList.calls);
-                    callGraph[variant.name] = callList;
+                for ( let i = 0; i < node.children.length; i++) {
+                  var child = node.children[i];
+                  if ( this.fnBodyDirectlyMutatesThis(child, ctx) ) {
+                    return true;
                   }
                 };
+                return false;
               };
-            };
-            methodTransitivelyMutates (methodName, directMutations, callGraph, visited) {
-              for ( let i = 0; i < visited.length; i++) {
-                var v = visited[i];
-                if ( v == methodName ) {
+              rustCallTargetIsCollection (callObj) {
+                if ( callObj.hasParamDesc == false ) {
                   return false;
                 }
-              };
-              visited.push(methodName);
-              if ( ( typeof(directMutations[methodName] ) != "undefined" && Object.prototype.hasOwnProperty.call(directMutations, methodName) ) ) {
-                let dmMutates = false;
-                dmMutates = (( Object.prototype.hasOwnProperty.call(directMutations, methodName) ? directMutations[methodName] : undefined ));
-                if ( dmMutates ) {
+                const cp = callObj.paramDesc;
+                const cpNN = cp.nameNode;
+                if ( typeof(cpNN) === "undefined" ) {
+                  return false;
+                }
+                const cpN = cpNN;
+                if ( (cpN.array_type.length) > 0 ) {
                   return true;
                 }
-              }
-              if ( ( typeof(callGraph[methodName] ) != "undefined" && Object.prototype.hasOwnProperty.call(callGraph, methodName) ) ) {
-                const callList = ( Object.prototype.hasOwnProperty.call(callGraph, methodName) ? callGraph[methodName] : undefined );
-                for ( let i_1 = 0; i_1 < callList.calls.length; i_1++) {
-                  var calledMethod = callList.calls[i_1];
-                  if ( this.methodTransitivelyMutates(calledMethod, directMutations, callGraph, visited) ) {
-                    return true;
+                if ( (cpN.key_type.length) > 0 ) {
+                  return true;
+                }
+                const tn = cpN.type_name;
+                if ( tn == "string" ) {
+                  return true;
+                }
+                if ( tn == "buffer" ) {
+                  return true;
+                }
+                if ( tn == "charbuffer" ) {
+                  return true;
+                }
+                if ( tn == "intbuffer" ) {
+                  return true;
+                }
+                if ( tn == "doublebuffer" ) {
+                  return true;
+                }
+                return false;
+              };
+              rustIsMutatingOpName (n) {
+                if ( n == "buffer_set" ) {
+                  return true;
+                }
+                if ( n == "int_buffer_set" ) {
+                  return true;
+                }
+                if ( n == "double_buffer_set" ) {
+                  return true;
+                }
+                if ( n == "buffer_fill" ) {
+                  return true;
+                }
+                if ( n == "int_buffer_fill" ) {
+                  return true;
+                }
+                if ( n == "double_buffer_fill" ) {
+                  return true;
+                }
+                if ( n == "buffer_copy" ) {
+                  return true;
+                }
+                if ( n == "int_buffer_copy" ) {
+                  return true;
+                }
+                if ( n == "double_buffer_copy" ) {
+                  return true;
+                }
+                if ( n == "push" ) {
+                  return true;
+                }
+                if ( n == "set" ) {
+                  return true;
+                }
+                if ( n == "put" ) {
+                  return true;
+                }
+                if ( n == "insert" ) {
+                  return true;
+                }
+                if ( n == "clear" ) {
+                  return true;
+                }
+                if ( n == "remove" ) {
+                  return true;
+                }
+                if ( n == "removeIndex" ) {
+                  return true;
+                }
+                if ( n == "removeLast" ) {
+                  return true;
+                }
+                if ( n == "removeFirst" ) {
+                  return true;
+                }
+                if ( n == "nullify" ) {
+                  return true;
+                }
+                return false;
+              };
+              buildClassMutationGraph (cl, ctx, directMutations, callGraph) {
+                for ( let i = 0; i < cl.defined_variants.length; i++) {
+                  var fnVar = cl.defined_variants[i];
+                  const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
+                  for ( let i_1 = 0; i_1 < mVs.variants.length; i_1++) {
+                    var variant = mVs.variants[i_1];
+                    const fnB = variant.fnBody;
+                    if ( (typeof(fnB) !== "undefined" && fnB != null )  ) {
+                      const fnCtx = variant.fnCtx;
+                      let useCtx = ctx;
+                      if ( (typeof(fnCtx) !== "undefined" && fnCtx != null )  ) {
+                        useCtx = fnCtx;
+                      }
+                      const fnBody = fnB;
+                      const directlyMutates = this.fnBodyDirectlyMutatesThis(fnBody, useCtx);
+                      directMutations[variant.name] = directlyMutates;
+                      const callList = new MethodCallList();
+                      this.collectSelfMethodCalls(fnBody, useCtx, callList.calls);
+                      callGraph[variant.name] = callList;
+                    }
+                  };
+                };
+              };
+              methodTransitivelyMutates (methodName, directMutations, callGraph, visited) {
+                for ( let i = 0; i < visited.length; i++) {
+                  var v = visited[i];
+                  if ( v == methodName ) {
+                    return false;
                   }
                 };
-              }
-              return false;
-            };
-            methodMutatesThis (methodName, directMutations, callGraph) {
-              let visited = [];
-              return this.methodTransitivelyMutates(methodName, directMutations, callGraph, visited);
-            };
-            fnBodyMutatesThis (node, ctx) {
-              return this.fnBodyDirectlyMutatesThis(node, ctx);
-            };
-            async CreateCallExpression (node, ctx, wr) {
-              if ( node.has_call ) {
-                const obj = node.getSecond();
-                const method = node.getThird();
-                const args = node.children[3];
-                let obj_is_optional = false;
-                let obj_is_trait_type = false;
-                let owning_class_is_trait_related = false;
-                if ( obj.hasParamDesc ) {
-                  const pp = obj.paramDesc;
-                  if ( pp.is_optional ) {
-                    obj_is_optional = true;
+                visited.push(methodName);
+                if ( ( typeof(directMutations[methodName] ) != "undefined" && Object.prototype.hasOwnProperty.call(directMutations, methodName) ) ) {
+                  let dmMutates = false;
+                  dmMutates = (( Object.prototype.hasOwnProperty.call(directMutations, methodName) ? directMutations[methodName] : undefined ));
+                  if ( dmMutates ) {
+                    return true;
                   }
-                  const objNameN = pp.nameNode;
-                  if ( (typeof(objNameN) !== "undefined" && objNameN != null )  ) {
-                    const objNN = objNameN;
-                    const objTypeName = objNN.type_name;
-                    const objTypeClass = ctx.findClass(objTypeName);
-                    if ( (typeof(objTypeClass) !== "undefined" && objTypeClass != null )  ) {
-                      const otc = objTypeClass;
-                      if ( otc.is_extended_by_children ) {
-                        obj_is_trait_type = true;
-                      }
+                }
+                if ( ( typeof(callGraph[methodName] ) != "undefined" && Object.prototype.hasOwnProperty.call(callGraph, methodName) ) ) {
+                  const callList = ( Object.prototype.hasOwnProperty.call(callGraph, methodName) ? callGraph[methodName] : undefined );
+                  for ( let i_1 = 0; i_1 < callList.calls.length; i_1++) {
+                    var calledMethod = callList.calls[i_1];
+                    if ( this.methodTransitivelyMutates(calledMethod, directMutations, callGraph, visited) ) {
+                      return true;
                     }
-                  }
-                  let objOwnerClass = pp.propertyClass;
-                  if ( typeof(objOwnerClass) === "undefined" ) {
-                    if ( pp.is_class_variable ) {
-                      objOwnerClass = ctx.getCurrentClass();
+                  };
+                }
+                return false;
+              };
+              methodMutatesThis (methodName, directMutations, callGraph) {
+                let visited = [];
+                return this.methodTransitivelyMutates(methodName, directMutations, callGraph, visited);
+              };
+              fnBodyMutatesThis (node, ctx) {
+                return this.fnBodyDirectlyMutatesThis(node, ctx);
+              };
+              async CreateCallExpression (node, ctx, wr) {
+                if ( node.has_call ) {
+                  const obj = node.getSecond();
+                  const method = node.getThird();
+                  const args = node.children[3];
+                  let obj_is_optional = false;
+                  let obj_is_trait_type = false;
+                  let owning_class_is_trait_related = false;
+                  if ( obj.hasParamDesc ) {
+                    const pp = obj.paramDesc;
+                    if ( pp.is_optional ) {
+                      obj_is_optional = true;
                     }
-                  }
-                  if ( (typeof(objOwnerClass) !== "undefined" && objOwnerClass != null )  ) {
-                    const objOC = objOwnerClass;
-                    if ( objOC.is_extended_by_children ) {
-                      owning_class_is_trait_related = true;
-                    }
-                    if ( owning_class_is_trait_related == false ) {
-                      for ( let objEpi = 0; objEpi < objOC.extends_classes.length; objEpi++) {
-                        var objExtParent = objOC.extends_classes[objEpi];
-                        const objExtParentClass = ctx.findClass(objExtParent);
-                        if ( (typeof(objExtParentClass) !== "undefined" && objExtParentClass != null )  ) {
-                          const objEpc = objExtParentClass;
-                          if ( objEpc.is_extended_by_children ) {
-                            owning_class_is_trait_related = true;
-                          }
+                    const objNameN = pp.nameNode;
+                    if ( (typeof(objNameN) !== "undefined" && objNameN != null )  ) {
+                      const objNN = objNameN;
+                      const objTypeName = objNN.type_name;
+                      const objTypeClass = ctx.findClass(objTypeName);
+                      if ( (typeof(objTypeClass) !== "undefined" && objTypeClass != null )  ) {
+                        const otc = objTypeClass;
+                        if ( otc.is_extended_by_children ) {
+                          obj_is_trait_type = true;
                         }
-                      };
+                      }
                     }
-                  }
-                }
-                let obj_is_self_member = false;
-                if ( obj.hasParamDesc ) {
-                  const pp_1 = obj.paramDesc;
-                  if ( pp_1.is_class_variable ) {
-                    obj_is_self_member = true;
-                  }
-                }
-                let needs_arg_preevaluation = false;
-                if ( obj_is_optional && obj_is_self_member ) {
-                  if ( this.containsSelfReference(args) ) {
-                    needs_arg_preevaluation = true;
-                  }
-                }
-                if ( needs_arg_preevaluation == false ) {
-                  let recvBorrows = obj_is_optional;
-                  if ( recvBorrows == false ) {
-                    if ( obj.hasParamDesc ) {
-                      const rbP = obj.paramDesc;
-                      if ( rbP.rust_needs_rc_wrap ) {
-                        recvBorrows = true;
+                    let objOwnerClass = pp.propertyClass;
+                    if ( typeof(objOwnerClass) === "undefined" ) {
+                      if ( pp.is_class_variable ) {
+                        objOwnerClass = ctx.getCurrentClass();
+                      }
+                    }
+                    if ( (typeof(objOwnerClass) !== "undefined" && objOwnerClass != null )  ) {
+                      const objOC = objOwnerClass;
+                      if ( objOC.is_extended_by_children ) {
+                        owning_class_is_trait_related = true;
+                      }
+                      if ( owning_class_is_trait_related == false ) {
+                        for ( let objEpi = 0; objEpi < objOC.extends_classes.length; objEpi++) {
+                          var objExtParent = objOC.extends_classes[objEpi];
+                          const objExtParentClass = ctx.findClass(objExtParent);
+                          if ( (typeof(objExtParentClass) !== "undefined" && objExtParentClass != null )  ) {
+                            const objEpc = objExtParentClass;
+                            if ( objEpc.is_extended_by_children ) {
+                              owning_class_is_trait_related = true;
+                            }
+                          }
+                        };
                       }
                     }
                   }
-                  if ( recvBorrows == false ) {
-                    if ( obj.hasNewOper == false ) {
-                      if ( this.rustClassIsShared(obj.eval_type_name, ctx) ) {
-                        recvBorrows = true;
-                      }
+                  let obj_is_self_member = false;
+                  if ( obj.hasParamDesc ) {
+                    const pp_1 = obj.paramDesc;
+                    if ( pp_1.is_class_variable ) {
+                      obj_is_self_member = true;
                     }
                   }
-                  if ( recvBorrows ) {
-                    if ( this.rustNodeContainsCall(args) ) {
+                  let needs_arg_preevaluation = false;
+                  if ( obj_is_optional && obj_is_self_member ) {
+                    if ( this.containsSelfReference(args) ) {
                       needs_arg_preevaluation = true;
                     }
+                  }
+                  if ( needs_arg_preevaluation == false ) {
+                    let recvBorrows = obj_is_optional;
+                    if ( recvBorrows == false ) {
+                      if ( obj.hasParamDesc ) {
+                        const rbP = obj.paramDesc;
+                        if ( rbP.rust_needs_rc_wrap ) {
+                          recvBorrows = true;
+                        }
+                      }
+                    }
+                    if ( recvBorrows == false ) {
+                      if ( obj.hasNewOper == false ) {
+                        if ( this.rustClassIsShared(obj.eval_type_name, ctx) ) {
+                          recvBorrows = true;
+                        }
+                      }
+                    }
+                    if ( recvBorrows ) {
+                      if ( this.rustNodeContainsCall(args) ) {
+                        needs_arg_preevaluation = true;
+                      }
+                    }
+                  }
+                  if ( obj_is_self_member ) {
+                  }
+                  if ( needs_arg_preevaluation && (ctx.expressionLevel() == 0) ) {
+                    const pms = operatorsOf.filter_36(args.children, ((item, index) => { 
+                      if ( item.hasFlag("keyword") ) {
+                        return false;
+                      }
+                      return true;
+                    }));
+                    let tmpVarIdx = 0;
+                    for ( let i = 0; i < pms.length; i++) {
+                      var arg = pms[i];
+                      let argNeedsTmp = this.rustNodeContainsCall(arg);
+                      if ( argNeedsTmp == false ) {
+                        if ( this.containsSelfReference(arg) ) {
+                          argNeedsTmp = true;
+                        }
+                      }
+                      if ( argNeedsTmp ) {
+                        const tmpVarName = "__arg_" + ((tmpVarIdx.toString()));
+                        tmpVarIdx = tmpVarIdx + 1;
+                        wr.out(("let " + tmpVarName) + " = ", false);
+                        ctx.setInExpr();
+                        await this.WalkNode(arg, ctx, wr);
+                        ctx.unsetInExpr();
+                        wr.out(";", true);
+                        arg.rust_use_tmpvar = tmpVarName;
+                      }
+                    };
+                  }
+                  let hc_static = false;
+                  if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
+                    const stFnD = node.fnDesc;
+                    const stBody = stFnD.fnBody;
+                    if ( (typeof(stBody) !== "undefined" && stBody != null )  ) {
+                      const stCtxO = stFnD.fnCtx;
+                      let stUseCtx = ctx;
+                      if ( (typeof(stCtxO) !== "undefined" && stCtxO != null )  ) {
+                        stUseCtx = stCtxO;
+                      }
+                      if ( this.fnBodyUsesThis((stBody), stUseCtx) == false ) {
+                        const stCC = stFnD.container_class;
+                        if ( (typeof(stCC) !== "undefined" && stCC != null )  ) {
+                          const stC = stCC;
+                          wr.out((stC.name + "::") + method.vref, false);
+                          hc_static = true;
+                        }
+                      }
+                    }
+                  }
+                  if ( hc_static == false ) {
+                    if ( obj_is_optional ) {
+                      ctx.setInExpr();
+                      await this.WalkNode(obj, ctx, wr);
+                      ctx.unsetInExpr();
+                      if ( obj_is_trait_type || owning_class_is_trait_related ) {
+                        wr.out(".as_ref().unwrap().borrow_mut().", false);
+                      } else {
+                        let optRecvShared = false;
+                        if ( obj.hasParamDesc ) {
+                          const orpD = obj.paramDesc;
+                          const orpNN = orpD.nameNode;
+                          if ( (typeof(orpNN) !== "undefined" && orpNN != null )  ) {
+                            const orpN = orpNN;
+                            if ( this.rustClassIsShared(orpN.type_name, ctx) ) {
+                              optRecvShared = true;
+                            }
+                          }
+                        }
+                        if ( optRecvShared ) {
+                          let orsMut = true;
+                          if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
+                            const orsFnD = node.fnDesc;
+                            orsMut = orsFnD.rust_mut_self;
+                          }
+                          if ( orsMut ) {
+                            wr.out(".as_ref().unwrap().borrow_mut().", false);
+                          } else {
+                            wr.out(".as_ref().unwrap().borrow().", false);
+                          }
+                        } else {
+                          wr.out(".as_mut().unwrap().", false);
+                        }
+                      }
+                    } else {
+                      wr.out("(", false);
+                      ctx.setInExpr();
+                      await this.WalkNode(obj, ctx, wr);
+                      ctx.unsetInExpr();
+                      if ( obj_is_trait_type ) {
+                        wr.out(").borrow_mut().", false);
+                      } else {
+                        let obj_is_rc = false;
+                        if ( obj.hasParamDesc ) {
+                          const orp = obj.paramDesc;
+                          if ( orp.rust_needs_rc_wrap ) {
+                            let orp_weak = false;
+                            const orpNN_1 = orp.nameNode;
+                            if ( (typeof(orpNN_1) !== "undefined" && orpNN_1 != null )  ) {
+                              if ( ((orpNN_1)).hasFlag("weak") ) {
+                                orp_weak = true;
+                              }
+                            }
+                            if ( orp_weak == false ) {
+                              obj_is_rc = true;
+                            }
+                          }
+                        }
+                        if ( obj_is_rc == false ) {
+                          if ( obj.hasNewOper == false ) {
+                            let objEvalT = obj.eval_type_name;
+                            if ( (objEvalT.length) == 0 ) {
+                              if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
+                                const hcFnD = node.fnDesc;
+                                const hcCC = hcFnD.container_class;
+                                if ( (typeof(hcCC) !== "undefined" && hcCC != null )  ) {
+                                  const hcC = hcCC;
+                                  objEvalT = hcC.name;
+                                }
+                              }
+                            }
+                            if ( this.rustClassIsShared(objEvalT, ctx) ) {
+                              obj_is_rc = true;
+                            }
+                          }
+                        }
+                        if ( obj_is_rc ) {
+                          let oirMut = true;
+                          if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
+                            const oirFnD = node.fnDesc;
+                            oirMut = oirFnD.rust_mut_self;
+                          }
+                          if ( oirMut ) {
+                            wr.out(").borrow_mut().", false);
+                          } else {
+                            wr.out(").borrow().", false);
+                          }
+                        } else {
+                          wr.out(").", false);
+                        }
+                      }
+                    }
+                    wr.out(method.vref, false);
+                  }
+                  wr.out("(", false);
+                  ctx.setInExpr();
+                  let hc_wrote_selfrc = false;
+                  if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
+                    if ( this.rustNeedsSelfRc((node.fnDesc), ctx) ) {
+                      if ( ((obj.ns.length) <= 1) && (obj.expression == false) ) {
+                        wr.out("&", false);
+                        await this.WriteVRef(obj, ctx, wr);
+                        hc_wrote_selfrc = true;
+                      } else {
+                        ctx.addError(node, "This method stores `this`, so its Rust form needs the receiver's Rc. Bind the receiver to a variable first: def recv:T (expr) — then recv.method(...).");
+                      }
+                    }
+                  }
+                  const pms_1 = operatorsOf.filter_36(args.children, ((item, index) => { 
+                    if ( item.hasFlag("keyword") ) {
+                      return false;
+                    }
+                    return true;
+                  }));
+                  const calledFnDesc = node.fnDesc;
+                  for ( let i_1 = 0; i_1 < pms_1.length; i_1++) {
+                    var arg_1 = pms_1[i_1];
+                    if ( (i_1 > 0) || hc_wrote_selfrc ) {
+                      wr.out(", ", false);
+                    }
+                    if ( (arg_1.rust_use_tmpvar.length) > 0 ) {
+                      wr.out(arg_1.rust_use_tmpvar, false);
+                      arg_1.rust_use_tmpvar = "";
+                    } else {
+                      let source_is_reference = false;
+                      let target_expects_owned = true;
+                      if ( arg_1.value_type == 11 ) {
+                        if ( arg_1.hasParamDesc ) {
+                          const srcParam = arg_1.paramDesc;
+                          if ( srcParam.rust_borrow_type > 0 ) {
+                            source_is_reference = true;
+                          }
+                        }
+                      }
+                      if ( (typeof(calledFnDesc) !== "undefined" && calledFnDesc != null )  ) {
+                        const cfn = calledFnDesc;
+                        if ( i_1 < (cfn.params.length) ) {
+                          const targetParam = cfn.params[i_1];
+                          if ( targetParam.rust_borrow_type > 0 ) {
+                            target_expects_owned = false;
+                          }
+                        }
+                      } else {
+                        if ( obj.hasParamDesc ) {
+                          const objPd = obj.paramDesc;
+                          if ( (typeof(objPd.nameNode) !== "undefined" && objPd.nameNode != null )  ) {
+                            const objNN_1 = objPd.nameNode;
+                            const objTypeName_1 = objNN_1.type_name;
+                            const objClass = ctx.findClass(objTypeName_1);
+                            if ( (typeof(objClass) !== "undefined" && objClass != null )  ) {
+                              const oc = objClass;
+                              const calledMethod = oc.findMethod(method.vref);
+                              if ( (typeof(calledMethod) !== "undefined" && calledMethod != null )  ) {
+                                const cm = calledMethod;
+                                if ( i_1 < (cm.params.length) ) {
+                                  const targetParam2 = cm.params[i_1];
+                                  if ( targetParam2.rust_borrow_type > 0 ) {
+                                    target_expects_owned = false;
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                      let borrowedLitDone = false;
+                      if ( target_expects_owned == false ) {
+                        borrowedLitDone = this.rustTryBareStrLitArg(arg_1, ctx, wr);
+                        if ( borrowedLitDone == false ) {
+                          if ( this.rustArgIsAlreadyRef(arg_1) == false ) {
+                            wr.out("&", false);
+                          }
+                        }
+                      }
+                      if ( borrowedLitDone == false ) {
+                        await this.WalkNode(arg_1, ctx, wr);
+                      }
+                      if ( source_is_reference && target_expects_owned ) {
+                        if ( this.rustStrRefRead(arg_1) ) {
+                          wr.out(".to_string()", false);
+                        } else {
+                          wr.out(".clone()", false);
+                        }
+                      } else {
+                        if ( target_expects_owned && this.rustBareArgNeedsClone(arg_1, ctx) ) {
+                          if ( this.rustStrRefRead(arg_1) ) {
+                            wr.out(".to_string()", false);
+                          } else {
+                            wr.out(".clone()", false);
+                          }
+                        }
+                      }
+                    }
+                  };
+                  ctx.unsetInExpr();
+                  wr.out(")", false);
+                  if ( ctx.expressionLevel() == 0 ) {
+                    wr.out(";", true);
+                  }
+                }
+              };
+              rustBareArgNeedsClone (arg, ctx) {
+                if ( arg.expression ) {
+                  return false;
+                }
+                if ( (arg.vref.length) == 0 ) {
+                  return false;
+                }
+                if ( (arg.children.length) > 0 ) {
+                  return false;
+                }
+                if ( (arg.ns.length) > 1 ) {
+                  if ( (arg.nsp.length) == 0 ) {
+                    return false;
+                  }
+                  const dLastIdx = (arg.nsp.length) - 1;
+                  const dLast = arg.nsp[dLastIdx];
+                  if ( dLast.is_optional ) {
+                    return false;
+                  }
+                  const dNN = dLast.nameNode;
+                  if ( typeof(dNN) === "undefined" ) {
+                    return false;
+                  }
+                  const dN = dNN;
+                  if ( dN.hasFlag("weak") ) {
+                    return false;
+                  }
+                  if ( (dN.array_type.length) > 0 ) {
+                    return true;
+                  }
+                  if ( (dN.key_type.length) > 0 ) {
+                    return true;
+                  }
+                  const dtn = dN.type_name;
+                  if ( dtn == "string" ) {
+                    return true;
+                  }
+                  if ( dtn == "int" ) {
+                    return false;
+                  }
+                  if ( dtn == "double" ) {
+                    return false;
+                  }
+                  if ( dtn == "boolean" ) {
+                    return false;
+                  }
+                  if ( dtn == "char" ) {
+                    return false;
+                  }
+                  if ( TTypeRegistry.isIntAlias(dtn) ) {
+                    return false;
+                  }
+                  if ( TTypeRegistry.isFloatAlias(dtn) ) {
+                    return false;
+                  }
+                  const dVT = dN.typeNameAsType(ctx);
+                  if ( dVT == 10 ) {
+                    return true;
+                  }
+                  return false;
+                }
+                if ( arg.hasParamDesc == false ) {
+                  return false;
+                }
+                const spD = arg.paramDesc;
+                if ( spD.is_optional ) {
+                  return false;
+                }
+                if ( spD.rust_borrow_type > 0 ) {
+                  return false;
+                }
+                const spNN = spD.nameNode;
+                if ( typeof(spNN) === "undefined" ) {
+                  return false;
+                }
+                const spN = spNN;
+                if ( spN.hasFlag("weak") ) {
+                  return false;
+                }
+                if ( (spN.array_type.length) > 0 ) {
+                  return true;
+                }
+                if ( (spN.key_type.length) > 0 ) {
+                  return true;
+                }
+                const stn = spN.type_name;
+                if ( stn == "string" ) {
+                  return true;
+                }
+                if ( stn == "int" ) {
+                  return false;
+                }
+                if ( stn == "double" ) {
+                  return false;
+                }
+                if ( stn == "boolean" ) {
+                  return false;
+                }
+                if ( stn == "char" ) {
+                  return false;
+                }
+                if ( TTypeRegistry.isIntAlias(stn) ) {
+                  return false;
+                }
+                if ( TTypeRegistry.isFloatAlias(stn) ) {
+                  return false;
+                }
+                const spVT = spN.typeNameAsType(ctx);
+                if ( spVT == 10 ) {
+                  return true;
+                }
+                return false;
+              };
+              async CreateMethodCall (node, ctx, wr) {
+                console.log("DEBUG CreateMethodCall ALWAYS CALLED");
+                const obj = node.getFirst();
+                const args = node.getSecond();
+                let obj_is_optional = false;
+                let obj_is_self_member = false;
+                if ( obj.hasParamDesc ) {
+                  const pp = obj.paramDesc;
+                  obj_is_optional = pp.is_optional;
+                  obj_is_self_member = pp.is_class_variable;
+                }
+                if ( obj_is_self_member == false ) {
+                  for ( let i = 0; i < obj.children.length; i++) {
+                    var child = obj.children[i];
+                    if ( child.hasParamDesc ) {
+                      const pp_1 = child.paramDesc;
+                      if ( pp_1.is_class_variable ) {
+                        obj_is_self_member = true;
+                        if ( pp_1.is_optional ) {
+                          obj_is_optional = true;
+                        }
+                      }
+                    }
+                  };
+                }
+                let needs_arg_preevaluation = false;
+                if ( obj_is_self_member ) {
+                  if ( this.containsSelfReference(args) ) {
+                    needs_arg_preevaluation = true;
                   }
                 }
                 if ( obj_is_self_member ) {
@@ -23371,238 +23893,39 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     return true;
                   }));
                   let tmpVarIdx = 0;
-                  for ( let i = 0; i < pms.length; i++) {
-                    var arg = pms[i];
-                    let argNeedsTmp = this.rustNodeContainsCall(arg);
-                    if ( argNeedsTmp == false ) {
-                      if ( this.containsSelfReference(arg) ) {
-                        argNeedsTmp = true;
-                      }
-                    }
-                    if ( argNeedsTmp ) {
-                      const tmpVarName = "__arg_" + ((tmpVarIdx.toString()));
-                      tmpVarIdx = tmpVarIdx + 1;
-                      wr.out(("let " + tmpVarName) + " = ", false);
-                      ctx.setInExpr();
-                      await this.WalkNode(arg, ctx, wr);
-                      ctx.unsetInExpr();
-                      wr.out(";", true);
-                      arg.rust_use_tmpvar = tmpVarName;
-                    }
+                  for ( let i_1 = 0; i_1 < pms.length; i_1++) {
+                    var arg = pms[i_1];
+                    const tmpVarName = "__arg_" + ((tmpVarIdx.toString()));
+                    tmpVarIdx = tmpVarIdx + 1;
+                    wr.out(("let " + tmpVarName) + " = ", false);
+                    ctx.setInExpr();
+                    await this.WalkNode(arg, ctx, wr);
+                    ctx.unsetInExpr();
+                    wr.out(";", true);
+                    arg.rust_use_tmpvar = tmpVarName;
                   };
                 }
-                let hc_static = false;
-                if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
-                  const stFnD = node.fnDesc;
-                  const stBody = stFnD.fnBody;
-                  if ( (typeof(stBody) !== "undefined" && stBody != null )  ) {
-                    const stCtxO = stFnD.fnCtx;
-                    let stUseCtx = ctx;
-                    if ( (typeof(stCtxO) !== "undefined" && stCtxO != null )  ) {
-                      stUseCtx = stCtxO;
-                    }
-                    if ( this.fnBodyUsesThis((stBody), stUseCtx) == false ) {
-                      const stCC = stFnD.container_class;
-                      if ( (typeof(stCC) !== "undefined" && stCC != null )  ) {
-                        const stC = stCC;
-                        wr.out((stC.name + "::") + method.vref, false);
-                        hc_static = true;
-                      }
-                    }
-                  }
-                }
-                if ( hc_static == false ) {
-                  if ( obj_is_optional ) {
-                    ctx.setInExpr();
-                    await this.WalkNode(obj, ctx, wr);
-                    ctx.unsetInExpr();
-                    if ( obj_is_trait_type || owning_class_is_trait_related ) {
-                      wr.out(".as_ref().unwrap().borrow_mut().", false);
-                    } else {
-                      let optRecvShared = false;
-                      if ( obj.hasParamDesc ) {
-                        const orpD = obj.paramDesc;
-                        const orpNN = orpD.nameNode;
-                        if ( (typeof(orpNN) !== "undefined" && orpNN != null )  ) {
-                          const orpN = orpNN;
-                          if ( this.rustClassIsShared(orpN.type_name, ctx) ) {
-                            optRecvShared = true;
-                          }
-                        }
-                      }
-                      if ( optRecvShared ) {
-                        let orsMut = true;
-                        if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
-                          const orsFnD = node.fnDesc;
-                          orsMut = orsFnD.rust_mut_self;
-                        }
-                        if ( orsMut ) {
-                          wr.out(".as_ref().unwrap().borrow_mut().", false);
-                        } else {
-                          wr.out(".as_ref().unwrap().borrow().", false);
-                        }
-                      } else {
-                        wr.out(".as_mut().unwrap().", false);
-                      }
-                    }
-                  } else {
-                    wr.out("(", false);
-                    ctx.setInExpr();
-                    await this.WalkNode(obj, ctx, wr);
-                    ctx.unsetInExpr();
-                    if ( obj_is_trait_type ) {
-                      wr.out(").borrow_mut().", false);
-                    } else {
-                      let obj_is_rc = false;
-                      if ( obj.hasParamDesc ) {
-                        const orp = obj.paramDesc;
-                        if ( orp.rust_needs_rc_wrap ) {
-                          let orp_weak = false;
-                          const orpNN_1 = orp.nameNode;
-                          if ( (typeof(orpNN_1) !== "undefined" && orpNN_1 != null )  ) {
-                            if ( ((orpNN_1)).hasFlag("weak") ) {
-                              orp_weak = true;
-                            }
-                          }
-                          if ( orp_weak == false ) {
-                            obj_is_rc = true;
-                          }
-                        }
-                      }
-                      if ( obj_is_rc == false ) {
-                        if ( obj.hasNewOper == false ) {
-                          let objEvalT = obj.eval_type_name;
-                          if ( (objEvalT.length) == 0 ) {
-                            if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
-                              const hcFnD = node.fnDesc;
-                              const hcCC = hcFnD.container_class;
-                              if ( (typeof(hcCC) !== "undefined" && hcCC != null )  ) {
-                                const hcC = hcCC;
-                                objEvalT = hcC.name;
-                              }
-                            }
-                          }
-                          if ( this.rustClassIsShared(objEvalT, ctx) ) {
-                            obj_is_rc = true;
-                          }
-                        }
-                      }
-                      if ( obj_is_rc ) {
-                        let oirMut = true;
-                        if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
-                          const oirFnD = node.fnDesc;
-                          oirMut = oirFnD.rust_mut_self;
-                        }
-                        if ( oirMut ) {
-                          wr.out(").borrow_mut().", false);
-                        } else {
-                          wr.out(").borrow().", false);
-                        }
-                      } else {
-                        wr.out(").", false);
-                      }
-                    }
-                  }
-                  wr.out(method.vref, false);
-                }
+                ctx.setInExpr();
+                await this.WalkNode(obj, ctx, wr);
+                ctx.unsetInExpr();
                 wr.out("(", false);
                 ctx.setInExpr();
-                let hc_wrote_selfrc = false;
-                if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
-                  if ( this.rustNeedsSelfRc((node.fnDesc), ctx) ) {
-                    if ( ((obj.ns.length) <= 1) && (obj.expression == false) ) {
-                      wr.out("&", false);
-                      await this.WriteVRef(obj, ctx, wr);
-                      hc_wrote_selfrc = true;
-                    } else {
-                      ctx.addError(node, "This method stores `this`, so its Rust form needs the receiver's Rc. Bind the receiver to a variable first: def recv:T (expr) — then recv.method(...).");
-                    }
-                  }
-                }
                 const pms_1 = operatorsOf.filter_36(args.children, ((item, index) => { 
                   if ( item.hasFlag("keyword") ) {
                     return false;
                   }
                   return true;
                 }));
-                const calledFnDesc = node.fnDesc;
-                for ( let i_1 = 0; i_1 < pms_1.length; i_1++) {
-                  var arg_1 = pms_1[i_1];
-                  if ( (i_1 > 0) || hc_wrote_selfrc ) {
+                for ( let i_2 = 0; i_2 < pms_1.length; i_2++) {
+                  var arg_1 = pms_1[i_2];
+                  if ( i_2 > 0 ) {
                     wr.out(", ", false);
                   }
                   if ( (arg_1.rust_use_tmpvar.length) > 0 ) {
                     wr.out(arg_1.rust_use_tmpvar, false);
                     arg_1.rust_use_tmpvar = "";
                   } else {
-                    let source_is_reference = false;
-                    let target_expects_owned = true;
-                    if ( arg_1.value_type == 11 ) {
-                      if ( arg_1.hasParamDesc ) {
-                        const srcParam = arg_1.paramDesc;
-                        if ( srcParam.rust_borrow_type > 0 ) {
-                          source_is_reference = true;
-                        }
-                      }
-                    }
-                    if ( (typeof(calledFnDesc) !== "undefined" && calledFnDesc != null )  ) {
-                      const cfn = calledFnDesc;
-                      if ( i_1 < (cfn.params.length) ) {
-                        const targetParam = cfn.params[i_1];
-                        if ( targetParam.rust_borrow_type > 0 ) {
-                          target_expects_owned = false;
-                        }
-                      }
-                    } else {
-                      if ( obj.hasParamDesc ) {
-                        const objPd = obj.paramDesc;
-                        if ( (typeof(objPd.nameNode) !== "undefined" && objPd.nameNode != null )  ) {
-                          const objNN_1 = objPd.nameNode;
-                          const objTypeName_1 = objNN_1.type_name;
-                          const objClass = ctx.findClass(objTypeName_1);
-                          if ( (typeof(objClass) !== "undefined" && objClass != null )  ) {
-                            const oc = objClass;
-                            const calledMethod = oc.findMethod(method.vref);
-                            if ( (typeof(calledMethod) !== "undefined" && calledMethod != null )  ) {
-                              const cm = calledMethod;
-                              if ( i_1 < (cm.params.length) ) {
-                                const targetParam2 = cm.params[i_1];
-                                if ( targetParam2.rust_borrow_type > 0 ) {
-                                  target_expects_owned = false;
-                                }
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                    let borrowedLitDone = false;
-                    if ( target_expects_owned == false ) {
-                      borrowedLitDone = this.rustTryBareStrLitArg(arg_1, ctx, wr);
-                      if ( borrowedLitDone == false ) {
-                        if ( this.rustArgIsAlreadyRef(arg_1) == false ) {
-                          wr.out("&", false);
-                        }
-                      }
-                    }
-                    if ( borrowedLitDone == false ) {
-                      await this.WalkNode(arg_1, ctx, wr);
-                    }
-                    if ( source_is_reference && target_expects_owned ) {
-                      if ( this.rustStrRefRead(arg_1) ) {
-                        wr.out(".to_string()", false);
-                      } else {
-                        wr.out(".clone()", false);
-                      }
-                    } else {
-                      if ( target_expects_owned && this.rustBareArgNeedsClone(arg_1, ctx) ) {
-                        if ( this.rustStrRefRead(arg_1) ) {
-                          wr.out(".to_string()", false);
-                        } else {
-                          wr.out(".clone()", false);
-                        }
-                      }
-                    }
+                    await this.WalkNode(arg_1, ctx, wr);
                   }
                 };
                 ctx.unsetInExpr();
@@ -23610,1134 +23933,467 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( ctx.expressionLevel() == 0 ) {
                   wr.out(";", true);
                 }
-              }
-            };
-            rustBareArgNeedsClone (arg, ctx) {
-              if ( arg.expression ) {
-                return false;
-              }
-              if ( (arg.vref.length) == 0 ) {
-                return false;
-              }
-              if ( (arg.children.length) > 0 ) {
-                return false;
-              }
-              if ( (arg.ns.length) > 1 ) {
-                if ( (arg.nsp.length) == 0 ) {
-                  return false;
-                }
-                const dLastIdx = (arg.nsp.length) - 1;
-                const dLast = arg.nsp[dLastIdx];
-                if ( dLast.is_optional ) {
-                  return false;
-                }
-                const dNN = dLast.nameNode;
-                if ( typeof(dNN) === "undefined" ) {
-                  return false;
-                }
-                const dN = dNN;
-                if ( dN.hasFlag("weak") ) {
-                  return false;
-                }
-                if ( (dN.array_type.length) > 0 ) {
-                  return true;
-                }
-                if ( (dN.key_type.length) > 0 ) {
-                  return true;
-                }
-                const dtn = dN.type_name;
-                if ( dtn == "string" ) {
-                  return true;
-                }
-                if ( dtn == "int" ) {
-                  return false;
-                }
-                if ( dtn == "double" ) {
-                  return false;
-                }
-                if ( dtn == "boolean" ) {
-                  return false;
-                }
-                if ( dtn == "char" ) {
-                  return false;
-                }
-                if ( TTypeRegistry.isIntAlias(dtn) ) {
-                  return false;
-                }
-                if ( TTypeRegistry.isFloatAlias(dtn) ) {
-                  return false;
-                }
-                const dVT = dN.typeNameAsType(ctx);
-                if ( dVT == 10 ) {
-                  return true;
-                }
-                return false;
-              }
-              if ( arg.hasParamDesc == false ) {
-                return false;
-              }
-              const spD = arg.paramDesc;
-              if ( spD.is_optional ) {
-                return false;
-              }
-              if ( spD.rust_borrow_type > 0 ) {
-                return false;
-              }
-              const spNN = spD.nameNode;
-              if ( typeof(spNN) === "undefined" ) {
-                return false;
-              }
-              const spN = spNN;
-              if ( spN.hasFlag("weak") ) {
-                return false;
-              }
-              if ( (spN.array_type.length) > 0 ) {
-                return true;
-              }
-              if ( (spN.key_type.length) > 0 ) {
-                return true;
-              }
-              const stn = spN.type_name;
-              if ( stn == "string" ) {
-                return true;
-              }
-              if ( stn == "int" ) {
-                return false;
-              }
-              if ( stn == "double" ) {
-                return false;
-              }
-              if ( stn == "boolean" ) {
-                return false;
-              }
-              if ( stn == "char" ) {
-                return false;
-              }
-              if ( TTypeRegistry.isIntAlias(stn) ) {
-                return false;
-              }
-              if ( TTypeRegistry.isFloatAlias(stn) ) {
-                return false;
-              }
-              const spVT = spN.typeNameAsType(ctx);
-              if ( spVT == 10 ) {
-                return true;
-              }
-              return false;
-            };
-            async CreateMethodCall (node, ctx, wr) {
-              console.log("DEBUG CreateMethodCall ALWAYS CALLED");
-              const obj = node.getFirst();
-              const args = node.getSecond();
-              let obj_is_optional = false;
-              let obj_is_self_member = false;
-              if ( obj.hasParamDesc ) {
-                const pp = obj.paramDesc;
-                obj_is_optional = pp.is_optional;
-                obj_is_self_member = pp.is_class_variable;
-              }
-              if ( obj_is_self_member == false ) {
-                for ( let i = 0; i < obj.children.length; i++) {
-                  var child = obj.children[i];
-                  if ( child.hasParamDesc ) {
-                    const pp_1 = child.paramDesc;
-                    if ( pp_1.is_class_variable ) {
-                      obj_is_self_member = true;
-                      if ( pp_1.is_optional ) {
-                        obj_is_optional = true;
-                      }
-                    }
-                  }
-                };
-              }
-              let needs_arg_preevaluation = false;
-              if ( obj_is_self_member ) {
-                if ( this.containsSelfReference(args) ) {
-                  needs_arg_preevaluation = true;
-                }
-              }
-              if ( obj_is_self_member ) {
-              }
-              if ( needs_arg_preevaluation && (ctx.expressionLevel() == 0) ) {
-                const pms = operatorsOf.filter_36(args.children, ((item, index) => { 
-                  if ( item.hasFlag("keyword") ) {
-                    return false;
-                  }
-                  return true;
-                }));
-                let tmpVarIdx = 0;
-                for ( let i_1 = 0; i_1 < pms.length; i_1++) {
-                  var arg = pms[i_1];
-                  const tmpVarName = "__arg_" + ((tmpVarIdx.toString()));
-                  tmpVarIdx = tmpVarIdx + 1;
-                  wr.out(("let " + tmpVarName) + " = ", false);
-                  ctx.setInExpr();
-                  await this.WalkNode(arg, ctx, wr);
-                  ctx.unsetInExpr();
-                  wr.out(";", true);
-                  arg.rust_use_tmpvar = tmpVarName;
-                };
-              }
-              ctx.setInExpr();
-              await this.WalkNode(obj, ctx, wr);
-              ctx.unsetInExpr();
-              wr.out("(", false);
-              ctx.setInExpr();
-              const pms_1 = operatorsOf.filter_36(args.children, ((item, index) => { 
-                if ( item.hasFlag("keyword") ) {
-                  return false;
-                }
-                return true;
-              }));
-              for ( let i_2 = 0; i_2 < pms_1.length; i_2++) {
-                var arg_1 = pms_1[i_2];
-                if ( i_2 > 0 ) {
-                  wr.out(", ", false);
-                }
-                if ( (arg_1.rust_use_tmpvar.length) > 0 ) {
-                  wr.out(arg_1.rust_use_tmpvar, false);
-                  arg_1.rust_use_tmpvar = "";
-                } else {
-                  await this.WalkNode(arg_1, ctx, wr);
-                }
               };
-              ctx.unsetInExpr();
-              wr.out(")", false);
-              if ( ctx.expressionLevel() == 0 ) {
-                wr.out(";", true);
-              }
-            };
-            isSelfMethodCall (node) {
-              if ( node.hasFnCall ) {
-                const fc = node.getFirst();
-                if ( (fc.ns.length) > 0 ) {
+              isSelfMethodCall (node) {
+                if ( node.hasFnCall ) {
+                  const fc = node.getFirst();
+                  if ( (fc.ns.length) > 0 ) {
+                    const part = fc.ns[0];
+                    if ( part == "this" ) {
+                      return true;
+                    }
+                  }
+                }
+                return false;
+              };
+              findSelfCallInArgs (node) {
+                if ( node.hasFnCall ) {
+                  const givenArgs = node.getSecond();
+                  let idx = 0;
+                  for ( let i = 0; i < givenArgs.children.length; i++) {
+                    var arg = givenArgs.children[i];
+                    if ( this.isSelfMethodCall(arg) ) {
+                      return i;
+                    }
+                    idx = i + 1;
+                  };
+                }
+                return -1;
+              };
+              async writeFnCall (node, ctx, wr) {
+                if ( node.hasFnCall ) {
+                  const fc = node.getFirst();
                   const part = fc.ns[0];
+                  if ( (part.length) > 0 ) {
+                    let methodName = "";
+                    if ( (fc.ns.length) >= 2 ) {
+                      methodName = fc.ns[1];
+                    }
+                    if ( (methodName == "parseDHT") || (part == "huffman") ) {
+                    }
+                  }
+                  let target_is_self_member = false;
+                  let target_is_optional = false;
                   if ( part == "this" ) {
-                    return true;
-                  }
-                }
-              }
-              return false;
-            };
-            findSelfCallInArgs (node) {
-              if ( node.hasFnCall ) {
-                const givenArgs = node.getSecond();
-                let idx = 0;
-                for ( let i = 0; i < givenArgs.children.length; i++) {
-                  var arg = givenArgs.children[i];
-                  if ( this.isSelfMethodCall(arg) ) {
-                    return i;
-                  }
-                  idx = i + 1;
-                };
-              }
-              return -1;
-            };
-            async writeFnCall (node, ctx, wr) {
-              if ( node.hasFnCall ) {
-                const fc = node.getFirst();
-                const part = fc.ns[0];
-                if ( (part.length) > 0 ) {
-                  let methodName = "";
-                  if ( (fc.ns.length) >= 2 ) {
-                    methodName = fc.ns[1];
-                  }
-                  if ( (methodName == "parseDHT") || (part == "huffman") ) {
-                  }
-                }
-                let target_is_self_member = false;
-                let target_is_optional = false;
-                if ( part == "this" ) {
-                  target_is_self_member = true;
-                } else {
-                  if ( ctx.isMemberVariable(part) ) {
                     target_is_self_member = true;
-                    const uc = ctx.getCurrentClass();
-                    if ( (typeof(uc) !== "undefined" && uc != null )  ) {
-                      const currC = uc;
-                      const up = currC.findVariable(part);
-                      if ( (typeof(up) !== "undefined" && up != null )  ) {
-                        const p = up;
-                        if ( p.is_optional ) {
-                          target_is_optional = true;
+                  } else {
+                    if ( ctx.isMemberVariable(part) ) {
+                      target_is_self_member = true;
+                      const uc = ctx.getCurrentClass();
+                      if ( (typeof(uc) !== "undefined" && uc != null )  ) {
+                        const currC = uc;
+                        const up = currC.findVariable(part);
+                        if ( (typeof(up) !== "undefined" && up != null )  ) {
+                          const p = up;
+                          if ( p.is_optional ) {
+                            target_is_optional = true;
+                          }
                         }
                       }
                     }
                   }
-                }
-                const givenArgs = node.getSecond();
-                let needs_arg_preevaluation = false;
-                if ( target_is_self_member ) {
-                  if ( this.containsSelfReference(givenArgs) ) {
-                    needs_arg_preevaluation = true;
-                  }
-                }
-                if ( needs_arg_preevaluation == false ) {
-                  if ( node.hasFnCall ) {
-                    if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
-                      const fnD = node.fnDesc;
-                      for ( let paramIdx = 0; paramIdx < fnD.params.length; paramIdx++) {
-                        var param = fnD.params[paramIdx];
-                        if ( this.hasMutRefConflict(node, fnD, paramIdx, givenArgs) ) {
-                          needs_arg_preevaluation = true;
-                          break;
-                        }
-                      };
+                  const givenArgs = node.getSecond();
+                  let needs_arg_preevaluation = false;
+                  if ( target_is_self_member ) {
+                    if ( this.containsSelfReference(givenArgs) ) {
+                      needs_arg_preevaluation = true;
                     }
                   }
-                }
-                if ( target_is_self_member ) {
-                }
-                if ( needs_arg_preevaluation && (ctx.expressionLevel() == 0) ) {
-                  let tempVars = [];
-                  let tempWriteback = [];
-                  let tmpIdx = 0;
-                  const fnD3 = node.fnDesc;
-                  for ( let argIdx = 0; argIdx < givenArgs.children.length; argIdx++) {
-                    var argNode = givenArgs.children[argIdx];
-                    const argHasSelfRef = this.containsSelfReference(argNode);
-                    if ( argHasSelfRef ) {
-                      const tmpName = "__arg_" + ((tmpIdx.toString()));
-                      tmpIdx = tmpIdx + 1;
-                      tempVars.push(tmpName);
-                      let needsMutDecl = false;
-                      let preevalScalar = false;
-                      if ( (typeof(fnD3) !== "undefined" && fnD3 != null )  ) {
-                        const fnD_1 = fnD3;
-                        if ( argIdx < (fnD_1.params.length) ) {
-                          const argP = fnD_1.params[argIdx];
-                          if ( argP.needs_cpp_reference ) {
-                            needsMutDecl = true;
+                  if ( needs_arg_preevaluation == false ) {
+                    if ( node.hasFnCall ) {
+                      if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
+                        const fnD = node.fnDesc;
+                        for ( let paramIdx = 0; paramIdx < fnD.params.length; paramIdx++) {
+                          var param = fnD.params[paramIdx];
+                          if ( this.hasMutRefConflict(node, fnD, paramIdx, givenArgs) ) {
+                            needs_arg_preevaluation = true;
+                            break;
                           }
-                          if ( argP.rust_borrow_type == 2 ) {
-                            needsMutDecl = true;
-                          }
-                          const argPNN = argP.nameNode;
-                          if ( (typeof(argPNN) !== "undefined" && argPNN != null )  ) {
-                            const argPN = argPNN;
-                            const argPT = argPN.type_name;
-                            if ( ((((argPT == "int") || (argPT == "double")) || (argPT == "boolean")) || (argPT == "char")) || TTypeRegistry.isIntAlias(argPT) ) {
-                              preevalScalar = true;
+                        };
+                      }
+                    }
+                  }
+                  if ( target_is_self_member ) {
+                  }
+                  if ( needs_arg_preevaluation && (ctx.expressionLevel() == 0) ) {
+                    let tempVars = [];
+                    let tempWriteback = [];
+                    let tmpIdx = 0;
+                    const fnD3 = node.fnDesc;
+                    for ( let argIdx = 0; argIdx < givenArgs.children.length; argIdx++) {
+                      var argNode = givenArgs.children[argIdx];
+                      const argHasSelfRef = this.containsSelfReference(argNode);
+                      if ( argHasSelfRef ) {
+                        const tmpName = "__arg_" + ((tmpIdx.toString()));
+                        tmpIdx = tmpIdx + 1;
+                        tempVars.push(tmpName);
+                        let needsMutDecl = false;
+                        let preevalScalar = false;
+                        if ( (typeof(fnD3) !== "undefined" && fnD3 != null )  ) {
+                          const fnD_1 = fnD3;
+                          if ( argIdx < (fnD_1.params.length) ) {
+                            const argP = fnD_1.params[argIdx];
+                            if ( argP.needs_cpp_reference ) {
+                              needsMutDecl = true;
                             }
-                          }
-                        }
-                      }
-                      if ( needsMutDecl ) {
-                        wr.out(("let mut " + tmpName) + " = ", false);
-                      } else {
-                        wr.out(("let " + tmpName) + " = ", false);
-                      }
-                      ctx.setInExpr();
-                      await this.WalkNode(argNode, ctx, wr);
-                      ctx.unsetInExpr();
-                      if ( preevalScalar ) {
-                        wr.out(";", true);
-                      } else {
-                        if ( this.rustStrRefRead(argNode) ) {
-                          let preevalStrOwned = true;
-                          if ( (typeof(fnD3) !== "undefined" && fnD3 != null )  ) {
-                            const fnD4 = fnD3;
-                            if ( argIdx < (fnD4.params.length) ) {
-                              const argP4 = fnD4.params[argIdx];
-                              if ( argP4.rust_borrow_type == 1 ) {
-                                preevalStrOwned = false;
+                            if ( argP.rust_borrow_type == 2 ) {
+                              needsMutDecl = true;
+                            }
+                            const argPNN = argP.nameNode;
+                            if ( (typeof(argPNN) !== "undefined" && argPNN != null )  ) {
+                              const argPN = argPNN;
+                              const argPT = argPN.type_name;
+                              if ( ((((argPT == "int") || (argPT == "double")) || (argPT == "boolean")) || (argPT == "char")) || TTypeRegistry.isIntAlias(argPT) ) {
+                                preevalScalar = true;
                               }
                             }
                           }
-                          if ( preevalStrOwned ) {
-                            wr.out(".to_string();", true);
-                          } else {
-                            wr.out(";", true);
-                          }
-                        } else {
-                          wr.out(".clone();", true);
                         }
-                      }
-                      if ( needsMutDecl && (argNode.expression == false) ) {
-                        tempWriteback.push(tmpName);
+                        if ( needsMutDecl ) {
+                          wr.out(("let mut " + tmpName) + " = ", false);
+                        } else {
+                          wr.out(("let " + tmpName) + " = ", false);
+                        }
+                        ctx.setInExpr();
+                        await this.WalkNode(argNode, ctx, wr);
+                        ctx.unsetInExpr();
+                        if ( preevalScalar ) {
+                          wr.out(";", true);
+                        } else {
+                          if ( this.rustStrRefRead(argNode) ) {
+                            let preevalStrOwned = true;
+                            if ( (typeof(fnD3) !== "undefined" && fnD3 != null )  ) {
+                              const fnD4 = fnD3;
+                              if ( argIdx < (fnD4.params.length) ) {
+                                const argP4 = fnD4.params[argIdx];
+                                if ( argP4.rust_borrow_type == 1 ) {
+                                  preevalStrOwned = false;
+                                }
+                              }
+                            }
+                            if ( preevalStrOwned ) {
+                              wr.out(".to_string();", true);
+                            } else {
+                              wr.out(";", true);
+                            }
+                          } else {
+                            wr.out(".clone();", true);
+                          }
+                        }
+                        if ( needsMutDecl && (argNode.expression == false) ) {
+                          tempWriteback.push(tmpName);
+                        } else {
+                          tempWriteback.push("");
+                        }
                       } else {
+                        tempVars.push("");
                         tempWriteback.push("");
                       }
-                    } else {
-                      tempVars.push("");
-                      tempWriteback.push("");
-                    }
-                  };
-                  let call_as_static_preeval = false;
-                  if ( part == "this" ) {
-                    if ( node.hasFnCall ) {
-                      const fnD_2 = node.fnDesc;
-                      const fnB = fnD_2.fnBody;
-                      if ( (typeof(fnB) !== "undefined" && fnB != null )  ) {
-                        const fnCtx = fnD_2.fnCtx;
-                        let useCtx = ctx;
-                        if ( (typeof(fnCtx) !== "undefined" && fnCtx != null )  ) {
-                          useCtx = fnCtx;
-                        }
-                        const uses_this = this.fnBodyUsesThis((fnB), useCtx);
-                        if ( uses_this == false ) {
-                          call_as_static_preeval = true;
+                    };
+                    let call_as_static_preeval = false;
+                    if ( part == "this" ) {
+                      if ( node.hasFnCall ) {
+                        const fnD_2 = node.fnDesc;
+                        const fnB = fnD_2.fnBody;
+                        if ( (typeof(fnB) !== "undefined" && fnB != null )  ) {
+                          const fnCtx = fnD_2.fnCtx;
+                          let useCtx = ctx;
+                          if ( (typeof(fnCtx) !== "undefined" && fnCtx != null )  ) {
+                            useCtx = fnCtx;
+                          }
+                          const uses_this = this.fnBodyUsesThis((fnB), useCtx);
+                          if ( uses_this == false ) {
+                            call_as_static_preeval = true;
+                          }
                         }
                       }
                     }
-                  }
-                  if ( call_as_static_preeval ) {
-                    const fnD_3 = node.fnDesc;
-                    const fnContainerClass = fnD_3.container_class;
-                    if ( (typeof(fnContainerClass) !== "undefined" && fnContainerClass != null )  ) {
-                      const containerClass = fnContainerClass;
-                      const methodName_1 = fc.ns[1];
-                      wr.out((containerClass.name + "::") + methodName_1, false);
+                    if ( call_as_static_preeval ) {
+                      const fnD_3 = node.fnDesc;
+                      const fnContainerClass = fnD_3.container_class;
+                      if ( (typeof(fnContainerClass) !== "undefined" && fnContainerClass != null )  ) {
+                        const containerClass = fnContainerClass;
+                        const methodName_1 = fc.ns[1];
+                        wr.out((containerClass.name + "::") + methodName_1, false);
+                      } else {
+                        this.rust_call_receiver_mut = true;
+                        if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
+                          const rcvFnD = node.fnDesc;
+                          this.rust_call_receiver_mut = rcvFnD.rust_mut_self;
+                        }
+                        this.rust_writing_call_receiver = true;
+                        await this.WriteVRef(fc, ctx, wr);
+                        this.rust_writing_call_receiver = false;
+                        this.rust_call_receiver_mut = true;
+                      }
                     } else {
                       this.rust_call_receiver_mut = true;
                       if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
-                        const rcvFnD = node.fnDesc;
-                        this.rust_call_receiver_mut = rcvFnD.rust_mut_self;
+                        const rcvFnD_1 = node.fnDesc;
+                        this.rust_call_receiver_mut = rcvFnD_1.rust_mut_self;
                       }
                       this.rust_writing_call_receiver = true;
                       await this.WriteVRef(fc, ctx, wr);
                       this.rust_writing_call_receiver = false;
                       this.rust_call_receiver_mut = true;
                     }
-                  } else {
+                    wr.out("(", false);
+                    const pre_wrote_selfrc = this.writeSelfRcReceiverArg(node, fc, ctx, wr);
+                    const fnD2 = node.fnDesc;
+                    if ( (typeof(fnD2) !== "undefined" && fnD2 != null )  ) {
+                      const fnDesc = fnD2;
+                      for ( let i = 0; i < fnDesc.params.length; i++) {
+                        var arg = fnDesc.params[i];
+                        const n = givenArgs.children[i];
+                        if ( (i > 0) || pre_wrote_selfrc ) {
+                          wr.out(", ", false);
+                        }
+                        const tmpVar = tempVars[i];
+                        if ( (tmpVar.length) > 0 ) {
+                          let needsMutRefTmp = false;
+                          if ( arg.needs_cpp_reference ) {
+                            needsMutRefTmp = true;
+                          }
+                          if ( arg.rust_borrow_type == 2 ) {
+                            needsMutRefTmp = true;
+                          }
+                          const needsImmutableRefTmp = arg.rust_borrow_type == 1;
+                          if ( needsMutRefTmp ) {
+                            wr.out("&mut ", false);
+                          } else {
+                            if ( needsImmutableRefTmp ) {
+                              wr.out("&", false);
+                            }
+                          }
+                          wr.out(tmpVar, false);
+                        } else {
+                          if ( (typeof(n) !== "undefined" && n != null )  ) {
+                            const nVal = n;
+                            if ( await this.rustWriteUnionArg(arg, nVal, ctx, wr) ) {
+                              continue;
+                            }
+                            let needsMutRef = false;
+                            if ( arg.needs_cpp_reference ) {
+                              needsMutRef = true;
+                            }
+                            if ( arg.rust_borrow_type == 2 ) {
+                              needsMutRef = true;
+                            }
+                            const needsImmutableRef = arg.rust_borrow_type == 1;
+                            let borrowedLitDone2 = false;
+                            if ( needsMutRef ) {
+                              wr.out("&mut ", false);
+                            } else {
+                              if ( needsImmutableRef ) {
+                                borrowedLitDone2 = this.rustTryBareStrLitArg(nVal, ctx, wr);
+                                if ( borrowedLitDone2 == false ) {
+                                  if ( this.rustArgIsAlreadyRef(nVal) == false ) {
+                                    wr.out("&", false);
+                                  }
+                                }
+                              }
+                            }
+                            if ( borrowedLitDone2 == false ) {
+                              ctx.setInExpr();
+                              wr.suppress_expr_parens = true;
+                              await this.WalkNode(nVal, ctx, wr);
+                              wr.suppress_expr_parens = false;
+                              ctx.unsetInExpr();
+                            }
+                            let src_is_ref = false;
+                            if ( nVal.value_type == 11 ) {
+                              if ( nVal.hasParamDesc ) {
+                                const srcP = nVal.paramDesc;
+                                if ( srcP.rust_borrow_type > 0 ) {
+                                  src_is_ref = true;
+                                }
+                              }
+                            }
+                            const tgt_expects_owned = arg.rust_borrow_type == 0;
+                            if ( (src_is_ref && tgt_expects_owned) && (needsMutRef == false) ) {
+                              if ( this.rustStrRefRead(nVal) ) {
+                                wr.out(".to_string()", false);
+                              } else {
+                                wr.out(".clone()", false);
+                              }
+                            } else {
+                              if ( (tgt_expects_owned && (needsMutRef == false)) && (nVal.value_type == 11) ) {
+                                const ownNN = arg.nameNode;
+                                if ( (typeof(ownNN) !== "undefined" && ownNN != null )  ) {
+                                  const ownN = ownNN;
+                                  const ownT = ownN.type_name;
+                                  let ownIsClone = false;
+                                  if ( ownT == "string" ) {
+                                    ownIsClone = true;
+                                  }
+                                  if ( (ownN.array_type.length) > 0 ) {
+                                    ownIsClone = true;
+                                  }
+                                  if ( (ownN.key_type.length) > 0 ) {
+                                    ownIsClone = true;
+                                  }
+                                  if ( ownIsClone == false ) {
+                                    const ownVT = ownN.typeNameAsType(ctx);
+                                    if ( ownVT == 10 ) {
+                                      ownIsClone = true;
+                                    }
+                                  }
+                                  if ( ownIsClone ) {
+                                    if ( this.rustStrRefRead(nVal) ) {
+                                      wr.out(".to_string()", false);
+                                    } else {
+                                      wr.out(".clone()", false);
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      };
+                    }
+                    wr.out(")", false);
+                    if ( ctx.expressionLevel() == 0 ) {
+                      wr.out(";", true);
+                    }
+                    for ( let wbi = 0; wbi < tempWriteback.length; wbi++) {
+                      var wbName = tempWriteback[wbi];
+                      if ( (wbName.length) > 0 ) {
+                        const wbArg = givenArgs.children[wbi];
+                        ctx.setInExpr();
+                        ctx.setInLhs();
+                        await this.WalkNode(wbArg, ctx, wr);
+                        ctx.unsetInLhs();
+                        ctx.unsetInExpr();
+                        wr.out((" = " + wbName) + ";", true);
+                      }
+                    };
+                    return;
+                  }
+                  const is_self_call = part == "this";
+                  const selfCallArgIdx = this.findSelfCallInArgs(node);
+                  if ( (is_self_call && (selfCallArgIdx >= 0)) && (ctx.expressionLevel() == 0) ) {
+                    let tempVars_1 = [];
+                    for ( let argIdx_1 = 0; argIdx_1 < givenArgs.children.length; argIdx_1++) {
+                      var argNode_1 = givenArgs.children[argIdx_1];
+                      if ( this.isSelfMethodCall(argNode_1) ) {
+                        await this.rustExtractSelfCallConflicts(argNode_1, ctx, wr);
+                        const tempName = ctx.rustGetTempVar();
+                        tempVars_1.push(tempName);
+                        wr.out(("let " + tempName) + " = ", false);
+                        ctx.setInExpr();
+                        await this.WalkNode(argNode_1, ctx, wr);
+                        ctx.unsetInExpr();
+                        wr.out(";", true);
+                      } else {
+                        tempVars_1.push("");
+                      }
+                    };
                     this.rust_call_receiver_mut = true;
                     if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
-                      const rcvFnD_1 = node.fnDesc;
-                      this.rust_call_receiver_mut = rcvFnD_1.rust_mut_self;
+                      const rcvFnD_2 = node.fnDesc;
+                      this.rust_call_receiver_mut = rcvFnD_2.rust_mut_self;
                     }
                     this.rust_writing_call_receiver = true;
                     await this.WriteVRef(fc, ctx, wr);
                     this.rust_writing_call_receiver = false;
                     this.rust_call_receiver_mut = true;
-                  }
-                  wr.out("(", false);
-                  const pre_wrote_selfrc = this.writeSelfRcReceiverArg(node, fc, ctx, wr);
-                  const fnD2 = node.fnDesc;
-                  if ( (typeof(fnD2) !== "undefined" && fnD2 != null )  ) {
-                    const fnDesc = fnD2;
-                    for ( let i = 0; i < fnDesc.params.length; i++) {
-                      var arg = fnDesc.params[i];
-                      const n = givenArgs.children[i];
-                      if ( (i > 0) || pre_wrote_selfrc ) {
+                    wr.out("(", false);
+                    for ( let i_1 = 0; i_1 < node.fnDesc.params.length; i_1++) {
+                      var arg_1 = node.fnDesc.params[i_1];
+                      const n_1 = givenArgs.children[i_1];
+                      if ( i_1 > 0 ) {
                         wr.out(", ", false);
                       }
-                      const tmpVar = tempVars[i];
-                      if ( (tmpVar.length) > 0 ) {
-                        let needsMutRefTmp = false;
-                        if ( arg.needs_cpp_reference ) {
-                          needsMutRefTmp = true;
+                      if ( typeof(n_1) === "undefined" ) {
+                        const nameN = arg_1.nameNode;
+                        const defVal = nameN.getFlag("default");
+                        if ( (typeof(defVal) !== "undefined" && defVal != null )  ) {
+                          const defV = defVal;
+                          const fc2 = defV.vref_annotation.getFirst();
+                          ctx.setInExpr();
+                          await this.WalkNode(fc2, ctx, wr);
+                          ctx.unsetInExpr();
+                        } else {
+                          ctx.addError(node, "Default argument was missing");
                         }
-                        if ( arg.rust_borrow_type == 2 ) {
-                          needsMutRefTmp = true;
+                        continue;
+                      }
+                      const tempVar = tempVars_1[i_1];
+                      if ( (tempVar.length) > 0 ) {
+                        let needsMutRefTmp_1 = false;
+                        if ( arg_1.needs_cpp_reference ) {
+                          needsMutRefTmp_1 = true;
                         }
-                        const needsImmutableRefTmp = arg.rust_borrow_type == 1;
-                        if ( needsMutRefTmp ) {
+                        if ( arg_1.rust_borrow_type == 2 ) {
+                          needsMutRefTmp_1 = true;
+                        }
+                        const needsImmutableRefTmp2 = arg_1.rust_borrow_type == 1;
+                        if ( needsMutRefTmp_1 ) {
                           wr.out("&mut ", false);
                         } else {
-                          if ( needsImmutableRefTmp ) {
+                          if ( needsImmutableRefTmp2 ) {
                             wr.out("&", false);
                           }
                         }
-                        wr.out(tmpVar, false);
+                        wr.out(tempVar, false);
                       } else {
-                        if ( (typeof(n) !== "undefined" && n != null )  ) {
-                          const nVal = n;
-                          if ( await this.rustWriteUnionArg(arg, nVal, ctx, wr) ) {
-                            continue;
-                          }
-                          let needsMutRef = false;
-                          if ( arg.needs_cpp_reference ) {
-                            needsMutRef = true;
-                          }
-                          if ( arg.rust_borrow_type == 2 ) {
-                            needsMutRef = true;
-                          }
-                          const needsImmutableRef = arg.rust_borrow_type == 1;
-                          let borrowedLitDone2 = false;
-                          if ( needsMutRef ) {
+                        const nVal_1 = n_1;
+                        if ( await this.rustWriteUnionArg(arg_1, nVal_1, ctx, wr) ) {
+                          continue;
+                        }
+                        if ( await this.rustWriteUnionArg(arg_1, nVal_1, ctx, wr) ) {
+                          continue;
+                        }
+                        let needsMutRef2 = false;
+                        if ( arg_1.needs_cpp_reference ) {
+                          needsMutRef2 = true;
+                        }
+                        if ( arg_1.rust_borrow_type == 2 ) {
+                          needsMutRef2 = true;
+                        }
+                        const needsImmutableRef2 = arg_1.rust_borrow_type == 1;
+                        if ( needsMutRef2 ) {
+                          if ( this.rustArgIsAlreadyMutRef(nVal_1) == false ) {
                             wr.out("&mut ", false);
-                          } else {
-                            if ( needsImmutableRef ) {
-                              borrowedLitDone2 = this.rustTryBareStrLitArg(nVal, ctx, wr);
-                              if ( borrowedLitDone2 == false ) {
-                                if ( this.rustArgIsAlreadyRef(nVal) == false ) {
-                                  wr.out("&", false);
-                                }
-                              }
-                            }
                           }
-                          if ( borrowedLitDone2 == false ) {
-                            ctx.setInExpr();
-                            wr.suppress_expr_parens = true;
-                            await this.WalkNode(nVal, ctx, wr);
-                            wr.suppress_expr_parens = false;
-                            ctx.unsetInExpr();
-                          }
-                          let src_is_ref = false;
-                          if ( nVal.value_type == 11 ) {
-                            if ( nVal.hasParamDesc ) {
-                              const srcP = nVal.paramDesc;
-                              if ( srcP.rust_borrow_type > 0 ) {
-                                src_is_ref = true;
-                              }
-                            }
-                          }
-                          const tgt_expects_owned = arg.rust_borrow_type == 0;
-                          if ( (src_is_ref && tgt_expects_owned) && (needsMutRef == false) ) {
-                            if ( this.rustStrRefRead(nVal) ) {
-                              wr.out(".to_string()", false);
-                            } else {
-                              wr.out(".clone()", false);
-                            }
-                          } else {
-                            if ( (tgt_expects_owned && (needsMutRef == false)) && (nVal.value_type == 11) ) {
-                              const ownNN = arg.nameNode;
-                              if ( (typeof(ownNN) !== "undefined" && ownNN != null )  ) {
-                                const ownN = ownNN;
-                                const ownT = ownN.type_name;
-                                let ownIsClone = false;
-                                if ( ownT == "string" ) {
-                                  ownIsClone = true;
-                                }
-                                if ( (ownN.array_type.length) > 0 ) {
-                                  ownIsClone = true;
-                                }
-                                if ( (ownN.key_type.length) > 0 ) {
-                                  ownIsClone = true;
-                                }
-                                if ( ownIsClone == false ) {
-                                  const ownVT = ownN.typeNameAsType(ctx);
-                                  if ( ownVT == 10 ) {
-                                    ownIsClone = true;
-                                  }
-                                }
-                                if ( ownIsClone ) {
-                                  if ( this.rustStrRefRead(nVal) ) {
-                                    wr.out(".to_string()", false);
-                                  } else {
-                                    wr.out(".clone()", false);
-                                  }
-                                }
-                              }
-                            }
-                          }
-                        }
-                      }
-                    };
-                  }
-                  wr.out(")", false);
-                  if ( ctx.expressionLevel() == 0 ) {
-                    wr.out(";", true);
-                  }
-                  for ( let wbi = 0; wbi < tempWriteback.length; wbi++) {
-                    var wbName = tempWriteback[wbi];
-                    if ( (wbName.length) > 0 ) {
-                      const wbArg = givenArgs.children[wbi];
-                      ctx.setInExpr();
-                      ctx.setInLhs();
-                      await this.WalkNode(wbArg, ctx, wr);
-                      ctx.unsetInLhs();
-                      ctx.unsetInExpr();
-                      wr.out((" = " + wbName) + ";", true);
-                    }
-                  };
-                  return;
-                }
-                const is_self_call = part == "this";
-                const selfCallArgIdx = this.findSelfCallInArgs(node);
-                if ( (is_self_call && (selfCallArgIdx >= 0)) && (ctx.expressionLevel() == 0) ) {
-                  let tempVars_1 = [];
-                  for ( let argIdx_1 = 0; argIdx_1 < givenArgs.children.length; argIdx_1++) {
-                    var argNode_1 = givenArgs.children[argIdx_1];
-                    if ( this.isSelfMethodCall(argNode_1) ) {
-                      await this.rustExtractSelfCallConflicts(argNode_1, ctx, wr);
-                      const tempName = ctx.rustGetTempVar();
-                      tempVars_1.push(tempName);
-                      wr.out(("let " + tempName) + " = ", false);
-                      ctx.setInExpr();
-                      await this.WalkNode(argNode_1, ctx, wr);
-                      ctx.unsetInExpr();
-                      wr.out(";", true);
-                    } else {
-                      tempVars_1.push("");
-                    }
-                  };
-                  this.rust_call_receiver_mut = true;
-                  if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
-                    const rcvFnD_2 = node.fnDesc;
-                    this.rust_call_receiver_mut = rcvFnD_2.rust_mut_self;
-                  }
-                  this.rust_writing_call_receiver = true;
-                  await this.WriteVRef(fc, ctx, wr);
-                  this.rust_writing_call_receiver = false;
-                  this.rust_call_receiver_mut = true;
-                  wr.out("(", false);
-                  for ( let i_1 = 0; i_1 < node.fnDesc.params.length; i_1++) {
-                    var arg_1 = node.fnDesc.params[i_1];
-                    const n_1 = givenArgs.children[i_1];
-                    if ( i_1 > 0 ) {
-                      wr.out(", ", false);
-                    }
-                    if ( typeof(n_1) === "undefined" ) {
-                      const nameN = arg_1.nameNode;
-                      const defVal = nameN.getFlag("default");
-                      if ( (typeof(defVal) !== "undefined" && defVal != null )  ) {
-                        const defV = defVal;
-                        const fc2 = defV.vref_annotation.getFirst();
-                        ctx.setInExpr();
-                        await this.WalkNode(fc2, ctx, wr);
-                        ctx.unsetInExpr();
-                      } else {
-                        ctx.addError(node, "Default argument was missing");
-                      }
-                      continue;
-                    }
-                    const tempVar = tempVars_1[i_1];
-                    if ( (tempVar.length) > 0 ) {
-                      let needsMutRefTmp_1 = false;
-                      if ( arg_1.needs_cpp_reference ) {
-                        needsMutRefTmp_1 = true;
-                      }
-                      if ( arg_1.rust_borrow_type == 2 ) {
-                        needsMutRefTmp_1 = true;
-                      }
-                      const needsImmutableRefTmp2 = arg_1.rust_borrow_type == 1;
-                      if ( needsMutRefTmp_1 ) {
-                        wr.out("&mut ", false);
-                      } else {
-                        if ( needsImmutableRefTmp2 ) {
-                          wr.out("&", false);
-                        }
-                      }
-                      wr.out(tempVar, false);
-                    } else {
-                      const nVal_1 = n_1;
-                      if ( await this.rustWriteUnionArg(arg_1, nVal_1, ctx, wr) ) {
-                        continue;
-                      }
-                      if ( await this.rustWriteUnionArg(arg_1, nVal_1, ctx, wr) ) {
-                        continue;
-                      }
-                      let needsMutRef2 = false;
-                      if ( arg_1.needs_cpp_reference ) {
-                        needsMutRef2 = true;
-                      }
-                      if ( arg_1.rust_borrow_type == 2 ) {
-                        needsMutRef2 = true;
-                      }
-                      const needsImmutableRef2 = arg_1.rust_borrow_type == 1;
-                      if ( needsMutRef2 ) {
-                        if ( this.rustArgIsAlreadyMutRef(nVal_1) == false ) {
-                          wr.out("&mut ", false);
-                        }
-                        ctx.setInExpr();
-                        wr.suppress_expr_parens = true;
-                        await this.WalkNode(nVal_1, ctx, wr);
-                        wr.suppress_expr_parens = false;
-                        ctx.unsetInExpr();
-                      } else {
-                        if ( needsImmutableRef2 ) {
-                          wr.out("&", false);
                           ctx.setInExpr();
                           wr.suppress_expr_parens = true;
                           await this.WalkNode(nVal_1, ctx, wr);
                           wr.suppress_expr_parens = false;
                           ctx.unsetInExpr();
                         } else {
-                          ctx.setInExpr();
-                          wr.suppress_expr_parens = true;
-                          await this.WalkNode(nVal_1, ctx, wr);
-                          wr.suppress_expr_parens = false;
-                          ctx.unsetInExpr();
-                          const argNameN = arg_1.nameNode;
-                          let arg_type = argNameN.value_type;
-                          if ( ((arg_type == 10) || (arg_type == 11)) || (arg_type == 0) ) {
-                            arg_type = argNameN.typeNameAsType(ctx);
-                          }
-                          let needs_clone = false;
-                          if ( argNameN.type_name == "string" ) {
-                            needs_clone = true;
-                          }
-                          if ( arg_type == 10 ) {
-                            needs_clone = true;
-                          }
-                          if ( (((((arg_type == 6) || (arg_type == 7)) || (arg_type == 17)) || (arg_type == 18)) || (arg_type == 15)) || (arg_type == 16) ) {
-                            needs_clone = true;
-                          }
-                          if ( needs_clone ) {
-                            if ( nVal_1.value_type == 11 ) {
-                              if ( this.rustStrRefRead(nVal_1) ) {
-                                wr.out(".to_string()", false);
-                              } else {
-                                wr.out(".clone()", false);
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  };
-                  wr.out(")", false);
-                  if ( ctx.expressionLevel() == 0 ) {
-                    wr.out(";", true);
-                  }
-                  return;
-                }
-                let call_as_static = false;
-                if ( is_self_call ) {
-                  if ( node.hasFnCall ) {
-                    const fnD_4 = node.fnDesc;
-                    const fnB_1 = fnD_4.fnBody;
-                    if ( (typeof(fnB_1) !== "undefined" && fnB_1 != null )  ) {
-                      const fnCtx_1 = fnD_4.fnCtx;
-                      let useCtx_1 = ctx;
-                      if ( (typeof(fnCtx_1) !== "undefined" && fnCtx_1 != null )  ) {
-                        useCtx_1 = fnCtx_1;
-                      }
-                      const uses_this_1 = this.fnBodyUsesThis((fnB_1), useCtx_1);
-                      if ( uses_this_1 == false ) {
-                        call_as_static = true;
-                      }
-                    }
-                  }
-                }
-                if ( call_as_static ) {
-                  const fnD_5 = node.fnDesc;
-                  const fnContainerClass_1 = fnD_5.container_class;
-                  if ( (typeof(fnContainerClass_1) !== "undefined" && fnContainerClass_1 != null )  ) {
-                    const containerClass_1 = fnContainerClass_1;
-                    const methodName_2 = fc.ns[1];
-                    wr.out((containerClass_1.name + "::") + methodName_2, false);
-                    wr.out("(", false);
-                    for ( let i_2 = 0; i_2 < node.fnDesc.params.length; i_2++) {
-                      var arg_2 = node.fnDesc.params[i_2];
-                      const n_2 = givenArgs.children[i_2];
-                      if ( i_2 > 0 ) {
-                        wr.out(", ", false);
-                      }
-                      if ( typeof(n_2) === "undefined" ) {
-                        const nameN_1 = arg_2.nameNode;
-                        const defVal_1 = nameN_1.getFlag("default");
-                        if ( (typeof(defVal_1) !== "undefined" && defVal_1 != null )  ) {
-                          const defV_1 = defVal_1;
-                          const fc2_1 = defV_1.vref_annotation.getFirst();
-                          ctx.setInExpr();
-                          await this.WalkNode(fc2_1, ctx, wr);
-                          ctx.unsetInExpr();
-                        } else {
-                          ctx.addError(node, "Default argument was missing");
-                        }
-                        continue;
-                      }
-                      const nVal_2 = n_2;
-                      if ( await this.rustWriteUnionArg(arg_2, nVal_2, ctx, wr) ) {
-                        continue;
-                      }
-                      if ( await this.rustWriteUnionArg(arg_2, nVal_2, ctx, wr) ) {
-                        continue;
-                      }
-                      let needsMutRef_1 = false;
-                      if ( arg_2.needs_cpp_reference ) {
-                        needsMutRef_1 = true;
-                      }
-                      if ( arg_2.rust_borrow_type == 2 ) {
-                        needsMutRef_1 = true;
-                      }
-                      if ( needsMutRef_1 ) {
-                        if ( this.rustArgIsAlreadyMutRef(nVal_2) == false ) {
-                          wr.out("&mut ", false);
-                        }
-                        ctx.setInExpr();
-                        wr.suppress_expr_parens = true;
-                        await this.WalkNode(nVal_2, ctx, wr);
-                        wr.suppress_expr_parens = false;
-                        ctx.unsetInExpr();
-                      } else {
-                        const needsImmutableBorrow2 = arg_2.rust_borrow_type == 1;
-                        if ( needsImmutableBorrow2 ) {
-                          if ( this.rustTryBareStrLitArg(nVal_2, ctx, wr) == false ) {
-                            if ( this.rustArgIsAlreadyRef(nVal_2) == false ) {
-                              wr.out("&", false);
-                            }
+                          if ( needsImmutableRef2 ) {
+                            wr.out("&", false);
                             ctx.setInExpr();
                             wr.suppress_expr_parens = true;
-                            await this.WalkNode(nVal_2, ctx, wr);
+                            await this.WalkNode(nVal_1, ctx, wr);
                             wr.suppress_expr_parens = false;
                             ctx.unsetInExpr();
-                          }
-                        } else {
-                          ctx.setInExpr();
-                          wr.suppress_expr_parens = true;
-                          await this.WalkNode(nVal_2, ctx, wr);
-                          wr.suppress_expr_parens = false;
-                          ctx.unsetInExpr();
-                          const argNameN_1 = arg_2.nameNode;
-                          let arg_type_1 = argNameN_1.value_type;
-                          if ( ((arg_type_1 == 10) || (arg_type_1 == 11)) || (arg_type_1 == 0) ) {
-                            arg_type_1 = argNameN_1.typeNameAsType(ctx);
-                          }
-                          let needs_clone_1 = false;
-                          if ( argNameN_1.type_name == "string" ) {
-                            needs_clone_1 = true;
-                          }
-                          if ( arg_type_1 == 10 ) {
-                            needs_clone_1 = true;
-                          }
-                          if ( (((((arg_type_1 == 6) || (arg_type_1 == 7)) || (arg_type_1 == 17)) || (arg_type_1 == 18)) || (arg_type_1 == 15)) || (arg_type_1 == 16) ) {
-                            needs_clone_1 = true;
-                          }
-                          if ( needs_clone_1 ) {
-                            if ( nVal_2.value_type == 11 ) {
-                              if ( this.rustStrRefRead(nVal_2) ) {
-                                wr.out(".to_string()", false);
-                              } else {
-                                wr.out(".clone()", false);
-                              }
-                            }
-                          }
-                        }
-                      }
-                    };
-                    wr.out(")", false);
-                    if ( ctx.expressionLevel() == 0 ) {
-                      wr.out(";", true);
-                    }
-                    return;
-                  }
-                }
-                let call_other_as_static = false;
-                if ( is_self_call == false ) {
-                  if ( node.hasFnCall ) {
-                    const fnD2_1 = node.fnDesc;
-                    const fnB2 = fnD2_1.fnBody;
-                    if ( (typeof(fnB2) !== "undefined" && fnB2 != null )  ) {
-                      const fnCtx2 = fnD2_1.fnCtx;
-                      let useCtx2 = ctx;
-                      if ( (typeof(fnCtx2) !== "undefined" && fnCtx2 != null )  ) {
-                        useCtx2 = fnCtx2;
-                      }
-                      const uses_this2 = this.fnBodyUsesThis((fnB2), useCtx2);
-                      if ( uses_this2 == false ) {
-                        call_other_as_static = true;
-                      }
-                    }
-                  }
-                }
-                if ( call_other_as_static ) {
-                  const fnD2_2 = node.fnDesc;
-                  const fnContainerClass2 = fnD2_2.container_class;
-                  if ( (typeof(fnContainerClass2) !== "undefined" && fnContainerClass2 != null )  ) {
-                    const containerClass2 = fnContainerClass2;
-                    const methodName2 = fc.ns[((fc.ns.length) - 1)];
-                    wr.out((containerClass2.name + "::") + methodName2, false);
-                    wr.out("(", false);
-                    for ( let i_3 = 0; i_3 < node.fnDesc.params.length; i_3++) {
-                      var arg_3 = node.fnDesc.params[i_3];
-                      const n_3 = givenArgs.children[i_3];
-                      if ( i_3 > 0 ) {
-                        wr.out(", ", false);
-                      }
-                      if ( typeof(n_3) === "undefined" ) {
-                        const nameN_2 = arg_3.nameNode;
-                        const defVal_2 = nameN_2.getFlag("default");
-                        if ( (typeof(defVal_2) !== "undefined" && defVal_2 != null )  ) {
-                          const defV_2 = defVal_2;
-                          const fc2_2 = defV_2.vref_annotation.getFirst();
-                          ctx.setInExpr();
-                          await this.WalkNode(fc2_2, ctx, wr);
-                          ctx.unsetInExpr();
-                        } else {
-                          ctx.addError(node, "Default argument was missing");
-                        }
-                        continue;
-                      }
-                      const nVal_3 = n_3;
-                      if ( await this.rustWriteUnionArg(arg_3, nVal_3, ctx, wr) ) {
-                        continue;
-                      }
-                      if ( await this.rustWriteUnionArg(arg_3, nVal_3, ctx, wr) ) {
-                        continue;
-                      }
-                      let needsMutRef3 = false;
-                      if ( arg_3.needs_cpp_reference ) {
-                        needsMutRef3 = true;
-                      }
-                      if ( arg_3.rust_borrow_type == 2 ) {
-                        needsMutRef3 = true;
-                      }
-                      const needsImmutableBorrow3 = arg_3.rust_borrow_type == 1;
-                      if ( needsMutRef3 ) {
-                        if ( this.rustArgIsAlreadyMutRef(nVal_3) == false ) {
-                          wr.out("&mut ", false);
-                        }
-                        ctx.setInExpr();
-                        wr.suppress_expr_parens = true;
-                        await this.WalkNode(nVal_3, ctx, wr);
-                        wr.suppress_expr_parens = false;
-                        ctx.unsetInExpr();
-                      } else {
-                        if ( needsImmutableBorrow3 ) {
-                          if ( this.rustTryBareStrLitArg(nVal_3, ctx, wr) == false ) {
-                            if ( this.rustArgIsAlreadyRef(nVal_3) == false ) {
-                              wr.out("&", false);
-                            }
+                          } else {
                             ctx.setInExpr();
                             wr.suppress_expr_parens = true;
-                            await this.WalkNode(nVal_3, ctx, wr);
+                            await this.WalkNode(nVal_1, ctx, wr);
                             wr.suppress_expr_parens = false;
                             ctx.unsetInExpr();
-                          }
-                        } else {
-                          ctx.setInExpr();
-                          wr.suppress_expr_parens = true;
-                          await this.WalkNode(nVal_3, ctx, wr);
-                          wr.suppress_expr_parens = false;
-                          ctx.unsetInExpr();
-                          const argNameN_2 = arg_3.nameNode;
-                          let arg_type_2 = argNameN_2.value_type;
-                          if ( ((arg_type_2 == 10) || (arg_type_2 == 11)) || (arg_type_2 == 0) ) {
-                            arg_type_2 = argNameN_2.typeNameAsType(ctx);
-                          }
-                          let needs_clone_2 = false;
-                          if ( argNameN_2.type_name == "string" ) {
-                            needs_clone_2 = true;
-                          }
-                          if ( arg_type_2 == 10 ) {
-                            needs_clone_2 = true;
-                          }
-                          if ( (arg_type_2 == 6) || (arg_type_2 == 7) ) {
-                            needs_clone_2 = true;
-                          }
-                          if ( needs_clone_2 ) {
-                            if ( nVal_3.value_type == 11 ) {
-                              if ( this.rustStrRefRead(nVal_3) ) {
-                                wr.out(".to_string()", false);
-                              } else {
-                                wr.out(".clone()", false);
-                              }
+                            const argNameN = arg_1.nameNode;
+                            let arg_type = argNameN.value_type;
+                            if ( ((arg_type == 10) || (arg_type == 11)) || (arg_type == 0) ) {
+                              arg_type = argNameN.typeNameAsType(ctx);
                             }
-                          }
-                        }
-                      }
-                    };
-                    wr.out(")", false);
-                    if ( ctx.expressionLevel() == 0 ) {
-                      wr.out(";", true);
-                    }
-                    return;
-                  }
-                }
-                if ( ctx.expressionLevel() == 0 ) {
-                  let stdRecvBorrows = false;
-                  for ( let fsi = 0; fsi < fc.nsp.length; fsi++) {
-                    var fseg = fc.nsp[fsi];
-                    if ( fseg.rust_needs_rc_wrap ) {
-                      stdRecvBorrows = true;
-                    }
-                  };
-                  if ( stdRecvBorrows ) {
-                    for ( let si = 0; si < node.fnDesc.params.length; si++) {
-                      var sarg = node.fnDesc.params[si];
-                      const sn = givenArgs.children[si];
-                      if ( (typeof(sn) !== "undefined" && sn != null )  ) {
-                        const snVal = sn;
-                        if ( (snVal.rust_use_tmpvar.length) == 0 ) {
-                          if ( ((sarg.rust_borrow_type == 0) && (sarg.needs_cpp_reference == false)) && this.rustNodeContainsCall(snVal) ) {
-                            const stdTmp = ctx.rustGetTempVar();
-                            wr.out(("let " + stdTmp) + " = ", false);
-                            ctx.setInExpr();
-                            await this.WalkNode(snVal, ctx, wr);
-                            ctx.unsetInExpr();
-                            wr.out(";", true);
-                            snVal.rust_use_tmpvar = stdTmp;
-                          }
-                        }
-                      }
-                    };
-                  }
-                }
-                this.rust_call_receiver_mut = true;
-                if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
-                  const rcvFnD_3 = node.fnDesc;
-                  this.rust_call_receiver_mut = rcvFnD_3.rust_mut_self;
-                }
-                this.rust_writing_call_receiver = true;
-                await this.WriteVRef(fc, ctx, wr);
-                this.rust_writing_call_receiver = false;
-                this.rust_call_receiver_mut = true;
-                wr.out("(", false);
-                const std_wrote_selfrc = this.writeSelfRcReceiverArg(node, fc, ctx, wr);
-                for ( let i_4 = 0; i_4 < node.fnDesc.params.length; i_4++) {
-                  var arg_4 = node.fnDesc.params[i_4];
-                  const n_4 = givenArgs.children[i_4];
-                  if ( (i_4 > 0) || std_wrote_selfrc ) {
-                    wr.out(", ", false);
-                  }
-                  if ( typeof(n_4) === "undefined" ) {
-                    const nameN_3 = arg_4.nameNode;
-                    const defVal_3 = nameN_3.getFlag("default");
-                    if ( (typeof(defVal_3) !== "undefined" && defVal_3 != null )  ) {
-                      const defV_3 = defVal_3;
-                      const fc2_3 = defV_3.vref_annotation.getFirst();
-                      ctx.setInExpr();
-                      await this.WalkNode(fc2_3, ctx, wr);
-                      ctx.unsetInExpr();
-                    } else {
-                      ctx.addError(node, "Default argument was missing");
-                    }
-                    continue;
-                  }
-                  const nVal_4 = n_4;
-                  if ( await this.rustWriteUnionArg(arg_4, nVal_4, ctx, wr) ) {
-                    continue;
-                  }
-                  if ( (nVal_4.rust_use_tmpvar.length) > 0 ) {
-                    wr.out(nVal_4.rust_use_tmpvar, false);
-                    nVal_4.rust_use_tmpvar = "";
-                    continue;
-                  }
-                  let needsMutRef_2 = false;
-                  if ( arg_4.needs_cpp_reference ) {
-                    needsMutRef_2 = true;
-                  }
-                  if ( arg_4.rust_borrow_type == 2 ) {
-                    needsMutRef_2 = true;
-                  }
-                  const needsImmutableBorrow = arg_4.rust_borrow_type == 1;
-                  let arg_is_trait_type = false;
-                  const argNameN_3 = arg_4.nameNode;
-                  const argTypeClass = ctx.findClass(argNameN_3.type_name);
-                  if ( (typeof(argTypeClass) !== "undefined" && argTypeClass != null )  ) {
-                    const atc = argTypeClass;
-                    if ( atc.is_extended_by_children ) {
-                      arg_is_trait_type = true;
-                    }
-                  }
-                  let value_is_already_boxed_trait = false;
-                  if ( nVal_4.value_type == 11 ) {
-                    if ( nVal_4.hasParamDesc ) {
-                      const valP = nVal_4.paramDesc;
-                      const valNameN = valP.nameNode;
-                      if ( (typeof(valNameN) !== "undefined" && valNameN != null )  ) {
-                        const valNN = valNameN;
-                        const valTypeName = valNN.type_name;
-                        if ( (valTypeName.length) > 0 ) {
-                          const valTypeClass = ctx.findClass(valTypeName);
-                          if ( (typeof(valTypeClass) !== "undefined" && valTypeClass != null )  ) {
-                            const vtc = valTypeClass;
-                            if ( vtc.is_extended_by_children ) {
-                              value_is_already_boxed_trait = true;
+                            let needs_clone = false;
+                            if ( argNameN.type_name == "string" ) {
+                              needs_clone = true;
                             }
-                          }
-                        }
-                      }
-                    }
-                  }
-                  if ( needsMutRef_2 ) {
-                    if ( this.rustArgIsAlreadyMutRef(nVal_4) == false ) {
-                      wr.out("&mut ", false);
-                    }
-                    ctx.setInExpr();
-                    wr.suppress_expr_parens = true;
-                    await this.WalkNode(nVal_4, ctx, wr);
-                    wr.suppress_expr_parens = false;
-                    ctx.unsetInExpr();
-                  } else {
-                    if ( needsImmutableBorrow ) {
-                      if ( this.rustTryBareStrLitArg(nVal_4, ctx, wr) == false ) {
-                        if ( this.rustArgIsAlreadyRef(nVal_4) == false ) {
-                          wr.out("&", false);
-                        }
-                        ctx.setInExpr();
-                        wr.suppress_expr_parens = true;
-                        await this.WalkNode(nVal_4, ctx, wr);
-                        wr.suppress_expr_parens = false;
-                        ctx.unsetInExpr();
-                        if ( is_self_call && this.containsSelfReference(nVal_4) ) {
-                          if ( this.rustStaticStrRead(nVal_4) == false ) {
-                            wr.out(".clone()", false);
-                          }
-                        }
-                      }
-                    } else {
-                      let source_is_reference = false;
-                      if ( nVal_4.value_type == 11 ) {
-                        if ( nVal_4.hasParamDesc ) {
-                          const srcParam = nVal_4.paramDesc;
-                          if ( srcParam.rust_borrow_type > 0 ) {
-                            source_is_reference = true;
-                          }
-                        }
-                      }
-                      if ( value_is_already_boxed_trait ) {
-                        ctx.setInExpr();
-                        wr.suppress_expr_parens = true;
-                        await this.WalkNode(nVal_4, ctx, wr);
-                        wr.suppress_expr_parens = false;
-                        ctx.unsetInExpr();
-                        wr.out(".clone()", false);
-                      } else {
-                        let is_passing_this_to_trait = false;
-                        if ( arg_is_trait_type ) {
-                          if ( nVal_4.vref == "this" ) {
-                            is_passing_this_to_trait = true;
-                          }
-                        }
-                        if ( is_passing_this_to_trait ) {
-                          wr.out("panic!(\"Cannot pass 'this' to trait-type parameter in Rust. Object must be externally wrapped in Rc<RefCell<...>>\")", false);
-                        } else {
-                          const needs_rc_wrap = arg_4.rust_needs_rc_wrap;
-                          let value_already_rc_wrapped = false;
-                          if ( needs_rc_wrap ) {
-                            if ( nVal_4.value_type == 11 ) {
-                              if ( nVal_4.hasParamDesc ) {
-                                const valParam = nVal_4.paramDesc;
-                                if ( valParam.rust_needs_rc_wrap ) {
-                                  value_already_rc_wrapped = true;
-                                }
-                              }
+                            if ( arg_type == 10 ) {
+                              needs_clone = true;
                             }
-                            if ( value_already_rc_wrapped == false ) {
-                              if ( this.rustInitRcState(nVal_4, ctx) == 2 ) {
-                                value_already_rc_wrapped = true;
-                              }
+                            if ( (((((arg_type == 6) || (arg_type == 7)) || (arg_type == 17)) || (arg_type == 18)) || (arg_type == 15)) || (arg_type == 16) ) {
+                              needs_clone = true;
                             }
-                          }
-                          if ( arg_is_trait_type ) {
-                            wr.out("Rc::new(RefCell::new(", false);
-                          } else {
-                            if ( needs_rc_wrap && (value_already_rc_wrapped == false) ) {
-                              wr.out("Rc::new(RefCell::new(", false);
-                            }
-                          }
-                          ctx.setInExpr();
-                          wr.suppress_expr_parens = true;
-                          await this.WalkNode(nVal_4, ctx, wr);
-                          wr.suppress_expr_parens = false;
-                          ctx.unsetInExpr();
-                          let arg_type_3 = argNameN_3.value_type;
-                          if ( ((arg_type_3 == 10) || (arg_type_3 == 11)) || (arg_type_3 == 0) ) {
-                            arg_type_3 = argNameN_3.typeNameAsType(ctx);
-                          }
-                          let needs_clone_3 = false;
-                          if ( argNameN_3.type_name == "string" ) {
-                            needs_clone_3 = true;
-                          }
-                          if ( arg_type_3 == 10 ) {
-                            needs_clone_3 = true;
-                          }
-                          if ( (((((arg_type_3 == 6) || (arg_type_3 == 7)) || (arg_type_3 == 17)) || (arg_type_3 == 18)) || (arg_type_3 == 15)) || (arg_type_3 == 16) ) {
-                            needs_clone_3 = true;
-                          }
-                          if ( source_is_reference ) {
-                            needs_clone_3 = true;
-                          }
-                          if ( value_already_rc_wrapped ) {
-                            wr.out(".clone()", false);
-                          } else {
-                            if ( needs_clone_3 ) {
-                              if ( nVal_4.value_type == 11 ) {
-                                if ( this.rustStrRefRead(nVal_4) ) {
+                            if ( needs_clone ) {
+                              if ( nVal_1.value_type == 11 ) {
+                                if ( this.rustStrRefRead(nVal_1) ) {
                                   wr.out(".to_string()", false);
                                 } else {
                                   wr.out(".clone()", false);
@@ -24745,218 +24401,683 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                             }
                           }
-                          if ( arg_is_trait_type ) {
-                            wr.out("))", false);
+                        }
+                      }
+                    };
+                    wr.out(")", false);
+                    if ( ctx.expressionLevel() == 0 ) {
+                      wr.out(";", true);
+                    }
+                    return;
+                  }
+                  let call_as_static = false;
+                  if ( is_self_call ) {
+                    if ( node.hasFnCall ) {
+                      const fnD_4 = node.fnDesc;
+                      const fnB_1 = fnD_4.fnBody;
+                      if ( (typeof(fnB_1) !== "undefined" && fnB_1 != null )  ) {
+                        const fnCtx_1 = fnD_4.fnCtx;
+                        let useCtx_1 = ctx;
+                        if ( (typeof(fnCtx_1) !== "undefined" && fnCtx_1 != null )  ) {
+                          useCtx_1 = fnCtx_1;
+                        }
+                        const uses_this_1 = this.fnBodyUsesThis((fnB_1), useCtx_1);
+                        if ( uses_this_1 == false ) {
+                          call_as_static = true;
+                        }
+                      }
+                    }
+                  }
+                  if ( call_as_static ) {
+                    const fnD_5 = node.fnDesc;
+                    const fnContainerClass_1 = fnD_5.container_class;
+                    if ( (typeof(fnContainerClass_1) !== "undefined" && fnContainerClass_1 != null )  ) {
+                      const containerClass_1 = fnContainerClass_1;
+                      const methodName_2 = fc.ns[1];
+                      wr.out((containerClass_1.name + "::") + methodName_2, false);
+                      wr.out("(", false);
+                      for ( let i_2 = 0; i_2 < node.fnDesc.params.length; i_2++) {
+                        var arg_2 = node.fnDesc.params[i_2];
+                        const n_2 = givenArgs.children[i_2];
+                        if ( i_2 > 0 ) {
+                          wr.out(", ", false);
+                        }
+                        if ( typeof(n_2) === "undefined" ) {
+                          const nameN_1 = arg_2.nameNode;
+                          const defVal_1 = nameN_1.getFlag("default");
+                          if ( (typeof(defVal_1) !== "undefined" && defVal_1 != null )  ) {
+                            const defV_1 = defVal_1;
+                            const fc2_1 = defV_1.vref_annotation.getFirst();
+                            ctx.setInExpr();
+                            await this.WalkNode(fc2_1, ctx, wr);
+                            ctx.unsetInExpr();
                           } else {
-                            if ( needs_rc_wrap && (value_already_rc_wrapped == false) ) {
-                              wr.out("))", false);
+                            ctx.addError(node, "Default argument was missing");
+                          }
+                          continue;
+                        }
+                        const nVal_2 = n_2;
+                        if ( await this.rustWriteUnionArg(arg_2, nVal_2, ctx, wr) ) {
+                          continue;
+                        }
+                        if ( await this.rustWriteUnionArg(arg_2, nVal_2, ctx, wr) ) {
+                          continue;
+                        }
+                        let needsMutRef_1 = false;
+                        if ( arg_2.needs_cpp_reference ) {
+                          needsMutRef_1 = true;
+                        }
+                        if ( arg_2.rust_borrow_type == 2 ) {
+                          needsMutRef_1 = true;
+                        }
+                        if ( needsMutRef_1 ) {
+                          if ( this.rustArgIsAlreadyMutRef(nVal_2) == false ) {
+                            wr.out("&mut ", false);
+                          }
+                          ctx.setInExpr();
+                          wr.suppress_expr_parens = true;
+                          await this.WalkNode(nVal_2, ctx, wr);
+                          wr.suppress_expr_parens = false;
+                          ctx.unsetInExpr();
+                        } else {
+                          const needsImmutableBorrow2 = arg_2.rust_borrow_type == 1;
+                          if ( needsImmutableBorrow2 ) {
+                            if ( this.rustTryBareStrLitArg(nVal_2, ctx, wr) == false ) {
+                              if ( this.rustArgIsAlreadyRef(nVal_2) == false ) {
+                                wr.out("&", false);
+                              }
+                              ctx.setInExpr();
+                              wr.suppress_expr_parens = true;
+                              await this.WalkNode(nVal_2, ctx, wr);
+                              wr.suppress_expr_parens = false;
+                              ctx.unsetInExpr();
+                            }
+                          } else {
+                            ctx.setInExpr();
+                            wr.suppress_expr_parens = true;
+                            await this.WalkNode(nVal_2, ctx, wr);
+                            wr.suppress_expr_parens = false;
+                            ctx.unsetInExpr();
+                            const argNameN_1 = arg_2.nameNode;
+                            let arg_type_1 = argNameN_1.value_type;
+                            if ( ((arg_type_1 == 10) || (arg_type_1 == 11)) || (arg_type_1 == 0) ) {
+                              arg_type_1 = argNameN_1.typeNameAsType(ctx);
+                            }
+                            let needs_clone_1 = false;
+                            if ( argNameN_1.type_name == "string" ) {
+                              needs_clone_1 = true;
+                            }
+                            if ( arg_type_1 == 10 ) {
+                              needs_clone_1 = true;
+                            }
+                            if ( (((((arg_type_1 == 6) || (arg_type_1 == 7)) || (arg_type_1 == 17)) || (arg_type_1 == 18)) || (arg_type_1 == 15)) || (arg_type_1 == 16) ) {
+                              needs_clone_1 = true;
+                            }
+                            if ( needs_clone_1 ) {
+                              if ( nVal_2.value_type == 11 ) {
+                                if ( this.rustStrRefRead(nVal_2) ) {
+                                  wr.out(".to_string()", false);
+                                } else {
+                                  wr.out(".clone()", false);
+                                }
+                              }
+                            }
+                          }
+                        }
+                      };
+                      wr.out(")", false);
+                      if ( ctx.expressionLevel() == 0 ) {
+                        wr.out(";", true);
+                      }
+                      return;
+                    }
+                  }
+                  let call_other_as_static = false;
+                  if ( is_self_call == false ) {
+                    if ( node.hasFnCall ) {
+                      const fnD2_1 = node.fnDesc;
+                      const fnB2 = fnD2_1.fnBody;
+                      if ( (typeof(fnB2) !== "undefined" && fnB2 != null )  ) {
+                        const fnCtx2 = fnD2_1.fnCtx;
+                        let useCtx2 = ctx;
+                        if ( (typeof(fnCtx2) !== "undefined" && fnCtx2 != null )  ) {
+                          useCtx2 = fnCtx2;
+                        }
+                        const uses_this2 = this.fnBodyUsesThis((fnB2), useCtx2);
+                        if ( uses_this2 == false ) {
+                          call_other_as_static = true;
+                        }
+                      }
+                    }
+                  }
+                  if ( call_other_as_static ) {
+                    const fnD2_2 = node.fnDesc;
+                    const fnContainerClass2 = fnD2_2.container_class;
+                    if ( (typeof(fnContainerClass2) !== "undefined" && fnContainerClass2 != null )  ) {
+                      const containerClass2 = fnContainerClass2;
+                      const methodName2 = fc.ns[((fc.ns.length) - 1)];
+                      wr.out((containerClass2.name + "::") + methodName2, false);
+                      wr.out("(", false);
+                      for ( let i_3 = 0; i_3 < node.fnDesc.params.length; i_3++) {
+                        var arg_3 = node.fnDesc.params[i_3];
+                        const n_3 = givenArgs.children[i_3];
+                        if ( i_3 > 0 ) {
+                          wr.out(", ", false);
+                        }
+                        if ( typeof(n_3) === "undefined" ) {
+                          const nameN_2 = arg_3.nameNode;
+                          const defVal_2 = nameN_2.getFlag("default");
+                          if ( (typeof(defVal_2) !== "undefined" && defVal_2 != null )  ) {
+                            const defV_2 = defVal_2;
+                            const fc2_2 = defV_2.vref_annotation.getFirst();
+                            ctx.setInExpr();
+                            await this.WalkNode(fc2_2, ctx, wr);
+                            ctx.unsetInExpr();
+                          } else {
+                            ctx.addError(node, "Default argument was missing");
+                          }
+                          continue;
+                        }
+                        const nVal_3 = n_3;
+                        if ( await this.rustWriteUnionArg(arg_3, nVal_3, ctx, wr) ) {
+                          continue;
+                        }
+                        if ( await this.rustWriteUnionArg(arg_3, nVal_3, ctx, wr) ) {
+                          continue;
+                        }
+                        let needsMutRef3 = false;
+                        if ( arg_3.needs_cpp_reference ) {
+                          needsMutRef3 = true;
+                        }
+                        if ( arg_3.rust_borrow_type == 2 ) {
+                          needsMutRef3 = true;
+                        }
+                        const needsImmutableBorrow3 = arg_3.rust_borrow_type == 1;
+                        if ( needsMutRef3 ) {
+                          if ( this.rustArgIsAlreadyMutRef(nVal_3) == false ) {
+                            wr.out("&mut ", false);
+                          }
+                          ctx.setInExpr();
+                          wr.suppress_expr_parens = true;
+                          await this.WalkNode(nVal_3, ctx, wr);
+                          wr.suppress_expr_parens = false;
+                          ctx.unsetInExpr();
+                        } else {
+                          if ( needsImmutableBorrow3 ) {
+                            if ( this.rustTryBareStrLitArg(nVal_3, ctx, wr) == false ) {
+                              if ( this.rustArgIsAlreadyRef(nVal_3) == false ) {
+                                wr.out("&", false);
+                              }
+                              ctx.setInExpr();
+                              wr.suppress_expr_parens = true;
+                              await this.WalkNode(nVal_3, ctx, wr);
+                              wr.suppress_expr_parens = false;
+                              ctx.unsetInExpr();
+                            }
+                          } else {
+                            ctx.setInExpr();
+                            wr.suppress_expr_parens = true;
+                            await this.WalkNode(nVal_3, ctx, wr);
+                            wr.suppress_expr_parens = false;
+                            ctx.unsetInExpr();
+                            const argNameN_2 = arg_3.nameNode;
+                            let arg_type_2 = argNameN_2.value_type;
+                            if ( ((arg_type_2 == 10) || (arg_type_2 == 11)) || (arg_type_2 == 0) ) {
+                              arg_type_2 = argNameN_2.typeNameAsType(ctx);
+                            }
+                            let needs_clone_2 = false;
+                            if ( argNameN_2.type_name == "string" ) {
+                              needs_clone_2 = true;
+                            }
+                            if ( arg_type_2 == 10 ) {
+                              needs_clone_2 = true;
+                            }
+                            if ( (arg_type_2 == 6) || (arg_type_2 == 7) ) {
+                              needs_clone_2 = true;
+                            }
+                            if ( needs_clone_2 ) {
+                              if ( nVal_3.value_type == 11 ) {
+                                if ( this.rustStrRefRead(nVal_3) ) {
+                                  wr.out(".to_string()", false);
+                                } else {
+                                  wr.out(".clone()", false);
+                                }
+                              }
+                            }
+                          }
+                        }
+                      };
+                      wr.out(")", false);
+                      if ( ctx.expressionLevel() == 0 ) {
+                        wr.out(";", true);
+                      }
+                      return;
+                    }
+                  }
+                  if ( ctx.expressionLevel() == 0 ) {
+                    let stdRecvBorrows = false;
+                    for ( let fsi = 0; fsi < fc.nsp.length; fsi++) {
+                      var fseg = fc.nsp[fsi];
+                      if ( fseg.rust_needs_rc_wrap ) {
+                        stdRecvBorrows = true;
+                      }
+                    };
+                    if ( stdRecvBorrows ) {
+                      for ( let si = 0; si < node.fnDesc.params.length; si++) {
+                        var sarg = node.fnDesc.params[si];
+                        const sn = givenArgs.children[si];
+                        if ( (typeof(sn) !== "undefined" && sn != null )  ) {
+                          const snVal = sn;
+                          if ( (snVal.rust_use_tmpvar.length) == 0 ) {
+                            if ( ((sarg.rust_borrow_type == 0) && (sarg.needs_cpp_reference == false)) && this.rustNodeContainsCall(snVal) ) {
+                              const stdTmp = ctx.rustGetTempVar();
+                              wr.out(("let " + stdTmp) + " = ", false);
+                              ctx.setInExpr();
+                              await this.WalkNode(snVal, ctx, wr);
+                              ctx.unsetInExpr();
+                              wr.out(";", true);
+                              snVal.rust_use_tmpvar = stdTmp;
+                            }
+                          }
+                        }
+                      };
+                    }
+                  }
+                  this.rust_call_receiver_mut = true;
+                  if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
+                    const rcvFnD_3 = node.fnDesc;
+                    this.rust_call_receiver_mut = rcvFnD_3.rust_mut_self;
+                  }
+                  this.rust_writing_call_receiver = true;
+                  await this.WriteVRef(fc, ctx, wr);
+                  this.rust_writing_call_receiver = false;
+                  this.rust_call_receiver_mut = true;
+                  wr.out("(", false);
+                  const std_wrote_selfrc = this.writeSelfRcReceiverArg(node, fc, ctx, wr);
+                  for ( let i_4 = 0; i_4 < node.fnDesc.params.length; i_4++) {
+                    var arg_4 = node.fnDesc.params[i_4];
+                    const n_4 = givenArgs.children[i_4];
+                    if ( (i_4 > 0) || std_wrote_selfrc ) {
+                      wr.out(", ", false);
+                    }
+                    if ( typeof(n_4) === "undefined" ) {
+                      const nameN_3 = arg_4.nameNode;
+                      const defVal_3 = nameN_3.getFlag("default");
+                      if ( (typeof(defVal_3) !== "undefined" && defVal_3 != null )  ) {
+                        const defV_3 = defVal_3;
+                        const fc2_3 = defV_3.vref_annotation.getFirst();
+                        ctx.setInExpr();
+                        await this.WalkNode(fc2_3, ctx, wr);
+                        ctx.unsetInExpr();
+                      } else {
+                        ctx.addError(node, "Default argument was missing");
+                      }
+                      continue;
+                    }
+                    const nVal_4 = n_4;
+                    if ( await this.rustWriteUnionArg(arg_4, nVal_4, ctx, wr) ) {
+                      continue;
+                    }
+                    if ( (nVal_4.rust_use_tmpvar.length) > 0 ) {
+                      wr.out(nVal_4.rust_use_tmpvar, false);
+                      nVal_4.rust_use_tmpvar = "";
+                      continue;
+                    }
+                    let needsMutRef_2 = false;
+                    if ( arg_4.needs_cpp_reference ) {
+                      needsMutRef_2 = true;
+                    }
+                    if ( arg_4.rust_borrow_type == 2 ) {
+                      needsMutRef_2 = true;
+                    }
+                    const needsImmutableBorrow = arg_4.rust_borrow_type == 1;
+                    let arg_is_trait_type = false;
+                    const argNameN_3 = arg_4.nameNode;
+                    const argTypeClass = ctx.findClass(argNameN_3.type_name);
+                    if ( (typeof(argTypeClass) !== "undefined" && argTypeClass != null )  ) {
+                      const atc = argTypeClass;
+                      if ( atc.is_extended_by_children ) {
+                        arg_is_trait_type = true;
+                      }
+                    }
+                    let value_is_already_boxed_trait = false;
+                    if ( nVal_4.value_type == 11 ) {
+                      if ( nVal_4.hasParamDesc ) {
+                        const valP = nVal_4.paramDesc;
+                        const valNameN = valP.nameNode;
+                        if ( (typeof(valNameN) !== "undefined" && valNameN != null )  ) {
+                          const valNN = valNameN;
+                          const valTypeName = valNN.type_name;
+                          if ( (valTypeName.length) > 0 ) {
+                            const valTypeClass = ctx.findClass(valTypeName);
+                            if ( (typeof(valTypeClass) !== "undefined" && valTypeClass != null )  ) {
+                              const vtc = valTypeClass;
+                              if ( vtc.is_extended_by_children ) {
+                                value_is_already_boxed_trait = true;
+                              }
                             }
                           }
                         }
                       }
                     }
-                  }
-                };
-                wr.out(")", false);
-                if ( ctx.expressionLevel() == 0 ) {
-                  wr.out(";", true);
-                }
-              }
-            };
-            async writeNewCall (node, ctx, wr) {
-              if ( node.hasNewOper ) {
-                const cl = node.clDesc;
-                const fc = node.getSecond();
-                wr.out(node.clDesc.name, false);
-                wr.out("::new(", false);
-                const constr = cl.constructor_fn;
-                const givenArgs = node.getThird();
-                if ( (typeof(constr) !== "undefined" && constr != null )  ) {
-                  const c = constr;
-                  let written = 0;
-                  for ( let i = 0; i < c.params.length; i++) {
-                    var arg = c.params[i];
-                    if ( ((arg.nameNode)).hasFlag("keyword") ) {
-                      continue;
-                    }
-                    const n = givenArgs.children[i];
-                    if ( written > 0 ) {
-                      wr.out(", ", false);
-                    }
-                    written = written + 1;
-                    await this.WalkNode(n, ctx, wr);
-                    const argNameN = arg.nameNode;
-                    let arg_type = argNameN.value_type;
-                    if ( ((arg_type == 10) || (arg_type == 11)) || (arg_type == 0) ) {
-                      arg_type = argNameN.typeNameAsType(ctx);
-                    }
-                    let needs_clone = false;
-                    if ( argNameN.type_name == "string" ) {
-                      needs_clone = true;
-                    }
-                    if ( arg_type == 10 ) {
-                      needs_clone = true;
-                    }
-                    if ( (((((arg_type == 6) || (arg_type == 7)) || (arg_type == 17)) || (arg_type == 18)) || (arg_type == 15)) || (arg_type == 16) ) {
-                      needs_clone = true;
-                    }
-                    if ( needs_clone ) {
-                      if ( n.value_type == 11 ) {
-                        if ( this.rustStrRefRead(n) ) {
-                          wr.out(".to_string()", false);
-                        } else {
-                          wr.out(".clone()", false);
-                        }
+                    if ( needsMutRef_2 ) {
+                      if ( this.rustArgIsAlreadyMutRef(nVal_4) == false ) {
+                        wr.out("&mut ", false);
                       }
-                    }
-                  };
-                }
-                wr.out(")", false);
-              }
-            };
-            async writeArrayLiteral (node, ctx, wr) {
-              wr.out("vec![", false);
-              await operatorsOf.forEach_15(node.children, (async (item, index) => { 
-                if ( index > 0 ) {
-                  wr.out(", ", false);
-                }
-                await this.WalkNode(item, ctx, wr);
-              }));
-              wr.out("]", false);
-            };
-            async writeSingletonAccessor (cl, ctx, wr) {
-              wr.newline();
-              wr.out("pub fn __singleton(", false);
-              let sgWritten = 0;
-              if ( cl.has_constructor ) {
-                const sgc = cl.constructor_fn;
-                if ( (typeof(sgc) !== "undefined" && sgc != null )  ) {
-                  const sgcF = sgc;
-                  for ( let i = 0; i < sgcF.params.length; i++) {
-                    var arg = sgcF.params[i];
-                    if ( arg.nameNode.hasFlag("keyword") ) {
-                      continue;
-                    }
-                    if ( sgWritten > 0 ) {
-                      wr.out(", ", false);
-                    }
-                    sgWritten = sgWritten + 1;
-                    wr.out(arg.name + " : ", false);
-                    const sgNameN = arg.nameNode;
-                    await this.writeTypeDef(sgNameN, ctx, wr);
-                  };
-                }
-              }
-              wr.out((") -> Rc<RefCell<" + cl.name) + ">> {", true);
-              wr.indent(1);
-              wr.out(("thread_local!(static __SINGLETON: RefCell<Option<Rc<RefCell<" + cl.name) + ">>>> = RefCell::new(None));", true);
-              wr.out("__SINGLETON.with(|s| {", true);
-              wr.indent(1);
-              wr.out("let mut slot = s.borrow_mut();", true);
-              wr.out("if slot.is_none() {", true);
-              wr.indent(1);
-              wr.out(("*slot = Some(Rc::new(RefCell::new(" + cl.name) + "::new(", false);
-              let sgFwd = 0;
-              if ( cl.has_constructor ) {
-                const sgc2 = cl.constructor_fn;
-                if ( (typeof(sgc2) !== "undefined" && sgc2 != null )  ) {
-                  const sgc2F = sgc2;
-                  for ( let i_1 = 0; i_1 < sgc2F.params.length; i_1++) {
-                    var arg_1 = sgc2F.params[i_1];
-                    if ( arg_1.nameNode.hasFlag("keyword") ) {
-                      continue;
-                    }
-                    if ( sgFwd > 0 ) {
-                      wr.out(", ", false);
-                    }
-                    sgFwd = sgFwd + 1;
-                    wr.out(arg_1.name, false);
-                  };
-                }
-              }
-              wr.out("))));", true);
-              wr.indent(-1);
-              wr.out("}", true);
-              wr.out("slot.as_ref().unwrap().clone()", true);
-              wr.indent(-1);
-              wr.out("})", true);
-              wr.indent(-1);
-              wr.out("}", true);
-            };
-            async writeClass (node, ctx, orig_wr) {
-              const ucl = node.clDesc;
-              if ( typeof(ucl) === "undefined" ) {
-                return;
-              }
-              const cl = ucl;
-              const prevClass = ctx.getCurrentClass();
-              ctx.setCurrentClass(cl);
-              const wr = orig_wr;
-              if ( this.fileHeaderWritten == false ) {
-                const header = wr.getTag("before_imports");
-                header.out("#![allow(unused_parens)]", true);
-                header.out("#![allow(unused_mut)]", true);
-                header.out("#![allow(unused_variables)]", true);
-                header.out("#![allow(unused_assignments)]", true);
-                header.out("#![allow(non_snake_case)]", true);
-                header.out("#![allow(dead_code)]", true);
-                header.out("// The clippy allows below cover shapes that mirror the Ranger source", true);
-                header.out("// itself - statement-level clamp chains, nested ifs, function arity and", true);
-                header.out("// type names - which the transpiler must not rewrite or rename.", true);
-                header.out("#![allow(clippy::manual_clamp)]", true);
-                header.out("#![allow(clippy::collapsible_if)]", true);
-                header.out("#![allow(clippy::too_many_arguments)]", true);
-                header.out("#![allow(clippy::upper_case_acronyms)]", true);
-                header.out("#![allow(clippy::ptr_arg)]", true);
-                header.out("", true);
-                header.out("use std::rc::Rc;", true);
-                let anyWeakField = false;
-                const hdrRoot = ctx.getRoot();
-                for( var hci in hdrRoot.definedClasses) {
-                  if(hdrRoot.definedClasses.hasOwnProperty(hci)) {
-                    var hcl = hdrRoot.definedClasses[hci] 
-                    const hclSpecial = ((((hcl.is_system || hcl.is_trait) || hcl.is_template) || hcl.is_operator_class) || hcl.is_generic_instance) || hcl.is_union;
-                    if ( hclSpecial == false ) {
-                      for ( let hvi = 0; hvi < hcl.variables.length; hvi++) {
-                        var hv = hcl.variables[hvi];
-                        const hvNN = hv.nameNode;
-                        if ( (typeof(hvNN) !== "undefined" && hvNN != null )  ) {
-                          const hvN = hvNN;
-                          if ( hvN.hasFlag("weak") ) {
-                            anyWeakField = true;
+                      ctx.setInExpr();
+                      wr.suppress_expr_parens = true;
+                      await this.WalkNode(nVal_4, ctx, wr);
+                      wr.suppress_expr_parens = false;
+                      ctx.unsetInExpr();
+                    } else {
+                      if ( needsImmutableBorrow ) {
+                        if ( this.rustTryBareStrLitArg(nVal_4, ctx, wr) == false ) {
+                          if ( this.rustArgIsAlreadyRef(nVal_4) == false ) {
+                            wr.out("&", false);
+                          }
+                          ctx.setInExpr();
+                          wr.suppress_expr_parens = true;
+                          await this.WalkNode(nVal_4, ctx, wr);
+                          wr.suppress_expr_parens = false;
+                          ctx.unsetInExpr();
+                          if ( is_self_call && this.containsSelfReference(nVal_4) ) {
+                            if ( this.rustStaticStrRead(nVal_4) == false ) {
+                              wr.out(".clone()", false);
+                            }
                           }
                         }
-                      };
+                      } else {
+                        let source_is_reference = false;
+                        if ( nVal_4.value_type == 11 ) {
+                          if ( nVal_4.hasParamDesc ) {
+                            const srcParam = nVal_4.paramDesc;
+                            if ( srcParam.rust_borrow_type > 0 ) {
+                              source_is_reference = true;
+                            }
+                          }
+                        }
+                        if ( value_is_already_boxed_trait ) {
+                          ctx.setInExpr();
+                          wr.suppress_expr_parens = true;
+                          await this.WalkNode(nVal_4, ctx, wr);
+                          wr.suppress_expr_parens = false;
+                          ctx.unsetInExpr();
+                          wr.out(".clone()", false);
+                        } else {
+                          let is_passing_this_to_trait = false;
+                          if ( arg_is_trait_type ) {
+                            if ( nVal_4.vref == "this" ) {
+                              is_passing_this_to_trait = true;
+                            }
+                          }
+                          if ( is_passing_this_to_trait ) {
+                            wr.out("panic!(\"Cannot pass 'this' to trait-type parameter in Rust. Object must be externally wrapped in Rc<RefCell<...>>\")", false);
+                          } else {
+                            const needs_rc_wrap = arg_4.rust_needs_rc_wrap;
+                            let value_already_rc_wrapped = false;
+                            if ( needs_rc_wrap ) {
+                              if ( nVal_4.value_type == 11 ) {
+                                if ( nVal_4.hasParamDesc ) {
+                                  const valParam = nVal_4.paramDesc;
+                                  if ( valParam.rust_needs_rc_wrap ) {
+                                    value_already_rc_wrapped = true;
+                                  }
+                                }
+                              }
+                              if ( value_already_rc_wrapped == false ) {
+                                if ( this.rustInitRcState(nVal_4, ctx) == 2 ) {
+                                  value_already_rc_wrapped = true;
+                                }
+                              }
+                            }
+                            if ( arg_is_trait_type ) {
+                              wr.out("Rc::new(RefCell::new(", false);
+                            } else {
+                              if ( needs_rc_wrap && (value_already_rc_wrapped == false) ) {
+                                wr.out("Rc::new(RefCell::new(", false);
+                              }
+                            }
+                            ctx.setInExpr();
+                            wr.suppress_expr_parens = true;
+                            await this.WalkNode(nVal_4, ctx, wr);
+                            wr.suppress_expr_parens = false;
+                            ctx.unsetInExpr();
+                            let arg_type_3 = argNameN_3.value_type;
+                            if ( ((arg_type_3 == 10) || (arg_type_3 == 11)) || (arg_type_3 == 0) ) {
+                              arg_type_3 = argNameN_3.typeNameAsType(ctx);
+                            }
+                            let needs_clone_3 = false;
+                            if ( argNameN_3.type_name == "string" ) {
+                              needs_clone_3 = true;
+                            }
+                            if ( arg_type_3 == 10 ) {
+                              needs_clone_3 = true;
+                            }
+                            if ( (((((arg_type_3 == 6) || (arg_type_3 == 7)) || (arg_type_3 == 17)) || (arg_type_3 == 18)) || (arg_type_3 == 15)) || (arg_type_3 == 16) ) {
+                              needs_clone_3 = true;
+                            }
+                            if ( source_is_reference ) {
+                              needs_clone_3 = true;
+                            }
+                            if ( value_already_rc_wrapped ) {
+                              wr.out(".clone()", false);
+                            } else {
+                              if ( needs_clone_3 ) {
+                                if ( nVal_4.value_type == 11 ) {
+                                  if ( this.rustStrRefRead(nVal_4) ) {
+                                    wr.out(".to_string()", false);
+                                  } else {
+                                    wr.out(".clone()", false);
+                                  }
+                                }
+                              }
+                            }
+                            if ( arg_is_trait_type ) {
+                              wr.out("))", false);
+                            } else {
+                              if ( needs_rc_wrap && (value_already_rc_wrapped == false) ) {
+                                wr.out("))", false);
+                              }
+                            }
+                          }
+                        }
+                      }
                     }
-                  } };
-                  if ( anyWeakField ) {
-                    header.out("use std::rc::Weak;", true);
+                  };
+                  wr.out(")", false);
+                  if ( ctx.expressionLevel() == 0 ) {
+                    wr.out(";", true);
                   }
-                  header.out("use std::cell::RefCell;", true);
+                }
+              };
+              async writeNewCall (node, ctx, wr) {
+                if ( node.hasNewOper ) {
+                  const cl = node.clDesc;
+                  const fc = node.getSecond();
+                  wr.out(node.clDesc.name, false);
+                  wr.out("::new(", false);
+                  const constr = cl.constructor_fn;
+                  const givenArgs = node.getThird();
+                  if ( (typeof(constr) !== "undefined" && constr != null )  ) {
+                    const c = constr;
+                    let written = 0;
+                    for ( let i = 0; i < c.params.length; i++) {
+                      var arg = c.params[i];
+                      if ( ((arg.nameNode)).hasFlag("keyword") ) {
+                        continue;
+                      }
+                      const n = givenArgs.children[i];
+                      if ( written > 0 ) {
+                        wr.out(", ", false);
+                      }
+                      written = written + 1;
+                      await this.WalkNode(n, ctx, wr);
+                      const argNameN = arg.nameNode;
+                      let arg_type = argNameN.value_type;
+                      if ( ((arg_type == 10) || (arg_type == 11)) || (arg_type == 0) ) {
+                        arg_type = argNameN.typeNameAsType(ctx);
+                      }
+                      let needs_clone = false;
+                      if ( argNameN.type_name == "string" ) {
+                        needs_clone = true;
+                      }
+                      if ( arg_type == 10 ) {
+                        needs_clone = true;
+                      }
+                      if ( (((((arg_type == 6) || (arg_type == 7)) || (arg_type == 17)) || (arg_type == 18)) || (arg_type == 15)) || (arg_type == 16) ) {
+                        needs_clone = true;
+                      }
+                      if ( needs_clone ) {
+                        if ( n.value_type == 11 ) {
+                          if ( this.rustStrRefRead(n) ) {
+                            wr.out(".to_string()", false);
+                          } else {
+                            wr.out(".clone()", false);
+                          }
+                        }
+                      }
+                    };
+                  }
+                  wr.out(")", false);
+                }
+              };
+              async writeArrayLiteral (node, ctx, wr) {
+                wr.out("vec![", false);
+                await operatorsOf.forEach_15(node.children, (async (item, index) => { 
+                  if ( index > 0 ) {
+                    wr.out(", ", false);
+                  }
+                  await this.WalkNode(item, ctx, wr);
+                }));
+                wr.out("]", false);
+              };
+              async writeSingletonAccessor (cl, ctx, wr) {
+                wr.newline();
+                wr.out("pub fn __singleton(", false);
+                let sgWritten = 0;
+                if ( cl.has_constructor ) {
+                  const sgc = cl.constructor_fn;
+                  if ( (typeof(sgc) !== "undefined" && sgc != null )  ) {
+                    const sgcF = sgc;
+                    for ( let i = 0; i < sgcF.params.length; i++) {
+                      var arg = sgcF.params[i];
+                      if ( arg.nameNode.hasFlag("keyword") ) {
+                        continue;
+                      }
+                      if ( sgWritten > 0 ) {
+                        wr.out(", ", false);
+                      }
+                      sgWritten = sgWritten + 1;
+                      wr.out(arg.name + " : ", false);
+                      const sgNameN = arg.nameNode;
+                      await this.writeTypeDef(sgNameN, ctx, wr);
+                    };
+                  }
+                }
+                wr.out((") -> Rc<RefCell<" + cl.name) + ">> {", true);
+                wr.indent(1);
+                wr.out(("thread_local!(static __SINGLETON: RefCell<Option<Rc<RefCell<" + cl.name) + ">>>> = RefCell::new(None));", true);
+                wr.out("__SINGLETON.with(|s| {", true);
+                wr.indent(1);
+                wr.out("let mut slot = s.borrow_mut();", true);
+                wr.out("if slot.is_none() {", true);
+                wr.indent(1);
+                wr.out(("*slot = Some(Rc::new(RefCell::new(" + cl.name) + "::new(", false);
+                let sgFwd = 0;
+                if ( cl.has_constructor ) {
+                  const sgc2 = cl.constructor_fn;
+                  if ( (typeof(sgc2) !== "undefined" && sgc2 != null )  ) {
+                    const sgc2F = sgc2;
+                    for ( let i_1 = 0; i_1 < sgc2F.params.length; i_1++) {
+                      var arg_1 = sgc2F.params[i_1];
+                      if ( arg_1.nameNode.hasFlag("keyword") ) {
+                        continue;
+                      }
+                      if ( sgFwd > 0 ) {
+                        wr.out(", ", false);
+                      }
+                      sgFwd = sgFwd + 1;
+                      wr.out(arg_1.name, false);
+                    };
+                  }
+                }
+                wr.out("))));", true);
+                wr.indent(-1);
+                wr.out("}", true);
+                wr.out("slot.as_ref().unwrap().clone()", true);
+                wr.indent(-1);
+                wr.out("})", true);
+                wr.indent(-1);
+                wr.out("}", true);
+              };
+              async writeClass (node, ctx, orig_wr) {
+                const ucl = node.clDesc;
+                if ( typeof(ucl) === "undefined" ) {
+                  return;
+                }
+                const cl = ucl;
+                const prevClass = ctx.getCurrentClass();
+                ctx.setCurrentClass(cl);
+                const wr = orig_wr;
+                if ( this.fileHeaderWritten == false ) {
+                  const header = wr.getTag("before_imports");
+                  header.out("#![allow(unused_parens)]", true);
+                  header.out("#![allow(unused_mut)]", true);
+                  header.out("#![allow(unused_variables)]", true);
+                  header.out("#![allow(unused_assignments)]", true);
+                  header.out("#![allow(non_snake_case)]", true);
+                  header.out("#![allow(dead_code)]", true);
+                  header.out("// The clippy allows below cover shapes that mirror the Ranger source", true);
+                  header.out("// itself - statement-level clamp chains, nested ifs, function arity and", true);
+                  header.out("// type names - which the transpiler must not rewrite or rename.", true);
+                  header.out("#![allow(clippy::manual_clamp)]", true);
+                  header.out("#![allow(clippy::collapsible_if)]", true);
+                  header.out("#![allow(clippy::too_many_arguments)]", true);
+                  header.out("#![allow(clippy::upper_case_acronyms)]", true);
+                  header.out("#![allow(clippy::ptr_arg)]", true);
                   header.out("", true);
-                  let anyUnion = false;
-                  for( var uci in hdrRoot.definedClasses) {
-                    if(hdrRoot.definedClasses.hasOwnProperty(uci)) {
-                      var ucl_2 = hdrRoot.definedClasses[uci] 
-                      if ( ucl_2.is_union && (ucl_2.name != "Any") ) {
-                        anyUnion = true;
+                  header.out("use std::rc::Rc;", true);
+                  let anyWeakField = false;
+                  const hdrRoot = ctx.getRoot();
+                  for( var hci in hdrRoot.definedClasses) {
+                    if(hdrRoot.definedClasses.hasOwnProperty(hci)) {
+                      var hcl = hdrRoot.definedClasses[hci] 
+                      const hclSpecial = ((((hcl.is_system || hcl.is_trait) || hcl.is_template) || hcl.is_operator_class) || hcl.is_generic_instance) || hcl.is_union;
+                      if ( hclSpecial == false ) {
+                        for ( let hvi = 0; hvi < hcl.variables.length; hvi++) {
+                          var hv = hcl.variables[hvi];
+                          const hvNN = hv.nameNode;
+                          if ( (typeof(hvNN) !== "undefined" && hvNN != null )  ) {
+                            const hvN = hvNN;
+                            if ( hvN.hasFlag("weak") ) {
+                              anyWeakField = true;
+                            }
+                          }
+                        };
                       }
                     } };
-                    if ( anyUnion ) {
-                      header.out("// A `union` is written as Rc<dyn Any>: its members share no trait, and", true);
-                      header.out("// an Rc<RefCell<T>> member coerces into it at every call, return and", true);
-                      header.out("// assignment site. The `case` narrowing operator downcasts back out", true);
-                      header.out("// through this trait, which is what lets it name the member type as", true);
-                      header.out("// Rc<RefCell<T>> - the same spelling every other position uses - instead", true);
-                      header.out("// of having to strip the wrapper to reach T.", true);
-                      header.out("trait RgNarrow: Sized {", true);
-                      header.out("    fn rg_narrow(v: &Rc<dyn std::any::Any>) -> Option<Self>;", true);
+                    if ( anyWeakField ) {
+                      header.out("use std::rc::Weak;", true);
+                    }
+                    header.out("use std::cell::RefCell;", true);
+                    header.out("", true);
+                    const unionNames = this.sealableUnionNames(ctx);
+                    for ( let uni = 0; uni < unionNames.length; uni++) {
+                      var uname = unionNames[uni];
+                      const ucl_2 = hdrRoot.findClass(uname);
+                      header.out("#[derive(Clone)]", true);
+                      header.out(("pub enum " + this.unionInterfaceName(uname)) + " {", true);
+                      for ( let mi = 0; mi < ucl_2.is_union_of.length; mi++) {
+                        var mname = ucl_2.is_union_of[mi];
+                        if ( this.rustClassIsShared(mname, ctx) ) {
+                          header.out(((("    " + mname) + "(Rc<RefCell<") + mname) + ">>),", true);
+                        } else {
+                          header.out(((("    " + mname) + "(") + mname) + "),", true);
+                        }
+                      };
                       header.out("}", true);
-                      header.out("impl<T: 'static> RgNarrow for Rc<RefCell<T>> {", true);
-                      header.out("    fn rg_narrow(v: &Rc<dyn std::any::Any>) -> Option<Self> {", true);
-                      header.out("        v.clone().downcast::<RefCell<T>>().ok()", true);
-                      header.out("    }", true);
-                      header.out("}", true);
+                    };
+                    if ( (unionNames.length) > 0 ) {
                       header.out("", true);
                     }
                     if ( ctx.hasCompilerFlag("native-fast-alloc") ) {
@@ -46822,6 +46943,43 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         this.analyzeOwnership(cl.constructor_fn);
                       }
                     };
+                    unionMemberIsScalarOnly (typeName) {
+                      if ( typeof(this.ctx) === "undefined" ) {
+                        return false;
+                      }
+                      const root = ((this.ctx)).getRoot();
+                      if ( root.isDefinedClass(typeName) == false ) {
+                        return false;
+                      }
+                      const cl = root.findClass(typeName);
+                      if ( (cl.is_union || cl.is_system) || cl.is_system_union ) {
+                        return false;
+                      }
+                      let allScalar = true;
+                      for ( let cvi = 0; cvi < cl.variables.length; cvi++) {
+                        var cv = cl.variables[cvi];
+                        const cvNN = cv.nameNode;
+                        if ( typeof(cvNN) === "undefined" ) {
+                          allScalar = false;
+                        } else {
+                          const cvNode = cvNN;
+                          if ( ((cvNode.array_type.length) > 0) || ((cvNode.key_type.length) > 0) ) {
+                            allScalar = false;
+                          } else {
+                            if ( cvNode.hasFlag("optional") ) {
+                              allScalar = false;
+                            } else {
+                              const tn = cvNode.type_name;
+                              const isScalar = ((((tn == "int") || (tn == "double")) || (tn == "string")) || (tn == "boolean")) || (tn == "char");
+                              if ( isScalar == false ) {
+                                allScalar = false;
+                              }
+                            }
+                          }
+                        }
+                      };
+                      return allScalar;
+                    };
                     markClassShared (typeName, reason) {
                       if ( (typeName.length) == 0 ) {
                         return;
@@ -47248,7 +47406,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             if ( cl.is_union && (cl.name != "Any") ) {
                               for ( let umi = 0; umi < cl.is_union_of.length; umi++) {
                                 var umember = cl.is_union_of[umi];
-                                this.markClassShared(umember, "member of union " + cl.name);
+                                if ( this.unionMemberIsScalarOnly(umember) == false ) {
+                                  this.markClassShared(umember, "member of union " + cl.name);
+                                }
                               };
                             }
                             if ( cl.isSingletonClass() ) {

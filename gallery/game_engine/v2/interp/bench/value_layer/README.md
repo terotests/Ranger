@@ -27,20 +27,37 @@ done
 
 ## Measured (this machine, best of three, work only)
 
+Absolute times drift between sessions on a shared machine — read the **ratio to
+`fat` inside one run**, which is what each row reports.
+
+Before S5 (`PLAN_SHAPES.md` §6.4), when every target carried the family as one
+class per case behind a pointer:
+
 | variant | Node | C++ `-O2` | Rust `-O` |
 |---|---|---|---|
 | fat | 490 ms | 0.240 s | 0.37 s |
-| shape | **78 ms** (6.3×) | **0.123 s** (2.0×) | **0.105 s** (3.5×) |
-| tagged | **12.5 ms** (39×) | 0.118 s (2.0×) | 0.008 s (46×) |
-| handle | 12.3 ms (40×) | 0.130 s (1.8×) | 0.008 s (46×) |
+| shape | 78 ms (6.3×) | 0.123 s (2.0×) | 0.105 s (3.5×) |
+| tagged | 12.5 ms (39×) | 0.118 s (2.0×) | 0.008 s |
+| handle | 12.3 ms (40×) | 0.130 s (1.8×) | 0.008 s |
 
-Read the last two rows carefully. On Node they say the remaining cost after the
-shape lowering is the **`instanceof` chain, not the object** — a `kind` field and
-an integer test buys another 6×, and the single-object handle buys nothing on top
-of that. On C++ all four still allocate through `shared_ptr`, so the tag changes
-little and the real gain waits for a handle that is a *value type*. On Rust the
-last two rows have no union at all, so they are plain structs with no heap
-traffic — that is the ceiling a native `enum` aims at, not a like-for-like row.
+After S5 gave C++ and Rust their own representation — a variant that carries
+scalar cases **by value**, and a native `enum` with the same rule:
+
+| variant | Node | C++ `-O2` | Rust `-O` |
+|---|---|---|---|
+| fat | 585 ms | 0.354 s | 0.460 s |
+| shape | 124 ms (**4.7×**) | 0.0117 s (**30×**) | 0.0667 s (**6.9×**) |
+
+C++ went from 2× to 30× against the same baseline: the allocation per value was
+the entire cost, and a case that holds only scalars has nothing that needs one.
+Rust went from 3.5× to 6.9× for the same reason, with the remaining distance to
+its no-union ceiling being the string case and the loop's own work. Node is
+unchanged by S5 — the 6.3× and 4.7× readings are the same code in different
+sessions, which is the size of the noise band on this machine.
+
+The `tagged` and `handle` rows still say what they said before: on Node the cost
+left after the shape lowering is the `instanceof` chain, and a `kind` field with
+an integer test is worth another 6×. That is the ES6/TS work S5 has not done.
 
 ## But how much of the engine is this?
 

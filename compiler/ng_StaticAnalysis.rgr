@@ -1956,6 +1956,45 @@ class StaticAnalyzer {
   ; Weak has to have an Rc to downgrade). A class none of that ever happens to
   ; keeps the plain struct and pays nothing.
 
+  ; A union member that holds only scalar fields — no collection, no object, no
+  ; optional. Such a case is carried by value inside the family's enum.
+  fn unionMemberIsScalarOnly:boolean (typeName:string) {
+    if (null? ctx) {
+      return false
+    }
+    def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    if ((root.isDefinedClass(typeName)) == false) {
+      return false
+    }
+    def cl:RangerAppClassDesc (root.findClass(typeName))
+    if ((cl.is_union || cl.is_system) || cl.is_system_union) {
+      return false
+    }
+    def allScalar:boolean true
+    for cl.variables cv:RangerAppParamDesc cvi {
+      def cvNN@(optional):CodeNode cv.nameNode
+      if (null? cvNN) {
+        allScalar = false
+      } {
+        def cvNode:CodeNode (unwrap cvNN)
+        if (((strlen cvNode.array_type) > 0) || ((strlen cvNode.key_type) > 0)) {
+          allScalar = false
+        } {
+          if (cvNode.hasFlag("optional")) {
+            allScalar = false
+          } {
+            def tn:string cvNode.type_name
+            def isScalar:boolean (((((tn == "int") || (tn == "double")) || (tn == "string")) || (tn == "boolean")) || (tn == "char"))
+            if (isScalar == false) {
+              allScalar = false
+            }
+          }
+        }
+      }
+    }
+    return allScalar
+  }
+
   fn markClassShared:void (typeName:string reason:string) {
     if ((strlen typeName) == 0) {
       return
@@ -2433,7 +2472,12 @@ class StaticAnalyzer {
       ; program declares a union or not.
       if (cl.is_union && (cl.name != "Any")) {
         for cl.is_union_of umember:string umi {
-          this.markClassShared(umember ("member of union " + cl.name))
+          ; ...except a case that holds only scalars: it lives INSIDE the enum
+          ; variant, with no cell and no allocation (PLAN_SHAPES.md S5). Marking
+          ; it shared would put it back behind an Rc for nothing.
+          if ((this.unionMemberIsScalarOnly(umember)) == false) {
+            this.markClassShared(umember ("member of union " + cl.name))
+          }
         }
       }
       ; a singleton's one instance is aliased from every use site
