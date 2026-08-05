@@ -566,12 +566,14 @@ class Plugin {
 > The rest of this README is the language reference. The documentation site
 > covers part of the same ground in shorter, edited pages —
 > [program structure](https://terotests.github.io/Ranger/docs/language/structure/),
-> [types](https://terotests.github.io/Ranger/docs/language/types/) and
-> [optional values](https://terotests.github.io/Ranger/docs/language/optionals/) —
+> [types](https://terotests.github.io/Ranger/docs/language/types/),
+> [optional values](https://terotests.github.io/Ranger/docs/language/optionals/)
+> and [closed variants](https://terotests.github.io/Ranger/docs/language/variants/) —
 > and those pages carry the per-target detail (what an optional compiles to in
-> Go, Rust and Swift, for instance) that the sections below do not. What follows
-> here is the material the site does not have yet: traits, custom operators,
-> system classes, unions, class extensions, and the annotation list.
+> Go, Rust and Swift, or what a `shape` becomes on each target) that the
+> sections below do not. What follows here is the material the site does not
+> have yet: traits, custom operators, system classes, class extensions, and the
+> annotation list.
 
 Ranger syntax is originally based on Lisp -language syntax and most operators will use prefix notation. However, the Ranger modifies
 the original Lisp so that inside block expression `{ ... }` there is no need to insert parenthesis which makes the language appear to
@@ -1099,6 +1101,55 @@ class tester {
 ```
 
 Note: Definition of system classes will be revisited in near future and there will be potentially small changes to it.
+
+## Closed variants: `shape`, `case`, `group` and `match`
+
+A `shape` declares a closed family of variants — one type, a fixed set of cases,
+and optionally named subsets of them:
+
+```
+shape Value {
+    group Ref { def identityId:int 0 }        ; a named subset + shared fields
+    case Nothing                               ; a case with no fields
+    case Num  { def value:double 0.0 }
+    case Items does Ref { def items:[Value] }
+}
+
+def n:Value.Num (new Value.Num(2.5))           ; ctor takes the fields in order
+```
+
+`Value`, `Value.Num` and `Value.Ref` are all usable as types. `match` handles
+the cases, and the compiler refuses a match that misses one, covers one twice,
+or uses a catch-all arm:
+
+```
+match v {
+    Nothing | Num { out = "scalar" }           ; one arm, two cases
+    Value.Items a { out = (to_string (array_length a.items)) }
+}
+```
+
+A case holding only scalars is a *value* case: it compares by content and may
+not be mutated after construction. Anything else is a *reference* case, which
+compares by identity. `@(value)` / `@(reference)` state it explicitly. Each
+shape gets `Value.equals(a b)` and `Value.notEquals(a b)` implementing that
+split.
+
+A `union` does the same over classes that already exist, without the
+exhaustiveness check, and the `case` statement narrows it:
+
+```
+union Item ( Circle Label )
+
+case it c:Circle { print (to_string c.radius) }
+```
+
+Per target the family becomes a TypeScript union type, a Rust `enum`, a C++
+`variant`, a Kotlin `sealed interface`, a C# / Dart interface, or plain classes
+with a runtime type test. On Rust and C++ a scalar-only case is carried inside
+the tag, so constructing one allocates nothing.
+[Closed variants](https://terotests.github.io/Ranger/docs/language/variants/)
+has the generated code for every target, and `PLAN_SHAPES.md` has the design.
 
 ## Unions of system classes
 

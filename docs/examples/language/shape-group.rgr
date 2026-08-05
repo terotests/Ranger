@@ -1,0 +1,54 @@
+;; topic: language/shape-group
+;; title: A named subset of the cases of a shape
+;; category: statements
+
+shape Value {
+    group Ref {
+        def identityId:int 0
+    }
+    case Nothing
+    case Num {
+        def value:double 0.0
+    }
+    case Items does Ref {
+        def items:[Value]
+    }
+}
+
+class Main {
+    ; The parameter type is the group, so the compiler accepts a case of the
+    ; group only. The match covers the group, and it is therefore complete.
+    sfn identityOf:int (r:Value.Ref) {
+        def result:int 0
+        match r {
+            Items a {
+                result = a.identityId
+            }
+        }
+        return result
+    }
+
+    sfn describe:string (v:Value) {
+        def out:string "?"
+        match v {
+            Nothing {
+                out = "nothing"
+            }
+            Num n {
+                out = ("num " + (to_string n.value))
+            }
+            Ref r {
+                out = ("ref " + (to_string r.identityId))
+            }
+        }
+        return out
+    }
+
+    sfn main:void () {
+        def empty:[Value]
+        def items:Value.Items (new Value.Items(7 empty))
+        print (Main.describe((new Value.Num(2.5))))
+        print (Main.describe(items))
+        print (to_string (Main.identityOf(items)))
+    }
+}

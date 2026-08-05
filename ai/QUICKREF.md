@@ -117,6 +117,39 @@ Extends(ParentClass)
 def p (new Point(3 4))      ; record: positional
 ```
 
+## Closed variants (shape)
+
+```ranger
+shape Value {
+    group Ref { def identityId:int 0 }   ; named subset + shared fields
+    case Nothing                          ; no fields
+    case Num  { def value:double 0.0 }
+    case Items does Ref { def items:[Value] }
+}
+
+def n:Value.Num (new Value.Num(2.5))      ; ctor takes the fields in order
+
+match v {                                 ; every case, exactly once, no `_`
+    Nothing | Num  { out = "scalar" }     ; one arm, two cases
+    Value.Items a  { out = (to_string (array_length a.items)) }
+}
+
+(Value.equals a b)                        ; content for value cases,
+(Value.notEquals a b)                     ; identity for reference cases
+```
+
+`Value` / `Value.Num` / `Value.Ref` are all types. A case holding only scalars
+is a value case (immutable, compares by content); `@(value)` / `@(reference)`
+override. A shape is top-level only and holds no methods.
+
+## Unions and identity
+
+```ranger
+union Item ( Circle Label )   ; a type over classes that already exist
+case it c:Circle { }          ; narrow a union (no exhaustiveness check)
+(identical a b)               ; same object? (`==` is not identity everywhere)
+```
+
 ## Arrays
 
 ```ranger

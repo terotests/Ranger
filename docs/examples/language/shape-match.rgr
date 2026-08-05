@@ -1,0 +1,33 @@
+;; topic: language/shape-match
+;; title: A closed family of variants and a complete match
+;; category: statements
+
+shape Figure {
+    case Circle {
+        def radius:double 0.0
+    }
+    case Rect {
+        def width:double 0.0
+        def height:double 0.0
+    }
+}
+
+class Main {
+    sfn area:double (f:Figure) {
+        def result:double 0.0
+        match f {
+            Circle c {
+                result = (3.14159 * c.radius * c.radius)
+            }
+            Rect r {
+                result = (r.width * r.height)
+            }
+        }
+        return result
+    }
+
+    sfn main:void () {
+        print (to_string (Main.area((new Figure.Circle(2.0)))))
+        print (to_string (Main.area((new Figure.Rect(3.0 4.0)))))
+    }
+}

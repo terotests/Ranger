@@ -1,0 +1,36 @@
+;; topic: language/union-case
+;; title: A union of classes and the case operator
+;; category: statements
+
+class Circle {
+    def radius:double 0.0
+    Constructor (r:double) {
+        radius = r
+    }
+}
+
+class Label {
+    def text:string ""
+    Constructor (t:string) {
+        text = t
+    }
+}
+
+union Item ( Circle Label )
+
+class Main {
+    sfn describe:string (it:Item) {
+        case it c:Circle {
+            return ("circle " + (to_string c.radius))
+        }
+        case it l:Label {
+            return ("label " + l.text)
+        }
+        return "unknown"
+    }
+
+    sfn main:void () {
+        print (Main.describe((new Circle(2.0))))
+        print (Main.describe((new Label("name"))))
+    }
+}

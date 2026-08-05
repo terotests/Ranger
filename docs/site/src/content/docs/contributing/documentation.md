@@ -105,19 +105,27 @@ The `CreateFile` list in `compiler/VirtualCompiler.rgr` is **not** a third
 signal. That function writes `compileEnv.js`, its only caller is a comment, and
 the playground reads `compileEnv.json` from the Node script instead.
 
-## Add an answer to the questions page
+## Add an example to a guide page
 
-An example of the [questions page](/Ranger/docs/faq/) has a `topic` header in
-the place of the `id` header:
+An example of a guide page has a `topic` header in the place of the `id`
+header. The [questions page](/Ranger/docs/faq/) and the
+[closed variants page](/Ranger/docs/language/variants/) both use one:
 
 ```lisp
 ;; topic: faq/array-literal
 ;; title: An array literal instead of repeated push
 ```
 
-The page `docs/site/src/content/docs/faq.mdx` then reads the compiled output
-with `ex("faq/array-literal")`. A topic example compiles in the same way as an
-operator example, so the code on the page is the output of the compiler.
+The page then reads the compiled output with `ex("faq/array-literal")`. The page
+is an `.mdx` file, because a `.md` file imports no component. A topic example
+compiles in the same way as an operator example, so the code on the page is the
+output of the compiler.
+
+| Header | Function |
+| --- | --- |
+| `topic` | The key of the example. The page selects the example with it. The directory of the file is free: `docs/examples/faq/` and `docs/examples/language/` both hold topic examples. |
+| `title` | The title of the example. |
+| `targets` | The targets that the generator compiles. The default is each target. |
 
 ## Build the site
 

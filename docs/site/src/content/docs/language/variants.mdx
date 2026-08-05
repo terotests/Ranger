@@ -1,0 +1,238 @@
+---
+title: Closed variants
+description: The shape declaration, the case and group members, the match statement and the union type, with the code that each target language receives.
+---
+
+import TargetOutput from "../../../components/TargetOutput.astro";
+import model from "../../../data/operators.json";
+import exampleData from "../../../data/examples.json";
+
+export const ex = (topic) => exampleData.examples.find((e) => e.topic === topic);
+
+A value is often one of a fixed set of forms: a number, a text, a list, or
+nothing. One class with a type field can hold such a value, but the compiler
+cannot check the field. A `shape` declares the set instead. The compiler then
+knows each form, and it rejects a program that forgets one of them.
+
+## A shape and its cases
+
+A `shape` declaration holds a `case` for each form of the value. Each case has
+its own fields. The compiler writes a class per case and a constructor that
+takes the fields in order.
+
+```lisp
+shape Figure {
+    case Circle {
+        def radius:double 0.0
+    }
+    case Rect {
+        def width:double 0.0
+        def height:double 0.0
+    }
+}
+
+def c:Figure.Circle (new Figure.Circle(2.0))
+```
+
+The name of the shape and the name of a case are both types. `Figure` accepts
+each case. `Figure.Circle` accepts that one case only.
+
+| Name | Type |
+| --- | --- |
+| `Figure` | The complete family. A value of the family is one of the cases. |
+| `Figure.Circle` | One case of the family. |
+| `Figure.<group>` | A named subset of the cases. The next section describes a group. |
+
+A shape is a top level declaration. A shape inside a class is an error, and a
+function in the body of a shape is an error.
+
+## The match statement
+
+The `match` statement selects one arm per case, and it binds the value to the
+type of that arm:
+
+```lisp
+match f {
+    Circle c {
+        result = (3.14159 * c.radius * c.radius)
+    }
+    Rect r {
+        result = (r.width * r.height)
+    }
+}
+```
+
+The compiler counts the arms against the cases of the shape. The compilation
+stops when a case is absent, when a case has two arms, or when the match has a
+catch-all arm.
+
+| Program | Message |
+| --- | --- |
+| An absent case | ``match on Value does not cover Value.Num, Value.Text — every case of a shape must be handled`` |
+| A case with two arms | ``` `Value.Num` is covered twice in this match ``` |
+| A catch-all arm | ``` `match` has no catch-all arm — cover every case of the shape, or narrow with `case` instead ``` |
+
+The catch-all arm is absent from the language for one reason: a case that a
+later release adds to the shape must break the compilation of each match that
+does not handle it. A catch-all arm hides that case.
+
+One arm accepts more than one case, and the name of a case is also correct in
+the qualified form:
+
+```lisp
+match v {
+    Nothing | Text {
+        out = "primitive"
+    }
+    Value.Num n {
+        out = ("num " + (to_string n.value))
+    }
+}
+```
+
+A `match` needs no support from the target language. It lowers to a chain of
+`case` narrowings, which each target has.
+
+<TargetOutput example={ex("language/shape-match")} targets={model.generated.targets} />
+
+## A group of cases
+
+A `group` declares a named subset of the cases and the fields that the subset
+holds in common. A case joins the group with the word `does`, and it receives
+the fields of the group before its own.
+
+```lisp
+shape Value {
+    group Ref {
+        def identityId:int 0
+    }
+    case Nothing
+    case Num {
+        def value:double 0.0
+    }
+    case Items does Ref {
+        def items:[Value]
+    }
+}
+```
+
+A case belongs to one group at most. The name of the group is a type:
+`Value.Ref` accepts the cases of the group, and it accepts no other case. A
+`match` on a value of a group type is complete when it covers the cases of that
+group.
+
+<TargetOutput example={ex("language/shape-group")} targets={model.generated.targets} />
+
+## A value case and a reference case
+
+A case holds its content by value or by reference, and the two compare in a
+different way.
+
+| Case | Comparison | Mutation after the construction |
+| --- | --- | --- |
+| Value | The contents are equal. | The compiler rejects it. |
+| Reference | The two names hold the same object. | Permitted. |
+
+A case that holds scalar fields only is a value case. A case that holds a
+collection, an optional or an object is a reference case. The annotations
+`@(value)` and `@(reference)` state the intent, on a case or on a group:
+
+```lisp
+shape Value {
+    group Ref@(reference) {
+        def identityId:int 0
+    }
+    case Num {          ; a value case: double only
+        def value:double 0.0
+    }
+    case Items does Ref {
+        def items:[Value]
+    }
+}
+```
+
+`@(value)` on a case that holds a collection is an error, because the content of
+the collection can change after the comparison.
+
+The compiler writes an equality function per shape. It compares the content of
+a value case, it compares the identity of a reference case, and it gives
+`false` for two different cases.
+
+```lisp
+def a:Value.Num (new Value.Num(2.5))
+def b:Value.Num (new Value.Num(2.5))
+print (to_string (Value.equals(a b)))       ; true
+print (to_string (Value.notEquals(a b)))    ; false
+```
+
+The operator `==` keeps the meaning that the target language gives it. Call
+`Value.equals` for the comparison that this section describes.
+
+## A union of classes that exist
+
+A `shape` writes the classes. When the classes exist, a `union` declares a type
+that accepts each of them:
+
+```lisp
+union Item ( Circle Label )
+```
+
+The `case` statement narrows a value of the union to one member, and it binds
+the value to a name:
+
+```lisp
+case it c:Circle {
+    return ("circle " + (to_string c.radius))
+}
+```
+
+A union has no exhaustiveness check, because the compiler cannot know that the
+program handles each member. Use a `shape` for a family that the program owns,
+and a `union` for classes that another part of the program declares.
+
+<TargetOutput example={ex("language/union-case")} targets={model.generated.targets} />
+
+## Identity
+
+The operator `identical` asks whether two names hold the same object:
+
+```lisp
+if (identical a b) {
+    print "the same object"
+}
+```
+
+The operator `==` cannot answer that question on each target language: the
+Kotlin `==` calls `equals`, the Dart `==` calls the operator of the class, and
+the Rust `==` needs a trait. `identical` has a template per target, and it writes
+`===`, `is`, `identical(…)`, `Object.ReferenceEquals`, `Rc::ptr_eq` or a
+pointer comparison.
+
+## What each target language receives
+
+The compiler writes the family with the construct of the target language that
+is nearest to a closed set:
+
+| Target language | The family | The narrowing |
+| --- | --- | --- |
+| TypeScript | A union type: `type union_Figure = Figure_Circle\|Figure_Rect` | `instanceof` |
+| Rust | An `enum` with one variant per case | `if let` |
+| C++ | A `variant` typedef | `holds_alternative` and `get` |
+| Kotlin | A `sealed interface` that each case implements | `is` |
+| C# | An `interface` that each case implements | `is` |
+| Dart | An `abstract class` that each case implements | `is` |
+| Go | `interface{}` | A type switch |
+| Swift | `Any` | `is` and `as` |
+| JavaScript, Python, Java, Scala, PHP | The case classes, with no type for the family | `instanceof`, `isinstance` or a class name test |
+
+On Rust and on C++ a case that holds scalar fields only is carried inside the
+tag. The construction of such a case allocates no memory. A case that holds a
+collection is a reference, and the tag holds the reference.
+
+## Limits of this release
+
+| Limit | Workaround |
+| --- | --- |
+| A shape holds no functions. | Write the `match` in a function of a class. |
+| `==` does not call the generated equality. | Call `Value.equals(a b)`. |
+| Go, Swift, Java, Scala and PHP receive no type for the family. | The narrowing is correct on each of them. The compiler checks the types. |

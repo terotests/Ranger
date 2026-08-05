@@ -73,6 +73,24 @@ class Pen {
 
 The target language receives the type `int`. The type check is in the compiler.
 
+## Closed variants
+
+An `Enum` names a set of numbers. A `shape` names a set of forms, and each form
+holds its own fields:
+
+```lisp
+shape Figure {
+    case Circle { def radius:double 0.0 }
+    case Rect   { def width:double 0.0  def height:double 0.0 }
+}
+```
+
+The name of the shape is a type that accepts each case. The name of a case is a
+type that accepts that case only. The `match` statement handles each case, and
+the compiler rejects a match that forgets one.
+[Closed variants](/Ranger/docs/language/variants/) describes the declaration,
+the groups, the equality and the code that each target language receives.
+
 ## Buffers
 
 A buffer holds binary data. The types are `buffer`, `int_buffer`,
