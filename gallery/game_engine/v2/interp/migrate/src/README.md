@@ -24,8 +24,10 @@
   Class renamed to `EvHandle`; shape renamed to `EvalValue`.
 - **✅ E4d (Function/Element shell)** — `EvalPayload` deleted. Element and
   Function core/binding (incl. `functionNode`, `boundThis`) live on
-  `body:EvalValue`. Thin shell left: scalar caches, `slotOwned`,
-  `identityId` (Number `@(value)` blocks slotOwned / in-place number SoT).
+  `body:EvalValue`. `EvPropertyBag.suppressedKeys` records deleted
+  synthesised/registry keys (prototypes stay objects). Thin shell left:
+  scalar caches, `slotOwned`, `identityId` (Number `@(value)` blocks
+  slotOwned / in-place number SoT).
 
 ## Unit / contract tests that gate this folder
 

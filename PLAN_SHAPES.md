@@ -1230,9 +1230,12 @@ that no `record` with a class-typed field could avoid are fixed
      - Element SoT is `body.Element.element` (`EvalPayload.ElemBox` deleted).
      - Function SoT is `body.Function.core` / `.binding`
        (`EvFunctionCore` + `EvFunctionBinding`; `functionNode`,
-       `suppressedKeys`, `boundThis`, `boundArgs`, `boundExplicit`).
+       `boundThis`, `boundArgs`, `boundExplicit`).
+     - Deleted synthesised / registry keys live on `EvPropertyBag.suppressedKeys`
+       (so `delete Object.prototype.toString` does not turn the prototype into
+       a Function via `ensureFunction`).
      - `EvalPayload` deleted entirely; `withThis` copies core (sharing is a
-       later optimisation once bind’s rename/suppress writes leave core).
+       later optimisation once bind’s rename writes leave core).
      - Fixtures: `shape_evalvalue_e4d_element.rgr`,
        `shape_evalvalue_e4d_fncore.rgr`.
      - Thin `EvHandle` shell that remains: `body`, scalar caches

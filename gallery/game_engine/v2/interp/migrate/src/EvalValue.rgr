@@ -38,6 +38,10 @@ class EvPropertyBag {
     def extensible:boolean true
     def sealed:boolean false
     def frozen:boolean false
+    ; Deleted synthesised / registry keys (Function length/name, or a built-in
+    ; method removed from a prototype). Lives on the bag so Object.prototype
+    ; can record `delete Object.prototype.toString` without becoming a Function.
+    def suppressedKeys:[string:boolean]
 
     ; E4c: property-bag SoT. Value payload is EvalValue (avoids EvHandle import cycle).
     fn hasData:boolean (key:string) {
@@ -334,8 +338,6 @@ class EvFunctionCore {
     def builtinName:string ""
     def builtinNamespace:string ""
     def strictFn:boolean false
-    ; D-FNPROPS: names whose synthesised value has been deleted.
-    def suppressedKeys:[string:boolean]
     ; AST node for script-defined functions (absent for builtins / stubs).
     def functionNode@(optional):TSNode
 }

@@ -31,9 +31,12 @@ class Main {
             print "WRONG: fromTagged"
         }
 
-        ; Round-trip keeps the same handle (===).
+        ; Round-trip keeps the same handle (===). Compare identityIds via
+        ; locals — equals(same Rc) RefCell-panics on Rust.
         def again:EvHandle (EvHandle.fromBody(shaped))
-        if (again.equals(v)) {
+        def aid:int again.identityId
+        def vid:int v.identityId
+        if ((aid > 0) && (aid == vid)) {
             print "id"
         } {
             print "WRONG: identity"

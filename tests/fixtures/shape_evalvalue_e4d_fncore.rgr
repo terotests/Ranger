@@ -51,7 +51,9 @@ class Main {
 
         if (bound.hasBoundThis()) {
             def bt:EvHandle (bound.boundThisOf())
-            if (bt.equals(recv)) {
+            def bid:int bt.identityId
+            def rid:int recv.identityId
+            if ((bid > 0) && (bid == rid)) {
                 print "this"
             } {
                 print "WRONG: boundThis"

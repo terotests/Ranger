@@ -73,7 +73,8 @@ class EvHandle {
 
     fn fnCore:EvFunctionCore () {
         this.ensureFunction()
-        case body f:EvalValue.Function {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
             return (unwrap f.core)
         }
         def fallback:EvFunctionCore (new EvFunctionCore())
@@ -82,7 +83,8 @@ class EvHandle {
 
     fn fnBinding:EvFunctionBinding () {
         this.ensureFunction()
-        case body f:EvalValue.Function {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
             return (unwrap f.binding)
         }
         def fallback:EvFunctionBinding (new EvFunctionBinding())
@@ -90,7 +92,8 @@ class EvHandle {
     }
 
     fn fnName:string () {
-        case body f:EvalValue.Function {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
             def c:EvFunctionCore (unwrap f.core)
             return c.functionName
         }
@@ -102,7 +105,8 @@ class EvHandle {
     }
 
     fn closureIdOf:int () {
-        case body f:EvalValue.Function {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
             def c:EvFunctionCore (unwrap f.core)
             return c.closureId
         }
@@ -114,7 +118,8 @@ class EvHandle {
     }
 
     fn homeModuleOf:string () {
-        case body f:EvalValue.Function {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
             def c:EvFunctionCore (unwrap f.core)
             return c.homeModule
         }
@@ -126,7 +131,8 @@ class EvHandle {
     }
 
     fn srcTextOf:string () {
-        case body f:EvalValue.Function {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
             def c:EvFunctionCore (unwrap f.core)
             return c.srcText
         }
@@ -138,7 +144,8 @@ class EvHandle {
     }
 
     fn builtinKindOf:string () {
-        case body f:EvalValue.Function {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
             def c:EvFunctionCore (unwrap f.core)
             return c.builtinKind
         }
@@ -150,7 +157,8 @@ class EvHandle {
     }
 
     fn builtinNameOf:string () {
-        case body f:EvalValue.Function {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
             def c:EvFunctionCore (unwrap f.core)
             return c.builtinName
         }
@@ -162,7 +170,8 @@ class EvHandle {
     }
 
     fn builtinNamespaceOf:string () {
-        case body f:EvalValue.Function {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
             def c:EvFunctionCore (unwrap f.core)
             return c.builtinNamespace
         }
@@ -174,7 +183,8 @@ class EvHandle {
     }
 
     fn strictFnOf:boolean () {
-        case body f:EvalValue.Function {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
             def c:EvFunctionCore (unwrap f.core)
             return c.strictFn
         }
@@ -186,7 +196,8 @@ class EvHandle {
     }
 
     fn boundExplicitOf:boolean () {
-        case body f:EvalValue.Function {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
             def bind:EvFunctionBinding (unwrap f.binding)
             return bind.boundExplicit
         }
@@ -200,39 +211,60 @@ class EvHandle {
     ; The collections are reached through operations rather than handed out: a
     ; target that returns a collection by value would copy it, and a caller that
     ; wrote into the copy would lose the write.
+    ; Suppressed keys live on EvPropertyBag (not FunctionCore) so prototype
+    ; objects can record registry deletions without ensureFunction rewriting
+    ; their kind.
     fn hasSuppressed:boolean (key:string) {
-        case body f:EvalValue.Function {
-            def c:EvFunctionCore (unwrap f.core)
-            return (has c.suppressedKeys key)
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (has props.suppressedKeys key)
         }
         return false
     }
     fn addSuppressed:void (key:string) {
-        def c:EvFunctionCore (this.fnCore())
-        set c.suppressedKeys key true
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            set props.suppressedKeys key true
+        }
     }
     fn suppressedKeyList:[string] () {
-        case body f:EvalValue.Function {
-            def c:EvFunctionCore (unwrap f.core)
-            return (keys c.suppressedKeys)
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (keys props.suppressedKeys)
         }
         def none:[string]
         return none
     }
     fn setSuppressed:void (m:[string:boolean]) {
-        def c:EvFunctionCore (this.fnCore())
-        c.suppressedKeys = m
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            props.suppressedKeys = m
+        }
+    }
+    fn copySuppressedMap:[string:boolean] () {
+        def out:[string:boolean]
+        def ks:[string] (this.suppressedKeyList())
+        for ks kk:string i {
+            set out kk true
+        }
+        return out
     }
 
     fn boundArgCount:int () {
-        case body f:EvalValue.Function {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
             def bind:EvFunctionBinding (unwrap f.binding)
             return (array_length bind.boundArgs)
         }
         return 0
     }
     fn boundArgAt:EvHandle (index:int) {
-        case body f:EvalValue.Function {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
             def bind:EvFunctionBinding (unwrap f.binding)
             if ((index >= 0) && (index < (array_length bind.boundArgs))) {
                 return (EvHandle.fromBody((itemAt bind.boundArgs index)))
@@ -255,7 +287,8 @@ class EvHandle {
         return (EvalValue.isElement(b))
     }
     fn elementOf:EVGElement () {
-        case body el:EvalValue.Element {
+        def _evBody:EvalValue body
+        case _evBody el:EvalValue.Element {
             return (unwrap el.element)
         }
         def pool:EvalConstPool (EvalConstPool.__singleton())
@@ -265,7 +298,8 @@ class EvHandle {
         ; Rewrite the Element case; keep Reference identity.
         def id:int identityId
         if (id <= 0) {
-            case body cur:EvalValue.Element {
+            def _evBody:EvalValue body
+            case _evBody cur:EvalValue.Element {
                 id = cur.identityId
             }
         }
@@ -702,7 +736,8 @@ class EvHandle {
         ; original. Binding fields (boundArgs) are copied too; boundThis is
         ; replaced with `recv`. Sharing the core is a later optimisation once
         ; those writes stop touching core.
-        case body srcF:EvalValue.Function {
+        def _evBody:EvalValue body
+        case _evBody srcF:EvalValue.Function {
             def src:EvFunctionCore (unwrap srcF.core)
             def dst:EvFunctionCore (v.fnCore())
             dst.functionName = src.functionName
@@ -713,7 +748,6 @@ class EvHandle {
             dst.builtinName = src.builtinName
             dst.builtinNamespace = src.builtinNamespace
             dst.strictFn = src.strictFn
-            dst.suppressedKeys = src.suppressedKeys
             if src.functionNode {
                 dst.functionNode = (unwrap src.functionNode)
             }
@@ -726,6 +760,8 @@ class EvHandle {
         for ks kk:string idx {
             v.putOwnData(kk (this.getOwnData(kk)))
         }
+        ; Copy suppressed synthesised keys (PropertyBag), same as old FnCore copy.
+        v.setSuppressed((this.copySuppressedMap()))
         v.setBoundThis(recv)
         if (this.hasProto()) {
             v.setProto((this.protoOf()))
@@ -1554,7 +1590,8 @@ class EvHandle {
         return (this.denseLen())
     }
     fn hasFunctionNode:boolean () {
-        case body f:EvalValue.Function {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
             def c:EvFunctionCore (unwrap f.core)
             if c.functionNode {
                 return true
@@ -1563,7 +1600,8 @@ class EvHandle {
         return false
     }
     fn functionNodeOf:TSNode () {
-        case body f:EvalValue.Function {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
             def c:EvFunctionCore (unwrap f.core)
             return (unwrap c.functionNode)
         }
@@ -1582,7 +1620,8 @@ class EvHandle {
         this.setFunctionNode((other.functionNodeOf()))
     }
     fn hasBoundThis:boolean () {
-        case body f:EvalValue.Function {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
             def bind:EvFunctionBinding (unwrap f.binding)
             if bind.boundThis {
                 return true
@@ -1591,7 +1630,8 @@ class EvHandle {
         return false
     }
     fn boundThisOf:EvHandle () {
-        case body f:EvalValue.Function {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
             def bind:EvFunctionBinding (unwrap f.binding)
             if bind.boundThis {
                 return (EvHandle.fromBody((unwrap bind.boundThis)))
