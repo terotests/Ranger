@@ -14316,7 +14316,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   const cargs = (( Object.prototype.hasOwnProperty.call(this.shapeCaseCtorArgs, fcls) ? this.shapeCaseCtorArgs[fcls] : undefined ));
                   dispSrc = (dispSrc + ((("    return (new " + fcls) + "(") + cargs)) + "))\n";
                 } else {
-                  dispSrc = dispSrc + (("    return (new " + fcls) + "())\n");
+                  dispSrc = dispSrc + (("    def __gw_unreach@(optional):" + ancCls) + "\n");
+                  dispSrc = dispSrc + "    return (unwrap __gw_unreach)\n";
                 }
               }
               dispSrc = dispSrc + "  }\n";
@@ -15957,6 +15958,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const c1 = ctx.findClass(unionName);
         if ( c1.is_union ) {
           if ( (node.type_name != c1.name) && (node.eval_type_name != c1.name) ) {
+            if ( (node.eval_type_name.length) > 0 ) {
+              if ( ctx.isDefinedClass(node.eval_type_name) ) {
+                const cSrc = ctx.findClass(node.eval_type_name);
+                if ( cSrc.is_union ) {
+                  if ( cSrc.isSameOrParentClass(unionName, ctx) ) {
+                    await this.rewriteToGroupWiden(node, unionName, node.eval_type_name, ctx, wr);
+                    return;
+                  }
+                }
+              }
+            }
             const toEx = node.newExpressionNode();
             const toVref = node.newVRefNode("to");
             const argType = node.newVRefNode("_");
@@ -17116,6 +17128,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         ctx.addError(activeFn_2.nameNode, "^ value type = " + returnedValue.eval_type);
                       }
                     }
+                  }
+                  if ( (activeFn_2.nameNode.type_name.length) > 0 ) {
+                    await this.convertToUnion(activeFn_2.nameNode.type_name, returnedValue, ctx, wr);
                   }
                   const argNode = activeFn_2.nameNode;
                   if ( returnedValue.hasFlag("optional") ) {

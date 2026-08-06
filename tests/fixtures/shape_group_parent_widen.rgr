@@ -1,6 +1,6 @@
 ; Parent-group widening: a Numeric value is accepted where Printable is
-; required (PLAN_SHAPES.md §7). On targets that erase unions this is zero-cost;
-; native enum targets still use a separate group container until C6.
+; required (PLAN_SHAPES.md §7 / C6). Native enum targets insert
+; `widen_to_Value_Printable` so the subgroup enum becomes the parent enum.
 shape Value {
     group Printable {
         fn render:string ()

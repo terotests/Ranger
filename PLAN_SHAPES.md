@@ -11,10 +11,11 @@
 > carry the family in their own representation — TypeScript as a union type,
 > Kotlin, C# and Dart as an interface the cases implement, Rust as a native
 > `enum` and C++ as a variant that holds its scalar cases inline; and **shape
-> methods** lower through a generated ops class. **Stage C0–C4** (§7) extends
+> methods** lower through a generated ops class. **Stages C0–C6** (§7) extend
 > groups into a closed-family capability system: group/case methods, required
-> operations, and static exhaustive dispatch. Swift, Go and the ES6 tag dispatch
-> remain ahead on native representation.
+> operations, field projection, subgroup widening, and static exhaustive
+> dispatch. Swift, Go and the ES6 tag dispatch remain ahead on native
+> representation.
 >
 > **Origin:** a design discussion about `gallery/game_engine/v2/interp/migrate/src/EvalValue.rgr`,
 > the largest hand-rolled tagged union in this repo.
@@ -713,9 +714,9 @@ Where the S0 changes live:
 | Kotlin / Dart | no toolchain in this environment — output is read, not built | build-verifying these two in CI |
 | C# / Swift | `dynamic` / `Any` erase the static type | nothing until S5, but both lose compile-time checking the other targets keep |
 | all | a `case` chain written by hand is still unchecked — only `match` is | nothing; `match` is the checked form |
-| all | a shape may not declare methods yet | a later stage; `match this` wants a per-case lowering |
-| Rust / C++ / C# / Go / Dart / Swift | the family is still the portable union of classes | S5, target by target |
-| all | every case is a heap class; `Nothing` allocates as much as `Items` | S5 |
+| all | ~~a shape may not declare methods yet~~ | ✅ shape / group / case methods (ops classes, C0–C4) |
+| Rust / C++ / C# / Go / Dart / Swift | ~~the family is still the portable union of classes~~ on TS/Kotlin/C#/Dart/Rust/C++ | ✅ S5 for those six; Swift / Go / ES6 tag remain |
+| all | ~~every case is a heap class~~ on Rust/C++ scalar `@(value)` cases | ✅ S5 inline; reference cases stay boxed |
 | all | `==` on two shape values is the target's `==`, not the generated equality | a later round; `Shape.equals(a b)` is exact today |
 
 ## 6. Staging
@@ -733,7 +734,7 @@ Each stage is independently shippable and independently testable.
 | **C0 — done** | Freeze the group/case method language contract (§3.6, §7). Canonical fixture. | ✅ Contract documented; `tests/fixtures/shape_group_methods.rgr` |
 | **C1–C4** | Shape-view descriptors, parse group/case methods, conformance, portable static dispatch (§7). | ✅ Group/case methods lower through `Shape_Group__ops` / `Shape_Case__ops` |
 | **C5** | Group field projection via generated `get_`/`set_` accessors. | ✅ `r.identityId` on a group type; mutation through reference groups |
-| **C6** | Subgroup → parent widen on native enum targets (`__as_Parent` helper). | ✅ Numeric → Printable on Rust/C++ without a wrapper object |
+| **C6** | Subgroup → parent widen on native enum targets (`widen_to_<Parent>` helper). | ✅ Numeric → Printable on Rust/C++ without a wrapper object |
 | **S6** | Inline payload records, tag pinning, whole-program variant elimination, `match` as an expression. | — |
 
 Testing follows the pattern already in the repo: fixtures under `tests/fixtures/`,
@@ -1352,14 +1353,22 @@ closed. See §3.6 for the source-level contract. Implementation order:
 | **C6** | `widen_to_<Parent>` helper for subgroup → parent on native enums | `areEqualTypes` inserts the helper call |
 
 **Definition of done** for the capability system: a group-typed parameter such as
-`EvalValue.Callable` accepts member cases without wrapping, required methods
+`Ev.Callable` accepts member cases without wrapping, required methods
 dispatch through one exhaustive static match, exact-case methods are available
 only after narrowing, and identity is preserved across widening.
 
-**EvalValue migration** stays gated on C1–C5 (see the separate EvalValue notes):
-do not delete the tagged class until group arguments, field projection, required
-methods, per-case and exact-case methods, exhaustive group matches and
-cross-target identity tests all pass.
+| Check | Fixture |
+|---|---|
+| Required + nested groups + case methods | `shape_group_methods.rgr` |
+| Callable-style invoke (DoD example) | `shape_group_callable.rgr` |
+| Group field projection | `shape_group_fields.rgr` |
+| Subgroup → parent widen | `shape_group_parent_widen.rgr` |
+| Identity preserved across widen | `shape_group_widen_identity.rgr` |
+| Missing impl / bad signature / missing `@(override)` | `shape_group_missing_impl.rgr`, `shape_group_bad_signature.rgr`, `shape_group_override_missing.rgr` |
+
+**EvalValue migration** (§7.5) is unblocked: C0–C6 and the DoD fixtures above
+pass. Do not delete the tagged class until call sites convert by kind and the
+engine suite stays green.
 
 ---
 

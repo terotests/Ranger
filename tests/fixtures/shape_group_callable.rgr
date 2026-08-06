@@ -1,0 +1,45 @@
+; Definition-of-done example (PLAN_SHAPES.md §7): a Callable group with a
+; required invoke, member cases accepted without wrapping, exhaustive static
+; dispatch, and exact-case methods only after narrowing.
+shape Ev {
+    group Callable {
+        fn invoke:string (arg:string)
+    }
+
+    case Fn does Callable {
+        def name:string ""
+        fn invoke:string (arg:string) {
+            return ((name + ":") + arg)
+        }
+        fn arity:int () {
+            return 1
+        }
+    }
+
+    case Builtin does Callable {
+        def opcode:string ""
+        fn invoke:string (arg:string) {
+            return ((opcode + "(") + arg) + ")"
+        }
+    }
+
+    case Number {
+        def value:double 0.0
+    }
+}
+
+class Main {
+    fn callIt:string (c:Ev.Callable arg:string) {
+        return (Ev.Callable.invoke(c arg))
+    }
+
+    sfn main:void () {
+        def m:Main (new Main())
+        def f:Ev.Fn (new Ev.Fn("greet"))
+        def b:Ev.Builtin (new Ev.Builtin("len"))
+        print (m.callIt(f "hi"))
+        print (m.callIt(b "x"))
+        ; exact-case method: only after the value is known to be Fn
+        print (to_string (Ev.Fn.arity(f)))
+    }
+}

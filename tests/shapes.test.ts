@@ -586,6 +586,44 @@ describe("shapes (closed variant families)", () => {
         "@(override)"
       );
     });
+
+    it("rejects a required method with the wrong signature", () => {
+      expectCompileError(
+        `${FIXTURES_DIR}/shape_group_bad_signature.rgr`,
+        "does not match the signature"
+      );
+    });
+
+    it("runs the Callable DoD example", () => {
+      expectOutput(
+        `${FIXTURES_DIR}/shape_group_callable.rgr`,
+        "greet:hi\nlen(x)\n1"
+      );
+    });
+
+    it.skipIf(!isRustAvailable())("Rust runs the Callable DoD example", () => {
+      expectRustOutput(
+        `${FIXTURES_DIR}/shape_group_callable.rgr`,
+        "greet:hi\nlen(x)\n1"
+      );
+    });
+
+    it("preserves identity across subgroup → parent widen", () => {
+      expectOutput(
+        `${FIXTURES_DIR}/shape_group_widen_identity.rgr`,
+        "same\n7\nobj"
+      );
+    });
+
+    it.skipIf(!isRustAvailable())(
+      "Rust preserves identity across Child → Parent widen",
+      () => {
+        expectRustOutput(
+          `${FIXTURES_DIR}/shape_group_widen_identity.rgr`,
+          "same\n7\nobj"
+        );
+      }
+    );
   });
 
   /**

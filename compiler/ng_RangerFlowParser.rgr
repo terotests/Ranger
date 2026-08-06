@@ -5179,7 +5179,10 @@ class RangerFlowParser {
       ; retain every field name for method body rewriting (not only scalars)
       set caseFieldNames (clsName + "__all") allFieldNames
 
-      ; default constructor args for C6 widen fallbacks
+      ; default constructor args for C6 widen fallbacks (unreachable; the
+      ; case arms cover every member — the trailing return satisfies the
+      ; function-returns checker). Only scalar-default cases get a ctor
+      ; fallback; others use an optional-unwrap placeholder (see widen emit).
       def ctorArgs:string ""
       def ctorOk:boolean true
       for blk.children fld:CodeNode fldi {
@@ -5614,10 +5617,11 @@ class RangerFlowParser {
                 def cargs:string (unwrap (get shapeCaseCtorArgs fcls))
                 dispSrc = dispSrc + ((("    return (new " + fcls) + "(") + cargs) + "))\n"
               } {
-                ; no scalar-default ctor — duplicate arm already returns above;
-                ; add a void-cast placeholder the checker still rejects, so
-                ; require ctor args for widen helpers in practice.
-                dispSrc = dispSrc + (("    return (new " + fcls) + "())\n")
+                ; Unreachable: every member is handled above. An optional
+                ; unwrap gives the return checker a typed expression without
+                ; needing a default constructor for array / class fields.
+                dispSrc = dispSrc + ((("    def __gw_unreach@(optional):" + ancCls) + "\n"))
+                dispSrc = dispSrc + "    return (unwrap __gw_unreach)\n"
               }
             }
             dispSrc = dispSrc + "  }\n"
@@ -7507,6 +7511,20 @@ class RangerFlowParser {
         def c1:RangerAppClassDesc (ctx.findClass(unionName))
         if( c1.is_union ) {
             if( (node.type_name != c1.name) && (node.eval_type_name != c1.name ) ) {
+              ; C6: subgroup union → parent (Numeric → Printable) uses the
+              ; generated widen helper; a bare `to` would leave native enum
+              ; targets with the wrong enum type on return / assignment.
+              if ((strlen node.eval_type_name) > 0) {
+                if (ctx.isDefinedClass(node.eval_type_name)) {
+                  def cSrc:RangerAppClassDesc (ctx.findClass(node.eval_type_name))
+                  if cSrc.is_union {
+                    if (cSrc.isSameOrParentClass(unionName ctx)) {
+                      this.rewriteToGroupWiden(node unionName node.eval_type_name ctx wr)
+                      return
+                    }
+                  }
+                }
+              }
               def toEx (node.newExpressionNode())
               def toVref (node.newVRefNode('to'))
               def argType (node.newVRefNode('_'))
@@ -7739,8 +7757,8 @@ class RangerFlowParser {
                 return true
               }
               ; C6: source is a subgroup of the expected group — widen via the
-              ; generated `__as_<Parent>` helper so native enum targets keep a
-              ; typed conversion (case → parent union) without a wrapper object.
+              ; generated `widen_to_<Parent>` helper so native enum targets keep
+              ; a typed conversion without a wrapper object.
               if ( c2.isSameOrParentClass (n1.eval_type_name ctx)) {
                 this.rewriteToGroupWiden(n2 n1.eval_type_name n2.eval_type_name ctx wr)
                 return true
