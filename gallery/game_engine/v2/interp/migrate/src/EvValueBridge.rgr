@@ -2,9 +2,10 @@
 ; EvValueBridge — tagged ↔ shape conversion (PLAN_SHAPES.md §7.5)
 ; =============================================================================
 ; E2: fromTagged for primitives / Hole.
-; E3: toTagged + Hole engine API. ComponentEngine creates holes through
-; taggedHole() so the shape is the source of truth; array storage remains
-; class EvalValue until later kinds move.
+; E3 Hole: taggedHole / isHole engine API.
+; E3 primitives: taggedNull/Undefined/Number/String/Boolean + predicates.
+; ComponentEngine creates and checks these kinds through the bridge so the
+; shape owns them; array storage remains class EvalValue until later kinds move.
 
 Import "EvalValue.rgr"
 Import "EvValue.rgr"
@@ -60,10 +61,8 @@ class EvValueBridge {
     }
 
     ; ---- E3 Hole engine surface -------------------------------------------
-    ; ComponentEngine calls these instead of EvalValue.hole() / .isHole so the
-    ; Hole kind is owned by the shape. Storage encoding is still the pooled
-    ; tagged singleton (isHole flag); discrimination stays a flag read for
-    ; hot array walks.
+    ; Storage encoding is still the pooled tagged singleton (isHole flag);
+    ; discrimination stays a flag read for hot array walks.
 
     sfn taggedHole:EvalValue () {
         return (EvValueBridge.toTagged((EvValue.hole())))
@@ -71,5 +70,41 @@ class EvValueBridge {
 
     sfn isHole:boolean (v:EvalValue) {
         return v.isHole
+    }
+
+    ; ---- E3 primitive engine surface --------------------------------------
+    ; Same pattern as Hole: shape factory → toTagged. Predicates keep the
+    ; tagged-class method bodies for speed; the API boundary is the bridge.
+
+    sfn taggedNull:EvalValue () {
+        return (EvValueBridge.toTagged((EvValue.null())))
+    }
+    sfn taggedUndefined:EvalValue () {
+        return (EvValueBridge.toTagged((EvValue.undefined())))
+    }
+    sfn taggedNumber:EvalValue (n:double) {
+        return (EvValueBridge.toTagged((EvValue.number(n))))
+    }
+    sfn taggedString:EvalValue (s:string) {
+        return (EvValueBridge.toTagged((EvValue.string(s))))
+    }
+    sfn taggedBoolean:EvalValue (b:boolean) {
+        return (EvValueBridge.toTagged((EvValue.boolean(b))))
+    }
+
+    sfn isNull:boolean (v:EvalValue) {
+        return (v.isNull())
+    }
+    sfn isUndefined:boolean (v:EvalValue) {
+        return (v.isUndefined())
+    }
+    sfn isNumber:boolean (v:EvalValue) {
+        return (v.isNumber())
+    }
+    sfn isString:boolean (v:EvalValue) {
+        return (v.isString())
+    }
+    sfn isBoolean:boolean (v:EvalValue) {
+        return (v.isBoolean())
     }
 }

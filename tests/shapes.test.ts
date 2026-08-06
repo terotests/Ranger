@@ -753,6 +753,23 @@ describe("shapes (closed variant families)", () => {
   });
 
   /**
+   * E3 primitives: null / undefined / number / string / boolean creation and
+   * checks go through EvValueBridge so the shape owns those kinds too.
+   */
+  describe("EvValue E3 primitive kinds", () => {
+    const E3P = `${FIXTURES_DIR}/shape_evalvalue_e3_prims.rgr`;
+    const EXPECTED_E3P = ["num", "zero", "nullish", "strb", "roundtrip"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E3P, EXPECTED_E3P);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E3P, EXPECTED_E3P);
+    });
+  });
+
+  /**
    * Group field projection (PLAN_SHAPES.md §7 / C5). Fields declared on a
    * group are read and written through the group type via generated get_/set_
    * ops — no narrowing required, identity preserved for reference groups.

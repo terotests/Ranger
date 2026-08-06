@@ -16,9 +16,9 @@
 
 - **Staged copy** that is now the authoritative v2 TSX engine.
 - **E1/E2 done** — shape + primitive bridge beside the class.
-- **E3 in progress** — Hole kind is shape-owned at the ComponentEngine
-  boundary (`EvValueBridge.taggedHole` / `isHole`). Array slots still store
-  `class EvalValue`. Next: primitives, then Element, then property carriers.
+- **E3 in progress** — Hole and primitive kinds are shape-owned at the
+  ComponentEngine boundary (`EvValueBridge.taggedHole` / `taggedNumber` / …).
+  Array slots still store `class EvalValue`. Next: Element, then property carriers.
 - Split into `interp/values/`, `interp/engine/`, `interp/semantics/` as Phase 1
   progresses — do not edit only the v1 originals for v2 work.
 
