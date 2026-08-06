@@ -886,6 +886,54 @@ describe("shapes (closed variant families)", () => {
   });
 
   /**
+   * E4e: string/bool SoT on body (class caches removed).
+   */
+  describe("EvalValue E4e string/bool accessors", () => {
+    const E4E_SB = `${FIXTURES_DIR}/shape_evalvalue_e4e_strbool.rgr`;
+    const EXPECTED_E4E_SB = ["str", "strsot", "bool", "pool"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E4E_SB, EXPECTED_E4E_SB);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E4E_SB, EXPECTED_E4E_SB);
+    });
+  });
+
+  /**
+   * E4e: setNumberOf keeps body.Number synced with the class cache.
+   */
+  describe("EvalValue E4e number sync", () => {
+    const E4E_N = `${FIXTURES_DIR}/shape_evalvalue_e4e_number.rgr`;
+    const EXPECTED_E4E_N = ["num", "numsot", "pool"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E4E_N, EXPECTED_E4E_N);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E4E_N, EXPECTED_E4E_N);
+    });
+  });
+
+  /**
+   * E4e: identityIdOf for Reference identity (class field remains a cache).
+   */
+  describe("EvalValue E4e identityIdOf", () => {
+    const E4E_ID = `${FIXTURES_DIR}/shape_evalvalue_e4e_identity.rgr`;
+    const EXPECTED_E4E_ID = ["id", "stable", "fresh", "cache"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E4E_ID, EXPECTED_E4E_ID);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E4E_ID, EXPECTED_E4E_ID);
+    });
+  });
+
+  /**
    * Group field projection (PLAN_SHAPES.md §7 / C5). Fields declared on a
    * group are read and written through the group type via generated get_/set_
    * ops — no narrowing required, identity preserved for reference groups.

@@ -18,6 +18,6 @@ class ProbeMain {
         engine.quiet = true
         engine.loadScript(src)
         def out:EvHandle (engine.callFunction("__t__" (EvHandle.null())))
-        print ("answer=" + out.stringValue)
+        print ("answer=" + (out.stringOf()))
     }
 }

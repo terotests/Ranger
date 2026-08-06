@@ -1238,11 +1238,18 @@ that no `record` with a class-typed field could avoid are fixed
        later optimisation once bind’s rename writes leave core).
      - Fixtures: `shape_evalvalue_e4d_element.rgr`,
        `shape_evalvalue_e4d_fncore.rgr`.
-     - Thin `EvHandle` shell that remains: `body`, scalar caches
-       (`numberValue` / `stringValue` / `boolValue`), `slotOwned`,
-       `identityId` (also on Reference — class field is the hot-path cache).
-       Number `@(value)` blocks moving slotOwned / live number mutation onto
-       the shape without a body-rewrite protocol.
+     - Thin `EvHandle` shell that remains after E4d: see E4e.
+   - **✅ E4e — primitive accessors + identity helper:**
+     - String/bool SoT is `body` (`stringOf` / `boolOf`); class caches deleted.
+     - Numbers use `numberOf` / `setNumberOf` so every in-place bump rewrites
+       `body.Number` as well as the class cache (slotOwned `i++` stays legal).
+     - `identityIdOf` reads Reference id (class `identityId` remains a
+       hot-path cache written at mint).
+     - Fixtures: `shape_evalvalue_e4e_strbool.rgr`,
+       `shape_evalvalue_e4e_number.rgr`, `shape_evalvalue_e4e_identity.rgr`.
+     - Still on the class: `numberValue`, `slotOwned`, `identityId` cache.
+       Number `@(value)` still blocks putting `slotOwned` on the shape;
+       deleting the `identityId` field is a pure dual-write cleanup later.
 5. **Re-measure.** `sizeof(EvHandle)` on C++, the eight benchmark cases on Node, C++,
    Rust, Go, Kotlin, Python and C#, and the small-integer pool's remaining value —
    with primitives no longer heap-allocated, the pool may stop earning its keep on the

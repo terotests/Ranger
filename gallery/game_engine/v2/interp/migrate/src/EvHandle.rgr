@@ -4,10 +4,11 @@
 ; Represents values that can be evaluated: numbers, strings, booleans, 
 ; null, arrays, objects, functions, and EVG elements.
 ;
-; Migration (PLAN_SHAPES.md §7.5 E4d): thin engine handle around `body:EvalValue`.
-; Collection / property / Function core+binding / Element storage live on the
-; shape. This class keeps: kind body, scalar caches, identityId, slotOwned —
-; plus EvValueHandles. Number `@(value)` blocks moving slotOwned/scalars.
+; Migration (PLAN_SHAPES.md §7.5 E4e): thin engine handle around `body:EvalValue`.
+; Collection / property / Function / Element / string / bool live on the shape.
+; Shell left: numberValue + slotOwned (in-place i++), identityId hot-path cache
+; (also on Reference), EvValueHandles. Number `@(value)` blocks slotOwned on
+; the shape.
 
 Import "../../../evg/EVGElement.rgr"
 Import "../../../../../ts_parser/ts_parser_simple.rgr"
@@ -40,12 +41,12 @@ class RangerMem {
 class EvHandle {
     ; Kind discriminant — closed family (PLAN_SHAPES.md §7.5 step 4).
     def body:EvalValue (new EvalValue.Undefined())
+    ; Live number cache — rewritten with body via setNumberOf. slotOwned i++
+    ; mutates in place; @(value) forbids putting that mutation on Number.value.
     def numberValue:double 0.0
-    def stringValue:string ""
-    def boolValue:boolean false
     ; True only for a number minted to fill ONE binding's slot in a frame whose
     ; body scan proved the name's value object never escapes. Nothing else can
-    ; be holding it, so `i++` writes `numberValue` in place. Every value the
+    ; be holding it, so `i++` writes via setNumberOf in place. Every value the
     ; script can alias -- and every pooled literal, which is shared by every
     ; occurrence of that constant -- keeps false and takes the minting path.
     def slotOwned:boolean false
@@ -56,6 +57,46 @@ class EvHandle {
     ; (Also on body Reference.identityId; class field is the hot-path cache.)
     def identityId:int 0
 
+    ; ---- Primitive accessors (string/bool SoT on body; number synced) ----
+    fn stringOf:string () {
+        def b:EvalValue body
+        case b s:EvalValue.String {
+            return s.value
+        }
+        return ""
+    }
+    fn boolOf:boolean () {
+        def b:EvalValue body
+        case b bo:EvalValue.Boolean {
+            return bo.value
+        }
+        return false
+    }
+    fn numberOf:double () {
+        return numberValue
+    }
+    ; Keep class cache and body.Number in lockstep after every mutation.
+    fn setNumberOf:void (n:double) {
+        numberValue = n
+        body = (EvalValue.number(n))
+    }
+    fn identityIdOf:int () {
+        ; Prefer the class cache (always stamped at mint). Fall back to body
+        ; case fields — case each Reference member (not the group) so Rust's
+        ; flat union lowering can match.
+        if (identityId > 0) {
+            return identityId
+        }
+        def b:EvalValue body
+        case b a:EvalValue.Array { return a.identityId }
+        case b o:EvalValue.Object { return o.identityId }
+        case b f:EvalValue.Function { return f.identityId }
+        case b m:EvalValue.Map { return m.identityId }
+        case b st:EvalValue.Set { return st.identityId }
+        case b el:EvalValue.Element { return el.identityId }
+        return 0
+    }
+
     ; ---- Function SoT: body.Function.core / .binding (PLAN_SHAPES §7.3) ----
     ; Ensure body is a Function case before writing core/binding fields.
     fn ensureFunction:void () {
@@ -63,7 +104,7 @@ class EvHandle {
         if (EvalValue.isFunction(b)) {
             return
         }
-        def id:int identityId
+        def id:int (this.identityIdOf())
         if (id <= 0) {
             id = ((EvalIdentityMinter.__singleton()).mint())
             identityId = id
@@ -296,13 +337,7 @@ class EvHandle {
     }
     fn setElement:void (el:EVGElement) {
         ; Rewrite the Element case; keep Reference identity.
-        def id:int identityId
-        if (id <= 0) {
-            def _evBody:EvalValue body
-            case _evBody cur:EvalValue.Element {
-                id = cur.identityId
-            }
-        }
+        def id:int (this.identityIdOf())
         if (id <= 0) {
             id = ((EvalIdentityMinter.__singleton()).mint())
             identityId = id
@@ -358,14 +393,12 @@ class EvHandle {
     sfn rawBoolean:EvHandle (b:boolean) {
         def v:EvHandle (new EvHandle())
         v.body = (EvalValue.boolean(b))
-        v.boolValue = b
         return v
     }
     
     sfn rawNumber:EvHandle (n:double) {
         def v:EvHandle (new EvHandle())
-        v.body = (EvalValue.number(n))
-        v.numberValue = n
+        v.setNumberOf(n)
         return v
     }
 
@@ -384,8 +417,7 @@ class EvHandle {
             }
         }
         def v:EvHandle (new EvHandle())
-        v.body = (EvalValue.number(n))
-        v.numberValue = n
+        v.setNumberOf(n)
         return v
     }
 
@@ -395,15 +427,13 @@ class EvHandle {
             return (pool.smallInt(n))
         }
         def v:EvHandle (new EvHandle())
-        v.body = (EvalValue.number((to_double n)))
-        v.numberValue = (to_double n)
+        v.setNumberOf((to_double n))
         return v
     }
     
     sfn string:EvHandle (s:string) {
         def v:EvHandle (new EvHandle())
         v.body = (EvalValue.string(s))
-        v.stringValue = s
         return v
     }
     
@@ -431,13 +461,13 @@ class EvHandle {
             return (EvalValue.undefined())
         }
         if (EvalValue.isNumber(_k)) {
-            return (EvalValue.number(numberValue))
+            return (EvalValue.number((this.numberOf())))
         }
         if (EvalValue.isString(_k)) {
-            return (EvalValue.string(stringValue))
+            return body
         }
         if (EvalValue.isBoolean(_k)) {
-            return (EvalValue.boolean(boolValue))
+            return body
         }
         ; Refs: return the live body. Factories / fromBody register the class
         ; handle in EvValueHandles (do not pass `this` here — Rust codegen
@@ -871,15 +901,15 @@ class EvHandle {
     ; Type coercion
     fn toNumber:double () {
         if (this.isNumber()) {
-            return numberValue
+            return (this.numberOf())
         }
         if (this.isString()) {
-            ; Try to parse string as number
-            def parsed@(optional):double (to_double stringValue)
+            def sv:string (this.stringOf())
+            def parsed@(optional):double (to_double sv)
             return (unwrap parsed)
         }
         if (this.isBoolean()) {
-            if boolValue {
+            if (this.boolOf()) {
                 return 1.0
             }
             return 0.0
@@ -899,31 +929,32 @@ class EvHandle {
             return "undefined"
         }
         if (this.isNumber()) {
+            def nv:double (this.numberOf())
             ; NaN and the infinities print their JS names — the native f64
             ; formatters say "inf"/"-inf" where JavaScript says "Infinity"
-            if (numberValue != numberValue) {
+            if (nv != nv) {
                 return "NaN"
             }
-            if (numberValue == (1.0 / 0.0)) {
+            if (nv == (1.0 / 0.0)) {
                 return "Infinity"
             }
-            if (numberValue == ((0.0 - 1.0) / 0.0)) {
+            if (nv == ((0.0 - 1.0) / 0.0)) {
                 return "-Infinity"
             }
             ; Format number - remove trailing zeros
-            def s:string (to_string numberValue)
+            def s:string (to_string nv)
             ; Check if it's a whole number
-            def intVal:int (to_int numberValue)
-            if ((to_double intVal) == numberValue) {
+            def intVal:int (to_int nv)
+            if ((to_double intVal) == nv) {
                 return (to_string intVal)
             }
             return s
         }
         if (this.isString()) {
-            return stringValue
+            return (this.stringOf())
         }
         if (this.isBoolean()) {
-            if boolValue {
+            if (this.boolOf()) {
                 return "true"
             }
             return "false"
@@ -982,18 +1013,19 @@ class EvHandle {
             return false
         }
         if (this.isNumber()) {
+            def nv:double (this.numberOf())
             ; NaN is FALSY. `n != 0.0` is true for NaN, so `!NaN` answered false
             ; and every `if (nan)` took the wrong branch.
-            if (numberValue != numberValue) {
+            if (nv != nv) {
                 return false
             }
-            return (numberValue != 0.0)
+            return (nv != 0.0)
         }
         if (this.isString()) {
-            return ((strlen stringValue) > 0)
+            return ((strlen (this.stringOf())) > 0)
         }
         if (this.isBoolean()) {
-            return boolValue
+            return (this.boolOf())
         }
         if (this.isArray()) {
             return true ; Arrays are always truthy
@@ -1360,7 +1392,7 @@ class EvHandle {
         ; String length property
         if (this.isString()) {
             if (key == "length") {
-                return (EvHandle.fromInt((strlen stringValue)))
+                return (EvHandle.fromInt((strlen (this.stringOf()))))
             }
         }
         return (EvHandle.null())
@@ -1925,7 +1957,7 @@ class EvHandle {
             push stored (it.toStored())
             i = (i + 1)
         }
-        body = (EvalValue.arrayAt(identityId stored))
+        body = (EvalValue.arrayAt((this.identityIdOf()) stored))
     }
 
     ; Field/identity equality that does not go through equals()'s mut borrow
@@ -1946,22 +1978,23 @@ class EvHandle {
             if (false == (EvalValue.isNumber(_o))) {
                 return false
             }
-            return (numberValue == other.numberValue)
+            return ((this.numberOf()) == (other.numberOf()))
         }
         if (EvalValue.isString(_k)) {
             if (false == (EvalValue.isString(_o))) {
                 return false
             }
-            return (stringValue == other.stringValue)
+            return ((this.stringOf()) == (other.stringOf()))
         }
         if (EvalValue.isBoolean(_k)) {
             if (false == (EvalValue.isBoolean(_o))) {
                 return false
             }
-            return (boolValue == other.boolValue)
+            return ((this.boolOf()) == (other.boolOf()))
         }
-        if (identityId > 0) {
-            return (identityId == other.identityId)
+        def iid:int (this.identityIdOf())
+        if (iid > 0) {
+            return (iid == (other.identityIdOf()))
         }
         return false
     }
@@ -2132,8 +2165,9 @@ class EvHandle {
         }
         ; String character access
         if (this.isString()) {
-            if ((index >= 0) && (index < (strlen stringValue))) {
-                def charStr:string (substring stringValue index (index + 1))
+            def sidx:string (this.stringOf())
+            if ((index >= 0) && (index < (strlen sidx))) {
+                def charStr:string (substring sidx index (index + 1))
                 return (EvHandle.string(charStr))
             }
             ; An index past the end is a MISSING property, which reads as
@@ -2170,44 +2204,47 @@ class EvHandle {
             if (false == (other.isNumber())) {
                 return false
             }
-            return (numberValue == other.numberValue)
+            return ((this.numberOf()) == (other.numberOf()))
         }
         if (this.isString()) {
             if (false == (other.isString())) {
                 return false
             }
-            return (stringValue == other.stringValue)
+            return ((this.stringOf()) == (other.stringOf()))
         }
         if (this.isBoolean()) {
             if (false == (other.isBoolean())) {
                 return false
             }
-            return (boolValue == other.boolValue)
+            return ((this.boolOf()) == (other.boolOf()))
         }
         ; Reference values — identityId (D-IDENTITY). Kind must match.
+        ; Compare ids via locals to avoid RefCell self-borrow on same Rc.
+        def iid:int (this.identityIdOf())
+        def oid:int (other.identityIdOf())
         if (this.isArray()) {
             if (false == (other.isArray())) { return false }
-            return (identityId == other.identityId)
+            return (iid == oid)
         }
         if (this.isObject()) {
             if (false == (other.isObject())) { return false }
-            return (identityId == other.identityId)
+            return (iid == oid)
         }
         if (this.isFunction()) {
             if (false == (other.isFunction())) { return false }
-            return (identityId == other.identityId)
+            return (iid == oid)
         }
         if (this.isMap()) {
             if (false == (other.isMap())) { return false }
-            return (identityId == other.identityId)
+            return (iid == oid)
         }
         if (this.isSet()) {
             if (false == (other.isSet())) { return false }
-            return (identityId == other.identityId)
+            return (iid == oid)
         }
         if (this.isElement()) {
             if (false == (other.isElement())) { return false }
-            return (identityId == other.identityId)
+            return (iid == oid)
         }
         return false
     }
@@ -2234,8 +2271,9 @@ class EvalIdentityMinter @singleton(true) {
 class EvValueHandles @singleton(true) {
     def byId:[int:EvHandle]
     fn remember:void (v:EvHandle) {
-        if (v.identityId > 0) {
-            set byId v.identityId v
+        def id:int (v.identityIdOf())
+        if (id > 0) {
+            set byId id v
         }
     }
     fn lookup@(optional):EvHandle (id:int) {

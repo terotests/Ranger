@@ -232,7 +232,7 @@ class GameSpriteRenderer {
         def row 0
         while (row < rowCount) {
             def rowVal:EvHandle (itemAt rows row)
-            def line:string rowVal.stringValue
+            def line:string (rowVal.stringOf())
             def colCount:int (strlen line)
             def col 0
             def midCol (this.half(colCount))
@@ -335,7 +335,7 @@ class GameSpriteRenderer {
 
     fn loadSheetImage:void (e:GameEntity d:EvHandle) {
         def pathv:EvHandle (d.getMember("path"))
-        e.shPath = pathv.stringValue
+        e.shPath = (pathv.stringOf())
         e.shFrameW = (this.memInt(d "frameW" 64))
         e.shFrameH = (this.memInt(d "frameH" 64))
         e.shCols = (this.memInt(d "cols" 9))
@@ -357,8 +357,8 @@ class GameSpriteRenderer {
     fn applyDef:void (e:GameEntity d:EvHandle) {
         def idv:EvHandle (d.getMember("id"))
         def kindv:EvHandle (d.getMember("kind"))
-        e.id = idv.stringValue
-        e.kind = kindv.stringValue
+        e.id = (idv.stringOf())
+        e.kind = (kindv.stringOf())
         if (e.kind == "bitmap") {
             this.cacheBitmapFrames(e d)
             return
@@ -393,7 +393,7 @@ class GameSpriteRenderer {
         def vis:EvHandle (pos.getMember("visible"))
         if (false == (vis.isNull())) {
             if (vis.isBoolean()) {
-                e.visible = vis.boolValue
+                e.visible = (vis.boolOf())
             } {
                 e.visible = ((to_int vis.numberValue) != 0)
             }

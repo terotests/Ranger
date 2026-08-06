@@ -48,7 +48,7 @@ class ComponentEngineJsSemanticsTest {
 
     sfn callBool:boolean (engine:ComponentEngine name:string) {
         def r:EvHandle (engine.callFunction(name (EvHandle.null())))
-        return r.boolValue
+        return (r.boolOf())
     }
 
     sfn callNum:double (engine:ComponentEngine name:string) {

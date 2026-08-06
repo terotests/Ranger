@@ -287,14 +287,14 @@ class EvalContext {
             def c:EvHandle (unwrap cur)
             if (c.isNumber()) {
                 if c.slotOwned {
-                    c.numberValue = (c.numberValue + delta)
+                    c.setNumberOf(((c.numberOf()) + delta))
                     return true
                 }
                 ; rawNumber, not number: the pooling factory hands back the
                 ; SHARED small-integer object, and stamping that `slotOwned`
                 ; would licence every later `i++` to rewrite the constant `1`
                 ; for the whole program. A slot's value must be private.
-                def fresh:EvHandle (EvHandle.rawNumber((c.numberValue + delta)))
+                def fresh:EvHandle (EvHandle.rawNumber(((c.numberOf()) + delta)))
                 fresh.slotOwned = true
                 set bindings name fresh
                 return true
@@ -317,7 +317,7 @@ class EvalContext {
                 def c:EvHandle (unwrap cur)
                 if (c.isNumber()) {
                     if c.slotOwned {
-                        c.numberValue = n
+                        c.setNumberOf(n)
                         return true
                     }
                     def fresh:EvHandle (EvHandle.rawNumber(n))
@@ -398,7 +398,7 @@ class EvalContext {
             if cur {
                 def c:EvHandle (unwrap cur)
                 if (c.isNumber()) {
-                    c.numberValue = (c.numberValue + delta)
+                    c.setNumberOf(((c.numberOf()) + delta))
                     return true
                 }
             }
@@ -1827,7 +1827,7 @@ class ComponentEngine {
         evalCtx.isBlockScope = true
         evalCtx.define("this" (this.theGlobalObject()))
         context = evalCtx
-        def evOut:EvHandle (this.runEvalSource(evSrc.stringValue))
+        def evOut:EvHandle (this.runEvalSource((evSrc.stringOf())))
         context = savedEvalCtx
         return evOut
     }
@@ -4012,8 +4012,8 @@ class ComponentEngine {
                     } {
                         if (EvValueBridge.isString(src)) {
                             def si:int 0
-                            while (si < (strlen src.stringValue)) {
-                                push items (EvValueBridge.taggedString((substring src.stringValue si (si + 1))))
+                            while (si < (strlen (src.stringOf()))) {
+                                push items (EvValueBridge.taggedString((substring (src.stringOf()) si (si + 1))))
                                 si = (si + 1)
                             }
                         }
@@ -5777,7 +5777,7 @@ class ComponentEngine {
             ; PERF fast path, mirroring `+`: plain strings and plain numbers
             ; skip the conversion dance (each toStringOf copies on natives).
             if ((current.isString()) && (rightValue.isString())) {
-                return (EvValueBridge.taggedString(current.stringValue + rightValue.stringValue))
+                return (EvValueBridge.taggedString((current.stringOf()) + (rightValue.stringOf())))
             }
             if ((current.isNumber()) && (rightValue.isNumber())) {
                 return (EvValueBridge.taggedNumber(current.numberValue + rightValue.numberValue))
@@ -6325,7 +6325,7 @@ class ComponentEngine {
         def held@(optional):EvHandle (get exprSlots id)
         if held {
             def h:EvHandle (unwrap held)
-            h.numberValue = n
+            h.setNumberOf(n)
             return h
         }
         def fresh:EvHandle (EvHandle.rawNumber(n))
@@ -6932,7 +6932,7 @@ class ComponentEngine {
         if (false == (EvValueBridge.isString(nmV))) {
             return ""
         }
-        return nmV.stringValue
+        return (nmV.stringOf())
     }
 
     ; D-ARGMAP: deleting a mapped index breaks the link for good. Re-creating
@@ -8723,9 +8723,9 @@ class ComponentEngine {
                             }
                             if (EvValueBridge.isString(srcV)) {
                                 def sIdx:int 0
-                                while (sIdx < (strlen srcV.stringValue)) {
+                                while (sIdx < (strlen (srcV.stringOf()))) {
                                     def sEnd:int (sIdx + 1)
-                                    push frItems (EvValueBridge.taggedString((substring srcV.stringValue sIdx sEnd)))
+                                    push frItems (EvValueBridge.taggedString((substring (srcV.stringOf()) sIdx sEnd)))
                                     sIdx = (sIdx + 1)
                                 }
                             }
@@ -9103,7 +9103,7 @@ class ComponentEngine {
                                     def keysS:[string]
                                     def valsS:[EvHandle]
                                     def dS:EvHandle (EvValueBridge.taggedObject(keysS valsS))
-                                    dS.setMember("value" (EvHandle.fromInt((strlen src.stringValue))))
+                                    dS.setMember("value" (EvHandle.fromInt((strlen (src.stringOf())))))
                                     dS.setMember("writable" (EvValueBridge.taggedBoolean(false)))
                                     dS.setMember("enumerable" (EvValueBridge.taggedBoolean(false)))
                                     dS.setMember("configurable" (EvValueBridge.taggedBoolean(false)))
@@ -9112,12 +9112,12 @@ class ComponentEngine {
                                 def sIdx@(optional):int (to_int dk)
                                 if sIdx {
                                     def si2:int (unwrap sIdx)
-                                    if ((si2 >= 0) && (si2 < (strlen src.stringValue))) {
+                                    if ((si2 >= 0) && (si2 < (strlen (src.stringOf())))) {
                                         def keysC:[string]
                                         def valsC2:[EvHandle]
                                         def dC:EvHandle (EvValueBridge.taggedObject(keysC valsC2))
                                         def se:int (si2 + 1)
-                                        dC.setMember("value" (EvValueBridge.taggedString((substring src.stringValue si2 se))))
+                                        dC.setMember("value" (EvValueBridge.taggedString((substring (src.stringOf()) si2 se))))
                                         dC.setMember("writable" (EvValueBridge.taggedBoolean(false)))
                                         dC.setMember("enumerable" (EvValueBridge.taggedBoolean(true)))
                                         dC.setMember("configurable" (EvValueBridge.taggedBoolean(false)))
@@ -9568,7 +9568,7 @@ class ComponentEngine {
                     if (false == (EvValueBridge.isString(evSrcV))) {
                         return evSrcV
                     }
-                    return (this.runEvalSource(evSrcV.stringValue))
+                    return (this.runEvalSource((evSrcV.stringOf())))
                 }
                 ; D-CTORCALL: the constructor globals called WITHOUT `new`.
                 ; `Array(2)` is identical to `new Array(2)`, and returned null
@@ -9709,7 +9709,7 @@ class ComponentEngine {
                         if (false == quiet) {
                             this.trace("useImage arg value: " + (argValue.toString()) + " type=" + (argValue.kindName()))
                         }
-                        srcArg = argValue.stringValue
+                        srcArg = (argValue.stringOf())
                         this.trace("useImage srcArg: " + srcArg)
                     }
                     return (this.evaluateUseImage(srcArg))
@@ -10067,7 +10067,7 @@ class ComponentEngine {
                 if lvObjectLike {
                     def tag:EvHandle (lv.getMember("__class__"))
                     if (EvValueBridge.isString(tag)) {
-                        return (EvValueBridge.taggedBoolean(((tag.stringValue) == cname)))
+                        return (EvValueBridge.taggedBoolean(((tag.stringOf()) == cname)))
                     }
                     ; D-ERRORS: every native error inherits from Error, so
                     ; `e instanceof Error` holds for a TypeError as much as
@@ -10210,7 +10210,7 @@ class ComponentEngine {
             ; toPrimitive/toString dance below is a no-op for them, but on
             ; the native targets each toStringOf COPIES its operand first.
             if ((left.isString()) && (right.isString())) {
-                return (EvValueBridge.taggedString(left.stringValue + right.stringValue))
+                return (EvValueBridge.taggedString((left.stringOf()) + (right.stringOf())))
             }
             ; two plain numbers add directly the same way
             if ((left.isNumber()) && (right.isNumber())) {
@@ -10324,8 +10324,8 @@ class ComponentEngine {
             def lr:EvHandle (this.toPrimitive(left false))
             def rr:EvHandle (this.toPrimitive(right false))
             if ((EvValueBridge.isString(lr)) && (EvValueBridge.isString(rr))) {
-                def ls:string lr.stringValue
-                def rs:string rr.stringValue
+                def ls:string (lr.stringOf())
+                def rs:string (rr.stringOf())
                 def cmp:int (this.compareStrings(ls rs))
                 if (opK == 26) { return (EvValueBridge.taggedBoolean((cmp < 0))) }
                 if (opK == 27) { return (EvValueBridge.taggedBoolean((cmp > 0))) }
@@ -12193,7 +12193,7 @@ class ComponentEngine {
                 return (EvValueBridge.taggedUndefined())
             }
             if (only.isString()) {
-                ms = (dtm.parseISO(only.stringValue))
+                ms = (dtm.parseISO((only.stringOf())))
             } {
                 ms = (dtm.timeClip((this.toNumberOf(only))))
             }
@@ -14561,7 +14561,7 @@ class ComponentEngine {
         ; index. Both are what `Object.keys(new String('ab'))` reports -- the
         ; indices are enumerable, `length` is not.
         if (ctorName == "String") {
-            def sw:string p.stringValue
+            def sw:string (p.stringOf())
             def ci:int 0
             while (ci < (strlen sw)) {
                 w.setMember((to_string ci) (EvValueBridge.taggedString((substring sw ci (ci + 1)))))
@@ -15189,7 +15189,7 @@ class ComponentEngine {
     fn toNumberOf:double (v:EvHandle) {
         def p:EvHandle (this.toPrimitive(v false))
         if (EvValueBridge.isString(p)) {
-            return (this.stringToNumber(p.stringValue))
+            return (this.stringToNumber((p.stringOf())))
         }
         if (EvValueBridge.isUndefined(p)) {
             return (0.0 / 0.0)
@@ -15448,10 +15448,10 @@ class ComponentEngine {
     fn errorToString:string (e:EvHandle) {
         def nm:string "Error"
         def nv:EvHandle (e.getMember("name"))
-        if (EvValueBridge.isString(nv)) { nm = nv.stringValue }
+        if (EvValueBridge.isString(nv)) { nm = (nv.stringOf()) }
         def msg:string ""
         def mv:EvHandle (e.getMember("message"))
-        if (EvValueBridge.isString(mv)) { msg = mv.stringValue }
+        if (EvValueBridge.isString(mv)) { msg = (mv.stringOf()) }
         if ((strlen msg) == 0) {
             return nm
         }
@@ -15471,7 +15471,7 @@ class ComponentEngine {
     fn regexFlagsOf:string (v:EvHandle) {
         def f:EvHandle (v.getMember("flags"))
         if (EvValueBridge.isString(f)) {
-            return f.stringValue
+            return (f.stringOf())
         }
         return ""
     }
@@ -15479,7 +15479,7 @@ class ComponentEngine {
     fn regexSourceOf:string (v:EvHandle) {
         def sv:EvHandle (v.getMember("source"))
         if (EvValueBridge.isString(sv)) {
-            return sv.stringValue
+            return (sv.stringOf())
         }
         return ""
     }
@@ -15730,8 +15730,8 @@ class ComponentEngine {
         }
         if (EvValueBridge.isString(v)) {
             def si:int 0
-            while (si < (strlen v.stringValue)) {
-                push out (EvValueBridge.taggedString((substring v.stringValue si (si + 1))))
+            while (si < (strlen (v.stringOf()))) {
+                push out (EvValueBridge.taggedString((substring (v.stringOf()) si (si + 1))))
                 si = (si + 1)
             }
             return out
@@ -15819,8 +15819,8 @@ class ComponentEngine {
             return (EvValueBridge.taggedHole())
         }
         if (EvValueBridge.isString(recv)) {
-            if (idx < (strlen recv.stringValue)) {
-                return (EvValueBridge.taggedString((substring recv.stringValue idx (idx + 1))))
+            if (idx < (strlen (recv.stringOf()))) {
+                return (EvValueBridge.taggedString((substring (recv.stringOf()) idx (idx + 1))))
             }
             return (EvValueBridge.taggedHole())
         }
@@ -15942,7 +15942,7 @@ class ComponentEngine {
     ; for itself.
     fn toStringOf:string (v:EvHandle) {
         if (EvValueBridge.isString(v)) {
-            return v.stringValue
+            return (v.stringOf())
         }
         def p:EvHandle v
         ; Functions convert too -- a guest override of Function.prototype.toString
@@ -15956,7 +15956,7 @@ class ComponentEngine {
             ; directly gave the caller a pointer into a value that scope exit
             ; then released, and `String(Array.prototype)` read the freed bytes.
             ; Binding takes a private copy the caller can outlive.
-            def owned:string p.stringValue
+            def owned:string (p.stringOf())
             return owned
         }
         return (p.toString())
@@ -16147,7 +16147,7 @@ class ComponentEngine {
 
     fn toPropertyKey:string (v:EvHandle) {
         if (EvValueBridge.isString(v)) {
-            return v.stringValue
+            return (v.stringOf())
         }
         def p:EvHandle v
         if (v.isObject()) { p = (this.toPrimitive(v true)) }
@@ -16159,7 +16159,7 @@ class ComponentEngine {
             ; directly gave the caller a pointer into a value that scope exit
             ; then released, and `String(Array.prototype)` read the freed bytes.
             ; Binding takes a private copy the caller can outlive.
-            def owned:string p.stringValue
+            def owned:string (p.stringOf())
             return owned
         }
         return (p.toString())
@@ -17487,7 +17487,7 @@ class ComponentEngine {
         if cv {
             def c:EvHandle (unwrap cv)
             if (c.isString()) {
-                return c.stringValue
+                return (c.stringOf())
             }
         }
         return ""
@@ -17501,7 +17501,7 @@ class ComponentEngine {
         if mv {
             def m:EvHandle (unwrap mv)
             if (m.isString()) {
-                return m.stringValue
+                return (m.stringOf())
             }
         }
         return ""
@@ -17979,7 +17979,7 @@ class ComponentEngine {
                         if tagV {
                             def tag:EvHandle (unwrap tagV)
                             if (tag.isString()) {
-                                nsModule = tag.stringValue
+                                nsModule = (tag.stringOf())
                                 viaNamespace = true
                             }
                         }
@@ -18052,7 +18052,7 @@ class ComponentEngine {
                             }
                         }
                     }
-                    return (this.makeError(kindV.stringValue msg))
+                    return (this.makeError((kindV.stringOf()) msg))
                 }
             }
         }
@@ -18228,7 +18228,7 @@ class ComponentEngine {
                             }
                         }
                         if (EvValueBridge.isString(aliasName)) {
-                            def an:string aliasName.stringValue
+                            def an:string (aliasName.stringOf())
                             if (this.isBuiltinCtorName(an)) {
                                 if (this.isWrapperCtorName(an)) {
                                     def wPrim:EvHandle (EvValueBridge.taggedNull())
@@ -18336,7 +18336,7 @@ class ComponentEngine {
                     if (refV.isFunction()) {
                         def tagV2:EvHandle (refV.getMember("__classname__"))
                         if (tagV2.isString()) {
-                            className = tagV2.stringValue
+                            className = (tagV2.stringOf())
                         }
                     }
                 }
@@ -18677,7 +18677,7 @@ class ComponentEngine {
                     ; runs. Only the written form was checked, above, so the
                     ; getter was skipped and the read answered undefined.
                     def ckey:string ""
-                    if (EvValueBridge.isString(indexVal)) { ckey = indexVal.stringValue }
+                    if (EvValueBridge.isString(indexVal)) { ckey = (indexVal.stringOf()) }
                     if (EvValueBridge.isNumber(indexVal)) { ckey = (this.toPropertyKey(indexVal)) }
                     ; D-ARGMAP: `arguments[0]` and the first named parameter are
                     ; ONE binding in sloppy mode, so a reassignment of either is
@@ -18756,7 +18756,7 @@ class ComponentEngine {
                         ; A string key that names an index reaches the character,
                         ; and a key that names nothing reads as undefined --
                         ; `'abc'['foo']` is undefined, not null.
-                        def sk:string indexVal.stringValue
+                        def sk:string (indexVal.stringOf())
                         if (obj.isString()) {
                             def ski@(optional):int (to_int sk)
                             if ski {
@@ -19047,7 +19047,7 @@ class ComponentEngine {
         ; indices, which is what Object.keys('abc') returns.
         if (EvValueBridge.isString(v)) {
             def si:int 0
-            while (si < (strlen v.stringValue)) {
+            while (si < (strlen (v.stringOf()))) {
                 push out (to_string si)
                 si = (si + 1)
             }
@@ -19258,7 +19258,7 @@ class ComponentEngine {
             return (v.toString())
         }
         if (EvValueBridge.isString(v)) {
-            return (this.jsonQuote(v.stringValue))
+            return (this.jsonQuote((v.stringOf())))
         }
         if (EvValueBridge.isArrayValue(v)) {
             def out:string "["

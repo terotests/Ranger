@@ -11,16 +11,10 @@ Import "EvalValue.rgr"
 
 class EvValueBridge {
     sfn fromTagged:EvalValue (v:EvHandle) {
-        ; Primitives may mutate scalar fields in place (slotOwned numbers);
-        ; rebuild those from fields. Refs return the live kind body.
+        ; Numbers may mutate via setNumberOf (slotOwned i++); string/bool/refs
+        ; return the live body (SoT on the shape).
         if (v.isNumber()) {
-            return (EvalValue.number(v.numberValue))
-        }
-        if (v.isString()) {
-            return (EvalValue.string(v.stringValue))
-        }
-        if (v.isBoolean()) {
-            return (EvalValue.boolean(v.boolValue))
+            return (EvalValue.number((v.numberOf())))
         }
         return v.body
     }

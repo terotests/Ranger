@@ -25,9 +25,10 @@
 - **✅ E4d (Function/Element shell)** — `EvalPayload` deleted. Element and
   Function core/binding (incl. `functionNode`, `boundThis`) live on
   `body:EvalValue`. `EvPropertyBag.suppressedKeys` records deleted
-  synthesised/registry keys (prototypes stay objects). Thin shell left:
-  scalar caches, `slotOwned`, `identityId` (Number `@(value)` blocks
-  slotOwned / in-place number SoT).
+  synthesised/registry keys (prototypes stay objects).
+- **✅ E4e (primitive accessors)** — `stringOf`/`boolOf` (body SoT);
+  `numberOf`/`setNumberOf` (cache + body rewrite); `identityIdOf`.
+  Shell left: `numberValue`, `slotOwned`, `identityId` cache.
 
 ## Unit / contract tests that gate this folder
 

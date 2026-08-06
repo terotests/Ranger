@@ -397,7 +397,7 @@ class RgRegistryBridge extends EvalNativeBridge {
                     dec.err = (("type:" + row.name) + ":string-expected")
                     return dec
                 }
-                set dec.strs i v.stringValue
+                set dec.strs i (v.stringOf())
             }
             if (tk == "h") {
                 if (false == (v.isNumber())) {

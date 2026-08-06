@@ -95,7 +95,7 @@ class ModuleScopeIsolationTest {
 
     sfn callStr:string (engine:ComponentEngine name:string) {
         def r:EvHandle (engine.callFunction(name (EvHandle.null())))
-        return r.stringValue
+        return (r.stringOf())
     }
 
     sfn m@(main):void () {

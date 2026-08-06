@@ -1772,9 +1772,9 @@ function engineValue(engine: any, fnName: string): unknown {
     const r = engine.callFunction(fnName, EvalValue.null());
     if (!r) return "<missing>";
     // E4: kind lives on body:EvalValue — use is* predicates (valueType is gone).
-    if (r.isNumber()) return r.numberValue;
-    if (r.isString()) return r.stringValue;
-    if (r.isBoolean()) return r.boolValue;
+    if (r.isNumber()) return r.numberOf();
+    if (r.isString()) return r.stringOf();
+    if (r.isBoolean()) return r.boolOf();
     if (r.isUndefined()) return undefined;
     if (r.isNull()) return "<null>";
     return "<kind " + r.kindName() + ">";
