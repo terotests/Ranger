@@ -212,7 +212,7 @@ InputFSFolder.fromDictionary = function(dict) {
       let arr_i = 0;
       while (arr_i < arr_len) {
         const item = arr[arr_i];
-        if( item instanceof Object ) /* union case */ {
+        if( item != null && item.__rg_kind === "Object" ) /* union case */ {
           var oo = item;
           const newObj = InputFSFolder.fromDictionary(oo);
           obj.folders.push(newObj);
@@ -227,7 +227,7 @@ InputFSFolder.fromDictionary = function(dict) {
       let arr_i_1 = 0;
       while (arr_i_1 < arr_len_1) {
         const item_1 = arr_1[arr_i_1];
-        if( item_1 instanceof Object ) /* union case */ {
+        if( item_1 != null && item_1.__rg_kind === "Object" ) /* union case */ {
           var oo_1 = item_1;
           const newObj_1 = InputFSFile.fromDictionary(oo_1);
           obj.files.push(newObj_1);
@@ -1727,7 +1727,7 @@ CodeNodeLiteral.fromDictionary = function(dict) {
       let arr_i_2 = 0;
       while (arr_i_2 < arr_len_2) {
         const item_3 = arr_2[arr_i_2];
-        if( item_3 instanceof Object ) /* union case */ {
+        if( item_3 != null && item_3.__rg_kind === "Object" ) /* union case */ {
           var oo_2 = item_3;
           const newObj_4 = CodeNodeLiteral.fromDictionary(oo_2);
           obj.comments.push(newObj_4);
@@ -1742,7 +1742,7 @@ CodeNodeLiteral.fromDictionary = function(dict) {
       let arr_i_3 = 0;
       while (arr_i_3 < arr_len_3) {
         const item_4 = arr_3[arr_i_3];
-        if( item_4 instanceof Object ) /* union case */ {
+        if( item_4 != null && item_4.__rg_kind === "Object" ) /* union case */ {
           var oo_3 = item_4;
           const newObj_5 = CodeNodeLiteral.fromDictionary(oo_3);
           obj.children.push(newObj_5);
@@ -1757,7 +1757,7 @@ CodeNodeLiteral.fromDictionary = function(dict) {
       let arr_i_4 = 0;
       while (arr_i_4 < arr_len_4) {
         const item_5 = arr_4[arr_i_4];
-        if( item_5 instanceof Object ) /* union case */ {
+        if( item_5 != null && item_5.__rg_kind === "Object" ) /* union case */ {
           var oo_4 = item_5;
           const newObj_6 = CodeNodeLiteral.fromDictionary(oo_4);
           obj.attrs.push(newObj_6);
@@ -17452,6 +17452,25 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           } };
           return out;
         };
+        classInSealableUnion (cl, ctx) {
+          const ifaces = this.unionInterfacesOf(cl, ctx);
+          if ( (ifaces.length) > 0 ) {
+            return true;
+          }
+          return false;
+        };
+        sealableUnionTypeOr (unionName, topType, ctx) {
+          if ( ctx.isDefinedClass(unionName) ) {
+            const cc = ctx.findClass(unionName);
+            if ( cc.is_union ) {
+              if ( this.unionIsSealable(cc, ctx) ) {
+                return this.unionInterfaceName(unionName);
+              }
+              return topType;
+            }
+          }
+          return topType;
+        };
         lineEnding () {
           return "";
         };
@@ -19074,7 +19093,20 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         constructor() {
           super()
           this.header_created = false;     /** note: unused */
+          this.swift_unions_written = false;
         }
+        writeSwiftUnionProtocols (ctx, wr) {
+          if ( this.swift_unions_written ) {
+            return;
+          }
+          this.swift_unions_written = true;
+          const names = this.sealableUnionNames(ctx);
+          for ( let ui = 0; ui < names.length; ui++) {
+            var uname = names[ui];
+            wr.out("", true);
+            wr.out(("protocol " + this.unionInterfaceName(uname)) + " {}", true);
+          };
+        };
         adjustType (tn) {
           if ( tn == "this" ) {
             return "self";
@@ -19085,7 +19117,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           if ( ctx.isDefinedClass(type_string) ) {
             const cc = ctx.findClass(type_string);
             if ( cc.is_union ) {
-              return "Any";
+              return this.sealableUnionTypeOr(type_string, "Any", ctx);
             }
             if ( cc.is_system ) {
               const sysName = ( Object.prototype.hasOwnProperty.call(cc.systemNames, "swift3") ? cc.systemNames["swift3"] : undefined );
@@ -19204,7 +19236,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               if ( ctx.isDefinedClass(t_name) ) {
                 const cc = ctx.findClass(t_name);
                 if ( cc.is_union ) {
-                  wr.out("Any", false);
+                  wr.out(this.sealableUnionTypeOr(t_name, "Any", ctx), false);
                   if ( node.hasFlag("optional") ) {
                     wr.out("?", false);
                   }
@@ -19656,6 +19688,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           if ( typeof(cl) === "undefined" ) {
             return;
           }
+          this.writeSwiftUnionProtocols(ctx, wr);
           let declaredVariable = {};
           let dblDeclaredFunction = {};
           let declaredFunction = {};
@@ -19700,6 +19733,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             };
           } else {
             wr.out(" : Hashable ", false);
+          }
+          const clUnions = this.unionInterfacesOf((cl), ctx);
+          if ( (clUnions.length) > 0 ) {
+            for ( let ui = 0; ui < clUnions.length; ui++) {
+              var uname = clUnions[ui];
+              wr.out(", ", false);
+              wr.out(uname, false);
+            };
           }
           wr.out(" { ", true);
           wr.indent(1);
@@ -19844,12 +19885,25 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         constructor() {
           super()
           this.header_created = false;     /** note: unused */
+          this.swift_unions_written = false;
         }
         adjustType (tn) {
           if ( tn == "this" ) {
             return "self";
           }
           return tn;
+        };
+        writeSwiftUnionProtocols (ctx, wr) {
+          if ( this.swift_unions_written ) {
+            return;
+          }
+          this.swift_unions_written = true;
+          const names = this.sealableUnionNames(ctx);
+          for ( let ui = 0; ui < names.length; ui++) {
+            var uname = names[ui];
+            wr.out("", true);
+            wr.out(("protocol " + this.unionInterfaceName(uname)) + " {}", true);
+          };
         };
         getObjectTypeString (type_string, ctx) {
           if ( (type_string.length) >= 2 ) {
@@ -19860,7 +19914,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           if ( ctx.isDefinedClass(type_string) ) {
             const cc = ctx.findClass(type_string);
             if ( cc.is_union ) {
-              return "Any";
+              return this.sealableUnionTypeOr(type_string, "Any", ctx);
             }
             if ( cc.is_system ) {
               let sysName = ( Object.prototype.hasOwnProperty.call(cc.systemNames, "swift6") ? cc.systemNames["swift6"] : undefined );
@@ -20030,7 +20084,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               if ( ctx.isDefinedClass(t_name) ) {
                 const cc = ctx.findClass(t_name);
                 if ( cc.is_union ) {
-                  wr.out("Any", false);
+                  wr.out(this.sealableUnionTypeOr(t_name, "Any", ctx), false);
                   if ( node.hasFlag("optional") ) {
                     wr.out("?", false);
                   }
@@ -20630,6 +20684,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           if ( typeof(cl) === "undefined" ) {
             return;
           }
+          this.writeSwiftUnionProtocols(ctx, wr);
           let declaredVariable = {};
           let dblDeclaredFunction = {};
           let declaredFunction = {};
@@ -20680,6 +20735,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             };
           } else {
             wr.out(" : Hashable ", false);
+          }
+          const clUnions = this.unionInterfacesOf((cl), ctx);
+          if ( (clUnions.length) > 0 ) {
+            for ( let ui = 0; ui < clUnions.length; ui++) {
+              var uname = clUnions[ui];
+              wr.out(", ", false);
+              wr.out(uname, false);
+            };
           }
           wr.out(" { ", true);
           wr.indent(1);
@@ -31535,8 +31598,35 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         this.write_raw_type = false;
                         this.did_write_nullable = false;
                         this.did_write_sseclient = false;     /** note: unused */
+                        this.go_unions_written = false;
                         this.httpServerWriter = new RangerGolangHttpServerWriter();
                       }
+                      writeGoUnionInterfaces (ctx, wr) {
+                        if ( this.go_unions_written ) {
+                          return;
+                        }
+                        this.go_unions_written = true;
+                        const names = this.sealableUnionNames(ctx);
+                        for ( let ui = 0; ui < names.length; ui++) {
+                          var uname = names[ui];
+                          const iface = this.unionInterfaceName(uname);
+                          wr.out("", true);
+                          wr.out(("type " + iface) + " interface {", true);
+                          wr.indent(1);
+                          wr.out(("is_" + iface) + "()", true);
+                          wr.indent(-1);
+                          wr.out("}", true);
+                        };
+                      };
+                      writeGoUnionMarkers (cl, ctx, wr) {
+                        const ifaces = this.unionInterfacesOf(cl, ctx);
+                        for ( let ii = 0; ii < ifaces.length; ii++) {
+                          var iface = ifaces[ii];
+                          const head = ("func (me *" + cl.name) + ") is_";
+                          const line = (head + iface) + "() {}";
+                          wr.out(line, true);
+                        };
+                      };
                       WriteScalarValue (node, ctx, wr) {
                         switch (node.value_type ) { 
                           case 2 : 
@@ -31571,7 +31661,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         if ( ctx.isDefinedClass(type_string) ) {
                           const cc = ctx.findClass(type_string);
                           if ( cc.is_union ) {
-                            return "interface{}";
+                            return this.sealableUnionTypeOr(type_string, "interface{}", ctx);
                           }
                           if ( cc.doesInherit() ) {
                             return "IFACE_" + ctx.transformTypeName(type_string);
@@ -31642,7 +31732,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         if ( ctx.isDefinedClass(type_string) ) {
                           const cc = ctx.findClass(type_string);
                           if ( cc.is_union ) {
-                            return "interface{}";
+                            return this.sealableUnionTypeOr(type_string, "interface{}", ctx);
                           }
                         }
                         return ctx.transformTypeName(type_string);
@@ -31672,7 +31762,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             if ( ctx.isDefinedClass(a_name) ) {
                               const cc = ctx.findClass(a_name);
                               if ( cc.is_union ) {
-                                wr.out("interface{}", false);
+                                wr.out(this.getObjectTypeString(a_name, ctx), false);
                                 return;
                               }
                               if ( cc.doesInherit() ) {
@@ -31689,7 +31779,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             if ( ctx.isDefinedClass(a_name) ) {
                               const cc_1 = ctx.findClass(a_name);
                               if ( cc_1.is_union ) {
-                                wr.out("interface{}", false);
+                                wr.out(this.getObjectTypeString(a_name, ctx), false);
                                 return;
                               }
                               if ( cc_1.doesInherit() ) {
@@ -31780,7 +31870,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               if ( ctx.isDefinedClass(a_name) ) {
                                 const cc = ctx.findClass(a_name);
                                 if ( cc.is_union ) {
-                                  wr.out("interface{}", false);
+                                  wr.out(this.getObjectTypeString(a_name, ctx), false);
                                   return;
                                 }
                                 if ( cc.doesInherit() ) {
@@ -31801,7 +31891,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             if ( ctx.isDefinedClass(a_name) ) {
                               const cc_1 = ctx.findClass(a_name);
                               if ( cc_1.is_union ) {
-                                wr.out("interface{}", false);
+                                wr.out(this.getObjectTypeString(a_name, ctx), false);
                                 return;
                               }
                               if ( cc_1.doesInherit() ) {
@@ -31855,7 +31945,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             if ( ctx.isDefinedClass(t_name) ) {
                               const cc_3 = ctx.findClass(t_name);
                               if ( cc_3.is_union ) {
-                                wr.out("interface{}", false);
+                                wr.out(this.getObjectTypeString(t_name, ctx), false);
                                 return;
                               }
                               if ( cc_3.doesInherit() ) {
@@ -32956,6 +33046,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           wr.createTag("utilities");
                           this.did_write_nullable = true;
                         }
+                        this.writeGoUnionInterfaces(ctx, wr);
                         let declaredVariable = {};
                         let declaredFunction = {};
                         let declaredIfFunction = {};
@@ -32982,6 +33073,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         }
                         wr.indent(-1);
                         wr.out("}", true);
+                        this.writeGoUnionMarkers(cl, ctx, wr);
                         if ( cl.doesInherit() || ((cl.extends_classes.length) > 0) ) {
                           wr.out(("type IFACE_" + cl.name) + " interface { ", true);
                           wr.indent(1);
@@ -34980,7 +35072,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       async CreateTsUnions (parser, ctx, wr) {
                         const root = ctx.getRoot();
                         await operatorsOf_13.forEach_14(root.definedClasses, (async (item, index) => { 
-                          if ( item.is_union ) {
+                          if ( this.unionIsSealable(item, ctx) ) {
                             wr.out(("type union_" + index) + " = ", false);
                             wr.indent(1);
                             let cnt = 0;
@@ -35180,7 +35272,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             return sName;
                           }
                           if ( cc.is_union ) {
-                            return "union_" + cc.name;
+                            if ( this.unionIsSealable(cc, ctx) ) {
+                              return this.unionInterfaceName(cc.name);
+                            }
+                            return "any";
                           }
                         }
                         return type_string;
@@ -35374,8 +35469,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 return;
                               }
                               if ( cc.is_union ) {
-                                wr.out("union_", false);
-                                wr.out(t_name, false);
+                                if ( this.unionIsSealable(cc, ctx) ) {
+                                  wr.out(this.unionInterfaceName(t_name), false);
+                                } else {
+                                  wr.out("any", false);
+                                }
                                 return;
                               }
                               const cc_1 = ctx.findClass(t_name);
@@ -35877,6 +35975,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           var pvar = cl.variables[i_1];
                           await this.writeClassVarDef(pvar, ctx, wr);
                         };
+                        if ( this.target_typescript ) {
+                          if ( this.classInSealableUnion((cl), ctx) ) {
+                            wr.out(("readonly __rg_kind: \"" + cl.name) + "\" = \"", false);
+                            wr.out(cl.name + "\";", true);
+                          }
+                        }
                         if ( is_react_native == false ) {
                           wr.out("constructor(", false);
                           if ( cl.has_constructor ) {
@@ -35937,6 +36041,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               } else {
                                 wr.out("super()", true);
                               }
+                            }
+                          }
+                          if ( this.target_typescript == false ) {
+                            if ( this.classInSealableUnion((cl), ctx) ) {
+                              wr.out(("this.__rg_kind = \"" + cl.name) + "\";", true);
                             }
                           }
                           for ( let i_3 = 0; i_3 < cl.variables.length; i_3++) {

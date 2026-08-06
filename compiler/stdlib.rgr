@@ -158,7 +158,10 @@ operators {
                         nl i "}"
             )  
             es6 (
-                (forkctx _ ) (def 2) "if( " (e 1) " instanceof " (typeof 2) " ) /* union case */ {" nl I
+                ; S5 FlatTaggedObject: narrow on the stable kind tag. Sealable
+                ; union members declare/set __rg_kind; a dual instanceof OR
+                ; would defeat TypeScript control-flow narrowing.
+                (forkctx _ ) (def 2) "if( " (e 1) " != null && " (e 1) ".__rg_kind === \"" (typeof 2) "\" ) /* union case */ {" nl I
                         "var " (e 2) " = " (e 1) ";" nl
                         (block 3)
                         

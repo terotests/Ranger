@@ -2,6 +2,21 @@ class RangerSwift3ClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
   def header_created:boolean false
+  ; S5 (PLAN_SHAPES.md): sealable unions → protocols (same as Swift6).
+  def swift_unions_written:boolean false
+
+  fn writeSwiftUnionProtocols:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if swift_unions_written {
+      return
+    }
+    swift_unions_written = true
+    def names:[string] (this.sealableUnionNames(ctx))
+    for names uname:string ui {
+      wr.out("" true)
+      wr.out((("protocol " + (this.unionInterfaceName(uname))) + " {}") true)
+    }
+  }
+
   fn adjustType:string (tn:string) {
     if (tn == "this") {
       return "self"
@@ -13,7 +28,7 @@ class RangerSwift3ClassWriter {
     if(ctx.isDefinedClass(type_string)) {
       def cc (ctx.findClass(type_string))
       if(cc.is_union) {
-        return "Any"
+        return (this.sealableUnionTypeOr(type_string "Any" ctx))
       }
 
       if(cc.is_system) {
@@ -147,7 +162,7 @@ class RangerSwift3ClassWriter {
         if(ctx.isDefinedClass(t_name)) {
           def cc (ctx.findClass(t_name))
           if(cc.is_union) {
-            wr.out("Any" false)
+            wr.out((this.sealableUnionTypeOr(t_name "Any" ctx)) false)
             if (node.hasFlag("optional")) {
               wr.out("?" false)
             }            
@@ -634,6 +649,7 @@ class RangerSwift3ClassWriter {
     if (null? cl) {
       return
     }
+    this.writeSwiftUnionProtocols(ctx wr)
     def declaredVariable:[string:boolean]
     def dblDeclaredFunction:[string:boolean]
     def declaredFunction:[string:boolean]
@@ -676,7 +692,14 @@ class RangerSwift3ClassWriter {
       }
     } {
       wr.out(" : Hashable " false )
-    }  
+    }
+    def clUnions:[string] (this.unionInterfacesOf((unwrap cl) ctx))
+    if ((array_length clUnions) > 0) {
+      for clUnions uname:string ui {
+        wr.out(", " false)
+        wr.out(uname false)
+      }
+    }
     
     wr.out( " { " true)
     wr.indent(1)

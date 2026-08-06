@@ -5,6 +5,7 @@ import * as path from "path";
 import { fileURLToPath } from "url";
 import {
   compileRangerToDart,
+  compileRangerToGo,
   expectCompileError,
   expectGoOutput,
   expectOutput,
@@ -13,6 +14,7 @@ import {
   getGeneratedCppCode,
   getGeneratedKotlinCode,
   getGeneratedRustCode,
+  getGeneratedSwiftCode,
   isGoAvailable,
   isPythonAvailable,
   isRustAvailable,
@@ -277,11 +279,64 @@ describe("shapes (closed variant families)", () => {
       expect(code).toContain("type union_Value_Ref = Value_Items;");
       expect(code).toMatch(/describe\s*\(v : union_Value\)/);
 
-      // and tsc agrees: instanceof narrowing types each arm
+      // FlatTaggedObject: each case carries a literal kind discriminant
+      expect(code).toContain('readonly __rg_kind: "Value_Num" = "Value_Num";');
+      expect(code).toContain('.__rg_kind === "Value_Num"');
+      expect(code).not.toMatch(/instanceof Value_Num/);
+
+      // and tsc agrees: kind-tag narrowing types each arm
       execSync(
         `npx tsc --noEmit --target es2017 --module commonjs "${file}"`,
         { cwd: ROOT, encoding: "utf-8", stdio: "pipe" }
       );
+    });
+
+    it("ES6: FlatTaggedObject kind tag instead of instanceof", () => {
+      const out = path.join(ROOT, "tests", ".output-es6-shapes");
+      execSync(
+        `node bin/output.js -es6 "${FIXTURES_DIR}/shape_match.rgr" -d=tests/.output-es6-shapes -o=shape_match.js`,
+        {
+          cwd: ROOT,
+          env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr;./lib/stdops.rgr" },
+          encoding: "utf-8",
+          stdio: "pipe",
+        }
+      );
+      const code = fs.readFileSync(path.join(out, "shape_match.js"), "utf-8");
+      expect(code).toContain('this.__rg_kind = "Value_Num";');
+      expect(code).toContain('.__rg_kind === "Value_Num"');
+      expect(code).not.toMatch(/instanceof Value_Num/);
+    });
+
+    it.skipIf(!isGoAvailable())("Go: named marker interface instead of interface{}", () => {
+      const outDir = path.join(ROOT, "tests", ".output-go-shapes");
+      const compile = compileRangerToGo(
+        `${FIXTURES_DIR}/shape_match.rgr`,
+        outDir
+      );
+      expect(compile.success, `Compile failed: ${compile.error}`).toBe(true);
+      const code = fs.readFileSync(
+        path.join(outDir, "shape_match.go"),
+        "utf-8"
+      );
+      expect(code).toContain("type union_Value interface {");
+      expect(code).toContain("is_union_Value()");
+      expect(code).toMatch(/func \(me \*Value_Num\) is_union_Value\(\)/);
+      expect(code).toMatch(/func \(me \*Value_Items\) is_union_Value_Ref\(\)/);
+      expect(code).toMatch(/describe \(v union_Value\)/);
+      expect(code).not.toMatch(/describe \(v interface\{\}\)/);
+    });
+
+    it("Swift6: a protocol per union the cases adopt", () => {
+      const result = getGeneratedSwiftCode(`${FIXTURES_DIR}/shape_match.rgr`);
+      expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("protocol union_Value {}");
+      expect(result.code).toContain("protocol union_Value_Ref {}");
+      expect(result.code).toMatch(
+        /class Value_Items\s*:.*,\s*union_Value,\s*union_Value_Ref/
+      );
+      expect(result.code).toMatch(/describe\(v : union_Value\)/);
+      expect(result.code).not.toMatch(/describe\(v : Any\)/);
     });
 
     it("Kotlin: a sealed interface the cases implement", () => {

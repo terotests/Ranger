@@ -8,14 +8,13 @@
 > them; `match` covers a family with the compiler checking that every case is
 > handled exactly once; `@(value)` / `@(reference)` give each case declared
 > copy-and-compare semantics with the equality generated per shape; six targets
-> carry the family in their own representation — TypeScript as a union type,
-> Kotlin, C# and Dart as an interface the cases implement, Rust as a native
-> `enum` and C++ as a variant that holds its scalar cases inline; and **shape
-> methods** lower through a generated ops class. **Stages C0–C6** (§7) extend
-> groups into a closed-family capability system: group/case methods, required
-> operations, field projection, subgroup widening, and static exhaustive
-> dispatch. Swift, Go and the ES6 tag dispatch remain ahead on native
-> representation.
+> carry the family in their own representation — TypeScript/ES6 as a tagged
+> union (`__rg_kind`), Kotlin/C#/Dart/Swift as an interface/protocol the cases
+> implement, Go as a named marker interface, Rust as a native `enum` and C++ as
+> a variant that holds its scalar cases inline; and **shape methods** lower
+> through a generated ops class. **Stages C0–C6** (§7) extend groups into a
+> closed-family capability system: group/case methods, required operations,
+> field projection, subgroup widening, and static exhaustive dispatch.
 >
 > **Origin:** a design discussion about `gallery/game_engine/v2/interp/migrate/src/EvalValue.rgr`,
 > the largest hand-rolled tagged union in this repo.
@@ -552,7 +551,7 @@ The implemented subset, against the design above:
 | Group field projection through a group-typed value | ✅ C5 — `get_`/`set_` on group ops |
 | `==` rewritten to the generated equality | ✖ later — needs operand types during operator matching |
 | `Shape.Case(…)` construction without `new` | ✖ sugar |
-| Native per-target representations | ✅ S5 on TS/Kotlin/C#/Dart/Rust/C++ |
+| Native per-target representations | ✅ S5 on TS/ES6/Kotlin/C#/Dart/Rust/C++/Go/Swift |
 
 ### 3.9 Explicitly not in v1
 
@@ -642,13 +641,13 @@ never broken and were not touched (§2.1).
 |---|---|---|---|
 | **Rust** | `NativeSumType` — **done (S5)** | `Rc<dyn Any>` + `RgNarrow` downcast | ✅ `enum union_Value` with scalar cases inline and reference cases behind `Rc<RefCell<T>>`; `if let` narrowing, no trait object, no downcast |
 | **C++** | `CompactTaggedHandle` — **done (S5)** | `mpark::variant<shared_ptr<A>, …>` — one allocation per value | ✅ the variant carries scalar cases **by value**, so a primitive allocates nothing: 0.123 s → 0.0116 s on the value layer |
-| **TypeScript** | union type — **done (S5)** | `instanceof` on one class per case — works | ✅ `type union_Value = A\|B\|…`, narrowed by `instanceof`, verified with `tsc --noEmit` |
-| **ES6** | `FlatTaggedObject` | same as TS, no annotations — works | `{ kind, … }` objects; Null/Undefined/Hole as frozen singletons |
+| **TypeScript** | union type + tag — **done (S5)** | `instanceof` on one class per case — works | ✅ `type union_Value = A\|B\|…` with `readonly __rg_kind` literal discriminant; narrowed by `__rg_kind === "…"`, verified with `tsc --noEmit` |
+| **ES6** | `FlatTaggedObject` — **done (S5)** | same as TS, no annotations — works | ✅ each sealable-union case sets `this.__rg_kind = "Case"`; `case` narrows on the tag (not `instanceof`) |
 | **C#** | interface — **done (S5)**; `CompactTaggedHandle` later | `dynamic` + `is` | ✅ `public interface union_Value` implemented by each case; a `readonly struct` with tag + scalar + payload is the later optimization |
 | **Kotlin** | `BoxedSealedHierarchy` — **done (S5)** | `Any` + `is`/`as` | ✅ `sealed interface union_Value` implemented by each case; no wrapping at any call site |
-| **Go** | tagged struct | `interface{}` + type switch — **works, runs** | struct with a tag field and per-variant pointers; the type switch becomes a tag switch |
+| **Go** | marker interface — **done (S5)**; tagged struct later | `interface{}` + type switch — **works, runs** | ✅ `type union_Value interface { is_union_Value() }` implemented by each case; type switch kept; a tag+pointer struct remains a later optimization |
 | **Python** | `FlatTaggedObject` | `isinstance` — works, runs | small classes with `__slots__`, or a tag + payload tuple |
-| **Swift 6** | `NativeSumType` | `Any` + `as!` — works | Swift enums carry payloads natively; `switch` is exhaustive by the language |
+| **Swift 6** | protocol — **done (S5)**; `NativeSumType` later | `Any` + `as!` — works | ✅ `protocol union_Value {}` adopted by each case (Kotlin-style); native enums with payloads remain a later optimization |
 | **Dart** | `BoxedSealedHierarchy` — **done (S5)** | `dynamic` + `is` | ✅ `abstract class union_Value` implemented by each case; Dart 3 `sealed` would add exhaustive `switch` |
 | **PHP / Scala / Java7** | `UnionOfClasses` / sealed | works | Scala already emits a `match`; Java 17+ sealed classes if the target moves |
 
@@ -712,10 +711,11 @@ Where the S0 changes live:
 | Rust | `case` on an `:Any`-typed value (the universal union is excluded by name) | nothing in this plan; `Any` was unsupported before too |
 | Rust | primitive arms of a union (`case v s:string`) still lower to `RJson::…`, i.e. JSON only | a shape with primitive-typed cases on the S1 lowering |
 | Kotlin / Dart | no toolchain in this environment — output is read, not built | build-verifying these two in CI |
-| C# / Swift | `dynamic` / `Any` erase the static type | nothing until S5, but both lose compile-time checking the other targets keep |
+| C# | ~~`dynamic` erases the static type~~ | ✅ S5 interface |
+| Swift | ~~`Any` erases the static type~~; no Swift toolchain here to build-verify | ✅ S5 protocol (codegen asserted); native enum later |
 | all | a `case` chain written by hand is still unchecked — only `match` is | nothing; `match` is the checked form |
 | all | ~~a shape may not declare methods yet~~ | ✅ shape / group / case methods (ops classes, C0–C4) |
-| Rust / C++ / C# / Go / Dart / Swift | ~~the family is still the portable union of classes~~ on TS/Kotlin/C#/Dart/Rust/C++ | ✅ S5 for those six; Swift / Go / ES6 tag remain |
+| Rust / C++ / C# / Go / Dart / Swift / TS / ES6 | ~~the family is still the portable union of classes~~ | ✅ S5 native representation on those eight; Python / PHP / Scala / Java7 still on the portable lowering |
 | all | ~~every case is a heap class~~ on Rust/C++ scalar `@(value)` cases | ✅ S5 inline; reference cases stay boxed |
 | all | `==` on two shape values is the target's `==`, not the generated equality | a later round; `Shape.equals(a b)` is exact today |
 
@@ -730,7 +730,7 @@ Each stage is independently shippable and independently testable.
 | **S2 — done** | `match` + exhaustiveness checking (§6.2). Lowering: a chain of `case` narrowings, so no target needs native pattern matching. | ✅ A missing case, a duplicate case and a `_` catch-all are compile errors naming what is wrong; the same `match` program runs identically on ES6, Python, Go and Rust |
 | **S3 — done in S1/S2** | `group`, group-typed parameters, group arms in `match`, group fields. | ✅ A group is a union of its members, carries fields its cases inherit, and types a parameter |
 | **S4 — done** | `@(value)` / `@(reference)`, the generated equality, the `identical` operator, the immutability rule for value cases (§6.3). | ✅ One program answers `true false false true false true` on ES6, Python, Go, C++ and Rust; mutating a value case and `@(value)` on a non-scalar case are compile errors |
-| **S5 — mostly done** | Native representations, one target at a time; `UnionOfClasses` stays the fallback (§6.4). **TypeScript, Kotlin, C#, Dart, Rust and C++** done. | ✅ TS passes `tsc --noEmit`; Kotlin/C#/Dart emit an interface each case implements; Rust a native `enum` with scalar cases inline; C++ a variant that carries them by value — 10× on the C++ value layer. Swift, Go and the ES6 tag remain |
+| **S5 — done (core targets)** | Native representations, one target at a time; `UnionOfClasses` stays the fallback (§6.4). **TS/ES6, Kotlin, C#, Dart, Rust, C++, Go, Swift** done. | ✅ TS/ES6 `__rg_kind` tag + kind narrowing (`tsc --noEmit`); Kotlin/C#/Dart/Swift interface/protocol; Go marker interface; Rust native `enum`; C++ by-value variant — 10× on the C++ value layer. Python / tagged-struct Go / native Swift enum remain as later optimizations |
 | **C0 — done** | Freeze the group/case method language contract (§3.6, §7). Canonical fixture. | ✅ Contract documented; `tests/fixtures/shape_group_methods.rgr` |
 | **C1–C4** | Shape-view descriptors, parse group/case methods, conformance, portable static dispatch (§7). | ✅ Group/case methods lower through `Shape_Group__ops` / `Shape_Case__ops` |
 | **C5** | Group field projection via generated `get_`/`set_` accessors. | ✅ `r.identityId` on a group type; mutation through reference groups |
@@ -1024,13 +1024,13 @@ inside one interleaved run. The C++ result is the one the plan predicted from
 only scalars has nothing that needs one. Rust improves for the same reason; the
 distance left to its no-union ceiling is the string case and the loop itself.
 
-Still ahead:
+Still ahead (later optimizations, not the first S5 step):
 
-| Target | Destination | Why it is harder |
+| Target | Destination | Notes |
 |---|---|---|
-| Swift | protocol, as Kotlin / C# / Dart | Same shape as the others; no Swift toolchain in this environment to verify against. |
-| Go | tag + per-variant pointers | An interface needs a method to be more than `interface{}`. |
-| ES6 / TS | a `kind` field and a switch, instead of `instanceof` | §7.4 measured this as the next 6× on Node; it needs a narrowing that tests a tag rather than a type. |
+| Swift | native `enum` with payloads | Protocol step is done; enums need a different construction/narrowing path. |
+| Go | tag + per-variant pointers | Marker interface is done; a compact tagged struct is the next size win. |
+| Python | `FlatTaggedObject` (`__slots__` / tag+payload) | Still on `isinstance` today. |
 
 **Where S1 lands, per target.** S1 touches no writer, so the S1 result on each target
 is exactly the row in §5 — Rust gets `Rc<dyn Any>`, C++ an `mpark::variant`, Kotlin an

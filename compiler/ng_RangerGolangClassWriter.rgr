@@ -5,7 +5,37 @@ class RangerGolangClassWriter {
   def write_raw_type:boolean false
   def did_write_nullable:boolean false
   def did_write_sseclient:boolean false
+  ; S5 (PLAN_SHAPES.md): a sealable union is a named interface with a marker
+  ; method, so the static type survives instead of erasing to interface{}.
+  ; Members implement the marker; type-switch narrowing keeps working.
+  def go_unions_written:boolean false
   def httpServerWriter:RangerGolangHttpServerWriter (new RangerGolangHttpServerWriter())
+
+  fn writeGoUnionInterfaces:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if go_unions_written {
+      return
+    }
+    go_unions_written = true
+    def names:[string] (this.sealableUnionNames(ctx))
+    for names uname:string ui {
+      def iface:string (this.unionInterfaceName(uname))
+      wr.out("" true)
+      wr.out((("type " + iface) + " interface {") true)
+      wr.indent(1)
+      wr.out((("is_" + iface) + "()") true)
+      wr.indent(-1)
+      wr.out("}" true)
+    }
+  }
+
+  fn writeGoUnionMarkers:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    def ifaces:[string] (this.unionInterfacesOf(cl ctx))
+    for ifaces iface:string ii {
+      def head:string (("func (me *" + cl.name) + ") is_")
+      def line:string ((head + iface) + "() {}")
+      wr.out(line true)
+    }
+  }
  
   fn WriteScalarValue:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     switch node.value_type {
@@ -46,7 +76,7 @@ class RangerGolangClassWriter {
       def cc:RangerAppClassDesc (ctx.findClass(type_string))
 
       if(cc.is_union) {
-        return "interface{}"
+        return (this.sealableUnionTypeOr(type_string "interface{}" ctx))
       }
 
       if(cc.doesInherit()) {
@@ -148,7 +178,7 @@ class RangerGolangClassWriter {
     if(ctx.isDefinedClass(type_string)) {
       def cc:RangerAppClassDesc (ctx.findClass(type_string))
       if(cc.is_union) {
-        return "interface{}"
+        return (this.sealableUnionTypeOr(type_string "interface{}" ctx))
       }
     }    
     return (ctx.transformTypeName(type_string))
@@ -183,7 +213,7 @@ class RangerGolangClassWriter {
         if(ctx.isDefinedClass(a_name)) {
           def cc:RangerAppClassDesc (ctx.findClass(a_name))
           if(cc.is_union) {
-            wr.out("interface{}" , false)
+            wr.out((this.getObjectTypeString(a_name ctx)) false)
             return
           }
           if(cc.doesInherit()) {
@@ -202,7 +232,7 @@ class RangerGolangClassWriter {
         if(ctx.isDefinedClass(a_name)) {
           def cc:RangerAppClassDesc (ctx.findClass(a_name))
           if(cc.is_union) {
-            wr.out("interface{}" , false)
+            wr.out((this.getObjectTypeString(a_name ctx)) false)
             return
           }
           if(cc.doesInherit()) {
@@ -301,7 +331,7 @@ class RangerGolangClassWriter {
           if(ctx.isDefinedClass(a_name)) {
             def cc:RangerAppClassDesc (ctx.findClass(a_name))
             if(cc.is_union) {
-              wr.out("interface{}" , false)
+              wr.out((this.getObjectTypeString(a_name ctx)) false)
               return
             }
             if(cc.doesInherit()) {
@@ -324,7 +354,7 @@ class RangerGolangClassWriter {
         if(ctx.isDefinedClass(a_name)) {
           def cc:RangerAppClassDesc (ctx.findClass(a_name))
           if(cc.is_union) {
-            wr.out("interface{}" , false)
+            wr.out((this.getObjectTypeString(a_name ctx)) false)
             return
           }          
           if(cc.doesInherit()) {
@@ -388,7 +418,7 @@ class RangerGolangClassWriter {
           def cc:RangerAppClassDesc (ctx.findClass(t_name))
 
           if(cc.is_union) {
-            wr.out("interface{}" false)
+            wr.out((this.getObjectTypeString(t_name ctx)) false)
             return
           }
           if(cc.doesInherit()) {
@@ -1655,6 +1685,7 @@ class RangerGolangClassWriter {
       wr.createTag("utilities")
       did_write_nullable = true
     }
+    this.writeGoUnionInterfaces(ctx wr)
     
     def declaredVariable:[string:boolean]
     def declaredFunction:[string:boolean]
@@ -1684,6 +1715,7 @@ class RangerGolangClassWriter {
 
     wr.indent(-1)
     wr.out("}" true)
+    this.writeGoUnionMarkers((unwrap cl) ctx wr)
 
     if( (cl.doesInherit()) || (has cl.extends_classes) ) {
       wr.out((("type IFACE_" + cl.name) + " interface { ") true)

@@ -55,8 +55,8 @@ class RangerJavaScriptClassWriter {
     root.definedClasses.forEach({
       ; index == name
       ; item == class description
-      if(item.is_union) {
-        ; TODO: implement system class unions too...
+      ; S5: only sealable unions — never the compiler's universal `Any`.
+      if (this.unionIsSealable(item ctx)) {
         wr.out( ( "type union_" + index + " = " )  false)
         wr.indent(1)
           def cnt 0
@@ -276,9 +276,12 @@ class RangerJavaScriptClassWriter {
         }
         return sName
       }
-      ; define the unions
+      ; S5: sealable unions get a named type; Anything else stays open.
       if(cc.is_union) {
-        return ("union_" + cc.name)
+        if (this.unionIsSealable(cc ctx)) {
+          return (this.unionInterfaceName(cc.name))
+        }
+        return "any"
       }
     }
     return type_string
@@ -496,8 +499,11 @@ class RangerJavaScriptClassWriter {
           }
           
           if(cc.is_union) {
-            wr.out("union_" false)
-            wr.out(t_name false)
+            if (this.unionIsSealable(cc ctx)) {
+              wr.out((this.unionInterfaceName(t_name)) false)
+            } {
+              wr.out("any" false)
+            }
             return
           }          
           def cc:RangerAppClassDesc (ctx.findClass(t_name))
@@ -1039,6 +1045,16 @@ class RangerJavaScriptClassWriter {
       this.writeClassVarDef( pvar ctx wr)
     }
 
+    ; S5 FlatTaggedObject: TypeScript needs a declared literal discriminant so
+    ; `v.__rg_kind === "Case"` narrows the union (instanceof is no longer the
+    ; primary check). Plain ES6 sets the same field in the constructor.
+    if target_typescript {
+      if (this.classInSealableUnion((unwrap cl) ctx)) {
+        wr.out((("readonly __rg_kind: \"" + cl.name) + "\" = \"") false)
+        wr.out((cl.name + "\";") true)
+      }
+    }
+
     if(is_react_native == false) {
 
     wr.out("constructor(" false)
@@ -1102,6 +1118,15 @@ class RangerJavaScriptClassWriter {
           } {
             wr.out("super()" true)
           }
+        }
+      }
+
+      ; S5 FlatTaggedObject: sealable union members carry a stable kind tag
+      ; so narrowing can test the tag instead of `instanceof` (PLAN_SHAPES §7.4).
+      ; TypeScript already initializes the readonly field above.
+      if (target_typescript == false) {
+        if (this.classInSealableUnion((unwrap cl) ctx)) {
+          wr.out((("this.__rg_kind = \"" + cl.name) + "\";") true)
         }
       }
 
