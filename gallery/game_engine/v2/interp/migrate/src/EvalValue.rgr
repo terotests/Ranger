@@ -1316,6 +1316,24 @@ class EvalValue {
         return dense
     }
 
+    ; ---- E4b: dense-store accessors (class remains SoT until shape items) --
+    ; ComponentEngine must not touch `.arrayValue` / `.declaredLength` fields.
+    fn itemsOf:[EvalValue] () {
+        return arrayValue
+    }
+    fn denseLen:int () {
+        return (array_length arrayValue)
+    }
+    fn arrayItemAt:EvalValue (i:int) {
+        return (itemAt arrayValue i)
+    }
+    fn declaredLengthOf:int () {
+        return declaredLength
+    }
+    fn setDeclaredLength:void (n:int) {
+        declaredLength = n
+    }
+
     fn setIndexAt:void (index:int value:EvalValue) {
         if (false == (this.isArray())) {
             return

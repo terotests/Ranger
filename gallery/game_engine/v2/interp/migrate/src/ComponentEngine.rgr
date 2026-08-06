@@ -1461,8 +1461,8 @@ class ComponentEngine {
                 }
                 if (EvValueBridge.isArrayValue(sv)) {
                     def k:int 0
-                    while (k < (array_length sv.arrayValue)) {
-                        push args (itemAt sv.arrayValue k)
+                    while (k < (sv.denseLen())) {
+                        push args (sv.arrayItemAt(k))
                         k = (k + 1)
                     }
                 }
@@ -1675,7 +1675,7 @@ class ComponentEngine {
                 ; confused "too big to allocate" with "not a length".
                 if (slots > 10000000) {
                     def bigArr2:EvalValue (EvValueBridge.taggedArray(items))
-                    bigArr2.declaredLength = slots
+                    bigArr2.setDeclaredLength(slots)
                     return bigArr2
                 }
                 ; D-HOLES: `new Array(5)` has five ABSENT elements, so forEach
@@ -3050,8 +3050,8 @@ class ComponentEngine {
                     def items:[EvalValue]
                     if (EvValueBridge.isArrayValue(value)) {
                         def k:int idx
-                        while (k < (array_length value.arrayValue)) {
-                            push items (itemAt value.arrayValue k)
+                        while (k < (value.denseLen())) {
+                            push items (value.arrayItemAt(k))
                             k = (k + 1)
                         }
                     }
@@ -3068,8 +3068,8 @@ class ComponentEngine {
                 } {
                     def elemVal:EvalValue (EvValueBridge.taggedUndefined())
                     if (EvValueBridge.isArrayValue(value)) {
-                        if (idx < (array_length value.arrayValue)) {
-                            elemVal = (itemAt value.arrayValue idx)
+                        if (idx < (value.denseLen())) {
+                            elemVal = (value.arrayItemAt(idx))
                         }
                     } {
                         elemVal = (value.getIndex(idx))
@@ -3996,16 +3996,16 @@ class ComponentEngine {
             ; elements as-is, Map entries as [key, value] pairs, string chars.
             def items:[EvalValue]
             if (EvValueBridge.isArrayValue(src)) {
-                items = src.arrayValue
+                items = (src.itemsOf())
             } {
                 if (EvValueBridge.isSet(src)) {
-                    items = src.arrayValue
+                    items = (src.itemsOf())
                 } {
                     if (EvValueBridge.isMap(src)) {
                         def k:int 0
-                        while (k < (array_length src.arrayValue)) {
+                        while (k < (src.denseLen())) {
                             def pair:[EvalValue]
-                            push pair (itemAt src.arrayValue k)
+                            push pair (src.arrayItemAt(k))
                             push pair (itemAt src.mapVals k)
                             push items (EvValueBridge.taggedArray(pair))
                             k = (k + 1)
@@ -5357,7 +5357,7 @@ class ComponentEngine {
                                 def argNode:TSNode (itemAt node.children 0)
                                 def argValue:EvalValue (this.evaluateExpr(argNode))
                                 ; Mutate the array by adding the item
-                                push objValue.arrayValue argValue
+                                objValue.arrPush(argValue)
                                 ; Update the context (in case of reassignment)
                                 context.assign(objName objValue)
                             }
@@ -5467,8 +5467,8 @@ class ComponentEngine {
             
             if (EvValueBridge.isArrayValue(arrayValue)) {
                 def i:int 0
-                while (i < (array_length arrayValue.arrayValue)) {
-                    def item:EvalValue (itemAt arrayValue.arrayValue i)
+                while (i < (arrayValue.denseLen())) {
+                    def item:EvalValue (arrayValue.arrayItemAt(i))
                     
                     ; Bind loop variable
                     context.define(varName item)
@@ -5978,7 +5978,7 @@ class ComponentEngine {
                 ; The element is past the dense store, but it still moves the
                 ; length -- `a[2147483648] = 1` makes a.length 2147483649.
                 if ((numIdx + 1) > (obj.arrayLength())) {
-                    obj.declaredLength = (numIdx + 1)
+                    obj.setDeclaredLength((numIdx + 1))
                 }
             } {
                 def curIdx:EvalValue (obj.getIndex(numIdx))
@@ -6926,10 +6926,10 @@ class ComponentEngine {
             return ""
         }
         def namesV:EvalValue (unwrap (get obj.objectMap "__argnames__"))
-        if (idx >= (array_length namesV.arrayValue)) {
+        if (idx >= (namesV.denseLen())) {
             return ""
         }
-        def nmV:EvalValue (itemAt namesV.arrayValue idx)
+        def nmV:EvalValue (namesV.arrayItemAt(idx))
         if (false == (EvValueBridge.isString(nmV))) {
             return ""
         }
@@ -6952,7 +6952,7 @@ class ComponentEngine {
             return
         }
         def namesV:EvalValue (unwrap (get obj.objectMap "__argnames__"))
-        if (idx >= (array_length namesV.arrayValue)) {
+        if (idx >= (namesV.denseLen())) {
             return
         }
         ; Mutated in place: the names array is stored NON-WRITABLE (it is engine
@@ -7263,7 +7263,7 @@ class ComponentEngine {
                 ; for it confused "too big to allocate" with "not a length".
                 if (slots > 10000000) {
                     def bigArr:EvalValue (EvValueBridge.taggedArray(items))
-                    bigArr.declaredLength = slots
+                    bigArr.setDeclaredLength(slots)
                     return bigArr
                 }
                 def si:int 0
@@ -7741,8 +7741,8 @@ class ComponentEngine {
                     if (EvValueBridge.isArrayValue(exprValue)) {
                         ; Flatten array elements into children
                         def ai:int 0
-                        while (ai < (array_length exprValue.arrayValue)) {
-                            def arrItem:EvalValue (itemAt exprValue.arrayValue ai)
+                        while (ai < (exprValue.denseLen())) {
+                            def arrItem:EvalValue (exprValue.arrayItemAt(ai))
                             if (EvValueBridge.isElement(arrItem)) {
                                 push results arrItem
                             }
@@ -7939,8 +7939,8 @@ class ComponentEngine {
                 ; Handle array result (array of elements from function)
                 if (EvValueBridge.isArrayValue(callResult)) {
                     def ai:int 0
-                    while (ai < (array_length callResult.arrayValue)) {
-                        def arrItem:EvalValue (itemAt callResult.arrayValue ai)
+                    while (ai < (callResult.denseLen())) {
+                        def arrItem:EvalValue (callResult.arrayItemAt(ai))
                         if (EvValueBridge.isElement(arrItem)) {
                             if (arrItem.hasElement()) {
                                 def arrChildEl:EVGElement (arrItem.elementOf())
@@ -8008,8 +8008,8 @@ class ComponentEngine {
             ; Handle arrays of EVGElements (e.g., {children} containing multiple elements)
             if (EvValueBridge.isArrayValue(value)) {
                 def ai:int 0
-                while (ai < (array_length value.arrayValue)) {
-                    def arrItem:EvalValue (itemAt value.arrayValue ai)
+                while (ai < (value.denseLen())) {
+                    def arrItem:EvalValue (value.arrayItemAt(ai))
                     if (EvValueBridge.isElement(arrItem)) {
                         if (arrItem.hasElement()) {
                             def arrChildEl:EVGElement (arrItem.elementOf())
@@ -8053,8 +8053,8 @@ class ComponentEngine {
                                 
                                 ; Map over array
                                 def i:int 0
-                                while (i < (array_length arrayValue.arrayValue)) {
-                                    def item:EvalValue (itemAt arrayValue.arrayValue i)
+                                while (i < (arrayValue.denseLen())) {
+                                    def item:EvalValue (arrayValue.arrayItemAt(i))
                                     
                                     ; Create child context with map variable
                                     def savedContext:EvalContext context
@@ -8717,8 +8717,8 @@ class ComponentEngine {
                             def srcV:EvalValue (this.evaluateExpr((itemAt node.children 0)))
                             if (EvValueBridge.isArrayValue(srcV)) {
                                 def fi:int 0
-                                while (fi < (array_length srcV.arrayValue)) {
-                                    push frItems (itemAt srcV.arrayValue fi)
+                                while (fi < (srcV.denseLen())) {
+                                    push frItems (srcV.arrayItemAt(fi))
                                     fi = (fi + 1)
                                 }
                             }
@@ -8732,8 +8732,8 @@ class ComponentEngine {
                             }
                             if (EvValueBridge.isSet(srcV)) {
                                 def stI:int 0
-                                while (stI < (array_length srcV.arrayValue)) {
-                                    push frItems (itemAt srcV.arrayValue stI)
+                                while (stI < (srcV.denseLen())) {
+                                    push frItems (srcV.arrayItemAt(stI))
                                     stI = (stI + 1)
                                 }
                             }
@@ -9064,7 +9064,7 @@ class ComponentEngine {
                                     def keysL:[string]
                                     def valsL:[EvalValue]
                                     def dL:EvalValue (EvValueBridge.taggedObject(keysL valsL))
-                                    dL.setMember("value" (EvalValue.fromInt((array_length src.arrayValue))))
+                                    dL.setMember("value" (EvalValue.fromInt((src.denseLen()))))
                                     dL.setMember("writable" (EvValueBridge.taggedBoolean(true)))
                                     dL.setMember("enumerable" (EvValueBridge.taggedBoolean(false)))
                                     dL.setMember("configurable" (EvValueBridge.taggedBoolean(false)))
@@ -9072,14 +9072,14 @@ class ComponentEngine {
                                 }
                                 def ai:int (this.canonicalArrayIndex(dk))
                                 if (ai >= 0) {
-                                    if (ai < (array_length src.arrayValue)) {
+                                    if (ai < (src.denseLen())) {
                                         ; D-HOLES: a hole is an ABSENT property
                                         ; and has no descriptor at all.
-                                        if (false == ((EvValueBridge.isHole((itemAt src.arrayValue ai))))) {
+                                        if (false == ((EvValueBridge.isHole((src.arrayItemAt(ai)))))) {
                                             def keysI:[string]
                                             def valsI:[EvalValue]
                                             def dI:EvalValue (EvValueBridge.taggedObject(keysI valsI))
-                                            dI.setMember("value" (itemAt src.arrayValue ai))
+                                            dI.setMember("value" (src.arrayItemAt(ai)))
                                             ; Recorded attributes win: an element
                                             ; defined through defineProperty is
                                             ; not writable just because it is an
@@ -9318,8 +9318,8 @@ class ComponentEngine {
                                 def arr:EvalValue (this.evaluateExpr((itemAt node.children 1)))
                                 if (EvValueBridge.isArrayValue(arr)) {
                                     def aai:int 0
-                                    while (aai < (array_length arr.arrayValue)) {
-                                        push applyArgs (itemAt arr.arrayValue aai)
+                                    while (aai < (arr.denseLen())) {
+                                        push applyArgs (arr.arrayItemAt(aai))
                                         aai = (aai + 1)
                                     }
                                 }
@@ -12126,11 +12126,11 @@ class ComponentEngine {
     fn arrayJoinString:string (arr:EvalValue sep:string) {
         def out:string ""
         def i:int 0
-        while (i < (array_length arr.arrayValue)) {
+        while (i < (arr.denseLen())) {
             if (i > 0) {
                 out = (out + sep)
             }
-            out = (out + (this.elementToString((itemAt arr.arrayValue i))))
+            out = (out + (this.elementToString((arr.arrayItemAt(i)))))
             i = (i + 1)
         }
         return out
@@ -13547,8 +13547,8 @@ class ComponentEngine {
                     if (name == "keys") {
                         def items:[EvalValue]
                         def i:int 0
-                        while (i < (array_length recv.arrayValue)) {
-                            push items (itemAt recv.arrayValue i)
+                        while (i < (recv.denseLen())) {
+                            push items (recv.arrayItemAt(i))
                             i = (i + 1)
                         }
                         return (EvValueBridge.taggedArray(items))
@@ -13565,9 +13565,9 @@ class ComponentEngine {
                     if (name == "entries") {
                         def items:[EvalValue]
                         def i:int 0
-                        while (i < (array_length recv.arrayValue)) {
+                        while (i < (recv.denseLen())) {
                             def pair:[EvalValue]
-                            push pair (itemAt recv.arrayValue i)
+                            push pair (recv.arrayItemAt(i))
                             push pair (itemAt recv.mapVals i)
                             push items (EvValueBridge.taggedArray(pair))
                             i = (i + 1)
@@ -13578,10 +13578,10 @@ class ComponentEngine {
                         if ((array_length args) > 0) {
                             def cb:EvalValue (this.withCallbackThis((itemAt args 0) args))
                             def i:int 0
-                            while (i < (array_length recv.arrayValue)) {
+                            while (i < (recv.denseLen())) {
                                 def cargs:[EvalValue]
                                 push cargs (itemAt recv.mapVals i)
-                                push cargs (itemAt recv.arrayValue i)
+                                push cargs (recv.arrayItemAt(i))
                                 def unused:EvalValue (this.callFnValueWithValues(cb cargs))
                                 i = (i + 1)
                             }
@@ -13615,8 +13615,8 @@ class ComponentEngine {
                     if ((name == "values") || (name == "keys")) {
                         def items:[EvalValue]
                         def i:int 0
-                        while (i < (array_length recv.arrayValue)) {
-                            push items (itemAt recv.arrayValue i)
+                        while (i < (recv.denseLen())) {
+                            push items (recv.arrayItemAt(i))
                             i = (i + 1)
                         }
                         return (EvValueBridge.taggedArray(items))
@@ -13625,8 +13625,8 @@ class ComponentEngine {
                         if ((array_length args) > 0) {
                             def cb:EvalValue (this.withCallbackThis((itemAt args 0) args))
                             def i:int 0
-                            while (i < (array_length recv.arrayValue)) {
-                                def el:EvalValue (itemAt recv.arrayValue i)
+                            while (i < (recv.denseLen())) {
+                                def el:EvalValue (recv.arrayItemAt(i))
                                 def cargs:[EvalValue]
                                 push cargs el
                                 push cargs el
@@ -13695,7 +13695,7 @@ class ComponentEngine {
             def elems:[EvalValue]
             if (false == isArrayMutator) {
                 if (EvValueBridge.isArrayValue(recv)) {
-                    elems = recv.arrayValue
+                    elems = (recv.itemsOf())
                 } {
                     elems = (this.arrayLikeElements(recv))
                 }
@@ -14050,7 +14050,7 @@ class ComponentEngine {
                     }
                     ; ---- mutators (mutate recv in place; same instance so refs see it) ----
                     if (name == "push") {
-                        def nlen:int (array_length recv.arrayValue)
+                        def nlen:int (recv.denseLen())
                         def ai:int 0
                         while (ai < (array_length args)) {
                             nlen = (recv.arrPush((itemAt args ai)))
@@ -14059,30 +14059,30 @@ class ComponentEngine {
                         return (EvalValue.fromInt(nlen))
                     }
                     if (name == "pop") {
-                        def n:int (array_length recv.arrayValue)
+                        def n:int (recv.denseLen())
                         if (n == 0) {
                             return (EvValueBridge.taggedUndefined())
                         }
-                        def last:EvalValue (itemAt recv.arrayValue (n - 1))
+                        def last:EvalValue (recv.arrayItemAt((n - 1)))
                         def items:[EvalValue]
                         def q:int 0
                         while (q < (n - 1)) {
-                            push items (itemAt recv.arrayValue q)
+                            push items (recv.arrayItemAt(q))
                             q = (q + 1)
                         }
                         recv.arrSetItems(items)
                         return last
                     }
                     if (name == "shift") {
-                        def n:int (array_length recv.arrayValue)
+                        def n:int (recv.denseLen())
                         if (n == 0) {
                             return (EvValueBridge.taggedUndefined())
                         }
-                        def first:EvalValue (itemAt recv.arrayValue 0)
+                        def first:EvalValue (recv.arrayItemAt(0))
                         def items:[EvalValue]
                         def q:int 1
                         while (q < n) {
-                            push items (itemAt recv.arrayValue q)
+                            push items (recv.arrayItemAt(q))
                             q = (q + 1)
                         }
                         recv.arrSetItems(items)
@@ -14096,19 +14096,19 @@ class ComponentEngine {
                             ai = (ai + 1)
                         }
                         def q:int 0
-                        while (q < (array_length recv.arrayValue)) {
-                            push items (itemAt recv.arrayValue q)
+                        while (q < (recv.denseLen())) {
+                            push items (recv.arrayItemAt(q))
                             q = (q + 1)
                         }
                         recv.arrSetItems(items)
                         return (EvalValue.fromInt((array_length items)))
                     }
                     if (name == "reverse") {
-                        def n:int (array_length recv.arrayValue)
+                        def n:int (recv.denseLen())
                         def items:[EvalValue]
                         def q:int (n - 1)
                         while (q >= 0) {
-                            push items (itemAt recv.arrayValue q)
+                            push items (recv.arrayItemAt(q))
                             q = (q - 1)
                         }
                         recv.arrSetItems(items)
@@ -14119,7 +14119,7 @@ class ComponentEngine {
                         if ((array_length args) > 0) {
                             fv = (itemAt args 0)
                         }
-                        def n:int (array_length recv.arrayValue)
+                        def n:int (recv.denseLen())
                         def items:[EvalValue]
                         def q:int 0
                         while (q < n) {
@@ -14137,8 +14137,8 @@ class ComponentEngine {
                         }
                         def items:[EvalValue]
                         def q:int 0
-                        while (q < (array_length recv.arrayValue)) {
-                            push items (itemAt recv.arrayValue q)
+                        while (q < (recv.denseLen())) {
+                            push items (recv.arrayItemAt(q))
                             q = (q + 1)
                         }
                         def sn:int (array_length items)
@@ -14176,7 +14176,7 @@ class ComponentEngine {
                         return recv
                     }
                     if (name == "splice") {
-                        def n:int (array_length recv.arrayValue)
+                        def n:int (recv.denseLen())
                         def start:int 0
                         if ((array_length args) > 0) {
                             start = (to_int ((itemAt args 0).toNumber()))
@@ -14204,14 +14204,14 @@ class ComponentEngine {
                         def removed:[EvalValue]
                         def q:int 0
                         while (q < delCount) {
-                            push removed (itemAt recv.arrayValue (start + q))
+                            push removed (recv.arrayItemAt((start + q)))
                             q = (q + 1)
                         }
                         ; rebuild: head + inserted items + tail
                         def rebuilt:[EvalValue]
                         def h:int 0
                         while (h < start) {
-                            push rebuilt (itemAt recv.arrayValue h)
+                            push rebuilt (recv.arrayItemAt(h))
                             h = (h + 1)
                         }
                         def ii:int 2
@@ -14221,7 +14221,7 @@ class ComponentEngine {
                         }
                         def t:int (start + delCount)
                         while (t < n) {
-                            push rebuilt (itemAt recv.arrayValue t)
+                            push rebuilt (recv.arrayItemAt(t))
                             t = (t + 1)
                         }
                         recv.arrSetItems(rebuilt)
@@ -14274,8 +14274,8 @@ class ComponentEngine {
                             def el:EvalValue (this.arrayElemAt(recv q))
                             if (EvValueBridge.isArrayValue(el)) {
                                 def r:int 0
-                                while (r < (array_length el.arrayValue)) {
-                                    push items (itemAt el.arrayValue r)
+                                while (r < (el.denseLen())) {
+                                    push items (el.arrayItemAt(r))
                                     r = (r + 1)
                                 }
                             } {
@@ -15727,7 +15727,7 @@ class ComponentEngine {
     fn arrayLikeElements:[EvalValue] (v:EvalValue) {
         def out:[EvalValue]
         if (EvValueBridge.isArrayValue(v)) {
-            return v.arrayValue
+            return (v.itemsOf())
         }
         if (EvValueBridge.isString(v)) {
             def si:int 0
@@ -15803,8 +15803,8 @@ class ComponentEngine {
             if (gFnA.isFunction()) {
                 return (this.getPropertyValue(recv gkey))
             }
-            if (idx < (array_length recv.arrayValue)) {
-                def slot:EvalValue (itemAt recv.arrayValue idx)
+            if (idx < (recv.denseLen())) {
+                def slot:EvalValue (recv.arrayItemAt(idx))
                 if (false == (EvValueBridge.isHole(slot))) {
                     return slot
                 }
@@ -16034,8 +16034,8 @@ class ComponentEngine {
             if (walk.isArray()) {
                 def wi:int (this.canonicalArrayIndex(key))
                 if (wi >= 0) {
-                    if (wi < (array_length walk.arrayValue)) {
-                        def wslot:EvalValue (itemAt walk.arrayValue wi)
+                    if (wi < (walk.denseLen())) {
+                        def wslot:EvalValue (walk.arrayItemAt(wi))
                         if (false == (EvValueBridge.isHole(wslot))) {
                             return wslot
                         }
@@ -16062,8 +16062,8 @@ class ComponentEngine {
         if (obj.isArray()) {
             def oi:int (this.canonicalArrayIndex(key))
             if (oi >= 0) {
-                if (oi < (array_length obj.arrayValue)) {
-                    if (false == ((EvValueBridge.isHole((itemAt obj.arrayValue oi))))) {
+                if (oi < (obj.denseLen())) {
+                    if (false == ((EvValueBridge.isHole((obj.arrayItemAt(oi)))))) {
                         return own
                     }
                 }
@@ -16089,8 +16089,8 @@ class ComponentEngine {
         if (obj.isArray()) {
             def oj:int (this.canonicalArrayIndex(key))
             if (oj >= 0) {
-                if (oj < (array_length obj.arrayValue)) {
-                    if (false == ((EvValueBridge.isHole((itemAt obj.arrayValue oj))))) {
+                if (oj < (obj.denseLen())) {
+                    if (false == ((EvValueBridge.isHole((obj.arrayItemAt(oj)))))) {
                         return own
                     }
                 }
@@ -16329,7 +16329,7 @@ class ComponentEngine {
                     return farErr
                 }
                 if ((elemIdx + 1) > (obj.arrayLength())) {
-                    obj.declaredLength = (elemIdx + 1)
+                    obj.setDeclaredLength((elemIdx + 1))
                 }
                 return ""
             }
@@ -16568,15 +16568,15 @@ class ComponentEngine {
     ; large with no elements at all.
     fn setArrayLength:void (obj:EvalValue newLen:int) {
         if (newLen > 10000000) {
-            def dense:int (array_length obj.arrayValue)
+            def dense:int (obj.denseLen())
             if (newLen < dense) {
                 this.resizeArrayTo(obj newLen)
             }
-            obj.declaredLength = newLen
+            obj.setDeclaredLength(newLen)
             return
         }
         this.resizeArrayTo(obj newLen)
-        obj.declaredLength = (0 - 1)
+        obj.setDeclaredLength((0 - 1))
     }
 
     ; D-ARRAYSPARSE: shrinking `length` deletes every index property at or above
@@ -16624,8 +16624,8 @@ class ComponentEngine {
         def resized:[EvalValue]
         def li:int 0
         while (li < newLen) {
-            if (li < (array_length obj.arrayValue)) {
-                push resized (itemAt obj.arrayValue li)
+            if (li < (obj.denseLen())) {
+                push resized (obj.arrayItemAt(li))
             } {
                 push resized (EvValueBridge.taggedHole())
             }
@@ -16654,14 +16654,14 @@ class ComponentEngine {
         }
         ; Whether the ELEMENT was already there decides which attributes survive.
         def existedElem:boolean false
-        if (idx < (array_length obj.arrayValue)) {
-            if (false == ((EvValueBridge.isHole((itemAt obj.arrayValue idx))))) {
+        if (idx < (obj.denseLen())) {
+            if (false == ((EvValueBridge.isHole((obj.arrayItemAt(idx)))))) {
                 existedElem = true
             }
         }
         if (has obj.getterMap key) { existedElem = true }
         if (has obj.setterMap key) { existedElem = true }
-        if (idx >= (array_length obj.arrayValue)) {
+        if (idx >= (obj.denseLen())) {
             this.resizeArrayTo(obj (idx + 1))
         }
         ; An element may be an ACCESSOR. The functions live in getterMap /
@@ -16687,7 +16687,7 @@ class ComponentEngine {
         } {
             ; Attributes only: an element that did not exist becomes a present
             ; undefined, which is what a descriptor without a value creates.
-            if ((EvValueBridge.isHole((itemAt obj.arrayValue idx)))) {
+            if ((EvValueBridge.isHole((obj.arrayItemAt(idx))))) {
                 obj.setIndexAt(idx (EvValueBridge.taggedUndefined()))
             }
         }
@@ -16750,8 +16750,8 @@ class ComponentEngine {
         if (obj.isArray()) {
             def reIdx:int (this.canonicalArrayIndex(key))
             if (reIdx >= 0) {
-                if (reIdx < (array_length obj.arrayValue)) {
-                    if (false == ((EvValueBridge.isHole((itemAt obj.arrayValue reIdx))))) {
+                if (reIdx < (obj.denseLen())) {
+                    if (false == ((EvValueBridge.isHole((obj.arrayItemAt(reIdx)))))) {
                         exists = true
                     }
                 }
@@ -17384,7 +17384,7 @@ class ComponentEngine {
                                 def didx@(optional):int (to_int dkey)
                                 if didx {
                                     def dn:int (unwrap didx)
-                                    if ((dn >= 0) && (dn < (array_length obj.arrayValue))) {
+                                    if ((dn >= 0) && (dn < (obj.denseLen()))) {
                                         ; D-ACCESSORS: an index redefined as an
                                         ; accessor lives in the getter/setter
                                         ; maps, so blanking the dense slot alone
@@ -17891,8 +17891,8 @@ class ComponentEngine {
                 }
                 if (EvValueBridge.isArrayValue(sv)) {
                     def k:int 0
-                    while (k < (array_length sv.arrayValue)) {
-                        push argVals (itemAt sv.arrayValue k)
+                    while (k < (sv.denseLen())) {
+                        push argVals (sv.arrayItemAt(k))
                         k = (k + 1)
                     }
                 }
@@ -18007,8 +18007,8 @@ class ComponentEngine {
                 def init:EvalValue (this.evaluateExpr((itemAt node.children 0)))
                 if (EvValueBridge.isArrayValue(init)) {
                     def i:int 0
-                    while (i < (array_length init.arrayValue)) {
-                        def pair:EvalValue (itemAt init.arrayValue i)
+                    while (i < (init.denseLen())) {
+                        def pair:EvalValue (init.arrayItemAt(i))
                         if (EvValueBridge.isArrayValue(pair)) {
                             m.mapSet((pair.getIndex(0)) (pair.getIndex(1)))
                         }
@@ -18024,8 +18024,8 @@ class ComponentEngine {
                 def init:EvalValue (this.evaluateExpr((itemAt node.children 0)))
                 if (EvValueBridge.isArrayValue(init)) {
                     def i:int 0
-                    while (i < (array_length init.arrayValue)) {
-                        st.setAdd((itemAt init.arrayValue i))
+                    while (i < (init.denseLen())) {
+                        st.setAdd((init.arrayItemAt(i)))
                         i = (i + 1)
                     }
                 }
@@ -18658,7 +18658,7 @@ class ComponentEngine {
             ; Map/Set .size property (element count).
             if (propName == "size") {
                 if ((EvValueBridge.isMap(obj)) || (EvValueBridge.isSet(obj))) {
-                    return (EvalValue.fromInt((array_length obj.arrayValue)))
+                    return (EvalValue.fromInt((obj.denseLen())))
                 }
             }
 
@@ -18727,8 +18727,8 @@ class ComponentEngine {
                                 ; the value layer stopped there and answered
                                 ; undefined for a property that exists.
                                 def slotPresent:boolean false
-                                if (rIdx < (array_length obj.arrayValue)) {
-                                    slotPresent = (false == ((EvValueBridge.isHole((itemAt obj.arrayValue rIdx)))))
+                                if (rIdx < (obj.denseLen())) {
+                                    slotPresent = (false == ((EvValueBridge.isHole((obj.arrayItemAt(rIdx))))))
                                 }
                                 if slotPresent {
                                     return (obj.getIndex(rIdx))
@@ -18749,7 +18749,7 @@ class ComponentEngine {
                     if (EvValueBridge.isNumber(indexVal)) {
                         def idx:int (to_int (indexVal.toNumber()))
                         if (false == quiet) {
-                            this.trace("  Getting index " + (to_string idx) + " from array of length " + (to_string (array_length obj.arrayValue)))
+                            this.trace("  Getting index " + (to_string idx) + " from array of length " + (to_string (obj.denseLen())))
                         }
                         return (obj.getIndex(idx))
                     }
@@ -18829,8 +18829,8 @@ class ComponentEngine {
                 }
                 if (EvValueBridge.isArrayValue(sv)) {
                     def k:int 0
-                    while (k < (array_length sv.arrayValue)) {
-                        push items (itemAt sv.arrayValue k)
+                    while (k < (sv.denseLen())) {
+                        push items (sv.arrayItemAt(k))
                         k = (k + 1)
                     }
                 }
@@ -19059,10 +19059,10 @@ class ComponentEngine {
         ; answer nothing at all instead of ["0","1"].
         if (EvValueBridge.isArrayValue(v)) {
             def i:int 0
-            while (i < (array_length v.arrayValue)) {
+            while (i < (v.denseLen())) {
                 ; D-HOLES: an ABSENT element has no key, so Object.keys and
                 ; for-in skip it -- `Object.keys([1,,3])` is ["0","2"].
-                if (false == ((EvValueBridge.isHole((itemAt v.arrayValue i))))) {
+                if (false == ((EvValueBridge.isHole((v.arrayItemAt(i)))))) {
                     push out (to_string i)
                 }
                 i = (i + 1)
@@ -19181,8 +19181,8 @@ class ComponentEngine {
                 def aidx:int (unwrap ai)
                 ; D-HOLES: a hole is an ABSENT property, so `1 in [0,,2]` is
                 ; false and hasOwnProperty("1") is false with it.
-                if ((aidx >= 0) && (aidx < (array_length v.arrayValue))) {
-                    return (false == ((EvValueBridge.isHole((itemAt v.arrayValue aidx)))))
+                if ((aidx >= 0) && (aidx < (v.denseLen()))) {
+                    return (false == ((EvValueBridge.isHole((v.arrayItemAt(aidx))))))
                 }
                 return false
             }
@@ -19264,11 +19264,11 @@ class ComponentEngine {
         if (EvValueBridge.isArrayValue(v)) {
             def out:string "["
             def i:int 0
-            while (i < (array_length v.arrayValue)) {
+            while (i < (v.denseLen())) {
                 if (i > 0) {
                     out = (out + ",")
                 }
-                out = (out + (this.jsonStringify((itemAt v.arrayValue i))))
+                out = (out + (this.jsonStringify((v.arrayItemAt(i)))))
                 i = (i + 1)
             }
             return (out + "]")
