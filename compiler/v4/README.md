@@ -4,6 +4,9 @@ Parallel rewrite of the Ranger compiler using **shapes** for the AST.
 See [`PLAN_COMPILER_V4.md`](../../PLAN_COMPILER_V4.md).
 
 The shipping compiler remains `compiler/ng_*.rgr` (product 3.3.x).
+**`ng_*` stays frozen** so `npm test` keeps gating the product path. v4 is a
+parallel tree; an in-place `CodeNode`→shape edit is rejected under that
+constraint (macros / plugins / IDE all mutate fat CodeNode — see plan §2.5).
 Nothing here replaces `ng_Compiler.rgr` until self-host (G3).
 
 ## First goals
