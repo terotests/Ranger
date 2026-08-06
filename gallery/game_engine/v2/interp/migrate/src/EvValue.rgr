@@ -174,11 +174,15 @@ shape EvValue {
     }
     sfn mapEmpty:EvValue () {
         def props:EvPropertyBag (new EvPropertyBag())
-        return (new EvValue.Map(0 props ([] _:EvMapEntry ())))
+        ; Bind the empty literal — Rust case ctors drop a bare `([] _:T ())`
+        ; argument (ISSUES / empty typed array as ctor arg).
+        def entries:[EvMapEntry]
+        return (new EvValue.Map(0 props entries))
     }
     sfn setEmpty:EvValue () {
         def props:EvPropertyBag (new EvPropertyBag())
-        return (new EvValue.Set(0 props ([] _:EvValue ())))
+        def items:[EvValue]
+        return (new EvValue.Set(0 props items))
     }
     sfn functionStub:EvValue (name:string) {
         def props:EvPropertyBag (new EvPropertyBag())

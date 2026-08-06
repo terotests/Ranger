@@ -36,7 +36,8 @@ class EvValueBridge {
             return (EvValue.undefined())
         }
         if (v.valueType == 4) {
-            return (EvValue.array(([] _:EvValue ())))
+            def emptyItems:[EvValue]
+            return (EvValue.array(emptyItems))
         }
         if (v.valueType == 5) {
             return (EvValue.object())
