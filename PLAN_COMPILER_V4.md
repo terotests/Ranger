@@ -16,6 +16,58 @@
 
 ---
 
+## 0. First goals (not “all gallery”)
+
+v4 is **not** aimed at compiling every gallery demo next. The first success
+bar is three programs that already stress the shipping compiler:
+
+| # | Goal | Entry | ~size | Why first |
+|---|---|---|---|---|
+| **G1** | **JPEG scaler** | `gallery/pdf_writer/src/tools/jpeg_scaler.rgr` (+ `src/jpeg/*`, `src/core/Buffer.rgr`) | ~6.5k LOC | Real CLI app: classes, `buffer`, loops, optionals, file I/O. Already a known ES6/Go target (`jpegscaler:*`, `JPEG_SCALER_LLVM.md`). |
+| **G2** | **TypeScript engine** | `gallery/pdf_writer/src/jsx/ComponentEngine.rgr` + `gallery/ts_parser/*` | ~21k LOC | Interpreter + parser that run `.tsx` / `.as`. Pulls in `EvalValue` (already shape-migrating), AST patching, imports. |
+| **G3** | **Self-host the compiler** | First `compiler/v4/**`, then enough of `ng_*` / `VirtualCompiler` to rebuild the host | compiler tree | Dogfood: v4 compiles itself to ES6 (then a second target). Replaces “bootstrap decision” as a vague C6 with a hard acceptance test. |
+
+Later “compile the gallery” is allowed only after G1–G3 are green on at least
+one writer (ES6). LLVM/native for jpeg_scaler remains a *stretch* (today’s
+LLVM path hangs on decode — see `JPEG_SCALER_LLVM.md`); G1 means **ES6 and/or
+Go output that runs the scaler**, matching the supported product paths.
+
+### Milestone order
+
+```text
+C0–C1  AstNode + parser          ✅ started
+  ↓
+C2–C4  collect + type + ES6 writer for a growing subset
+  ↓
+G1     jpeg_scaler compiles & runs (ES6)     ← first external proof
+  ↓
+G2     ComponentEngine + ts_parser compile & run a smoke .tsx
+  ↓
+G3a    v4 compiles compiler/v4/** (self-host sketch)
+G3b    v4 compiles enough to emit bin/output.js (or equivalent)
+```
+
+JPEG before the TS engine because it is smaller and has almost no
+meta-programming surface. Self-host tracks in parallel once the ES6 writer
+exists: every feature jpeg needs is also a feature the compiler needs.
+
+### Language surface the goals force
+
+| Feature | G1 jpeg | G2 TS engine | G3 self-host |
+|---|---|---|---|
+| `class` / `fn` / `sfn` / `Import` / `def` | required | required | required |
+| `if` / `while` / `for` / `return` | required | required | required |
+| arrays, maps, strings, numbers | required | required | required |
+| `buffer` + file/shell ops | **required** | some | some (host FS) |
+| `@(optional)` / `unwrap` / `null?` | required | required | required |
+| `@(weak)` / ownership annos | light | heavy | heavy |
+| operators / `Lang.rgr` templates | stdlib + buffer | large | **full** |
+| `extension`, lambdas, `Enum` | light | yes | yes |
+| `shape` / `match` / `union` | no (today) | `EvalPayload` shape | v4 itself uses shapes |
+| writers beyond ES6 | Go nice-to-have | Go/Rust nice | ES6 first, then one native |
+
+---
+
 ## 1. The CodeNode overload (measured)
 
 | File | Role | Lines |
@@ -173,16 +225,34 @@ useful subset and emit at least one target.
 
 - Emit JS for the typed subset
 - Compare output to ng_ compiler on the same fixtures
+- Gate: small programs that are **slices of G1** (buffer read, class method, CLI args)
 
-### C5 — Grow surface + second target
+### C5 — Grow surface toward G1 (JPEG scaler)
 
-- Operators, lambdas, classes, optionals
-- Rust or C++ writer to validate native shape lowering benefits in the compiler itself
+- Operators used by jpeg (`buffer_*`, arithmetic, `shell_arg*`, `substring`, …)
+- Optionals, `while`, nested classes, `Import` graph resolution
+- **Acceptance:** v4 ES6 output of `jpeg_scaler.rgr` scales a fixture JPEG
+  (parity with `gallery/pdf_writer/bin/jpeg_scaler.js` behavior on one image)
 
-### C6 — Bootstrapping decision
+### C6 — Grow toward G2 (TypeScript engine)
 
-- Only when C4/C5 cover enough to compile `compiler/v4/**`
-- Then consider replacing ng_ entry points
+- Lambdas, maps, `extension`, richer optionals/weak, larger import graphs
+- Enough to compile `ts_parser_main.rgr` then `ComponentEngine.rgr`
+- **Acceptance:** compiled engine evaluates a tiny `.tsx` smoke (e.g. `1+1` /
+  one JSX node) under the existing test harness style
+
+### C7 — Self-host (G3)
+
+- **G3a:** v4 compiles `compiler/v4/**` to ES6 and the result still parses
+- **G3b:** v4 compiles a trimmed host (`ng_Compiler` path or a v4 CLI) that can
+  compile `jpeg_scaler` — closing the loop
+- Only then consider retiring `ng_*` as the shipped binary
+
+### C8 — Second target (optional, after G1)
+
+- Go or Rust writer; jpeg_scaler on Go is the natural check
+- LLVM for jpeg remains out of scope until the existing LLVM hang is fixed
+  independently
 
 ---
 
@@ -194,18 +264,21 @@ compiler/v4/
   AstNode.rgr         # shape AstNode + helpers
   Source.rgr          # SourceFile (C1)
   Parser.rgr          # Lisp parser → AstNode (C1)
-  Probe.rgr           # small main used by tests
+  Probe.rgr / ParseProbe.rgr
 
 PLAN_COMPILER_V4.md   # this file (repo root, with other PLAN_*)
 tests/fixtures/v4_ast_probe.rgr
+tests/fixtures/v4_parse_probe.rgr
 tests/compiler-v4-ast.test.ts
 ```
 
-The product entry `compiler/ng_Compiler.rgr` is untouched.
+The product entry `compiler/ng_Compiler.rgr` is untouched until G3b.
 
 ---
 
-## 7. Success criteria for "shapes can rewrite the compiler"
+## 7. Success criteria
+
+### Scaffolding (C0–C1) — done / in progress
 
 | Criterion | How we know |
 |---|---|
@@ -215,8 +288,13 @@ The product entry `compiler/ng_Compiler.rgr` is untouched.
 | Parser produces only AstNode cases | C1 fixture round-trips |
 | No regression to shipping 3.3.x | ng_ tree unchanged |
 
-A full self-hosting v4 is **not** a success criterion for C0–C1; it is the
-C6 decision after a working subset exists.
+### First product goals
+
+| Goal | Done when |
+|---|---|
+| **G1 JPEG scaler** | `node <v4-es6-out>/jpeg_scaler.js -width N in.jpg out.jpg` matches ng_ output on a fixture |
+| **G2 TS engine** | v4-built `ComponentEngine` (or `ts_parser_main`) runs a smoke script in CI |
+| **G3 Self-host** | v4-built compiler compiles G1 (and ideally `compiler/v4`) without the ng_ host |
 
 ---
 
@@ -227,7 +305,8 @@ C6 decision after a working subset exists.
 | `PLAN_SHAPES.md` | Language feature v4 consumes; S0–S5 |
 | `PLAN_3.md` | Historical product 3.0; not an AST rewrite |
 | `INCREMENTAL_PLAN.md` | Builds on today's CodeNode; v4 should make invalidation easier (immutable AST + side tables) |
-| `EvalValue` shape migration | Same pattern; proof that production code can adopt shapes |
+| `EvalValue` shape migration | Same pattern; G2 already depends on shapes in the engine |
+| `JPEG_SCALER_LLVM.md` | G1 tracks ES6/Go; LLVM hang is separate |
 
 ---
 
@@ -235,6 +314,7 @@ C6 decision after a working subset exists.
 
 1. ~~Land C0: plan + AstNode probe + test~~
 2. ~~Implement C1 parser emitting AstNode (subset)~~
-3. Extend C1: annotations, better block/statement handling, file parse API
-4. Start C2: collect `class` / `fn` / `Import` from AstNode trees
-5. Keep every stage green under `tests/compiler-v4-ast.test.ts`
+3. ~~Pin first goals: G1 jpeg_scaler, G2 TS engine, G3 self-host~~
+4. Extend C1: annotations (`@…`), file parse API, `Import` strings
+5. C2: collect `class` / `fn` / `Import` / `def` — driven by what G1’s AST needs
+6. Keep `tests/compiler-v4-ast.test.ts` green; add G1-slice fixtures as C4 lands
