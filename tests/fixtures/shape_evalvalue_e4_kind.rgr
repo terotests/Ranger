@@ -1,0 +1,49 @@
+; E4 smoke test: kind discriminant is body:EvValue (PLAN_SHAPES.md §7.5).
+; valueType is gone — factories stamp EvValue cases; is* reads the shape.
+Import "../../gallery/game_engine/v2/interp/migrate/src/EvValueBridge.rgr"
+
+class Main {
+    sfn main:void () {
+        ; Kind checks go through the shape (via body), not valueType
+        def n:EvalValue (EvValueBridge.taggedNumber(3.0))
+        if (n.isNumber()) {
+            print "body"
+        } {
+            print "WRONG: not Number"
+        }
+
+        ; Hole and Undefined are distinct kinds (no shared int tag)
+        def u:EvalValue (EvValueBridge.taggedUndefined())
+        def h:EvalValue (EvValueBridge.taggedHole())
+        if (u.isUndefined()) {
+            if (h.isHole()) {
+                if (u.isHole()) {
+                    print "WRONG: undefined is hole"
+                } {
+                    print "kinds"
+                }
+            } {
+                print "WRONG: hole"
+            }
+        } {
+            print "WRONG: undefined"
+        }
+
+        ; fromTagged rebuilds / returns the shape kind
+        def back:EvValue (EvValueBridge.fromTagged(n))
+        if (EvValue.isNumber(back)) {
+            print "round"
+        } {
+            print "WRONG: fromTagged"
+        }
+
+        ; kindName for diagnostics (replaces printing valueType)
+        def empty:[EvalValue]
+        def a:EvalValue (EvValueBridge.taggedArray(empty))
+        if ((a.kindName()) == "Array") {
+            print "name"
+        } {
+            print ("WRONG: " + (a.kindName()))
+        }
+    }
+}

@@ -285,7 +285,7 @@ class EvalContext {
         def cur@(optional):EvalValue (get bindings name)
         if cur {
             def c:EvalValue (unwrap cur)
-            if (c.valueType == 1) {
+            if (c.isNumber()) {
                 if c.slotOwned {
                     c.numberValue = (c.numberValue + delta)
                     return true
@@ -315,7 +315,7 @@ class EvalContext {
             def cur@(optional):EvalValue (get bindings name)
             if cur {
                 def c:EvalValue (unwrap cur)
-                if (c.valueType == 1) {
+                if (c.isNumber()) {
                     if c.slotOwned {
                         c.numberValue = n
                         return true
@@ -345,7 +345,7 @@ class EvalContext {
             def cur@(optional):EvalValue (get bindings name)
             if cur {
                 def c:EvalValue (unwrap cur)
-                if (c.valueType == 1) {
+                if (c.isNumber()) {
                     return c.numberValue
                 }
             }
@@ -369,7 +369,7 @@ class EvalContext {
             def cur@(optional):EvalValue (get bindings name)
             if cur {
                 def c:EvalValue (unwrap cur)
-                return (c.valueType == 1)
+                return (c.isNumber())
             }
             return false
         }
@@ -397,7 +397,7 @@ class EvalContext {
             def cur@(optional):EvalValue (get bindings name)
             if cur {
                 def c:EvalValue (unwrap cur)
-                if (c.valueType == 1) {
+                if (c.isNumber()) {
                     c.numberValue = (c.numberValue + delta)
                     return true
                 }
@@ -422,7 +422,7 @@ class EvalContext {
         def cur@(optional):EvalValue (get bindings name)
         if cur {
             def c:EvalValue (unwrap cur)
-            if (c.valueType == 1) {
+            if (c.isNumber()) {
                 set bindings name (EvValueBridge.taggedNumber((c.numberValue + delta)))
                 return cur
             }
@@ -1537,7 +1537,7 @@ class ComponentEngine {
     fn writeRefusalError:string (obj:EvalValue key:string) {
         ; A FUNCTION holds properties with attributes too -- `Function.length`
         ; is non-writable, and only objects were being checked.
-        if (obj.valueType == 6) {
+        if (obj.isFunction()) {
             if (has obj.objectMap key) {
                 if (false == (obj.isWritable(key))) {
                     return ("Cannot assign to read only property " + key)
@@ -1545,7 +1545,7 @@ class ComponentEngine {
             }
             return ""
         }
-        if (obj.valueType != 5) {
+        if (false == (obj.isObject())) {
             return ""
         }
         ; An accessor with a setter takes the write; one without cannot.
@@ -1794,7 +1794,7 @@ class ComponentEngine {
     ; uncallable at all: the value has no function node, so every call path
     ; skipped it and reported "not a function".
     fn isEvalFunctionValue:boolean (v:EvalValue) {
-        if (v.valueType != 6) {
+        if (false == (v.isFunction())) {
             return false
         }
         if v.functionNode {
@@ -2963,7 +2963,7 @@ class ComponentEngine {
                         ; `with (o) { var value = 'x' }` sets o.value, which is
                         ; the whole of §12.10's interaction with declarations.
                         def wHost:EvalValue (this.withHostFor(varName))
-                        if (wHost.valueType == 5) {
+                        if (wHost.isObject()) {
                             wHost.setMember(varName value)
                             if (false == (context.has(varName))) {
                                 target.define(varName (EvValueBridge.taggedUndefined()))
@@ -3186,7 +3186,7 @@ class ComponentEngine {
         
         ; Process function parameters and bind props (if any)
         ; valueType 0 = null, so check if props is provided
-        if (props.valueType != 0) {
+        if (false == (props.isNull())) {
             this.bindFunctionParams(fnNode props)
         }
         
@@ -3787,7 +3787,7 @@ class ComponentEngine {
     ; `String(f())` answer "null" and every `=== undefined` check on a
     ; procedure's result fail.
     fn callResultOf:EvalValue (v:EvalValue) {
-        if (v.valueType == 0) {
+        if (v.isNull()) {
             return (EvValueBridge.taggedUndefined())
         }
         return v
@@ -4311,7 +4311,7 @@ class ComponentEngine {
                         ; not visited. The key list is snapshotted at entry, so
                         ; a name the body removed was still handed out.
                         def stillThere:boolean true
-                        if (target.valueType == 5) {
+                        if (target.isObject()) {
                             stillThere = (this.objHasKeyUpChain(target k))
                         }
                         if (false == stillThere) {
@@ -4936,9 +4936,9 @@ class ComponentEngine {
                 ; D-WITH: the operand goes through ToObject, so a primitive is
                 ; boxed rather than rejected — only null and undefined throw.
                 def wObj:EvalValue wRaw
-                if (wRaw.valueType == 2) { wObj = (this.makeWrapper("String" wRaw)) }
-                if (wRaw.valueType == 1) { wObj = (this.makeWrapper("Number" wRaw)) }
-                if (wRaw.valueType == 3) { wObj = (this.makeWrapper("Boolean" wRaw)) }
+                if (wRaw.isString()) { wObj = (this.makeWrapper("String" wRaw)) }
+                if (wRaw.isNumber()) { wObj = (this.makeWrapper("Number" wRaw)) }
+                if (wRaw.isBoolean()) { wObj = (this.makeWrapper("Boolean" wRaw)) }
                 def savedW:EvalContext context
                 context = (context.createChild())
                 anyWithScope = true
@@ -5777,10 +5777,10 @@ class ComponentEngine {
         if (opK == 2) {
             ; PERF fast path, mirroring `+`: plain strings and plain numbers
             ; skip the conversion dance (each toStringOf copies on natives).
-            if ((current.valueType == 2) && (rightValue.valueType == 2)) {
+            if ((current.isString()) && (rightValue.isString())) {
                 return (EvValueBridge.taggedString(current.stringValue + rightValue.stringValue))
             }
-            if ((current.valueType == 1) && (rightValue.valueType == 1)) {
+            if ((current.isNumber()) && (rightValue.isNumber())) {
                 return (EvValueBridge.taggedNumber(current.numberValue + rightValue.numberValue))
             }
             ; Same rule as `+`: BOTH operands convert first, and only then does
@@ -5946,7 +5946,7 @@ class ComponentEngine {
         ; text, not by whether the expression happened to be a number. `x["0"]`
         ; is the element and `x[-1]` is a property, and routing on the operand's
         ; type got both of those backwards.
-        if (obj.valueType == 4) {
+        if (obj.isArray()) {
             def ai0:int (this.canonicalArrayIndex(key))
             if (ai0 >= 0) {
                 numericIndexes = true
@@ -5991,7 +5991,7 @@ class ComponentEngine {
             ; value that is not a uint32 is a RangeError. It used to be stored as
             ; an ordinary property and ignored, so `x.length = 0` left the array
             ; untouched and every assertion about it read the old contents.
-            if (obj.valueType == 4) {
+            if (obj.isArray()) {
                 if (key == "length") {
                     def lenCur:EvalValue (EvalValue.fromInt((obj.arrayLength())))
                     def lenWant:EvalValue (this.applyAssignOp(opK lenCur rightValue))
@@ -6025,7 +6025,7 @@ class ComponentEngine {
             ; property. Without this the setter would be shadowed by a plain
             ; value and never run again.
             def sFn:EvalValue (this.resolveSetterOn(obj key))
-            if (sFn.valueType == 6) {
+            if (sFn.isFunction()) {
                 ; D-ARGUMENTS: a setter may be a BUILT-IN with no function node.
                 ; Only node-backed ones ran, so a poisoned accessor took the
                 ; write silently instead of throwing.
@@ -6037,7 +6037,7 @@ class ComponentEngine {
                 if sFn.functionNode {
                     def cur0:EvalValue (EvValueBridge.taggedUndefined())
                     def gFn0:EvalValue (this.resolveGetterOn(obj key))
-                    if (gFn0.valueType == 6) {
+                    if (gFn0.isFunction()) {
                         if gFn0.functionNode {
                             def noArgs0:[EvalValue]
                             def gb0:EvalValue (gFn0.withThis(obj))
@@ -6054,7 +6054,7 @@ class ComponentEngine {
             }
             ; D-STRICT: writing `caller` or `arguments` on a strict function is
             ; the same TypeError reading them is.
-            if (obj.valueType == 6) {
+            if (obj.isFunction()) {
                 if ((key == "caller") || (key == "arguments")) {
                     if (this.functionIsStrict(obj)) {
                         return (this.throwSpecError("TypeError" ("'" + key + "' may not be assigned on a strict function")))
@@ -6155,11 +6155,11 @@ class ComponentEngine {
                 ; getter that deletes itself still has the new value written
                 ; onto the object it came from.
                 def uw:EvalValue (this.withHostFor(varName))
-                if (uw.valueType == 5) {
+                if (uw.isObject()) {
                     def ucur:EvalValue (EvValueBridge.taggedUndefined())
                     if (has uw.getterMap varName) {
                         def ugf:EvalValue (uw.findGetter(varName 0))
-                        if (ugf.valueType == 6) {
+                        if (ugf.isFunction()) {
                             def ugArgs:[EvalValue]
                             ucur = (this.callFnValueWithValues((ugf.withThis(uw)) ugArgs))
                         }
@@ -6174,7 +6174,7 @@ class ComponentEngine {
                     def uold:double (this.toNumberOf(ucur))
                     def unew:EvalValue (EvValueBridge.taggedNumber((uold + delta)))
                     def usf:EvalValue (uw.findSetter(varName 0))
-                    if (usf.valueType == 6) {
+                    if (usf.isFunction()) {
                         def usArgs:[EvalValue]
                         push usArgs unew
                         def _us:EvalValue (this.callFnValueWithValues((usf.withThis(uw)) usArgs))
@@ -6195,7 +6195,7 @@ class ComponentEngine {
                 ; reading the scope alone said it did not exist.
                 def gObjU:EvalValue (this.theGlobalObject())
                 def onGlobalU:boolean false
-                if (gObjU.valueType == 5) {
+                if (gObjU.isObject()) {
                     onGlobalU = (has gObjU.objectMap varName)
                 }
                 if (false == (context.has(varName))) {
@@ -6414,14 +6414,14 @@ class ComponentEngine {
         ; ToNumber conversion; both are the general evaluator's business, so
         ; hand the node back whole. Re-evaluating the operands there is safe --
         ; transientOperandOk admitted only shapes that repeat without effect.
-        if (lv.valueType != 1) {
+        if (false == (lv.isNumber())) {
             return (this.evaluateExpr(node))
         }
         def rv:EvalValue (this.evaluateExprTransient((unwrap node.right)))
         if scriptThrew {
             return rv
         }
-        if (rv.valueType != 1) {
+        if (false == (rv.isNumber())) {
             return (this.evaluateExpr(node))
         }
         def a:double lv.numberValue
@@ -6487,7 +6487,7 @@ class ComponentEngine {
         if scriptThrew {
             return true
         }
-        if (rv.valueType != 1) {
+        if (false == (rv.isNumber())) {
             ; Not a number after all -- a string `+=`, an object with a valueOf.
             ; Finish the assignment here with the value already in hand. The
             ; preconditions above make this the whole of the general path: no
@@ -6551,11 +6551,11 @@ class ComponentEngine {
                     ; the declaration rules below, because such a name IS
                     ; resolvable even though no binding holds it.
                     def wobj:EvalValue preWith
-                    if (wobj.valueType == 5) {
+                    if (wobj.isObject()) {
                         def wcur:EvalValue (EvValueBridge.taggedUndefined())
                         if (has wobj.getterMap varName) {
                             def wgf:EvalValue (wobj.findGetter(varName 0))
-                            if (wgf.valueType == 6) {
+                            if (wgf.isFunction()) {
                                 def wgArgs2:[EvalValue]
                                 wcur = (this.callFnValueWithValues((wgf.withThis(wobj)) wgArgs2))
                             }
@@ -6572,7 +6572,7 @@ class ComponentEngine {
                             return (EvValueBridge.taggedUndefined())
                         }
                         def wsf:EvalValue (wobj.findSetter(varName 0))
-                        if (wsf.valueType == 6) {
+                        if (wsf.isFunction()) {
                             def wsArgs:[EvalValue]
                             push wsArgs wres
                             def _ws:EvalValue (this.callFnValueWithValues((wsf.withThis(wobj)) wsArgs))
@@ -6853,7 +6853,7 @@ class ComponentEngine {
             return
         }
         def argObj2:EvalValue (context.lookup("arguments"))
-        if (argObj2.valueType != 5) {
+        if (false == (argObj2.isObject())) {
             return
         }
         if (false == (has argObj2.objectMap "__arguments__")) {
@@ -6901,7 +6901,7 @@ class ComponentEngine {
     ; The parameter name index `key` of `obj` is mapped onto, or "" when the
     ; value is not a mapped arguments object or the index is not mapped.
     fn argMapName:string (obj:EvalValue key:string) {
-        if (obj.valueType != 5) {
+        if (false == (obj.isObject())) {
             return ""
         }
         if (false == (has obj.objectMap "__argscope__")) {
@@ -6941,7 +6941,7 @@ class ComponentEngine {
     ; landed on the parameter and the read came back with the parameter's value
     ; instead of the one just stored.
     fn unmapArgIndex:void (obj:EvalValue key:string) {
-        if (obj.valueType != 5) {
+        if (false == (obj.isObject())) {
             return
         }
         if (false == (has obj.objectMap "__argnames__")) {
@@ -7130,7 +7130,7 @@ class ComponentEngine {
     ; `Number.bind(null)` produced something callable-looking that nothing would
     ; call.
     fn builtinCtorNameOf:string (v:EvalValue) {
-        if (v.valueType != 6) {
+        if (false == (v.isFunction())) {
             return ""
         }
         if v.functionNode {
@@ -7296,7 +7296,7 @@ class ComponentEngine {
             return (this.invokeBuiltinStatic((fnValue.builtinNamespaceOf()) (fnValue.builtinNameOf()) argVals))
         }
         ; D-CTORVALUE: a built-in CONSTRUCTOR held as a value is callable.
-        if (fnValue.valueType == 6) {
+        if (fnValue.isFunction()) {
             if (has fnValue.objectMap "__fnprotocall__") {
                 return (EvValueBridge.taggedUndefined())
             }
@@ -7400,9 +7400,9 @@ class ComponentEngine {
                 if ((EvValueBridge.isNull(rawThis)) || (EvValueBridge.isUndefined(rawThis))) {
                     rawThis = (this.theGlobalObject())
                 } {
-                    if (rawThis.valueType == 2) { rawThis = (this.toObjectValue(rawThis)) }
-                    if (rawThis.valueType == 1) { rawThis = (this.toObjectValue(rawThis)) }
-                    if (rawThis.valueType == 3) { rawThis = (this.toObjectValue(rawThis)) }
+                    if (rawThis.isString()) { rawThis = (this.toObjectValue(rawThis)) }
+                    if (rawThis.isNumber()) { rawThis = (this.toObjectValue(rawThis)) }
+                    if (rawThis.isBoolean()) { rawThis = (this.toObjectValue(rawThis)) }
                 }
             }
             context.define("this" rawThis)
@@ -8476,7 +8476,7 @@ class ComponentEngine {
                 }
                 
                 if (false == quiet) {
-                    this.trace("Method call: " + methodName + " on value type=" + (to_string obj.valueType))
+                    this.trace("Method call: " + methodName + " on value type=" + (obj.kindName()))
                 }
 
                 ; user class instance: dispatch an instance method (with `this`),
@@ -8491,7 +8491,7 @@ class ComponentEngine {
                         return (this.callUserFunctionNode(uMethod node.children obj true))
                     }
                     def uField:EvalValue (obj.getMember(methodName))
-                    if (uField.valueType == 6) {
+                    if (uField.isFunction()) {
                         if uField.functionNode {
                             def uFn:TSNode (unwrap uField.functionNode)
                             def uHasThis:boolean false
@@ -8525,11 +8525,11 @@ class ComponentEngine {
                     }
                 }
                 def canHoldProps:boolean false
-                if (obj.valueType == 5) { canHoldProps = true }
-                if (obj.valueType == 6) { canHoldProps = true }
-                if (obj.valueType == 4) { canHoldProps = (has obj.objectMap methodName) }
-                if (obj.valueType == 9) { canHoldProps = (has obj.objectMap methodName) }
-                if (obj.valueType == 10) { canHoldProps = (has obj.objectMap methodName) }
+                if (obj.isObject()) { canHoldProps = true }
+                if (obj.isFunction()) { canHoldProps = true }
+                if (obj.isArray()) { canHoldProps = (has obj.objectMap methodName) }
+                if (obj.isMap()) { canHoldProps = (has obj.objectMap methodName) }
+                if (obj.isSet()) { canHoldProps = (has obj.objectMap methodName) }
                 if canHoldProps {
                     def objMember:EvalValue (obj.getMember(methodName))
                     ; D-CLASSOF: a built-in stored under some other name and then
@@ -8560,7 +8560,7 @@ class ComponentEngine {
                         return (this.callFnValueWithValues(biFn biArgs))
                     }
                     }
-                    if (objMember.valueType == 6) {
+                    if (objMember.isFunction()) {
                         if objMember.functionNode {
                             def objCargs:[EvalValue] (this.collectCallArgs(node))
                             ; D-PROTO: `o.m()` calls m with `this` = o, whether m
@@ -8607,7 +8607,7 @@ class ComponentEngine {
                 ; (11).myUp()` puts the method on Number.prototype, and the
                 ; number itself has no property map to find it in -- the lookup
                 ; has to go to its kind's prototype object.
-                if ((obj.valueType == 1) || (obj.valueType == 2) || (obj.valueType == 3) || (obj.valueType == 6) || (obj.valueType == 4)) {
+                if ((obj.isNumber()) || (obj.isString()) || (obj.isBoolean()) || (obj.isFunction()) || (obj.isArray())) {
                     def pcCtor:string (this.ctorNameForKind(rKind))
                     if ((strlen pcCtor) > 0) {
                         def kProto2:EvalValue (this.builtinPrototype(pcCtor))
@@ -8617,7 +8617,7 @@ class ComponentEngine {
                                 def bwArgs:[EvalValue] (this.collectCallArgs(node))
                                 return (this.invokeBuiltin((borrowed.builtinKindOf()) (borrowed.builtinNameOf()) obj bwArgs))
                             }
-                            if (borrowed.valueType == 6) {
+                            if (borrowed.isFunction()) {
                                 if borrowed.functionNode {
                                     def bwArgs2:[EvalValue] (this.collectCallArgs(node))
                                     return (this.callFnValueWithValues((borrowed.withThis(obj)) bwArgs2))
@@ -8792,14 +8792,14 @@ class ComponentEngine {
                         }
                     }
                     if (this.objectStaticNeedsObject(methodName)) {
-                        if (src.valueType != 5) {
+                        if (false == (src.isObject())) {
                             ; Arrays and functions are objects too; only true
                             ; primitives and null/undefined are rejected.
                             def okKind:boolean false
-                            if (src.valueType == 4) { okKind = true }
-                            if (src.valueType == 6) { okKind = true }
-                            if (src.valueType == 9) { okKind = true }
-                            if (src.valueType == 10) { okKind = true }
+                            if (src.isArray()) { okKind = true }
+                            if (src.isFunction()) { okKind = true }
+                            if (src.isMap()) { okKind = true }
+                            if (src.isSet()) { okKind = true }
                             ; Object.create(null) is legal and is the standard
                             ; way to make a prototype-less object, so null is
                             ; allowed for create alone.
@@ -8971,7 +8971,7 @@ class ComponentEngine {
                     if (methodName == "setPrototypeOf") {
                         if ((array_length node.children) > 1) {
                             def np:EvalValue (this.evaluateExpr((itemAt node.children 1)))
-                            if (np.valueType == 5) {
+                            if (np.isObject()) {
                                 src.protoRef = np
                             }
                         }
@@ -8981,7 +8981,7 @@ class ComponentEngine {
                         def keysC:[string]
                         def valsC:[EvalValue]
                         def created:EvalValue (EvValueBridge.taggedObject(keysC valsC))
-                        if (src.valueType == 5) {
+                        if (src.isObject()) {
                             created.protoRef = src
                         }
                         ; D-ATTRS: the optional second argument is a descriptor
@@ -9035,12 +9035,12 @@ class ComponentEngine {
                                 if (has src.setterMap dk) {
                                     sa = (unwrap (get src.setterMap dk))
                                 }
-                                if (ga.valueType == 6) {
+                                if (ga.isFunction()) {
                                     descA.setMember("get" ga)
                                 } {
                                     descA.setMember("get" (EvValueBridge.taggedUndefined()))
                                 }
-                                if (sa.valueType == 6) {
+                                if (sa.isFunction()) {
                                     descA.setMember("set" sa)
                                 } {
                                     descA.setMember("set" (EvValueBridge.taggedUndefined()))
@@ -9131,7 +9131,7 @@ class ComponentEngine {
                             ; so objHasKey said they were absent and the
                             ; descriptor came back undefined for three
                             ; properties every function has.
-                            if (src.valueType == 6) {
+                            if (src.isFunction()) {
                                 if ((dk == "length") || (dk == "name")) {
                                     if (false == (has src.objectMap dk)) {
                                         def keysF:[string]
@@ -9290,7 +9290,7 @@ class ComponentEngine {
                 ; used pervasively — Test262 reaches for them constantly to invoke
                 ; a function with a chosen receiver, so their absence failed tests
                 ; that were not about them at all.
-                if (obj.valueType == 6) {
+                if (obj.isFunction()) {
                     if obj.functionNode {
                         if (methodName == "call") {
                             def callThis:EvalValue (EvValueBridge.taggedUndefined())
@@ -9396,11 +9396,11 @@ class ComponentEngine {
                         ; looking at all -- `String.prototype.isPrototypeOf('a')`
                         ; is false, even though 'a' dispatches to it.
                         def candIsObj:boolean false
-                        if (cand.valueType == 4) { candIsObj = true }
-                        if (cand.valueType == 5) { candIsObj = true }
-                        if (cand.valueType == 6) { candIsObj = true }
-                        if (cand.valueType == 9) { candIsObj = true }
-                        if (cand.valueType == 10) { candIsObj = true }
+                        if (cand.isArray()) { candIsObj = true }
+                        if (cand.isObject()) { candIsObj = true }
+                        if (cand.isFunction()) { candIsObj = true }
+                        if (cand.isMap()) { candIsObj = true }
+                        if (cand.isSet()) { candIsObj = true }
                         if (false == candIsObj) {
                             return (EvValueBridge.taggedBoolean(false))
                         }
@@ -9435,7 +9435,7 @@ class ComponentEngine {
                 ; arguments, and reporting "prototype is not a function" was the
                 ; opposite of what `typeof` had just said about it.
                 def memberVal:EvalValue (obj.getMember(methodName))
-                if (memberVal.valueType == 6) {
+                if (memberVal.isFunction()) {
                     if (has memberVal.objectMap "__fnprotocall__") {
                         def _fpArgs2:[EvalValue] (this.collectCallArgs(node))
                         if scriptThrew {
@@ -9447,20 +9447,20 @@ class ComponentEngine {
                 this.trace("Warning: Unhandled method call: " + methodName)
                 if strictReferences {
                     def rcvHolds:boolean false
-                    if (obj.valueType == 5) { rcvHolds = true }
-                    if (obj.valueType == 6) { rcvHolds = true }
+                    if (obj.isObject()) { rcvHolds = true }
+                    if (obj.isFunction()) { rcvHolds = true }
                     ; D-REGISTRY: arrays join the list now that the registry says
                     ; exactly which methods an array has. Before, an unregistered
                     ; name could still have been served by the unguarded block,
                     ; so throwing would have been wrong.
-                    if (obj.valueType == 4) { rcvHolds = true }
+                    if (obj.isArray()) { rcvHolds = true }
                     ; An ACCESSOR whose value is not callable still runs its
                     ; getter first -- `o.bar(foo())` where bar is a getter
                     ; returning 42 must call the getter, then throw.
-                    if (obj.valueType == 5) {
+                    if (obj.isObject()) {
                         if (has obj.getterMap methodName) {
                             def accG:EvalValue (obj.findGetter(methodName 0))
-                            if (accG.valueType == 6) {
+                            if (accG.isFunction()) {
                                 def accArgs:[EvalValue]
                                 def accOut:EvalValue (this.callFnValueWithValues((accG.withThis(obj)) accArgs))
                                 if scriptThrew {
@@ -9470,7 +9470,7 @@ class ComponentEngine {
                                 if scriptThrew {
                                     return (EvValueBridge.taggedUndefined())
                                 }
-                                if (accOut.valueType == 6) {
+                                if (accOut.isFunction()) {
                                     return (this.callFnValueWithValues(accOut accCallArgs))
                                 }
                                 return (this.throwSpecError("TypeError" (methodName + " is not a function")))
@@ -9480,9 +9480,9 @@ class ComponentEngine {
                     ; A primitive receiver too: `(5).nope()` is a TypeError, not
                     ; a silent undefined. Only null and undefined receivers are
                     ; left out, and those fail earlier on the property read.
-                    if (obj.valueType == 1) { rcvHolds = true }
-                    if (obj.valueType == 2) { rcvHolds = true }
-                    if (obj.valueType == 3) { rcvHolds = true }
+                    if (obj.isNumber()) { rcvHolds = true }
+                    if (obj.isString()) { rcvHolds = true }
+                    if (obj.isBoolean()) { rcvHolds = true }
                     if rcvHolds {
                         ; The ARGUMENTS are evaluated before the callability
                         ; check, per spec, so `o.bar(foo())` still runs foo().
@@ -9508,7 +9508,7 @@ class ComponentEngine {
             if isSuperCall {
                 {
                     def selfV:EvalValue (context.lookup("this"))
-                    if (selfV.valueType == 5) {
+                    if (selfV.isObject()) {
                         def ownCls:string (this.instanceClassName(selfV))
                         def ownNode:TSNode (this.classNodeByName(ownCls))
                         if ((this.nodeKindOf(ownNode)) == 25) {
@@ -9708,7 +9708,7 @@ class ComponentEngine {
                         this.trace("useImage arg nodeType: " + argNode.nodeType)
                         def argValue:EvalValue (this.evaluateExpr(argNode))
                         if (false == quiet) {
-                            this.trace("useImage arg value: " + (argValue.toString()) + " type=" + (to_string argValue.valueType))
+                            this.trace("useImage arg value: " + (argValue.toString()) + " type=" + (argValue.kindName()))
                         }
                         srcArg = argValue.stringValue
                         this.trace("useImage srcArg: " + srcArg)
@@ -9727,7 +9727,7 @@ class ComponentEngine {
                 ; Look up the function in context
                 def fnValue:EvalValue (context.lookup(fnName))
                 if (false == quiet) {
-                    this.trace("Lookup function '" + fnName + "' -> type=" + (to_string fnValue.valueType) + " isFunction=" + (to_string (EvValueBridge.isFunction(fnValue))))
+                    this.trace("Lookup function '" + fnName + "' -> type=" + (fnValue.kindName()) + " isFunction=" + (to_string (EvValueBridge.isFunction(fnValue))))
                 }
                 ; D-REGISTRY: a built-in held in a variable is callable like any
                 ; other function value. It has no functionNode, so the paths
@@ -9867,7 +9867,7 @@ class ComponentEngine {
                     if scriptThrew {
                         return (EvValueBridge.taggedUndefined())
                     }
-                    if (innerV.valueType == 6) {
+                    if (innerV.isFunction()) {
                         def innerArgs:[EvalValue] (this.collectCallArgs(node))
                         return (this.callFnValueWithValues(innerV innerArgs))
                     }
@@ -10030,13 +10030,13 @@ class ComponentEngine {
                         } {
                         if (context.has(irName)) {
                             def irVal:EvalValue (context.lookup(irName))
-                            if (irVal.valueType != 6) {
+                            if (false == (irVal.isFunction())) {
                                 return (this.throwSpecError("TypeError" "Right-hand side of 'instanceof' is not callable"))
                             }
                         } {
                             if (this.isEngineGlobalName(irName)) {
                                 def irG:EvalValue (this.builtinGlobalObject(irName))
-                                if (irG.valueType != 6) {
+                                if (false == (irG.isFunction())) {
                                     return (this.throwSpecError("TypeError" "Right-hand side of 'instanceof' is not callable"))
                                 }
                             }
@@ -10048,7 +10048,7 @@ class ComponentEngine {
                     }
                     if (irKind == "ThisExpression") {
                         def irThis:EvalValue (this.evaluateExpr(instRight))
-                        if (irThis.valueType != 6) {
+                        if (false == (irThis.isFunction())) {
                             return (this.throwSpecError("TypeError" "Right-hand side of 'instanceof' is not callable"))
                         }
                     }
@@ -10063,8 +10063,8 @@ class ComponentEngine {
                 ; prototype-chain answer (including the TypeError for a
                 ; non-object F.prototype) has to be reached the same way.
                 def lvObjectLike:boolean (EvValueBridge.isObject(lv))
-                if (lv.valueType == 6) { lvObjectLike = true }
-                if (lv.valueType == 4) { lvObjectLike = true }
+                if (lv.isFunction()) { lvObjectLike = true }
+                if (lv.isArray()) { lvObjectLike = true }
                 if lvObjectLike {
                     def tag:EvalValue (lv.getMember("__class__"))
                     if (EvValueBridge.isString(tag)) {
@@ -10089,12 +10089,12 @@ class ComponentEngine {
                     ; misses the spec's TypeError for a non-object prototype.
                     if node.right {
                         def rvF:EvalValue (this.evaluateExpr((unwrap node.right)))
-                        if (rvF.valueType == 6) {
+                        if (rvF.isFunction()) {
                             def protoF:EvalValue (rvF.getMember("prototype"))
                             def protoIsObject:boolean false
-                            if (protoF.valueType == 5) { protoIsObject = true }
-                            if (protoF.valueType == 4) { protoIsObject = true }
-                            if (protoF.valueType == 6) { protoIsObject = true }
+                            if (protoF.isObject()) { protoIsObject = true }
+                            if (protoF.isArray()) { protoIsObject = true }
+                            if (protoF.isFunction()) { protoIsObject = true }
                             if (false == protoIsObject) {
                                 return (this.throwSpecError("TypeError" "Function has non-object prototype in instanceof"))
                             }
@@ -10120,10 +10120,10 @@ class ComponentEngine {
                     ;   if (!(this instanceof F)) return new F(...)
                     ; terminate instead of recursing forever.
                     def ctorHere:EvalValue (lv.getMember("constructor"))
-                    if (ctorHere.valueType == 6) {
+                    if (ctorHere.isFunction()) {
                         if node.right {
                             def rv:EvalValue (this.evaluateExpr((unwrap node.right)))
-                            if (rv.valueType == 6) {
+                            if (rv.isFunction()) {
                                 return (EvValueBridge.taggedBoolean((ctorHere.equals(rv))))
                             }
                         }
@@ -10178,11 +10178,11 @@ class ComponentEngine {
                 return (EvValueBridge.taggedUndefined())
             }
             def inHolds:boolean false
-            if (right.valueType == 4) { inHolds = true }
-            if (right.valueType == 5) { inHolds = true }
-            if (right.valueType == 6) { inHolds = true }
-            if (right.valueType == 9) { inHolds = true }
-            if (right.valueType == 10) { inHolds = true }
+            if (right.isArray()) { inHolds = true }
+            if (right.isObject()) { inHolds = true }
+            if (right.isFunction()) { inHolds = true }
+            if (right.isMap()) { inHolds = true }
+            if (right.isSet()) { inHolds = true }
             if (false == inHolds) {
                 return (this.throwSpecError("TypeError" "Cannot use 'in' operator on a non-object"))
             }
@@ -10210,11 +10210,11 @@ class ComponentEngine {
             ; PERF fast path: two plain strings concatenate directly. The
             ; toPrimitive/toString dance below is a no-op for them, but on
             ; the native targets each toStringOf COPIES its operand first.
-            if ((left.valueType == 2) && (right.valueType == 2)) {
+            if ((left.isString()) && (right.isString())) {
                 return (EvValueBridge.taggedString(left.stringValue + right.stringValue))
             }
             ; two plain numbers add directly the same way
-            if ((left.valueType == 1) && (right.valueType == 1)) {
+            if ((left.isNumber()) && (right.isNumber())) {
                 return (EvValueBridge.taggedNumber(left.numberValue + right.numberValue))
             }
             ; D-TOPRIMITIVE: both operands convert FIRST, and only then does the
@@ -10478,15 +10478,15 @@ class ComponentEngine {
     ; constructors answer 0 for their own primitive: `'a' instanceof String` is
     ; false while `new String('a') instanceof String` is true.
     fn builtinInstanceOf:int (v:EvalValue cname:string) {
-        if ((v.valueType == 0) || (EvValueBridge.isUndefined(v))) {
+        if ((v.isNull()) || (EvValueBridge.isUndefined(v))) {
             return 0
         }
         def isObjectLike:boolean false
-        if (v.valueType == 4) { isObjectLike = true }
-        if (v.valueType == 5) { isObjectLike = true }
-        if (v.valueType == 6) { isObjectLike = true }
-        if (v.valueType == 9) { isObjectLike = true }
-        if (v.valueType == 10) { isObjectLike = true }
+        if (v.isArray()) { isObjectLike = true }
+        if (v.isObject()) { isObjectLike = true }
+        if (v.isFunction()) { isObjectLike = true }
+        if (v.isMap()) { isObjectLike = true }
+        if (v.isSet()) { isObjectLike = true }
         if (false == isObjectLike) {
             return 0
         }
@@ -10494,24 +10494,24 @@ class ComponentEngine {
             return 1
         }
         if (cname == "Function") {
-            if (v.valueType == 6) { return 1 }
+            if (v.isFunction()) { return 1 }
             return 0
         }
         if (cname == "Array") {
-            if (v.valueType == 4) { return 1 }
+            if (v.isArray()) { return 1 }
             if ((this.protoChainKind(v)) == "array") { return 1 }
             return 0
         }
         if (cname == "Map") {
-            if (v.valueType == 9) { return 1 }
+            if (v.isMap()) { return 1 }
             return 0
         }
         if (cname == "Set") {
-            if (v.valueType == 10) { return 1 }
+            if (v.isSet()) { return 1 }
             return 0
         }
         if (this.isWrapperCtorName(cname)) {
-            if (v.valueType == 5) {
+            if (v.isObject()) {
                 if (has v.objectMap "__wrapper__") {
                     return (this.boolAsInt(((this.objectClassOf(v)) == cname)))
                 }
@@ -10819,12 +10819,12 @@ class ComponentEngine {
                 }
             }
             if (this.objectStaticNeedsObject(name)) {
-                if (a0.valueType != 5) {
+                if (false == (a0.isObject())) {
                     def okKind:boolean false
-                    if (a0.valueType == 4) { okKind = true }
-                    if (a0.valueType == 6) { okKind = true }
-                    if (a0.valueType == 9) { okKind = true }
-                    if (a0.valueType == 10) { okKind = true }
+                    if (a0.isArray()) { okKind = true }
+                    if (a0.isFunction()) { okKind = true }
+                    if (a0.isMap()) { okKind = true }
+                    if (a0.isSet()) { okKind = true }
                     if (false == okKind) {
                         return (this.throwSpecError("TypeError" ("Object." + name + " called on a non-object")))
                     }
@@ -11464,7 +11464,7 @@ class ComponentEngine {
         ; Safe against the cycle (global sets prototype, prototype sets
         ; constructor) because both cache their object BEFORE populating it.
         def ctorG:EvalValue (this.builtinGlobalObject(nsName))
-        if (ctorG.valueType != 0) {
+        if (false == (ctorG.isNull())) {
             p.setMember("constructor" ctorG)
             ; Non-enumerable, like every other property of a built-in prototype.
             p.setAttrs("constructor" true false true)
@@ -11597,14 +11597,14 @@ class ComponentEngine {
                 return kp
             }
         }
-        if (v.valueType == 5) {
+        if (v.isObject()) {
             return objProto
         }
         return (EvValueBridge.taggedNull())
     }
 
     fn protoChainKind:string (v:EvalValue) {
-        if (v.valueType != 5) {
+        if (false == (v.isObject())) {
             return ""
         }
         def cur:EvalValue v
@@ -11614,7 +11614,7 @@ class ComponentEngine {
                 return ""
             }
             def nxt:EvalValue (unwrap cur.protoRef)
-            if (nxt.valueType != 5) {
+            if (false == (nxt.isObject())) {
                 return (this.receiverKind(nxt))
             }
             if (has nxt.objectMap "__protokind__") {
@@ -11629,22 +11629,22 @@ class ComponentEngine {
     fn receiverKind:string (v:EvalValue) {
         ; D-WRAPPER: a boxed primitive dispatches as its primitive kind, which
         ; is what makes `new String('a').toUpperCase()` reach String.prototype.
-        if (v.valueType == 5) {
+        if (v.isObject()) {
             if (has v.objectMap "__primitive__") {
                 def inner:EvalValue (unwrap (get v.objectMap "__primitive__"))
-                if (inner.valueType == 2) { return "string" }
-                if (inner.valueType == 1) { return "number" }
-                if (inner.valueType == 3) { return "boolean" }
+                if (inner.isString()) { return "string" }
+                if (inner.isNumber()) { return "number" }
+                if (inner.isBoolean()) { return "boolean" }
             }
         }
-        if (v.valueType == 2) { return "string" }
-        if (v.valueType == 4) { return "array" }
-        if (v.valueType == 1) { return "number" }
-        if (v.valueType == 3) { return "boolean" }
-        if (v.valueType == 6) { return "function" }
-        if (v.valueType == 9) { return "map" }
-        if (v.valueType == 10) { return "set" }
-        if (v.valueType == 5) {
+        if (v.isString()) { return "string" }
+        if (v.isArray()) { return "array" }
+        if (v.isNumber()) { return "number" }
+        if (v.isBoolean()) { return "boolean" }
+        if (v.isFunction()) { return "function" }
+        if (v.isMap()) { return "map" }
+        if (v.isSet()) { return "set" }
+        if (v.isObject()) {
             ; D-REGEX: a RegExp dispatches to its own prototype so exec/test do
             ; not have to be looked for among the Object methods.
             if (has v.objectMap "__regex__") { return "regexp" }
@@ -12112,6 +12112,9 @@ class ComponentEngine {
     fn elementToString:string (v:EvalValue) {
         if (EvValueBridge.isNull(v)) { return "" }
         if (EvValueBridge.isUndefined(v)) { return "" }
+        ; Hole used to share valueType 8 with Undefined; now it is its own
+        ; kind, so join/toString must skip it explicitly (spec: empty string).
+        if (EvValueBridge.isHole(v)) { return "" }
         if (EvValueBridge.isArrayValue(v)) {
             return (this.arrayJoinString(v ","))
         }
@@ -12190,7 +12193,7 @@ class ComponentEngine {
             if scriptThrew {
                 return (EvValueBridge.taggedUndefined())
             }
-            if (only.valueType == 2) {
+            if (only.isString()) {
                 ms = (dtm.parseISO(only.stringValue))
             } {
                 ms = (dtm.timeClip((this.toNumberOf(only))))
@@ -12329,7 +12332,7 @@ class ComponentEngine {
     ; the time value lives on the object, so there is nothing to compute from a
     ; receiver that has none.
     fn invokeDateMethod:EvalValue (name:string recv:EvalValue args:[EvalValue]) {
-        if (recv.valueType != 5) {
+        if (false == (recv.isObject())) {
             return (this.throwSpecError("TypeError" ("Date.prototype." + name + " called on a non-Date")))
         }
         if (false == (has recv.objectMap "__date__")) {
@@ -12553,7 +12556,7 @@ class ComponentEngine {
             return (EvValueBridge.taggedNull())
         }
         def m:EvalValue (unwrap (get p.objectMap name))
-        if (m.valueType != 6) {
+        if (false == (m.isFunction())) {
             return (EvValueBridge.taggedNull())
         }
         ; PERF: ask the VALUE whether it is still the registered built-in rather
@@ -12571,7 +12574,7 @@ class ComponentEngine {
 
     fn invokeBuiltin:EvalValue (kind:string name:string recv:EvalValue args:[EvalValue]) {
         def override:EvalValue (this.overriddenPrototypeMethod(kind name))
-        if (override.valueType == 6) {
+        if (override.isFunction()) {
             return (this.callFnValueWithValues((override.withThis(recv)) args))
         }
         ; D-THISCHECK: Number.prototype and Boolean.prototype methods require a
@@ -12585,13 +12588,13 @@ class ComponentEngine {
         ; String block already does.
         if (kind == "number") {
             def numRecv:EvalValue (this.unwrapPrimitive(recv))
-            if (numRecv.valueType != 1) {
+            if (false == (numRecv.isNumber())) {
                 return (this.throwSpecError("TypeError" ("Number.prototype." + name + " called on a non-number")))
             }
         }
         if (kind == "boolean") {
             def boolRecv:EvalValue (this.unwrapPrimitive(recv))
-            if (boolRecv.valueType != 3) {
+            if (false == (boolRecv.isBoolean())) {
                 return (this.throwSpecError("TypeError" ("Boolean.prototype." + name + " called on a non-boolean")))
             }
         }
@@ -12618,7 +12621,7 @@ class ComponentEngine {
         ; to find them there.
         if (kind == "regexpget") {
             def isRe:boolean false
-            if (recv.valueType == 5) {
+            if (recv.isObject()) {
                 if (has recv.objectMap "__regex__") { isRe = true }
             }
             if (false == isRe) {
@@ -12704,11 +12707,11 @@ class ComponentEngine {
             }
             def cand0:EvalValue (itemAt args 0)
             def candObj:boolean false
-            if (cand0.valueType == 4) { candObj = true }
-            if (cand0.valueType == 5) { candObj = true }
-            if (cand0.valueType == 6) { candObj = true }
-            if (cand0.valueType == 9) { candObj = true }
-            if (cand0.valueType == 10) { candObj = true }
+            if (cand0.isArray()) { candObj = true }
+            if (cand0.isObject()) { candObj = true }
+            if (cand0.isFunction()) { candObj = true }
+            if (cand0.isMap()) { candObj = true }
+            if (cand0.isSet()) { candObj = true }
             if (false == candObj) {
                 return (EvValueBridge.taggedBoolean(false))
             }
@@ -12790,7 +12793,7 @@ class ComponentEngine {
                 return (EvValueBridge.taggedString(("[object " + (this.objectClassOf(recv)) + "]")))
             }
             if (kind == "function") {
-                if (recv.valueType != 6) {
+                if (false == (recv.isFunction())) {
                     return (this.throwSpecError("TypeError" "Function.prototype.toString called on a non-function"))
                 }
                 return (EvValueBridge.taggedString((this.functionSourceText(recv))))
@@ -12816,7 +12819,7 @@ class ComponentEngine {
             if (kind == "error") {
                 return (EvValueBridge.taggedString((this.errorToString(recv))))
             }
-            if (recv.valueType == 5) {
+            if (recv.isObject()) {
                 if (has recv.objectMap "__error__") {
                     return (EvValueBridge.taggedString((this.errorToString(recv))))
                 }
@@ -12826,7 +12829,7 @@ class ComponentEngine {
             ; `String(Error.prototype)` used to print the property map. A
             ; PRIMITIVE receiver still renders itself, which is what makes
             ; `(5).toString()` "5".
-            if (recv.valueType == 5) {
+            if (recv.isObject()) {
                 return (EvValueBridge.taggedString(("[object " + (this.objectClassOf(recv)) + "]")))
             }
             return (EvValueBridge.taggedString((recv.toString())))
@@ -13144,7 +13147,7 @@ class ComponentEngine {
                                 }
                             }
                         }
-                        if (sepRe.valueType == 5) {
+                        if (sepRe.isObject()) {
                             def spProg:RegexProgram (this.compileRegexOf(sepRe))
                             if (false == spProg.valid) {
                                 return (this.throwSpecError("SyntaxError" ("Invalid regular expression: " + spProg.errorMessage)))
@@ -13331,7 +13334,7 @@ class ComponentEngine {
                         if ((array_length args) > 1) {
                             rrep = (itemAt args 1)
                         }
-                        def repIsFn:boolean (rrep.valueType == 6)
+                        def repIsFn:boolean (rrep.isFunction())
                         ; Spec order: the SEARCH value is converted before the
                         ; replacement, so when both throw it is the search
                         ; value's exception that escapes. A non-RegExp pattern
@@ -13663,7 +13666,7 @@ class ComponentEngine {
                 if ((array_length args) > 0) {
                     cb0 = (itemAt args 0)
                 }
-                if (cb0.valueType != 6) {
+                if (false == (cb0.isFunction())) {
                     return (this.throwSpecError("TypeError" (name + " requires a function argument")))
                 }
             }
@@ -14395,7 +14398,7 @@ class ComponentEngine {
             ; call/apply/bind operate ON a function. Reaching them with a
             ; non-callable receiver — `var c = f.call; c(x)` — is a TypeError,
             ; which is exactly what an unbound extraction must produce.
-            if (recv.valueType != 6) {
+            if (false == (recv.isFunction())) {
                 return (this.throwSpecError("TypeError" (name + " called on a non-function")))
             }
             if (name == "call") {
@@ -14427,14 +14430,14 @@ class ComponentEngine {
                     ; TypeError rather than an empty argument list.
                     if (false == ((EvValueBridge.isNull(arr)) || (EvValueBridge.isUndefined(arr)))) {
                         def okArgs:boolean false
-                        if (arr.valueType == 4) { okArgs = true }
-                        if (arr.valueType == 5) { okArgs = true }
+                        if (arr.isArray()) { okArgs = true }
+                        if (arr.isObject()) { okArgs = true }
                         ; A FUNCTION is an object with a length, and so are Map
                         ; and Set -- `fun.apply("", Array)` forwards Array's one
                         ; declared parameter rather than being a TypeError.
-                        if (arr.valueType == 6) { okArgs = true }
-                        if (arr.valueType == 9) { okArgs = true }
-                        if (arr.valueType == 10) { okArgs = true }
+                        if (arr.isFunction()) { okArgs = true }
+                        if (arr.isMap()) { okArgs = true }
+                        if (arr.isSet()) { okArgs = true }
                         if (false == okArgs) {
                             return (this.throwSpecError("TypeError" "CreateListFromArrayLike called on non-object"))
                         }
@@ -14514,10 +14517,10 @@ class ComponentEngine {
     ; "object", which the old passthrough got wrong. null/undefined (and the
     ; no-argument form, which arrives as a null EvalValue) make a fresh object.
     fn toObjectValue:EvalValue (v:EvalValue) {
-        if (v.valueType == 2) { return (this.makeWrapper("String" v)) }
-        if (v.valueType == 1) { return (this.makeWrapper("Number" v)) }
-        if (v.valueType == 3) { return (this.makeWrapper("Boolean" v)) }
-        if ((v.valueType == 0) || (EvValueBridge.isUndefined(v))) {
+        if (v.isString()) { return (this.makeWrapper("String" v)) }
+        if (v.isNumber()) { return (this.makeWrapper("Number" v)) }
+        if (v.isBoolean()) { return (this.makeWrapper("Boolean" v)) }
+        if ((v.isNull()) || (EvValueBridge.isUndefined(v))) {
             def keysO:[string]
             def valsO:[EvalValue]
             def o:EvalValue (EvValueBridge.taggedObject(keysO valsO))
@@ -14533,7 +14536,7 @@ class ComponentEngine {
         def w:EvalValue (EvValueBridge.taggedObject(keysW valsW))
         def p:EvalValue prim
         if (ctorName == "String") {
-            if (prim.valueType == 0) {
+            if (prim.isNull()) {
                 p = (EvValueBridge.taggedString(""))
             } {
                 p = (EvValueBridge.taggedString((this.toStringOf(prim))))
@@ -14543,7 +14546,7 @@ class ComponentEngine {
             ; `new Number()` is +0, but `new Number(undefined)` is NaN -- the
             ; absence of an argument and an undefined argument are different
             ; things, and the caller signals which by passing a null EvalValue.
-            if (prim.valueType == 0) {
+            if (prim.isNull()) {
                 p = (EvValueBridge.taggedNumber(0.0))
             } {
                 p = (EvValueBridge.taggedNumber((this.toNumberOf(prim))))
@@ -14590,13 +14593,13 @@ class ComponentEngine {
     ; --------------------------------------------------------------------------
     fn objectClassOf:string (v:EvalValue) {
         if (EvValueBridge.isUndefined(v)) { return "Undefined" }
-        if (v.valueType == 0) { return "Null" }
-        if (v.valueType == 4) { return "Array" }
-        if (v.valueType == 6) { return "Function" }
-        if (v.valueType == 2) { return "String" }
-        if (v.valueType == 1) { return "Number" }
-        if (v.valueType == 3) { return "Boolean" }
-        if (v.valueType == 5) {
+        if (v.isNull()) { return "Null" }
+        if (v.isArray()) { return "Array" }
+        if (v.isFunction()) { return "Function" }
+        if (v.isString()) { return "String" }
+        if (v.isNumber()) { return "Number" }
+        if (v.isBoolean()) { return "Boolean" }
+        if (v.isObject()) {
             if (has v.objectMap "__nsbrand__") {
                 return ((unwrap (get v.objectMap "__nsbrand__")).toString())
             }
@@ -14616,7 +14619,7 @@ class ComponentEngine {
 
     ; The primitive inside a wrapper, or the value itself when it is not one.
     fn unwrapPrimitive:EvalValue (v:EvalValue) {
-        if (v.valueType == 5) {
+        if (v.isObject()) {
             if (has v.objectMap "__primitive__") {
                 return (unwrap (get v.objectMap "__primitive__"))
             }
@@ -14648,18 +14651,18 @@ class ComponentEngine {
         ; looked for there. Without this, `Array.prototype.toString = …` was
         ; invisible to every conversion.
         def needsProtoLookup:boolean false
-        if (m.valueType != 6) { needsProtoLookup = true }
-        if (m.valueType == 6) {
+        if (false == (m.isFunction())) { needsProtoLookup = true }
+        if (m.isFunction()) {
             if (null? m.functionNode) { needsProtoLookup = true }
         }
         if needsProtoLookup {
             def pcn:string (this.ctorNameForKind((this.receiverKind(obj))))
             if ((strlen pcn) > 0) {
-                if (obj.valueType != 5) {
+                if (false == (obj.isObject())) {
                     def kp:EvalValue (this.builtinPrototype(pcn))
                     if (has kp.objectMap name) {
                         def kpm:EvalValue (unwrap (get kp.objectMap name))
-                        if (kpm.valueType == 6) {
+                        if (kpm.isFunction()) {
                             if kpm.functionNode {
                                 return kpm
                             }
@@ -14683,7 +14686,7 @@ class ComponentEngine {
             ; presence alone does not mean the guest supplied one. What settles
             ; it is whether the value has a body the engine would run.
             def own:EvalValue (unwrap (get v.objectMap name))
-            if (own.valueType == 6) {
+            if (own.isFunction()) {
                 if (null? own.functionNode) {
                     return true
                 }
@@ -14691,7 +14694,7 @@ class ComponentEngine {
             return false
         }
         def m:EvalValue (this.resolvePrimitiveMethod(v name))
-        if (m.valueType == 6) {
+        if (m.isFunction()) {
             if (null? m.functionNode) {
                 return true
             }
@@ -14700,7 +14703,7 @@ class ComponentEngine {
         ; Nothing resolved at all. An ARRAY or FUNCTION has no prototype object
         ; of its own, so the built-in it would run is not reachable as a value
         ; and the lookup comes back null -- that is still the default.
-        if (m.valueType == 0) {
+        if (m.isNull()) {
             return true
         }
         ; Present but not a function: not the default, and not usable either.
@@ -14729,17 +14732,17 @@ class ComponentEngine {
                 if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
                 }
-                if (bpOut.valueType == 5) { return (EvValueBridge.taggedNull()) }
-                if (bpOut.valueType == 4) { return (EvValueBridge.taggedNull()) }
-                if (bpOut.valueType == 6) { return (EvValueBridge.taggedNull()) }
+                if (bpOut.isObject()) { return (EvValueBridge.taggedNull()) }
+                if (bpOut.isArray()) { return (EvValueBridge.taggedNull()) }
+                if (bpOut.isFunction()) { return (EvValueBridge.taggedNull()) }
                 primitiveMethodUsable = true
-                if (bpOut.valueType == 0) {
+                if (bpOut.isNull()) {
                     return (EvValueBridge.taggedUndefined())
                 }
                 return bpOut
             }
         }
-        if (m.valueType == 6) {
+        if (m.isFunction()) {
             if m.functionNode {
                 def noArgs:[EvalValue]
                 def bound:EvalValue (m.withThis(obj))
@@ -14753,13 +14756,13 @@ class ComponentEngine {
                 }
                 ; An OBJECT result is not a primitive, so the method is skipped
                 ; and the other one tried. Arrays and functions are objects too.
-                if (out.valueType == 5) {
+                if (out.isObject()) {
                     return (EvValueBridge.taggedNull())
                 }
-                if (out.valueType == 4) {
+                if (out.isArray()) {
                     return (EvValueBridge.taggedNull())
                 }
-                if (out.valueType == 6) {
+                if (out.isFunction()) {
                     return (EvValueBridge.taggedNull())
                 }
                 ; A method that falls off its end returns UNDEFINED, which is a
@@ -14767,7 +14770,7 @@ class ComponentEngine {
                 ; null, which is also this function's "not usable" sentinel, so
                 ; the two are told apart by the flag rather than by the value.
                 primitiveMethodUsable = true
-                if (out.valueType == 0) {
+                if (out.isNull()) {
                     return (EvValueBridge.taggedUndefined())
                 }
                 return out
@@ -14826,7 +14829,7 @@ class ComponentEngine {
     fn defaultPrimitiveOf:EvalValue (v:EvalValue) {
         ; A boxed primitive IS its primitive: both of its inherited methods
         ; report it, so either hint lands here.
-        if (v.valueType == 5) {
+        if (v.isObject()) {
             if (has v.objectMap "__primitive__") {
                 return (unwrap (get v.objectMap "__primitive__"))
             }
@@ -14844,10 +14847,10 @@ class ComponentEngine {
             }
             return (EvValueBridge.taggedString(("[object " + (this.objectClassOf(v)) + "]")))
         }
-        if (v.valueType == 4) {
+        if (v.isArray()) {
             return (EvValueBridge.taggedString((this.arrayJoinString(v ","))))
         }
-        if (v.valueType == 6) {
+        if (v.isFunction()) {
             return (EvValueBridge.taggedString((this.functionSourceText(v))))
         }
         return (EvValueBridge.taggedString(("[object " + (this.objectClassOf(v)) + "]")))
@@ -14863,7 +14866,7 @@ class ComponentEngine {
     ; primitive, and a Date reports its time value. `+new Date(6)` is 6 for
     ; exactly this reason.
     fn defaultValueOfIsPrimitive:boolean (v:EvalValue) {
-        if (v.valueType != 5) {
+        if (false == (v.isObject())) {
             return false
         }
         if (has v.objectMap "__primitive__") {
@@ -14886,7 +14889,7 @@ class ComponentEngine {
     }
 
     fn toPrimitiveDefault:EvalValue (v:EvalValue) {
-        if (v.valueType == 5) {
+        if (v.isObject()) {
             if (has v.objectMap "__date__") {
                 return (this.toPrimitive(v true))
             }
@@ -14903,9 +14906,9 @@ class ComponentEngine {
         ; primitive short-circuited to its primitive before either method got a
         ; turn: `(new String("ABC")).valueOf = f` had no effect.
         def objLike:boolean false
-        if (v.valueType == 4) { objLike = true }
-        if (v.valueType == 5) { objLike = true }
-        if (v.valueType == 6) { objLike = true }
+        if (v.isArray()) { objLike = true }
+        if (v.isObject()) { objLike = true }
+        if (v.isFunction()) { objLike = true }
         if (objLike == false) {
             return v
         }
@@ -15226,7 +15229,7 @@ class ComponentEngine {
             }
             if hasGet {
                 def g:EvalValue (this.descGet(d "get"))
-                if (g.valueType != 6) {
+                if (false == (g.isFunction())) {
                     if (false == (EvValueBridge.isUndefined(g))) {
                         return "getter must be a function"
                     }
@@ -15234,7 +15237,7 @@ class ComponentEngine {
             }
             if hasSet {
                 def st:EvalValue (this.descGet(d "set"))
-                if (st.valueType != 6) {
+                if (false == (st.isFunction())) {
                     if (false == (EvValueBridge.isUndefined(st))) {
                         return "setter must be a function"
                     }
@@ -15308,7 +15311,7 @@ class ComponentEngine {
         ; already a RegExp and no flags are given (15.10.3.1). Supplying flags
         ; re-reads the source with them -- ES5 made that a TypeError, ES2015
         ; allows it, and the current corpus is written against ES2015.
-        if (srcRegex.valueType == 5) {
+        if (srcRegex.isObject()) {
             if (false == sawFlags) {
                 if (false == asNew) {
                     return srcRegex
@@ -15360,7 +15363,7 @@ class ComponentEngine {
                 sawFlags = true
             }
         }
-        if (srcRegex.valueType == 5) {
+        if (srcRegex.isObject()) {
             if (false == sawFlags) {
                 if (false == asNew) {
                     return srcRegex
@@ -15460,7 +15463,7 @@ class ComponentEngine {
     }
 
     fn isRegexValue:boolean (v:EvalValue) {
-        if (v.valueType != 5) {
+        if (false == (v.isObject())) {
             return false
         }
         return (has v.objectMap "__regex__")
@@ -15600,7 +15603,7 @@ class ComponentEngine {
         }
         ; null is NOT the empty pattern: `'gnulluna'.match(null)` looks for the
         ; four characters "null", because RegExp(null) has that source.
-        if (v.valueType == 0) {
+        if (v.isNull()) {
             return (this.makeRegexValue("null" ""))
         }
         return (this.makeRegexValue((this.toStringOf(v)) ""))
@@ -15797,7 +15800,7 @@ class ComponentEngine {
             ; a getter never ran.
             def gkey:string (to_string idx)
             def gFnA:EvalValue (this.resolveGetterOn(recv gkey))
-            if (gFnA.valueType == 6) {
+            if (gFnA.isFunction()) {
                 return (this.getPropertyValue(recv gkey))
             }
             if (idx < (array_length recv.arrayValue)) {
@@ -15835,7 +15838,7 @@ class ComponentEngine {
     ; for each element.
     fn callMethodOnValue:EvalValue (recv:EvalValue name:string args:[EvalValue]) {
         def m:EvalValue (this.getPropertyValue(recv name))
-        if (m.valueType == 6) {
+        if (m.isFunction()) {
             if m.functionNode {
                 return (this.callFnValueWithValues((m.withThis(recv)) args))
             }
@@ -15907,7 +15910,7 @@ class ComponentEngine {
             }
         }
         def g:EvalValue (this.resolveGetterOn(obj key))
-        if (g.valueType == 6) {
+        if (g.isFunction()) {
             def noArgsG:[EvalValue]
             if g.functionNode {
                 return (this.callFnValueWithValues((g.withThis(obj)) noArgsG))
@@ -15930,7 +15933,7 @@ class ComponentEngine {
         ; Array.prototype read as undefined. The engine knows the kind's
         ; prototype and can finish the walk.
         def chained:EvalValue (this.ownPropertyUpChain(obj key))
-        if (chained.valueType != 0) {
+        if (false == (chained.isNull())) {
             return chained
         }
         return direct
@@ -15945,9 +15948,9 @@ class ComponentEngine {
         def p:EvalValue v
         ; Functions convert too -- a guest override of Function.prototype.toString
         ; has to be honoured, and the engine's debug form is not the answer.
-        if (v.valueType == 5) { p = (this.toPrimitive(v true)) }
-        if (v.valueType == 4) { p = (this.toPrimitive(v true)) }
-        if (v.valueType == 6) { p = (this.toPrimitive(v true)) }
+        if (v.isObject()) { p = (this.toPrimitive(v true)) }
+        if (v.isArray()) { p = (this.toPrimitive(v true)) }
+        if (v.isFunction()) { p = (this.toPrimitive(v true)) }
         if (EvValueBridge.isString(p)) {
             ; Bind before returning. `p` here is a value this scope OWNS --
             ; toPrimitive handed back a fresh one -- so returning its stringValue
@@ -15997,7 +16000,7 @@ class ComponentEngine {
         }
         ; An ARRAY's elements are properties too, and a length that can still
         ; move means the array is neither sealed nor frozen.
-        if (v.valueType == 4) {
+        if (v.isArray()) {
             if (has v.attrFlags "length") {
                 if wantFrozen {
                     if (v.isWritable("length")) {
@@ -16028,7 +16031,7 @@ class ComponentEngine {
             }
             ; A prototype may itself be an ARRAY -- Array.prototype is one -- and
             ; then an index property lives in its elements rather than its map.
-            if (walk.valueType == 4) {
+            if (walk.isArray()) {
                 def wi:int (this.canonicalArrayIndex(key))
                 if (wi >= 0) {
                     if (wi < (array_length walk.arrayValue)) {
@@ -16051,12 +16054,12 @@ class ComponentEngine {
     ; accessor -- the write created an own property instead of calling the setter.
     fn resolveGetterOn:EvalValue (obj:EvalValue key:string) {
         def own:EvalValue (obj.findGetter(key 0))
-        if (own.valueType == 6) {
+        if (own.isFunction()) {
             return own
         }
         ; An OWN array element shadows an accessor inherited from
         ; Array.prototype under the same index.
-        if (obj.valueType == 4) {
+        if (obj.isArray()) {
             def oi:int (this.canonicalArrayIndex(key))
             if (oi >= 0) {
                 if (oi < (array_length obj.arrayValue)) {
@@ -16066,7 +16069,7 @@ class ComponentEngine {
                 }
             }
         }
-        if (obj.valueType != 5) {
+        if (false == (obj.isObject())) {
             def cn:string (this.ctorNameForKind((this.receiverKind(obj))))
             if ((strlen cn) > 0) {
                 if (has builtinProtos cn) {
@@ -16080,10 +16083,10 @@ class ComponentEngine {
 
     fn resolveSetterOn:EvalValue (obj:EvalValue key:string) {
         def own:EvalValue (obj.findSetter(key 0))
-        if (own.valueType == 6) {
+        if (own.isFunction()) {
             return own
         }
-        if (obj.valueType == 4) {
+        if (obj.isArray()) {
             def oj:int (this.canonicalArrayIndex(key))
             if (oj >= 0) {
                 if (oj < (array_length obj.arrayValue)) {
@@ -16093,7 +16096,7 @@ class ComponentEngine {
                 }
             }
         }
-        if (obj.valueType != 5) {
+        if (false == (obj.isObject())) {
             def cn:string (this.ctorNameForKind((this.receiverKind(obj))))
             if ((strlen cn) > 0) {
                 if (has builtinProtos cn) {
@@ -16148,9 +16151,9 @@ class ComponentEngine {
             return v.stringValue
         }
         def p:EvalValue v
-        if (v.valueType == 5) { p = (this.toPrimitive(v true)) }
-        if (v.valueType == 4) { p = (this.toPrimitive(v true)) }
-        if (v.valueType == 6) { p = (this.toPrimitive(v true)) }
+        if (v.isObject()) { p = (this.toPrimitive(v true)) }
+        if (v.isArray()) { p = (this.toPrimitive(v true)) }
+        if (v.isFunction()) { p = (this.toPrimitive(v true)) }
         if (EvValueBridge.isString(p)) {
             ; Bind before returning. `p` here is a value this scope OWNS --
             ; toPrimitive handed back a fresh one -- so returning its stringValue
@@ -16227,11 +16230,11 @@ class ComponentEngine {
     }
 
     fn isDescriptorObject:boolean (v:EvalValue) {
-        if (v.valueType == 5) { return true }
-        if (v.valueType == 4) { return true }
-        if (v.valueType == 6) { return true }
-        if (v.valueType == 9) { return true }
-        if (v.valueType == 10) { return true }
+        if (v.isObject()) { return true }
+        if (v.isArray()) { return true }
+        if (v.isFunction()) { return true }
+        if (v.isMap()) { return true }
+        if (v.isSet()) { return true }
         return false
     }
 
@@ -16274,7 +16277,7 @@ class ComponentEngine {
         while (steps < 16) {
             if (has walk.getterMap key) {
                 def gFn:EvalValue (unwrap (get walk.getterMap key))
-                if (gFn.valueType == 6) {
+                if (gFn.isFunction()) {
                     def noArgs:[EvalValue]
                     return (this.callFnValueWithValues((gFn.withThis(desc)) noArgs))
                 }
@@ -16310,7 +16313,7 @@ class ComponentEngine {
         ; an element and may push `length` out. Neither went anywhere near the
         ; elements before -- `Object.defineProperty(a, "length", {value: 0})`
         ; stored a stray property and left the array as it was.
-        if (obj.valueType == 4) {
+        if (obj.isArray()) {
             if (key == "length") {
                 return (this.defineArrayLength(obj desc))
             }
@@ -16393,13 +16396,13 @@ class ComponentEngine {
             ; really does remove the setter -- and a half it omits is kept.
             if (this.descHas(desc "get")) {
                 obj.clearGetterOnly(key)
-                if (gv.valueType == 6) {
+                if (gv.isFunction()) {
                     obj.defineGetter(key gv)
                 }
             }
             if (this.descHas(desc "set")) {
                 obj.clearSetterOnly(key)
-                if (sv.valueType == 6) {
+                if (sv.isFunction()) {
                     obj.defineSetter(key sv)
                 }
             }
@@ -16667,11 +16670,11 @@ class ComponentEngine {
         ; is true, with the getter winning on read.
         def aG:EvalValue (this.descGet(desc "get"))
         def aS:EvalValue (this.descGet(desc "set"))
-        if ((aG.valueType == 6) || (aS.valueType == 6)) {
-            if (aG.valueType == 6) {
+        if ((aG.isFunction()) || (aS.isFunction())) {
+            if (aG.isFunction()) {
                 obj.defineGetter(key aG)
             }
-            if (aS.valueType == 6) {
+            if (aS.isFunction()) {
                 obj.defineSetter(key aS)
             }
             obj.setIndexAt(idx (EvValueBridge.taggedUndefined()))
@@ -16725,7 +16728,7 @@ class ComponentEngine {
         if wantGetter {
             h = (obj.findGetter(key 0))
         }
-        if (h.valueType == 6) {
+        if (h.isFunction()) {
             return h
         }
         return (EvValueBridge.taggedUndefined())
@@ -16744,7 +16747,7 @@ class ComponentEngine {
         ; D-ARRAYDEFINE: an array ELEMENT exists too, even though it lives in
         ; arrayValue rather than objectMap -- without this none of the
         ; non-configurable rules below ever applied to one.
-        if (obj.valueType == 4) {
+        if (obj.isArray()) {
             def reIdx:int (this.canonicalArrayIndex(key))
             if (reIdx >= 0) {
                 if (reIdx < (array_length obj.arrayValue)) {
@@ -16869,7 +16872,7 @@ class ComponentEngine {
     ; Symbol() as a factory is handled at the call site; this seeds the statics.
     fn ensureSymbolGlobal:void () {
         def existing:EvalValue (hostScope.lookup("Symbol"))
-        if (existing.valueType == 6) {
+        if (existing.isFunction()) {
             return
         }
         def sym:EvalValue (EvValueBridge.taggedNativeFunction("Symbol"))
@@ -16986,7 +16989,7 @@ class ComponentEngine {
         e.setMember("message" (EvValueBridge.taggedString(message)))
         e.setMember("__error__" (EvValueBridge.taggedString(kind)))
         def ctor:EvalValue (this.errorCtorFor(kind))
-        if (ctor.valueType == 6) {
+        if (ctor.isFunction()) {
             e.setMember("constructor" ctor)
         }
         e.protoRef = (this.errorPrototypeFor(kind))
@@ -17122,10 +17125,10 @@ class ComponentEngine {
         ; D-WITH: a name the with object serves through a GETTER. EvalContext
         ; cannot call it -- it has no evaluator -- so the read happens here.
         def wg:EvalValue (this.withHostFor(name))
-        if (wg.valueType == 5) {
+        if (wg.isObject()) {
             if (has wg.getterMap name) {
                 def wgFn:EvalValue (wg.findGetter(name 0))
-                if (wgFn.valueType == 6) {
+                if (wgFn.isFunction()) {
                     def wgArgs:[EvalValue]
                     return (this.callFnValueWithValues((wgFn.withThis(wg)) wgArgs))
                 }
@@ -17169,10 +17172,10 @@ class ComponentEngine {
         }
         if (this.isEngineGlobalName(name)) {
             def g:EvalValue (this.builtinGlobalObject(name))
-            if (g.valueType == 5) {
+            if (g.isObject()) {
                 return g
             }
-            if (g.valueType == 6) {
+            if (g.isFunction()) {
                 return g
             }
             return (EvValueBridge.taggedUndefined())
@@ -17266,13 +17269,13 @@ class ComponentEngine {
                         ; empty namespace object instead, so `typeof NaN` was
                         ; "object". The global object holds the real value.
                         def gObjT:EvalValue (this.theGlobalObject())
-                        if (gObjT.valueType == 5) {
+                        if (gObjT.isObject()) {
                             if (has gObjT.objectMap name) {
                                 return (EvValueBridge.taggedString((this.typeofTag((unwrap (get gObjT.objectMap name))))))
                             }
                         }
                         def gv:EvalValue (this.builtinGlobalObject(name))
-                        if (gv.valueType == 5) {
+                        if (gv.isObject()) {
                             return (EvValueBridge.taggedString("object"))
                         }
                     }
@@ -17309,7 +17312,7 @@ class ComponentEngine {
                 if ((this.nodeKindOf(tgt)) == 1) {
                     def delName:string tgt.name
                     def delWith:EvalValue (this.withHostFor(delName))
-                    if (delWith.valueType == 5) {
+                    if (delWith.isObject()) {
                         if (false == (delWith.isConfigurable(delName))) {
                             if strictMode {
                                 return (this.throwSpecError("TypeError" ("cannot delete " + delName)))
@@ -17327,7 +17330,7 @@ class ComponentEngine {
                     ; Infinity, undefined -- cannot be deleted either, and it is
                     ; not a scope binding so the check below never saw it.
                     def gDel:EvalValue (this.theGlobalObject())
-                    if (gDel.valueType == 5) {
+                    if (gDel.isObject()) {
                         if (has gDel.objectMap delName) {
                             if (false == (gDel.isConfigurable(delName))) {
                                 return (EvValueBridge.taggedBoolean(false))
@@ -17344,7 +17347,7 @@ class ComponentEngine {
                         }
                         def removed:boolean (context.removeBinding(delName))
                         def gObj:EvalValue (this.theGlobalObject())
-                        if (gObj.valueType == 5) {
+                        if (gObj.isObject()) {
                             gObj.removeMember(delName)
                         }
                         def freshImplicit:[string:boolean]
@@ -17377,7 +17380,7 @@ class ComponentEngine {
                             ; about the property map, so `delete a[1]` did
                             ; nothing at all and the element stayed readable.
                             def dkey:string (this.toPropertyKey(iv))
-                            if (obj.valueType == 4) {
+                            if (obj.isArray()) {
                                 def didx@(optional):int (to_int dkey)
                                 if didx {
                                     def dn:int (unwrap didx)
@@ -17480,11 +17483,11 @@ class ComponentEngine {
     ; ---- user classes: instances, methods, `this`-bound dispatch ----------
     ; The __class__ name stamped on an instance object, or "" for non-instances.
     fn instanceClassName:string (obj:EvalValue) {
-        if (obj.valueType != 5) { return "" }
+        if (false == (obj.isObject())) { return "" }
         def cv@(optional):EvalValue (get obj.objectMap "__class__")
         if cv {
             def c:EvalValue (unwrap cv)
-            if (c.valueType == 2) {
+            if (c.isString()) {
                 return c.stringValue
             }
         }
@@ -17494,11 +17497,11 @@ class ComponentEngine {
     ; The virtual module an instance's class was declared in ("" = entry-realm
     ; class). Stamped by evaluateNewExpr for module-owned classes.
     fn instanceModuleTag:string (obj:EvalValue) {
-        if (obj.valueType != 5) { return "" }
+        if (false == (obj.isObject())) { return "" }
         def mv@(optional):EvalValue (get obj.objectMap "__module__")
         if mv {
             def m:EvalValue (unwrap mv)
-            if (m.valueType == 2) {
+            if (m.isString()) {
                 return m.stringValue
             }
         }
@@ -17805,7 +17808,7 @@ class ComponentEngine {
             }
         }
         inst.protoRef = instProto
-        if (instProto.valueType == 5) {
+        if (instProto.isObject()) {
             ; D-PROTO: `F.prototype` is minted by the value layer, which cannot
             ; reach the realm's Object.prototype, so the chain ended one link
             ; short -- `Object.prototype.p = 1; (new F()).p` read undefined.
@@ -17972,11 +17975,11 @@ class ComponentEngine {
                 if callee.left {
                     def baseNode:TSNode (unwrap callee.left)
                     def baseV:EvalValue (this.evaluateExpr(baseNode))
-                    if (baseV.valueType == 5) {
+                    if (baseV.isObject()) {
                         def tagV@(optional):EvalValue (get baseV.objectMap "__nsmodule__")
                         if tagV {
                             def tag:EvalValue (unwrap tagV)
-                            if (tag.valueType == 2) {
+                            if (tag.isString()) {
                                 nsModule = tag.stringValue
                                 viaNamespace = true
                             }
@@ -18034,9 +18037,9 @@ class ComponentEngine {
         ; to the global by reference — which is exactly what assert.throws tests.
         if (false == viaNamespace) {
             def ctorV:EvalValue (this.errorCtorFor(className))
-            if (ctorV.valueType == 6) {
+            if (ctorV.isFunction()) {
                 def kindV:EvalValue (ctorV.getMember("__errorctor__"))
-                if (kindV.valueType == 2) {
+                if (kindV.isString()) {
                     def msg:string ""
                     if ((array_length node.children) > 0) {
                         def mv:EvalValue (this.evaluateExpr((itemAt node.children 0)))
@@ -18064,7 +18067,7 @@ class ComponentEngine {
             if ((strlen className) > 0) {
                 if (context.has(className)) {
                     def fnV:EvalValue (context.lookup(className))
-                    if (fnV.valueType == 6) {
+                    if (fnV.isFunction()) {
                         if fnV.functionNode {
                             return (this.constructFromFunction(fnV className node.children))
                         }
@@ -18112,15 +18115,15 @@ class ComponentEngine {
                     return (EvValueBridge.taggedUndefined())
                 }
                 def notCtor:boolean false
-                if (protoTarget.valueType == 5) { notCtor = true }
-                if (protoTarget.valueType == 6) {
+                if (protoTarget.isObject()) { notCtor = true }
+                if (protoTarget.isFunction()) {
                     if (null? protoTarget.functionNode) {
                         if ((strlen (this.builtinCtorNameOf(protoTarget))) == 0) {
                             notCtor = true
                         }
                     }
                 }
-                if (protoTarget.valueType == 5) {
+                if (protoTarget.isObject()) {
                     ; A plain object reached through a member expression may
                     ; still be a class value; only a PROTOTYPE object is
                     ; rejected here, which is what __protokind__ marks.
@@ -18130,7 +18133,7 @@ class ComponentEngine {
                         if (newCallee.name == "prototype") { notCtor = true }
                     }
                 }
-                if (protoTarget.valueType == 6) {
+                if (protoTarget.isFunction()) {
                     if (has protoTarget.objectMap "__fnprotocall__") { notCtor = true }
                 }
                 if notCtor {
@@ -18141,7 +18144,7 @@ class ComponentEngine {
                 ; name-keyed class lookup below only sees the last property
                 ; name ("C") and used to return null. Construct from the value
                 ; we already resolved — same path as `var C = ns.Deep.C; new C()`.
-                if (protoTarget.valueType == 6) {
+                if (protoTarget.isFunction()) {
                     if protoTarget.functionNode {
                         return (this.constructFromFunction(protoTarget newCallee.name node.children))
                     }
@@ -18166,7 +18169,7 @@ class ComponentEngine {
                 if (false == (this.isBuiltinCtorName(ncName))) {
                     if (this.isEngineGlobalName(ncName)) {
                         def ncG:EvalValue (this.builtinGlobalObject(ncName))
-                        if (ncG.valueType != 6) {
+                        if (false == (ncG.isFunction())) {
                             return (this.throwSpecError("TypeError" (ncName + " is not a constructor")))
                         }
                     }
@@ -18181,7 +18184,7 @@ class ComponentEngine {
                             }
                         } {
                             def ncVal:EvalValue (context.lookup(ncName))
-                            if (ncVal.valueType != 6) {
+                            if (false == (ncVal.isFunction())) {
                                 return (this.throwSpecError("TypeError" (ncName + " is not a constructor")))
                             }
                         }
@@ -18197,7 +18200,7 @@ class ComponentEngine {
         if ((strlen className) > 0) {
             if (context.has(className)) {
                 def ctorCand:EvalValue (context.lookup(className))
-                if (ctorCand.valueType == 6) {
+                if (ctorCand.isFunction()) {
                     if ((strlen (ctorCand.builtinNameOf())) > 0) {
                         return (this.throwSpecError("TypeError" (className + " is not a constructor")))
                     }
@@ -18212,7 +18215,7 @@ class ComponentEngine {
             if (false == (this.isBuiltinCtorName(className))) {
                 if (context.has(className)) {
                     def aliasV:EvalValue (context.lookup(className))
-                    if (aliasV.valueType == 6) {
+                    if (aliasV.isFunction()) {
                         def aliasName:EvalValue (aliasV.getMember("name"))
                         ; A built-in constructor global need not carry `name` as
                         ; a stored property -- `RegExp.prototype.constructor`
@@ -18317,7 +18320,7 @@ class ComponentEngine {
                 if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
                 }
-                if (calledV.valueType == 6) {
+                if (calledV.isFunction()) {
                     return (this.constructFromFunction(calledV (calledV.fnName()) node.children))
                 }
                 return (this.throwSpecError("TypeError" "expression is not a constructor"))
@@ -18331,9 +18334,9 @@ class ComponentEngine {
             if ((strlen className) > 0) {
                 if (context.has(className)) {
                     def refV:EvalValue (context.lookup(className))
-                    if (refV.valueType == 6) {
+                    if (refV.isFunction()) {
                         def tagV2:EvalValue (refV.getMember("__classname__"))
-                        if (tagV2.valueType == 2) {
+                        if (tagV2.isString()) {
                             className = tagV2.stringValue
                         }
                     }
@@ -18442,7 +18445,7 @@ class ComponentEngine {
                 ; for a reason unrelated to what it was checking. The object is
                 ; stable per engine, so a property put on it stays there.
                 def nsHit:EvalValue (this.builtinNamespaceMember(leftExpr.name propName))
-                if (nsHit.valueType != 0) {
+                if (false == (nsHit.isNull())) {
                     return nsHit
                 }
             }
@@ -18458,10 +18461,10 @@ class ComponentEngine {
             ; Object.prototype. Only `new F()` filled those in, so a program that
             ; merely looked at `F.prototype.constructor` saw undefined.
             if (propName == "prototype") {
-                if (obj.valueType == 6) {
+                if (obj.isFunction()) {
                     if obj.functionNode {
                         def mintedP:EvalValue (obj.getMember("prototype"))
-                        if (mintedP.valueType == 5) {
+                        if (mintedP.isObject()) {
                             if (null? mintedP.protoRef) {
                                 mintedP.protoRef = (this.builtinPrototype("Object"))
                             }
@@ -18501,7 +18504,7 @@ class ComponentEngine {
             ; function -- reading or writing either is a TypeError, which is how
             ; the spec removes the stack-walking that sloppy mode allowed. This
             ; is a whole family of tests in built-ins/Function.
-            if (obj.valueType == 6) {
+            if (obj.isFunction()) {
                 if ((propName == "caller") || (propName == "arguments")) {
                     if (false == (has obj.objectMap propName)) {
                         if (this.functionIsStrict(obj)) {
@@ -18521,7 +18524,7 @@ class ComponentEngine {
                     ; must not fall through to an inherited getter.
                     if (has obj.getterMap propName) {
                         def ownG:EvalValue (unwrap (get obj.getterMap propName))
-                        if (ownG.valueType == 6) {
+                        if (ownG.isFunction()) {
                             if ownG.functionNode {
                                 def ownArgs:[EvalValue]
                                 return (this.callFnValueWithValues((ownG.withThis(obj)) ownArgs))
@@ -18540,7 +18543,7 @@ class ComponentEngine {
                             return (EvValueBridge.taggedUndefined())
                         }
                         def gFn:EvalValue (this.resolveGetterOn(obj propName))
-                        if (gFn.valueType == 6) {
+                        if (gFn.isFunction()) {
                             if gFn.functionNode {
                                 def noArgs:[EvalValue]
                                 def gBound:EvalValue (gFn.withThis(obj))
@@ -18591,7 +18594,7 @@ class ComponentEngine {
                     ; function-kind copy made the two compare unequal.
                     if (false == owned) {
                         def chainHit:EvalValue (this.ownPropertyUpChain(obj propName))
-                        if (chainHit.valueType != 0) {
+                        if (false == (chainHit.isNull())) {
                             return chainHit
                         }
                     }
@@ -18626,14 +18629,14 @@ class ComponentEngine {
             if ((strlen propName) > 0) {
                 def pcName:string (this.ctorNameForKind((this.receiverKind(obj))))
                 if ((strlen pcName) > 0) {
-                    if (obj.valueType != 5) {
+                    if (false == (obj.isObject())) {
                         ; A string's OWN length wins over String.prototype.length
                         ; (which is 0). The prototype fallback is for inherited
                         ; properties, and length is not one of them.
                         def ownFirst:boolean false
                         if (propName == "length") {
-                            if (obj.valueType == 2) { ownFirst = true }
-                            if (obj.valueType == 4) { ownFirst = true }
+                            if (obj.isString()) { ownFirst = true }
+                            if (obj.isArray()) { ownFirst = true }
                         }
                         ; Any OWN property wins over the kind's prototype. An
                         ; array holds its non-index properties in objectMap, and
@@ -18668,7 +18671,7 @@ class ComponentEngine {
                         return (EvValueBridge.taggedUndefined())
                     }
                     if (false == quiet) {
-                        this.trace("  Index value: " + (indexVal.toString()) + " type=" + (to_string indexVal.valueType))
+                        this.trace("  Index value: " + (indexVal.toString()) + " type=" + (indexVal.kindName()))
                     }
                     ; D-ACCESSORS: a computed key reaches an accessor exactly as a
                     ; written one does -- `o["bar"]` must run the getter `o.bar`
@@ -18692,7 +18695,7 @@ class ComponentEngine {
                     }
                     if ((strlen ckey) > 0) {
                         def cgFn:EvalValue (this.resolveGetterOn(obj ckey))
-                        if (cgFn.valueType == 6) {
+                        if (cgFn.isFunction()) {
                             if cgFn.functionNode {
                                 def cgArgs:[EvalValue]
                                 return (this.callFnValueWithValues((cgFn.withThis(obj)) cgArgs))
@@ -18709,7 +18712,7 @@ class ComponentEngine {
                     ; ARRAY answers from its elements only for a canonical index;
                     ; everything else -- `x[-1]`, `x["00"]`, a far index that had
                     ; to be stored as a property -- is a property read.
-                    if (obj.valueType == 4) {
+                    if (obj.isArray()) {
                         def rk:string (this.toPropertyKey(indexVal))
                         if scriptThrew {
                             return (EvValueBridge.taggedUndefined())
@@ -18731,14 +18734,14 @@ class ComponentEngine {
                                     return (obj.getIndex(rIdx))
                                 }
                                 def upChain:EvalValue (this.ownPropertyUpChain(obj rk))
-                                if (upChain.valueType != 0) {
+                                if (false == (upChain.isNull())) {
                                     return upChain
                                 }
                                 return (obj.getIndex(rIdx))
                             }
                         }
                         def viaFar:EvalValue (obj.getMember(rk))
-                        if (viaFar.valueType == 0) {
+                        if (viaFar.isNull()) {
                             return (EvValueBridge.taggedUndefined())
                         }
                         return viaFar
@@ -18755,13 +18758,13 @@ class ComponentEngine {
                         ; and a key that names nothing reads as undefined --
                         ; `'abc'['foo']` is undefined, not null.
                         def sk:string indexVal.stringValue
-                        if (obj.valueType == 2) {
+                        if (obj.isString()) {
                             def ski@(optional):int (to_int sk)
                             if ski {
                                 return (obj.getIndex((unwrap ski)))
                             }
                             def viaMember:EvalValue (obj.getMember(sk))
-                            if (viaMember.valueType == 0) {
+                            if (viaMember.isNull()) {
                                 return (EvValueBridge.taggedUndefined())
                             }
                             return viaMember
@@ -18776,8 +18779,8 @@ class ComponentEngine {
             def clsN:string (this.instanceClassName(obj))
             if ((strlen clsN) > 0) {
                 def fieldV:EvalValue (obj.getMember(propName))
-                if (fieldV.valueType != 0) {
-                    if (fieldV.valueType != 8) {
+                if (false == (fieldV.isNull())) {
+                    if (false == (fieldV.isUndefined())) {
                         return fieldV
                     }
                 }
@@ -18797,11 +18800,11 @@ class ComponentEngine {
             ; A property a PRIMITIVE does not have reads as undefined, not null:
             ; `typeof (1).nope` is "undefined", and answering the engine's null
             ; sentinel made it "object".
-            if (outMember.valueType == 0) {
+            if (outMember.isNull()) {
                 def primRecv:boolean false
-                if (obj.valueType == 1) { primRecv = true }
-                if (obj.valueType == 2) { primRecv = true }
-                if (obj.valueType == 3) { primRecv = true }
+                if (obj.isNumber()) { primRecv = true }
+                if (obj.isString()) { primRecv = true }
+                if (obj.isBoolean()) { primRecv = true }
                 if primRecv {
                     return (EvValueBridge.taggedUndefined())
                 }
@@ -18989,7 +18992,7 @@ class ComponentEngine {
         ; A FUNCTION holds ordinary properties too, and a descriptor map may be
         ; one -- `Object.defineProperties(o, function () {})` reads its own
         ; enumerable properties like any other object.
-        if (v.valueType == 6) {
+        if (v.isFunction()) {
             out = (keys v.objectMap)
             def fnAcc:[string] (keys v.getterMap)
             def fi:int 0
@@ -19125,7 +19128,7 @@ class ComponentEngine {
             return (this.objectKeys(v))
         }
         def holdsProps:boolean (EvValueBridge.isObject(v))
-        if (v.valueType == 6) { holdsProps = true }
+        if (v.isFunction()) { holdsProps = true }
         if holdsProps {
             def all:[string] (this.objectKeys(v))
             def i:int 0
@@ -19149,7 +19152,7 @@ class ComponentEngine {
         ; D-FNPROPS: length, name and prototype are OWN properties of every
         ; function even though the engine synthesises them on read rather than
         ; storing them, so hasOwnProperty has to know about them by name.
-        if (v.valueType == 6) {
+        if (v.isFunction()) {
             if (has v.objectMap key) {
                 return true
             }
@@ -19168,7 +19171,7 @@ class ComponentEngine {
             if (key == "prototype") { return true }
             return false
         }
-        if (v.valueType == 4) {
+        if (v.isArray()) {
             if (has v.objectMap key) {
                 return true
             }

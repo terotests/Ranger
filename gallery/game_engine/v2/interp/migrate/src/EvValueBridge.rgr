@@ -1,57 +1,28 @@
 ; =============================================================================
 ; EvValueBridge — tagged ↔ shape conversion (PLAN_SHAPES.md §7.5)
 ; =============================================================================
-; E3: every kind's engine create/check API lives here so the shape owns the
-; kind. Reference tagged* factories allocate once via EvalValue.* (identity
-; mint); never round-trip a live stored ref through toTagged/fromTagged.
-; Storage remains class EvalValue until step 4.
+; E3/E4: create/check APIs live here. E4: class EvalValue carries `body:EvValue`
+; as the kind discriminant (`valueType` is gone). Collection payloads still
+; sit on the class; fromTagged returns the live body (no rebuild).
+; Never round-trip a live stored ref through toTagged.
 
 Import "EvalValue.rgr"
 Import "EvValue.rgr"
 
 class EvValueBridge {
     sfn fromTagged:EvValue (v:EvalValue) {
-        if v.isHole {
-            return (EvValue.hole())
-        }
-        if (v.valueType == 0) {
-            return (EvValue.null())
-        }
-        if (v.valueType == 8) {
-            return (EvValue.undefined())
-        }
-        if (v.valueType == 1) {
+        ; Primitives may mutate scalar fields in place (slotOwned numbers);
+        ; rebuild those from fields. Refs return the live kind body.
+        if (v.isNumber()) {
             return (EvValue.number(v.numberValue))
         }
-        if (v.valueType == 2) {
+        if (v.isString()) {
             return (EvValue.string(v.stringValue))
         }
-        if (v.valueType == 3) {
+        if (v.isBoolean()) {
             return (EvValue.boolean(v.boolValue))
         }
-        if (v.valueType == 7) {
-            if (v.hasElement()) {
-                return (EvValue.element((v.elementOf())))
-            }
-            return (EvValue.undefined())
-        }
-        if (v.valueType == 4) {
-            def emptyItems:[EvValue]
-            return (EvValue.array(emptyItems))
-        }
-        if (v.valueType == 5) {
-            return (EvValue.object())
-        }
-        if (v.valueType == 6) {
-            return (EvValue.functionStub((v.fnName())))
-        }
-        if (v.valueType == 9) {
-            return (EvValue.mapEmpty())
-        }
-        if (v.valueType == 10) {
-            return (EvValue.setEmpty())
-        }
-        return (EvValue.undefined())
+        return v.body
     }
 
     sfn toTagged:EvalValue (ev:EvValue) {
@@ -106,7 +77,7 @@ class EvValueBridge {
         return (EvValueBridge.toTagged((EvValue.hole())))
     }
     sfn isHole:boolean (v:EvalValue) {
-        return v.isHole
+        return (v.isHole())
     }
 
     ; ---- Primitives -------------------------------------------------------

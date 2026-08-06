@@ -47,13 +47,6 @@ const ENGINE_SOURCE = path.join(
 );
 const BUILD_SCRIPT = path.join(ROOT_DIR, "scripts", "build-engine-module.sh");
 
-// EvalValue.valueType constants, as emitted by the compiled module.
-const T_NULL = 0;
-const T_NUM = 1;
-const T_STR = 2;
-const T_BOOL = 3;
-const T_UNDEF = 8;
-
 let ComponentEngine: any;
 let EvalValue: any;
 
@@ -1742,9 +1735,26 @@ const MODULE_KNOWN_GAPS: Array<[fn: string, what: string]> = [
 ];
 
 function buildEngineModuleIfNeeded(): void {
+  const migrateSrc = path.join(
+    ROOT_DIR,
+    "gallery",
+    "game_engine",
+    "v2",
+    "interp",
+    "migrate",
+    "src"
+  );
+  const deps = [
+    ENGINE_SOURCE,
+    path.join(migrateSrc, "EvalValue.rgr"),
+    path.join(migrateSrc, "EvValue.rgr"),
+    path.join(migrateSrc, "EvValueBridge.rgr"),
+  ];
+  const modMtime = fs.existsSync(ENGINE_MODULE)
+    ? fs.statSync(ENGINE_MODULE).mtimeMs
+    : 0;
   const upToDate =
-    fs.existsSync(ENGINE_MODULE) &&
-    fs.statSync(ENGINE_MODULE).mtimeMs >= fs.statSync(ENGINE_SOURCE).mtimeMs;
+    modMtime > 0 && deps.every((d) => modMtime >= fs.statSync(d).mtimeMs);
   if (upToDate) return;
   execFileSync("bash", [BUILD_SCRIPT], { cwd: ROOT_DIR, stdio: "pipe" });
 }
@@ -1761,20 +1771,13 @@ function engineValue(engine: any, fnName: string): unknown {
   try {
     const r = engine.callFunction(fnName, EvalValue.null());
     if (!r) return "<missing>";
-    switch (r.valueType) {
-      case T_NUM:
-        return r.numberValue;
-      case T_STR:
-        return r.stringValue;
-      case T_BOOL:
-        return r.boolValue;
-      case T_UNDEF:
-        return undefined;
-      case T_NULL:
-        return "<null>";
-      default:
-        return "<valueType " + r.valueType + ">";
-    }
+    // E4: kind lives on body:EvValue — use is* predicates (valueType is gone).
+    if (r.isNumber()) return r.numberValue;
+    if (r.isString()) return r.stringValue;
+    if (r.isBoolean()) return r.boolValue;
+    if (r.isUndefined()) return undefined;
+    if (r.isNull()) return "<null>";
+    return "<kind " + r.kindName() + ">";
   } catch (e: any) {
     return "<threw " + (e && e.message) + ">";
   } finally {

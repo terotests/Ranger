@@ -1,10 +1,10 @@
 ; =============================================================================
 ; EvValue — E1 target shape (PLAN_SHAPES.md §7.5 / §3.1)
 ; =============================================================================
-; Closed family that will replace `class EvalValue` once call sites convert.
-; Named EvValue (not EvalValue) so the tagged class can keep serving the
-; engine. E3 wires every kind's create/check through EvValueBridge into
-; ComponentEngine. Storage remains class EvalValue until step 4.
+; Closed family for the kind discriminant (PLAN_SHAPES.md §7.5 step 4).
+; Named EvValue so `class EvalValue` can keep holding collection payloads
+; and identity while `body:EvValue` owns the kind. E3 create/check goes
+; through EvValueBridge; E4 deletes `valueType` in favour of this shape.
 ;
 ; Groups:
 ;   Primitive       — Null / Undefined / Hole / Number / String / Boolean

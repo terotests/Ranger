@@ -4,25 +4,16 @@
 ; Represents values that can be evaluated: numbers, strings, booleans, 
 ; null, arrays, objects, functions, and EVG elements.
 ;
-; Migration (PLAN_SHAPES.md §7.5): the target closed family lives beside this
-; class in `EvValue.rgr` (E1). Call sites still use this tagged class until the
-; compatibility layer and per-kind conversion land.
+; Migration (PLAN_SHAPES.md §7.5 step 4): kind lives in `body:EvValue` (the
+; closed family). Collection payloads still sit on this class until the
+; property/array storage cutover; `valueType` is gone.
 
 Import "../../../evg/EVGElement.rgr"
 Import "../../../../../ts_parser/ts_parser_simple.rgr"
+Import "EvValue.rgr"
 
-; Value types
-; 0 = null
-; 1 = number
-; 2 = string
-; 3 = boolean
-; 4 = array
-; 5 = object
-; 6 = function
-; 7 = evgElement (for JSX elements as props)
-; 8 = undefined (distinct from null for typeof / optional globals)
-; 9 = Map  (ordered; keys in arrayValue, values in mapVals, matched by index)
-; 10 = Set (ordered unique elements in arrayValue)
+; Kind discriminant: `body` (shape EvValue). Legacy int tags are gone.
+; Map: keys in arrayValue, values in mapVals. Set: elements in arrayValue.
 
 ; Runtime hooks the LLVM backend replaces with intrinsics. Every other target
 ; keeps these bodies, so the optimisations they gate simply never fire there --
@@ -109,7 +100,8 @@ shape EvalPayload {
 }
 
 class EvalValue {
-    def valueType:int 0         ; Type tag
+    ; Kind discriminant — closed family (PLAN_SHAPES.md §7.5 step 4).
+    def body:EvValue (new EvValue.Undefined())
     ; The kind-specific part. `None` until a function or an element needs it.
     def payload:EvalPayload (new EvalPayload.None())
     def numberValue:double 0.0
@@ -127,7 +119,7 @@ class EvalValue {
     ; array reorder — assigned exactly once at the creation factory below.
     def identityId:int 0
     def arrayValue:[EvalValue]
-    def mapVals:[EvalValue]     ; parallel to arrayValue for valueType 9 (Map)
+    def mapVals:[EvalValue]     ; parallel to arrayValue for Map
     def objectMap:[string:EvalValue]
     ; For a bound method reference (obj.method held as a value): the receiver the
     ; method is called on. null for plain functions/closures.
@@ -157,8 +149,6 @@ class EvalValue {
     def extensibleFlag:boolean true
     def sealedFlag:boolean false
     def frozenFlag:boolean false
-    ; D-HOLES: set only on the shared hole singleton (see rawHole).
-    def isHole:boolean false
     ; D-ARRAYSPARSE: an array `length` LARGER than the dense store can hold.
     ; -1 means "the dense store is the length". The spec allows a length up to
     ; 2^32-1 with no elements at all, which no dense container can materialise,
@@ -326,13 +316,13 @@ class EvalValue {
     ; Allocating variants used to seed the shared constant pool.
     sfn rawNull:EvalValue () {
         def v:EvalValue (new EvalValue())
-        v.valueType = 0
+        v.body = (EvValue.null())
         return v
     }
 
     sfn rawUndefined:EvalValue () {
         def v:EvalValue (new EvalValue())
-        v.valueType = 8
+        v.body = (EvValue.undefined())
         return v
     }
 
@@ -340,12 +330,11 @@ class EvalValue {
     ; It reads as undefined everywhere a value is wanted, so nothing that merely
     ; consumes elements has to know about it -- but `1 in [0,,2]` is false and
     ; forEach/filter/every/map skip it, which no undefined can express. Its own
-    ; valueType is 8, so any code that missed the distinction still sees
+    ; Kind is Hole, so any code that missed the distinction still sees
     ; undefined rather than something it cannot classify.
     sfn rawHole:EvalValue () {
         def v:EvalValue (new EvalValue())
-        v.valueType = 8
-        v.isHole = true
+        v.body = (EvValue.hole())
         return v
     }
 
@@ -356,19 +345,19 @@ class EvalValue {
 
     ; True when this element is absent rather than undefined.
     fn holeSlot:boolean () {
-        return isHole
+        return (this.isHole())
     }
 
     sfn rawBoolean:EvalValue (b:boolean) {
         def v:EvalValue (new EvalValue())
-        v.valueType = 3
+        v.body = (EvValue.boolean(b))
         v.boolValue = b
         return v
     }
     
     sfn rawNumber:EvalValue (n:double) {
         def v:EvalValue (new EvalValue())
-        v.valueType = 1
+        v.body = (EvValue.number(n))
         v.numberValue = n
         return v
     }
@@ -388,7 +377,7 @@ class EvalValue {
             }
         }
         def v:EvalValue (new EvalValue())
-        v.valueType = 1
+        v.body = (EvValue.number(n))
         v.numberValue = n
         return v
     }
@@ -399,14 +388,14 @@ class EvalValue {
             return (pool.smallInt(n))
         }
         def v:EvalValue (new EvalValue())
-        v.valueType = 1
+        v.body = (EvValue.number((to_double n)))
         v.numberValue = (to_double n)
         return v
     }
     
     sfn string:EvalValue (s:string) {
         def v:EvalValue (new EvalValue())
-        v.valueType = 2
+        v.body = (EvValue.string(s))
         v.stringValue = s
         return v
     }
@@ -421,31 +410,32 @@ class EvalValue {
     
     sfn array:EvalValue (items:[EvalValue]) {
         def v:EvalValue (new EvalValue())
-        v.valueType = 4
+        def _emptyItems:[EvValue]
+        v.body = (EvValue.array(_emptyItems))
         v.identityId = ((EvalIdentityMinter.__singleton()).mint())
         v.arrayValue = items
         return v
     }
 
-    ; Empty Map (valueType 9): keys in arrayValue, values in mapVals by index.
+    ; Empty Map: keys in arrayValue, values in mapVals by index.
     sfn mapEmpty:EvalValue () {
         def v:EvalValue (new EvalValue())
-        v.valueType = 9
+        v.body = (EvValue.mapEmpty())
         v.identityId = ((EvalIdentityMinter.__singleton()).mint())
         return v
     }
 
-    ; Empty Set (valueType 10): unique elements in arrayValue (insertion order).
+    ; Empty Set: unique elements in arrayValue (insertion order).
     sfn setEmpty:EvalValue () {
         def v:EvalValue (new EvalValue())
-        v.valueType = 10
+        v.body = (EvValue.setEmpty())
         v.identityId = ((EvalIdentityMinter.__singleton()).mint())
         return v
     }
 
     sfn object:EvalValue (keys:[string] values:[EvalValue]) {
         def v:EvalValue (new EvalValue())
-        v.valueType = 5
+        v.body = (EvValue.object())
         v.identityId = ((EvalIdentityMinter.__singleton()).mint())
         def i:int 0
         while (i < (array_length keys)) {
@@ -459,7 +449,7 @@ class EvalValue {
     
     sfn function:EvalValue (fnNode:TSNode) {
         def v:EvalValue (new EvalValue())
-        v.valueType = 6
+        v.body = (EvValue.functionStub(""))
         v.identityId = ((EvalIdentityMinter.__singleton()).mint())
         v.functionNode = fnNode
         v.setFnName(fnNode.name)
@@ -473,7 +463,7 @@ class EvalValue {
     ; engine handles the construction itself.
     sfn nativeFunction:EvalValue (name:string) {
         def v:EvalValue (new EvalValue())
-        v.valueType = 6
+        v.body = (EvValue.functionStub(""))
         v.identityId = ((EvalIdentityMinter.__singleton()).mint())
         v.setFnName(name)
         return v
@@ -485,7 +475,7 @@ class EvalValue {
     ; exactly the case .call/.apply exist to supply.
     sfn nativeMethod:EvalValue (kind:string name:string) {
         def v:EvalValue (new EvalValue())
-        v.valueType = 6
+        v.body = (EvValue.functionStub(""))
         v.identityId = ((EvalIdentityMinter.__singleton()).mint())
         def core:EvalPayload.FnCore (v.fnCore())
         core.functionName = name
@@ -499,7 +489,7 @@ class EvalValue {
     ; the namespace rather than a receiver kind -- a static has no receiver.
     sfn nativeStatic:EvalValue (ns:string name:string) {
         def v:EvalValue (new EvalValue())
-        v.valueType = 6
+        v.body = (EvValue.functionStub(""))
         v.identityId = ((EvalIdentityMinter.__singleton()).mint())
         def core:EvalPayload.FnCore (v.fnCore())
         core.functionName = name
@@ -509,14 +499,14 @@ class EvalValue {
     }
 
     fn isBuiltinStatic:boolean () {
-        if (valueType != 6) {
+        if (false == (this.isFunction())) {
             return false
         }
         return ((strlen (this.builtinNamespaceOf())) > 0)
     }
 
     fn isBuiltinMethod:boolean () {
-        if (valueType != 6) {
+        if (false == (this.isFunction())) {
             return false
         }
         return ((strlen (this.builtinNameOf())) > 0)
@@ -526,7 +516,7 @@ class EvalValue {
     ; receiver `this` it is bound to. Invoked like any function value.
     sfn boundMethod:EvalValue (fnNode:TSNode thisVal:EvalValue) {
         def v:EvalValue (new EvalValue())
-        v.valueType = 6
+        v.body = (EvValue.functionStub(""))
         v.identityId = ((EvalIdentityMinter.__singleton()).mint())
         v.functionNode = fnNode
         v.setFnName(fnNode.name)
@@ -541,7 +531,7 @@ class EvalValue {
     ; wrong module scope.
     fn withThis:EvalValue (recv:EvalValue) {
         def v:EvalValue (new EvalValue())
-        v.valueType = 6
+        v.body = (EvValue.functionStub((this.fnName())))
         v.identityId = identityId
         ; The payload is COPIED, not shared. Sharing it looks right — a rebinding
         ; does not change what the function IS — but `bind` writes boundArgs and
@@ -575,7 +565,7 @@ class EvalValue {
 
     sfn element:EvalValue (el:EVGElement) {
         def v:EvalValue (new EvalValue())
-        v.valueType = 7
+        v.body = (EvValue.element(el))
         v.identityId = ((EvalIdentityMinter.__singleton()).mint())
         v.setElement(el)
         return v
@@ -586,54 +576,99 @@ class EvalValue {
         return pool.undefinedValue
     }
     
-    ; Type checks
+    ; Type checks — kind from body (shape EvValue).
+    ; Copy `body` into a local before calling EvValue.* — Rust RefCell panics
+    ; if the field is borrowed across the shape ops call.
     fn isNull:boolean () {
-        return (valueType == 0)
+        def b:EvValue body
+        return (EvValue.isNull(b))
     }
     
     fn isNumber:boolean () {
-        return (valueType == 1)
+        def b:EvValue body
+        return (EvValue.isNumber(b))
     }
     
     fn isString:boolean () {
-        return (valueType == 2)
+        def b:EvValue body
+        return (EvValue.isString(b))
     }
     
     fn isBoolean:boolean () {
-        return (valueType == 3)
+        def b:EvValue body
+        return (EvValue.isBoolean(b))
     }
     
     fn isArray:boolean () {
-        return (valueType == 4)
+        def b:EvValue body
+        return (EvValue.isArrayValue(b))
     }
     
     fn isObject:boolean () {
-        return (valueType == 5)
+        def b:EvValue body
+        return (EvValue.isObject(b))
     }
     
     fn isFunction:boolean () {
-        return (valueType == 6)
+        def b:EvValue body
+        return (EvValue.isFunction(b))
     }
     
     fn isElement:boolean () {
-        return (valueType == 7)
+        def b:EvValue body
+        return (EvValue.isElement(b))
     }
 
     fn isUndefined:boolean () {
-        return (valueType == 8)
+        def b:EvValue body
+        return (EvValue.isUndefined(b))
+    }
+
+    fn isHole:boolean () {
+        def b:EvValue body
+        return (EvValue.isHole(b))
+    }
+
+    fn isMap:boolean () {
+        def b:EvValue body
+        return (EvValue.isMap(b))
+    }
+
+    fn isSet:boolean () {
+        def b:EvValue body
+        return (EvValue.isSet(b))
+    }
+
+    fn kindName:string () {
+        ; Case once on a local copy — chaining this.is*() re-borrows `body`
+        ; and panics on the Rust RefCell target.
+        def b:EvValue body
+        case b h:EvValue.Hole { return "Hole" }
+        case b n:EvValue.Null { return "Null" }
+        case b u:EvValue.Undefined { return "Undefined" }
+        case b num:EvValue.Number { return "Number" }
+        case b s:EvValue.String { return "String" }
+        case b bo:EvValue.Boolean { return "Boolean" }
+        case b a:EvValue.Array { return "Array" }
+        case b o:EvValue.Object { return "Object" }
+        case b f:EvValue.Function { return "Function" }
+        case b el:EvValue.Element { return "Element" }
+        case b m:EvValue.Map { return "Map" }
+        case b st:EvValue.Set { return "Set" }
+        return "Unknown"
     }
     
     ; Type coercion
     fn toNumber:double () {
-        if (valueType == 1) {
+        if (this.isNumber()) {
             return numberValue
         }
-        if (valueType == 2) {
+        if (this.isString()) {
             ; Try to parse string as number
             def parsed@(optional):double (to_double stringValue)
             return (unwrap parsed)
         }
-        if (valueType == 3) {
+        if (this.isBoolean()) {
             if boolValue {
                 return 1.0
             }
@@ -643,13 +678,17 @@ class EvalValue {
     }
     
     fn toString:string () {
-        if (valueType == 0) {
+        if (this.isNull()) {
             return "null"
         }
-        if (valueType == 8) {
+        if (this.isHole()) {
+            ; A hole READS as undefined when stringified as a value.
             return "undefined"
         }
-        if (valueType == 1) {
+        if (this.isUndefined()) {
+            return "undefined"
+        }
+        if (this.isNumber()) {
             ; NaN and the infinities print their JS names — the native f64
             ; formatters say "inf"/"-inf" where JavaScript says "Infinity"
             if (numberValue != numberValue) {
@@ -670,16 +709,16 @@ class EvalValue {
             }
             return s
         }
-        if (valueType == 2) {
+        if (this.isString()) {
             return stringValue
         }
-        if (valueType == 3) {
+        if (this.isBoolean()) {
             if boolValue {
                 return "true"
             }
             return "false"
         }
-        if (valueType == 4) {
+        if (this.isArray()) {
             def result:string "["
             def i:int 0
             while (i < (array_length arrayValue)) {
@@ -693,7 +732,7 @@ class EvalValue {
             }
             return result + "]"
         }
-        if (valueType == 5) {
+        if (this.isObject()) {
             def result:string "{"
             def keyList:[string] (keys objectMap)
             def i:int 0
@@ -708,10 +747,10 @@ class EvalValue {
             }
             return result + "}"
         }
-        if (valueType == 6) {
+        if (this.isFunction()) {
             return "[Function: " + (this.fnName()) + "]"
         }
-        if (valueType == 7) {
+        if (this.isElement()) {
             if (this.hasElement()) {
                 def el:EVGElement (this.elementOf())
                 return "[EVGElement: " + el.tagName + "]"
@@ -722,13 +761,16 @@ class EvalValue {
     }
     
     fn toBool:boolean () {
-        if (valueType == 0) {
+        if (this.isNull()) {
             return false
         }
-        if (valueType == 8) {
+        if (this.isHole()) {
             return false
         }
-        if (valueType == 1) {
+        if (this.isUndefined()) {
+            return false
+        }
+        if (this.isNumber()) {
             ; NaN is FALSY. `n != 0.0` is true for NaN, so `!NaN` answered false
             ; and every `if (nan)` took the wrong branch.
             if (numberValue != numberValue) {
@@ -736,22 +778,22 @@ class EvalValue {
             }
             return (numberValue != 0.0)
         }
-        if (valueType == 2) {
+        if (this.isString()) {
             return ((strlen stringValue) > 0)
         }
-        if (valueType == 3) {
+        if (this.isBoolean()) {
             return boolValue
         }
-        if (valueType == 4) {
+        if (this.isArray()) {
             return true ; Arrays are always truthy
         }
-        if (valueType == 5) {
+        if (this.isObject()) {
             return true ; Objects are always truthy
         }
-        if (valueType == 6) {
+        if (this.isFunction()) {
             return true ; Functions are always truthy
         }
-        if (valueType == 7) {
+        if (this.isElement()) {
             return true ; Elements are always truthy
         }
         return false
@@ -956,7 +998,7 @@ class EvalValue {
         ; is legal, and an instance made from it reads `length` off that array.
         ; Only objectMap was consulted, so such a prototype answered undefined
         ; for every property its own kind provides.
-        if (valueType != 5) {
+        if (false == (this.isObject())) {
             return (this.getMember(key))
         }
         if (has objectMap key) {
@@ -996,7 +1038,7 @@ class EvalValue {
 
     ; Object member access
     fn getMember:EvalValue (key:string) {
-        if (valueType == 5) {
+        if (this.isObject()) {
             if (has objectMap key) {
                 return (unwrap (get objectMap key))
             }
@@ -1018,7 +1060,7 @@ class EvalValue {
         ; missing own property reads as undefined, exactly as for an object;
         ; built-in fallbacks (`name`, `length`, `call`) are resolved by the
         ; engine before it reaches here.
-        if (valueType == 6) {
+        if (this.isFunction()) {
             if (has objectMap key) {
                 return (unwrap (get objectMap key))
             }
@@ -1063,7 +1105,7 @@ class EvalValue {
             return (EvalValue.undefined())
         }
         ; Array length property
-        if (valueType == 4) {
+        if (this.isArray()) {
             if (key == "length") {
                 return (EvalValue.fromInt((this.arrayLength())))
             }
@@ -1080,7 +1122,7 @@ class EvalValue {
                 def aidx:int (unwrap ai)
                 if ((aidx >= 0) && (aidx < (array_length arrayValue))) {
                     def nslot:EvalValue (itemAt arrayValue aidx)
-                    if nslot.isHole {
+                    if (nslot.isHole()) {
                         return (EvalValue.undefined())
                     }
                     return nslot
@@ -1088,13 +1130,13 @@ class EvalValue {
             }
         }
         ; Map/Set carry ordinary properties too (`size` is handled by the engine).
-        if ((valueType == 9) || (valueType == 10)) {
+        if ((this.isMap()) || (this.isSet())) {
             if (has objectMap key) {
                 return (unwrap (get objectMap key))
             }
         }
         ; String length property
-        if (valueType == 2) {
+        if (this.isString()) {
             if (key == "length") {
                 return (EvalValue.fromInt((strlen stringValue)))
             }
@@ -1107,7 +1149,7 @@ class EvalValue {
     ; functions (6), arrays (4) and Map/Set (9/10). Primitives silently ignore
     ; the write, which is sloppy-mode behaviour.
     fn setMember:void (key:string value:EvalValue) {
-        if (valueType == 5) {
+        if (this.isObject()) {
             ; D-ATTRS: a write is refused when the property is non-writable, or
             ; when the object is frozen, or when it is a NEW property on a
             ; non-extensible object. Sloppy mode ignores the failure silently,
@@ -1134,7 +1176,7 @@ class EvalValue {
             set objectMap key value
             return
         }
-        if (valueType == 6) {
+        if (this.isFunction()) {
             ; D-ATTRS: a FUNCTION object obeys the same rules -- a built-in
             ; constructor's `Number.NaN` is non-writable, and the write was
             ; taken unconditionally because this branch skipped the check
@@ -1159,11 +1201,11 @@ class EvalValue {
             set objectMap key value
             return
         }
-        if (valueType == 4) {
+        if (this.isArray()) {
             set objectMap key value
             return
         }
-        if ((valueType == 9) || (valueType == 10)) {
+        if ((this.isMap()) || (this.isSet())) {
             set objectMap key value
             return
         }
@@ -1201,11 +1243,11 @@ class EvalValue {
             }
         }
         ; D-FNPROPS: `delete` reaches every type that can hold properties.
-        if (valueType == 1) { return }
-        if (valueType == 2) { return }
-        if (valueType == 3) { return }
-        if (valueType == 0) { return }
-        if (valueType == 8) { return }
+        if (this.isNumber()) { return }
+        if (this.isString()) { return }
+        if (this.isBoolean()) { return }
+        if (this.isNull()) { return }
+        if (this.isUndefined()) { return }
         if (has objectMap key) {
             def rebuilt:[string:EvalValue]
             def ks:[string] (keys objectMap)
@@ -1219,7 +1261,7 @@ class EvalValue {
         ; D-FNPROPS: a function's length/name/prototype are computed on read,
         ; so there is nothing in the map to remove -- the deletion is recorded
         ; instead, and the synthesis honours it.
-        if (valueType == 6) {
+        if (this.isFunction()) {
             ; `prototype` on an ordinary function is NON-CONFIGURABLE, so the
             ; delete simply fails; length and name are configurable and go.
             if (key != "prototype") {
@@ -1264,7 +1306,7 @@ class EvalValue {
     }
 
     fn setIndexAt:void (index:int value:EvalValue) {
-        if (valueType != 4) {
+        if (false == (this.isArray())) {
             return
         }
         ; D-HOLES: the slots skipped over are ABSENT, not undefined -- `a[3]=1`
@@ -1277,7 +1319,7 @@ class EvalValue {
 
     ; Append to the backing array in place; returns the new length (Array#push).
     fn arrPush:int (value:EvalValue) {
-        if (valueType != 4) {
+        if (false == (this.isArray())) {
             return 0
         }
         push arrayValue value
@@ -1287,11 +1329,12 @@ class EvalValue {
     ; Replace the backing array items in place (keeps the same EvalValue instance
     ; so existing references see the mutation — used by pop/shift/reverse/sort/…).
     fn arrSetItems:void (items:[EvalValue]) {
-        valueType = 4
+        def _emptyItems2:[EvValue]
+        body = (EvValue.array(_emptyItems2))
         arrayValue = items
     }
 
-    ; ---- Map (valueType 9) helpers: keys in arrayValue, values in mapVals ----
+    ; ---- Map helpers: keys in arrayValue, values in mapVals ----
     fn mapIndexOfKey:int (key:EvalValue) {
         def i:int 0
         while (i < (array_length arrayValue)) {
@@ -1341,7 +1384,7 @@ class EvalValue {
         return true
     }
 
-    ; ---- Set (valueType 10) helpers: unique elements in arrayValue ----
+    ; ---- Set helpers: unique elements in arrayValue ----
     fn setAdd:void (value:EvalValue) {
         def i:int 0
         while (i < (array_length arrayValue)) {
@@ -1391,29 +1434,23 @@ class EvalValue {
         def emptyV:[EvalValue]
         mapVals = emptyV
     }
-    fn isMap:boolean () {
-        return (valueType == 9)
-    }
-    fn isSet:boolean () {
-        return (valueType == 10)
-    }
     
     ; Array index access
     fn getIndex:EvalValue (index:int) {
-        if (valueType == 4) {
+        if (this.isArray()) {
             if ((index >= 0) && (index < (array_length arrayValue))) {
                 ; D-HOLES: a hole READS as undefined. Only the code that asks
                 ; whether the element is present -- `in`, hasOwnProperty, the
                 ; iteration methods -- looks at the slot itself.
                 def slot:EvalValue (itemAt arrayValue index)
-                if slot.isHole {
+                if (slot.isHole()) {
                     return (EvalValue.undefined())
                 }
                 return slot
             }
         }
         ; String character access
-        if (valueType == 2) {
+        if (this.isString()) {
             if ((index >= 0) && (index < (strlen stringValue))) {
                 def charStr:string (substring stringValue index (index + 1))
                 return (EvalValue.string(charStr))
@@ -1422,12 +1459,12 @@ class EvalValue {
             ; undefined. Answering null made `s[11] === undefined` false.
             return (EvalValue.undefined())
         }
-        if (valueType == 4) {
+        if (this.isArray()) {
             return (EvalValue.undefined())
         }
         ; An OBJECT indexed by number -- a boxed string, say -- reads the
         ; property of that name; a missing one is undefined, not null.
-        if (valueType == 5) {
+        if (this.isObject()) {
             def ik:string (to_string index)
             if (has objectMap ik) {
                 return (unwrap (get objectMap ik))
@@ -1439,30 +1476,59 @@ class EvalValue {
     
     ; Equality check
     fn equals:boolean (other:EvalValue) {
-        if (valueType != other.valueType) {
-            return false
+        if (this.isNull()) {
+            return (other.isNull())
         }
-        if (valueType == 0) {
-            return true
+        if (this.isHole()) {
+            return (other.isHole())
         }
-        if (valueType == 8) {
-            return (other.valueType == 8)
+        if (this.isUndefined()) {
+            return (other.isUndefined())
         }
-        if (valueType == 1) {
+        if (this.isNumber()) {
+            if (false == (other.isNumber())) {
+                return false
+            }
             return (numberValue == other.numberValue)
         }
-        if (valueType == 2) {
+        if (this.isString()) {
+            if (false == (other.isString())) {
+                return false
+            }
             return (stringValue == other.stringValue)
         }
-        if (valueType == 3) {
+        if (this.isBoolean()) {
+            if (false == (other.isBoolean())) {
+                return false
+            }
             return (boolValue == other.boolValue)
         }
-        ; Reference values (array/object/function/Map/Set/element) — reference
-        ; identity (D-IDENTITY). valueTypes already match (guard above); both are
-        ; references stamped with an immutable identityId at mint, so two values
-        ; are `===` only if they are the SAME reference. A reference never reaches
-        ; here against a primitive (the valueType guard returns false first).
-        return (identityId == other.identityId)
+        ; Reference values — identityId (D-IDENTITY). Kind must match.
+        if (this.isArray()) {
+            if (false == (other.isArray())) { return false }
+            return (identityId == other.identityId)
+        }
+        if (this.isObject()) {
+            if (false == (other.isObject())) { return false }
+            return (identityId == other.identityId)
+        }
+        if (this.isFunction()) {
+            if (false == (other.isFunction())) { return false }
+            return (identityId == other.identityId)
+        }
+        if (this.isMap()) {
+            if (false == (other.isMap())) { return false }
+            return (identityId == other.identityId)
+        }
+        if (this.isSet()) {
+            if (false == (other.isSet())) { return false }
+            return (identityId == other.identityId)
+        }
+        if (this.isElement()) {
+            if (false == (other.isElement())) { return false }
+            return (identityId == other.identityId)
+        }
+        return false
     }
 }
 

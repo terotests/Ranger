@@ -787,6 +787,23 @@ describe("shapes (closed variant families)", () => {
   });
 
   /**
+   * E4 (PLAN_SHAPES.md §7.5): valueType is deleted. Kind lives on
+   * EvalValue.body:EvValue; is-predicates / kindName / fromTagged read the shape.
+   */
+  describe("EvValue E4 kind discriminant", () => {
+    const E4 = `${FIXTURES_DIR}/shape_evalvalue_e4_kind.rgr`;
+    const EXPECTED_E4 = ["body", "kinds", "round", "name"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E4, EXPECTED_E4);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E4, EXPECTED_E4);
+    });
+  });
+
+  /**
    * Group field projection (PLAN_SHAPES.md §7 / C5). Fields declared on a
    * group are read and written through the group type via generated get_/set_
    * ops — no narrowing required, identity preserved for reference groups.
