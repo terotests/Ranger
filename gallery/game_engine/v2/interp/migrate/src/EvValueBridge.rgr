@@ -1,128 +1,128 @@
 ; =============================================================================
 ; EvValueBridge — tagged ↔ shape conversion (PLAN_SHAPES.md §7.5)
 ; =============================================================================
-; E3/E4: create/check APIs live here. E4: class EvalValue carries `body:EvValue`
+; E3/E4: create/check APIs live here. E4: class EvHandle carries `body:EvalValue`
 ; as the kind discriminant (`valueType` is gone). E4c: Array dense items live on
 ; the shape; Object/Map/Set payloads still sit on the class. fromTagged returns
-; the live body (no rebuild). toTagged uses EvalValue.fromBody (handle cache).
+; the live body (no rebuild). toTagged uses EvHandle.fromBody (handle cache).
 
+Import "EvHandle.rgr"
 Import "EvalValue.rgr"
-Import "EvValue.rgr"
 
 class EvValueBridge {
-    sfn fromTagged:EvValue (v:EvalValue) {
+    sfn fromTagged:EvalValue (v:EvHandle) {
         ; Primitives may mutate scalar fields in place (slotOwned numbers);
         ; rebuild those from fields. Refs return the live kind body.
         if (v.isNumber()) {
-            return (EvValue.number(v.numberValue))
+            return (EvalValue.number(v.numberValue))
         }
         if (v.isString()) {
-            return (EvValue.string(v.stringValue))
+            return (EvalValue.string(v.stringValue))
         }
         if (v.isBoolean()) {
-            return (EvValue.boolean(v.boolValue))
+            return (EvalValue.boolean(v.boolValue))
         }
         return v.body
     }
 
-    sfn toTagged:EvalValue (ev:EvValue) {
-        return (EvalValue.fromBody(ev))
+    sfn toTagged:EvHandle (ev:EvalValue) {
+        return (EvHandle.fromBody(ev))
     }
 
     ; ---- Hole -------------------------------------------------------------
-    sfn taggedHole:EvalValue () {
-        return (EvValueBridge.toTagged((EvValue.hole())))
+    sfn taggedHole:EvHandle () {
+        return (EvValueBridge.toTagged((EvalValue.hole())))
     }
-    sfn isHole:boolean (v:EvalValue) {
+    sfn isHole:boolean (v:EvHandle) {
         return (v.isHole())
     }
 
     ; ---- Primitives -------------------------------------------------------
-    sfn taggedNull:EvalValue () {
-        return (EvValueBridge.toTagged((EvValue.null())))
+    sfn taggedNull:EvHandle () {
+        return (EvValueBridge.toTagged((EvalValue.null())))
     }
-    sfn taggedUndefined:EvalValue () {
-        return (EvValueBridge.toTagged((EvValue.undefined())))
+    sfn taggedUndefined:EvHandle () {
+        return (EvValueBridge.toTagged((EvalValue.undefined())))
     }
-    sfn taggedNumber:EvalValue (n:double) {
-        return (EvValueBridge.toTagged((EvValue.number(n))))
+    sfn taggedNumber:EvHandle (n:double) {
+        return (EvValueBridge.toTagged((EvalValue.number(n))))
     }
-    sfn taggedString:EvalValue (s:string) {
-        return (EvValueBridge.toTagged((EvValue.string(s))))
+    sfn taggedString:EvHandle (s:string) {
+        return (EvValueBridge.toTagged((EvalValue.string(s))))
     }
-    sfn taggedBoolean:EvalValue (b:boolean) {
-        return (EvValueBridge.toTagged((EvValue.boolean(b))))
+    sfn taggedBoolean:EvHandle (b:boolean) {
+        return (EvValueBridge.toTagged((EvalValue.boolean(b))))
     }
-    sfn isNull:boolean (v:EvalValue) {
+    sfn isNull:boolean (v:EvHandle) {
         return (v.isNull())
     }
-    sfn isUndefined:boolean (v:EvalValue) {
+    sfn isUndefined:boolean (v:EvHandle) {
         return (v.isUndefined())
     }
-    sfn isNumber:boolean (v:EvalValue) {
+    sfn isNumber:boolean (v:EvHandle) {
         return (v.isNumber())
     }
-    sfn isString:boolean (v:EvalValue) {
+    sfn isString:boolean (v:EvHandle) {
         return (v.isString())
     }
-    sfn isBoolean:boolean (v:EvalValue) {
+    sfn isBoolean:boolean (v:EvHandle) {
         return (v.isBoolean())
     }
 
     ; ---- Element ----------------------------------------------------------
-    sfn taggedElement:EvalValue (el:EVGElement) {
-        return (EvValueBridge.toTagged((EvValue.element(el))))
+    sfn taggedElement:EvHandle (el:EVGElement) {
+        return (EvValueBridge.toTagged((EvalValue.element(el))))
     }
-    sfn isElement:boolean (v:EvalValue) {
+    sfn isElement:boolean (v:EvHandle) {
         return (v.isElement())
     }
 
     ; ---- Property carriers / collections ----------------------------------
-    ; Payload-bearing creates allocate once via EvalValue.* (identity mint).
+    ; Payload-bearing creates allocate once via EvHandle.* (identity mint).
     ; Empty Map/Set go through the shape → toTagged path.
-    sfn taggedArray:EvalValue (items:[EvalValue]) {
-        return (EvalValue.array(items))
+    sfn taggedArray:EvHandle (items:[EvHandle]) {
+        return (EvHandle.array(items))
     }
-    sfn taggedObject:EvalValue (keys:[string] values:[EvalValue]) {
-        return (EvalValue.object(keys values))
+    sfn taggedObject:EvHandle (keys:[string] values:[EvHandle]) {
+        return (EvHandle.object(keys values))
     }
-    sfn taggedMapEmpty:EvalValue () {
-        return (EvValueBridge.toTagged((EvValue.mapEmpty())))
+    sfn taggedMapEmpty:EvHandle () {
+        return (EvValueBridge.toTagged((EvalValue.mapEmpty())))
     }
-    sfn taggedSetEmpty:EvalValue () {
-        return (EvValueBridge.toTagged((EvValue.setEmpty())))
+    sfn taggedSetEmpty:EvHandle () {
+        return (EvValueBridge.toTagged((EvalValue.setEmpty())))
     }
     ; Named isArrayValue — a global `isArray` operator blocks Class.isArray sfns.
-    sfn isArrayValue:boolean (v:EvalValue) {
+    sfn isArrayValue:boolean (v:EvHandle) {
         return (v.isArray())
     }
-    sfn isObject:boolean (v:EvalValue) {
+    sfn isObject:boolean (v:EvHandle) {
         return (v.isObject())
     }
-    sfn isMap:boolean (v:EvalValue) {
+    sfn isMap:boolean (v:EvHandle) {
         return (v.isMap())
     }
-    sfn isSet:boolean (v:EvalValue) {
+    sfn isSet:boolean (v:EvHandle) {
         return (v.isSet())
     }
 
     ; ---- Function family --------------------------------------------------
-    sfn taggedFunction:EvalValue (fnNode:TSNode) {
-        return (EvalValue.function(fnNode))
+    sfn taggedFunction:EvHandle (fnNode:TSNode) {
+        return (EvHandle.function(fnNode))
     }
-    sfn taggedNativeFunction:EvalValue (name:string) {
-        return (EvValueBridge.toTagged((EvValue.functionStub(name))))
+    sfn taggedNativeFunction:EvHandle (name:string) {
+        return (EvValueBridge.toTagged((EvalValue.functionStub(name))))
     }
-    sfn taggedNativeMethod:EvalValue (kind:string name:string) {
-        return (EvalValue.nativeMethod(kind name))
+    sfn taggedNativeMethod:EvHandle (kind:string name:string) {
+        return (EvHandle.nativeMethod(kind name))
     }
-    sfn taggedNativeStatic:EvalValue (ns:string name:string) {
-        return (EvalValue.nativeStatic(ns name))
+    sfn taggedNativeStatic:EvHandle (ns:string name:string) {
+        return (EvHandle.nativeStatic(ns name))
     }
-    sfn taggedBoundMethod:EvalValue (fnNode:TSNode thisVal:EvalValue) {
-        return (EvalValue.boundMethod(fnNode thisVal))
+    sfn taggedBoundMethod:EvHandle (fnNode:TSNode thisVal:EvHandle) {
+        return (EvHandle.boundMethod(fnNode thisVal))
     }
-    sfn isFunction:boolean (v:EvalValue) {
+    sfn isFunction:boolean (v:EvHandle) {
         return (v.isFunction())
     }
 }

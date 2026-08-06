@@ -1,15 +1,15 @@
-; E1 smoke test (PLAN_SHAPES.md §7.5): the EvValue target shape compiles,
+; E1 smoke test (PLAN_SHAPES.md §7.5): the EvalValue target shape compiles,
 ; group-typed Callable accepts Function without wrapping, required invokeLabel
 ; dispatches, and toBool matches exhaustively over the family.
-Import "../../gallery/game_engine/v2/interp/migrate/src/EvValue.rgr"
+Import "../../gallery/game_engine/v2/interp/migrate/src/EvalValue.rgr"
 
 class Main {
-    fn callLabel:string (c:EvValue.Callable) {
-        return (EvValue.Callable.invokeLabel(c))
+    fn callLabel:string (c:EvalValue.Callable) {
+        return (EvalValue.Callable.invokeLabel(c))
     }
 
-    fn asBool:boolean (v:EvValue) {
-        return (EvValue.toBool(v))
+    fn asBool:boolean (v:EvalValue) {
+        return (EvalValue.toBool(v))
     }
 
     sfn main:void () {
@@ -18,15 +18,15 @@ class Main {
         def core:EvFunctionCore (new EvFunctionCore())
         core.functionName = "greet"
         def binding:EvFunctionBinding (new EvFunctionBinding())
-        def f:EvValue.Function (new EvValue.Function(1 props core binding))
+        def f:EvalValue.Function (new EvalValue.Function(1 props core binding))
         print (m.callLabel(f))
-        def n:EvValue.Number (new EvValue.Number(0.0))
+        def n:EvalValue.Number (new EvalValue.Number(0.0))
         if (m.asBool(n)) {
             print "WRONG: zero is truthy"
         } {
             print "zero"
         }
-        def t:EvValue.Number (new EvValue.Number(2.0))
+        def t:EvalValue.Number (new EvalValue.Number(2.0))
         if (m.asBool(t)) {
             print "two"
         } {

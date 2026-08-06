@@ -53,21 +53,21 @@ class Scene3dBridge extends EvalNativeBridge {
         radius = r
     }
 
-    fn argStr:string (args:[EvalValue] i:int) {
+    fn argStr:string (args:[EvHandle] i:int) {
         if ((array_length args) <= i) {
             return ""
         }
-        def v:EvalValue (itemAt args i)
+        def v:EvHandle (itemAt args i)
         return (v.toString())
     }
-    fn argNum:double (args:[EvalValue] i:int) {
+    fn argNum:double (args:[EvHandle] i:int) {
         if ((array_length args) <= i) {
             return 0.0
         }
-        def v:EvalValue (itemAt args i)
+        def v:EvHandle (itemAt args i)
         return (v.toNumber())
     }
-    fn argInt:int (args:[EvalValue] i:int) {
+    fn argInt:int (args:[EvHandle] i:int) {
         return (to_int (this.argNum(args i)))
     }
 
@@ -87,7 +87,7 @@ class Scene3dBridge extends EvalNativeBridge {
         return false
     }
 
-    fn invoke:EvalValue (name:string args:[EvalValue]) {
+    fn invoke:EvHandle (name:string args:[EvHandle]) {
         if (name == "addModel") {
             return (this.doAdd(args))
         }
@@ -98,13 +98,13 @@ class Scene3dBridge extends EvalNativeBridge {
             return (this.doSpin(args))
         }
         if (name == "sceneError") {
-            return (EvalValue.string(lastError))
+            return (EvHandle.string(lastError))
         }
-        return (EvalValue.null())
+        return (EvHandle.null())
     }
 
     ; addModel(file) — the whole load + GL-upload pipeline, host-side.
-    fn doAdd:EvalValue (args:[EvalValue]) {
+    fn doAdd:EvHandle (args:[EvHandle]) {
         def file:string (this.argStr(args 0))
         def id:int 0
         if (radius > 0.0) {
@@ -114,13 +114,13 @@ class Scene3dBridge extends EvalNativeBridge {
         }
         if (loader.ok == false) {
             lastError = loader.lastError
-            return (EvalValue.fromInt(0 - 1))
+            return (EvHandle.fromInt(0 - 1))
         }
         def model:ModelAsset (loader.getModel(id))
         def em:EngineMeshData (meshBridge.fromModel(model))
         if (em.ok == false) {
             lastError = em.error
-            return (EvalValue.fromInt(0 - 1))
+            return (EvHandle.fromInt(0 - 1))
         }
         def glMesh:int (uploader.uploadMesh(em.vertsHp em.vertexCount em.indices em.indexCount))
         def glTex:int 0
@@ -134,10 +134,10 @@ class Scene3dBridge extends EvalNativeBridge {
         push instances inst
         lastError = ""
         def idx:int ((array_length instances) - 1)
-        return (EvalValue.fromInt(idx))
+        return (EvHandle.fromInt(idx))
     }
 
-    fn doPlace:EvalValue (args:[EvalValue]) {
+    fn doPlace:EvHandle (args:[EvHandle]) {
         def i:int (this.argInt(args 0))
         if ((i >= 0) && (i < (array_length instances))) {
             def inst:SceneInstance (itemAt instances i)
@@ -145,16 +145,16 @@ class Scene3dBridge extends EvalNativeBridge {
             inst.py = (this.argNum(args 2))
             inst.pz = (this.argNum(args 3))
         }
-        return (EvalValue.null())
+        return (EvHandle.null())
     }
 
-    fn doSpin:EvalValue (args:[EvalValue]) {
+    fn doSpin:EvHandle (args:[EvHandle]) {
         def i:int (this.argInt(args 0))
         if ((i >= 0) && (i < (array_length instances))) {
             def inst:SceneInstance (itemAt instances i)
             inst.spin = (this.argNum(args 1))
         }
-        return (EvalValue.null())
+        return (EvHandle.null())
     }
 
     ; ---- runner-facing (host) -----------------------------------------------

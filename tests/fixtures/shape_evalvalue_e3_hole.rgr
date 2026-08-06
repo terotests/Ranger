@@ -1,21 +1,21 @@
 ; E3 smoke test: Hole kind is shape-owned (PLAN_SHAPES.md §7.5).
-; Creation goes EvValue.Hole → toTagged; engine API is EvValueBridge.taggedHole.
+; Creation goes EvalValue.Hole → toTagged; engine API is EvValueBridge.taggedHole.
 Import "../../gallery/game_engine/v2/interp/migrate/src/EvValueBridge.rgr"
 
 class Main {
     sfn main:void () {
         ; shape → tagged → shape round-trip
-        def shaped:EvValue (EvValue.hole())
-        def tagged:EvalValue (EvValueBridge.toTagged(shaped))
-        def back:EvValue (EvValueBridge.fromTagged(tagged))
-        if (EvValue.isHole(back)) {
+        def shaped:EvalValue (EvalValue.hole())
+        def tagged:EvHandle (EvValueBridge.toTagged(shaped))
+        def back:EvalValue (EvValueBridge.fromTagged(tagged))
+        if (EvalValue.isHole(back)) {
             print "roundtrip"
         } {
             print "WRONG: Hole round-trip failed"
         }
 
         ; engine creation surface
-        def eng:EvalValue (EvValueBridge.taggedHole())
+        def eng:EvHandle (EvValueBridge.taggedHole())
         if (EvValueBridge.isHole(eng)) {
             print "engine"
         } {
@@ -23,15 +23,15 @@ class Main {
         }
 
         ; Hole is not Undefined
-        def u:EvalValue (EvalValue.undefined())
+        def u:EvHandle (EvHandle.undefined())
         if (EvValueBridge.isHole(u)) {
             print "WRONG: undefined is a hole"
         } {
             print "distinct"
         }
-        def us:EvValue (EvValueBridge.fromTagged(u))
-        if (EvValue.isUndefined(us)) {
-            if (EvValue.isHole(us)) {
+        def us:EvalValue (EvValueBridge.fromTagged(u))
+        if (EvalValue.isUndefined(us)) {
+            if (EvalValue.isHole(us)) {
                 print "WRONG: undefined shaped as hole"
             } {
                 print "undef"
@@ -41,7 +41,7 @@ class Main {
         }
 
         ; Hole is falsy
-        if (EvValue.toBool(shaped)) {
+        if (EvalValue.toBool(shaped)) {
             print "WRONG: Hole is truthy"
         } {
             print "falsy"

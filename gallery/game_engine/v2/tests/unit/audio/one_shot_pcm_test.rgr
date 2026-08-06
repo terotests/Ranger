@@ -16,7 +16,7 @@ Import "../../../interp/engine/RgRegistryBridge.rgr"
 Import "../../harness/RgTest.rgr"
 
 class OneShotPcmTest {
-    fn num:EvalValue (n:double) { return (EvalValue.number(n)) }
+    fn num:EvHandle (n:double) { return (EvHandle.number(n)) }
 
     sfn m@(main):void () {
         def t:RgTest (RgTest.forSuite("tests/unit/audio/one_shot_pcm"))
@@ -24,24 +24,24 @@ class OneShotPcmTest {
         def b:RgRegistryBridge (RgRegistryBridge.create())
 
         ; ---- clip carries a synth spec (freqHz, durationMs, volume, wave) -----
-        def clipArgs:[EvalValue]
+        def clipArgs:[EvHandle]
         push clipArgs (self.num(660.0))
         push clipArgs (self.num(220.0))
         push clipArgs (self.num(0.4))
         push clipArgs (self.num(0.0))
-        def clipRes:EvalValue (b.invoke("rgcore_audio_clip_create" clipArgs))
+        def clipRes:EvHandle (b.invoke("rgcore_audio_clip_create" clipArgs))
         def clipH:int (to_int clipRes.numberValue)
         t.ok("clip handle minted" (clipH > 0))
 
         ; ---- source retains the clip -----------------------------------------
-        def srcArgs:[EvalValue]
+        def srcArgs:[EvHandle]
         push srcArgs (self.num((to_double clipH)))
-        def srcRes:EvalValue (b.invoke("rgcore_audio_source_create" srcArgs))
+        def srcRes:EvHandle (b.invoke("rgcore_audio_source_create" srcArgs))
         def srcH:int (to_int srcRes.numberValue)
         t.ok("source handle minted" (srcH > 0))
 
         ; ---- one-shot → synthesises real PCM through the capturing sink ------
-        def osArgs:[EvalValue]
+        def osArgs:[EvHandle]
         push osArgs (self.num((to_double srcH)))
         b.invoke("rgcore_audio_one_shot" osArgs)
 

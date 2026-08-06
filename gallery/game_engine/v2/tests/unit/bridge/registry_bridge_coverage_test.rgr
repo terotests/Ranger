@@ -2,7 +2,7 @@
 ; registry_bridge_coverage_test — BRIDGES.md step-2 gate.
 ; ==============================================================================
 ; 1. COVERAGE: every row of the generated command table is executed through the
-;    generic bridge (invoke with EvalValue args, exactly as a guest would). A
+;    generic bridge (invoke with EvHandle args, exactly as a guest would). A
 ;    schema row without a dispatcher, or a dispatch that errors, is red — this
 ;    is what makes the interim hand dispatcher un-forkable (§2.4).
 ; 2. TYPED ERRORS: unknown command / wrong arity / wrong value type / stale
@@ -17,20 +17,20 @@ class RegistryBridgeCoverageTest {
     def b:RgRegistryBridge (RgRegistryBridge.create())
     def invoked:[string]
 
-    fn num:EvalValue (n:double) { return (EvalValue.number(n)) }
-    fn str:EvalValue (s:string) { return (EvalValue.string(s)) }
+    fn num:EvHandle (n:double) { return (EvHandle.number(n)) }
+    fn str:EvHandle (s:string) { return (EvHandle.string(s)) }
 
-    fn call0:EvalValue (name:string) {
-        def args:[EvalValue]
+    fn call0:EvHandle (name:string) {
+        def args:[EvHandle]
         push this.invoked name
         return (this.b.invoke(name args))
     }
-    fn callN:EvalValue (name:string args:[EvalValue]) {
+    fn callN:EvHandle (name:string args:[EvHandle]) {
         push this.invoked name
         return (this.b.invoke(name args))
     }
-    fn callI:int (name:string args:[EvalValue]) {
-        def r:EvalValue (this.callN(name args))
+    fn callI:int (name:string args:[EvHandle]) {
+        def r:EvHandle (this.callN(name args))
         return (to_int r.numberValue)
     }
 
@@ -51,17 +51,17 @@ class RegistryBridgeCoverageTest {
 
         ; ================= drive EVERY table row =============================
         ; two_d: texture → atlas → region/clip → sprite → layer → camera → player
-        def texA:[EvalValue]
+        def texA:[EvHandle]
         push texA (s.num(64.0))
         push texA (s.num(64.0))
         def tex:int (s.callI("rg2d_texture_create" texA))
         t.ok("texture guest id minted" (tex > 0))
 
-        def atA:[EvalValue]
+        def atA:[EvHandle]
         push atA (s.num((to_double tex)))
         def atlas:int (s.callI("rg2d_atlas_create" atA))
 
-        def rgA:[EvalValue]
+        def rgA:[EvHandle]
         push rgA (s.num((to_double atlas)))
         push rgA (s.str("idle"))
         push rgA (s.num(0.0))
@@ -70,7 +70,7 @@ class RegistryBridgeCoverageTest {
         push rgA (s.num(32.0))
         def rIdle:int (s.callI("rg2d_atlas_add_region" rgA))
 
-        def rg2A:[EvalValue]
+        def rg2A:[EvHandle]
         push rg2A (s.num((to_double atlas)))
         push rg2A (s.str("walk"))
         push rg2A (s.num(32.0))
@@ -79,33 +79,33 @@ class RegistryBridgeCoverageTest {
         push rg2A (s.num(32.0))
         def rWalk:int (s.callI("rg2d_atlas_add_region" rg2A))
 
-        def framesArr:[EvalValue]
+        def framesArr:[EvHandle]
         push framesArr (s.num((to_double rIdle)))
         push framesArr (s.num((to_double rWalk)))
-        def dursArr:[EvalValue]
+        def dursArr:[EvHandle]
         push dursArr (s.num(0.1))
         push dursArr (s.num(0.2))
-        def clA:[EvalValue]
+        def clA:[EvHandle]
         push clA (s.num((to_double atlas)))
         push clA (s.str("walk"))
-        push clA (EvalValue.array(framesArr))
-        push clA (EvalValue.array(dursArr))
+        push clA (EvHandle.array(framesArr))
+        push clA (EvHandle.array(dursArr))
         def clip:int (s.callI("rg2d_atlas_add_clip" clA))
         t.eqInt("clip index 0" clip 0)
 
-        def riA:[EvalValue]
+        def riA:[EvHandle]
         push riA (s.num((to_double atlas)))
         push riA (s.str("walk"))
         t.eqInt("region index resolves" (s.callI("rg2d_atlas_region_index" riA)) rWalk)
 
-        def spA:[EvalValue]
+        def spA:[EvHandle]
         push spA (s.num((to_double atlas)))
         push spA (s.num((to_double rIdle)))
         def sprite:int (s.callI("rg2d_sprite_create" spA))
         def sprite2:int (s.callI("rg2d_sprite_create" spA))
         t.no("guest ids unique" (sprite == sprite2))
 
-        def posA:[EvalValue]
+        def posA:[EvHandle]
         push posA (s.num((to_double sprite)))
         push posA (s.num(5.0))
         push posA (s.num(7.0))
@@ -113,39 +113,39 @@ class RegistryBridgeCoverageTest {
         t.near("host sprite x written through the bridge"
             (b.d2.spriteX((b.resolveGuestId(sprite)))) 5.0)
 
-        def srA:[EvalValue]
+        def srA:[EvHandle]
         push srA (s.num((to_double sprite)))
         push srA (s.num((to_double rWalk)))
         s.callN("rg2d_sprite_set_region" srA)
 
         ; size / z / flip — the transform state a sampling backend reads
-        def szA:[EvalValue]
+        def szA:[EvHandle]
         push szA (s.num((to_double sprite)))
         push szA (s.num(48.0))
         push szA (s.num(12.0))
         s.callN("rg2d_sprite_set_size" szA)
         t.near("host sprite width written through the bridge"
             (b.d2.spriteW((b.resolveGuestId(sprite)))) 48.0)
-        def zA:[EvalValue]
+        def zA:[EvHandle]
         push zA (s.num((to_double sprite)))
         push zA (s.num(3.0))
         s.callN("rg2d_sprite_set_z" zA)
         t.eqInt("host sprite z written through the bridge"
             (b.d2.spriteZ((b.resolveGuestId(sprite)))) 3)
-        def fxA:[EvalValue]
+        def fxA:[EvHandle]
         push fxA (s.num((to_double sprite)))
         push fxA (s.num(1.0))
         s.callN("rg2d_sprite_set_flip" fxA)
         t.ok("host sprite flipX written through the bridge"
             (b.d2.spriteFlipX((b.resolveGuestId(sprite)))))
-        def cellA:[EvalValue]
+        def cellA:[EvHandle]
         push cellA (s.num((to_double sprite)))
         push cellA (s.num(2.0))
         push cellA (s.num(3.0))
         s.callN("rg2d_sprite_set_cell" cellA)
         t.eqInt("host sprite sheet cell written through the bridge"
             (b.d2.spriteCellCol((b.resolveGuestId(sprite)))) 2)
-        def paneA:[EvalValue]
+        def paneA:[EvHandle]
         push paneA (s.num((to_double sprite)))
         push paneA (s.num(1.0))
         s.callN("rg2d_sprite_set_pane" paneA)
@@ -153,9 +153,9 @@ class RegistryBridgeCoverageTest {
             (b.d2.spritePaneOwner((b.resolveGuestId(sprite)))) 1)
 
         ; immediate background draw list (static-environment primitives)
-        def bgbA:[EvalValue]
+        def bgbA:[EvHandle]
         s.callN("rg2d_bg_begin" bgbA)
-        def bgrA:[EvalValue]
+        def bgrA:[EvHandle]
         push bgrA (s.num(0.0))
         push bgrA (s.num(0.0))
         push bgrA (s.num(48.0))
@@ -164,7 +164,7 @@ class RegistryBridgeCoverageTest {
         push bgrA (s.num(150.0))
         push bgrA (s.num(64.0))
         s.callN("rg2d_bg_rect" bgrA)
-        def bgcA:[EvalValue]
+        def bgcA:[EvHandle]
         push bgcA (s.num(10.0))
         push bgcA (s.num(10.0))
         push bgcA (s.num(6.0))
@@ -175,9 +175,9 @@ class RegistryBridgeCoverageTest {
         t.eqInt("two background primitives recorded" (b.d2.bgCount()) 2)
 
         ; screen-space overlay (HUD) primitives
-        def ovbA:[EvalValue]
+        def ovbA:[EvHandle]
         s.callN("rg2d_ov_begin" ovbA)
-        def ovrA:[EvalValue]
+        def ovrA:[EvHandle]
         push ovrA (s.num(0.45))
         push ovrA (s.num(0.9))
         push ovrA (s.num(0.1))
@@ -189,19 +189,19 @@ class RegistryBridgeCoverageTest {
         s.callN("rg2d_ov_rect" ovrA)
         t.eqInt("one overlay primitive recorded" (b.d2.ovCount()) 1)
 
-        def layerArgs:[EvalValue]
+        def layerArgs:[EvHandle]
         def layer:int (s.callI("rg2d_layer_create" layerArgs))
-        def laA:[EvalValue]
+        def laA:[EvHandle]
         push laA (s.num((to_double sprite)))
         push laA (s.num((to_double layer)))
         s.callN("rg2d_layer_add" laA)
-        def lrA:[EvalValue]
+        def lrA:[EvHandle]
         push lrA (s.num((to_double sprite)))
         s.callN("rg2d_layer_remove" lrA)
 
-        def camArgs:[EvalValue]
+        def camArgs:[EvHandle]
         def cam:int (s.callI("rg2d_camera_create" camArgs))
-        def csA:[EvalValue]
+        def csA:[EvHandle]
         push csA (s.num((to_double cam)))
         push csA (s.num(0.0))
         push csA (s.num(0.0))
@@ -209,33 +209,33 @@ class RegistryBridgeCoverageTest {
         push csA (s.num(0.0))
         s.callN("rg2d_camera_set" csA)
 
-        def plA:[EvalValue]
+        def plA:[EvHandle]
         push plA (s.num((to_double sprite2)))
         push plA (s.num((to_double clip)))
         def player:int (s.callI("rg2d_player_create" plA))
-        def pfA:[EvalValue]
+        def pfA:[EvHandle]
         push pfA (s.num((to_double player)))
         push pfA (s.num(0.2))
         t.eqInt("player frame at 0.2 is walk" (s.callI("rg2d_player_frame_at" pfA)) rWalk)
 
         ; release sprite (row coverage + stale-id setup)
-        def relA:[EvalValue]
+        def relA:[EvHandle]
         push relA (s.num((to_double sprite)))
         t.eqInt("sprite release OK" (s.callI("rg2d_sprite_release" relA)) 0)
 
         ; core: input / surface / audio / time / log / launch
         b.input.setAction(0 "jump" true)
-        def idA:[EvalValue]
+        def idA:[EvHandle]
         push idA (s.num(0.0))
         push idA (s.str("jump"))
         t.eqInt("input isDown through bridge" (s.callI("rgcore_input_is_down" idA)) 1)
-        def wpA:[EvalValue]
+        def wpA:[EvHandle]
         push wpA (s.num(0.0))
         push wpA (s.str("jump"))
         t.eqInt("input wasPressed through bridge" (s.callI("rgcore_input_was_pressed" wpA)) 1)
 
         ; haptics — the host records the rumble command on the player
-        def rmA:[EvalValue]
+        def rmA:[EvHandle]
         push rmA (s.num(0.0))
         push rmA (s.num(200.0))
         push rmA (s.num(120.0))
@@ -243,18 +243,18 @@ class RegistryBridgeCoverageTest {
         t.eqInt("rumble recorded on player 0" (b.input.rumbleCount(0)) 1)
         t.eqInt("rumble strength recorded" (b.input.lastRumbleStrength(0)) 200)
 
-        def slA:[EvalValue]
+        def slA:[EvHandle]
         push slA (s.num(2.0))
         s.callN("rgcore_surface_set_layout" slA)
         t.eqInt("surface has two panes" (b.surface.paneCount()) 2)
-        def ppA:[EvalValue]
+        def ppA:[EvHandle]
         push ppA (s.num(1.0))
         push ppA (s.num(1.0))
         s.callN("rgcore_surface_pane_player" ppA)
         t.eqInt("pane 1 bound to player 1" (b.surface.panePlayer(1)) 1)
 
         ; pane view: real handles stored host-side (no guest accessor round trip)
-        def pvA:[EvalValue]
+        def pvA:[EvHandle]
         push pvA (s.num(0.0))
         push pvA (s.num((to_double layer)))
         push pvA (s.num((to_double cam)))
@@ -265,7 +265,7 @@ class RegistryBridgeCoverageTest {
         t.ok("pane 0 camera handle stored" (pc0.isValid()))
 
         ; render: the guest's render call binds (layer, camera) to a pane
-        def rnA:[EvalValue]
+        def rnA:[EvHandle]
         push rnA (s.num((to_double layer)))
         push rnA (s.num((to_double cam)))
         push rnA (s.num(1.0))
@@ -276,35 +276,35 @@ class RegistryBridgeCoverageTest {
         ; assets: package-relative atlas load builds real host objects (the
         ; climber sample ships a named-region atlas over a .rgtx image)
         b.packageDir = "gallery/game_engine/v2/tests/render/samples/climber"
-        def asA:[EvalValue]
+        def asA:[EvHandle]
         push asA (s.str("pkg://scene.atlas"))
         def loadedAtlas:int (s.callI("rgcore_assets_load_atlas" asA))
         t.ok("asset atlas loaded" (loadedAtlas > 0))
-        def riA2:[EvalValue]
+        def riA2:[EvHandle]
         push riA2 (s.num((to_double loadedAtlas)))
         push riA2 (s.str("plat"))
         t.eqInt("asset atlas resolves region by name" (s.callI("rg2d_atlas_region_index" riA2)) 1)
 
-        def clipArgs:[EvalValue]
+        def clipArgs:[EvHandle]
         push clipArgs (s.num(660.0))
         push clipArgs (s.num(220.0))
         push clipArgs (s.num(0.4))
         push clipArgs (s.num(0.0))
         def clipH:int (s.callI("rgcore_audio_clip_create" clipArgs))
-        def srcA:[EvalValue]
+        def srcA:[EvHandle]
         push srcA (s.num((to_double clipH)))
         def src:int (s.callI("rgcore_audio_source_create" srcA))
-        def osA:[EvalValue]
+        def osA:[EvHandle]
         push osA (s.num((to_double src)))
         s.callN("rgcore_audio_one_shot" osA)
         t.eqInt("one-shot counted" b.oneShotCount 1)
 
-        def voA:[EvalValue]
+        def voA:[EvHandle]
         push voA (s.str("chuckle"))
         s.callN("rgcore_vocal" voA)
         t.eqInt("vocal cue recorded" (array_length b.vocalCues) 1)
 
-        def muA:[EvalValue]
+        def muA:[EvHandle]
         push muA (s.str("summit-score"))
         s.callN("rgcore_music_play" muA)
         t.ok("music playing" b.musicPlaying)
@@ -312,53 +312,53 @@ class RegistryBridgeCoverageTest {
         t.no("music stopped" b.musicPlaying)
 
         b.clock.advance(0.5)
-        def now:EvalValue (s.call0("rgcore_time_now"))
+        def now:EvHandle (s.call0("rgcore_time_now"))
         t.near("time through bridge" now.numberValue 0.5)
 
-        def lgA:[EvalValue]
+        def lgA:[EvHandle]
         push lgA (s.str("hello"))
         s.callN("rgcore_log" lgA)
         t.eqInt("log recorded" (array_length b.logLines) 1)
 
-        def lnA:[EvalValue]
+        def lnA:[EvHandle]
         push lnA (s.str("games/ylos2"))
         s.callN("rgcore_launch" lnA)
         t.eqStr("launch request recorded" b.launchRequest "games/ylos2")
 
         ; ---- graphics RT + texture-backed sprite + ranger:three (PLAN H1–H4)
-        def rtA:[EvalValue]
+        def rtA:[EvHandle]
         push rtA (s.num(16.0))
         push rtA (s.num(16.0))
         def rtTex:int (s.callI("rgcore_graphics_rt_create" rtA))
         t.ok("graphics rt create" (rtTex > 0))
-        def stxA:[EvalValue]
+        def stxA:[EvHandle]
         push stxA (s.num((to_double rtTex)))
         def texSprite:int (s.callI("rg2d_sprite_create_tex" stxA))
         t.ok("texture-backed sprite" (texSprite > 0))
 
-        def empty3:[EvalValue]
+        def empty3:[EvHandle]
         def scene3:int (s.callI("rg3d_scene_create" empty3))
         ; Scene clear colour + generated studio probe — the authoring surface
         ; that keeps sky/env choices OUT of the presenter (abstraction debt).
-        def sbA:[EvalValue]
+        def sbA:[EvHandle]
         push sbA (s.num((to_double scene3)))
         push sbA (s.num(0.12))
         push sbA (s.num(0.13))
         push sbA (s.num(0.16))
         s.callN("rg3d_scene_background" sbA)
-        def seA:[EvalValue]
+        def seA:[EvHandle]
         push seA (s.num((to_double scene3)))
         push seA (s.num(8.0))
         s.callN("rg3d_scene_environment_studio" seA)
         def cam3:int (s.callI("rg3d_camera_create" empty3))
-        def c3s:[EvalValue]
+        def c3s:[EvHandle]
         push c3s (s.num((to_double cam3)))
         push c3s (s.num(40.0))
         push c3s (s.num(1.0))
         push c3s (s.num(0.1))
         push c3s (s.num(10.0))
         s.callN("rg3d_camera_set" c3s)
-        def c3p:[EvalValue]
+        def c3p:[EvHandle]
         push c3p (s.num((to_double cam3)))
         push c3p (s.num(0.0))
         push c3p (s.num(0.0))
@@ -367,17 +367,17 @@ class RegistryBridgeCoverageTest {
         push c3p (s.num(0.0))
         push c3p (s.num(0.0))
         s.callN("rg3d_camera_pose" c3p)
-        def boxA:[EvalValue]
+        def boxA:[EvHandle]
         push boxA (s.num(1.0))
         push boxA (s.num(1.0))
         push boxA (s.num(1.0))
         def boxG:int (s.callI("rg3d_geometry_box" boxA))
-        def octA:[EvalValue]
+        def octA:[EvHandle]
         push octA (s.num(0.8))
         def octG:int (s.callI("rg3d_geometry_octahedron" octA))
         ; Authored geometry: one triangle as an interleaved buffer (8 doubles
         ; per vertex: px,py,pz, nx,ny,nz, u,v) plus its index list.
-        def vtxArr:[EvalValue]
+        def vtxArr:[EvHandle]
         def vi 0
         while (vi < 3) {
             push vtxArr (s.num((to_double vi)))
@@ -390,16 +390,16 @@ class RegistryBridgeCoverageTest {
             push vtxArr (s.num(0.0))
             vi = (vi + 1)
         }
-        def idxArr:[EvalValue]
+        def idxArr:[EvHandle]
         push idxArr (s.num(0.0))
         push idxArr (s.num(1.0))
         push idxArr (s.num(2.0))
-        def gbA:[EvalValue]
-        push gbA (EvalValue.array(vtxArr))
-        push gbA (EvalValue.array(idxArr))
+        def gbA:[EvHandle]
+        push gbA (EvHandle.array(vtxArr))
+        push gbA (EvHandle.array(idxArr))
         def bufG:int (s.callI("rg3d_geometry_buffer" gbA))
         ; Utah teapot geometry — size, segments, then 5 shape flags as i32 0/1.
-        def teaA:[EvalValue]
+        def teaA:[EvHandle]
         push teaA (s.num(1.0))
         push teaA (s.num(2.0))
         push teaA (s.num(1.0))
@@ -409,99 +409,99 @@ class RegistryBridgeCoverageTest {
         push teaA (s.num(1.0))
         def teaG:int (s.callI("rg3d_geometry_teapot" teaA))
         ; Flat plane geometry (floor) — width, height, then wSeg, hSeg.
-        def plnA:[EvalValue]
+        def plnA:[EvHandle]
         push plnA (s.num(10.0))
         push plnA (s.num(10.0))
         push plnA (s.num(1.0))
         push plnA (s.num(1.0))
         def plnG:int (s.callI("rg3d_geometry_plane" plnA))
-        def sphA:[EvalValue]
+        def sphA:[EvHandle]
         push sphA (s.num(1.0))
         push sphA (s.num(16.0))
         push sphA (s.num(12.0))
         def sphG:int (s.callI("rg3d_geometry_sphere" sphA))
-        def cylA:[EvalValue]
+        def cylA:[EvHandle]
         push cylA (s.num(1.0))
         push cylA (s.num(1.0))
         push cylA (s.num(2.0))
         push cylA (s.num(16.0))
         def cylG:int (s.callI("rg3d_geometry_cylinder" cylA))
-        def mat3A:[EvalValue]
+        def mat3A:[EvHandle]
         push mat3A (s.num(16711680.0))
         def mat3:int (s.callI("rg3d_material_basic" mat3A))
-        def matL:[EvalValue]
+        def matL:[EvHandle]
         push matL (s.num(7926015.0))
         def matLambert:int (s.callI("rg3d_material_lambert" matL))
-        def phA:[EvalValue]
+        def phA:[EvHandle]
         push phA (s.num(15790320.0))
         push phA (s.num(16777215.0))
         push phA (s.num(40.0))
         def matPhong:int (s.callI("rg3d_material_phong" phA))
-        def mmA:[EvalValue]
+        def mmA:[EvHandle]
         push mmA (s.num((to_double matPhong)))
         push mmA (s.str("pkg://nope.png"))
         s.callN("rg3d_material_map" mmA)
-        def opacA:[EvalValue]
+        def opacA:[EvHandle]
         push opacA (s.num((to_double matLambert)))
         push opacA (s.num(0.72))
         s.callN("rg3d_material_set_opacity" opacA)
         ; ---- authoring surface (mesh editor drives these) --------------------
         ; Wider basic/phong forms — new ids because 3020/3023 are golden.
-        def bxA:[EvalValue]
+        def bxA:[EvHandle]
         push bxA (s.num(16711680.0))
         push bxA (s.num(2.0))
         push bxA (s.num(1.0))
         def matBasicEx:int (s.callI("rg3d_material_basic_ex" bxA))
-        def pxA:[EvalValue]
+        def pxA:[EvHandle]
         push pxA (s.num(15790320.0))
         push pxA (s.num(4210752.0))
         push pxA (s.num(60.0))
         push pxA (s.num(1.0))
         push pxA (s.num(2.0))
         def matPhongEx:int (s.callI("rg3d_material_phong_ex" pxA))
-        def reflA:[EvalValue]
+        def reflA:[EvHandle]
         push reflA (s.num((to_double matPhongEx)))
         push reflA (s.num(0.75))
         s.callN("rg3d_material_reflective" reflA)
         ; Raw-RGBA diffuse map: a 1x1 opaque red texel (4 bytes).
-        def rgbaArr:[EvalValue]
+        def rgbaArr:[EvHandle]
         push rgbaArr (s.num(255.0))
         push rgbaArr (s.num(0.0))
         push rgbaArr (s.num(0.0))
         push rgbaArr (s.num(255.0))
-        def mrA:[EvalValue]
+        def mrA:[EvHandle]
         push mrA (s.num((to_double matPhongEx)))
-        push mrA (EvalValue.array(rgbaArr))
+        push mrA (EvHandle.array(rgbaArr))
         push mrA (s.num(1.0))
         push mrA (s.num(1.0))
         s.callN("rg3d_material_map_rgba" mrA)
         ; D-SYNC: DETACHED light create (no scene arg), then establish membership
         ; under the scene via set_parent — identical scene graph, same guest id.
-        def ambA:[EvalValue]
+        def ambA:[EvHandle]
         push ambA (s.num(16777215.0))
         push ambA (s.num(0.4))
         def ambId:int (s.callI("rg3d_light_ambient" ambA))
-        def ambParA:[EvalValue]
+        def ambParA:[EvHandle]
         push ambParA (s.num((to_double ambId)))
         push ambParA (s.num((to_double scene3)))
         s.callN("rg3d_entity_set_parent" ambParA)
-        def dirA:[EvalValue]
+        def dirA:[EvHandle]
         push dirA (s.num(16777215.0))
         push dirA (s.num(0.9))
         push dirA (s.num(0.5))
         push dirA (s.num(1.0))
         push dirA (s.num(0.3))
         def dirId:int (s.callI("rg3d_light_directional" dirA))
-        def dirParA:[EvalValue]
+        def dirParA:[EvHandle]
         push dirParA (s.num((to_double dirId)))
         push dirParA (s.num((to_double scene3)))
         s.callN("rg3d_entity_set_parent" dirParA)
         ; D-SYNC: DETACHED create (geo, mat); membership established below.
-        def mesh3A:[EvalValue]
+        def mesh3A:[EvHandle]
         push mesh3A (s.num((to_double octG)))
         push mesh3A (s.num((to_double matLambert)))
         def mesh3:int (s.callI("rg3d_mesh_create" mesh3A))
-        def xf3:[EvalValue]
+        def xf3:[EvHandle]
         push xf3 (s.num((to_double mesh3)))
         push xf3 (s.num(0.0))
         push xf3 (s.num(0.0))
@@ -510,7 +510,7 @@ class RegistryBridgeCoverageTest {
         push xf3 (s.num(0.4))
         push xf3 (s.num(0.0))
         s.callN("rg3d_mesh_transform" xf3)
-        def scA:[EvalValue]
+        def scA:[EvHandle]
         push scA (s.num((to_double mesh3)))
         push scA (s.num(1.25))
         push scA (s.num(1.25))
@@ -518,37 +518,37 @@ class RegistryBridgeCoverageTest {
         s.callN("rg3d_mesh_set_scale" scA)
         ; D-SYNC standalone membership: establish membership under the scene (root).
         ; Membership only — same guest id, no create/release; row-coverage + clean.
-        def repA:[EvalValue]
+        def repA:[EvHandle]
         push repA (s.num((to_double mesh3)))
         push repA (s.num((to_double scene3)))
         s.callN("rg3d_entity_set_parent" repA)
         ; D-SYNC detach membership ONLY (row-coverage for rg3d_entity_remove): the
         ; object is not destroyed, so re-attaching it below restores the scene
         ; graph the render expects — same guest id throughout.
-        def remA:[EvalValue]
+        def remA:[EvHandle]
         push remA (s.num((to_double scene3)))
         push remA (s.num((to_double mesh3)))
         s.callN("rg3d_entity_remove" remA)
         s.callN("rg3d_entity_set_parent" repA)
         ; Generic package .glb load (fixture under climber sample; not game-specific API)
         ; D-SYNC: DETACHED load (uri only), then establish scene membership.
-        def mdlA:[EvalValue]
+        def mdlA:[EvHandle]
         push mdlA (s.str("pkg://models/sample.glb"))
         def mdlId:int (s.callI("rg3d_model_load" mdlA))
-        def mdlParA:[EvalValue]
+        def mdlParA:[EvHandle]
         push mdlParA (s.num((to_double mdlId)))
         push mdlParA (s.num((to_double scene3)))
         s.callN("rg3d_entity_set_parent" mdlParA)
         ; D-SYNC: DETACHED group create, then establish membership under the scene
         ; (group as a child) — row coverage for rg3d_group_create + entity-generic
         ; parent path with a group.
-        def grpArgs:[EvalValue]
+        def grpArgs:[EvHandle]
         def grp:int (s.callI("rg3d_group_create" grpArgs))
-        def grpParA:[EvalValue]
+        def grpParA:[EvHandle]
         push grpParA (s.num((to_double grp)))
         push grpParA (s.num((to_double scene3)))
         s.callN("rg3d_entity_set_parent" grpParA)
-        def rtt3:[EvalValue]
+        def rtt3:[EvHandle]
         push rtt3 (s.num((to_double scene3)))
         push rtt3 (s.num((to_double cam3)))
         push rtt3 (s.num((to_double rtTex)))
@@ -565,62 +565,62 @@ class RegistryBridgeCoverageTest {
         t.ok("three model_load + scale + rtt ok" (mdlId > 0))
 
         ; ---- orbit-camera controls (bound to cam3) --------------------------
-        def ocA:[EvalValue]
+        def ocA:[EvHandle]
         push ocA (s.num((to_double cam3)))
         def orbit:int (s.callI("rg3d_orbit_create" ocA))
         t.ok("three orbit controls created" (orbit > 0))
-        def ovpA:[EvalValue]
+        def ovpA:[EvHandle]
         push ovpA (s.num((to_double orbit)))
         push ovpA (s.num(600.0))
         push ovpA (s.num(600.0))
         s.callN("rg3d_orbit_viewport" ovpA)
-        def otgA:[EvalValue]
+        def otgA:[EvHandle]
         push otgA (s.num((to_double orbit)))
         push otgA (s.num(0.0))
         push otgA (s.num(0.0))
         push otgA (s.num(0.0))
         s.callN("rg3d_orbit_target" otgA)
-        def opdA:[EvalValue]
+        def opdA:[EvHandle]
         push opdA (s.num((to_double orbit)))
         push opdA (s.num(0.0))
         push opdA (s.num(100.0))
         push opdA (s.num(100.0))
         push opdA (s.num(0.0))
         s.callN("rg3d_orbit_pointer" opdA)
-        def opmA:[EvalValue]
+        def opmA:[EvHandle]
         push opmA (s.num((to_double orbit)))
         push opmA (s.num(1.0))
         push opmA (s.num(150.0))
         push opmA (s.num(100.0))
         push opmA (s.num(0.0))
         s.callN("rg3d_orbit_pointer" opmA)
-        def owA:[EvalValue]
+        def owA:[EvHandle]
         push owA (s.num((to_double orbit)))
         push owA (s.num(1.0))
         s.callN("rg3d_orbit_wheel" owA)
-        def oaA:[EvalValue]
+        def oaA:[EvHandle]
         push oaA (s.num((to_double orbit)))
         s.callN("rg3d_orbit_apply" oaA)
 
         ; ---- ranger:cannon (rigid-body physics arena) -----------------------
-        def cgA:[EvalValue]
+        def cgA:[EvHandle]
         push cgA (s.num(0.0))
         push cgA (s.num((0.0 - 10.0)))
         push cgA (s.num(0.0))
         s.callN("cannon_world_gravity" cgA)
-        def cplA:[EvalValue]
+        def cplA:[EvHandle]
         push cplA (s.num(0.0))
         push cplA (s.num(1.0))
         push cplA (s.num(0.0))
         def cGround:int (s.callI("cannon_body_static_plane" cplA))
-        def cspA:[EvalValue]
+        def cspA:[EvHandle]
         push cspA (s.num(1.0))
         push cspA (s.num(0.0))
         push cspA (s.num(3.0))
         push cspA (s.num(0.0))
         push cspA (s.num(0.5))
         def cBall:int (s.callI("cannon_body_sphere" cspA))
-        def cbxA:[EvalValue]
+        def cbxA:[EvHandle]
         push cbxA (s.num(1.0))
         push cbxA (s.num(0.0))
         push cbxA (s.num(5.0))
@@ -629,28 +629,28 @@ class RegistryBridgeCoverageTest {
         push cbxA (s.num(0.5))
         push cbxA (s.num(0.5))
         def cBox:int (s.callI("cannon_body_box" cbxA))
-        def cvA:[EvalValue]
+        def cvA:[EvHandle]
         push cvA (s.num((to_double cBall)))
         push cvA (s.num(0.0))
         push cvA (s.num(1.0))
         push cvA (s.num(0.0))
         s.callN("cannon_body_set_velocity" cvA)
-        def cposA:[EvalValue]
+        def cposA:[EvHandle]
         push cposA (s.num((to_double cBall)))
         push cposA (s.num(0.0))
         push cposA (s.num(2.0))
         push cposA (s.num(0.0))
         s.callN("cannon_body_set_position" cposA)
-        def cstA:[EvalValue]
+        def cstA:[EvHandle]
         push cstA (s.num((1.0 / 60.0)))
         s.callN("cannon_world_step" cstA)
-        def cpxA:[EvalValue]
+        def cpxA:[EvHandle]
         push cpxA (s.num((to_double cBall)))
         s.callN("cannon_body_pos_x" cpxA)
-        def cpyA:[EvalValue]
+        def cpyA:[EvHandle]
         push cpyA (s.num((to_double cBall)))
         s.callN("cannon_body_pos_y" cpyA)
-        def cpzA:[EvalValue]
+        def cpzA:[EvHandle]
         push cpzA (s.num((to_double cBall)))
         s.callN("cannon_body_pos_z" cpzA)
 
@@ -672,23 +672,23 @@ class RegistryBridgeCoverageTest {
 
         ; ================= typed errors ======================================
         def e0:int b.errorCount
-        def unkArgs:[EvalValue]
+        def unkArgs:[EvHandle]
         b.invoke("rg2d_totally_unknown" unkArgs)
         t.eqInt("unknown command is a typed error" b.errorCount (e0 + 1))
 
-        def badArity:[EvalValue]
+        def badArity:[EvHandle]
         push badArity (s.num((to_double sprite2)))
         b.invoke("rg2d_sprite_set_pos" badArity)
         t.eqInt("wrong arity is a typed error" b.errorCount (e0 + 2))
 
-        def badType:[EvalValue]
+        def badType:[EvHandle]
         push badType (s.str("not-a-number"))
         push badType (s.num(1.0))
         b.invoke("rg2d_texture_create" badType)
         t.eqInt("wrong value type is a typed error" b.errorCount (e0 + 3))
 
         ; the released sprite's guest id is stale for every command
-        def staleA:[EvalValue]
+        def staleA:[EvHandle]
         push staleA (s.num((to_double sprite)))
         push staleA (s.num(1.0))
         push staleA (s.num(1.0))
@@ -700,7 +700,7 @@ class RegistryBridgeCoverageTest {
         ; teardown reclaims everything the realm still holds
         def reclaimed:int (b.teardown())
         t.ok("teardown reclaimed live objects" (reclaimed > 0))
-        def afterA:[EvalValue]
+        def afterA:[EvHandle]
         push afterA (s.num((to_double sprite2)))
         push afterA (s.num(1.0))
         push afterA (s.num(1.0))

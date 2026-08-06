@@ -11,7 +11,7 @@
 Import "../Scene3dBridge.rgr"
 Import "GlbFixture.rgr"
 Import "../../interp/migrate/src/ComponentEngine.rgr"
-Import "../../interp/migrate/src/EvalValue.rgr"
+Import "../../interp/migrate/src/EvHandle.rgr"
 
 class Scene3dChecker {
     def passed:int 0
@@ -58,7 +58,7 @@ class Scene3dBridgeTest {
         engine.loadScript((buffer_to_string buf))
 
         ; the ONLY script evaluation — declares the whole scene
-        engine.callFunction("init" (EvalValue.null()))
+        engine.callFunction("init" (EvHandle.null()))
 
         print "== Scene3dBridge (host-owned scene) checks =="
         ck.eqInt("one instance added" (scene.count()) 1)

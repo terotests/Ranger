@@ -81,7 +81,7 @@ class BenchMain {
             def engine (new ComponentEngine())
             engine.quiet = true
             engine.loadScript(src)
-            def out:EvalValue (engine.callFunction("__t__" (EvalValue.null())))
+            def out:EvHandle (engine.callFunction("__t__" (EvHandle.null())))
             answer = out.stringValue
             r = (r + 1)
         }

@@ -3,21 +3,21 @@ Import "../../gallery/game_engine/v2/interp/migrate/src/EvValueBridge.rgr"
 
 class Main {
     sfn main:void () {
-        def n:EvValue (EvValue.number(3.0))
-        if (EvValue.isNumber(n)) {
+        def n:EvalValue (EvalValue.number(3.0))
+        if (EvalValue.isNumber(n)) {
             print "num"
         } {
             print "WRONG: not a number"
         }
-        if (EvValue.toBool(n)) {
+        if (EvalValue.toBool(n)) {
             print "truthy"
         } {
             print "WRONG: 3 is falsy"
         }
-        def tagged:EvalValue (EvalValue.number(0.0))
-        def shaped:EvValue (EvValueBridge.fromTagged(tagged))
-        if (EvValue.isNumber(shaped)) {
-            if (EvValue.toBool(shaped)) {
+        def tagged:EvHandle (EvHandle.number(0.0))
+        def shaped:EvalValue (EvValueBridge.fromTagged(tagged))
+        if (EvalValue.isNumber(shaped)) {
+            if (EvalValue.toBool(shaped)) {
                 print "WRONG: zero from tagged is truthy"
             } {
                 print "zero"
@@ -25,9 +25,9 @@ class Main {
         } {
             print "WRONG: bridge lost Number"
         }
-        def h:EvalValue (EvalValue.hole())
-        def hs:EvValue (EvValueBridge.fromTagged(h))
-        if (EvValue.isHole(hs)) {
+        def h:EvHandle (EvHandle.hole())
+        def hs:EvalValue (EvValueBridge.fromTagged(h))
+        if (EvalValue.isHole(hs)) {
             print "hole"
         } {
             print "WRONG: bridge lost Hole"

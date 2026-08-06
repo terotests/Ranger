@@ -15,7 +15,7 @@
 ; ==============================================================================
 
 Import "./ranger-dir.rgr"
-Import "../interp/migrate/src/EvalValue.rgr"
+Import "../interp/migrate/src/EvHandle.rgr"
 
 class GameCatalogEntry {
     def id:string ""
@@ -529,34 +529,34 @@ class GameCatalog {
         return ""
     }
 
-    ; Build EvalValue array for injection as the `gameCatalog` TS global.
-    fn toEvalArray:EvalValue () {
-        def items:[EvalValue]
+    ; Build EvHandle array for injection as the `gameCatalog` TS global.
+    fn toEvalArray:EvHandle () {
+        def items:[EvHandle]
         def i:int 0
         while (i < (array_length entries)) {
             def e:GameCatalogEntry (itemAt entries i)
             def keys:[string]
-            def vals:[EvalValue]
+            def vals:[EvHandle]
             push keys "id"
-            push vals (EvalValue.string(e.id))
+            push vals (EvHandle.string(e.id))
             push keys "title"
-            push vals (EvalValue.string(e.title))
+            push vals (EvHandle.string(e.title))
             push keys "path"
-            push vals (EvalValue.string(e.entryPath))
+            push vals (EvHandle.string(e.entryPath))
             push keys "engine"
-            push vals (EvalValue.string(e.engine))
+            push vals (EvHandle.string(e.engine))
             push keys "category"
-            push vals (EvalValue.string(e.category))
+            push vals (EvHandle.string(e.category))
             ; icon is exported as a ready-to-load path (game dir already joined)
             ; so the TSX menu can hand it straight to backgroundImage.
             def icon:string (this.resolveIconPath(e))
             if ((strlen icon) > 0) {
                 push keys "icon"
-                push vals (EvalValue.string(icon))
+                push vals (EvHandle.string(icon))
             }
-            push items (EvalValue.object(keys vals))
+            push items (EvHandle.object(keys vals))
             i = (i + 1)
         }
-        return (EvalValue.array(items))
+        return (EvHandle.array(items))
     }
 }

@@ -54,25 +54,25 @@ class WebMeshEditorHost {
     def hasPartMap:boolean false
 
     ; ---- bridge helpers ------------------------------------------------------
-    fn num:EvalValue (n:double) {
-        return (EvalValue.number(n))
+    fn num:EvHandle (n:double) {
+        return (EvHandle.number(n))
     }
-    fn callN:EvalValue (name:string args:[EvalValue]) {
+    fn callN:EvHandle (name:string args:[EvHandle]) {
         return (this.bridge.invoke(name args))
     }
-    fn callI:int (name:string args:[EvalValue]) {
-        def r:EvalValue (this.bridge.invoke(name args))
+    fn callI:int (name:string args:[EvHandle]) {
+        def r:EvHandle (this.bridge.invoke(name args))
         return (to_int r.numberValue)
     }
-    fn intsToEval:EvalValue (src:[int]) {
-        def out:[EvalValue]
+    fn intsToEval:EvHandle (src:[int]) {
+        def out:[EvHandle]
         def n:int (array_length src)
         def i:int 0
         while (i < n) {
-            push out (EvalValue.number((to_double (itemAt src i))))
+            push out (EvHandle.number((to_double (itemAt src i))))
             i = (i + 1)
         }
-        return (EvalValue.array(out))
+        return (EvHandle.array(out))
     }
 
     fn setupGL:boolean (canvasId:string) {
@@ -90,9 +90,9 @@ class WebMeshEditorHost {
     fn init:void (winW:int winH:int) {
         w = winW
         h = winH
-        def empty:[EvalValue]
+        def empty:[EvHandle]
         sceneId = (this.callI("rg3d_scene_create" empty))
-        def bgA:[EvalValue] ([] _:EvalValue (
+        def bgA:[EvHandle] ([] _:EvHandle (
             (this.num((to_double sceneId)))
             (this.num(0.12))
             (this.num(0.13))
@@ -100,9 +100,9 @@ class WebMeshEditorHost {
         ))
         this.callN("rg3d_scene_background" bgA)
 
-        def empty2:[EvalValue]
+        def empty2:[EvHandle]
         camId = (this.callI("rg3d_camera_create" empty2))
-        def csA:[EvalValue] ([] _:EvalValue (
+        def csA:[EvHandle] ([] _:EvHandle (
             (this.num((to_double camId)))
             (this.num(45.0))
             (this.num(((to_double w) / (to_double h))))
@@ -110,7 +110,7 @@ class WebMeshEditorHost {
             (this.num(100.0))
         ))
         this.callN("rg3d_camera_set" csA)
-        def cpA:[EvalValue] ([] _:EvalValue (
+        def cpA:[EvHandle] ([] _:EvHandle (
             (this.num((to_double camId)))
             (this.num(2.6))
             (this.num(1.4))
@@ -122,18 +122,18 @@ class WebMeshEditorHost {
         this.callN("rg3d_camera_pose" cpA)
 
         ; D-SYNC: lights are DETACHED creates; membership is a separate op.
-        def ambA:[EvalValue] ([] _:EvalValue (
+        def ambA:[EvHandle] ([] _:EvHandle (
             (this.num(16777215.0))
             (this.num(0.4))
         ))
         def ambId:int (this.callI("rg3d_light_ambient" ambA))
-        def ambP:[EvalValue] ([] _:EvalValue (
+        def ambP:[EvHandle] ([] _:EvHandle (
             (this.num((to_double ambId)))
             (this.num((to_double sceneId)))
         ))
         this.callN("rg3d_entity_set_parent" ambP)
 
-        def dirA:[EvalValue] ([] _:EvalValue (
+        def dirA:[EvHandle] ([] _:EvHandle (
             (this.num(16777215.0))
             (this.num(1.2))
             (this.num(0.45))
@@ -141,23 +141,23 @@ class WebMeshEditorHost {
             (this.num(0.35))
         ))
         def dirId:int (this.callI("rg3d_light_directional" dirA))
-        def dirP:[EvalValue] ([] _:EvalValue (
+        def dirP:[EvHandle] ([] _:EvHandle (
             (this.num((to_double dirId)))
             (this.num((to_double sceneId)))
         ))
         this.callN("rg3d_entity_set_parent" dirP)
 
-        def ocA:[EvalValue] ([] _:EvalValue (
+        def ocA:[EvHandle] ([] _:EvHandle (
             (this.num((to_double camId)))
         ))
         orbitId = (this.callI("rg3d_orbit_create" ocA))
-        def ovA:[EvalValue] ([] _:EvalValue (
+        def ovA:[EvHandle] ([] _:EvHandle (
             (this.num((to_double orbitId)))
             (this.num((to_double w)))
             (this.num((to_double h)))
         ))
         this.callN("rg3d_orbit_viewport" ovA)
-        def otA:[EvalValue] ([] _:EvalValue (
+        def otA:[EvHandle] ([] _:EvHandle (
             (this.num((to_double orbitId)))
             (this.num(0.0))
             (this.num(0.0))
@@ -170,7 +170,7 @@ class WebMeshEditorHost {
         ; rest of the method body silently (no error, truncated output).
         def oc:ThreeOrbitControls (this.controls())
         oc.setDistanceRange(1.2 20.0)
-        def oaA:[EvalValue] ([] _:EvalValue (
+        def oaA:[EvHandle] ([] _:EvHandle (
             (this.num((to_double orbitId)))
         ))
         this.callN("rg3d_orbit_apply" oaA)
@@ -189,7 +189,7 @@ class WebMeshEditorHost {
         while (i < (array_length meshIds)) {
             def mid:int (itemAt meshIds i)
             if (mid > 0) {
-                def rA:[EvalValue] ([] _:EvalValue (
+                def rA:[EvHandle] ([] _:EvHandle (
                     (this.num((to_double sceneId)))
                     (this.num((to_double mid)))
                 ))
@@ -207,7 +207,7 @@ class WebMeshEditorHost {
         def side:int 2
         def mid:int 0
         if (matMode == 0) {
-            def wbA:[EvalValue] ([] _:EvalValue (
+            def wbA:[EvHandle] ([] _:EvHandle (
                 (this.num((to_double colorHex)))
                 (this.num((to_double side)))
                 (this.num(1.0))
@@ -218,7 +218,7 @@ class WebMeshEditorHost {
             if (matMode == 1) {
                 flat = 1
             }
-            def phA:[EvalValue] ([] _:EvalValue (
+            def phA:[EvHandle] ([] _:EvHandle (
                 (this.num((to_double colorHex)))
                 (this.num(4210752.0))
                 (this.num(shininess))
@@ -227,7 +227,7 @@ class WebMeshEditorHost {
             ))
             mid = (this.callI("rg3d_material_phong_ex" phA))
         }
-        def opA:[EvalValue] ([] _:EvalValue (
+        def opA:[EvHandle] ([] _:EvHandle (
             (this.num((to_double mid)))
             (this.num(opacity))
         ))
@@ -240,12 +240,12 @@ class WebMeshEditorHost {
                         r = 0.85
                     }
                 }
-                def rfA:[EvalValue] ([] _:EvalValue (
+                def rfA:[EvHandle] ([] _:EvHandle (
                     (this.num((to_double mid)))
                     (this.num(r))
                 ))
                 this.callN("rg3d_material_reflective" rfA)
-                def seA:[EvalValue] ([] _:EvalValue (
+                def seA:[EvHandle] ([] _:EvHandle (
                     (this.num((to_double sceneId)))
                     (this.num(64.0))
                 ))
@@ -357,7 +357,7 @@ class WebMeshEditorHost {
         if ((array_length partMapRgba) < ((partMapW * partMapH) * 4)) {
             return
         }
-        def mA:[EvalValue] ([] _:EvalValue (
+        def mA:[EvHandle] ([] _:EvHandle (
             (this.num((to_double matId)))
             (this.intsToEval(partMapRgba))
             (this.num((to_double partMapW)))
@@ -372,15 +372,15 @@ class WebMeshEditorHost {
             return
         }
         def vtx:[double] (this.interleave(positions normals uvs))
-        def vArr:[EvalValue]
+        def vArr:[EvHandle]
         def vn:int (array_length vtx)
         def vi:int 0
         while (vi < vn) {
-            push vArr (EvalValue.number((itemAt vtx vi)))
+            push vArr (EvHandle.number((itemAt vtx vi)))
             vi = (vi + 1)
         }
-        def gA:[EvalValue] ([] _:EvalValue (
-            (EvalValue.array(vArr))
+        def gA:[EvHandle] ([] _:EvHandle (
+            (EvHandle.array(vArr))
             (this.intsToEval(indices))
         ))
         def geoId:int (this.callI("rg3d_geometry_buffer" gA))
@@ -390,7 +390,7 @@ class WebMeshEditorHost {
             this.applyPartMap(matId)
         } {
             if (((array_length mapBytes) > 0) && (mapW > 0) && (mapH > 0)) {
-                def mA:[EvalValue] ([] _:EvalValue (
+                def mA:[EvHandle] ([] _:EvHandle (
                     (this.num((to_double matId)))
                     (this.intsToEval(mapBytes))
                     (this.num((to_double mapW)))
@@ -402,12 +402,12 @@ class WebMeshEditorHost {
         lastMatId = matId
 
         ; D-SYNC: DETACHED mesh create, then membership as a separate op.
-        def mcA:[EvalValue] ([] _:EvalValue (
+        def mcA:[EvHandle] ([] _:EvHandle (
             (this.num((to_double geoId)))
             (this.num((to_double matId)))
         ))
         def meshId:int (this.callI("rg3d_mesh_create" mcA))
-        def spA:[EvalValue] ([] _:EvalValue (
+        def spA:[EvHandle] ([] _:EvHandle (
             (this.num((to_double meshId)))
             (this.num((to_double sceneId)))
         ))
@@ -418,7 +418,7 @@ class WebMeshEditorHost {
     }
 
     fn transformPart:void (meshId:int) {
-        def tA:[EvalValue] ([] _:EvalValue (
+        def tA:[EvHandle] ([] _:EvHandle (
             (this.num((to_double meshId)))
             (this.num(0.0))
             (this.num(0.0))
@@ -495,7 +495,7 @@ class WebMeshEditorHost {
 
     ; Pointer / wheel drive the controller through its commands (phase 0/1/2).
     fn orbitPointer:void (phase:int x:double y:double button:int) {
-        def pA:[EvalValue] ([] _:EvalValue (
+        def pA:[EvHandle] ([] _:EvHandle (
             (this.num((to_double orbitId)))
             (this.num((to_double phase)))
             (this.num(x))
@@ -514,7 +514,7 @@ class WebMeshEditorHost {
         this.orbitPointer(2 0.0 0.0 0)
     }
     fn wheel:void (delta:double) {
-        def wA:[EvalValue] ([] _:EvalValue (
+        def wA:[EvHandle] ([] _:EvHandle (
             (this.num((to_double orbitId)))
             (this.num(delta))
         ))
@@ -532,7 +532,7 @@ class WebMeshEditorHost {
             this.transformPart((itemAt meshIds i))
             i = (i + 1)
         }
-        def oaA:[EvalValue] ([] _:EvalValue (
+        def oaA:[EvHandle] ([] _:EvHandle (
             (this.num((to_double orbitId)))
         ))
         this.callN("rg3d_orbit_apply" oaA)

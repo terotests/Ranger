@@ -1747,7 +1747,7 @@ function buildEngineModuleIfNeeded(): void {
   const deps = [
     ENGINE_SOURCE,
     path.join(migrateSrc, "EvalValue.rgr"),
-    path.join(migrateSrc, "EvValue.rgr"),
+    path.join(migrateSrc, "EvHandle.rgr"),
     path.join(migrateSrc, "EvValueBridge.rgr"),
   ];
   const modMtime = fs.existsSync(ENGINE_MODULE)
@@ -1771,7 +1771,7 @@ function engineValue(engine: any, fnName: string): unknown {
   try {
     const r = engine.callFunction(fnName, EvalValue.null());
     if (!r) return "<missing>";
-    // E4: kind lives on body:EvValue — use is* predicates (valueType is gone).
+    // E4: kind lives on body:EvalValue — use is* predicates (valueType is gone).
     if (r.isNumber()) return r.numberValue;
     if (r.isString()) return r.stringValue;
     if (r.isBoolean()) return r.boolValue;
@@ -1799,7 +1799,7 @@ describe("runtime conformance (interp realm)", () => {
     const require = createRequire(import.meta.url);
     const mod = require(ENGINE_MODULE);
     ComponentEngine = mod.ComponentEngine;
-    EvalValue = mod.EvalValue;
+    EvalValue = mod.EvHandle;
 
     // Derive every expectation from Node before touching the engine.
     for (const [name, body] of PROBES) {

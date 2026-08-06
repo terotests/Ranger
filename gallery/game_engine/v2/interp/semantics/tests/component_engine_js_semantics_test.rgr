@@ -15,7 +15,7 @@
 ;
 ; Driven like tests/unit/interp/module_scope_isolation_test: build a real
 ; ComponentEngine, loadScript() an entry program of no-arg wrapper functions,
-; and callFunction() each, asserting the returned EvalValue.
+; and callFunction() each, asserting the returned EvHandle.
 ; ==============================================================================
 
 Import "../../migrate/src/ComponentEngine.rgr"
@@ -47,12 +47,12 @@ class ComponentEngineJsSemanticsTest {
     }
 
     sfn callBool:boolean (engine:ComponentEngine name:string) {
-        def r:EvalValue (engine.callFunction(name (EvalValue.null())))
+        def r:EvHandle (engine.callFunction(name (EvHandle.null())))
         return r.boolValue
     }
 
     sfn callNum:double (engine:ComponentEngine name:string) {
-        def r:EvalValue (engine.callFunction(name (EvalValue.null())))
+        def r:EvHandle (engine.callFunction(name (EvHandle.null())))
         return r.numberValue
     }
 

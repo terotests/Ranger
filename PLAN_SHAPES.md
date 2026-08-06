@@ -16,7 +16,7 @@
 > closed-family capability system: group/case methods, required operations,
 > field projection, subgroup widening, and static exhaustive dispatch.
 >
-> **Origin:** a design discussion about `gallery/game_engine/v2/interp/migrate/src/EvalValue.rgr`,
+> **Origin:** a design discussion about `gallery/game_engine/v2/interp/migrate/src/EvHandle.rgr`,
 > the largest hand-rolled tagged union in this repo.
 >
 > Every number in §1, §2.1 and §5 was **measured on this checkout**, not estimated.
@@ -28,7 +28,7 @@
 
 Ranger has no way to say "this type is exactly one of these twelve things". Users
 simulate it with an integer tag and one wide class carrying every field any variant
-could need. `EvalValue` is that pattern at full scale: **33 data members, 12 value
+could need. `EvHandle` is that pattern at full scale: **33 data members, 12 value
 kinds, 680 bytes per value on the C++ target**, where a plain number still carries
 three ordered maps, three vectors and seven strings it can never use.
 
@@ -58,22 +58,22 @@ without touching a single writer.
 
 ## 1. The problem, measured
 
-`gallery/game_engine/v2/interp/migrate/src/EvalValue.rgr` — 1306 lines, one class
-(`EvalValue.rgr:23`), 12 value kinds distinguished by `def valueType:int`.
+`gallery/game_engine/v2/interp/migrate/src/EvHandle.rgr` — 1306 lines, one class
+(`EvHandle.rgr:23`), 12 value kinds distinguished by `def valueType:int`.
 
 | Measurement | Value |
 |---|---|
 | Data members on the class | **33** (generated C++ listing, Appendix A.3) |
-| `sizeof(EvalValue)` on the C++ target | **680 bytes** |
+| `sizeof(EvHandle)` on the C++ target | **680 bytes** |
 | Same value as a compact tagged handle (`kind` + `double` + `shared_ptr`) | **32 bytes** (21× smaller) |
-| Mentions of `valueType` in `EvalValue.rgr` | 92 |
+| Mentions of `valueType` in `EvHandle.rgr` | 92 |
 | Mentions of `valueType` in `ComponentEngine.rgr` | 288 |
 | Mentions of `isHole` in `ComponentEngine.rgr` | 22 |
 | Parallel maps holding one property's state | 4 (`objectMap`, `getterMap`, `setterMap`, `attrFlags`) |
-| Fields copied by `withThis` to rebind `this` | 15 (`EvalValue.rgr:346`) |
+| Fields copied by `withThis` to rebind `this` | 15 (`EvHandle.rgr:346`) |
 
 Every one of those 680 bytes is allocated for every value. Numbers are the hot case in
-an interpreter, and `EvalValue.number()` (`EvalValue.rgr:182`) already has a
+an interpreter, and `EvHandle.number()` (`EvHandle.rgr:182`) already has a
 4096-entry small-integer pool bolted on precisely because the allocation is so
 expensive — a pool that exists to work around the representation, not because the
 language semantics need it.
@@ -95,7 +95,7 @@ language semantics need it.
 Three defects follow from the shape of the data, not from the code written on top of it:
 
 1. **One tag means two states.** `Hole` is `valueType == 8` *plus* `isHole == true`
-   (`EvalValue.rgr:151`). Anything that classifies by tag alone silently treats an
+   (`EvHandle.rgr:151`). Anything that classifies by tag alone silently treats an
    absent array element as `undefined`. That is deliberate — the comment says so — but
    it is a hand-maintained invariant across 22 call sites, not something the compiler
    can check. As its own `case Hole` it becomes unmissable.
@@ -103,8 +103,8 @@ Three defects follow from the shape of the data, not from the code written on to
    `objectMap`, `getterMap`, `setterMap` and `attrFlags`; nothing but discipline stops
    a key from being a data property and an accessor at once.
 3. **Identity is a hand-kept invariant.** `identityId` is documented as
-   "assigned exactly once at the creation factory" (`EvalValue.rgr:28`) and minted by
-   `EvalIdentityMinter` (`EvalValue.rgr:1270`). `equals` (`EvalValue.rgr:1236`) then
+   "assigned exactly once at the creation factory" (`EvHandle.rgr:28`) and minted by
+   `EvalIdentityMinter` (`EvHandle.rgr:1270`). `equals` (`EvHandle.rgr:1236`) then
    *implements by hand* exactly the value/reference split this plan wants to declare:
    null, undefined, number, string and boolean compare by content; array, object,
    function, Map, Set and element compare by `identityId`.
@@ -224,7 +224,7 @@ not the end state anywhere.
 ### 3.1 Surface syntax
 
 ```ranger
-shape EvalValue {
+shape EvHandle {
     group Primitive @(value)
     group Reference @(reference)
     group PropertyCarrier does Reference {
@@ -239,7 +239,7 @@ shape EvalValue {
     case Boolean   does Primitive       { def value:boolean false }
 
     case Array     does PropertyCarrier {
-        def items:[EvalValue]
+        def items:[EvHandle]
         def declaredLength:int (0 - 1)
     }
     case Object    does PropertyCarrier
@@ -248,7 +248,7 @@ shape EvalValue {
         def binding:FunctionBinding
     }
     case Map       does PropertyCarrier { def entries:[MapEntry] }
-    case Set       does PropertyCarrier { def items:[EvalValue] }
+    case Set       does PropertyCarrier { def items:[EvHandle] }
     case Element   does Reference       { def element:EVGElement }
 
     fn toBool:boolean () {
@@ -294,7 +294,7 @@ A `group` is a named subset of the family plus the fields every member of that s
 carries. It is usable as a type:
 
 ```ranger
-fn sameReference:boolean (a:EvalValue.Reference b:EvalValue.Reference) {
+fn sameReference:boolean (a:EvHandle.Reference b:EvHandle.Reference) {
     return (a === b)
 }
 ```
@@ -302,7 +302,7 @@ fn sameReference:boolean (a:EvalValue.Reference b:EvalValue.Reference) {
 Three consequences the compiler gets for free:
 
 - the primitive arms need not be considered in the body;
-- `match` over a `EvalValue.Reference` value is exhaustive when it covers the group's
+- `match` over a `EvHandle.Reference` value is exhaustive when it covers the group's
   members, not the whole family;
 - a group with fields (`PropertyCarrier.properties`) tells the representation selector
   which variants share a payload prefix — which is what lets C++ and Rust put
@@ -328,7 +328,7 @@ The "no mutable fields on a value case" rule is an addition to the original prop
 and it is load-bearing. Without it, a value case with a mutable field is observably a
 reference on ES6 (which shares the object) and a copy on Rust (which clones it) — the
 same program, two behaviours, no diagnostic. Value cases are immutable; a change
-produces a new value. This matches every variant `EvalValue` marks as a value today.
+produces a new value. This matches every variant `EvHandle` marks as a value today.
 
 Physical sharing stays a target decision: `@(value)` says nothing about whether a
 runtime may intern strings or pool small integers. It constrains what a program can
@@ -392,13 +392,13 @@ Rules:
 ### 3.5 Construction and testing
 
 ```ranger
-def v:EvalValue (EvalValue.Number(3.0))          ; positional, in declaration order
-def a:EvalValue (EvalValue.Array(items 4))
-if (v is EvalValue.Number) { … }                 ; single-variant test
-if (v is EvalValue.Reference) { … }              ; group test
+def v:EvHandle (EvHandle.Number(3.0))          ; positional, in declaration order
+def a:EvHandle (EvHandle.Array(items 4))
+if (v is EvHandle.Number) { … }                 ; single-variant test
+if (v is EvHandle.Reference) { … }              ; group test
 ```
 
-Keyword construction (`EvalValue.Array items xs declaredLength 4`) should reuse
+Keyword construction (`EvHandle.Array items xs declaredLength 4`) should reuse
 `record`'s existing keyword-argument path (`expandRecordCtorArgsIfNeeded`,
 `ng_RangerFlowParser.rgr:3947`) rather than growing a second one.
 
@@ -557,7 +557,7 @@ The implemented subset, against the design above:
 
 | Deferred | Why |
 |---|---|
-| `payload record` / inline records | Needed for the *best* Rust and C++ layouts, not for correctness. Variant fields declared inline cover every case in `EvalValue`. |
+| `payload record` / inline records | Needed for the *best* Rust and C++ layouts, not for correctness. Variant fields declared inline cover every case in `EvHandle`. |
 | Generic shapes (`shape Result<T>`) | Interacts with the generic-instantiation machinery; a large separate design. |
 | Match guards, nested/destructuring patterns | Each is a real feature; none is needed to delete `valueType`. |
 | Open shapes / user-extensible families | Contradicts exhaustiveness; add later if ever. |
@@ -607,7 +607,7 @@ renumber a persisted tag. Assign in declaration order, never reorder, and let a 
 | Registration | `ng_RangerFlowParser.rgr:4718` | next to `union` / `systemunion` in the top-level walker |
 | Statement dispatch | `ng_RangerFlowParser.rgr:~590` | a `case 'shape'` beside `'class'` / `'record'` |
 | Descriptor storage | `ng_RangerAppClassDesc.rgr` | `is_shape`, `shape_of`, `shape_cases`, `shape_groups` beside `is_union` (`:35`) and `is_record` (`:32`) |
-| Type identity / lookup | `TTypeRegistry.rgr`, `ng_RangerAppWriterContext.rgr:1249` | `EvalValue`, `EvalValue.Number` and `EvalValue.Reference` all resolve as types; `b_multitype` must know a shape is multi-typed |
+| Type identity / lookup | `TTypeRegistry.rgr`, `ng_RangerAppWriterContext.rgr:1249` | `EvHandle`, `EvHandle.Number` and `EvHandle.Reference` all resolve as types; `b_multitype` must know a shape is multi-typed |
 | Argument matching | `ng_RangerArgMatch.rgr:111`, `:450`, `:551` | a case matches its shape and each of its groups (the union rules generalize) |
 | Exhaustiveness | new pass, invoked where `ng_StaticAnalysis.rgr` runs | needs the full `ShapeDesc` and the arm list; a pure IR pass, no target knowledge |
 | Lowering | `ng_RangerFlowParser.rgr:3985` style | synthesize Ranger source for S1; per-writer emitters from S4 |
@@ -626,7 +626,7 @@ UnionOfClasses       ; the S1 desugaring — works wherever `union` + `case` wor
 ```
 
 Selection is a *writer* decision with an IR-level default, and it must be observable
-in diagnostics (`--explain-shapes` or similar): "EvalValue → CompactTaggedHandle
+in diagnostics (`--explain-shapes` or similar): "EvHandle → CompactTaggedHandle
 (cpp)". Silent representation choices are impossible to debug from generated code.
 
 ---
@@ -882,7 +882,7 @@ shape Value {
 
 **Which is which.** An explicit `@(value)` / `@(reference)` on the case wins,
 then the same on its group; otherwise a case holding only scalars is a value and
-anything else is a reference. That default reproduces `EvalValue`'s hand-written
+anything else is a reference. That default reproduces `EvHandle`'s hand-written
 split exactly — null, undefined, number, string and boolean by content, array,
 object, function, Map, Set and element by identity.
 
@@ -1040,7 +1040,7 @@ representation.
 
 ---
 
-## 7. Migrating `EvalValue`
+## 7. Migrating `EvHandle`
 
 The migration is the reason the feature is worth building, and it is also the only
 honest test of the design. It should be staged so the engine keeps running throughout.
@@ -1068,17 +1068,17 @@ honest test of the design. It should be staged so the engine keeps running throu
 
 ```ranger
 shape PropertySlot {
-    case Data     { def value:EvalValue  def attributes:int }
+    case Data     { def value:EvHandle  def attributes:int }
     case Accessor {
-        def getter@(optional):EvalValue
-        def setter@(optional):EvalValue
+        def getter@(optional):EvHandle
+        def setter@(optional):EvHandle
         def attributes:int
     }
 }
 
 class PropertyBag {
     def slots:[string:PropertySlot]
-    def prototype@(optional):EvalValue
+    def prototype@(optional):EvHandle
     def extensible:boolean true
     def sealed:boolean false
     def frozen:boolean false
@@ -1092,7 +1092,7 @@ is a boolean flag plus optional fields.
 
 ### 7.3 Functions: split core from binding
 
-`withThis` (`EvalValue.rgr:346`) copies 15 fields to rebind `this`, preserving
+`withThis` (`EvHandle.rgr:346`) copies 15 fields to rebind `this`, preserving
 `identityId` by hand so the new value stays `===` to the old one. With
 
 ```text
@@ -1130,7 +1130,7 @@ Three readings, and the third is the one that matters:
    allocate through `shared_ptr`, so the tag changes little and the gain waits
    for a handle that is a *value type*.
 3. **The value layer is not where the engine spends its time — on Node.**
-   Counting `EvalValue` constructions per benchmark case against the built
+   Counting `EvHandle` constructions per benchmark case against the built
    engine (`count_allocations.cjs`):
 
    | case | case time | EvalValues | at the measured ~82 ns each |
@@ -1149,22 +1149,22 @@ That reorders the case for the migration. Its value is **correctness and
 clarity** — `Hole` as its own case, one property slot instead of four parallel
 maps, a function's core split from its binding, an equality the compiler writes
 — with a modest speedup on Node attached. The large speedups live on the native
-targets, where an `EvalValue` is 680 bytes with eight collections and no nursery
+targets, where an `EvHandle` is 680 bytes with eight collections and no nursery
 to hide it; that share has not been measured and is the next thing to measure,
 not to assume.
 
 ### 7.4b The first migration step, done and measured
 
 The function/element payload is split out (`shape EvalPayload { None | FnCore |
-ElemBox }`, `EvalValue.payload`), which is §7.3's core/binding idea applied to
+ElemBox }`, `EvHandle.payload`), which is §7.3's core/binding idea applied to
 the whole kind-specific part rather than only to functions. Thirteen fields left
 the class; the 122 sites in `ComponentEngine.rgr` that read or wrote them go
-through accessors on `EvalValue`, so the payload's representation is now the
+through accessors on `EvHandle`, so the payload's representation is now the
 shape's business alone.
 
 | | before | after |
 |---|---|---|
-| `sizeof(EvalValue)` on C++ | 680 B | **376 B** (−45%) |
+| `sizeof(EvHandle)` on C++ | 680 B | **376 B** (−45%) |
 | `sizeof` of the payload slot | — | 24 B (`mpark::variant`) |
 | runtime conformance | 1281/1281 | 1281/1281 |
 | C++ engine, geometric mean of the 7 workloads | 1.00 | **0.99** |
@@ -1177,7 +1177,7 @@ almost entirely calls, and a call now reads its core through a variant test
 instead of a field load.
 
 That is consistent with what the value layer already said (§7.4): the C++ engine
-constructs 4.7k–74k `EvalValue`s per case at ~40 ns each, so the construction is
+constructs 4.7k–74k `EvHandle`s per case at ~40 ns each, so the construction is
 1–5% of a case, and halving the object cannot buy more than that. **On the
 native targets the interpreter is not allocation-bound**, and the remaining
 migration steps should be taken for the correctness and clarity they buy, not
@@ -1191,44 +1191,45 @@ that no `record` with a class-typed field could avoid are fixed
 
 ### 7.5 Migration order
 
-1. **✅ E1 — shape beside the class.** `gallery/game_engine/v2/interp/migrate/src/EvValue.rgr`
+1. **✅ E1 — shape beside the class.** `gallery/game_engine/v2/interp/migrate/src/EvalValue.rgr`
    defines the target family (`Primitive` / `Reference` / `PropertyCarrier` /
-   `Callable` + cases from §3.1). Named `EvValue` so `class EvalValue` keeps
+   `Callable` + cases from §3.1). Named `EvalValue` so `class EvHandle` keeps
    serving the engine. Smoke fixture: `tests/fixtures/shape_evalvalue_e1.rgr`.
-2. **✅ E2 — compatibility surface (primitives).** `EvValue.number` / `.null` /
+2. **✅ E2 — compatibility surface (primitives).** `EvalValue.number` / `.null` /
    `.hole` / `.isNumber` / … mirror the tagged-class entry points;
-   `EvValueBridge.fromTagged` converts primitives and Hole from `class EvalValue`.
+   `EvValueBridge.fromTagged` converts primitives and Hole from `class EvHandle`.
    `ComponentEngine.rgr` still uses the tagged class. Fixture:
    `tests/fixtures/shape_evalvalue_e2.rgr`.
 3. **✅ Convert by kind, not by call site (boundary).** Every kind's create/check API
    in `ComponentEngine` goes through `EvValueBridge` so the closed family owns the
-   kind. Storage remains `class EvalValue` / `[EvalValue]` (identity-preserving
+   kind. Storage remains `class EvHandle` / `[EvHandle]` (identity-preserving
    mutation) until step 4. Fixtures: `shape_evalvalue_e3_hole.rgr`,
    `shape_evalvalue_e3_prims.rgr`, `shape_evalvalue_e3_refs.rgr`.
    - Hole → primitives → Element → Array/Object/Map/Set → Function family.
-4. **Delete `valueType` / migrate kind onto the shape** (in progress).
-   - **✅ E4a — kind discriminant:** `class EvalValue` carries `body:EvValue`;
+4. **✅ Delete `valueType` / migrate kind onto the shape.**
+   - **✅ E4a — kind discriminant:** `class EvHandle` carries `body:EvalValue`;
      factories stamp the matching case; `is*` / `equals` / `kindName` read the
      shape. `valueType` is deleted from source. Fixture: `shape_evalvalue_e4_kind.rgr`.
    - **✅ E4b — storage accessors:** `ComponentEngine` no longer touches class
      storage fields (`arrayValue`, `objectMap`, `getterMap`/`setterMap`,
      `attrFlags`, `protoRef`, integrity flags, `mapVals`, `functionNode`,
-     `boundThis`, `declaredLength`). Access goes through EvalValue methods
-     (`denseLen` / `itemsOf` / `hasOwnData` / `setProto` / …). Class remains
-     the source of truth; shape `body` collections stay empty stubs.
+     `boundThis`, `declaredLength`). Access goes through EvHandle methods
+     (`denseLen` / `itemsOf` / `hasOwnData` / `setProto` / …).
      Fixture: `shape_evalvalue_e4b_accessors.rgr`.
-   - **E4c in progress — storage SoT on the shape:**
-     - **✅ Array dense store** on `body.Array.items` / `declaredLength`
+   - **✅ E4c — storage SoT on the shape + rename:**
+     - Array dense store on `body.Array.items` / `declaredLength`
        (`toStored` / `fromBody` + `EvValueHandles` for ref identity).
-     - **✅ Object own-data** on `body.*.properties` (`EvPropertyBag` Data
-       slots).
-     - **✅ Map.entries / Set.items** on the shape body.
-     - **✅ Accessors / attrs / proto / integrity** on `EvPropertyBag`
+     - Object own-data on `body.*.properties` (`EvPropertyBag` Data slots).
+     - Map.entries / Set.items on the shape body.
+     - Accessors / attrs / proto / integrity on `EvPropertyBag`
        (Hole sentinel for absent accessor halves).
-     - **Ahead:** delete unused class storage fields / shell, rename
-       `EvValue` → `EvalValue`.
+     - Unused class storage fields deleted; class renamed `EvalValue` →
+       `EvHandle`; shape renamed `EvValue` → `EvalValue`.
+     - Thin `EvHandle` shell remains (`slotOwned`, `functionNode`, `payload`,
+       scalar caches, `identityId`, `boundThis`) — full class deletion is
+       blocked until those move without breaking Number `@(value)`.
      Fixtures: `shape_evalvalue_e4c_array.rgr`, `shape_evalvalue_e4c_mapset.rgr`.
-5. **Re-measure.** `sizeof(EvalValue)` on C++, the eight benchmark cases on Node, C++,
+5. **Re-measure.** `sizeof(EvHandle)` on C++, the eight benchmark cases on Node, C++,
    Rust, Go, Kotlin, Python and C#, and the small-integer pool's remaining value —
    with primitives no longer heap-allocated, the pool may stop earning its keep on the
    native targets.
@@ -1246,13 +1247,13 @@ runnable test on both sides, and at no point does the engine stop working.
 | Exhaustiveness checking is only as good as the type analysis | Kotlin's `when` and TypeScript's `never` check the same property independently on the emitted code; a disagreement is a bug report from the target compiler, for free. |
 | `case` used three ways | Shape bodies have their own walker; `variant` as a synonym gives tooling an unambiguous spelling (§3.7). |
 | Value semantics diverging across targets | The "no mutable fields on `@(value)` cases" rule (§3.3), enforced at declaration, plus a cross-target conformance test in S4. |
-| Big-bang `EvalValue` rewrite | Explicitly staged behind a compatibility layer (§7.4) with the benchmark suite as the gate. |
+| Big-bang `EvHandle` rewrite | Explicitly staged behind a compatibility layer (§7.4) with the benchmark suite as the gate. |
 | A per-target fix reaches further than intended | S0 hit this immediately: marking union members shared on Rust also matched the compiler's universal `Any` union, which would have made **every class in every Rust program** `Rc<RefCell<T>>`. Caught by diffing the generated output of a union-free program before and after — now a test (`tests/union-narrowing.test.ts`). Every representation change in S5 needs the same before/after diff on a program that does not use the feature. |
 
 Open questions worth settling before S1:
 
 1. **Nested shape declarations** — is `shape PropertySlot` allowed inside
-   `shape EvalValue`, or must it be top level? (Top level in v1 is simpler and loses
+   `shape EvHandle`, or must it be top level? (Top level in v1 is simpler and loses
    nothing.)
 2. **Serialization.** `@serialize(true)` (`ng_RangerSerializeClass.rgr`) needs a rule
    for shapes: `stableTag` in the wire form, or the variant name? Name is more robust
@@ -1263,7 +1264,7 @@ Open questions worth settling before S1:
    exclude `Any` by name twice on the Rust target (§5.1); a shape must not add a third
    place where the universal union has to be special-cased, which argues for giving it
    an explicit flag on the class descriptor rather than matching on the name.
-4. **Does a case name live in the shape's namespace only?** `EvalValue.Number` should
+4. **Does a case name live in the shape's namespace only?** `EvHandle.Number` should
    not collide with a top-level `Number`; the descriptor should store the qualified
    name and let writers mangle as their target requires.
 
@@ -1335,18 +1336,18 @@ a different path in the writers, which is where the Kotlin and Dart fixes had to
 Before S0 it failed to type-check on Rust and Dart; now es6, python, go, C++ and Rust
 all build and print `ns`.
 
-### A.3 `sizeof(EvalValue)` on the C++ target
+### A.3 `sizeof(EvHandle)` on the C++ target
 
 ```bash
-node bin/output.js -l=cpp gallery/game_engine/v2/interp/migrate/src/EvalValue.rgr \
+node bin/output.js -l=cpp gallery/game_engine/v2/interp/migrate/src/EvHandle.rgr \
   -d=out -o=ev.cpp
-# append a main printing sizeof(EvalValue), then:
+# append a main printing sizeof(EvHandle), then:
 g++ -std=c++17 -O2 ev.cpp -o ev_size && ./ev_size
-# sizeof(EvalValue) = 680
-# sizeof(shared_ptr<EvalValue>) = 16
+# sizeof(EvHandle) = 680
+# sizeof(shared_ptr<EvHandle>) = 16
 # sizeof(std::string) = 32
-# sizeof(rg_ordered_map<std::string, std::shared_ptr<EvalValue>>) = 48
-# sizeof(std::vector<std::shared_ptr<EvalValue>>) = 24
+# sizeof(rg_ordered_map<std::string, std::shared_ptr<EvHandle>>) = 48
+# sizeof(std::vector<std::shared_ptr<EvHandle>>) = 24
 ```
 
 The 33 generated data members are listed by the same command; the compact-handle
@@ -1356,7 +1357,7 @@ compiled with the same flags.
 ### A.4 Source counts
 
 ```bash
-grep -c valueType gallery/game_engine/v2/interp/migrate/src/EvalValue.rgr        # 92
+grep -c valueType gallery/game_engine/v2/interp/migrate/src/EvHandle.rgr        # 92
 grep -c valueType gallery/game_engine/v2/interp/migrate/src/ComponentEngine.rgr  # 288
 grep -c isHole    gallery/game_engine/v2/interp/migrate/src/ComponentEngine.rgr  # 22
 ```
@@ -1392,7 +1393,7 @@ only after narrowing, and identity is preserved across widening.
 | Identity preserved across widen | `shape_group_widen_identity.rgr` |
 | Missing impl / bad signature / missing `@(override)` | `shape_group_missing_impl.rgr`, `shape_group_bad_signature.rgr`, `shape_group_override_missing.rgr` |
 
-**EvalValue migration** (§7.5) is unblocked: C0–C6 and the DoD fixtures above
+**EvHandle migration** (§7.5) is unblocked: C0–C6 and the DoD fixtures above
 pass. Do not delete the tagged class until call sites convert by kind and the
 engine suite stays green.
 

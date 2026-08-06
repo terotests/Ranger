@@ -1,7 +1,8 @@
 # interp/migrate — port notes from pdf_writer
 
-**Staged sources:** [`src/`](./src/) — copies of `EvalValue.rgr`,
-`ComponentEngine.rgr`, `JSXToEVG.rgr` from `gallery/pdf_writer/src/jsx/`.
+**Staged sources:** [`src/`](./src/) — `EvHandle.rgr` (thin class),
+`EvalValue.rgr` (shape), `ComponentEngine.rgr`, `JSXToEVG.rgr` (from
+`gallery/pdf_writer/src/jsx/`).
 
 **Plan phase:** 1 — see [`CODE_CLEANUP_PLAN.md`](../../../CODE_CLEANUP_PLAN.md).
 

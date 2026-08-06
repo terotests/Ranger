@@ -1,16 +1,16 @@
-; E4b smoke: ComponentEngine storage fields are hidden behind EvalValue
+; E4b smoke: ComponentEngine storage fields are hidden behind EvHandle
 ; accessors (PLAN_SHAPES.md §7.5). Class remains SoT; shape body stays kind.
 Import "../../gallery/game_engine/v2/interp/migrate/src/EvValueBridge.rgr"
 
 class Main {
     sfn main:void () {
         ; Array dense store via accessors
-        def empty:[EvalValue]
-        def a:EvalValue (EvValueBridge.taggedArray(empty))
+        def empty:[EvHandle]
+        def a:EvHandle (EvValueBridge.taggedArray(empty))
         a.arrPush((EvValueBridge.taggedNumber(1.0)))
         a.arrPush((EvValueBridge.taggedNumber(2.0)))
         if ((a.denseLen()) == 2) {
-            def first:EvalValue (a.arrayItemAt(0))
+            def first:EvHandle (a.arrayItemAt(0))
             if (first.isNumber()) {
                 print "arr"
             } {
@@ -22,11 +22,11 @@ class Main {
 
         ; Object own-data bag via accessors
         def keys:[string]
-        def vals:[EvalValue]
-        def o:EvalValue (EvValueBridge.taggedObject(keys vals))
+        def vals:[EvHandle]
+        def o:EvHandle (EvValueBridge.taggedObject(keys vals))
         o.putOwnData("x" (EvValueBridge.taggedString("hi")))
         if (o.hasOwnData("x")) {
-            def xv:EvalValue (o.getOwnData("x"))
+            def xv:EvHandle (o.getOwnData("x"))
             if (xv.isString()) {
                 print "obj"
             } {
@@ -37,10 +37,10 @@ class Main {
         }
 
         ; Proto link via accessors
-        def p:EvalValue (EvValueBridge.taggedObject(keys vals))
+        def p:EvHandle (EvValueBridge.taggedObject(keys vals))
         o.setProto(p)
         if (o.hasProto()) {
-            def pr:EvalValue (o.protoOf())
+            def pr:EvHandle (o.protoOf())
             if (pr.isObject()) {
                 print "proto"
             } {

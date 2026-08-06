@@ -55,9 +55,9 @@ class WebLive3dHost {
         ; `import * as THREE from "ranger:three"` resolves to this source.
         this.engine.registerVirtualModule("ranger:three" facadeSrc)
         this.engine.loadScript(guestSrc)
-        def initR:EvalValue (this.engine.callFunction("init" (EvalValue.null())))
-        def sidV:EvalValue (this.engine.callFunction("sceneGuestId" (EvalValue.null())))
-        def cidV:EvalValue (this.engine.callFunction("cameraGuestId" (EvalValue.null())))
+        def initR:EvHandle (this.engine.callFunction("init" (EvHandle.null())))
+        def sidV:EvHandle (this.engine.callFunction("sceneGuestId" (EvHandle.null())))
+        def cidV:EvHandle (this.engine.callFunction("cameraGuestId" (EvHandle.null())))
         def sgid:int (to_int sidV.numberValue)
         def cgid:int (to_int cidV.numberValue)
         def sh:RgHandle (this.bridge.resolveGuestId(sgid))
@@ -81,7 +81,7 @@ class WebLive3dHost {
         if (this.ready == false) {
             return
         }
-        this.engine.callFunction("tick" (EvalValue.number(dtMs)))
+        this.engine.callFunction("tick" (EvHandle.number(dtMs)))
         ; 2× supersample then box-downsample (same seam as RgRangerThree.render-
         ; ToTexture): the SW backend rasterises at 2w×2h and the 2×2 resolve
         ; anti-aliases the silhouette, so the cube edges blend to the background

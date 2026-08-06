@@ -36,7 +36,7 @@ class RgGameHost {
 
     ; ---- guest calls (protocol only — no game knowledge) --------------------
     fn callSlot:double (name:string slot:int) {
-        def r:EvalValue (this.engine.callFunction(name (EvalValue.number((to_double slot)))))
+        def r:EvHandle (this.engine.callFunction(name (EvHandle.number((to_double slot)))))
         return r.numberValue
     }
 
@@ -70,7 +70,7 @@ class RgGameHost {
         this.bridge.packageDir = dir
         def game:buffer (buffer_read_file dir file)
         this.engine.loadScript((buffer_to_string game))
-        def initR:EvalValue (this.engine.callFunction("__rgGameInit" (EvalValue.null())))
+        def initR:EvHandle (this.engine.callFunction("__rgGameInit" (EvHandle.null())))
         this.loaded = (this.bridge.errorCount == 0)
         if (initR.numberValue < 0.5) { this.loaded = false }
         return this.loaded
@@ -82,9 +82,9 @@ class RgGameHost {
         this.bridge.clearPasses()
         def keys:[string]
         push keys "dtMs"
-        def vals:[EvalValue]
-        push vals (EvalValue.number(dtMs))
-        this.engine.callFunction("__rgGameUpdate" (EvalValue.object(keys vals)))
+        def vals:[EvHandle]
+        push vals (EvHandle.number(dtMs))
+        this.engine.callFunction("__rgGameUpdate" (EvHandle.object(keys vals)))
         this.bridge.frameBoundary((dtMs / 1000.0))
     }
 

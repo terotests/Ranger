@@ -4,11 +4,11 @@ Import "../../gallery/game_engine/v2/interp/migrate/src/EvValueBridge.rgr"
 class Main {
     sfn main:void () {
         ; number round-trip
-        def n:EvalValue (EvValueBridge.taggedNumber(3.0))
+        def n:EvHandle (EvValueBridge.taggedNumber(3.0))
         if (EvValueBridge.isNumber(n)) {
-            def ns:EvValue (EvValueBridge.fromTagged(n))
-            if (EvValue.isNumber(ns)) {
-                if (EvValue.toBool(ns)) {
+            def ns:EvalValue (EvValueBridge.fromTagged(n))
+            if (EvalValue.isNumber(ns)) {
+                if (EvalValue.toBool(ns)) {
                     print "num"
                 } {
                     print "WRONG: 3 falsy"
@@ -21,17 +21,17 @@ class Main {
         }
 
         ; zero is falsy
-        def z:EvalValue (EvValueBridge.taggedNumber(0.0))
-        def zs:EvValue (EvValueBridge.fromTagged(z))
-        if (EvValue.toBool(zs)) {
+        def z:EvHandle (EvValueBridge.taggedNumber(0.0))
+        def zs:EvalValue (EvValueBridge.fromTagged(z))
+        if (EvalValue.toBool(zs)) {
             print "WRONG: zero truthy"
         } {
             print "zero"
         }
 
         ; null / undefined distinct from hole
-        def nu:EvalValue (EvValueBridge.taggedNull())
-        def un:EvalValue (EvValueBridge.taggedUndefined())
+        def nu:EvHandle (EvValueBridge.taggedNull())
+        def un:EvHandle (EvValueBridge.taggedUndefined())
         if (EvValueBridge.isNull(nu)) {
             if (EvValueBridge.isUndefined(un)) {
                 if (EvValueBridge.isHole(nu)) {
@@ -47,8 +47,8 @@ class Main {
         }
 
         ; string / boolean
-        def s:EvalValue (EvValueBridge.taggedString("hi"))
-        def b:EvalValue (EvValueBridge.taggedBoolean(true))
+        def s:EvHandle (EvValueBridge.taggedString("hi"))
+        def b:EvHandle (EvValueBridge.taggedBoolean(true))
         if (EvValueBridge.isString(s)) {
             if (EvValueBridge.isBoolean(b)) {
                 print "strb"
@@ -60,10 +60,10 @@ class Main {
         }
 
         ; shape → tagged → shape for string
-        def shaped:EvValue (EvValue.string("x"))
-        def tagged:EvalValue (EvValueBridge.toTagged(shaped))
-        def back:EvValue (EvValueBridge.fromTagged(tagged))
-        if (EvValue.isString(back)) {
+        def shaped:EvalValue (EvalValue.string("x"))
+        def tagged:EvHandle (EvValueBridge.toTagged(shaped))
+        def back:EvalValue (EvValueBridge.fromTagged(tagged))
+        if (EvalValue.isString(back)) {
             print "roundtrip"
         } {
             print "WRONG: string round-trip"

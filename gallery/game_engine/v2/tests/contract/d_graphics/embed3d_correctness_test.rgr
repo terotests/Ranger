@@ -10,32 +10,32 @@ Import "../../../runtime/game_host/RgComposePresenter.rgr"
 Import "../../harness/RgTest.rgr"
 
 class Embed3dCorrectnessTest {
-    fn num:EvalValue (n:double) { return (EvalValue.number(n)) }
-    fn str:EvalValue (s:string) { return (EvalValue.string(s)) }
+    fn num:EvHandle (n:double) { return (EvHandle.number(n)) }
+    fn str:EvHandle (s:string) { return (EvHandle.string(s)) }
 
-    fn callI:int (b:RgRegistryBridge name:string args:[EvalValue]) {
-        def r:EvalValue (b.invoke(name args))
+    fn callI:int (b:RgRegistryBridge name:string args:[EvHandle]) {
+        def r:EvHandle (b.invoke(name args))
         return (to_int r.numberValue)
     }
 
     sfn m@(main):void () {
         def t:RgTest (RgTest.forSuite("tests/contract/d_graphics/embed3d_correctness"))
         def s:Embed3dCorrectnessTest (new Embed3dCorrectnessTest)
-        def empty:[EvalValue]
+        def empty:[EvHandle]
 
         ; ================= typed 3D handle rejection =========================
         def b:RgRegistryBridge (RgRegistryBridge.create())
         def sceneId:int (s.callI(b "rg3d_scene_create" empty))
         def camId:int (s.callI(b "rg3d_camera_create" empty))
-        def geoA:[EvalValue]
+        def geoA:[EvHandle]
         push geoA (s.num(1.0))
         def geoId:int (s.callI(b "rg3d_geometry_octahedron" geoA))
-        def matA:[EvalValue]
+        def matA:[EvHandle]
         push matA (s.num(16711680.0))
         def matId:int (s.callI(b "rg3d_material_lambert" matA))
         def e0:int b.errorCount
 
-        def badCam:[EvalValue]
+        def badCam:[EvHandle]
         push badCam (s.num((to_double sceneId)))
         push badCam (s.num(35.0))
         push badCam (s.num(1.0))
@@ -45,7 +45,7 @@ class Embed3dCorrectnessTest {
         t.eqInt("camera_set rejects scene handle" b.errorCount (e0 + 1))
         t.ok("error names wrong-type:camera" ((indexOf b.lastError "wrong-type:camera") >= 0))
 
-        def badXf:[EvalValue]
+        def badXf:[EvHandle]
         push badXf (s.num((to_double matId)))
         push badXf (s.num(0.0))
         push badXf (s.num(0.0))
@@ -59,7 +59,7 @@ class Embed3dCorrectnessTest {
 
         ; D-SYNC: mesh_create is now DETACHED (geo, mat) — no scene arg. Still a
         ; typed bad-handle guard: a camera handle where geometry is expected.
-        def badMesh:[EvalValue]
+        def badMesh:[EvHandle]
         push badMesh (s.num((to_double camId)))
         push badMesh (s.num((to_double matId)))
         b.invoke("rg3d_mesh_create" badMesh)
@@ -71,14 +71,14 @@ class Embed3dCorrectnessTest {
         ; coverage onto rg3d_entity_set_parent, which still takes handles: a
         ; geometry handle where a child ENTITY (mesh) is expected must raise the
         ; same typed bad-handle error, preserving the suite's negative-path delta.
-        def badParent:[EvalValue]
+        def badParent:[EvHandle]
         push badParent (s.num((to_double geoId)))
         push badParent (s.num((to_double sceneId)))
         b.invoke("rg3d_entity_set_parent" badParent)
         t.eqInt("entity_set_parent rejects geometry as child" b.errorCount (e0 + 4))
         t.ok("error names wrong-type:mesh" ((indexOf b.lastError "wrong-type:mesh") >= 0))
 
-        def badOp:[EvalValue]
+        def badOp:[EvHandle]
         push badOp (s.num((to_double sceneId)))
         push badOp (s.num(0.5))
         b.invoke("rg3d_material_set_opacity" badOp)
@@ -86,23 +86,23 @@ class Embed3dCorrectnessTest {
 
         ; ================= no RTT re-run at present ==========================
         def b2:RgRegistryBridge (RgRegistryBridge.create())
-        def layA:[EvalValue]
+        def layA:[EvHandle]
         push layA (s.num(0.0))
         b2.invoke("rgcore_surface_set_layout" layA)
-        def rtA:[EvalValue]
+        def rtA:[EvHandle]
         push rtA (s.num(16.0))
         push rtA (s.num(16.0))
         def texId:int (s.callI(b2 "rgcore_graphics_rt_create" rtA))
         def sc2:int (s.callI(b2 "rg3d_scene_create" empty))
         def c2:int (s.callI(b2 "rg3d_camera_create" empty))
-        def cs:[EvalValue]
+        def cs:[EvHandle]
         push cs (s.num((to_double c2)))
         push cs (s.num(35.0))
         push cs (s.num(1.0))
         push cs (s.num(0.1))
         push cs (s.num(20.0))
         b2.invoke("rg3d_camera_set" cs)
-        def cp:[EvalValue]
+        def cp:[EvHandle]
         push cp (s.num((to_double c2)))
         push cp (s.num(0.0))
         push cp (s.num(0.0))
@@ -111,25 +111,25 @@ class Embed3dCorrectnessTest {
         push cp (s.num(0.0))
         push cp (s.num(0.0))
         b2.invoke("rg3d_camera_pose" cp)
-        def boxA:[EvalValue]
+        def boxA:[EvHandle]
         push boxA (s.num(1.0))
         push boxA (s.num(1.0))
         push boxA (s.num(1.0))
         def boxG:int (s.callI(b2 "rg3d_geometry_box" boxA))
-        def m2A:[EvalValue]
+        def m2A:[EvHandle]
         push m2A (s.num(255.0))
         def m2:int (s.callI(b2 "rg3d_material_basic" m2A))
         ; D-SYNC: detached create + explicit membership == old fused scene graph.
-        def meshA:[EvalValue]
+        def meshA:[EvHandle]
         push meshA (s.num((to_double boxG)))
         push meshA (s.num((to_double m2)))
         def mesh2:int (s.callI(b2 "rg3d_mesh_create" meshA))
-        def par2:[EvalValue]
+        def par2:[EvHandle]
         push par2 (s.num((to_double mesh2)))
         push par2 (s.num((to_double sc2)))
         b2.invoke("rg3d_entity_set_parent" par2)
         def before:int b2.d3.rttCount
-        def rttA:[EvalValue]
+        def rttA:[EvHandle]
         push rttA (s.num((to_double sc2)))
         push rttA (s.num((to_double c2)))
         push rttA (s.num((to_double texId)))
@@ -145,20 +145,20 @@ class Embed3dCorrectnessTest {
 
         ; ================= black geometry is not chroma-keyed ================
         def b3:RgRegistryBridge (RgRegistryBridge.create())
-        def rt3A:[EvalValue]
+        def rt3A:[EvHandle]
         push rt3A (s.num(16.0))
         push rt3A (s.num(16.0))
         def tex3:int (s.callI(b3 "rgcore_graphics_rt_create" rt3A))
         def sc3:int (s.callI(b3 "rg3d_scene_create" empty))
         def c3:int (s.callI(b3 "rg3d_camera_create" empty))
-        def cs3:[EvalValue]
+        def cs3:[EvHandle]
         push cs3 (s.num((to_double c3)))
         push cs3 (s.num(35.0))
         push cs3 (s.num(1.0))
         push cs3 (s.num(0.1))
         push cs3 (s.num(20.0))
         b3.invoke("rg3d_camera_set" cs3)
-        def cp3:[EvalValue]
+        def cp3:[EvHandle]
         push cp3 (s.num((to_double c3)))
         push cp3 (s.num(0.0))
         push cp3 (s.num(0.0))
@@ -167,24 +167,24 @@ class Embed3dCorrectnessTest {
         push cp3 (s.num(0.0))
         push cp3 (s.num(0.0))
         b3.invoke("rg3d_camera_pose" cp3)
-        def box3A:[EvalValue]
+        def box3A:[EvHandle]
         push box3A (s.num(1.2))
         push box3A (s.num(1.2))
         push box3A (s.num(1.2))
         def box3:int (s.callI(b3 "rg3d_geometry_box" box3A))
-        def mat3A:[EvalValue]
+        def mat3A:[EvHandle]
         push mat3A (s.num(0.0))
         def mat3:int (s.callI(b3 "rg3d_material_basic" mat3A))
         ; D-SYNC: detached create + explicit membership == old fused scene graph.
-        def mesh3A:[EvalValue]
+        def mesh3A:[EvHandle]
         push mesh3A (s.num((to_double box3)))
         push mesh3A (s.num((to_double mat3)))
         def mesh3:int (s.callI(b3 "rg3d_mesh_create" mesh3A))
-        def par3:[EvalValue]
+        def par3:[EvHandle]
         push par3 (s.num((to_double mesh3)))
         push par3 (s.num((to_double sc3)))
         b3.invoke("rg3d_entity_set_parent" par3)
-        def rtt3:[EvalValue]
+        def rtt3:[EvHandle]
         push rtt3 (s.num((to_double sc3)))
         push rtt3 (s.num((to_double c3)))
         push rtt3 (s.num((to_double tex3)))
@@ -199,14 +199,14 @@ class Embed3dCorrectnessTest {
 
         ; ================= recycled sprite payload reset =====================
         def b4:RgRegistryBridge (RgRegistryBridge.create())
-        def tex4A:[EvalValue]
+        def tex4A:[EvHandle]
         push tex4A (s.num(4.0))
         push tex4A (s.num(4.0))
         def tex4:int (s.callI(b4 "rgcore_graphics_rt_create" tex4A))
-        def atA:[EvalValue]
+        def atA:[EvHandle]
         push atA (s.num((to_double tex4)))
         def atlas:int (s.callI(b4 "rg2d_atlas_create" atA))
-        def rgArgs:[EvalValue]
+        def rgArgs:[EvHandle]
         push rgArgs (s.num((to_double atlas)))
         push rgArgs (s.str("cell"))
         push rgArgs (s.num(0.0))
@@ -214,31 +214,31 @@ class Embed3dCorrectnessTest {
         push rgArgs (s.num(2.0))
         push rgArgs (s.num(2.0))
         def reg:int (s.callI(b4 "rg2d_atlas_add_region" rgArgs))
-        def spA:[EvalValue]
+        def spA:[EvHandle]
         push spA (s.num((to_double atlas)))
         push spA (s.num((to_double reg)))
         def spr1:int (s.callI(b4 "rg2d_sprite_create" spA))
-        def szA:[EvalValue]
+        def szA:[EvHandle]
         push szA (s.num((to_double spr1)))
         push szA (s.num(40.0))
         push szA (s.num(50.0))
         b4.invoke("rg2d_sprite_set_size" szA)
-        def zA:[EvalValue]
+        def zA:[EvHandle]
         push zA (s.num((to_double spr1)))
         push zA (s.num(10.0))
         b4.invoke("rg2d_sprite_set_z" zA)
-        def fxA:[EvalValue]
+        def fxA:[EvHandle]
         push fxA (s.num((to_double spr1)))
         push fxA (s.num(1.0))
         b4.invoke("rg2d_sprite_set_flip" fxA)
-        def paneA:[EvalValue]
+        def paneA:[EvHandle]
         push paneA (s.num((to_double spr1)))
         push paneA (s.num(1.0))
         b4.invoke("rg2d_sprite_set_pane" paneA)
-        def relA:[EvalValue]
+        def relA:[EvHandle]
         push relA (s.num((to_double spr1)))
         b4.invoke("rg2d_sprite_release" relA)
-        def texSpA:[EvalValue]
+        def texSpA:[EvHandle]
         push texSpA (s.num((to_double tex4)))
         def spr2:int (s.callI(b4 "rg2d_sprite_create_tex" texSpA))
         def spH:RgHandle (b4.resolveGuestId(spr2))

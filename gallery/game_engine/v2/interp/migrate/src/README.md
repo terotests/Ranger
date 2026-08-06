@@ -4,8 +4,8 @@
 
 | File | Role |
 |------|------|
-| `EvalValue.rgr` | Script values — class shell + **kind/`Array`/`Object` data SoT in `body:EvValue`** |
-| `EvValue.rgr` | Target `shape EvValue` (+ `EvPropertyBag` data helpers) |
+| `EvHandle.rgr` | Script values — class shell + **kind/`Array`/`Object` data SoT in `body:EvalValue`** |
+| `EvalValue.rgr` | Target `shape EvalValue` (+ `EvPropertyBag` data helpers) |
 | `EvValueBridge.rgr` | Create/check APIs; `fromTagged` → live `body`; `toTagged` → `fromBody` |
 | `ComponentEngine.rgr` | Evaluator — no direct storage-field access |
 | `JSXToEVG.rgr` | JSX → EVG (UI / EVG path) |
@@ -16,16 +16,19 @@
 
 - **✅ E1/E2** — shape + primitive bridge beside the class.
 - **✅ E3 (by-kind boundary)** — every kind's create/check through `EvValueBridge`.
-- **✅ E4a (kind discriminant)** — `valueType` deleted; `EvalValue.body:EvValue`.
-- **✅ E4b (storage accessors)** — CE uses EvalValue accessors for arrays,
+- **✅ E4a (kind discriminant)** — `valueType` deleted; `EvHandle.body:EvalValue`.
+- **✅ E4b (storage accessors)** — CE uses EvHandle accessors for arrays,
   property bags, proto, flags, functionNode, boundThis.
-- **E4c in progress** — Array/Map/Set collection stores + Object own-data,
-  accessors, attrs, proto and integrity on the shape (`EvPropertyBag` /
-  case fields). `EvValueHandles` preserves ref identity. Ahead: delete
-  unused class storage fields / shell, rename `EvValue` → `EvalValue`.
+- **✅ E4c (storage SoT + rename)** — Array/Map/Set + Object own-data,
+  accessors, attrs, proto and integrity live on `shape EvalValue`
+  (`EvPropertyBag` / case fields). `EvValueHandles` preserves ref identity.
+  Unused class storage fields deleted. Class renamed to `EvHandle`; shape
+  renamed to `EvalValue`. Thin shell remains for `slotOwned` / `functionNode`
+  / `payload` until a later step can move those without breaking Number
+  `@(value)` layout.
 
 ## Unit / contract tests that gate this folder
 
-- `tests/shapes.test.ts` — EvValue E1–E4c fixtures
+- `tests/shapes.test.ts` — EvalValue E1–E4c fixtures
 - `npm run test:runtime` — `tests/runtime-conformance.test.ts`
 - `npm run test:tsengine` — native bench / multi-target engine gate

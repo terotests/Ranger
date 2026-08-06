@@ -13,25 +13,25 @@ Import "../../../interp/engine/RgRegistryBridge.rgr"
 Import "../../harness/RgTest.rgr"
 
 class CannonBridgeTest {
-    fn num:EvalValue (n:double) { return (EvalValue.number(n)) }
-    fn callI:int (b:RgRegistryBridge name:string args:[EvalValue]) {
-        def r:EvalValue (b.invoke(name args))
+    fn num:EvHandle (n:double) { return (EvHandle.number(n)) }
+    fn callI:int (b:RgRegistryBridge name:string args:[EvHandle]) {
+        def r:EvHandle (b.invoke(name args))
         return (to_int r.numberValue)
     }
-    fn callD:double (b:RgRegistryBridge name:string args:[EvalValue]) {
-        def r:EvalValue (b.invoke(name args))
+    fn callD:double (b:RgRegistryBridge name:string args:[EvHandle]) {
+        def r:EvHandle (b.invoke(name args))
         return r.numberValue
     }
-    fn v3:[EvalValue] (x:double y:double z:double) {
-        def a:[EvalValue]
-        push a (EvalValue.number(x))
-        push a (EvalValue.number(y))
-        push a (EvalValue.number(z))
+    fn v3:[EvHandle] (x:double y:double z:double) {
+        def a:[EvHandle]
+        push a (EvHandle.number(x))
+        push a (EvHandle.number(y))
+        push a (EvHandle.number(z))
         return a
     }
-    fn h1:[EvalValue] (gid:int) {
-        def a:[EvalValue]
-        push a (EvalValue.number((to_double gid)))
+    fn h1:[EvHandle] (gid:int) {
+        def a:[EvHandle]
+        push a (EvHandle.number((to_double gid)))
         return a
     }
 
@@ -47,9 +47,9 @@ class CannonBridgeTest {
 
         ; ---- build the physics scene through the bridge ---------------------
         b.invoke("cannon_world_gravity" (s.v3(0.0 (0.0 - 10.0) 0.0)))
-        def groundArgs:[EvalValue] (s.v3(0.0 1.0 0.0))
+        def groundArgs:[EvHandle] (s.v3(0.0 1.0 0.0))
         def ground:int (s.callI(b "cannon_body_static_plane" groundArgs))
-        def ballArgs:[EvalValue]
+        def ballArgs:[EvHandle]
         push ballArgs (s.num(1.0))          ; mass
         push ballArgs (s.num(0.0))          ; x
         push ballArgs (s.num(2.0))          ; y
@@ -62,17 +62,17 @@ class CannonBridgeTest {
             (s.callD(b "cannon_body_pos_y" (s.h1(ball)))) 2.0)
 
         ; ---- a Three mesh the physics body will drive -----------------------
-        def empty:[EvalValue]
+        def empty:[EvHandle]
         def scene:int (s.callI(b "rg3d_scene_create" empty))
-        def boxArgs:[EvalValue] (s.v3(0.5 0.5 0.5))
+        def boxArgs:[EvHandle] (s.v3(0.5 0.5 0.5))
         def geo:int (s.callI(b "rg3d_geometry_box" boxArgs))
-        def matArgs:[EvalValue] (s.h1(255))          ; basic material colour
+        def matArgs:[EvHandle] (s.h1(255))          ; basic material colour
         def mat:int (s.callI(b "rg3d_material_basic" matArgs))
-        def meshArgs:[EvalValue]
+        def meshArgs:[EvHandle]
         push meshArgs (s.num((to_double geo)))
         push meshArgs (s.num((to_double mat)))
         def mesh:int (s.callI(b "rg3d_mesh_create" meshArgs))
-        def parentArgs:[EvalValue]
+        def parentArgs:[EvHandle]
         push parentArgs (s.num((to_double mesh)))
         push parentArgs (s.num((to_double scene)))
         b.invoke("rg3d_entity_set_parent" parentArgs)
@@ -81,7 +81,7 @@ class CannonBridgeTest {
         ; dt is in SECONDS; the interpreter passes doubles raw (only the wasm wire
         ; format uses ×1000 fixed-point, decoded host-side there).
         def dt:double (1.0 / 60.0)
-        def stepArg:[EvalValue]
+        def stepArg:[EvHandle]
         push stepArg (s.num(dt))
         def i 0
         while (i < 150) {
@@ -89,7 +89,7 @@ class CannonBridgeTest {
             def bx:double (s.callD(b "cannon_body_pos_x" (s.h1(ball))))
             def by:double (s.callD(b "cannon_body_pos_y" (s.h1(ball))))
             def bz:double (s.callD(b "cannon_body_pos_z" (s.h1(ball))))
-            def tf:[EvalValue]
+            def tf:[EvHandle]
             push tf (s.num((to_double mesh)))
             push tf (s.num(bx))
             push tf (s.num(by))

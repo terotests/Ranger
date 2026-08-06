@@ -7,11 +7,11 @@ Import "../../gallery/game_engine/v2/evg/EVGElement.rgr"
 class Main {
     sfn main:void () {
         ; Array
-        def empty:[EvalValue]
-        def arr:EvalValue (EvValueBridge.taggedArray(empty))
+        def empty:[EvHandle]
+        def arr:EvHandle (EvValueBridge.taggedArray(empty))
         if (EvValueBridge.isArrayValue(arr)) {
-            def shapedArr:EvValue (EvValueBridge.fromTagged(arr))
-            if (EvValue.isArrayValue(shapedArr)) {
+            def shapedArr:EvalValue (EvValueBridge.fromTagged(arr))
+            if (EvalValue.isArrayValue(shapedArr)) {
                 print "array"
             } {
                 print "WRONG: fromTagged lost Array"
@@ -22,8 +22,8 @@ class Main {
 
         ; Object
         def keys:[string]
-        def vals:[EvalValue]
-        def obj:EvalValue (EvValueBridge.taggedObject(keys vals))
+        def vals:[EvHandle]
+        def obj:EvHandle (EvValueBridge.taggedObject(keys vals))
         if (EvValueBridge.isObject(obj)) {
             print "object"
         } {
@@ -31,8 +31,8 @@ class Main {
         }
 
         ; Map / Set
-        def mp:EvalValue (EvValueBridge.taggedMapEmpty())
-        def st:EvalValue (EvValueBridge.taggedSetEmpty())
+        def mp:EvHandle (EvValueBridge.taggedMapEmpty())
+        def st:EvHandle (EvValueBridge.taggedSetEmpty())
         if (EvValueBridge.isMap(mp)) {
             if (EvValueBridge.isSet(st)) {
                 print "mapset"
@@ -44,10 +44,10 @@ class Main {
         }
 
         ; Function (native stub via shape → toTagged)
-        def fn:EvalValue (EvValueBridge.taggedNativeFunction("TypeError"))
+        def fn:EvHandle (EvValueBridge.taggedNativeFunction("TypeError"))
         if (EvValueBridge.isFunction(fn)) {
-            def fs:EvValue (EvValueBridge.fromTagged(fn))
-            if (EvValue.isFunction(fs)) {
+            def fs:EvalValue (EvValueBridge.fromTagged(fn))
+            if (EvalValue.isFunction(fs)) {
                 print "fn"
             } {
                 print "WRONG: fromTagged lost Function"
@@ -58,10 +58,10 @@ class Main {
 
         ; Element
         def el:EVGElement (EVGElement.createDiv())
-        def ev:EvalValue (EvValueBridge.taggedElement(el))
+        def ev:EvHandle (EvValueBridge.taggedElement(el))
         if (EvValueBridge.isElement(ev)) {
-            def es:EvValue (EvValueBridge.fromTagged(ev))
-            if (EvValue.isElement(es)) {
+            def es:EvalValue (EvValueBridge.fromTagged(ev))
+            if (EvalValue.isElement(es)) {
                 print "element"
             } {
                 print "WRONG: fromTagged lost Element"
