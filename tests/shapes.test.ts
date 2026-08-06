@@ -770,6 +770,23 @@ describe("shapes (closed variant families)", () => {
   });
 
   /**
+   * E3 reference kinds: Element, Array, Object, Map, Set, Function — all
+   * create/check through EvValueBridge. Completes §7.5 step 3 (by-kind boundary).
+   */
+  describe("EvValue E3 reference kinds", () => {
+    const E3R = `${FIXTURES_DIR}/shape_evalvalue_e3_refs.rgr`;
+    const EXPECTED_E3R = ["array", "object", "mapset", "fn", "element"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E3R, EXPECTED_E3R);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E3R, EXPECTED_E3R);
+    });
+  });
+
+  /**
    * Group field projection (PLAN_SHAPES.md §7 / C5). Fields declared on a
    * group are read and written through the group type via generated get_/set_
    * ops — no narrowing required, identity preserved for reference groups.

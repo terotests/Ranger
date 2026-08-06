@@ -1,19 +1,15 @@
 ; =============================================================================
 ; EvValueBridge — tagged ↔ shape conversion (PLAN_SHAPES.md §7.5)
 ; =============================================================================
-; E2: fromTagged for primitives / Hole.
-; E3 Hole: taggedHole / isHole engine API.
-; E3 primitives: taggedNull/Undefined/Number/String/Boolean + predicates.
-; ComponentEngine creates and checks these kinds through the bridge so the
-; shape owns them; array storage remains class EvalValue until later kinds move.
+; E3: every kind's engine create/check API lives here so the shape owns the
+; kind. Reference tagged* factories allocate once via EvalValue.* (identity
+; mint); never round-trip a live stored ref through toTagged/fromTagged.
+; Storage remains class EvalValue until step 4.
 
 Import "EvalValue.rgr"
 Import "EvValue.rgr"
 
 class EvValueBridge {
-    ; Map a tagged value to the closed family. Primitives and Hole first
-    ; (migration order §7.5); reference kinds return Undefined until those
-    ; conversions land.
     sfn fromTagged:EvValue (v:EvalValue) {
         if v.isHole {
             return (EvValue.hole())
@@ -33,11 +29,30 @@ class EvValueBridge {
         if (v.valueType == 3) {
             return (EvValue.boolean(v.boolValue))
         }
+        if (v.valueType == 7) {
+            if (v.hasElement()) {
+                return (EvValue.element((v.elementOf())))
+            }
+            return (EvValue.undefined())
+        }
+        if (v.valueType == 4) {
+            return (EvValue.array(([] _:EvValue ())))
+        }
+        if (v.valueType == 5) {
+            return (EvValue.object())
+        }
+        if (v.valueType == 6) {
+            return (EvValue.functionStub((v.fnName())))
+        }
+        if (v.valueType == 9) {
+            return (EvValue.mapEmpty())
+        }
+        if (v.valueType == 10) {
+            return (EvValue.setEmpty())
+        }
         return (EvValue.undefined())
     }
 
-    ; Shape → tagged. Hole and primitives only; other cases become undefined
-    ; until those kinds convert.
     sfn toTagged:EvalValue (ev:EvValue) {
         case ev h:EvValue.Hole {
             return (EvalValue.hole())
@@ -57,25 +72,43 @@ class EvValueBridge {
         case ev b:EvValue.Boolean {
             return (EvalValue.boolean(b.value))
         }
+        case ev el:EvValue.Element {
+            ; Case field is class-typed without a default → optional at the
+            ; type level; factories always set it.
+            return (EvalValue.element((unwrap el.element)))
+        }
+        case ev a:EvValue.Array {
+            def items:[EvalValue]
+            for a.items it:EvValue i {
+                push items (EvValueBridge.toTagged(it))
+            }
+            return (EvalValue.array(items))
+        }
+        case ev o:EvValue.Object {
+            return (EvalValue.object(([] _:string ()) ([] _:EvalValue ())))
+        }
+        case ev f:EvValue.Function {
+            def c:EvFunctionCore (unwrap f.core)
+            return (EvalValue.nativeFunction(c.functionName))
+        }
+        case ev m:EvValue.Map {
+            return (EvalValue.mapEmpty())
+        }
+        case ev st:EvValue.Set {
+            return (EvalValue.setEmpty())
+        }
         return (EvalValue.undefined())
     }
 
-    ; ---- E3 Hole engine surface -------------------------------------------
-    ; Storage encoding is still the pooled tagged singleton (isHole flag);
-    ; discrimination stays a flag read for hot array walks.
-
+    ; ---- Hole -------------------------------------------------------------
     sfn taggedHole:EvalValue () {
         return (EvValueBridge.toTagged((EvValue.hole())))
     }
-
     sfn isHole:boolean (v:EvalValue) {
         return v.isHole
     }
 
-    ; ---- E3 primitive engine surface --------------------------------------
-    ; Same pattern as Hole: shape factory → toTagged. Predicates keep the
-    ; tagged-class method bodies for speed; the API boundary is the bridge.
-
+    ; ---- Primitives -------------------------------------------------------
     sfn taggedNull:EvalValue () {
         return (EvValueBridge.toTagged((EvValue.null())))
     }
@@ -91,7 +124,6 @@ class EvValueBridge {
     sfn taggedBoolean:EvalValue (b:boolean) {
         return (EvValueBridge.toTagged((EvValue.boolean(b))))
     }
-
     sfn isNull:boolean (v:EvalValue) {
         return (v.isNull())
     }
@@ -106,5 +138,62 @@ class EvValueBridge {
     }
     sfn isBoolean:boolean (v:EvalValue) {
         return (v.isBoolean())
+    }
+
+    ; ---- Element ----------------------------------------------------------
+    sfn taggedElement:EvalValue (el:EVGElement) {
+        return (EvValueBridge.toTagged((EvValue.element(el))))
+    }
+    sfn isElement:boolean (v:EvalValue) {
+        return (v.isElement())
+    }
+
+    ; ---- Property carriers / collections ----------------------------------
+    ; Payload-bearing creates allocate once via EvalValue.* (identity mint).
+    ; Empty Map/Set go through the shape → toTagged path.
+    sfn taggedArray:EvalValue (items:[EvalValue]) {
+        return (EvalValue.array(items))
+    }
+    sfn taggedObject:EvalValue (keys:[string] values:[EvalValue]) {
+        return (EvalValue.object(keys values))
+    }
+    sfn taggedMapEmpty:EvalValue () {
+        return (EvValueBridge.toTagged((EvValue.mapEmpty())))
+    }
+    sfn taggedSetEmpty:EvalValue () {
+        return (EvValueBridge.toTagged((EvValue.setEmpty())))
+    }
+    ; Named isArrayValue — a global `isArray` operator blocks Class.isArray sfns.
+    sfn isArrayValue:boolean (v:EvalValue) {
+        return (v.isArray())
+    }
+    sfn isObject:boolean (v:EvalValue) {
+        return (v.isObject())
+    }
+    sfn isMap:boolean (v:EvalValue) {
+        return (v.isMap())
+    }
+    sfn isSet:boolean (v:EvalValue) {
+        return (v.isSet())
+    }
+
+    ; ---- Function family --------------------------------------------------
+    sfn taggedFunction:EvalValue (fnNode:TSNode) {
+        return (EvalValue.function(fnNode))
+    }
+    sfn taggedNativeFunction:EvalValue (name:string) {
+        return (EvValueBridge.toTagged((EvValue.functionStub(name))))
+    }
+    sfn taggedNativeMethod:EvalValue (kind:string name:string) {
+        return (EvalValue.nativeMethod(kind name))
+    }
+    sfn taggedNativeStatic:EvalValue (ns:string name:string) {
+        return (EvalValue.nativeStatic(ns name))
+    }
+    sfn taggedBoundMethod:EvalValue (fnNode:TSNode thisVal:EvalValue) {
+        return (EvalValue.boundMethod(fnNode thisVal))
+    }
+    sfn isFunction:boolean (v:EvalValue) {
+        return (v.isFunction())
     }
 }

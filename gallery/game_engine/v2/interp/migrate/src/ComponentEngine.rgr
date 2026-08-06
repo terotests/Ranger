@@ -1050,7 +1050,7 @@ class ComponentEngine {
         sym.functionNode = fnNode
         sym.helperFunctions = helperFns
         this.upsertLocalComponent(sym)
-        def __fnv:EvalValue (EvalValue.function(fnNode))
+        def __fnv:EvalValue (EvValueBridge.taggedFunction(fnNode))
         __fnv.setStrictFn((this.strictForBody(fnNode)))
         __fnv.setSrcText(currentSource)
         this.defineModuleBinding(localName __fnv)
@@ -1085,7 +1085,7 @@ class ComponentEngine {
             def exportName:string (itemAt exportNames k)
             def localName:string (itemAt localNames k)
             def existing:EvalValue (moduleScope.lookup(exportName))
-            if (existing.isFunction()) {
+            if (EvValueBridge.isFunction(existing)) {
                 if (null? existing.functionNode) {
                 } {
                     def fnNode:TSNode (unwrap existing.functionNode)
@@ -1174,7 +1174,7 @@ class ComponentEngine {
 
     ; Inject a global binding (object/function/value) into the top-level scope
     ; so evaluated scripts can reference it by name, e.g. registerGlobal("game",
-    ; EvalValue.object(...)) exposes `game` to the script.
+    ; EvValueBridge.taggedObject(...)) exposes `game` to the script.
     fn registerGlobal:void (name:string value:EvalValue) {
         hostScope.define(name value)
     }
@@ -1409,7 +1409,7 @@ class ComponentEngine {
     fn buildNamespaceValue:EvalValue (name:string) {
         def ks:[string]
         def vs:[EvalValue]
-        def ns:EvalValue (EvalValue.object(ks vs))
+        def ns:EvalValue (EvValueBridge.taggedObject(ks vs))
         ns.setMember("__nsmodule__" (EvValueBridge.taggedString(name)))
         def sc:EvalContext (this.moduleScopeFor(name))
         def bnames:[string] (keys sc.bindings)
@@ -1459,7 +1459,7 @@ class ComponentEngine {
                 if argNode.left {
                     sv = (this.evaluateExpr((unwrap argNode.left)))
                 }
-                if (sv.isArray()) {
+                if (EvValueBridge.isArrayValue(sv)) {
                     def k:int 0
                     while (k < (array_length sv.arrayValue)) {
                         push args (itemAt sv.arrayValue k)
@@ -1674,7 +1674,7 @@ class ComponentEngine {
                 ; is legal and has no elements at all, and a RangeError for it
                 ; confused "too big to allocate" with "not a length".
                 if (slots > 10000000) {
-                    def bigArr2:EvalValue (EvalValue.array(items))
+                    def bigArr2:EvalValue (EvValueBridge.taggedArray(items))
                     bigArr2.declaredLength = slots
                     return bigArr2
                 }
@@ -1686,17 +1686,17 @@ class ComponentEngine {
                     push items (EvValueBridge.taggedHole())
                     si = (si + 1)
                 }
-                return (EvalValue.array(items))
+                return (EvValueBridge.taggedArray(items))
             }
             push items only
-            return (EvalValue.array(items))
+            return (EvValueBridge.taggedArray(items))
         }
         def i:int 0
         while (i < n) {
             push items (this.evaluateExpr((itemAt argNodes i)))
             i = (i + 1)
         }
-        return (EvalValue.array(items))
+        return (EvValueBridge.taggedArray(items))
     }
 
     ; D-FNCTOR: compile `Function(paramNames..., body)` into a real function
@@ -2069,7 +2069,7 @@ class ComponentEngine {
                         if ch.newNode {
                             def fnNode:TSNode (unwrap ch.newNode)
                             this.updateLocalComponentNode(ch.name fnNode)
-                            def __fnv:EvalValue (EvalValue.function(fnNode))
+                            def __fnv:EvalValue (EvValueBridge.taggedFunction(fnNode))
                             __fnv.setStrictFn((this.strictForBody(fnNode)))
                             __fnv.setSrcText(currentSource)
                             moduleScope.define(ch.name __fnv)
@@ -2098,14 +2098,14 @@ class ComponentEngine {
     ; non-function names return null.
     fn callFunction:EvalValue (name:string props:EvalValue) {
         def fnValue:EvalValue (context.lookup(name))
-        if (false == (fnValue.isFunction())) {
+        if (false == (EvValueBridge.isFunction(fnValue))) {
             ; Host lifecycle door: a name not in the entry scope may be a loaded
             ; virtual module's top-level function (e.g. the ranger:core
             ; __rgGameInit / __rgGameUpdate entry points — module scopes are
             ; isolated, so they are NOT entry bindings). Module functions carry
             ; their closure, so the call roots in their own module scope.
             def mv:EvalValue (this.lookupModuleExport(name))
-            if (mv.isFunction()) {
+            if (EvValueBridge.isFunction(mv)) {
                 if mv.functionNode {
                     def margs:[EvalValue]
                     push margs props
@@ -2138,7 +2138,7 @@ class ComponentEngine {
     ; element tree (for screen render functions).
     fn callRender:EVGElement (name:string props:EvalValue) {
         def fnValue:EvalValue (context.lookup(name))
-        if (false == (fnValue.isFunction())) {
+        if (false == (EvValueBridge.isFunction(fnValue))) {
             def empty (new EVGElement())
             return empty
         }
@@ -2423,7 +2423,7 @@ class ComponentEngine {
     fn materializeImportedNode:void (node:TSNode) {
         if ((this.nodeKindOf(node)) == 40) {
             if (node.name != "render") {
-                def __fnv:EvalValue (EvalValue.function(node))
+                def __fnv:EvalValue (EvValueBridge.taggedFunction(node))
                 __fnv.setStrictFn((this.strictForBody(node)))
                 __fnv.setSrcText(currentSource)
                 this.defineModuleBinding(node.name __fnv)
@@ -2622,7 +2622,7 @@ class ComponentEngine {
         sym.symbolType = "component"
         sym.functionNode = node
         this.upsertLocalComponent(sym)
-        def __fnv:EvalValue (EvalValue.function(node))
+        def __fnv:EvalValue (EvValueBridge.taggedFunction(node))
         __fnv.setStrictFn((this.strictForBody(node)))
         __fnv.setSrcText(currentSource)
         this.defineModuleBinding(node.name __fnv)
@@ -3048,14 +3048,14 @@ class ComponentEngine {
             } {
                 if (el.nodeType == "RestElement") {
                     def items:[EvalValue]
-                    if (value.isArray()) {
+                    if (EvValueBridge.isArrayValue(value)) {
                         def k:int idx
                         while (k < (array_length value.arrayValue)) {
                             push items (itemAt value.arrayValue k)
                             k = (k + 1)
                         }
                     }
-                    def restVal:EvalValue (EvalValue.array(items))
+                    def restVal:EvalValue (EvValueBridge.taggedArray(items))
                     ; D-DSTR: a rest element may itself be a pattern —
                     ; `[...[x, y]]` binds x and y from the collected tail. Only
                     ; the plain `...name` form was handled, so the nested case
@@ -3067,7 +3067,7 @@ class ComponentEngine {
                     }
                 } {
                     def elemVal:EvalValue (EvValueBridge.taggedUndefined())
-                    if (value.isArray()) {
+                    if (EvValueBridge.isArrayValue(value)) {
                         if (idx < (array_length value.arrayValue)) {
                             elemVal = (itemAt value.arrayValue idx)
                         }
@@ -3090,7 +3090,7 @@ class ComponentEngine {
             if (prop.nodeType == "RestElement") {
                 def rkeys:[string]
                 def rvals:[EvalValue]
-                if (value.isObject()) {
+                if (EvValueBridge.isObject(value)) {
                     def ks:[string] (keys value.objectMap)
                     def ki:int 0
                     while (ki < (array_length ks)) {
@@ -3102,7 +3102,7 @@ class ComponentEngine {
                         ki = (ki + 1)
                     }
                 }
-                context.define(prop.name (EvalValue.object(rkeys rvals)))
+                context.define(prop.name (EvValueBridge.taggedObject(rkeys rvals)))
             } {
                 def srcKey:string prop.name
                 push usedKeys srcKey
@@ -3881,7 +3881,7 @@ class ComponentEngine {
         ; Arrow function with expression body
         if ((body.nodeType == "JSXElement") || (body.nodeType == "JSXFragment")) {
             def el:EVGElement (this.evaluateJSX(body))
-            return (EvalValue.element(el))
+            return (EvValueBridge.taggedElement(el))
         }
         
         ; If body is a simple expression
@@ -3995,19 +3995,19 @@ class ComponentEngine {
             ; Normalise any iterable to a list of per-iteration values: array/Set
             ; elements as-is, Map entries as [key, value] pairs, string chars.
             def items:[EvalValue]
-            if (src.isArray()) {
+            if (EvValueBridge.isArrayValue(src)) {
                 items = src.arrayValue
             } {
-                if (src.isSet()) {
+                if (EvValueBridge.isSet(src)) {
                     items = src.arrayValue
                 } {
-                    if (src.isMap()) {
+                    if (EvValueBridge.isMap(src)) {
                         def k:int 0
                         while (k < (array_length src.arrayValue)) {
                             def pair:[EvalValue]
                             push pair (itemAt src.arrayValue k)
                             push pair (itemAt src.mapVals k)
-                            push items (EvalValue.array(pair))
+                            push items (EvValueBridge.taggedArray(pair))
                             k = (k + 1)
                         }
                     } {
@@ -5351,7 +5351,7 @@ class ComponentEngine {
                         def objValue:EvalValue (context.lookup(objName))
                         
                         ; Array.push()
-                        if ((methodName == "push") && (objValue.isArray())) {
+                        if ((methodName == "push") && (EvValueBridge.isArrayValue(objValue))) {
                             ; Get arguments from node.children
                             if ((array_length node.children) > 0) {
                                 def argNode:TSNode (itemAt node.children 0)
@@ -5465,7 +5465,7 @@ class ComponentEngine {
             def rightNode:TSNode (unwrap node.right)
             def arrayValue:EvalValue (this.evaluateExpr(rightNode))
             
-            if (arrayValue.isArray()) {
+            if (EvValueBridge.isArrayValue(arrayValue)) {
                 def i:int 0
                 while (i < (array_length arrayValue.arrayValue)) {
                     def item:EvalValue (itemAt arrayValue.arrayValue i)
@@ -6723,7 +6723,7 @@ class ComponentEngine {
         if needsArgs {
             def keysA:[string]
             def valsA:[EvalValue]
-            def argObj:EvalValue (EvalValue.object(keysA valsA))
+            def argObj:EvalValue (EvValueBridge.taggedObject(keysA valsA))
             def ai0:int 0
             while (ai0 < na) {
                 argObj.setMember((to_string ai0) (itemAt argVals ai0))
@@ -6894,7 +6894,7 @@ class ComponentEngine {
         push argMapScopes argCell
         argObj2.setMember("__argscope__" (EvalValue.fromInt(slot)))
         argObj2.setAttrs("__argscope__" false false false)
-        argObj2.setMember("__argnames__" (EvalValue.array(names)))
+        argObj2.setMember("__argnames__" (EvValueBridge.taggedArray(names)))
         argObj2.setAttrs("__argnames__" false false false)
     }
 
@@ -6980,7 +6980,7 @@ class ComponentEngine {
                     push items (itemAt argVals k)
                     k = (k + 1)
                 }
-                def restArr:EvalValue (EvalValue.array(items))
+                def restArr:EvalValue (EvValueBridge.taggedArray(items))
                 if param.left {
                     this.bindPattern((unwrap param.left) restArr)
                 } {
@@ -7068,7 +7068,7 @@ class ComponentEngine {
             return argNode
         }
         def v:EvalValue (this.evaluateExpr(argNode))
-        if (v.isFunction()) {
+        if (EvValueBridge.isFunction(v)) {
             if v.functionNode {
                 return (unwrap v.functionNode)
             }
@@ -7081,7 +7081,7 @@ class ComponentEngine {
     ; Wrap a function/arrow node as a value that captures the CURRENT scope, so it
     ; resolves free variables against where it was defined, not where it is called.
     fn captureClosure:EvalValue (fnNode:TSNode) {
-        def fv:EvalValue (EvalValue.function(fnNode))
+        def fv:EvalValue (EvValueBridge.taggedFunction(fnNode))
         ; D-STRICT: a function is strict if its own body says so or if the scope
         ; that created it was strict. Recorded here rather than asked at use
         ; time, because by then the defining scope is gone.
@@ -7262,7 +7262,7 @@ class ComponentEngine {
                 ; is legal and has no elements at all, and raising a RangeError
                 ; for it confused "too big to allocate" with "not a length".
                 if (slots > 10000000) {
-                    def bigArr:EvalValue (EvalValue.array(items))
+                    def bigArr:EvalValue (EvValueBridge.taggedArray(items))
                     bigArr.declaredLength = slots
                     return bigArr
                 }
@@ -7271,17 +7271,17 @@ class ComponentEngine {
                     push items (EvValueBridge.taggedHole())
                     si = (si + 1)
                 }
-                return (EvalValue.array(items))
+                return (EvValueBridge.taggedArray(items))
             }
             push items only
-            return (EvalValue.array(items))
+            return (EvValueBridge.taggedArray(items))
         }
         def i:int 0
         while (i < n) {
             push items (itemAt args i)
             i = (i + 1)
         }
-        return (EvalValue.array(items))
+        return (EvValueBridge.taggedArray(items))
     }
 
     fn callFnValueWithValues:EvalValue (fnValue:EvalValue argVals:[EvalValue]) {
@@ -7520,7 +7520,7 @@ class ComponentEngine {
         ; Fallback: any other expression (e.g. a helper call that returns JSX,
         ; like hud() -> playHud(...)). Evaluate it and unwrap the element result.
         def val:EvalValue (this.evaluateExpr(node))
-        if (val.isElement()) {
+        if (EvValueBridge.isElement(val)) {
             if (val.hasElement()) {
                 return (val.elementOf())
             }
@@ -7633,7 +7633,7 @@ class ComponentEngine {
                 while (hi < (array_length sym.helperFunctions)) {
                     def helperFn:TSNode (itemAt sym.helperFunctions hi)
                     def helperName:string helperFn.name
-                    def __fnv:EvalValue (EvalValue.function(helperFn))
+                    def __fnv:EvalValue (EvValueBridge.taggedFunction(helperFn))
                     __fnv.setStrictFn((this.strictForBody(helperFn)))
                     __fnv.setSrcText(currentSource)
                     def helperValue:EvalValue __fnv
@@ -7695,12 +7695,12 @@ class ComponentEngine {
                     push values (itemAt childElements 0)
                 } {
                     ; Multiple children - pass as array
-                    push values (EvalValue.array(childElements))
+                    push values (EvValueBridge.taggedArray(childElements))
                 }
             }
         }
         
-        return (EvalValue.object(keys values))
+        return (EvValueBridge.taggedObject(keys values))
     }
     
     ; Collect child JSX elements as EvalValue elements
@@ -7714,7 +7714,7 @@ class ComponentEngine {
             if (child.nodeType == "JSXElement") {
                 def el:EVGElement (this.evaluateJSXElement(child))
                 if ((strlen el.tagName) > 0) {
-                    push results (EvalValue.element(el))
+                    push results (EvValueBridge.taggedElement(el))
                 }
             }
             
@@ -7726,7 +7726,7 @@ class ComponentEngine {
                     def textEl (new EVGElement())
                     textEl.tagName = "text"
                     textEl.textContent = text
-                    push results (EvalValue.element(textEl))
+                    push results (EvValueBridge.taggedElement(textEl))
                 }
             }
             
@@ -7735,15 +7735,15 @@ class ComponentEngine {
                     def exprNode:TSNode (unwrap child.left)
                     def exprValue:EvalValue (this.evaluateExpr(exprNode))
                     
-                    if (exprValue.isElement()) {
+                    if (EvValueBridge.isElement(exprValue)) {
                         push results exprValue
                     }
-                    if (exprValue.isArray()) {
+                    if (EvValueBridge.isArrayValue(exprValue)) {
                         ; Flatten array elements into children
                         def ai:int 0
                         while (ai < (array_length exprValue.arrayValue)) {
                             def arrItem:EvalValue (itemAt exprValue.arrayValue ai)
-                            if (arrItem.isElement()) {
+                            if (EvValueBridge.isElement(arrItem)) {
                                 push results arrItem
                             }
                             ai = ai + 1
@@ -7937,11 +7937,11 @@ class ComponentEngine {
                 def callResult:EvalValue (this.evaluateExpr(exprNode))
                 
                 ; Handle array result (array of elements from function)
-                if (callResult.isArray()) {
+                if (EvValueBridge.isArrayValue(callResult)) {
                     def ai:int 0
                     while (ai < (array_length callResult.arrayValue)) {
                         def arrItem:EvalValue (itemAt callResult.arrayValue ai)
-                        if (arrItem.isElement()) {
+                        if (EvValueBridge.isElement(arrItem)) {
                             if (arrItem.hasElement()) {
                                 def arrChildEl:EVGElement (arrItem.elementOf())
                                 if ((strlen arrChildEl.tagName) > 0) {
@@ -7955,7 +7955,7 @@ class ComponentEngine {
                 }
                 
                 ; Handle single element result
-                if (callResult.isElement()) {
+                if (EvValueBridge.isElement(callResult)) {
                     if (callResult.hasElement()) {
                         def childEl:EVGElement (callResult.elementOf())
                         if ((strlen childEl.tagName) > 0) {
@@ -7995,7 +7995,7 @@ class ComponentEngine {
             def value:EvalValue (this.evaluateExpr(exprNode))
             
             ; Handle EVGElement values (e.g., {children} prop containing JSX)
-            if (value.isElement()) {
+            if (EvValueBridge.isElement(value)) {
                 if (value.hasElement()) {
                     def childEl:EVGElement (value.elementOf())
                     if ((strlen childEl.tagName) > 0) {
@@ -8006,11 +8006,11 @@ class ComponentEngine {
             }
             
             ; Handle arrays of EVGElements (e.g., {children} containing multiple elements)
-            if (value.isArray()) {
+            if (EvValueBridge.isArrayValue(value)) {
                 def ai:int 0
                 while (ai < (array_length value.arrayValue)) {
                     def arrItem:EvalValue (itemAt value.arrayValue ai)
-                    if (arrItem.isElement()) {
+                    if (EvValueBridge.isElement(arrItem)) {
                         if (arrItem.hasElement()) {
                             def arrChildEl:EVGElement (arrItem.elementOf())
                             if ((strlen arrChildEl.tagName) > 0) {
@@ -8046,7 +8046,7 @@ class ComponentEngine {
                         def arrayExpr:TSNode (unwrap calleeNode.left)
                         def arrayValue:EvalValue (this.evaluateExpr(arrayExpr))
                         
-                        if (arrayValue.isArray()) {
+                        if (EvValueBridge.isArrayValue(arrayValue)) {
                             ; Get the callback function
                             if ((array_length callNode.children) > 0) {
                                 def callback:TSNode (itemAt callNode.children 0)
@@ -8112,7 +8112,7 @@ class ComponentEngine {
                 ; generic expression body — e.g. (e, i) => buildTile(e, i) — is
                 ; evaluated like any expression; an element result is the child.
                 def v:EvalValue (this.evaluateExpr(body))
-                if (v.isElement()) {
+                if (EvValueBridge.isElement(v)) {
                     if (v.hasElement()) {
                         return (v.elementOf())
                     }
@@ -8415,7 +8415,7 @@ class ComponentEngine {
         ; JSX Element as expression (for props like children={<View/>})
         if (node.nodeType == "JSXElement") {
             def el:EVGElement (this.evaluateJSXElement(node))
-            return (EvalValue.element(el))
+            return (EvValueBridge.taggedElement(el))
         }
         
         ; JSX Fragment as expression
@@ -8424,7 +8424,7 @@ class ComponentEngine {
             def el (new EVGElement())
             el.tagName = "div"
             this.evaluateChildren(el node)
-            return (EvalValue.element(el))
+            return (EvValueBridge.taggedElement(el))
         }
         
         ; Call Expression (function calls)
@@ -8709,13 +8709,13 @@ class ComponentEngine {
                             push ofItems (this.evaluateExpr((itemAt node.children ofI)))
                             ofI = (ofI + 1)
                         }
-                        return (EvalValue.array(ofItems))
+                        return (EvValueBridge.taggedArray(ofItems))
                     }
                     if (methodName == "from") {
                         def frItems:[EvalValue]
                         if ((array_length node.children) > 0) {
                             def srcV:EvalValue (this.evaluateExpr((itemAt node.children 0)))
-                            if (srcV.isArray()) {
+                            if (EvValueBridge.isArrayValue(srcV)) {
                                 def fi:int 0
                                 while (fi < (array_length srcV.arrayValue)) {
                                     push frItems (itemAt srcV.arrayValue fi)
@@ -8730,7 +8730,7 @@ class ComponentEngine {
                                     sIdx = (sIdx + 1)
                                 }
                             }
-                            if (srcV.isSet()) {
+                            if (EvValueBridge.isSet(srcV)) {
                                 def stI:int 0
                                 while (stI < (array_length srcV.arrayValue)) {
                                     push frItems (itemAt srcV.arrayValue stI)
@@ -8738,14 +8738,14 @@ class ComponentEngine {
                                 }
                             }
                         }
-                        return (EvalValue.array(frItems))
+                        return (EvValueBridge.taggedArray(frItems))
                     }
                     if (methodName == "isArray") {
                         def tv:EvalValue (EvValueBridge.taggedNull())
                         if ((array_length node.children) > 0) {
                             tv = (this.evaluateExpr((itemAt node.children 0)))
                         }
-                        return (EvValueBridge.taggedBoolean((tv.isArray())))
+                        return (EvValueBridge.taggedBoolean((EvValueBridge.isArrayValue(tv))))
                     }
                 }
                 if (arrStaticName == "Number") {
@@ -8830,7 +8830,7 @@ class ComponentEngine {
                             }
                             i = (i + 1)
                         }
-                        return (EvalValue.array(items))
+                        return (EvValueBridge.taggedArray(items))
                     }
                     if (methodName == "values") {
                         def items:[EvalValue]
@@ -8843,7 +8843,7 @@ class ComponentEngine {
                             }
                             i = (i + 1)
                         }
-                        return (EvalValue.array(items))
+                        return (EvValueBridge.taggedArray(items))
                     }
                     if (methodName == "entries") {
                         def items:[EvalValue]
@@ -8855,11 +8855,11 @@ class ComponentEngine {
                                 def pair:[EvalValue]
                                 push pair (EvValueBridge.taggedString(k))
                                 push pair (src.getMember(k))
-                                push items (EvalValue.array(pair))
+                                push items (EvValueBridge.taggedArray(pair))
                             }
                             i = (i + 1)
                         }
-                        return (EvalValue.array(items))
+                        return (EvValueBridge.taggedArray(items))
                     }
                     if (methodName == "assign") {
                         def ai:int 1
@@ -8980,7 +8980,7 @@ class ComponentEngine {
                     if (methodName == "create") {
                         def keysC:[string]
                         def valsC:[EvalValue]
-                        def created:EvalValue (EvalValue.object(keysC valsC))
+                        def created:EvalValue (EvValueBridge.taggedObject(keysC valsC))
                         if (src.valueType == 5) {
                             created.protoRef = src
                         }
@@ -9026,7 +9026,7 @@ class ComponentEngine {
                             if ownAcc {
                                 def keysA:[string]
                                 def valsA:[EvalValue]
-                                def descA:EvalValue (EvalValue.object(keysA valsA))
+                                def descA:EvalValue (EvValueBridge.taggedObject(keysA valsA))
                                 def ga:EvalValue (EvValueBridge.taggedNull())
                                 if (has src.getterMap dk) {
                                     ga = (unwrap (get src.getterMap dk))
@@ -9059,11 +9059,11 @@ class ComponentEngine {
                             ; stringValue rather than objectMap, so the
                             ; descriptor came back undefined for a property that
                             ; plainly exists. `length` likewise.
-                            if (src.isArray()) {
+                            if (EvValueBridge.isArrayValue(src)) {
                                 if (dk == "length") {
                                     def keysL:[string]
                                     def valsL:[EvalValue]
-                                    def dL:EvalValue (EvalValue.object(keysL valsL))
+                                    def dL:EvalValue (EvValueBridge.taggedObject(keysL valsL))
                                     dL.setMember("value" (EvalValue.fromInt((array_length src.arrayValue))))
                                     dL.setMember("writable" (EvValueBridge.taggedBoolean(true)))
                                     dL.setMember("enumerable" (EvValueBridge.taggedBoolean(false)))
@@ -9078,7 +9078,7 @@ class ComponentEngine {
                                         if (false == ((EvValueBridge.isHole((itemAt src.arrayValue ai))))) {
                                             def keysI:[string]
                                             def valsI:[EvalValue]
-                                            def dI:EvalValue (EvalValue.object(keysI valsI))
+                                            def dI:EvalValue (EvValueBridge.taggedObject(keysI valsI))
                                             dI.setMember("value" (itemAt src.arrayValue ai))
                                             ; Recorded attributes win: an element
                                             ; defined through defineProperty is
@@ -9103,7 +9103,7 @@ class ComponentEngine {
                                 if (dk == "length") {
                                     def keysS:[string]
                                     def valsS:[EvalValue]
-                                    def dS:EvalValue (EvalValue.object(keysS valsS))
+                                    def dS:EvalValue (EvValueBridge.taggedObject(keysS valsS))
                                     dS.setMember("value" (EvalValue.fromInt((strlen src.stringValue))))
                                     dS.setMember("writable" (EvValueBridge.taggedBoolean(false)))
                                     dS.setMember("enumerable" (EvValueBridge.taggedBoolean(false)))
@@ -9116,7 +9116,7 @@ class ComponentEngine {
                                     if ((si2 >= 0) && (si2 < (strlen src.stringValue))) {
                                         def keysC:[string]
                                         def valsC2:[EvalValue]
-                                        def dC:EvalValue (EvalValue.object(keysC valsC2))
+                                        def dC:EvalValue (EvValueBridge.taggedObject(keysC valsC2))
                                         def se:int (si2 + 1)
                                         dC.setMember("value" (EvValueBridge.taggedString((substring src.stringValue si2 se))))
                                         dC.setMember("writable" (EvValueBridge.taggedBoolean(false)))
@@ -9136,7 +9136,7 @@ class ComponentEngine {
                                     if (false == (has src.objectMap dk)) {
                                         def keysF:[string]
                                         def valsF:[EvalValue]
-                                        def dF:EvalValue (EvalValue.object(keysF valsF))
+                                        def dF:EvalValue (EvValueBridge.taggedObject(keysF valsF))
                                         dF.setMember("value" (src.getMember(dk)))
                                         dF.setMember("writable" (EvValueBridge.taggedBoolean(false)))
                                         dF.setMember("enumerable" (EvValueBridge.taggedBoolean(false)))
@@ -9154,7 +9154,7 @@ class ComponentEngine {
                                     if (false == (has src.objectMap dk)) {
                                         def keysP:[string]
                                         def valsP:[EvalValue]
-                                        def dP:EvalValue (EvalValue.object(keysP valsP))
+                                        def dP:EvalValue (EvValueBridge.taggedObject(keysP valsP))
                                         dP.setMember("value" (src.getMember("prototype")))
                                         dP.setMember("writable" (EvValueBridge.taggedBoolean(true)))
                                         dP.setMember("enumerable" (EvValueBridge.taggedBoolean(false)))
@@ -9166,7 +9166,7 @@ class ComponentEngine {
                             if (this.objHasKey(src dk)) {
                                 def keysD:[string]
                                 def valsD:[EvalValue]
-                                def desc:EvalValue (EvalValue.object(keysD valsD))
+                                def desc:EvalValue (EvValueBridge.taggedObject(keysD valsD))
                                 desc.setMember("value" (src.getMember(dk)))
                                 desc.setMember("writable" (EvValueBridge.taggedBoolean((src.isWritable(dk)))))
                                 desc.setMember("enumerable" (EvValueBridge.taggedBoolean((src.isEnumerable(dk)))))
@@ -9214,7 +9214,7 @@ class ComponentEngine {
                             push itemsN (EvValueBridge.taggedString((itemAt ksN iN)))
                             iN = (iN + 1)
                         }
-                        return (EvalValue.array(itemsN))
+                        return (EvValueBridge.taggedArray(itemsN))
                     }
                 }
                 if (arrStaticName == "JSON") {
@@ -9316,7 +9316,7 @@ class ComponentEngine {
                             }
                             if ((array_length node.children) > 1) {
                                 def arr:EvalValue (this.evaluateExpr((itemAt node.children 1)))
-                                if (arr.isArray()) {
+                                if (EvValueBridge.isArrayValue(arr)) {
                                     def aai:int 0
                                     while (aai < (array_length arr.arrayValue)) {
                                         push applyArgs (itemAt arr.arrayValue aai)
@@ -9550,7 +9550,7 @@ class ComponentEngine {
                     }
                     def keysY:[string]
                     def valsY:[EvalValue]
-                    def minted:EvalValue (EvalValue.object(keysY valsY))
+                    def minted:EvalValue (EvValueBridge.taggedObject(keysY valsY))
                     minted.setMember("__symbol__" (EvValueBridge.taggedString(sDesc)))
                     minted.setMember("description" (EvValueBridge.taggedString(sDesc)))
                     return minted
@@ -9727,7 +9727,7 @@ class ComponentEngine {
                 ; Look up the function in context
                 def fnValue:EvalValue (context.lookup(fnName))
                 if (false == quiet) {
-                    this.trace("Lookup function '" + fnName + "' -> type=" + (to_string fnValue.valueType) + " isFunction=" + (to_string (fnValue.isFunction())))
+                    this.trace("Lookup function '" + fnName + "' -> type=" + (to_string fnValue.valueType) + " isFunction=" + (to_string (EvValueBridge.isFunction(fnValue))))
                 }
                 ; D-REGISTRY: a built-in held in a variable is callable like any
                 ; other function value. It has no functionNode, so the paths
@@ -9743,7 +9743,7 @@ class ComponentEngine {
                     }
                     return (this.runIndirectEval(ieArgs0))
                 }
-                if (fnValue.isFunction()) {
+                if (EvValueBridge.isFunction(fnValue)) {
                     if fnValue.functionNode {
                         ; Args (with ...spread) bound centrally; the call scope is
                         ; parented on the function's captured closure when it has
@@ -9794,7 +9794,7 @@ class ComponentEngine {
                 }
                 return (this.runIndirectEval(ieArgs1))
             }
-            if (calleeFn.isFunction()) {
+            if (EvValueBridge.isFunction(calleeFn)) {
                 if calleeFn.functionNode {
                     def calleeArgs:[EvalValue] (this.collectCallArgs(node))
                     return (this.callFnValueWithValues(calleeFn calleeArgs))
@@ -10062,7 +10062,7 @@ class ComponentEngine {
                 ; A FUNCTION left-operand is object-like too, and its
                 ; prototype-chain answer (including the TypeError for a
                 ; non-object F.prototype) has to be reached the same way.
-                def lvObjectLike:boolean (lv.isObject())
+                def lvObjectLike:boolean (EvValueBridge.isObject(lv))
                 if (lv.valueType == 6) { lvObjectLike = true }
                 if (lv.valueType == 4) { lvObjectLike = true }
                 if lvObjectLike {
@@ -10760,7 +10760,7 @@ class ComponentEngine {
                 if ((array_length args) == 0) {
                     return (EvValueBridge.taggedBoolean(false))
                 }
-                return (EvValueBridge.taggedBoolean(((itemAt args 0).isArray())))
+                return (EvValueBridge.taggedBoolean((EvValueBridge.isArrayValue((itemAt args 0)))))
             }
         }
         if (nsName == "Number") {
@@ -10841,7 +10841,7 @@ class ComponentEngine {
                     }
                     ki = (ki + 1)
                 }
-                return (EvalValue.array(items))
+                return (EvValueBridge.taggedArray(items))
             }
             if (name == "getPrototypeOf") {
                 return (this.protoOfValue(a0))
@@ -11032,7 +11032,7 @@ class ComponentEngine {
         if (has nativeMethodCache key) {
             return (unwrap (get nativeMethodCache key))
         }
-        def v:EvalValue (EvalValue.nativeMethod(kind name))
+        def v:EvalValue (EvValueBridge.taggedNativeMethod(kind name))
         ; A built-in reports its registered arity as `length`, like any other
         ; function. Stored on the value because there is no parameter list to
         ; count -- the registry IS the parameter list.
@@ -11095,14 +11095,14 @@ class ComponentEngine {
         }
         def keysG:[string]
         def valsG:[EvalValue]
-        def g:EvalValue (EvalValue.object(keysG valsG))
+        def g:EvalValue (EvValueBridge.taggedObject(keysG valsG))
         ; D-GLOBALOBJ: a built-in CONSTRUCTOR is a function value, not a plain
         ; object. typeof already lied about it and said "function"; making it one
         ; is what lets `Number instanceof Function`,
         ; `Function.prototype.isPrototypeOf(Number)` and `Number.length` all
         ; answer for themselves instead of being special-cased at each site.
         if (this.isBuiltinCtorName(nsName)) {
-            g = (EvalValue.nativeFunction(nsName))
+            g = (EvValueBridge.taggedNativeFunction(nsName))
         }
         set builtinGlobals nsName g
         g.setMember("name" (EvValueBridge.taggedString(nsName)))
@@ -11171,7 +11171,7 @@ class ComponentEngine {
         def si:int 0
         while (si < (array_length statics)) {
             def sn:string (itemAt statics si)
-            def stv:EvalValue (EvalValue.nativeStatic(nsName sn))
+            def stv:EvalValue (EvValueBridge.taggedNativeStatic(nsName sn))
             stv.setMember("length" (EvalValue.fromInt((this.builtinStaticArity(nsName sn)))))
             stv.setAttrs("length" false false true)
             stv.setMember("name" (EvValueBridge.taggedString(sn)))
@@ -11431,7 +11431,7 @@ class ComponentEngine {
         }
         def keysB:[string]
         def valsB:[EvalValue]
-        def p:EvalValue (EvalValue.object(keysB valsB))
+        def p:EvalValue (EvValueBridge.taggedObject(keysB valsB))
         ; Function.prototype is itself a function -- `typeof Function.prototype`
         ; is "function" and calling it returns undefined. Every other built-in
         ; prototype is an ordinary object.
@@ -11441,10 +11441,10 @@ class ComponentEngine {
         ; value the spec is explicit about.
         if (nsName == "Array") {
             def emptyEls:[EvalValue]
-            p = (EvalValue.array(emptyEls))
+            p = (EvValueBridge.taggedArray(emptyEls))
         }
         if (nsName == "Function") {
-            p = (EvalValue.nativeFunction(""))
+            p = (EvValueBridge.taggedNativeFunction(""))
             ; Calling it returns undefined whatever it is handed. Marked so the
             ; call paths can tell it from an uncallable value -- it has no
             ; function node and no builtin name, which is otherwise exactly what
@@ -12112,7 +12112,7 @@ class ComponentEngine {
     fn elementToString:string (v:EvalValue) {
         if (EvValueBridge.isNull(v)) { return "" }
         if (EvValueBridge.isUndefined(v)) { return "" }
-        if (v.isArray()) {
+        if (EvValueBridge.isArrayValue(v)) {
             return (this.arrayJoinString(v ","))
         }
         return (v.toString())
@@ -12182,7 +12182,7 @@ class ComponentEngine {
         def dtm (new DateTime())
         def keysDt:[string]
         def valsDt:[EvalValue]
-        def dt:EvalValue (EvalValue.object(keysDt valsDt))
+        def dt:EvalValue (EvValueBridge.taggedObject(keysDt valsDt))
         def n:int (array_length args)
         def ms:double (this.realmNowMs())
         if (n == 1) {
@@ -12961,7 +12961,7 @@ class ComponentEngine {
                         if ((array_length mitems) == 0) {
                             return (EvValueBridge.taggedNull())
                         }
-                        return (EvalValue.array(mitems))
+                        return (EvValueBridge.taggedArray(mitems))
                     }
                     if (name == "codePointAt") {
                         def cpi:int 0
@@ -13223,7 +13223,7 @@ class ComponentEngine {
                                 push spOut (itemAt spItems spi)
                                 spi = (spi + 1)
                             }
-                            return (EvalValue.array(spOut))
+                            return (EvValueBridge.taggedArray(spOut))
                         }
                         if (false == haveSep) {
                             def whole:[EvalValue]
@@ -13234,7 +13234,7 @@ class ComponentEngine {
                             } {
                                 push whole (EvValueBridge.taggedString(s))
                             }
-                            return (EvalValue.array(whole))
+                            return (EvValueBridge.taggedArray(whole))
                         }
                         def parts:[string] (strsplit s sep)
                         def cap:int (array_length parts)
@@ -13247,7 +13247,7 @@ class ComponentEngine {
                             push items (EvValueBridge.taggedString((itemAt parts pi)))
                             pi = (pi + 1)
                         }
-                        return (EvalValue.array(items))
+                        return (EvValueBridge.taggedArray(items))
                     }
                     if (name == "lastIndexOf") {
                         def needle:string "undefined"
@@ -13548,7 +13548,7 @@ class ComponentEngine {
                             push items (itemAt recv.arrayValue i)
                             i = (i + 1)
                         }
-                        return (EvalValue.array(items))
+                        return (EvValueBridge.taggedArray(items))
                     }
                     if (name == "values") {
                         def items:[EvalValue]
@@ -13557,7 +13557,7 @@ class ComponentEngine {
                             push items (itemAt recv.mapVals i)
                             i = (i + 1)
                         }
-                        return (EvalValue.array(items))
+                        return (EvValueBridge.taggedArray(items))
                     }
                     if (name == "entries") {
                         def items:[EvalValue]
@@ -13566,10 +13566,10 @@ class ComponentEngine {
                             def pair:[EvalValue]
                             push pair (itemAt recv.arrayValue i)
                             push pair (itemAt recv.mapVals i)
-                            push items (EvalValue.array(pair))
+                            push items (EvValueBridge.taggedArray(pair))
                             i = (i + 1)
                         }
-                        return (EvalValue.array(items))
+                        return (EvValueBridge.taggedArray(items))
                     }
                     if (name == "forEach") {
                         if ((array_length args) > 0) {
@@ -13616,7 +13616,7 @@ class ComponentEngine {
                             push items (itemAt recv.arrayValue i)
                             i = (i + 1)
                         }
-                        return (EvalValue.array(items))
+                        return (EvValueBridge.taggedArray(items))
                     }
                     if (name == "forEach") {
                         if ((array_length args) > 0) {
@@ -13691,7 +13691,7 @@ class ComponentEngine {
             if (name == "fill") { isArrayMutator = true }
             def elems:[EvalValue]
             if (false == isArrayMutator) {
-                if (recv.isArray()) {
+                if (EvValueBridge.isArrayValue(recv)) {
                     elems = recv.arrayValue
                 } {
                     elems = (this.arrayLikeElements(recv))
@@ -13817,7 +13817,7 @@ class ComponentEngine {
                             push items (this.arrayElemAt(recv ii))
                             ii = (ii + 1)
                         }
-                        return (EvalValue.array(items))
+                        return (EvValueBridge.taggedArray(items))
                     }
                     if (name == "forEach") {
                         if ((array_length args) > 0) {
@@ -13867,7 +13867,7 @@ class ComponentEngine {
                                 }
                             }
                         }
-                        return (EvalValue.array(items))
+                        return (EvValueBridge.taggedArray(items))
                     }
                     if (name == "filter") {
                         def items:[EvalValue]
@@ -13895,7 +13895,7 @@ class ComponentEngine {
                                 }
                             }
                         }
-                        return (EvalValue.array(items))
+                        return (EvValueBridge.taggedArray(items))
                     }
                     if (name == "find") {
                         if ((array_length args) > 0) {
@@ -14222,7 +14222,7 @@ class ComponentEngine {
                             t = (t + 1)
                         }
                         recv.arrSetItems(rebuilt)
-                        return (EvalValue.array(removed))
+                        return (EvValueBridge.taggedArray(removed))
                     }
                     ; ---- non-mutating extras ----
                     if (name == "concat") {
@@ -14233,7 +14233,7 @@ class ComponentEngine {
                         ; element, whatever `length` it happens to inherit. The
                         ; receiver was spread unconditionally, so a plain object
                         ; came out as its indices instead of as itself.
-                        if (recv.isArray()) {
+                        if (EvValueBridge.isArrayValue(recv)) {
                             def q:int 0
                             while (q < alen) {
                                 push items (this.arrayElemAt(recv q))
@@ -14245,7 +14245,7 @@ class ComponentEngine {
                         def ai:int 0
                         while (ai < (array_length args)) {
                             def av:EvalValue (itemAt args ai)
-                            if (av.isArray()) {
+                            if (EvValueBridge.isArrayValue(av)) {
                                 ; D-HOLES: an element the argument does not have
                                 ; is not copied, but one INHERITED from its
                                 ; prototype is -- concat asks HasProperty, which
@@ -14262,14 +14262,14 @@ class ComponentEngine {
                             }
                             ai = (ai + 1)
                         }
-                        return (EvalValue.array(items))
+                        return (EvValueBridge.taggedArray(items))
                     }
                     if (name == "flat") {
                         def items:[EvalValue]
                         def q:int 0
                         while (q < (array_length elems)) {
                             def el:EvalValue (this.arrayElemAt(recv q))
-                            if (el.isArray()) {
+                            if (EvValueBridge.isArrayValue(el)) {
                                 def r:int 0
                                 while (r < (array_length el.arrayValue)) {
                                     push items (itemAt el.arrayValue r)
@@ -14280,7 +14280,7 @@ class ComponentEngine {
                             }
                             q = (q + 1)
                         }
-                        return (EvalValue.array(items))
+                        return (EvValueBridge.taggedArray(items))
                     }
                     if (name == "at") {
                         def n:int (array_length elems)
@@ -14333,7 +14333,7 @@ class ComponentEngine {
                 if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
                 }
-                return (EvValueBridge.taggedBoolean((hit.isArray())))
+                return (EvValueBridge.taggedBoolean((EvValueBridge.isArrayValue(hit))))
             }
         }
         ; ---- Number.prototype ----------------------------------------------
@@ -14520,7 +14520,7 @@ class ComponentEngine {
         if ((v.valueType == 0) || (EvValueBridge.isUndefined(v))) {
             def keysO:[string]
             def valsO:[EvalValue]
-            def o:EvalValue (EvalValue.object(keysO valsO))
+            def o:EvalValue (EvValueBridge.taggedObject(keysO valsO))
             o.protoRef = (this.builtinPrototype("Object"))
             return o
         }
@@ -14530,7 +14530,7 @@ class ComponentEngine {
     fn makeWrapper:EvalValue (ctorName:string prim:EvalValue) {
         def keysW:[string]
         def valsW:[EvalValue]
-        def w:EvalValue (EvalValue.object(keysW valsW))
+        def w:EvalValue (EvValueBridge.taggedObject(keysW valsW))
         def p:EvalValue prim
         if (ctorName == "String") {
             if (prim.valueType == 0) {
@@ -15419,7 +15419,7 @@ class ComponentEngine {
     fn makeRegexValue:EvalValue (pattern:string flags:string) {
         def keysR:[string]
         def valsR:[EvalValue]
-        def r:EvalValue (EvalValue.object(keysR valsR))
+        def r:EvalValue (EvValueBridge.taggedObject(keysR valsR))
         r.setMember("__regex__" (EvValueBridge.taggedString(pattern)))
         r.setAttrs("__regex__" false false false)
         r.setMember("source" (EvValueBridge.taggedString(pattern)))
@@ -15553,7 +15553,7 @@ class ComponentEngine {
             }
             gi = (gi + 1)
         }
-        def arr:EvalValue (EvalValue.array(items))
+        def arr:EvalValue (EvValueBridge.taggedArray(items))
         arr.setMember("index" (EvalValue.fromInt(m.start)))
         arr.setMember("input" (EvValueBridge.taggedString(subject)))
         return arr
@@ -15723,7 +15723,7 @@ class ComponentEngine {
     ; through .call().
     fn arrayLikeElements:[EvalValue] (v:EvalValue) {
         def out:[EvalValue]
-        if (v.isArray()) {
+        if (EvValueBridge.isArrayValue(v)) {
             return v.arrayValue
         }
         if (EvValueBridge.isString(v)) {
@@ -15789,7 +15789,7 @@ class ComponentEngine {
     ; answers the HOLE sentinel, which is exactly what the skip tests already
     ; look for, so no call site has to learn a new shape.
     fn arrayElemAt:EvalValue (recv:EvalValue idx:int) {
-        if (recv.isArray()) {
+        if (EvValueBridge.isArrayValue(recv)) {
             ; D-ACCESSORS: an index redefined as an ACCESSOR --
             ; `Object.defineProperty(arr, "0", {get: …})` -- is a real property
             ; of the array and its getter runs. Reading the dense slot first
@@ -15855,7 +15855,7 @@ class ComponentEngine {
     ; and everything else through ToString so an object runs its own.
     fn arrayJoinLive:EvalValue (recv:EvalValue sep:string) {
         def n:int (recv.arrayLength())
-        if (false == (recv.isArray())) {
+        if (false == (EvValueBridge.isArrayValue(recv))) {
             def lv:EvalValue (this.getPropertyValue(recv "length"))
             if scriptThrew {
                 return (EvValueBridge.taggedUndefined())
@@ -16872,7 +16872,7 @@ class ComponentEngine {
         if (existing.valueType == 6) {
             return
         }
-        def sym:EvalValue (EvalValue.nativeFunction("Symbol"))
+        def sym:EvalValue (EvValueBridge.taggedNativeFunction("Symbol"))
         sym.setMember("name" (EvValueBridge.taggedString("Symbol")))
         def wk:[string]
         push wk "iterator"
@@ -16892,7 +16892,7 @@ class ComponentEngine {
             def nm:string (itemAt wk i)
             def keysS:[string]
             def valsS:[EvalValue]
-            def s:EvalValue (EvalValue.object(keysS valsS))
+            def s:EvalValue (EvValueBridge.taggedObject(keysS valsS))
             s.setMember("__symbol__" (EvValueBridge.taggedString(nm)))
             s.setMember("description" (EvValueBridge.taggedString(("Symbol." + nm))))
             sym.setMember(nm s)
@@ -16903,7 +16903,7 @@ class ComponentEngine {
         ; "function". Calls are intercepted by name before reaching this value,
         ; which is what keeps it DIRECT eval (running in the caller's scope)
         ; rather than an ordinary function call with its own frame.
-        def ev:EvalValue (EvalValue.nativeFunction("eval"))
+        def ev:EvalValue (EvValueBridge.taggedNativeFunction("eval"))
         ev.setMember("name" (EvValueBridge.taggedString("eval")))
         hostScope.define("eval" ev)
     }
@@ -16918,7 +16918,7 @@ class ComponentEngine {
         def i:int 0
         while (i < (array_length names)) {
             def nm:string (itemAt names i)
-            def c:EvalValue (EvalValue.nativeFunction(nm))
+            def c:EvalValue (EvValueBridge.taggedNativeFunction(nm))
             c.setMember("name" (EvValueBridge.taggedString(nm)))
             ; §15.11.3: every native error constructor takes one argument.
             c.setMember("length" (EvalValue.fromInt(1)))
@@ -16931,7 +16931,7 @@ class ComponentEngine {
             ; and `Object.getPrototypeOf(new Error())` answered Object.prototype.
             def keysE:[string]
             def valsE:[EvalValue]
-            def proto:EvalValue (EvalValue.object(keysE valsE))
+            def proto:EvalValue (EvValueBridge.taggedObject(keysE valsE))
             proto.setMember("name" (EvValueBridge.taggedString(nm)))
             proto.setAttrs("name" true false true)
             proto.setMember("message" (EvValueBridge.taggedString("")))
@@ -16981,7 +16981,7 @@ class ComponentEngine {
     fn makeError:EvalValue (kind:string message:string) {
         def keys0:[string]
         def vals0:[EvalValue]
-        def e:EvalValue (EvalValue.object(keys0 vals0))
+        def e:EvalValue (EvValueBridge.taggedObject(keys0 vals0))
         e.setMember("name" (EvValueBridge.taggedString(kind)))
         e.setMember("message" (EvValueBridge.taggedString(message)))
         e.setMember("__error__" (EvValueBridge.taggedString(kind)))
@@ -17057,7 +17057,7 @@ class ComponentEngine {
             def gi:int 0
             while (gi < (array_length gfns)) {
                 def gn:string (itemAt gfns gi)
-                def gf:EvalValue (EvalValue.nativeFunction(gn))
+                def gf:EvalValue (EvValueBridge.taggedNativeFunction(gn))
                 gf.setMember("name" (EvValueBridge.taggedString(gn)))
                 gf.setAttrs("name" false false true)
                 gf.setMember("length" (EvalValue.fromInt(1)))
@@ -17105,7 +17105,7 @@ class ComponentEngine {
         }
         def keysG:[string]
         def valsG:[EvalValue]
-        def g:EvalValue (EvalValue.object(keysG valsG))
+        def g:EvalValue (EvValueBridge.taggedObject(keysG valsG))
         globalObject = g
         this.seedGlobalConstants(g)
         return g
@@ -17190,7 +17190,7 @@ class ComponentEngine {
         ; class name so it is both referenceable and dispatchable.
         def clsRef:TSNode (this.classNodeByName(name))
         if ((this.nodeKindOf(clsRef)) == 25) {
-            def cv:EvalValue (EvalValue.nativeFunction(name))
+            def cv:EvalValue (EvValueBridge.taggedNativeFunction(name))
             cv.setMember("__classname__" (EvValueBridge.taggedString(name)))
             cv.setMember("name" (EvValueBridge.taggedString(name)))
             return cv
@@ -17217,13 +17217,13 @@ class ComponentEngine {
         if (EvValueBridge.isBoolean(val)) {
             return "boolean"
         }
-        if (val.isFunction()) {
+        if (EvValueBridge.isFunction(val)) {
             return "function"
         }
-        if (val.isArray()) {
+        if (EvValueBridge.isArrayValue(val)) {
             return "object"
         }
-        if (val.isObject()) {
+        if (EvValueBridge.isObject(val)) {
             ; D-SYMBOL: symbols are modelled as objects internally, but `typeof`
             ; must answer "symbol" — that is how guest code tells them apart, and
             ; answering "object" would make every symbol type-check wrong.
@@ -17233,13 +17233,13 @@ class ComponentEngine {
             }
             return "object"
         }
-        if (val.isMap()) {
+        if (EvValueBridge.isMap(val)) {
             return "object"
         }
-        if (val.isSet()) {
+        if (EvValueBridge.isSet(val)) {
             return "object"
         }
-        if (val.isElement()) {
+        if (EvValueBridge.isElement(val)) {
             return "object"
         }
         return "undefined"
@@ -17605,7 +17605,7 @@ class ComponentEngine {
         decl.evalKind = 0
         decl.name = nm
         set classes nm decl
-        def cv:EvalValue (EvalValue.nativeFunction(nm))
+        def cv:EvalValue (EvValueBridge.taggedNativeFunction(nm))
         cv.setMember("__classname__" (EvValueBridge.taggedString(nm)))
         cv.setMember("name" (EvValueBridge.taggedString(node.name)))
         return cv
@@ -17782,7 +17782,7 @@ class ComponentEngine {
         }
         def keys0:[string]
         def vals0:[EvalValue]
-        def inst:EvalValue (EvalValue.object(keys0 vals0))
+        def inst:EvalValue (EvValueBridge.taggedObject(keys0 vals0))
         ; D-PROTO: link the instance to the constructor's prototype object, so
         ; methods put on `F.prototype` are reachable through the instance.
         ; `constructor` is INHERITED from that prototype rather than stamped on
@@ -17800,7 +17800,7 @@ class ComponentEngine {
             } {
                 def keysBP:[string]
                 def valsBP:[EvalValue]
-                instProto = (EvalValue.object(keysBP valsBP))
+                instProto = (EvValueBridge.taggedObject(keysBP valsBP))
                 set fnV.objectMap "prototype" instProto
             }
         }
@@ -17860,7 +17860,7 @@ class ComponentEngine {
     ; value with the node and `this` supplied, which is what the bound path
     ; needs -- callUserFunctionNode evaluates AST arguments it does not have.
     fn callUserFunctionValues:EvalValue (fnNode:TSNode argVals:[EvalValue] thisVal:EvalValue) {
-        def fv:EvalValue (EvalValue.function(fnNode))
+        def fv:EvalValue (EvValueBridge.taggedFunction(fnNode))
         fv.setSrcText(currentSource)
         fv.setStrictFn((this.strictForBody(fnNode)))
         fv.boundThis = thisVal
@@ -17886,7 +17886,7 @@ class ComponentEngine {
                 if an.left {
                     sv = (this.evaluateExpr((unwrap an.left)))
                 }
-                if (sv.isArray()) {
+                if (EvValueBridge.isArrayValue(sv)) {
                     def k:int 0
                     while (k < (array_length sv.arrayValue)) {
                         push argVals (itemAt sv.arrayValue k)
@@ -17999,14 +17999,14 @@ class ComponentEngine {
         }
         ; Built-in collections: new Map([[k,v]...]) / new Set([v...]).
         if (className == "Map") {
-            def m:EvalValue (EvalValue.mapEmpty())
+            def m:EvalValue (EvValueBridge.taggedMapEmpty())
             if ((array_length node.children) > 0) {
                 def init:EvalValue (this.evaluateExpr((itemAt node.children 0)))
-                if (init.isArray()) {
+                if (EvValueBridge.isArrayValue(init)) {
                     def i:int 0
                     while (i < (array_length init.arrayValue)) {
                         def pair:EvalValue (itemAt init.arrayValue i)
-                        if (pair.isArray()) {
+                        if (EvValueBridge.isArrayValue(pair)) {
                             m.mapSet((pair.getIndex(0)) (pair.getIndex(1)))
                         }
                         i = (i + 1)
@@ -18016,10 +18016,10 @@ class ComponentEngine {
             return m
         }
         if (className == "Set") {
-            def st:EvalValue (EvalValue.setEmpty())
+            def st:EvalValue (EvValueBridge.taggedSetEmpty())
             if ((array_length node.children) > 0) {
                 def init:EvalValue (this.evaluateExpr((itemAt node.children 0)))
-                if (init.isArray()) {
+                if (EvValueBridge.isArrayValue(init)) {
                     def i:int 0
                     while (i < (array_length init.arrayValue)) {
                         st.setAdd((itemAt init.arrayValue i))
@@ -18362,7 +18362,7 @@ class ComponentEngine {
         }
         def keys0:[string]
         def vals0:[EvalValue]
-        def inst:EvalValue (EvalValue.object(keys0 vals0))
+        def inst:EvalValue (EvValueBridge.taggedObject(keys0 vals0))
         inst.setMember("__class__" (EvValueBridge.taggedString(className)))
         if ((strlen clsModule) > 0) {
             inst.setMember("__module__" (EvValueBridge.taggedString(clsModule)))
@@ -18400,7 +18400,7 @@ class ComponentEngine {
                         mk = m.kind
                     }
                     if ((mk == "get") || (mk == "set")) {
-                        def accFn:EvalValue (EvalValue.boundMethod(m inst))
+                        def accFn:EvalValue (EvValueBridge.taggedBoundMethod(m inst))
                         accFn.setSrcText(currentSource)
                         if (mk == "get") {
                             inst.defineGetter(m.name accFn)
@@ -18654,7 +18654,7 @@ class ComponentEngine {
 
             ; Map/Set .size property (element count).
             if (propName == "size") {
-                if ((obj.isMap()) || (obj.isSet())) {
+                if ((EvValueBridge.isMap(obj)) || (EvValueBridge.isSet(obj))) {
                     return (EvalValue.fromInt((array_length obj.arrayValue)))
                 }
             }
@@ -18784,7 +18784,7 @@ class ComponentEngine {
                 def mcls:TSNode (this.classNodeForInstance(obj))
                 def mnode:TSNode (this.findMethodOnClassNode(mcls propName))
                 if (mnode.nodeType == "MethodDefinition") {
-                    def bm:EvalValue (EvalValue.boundMethod(mnode obj))
+                    def bm:EvalValue (EvValueBridge.taggedBoundMethod(mnode obj))
                     bm.setSrcText(currentSource)
                     ; provenance travels with the value: a stored method of a
                     ; module instance still roots in its module when invoked
@@ -18824,7 +18824,7 @@ class ComponentEngine {
                 if elem.left {
                     sv = (this.evaluateExpr((unwrap elem.left)))
                 }
-                if (sv.isArray()) {
+                if (EvValueBridge.isArrayValue(sv)) {
                     def k:int 0
                     while (k < (array_length sv.arrayValue)) {
                         push items (itemAt sv.arrayValue k)
@@ -18837,7 +18837,7 @@ class ComponentEngine {
             i = i + 1
         }
 
-        return (EvalValue.array(items))
+        return (EvValueBridge.taggedArray(items))
     }
     
     ; Lexicographic compare of two strings by char code: <0, 0, >0. Used for the
@@ -19013,7 +19013,7 @@ class ComponentEngine {
             }
             return out
         }
-        if (v.isObject()) {
+        if (EvValueBridge.isObject(v)) {
             out = (keys v.objectMap)
             ; D-ACCESSORS: an accessor property lives in getterMap/setterMap
             ; rather than objectMap, so listing only objectMap left every
@@ -19054,7 +19054,7 @@ class ComponentEngine {
         ; D-ARRAYKEYS: an array's own keys are its INDICES, as strings. Elements
         ; live in arrayValue rather than objectMap, so Object.keys([1,2]) used to
         ; answer nothing at all instead of ["0","1"].
-        if (v.isArray()) {
+        if (EvValueBridge.isArrayValue(v)) {
             def i:int 0
             while (i < (array_length v.arrayValue)) {
                 ; D-HOLES: an ABSENT element has no key, so Object.keys and
@@ -19106,7 +19106,7 @@ class ComponentEngine {
 
     fn objectEnumerableKeysRaw:[string] (v:EvalValue) {
         def out:[string]
-        if (v.isArray()) {
+        if (EvValueBridge.isArrayValue(v)) {
             ; An index is enumerable UNLESS defineProperty recorded otherwise --
             ; `Object.defineProperties(a, {"0": {value: 1}})` creates a
             ; non-enumerable element, and for-in must skip it.
@@ -19124,7 +19124,7 @@ class ComponentEngine {
         if (EvValueBridge.isString(v)) {
             return (this.objectKeys(v))
         }
-        def holdsProps:boolean (v.isObject())
+        def holdsProps:boolean (EvValueBridge.isObject(v))
         if (v.valueType == 6) { holdsProps = true }
         if holdsProps {
             def all:[string] (this.objectKeys(v))
@@ -19143,7 +19143,7 @@ class ComponentEngine {
     ; True if an object value owns `key` (distinguishes a present-but-null value
     ; from an absent key, which getMember cannot). Used by the `in` operator.
     fn objHasKey:boolean (v:EvalValue key:string) {
-        if (v.isObject()) {
+        if (EvValueBridge.isObject(v)) {
             return (has v.objectMap key)
         }
         ; D-FNPROPS: length, name and prototype are OWN properties of every
@@ -19258,7 +19258,7 @@ class ComponentEngine {
         if (EvValueBridge.isString(v)) {
             return (this.jsonQuote(v.stringValue))
         }
-        if (v.isArray()) {
+        if (EvValueBridge.isArrayValue(v)) {
             def out:string "["
             def i:int 0
             while (i < (array_length v.arrayValue)) {
@@ -19270,7 +19270,7 @@ class ComponentEngine {
             }
             return (out + "]")
         }
-        if (v.isObject()) {
+        if (EvValueBridge.isObject(v)) {
             def out:string "{"
             def ks:[string] (this.objectKeys(v))
             def i:int 0
@@ -19551,13 +19551,13 @@ class ComponentEngine {
         this.jsonSkipWs()
         if ((this.jsonPeek()) == "]") {
             jsonPos = (jsonPos + 1)
-            return (EvalValue.array(items))
+            return (EvValueBridge.taggedArray(items))
         }
         def looping:boolean true
         while (looping) {
             push items (this.jsonParseValue())
             if jsonFailed {
-                return (EvalValue.array(items))
+                return (EvValueBridge.taggedArray(items))
             }
             this.jsonSkipWs()
             def c:string (this.jsonPeek())
@@ -19567,7 +19567,7 @@ class ComponentEngine {
                 this.jsonSkipWs()
                 if ((this.jsonPeek()) == "]") {
                     this.jsonFail("Unexpected token ] in JSON")
-                    return (EvalValue.array(items))
+                    return (EvValueBridge.taggedArray(items))
                 }
             } {
                 if (c == "]") {
@@ -19575,11 +19575,11 @@ class ComponentEngine {
                     looping = false
                 } {
                     this.jsonFail("Expected ',' or ']' in JSON array")
-                    return (EvalValue.array(items))
+                    return (EvValueBridge.taggedArray(items))
                 }
             }
         }
-        return (EvalValue.array(items))
+        return (EvValueBridge.taggedArray(items))
     }
     fn jsonParseObject:EvalValue () {
         def ks:[string]
@@ -19588,7 +19588,7 @@ class ComponentEngine {
         this.jsonSkipWs()
         if ((this.jsonPeek()) == "}") {
             jsonPos = (jsonPos + 1)
-            return (EvalValue.object(ks vs))
+            return (EvValueBridge.taggedObject(ks vs))
         }
         def looping:boolean true
         while (looping) {
@@ -19596,21 +19596,21 @@ class ComponentEngine {
             ; A member name is a STRING. `{a: 1}` is JavaScript, not JSON.
             if ((this.jsonPeek()) != "\"") {
                 this.jsonFail("Expected property name in JSON")
-                return (EvalValue.object(ks vs))
+                return (EvValueBridge.taggedObject(ks vs))
             }
             def key:string (this.jsonParseString())
             if jsonFailed {
-                return (EvalValue.object(ks vs))
+                return (EvValueBridge.taggedObject(ks vs))
             }
             this.jsonSkipWs()
             if ((this.jsonPeek()) != ":") {
                 this.jsonFail("Expected ':' in JSON object")
-                return (EvalValue.object(ks vs))
+                return (EvValueBridge.taggedObject(ks vs))
             }
             jsonPos = (jsonPos + 1)
             def val:EvalValue (this.jsonParseValue())
             if jsonFailed {
-                return (EvalValue.object(ks vs))
+                return (EvValueBridge.taggedObject(ks vs))
             }
             push ks key
             push vs val
@@ -19621,7 +19621,7 @@ class ComponentEngine {
                 this.jsonSkipWs()
                 if ((this.jsonPeek()) == "}") {
                     this.jsonFail("Unexpected token } in JSON")
-                    return (EvalValue.object(ks vs))
+                    return (EvValueBridge.taggedObject(ks vs))
                 }
             } {
                 if (c == "}") {
@@ -19629,11 +19629,11 @@ class ComponentEngine {
                     looping = false
                 } {
                     this.jsonFail("Expected ',' or '}' in JSON object")
-                    return (EvalValue.object(ks vs))
+                    return (EvValueBridge.taggedObject(ks vs))
                 }
             }
         }
-        def obj:EvalValue (EvalValue.object(ks vs))
+        def obj:EvalValue (EvValueBridge.taggedObject(ks vs))
         obj.protoRef = (this.builtinPrototype("Object"))
         return obj
     }
@@ -19703,7 +19703,7 @@ class ComponentEngine {
                 if prop.left {
                     sv = (this.evaluateExpr((unwrap prop.left)))
                 }
-                if (sv.isObject()) {
+                if (EvValueBridge.isObject(sv)) {
                     def sks:[string] (this.objectKeys(sv))
                     def si:int 0
                     while (si < (array_length sks)) {
@@ -19717,7 +19717,7 @@ class ComponentEngine {
             i = i + 1
         }
 
-        def built:EvalValue (EvalValue.object(keys values))
+        def built:EvalValue (EvValueBridge.taggedObject(keys values))
         ; D-PROTO: an object literal inherits from Object.prototype. Without the
         ; link a plain object had no toString, hasOwnProperty or valueOf to
         ; inherit at all, so a guest override of one of them was invisible and
@@ -20037,10 +20037,10 @@ class ComponentEngine {
         push marginValues (EvValueBridge.taggedNumber(printMarginBottom))
         push marginNames "left"
         push marginValues (EvValueBridge.taggedNumber(printMarginLeft))
-        def marginsVal:EvalValue (EvalValue.object(marginNames marginValues))
+        def marginsVal:EvalValue (EvValueBridge.taggedObject(marginNames marginValues))
         push propValues marginsVal
         
-        return (EvalValue.object(propNames propValues))
+        return (EvValueBridge.taggedObject(propNames propValues))
     }
     
     ; Parse GPS coordinate string like "43° 28' 1.49"" into components
@@ -20142,7 +20142,7 @@ class ComponentEngine {
         push names "originalValue"
         push values (EvValueBridge.taggedString(originalValue))
         
-        return (EvalValue.object(names values))
+        return (EvValueBridge.taggedObject(names values))
     }
     
     ; Helper: Extract numeric characters (digits, decimal point, minus) from a string
@@ -20417,7 +20417,7 @@ class ComponentEngine {
         push names "originalValue"
         push values (EvValueBridge.taggedString(dateStr))
         
-        return (EvalValue.object(names values))
+        return (EvValueBridge.taggedObject(names values))
     }
 
     ; useImage(src) - returns image metadata as an object EvalValue
@@ -20552,7 +20552,7 @@ class ComponentEngine {
                 push gpsNames "altitude"
                 push gpsValues (EvValueBridge.taggedString(metadata.gpsAltitude))
             }
-            push propValues (EvalValue.object(gpsNames gpsValues))
+            push propValues (EvValueBridge.taggedObject(gpsNames gpsValues))
         } {
             push propValues (EvValueBridge.taggedNull())
         }
@@ -20606,7 +20606,7 @@ class ComponentEngine {
         def hasOrientation:boolean (metadata.orientation > 1)
         push featValues (EvValueBridge.taggedBoolean(hasOrientation))
         
-        push propValues (EvalValue.object(featNames featValues))
+        push propValues (EvValueBridge.taggedObject(featNames featValues))
         
         ; dateInfo - parsed date components if available
         push propNames "dateInfo"
@@ -20620,7 +20620,7 @@ class ComponentEngine {
             }
         }
         
-        return (EvalValue.object(propNames propValues))
+        return (EvValueBridge.taggedObject(propNames propValues))
     }
     
     ; Set print settings from Print element props

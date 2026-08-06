@@ -1,0 +1,73 @@
+; E3 smoke test: Element + carriers + Function kinds (PLAN_SHAPES.md §7.5).
+; Note: bridge Array check is isArrayValue — a global `isArray` operator blocks
+; Class.isArray static methods (same poison as JSON.rgr's isArray op).
+Import "../../gallery/game_engine/v2/interp/migrate/src/EvValueBridge.rgr"
+Import "../../gallery/game_engine/v2/evg/EVGElement.rgr"
+
+class Main {
+    sfn main:void () {
+        ; Array
+        def empty:[EvalValue]
+        def arr:EvalValue (EvValueBridge.taggedArray(empty))
+        if (EvValueBridge.isArrayValue(arr)) {
+            def shapedArr:EvValue (EvValueBridge.fromTagged(arr))
+            if (EvValue.isArrayValue(shapedArr)) {
+                print "array"
+            } {
+                print "WRONG: fromTagged lost Array"
+            }
+        } {
+            print "WRONG: taggedArray"
+        }
+
+        ; Object
+        def keys:[string]
+        def vals:[EvalValue]
+        def obj:EvalValue (EvValueBridge.taggedObject(keys vals))
+        if (EvValueBridge.isObject(obj)) {
+            print "object"
+        } {
+            print "WRONG: taggedObject"
+        }
+
+        ; Map / Set
+        def mp:EvalValue (EvValueBridge.taggedMapEmpty())
+        def st:EvalValue (EvValueBridge.taggedSetEmpty())
+        if (EvValueBridge.isMap(mp)) {
+            if (EvValueBridge.isSet(st)) {
+                print "mapset"
+            } {
+                print "WRONG: set"
+            }
+        } {
+            print "WRONG: map"
+        }
+
+        ; Function (native stub via shape → toTagged)
+        def fn:EvalValue (EvValueBridge.taggedNativeFunction("TypeError"))
+        if (EvValueBridge.isFunction(fn)) {
+            def fs:EvValue (EvValueBridge.fromTagged(fn))
+            if (EvValue.isFunction(fs)) {
+                print "fn"
+            } {
+                print "WRONG: fromTagged lost Function"
+            }
+        } {
+            print "WRONG: taggedNativeFunction"
+        }
+
+        ; Element
+        def el:EVGElement (EVGElement.createDiv())
+        def ev:EvalValue (EvValueBridge.taggedElement(el))
+        if (EvValueBridge.isElement(ev)) {
+            def es:EvValue (EvValueBridge.fromTagged(ev))
+            if (EvValue.isElement(es)) {
+                print "element"
+            } {
+                print "WRONG: fromTagged lost Element"
+            }
+        } {
+            print "WRONG: taggedElement"
+        }
+    }
+}

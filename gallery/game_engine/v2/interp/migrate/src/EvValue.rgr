@@ -3,9 +3,8 @@
 ; =============================================================================
 ; Closed family that will replace `class EvalValue` once call sites convert.
 ; Named EvValue (not EvalValue) so the tagged class can keep serving the
-; engine. E3 wires Hole and primitive creation/checks through EvValueBridge
-; into ComponentEngine; Element and property carriers still live only on
-; the tagged class.
+; engine. E3 wires every kind's create/check through EvValueBridge into
+; ComponentEngine. Storage remains class EvalValue until step 4.
 ;
 ; Groups:
 ;   Primitive       — Null / Undefined / Hole / Number / String / Boolean
@@ -159,6 +158,36 @@ shape EvValue {
         return (new EvValue.Boolean(b))
     }
 
+    ; ---- E3 reference / carrier factories (fixture + bridge kind arms) ----
+    ; Case ctors take Reference.identityId then PropertyCarrier.properties
+    ; (when applicable) before the case's own fields — see E1 fixture.
+    sfn element:EvValue (el:EVGElement) {
+        return (new EvValue.Element(0 el))
+    }
+    sfn array:EvValue (items:[EvValue]) {
+        def props:EvPropertyBag (new EvPropertyBag())
+        return (new EvValue.Array(0 props items (array_length items)))
+    }
+    sfn object:EvValue () {
+        def props:EvPropertyBag (new EvPropertyBag())
+        return (new EvValue.Object(0 props))
+    }
+    sfn mapEmpty:EvValue () {
+        def props:EvPropertyBag (new EvPropertyBag())
+        return (new EvValue.Map(0 props ([] _:EvMapEntry ())))
+    }
+    sfn setEmpty:EvValue () {
+        def props:EvPropertyBag (new EvPropertyBag())
+        return (new EvValue.Set(0 props ([] _:EvValue ())))
+    }
+    sfn functionStub:EvValue (name:string) {
+        def props:EvPropertyBag (new EvPropertyBag())
+        def c:EvFunctionCore (new EvFunctionCore())
+        c.functionName = name
+        def b:EvFunctionBinding (new EvFunctionBinding())
+        return (new EvValue.Function(0 props c b))
+    }
+
     fn isNull:boolean () {
         case self n:EvValue.Null {
             return true
@@ -200,6 +229,43 @@ shape EvValue {
             return true
         }
         case self u:EvValue.Undefined {
+            return true
+        }
+        return false
+    }
+    fn isElement:boolean () {
+        case self n:EvValue.Element {
+            return true
+        }
+        return false
+    }
+    ; Named isArrayValue — a global `isArray` operator blocks methods named isArray.
+    fn isArrayValue:boolean () {
+        case self n:EvValue.Array {
+            return true
+        }
+        return false
+    }
+    fn isObject:boolean () {
+        case self n:EvValue.Object {
+            return true
+        }
+        return false
+    }
+    fn isFunction:boolean () {
+        case self n:EvValue.Function {
+            return true
+        }
+        return false
+    }
+    fn isMap:boolean () {
+        case self n:EvValue.Map {
+            return true
+        }
+        return false
+    }
+    fn isSet:boolean () {
+        case self n:EvValue.Set {
             return true
         }
         return false

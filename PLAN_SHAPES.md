@@ -1200,21 +1200,15 @@ that no `record` with a class-typed field could avoid are fixed
    `EvValueBridge.fromTagged` converts primitives and Hole from `class EvalValue`.
    `ComponentEngine.rgr` still uses the tagged class. Fixture:
    `tests/fixtures/shape_evalvalue_e2.rgr`.
-3. **Convert by kind, not by call site.** `Hole` first (it is a correctness fix, not
-   just a cleanup), then the primitives, then `Element`, then the property carriers.
-   Each conversion is one `match` replacing one `valueType` chain, and the benchmark
-   suite (`gallery/game_engine/v2/interp/bench/`, `npm run test:tsengine`) gates each
-   step.
-   - **✅ E3 Hole (boundary):** `EvValueBridge.toTagged` / `taggedHole` / `isHole`;
-     `ComponentEngine` creates and checks holes through the bridge so the shape owns
-     the kind. Storage remains the tagged singleton until later kinds move. Fixture:
-     `tests/fixtures/shape_evalvalue_e3_hole.rgr`.
-   - **✅ E3 primitives (boundary):** `taggedNull` / `taggedUndefined` / `taggedNumber` /
-     `taggedString` / `taggedBoolean` and matching predicates; `ComponentEngine` routes
-     those factories and `isNull`/`isUndefined`/`isNumber`/`isString`/`isBoolean` through
-     the bridge. Fixture: `tests/fixtures/shape_evalvalue_e3_prims.rgr`. Next: Element,
-     then property carriers.
+3. **✅ Convert by kind, not by call site (boundary).** Every kind's create/check API
+   in `ComponentEngine` goes through `EvValueBridge` so the closed family owns the
+   kind. Storage remains `class EvalValue` / `[EvalValue]` (identity-preserving
+   mutation) until step 4. Fixtures: `shape_evalvalue_e3_hole.rgr`,
+   `shape_evalvalue_e3_prims.rgr`, `shape_evalvalue_e3_refs.rgr`.
+   - Hole → primitives → Element → Array/Object/Map/Set → Function family.
 4. **Delete the wrappers** and the `valueType` constants; rename `EvValue` → `EvalValue`.
+   Requires migrating storage and ~170 in-place mutators off the tagged class — a
+   separate cutover after step 3.
 5. **Re-measure.** `sizeof(EvalValue)` on C++, the eight benchmark cases on Node, C++,
    Rust, Go, Kotlin, Python and C#, and the small-integer pool's remaining value —
    with primitives no longer heap-allocated, the pool may stop earning its keep on the
