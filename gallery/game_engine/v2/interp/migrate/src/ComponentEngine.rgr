@@ -11,6 +11,7 @@ Import "../../../../../ts_parser/ts_lexer.rgr"
 Import "../../../../../ts_parser/ts_ast_patch.rgr"
 Import "../../../evg/EVGElement.rgr"
 Import "EvalValue.rgr"
+Import "EvValueBridge.rgr"
 Import "Regex.rgr"
 Import "DateTime.rgr"
 Import "../../../imaging/jpeg/JPEGMetadata.rgr"
@@ -1682,7 +1683,7 @@ class ComponentEngine {
                 ; iteration method run five times.
                 def si:int 0
                 while (si < slots) {
-                    push items (EvalValue.hole())
+                    push items (EvValueBridge.taggedHole())
                     si = (si + 1)
                 }
                 return (EvalValue.array(items))
@@ -7267,7 +7268,7 @@ class ComponentEngine {
                 }
                 def si:int 0
                 while (si < slots) {
-                    push items (EvalValue.hole())
+                    push items (EvValueBridge.taggedHole())
                     si = (si + 1)
                 }
                 return (EvalValue.array(items))
@@ -8237,7 +8238,7 @@ class ComponentEngine {
         ; D-HOLES: an array elision is an ABSENT element. It reads as undefined
         ; wherever a value is wanted, and `0 in [,1]` is false.
         if (exprK == 22) {
-            return (EvalValue.hole())
+            return (EvValueBridge.taggedHole())
         }
         ; D-REGEX: `/pattern/flags` as a value.
         if (exprK == 21) {
@@ -9074,7 +9075,7 @@ class ComponentEngine {
                                     if (ai < (array_length src.arrayValue)) {
                                         ; D-HOLES: a hole is an ABSENT property
                                         ; and has no descriptor at all.
-                                        if (false == ((itemAt src.arrayValue ai).isHole)) {
+                                        if (false == ((EvValueBridge.isHole((itemAt src.arrayValue ai))))) {
                                             def keysI:[string]
                                             def valsI:[EvalValue]
                                             def dI:EvalValue (EvalValue.object(keysI valsI))
@@ -13745,7 +13746,7 @@ class ComponentEngine {
                             ; `[1,,3].indexOf(undefined)` is -1. includes below
                             ; deliberately does not skip: it treats a hole as
                             ; undefined, which is the one place the two differ.
-                            if (false == ((this.arrayElemAt(recv ii)).isHole)) {
+                            if (false == ((EvValueBridge.isHole((this.arrayElemAt(recv ii)))))) {
                                 if ((target.equals((this.arrayElemAt(recv ii))))) {
                                     return (EvalValue.fromInt(ii))
                                 }
@@ -13784,7 +13785,7 @@ class ComponentEngine {
                             ; disagreed about the same array.
                             def jv:EvalValue (this.arrayElemAt(recv ii))
                             def jSkip:boolean false
-                            if jv.isHole { jSkip = true }
+                            if (EvValueBridge.isHole(jv)) { jSkip = true }
                             if (jv.isNull()) { jSkip = true }
                             if (jv.isUndefined()) { jSkip = true }
                             if (false == jSkip) {
@@ -13824,7 +13825,7 @@ class ComponentEngine {
                             def ii:int 0
                             while (ii < alen) {
                                 ; D-HOLES: an ABSENT element is not visited.
-                                if ((this.arrayElemAt(recv ii)).isHole) {
+                                if ((EvValueBridge.isHole((this.arrayElemAt(recv ii))))) {
                                     ii = (ii + 1)
                                 } {
                                     def cargs:[EvalValue]
@@ -13850,8 +13851,8 @@ class ComponentEngine {
                                 ; D-HOLES: map PRESERVES a hole rather than
                                 ; calling the callback on it -- the result has
                                 ; the same length and the same holes.
-                                if ((this.arrayElemAt(recv ii)).isHole) {
-                                    push items (EvalValue.hole())
+                                if ((EvValueBridge.isHole((this.arrayElemAt(recv ii))))) {
+                                    push items (EvValueBridge.taggedHole())
                                     ii = (ii + 1)
                                 } {
                                     def cargs:[EvalValue]
@@ -13876,7 +13877,7 @@ class ComponentEngine {
                             while (ii < alen) {
                                 def el:EvalValue (this.arrayElemAt(recv ii))
                                 ; D-HOLES: an ABSENT element is not visited.
-                                if el.isHole {
+                                if (EvValueBridge.isHole(el)) {
                                     ii = (ii + 1)
                                 } {
                                     def cargs:[EvalValue]
@@ -13937,7 +13938,7 @@ class ComponentEngine {
                             def ii:int 0
                             while (ii < alen) {
                                 ; D-HOLES: an ABSENT element is not visited.
-                                if ((this.arrayElemAt(recv ii)).isHole) {
+                                if ((EvValueBridge.isHole((this.arrayElemAt(recv ii))))) {
                                     ii = (ii + 1)
                                 } {
                                     def cargs:[EvalValue]
@@ -13963,7 +13964,7 @@ class ComponentEngine {
                             def ii:int 0
                             while (ii < alen) {
                                 ; D-HOLES: an ABSENT element is not visited.
-                                if ((this.arrayElemAt(recv ii)).isHole) {
+                                if ((EvValueBridge.isHole((this.arrayElemAt(recv ii))))) {
                                     ii = (ii + 1)
                                 } {
                                     def cargs:[EvalValue]
@@ -14003,7 +14004,7 @@ class ComponentEngine {
                                 def seedIdx:int startIdx
                                 def seeded:boolean false
                                 while (((seedIdx < alen) && (seedIdx >= 0)) && (seeded == false)) {
-                                    if (false == ((this.arrayElemAt(recv seedIdx)).isHole)) {
+                                    if (false == ((EvValueBridge.isHole((this.arrayElemAt(recv seedIdx)))))) {
                                         acc = (this.arrayElemAt(recv seedIdx))
                                         seeded = true
                                     }
@@ -14023,7 +14024,7 @@ class ComponentEngine {
                             def ii:int startIdx
                             while ((ii < alen) && (ii >= 0)) {
                                 ; D-HOLES: an ABSENT element is not visited.
-                                if (false == ((this.arrayElemAt(recv ii)).isHole)) {
+                                if (false == ((EvValueBridge.isHole((this.arrayElemAt(recv ii)))))) {
                                     def cargs:[EvalValue]
                                     push cargs acc
                                     push cargs (this.arrayElemAt(recv ii))
@@ -14303,7 +14304,7 @@ class ComponentEngine {
                         def q:int ((array_length elems) - 1)
                         while (q >= 0) {
                             ; D-HOLES: only PRESENT elements are searched.
-                            if (false == ((this.arrayElemAt(recv q)).isHole)) {
+                            if (false == ((EvValueBridge.isHole((this.arrayElemAt(recv q)))))) {
                                 if ((target.equals((this.arrayElemAt(recv q))))) {
                                     return (EvalValue.fromInt(q))
                                 }
@@ -15774,7 +15775,7 @@ class ComponentEngine {
                     return out
                 }
             } {
-                push out (EvalValue.hole())
+                push out (EvValueBridge.taggedHole())
             }
             i = (i + 1)
         }
@@ -15801,7 +15802,7 @@ class ComponentEngine {
             }
             if (idx < (array_length recv.arrayValue)) {
                 def slot:EvalValue (itemAt recv.arrayValue idx)
-                if (false == slot.isHole) {
+                if (false == (EvValueBridge.isHole(slot))) {
                     return slot
                 }
             }
@@ -15813,19 +15814,19 @@ class ComponentEngine {
             if (this.objHasKeyUpChain(recv akey)) {
                 return (this.getPropertyValue(recv akey))
             }
-            return (EvalValue.hole())
+            return (EvValueBridge.taggedHole())
         }
         if (recv.isString()) {
             if (idx < (strlen recv.stringValue)) {
                 return (EvalValue.string((substring recv.stringValue idx (idx + 1))))
             }
-            return (EvalValue.hole())
+            return (EvValueBridge.taggedHole())
         }
         def k:string (to_string idx)
         if (this.objHasKeyUpChain(recv k)) {
             return (this.getPropertyValue(recv k))
         }
-        return (EvalValue.hole())
+        return (EvValueBridge.taggedHole())
     }
 
     ; D-ARRAYLIKE: call a method BY NAME on a value, the way guest code would --
@@ -15877,7 +15878,7 @@ class ComponentEngine {
                 return (EvalValue.undefined())
             }
             def skip:boolean false
-            if v.isHole { skip = true }
+            if (EvValueBridge.isHole(v)) { skip = true }
             if (v.isNull()) { skip = true }
             if (v.isUndefined()) { skip = true }
             if (false == skip) {
@@ -16032,7 +16033,7 @@ class ComponentEngine {
                 if (wi >= 0) {
                     if (wi < (array_length walk.arrayValue)) {
                         def wslot:EvalValue (itemAt walk.arrayValue wi)
-                        if (false == wslot.isHole) {
+                        if (false == (EvValueBridge.isHole(wslot))) {
                             return wslot
                         }
                     }
@@ -16059,7 +16060,7 @@ class ComponentEngine {
             def oi:int (this.canonicalArrayIndex(key))
             if (oi >= 0) {
                 if (oi < (array_length obj.arrayValue)) {
-                    if (false == ((itemAt obj.arrayValue oi).isHole)) {
+                    if (false == ((EvValueBridge.isHole((itemAt obj.arrayValue oi))))) {
                         return own
                     }
                 }
@@ -16086,7 +16087,7 @@ class ComponentEngine {
             def oj:int (this.canonicalArrayIndex(key))
             if (oj >= 0) {
                 if (oj < (array_length obj.arrayValue)) {
-                    if (false == ((itemAt obj.arrayValue oj).isHole)) {
+                    if (false == ((EvValueBridge.isHole((itemAt obj.arrayValue oj))))) {
                         return own
                     }
                 }
@@ -16623,7 +16624,7 @@ class ComponentEngine {
             if (li < (array_length obj.arrayValue)) {
                 push resized (itemAt obj.arrayValue li)
             } {
-                push resized (EvalValue.hole())
+                push resized (EvValueBridge.taggedHole())
             }
             li = (li + 1)
         }
@@ -16651,7 +16652,7 @@ class ComponentEngine {
         ; Whether the ELEMENT was already there decides which attributes survive.
         def existedElem:boolean false
         if (idx < (array_length obj.arrayValue)) {
-            if (false == ((itemAt obj.arrayValue idx).isHole)) {
+            if (false == ((EvValueBridge.isHole((itemAt obj.arrayValue idx))))) {
                 existedElem = true
             }
         }
@@ -16683,7 +16684,7 @@ class ComponentEngine {
         } {
             ; Attributes only: an element that did not exist becomes a present
             ; undefined, which is what a descriptor without a value creates.
-            if ((itemAt obj.arrayValue idx).isHole) {
+            if ((EvValueBridge.isHole((itemAt obj.arrayValue idx)))) {
                 obj.setIndexAt(idx (EvalValue.undefined()))
             }
         }
@@ -16747,7 +16748,7 @@ class ComponentEngine {
             def reIdx:int (this.canonicalArrayIndex(key))
             if (reIdx >= 0) {
                 if (reIdx < (array_length obj.arrayValue)) {
-                    if (false == ((itemAt obj.arrayValue reIdx).isHole)) {
+                    if (false == ((EvValueBridge.isHole((itemAt obj.arrayValue reIdx))))) {
                         exists = true
                     }
                 }
@@ -17387,7 +17388,7 @@ class ComponentEngine {
                                         ; left the property readable through its
                                         ; getter after `delete a[1]`.
                                         obj.removeMember(dkey)
-                                        obj.setIndexAt(dn (EvalValue.hole()))
+                                        obj.setIndexAt(dn (EvValueBridge.taggedHole()))
                                         return (EvalValue.boolean(true))
                                     }
                                 }
@@ -18724,7 +18725,7 @@ class ComponentEngine {
                                 ; undefined for a property that exists.
                                 def slotPresent:boolean false
                                 if (rIdx < (array_length obj.arrayValue)) {
-                                    slotPresent = (false == ((itemAt obj.arrayValue rIdx).isHole))
+                                    slotPresent = (false == ((EvValueBridge.isHole((itemAt obj.arrayValue rIdx)))))
                                 }
                                 if slotPresent {
                                     return (obj.getIndex(rIdx))
@@ -19058,7 +19059,7 @@ class ComponentEngine {
             while (i < (array_length v.arrayValue)) {
                 ; D-HOLES: an ABSENT element has no key, so Object.keys and
                 ; for-in skip it -- `Object.keys([1,,3])` is ["0","2"].
-                if (false == ((itemAt v.arrayValue i).isHole)) {
+                if (false == ((EvValueBridge.isHole((itemAt v.arrayValue i))))) {
                     push out (to_string i)
                 }
                 i = (i + 1)
@@ -19178,7 +19179,7 @@ class ComponentEngine {
                 ; D-HOLES: a hole is an ABSENT property, so `1 in [0,,2]` is
                 ; false and hasOwnProperty("1") is false with it.
                 if ((aidx >= 0) && (aidx < (array_length v.arrayValue))) {
-                    return (false == ((itemAt v.arrayValue aidx).isHole))
+                    return (false == ((EvValueBridge.isHole((itemAt v.arrayValue aidx)))))
                 }
                 return false
             }

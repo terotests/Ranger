@@ -1,9 +1,10 @@
 ; =============================================================================
-; EvValueBridge — E2 tagged-class → shape conversion (PLAN_SHAPES.md §7.5)
+; EvValueBridge — tagged ↔ shape conversion (PLAN_SHAPES.md §7.5)
 ; =============================================================================
-; One-way bridge from the live `class EvalValue` into the E1 `shape EvValue`.
-; Used by smoke tests and the coming per-kind migration; ComponentEngine still
-; talks only to the tagged class.
+; E2: fromTagged for primitives / Hole.
+; E3: toTagged + Hole engine API. ComponentEngine creates holes through
+; taggedHole() so the shape is the source of truth; array storage remains
+; class EvalValue until later kinds move.
 
 Import "EvalValue.rgr"
 Import "EvValue.rgr"
@@ -32,5 +33,43 @@ class EvValueBridge {
             return (EvValue.boolean(v.boolValue))
         }
         return (EvValue.undefined())
+    }
+
+    ; Shape → tagged. Hole and primitives only; other cases become undefined
+    ; until those kinds convert.
+    sfn toTagged:EvalValue (ev:EvValue) {
+        case ev h:EvValue.Hole {
+            return (EvalValue.hole())
+        }
+        case ev n:EvValue.Null {
+            return (EvalValue.null())
+        }
+        case ev u:EvValue.Undefined {
+            return (EvalValue.undefined())
+        }
+        case ev num:EvValue.Number {
+            return (EvalValue.number(num.value))
+        }
+        case ev s:EvValue.String {
+            return (EvalValue.string(s.value))
+        }
+        case ev b:EvValue.Boolean {
+            return (EvalValue.boolean(b.value))
+        }
+        return (EvalValue.undefined())
+    }
+
+    ; ---- E3 Hole engine surface -------------------------------------------
+    ; ComponentEngine calls these instead of EvalValue.hole() / .isHole so the
+    ; Hole kind is owned by the shape. Storage encoding is still the pooled
+    ; tagged singleton (isHole flag); discrimination stays a flag read for
+    ; hot array walks.
+
+    sfn taggedHole:EvalValue () {
+        return (EvValueBridge.toTagged((EvValue.hole())))
+    }
+
+    sfn isHole:boolean (v:EvalValue) {
+        return v.isHole
     }
 }

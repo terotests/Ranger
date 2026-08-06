@@ -733,6 +733,26 @@ describe("shapes (closed variant families)", () => {
   });
 
   /**
+   * E3 (PLAN_SHAPES.md §7.5): Hole kind is shape-owned. Creation goes
+   * EvValue.Hole → toTagged; ComponentEngine uses EvValueBridge.taggedHole /
+   * isHole. Storage encoding remains the tagged singleton for now.
+   */
+  describe("EvValue E3 Hole kind", () => {
+    const E3 = `${FIXTURES_DIR}/shape_evalvalue_e3_hole.rgr`;
+    const EXPECTED_E3 = ["roundtrip", "engine", "distinct", "undef", "falsy"].join(
+      "\n"
+    );
+
+    it("ES6", () => {
+      expectOutput(E3, EXPECTED_E3);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E3, EXPECTED_E3);
+    });
+  });
+
+  /**
    * Group field projection (PLAN_SHAPES.md §7 / C5). Fields declared on a
    * group are read and written through the group type via generated get_/set_
    * ops — no narrowing required, identity preserved for reference groups.

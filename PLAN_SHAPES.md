@@ -1205,6 +1205,10 @@ that no `record` with a class-typed field could avoid are fixed
    Each conversion is one `match` replacing one `valueType` chain, and the benchmark
    suite (`gallery/game_engine/v2/interp/bench/`, `npm run test:tsengine`) gates each
    step.
+   - **✅ E3 Hole (boundary):** `EvValueBridge.toTagged` / `taggedHole` / `isHole`;
+     `ComponentEngine` creates and checks holes through the bridge so the shape owns
+     the kind. Storage remains the tagged singleton until later kinds move. Fixture:
+     `tests/fixtures/shape_evalvalue_e3_hole.rgr`.
 4. **Delete the wrappers** and the `valueType` constants; rename `EvValue` → `EvalValue`.
 5. **Re-measure.** `sizeof(EvalValue)` on C++, the eight benchmark cases on Node, C++,
    Rust, Go, Kotlin, Python and C#, and the small-integer pool's remaining value —

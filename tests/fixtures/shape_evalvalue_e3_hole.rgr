@@ -1,0 +1,50 @@
+; E3 smoke test: Hole kind is shape-owned (PLAN_SHAPES.md §7.5).
+; Creation goes EvValue.Hole → toTagged; engine API is EvValueBridge.taggedHole.
+Import "../../gallery/game_engine/v2/interp/migrate/src/EvValueBridge.rgr"
+
+class Main {
+    sfn main:void () {
+        ; shape → tagged → shape round-trip
+        def shaped:EvValue (EvValue.hole())
+        def tagged:EvalValue (EvValueBridge.toTagged(shaped))
+        def back:EvValue (EvValueBridge.fromTagged(tagged))
+        if (EvValue.isHole(back)) {
+            print "roundtrip"
+        } {
+            print "WRONG: Hole round-trip failed"
+        }
+
+        ; engine creation surface
+        def eng:EvalValue (EvValueBridge.taggedHole())
+        if (EvValueBridge.isHole(eng)) {
+            print "engine"
+        } {
+            print "WRONG: taggedHole not a hole"
+        }
+
+        ; Hole is not Undefined
+        def u:EvalValue (EvalValue.undefined())
+        if (EvValueBridge.isHole(u)) {
+            print "WRONG: undefined is a hole"
+        } {
+            print "distinct"
+        }
+        def us:EvValue (EvValueBridge.fromTagged(u))
+        if (EvValue.isUndefined(us)) {
+            if (EvValue.isHole(us)) {
+                print "WRONG: undefined shaped as hole"
+            } {
+                print "undef"
+            }
+        } {
+            print "WRONG: lost Undefined"
+        }
+
+        ; Hole is falsy
+        if (EvValue.toBool(shaped)) {
+            print "WRONG: Hole is truthy"
+        } {
+            print "falsy"
+        }
+    }
+}
