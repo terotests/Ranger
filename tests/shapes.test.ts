@@ -308,7 +308,7 @@ describe("shapes (closed variant families)", () => {
       expect(code).not.toMatch(/instanceof Value_Num/);
     });
 
-    it.skipIf(!isGoAvailable())("Go: named marker interface instead of interface{}", () => {
+    it.skipIf(!isGoAvailable())("Go: tagged struct with per-variant pointers", () => {
       const outDir = path.join(ROOT, "tests", ".output-go-shapes");
       const compile = compileRangerToGo(
         `${FIXTURES_DIR}/shape_match.rgr`,
@@ -319,24 +319,44 @@ describe("shapes (closed variant families)", () => {
         path.join(outDir, "shape_match.go"),
         "utf-8"
       );
-      expect(code).toContain("type union_Value interface {");
-      expect(code).toContain("is_union_Value()");
-      expect(code).toMatch(/func \(me \*Value_Num\) is_union_Value\(\)/);
-      expect(code).toMatch(/func \(me \*Value_Items\) is_union_Value_Ref\(\)/);
+      expect(code).toContain("type union_Value struct {");
+      expect(code).toContain("union_Value_tag_Value_Num");
+      expect(code).toContain("Value_Num *Value_Num");
+      expect(code).toContain("func mk_union_Value_Value_Num");
       expect(code).toMatch(/describe \(v union_Value\)/);
+      expect(code).toContain(".tag == union_Value_tag_Value_Num");
+      expect(code).not.toContain("type union_Value interface");
       expect(code).not.toMatch(/describe \(v interface\{\}\)/);
     });
 
-    it("Swift6: a protocol per union the cases adopt", () => {
+    it("Swift6: a native enum with payload cases", () => {
       const result = getGeneratedSwiftCode(`${FIXTURES_DIR}/shape_match.rgr`);
       expect(result.success, `Compile failed: ${result.error}`).toBe(true);
-      expect(result.code).toContain("protocol union_Value {}");
-      expect(result.code).toContain("protocol union_Value_Ref {}");
-      expect(result.code).toMatch(
-        /class Value_Items\s*:.*,\s*union_Value,\s*union_Value_Ref/
-      );
+      expect(result.code).toContain("enum union_Value {");
+      expect(result.code).toContain("case Value_Num(Value_Num)");
+      expect(result.code).toContain("enum union_Value_Ref {");
+      expect(result.code).toContain("if case let .Value_Num(");
       expect(result.code).toMatch(/describe\(v : union_Value\)/);
+      expect(result.code).toContain("union_Value.Value_Num(");
+      expect(result.code).not.toContain("protocol union_Value");
       expect(result.code).not.toMatch(/describe\(v : Any\)/);
+    });
+
+    it.skipIf(!isPythonAvailable())("Python: FlatTaggedObject kind tag instead of isinstance", () => {
+      const out = path.join(ROOT, "tests", ".output-python-shapes");
+      execSync(
+        `node bin/output.js -l=python "${FIXTURES_DIR}/shape_match.rgr" -d=tests/.output-python-shapes -o=shape_match.py`,
+        {
+          cwd: ROOT,
+          env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr;./lib/stdops.rgr" },
+          encoding: "utf-8",
+          stdio: "pipe",
+        }
+      );
+      const code = fs.readFileSync(path.join(out, "shape_match.py"), "utf-8");
+      expect(code).toContain('self._rg_kind = "Value_Num"');
+      expect(code).toContain('getattr(v, "_rg_kind", None) == "Value_Num"');
+      expect(code).not.toMatch(/isinstance\(\s*v\s*,\s*Value_Num\s*\)/);
     });
 
     it("Kotlin: a sealed interface the cases implement", () => {

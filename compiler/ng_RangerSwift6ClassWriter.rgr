@@ -16,20 +16,94 @@ class RangerSwift6ClassWriter {
     return tn
   }
   
-  ; S5 (PLAN_SHAPES.md): a sealable union is a protocol its members adopt, so
-  ; the static type survives instead of erasing to Any.
+  ; S5 (PLAN_SHAPES.md): a sealable union is a native enum; construction wraps
+  ; a case payload at flow sites and narrowing uses `if case let`.
   def swift_unions_written:boolean false
 
-  fn writeSwiftUnionProtocols:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+  fn writeSwiftUnionEnums:void (ctx:RangerAppWriterContext wr:CodeWriter) {
     if swift_unions_written {
       return
     }
     swift_unions_written = true
     def names:[string] (this.sealableUnionNames(ctx))
     for names uname:string ui {
+      def ucl:RangerAppClassDesc (ctx.findClass(uname))
+      def enumName:string (this.unionInterfaceName(uname))
       wr.out("" true)
-      wr.out((("protocol " + (this.unionInterfaceName(uname))) + " {}") true)
+      wr.out((("enum " + enumName) + " {") true)
+      wr.indent(1)
+      for ucl.is_union_of mname:string mi {
+        wr.out((("case " + mname) + "(" + mname + ")") true)
+      }
+      wr.indent(-1)
+      wr.out("}" true)
     }
+  }
+
+  fn swiftDeclaredClassOf:string (nVal:CodeNode) {
+    if nVal.hasNewOper {
+      def newClOpt@(optional):RangerAppClassDesc nVal.clDesc
+      if (!null? newClOpt) {
+        def newCl:RangerAppClassDesc (unwrap newClOpt)
+        return newCl.name
+      }
+    }
+    if nVal.hasParamDesc {
+      def pd:RangerAppParamDesc nVal.paramDesc
+      def pdNN@(optional):CodeNode pd.nameNode
+      if (!null? pdNN) {
+        def pdNode:CodeNode (unwrap pdNN)
+        return pdNode.type_name
+      }
+    }
+    if ((strlen nVal.eval_type_name) > 0) {
+      return nVal.eval_type_name
+    }
+    return ""
+  }
+
+  fn swiftUnionHasMember:boolean (ucl:RangerAppClassDesc memberName:string) {
+    return ((indexOf ucl.is_union_of memberName) >= 0)
+  }
+
+  ; Writes a value into a union-typed slot. A member is wrapped as
+  ; union_Value.Value_Num(...); a value already of the family passes through.
+  fn swiftWriteUnionValue:boolean (targetTypeName:string nVal:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((strlen targetTypeName) == 0) {
+      return false
+    }
+    def tcOpt@(optional):RangerAppClassDesc (ctx.findClass(targetTypeName))
+    if (null? tcOpt) {
+      return false
+    }
+    def target:RangerAppClassDesc (unwrap tcOpt)
+    if ((this.unionIsSealable(target ctx)) == false) {
+      return false
+    }
+    def enumName:string (this.unionInterfaceName(targetTypeName))
+    def valClass:string (this.swiftDeclaredClassOf(nVal))
+    if (this.swiftUnionHasMember(target valClass)) {
+      wr.out(((enumName + ".") + valClass) false)
+      wr.out("(" false)
+      ctx.setInExpr()
+      this.WalkNode(nVal ctx wr)
+      ctx.unsetInExpr()
+      wr.out(")" false)
+      return true
+    }
+    ctx.setInExpr()
+    this.WalkNode(nVal ctx wr)
+    ctx.unsetInExpr()
+    return true
+  }
+
+  fn swiftWriteUnionArg:boolean (arg:RangerAppParamDesc nVal:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def argNN@(optional):CodeNode arg.nameNode
+    if (null? argNN) {
+      return false
+    }
+    def argNameNode:CodeNode (unwrap argNN)
+    return (this.swiftWriteUnionValue(argNameNode.type_name nVal ctx wr))
   }
 
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
@@ -439,10 +513,17 @@ class RangerSwift6ClassWriter {
       this.writeTypeDef( (unwrap p.nameNode) ctx wr)
       if ((array_length node.children) > 2) {
         wr.out(" = " false)
-        ctx.setInExpr()
         def value:CodeNode (node.getThird())
-        this.WalkNode(value ctx wr)
-        ctx.unsetInExpr()
+        def slotType:string p.nameNode.type_name
+        if ((strlen p.nameNode.eval_type_name) > 0) {
+          slotType = p.nameNode.eval_type_name
+        }
+        if (this.swiftWriteUnionValue(slotType value ctx wr)) {
+        } {
+          ctx.setInExpr()
+          this.WalkNode(value ctx wr)
+          ctx.unsetInExpr()
+        }
       } {
         if (nn.value_type == RangerNodeType.Array) {
           wr.out(" = " false)
@@ -683,6 +764,9 @@ class RangerSwift6ClassWriter {
         if ((unwrap arg.nameNode).hasFlag("mutates")) {
           wr.out("&" false)
         }
+        if (this.swiftWriteUnionArg(arg n ctx wr)) {
+          continue
+        }
         this.WalkNode(n ctx wr)
       }
       ctx.unsetInExpr()
@@ -823,6 +907,26 @@ class RangerSwift6ClassWriter {
     }
   }
 
+  fn writeArrayLiteral( node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    wr.out("[" false)
+    def elemType:string node.eval_array_type
+    if ((strlen elemType) == 0) {
+      elemType = node.array_type
+    }
+    node.children.forEach({
+      if( index > 0 ) {
+        wr.out(", " false)
+      }
+      if ((strlen elemType) > 0) {
+        if (this.swiftWriteUnionValue(elemType item ctx wr)) {
+          return
+        }
+      }
+      this.WalkNode( item ctx wr )
+    })
+    wr.out("]" false)
+  }
+
   fn haveSameSig:boolean ( fn1:RangerAppFunctionDesc fn2:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
     
       if(fn1.name != fn2.name) {
@@ -855,6 +959,55 @@ class RangerSwift6ClassWriter {
 
     def fc:CodeNode (node.getFirst())
     def cmd:string fc.vref
+
+    if (cmd == "return") {
+      if ((array_length node.children) > 1) {
+        def rValue:CodeNode (node.getSecond())
+        def retUnion:string ""
+        def currFnRet:RangerAppFunctionDesc (ctx.getCurrentMethod())
+        if (!null? currFnRet.nameNode) {
+          retUnion = currFnRet.nameNode.type_name
+        }
+        wr.out("return " false)
+        def wroteRet:boolean (this.swiftWriteUnionValue(retUnion rValue ctx wr))
+        if (wroteRet == false) {
+          ctx.setInExpr()
+          this.WalkNode(rValue ctx wr)
+          ctx.unsetInExpr()
+        }
+        wr.newline()
+      } {
+        wr.out("return" true)
+      }
+      return
+    }
+
+    if (cmd == "=") {
+      def left:CodeNode (node.getSecond())
+      def right:CodeNode (node.getThird())
+      wr.newline()
+      this.WalkNode(left ctx wr)
+      wr.out(" = " false)
+      def assignSlotType:string ""
+      if left.hasParamDesc {
+        def assignNN@(optional):CodeNode left.paramDesc.nameNode
+        if (!null? assignNN) {
+          def assignNode:CodeNode (unwrap assignNN)
+          assignSlotType = assignNode.type_name
+        }
+      }
+      def wroteAssign:boolean false
+      if ((strlen assignSlotType) > 0) {
+        wroteAssign = (this.swiftWriteUnionValue(assignSlotType right ctx wr))
+      }
+      if (wroteAssign == false) {
+        ctx.setInExpr()
+        this.WalkNode(right ctx wr)
+        ctx.unsetInExpr()
+      }
+      wr.out(";" true)
+      return
+    }
 
     if( cmd == "switch" ) {
       def condition:CodeNode (node.getSecond())
@@ -895,7 +1048,7 @@ class RangerSwift6ClassWriter {
     if (null? cl) {
       return
     }
-    this.writeSwiftUnionProtocols(ctx wr)
+    this.writeSwiftUnionEnums(ctx wr)
     def declaredVariable:[string:boolean]
     def dblDeclaredFunction:[string:boolean]
     def declaredFunction:[string:boolean]
@@ -949,14 +1102,6 @@ class RangerSwift6ClassWriter {
       }
     } {
       wr.out(" : Hashable " false )
-    }
-    ; sealable unions this case belongs to (shape groups / family)
-    def clUnions:[string] (this.unionInterfacesOf((unwrap cl) ctx))
-    if ((array_length clUnions) > 0) {
-      for clUnions uname:string ui {
-        wr.out(", " false)
-        wr.out(uname false)
-      }
     }
     
     wr.out( " { " true)

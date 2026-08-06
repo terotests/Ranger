@@ -622,7 +622,15 @@ class RangerPythonClassWriter {
       }
     }
 
-    def hasContent:boolean false
+    ; S5 FlatTaggedObject: sealable-union members carry a stable kind tag so
+    ; narrowing can test the tag instead of isinstance (PLAN_SHAPES §5).
+    ; Single leading underscore — a double underscore would be name-mangled
+    ; to _Class__rg_kind and getattr(v, "__rg_kind") would miss it.
+    def needsKind:boolean (this.classInSealableUnion((unwrap cl) ctx))
+    if needsKind {
+      wr.out((("self._rg_kind = \"" + cl.name) + "\"") true)
+    }
+    def hasContent:boolean needsKind
     for cl.variables pvar:RangerAppParamDesc i {
       this.writeVarInitDef(( unwrap pvar.node ) ctx wr)
       hasContent = true

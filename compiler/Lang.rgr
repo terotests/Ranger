@@ -1585,7 +1585,9 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 ranger ( nl (e 1) " = " (e 2) nl )  
                 scala ( nl (e 1) " = " (e 2)   nl )   
                 go ( (custom _ ) )   
-                rust ( (custom _) )           
+                rust ( (custom _) )
+                swift3 ( (custom _) )
+                swift6 ( (custom _) )
                 * ( nl (e 1) " = " (e 2) ";" nl ) 
             } 
         }   
@@ -1595,7 +1597,9 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 ranger ( nl (e 1) " = " (e 2) nl )  
                 scala ( nl (e 1) " = " (e 2) nl )   
                 go ( (custom _ ) )      
-                rust ( (custom _) )        
+                rust ( (custom _) )
+                swift3 ( (custom _) )
+                swift6 ( (custom _) )
                 * ( nl (e 1) " = " (e 2) ";" nl ) 
             } 
         }   
@@ -1772,6 +1776,8 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
         return  cmdReturn@(returns@(1)):void          ( value:T ) {
             templates {
                 go ( (custom _) )
+                swift3 ( (custom _) )
+                swift6 ( (custom _) )
             }
         }
 
@@ -1782,6 +1788,8 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 rust ( (custom _) )
                 ranger ( nl "return " (e 1) nl ) 
                 go ( (custom _) )
+                swift3 ( (custom _) )
+                swift6 ( (custom _) )
                 * ( "return " (ifa 1 ";") (e 1) (eif _) ";" )
             }
         }        
@@ -1792,6 +1800,8 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 scala( (custom _ ) )
                 rust ( (custom _) )
                 go ( (custom _) )
+                swift3 ( (custom _) )
+                swift6 ( (custom _) )
                 * ( "return " (ifa 1 ";") (e 1) (eif _) ";" )
             }
         }       

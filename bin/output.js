@@ -19095,7 +19095,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           this.header_created = false;     /** note: unused */
           this.swift_unions_written = false;
         }
-        writeSwiftUnionProtocols (ctx, wr) {
+        writeSwiftUnionEnums (ctx, wr) {
           if ( this.swift_unions_written ) {
             return;
           }
@@ -19103,9 +19103,78 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           const names = this.sealableUnionNames(ctx);
           for ( let ui = 0; ui < names.length; ui++) {
             var uname = names[ui];
+            const ucl = ctx.findClass(uname);
+            const enumName = this.unionInterfaceName(uname);
             wr.out("", true);
-            wr.out(("protocol " + this.unionInterfaceName(uname)) + " {}", true);
+            wr.out(("enum " + enumName) + " {", true);
+            wr.indent(1);
+            for ( let mi = 0; mi < ucl.is_union_of.length; mi++) {
+              var mname = ucl.is_union_of[mi];
+              wr.out(((("case " + mname) + "(") + mname) + ")", true);
+            };
+            wr.indent(-1);
+            wr.out("}", true);
           };
+        };
+        swiftDeclaredClassOf (nVal) {
+          if ( nVal.hasNewOper ) {
+            const newClOpt = nVal.clDesc;
+            if ( (typeof(newClOpt) !== "undefined" && newClOpt != null )  ) {
+              const newCl = newClOpt;
+              return newCl.name;
+            }
+          }
+          if ( nVal.hasParamDesc ) {
+            const pd = nVal.paramDesc;
+            const pdNN = pd.nameNode;
+            if ( (typeof(pdNN) !== "undefined" && pdNN != null )  ) {
+              const pdNode = pdNN;
+              return pdNode.type_name;
+            }
+          }
+          if ( (nVal.eval_type_name.length) > 0 ) {
+            return nVal.eval_type_name;
+          }
+          return "";
+        };
+        swiftUnionHasMember (ucl, memberName) {
+          return (ucl.is_union_of.indexOf(memberName)) >= 0;
+        };
+        async swiftWriteUnionValue (targetTypeName, nVal, ctx, wr) {
+          if ( (targetTypeName.length) == 0 ) {
+            return false;
+          }
+          const tcOpt = ctx.findClass(targetTypeName);
+          if ( typeof(tcOpt) === "undefined" ) {
+            return false;
+          }
+          const target = tcOpt;
+          if ( this.unionIsSealable(target, ctx) == false ) {
+            return false;
+          }
+          const enumName = this.unionInterfaceName(targetTypeName);
+          const valClass = this.swiftDeclaredClassOf(nVal);
+          if ( this.swiftUnionHasMember(target, valClass) ) {
+            wr.out((enumName + ".") + valClass, false);
+            wr.out("(", false);
+            ctx.setInExpr();
+            await this.WalkNode(nVal, ctx, wr);
+            ctx.unsetInExpr();
+            wr.out(")", false);
+            return true;
+          }
+          ctx.setInExpr();
+          await this.WalkNode(nVal, ctx, wr);
+          ctx.unsetInExpr();
+          return true;
+        };
+        async swiftWriteUnionArg (arg, nVal, ctx, wr) {
+          const argNN = arg.nameNode;
+          if ( typeof(argNN) === "undefined" ) {
+            return false;
+          }
+          const argNameNode = argNN;
+          return await this.swiftWriteUnionValue(argNameNode.type_name, nVal, ctx, wr);
         };
         adjustType (tn) {
           if ( tn == "this" ) {
@@ -19396,10 +19465,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             await this.writeTypeDef(p.nameNode, ctx, wr);
             if ( (node.children.length) > 2 ) {
               wr.out(" = ", false);
-              ctx.setInExpr();
               const value = node.getThird();
-              await this.WalkNode(value, ctx, wr);
-              ctx.unsetInExpr();
+              let slotType = p.nameNode.type_name;
+              if ( (p.nameNode.eval_type_name.length) > 0 ) {
+                slotType = p.nameNode.eval_type_name;
+              }
+              if ( await this.swiftWriteUnionValue(slotType, value, ctx, wr) ) {
+              } else {
+                ctx.setInExpr();
+                await this.WalkNode(value, ctx, wr);
+                ctx.unsetInExpr();
+              }
             } else {
               if ( nn.value_type == 6 ) {
                 wr.out(" = ", false);
@@ -19530,6 +19606,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
               const n = givenArgs.children[i];
               wr.out(arg.compiledName + " : ", false);
+              if ( await this.swiftWriteUnionArg(arg, n, ctx, wr) ) {
+                continue;
+              }
               await this.WalkNode(n, ctx, wr);
             };
             ctx.unsetInExpr();
@@ -19628,6 +19707,25 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             wr.out(")", false);
           }
         };
+        async writeArrayLiteral (node, ctx, wr) {
+          wr.out("[", false);
+          let elemType = node.eval_array_type;
+          if ( (elemType.length) == 0 ) {
+            elemType = node.array_type;
+          }
+          await operatorsOf.forEach_15(node.children, (async (item, index) => { 
+            if ( index > 0 ) {
+              wr.out(", ", false);
+            }
+            if ( (elemType.length) > 0 ) {
+              if ( await this.swiftWriteUnionValue(elemType, item, ctx, wr) ) {
+                return;
+              }
+            }
+            await this.WalkNode(item, ctx, wr);
+          }));
+          wr.out("]", false);
+        };
         haveSameSig (fn1, fn2, ctx) {
           if ( fn1.name != fn2.name ) {
             return false;
@@ -19653,6 +19751,53 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         async CustomOperator (node, ctx, wr) {
           const fc = node.getFirst();
           const cmd = fc.vref;
+          if ( cmd == "return" ) {
+            if ( (node.children.length) > 1 ) {
+              const rValue = node.getSecond();
+              let retUnion = "";
+              const currFnRet = ctx.getCurrentMethod();
+              if ( (typeof(currFnRet.nameNode) !== "undefined" && currFnRet.nameNode != null )  ) {
+                retUnion = currFnRet.nameNode.type_name;
+              }
+              wr.out("return ", false);
+              const wroteRet = await this.swiftWriteUnionValue(retUnion, rValue, ctx, wr);
+              if ( wroteRet == false ) {
+                ctx.setInExpr();
+                await this.WalkNode(rValue, ctx, wr);
+                ctx.unsetInExpr();
+              }
+              wr.newline();
+            } else {
+              wr.out("return", true);
+            }
+            return;
+          }
+          if ( cmd == "=" ) {
+            const left = node.getSecond();
+            const right = node.getThird();
+            wr.newline();
+            await this.WalkNode(left, ctx, wr);
+            wr.out(" = ", false);
+            let assignSlotType = "";
+            if ( left.hasParamDesc ) {
+              const assignNN = left.paramDesc.nameNode;
+              if ( (typeof(assignNN) !== "undefined" && assignNN != null )  ) {
+                const assignNode = assignNN;
+                assignSlotType = assignNode.type_name;
+              }
+            }
+            let wroteAssign = false;
+            if ( (assignSlotType.length) > 0 ) {
+              wroteAssign = await this.swiftWriteUnionValue(assignSlotType, right, ctx, wr);
+            }
+            if ( wroteAssign == false ) {
+              ctx.setInExpr();
+              await this.WalkNode(right, ctx, wr);
+              ctx.unsetInExpr();
+            }
+            wr.out(";", true);
+            return;
+          }
           if ( cmd == "switch" ) {
             const condition = node.getSecond();
             const case_nodes = node.getThird();
@@ -19688,7 +19833,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           if ( typeof(cl) === "undefined" ) {
             return;
           }
-          this.writeSwiftUnionProtocols(ctx, wr);
+          this.writeSwiftUnionEnums(ctx, wr);
           let declaredVariable = {};
           let dblDeclaredFunction = {};
           let declaredFunction = {};
@@ -19733,14 +19878,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             };
           } else {
             wr.out(" : Hashable ", false);
-          }
-          const clUnions = this.unionInterfacesOf((cl), ctx);
-          if ( (clUnions.length) > 0 ) {
-            for ( let ui = 0; ui < clUnions.length; ui++) {
-              var uname = clUnions[ui];
-              wr.out(", ", false);
-              wr.out(uname, false);
-            };
           }
           wr.out(" { ", true);
           wr.indent(1);
@@ -19893,7 +20030,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
           return tn;
         };
-        writeSwiftUnionProtocols (ctx, wr) {
+        writeSwiftUnionEnums (ctx, wr) {
           if ( this.swift_unions_written ) {
             return;
           }
@@ -19901,9 +20038,78 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           const names = this.sealableUnionNames(ctx);
           for ( let ui = 0; ui < names.length; ui++) {
             var uname = names[ui];
+            const ucl = ctx.findClass(uname);
+            const enumName = this.unionInterfaceName(uname);
             wr.out("", true);
-            wr.out(("protocol " + this.unionInterfaceName(uname)) + " {}", true);
+            wr.out(("enum " + enumName) + " {", true);
+            wr.indent(1);
+            for ( let mi = 0; mi < ucl.is_union_of.length; mi++) {
+              var mname = ucl.is_union_of[mi];
+              wr.out(((("case " + mname) + "(") + mname) + ")", true);
+            };
+            wr.indent(-1);
+            wr.out("}", true);
           };
+        };
+        swiftDeclaredClassOf (nVal) {
+          if ( nVal.hasNewOper ) {
+            const newClOpt = nVal.clDesc;
+            if ( (typeof(newClOpt) !== "undefined" && newClOpt != null )  ) {
+              const newCl = newClOpt;
+              return newCl.name;
+            }
+          }
+          if ( nVal.hasParamDesc ) {
+            const pd = nVal.paramDesc;
+            const pdNN = pd.nameNode;
+            if ( (typeof(pdNN) !== "undefined" && pdNN != null )  ) {
+              const pdNode = pdNN;
+              return pdNode.type_name;
+            }
+          }
+          if ( (nVal.eval_type_name.length) > 0 ) {
+            return nVal.eval_type_name;
+          }
+          return "";
+        };
+        swiftUnionHasMember (ucl, memberName) {
+          return (ucl.is_union_of.indexOf(memberName)) >= 0;
+        };
+        async swiftWriteUnionValue (targetTypeName, nVal, ctx, wr) {
+          if ( (targetTypeName.length) == 0 ) {
+            return false;
+          }
+          const tcOpt = ctx.findClass(targetTypeName);
+          if ( typeof(tcOpt) === "undefined" ) {
+            return false;
+          }
+          const target = tcOpt;
+          if ( this.unionIsSealable(target, ctx) == false ) {
+            return false;
+          }
+          const enumName = this.unionInterfaceName(targetTypeName);
+          const valClass = this.swiftDeclaredClassOf(nVal);
+          if ( this.swiftUnionHasMember(target, valClass) ) {
+            wr.out((enumName + ".") + valClass, false);
+            wr.out("(", false);
+            ctx.setInExpr();
+            await this.WalkNode(nVal, ctx, wr);
+            ctx.unsetInExpr();
+            wr.out(")", false);
+            return true;
+          }
+          ctx.setInExpr();
+          await this.WalkNode(nVal, ctx, wr);
+          ctx.unsetInExpr();
+          return true;
+        };
+        async swiftWriteUnionArg (arg, nVal, ctx, wr) {
+          const argNN = arg.nameNode;
+          if ( typeof(argNN) === "undefined" ) {
+            return false;
+          }
+          const argNameNode = argNN;
+          return await this.swiftWriteUnionValue(argNameNode.type_name, nVal, ctx, wr);
         };
         getObjectTypeString (type_string, ctx) {
           if ( (type_string.length) >= 2 ) {
@@ -20269,10 +20475,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             await this.writeTypeDef(p.nameNode, ctx, wr);
             if ( (node.children.length) > 2 ) {
               wr.out(" = ", false);
-              ctx.setInExpr();
               const value_1 = node.getThird();
-              await this.WalkNode(value_1, ctx, wr);
-              ctx.unsetInExpr();
+              let slotType = p.nameNode.type_name;
+              if ( (p.nameNode.eval_type_name.length) > 0 ) {
+                slotType = p.nameNode.eval_type_name;
+              }
+              if ( await this.swiftWriteUnionValue(slotType, value_1, ctx, wr) ) {
+              } else {
+                ctx.setInExpr();
+                await this.WalkNode(value_1, ctx, wr);
+                ctx.unsetInExpr();
+              }
             } else {
               if ( nn.value_type == 6 ) {
                 wr.out(" = ", false);
@@ -20489,6 +20702,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               if ( ((arg.nameNode)).hasFlag("mutates") ) {
                 wr.out("&", false);
               }
+              if ( await this.swiftWriteUnionArg(arg, n, ctx, wr) ) {
+                continue;
+              }
               await this.WalkNode(n, ctx, wr);
             };
             ctx.unsetInExpr();
@@ -20624,6 +20840,25 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             wr.out(")", false);
           }
         };
+        async writeArrayLiteral (node, ctx, wr) {
+          wr.out("[", false);
+          let elemType = node.eval_array_type;
+          if ( (elemType.length) == 0 ) {
+            elemType = node.array_type;
+          }
+          await operatorsOf.forEach_15(node.children, (async (item, index) => { 
+            if ( index > 0 ) {
+              wr.out(", ", false);
+            }
+            if ( (elemType.length) > 0 ) {
+              if ( await this.swiftWriteUnionValue(elemType, item, ctx, wr) ) {
+                return;
+              }
+            }
+            await this.WalkNode(item, ctx, wr);
+          }));
+          wr.out("]", false);
+        };
         haveSameSig (fn1, fn2, ctx) {
           if ( fn1.name != fn2.name ) {
             return false;
@@ -20649,6 +20884,53 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         async CustomOperator (node, ctx, wr) {
           const fc = node.getFirst();
           const cmd = fc.vref;
+          if ( cmd == "return" ) {
+            if ( (node.children.length) > 1 ) {
+              const rValue = node.getSecond();
+              let retUnion = "";
+              const currFnRet = ctx.getCurrentMethod();
+              if ( (typeof(currFnRet.nameNode) !== "undefined" && currFnRet.nameNode != null )  ) {
+                retUnion = currFnRet.nameNode.type_name;
+              }
+              wr.out("return ", false);
+              const wroteRet = await this.swiftWriteUnionValue(retUnion, rValue, ctx, wr);
+              if ( wroteRet == false ) {
+                ctx.setInExpr();
+                await this.WalkNode(rValue, ctx, wr);
+                ctx.unsetInExpr();
+              }
+              wr.newline();
+            } else {
+              wr.out("return", true);
+            }
+            return;
+          }
+          if ( cmd == "=" ) {
+            const left = node.getSecond();
+            const right = node.getThird();
+            wr.newline();
+            await this.WalkNode(left, ctx, wr);
+            wr.out(" = ", false);
+            let assignSlotType = "";
+            if ( left.hasParamDesc ) {
+              const assignNN = left.paramDesc.nameNode;
+              if ( (typeof(assignNN) !== "undefined" && assignNN != null )  ) {
+                const assignNode = assignNN;
+                assignSlotType = assignNode.type_name;
+              }
+            }
+            let wroteAssign = false;
+            if ( (assignSlotType.length) > 0 ) {
+              wroteAssign = await this.swiftWriteUnionValue(assignSlotType, right, ctx, wr);
+            }
+            if ( wroteAssign == false ) {
+              ctx.setInExpr();
+              await this.WalkNode(right, ctx, wr);
+              ctx.unsetInExpr();
+            }
+            wr.out(";", true);
+            return;
+          }
           if ( cmd == "switch" ) {
             const condition = node.getSecond();
             const case_nodes = node.getThird();
@@ -20684,7 +20966,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           if ( typeof(cl) === "undefined" ) {
             return;
           }
-          this.writeSwiftUnionProtocols(ctx, wr);
+          this.writeSwiftUnionEnums(ctx, wr);
           let declaredVariable = {};
           let dblDeclaredFunction = {};
           let declaredFunction = {};
@@ -20735,14 +21017,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             };
           } else {
             wr.out(" : Hashable ", false);
-          }
-          const clUnions = this.unionInterfacesOf((cl), ctx);
-          if ( (clUnions.length) > 0 ) {
-            for ( let ui = 0; ui < clUnions.length; ui++) {
-              var uname = clUnions[ui];
-              wr.out(", ", false);
-              wr.out(uname, false);
-            };
           }
           wr.out(" { ", true);
           wr.indent(1);
@@ -31601,7 +31875,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         this.go_unions_written = false;
                         this.httpServerWriter = new RangerGolangHttpServerWriter();
                       }
-                      writeGoUnionInterfaces (ctx, wr) {
+                      writeGoUnionStructs (ctx, wr) {
                         if ( this.go_unions_written ) {
                           return;
                         }
@@ -31609,23 +31883,102 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         const names = this.sealableUnionNames(ctx);
                         for ( let ui = 0; ui < names.length; ui++) {
                           var uname = names[ui];
+                          const ucl = ctx.findClass(uname);
                           const iface = this.unionInterfaceName(uname);
                           wr.out("", true);
-                          wr.out(("type " + iface) + " interface {", true);
+                          wr.out("const (", true);
                           wr.indent(1);
-                          wr.out(("is_" + iface) + "()", true);
+                          let tagIdx = 1;
+                          for ( let mi = 0; mi < ucl.is_union_of.length; mi++) {
+                            var mname = ucl.is_union_of[mi];
+                            wr.out(((((iface + "_tag_") + mname) + " = ") + tagIdx) + "", true);
+                            tagIdx = tagIdx + 1;
+                          };
+                          wr.indent(-1);
+                          wr.out(")", true);
+                          wr.out(("type " + iface) + " struct {", true);
+                          wr.indent(1);
+                          wr.out("tag int", true);
+                          for ( let mi2 = 0; mi2 < ucl.is_union_of.length; mi2++) {
+                            var mname2 = ucl.is_union_of[mi2];
+                            wr.out((mname2 + " *") + mname2, true);
+                          };
                           wr.indent(-1);
                           wr.out("}", true);
+                          for ( let mi3 = 0; mi3 < ucl.is_union_of.length; mi3++) {
+                            var mname3 = ucl.is_union_of[mi3];
+                            const mk = ((("func mk_" + iface) + "_") + mname3) + "(p *";
+                            wr.out((((mk + mname3) + ") ") + iface) + " {", true);
+                            wr.indent(1);
+                            wr.out(("return " + iface) + "{", true);
+                            wr.indent(1);
+                            wr.out(((("tag: " + iface) + "_tag_") + mname3) + ",", true);
+                            wr.out(mname3 + ": p,", true);
+                            wr.indent(-1);
+                            wr.out("}", true);
+                            wr.indent(-1);
+                            wr.out("}", true);
+                          };
                         };
                       };
-                      writeGoUnionMarkers (cl, ctx, wr) {
-                        const ifaces = this.unionInterfacesOf(cl, ctx);
-                        for ( let ii = 0; ii < ifaces.length; ii++) {
-                          var iface = ifaces[ii];
-                          const head = ("func (me *" + cl.name) + ") is_";
-                          const line = (head + iface) + "() {}";
-                          wr.out(line, true);
-                        };
+                      goDeclaredClassOf (nVal) {
+                        if ( nVal.hasNewOper ) {
+                          const newClOpt = nVal.clDesc;
+                          if ( (typeof(newClOpt) !== "undefined" && newClOpt != null )  ) {
+                            const newCl = newClOpt;
+                            return newCl.name;
+                          }
+                        }
+                        if ( nVal.hasParamDesc ) {
+                          const pd = nVal.paramDesc;
+                          const pdNN = pd.nameNode;
+                          if ( (typeof(pdNN) !== "undefined" && pdNN != null )  ) {
+                            const pdNode = pdNN;
+                            return pdNode.type_name;
+                          }
+                        }
+                        if ( (nVal.eval_type_name.length) > 0 ) {
+                          return nVal.eval_type_name;
+                        }
+                        return "";
+                      };
+                      goUnionHasMember (ucl, memberName) {
+                        return (ucl.is_union_of.indexOf(memberName)) >= 0;
+                      };
+                      async goWriteUnionValue (targetTypeName, nVal, ctx, wr) {
+                        if ( (targetTypeName.length) == 0 ) {
+                          return false;
+                        }
+                        const tcOpt = ctx.findClass(targetTypeName);
+                        if ( typeof(tcOpt) === "undefined" ) {
+                          return false;
+                        }
+                        const target = tcOpt;
+                        if ( this.unionIsSealable(target, ctx) == false ) {
+                          return false;
+                        }
+                        const enumName = this.unionInterfaceName(targetTypeName);
+                        const valClass = this.goDeclaredClassOf(nVal);
+                        if ( this.goUnionHasMember(target, valClass) ) {
+                          wr.out(((("mk_" + enumName) + "_") + valClass) + "(", false);
+                          ctx.setInExpr();
+                          await this.WalkNode(nVal, ctx, wr);
+                          ctx.unsetInExpr();
+                          wr.out(")", false);
+                          return true;
+                        }
+                        ctx.setInExpr();
+                        await this.WalkNode(nVal, ctx, wr);
+                        ctx.unsetInExpr();
+                        return true;
+                      };
+                      async goWriteUnionArg (arg, nVal, ctx, wr) {
+                        const argNN = arg.nameNode;
+                        if ( typeof(argNN) === "undefined" ) {
+                          return false;
+                        }
+                        const argNameNode = argNN;
+                        return await this.goWriteUnionValue(argNameNode.type_name, nVal, ctx, wr);
                       };
                       WriteScalarValue (node, ctx, wr) {
                         switch (node.value_type ) { 
@@ -32520,21 +32873,28 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                             }
                             wr.out("= ", false);
-                            ctx.setInExpr();
-                            if ( p.nameNode.eval_type_name == "char" ) {
-                              wr.out("byte(", false);
+                            let slotType = p.nameNode.type_name;
+                            if ( (p.nameNode.eval_type_name.length) > 0 ) {
+                              slotType = p.nameNode.eval_type_name;
                             }
-                            if ( (p.nameNode.eval_type_name == "int") && (value_7.eval_type_name == "char") ) {
-                              wr.out("int64(", false);
+                            const wroteSlot = await this.goWriteUnionValue(slotType, value_7, ctx, wr);
+                            if ( wroteSlot == false ) {
+                              ctx.setInExpr();
+                              if ( p.nameNode.eval_type_name == "char" ) {
+                                wr.out("byte(", false);
+                              }
+                              if ( (p.nameNode.eval_type_name == "int") && (value_7.eval_type_name == "char") ) {
+                                wr.out("int64(", false);
+                              }
+                              await this.WalkNode(value_7, ctx, wr);
+                              if ( p.nameNode.eval_type_name == "char" ) {
+                                wr.out(")", false);
+                              }
+                              if ( (p.nameNode.eval_type_name == "int") && (value_7.eval_type_name == "char") ) {
+                                wr.out(")", false);
+                              }
+                              ctx.unsetInExpr();
                             }
-                            await this.WalkNode(value_7, ctx, wr);
-                            if ( p.nameNode.eval_type_name == "char" ) {
-                              wr.out(")", false);
-                            }
-                            if ( (p.nameNode.eval_type_name == "int") && (value_7.eval_type_name == "char") ) {
-                              wr.out(")", false);
-                            }
-                            ctx.unsetInExpr();
                           } else {
                             if ( nn.value_type == 6 ) {
                               wr.out(" = make(", false);
@@ -32585,6 +32945,63 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                         };
                       };
+                      async writeFnCall (node, ctx, wr) {
+                        if ( node.hasFnCall ) {
+                          const fc = node.getFirst();
+                          await this.WriteVRef(fc, ctx, wr);
+                          wr.out("(", false);
+                          const givenArgs = node.getSecond();
+                          ctx.setInExpr();
+                          let cnt = 0;
+                          for ( let i = 0; i < node.fnDesc.params.length; i++) {
+                            var arg = node.fnDesc.params[i];
+                            if ( arg.nameNode.hasFlag("keyword") ) {
+                              continue;
+                            }
+                            if ( cnt > 0 ) {
+                              wr.out(", ", false);
+                            }
+                            cnt = cnt + 1;
+                            if ( (givenArgs.children.length) <= i ) {
+                              const defVal = arg.nameNode.getFlag("default");
+                              if ( (typeof(defVal) !== "undefined" && defVal != null )  ) {
+                                const fcDef = defVal.vref_annotation.getFirst();
+                                await this.WalkNode(fcDef, ctx, wr);
+                              } else {
+                                ctx.addError(node, "Default argument was missing");
+                              }
+                              continue;
+                            }
+                            const n = givenArgs.children[i];
+                            if ( await this.goWriteUnionArg(arg, n, ctx, wr) ) {
+                              continue;
+                            }
+                            await this.WalkNode(n, ctx, wr);
+                          };
+                          ctx.unsetInExpr();
+                          wr.out(")", false);
+                          if ( (node.methodChain.length) > 0 ) {
+                            for ( let i_1 = 0; i_1 < node.methodChain.length; i_1++) {
+                              var cc = node.methodChain[i_1];
+                              wr.out("." + cc.methodName, false);
+                              wr.out("(", false);
+                              ctx.setInExpr();
+                              for ( let i_2 = 0; i_2 < cc.args.children.length; i_2++) {
+                                var arg_1 = cc.args.children[i_2];
+                                if ( i_2 > 0 ) {
+                                  wr.out(", ", false);
+                                }
+                                await this.WalkNode(arg_1, ctx, wr);
+                              };
+                              ctx.unsetInExpr();
+                              wr.out(")", false);
+                            };
+                          }
+                          if ( ctx.expressionLevel() == 0 ) {
+                            wr.out(";", true);
+                          }
+                        }
+                      };
                       async writeNewCall (node, ctx, wr) {
                         if ( node.hasNewOper ) {
                           const cl = node.clDesc;
@@ -32613,9 +33030,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       async writeArrayLiteral (node, ctx, wr) {
                         await this.writeTypeDef(node, ctx, wr);
                         wr.out(" {", false);
+                        let elemType = node.eval_array_type;
+                        if ( (elemType.length) == 0 ) {
+                          elemType = node.array_type;
+                        }
                         await operatorsOf.forEach_15(node.children, (async (item, index) => { 
                           if ( index > 0 ) {
                             wr.out(", ", false);
+                          }
+                          if ( (elemType.length) > 0 ) {
+                            if ( await this.goWriteUnionValue(elemType, item, ctx, wr) ) {
+                              return;
+                            }
                           }
                           await this.WalkNode(item, ctx, wr);
                         }));
@@ -32720,21 +33146,32 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         if ( cmd == "return" ) {
                           if ( (node.children.length) > 1 ) {
                             const rValue = node.getSecond();
+                            let retUnion = "";
+                            const currFnRet = ctx.getCurrentMethod();
+                            if ( (typeof(currFnRet.nameNode) !== "undefined" && currFnRet.nameNode != null )  ) {
+                              retUnion = currFnRet.nameNode.type_name;
+                            }
                             if ( ctx.isCatchBlock() || ctx.isTryBlock() ) {
                               wr.out("__ex_returned = true", true);
                               wr.out("__exReturn = ", false);
-                              ctx.setInExpr();
-                              await this.WalkNode(rValue, ctx, wr);
-                              ctx.unsetInExpr();
+                              const wroteRet = await this.goWriteUnionValue(retUnion, rValue, ctx, wr);
+                              if ( wroteRet == false ) {
+                                ctx.setInExpr();
+                                await this.WalkNode(rValue, ctx, wr);
+                                ctx.unsetInExpr();
+                              }
                               wr.newline();
                               if ( ctx.isTryBlock() ) {
                                 wr.out("return __ex_returned, __exReturn", true);
                               }
                             } else {
                               wr.out("return ", false);
-                              ctx.setInExpr();
-                              await this.WalkNode(rValue, ctx, wr);
-                              ctx.unsetInExpr();
+                              const wroteRet2 = await this.goWriteUnionValue(retUnion, rValue, ctx, wr);
+                              if ( wroteRet2 == false ) {
+                                ctx.setInExpr();
+                                await this.WalkNode(rValue, ctx, wr);
+                                ctx.unsetInExpr();
+                              }
                               wr.newline();
                             }
                           } else {
@@ -32915,13 +33352,27 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               return;
                             }
                             if ( cmd == "push" ) {
+                              let pushElemType = "";
+                              if ( left.hasParamDesc ) {
+                                const pushNN = left.paramDesc.nameNode;
+                                if ( (typeof(pushNN) !== "undefined" && pushNN != null )  ) {
+                                  const pushNode = pushNN;
+                                  pushElemType = pushNode.array_type;
+                                }
+                              }
                               if ( last_was_setter ) {
                                 wr.out("(", false);
                                 ctx.setInExpr();
                                 wr.out("append(", false);
                                 await this.WalkNode(left, ctx, wr);
                                 wr.out(",", false);
-                                await this.WalkNode(right, ctx, wr);
+                                let pushed = false;
+                                if ( (pushElemType.length) > 0 ) {
+                                  pushed = await this.goWriteUnionValue(pushElemType, right, ctx, wr);
+                                }
+                                if ( pushed == false ) {
+                                  await this.WalkNode(right, ctx, wr);
+                                }
                                 ctx.unsetInExpr();
                                 wr.out(")); ", true);
                               } else {
@@ -32930,32 +33381,72 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 ctx.setInExpr();
                                 await this.WalkNode(left, ctx, wr);
                                 wr.out(",", false);
-                                await this.WalkNode(right, ctx, wr);
+                                let pushed2 = false;
+                                if ( (pushElemType.length) > 0 ) {
+                                  pushed2 = await this.goWriteUnionValue(pushElemType, right, ctx, wr);
+                                }
+                                if ( pushed2 == false ) {
+                                  await this.WalkNode(right, ctx, wr);
+                                }
                                 ctx.unsetInExpr();
                                 wr.out("); ", true);
                               }
                               return;
                             }
+                            let assignSlotType = "";
+                            if ( left.hasParamDesc ) {
+                              const assignNN = left.paramDesc.nameNode;
+                              if ( (typeof(assignNN) !== "undefined" && assignNN != null )  ) {
+                                const assignNode = assignNN;
+                                assignSlotType = assignNode.type_name;
+                              }
+                            }
                             if ( last_was_setter ) {
                               wr.out("(", false);
-                              ctx.setInExpr();
-                              await this.WalkNode(right, ctx, wr);
-                              ctx.unsetInExpr();
+                              let wroteAssign = false;
+                              if ( (assignSlotType.length) > 0 ) {
+                                wroteAssign = await this.goWriteUnionValue(assignSlotType, right, ctx, wr);
+                              }
+                              if ( wroteAssign == false ) {
+                                ctx.setInExpr();
+                                await this.WalkNode(right, ctx, wr);
+                                ctx.unsetInExpr();
+                              }
                               wr.out("); ", true);
                             } else {
                               wr.out(" = ", false);
-                              ctx.setInExpr();
-                              await this.WalkNode(right, ctx, wr);
-                              ctx.unsetInExpr();
+                              let wroteAssign2 = false;
+                              if ( (assignSlotType.length) > 0 ) {
+                                wroteAssign2 = await this.goWriteUnionValue(assignSlotType, right, ctx, wr);
+                              }
+                              if ( wroteAssign2 == false ) {
+                                ctx.setInExpr();
+                                await this.WalkNode(right, ctx, wr);
+                                ctx.unsetInExpr();
+                              }
                               wr.out("; ", true);
                             }
                             return;
                           }
                           await this.WriteSetterVRef(left, ctx, wr);
                           wr.out(" = ", false);
-                          ctx.setInExpr();
-                          await this.WalkNode(right, ctx, wr);
-                          ctx.unsetInExpr();
+                          let assignSlotType2 = "";
+                          if ( left.hasParamDesc ) {
+                            const assignNN2 = left.paramDesc.nameNode;
+                            if ( (typeof(assignNN2) !== "undefined" && assignNN2 != null )  ) {
+                              const assignNode2 = assignNN2;
+                              assignSlotType2 = assignNode2.type_name;
+                            }
+                          }
+                          let wroteAssign3 = false;
+                          if ( (assignSlotType2.length) > 0 ) {
+                            wroteAssign3 = await this.goWriteUnionValue(assignSlotType2, right, ctx, wr);
+                          }
+                          if ( wroteAssign3 == false ) {
+                            ctx.setInExpr();
+                            await this.WalkNode(right, ctx, wr);
+                            ctx.unsetInExpr();
+                          }
                           wr.out("; /* custom */", true);
                         }
                       };
@@ -33046,7 +33537,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           wr.createTag("utilities");
                           this.did_write_nullable = true;
                         }
-                        this.writeGoUnionInterfaces(ctx, wr);
+                        this.writeGoUnionStructs(ctx, wr);
                         let declaredVariable = {};
                         let declaredFunction = {};
                         let declaredIfFunction = {};
@@ -33073,7 +33564,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         }
                         wr.indent(-1);
                         wr.out("}", true);
-                        this.writeGoUnionMarkers(cl, ctx, wr);
                         if ( cl.doesInherit() || ((cl.extends_classes.length) > 0) ) {
                           wr.out(("type IFACE_" + cl.name) + " interface { ", true);
                           wr.indent(1);
@@ -33152,7 +33642,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               if ( (nn.children.length) > 2 ) {
                                 const valueNode = nn.children[2];
                                 wr.out(("me." + pvar_2.compiledName) + " = ", false);
-                                await this.WalkNode(valueNode, ctx, wr);
+                                let fldTypeName = "";
+                                if ( (typeof(pvar_2.nameNode) !== "undefined" && pvar_2.nameNode != null )  ) {
+                                  fldTypeName = pvar_2.nameNode.type_name;
+                                }
+                                let wroteFld = false;
+                                if ( (fldTypeName.length) > 0 ) {
+                                  wroteFld = await this.goWriteUnionValue(fldTypeName, valueNode, ctx, wr);
+                                }
+                                if ( wroteFld == false ) {
+                                  await this.WalkNode(valueNode, ctx, wr);
+                                }
                                 wr.out("", true);
                               } else {
                                 const pNameN = pvar_2.nameNode;
@@ -33190,7 +33690,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( (nn_1.children.length) > 2 ) {
                             const valueNode_1 = nn_1.children[2];
                             wr.out(("me." + pvar_4.compiledName) + " = ", false);
-                            await this.WalkNode(valueNode_1, ctx, wr);
+                            let fldTypeName2 = "";
+                            if ( (typeof(pvar_4.nameNode) !== "undefined" && pvar_4.nameNode != null )  ) {
+                              fldTypeName2 = pvar_4.nameNode.type_name;
+                            }
+                            let wroteFld2 = false;
+                            if ( (fldTypeName2.length) > 0 ) {
+                              wroteFld2 = await this.goWriteUnionValue(fldTypeName2, valueNode_1, ctx, wr);
+                            }
+                            if ( wroteFld2 == false ) {
+                              await this.WalkNode(valueNode_1, ctx, wr);
+                            }
                             wr.out("", true);
                           } else {
                             const pNameN_1 = pvar_4.nameNode;
@@ -34878,7 +35388,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             wr.out("super().__init__()", true);
                           }
                         }
-                        let hasContent = false;
+                        const needsKind = this.classInSealableUnion((cl), ctx);
+                        if ( needsKind ) {
+                          wr.out(("self._rg_kind = \"" + cl.name) + "\"", true);
+                        }
+                        let hasContent = needsKind;
                         for ( let i_2 = 0; i_2 < cl.variables.length; i_2++) {
                           var pvar = cl.variables[i_2];
                           await this.writeVarInitDef(pvar.node, ctx, wr);
