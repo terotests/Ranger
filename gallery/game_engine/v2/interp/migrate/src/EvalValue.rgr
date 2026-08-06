@@ -1154,13 +1154,125 @@ class EvalValue {
         }
         return (EvalValue.null())
     }
+
+    ; ---- E4b: property-bag accessors (class remains SoT until EvPropertyBag) --
+    fn hasOwnData:boolean (key:string) {
+        return (has objectMap key)
+    }
+    fn getOwnData:EvalValue (key:string) {
+        return (unwrap (get objectMap key))
+    }
+    fn tryOwnData@(optional):EvalValue (key:string) {
+        if (has objectMap key) {
+            def hit:EvalValue (unwrap (get objectMap key))
+            def some@(optional):EvalValue hit
+            return some
+        }
+        def missing@(optional):EvalValue
+        return missing
+    }
+    fn putOwnData:void (key:string value:EvalValue) {
+        set objectMap key value
+    }
+    fn ownDataKeys:[string] () {
+        return (keys objectMap)
+    }
+    fn hasOwnGetter:boolean (key:string) {
+        return (has getterMap key)
+    }
+    fn getOwnGetter:EvalValue (key:string) {
+        return (unwrap (get getterMap key))
+    }
+    fn ownGetterKeys:[string] () {
+        return (keys getterMap)
+    }
+    fn hasOwnSetter:boolean (key:string) {
+        return (has setterMap key)
+    }
+    fn getOwnSetter:EvalValue (key:string) {
+        return (unwrap (get setterMap key))
+    }
+    fn ownSetterKeys:[string] () {
+        return (keys setterMap)
+    }
+    fn hasOwnAttrs:boolean (key:string) {
+        return (has attrFlags key)
+    }
+    fn hasProto:boolean () {
+        if (null? protoRef) {
+            return false
+        }
+        return true
+    }
+    fn protoOf:EvalValue () {
+        return (unwrap protoRef)
+    }
+    fn setProto:void (p:EvalValue) {
+        protoRef = p
+    }
+    fn isExtensible:boolean () {
+        return extensibleFlag
+    }
+    fn setExtensible:void (b:boolean) {
+        extensibleFlag = b
+    }
+    fn isSealedObj:boolean () {
+        return sealedFlag
+    }
+    fn setSealedObj:void (b:boolean) {
+        sealedFlag = b
+    }
+    fn isFrozenObj:boolean () {
+        return frozenFlag
+    }
+    fn setFrozenObj:void (b:boolean) {
+        frozenFlag = b
+    }
+    fn mapValAt:EvalValue (i:int) {
+        return (itemAt mapVals i)
+    }
+    fn mapValsLen:int () {
+        return (array_length mapVals)
+    }
+    fn hasFunctionNode:boolean () {
+        if (null? functionNode) {
+            return false
+        }
+        return true
+    }
+    fn functionNodeOf:TSNode () {
+        return (unwrap functionNode)
+    }
+    fn setFunctionNode:void (n:TSNode) {
+        functionNode = n
+    }
+    fn adoptFunctionNode:void (other:EvalValue) {
+        if (null? other.functionNode) {
+            return
+        }
+        functionNode = (unwrap other.functionNode)
+    }
+    fn hasBoundThis:boolean () {
+        if (null? boundThis) {
+            return false
+        }
+        return true
+    }
+    fn boundThisOf:EvalValue () {
+        return (unwrap boundThis)
+    }
+    fn setBoundThis:void (v:EvalValue) {
+        boundThis = v
+    }
     
     ; Set or replace an object property (mutates in place).
     ; D-FNPROPS: every object type accepts property writes — plain objects (5),
     ; functions (6), arrays (4) and Map/Set (9/10). Primitives silently ignore
     ; the write, which is sloppy-mode behaviour.
     fn setMember:void (key:string value:EvalValue) {
-        if (this.isObject()) {
+        ; Kind from a local body copy — this.is*() re-borrows via Rc on Rust.
+        def _k:EvValue body
+        if (EvValue.isObject(_k)) {
             ; D-ATTRS: a write is refused when the property is non-writable, or
             ; when the object is frozen, or when it is a NEW property on a
             ; non-extensible object. Sloppy mode ignores the failure silently,
@@ -1187,7 +1299,7 @@ class EvalValue {
             set objectMap key value
             return
         }
-        if (this.isFunction()) {
+        if (EvValue.isFunction(_k)) {
             ; D-ATTRS: a FUNCTION object obeys the same rules -- a built-in
             ; constructor's `Number.NaN` is non-writable, and the write was
             ; taken unconditionally because this branch skipped the check
@@ -1212,11 +1324,11 @@ class EvalValue {
             set objectMap key value
             return
         }
-        if (this.isArray()) {
+        if (EvValue.isArrayValue(_k)) {
             set objectMap key value
             return
         }
-        if ((this.isMap()) || (this.isSet())) {
+        if ((EvValue.isMap(_k)) || (EvValue.isSet(_k))) {
             set objectMap key value
             return
         }
@@ -1254,11 +1366,12 @@ class EvalValue {
             }
         }
         ; D-FNPROPS: `delete` reaches every type that can hold properties.
-        if (this.isNumber()) { return }
-        if (this.isString()) { return }
-        if (this.isBoolean()) { return }
-        if (this.isNull()) { return }
-        if (this.isUndefined()) { return }
+        def _k:EvValue body
+        if (EvValue.isNumber(_k)) { return }
+        if (EvValue.isString(_k)) { return }
+        if (EvValue.isBoolean(_k)) { return }
+        if (EvValue.isNull(_k)) { return }
+        if (EvValue.isUndefined(_k)) { return }
         if (has objectMap key) {
             def rebuilt:[string:EvalValue]
             def ks:[string] (keys objectMap)
@@ -1272,7 +1385,7 @@ class EvalValue {
         ; D-FNPROPS: a function's length/name/prototype are computed on read,
         ; so there is nothing in the map to remove -- the deletion is recorded
         ; instead, and the synthesis honours it.
-        if (this.isFunction()) {
+        if (EvValue.isFunction(_k)) {
             ; `prototype` on an ordinary function is NON-CONFIGURABLE, so the
             ; delete simply fails; length and name are configurable and go.
             if (key != "prototype") {
@@ -1335,7 +1448,9 @@ class EvalValue {
     }
 
     fn setIndexAt:void (index:int value:EvalValue) {
-        if (false == (this.isArray())) {
+        ; Inline body kind check — this.isArray() re-borrows via Rc on Rust.
+        def _kind:EvValue body
+        if (false == (EvValue.isArrayValue(_kind))) {
             return
         }
         ; D-HOLES: the slots skipped over are ABSENT, not undefined -- `a[3]=1`
@@ -1348,7 +1463,8 @@ class EvalValue {
 
     ; Append to the backing array in place; returns the new length (Array#push).
     fn arrPush:int (value:EvalValue) {
-        if (false == (this.isArray())) {
+        def _kind:EvValue body
+        if (false == (EvValue.isArrayValue(_kind))) {
             return 0
         }
         push arrayValue value

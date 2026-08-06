@@ -115,13 +115,13 @@ class EvalContext {
     fn findWithObjectFor:EvalValue (name:string) {
         if withObject {
             def wo:EvalValue (unwrap withObject)
-            if (has wo.objectMap name) {
+            if (wo.hasOwnData(name)) {
                 return wo
             }
-            if (has wo.getterMap name) {
+            if (wo.hasOwnGetter(name)) {
                 return wo
             }
-            if (has wo.setterMap name) {
+            if (wo.hasOwnSetter(name)) {
                 return wo
             }
         }
@@ -161,8 +161,8 @@ class EvalContext {
         ; D-WITH: the object scope shadows the bindings beneath it.
         if withObject {
             def wo:EvalValue (unwrap withObject)
-            if (has wo.objectMap name) {
-                return (unwrap (get wo.objectMap name))
+            if (wo.hasOwnData(name)) {
+                return (wo.getOwnData(name))
             }
         }
         ; Single map probe (avoids a second hasOwnProperty via `has` + `get`).
@@ -185,7 +185,7 @@ class EvalContext {
         ; the whole observable point of `with`.
         if withObject {
             def wo:EvalValue (unwrap withObject)
-            if (has wo.objectMap name) {
+            if (wo.hasOwnData(name)) {
                 wo.setMember(name value)
                 return true
             }
@@ -242,7 +242,7 @@ class EvalContext {
     fn has:boolean (name:string) {
         if withObject {
             def wo:EvalValue (unwrap withObject)
-            if (has wo.objectMap name) {
+            if (wo.hasOwnData(name)) {
                 return true
             }
         }
@@ -485,8 +485,8 @@ class EvalContext {
     fn tryLookup@(optional):EvalValue (name:string) {
         if withObject {
             def wo:EvalValue (unwrap withObject)
-            if (has wo.objectMap name) {
-                def whit@(optional):EvalValue (get wo.objectMap name)
+            if (wo.hasOwnData(name)) {
+                def whit@(optional):EvalValue (wo.tryOwnData(name))
                 return whit
             }
         }
@@ -1538,7 +1538,7 @@ class ComponentEngine {
         ; A FUNCTION holds properties with attributes too -- `Function.length`
         ; is non-writable, and only objects were being checked.
         if (obj.isFunction()) {
-            if (has obj.objectMap key) {
+            if (obj.hasOwnData(key)) {
                 if (false == (obj.isWritable(key))) {
                     return ("Cannot assign to read only property " + key)
                 }
@@ -1549,22 +1549,22 @@ class ComponentEngine {
             return ""
         }
         ; An accessor with a setter takes the write; one without cannot.
-        if (has obj.getterMap key) {
-            if (false == (has obj.setterMap key)) {
+        if (obj.hasOwnGetter(key)) {
+            if (false == (obj.hasOwnSetter(key))) {
                 return ("Cannot set property " + key + ", which has only a getter")
             }
             return ""
         }
-        if obj.frozenFlag {
+        if (obj.isFrozenObj()) {
             return ("Cannot assign to read only property " + key + " of a frozen object")
         }
-        if (has obj.objectMap key) {
+        if (obj.hasOwnData(key)) {
             if (false == (obj.isWritable(key))) {
                 return ("Cannot assign to read only property " + key)
             }
             return ""
         }
-        if (false == obj.extensibleFlag) {
+        if (false == (obj.isExtensible())) {
             return ("Cannot add property " + key + " to a non-extensible object")
         }
         if (obj.protoRefuses(key 0)) {
@@ -1797,7 +1797,7 @@ class ComponentEngine {
         if (false == (v.isFunction())) {
             return false
         }
-        if v.functionNode {
+        if (v.hasFunctionNode()) {
             return false
         }
         if ((strlen (v.builtinNameOf())) > 0) {
@@ -2106,7 +2106,7 @@ class ComponentEngine {
             ; their closure, so the call roots in their own module scope.
             def mv:EvalValue (this.lookupModuleExport(name))
             if (EvValueBridge.isFunction(mv)) {
-                if mv.functionNode {
+                if (mv.hasFunctionNode()) {
                     def margs:[EvalValue]
                     push margs props
                     def mout:EvalValue (this.callFnValueWithValues(mv margs))
@@ -2120,10 +2120,10 @@ class ComponentEngine {
             }
             return (EvValueBridge.taggedNull())
         }
-        if (null? fnValue.functionNode) {
+        if (false == (fnValue.hasFunctionNode())) {
             return (EvValueBridge.taggedNull())
         }
-        def fnNode:TSNode (unwrap fnValue.functionNode)
+        def fnNode:TSNode (fnValue.functionNodeOf())
         def out:EvalValue (this.evaluateFunctionCall(fnNode props))
         ; An uncaught throw must not leak into the next top-level call (frame).
         if scriptThrew {
@@ -2142,11 +2142,11 @@ class ComponentEngine {
             def empty (new EVGElement())
             return empty
         }
-        if (null? fnValue.functionNode) {
+        if (false == (fnValue.hasFunctionNode())) {
             def empty2 (new EVGElement())
             return empty2
         }
-        def fnNode:TSNode (unwrap fnValue.functionNode)
+        def fnNode:TSNode (fnValue.functionNodeOf())
         return (this.evaluateFunctionWithProps(fnNode props))
     }
 
@@ -2760,7 +2760,7 @@ class ComponentEngine {
             } {
                 ; Hoisted but not yet initialised: the property exists and holds
                 ; undefined, which is what a read before the declaration sees.
-                if (false == (has gObj.objectMap nm)) {
+                if (false == (gObj.hasOwnData(nm))) {
                     gObj.setMember(nm (EvValueBridge.taggedUndefined()))
                 }
             }
@@ -3091,7 +3091,7 @@ class ComponentEngine {
                 def rkeys:[string]
                 def rvals:[EvalValue]
                 if (EvValueBridge.isObject(value)) {
-                    def ks:[string] (keys value.objectMap)
+                    def ks:[string] (value.ownDataKeys())
                     def ki:int 0
                     while (ki < (array_length ks)) {
                         def kk:string (itemAt ks ki)
@@ -4006,7 +4006,7 @@ class ComponentEngine {
                         while (k < (src.denseLen())) {
                             def pair:[EvalValue]
                             push pair (src.arrayItemAt(k))
-                            push pair (itemAt src.mapVals k)
+                            push pair (src.mapValAt(k))
                             push items (EvValueBridge.taggedArray(pair))
                             k = (k + 1)
                         }
@@ -4359,9 +4359,9 @@ class ComponentEngine {
         def walk:EvalValue obj
         def steps:int 0
         while (steps < 16) {
-            if (has walk.objectMap key) { return true }
-            if (has walk.getterMap key) { return true }
-            if (has walk.setterMap key) { return true }
+            if (walk.hasOwnData(key)) { return true }
+            if (walk.hasOwnGetter(key)) { return true }
+            if (walk.hasOwnSetter(key)) { return true }
             if (this.objHasKey(walk key)) { return true }
             def nxt:EvalValue (this.protoOfValue(walk))
             if (EvValueBridge.isNull(nxt)) {
@@ -5956,10 +5956,10 @@ class ComponentEngine {
         ; An ELEMENT defined as an accessor takes the write through its setter,
         ; exactly as a named accessor does.
         if numericIndexes {
-            if (has obj.setterMap key) {
+            if (obj.hasOwnSetter(key)) {
                 numericIndexes = false
             }
-            if (has obj.getterMap key) {
+            if (obj.hasOwnGetter(key)) {
                 numericIndexes = false
             }
         }
@@ -6034,11 +6034,11 @@ class ComponentEngine {
                     push poisonArgs rightValue
                     return (this.invokeBuiltin((sFn.builtinKindOf()) (sFn.builtinNameOf()) obj poisonArgs))
                 }
-                if sFn.functionNode {
+                if (sFn.hasFunctionNode()) {
                     def cur0:EvalValue (EvValueBridge.taggedUndefined())
                     def gFn0:EvalValue (this.resolveGetterOn(obj key))
                     if (gFn0.isFunction()) {
-                        if gFn0.functionNode {
+                        if (gFn0.hasFunctionNode()) {
                             def noArgs0:[EvalValue]
                             def gb0:EvalValue (gFn0.withThis(obj))
                             cur0 = (this.callFnValueWithValues(gb0 noArgs0))
@@ -6157,15 +6157,15 @@ class ComponentEngine {
                 def uw:EvalValue (this.withHostFor(varName))
                 if (uw.isObject()) {
                     def ucur:EvalValue (EvValueBridge.taggedUndefined())
-                    if (has uw.getterMap varName) {
+                    if (uw.hasOwnGetter(varName)) {
                         def ugf:EvalValue (uw.findGetter(varName 0))
                         if (ugf.isFunction()) {
                             def ugArgs:[EvalValue]
                             ucur = (this.callFnValueWithValues((ugf.withThis(uw)) ugArgs))
                         }
                     } {
-                        if (has uw.objectMap varName) {
-                            ucur = (unwrap (get uw.objectMap varName))
+                        if (uw.hasOwnData(varName)) {
+                            ucur = (uw.getOwnData(varName))
                         }
                     }
                     if scriptThrew {
@@ -6179,7 +6179,7 @@ class ComponentEngine {
                         push usArgs unew
                         def _us:EvalValue (this.callFnValueWithValues((usf.withThis(uw)) usArgs))
                     } {
-                        if (false == (has uw.getterMap varName)) {
+                        if (false == (uw.hasOwnGetter(varName))) {
                             uw.setMember(varName unew)
                         }
                     }
@@ -6196,7 +6196,7 @@ class ComponentEngine {
                 def gObjU:EvalValue (this.theGlobalObject())
                 def onGlobalU:boolean false
                 if (gObjU.isObject()) {
-                    onGlobalU = (has gObjU.objectMap varName)
+                    onGlobalU = (gObjU.hasOwnData(varName))
                 }
                 if (false == (context.has(varName))) {
                     if (false == onGlobalU) {
@@ -6553,15 +6553,15 @@ class ComponentEngine {
                     def wobj:EvalValue preWith
                     if (wobj.isObject()) {
                         def wcur:EvalValue (EvValueBridge.taggedUndefined())
-                        if (has wobj.getterMap varName) {
+                        if (wobj.hasOwnGetter(varName)) {
                             def wgf:EvalValue (wobj.findGetter(varName 0))
                             if (wgf.isFunction()) {
                                 def wgArgs2:[EvalValue]
                                 wcur = (this.callFnValueWithValues((wgf.withThis(wobj)) wgArgs2))
                             }
                         } {
-                            if (has wobj.objectMap varName) {
-                                wcur = (unwrap (get wobj.objectMap varName))
+                            if (wobj.hasOwnData(varName)) {
+                                wcur = (wobj.getOwnData(varName))
                             }
                         }
                         if scriptThrew {
@@ -6578,7 +6578,7 @@ class ComponentEngine {
                             def _ws:EvalValue (this.callFnValueWithValues((wsf.withThis(wobj)) wsArgs))
                             return wres
                         }
-                        if (has wobj.getterMap varName) {
+                        if (wobj.hasOwnGetter(varName)) {
                             ; A getter with no setter: the write is refused,
                             ; silently in sloppy mode.
                             return wres
@@ -6593,7 +6593,7 @@ class ComponentEngine {
                     ; an ordinary binding that shadowed the constant.
                     if (false == (context.has(varName))) {
                         def gRO:EvalValue (this.theGlobalObject())
-                        if (has gRO.objectMap varName) {
+                        if (gRO.hasOwnData(varName)) {
                             if (false == (gRO.isWritable(varName))) {
                                 if strictMode {
                                     return (this.throwSpecError("TypeError" ("Cannot assign to read only property '" + varName + "'")))
@@ -6758,7 +6758,7 @@ class ComponentEngine {
             }
             argObj.setMember("__arguments__" (EvValueBridge.taggedBoolean(true)))
             argObj.setAttrs("__arguments__" false false false)
-            argObj.protoRef = (this.builtinPrototype("Object"))
+            argObj.setProto((this.builtinPrototype("Object")))
             context.define("arguments" argObj)
         }
         this.bindParamList(fnNode argVals)
@@ -6856,7 +6856,7 @@ class ComponentEngine {
         if (false == (argObj2.isObject())) {
             return
         }
-        if (false == (has argObj2.objectMap "__arguments__")) {
+        if (false == (argObj2.hasOwnData("__arguments__"))) {
             return
         }
         def names:[EvalValue]
@@ -6904,7 +6904,7 @@ class ComponentEngine {
         if (false == (obj.isObject())) {
             return ""
         }
-        if (false == (has obj.objectMap "__argscope__")) {
+        if (false == (obj.hasOwnData("__argscope__"))) {
             return ""
         }
         def idx:int (this.canonicalArrayIndex(key))
@@ -6916,16 +6916,16 @@ class ComponentEngine {
         ; parameter would shadow it. DELETING it removes the mapping too, which
         ; is why an index absent from the object's own map is unmapped whatever
         ; the parameter still holds.
-        if (has obj.getterMap key) {
+        if (obj.hasOwnGetter(key)) {
             return ""
         }
-        if (has obj.setterMap key) {
+        if (obj.hasOwnSetter(key)) {
             return ""
         }
-        if (false == (has obj.objectMap key)) {
+        if (false == (obj.hasOwnData(key))) {
             return ""
         }
-        def namesV:EvalValue (unwrap (get obj.objectMap "__argnames__"))
+        def namesV:EvalValue (obj.getOwnData("__argnames__"))
         if (idx >= (namesV.denseLen())) {
             return ""
         }
@@ -6944,14 +6944,14 @@ class ComponentEngine {
         if (false == (obj.isObject())) {
             return
         }
-        if (false == (has obj.objectMap "__argnames__")) {
+        if (false == (obj.hasOwnData("__argnames__"))) {
             return
         }
         def idx:int (this.canonicalArrayIndex(key))
         if (idx < 0) {
             return
         }
-        def namesV:EvalValue (unwrap (get obj.objectMap "__argnames__"))
+        def namesV:EvalValue (obj.getOwnData("__argnames__"))
         if (idx >= (namesV.denseLen())) {
             return
         }
@@ -6961,7 +6961,7 @@ class ComponentEngine {
     }
 
     fn argMapScopeOf:EvalContext (obj:EvalValue) {
-        def slotV:EvalValue (unwrap (get obj.objectMap "__argscope__"))
+        def slotV:EvalValue (obj.getOwnData("__argscope__"))
         def cell:ClosureCell (itemAt argMapScopes (to_int (slotV.toNumber())))
         return (unwrap cell.ctx)
     }
@@ -7069,8 +7069,8 @@ class ComponentEngine {
         }
         def v:EvalValue (this.evaluateExpr(argNode))
         if (EvValueBridge.isFunction(v)) {
-            if v.functionNode {
-                return (unwrap v.functionNode)
+            if (v.hasFunctionNode()) {
+                return (v.functionNodeOf())
             }
         }
         def empty (new TSNode())
@@ -7133,7 +7133,7 @@ class ComponentEngine {
         if (false == (v.isFunction())) {
             return ""
         }
-        if v.functionNode {
+        if (v.hasFunctionNode()) {
             return ""
         }
         if ((strlen (v.builtinNameOf())) > 0) {
@@ -7297,7 +7297,7 @@ class ComponentEngine {
         }
         ; D-CTORVALUE: a built-in CONSTRUCTOR held as a value is callable.
         if (fnValue.isFunction()) {
-            if (has fnValue.objectMap "__fnprotocall__") {
+            if (fnValue.hasOwnData("__fnprotocall__")) {
                 return (EvValueBridge.taggedUndefined())
             }
         }
@@ -7324,8 +7324,8 @@ class ComponentEngine {
         }
         if (fnValue.isBuiltinMethod()) {
             def bRecv:EvalValue (EvValueBridge.taggedUndefined())
-            if fnValue.boundThis {
-                bRecv = (unwrap fnValue.boundThis)
+            if (fnValue.hasBoundThis()) {
+                bRecv = (fnValue.boundThisOf())
             }
             def bArgs:[EvalValue] argVals
             if ((fnValue.boundArgCount()) > 0) {
@@ -7347,10 +7347,10 @@ class ComponentEngine {
         if (this.isEvalFunctionValue(fnValue)) {
             return (this.runIndirectEval(argVals))
         }
-        if (null? fnValue.functionNode) {
+        if (false == (fnValue.hasFunctionNode())) {
             return (EvValueBridge.taggedNull())
         }
-        def fnNode:TSNode (unwrap fnValue.functionNode)
+        def fnNode:TSNode (fnValue.functionNodeOf())
         def savedContext:EvalContext context
         def savedDidReturn:boolean scriptDidReturn
         def savedReturnValue:EvalValue scriptReturnValue
@@ -7380,12 +7380,12 @@ class ComponentEngine {
         }
         currentModule = (fnValue.homeModuleOf())
         context = (parent.createChild())
-        if fnValue.boundThis {
+        if (fnValue.hasBoundThis()) {
             ; D-THISCOERCE: a SLOPPY function called with no receiver -- or with
             ; null/undefined through call/apply -- gets the GLOBAL OBJECT, and a
             ; primitive receiver is boxed. A strict one keeps exactly what it was
             ; given. `Function("this.field = 1").apply()` turns on this rule.
-            def rawThis:EvalValue (unwrap fnValue.boundThis)
+            def rawThis:EvalValue (fnValue.boundThisOf())
             ; D-STRICT: whose strictness decides is the CALLEE's, and it was
             ; stamped on the value when the function was created. Asking
             ; strictForBody here folds in the ambient flag -- the CALLER's -- so
@@ -8492,13 +8492,13 @@ class ComponentEngine {
                     }
                     def uField:EvalValue (obj.getMember(methodName))
                     if (uField.isFunction()) {
-                        if uField.functionNode {
-                            def uFn:TSNode (unwrap uField.functionNode)
+                        if (uField.hasFunctionNode()) {
+                            def uFn:TSNode (uField.functionNodeOf())
                             def uHasThis:boolean false
                             def uThis:EvalValue (EvValueBridge.taggedNull())
-                            if uField.boundThis {
+                            if (uField.hasBoundThis()) {
                                 uHasThis = true
-                                uThis = (unwrap uField.boundThis)
+                                uThis = (uField.boundThisOf())
                             }
                             return (this.callUserFunctionNode(uFn node.children uThis uHasThis))
                         }
@@ -8527,9 +8527,9 @@ class ComponentEngine {
                 def canHoldProps:boolean false
                 if (obj.isObject()) { canHoldProps = true }
                 if (obj.isFunction()) { canHoldProps = true }
-                if (obj.isArray()) { canHoldProps = (has obj.objectMap methodName) }
-                if (obj.isMap()) { canHoldProps = (has obj.objectMap methodName) }
-                if (obj.isSet()) { canHoldProps = (has obj.objectMap methodName) }
+                if (obj.isArray()) { canHoldProps = (obj.hasOwnData(methodName)) }
+                if (obj.isMap()) { canHoldProps = (obj.hasOwnData(methodName)) }
+                if (obj.isSet()) { canHoldProps = (obj.hasOwnData(methodName)) }
                 if canHoldProps {
                     def objMember:EvalValue (obj.getMember(methodName))
                     ; D-CLASSOF: a built-in stored under some other name and then
@@ -8561,16 +8561,16 @@ class ComponentEngine {
                     }
                     }
                     if (objMember.isFunction()) {
-                        if objMember.functionNode {
+                        if (objMember.hasFunctionNode()) {
                             def objCargs:[EvalValue] (this.collectCallArgs(node))
                             ; D-PROTO: `o.m()` calls m with `this` = o, whether m
                             ; is an own property or inherited from a prototype.
                             ; Arrows are excluded: they take `this` lexically from
                             ; where they were written, so binding a receiver here
                             ; would shadow the correct one.
-                            def mNode:TSNode (unwrap objMember.functionNode)
+                            def mNode:TSNode (objMember.functionNodeOf())
                             def isArrow:boolean ((this.nodeKindOf(mNode)) == 17)
-                            if (objMember.boundThis) {
+                            if (objMember.hasBoundThis()) {
                                 return (this.callFnValueWithValues(objMember objCargs))
                             }
                             if isArrow {
@@ -8611,14 +8611,14 @@ class ComponentEngine {
                     def pcCtor:string (this.ctorNameForKind(rKind))
                     if ((strlen pcCtor) > 0) {
                         def kProto2:EvalValue (this.builtinPrototype(pcCtor))
-                        if (has kProto2.objectMap methodName) {
-                            def borrowed:EvalValue (unwrap (get kProto2.objectMap methodName))
+                        if (kProto2.hasOwnData(methodName)) {
+                            def borrowed:EvalValue (kProto2.getOwnData(methodName))
                             if (borrowed.isBuiltinMethod()) {
                                 def bwArgs:[EvalValue] (this.collectCallArgs(node))
                                 return (this.invokeBuiltin((borrowed.builtinKindOf()) (borrowed.builtinNameOf()) obj bwArgs))
                             }
                             if (borrowed.isFunction()) {
-                                if borrowed.functionNode {
+                                if (borrowed.hasFunctionNode()) {
                                     def bwArgs2:[EvalValue] (this.collectCallArgs(node))
                                     return (this.callFnValueWithValues((borrowed.withThis(obj)) bwArgs2))
                                 }
@@ -8919,23 +8919,23 @@ class ComponentEngine {
                         ; only a primitive is left alone.
                         if (this.isDescriptorObject(src)) {
                             src.markAllNonConfigurable(true)
-                            src.frozenFlag = true
-                            src.sealedFlag = true
-                            src.extensibleFlag = false
+                            src.setFrozenObj(true)
+                            src.setSealedObj(true)
+                            src.setExtensible(false)
                         }
                         return src
                     }
                     if (methodName == "seal") {
                         if (this.isDescriptorObject(src)) {
                             src.markAllNonConfigurable(false)
-                            src.sealedFlag = true
-                            src.extensibleFlag = false
+                            src.setSealedObj(true)
+                            src.setExtensible(false)
                         }
                         return src
                     }
                     if (methodName == "preventExtensions") {
                         if (this.isDescriptorObject(src)) {
-                            src.extensibleFlag = false
+                            src.setExtensible(false)
                         }
                         return src
                     }
@@ -8945,25 +8945,25 @@ class ComponentEngine {
                         if (false == (this.isDescriptorObject(src))) {
                             return (EvValueBridge.taggedBoolean(true))
                         }
-                        if (false == src.frozenFlag) {
+                        if (false == (src.isFrozenObj())) {
                             return (EvValueBridge.taggedBoolean((this.computeSealed(src true))))
                         }
-                        return (EvValueBridge.taggedBoolean(src.frozenFlag))
+                        return (EvValueBridge.taggedBoolean((src.isFrozenObj())))
                     }
                     if (methodName == "isSealed") {
                         if (false == (this.isDescriptorObject(src))) {
                             return (EvValueBridge.taggedBoolean(true))
                         }
-                        if (false == src.sealedFlag) {
+                        if (false == (src.isSealedObj())) {
                             return (EvValueBridge.taggedBoolean((this.computeSealed(src false))))
                         }
-                        return (EvValueBridge.taggedBoolean(src.sealedFlag))
+                        return (EvValueBridge.taggedBoolean((src.isSealedObj())))
                     }
                     if (methodName == "isExtensible") {
                         if (false == (this.isDescriptorObject(src))) {
                             return (EvValueBridge.taggedBoolean(false))
                         }
-                        return (EvValueBridge.taggedBoolean(src.extensibleFlag))
+                        return (EvValueBridge.taggedBoolean((src.isExtensible())))
                     }
                     if (methodName == "getPrototypeOf") {
                         return (this.protoOfValue(src))
@@ -8972,7 +8972,7 @@ class ComponentEngine {
                         if ((array_length node.children) > 1) {
                             def np:EvalValue (this.evaluateExpr((itemAt node.children 1)))
                             if (np.isObject()) {
-                                src.protoRef = np
+                                src.setProto(np)
                             }
                         }
                         return src
@@ -8982,7 +8982,7 @@ class ComponentEngine {
                         def valsC:[EvalValue]
                         def created:EvalValue (EvValueBridge.taggedObject(keysC valsC))
                         if (src.isObject()) {
-                            created.protoRef = src
+                            created.setProto(src)
                         }
                         ; D-ATTRS: the optional second argument is a descriptor
                         ; map, with the same defaults as defineProperty. It was
@@ -9021,19 +9021,19 @@ class ComponentEngine {
                             ; on this object, and walking the chain reported one
                             ; for a property the object does not have.
                             def ownAcc:boolean false
-                            if (has src.getterMap dk) { ownAcc = true }
-                            if (has src.setterMap dk) { ownAcc = true }
+                            if (src.hasOwnGetter(dk)) { ownAcc = true }
+                            if (src.hasOwnSetter(dk)) { ownAcc = true }
                             if ownAcc {
                                 def keysA:[string]
                                 def valsA:[EvalValue]
                                 def descA:EvalValue (EvValueBridge.taggedObject(keysA valsA))
                                 def ga:EvalValue (EvValueBridge.taggedNull())
-                                if (has src.getterMap dk) {
-                                    ga = (unwrap (get src.getterMap dk))
+                                if (src.hasOwnGetter(dk)) {
+                                    ga = (src.getOwnGetter(dk))
                                 }
                                 def sa:EvalValue (EvValueBridge.taggedNull())
-                                if (has src.setterMap dk) {
-                                    sa = (unwrap (get src.setterMap dk))
+                                if (src.hasOwnSetter(dk)) {
+                                    sa = (src.getOwnSetter(dk))
                                 }
                                 if (ga.isFunction()) {
                                     descA.setMember("get" ga)
@@ -9084,7 +9084,7 @@ class ComponentEngine {
                                             ; defined through defineProperty is
                                             ; not writable just because it is an
                                             ; element.
-                                            if (has src.attrFlags dk) {
+                                            if (src.hasOwnAttrs(dk)) {
                                                 dI.setMember("writable" (EvValueBridge.taggedBoolean((src.isWritable(dk)))))
                                                 dI.setMember("enumerable" (EvValueBridge.taggedBoolean((src.isEnumerable(dk)))))
                                                 dI.setMember("configurable" (EvValueBridge.taggedBoolean((src.isConfigurable(dk)))))
@@ -9133,7 +9133,7 @@ class ComponentEngine {
                             ; properties every function has.
                             if (src.isFunction()) {
                                 if ((dk == "length") || (dk == "name")) {
-                                    if (false == (has src.objectMap dk)) {
+                                    if (false == (src.hasOwnData(dk))) {
                                         def keysF:[string]
                                         def valsF:[EvalValue]
                                         def dF:EvalValue (EvValueBridge.taggedObject(keysF valsF))
@@ -9151,7 +9151,7 @@ class ComponentEngine {
                                 ; -- and hardcoding writable here reported the
                                 ; opposite of what was recorded.
                                 if (dk == "prototype") {
-                                    if (false == (has src.objectMap dk)) {
+                                    if (false == (src.hasOwnData(dk))) {
                                         def keysP:[string]
                                         def valsP:[EvalValue]
                                         def dP:EvalValue (EvValueBridge.taggedObject(keysP valsP))
@@ -9291,7 +9291,7 @@ class ComponentEngine {
                 ; a function with a chosen receiver, so their absence failed tests
                 ; that were not about them at all.
                 if (obj.isFunction()) {
-                    if obj.functionNode {
+                    if (obj.hasFunctionNode()) {
                         if (methodName == "call") {
                             def callThis:EvalValue (EvValueBridge.taggedUndefined())
                             def callArgs:[EvalValue]
@@ -9361,13 +9361,13 @@ class ComponentEngine {
                     }
                     ; OWN properties only — an inherited one must answer false,
                     ; which is the entire point of the method.
-                    if (has obj.objectMap hk) {
+                    if (obj.hasOwnData(hk)) {
                         return (EvValueBridge.taggedBoolean(true))
                     }
-                    if (has obj.getterMap hk) {
+                    if (obj.hasOwnGetter(hk)) {
                         return (EvValueBridge.taggedBoolean(true))
                     }
-                    if (has obj.setterMap hk) {
+                    if (obj.hasOwnSetter(hk)) {
                         return (EvValueBridge.taggedBoolean(true))
                     }
                     ; D-FNPROPS / D-INDEXDESC: array indices, array length and a
@@ -9436,7 +9436,7 @@ class ComponentEngine {
                 ; opposite of what `typeof` had just said about it.
                 def memberVal:EvalValue (obj.getMember(methodName))
                 if (memberVal.isFunction()) {
-                    if (has memberVal.objectMap "__fnprotocall__") {
+                    if (memberVal.hasOwnData("__fnprotocall__")) {
                         def _fpArgs2:[EvalValue] (this.collectCallArgs(node))
                         if scriptThrew {
                             return (EvValueBridge.taggedUndefined())
@@ -9458,7 +9458,7 @@ class ComponentEngine {
                     ; getter first -- `o.bar(foo())` where bar is a getter
                     ; returning 42 must call the getter, then throw.
                     if (obj.isObject()) {
-                        if (has obj.getterMap methodName) {
+                        if (obj.hasOwnGetter(methodName)) {
                             def accG:EvalValue (obj.findGetter(methodName 0))
                             if (accG.isFunction()) {
                                 def accArgs:[EvalValue]
@@ -9744,7 +9744,7 @@ class ComponentEngine {
                     return (this.runIndirectEval(ieArgs0))
                 }
                 if (EvValueBridge.isFunction(fnValue)) {
-                    if fnValue.functionNode {
+                    if (fnValue.hasFunctionNode()) {
                         ; Args (with ...spread) bound centrally; the call scope is
                         ; parented on the function's captured closure when it has
                         ; one, else the current scope (plain top-level functions).
@@ -9795,14 +9795,14 @@ class ComponentEngine {
                 return (this.runIndirectEval(ieArgs1))
             }
             if (EvValueBridge.isFunction(calleeFn)) {
-                if calleeFn.functionNode {
+                if (calleeFn.hasFunctionNode()) {
                     def calleeArgs:[EvalValue] (this.collectCallArgs(node))
                     return (this.callFnValueWithValues(calleeFn calleeArgs))
                 }
                 ; D-CTORVALUE: a built-in CONSTRUCTOR held as a value has no
                 ; function node but is perfectly callable -- `var f = Number;
                 ; f(42)` and `Number.bind(null)(42)` both arrive here.
-                if (has calleeFn.objectMap "__fnprotocall__") {
+                if (calleeFn.hasOwnData("__fnprotocall__")) {
                     def _fpArgs:[EvalValue] (this.collectCallArgs(node))
                     return (EvValueBridge.taggedUndefined())
                 }
@@ -10077,7 +10077,7 @@ class ComponentEngine {
                     ; case where the missing inheritance chain is observable in
                     ; ordinary guest code -- `catch (e) { e instanceof Error }`
                     ; is how half the suite's negative tests confirm a throw.
-                    if (has lv.objectMap "__error__") {
+                    if (lv.hasOwnData("__error__")) {
                         if (cname == "Error") {
                             return (EvValueBridge.taggedBoolean(true))
                         }
@@ -10101,10 +10101,10 @@ class ComponentEngine {
                             def walkV:EvalValue lv
                             def steps:int 0
                             while (steps < 32) {
-                                if (null? walkV.protoRef) {
+                                if (false == (walkV.hasProto())) {
                                     steps = 32
                                 } {
-                                    walkV = (unwrap walkV.protoRef)
+                                    walkV = (walkV.protoOf())
                                     if (walkV.equals(protoF)) {
                                         return (EvValueBridge.taggedBoolean(true))
                                     }
@@ -10193,10 +10193,10 @@ class ComponentEngine {
             def inWalk:EvalValue right
             def inDepth:int 0
             while (inDepth < 16) {
-                if (null? inWalk.protoRef) {
+                if (false == (inWalk.hasProto())) {
                     return (EvValueBridge.taggedBoolean(false))
                 }
-                inWalk = (unwrap inWalk.protoRef)
+                inWalk = (inWalk.protoOf())
                 if (this.objHasKey(inWalk inKey)) {
                     return (EvValueBridge.taggedBoolean(true))
                 }
@@ -10512,7 +10512,7 @@ class ComponentEngine {
         }
         if (this.isWrapperCtorName(cname)) {
             if (v.isObject()) {
-                if (has v.objectMap "__wrapper__") {
+                if (v.hasOwnData("__wrapper__")) {
                     return (this.boolAsInt(((this.objectClassOf(v)) == cname)))
                 }
             }
@@ -10858,13 +10858,13 @@ class ComponentEngine {
                 if (false == a0Obj) {
                     return (EvValueBridge.taggedBoolean(false))
                 }
-                return (EvValueBridge.taggedBoolean(a0.extensibleFlag))
+                return (EvValueBridge.taggedBoolean((a0.isExtensible())))
             }
             if (name == "isFrozen") {
                 if (false == a0Obj) {
                     return (EvValueBridge.taggedBoolean(true))
                 }
-                if a0.frozenFlag {
+                if (a0.isFrozenObj()) {
                     return (EvValueBridge.taggedBoolean(true))
                 }
                 return (EvValueBridge.taggedBoolean((this.computeSealed(a0 true))))
@@ -10873,7 +10873,7 @@ class ComponentEngine {
                 if (false == a0Obj) {
                     return (EvValueBridge.taggedBoolean(true))
                 }
-                if a0.sealedFlag {
+                if (a0.isSealedObj()) {
                     return (EvValueBridge.taggedBoolean(true))
                 }
                 return (EvValueBridge.taggedBoolean((this.computeSealed(a0 false))))
@@ -11116,7 +11116,7 @@ class ComponentEngine {
             ; Every built-in constructor inherits from Function.prototype, and
             ; declares its own arity. Both are properties the suite reads.
             if (nsName != "Function") {
-                g.protoRef = (this.builtinPrototype("Function"))
+                g.setProto((this.builtinPrototype("Function")))
             }
             g.setMember("length" (EvalValue.fromInt((this.builtinCtorArity(nsName)))))
             g.setAttrs("length" false false true)
@@ -11458,7 +11458,7 @@ class ComponentEngine {
         ; the branding one and `Object.prototype.isPrototypeOf(Number.prototype)`
         ; true. Object.prototype itself terminates the chain.
         if (nsName != "Object") {
-            p.protoRef = (this.builtinPrototype("Object"))
+            p.setProto((this.builtinPrototype("Object")))
         }
         ; D-PROTOCTOR: every prototype carries `constructor` back to its global.
         ; Safe against the cycle (global sets prototype, prototype sets
@@ -11583,8 +11583,8 @@ class ComponentEngine {
     ; `Array.prototype.isPrototypeOf([])` was false. Object.prototype terminates
     ; the chain, and answering it for itself would loop.
     fn protoOfValue:EvalValue (v:EvalValue) {
-        if v.protoRef {
-            return (unwrap v.protoRef)
+        if (v.hasProto()) {
+            return (v.protoOf())
         }
         def objProto:EvalValue (this.builtinPrototype("Object"))
         if (v.equals(objProto)) {
@@ -11610,15 +11610,15 @@ class ComponentEngine {
         def cur:EvalValue v
         def depth:int 0
         while (depth < 16) {
-            if (null? cur.protoRef) {
+            if (false == (cur.hasProto())) {
                 return ""
             }
-            def nxt:EvalValue (unwrap cur.protoRef)
+            def nxt:EvalValue (cur.protoOf())
             if (false == (nxt.isObject())) {
                 return (this.receiverKind(nxt))
             }
-            if (has nxt.objectMap "__protokind__") {
-                return ((unwrap (get nxt.objectMap "__protokind__")).toString())
+            if (nxt.hasOwnData("__protokind__")) {
+                return ((nxt.getOwnData("__protokind__")).toString())
             }
             cur = nxt
             depth = (depth + 1)
@@ -11630,8 +11630,8 @@ class ComponentEngine {
         ; D-WRAPPER: a boxed primitive dispatches as its primitive kind, which
         ; is what makes `new String('a').toUpperCase()` reach String.prototype.
         if (v.isObject()) {
-            if (has v.objectMap "__primitive__") {
-                def inner:EvalValue (unwrap (get v.objectMap "__primitive__"))
+            if (v.hasOwnData("__primitive__")) {
+                def inner:EvalValue (v.getOwnData("__primitive__"))
                 if (inner.isString()) { return "string" }
                 if (inner.isNumber()) { return "number" }
                 if (inner.isBoolean()) { return "boolean" }
@@ -11647,10 +11647,10 @@ class ComponentEngine {
         if (v.isObject()) {
             ; D-REGEX: a RegExp dispatches to its own prototype so exec/test do
             ; not have to be looked for among the Object methods.
-            if (has v.objectMap "__regex__") { return "regexp" }
+            if (v.hasOwnData("__regex__")) { return "regexp" }
             ; D-DATE: likewise a Date, whose accessors are arithmetic on its
             ; time value rather than anything Object.prototype offers.
-            if (has v.objectMap "__date__") { return "date" }
+            if (v.hasOwnData("__date__")) { return "date" }
             return "object"
         }
         return ""
@@ -12207,7 +12207,7 @@ class ComponentEngine {
         }
         dt.setMember("__date__" (EvValueBridge.taggedNumber(ms)))
         dt.setAttrs("__date__" false false false)
-        dt.protoRef = (this.builtinPrototype("Date"))
+        dt.setProto((this.builtinPrototype("Date")))
         return dt
     }
 
@@ -12335,10 +12335,10 @@ class ComponentEngine {
         if (false == (recv.isObject())) {
             return (this.throwSpecError("TypeError" ("Date.prototype." + name + " called on a non-Date")))
         }
-        if (false == (has recv.objectMap "__date__")) {
+        if (false == (recv.hasOwnData("__date__"))) {
             return (this.throwSpecError("TypeError" ("Date.prototype." + name + " called on a non-Date")))
         }
-        def tv:double ((unwrap (get recv.objectMap "__date__")).toNumber())
+        def tv:double ((recv.getOwnData("__date__")).toNumber())
         def dtl (new DateTime())
         ; setTime is the one mutator: it replaces the time value and reports it.
         if (name == "setTime") {
@@ -12456,9 +12456,9 @@ class ComponentEngine {
             return false
         }
         def present:boolean false
-        if (has obj.objectMap key) { present = true }
-        if (has obj.getterMap key) { present = true }
-        if (has obj.setterMap key) { present = true }
+        if (obj.hasOwnData(key)) { present = true }
+        if (obj.hasOwnGetter(key)) { present = true }
+        if (obj.hasOwnSetter(key)) { present = true }
         if (false == present) {
             return false
         }
@@ -12486,7 +12486,7 @@ class ComponentEngine {
     fn registryMethodDeleted:boolean (v:EvalValue name:string) {
         if (this.isDescriptorObject(v)) {
             if (v.hasSuppressed(name)) {
-                if (false == (has v.objectMap name)) {
+                if (false == (v.hasOwnData(name))) {
                     return true
                 }
             }
@@ -12534,7 +12534,7 @@ class ComponentEngine {
         ; Putting the name BACK -- `Number.prototype.toString = saved` -- undoes
         ; the deletion. The record would otherwise outlive the property it
         ; describes and keep answering "gone" for something plainly there.
-        if (has p.objectMap name) {
+        if (p.hasOwnData(name)) {
             return false
         }
         return true
@@ -12552,10 +12552,10 @@ class ComponentEngine {
             return (EvValueBridge.taggedNull())
         }
         def p:EvalValue (unwrap (get builtinProtos cn))
-        if (false == (has p.objectMap name)) {
+        if (false == (p.hasOwnData(name))) {
             return (EvValueBridge.taggedNull())
         }
-        def m:EvalValue (unwrap (get p.objectMap name))
+        def m:EvalValue (p.getOwnData(name))
         if (false == (m.isFunction())) {
             return (EvValueBridge.taggedNull())
         }
@@ -12622,7 +12622,7 @@ class ComponentEngine {
         if (kind == "regexpget") {
             def isRe:boolean false
             if (recv.isObject()) {
-                if (has recv.objectMap "__regex__") { isRe = true }
+                if (recv.hasOwnData("__regex__")) { isRe = true }
             }
             if (false == isRe) {
                 ; RegExp.prototype is NOT itself a RegExp, and the spec makes it
@@ -12678,9 +12678,9 @@ class ComponentEngine {
                     return (EvValueBridge.taggedUndefined())
                 }
             }
-            if (has recv.objectMap hk0) { return (EvValueBridge.taggedBoolean(true)) }
-            if (has recv.getterMap hk0) { return (EvValueBridge.taggedBoolean(true)) }
-            if (has recv.setterMap hk0) { return (EvValueBridge.taggedBoolean(true)) }
+            if (recv.hasOwnData(hk0)) { return (EvValueBridge.taggedBoolean(true)) }
+            if (recv.hasOwnGetter(hk0)) { return (EvValueBridge.taggedBoolean(true)) }
+            if (recv.hasOwnSetter(hk0)) { return (EvValueBridge.taggedBoolean(true)) }
             return (EvValueBridge.taggedBoolean((this.objHasKey(recv hk0))))
         }
         if (name == "propertyIsEnumerable") {
@@ -12692,9 +12692,9 @@ class ComponentEngine {
                 }
             }
             def ownPk:boolean false
-            if (has recv.objectMap pk0) { ownPk = true }
-            if (has recv.getterMap pk0) { ownPk = true }
-            if (has recv.setterMap pk0) { ownPk = true }
+            if (recv.hasOwnData(pk0)) { ownPk = true }
+            if (recv.hasOwnGetter(pk0)) { ownPk = true }
+            if (recv.hasOwnSetter(pk0)) { ownPk = true }
             if (this.objHasKey(recv pk0)) { ownPk = true }
             if (false == ownPk) {
                 return (EvValueBridge.taggedBoolean(false))
@@ -12820,7 +12820,7 @@ class ComponentEngine {
                 return (EvValueBridge.taggedString((this.errorToString(recv))))
             }
             if (recv.isObject()) {
-                if (has recv.objectMap "__error__") {
+                if (recv.hasOwnData("__error__")) {
                     return (EvValueBridge.taggedString((this.errorToString(recv))))
                 }
             }
@@ -13556,8 +13556,8 @@ class ComponentEngine {
                     if (name == "values") {
                         def items:[EvalValue]
                         def i:int 0
-                        while (i < (array_length recv.mapVals)) {
-                            push items (itemAt recv.mapVals i)
+                        while (i < (recv.mapValsLen())) {
+                            push items (recv.mapValAt(i))
                             i = (i + 1)
                         }
                         return (EvValueBridge.taggedArray(items))
@@ -13568,7 +13568,7 @@ class ComponentEngine {
                         while (i < (recv.denseLen())) {
                             def pair:[EvalValue]
                             push pair (recv.arrayItemAt(i))
-                            push pair (itemAt recv.mapVals i)
+                            push pair (recv.mapValAt(i))
                             push items (EvValueBridge.taggedArray(pair))
                             i = (i + 1)
                         }
@@ -13580,7 +13580,7 @@ class ComponentEngine {
                             def i:int 0
                             while (i < (recv.denseLen())) {
                                 def cargs:[EvalValue]
-                                push cargs (itemAt recv.mapVals i)
+                                push cargs (recv.mapValAt(i))
                                 push cargs (recv.arrayItemAt(i))
                                 def unused:EvalValue (this.callFnValueWithValues(cb cargs))
                                 i = (i + 1)
@@ -14524,7 +14524,7 @@ class ComponentEngine {
             def keysO:[string]
             def valsO:[EvalValue]
             def o:EvalValue (EvValueBridge.taggedObject(keysO valsO))
-            o.protoRef = (this.builtinPrototype("Object"))
+            o.setProto((this.builtinPrototype("Object")))
             return o
         }
         return v
@@ -14572,7 +14572,7 @@ class ComponentEngine {
             w.setMember("length" (EvalValue.fromInt((strlen sw))))
             w.setAttrs("length" false false false)
         }
-        w.protoRef = (this.builtinPrototype(ctorName))
+        w.setProto((this.builtinPrototype(ctorName)))
         return w
     }
 
@@ -14600,19 +14600,19 @@ class ComponentEngine {
         if (v.isNumber()) { return "Number" }
         if (v.isBoolean()) { return "Boolean" }
         if (v.isObject()) {
-            if (has v.objectMap "__nsbrand__") {
-                return ((unwrap (get v.objectMap "__nsbrand__")).toString())
+            if (v.hasOwnData("__nsbrand__")) {
+                return ((v.getOwnData("__nsbrand__")).toString())
             }
-            if (has v.objectMap "__wrapper__") {
-                return ((unwrap (get v.objectMap "__wrapper__")).toString())
+            if (v.hasOwnData("__wrapper__")) {
+                return ((v.getOwnData("__wrapper__")).toString())
             }
             ; An error INSTANCE brands as Error; Error.prototype is an ordinary
             ; object and brands as Object, which is why the marker is checked on
             ; the own map rather than through the prototype chain.
-            if (has v.objectMap "__error__") { return "Error" }
-            if (has v.objectMap "__date__") { return "Date" }
-            if (has v.objectMap "__regex__") { return "RegExp" }
-            if (has v.objectMap "__arguments__") { return "Arguments" }
+            if (v.hasOwnData("__error__")) { return "Error" }
+            if (v.hasOwnData("__date__")) { return "Date" }
+            if (v.hasOwnData("__regex__")) { return "RegExp" }
+            if (v.hasOwnData("__arguments__")) { return "Arguments" }
         }
         return "Object"
     }
@@ -14620,8 +14620,8 @@ class ComponentEngine {
     ; The primitive inside a wrapper, or the value itself when it is not one.
     fn unwrapPrimitive:EvalValue (v:EvalValue) {
         if (v.isObject()) {
-            if (has v.objectMap "__primitive__") {
-                return (unwrap (get v.objectMap "__primitive__"))
+            if (v.hasOwnData("__primitive__")) {
+                return (v.getOwnData("__primitive__"))
             }
         }
         return v
@@ -14653,17 +14653,17 @@ class ComponentEngine {
         def needsProtoLookup:boolean false
         if (false == (m.isFunction())) { needsProtoLookup = true }
         if (m.isFunction()) {
-            if (null? m.functionNode) { needsProtoLookup = true }
+            if (false == (m.hasFunctionNode())) { needsProtoLookup = true }
         }
         if needsProtoLookup {
             def pcn:string (this.ctorNameForKind((this.receiverKind(obj))))
             if ((strlen pcn) > 0) {
                 if (false == (obj.isObject())) {
                     def kp:EvalValue (this.builtinPrototype(pcn))
-                    if (has kp.objectMap name) {
-                        def kpm:EvalValue (unwrap (get kp.objectMap name))
+                    if (kp.hasOwnData(name)) {
+                        def kpm:EvalValue (kp.getOwnData(name))
                         if (kpm.isFunction()) {
-                            if kpm.functionNode {
+                            if (kpm.hasFunctionNode()) {
                                 return kpm
                             }
                         }
@@ -14680,14 +14680,14 @@ class ComponentEngine {
     ; simply not callable, so ToPrimitive skips it and the other method gets its
     ; turn rather than the default rendering standing in.
     fn usesDefaultMethod:boolean (v:EvalValue name:string) {
-        if (has v.objectMap name) {
+        if (v.hasOwnData(name)) {
             ; A built-in prototype publishes its methods as OWN properties --
             ; String.prototype.valueOf really is on String.prototype -- so
             ; presence alone does not mean the guest supplied one. What settles
             ; it is whether the value has a body the engine would run.
-            def own:EvalValue (unwrap (get v.objectMap name))
+            def own:EvalValue (v.getOwnData(name))
             if (own.isFunction()) {
-                if (null? own.functionNode) {
+                if (false == (own.hasFunctionNode())) {
                     return true
                 }
             }
@@ -14695,7 +14695,7 @@ class ComponentEngine {
         }
         def m:EvalValue (this.resolvePrimitiveMethod(v name))
         if (m.isFunction()) {
-            if (null? m.functionNode) {
+            if (false == (m.hasFunctionNode())) {
                 return true
             }
             return false
@@ -14743,7 +14743,7 @@ class ComponentEngine {
             }
         }
         if (m.isFunction()) {
-            if m.functionNode {
+            if (m.hasFunctionNode()) {
                 def noArgs:[EvalValue]
                 def bound:EvalValue (m.withThis(obj))
                 def out:EvalValue (this.callFnValueWithValues(bound noArgs))
@@ -14807,10 +14807,10 @@ class ComponentEngine {
     ; makes `f + 1` and `eval("(" + f + ")")` behave. A builtin has no source, so
     ; it keeps the NativeFunction form the spec allows for one.
     fn functionSourceText:string (v:EvalValue) {
-        if (null? v.functionNode) {
+        if (false == (v.hasFunctionNode())) {
             return ("function " + (v.fnName()) + "() { [native code] }")
         }
-        def fnode:TSNode (unwrap v.functionNode)
+        def fnode:TSNode (v.functionNodeOf())
         def total:int (strlen (v.srcTextOf()))
         if (total == 0) {
             return ("function " + (v.fnName()) + "() { [native code] }")
@@ -14830,20 +14830,20 @@ class ComponentEngine {
         ; A boxed primitive IS its primitive: both of its inherited methods
         ; report it, so either hint lands here.
         if (v.isObject()) {
-            if (has v.objectMap "__primitive__") {
-                return (unwrap (get v.objectMap "__primitive__"))
+            if (v.hasOwnData("__primitive__")) {
+                return (v.getOwnData("__primitive__"))
             }
-            if (has v.objectMap "__regex__") {
+            if (v.hasOwnData("__regex__")) {
                 return (EvValueBridge.taggedString(("/" + ((this.regexSourceOf(v)) + ("/" + (this.regexFlagsOf(v)))))))
             }
-            if (has v.objectMap "__error__") {
+            if (v.hasOwnData("__error__")) {
                 return (EvValueBridge.taggedString((this.errorToString(v))))
             }
             ; D-DATE: the default Date.prototype.toString, which is the whole
             ; date and time rather than a brand.
-            if (has v.objectMap "__date__") {
+            if (v.hasOwnData("__date__")) {
                 def dtd (new DateTime())
-                return (EvValueBridge.taggedString((dtd.toFullString(((unwrap (get v.objectMap "__date__")).toNumber())))))
+                return (EvValueBridge.taggedString((dtd.toFullString(((v.getOwnData("__date__")).toNumber())))))
             }
             return (EvValueBridge.taggedString(("[object " + (this.objectClassOf(v)) + "]")))
         }
@@ -14869,28 +14869,28 @@ class ComponentEngine {
         if (false == (v.isObject())) {
             return false
         }
-        if (has v.objectMap "__primitive__") {
+        if (v.hasOwnData("__primitive__")) {
             return true
         }
-        if (has v.objectMap "__date__") {
+        if (v.hasOwnData("__date__")) {
             return true
         }
         return false
     }
 
     fn defaultValueOfOf:EvalValue (v:EvalValue) {
-        if (has v.objectMap "__primitive__") {
-            return (unwrap (get v.objectMap "__primitive__"))
+        if (v.hasOwnData("__primitive__")) {
+            return (v.getOwnData("__primitive__"))
         }
-        if (has v.objectMap "__date__") {
-            return (unwrap (get v.objectMap "__date__"))
+        if (v.hasOwnData("__date__")) {
+            return (v.getOwnData("__date__"))
         }
         return v
     }
 
     fn toPrimitiveDefault:EvalValue (v:EvalValue) {
         if (v.isObject()) {
-            if (has v.objectMap "__date__") {
+            if (v.hasOwnData("__date__")) {
                 return (this.toPrimitive(v true))
             }
         }
@@ -15440,7 +15440,7 @@ class ComponentEngine {
         ; when a RegExp is handed to Object.defineProperties.
         r.setMember("lastIndex" (EvalValue.fromInt(0)))
         r.setAttrs("lastIndex" true false false)
-        r.protoRef = (this.builtinPrototype("RegExp"))
+        r.setProto((this.builtinPrototype("RegExp")))
         return r
     }
 
@@ -15466,7 +15466,7 @@ class ComponentEngine {
         if (false == (v.isObject())) {
             return false
         }
-        return (has v.objectMap "__regex__")
+        return (v.hasOwnData("__regex__"))
     }
 
     fn regexFlagsOf:string (v:EvalValue) {
@@ -15713,7 +15713,7 @@ class ComponentEngine {
         if ((array_length args) < 2) {
             return cb
         }
-        if cb.boundThis {
+        if (cb.hasBoundThis()) {
             return cb
         }
         return (cb.withThis((itemAt args 1)))
@@ -15839,7 +15839,7 @@ class ComponentEngine {
     fn callMethodOnValue:EvalValue (recv:EvalValue name:string args:[EvalValue]) {
         def m:EvalValue (this.getPropertyValue(recv name))
         if (m.isFunction()) {
-            if m.functionNode {
+            if (m.hasFunctionNode()) {
                 return (this.callFnValueWithValues((m.withThis(recv)) args))
             }
             if (m.isBuiltinMethod()) {
@@ -15912,7 +15912,7 @@ class ComponentEngine {
         def g:EvalValue (this.resolveGetterOn(obj key))
         if (g.isFunction()) {
             def noArgsG:[EvalValue]
-            if g.functionNode {
+            if (g.hasFunctionNode()) {
                 return (this.callFnValueWithValues((g.withThis(obj)) noArgsG))
             }
             if (g.isBuiltinMethod()) {
@@ -15920,7 +15920,7 @@ class ComponentEngine {
             }
         }
         if (obj.hasSetterFor(key)) {
-            if (false == (has obj.objectMap key)) {
+            if (false == (obj.hasOwnData(key))) {
                 return (EvValueBridge.taggedUndefined())
             }
         }
@@ -15974,7 +15974,7 @@ class ComponentEngine {
     ; state one defineProperty at a time -- and then `Object.isFrozen` has to
     ; agree.
     fn computeSealed:boolean (v:EvalValue wantFrozen:boolean) {
-        if v.extensibleFlag {
+        if (v.isExtensible()) {
             return false
         }
         def ks:[string] (this.objectKeys(v))
@@ -15987,8 +15987,8 @@ class ComponentEngine {
                 }
                 if wantFrozen {
                     def isAcc:boolean false
-                    if (has v.getterMap k) { isAcc = true }
-                    if (has v.setterMap k) { isAcc = true }
+                    if (v.hasOwnGetter(k)) { isAcc = true }
+                    if (v.hasOwnSetter(k)) { isAcc = true }
                     if (false == isAcc) {
                         if (v.isWritable(k)) {
                             return false
@@ -16001,7 +16001,7 @@ class ComponentEngine {
         ; An ARRAY's elements are properties too, and a length that can still
         ; move means the array is neither sealed nor frozen.
         if (v.isArray()) {
-            if (has v.attrFlags "length") {
+            if (v.hasOwnAttrs("length")) {
                 if wantFrozen {
                     if (v.isWritable("length")) {
                         return false
@@ -16026,8 +16026,8 @@ class ComponentEngine {
             if (EvValueBridge.isNull(walk)) {
                 return (EvValueBridge.taggedNull())
             }
-            if (has walk.objectMap key) {
-                return (unwrap (get walk.objectMap key))
+            if (walk.hasOwnData(key)) {
+                return (walk.getOwnData(key))
             }
             ; A prototype may itself be an ARRAY -- Array.prototype is one -- and
             ; then an index property lives in its elements rather than its map.
@@ -16254,9 +16254,9 @@ class ComponentEngine {
         def walk:EvalValue desc
         def steps:int 0
         while (steps < 16) {
-            if (has walk.objectMap key) { return true }
-            if (has walk.getterMap key) { return true }
-            if (has walk.setterMap key) { return true }
+            if (walk.hasOwnData(key)) { return true }
+            if (walk.hasOwnGetter(key)) { return true }
+            if (walk.hasOwnSetter(key)) { return true }
             def nxt:EvalValue (this.protoOfValue(walk))
             if (EvValueBridge.isNull(nxt)) {
                 return false
@@ -16275,8 +16275,8 @@ class ComponentEngine {
         def walk:EvalValue desc
         def steps:int 0
         while (steps < 16) {
-            if (has walk.getterMap key) {
-                def gFn:EvalValue (unwrap (get walk.getterMap key))
+            if (walk.hasOwnGetter(key)) {
+                def gFn:EvalValue (walk.getOwnGetter(key))
                 if (gFn.isFunction()) {
                     def noArgs:[EvalValue]
                     return (this.callFnValueWithValues((gFn.withThis(desc)) noArgs))
@@ -16284,11 +16284,11 @@ class ComponentEngine {
             }
             ; A set-only accessor reads as undefined and does NOT fall through
             ; to whatever the prototype holds.
-            if (has walk.setterMap key) {
+            if (walk.hasOwnSetter(key)) {
                 return (EvValueBridge.taggedUndefined())
             }
-            if (has walk.objectMap key) {
-                return (unwrap (get walk.objectMap key))
+            if (walk.hasOwnData(key)) {
+                return (walk.getOwnData(key))
             }
             def nxt:EvalValue (this.protoOfValue(walk))
             if (EvValueBridge.isNull(nxt)) {
@@ -16362,9 +16362,9 @@ class ComponentEngine {
         ; descriptor's `undefined` as false made every redefinition silently
         ; strip the flags the property already had.
         def existed:boolean false
-        if (has obj.objectMap key) { existed = true }
-        if (has obj.getterMap key) { existed = true }
-        if (has obj.setterMap key) { existed = true }
+        if (obj.hasOwnData(key)) { existed = true }
+        if (obj.hasOwnGetter(key)) { existed = true }
+        if (obj.hasOwnSetter(key)) { existed = true }
         def newW:boolean false
         def newE:boolean false
         def newC:boolean false
@@ -16389,7 +16389,7 @@ class ComponentEngine {
             ; apart from objectMap so the property is never mistaken for a data
             ; one -- and turning a DATA property into an accessor has to remove
             ; the old value, or the descriptor still reports value/writable.
-            if (has obj.objectMap key) {
+            if (obj.hasOwnData(key)) {
                 obj.clearDataSlot(key)
             }
             ; A half the descriptor MENTIONS is replaced -- `{set: undefined}`
@@ -16409,8 +16409,8 @@ class ComponentEngine {
             ; `{get: undefined}` is still an ACCESSOR descriptor: the property
             ; exists, reads as undefined, and reports get/set rather than
             ; value/writable. Recording nothing at all made it vanish.
-            if (false == (has obj.getterMap key)) {
-                if (false == (has obj.setterMap key)) {
+            if (false == (obj.hasOwnGetter(key))) {
+                if (false == (obj.hasOwnSetter(key))) {
                     obj.defineGetter(key (EvValueBridge.taggedUndefined()))
                 }
             }
@@ -16419,10 +16419,10 @@ class ComponentEngine {
             return ""
         }
         ; Turning an ACCESSOR into a data property drops the functions.
-        if (has obj.getterMap key) {
+        if (obj.hasOwnGetter(key)) {
             obj.clearAccessor(key)
         }
-        if (has obj.setterMap key) {
+        if (obj.hasOwnSetter(key)) {
             obj.clearAccessor(key)
         }
         ; Written through the raw map because setMember would refuse a second
@@ -16430,14 +16430,14 @@ class ComponentEngine {
         ; CONFIGURABLE one is allowed.
         def newVal:EvalValue (EvValueBridge.taggedUndefined())
         if existed {
-            if (has obj.objectMap key) {
-                newVal = (unwrap (get obj.objectMap key))
+            if (obj.hasOwnData(key)) {
+                newVal = (obj.getOwnData(key))
             }
         }
         if (this.descHas(desc "value")) {
             newVal = (this.descGet(desc "value"))
         }
-        set obj.objectMap key newVal
+        obj.putOwnData(key newVal)
         obj.setAttrs(key newW newE newC)
         return ""
     }
@@ -16487,7 +16487,7 @@ class ComponentEngine {
         }
         def oldLen:int (obj.arrayLength())
         def oldWritable:boolean true
-        if (has obj.attrFlags "length") {
+        if (obj.hasOwnAttrs("length")) {
             oldWritable = (obj.isWritable("length"))
         }
         def wantWritable:boolean oldWritable
@@ -16546,7 +16546,7 @@ class ComponentEngine {
         def scan:int (oldLen - 1)
         while ((scan >= newLen) && (blocked == false)) {
             def ek:string (to_string scan)
-            if (has obj.attrFlags ek) {
+            if (obj.hasOwnAttrs(ek)) {
                 if (false == (obj.isConfigurable(ek))) {
                     stopAt = (scan + 1)
                     blocked = true
@@ -16585,7 +16585,7 @@ class ComponentEngine {
     ; `x[4294967294]` readable after `x.length = 2`.
     fn dropFarIndexesAbove:void (obj:EvalValue newLen:int) {
         def survivors:[string]
-        def ks:[string] (keys obj.objectMap)
+        def ks:[string] (obj.ownDataKeys())
         def i:int 0
         while (i < (array_length ks)) {
             def k:string (itemAt ks i)
@@ -16642,7 +16642,7 @@ class ComponentEngine {
         ; An index AT or BEYOND length needs the length to move, so a frozen
         ; length refuses it.
         if (idx >= (obj.arrayLength())) {
-            if (has obj.attrFlags "length") {
+            if (obj.hasOwnAttrs("length")) {
                 if (false == (obj.isWritable("length"))) {
                     return "cannot add an element past a non-writable array length"
                 }
@@ -16659,8 +16659,8 @@ class ComponentEngine {
                 existedElem = true
             }
         }
-        if (has obj.getterMap key) { existedElem = true }
-        if (has obj.setterMap key) { existedElem = true }
+        if (obj.hasOwnGetter(key)) { existedElem = true }
+        if (obj.hasOwnSetter(key)) { existedElem = true }
         if (idx >= (obj.denseLen())) {
             this.resizeArrayTo(obj (idx + 1))
         }
@@ -16740,10 +16740,10 @@ class ComponentEngine {
         ; objectMap made every accessor look absent, which meant none of the
         ; rules below ever applied to one.
         def isAccessor:boolean false
-        if (has obj.getterMap key) { isAccessor = true }
-        if (has obj.setterMap key) { isAccessor = true }
+        if (obj.hasOwnGetter(key)) { isAccessor = true }
+        if (obj.hasOwnSetter(key)) { isAccessor = true }
         def exists:boolean isAccessor
-        if (has obj.objectMap key) { exists = true }
+        if (obj.hasOwnData(key)) { exists = true }
         ; D-ARRAYDEFINE: an array ELEMENT exists too, even though it lives in
         ; arrayValue rather than objectMap -- without this none of the
         ; non-configurable rules below ever applied to one.
@@ -16758,7 +16758,7 @@ class ComponentEngine {
             }
         }
         if (false == exists) {
-            if (false == obj.extensibleFlag) {
+            if (false == (obj.isExtensible())) {
                 return "cannot add property to a non-extensible object"
             }
             return ""
@@ -16942,14 +16942,14 @@ class ComponentEngine {
             proto.setMember("constructor" c)
             proto.setAttrs("constructor" true false true)
             if (nm == "Error") {
-                proto.protoRef = (this.builtinPrototype("Object"))
+                proto.setProto((this.builtinPrototype("Object")))
                 ; Error itself is an ordinary function object.
-                c.protoRef = (this.builtinPrototype("Function"))
+                c.setProto((this.builtinPrototype("Function")))
             } {
-                proto.protoRef = (this.errorPrototypeFor("Error"))
+                proto.setProto((this.errorPrototypeFor("Error")))
                 ; A native error SUBCLASS constructor inherits from Error, which
                 ; is what `Object.getPrototypeOf(TypeError) === Error` asserts.
-                c.protoRef = (hostScope.lookup("Error"))
+                c.setProto((hostScope.lookup("Error")))
             }
             ; Error.prototype.toString is an own property of the prototype, so it
             ; has a descriptor -- writable and configurable, never enumerable.
@@ -16992,7 +16992,7 @@ class ComponentEngine {
         if (ctor.isFunction()) {
             e.setMember("constructor" ctor)
         }
-        e.protoRef = (this.errorPrototypeFor(kind))
+        e.setProto((this.errorPrototypeFor(kind)))
         return e
     }
 
@@ -17037,7 +17037,7 @@ class ComponentEngine {
     fn seedGlobalConstants:void (g:EvalValue) {
         ; The value properties of the global object. `this.NaN` read undefined
         ; because they lived only as names the resolver knew about.
-        if (false == (has g.objectMap "NaN")) {
+        if (false == (g.hasOwnData("NaN"))) {
             g.setMember("NaN" (EvValueBridge.taggedNumber((0.0 / 0.0))))
             g.setAttrs("NaN" false false false)
             g.setMember("Infinity" (EvValueBridge.taggedNumber((1.0 / 0.0))))
@@ -17126,15 +17126,15 @@ class ComponentEngine {
         ; cannot call it -- it has no evaluator -- so the read happens here.
         def wg:EvalValue (this.withHostFor(name))
         if (wg.isObject()) {
-            if (has wg.getterMap name) {
+            if (wg.hasOwnGetter(name)) {
                 def wgFn:EvalValue (wg.findGetter(name 0))
                 if (wgFn.isFunction()) {
                     def wgArgs:[EvalValue]
                     return (this.callFnValueWithValues((wgFn.withThis(wg)) wgArgs))
                 }
             }
-            if (has wg.objectMap name) {
-                return (unwrap (get wg.objectMap name))
+            if (wg.hasOwnData(name)) {
+                return (wg.getOwnData(name))
             }
             return (EvValueBridge.taggedUndefined())
         }
@@ -17183,8 +17183,8 @@ class ComponentEngine {
         ; D-GLOBALTHIS: a bare name may have been created as a property of the
         ; global object (`this.p1 = 1` at top level), which is a global binding.
         def gObj:EvalValue (this.theGlobalObject())
-        if (has gObj.objectMap name) {
-            return (unwrap (get gObj.objectMap name))
+        if (gObj.hasOwnData(name)) {
+            return (gObj.getOwnData(name))
         }
         ; D-CLASSREF: a class is registered in the class table, not bound in a
         ; scope, so its bare name resolved to nothing — and once unresolved names
@@ -17230,7 +17230,7 @@ class ComponentEngine {
             ; D-SYMBOL: symbols are modelled as objects internally, but `typeof`
             ; must answer "symbol" — that is how guest code tells them apart, and
             ; answering "object" would make every symbol type-check wrong.
-            def symTag@(optional):EvalValue (get val.objectMap "__symbol__")
+            def symTag@(optional):EvalValue (val.tryOwnData("__symbol__"))
             if symTag {
                 return "symbol"
             }
@@ -17270,8 +17270,8 @@ class ComponentEngine {
                         ; "object". The global object holds the real value.
                         def gObjT:EvalValue (this.theGlobalObject())
                         if (gObjT.isObject()) {
-                            if (has gObjT.objectMap name) {
-                                return (EvValueBridge.taggedString((this.typeofTag((unwrap (get gObjT.objectMap name))))))
+                            if (gObjT.hasOwnData(name)) {
+                                return (EvValueBridge.taggedString((this.typeofTag((gObjT.getOwnData(name))))))
                             }
                         }
                         def gv:EvalValue (this.builtinGlobalObject(name))
@@ -17331,7 +17331,7 @@ class ComponentEngine {
                     ; not a scope binding so the check below never saw it.
                     def gDel:EvalValue (this.theGlobalObject())
                     if (gDel.isObject()) {
-                        if (has gDel.objectMap delName) {
+                        if (gDel.hasOwnData(delName)) {
                             if (false == (gDel.isConfigurable(delName))) {
                                 return (EvValueBridge.taggedBoolean(false))
                             }
@@ -17484,7 +17484,7 @@ class ComponentEngine {
     ; The __class__ name stamped on an instance object, or "" for non-instances.
     fn instanceClassName:string (obj:EvalValue) {
         if (false == (obj.isObject())) { return "" }
-        def cv@(optional):EvalValue (get obj.objectMap "__class__")
+        def cv@(optional):EvalValue (obj.tryOwnData("__class__"))
         if cv {
             def c:EvalValue (unwrap cv)
             if (c.isString()) {
@@ -17498,7 +17498,7 @@ class ComponentEngine {
     ; class). Stamped by evaluateNewExpr for module-owned classes.
     fn instanceModuleTag:string (obj:EvalValue) {
         if (false == (obj.isObject())) { return "" }
-        def mv@(optional):EvalValue (get obj.objectMap "__module__")
+        def mv@(optional):EvalValue (obj.tryOwnData("__module__"))
         if mv {
             def m:EvalValue (unwrap mv)
             if (m.isString()) {
@@ -17760,7 +17760,7 @@ class ComponentEngine {
         ; object -- Object.prototype.toString then branded it "[object
         ; Undefined]".
         def hasCtorNode:boolean false
-        if fnV.functionNode {
+        if (fnV.hasFunctionNode()) {
             hasCtorNode = true
         }
         if (false == hasCtorNode) {
@@ -17798,30 +17798,30 @@ class ComponentEngine {
         ; its property map. Without this the instance had no prototype at all
         ; and inherited nothing, not even from Object.prototype.
         if (fnV.boundExplicitOf()) {
-            if (has fnV.objectMap "prototype") {
-                instProto = (unwrap (get fnV.objectMap "prototype"))
+            if (fnV.hasOwnData("prototype")) {
+                instProto = (fnV.getOwnData("prototype"))
             } {
                 def keysBP:[string]
                 def valsBP:[EvalValue]
                 instProto = (EvValueBridge.taggedObject(keysBP valsBP))
-                set fnV.objectMap "prototype" instProto
+                fnV.putOwnData("prototype" instProto)
             }
         }
-        inst.protoRef = instProto
+        inst.setProto(instProto)
         if (instProto.isObject()) {
             ; D-PROTO: `F.prototype` is minted by the value layer, which cannot
             ; reach the realm's Object.prototype, so the chain ended one link
             ; short -- `Object.prototype.p = 1; (new F()).p` read undefined.
             ; Closing it here is the first moment the realm is in scope.
-            if (null? instProto.protoRef) {
-                instProto.protoRef = (this.builtinPrototype("Object"))
+            if (false == (instProto.hasProto())) {
+                instProto.setProto((this.builtinPrototype("Object")))
             }
-            if (false == (has instProto.objectMap "constructor")) {
+            if (false == (instProto.hasOwnData("constructor"))) {
                 instProto.setMember("constructor" fnV)
                 instProto.setAttrs("constructor" true false true)
             }
         }
-        def fnNode:TSNode (unwrap fnV.functionNode)
+        def fnNode:TSNode (fnV.functionNodeOf())
         ; D-FNPROTO: constructing through a BOUND function runs the target with
         ; the fixed arguments in front -- `new (f.bind(null, "a"))("b")` calls
         ; f("a", "b"). The bound `this` is ignored, as the spec says, because
@@ -17866,7 +17866,7 @@ class ComponentEngine {
         def fv:EvalValue (EvValueBridge.taggedFunction(fnNode))
         fv.setSrcText(currentSource)
         fv.setStrictFn((this.strictForBody(fnNode)))
-        fv.boundThis = thisVal
+        fv.setBoundThis(thisVal)
         return (this.callFnValueWithValues(fv argVals))
     }
 
@@ -17976,7 +17976,7 @@ class ComponentEngine {
                     def baseNode:TSNode (unwrap callee.left)
                     def baseV:EvalValue (this.evaluateExpr(baseNode))
                     if (baseV.isObject()) {
-                        def tagV@(optional):EvalValue (get baseV.objectMap "__nsmodule__")
+                        def tagV@(optional):EvalValue (baseV.tryOwnData("__nsmodule__"))
                         if tagV {
                             def tag:EvalValue (unwrap tagV)
                             if (tag.isString()) {
@@ -18068,7 +18068,7 @@ class ComponentEngine {
                 if (context.has(className)) {
                     def fnV:EvalValue (context.lookup(className))
                     if (fnV.isFunction()) {
-                        if fnV.functionNode {
+                        if (fnV.hasFunctionNode()) {
                             return (this.constructFromFunction(fnV className node.children))
                         }
                         ; D-CTORVALUE: a bound BUILT-IN constructor held in a
@@ -18117,7 +18117,7 @@ class ComponentEngine {
                 def notCtor:boolean false
                 if (protoTarget.isObject()) { notCtor = true }
                 if (protoTarget.isFunction()) {
-                    if (null? protoTarget.functionNode) {
+                    if (false == (protoTarget.hasFunctionNode())) {
                         if ((strlen (this.builtinCtorNameOf(protoTarget))) == 0) {
                             notCtor = true
                         }
@@ -18128,13 +18128,13 @@ class ComponentEngine {
                     ; still be a class value; only a PROTOTYPE object is
                     ; rejected here, which is what __protokind__ marks.
                     notCtor = false
-                    if (has protoTarget.objectMap "__protokind__") { notCtor = true }
-                    if (has protoTarget.objectMap "constructor") {
+                    if (protoTarget.hasOwnData("__protokind__")) { notCtor = true }
+                    if (protoTarget.hasOwnData("constructor")) {
                         if (newCallee.name == "prototype") { notCtor = true }
                     }
                 }
                 if (protoTarget.isFunction()) {
-                    if (has protoTarget.objectMap "__fnprotocall__") { notCtor = true }
+                    if (protoTarget.hasOwnData("__fnprotocall__")) { notCtor = true }
                 }
                 if notCtor {
                     return (this.throwSpecError("TypeError" "expression is not a constructor"))
@@ -18145,7 +18145,7 @@ class ComponentEngine {
                 ; name ("C") and used to return null. Construct from the value
                 ; we already resolved — same path as `var C = ns.Deep.C; new C()`.
                 if (protoTarget.isFunction()) {
-                    if protoTarget.functionNode {
+                    if (protoTarget.hasFunctionNode()) {
                         return (this.constructFromFunction(protoTarget newCallee.name node.children))
                     }
                     if ((strlen (this.builtinCtorNameOf(protoTarget))) > 0) {
@@ -18462,13 +18462,13 @@ class ComponentEngine {
             ; merely looked at `F.prototype.constructor` saw undefined.
             if (propName == "prototype") {
                 if (obj.isFunction()) {
-                    if obj.functionNode {
+                    if (obj.hasFunctionNode()) {
                         def mintedP:EvalValue (obj.getMember("prototype"))
                         if (mintedP.isObject()) {
-                            if (null? mintedP.protoRef) {
-                                mintedP.protoRef = (this.builtinPrototype("Object"))
+                            if (false == (mintedP.hasProto())) {
+                                mintedP.setProto((this.builtinPrototype("Object")))
                             }
-                            if (false == (has mintedP.objectMap "constructor")) {
+                            if (false == (mintedP.hasOwnData("constructor"))) {
                                 mintedP.setMember("constructor" obj)
                                 mintedP.setAttrs("constructor" true false true)
                             }
@@ -18506,7 +18506,7 @@ class ComponentEngine {
             ; is a whole family of tests in built-ins/Function.
             if (obj.isFunction()) {
                 if ((propName == "caller") || (propName == "arguments")) {
-                    if (false == (has obj.objectMap propName)) {
+                    if (false == (obj.hasOwnData(propName))) {
                         if (this.functionIsStrict(obj)) {
                             return (this.throwSpecError("TypeError" ("'" + propName + "' may not be accessed on a strict function")))
                         }
@@ -18518,14 +18518,14 @@ class ComponentEngine {
             ; property shadows an INHERITED accessor, and asking findGetter first
             ; walked the whole chain and let the inherited one win.
             if ((strlen propName) > 0) {
-                if (false == (has obj.objectMap propName)) {
+                if (false == (obj.hasOwnData(propName))) {
                     ; An OWN accessor is decided here, before any prototype is
                     ; consulted: a set-only own accessor reads as undefined and
                     ; must not fall through to an inherited getter.
-                    if (has obj.getterMap propName) {
-                        def ownG:EvalValue (unwrap (get obj.getterMap propName))
+                    if (obj.hasOwnGetter(propName)) {
+                        def ownG:EvalValue (obj.getOwnGetter(propName))
                         if (ownG.isFunction()) {
-                            if ownG.functionNode {
+                            if (ownG.hasFunctionNode()) {
                                 def ownArgs:[EvalValue]
                                 return (this.callFnValueWithValues((ownG.withThis(obj)) ownArgs))
                             }
@@ -18539,12 +18539,12 @@ class ComponentEngine {
                             }
                         }
                     } {
-                        if (has obj.setterMap propName) {
+                        if (obj.hasOwnSetter(propName)) {
                             return (EvValueBridge.taggedUndefined())
                         }
                         def gFn:EvalValue (this.resolveGetterOn(obj propName))
                         if (gFn.isFunction()) {
-                            if gFn.functionNode {
+                            if (gFn.hasFunctionNode()) {
                                 def noArgs:[EvalValue]
                                 def gBound:EvalValue (gFn.withThis(obj))
                                 return (this.callFnValueWithValues(gBound noArgs))
@@ -18587,7 +18587,7 @@ class ComponentEngine {
                         }
                         return (EvValueBridge.taggedUndefined())
                     }
-                    def owned:boolean (has obj.objectMap propName)
+                    def owned:boolean (obj.hasOwnData(propName))
                     ; A property found on the PROTOTYPE CHAIN wins over the
                     ; per-kind registry entry: `Function.prototype.valueOf` is
                     ; the one Object.prototype owns, and answering with a
@@ -18615,7 +18615,7 @@ class ComponentEngine {
                 def mInherit:string (this.protoChainKind(obj))
                 if ((strlen mInherit) > 0) {
                     if (this.hasBuiltin(mInherit propName)) {
-                        if (false == (has obj.objectMap propName)) {
+                        if (false == (obj.hasOwnData(propName))) {
                             return (this.sharedNativeMethod(mInherit propName))
                         }
                     }
@@ -18642,13 +18642,13 @@ class ComponentEngine {
                         ; array holds its non-index properties in objectMap, and
                         ; consulting Array.prototype first meant `a.prop = 1002`
                         ; read back as whatever the prototype held.
-                        if (has obj.objectMap propName) {
+                        if (obj.hasOwnData(propName)) {
                             ownFirst = true
                         }
                         if (false == ownFirst) {
                             def kProto:EvalValue (this.builtinPrototype(pcName))
-                            if (has kProto.objectMap propName) {
-                                return (unwrap (get kProto.objectMap propName))
+                            if (kProto.hasOwnData(propName)) {
+                                return (kProto.getOwnData(propName))
                             }
                         }
                     }
@@ -18696,7 +18696,7 @@ class ComponentEngine {
                     if ((strlen ckey) > 0) {
                         def cgFn:EvalValue (this.resolveGetterOn(obj ckey))
                         if (cgFn.isFunction()) {
-                            if cgFn.functionNode {
+                            if (cgFn.hasFunctionNode()) {
                                 def cgArgs:[EvalValue]
                                 return (this.callFnValueWithValues((cgFn.withThis(obj)) cgArgs))
                             }
@@ -18993,22 +18993,22 @@ class ComponentEngine {
         ; one -- `Object.defineProperties(o, function () {})` reads its own
         ; enumerable properties like any other object.
         if (v.isFunction()) {
-            out = (keys v.objectMap)
-            def fnAcc:[string] (keys v.getterMap)
+            out = (v.ownDataKeys())
+            def fnAcc:[string] (v.ownGetterKeys())
             def fi:int 0
             while (fi < (array_length fnAcc)) {
                 def fk:string (itemAt fnAcc fi)
-                if (false == (has v.objectMap fk)) {
+                if (false == (v.hasOwnData(fk))) {
                     push out fk
                 }
                 fi = (fi + 1)
             }
-            def fnSet:[string] (keys v.setterMap)
+            def fnSet:[string] (v.ownSetterKeys())
             def fj:int 0
             while (fj < (array_length fnSet)) {
                 def sk2:string (itemAt fnSet fj)
-                if (false == (has v.objectMap sk2)) {
-                    if (false == (has v.getterMap sk2)) {
+                if (false == (v.hasOwnData(sk2))) {
+                    if (false == (v.hasOwnGetter(sk2))) {
                         push out sk2
                     }
                 }
@@ -19017,26 +19017,26 @@ class ComponentEngine {
             return out
         }
         if (EvValueBridge.isObject(v)) {
-            out = (keys v.objectMap)
+            out = (v.ownDataKeys())
             ; D-ACCESSORS: an accessor property lives in getterMap/setterMap
             ; rather than objectMap, so listing only objectMap left every
             ; accessor out of Object.keys, getOwnPropertyNames and the
             ; descriptor-map step of Object.create / defineProperties.
-            def accKeys:[string] (keys v.getterMap)
+            def accKeys:[string] (v.ownGetterKeys())
             def ai:int 0
             while (ai < (array_length accKeys)) {
                 def ak:string (itemAt accKeys ai)
-                if (false == (has v.objectMap ak)) {
+                if (false == (v.hasOwnData(ak))) {
                     push out ak
                 }
                 ai = (ai + 1)
             }
-            def setKeys:[string] (keys v.setterMap)
+            def setKeys:[string] (v.ownSetterKeys())
             def si:int 0
             while (si < (array_length setKeys)) {
                 def sk:string (itemAt setKeys si)
-                if (false == (has v.objectMap sk)) {
-                    if (false == (has v.getterMap sk)) {
+                if (false == (v.hasOwnData(sk))) {
+                    if (false == (v.hasOwnGetter(sk))) {
                         push out sk
                     }
                 }
@@ -19069,7 +19069,7 @@ class ComponentEngine {
             }
             ; D-ACCESSORS: an accessor put on an ARRAY under a non-index name is
             ; an own property too, and lives outside objectMap.
-            def arrAcc:[string] (keys v.getterMap)
+            def arrAcc:[string] (v.ownGetterKeys())
             def aai:int 0
             while (aai < (array_length arrAcc)) {
                 def aak:string (itemAt arrAcc aai)
@@ -19078,18 +19078,18 @@ class ComponentEngine {
                 }
                 aai = (aai + 1)
             }
-            def arrSet:[string] (keys v.setterMap)
+            def arrSet:[string] (v.ownSetterKeys())
             def asi:int 0
             while (asi < (array_length arrSet)) {
                 def ask:string (itemAt arrSet asi)
                 if ((this.canonicalArrayIndex(ask)) < 0) {
-                    if (false == (has v.getterMap ask)) {
+                    if (false == (v.hasOwnGetter(ask))) {
                         push out ask
                     }
                 }
                 asi = (asi + 1)
             }
-            def extra:[string] (keys v.objectMap)
+            def extra:[string] (v.ownDataKeys())
             def j:int 0
             while (j < (array_length extra)) {
                 push out (itemAt extra j)
@@ -19147,13 +19147,13 @@ class ComponentEngine {
     ; from an absent key, which getMember cannot). Used by the `in` operator.
     fn objHasKey:boolean (v:EvalValue key:string) {
         if (EvValueBridge.isObject(v)) {
-            return (has v.objectMap key)
+            return (v.hasOwnData(key))
         }
         ; D-FNPROPS: length, name and prototype are OWN properties of every
         ; function even though the engine synthesises them on read rather than
         ; storing them, so hasOwnProperty has to know about them by name.
         if (v.isFunction()) {
-            if (has v.objectMap key) {
+            if (v.hasOwnData(key)) {
                 return true
             }
             ; A BUILT-IN stores its length and name, so a missing one there was
@@ -19172,7 +19172,7 @@ class ComponentEngine {
             return false
         }
         if (v.isArray()) {
-            if (has v.objectMap key) {
+            if (v.hasOwnData(key)) {
                 return true
             }
             if (key == "length") { return true }
@@ -19637,7 +19637,7 @@ class ComponentEngine {
             }
         }
         def obj:EvalValue (EvValueBridge.taggedObject(ks vs))
-        obj.protoRef = (this.builtinPrototype("Object"))
+        obj.setProto((this.builtinPrototype("Object")))
         return obj
     }
     fn jsonParse:EvalValue (src:string) {
@@ -19725,7 +19725,7 @@ class ComponentEngine {
         ; link a plain object had no toString, hasOwnProperty or valueOf to
         ; inherit at all, so a guest override of one of them was invisible and
         ; ToPrimitive could not find the default either.
-        built.protoRef = (this.builtinPrototype("Object"))
+        built.setProto((this.builtinPrototype("Object")))
         def ai:int 0
         while (ai < (array_length accKeys)) {
             def ak:string (itemAt accKeys ai)

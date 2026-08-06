@@ -804,6 +804,23 @@ describe("shapes (closed variant families)", () => {
   });
 
   /**
+   * E4b (PLAN_SHAPES.md §7.5): storage fields hidden behind EvalValue
+   * accessors — array dense store, own-data bag, proto link.
+   */
+  describe("EvValue E4b storage accessors", () => {
+    const E4B = `${FIXTURES_DIR}/shape_evalvalue_e4b_accessors.rgr`;
+    const EXPECTED_E4B = ["arr", "obj", "proto"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E4B, EXPECTED_E4B);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E4B, EXPECTED_E4B);
+    });
+  });
+
+  /**
    * Group field projection (PLAN_SHAPES.md §7 / C5). Fields declared on a
    * group are read and written through the group type via generated get_/set_
    * ops — no narrowing required, identity preserved for reference groups.

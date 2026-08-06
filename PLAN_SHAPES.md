@@ -1209,12 +1209,17 @@ that no `record` with a class-typed field could avoid are fixed
 4. **Delete `valueType` / migrate kind onto the shape** (in progress).
    - **✅ E4a — kind discriminant:** `class EvalValue` carries `body:EvValue`;
      factories stamp the matching case; `is*` / `equals` / `kindName` read the
-     shape. `valueType` is deleted from source. Collection payloads
-     (`arrayValue`, `objectMap`, …) and mutators still live on the class.
-     Fixture: `shape_evalvalue_e4_kind.rgr`.
-   - **E4b ahead:** move collection/property storage onto `EvPropertyBag` /
-     `Array.items` / `Map.entries`, migrate mutators, then delete the class
-     shell and rename `EvValue` → `EvalValue`.
+     shape. `valueType` is deleted from source. Fixture: `shape_evalvalue_e4_kind.rgr`.
+   - **✅ E4b — storage accessors:** `ComponentEngine` no longer touches class
+     storage fields (`arrayValue`, `objectMap`, `getterMap`/`setterMap`,
+     `attrFlags`, `protoRef`, integrity flags, `mapVals`, `functionNode`,
+     `boundThis`, `declaredLength`). Access goes through EvalValue methods
+     (`denseLen` / `itemsOf` / `hasOwnData` / `setProto` / …). Class remains
+     the source of truth; shape `body` collections stay empty stubs.
+     Fixture: `shape_evalvalue_e4b_accessors.rgr`.
+   - **E4c ahead:** relocate SoT onto `EvPropertyBag` / `Array.items` /
+     `Map.entries`, migrate mutators onto the shape, delete the class shell,
+     rename `EvValue` → `EvalValue`.
 5. **Re-measure.** `sizeof(EvalValue)` on C++, the eight benchmark cases on Node, C++,
    Rust, Go, Kotlin, Python and C#, and the small-integer pool's remaining value —
    with primitives no longer heap-allocated, the pool may stop earning its keep on the
