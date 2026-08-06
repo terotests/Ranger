@@ -1,0 +1,56 @@
+; E4c smoke: Map.entries + Set.items are SoT (PLAN_SHAPES.md §7.5).
+Import "../../gallery/game_engine/v2/interp/migrate/src/EvValueBridge.rgr"
+
+class Main {
+    sfn main:void () {
+        def mp:EvalValue (EvValueBridge.taggedMapEmpty())
+        mp.mapSet((EvValueBridge.taggedString("a")) (EvValueBridge.taggedNumber(1.0)))
+        mp.mapSet((EvValueBridge.taggedString("b")) (EvValueBridge.taggedNumber(2.0)))
+        if ((mp.denseLen()) == 2) {
+            if ((mp.mapHas((EvValueBridge.taggedString("a"))))) {
+                def v:EvalValue (mp.mapGet((EvValueBridge.taggedString("a"))))
+                if (v.isNumber()) {
+                    print "map"
+                } {
+                    print "WRONG: mapGet"
+                }
+            } {
+                print "WRONG: mapHas"
+            }
+        } {
+            print "WRONG: mapLen"
+        }
+
+        def shaped:EvValue (EvValueBridge.fromTagged(mp))
+        case shaped m:EvValue.Map {
+            if ((array_length m.entries) == 2) {
+                print "mapsot"
+            } {
+                print "WRONG: entries"
+            }
+        }
+
+        def st:EvalValue (EvValueBridge.taggedSetEmpty())
+        st.setAdd((EvValueBridge.taggedNumber(9.0)))
+        st.setAdd((EvValueBridge.taggedNumber(9.0)))
+        st.setAdd((EvValueBridge.taggedNumber(8.0)))
+        if ((st.denseLen()) == 2) {
+            if (st.setHas((EvValueBridge.taggedNumber(8.0)))) {
+                print "set"
+            } {
+                print "WRONG: setHas"
+            }
+        } {
+            print "WRONG: setLen"
+        }
+
+        def ss:EvValue (EvValueBridge.fromTagged(st))
+        case ss s:EvValue.Set {
+            if ((array_length s.items) == 2) {
+                print "setsot"
+            } {
+                print "WRONG: items"
+            }
+        }
+    }
+}

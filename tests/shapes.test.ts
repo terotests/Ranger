@@ -838,6 +838,22 @@ describe("shapes (closed variant families)", () => {
   });
 
   /**
+   * E4c: Map.entries + Set.items are SoT on the shape body.
+   */
+  describe("EvValue E4c map/set storage", () => {
+    const E4C_MS = `${FIXTURES_DIR}/shape_evalvalue_e4c_mapset.rgr`;
+    const EXPECTED_E4C_MS = ["map", "mapsot", "set", "setsot"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E4C_MS, EXPECTED_E4C_MS);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E4C_MS, EXPECTED_E4C_MS);
+    });
+  });
+
+  /**
    * Group field projection (PLAN_SHAPES.md §7 / C5). Fields declared on a
    * group are read and written through the group type via generated get_/set_
    * ops — no narrowing required, identity preserved for reference groups.

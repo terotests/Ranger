@@ -1221,10 +1221,13 @@ that no `record` with a class-typed field could avoid are fixed
      - **✅ Array dense store** on `body.Array.items` / `declaredLength`
        (`toStored` / `fromBody` + `EvValueHandles` for ref identity).
      - **✅ Object own-data** on `body.*.properties` (`EvPropertyBag` Data
-       slots). Getters/setters/attrs/proto/integrity still on the class.
-     - **Ahead:** Map.entries / Set.items, accessor+attr+proto cutover,
-       delete the class shell, rename `EvValue` → `EvalValue`.
-     Fixture: `shape_evalvalue_e4c_array.rgr`.
+       slots).
+     - **✅ Map.entries / Set.items** on the shape body.
+     - **✅ Accessors / attrs / proto / integrity** on `EvPropertyBag`
+       (Hole sentinel for absent accessor halves).
+     - **Ahead:** delete unused class storage fields / shell, rename
+       `EvValue` → `EvalValue`.
+     Fixtures: `shape_evalvalue_e4c_array.rgr`, `shape_evalvalue_e4c_mapset.rgr`.
 5. **Re-measure.** `sizeof(EvalValue)` on C++, the eight benchmark cases on Node, C++,
    Rust, Go, Kotlin, Python and C#, and the small-integer pool's remaining value —
    with primitives no longer heap-allocated, the pool may stop earning its keep on the

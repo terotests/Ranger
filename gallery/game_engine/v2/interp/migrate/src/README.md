@@ -19,10 +19,10 @@
 - **✅ E4a (kind discriminant)** — `valueType` deleted; `EvalValue.body:EvValue`.
 - **✅ E4b (storage accessors)** — CE uses EvalValue accessors for arrays,
   property bags, proto, flags, functionNode, boundThis.
-- **E4c in progress** — Array dense store on `body.Array.items`; Object
-  own-data on `EvPropertyBag` Data slots; `EvValueHandles` preserves ref
-  identity. Ahead: Map.entries / Set.items, accessors+attrs+proto, delete
-  class shell, rename `EvValue` → `EvalValue`.
+- **E4c in progress** — Array/Map/Set collection stores + Object own-data,
+  accessors, attrs, proto and integrity on the shape (`EvPropertyBag` /
+  case fields). `EvValueHandles` preserves ref identity. Ahead: delete
+  unused class storage fields / shell, rename `EvValue` → `EvalValue`.
 
 ## Unit / contract tests that gate this folder
 

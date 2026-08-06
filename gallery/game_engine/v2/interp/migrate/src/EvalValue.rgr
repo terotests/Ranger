@@ -5,16 +5,16 @@
 ; null, arrays, objects, functions, and EVG elements.
 ;
 ; Migration (PLAN_SHAPES.md §7.5 step 4 / E4c): kind lives in `body:EvValue`.
-; Array dense items + declaredLength are SoT on `body` (Array case). Object /
-; Map / Set payloads still sit on this class until their cutovers. `valueType`
-; is gone. Shape storage holds `EvValue`; `EvValueHandles` round-trips refs.
+; Collection stores, own-data, accessors, attrs, proto and integrity flags live
+; on the shape (`EvPropertyBag` / Array.items / Map.entries / Set.items).
+; Class fields for those are unused stubs. `EvValueHandles` round-trips refs.
 
 Import "../../../evg/EVGElement.rgr"
 Import "../../../../../ts_parser/ts_parser_simple.rgr"
 Import "EvValue.rgr"
 
 ; Kind discriminant: `body` (shape EvValue). Legacy int tags are gone.
-; Map: keys in arrayValue, values in mapVals. Set: elements in arrayValue.
+; Map SoT: body.Map.entries. Set SoT: body.Set.items.
 
 ; Runtime hooks the LLVM backend replaces with intrinsics. Every other target
 ; keeps these bodies, so the optimisations they gate simply never fire there --
@@ -755,8 +755,8 @@ class EvalValue {
         if functionNode {
             v.functionNode = (unwrap functionNode)
         }
-        if protoRef {
-            v.protoRef = (unwrap protoRef)
+        if (this.hasProto()) {
+            v.setProto((this.protoOf()))
         }
         def handles:EvValueHandles (EvValueHandles.__singleton())
         handles.remember(v)
@@ -1006,8 +1006,12 @@ class EvalValue {
     ; ---- D-ATTRS: property attribute accessors ---------------------------
     ; Absent means the property was made by plain assignment: all three true.
     fn attrOf:int (key:string) {
-        if (has attrFlags key) {
-            return (unwrap (get attrFlags key))
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            if (props.hasSlot(key)) {
+                return (props.attrsOf(key))
+            }
         }
         return 7
     }
@@ -1032,11 +1036,15 @@ class EvalValue {
         if w { f = (bit_or f 1) }
         if e { f = (bit_or f 2) }
         if c { f = (bit_or f 4) }
-        set attrFlags key f
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            props.setAttrsOn(key f)
+        }
     }
 
     ; freeze/seal act on every EXISTING property; later additions are blocked by
-    ; extensibleFlag instead, which is why both are tracked.
+    ; the bag's extensible flag instead, which is why both are tracked.
     fn markAllNonConfigurable:void (alsoNonWritable:boolean) {
         def ks:[string] (this.ownDataKeys())
         def i:int 0
@@ -1049,6 +1057,20 @@ class EvalValue {
             this.setAttrs(k w (this.isEnumerable(k)) false)
             i = (i + 1)
         }
+        def gk:[string] (this.ownGetterKeys())
+        def gi:int 0
+        while (gi < (array_length gk)) {
+            def gk1:string (itemAt gk gi)
+            this.setAttrs(gk1 (this.isWritable(gk1)) (this.isEnumerable(gk1)) false)
+            gi = (gi + 1)
+        }
+        def sk:[string] (this.ownSetterKeys())
+        def si:int 0
+        while (si < (array_length sk)) {
+            def sk1:string (itemAt sk si)
+            this.setAttrs(sk1 (this.isWritable(sk1)) (this.isEnumerable(sk1)) false)
+            si = (si + 1)
+        }
     }
 
     ; D-ACCESSORS: accessor lookup, walking the prototype chain like a data
@@ -1057,47 +1079,30 @@ class EvalValue {
     ; accessor property back into a data one -- leaving the functions behind
     ; would let the getter keep winning over the new value.
     fn clearAccessor:void (key:string) {
-        def newG:[string:EvalValue]
-        def gk:[string] (keys getterMap)
-        for gk kk:string idx {
-            if (kk != key) {
-                set newG kk (unwrap (get getterMap kk))
-            }
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            props.clearAccessor(key)
         }
-        getterMap = newG
-        def newS:[string:EvalValue]
-        def sk:[string] (keys setterMap)
-        for sk kk2:string idx2 {
-            if (kk2 != key) {
-                set newS kk2 (unwrap (get setterMap kk2))
-            }
-        }
-        setterMap = newS
     }
 
     ; Remove ONLY the getter, only the setter, or only the data slot. Redefining
     ; an accessor replaces the halves the descriptor mentions and keeps the rest,
     ; so clearing both together would drop a setter the descriptor never named.
     fn clearGetterOnly:void (key:string) {
-        def newG:[string:EvalValue]
-        def gk:[string] (keys getterMap)
-        for gk kk:string idx {
-            if (kk != key) {
-                set newG kk (unwrap (get getterMap kk))
-            }
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            props.clearGetter(key)
         }
-        getterMap = newG
     }
 
     fn clearSetterOnly:void (key:string) {
-        def newS:[string:EvalValue]
-        def sk:[string] (keys setterMap)
-        for sk kk:string idx {
-            if (kk != key) {
-                set newS kk (unwrap (get setterMap kk))
-            }
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            props.clearSetter(key)
         }
-        setterMap = newS
     }
 
     fn clearDataSlot:void (key:string) {
@@ -1108,11 +1113,11 @@ class EvalValue {
         if (depth > 16) {
             return (EvalValue.null())
         }
-        if (has getterMap key) {
-            return (unwrap (get getterMap key))
+        if (this.hasOwnGetter(key)) {
+            return (this.getOwnGetter(key))
         }
-        if protoRef {
-            def pr:EvalValue (unwrap protoRef)
+        if (this.hasProto()) {
+            def pr:EvalValue (this.protoOf())
             def nd:int (depth + 1)
             return (pr.findGetter(key nd))
         }
@@ -1123,11 +1128,11 @@ class EvalValue {
     ; key. A set-only accessor makes the property read as undefined rather than
     ; falling through to a data property further up.
     fn hasSetterFor:boolean (key:string) {
-        if (has setterMap key) {
+        if (this.hasOwnSetter(key)) {
             return true
         }
-        if protoRef {
-            def pr:EvalValue (unwrap protoRef)
+        if (this.hasProto()) {
+            def pr:EvalValue (this.protoOf())
             if (pr.hasOwnData(key)) {
                 return false
             }
@@ -1140,11 +1145,11 @@ class EvalValue {
         if (depth > 16) {
             return (EvalValue.null())
         }
-        if (has setterMap key) {
-            return (unwrap (get setterMap key))
+        if (this.hasOwnSetter(key)) {
+            return (this.getOwnSetter(key))
         }
-        if protoRef {
-            def pr:EvalValue (unwrap protoRef)
+        if (this.hasProto()) {
+            def pr:EvalValue (this.protoOf())
             def nd:int (depth + 1)
             return (pr.findSetter(key nd))
         }
@@ -1152,11 +1157,19 @@ class EvalValue {
     }
 
     fn defineGetter:void (key:string fn:EvalValue) {
-        set getterMap key fn
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            props.putGetter(key (fn.toStored()) (props.attrsOf(key)))
+        }
     }
 
     fn defineSetter:void (key:string fn:EvalValue) {
-        set setterMap key fn
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            props.putSetter(key (fn.toStored()) (props.attrsOf(key)))
+        }
     }
 
     ; True when the property is an accessor anywhere up the chain. Used to keep
@@ -1175,10 +1188,15 @@ class EvalValue {
         if (depth > 16) {
             return false
         }
-        if (has getterMap key) { return true }
-        if (has setterMap key) { return true }
-        if protoRef {
-            def pr:EvalValue (unwrap protoRef)
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            if (props.hasAccessor(key)) {
+                return true
+            }
+        }
+        if (this.hasProto()) {
+            def pr:EvalValue (this.protoOf())
             return (pr.hasAccessorSlot(key (depth + 1)))
         }
         return false
@@ -1201,8 +1219,8 @@ class EvalValue {
         if (this.hasOwnData(key)) {
             return (this.getOwnData(key))
         }
-        if protoRef {
-            def pr:EvalValue (unwrap protoRef)
+        if (this.hasProto()) {
+            def pr:EvalValue (this.protoOf())
             def nd:int (depth + 1)
             return (pr.getMemberDepth(key nd))
         }
@@ -1242,8 +1260,8 @@ class EvalValue {
             ; D-PROTO: an own-property miss walks the prototype chain, so a
             ; method defined as `F.prototype.m = ...` is reachable through an
             ; instance made by `new F()`.
-            if protoRef {
-                def pr:EvalValue (unwrap protoRef)
+            if (this.hasProto()) {
+                def pr:EvalValue (this.protoOf())
                 return (pr.getMemberDepth(key 1))
             }
             ; D-IDENTITY: a missing object property reads as `undefined`, never
@@ -1295,8 +1313,8 @@ class EvalValue {
                 if (ar < 0) { ar = 0 }
                 return (EvalValue.fromInt(ar))
             }
-            if protoRef {
-                def fpr:EvalValue (unwrap protoRef)
+            if (this.hasProto()) {
+                def fpr:EvalValue (this.protoOf())
                 return (fpr.getMemberDepth(key 1))
             }
             return (EvalValue.undefined())
@@ -1403,9 +1421,10 @@ class EvalValue {
         def propsOpt@(optional):EvPropertyBag (this.tryProps())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
-            def attrs:int 0
-            if (has attrFlags key) {
-                attrs = (unwrap (get attrFlags key))
+            ; Plain assignment defaults all three attributes true (mask 7).
+            def attrs:int 7
+            if (props.hasSlot(key)) {
+                attrs = (props.attrsOf(key))
             }
             props.putData(key (value.toStored()) attrs)
         }
@@ -1427,61 +1446,143 @@ class EvalValue {
         return none
     }
     fn hasOwnGetter:boolean (key:string) {
-        return (has getterMap key)
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (props.hasGetter(key))
+        }
+        return false
     }
     fn getOwnGetter:EvalValue (key:string) {
-        return (unwrap (get getterMap key))
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (EvalValue.fromBody((props.getGetter(key))))
+        }
+        return (EvalValue.undefined())
     }
     fn ownGetterKeys:[string] () {
-        return (keys getterMap)
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (props.getterKeys())
+        }
+        def none:[string]
+        return none
     }
     fn hasOwnSetter:boolean (key:string) {
-        return (has setterMap key)
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (props.hasSetter(key))
+        }
+        return false
     }
     fn getOwnSetter:EvalValue (key:string) {
-        return (unwrap (get setterMap key))
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (EvalValue.fromBody((props.getSetter(key))))
+        }
+        return (EvalValue.undefined())
     }
     fn ownSetterKeys:[string] () {
-        return (keys setterMap)
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (props.setterKeys())
+        }
+        def none:[string]
+        return none
     }
     fn hasOwnAttrs:boolean (key:string) {
-        return (has attrFlags key)
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (props.hasSlot(key))
+        }
+        return false
     }
     fn hasProto:boolean () {
-        if (null? protoRef) {
-            return false
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (props.hasPrototype())
+        }
+        return false
+    }
+    fn protoOf:EvalValue () {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (EvalValue.fromBody((props.getPrototype())))
+        }
+        return (EvalValue.null())
+    }
+    fn setProto:void (p:EvalValue) {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            props.setPrototype((p.toStored()))
+        }
+    }
+    fn isExtensible:boolean () {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return props.extensible
         }
         return true
     }
-    fn protoOf:EvalValue () {
-        return (unwrap protoRef)
-    }
-    fn setProto:void (p:EvalValue) {
-        protoRef = p
-    }
-    fn isExtensible:boolean () {
-        return extensibleFlag
-    }
     fn setExtensible:void (b:boolean) {
-        extensibleFlag = b
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            props.extensible = b
+        }
     }
     fn isSealedObj:boolean () {
-        return sealedFlag
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return props.sealed
+        }
+        return false
     }
     fn setSealedObj:void (b:boolean) {
-        sealedFlag = b
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            props.sealed = b
+        }
     }
     fn isFrozenObj:boolean () {
-        return frozenFlag
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return props.frozen
+        }
+        return false
     }
     fn setFrozenObj:void (b:boolean) {
-        frozenFlag = b
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            props.frozen = b
+        }
     }
     fn mapValAt:EvalValue (i:int) {
-        return (itemAt mapVals i)
+        def _k:EvValue body
+        if (EvValue.isMap(_k)) {
+            case _k m:EvValue.Map {
+                def e:EvMapEntry (itemAt m.entries i)
+                return (EvalValue.fromBody((unwrap e.value)))
+            }
+        }
+        return (EvalValue.undefined())
     }
     fn mapValsLen:int () {
-        return (array_length mapVals)
+        return (this.denseLen())
     }
     fn hasFunctionNode:boolean () {
         if (null? functionNode) {
@@ -1526,7 +1627,7 @@ class EvalValue {
             ; when the object is frozen, or when it is a NEW property on a
             ; non-extensible object. Sloppy mode ignores the failure silently,
             ; which is what this models; strict mode would throw.
-            if frozenFlag {
+            if (this.isFrozenObj()) {
                 return
             }
             if (this.hasOwnData(key)) {
@@ -1534,7 +1635,7 @@ class EvalValue {
                     return
                 }
             } {
-                if (false == extensibleFlag) {
+                if (false == (this.isExtensible())) {
                     return
                 }
                 ; A non-writable data property on the PROTOTYPE also refuses the
@@ -1553,7 +1654,7 @@ class EvalValue {
             ; constructor's `Number.NaN` is non-writable, and the write was
             ; taken unconditionally because this branch skipped the check
             ; entirely.
-            if frozenFlag {
+            if (this.isFrozenObj()) {
                 return
             }
             if (this.hasOwnData(key)) {
@@ -1561,7 +1662,7 @@ class EvalValue {
                     return
                 }
             } {
-                if (false == extensibleFlag) {
+                if (false == (this.isExtensible())) {
                     return
                 }
                 ; No protoRefuses here, unlike a plain object: a built-in
@@ -1589,15 +1690,15 @@ class EvalValue {
         if (depth > 16) {
             return false
         }
-        if (null? protoRef) {
+        if (false == (this.hasProto())) {
             return false
         }
-        def p:EvalValue (unwrap protoRef)
+        def p:EvalValue (this.protoOf())
         ; An accessor is handled by the setter path, not here.
-        if (has p.getterMap key) {
+        if (p.hasOwnGetter(key)) {
             return false
         }
-        if (has p.setterMap key) {
+        if (p.hasOwnSetter(key)) {
             return false
         }
         if (p.hasOwnData(key)) {
@@ -1610,6 +1711,16 @@ class EvalValue {
         ; D-ATTRS: a non-configurable property cannot be deleted, which is what
         ; seal and freeze rely on.
         if (this.hasOwnData(key)) {
+            if (false == (this.isConfigurable(key))) {
+                return
+            }
+        }
+        if (this.hasOwnGetter(key)) {
+            if (false == (this.isConfigurable(key))) {
+                return
+            }
+        }
+        if (this.hasOwnSetter(key)) {
             if (false == (this.isConfigurable(key))) {
                 return
             }
@@ -1634,30 +1745,8 @@ class EvalValue {
                 this.addSuppressed(key)
             }
         }
-        ; D-ACCESSORS: an accessor property lives in getterMap/setterMap, so
-        ; deleting one has to clear those too. It did not, and the property
-        ; survived every `delete` -- which is observable the moment a write
-        ; lands on the name afterwards and finds a getter still there.
-        if (has getterMap key) {
-            def rg:[string:EvalValue]
-            def gk:[string] (keys getterMap)
-            for gk kk2:string idx2 {
-                if (kk2 != key) {
-                    set rg kk2 (unwrap (get getterMap kk2))
-                }
-            }
-            getterMap = rg
-        }
-        if (has setterMap key) {
-            def rs:[string:EvalValue]
-            def sk:[string] (keys setterMap)
-            for sk kk3:string idx3 {
-                if (kk3 != key) {
-                    set rs kk3 (unwrap (get setterMap kk3))
-                }
-            }
-            setterMap = rs
-        }
+        ; D-ACCESSORS: clear accessor slots on the bag too.
+        this.clearAccessor(key)
     }
     
     ; Set an array element by index (extends with null when needed).
@@ -1674,8 +1763,7 @@ class EvalValue {
 
     ; ---- E4b/E4c: dense-store accessors ------------------------------------
     ; ComponentEngine must not touch `.arrayValue` / `.declaredLength` fields.
-    ; Array SoT is body.Array.items / declaredLength; Map/Set still use
-    ; class arrayValue until their cutovers.
+    ; Array → body.Array.items; Map keys → entries[].key; Set → body.Set.items.
     fn itemsOf:[EvalValue] () {
         def _k:EvValue body
         if (EvValue.isArrayValue(_k)) {
@@ -1687,7 +1775,26 @@ class EvalValue {
             }
             return out
         }
-        return arrayValue
+        if (EvValue.isSet(_k)) {
+            def outS:[EvalValue]
+            case _k st:EvValue.Set {
+                for st.items it2:EvValue i2 {
+                    push outS (EvalValue.fromBody(it2))
+                }
+            }
+            return outS
+        }
+        if (EvValue.isMap(_k)) {
+            def outM:[EvalValue]
+            case _k m:EvValue.Map {
+                for m.entries e:EvMapEntry i3 {
+                    push outM (EvalValue.fromBody((unwrap e.key)))
+                }
+            }
+            return outM
+        }
+        def none:[EvalValue]
+        return none
     }
     fn denseLen:int () {
         def _k:EvValue body
@@ -1696,7 +1803,17 @@ class EvalValue {
                 return (array_length a.items)
             }
         }
-        return (array_length arrayValue)
+        if (EvValue.isSet(_k)) {
+            case _k st:EvValue.Set {
+                return (array_length st.items)
+            }
+        }
+        if (EvValue.isMap(_k)) {
+            case _k m:EvValue.Map {
+                return (array_length m.entries)
+            }
+        }
+        return 0
     }
     fn arrayItemAt:EvalValue (i:int) {
         def _k:EvValue body
@@ -1705,7 +1822,18 @@ class EvalValue {
                 return (EvalValue.fromBody((itemAt a.items i)))
             }
         }
-        return (itemAt arrayValue i)
+        if (EvValue.isSet(_k)) {
+            case _k st:EvValue.Set {
+                return (EvalValue.fromBody((itemAt st.items i)))
+            }
+        }
+        if (EvValue.isMap(_k)) {
+            case _k m:EvValue.Map {
+                def e:EvMapEntry (itemAt m.entries i)
+                return (EvalValue.fromBody((unwrap e.key)))
+            }
+        }
+        return (EvalValue.undefined())
     }
     fn declaredLengthOf:int () {
         def _k:EvValue body
@@ -1773,30 +1901,48 @@ class EvalValue {
         body = (EvValue.arrayAt(identityId stored))
     }
 
-    ; ---- Map helpers: keys in arrayValue, values in mapVals ----
+    ; ---- Map helpers: SoT on body.Map.entries (EvMapEntry key/value) ----
     fn mapIndexOfKey:int (key:EvalValue) {
-        def i:int 0
-        while (i < (array_length arrayValue)) {
-            if ((key.equals((itemAt arrayValue i)))) {
-                return i
+        def _k:EvValue body
+        if (EvValue.isMap(_k)) {
+            case _k m:EvValue.Map {
+                def i:int 0
+                while (i < (array_length m.entries)) {
+                    def e:EvMapEntry (itemAt m.entries i)
+                    def ek:EvalValue (EvalValue.fromBody((unwrap e.key)))
+                    if ((key.equals(ek))) {
+                        return i
+                    }
+                    i = (i + 1)
+                }
             }
-            i = (i + 1)
         }
         return (0 - 1)
     }
     fn mapSet:void (key:EvalValue value:EvalValue) {
-        def idx:int (this.mapIndexOfKey(key))
-        if (idx >= 0) {
-            set mapVals idx value
-        } {
-            push arrayValue key
-            push mapVals value
+        def _k:EvValue body
+        if (false == (EvValue.isMap(_k))) {
+            return
+        }
+        case _k m:EvValue.Map {
+            def entries:[EvMapEntry] m.entries
+            def idx:int (this.mapIndexOfKey(key))
+            if (idx >= 0) {
+                def e:EvMapEntry (itemAt entries idx)
+                e.value = (value.toStored())
+            } {
+                def ne:EvMapEntry (new EvMapEntry())
+                ne.key = (key.toStored())
+                ne.value = (value.toStored())
+                push entries ne
+            }
+            body = (new EvValue.Map(m.identityId m.properties entries))
         }
     }
     fn mapGet:EvalValue (key:EvalValue) {
         def idx:int (this.mapIndexOfKey(key))
         if (idx >= 0) {
-            return (itemAt mapVals idx)
+            return (this.mapValAt(idx))
         }
         return (EvalValue.undefined())
     }
@@ -1808,70 +1954,98 @@ class EvalValue {
         if (idx < 0) {
             return false
         }
-        def nk:[EvalValue]
-        def nv:[EvalValue]
-        def i:int 0
-        while (i < (array_length arrayValue)) {
-            if (i != idx) {
-                push nk (itemAt arrayValue i)
-                push nv (itemAt mapVals i)
+        def _k:EvValue body
+        case _k m:EvValue.Map {
+            def rebuilt:[EvMapEntry]
+            def i:int 0
+            while (i < (array_length m.entries)) {
+                if (i != idx) {
+                    push rebuilt (itemAt m.entries i)
+                }
+                i = (i + 1)
             }
-            i = (i + 1)
+            body = (new EvValue.Map(m.identityId m.properties rebuilt))
         }
-        arrayValue = nk
-        mapVals = nv
         return true
     }
 
-    ; ---- Set helpers: unique elements in arrayValue ----
+    ; ---- Set helpers: SoT on body.Set.items ----
     fn setAdd:void (value:EvalValue) {
-        def i:int 0
-        while (i < (array_length arrayValue)) {
-            if ((value.equals((itemAt arrayValue i)))) {
-                return
-            }
-            i = (i + 1)
+        if (this.setHas(value)) {
+            return
         }
-        push arrayValue value
+        def _k:EvValue body
+        if (false == (EvValue.isSet(_k))) {
+            return
+        }
+        case _k st:EvValue.Set {
+            def items:[EvValue] st.items
+            push items (value.toStored())
+            body = (new EvValue.Set(st.identityId st.properties items))
+        }
     }
     fn setHas:boolean (value:EvalValue) {
-        def i:int 0
-        while (i < (array_length arrayValue)) {
-            if ((value.equals((itemAt arrayValue i)))) {
-                return true
+        def _k:EvValue body
+        if (EvValue.isSet(_k)) {
+            case _k st:EvValue.Set {
+                def i:int 0
+                while (i < (array_length st.items)) {
+                    def el:EvalValue (EvalValue.fromBody((itemAt st.items i)))
+                    if ((value.equals(el))) {
+                        return true
+                    }
+                    i = (i + 1)
+                }
             }
-            i = (i + 1)
         }
         return false
     }
     fn setDelete:boolean (value:EvalValue) {
-        def idx:int (0 - 1)
-        def i:int 0
-        while (i < (array_length arrayValue)) {
-            if ((value.equals((itemAt arrayValue i)))) {
-                idx = i
-            }
-            i = (i + 1)
-        }
-        if (idx < 0) {
+        def _k:EvValue body
+        if (false == (EvValue.isSet(_k))) {
             return false
         }
-        def nk:[EvalValue]
-        def j:int 0
-        while (j < (array_length arrayValue)) {
-            if (j != idx) {
-                push nk (itemAt arrayValue j)
+        case _k st:EvValue.Set {
+            def idx:int (0 - 1)
+            def i:int 0
+            while (i < (array_length st.items)) {
+                def el:EvalValue (EvalValue.fromBody((itemAt st.items i)))
+                if ((value.equals(el))) {
+                    idx = i
+                }
+                i = (i + 1)
             }
-            j = (j + 1)
+            if (idx < 0) {
+                return false
+            }
+            def rebuilt:[EvValue]
+            def j:int 0
+            while (j < (array_length st.items)) {
+                if (j != idx) {
+                    push rebuilt (itemAt st.items j)
+                }
+                j = (j + 1)
+            }
+            body = (new EvValue.Set(st.identityId st.properties rebuilt))
+            return true
         }
-        arrayValue = nk
-        return true
+        return false
     }
     fn collClear:void () {
-        def empty:[EvalValue]
-        arrayValue = empty
-        def emptyV:[EvalValue]
-        mapVals = emptyV
+        def _k:EvValue body
+        if (EvValue.isMap(_k)) {
+            case _k m:EvValue.Map {
+                def emptyE:[EvMapEntry]
+                body = (new EvValue.Map(m.identityId m.properties emptyE))
+            }
+            return
+        }
+        if (EvValue.isSet(_k)) {
+            case _k st:EvValue.Set {
+                def emptyI:[EvValue]
+                body = (new EvValue.Set(st.identityId st.properties emptyI))
+            }
+        }
     }
     
     ; Array index access

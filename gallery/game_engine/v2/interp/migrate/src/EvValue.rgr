@@ -38,9 +38,7 @@ class EvPropertyBag {
     def sealed:boolean false
     def frozen:boolean false
 
-    ; E4c: data-property helpers (Accessor slots stay beside class getter/setter
-    ; maps until that cutover). Value payload is EvValue to avoid an EvalValue
-    ; import cycle.
+    ; E4c: property-bag SoT. Value payload is EvValue (avoids EvalValue import cycle).
     fn hasData:boolean (key:string) {
         if (false == (has slots key)) {
             return false
@@ -89,6 +87,230 @@ class EvPropertyBag {
             }
         }
         return out
+    }
+
+    fn hasSlot:boolean (key:string) {
+        return (has slots key)
+    }
+    fn attrsOf:int (key:string) {
+        if (false == (has slots key)) {
+            return 7
+        }
+        def slot:EvPropertySlot (unwrap (get slots key))
+        case slot d:EvPropertySlot.Data {
+            return d.attributes
+        }
+        case slot a:EvPropertySlot.Accessor {
+            return a.attributes
+        }
+        return 7
+    }
+    fn setAttrsOn:void (key:string attrs:int) {
+        if (false == (has slots key)) {
+            ; Attribute bits without a value — placeholder data slot (absent
+            ; value is filled by a later putData / define*).
+            def slot0:EvPropertySlot (new EvPropertySlot.Data((EvValue.undefined()) attrs))
+            set slots key slot0
+            return
+        }
+        def slot:EvPropertySlot (unwrap (get slots key))
+        case slot d:EvPropertySlot.Data {
+            def slotD:EvPropertySlot (new EvPropertySlot.Data((unwrap d.value) attrs))
+            set slots key slotD
+            return
+        }
+        case slot a:EvPropertySlot.Accessor {
+            ; Hole sentinel = absent half (ctor requires non-optional EvValue).
+            def g:EvValue (EvValue.hole())
+            def s:EvValue (EvValue.hole())
+            if a.getter {
+                g = (unwrap a.getter)
+            }
+            if a.setter {
+                s = (unwrap a.setter)
+            }
+            def slotA:EvPropertySlot (new EvPropertySlot.Accessor(g s attrs))
+            set slots key slotA
+        }
+    }
+
+    fn hasGetter:boolean (key:string) {
+        if (false == (has slots key)) {
+            return false
+        }
+        def slot:EvPropertySlot (unwrap (get slots key))
+        case slot a:EvPropertySlot.Accessor {
+            if a.getter {
+                def g:EvValue (unwrap a.getter)
+                if (false == (EvValue.isHole(g))) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+    fn hasSetter:boolean (key:string) {
+        if (false == (has slots key)) {
+            return false
+        }
+        def slot:EvPropertySlot (unwrap (get slots key))
+        case slot a:EvPropertySlot.Accessor {
+            if a.setter {
+                def s:EvValue (unwrap a.setter)
+                if (false == (EvValue.isHole(s))) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+    fn hasAccessor:boolean (key:string) {
+        if (false == (has slots key)) {
+            return false
+        }
+        def slot:EvPropertySlot (unwrap (get slots key))
+        case slot a:EvPropertySlot.Accessor {
+            return true
+        }
+        return false
+    }
+    fn getGetter:EvValue (key:string) {
+        def slot:EvPropertySlot (unwrap (get slots key))
+        case slot a:EvPropertySlot.Accessor {
+            return (unwrap a.getter)
+        }
+        return (EvValue.undefined())
+    }
+    fn getSetter:EvValue (key:string) {
+        def slot:EvPropertySlot (unwrap (get slots key))
+        case slot a:EvPropertySlot.Accessor {
+            return (unwrap a.setter)
+        }
+        return (EvValue.undefined())
+    }
+    fn putGetter:void (key:string g:EvValue attrs:int) {
+        def useAttrs:int attrs
+        def s:EvValue (EvValue.hole())
+        if (has slots key) {
+            def slot:EvPropertySlot (unwrap (get slots key))
+            case slot a:EvPropertySlot.Accessor {
+                if a.setter {
+                    def sv:EvValue (unwrap a.setter)
+                    if (false == (EvValue.isHole(sv))) {
+                        s = sv
+                    }
+                }
+                useAttrs = a.attributes
+            }
+        }
+        def slotN:EvPropertySlot (new EvPropertySlot.Accessor(g s useAttrs))
+        set slots key slotN
+    }
+    fn putSetter:void (key:string s:EvValue attrs:int) {
+        def useAttrs:int attrs
+        def g:EvValue (EvValue.hole())
+        if (has slots key) {
+            def slot:EvPropertySlot (unwrap (get slots key))
+            case slot a:EvPropertySlot.Accessor {
+                if a.getter {
+                    def gv:EvValue (unwrap a.getter)
+                    if (false == (EvValue.isHole(gv))) {
+                        g = gv
+                    }
+                }
+                useAttrs = a.attributes
+            }
+        }
+        def slotN:EvPropertySlot (new EvPropertySlot.Accessor(g s useAttrs))
+        set slots key slotN
+    }
+    fn clearGetter:void (key:string) {
+        if (false == (has slots key)) {
+            return
+        }
+        def slot:EvPropertySlot (unwrap (get slots key))
+        case slot a:EvPropertySlot.Accessor {
+            def s:EvValue (EvValue.hole())
+            def at:int a.attributes
+            if a.setter {
+                def sv:EvValue (unwrap a.setter)
+                if (false == (EvValue.isHole(sv))) {
+                    s = sv
+                }
+            }
+            if (EvValue.isHole(s)) {
+                this.removeData(key)
+            } {
+                def g:EvValue (EvValue.hole())
+                def slotN:EvPropertySlot (new EvPropertySlot.Accessor(g s at))
+                set slots key slotN
+            }
+        }
+    }
+    fn clearSetter:void (key:string) {
+        if (false == (has slots key)) {
+            return
+        }
+        def slot:EvPropertySlot (unwrap (get slots key))
+        case slot a:EvPropertySlot.Accessor {
+            def g:EvValue (EvValue.hole())
+            def at:int a.attributes
+            if a.getter {
+                def gv:EvValue (unwrap a.getter)
+                if (false == (EvValue.isHole(gv))) {
+                    g = gv
+                }
+            }
+            if (EvValue.isHole(g)) {
+                this.removeData(key)
+            } {
+                def s:EvValue (EvValue.hole())
+                def slotN:EvPropertySlot (new EvPropertySlot.Accessor(g s at))
+                set slots key slotN
+            }
+        }
+    }
+    fn clearAccessor:void (key:string) {
+        if (false == (has slots key)) {
+            return
+        }
+        def slot:EvPropertySlot (unwrap (get slots key))
+        case slot a:EvPropertySlot.Accessor {
+            this.removeData(key)
+        }
+    }
+    fn getterKeys:[string] () {
+        def out:[string]
+        def ks:[string] (keys slots)
+        for ks kk:string idx {
+            if (this.hasGetter(kk)) {
+                push out kk
+            }
+        }
+        return out
+    }
+    fn setterKeys:[string] () {
+        def out:[string]
+        def ks:[string] (keys slots)
+        for ks kk:string idx {
+            if (this.hasSetter(kk)) {
+                push out kk
+            }
+        }
+        return out
+    }
+
+    fn hasPrototype:boolean () {
+        if prototype {
+            return true
+        }
+        return false
+    }
+    fn getPrototype:EvValue () {
+        return (unwrap prototype)
+    }
+    fn setPrototype:void (p:EvValue) {
+        prototype = p
     }
 }
 
