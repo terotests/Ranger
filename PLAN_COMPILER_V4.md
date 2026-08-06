@@ -1,27 +1,31 @@
 # PLAN: Compiler v4 — shape-based AST
 
-> **Status:** design + scaffolding + **compatibility assessment**. Stages
-> **C0–C1** under `compiler/v4/`. Live product compiler remains **3.3.x** in
-> `compiler/ng_*.rgr` — **untouched**, so the existing Ranger test set stays
-> the gate for shipping code.
+> **Status:** **research probe + go/no-go.** C0–C1 under `compiler/v4/` prove
+> a syntax AST *can* be a shape. Product compiler remains **3.3.x** (`ng_*`).
 >
-> **Question:** can we rewrite the AST with shapes, keep original code almost
-> unchanged, keep `npm test` green the whole time, and stay invisible to users
-> (including macros)?
+> **Hard gates (updated):** full **macro parity is required before any cutover**
+> (no 70% compiler); existing Ranger tests must pass; half-landed mid-ends are
+> not useful.
 >
-> **Short answer:** shapes *fit* CodeNode, but an **in-place** “just change
-> CodeNode to a shape” rewrite is **not** a small, invisible change. Macros,
-> plugins, VSCode introspection, and ~90 compiler files mutate fat `CodeNode`
-> fields in place. The path that respects “minimal original churn + tests
-> always green” is a **parallel v4** (what this tree does), with cutover only
-> when G1–G3 pass — not a gradual edit of `ng_CodeNode.rgr` under the host.
+> **Recommendation: do not proceed with replacing CodeNode in the shipping
+> compiler.** Under those gates this is not an “AST-only” tweak — it is a
+> second implementation of the hot path (~15k LOC: FlowParser + macro engine +
+> LiveCompiler + CodeNode APIs) with **no user-visible win until 100% parity**.
+> Shapes remain valuable elsewhere (`EvalValue` / domain tagged unions). Keep
+> the v4 AstNode probe as evidence; do **not** treat G1–G3-via-v4 as the plan.
 
 ---
 
-## 0. First goals (not “all gallery”)
+## 0. First goals (historical — superseded by §2.5 recommendation)
+
+> **Note:** G1–G3 below were useful stress targets *if* a parallel compiler
+> were pursued to 100% parity. Given mandatory full macro parity and “no
+> half-landed compiler,” §2.5 **recommends not pursuing** CodeNode→shape as
+> the product path. G1–G3 already run on `ng_*`; they do not require an AST
+> rewrite.
 
 v4 is **not** aimed at compiling every gallery demo next. The first success
-bar is three programs that already stress the shipping compiler:
+bar *would have been* three programs that already stress the shipping compiler:
 
 | # | Goal | Entry | ~size | Why first |
 |---|---|---|---|---|
@@ -166,59 +170,85 @@ them cannot: any in-place AST change must reimplement splice + re-walk +
 register lifting + recursion guards (`active_macros`, depth 512) or macros
 mis-expand / hang (see `tests/macro-recursion.test.ts`).
 
-**Estimate:** reimplementing the macro engine on shapes is a **dedicated
-mid-stage** of v4 (after parse/collect/type), not a free side effect of changing
-the node type. Until then, G1–G2 on v4 either (a) avoid relying on host macros
-by lowering operators differently, or (b) use strategy **C** and keep expansion
-on CodeNode.
+### Revised gate: full macro parity immediately (no “later”)
 
-### Bootstrap / chicken-egg
+If the port is only allowed to land when **`@macro` + `defn` + `r.*` + the
+existing test suite** all pass, then strategies that defer macros are out.
+That collapses the options:
 
-- Generation N (class `CodeNode` in `bin/output.js`) can compile source that
-  *declares* shapes — that is how shapes work today.
-- Making the **host** AST itself a shape is a **generational** cutover (N
-  compiles N+1), not an edit inside one running compiler.
-- Therefore: v4 **uses** shapes while still being compiled by ng_; only G3
-  flips the host.
+| Path | With full macro parity as day-one cutover gate |
+|---|---|
+| **A Parallel v4, land at 100%** | Allowed in theory, but you must rebuild **parse + collect + walk + `buildMacro` + `TransformOpFn` + writers + plugins/API façade`** before anything replaces `ng_`. Intermediate `compiler/v4/` is not a product. Cost ≈ **second compiler**. |
+| **A Parallel v4, land at 70%** | **Rejected** — not useful. |
+| **B In-place** | Still forces the same rewrite on the live tree; tests go red for a long window. **Rejected.** |
+| **C Bridge only** | Keeps macros on CodeNode — **no shape rewrite of the AST that matters.** |
 
-### Realistic estimate (effort shape, not calendar)
+So the honest framing is no longer “AST shape rewrite with deferred macros.”
+It is: **rewrite the compiler mid-end on shapes, offline, until full parity,
+then flip.** That can keep `npm test` green on `ng_*` during the work, but it
+does not reduce the work, and it delivers **zero** product value until the
+flip.
 
-| Work | Invasiveness | Notes |
-|---|---|---|
-| Keep `ng_*` frozen; grow `compiler/v4/` | Low on original tree | Meets “tests always green” for the product suite |
-| C0–C1 AstNode + parser | Done / small | No user visibility |
-| C2–C4 collect + type + ES6 writer (no `@macro` yet) | Medium **new** code | Enough for a jpeg *subset* if operators are built-in or copied as non-macro |
-| Macro / `defn` engine on AstNode | **High** new code | Port of `buildMacro` + `TransformOpFn` + `rebuildWithType` |
-| Full FlowParser feature parity | **Very high** new code | This is most of “the compiler,” even if framed as AST-driven |
-| In-place edit of `ng_CodeNode` + call sites | **Very high** on original | Conflicts with constraints; expect long red test windows |
+### Is that useful? Recommendation
 
-**Bottom line for the constraints:**
+**No — not as a near-term product project.**
 
-- **Possible to keep original code and tests green?** Yes — only via **parallel
-  v4** (A), not via in-place shape-ification of CodeNode (B).
-- **Invisible to users?** Yes until cutover; at cutover, language should match
-  if acceptance is “same output on G1–G3 + `npm test`.”
-- **“Just AST, not full rewrite”?** The *type* change is local; the *call-site*
-  change is not. Expect the bulk of work to be walkers/macros/writers that
-  today assume one fat node — whether that work lives in new `compiler/v4/`
-  files or as edits to `ng_*` is a packaging choice; the volume is similar.
-- **Macros?** Hardest compatibility cliff after the parser. Plan for an
-  explicit port; do not assume they keep working “for free.”
+Reasons:
 
-### Chosen approach under these constraints
+1. **Payoff is back-loaded.** Exhaustiveness / smaller nodes help maintainers
+   only after FlowParser, macros, and writers all speak `match`. Users see
+   nothing until cutover.
+2. **Macros are the substrate, not a feature flag.** `if`, `??`, many
+   `Lang.rgr` ops, `TNodeFactory`, and `defn` in `stdops` all go through
+   CodeNode mutation. “Full macro parity” ≈ “full operator + sugar parity.”
+3. **Volume.** Hot path tied to CodeNode is on the order of **15k LOC**
+   (FlowParser ~7k, FlowWork ~4k, std_match2 ~1k, LiveCompiler ~1.5k,
+   CodeNode(+ext) ~1.7k), plus writers and `Lang.rgr` behavior. That is the
+   compiler, not a node-class swap.
+4. **Shapes already pay off elsewhere** with far less risk: closed domain
+   unions (`EvalPayload`, future `PropertySlot`, etc.) where one fat class
+   is local. CodeNode is the opposite — global substrate.
+5. **Chicken-egg.** The compiler that *implements* shapes is written against
+   class CodeNode. Hosting the AST as a shape is a generational rewrite, not
+   a refactor.
 
-1. **Do not modify `compiler/ng_*.rgr` for the AST experiment** (except unrelated
-   bugfixes). Product `npm test` remains the ng_ suite.
-2. Continue **A**: `compiler/v4/` with shape `AstNode`.
-3. Allow optional **C** later if we need to parse real G1 sources before the v4
-   mid-end exists (AstNode → CodeNode → existing pipeline) — experiment only.
-4. Port macros only when v4 has a walk that needs them; gate G1 on either
-   non-macro operator coverage or a working macro port.
-5. Cutover (replace `ng_Compiler` entry) only when G1 + G2 smoke + G3a and the
-   **existing** test suite run through the v4-built host (or a documented
-   subset with explicit gaps).
+**When it would become worth reconsidering**
+
+- A committed effort to build a **second** compiler to full `npm test` parity
+  (accepting a long parallel period with no intermediate merge to product), or
+- Language changes that make a façade viable (e.g. stable node API that is not
+  field-mutation based) — not available today.
+
+**What to do instead (recommended)**
+
+1. **Stop treating CodeNode→shape as the v4 product plan.** Leave C0–C1 as a
+   feasibility probe (shapes can model syntax kinds).
+2. **Keep investing shapes in domain values** (EvalValue migration, other
+   tagged unions) where tests and scope stay local.
+3. **Optional hygiene on the existing AST** without shapes: more use of
+   `CodeNodeLiteral` / `cleanNode`, move analysis into side tables where
+   incremental compile needs it (`INCREMENTAL_PLAN.md`) — only if each change
+   keeps `npm test` green.
+4. **Do not** chase G1/G2/G3 by rewriting the AST representation; those goals
+   already run on today’s compiler.
+
+### Bootstrap note
+
+Generation N (class CodeNode) compiling shape *source* is fine and already
+ships. Making the **host AST** a shape is a different project (generational
+cutover) and is what this recommendation declines for now.
+
+### Effort if someone insisted anyway
+
+| Work | Reality under full-parity gate |
+|---|---|
+| C0–C1 AstNode + parser | Done — research only |
+| Everything to first useful cutover | Port macro engine + FlowParser behavior + ES6 writer + pass `npm test` |
+| “AST-only” framing | Misleading — call-site volume dominates |
 
 ---
+
+
 
 ## 3. Design: split the layers
 
@@ -426,8 +456,8 @@ The product entry `compiler/ng_Compiler.rgr` is untouched until G3b.
 
 1. ~~Land C0: plan + AstNode probe + test~~
 2. ~~Implement C1 parser emitting AstNode (subset)~~
-3. ~~Pin first goals: G1 jpeg_scaler, G2 TS engine, G3 self-host~~
-4. ~~Compatibility assessment: reject in-place CodeNode→shape under “always green”~~
-5. Keep **`ng_*` frozen**; extend C1 (annotations, file API) then C2 collect for G1
-6. Document which G1 operators need `@macro` vs can be direct writer templates
-7. Keep `tests/compiler-v4-ast.test.ts` green; never gate product `npm test` on v4 until cutover
+3. ~~Compatibility + go/no-go under full macro parity~~
+4. **Do not** continue C2–C7 / G1–G3-via-v4 as product work unless explicitly
+   commissioned as a full second-compiler project
+5. Prefer shapes on domain tagged unions; keep `ng_*` as the compiler
+6. Leave `compiler/v4/` as a research probe (or drop in a follow-up if clutter)
