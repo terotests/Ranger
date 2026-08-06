@@ -1,0 +1,39 @@
+; Group field projection (PLAN_SHAPES.md §7 / C5). A field declared on a group
+; is readable (and, for reference groups, writable) through the group type
+; without narrowing — lowered to generated get_/set_ ops with exhaustive match.
+shape Value {
+    group Ref {
+        def identityId:int 0
+    }
+    case Nothing
+    case Num {
+        def value:double 0.0
+    }
+    case Items does Ref {
+        def items:[int]
+    }
+}
+
+class Main {
+    fn readId:int (r:Value.Ref) {
+        return r.identityId
+    }
+
+    fn bumpId:void (r:Value.Ref) {
+        r.identityId = ((r.identityId) + 1)
+    }
+
+    fn throughCalls:int (r:Value.Ref) {
+        this.bumpId(r)
+        return (this.readId(r))
+    }
+
+    sfn main:void () {
+        def m:Main (new Main())
+        def empty:[int]
+        def a:Value.Items (new Value.Items(7 empty))
+        print (to_string (m.readId(a)))
+        print (to_string (m.throughCalls(a)))
+        print (to_string a.identityId)
+    }
+}

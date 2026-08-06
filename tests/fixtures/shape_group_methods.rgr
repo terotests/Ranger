@@ -45,7 +45,6 @@ class Main {
         match v {
             Num n {
                 def d:Value.Num (Value.Num.doubled(n))
-                ; prove the case-only method ran (avoid float formatting drift)
                 if ((Value.Num.asDouble(d)) > 4.0) {
                     print "doubled"
                 }
@@ -58,15 +57,8 @@ class Main {
 
     fn consumeNumeric:void (v:Value.Numeric) {
         print (to_string (Value.Numeric.asDouble(v)))
-        ; Parent-group method via the case (zero-cost on every target). Direct
-        ; Numeric → Printable widening is accepted by the type checker; native
-        ; enum targets still use a separate group enum until C6 shares one
-        ; family handle, so the call below goes through the exact case.
-        match v {
-            Num n {
-                print (Value.Printable.render(n))
-            }
-        }
+        ; Direct Numeric → Printable widening (C6 helper on native enum targets)
+        print (Value.Printable.render(v))
     }
 
     sfn main:void () {

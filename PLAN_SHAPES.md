@@ -548,7 +548,7 @@ The implemented subset, against the design above:
 | Nested groups (`group A does B`) | ✅ C2 (non-overlapping chains) |
 | `@(value)` / `@(reference)`, generated equality, `identical` | ✅ S4 |
 | Immutability of value cases, enforced | ✅ S4 |
-| Group field projection through a group-typed value | ✖ C5 — portable accessors; native writers later |
+| Group field projection through a group-typed value | ✅ C5 — `get_`/`set_` on group ops |
 | `==` rewritten to the generated equality | ✖ later — needs operand types during operator matching |
 | `Shape.Case(…)` construction without `new` | ✖ sugar |
 | Native per-target representations | ✅ S5 on TS/Kotlin/C#/Dart/Rust/C++ |
@@ -732,8 +732,8 @@ Each stage is independently shippable and independently testable.
 | **S5 — mostly done** | Native representations, one target at a time; `UnionOfClasses` stays the fallback (§6.4). **TypeScript, Kotlin, C#, Dart, Rust and C++** done. | ✅ TS passes `tsc --noEmit`; Kotlin/C#/Dart emit an interface each case implements; Rust a native `enum` with scalar cases inline; C++ a variant that carries them by value — 10× on the C++ value layer. Swift, Go and the ES6 tag remain |
 | **C0 — done** | Freeze the group/case method language contract (§3.6, §7). Canonical fixture. | ✅ Contract documented; `tests/fixtures/shape_group_methods.rgr` |
 | **C1–C4** | Shape-view descriptors, parse group/case methods, conformance, portable static dispatch (§7). | ✅ Group/case methods lower through `Shape_Group__ops` / `Shape_Case__ops` |
-| **C5** | Group field projection IR + portable accessors. | — |
-| **C6** | Shared family handle for group views on native enum targets; direct tag switches / payload access. | — |
+| **C5** | Group field projection via generated `get_`/`set_` accessors. | ✅ `r.identityId` on a group type; mutation through reference groups |
+| **C6** | Subgroup → parent widen on native enum targets (`__as_Parent` helper). | ✅ Numeric → Printable on Rust/C++ without a wrapper object |
 | **S6** | Inline payload records, tag pinning, whole-program variant elimination, `match` as an expression. | — |
 
 Testing follows the pattern already in the repo: fixtures under `tests/fixtures/`,
@@ -1348,8 +1348,8 @@ closed. See §3.6 for the source-level contract. Implementation order:
 | **C2** | Parse `fn`/`sfn` in group and case bodies; nested `group A does B`; bodyless = required | `ng_RangerFlowParser.rgr` |
 | **C3** | Required-method completeness; exact signature match; `@(override)` on replacing a default | shape finalization inside `expandShape` |
 | **C4** | Portable ops lowering: `Shape_Group__ops` dispatchers, `Shape_Case__ops` impls | `attachShapeMethods` / new helpers in the flow parser |
-| **C5** | Group field projection (get/set via generated accessors) | flow parser + later `GetProperty` |
-| **C6** | Shared family handle so Numeric → Printable widens with no conversion on Rust/C++; native tag switches | per-target writers |
+| **C5** | Group field projection (get/set via generated accessors) | `GetProperty` / `WriteVRef` / `cmdAssign` rewrite to ops |
+| **C6** | `widen_to_<Parent>` helper for subgroup → parent on native enums | `areEqualTypes` inserts the helper call |
 
 **Definition of done** for the capability system: a group-typed parameter such as
 `EvalValue.Callable` accepts member cases without wrapping, required methods

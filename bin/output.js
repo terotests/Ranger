@@ -9537,6 +9537,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.caseFieldNames = {};
       this.shapeViews = {};
       this.shapeGroupParent = {};
+      this.shapeGroupFields = {};
+      this.shapeGroupFieldTypeName = {};
+      this.shapeGroupFieldArrayType = {};
+      this.shapeGroupFieldKeyType = {};
+      this.shapeGroupAllValue = {};
+      this.shapeCaseCtorArgs = {};
       this.collectWalkAtEnd = [];     /** note: unused */
       this.walkAlso = [];
       this.serializedClasses = [];
@@ -10228,6 +10234,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             }
             return;
           }
+          if ( currC.is_union && this.shapeGroupHasField(currC.name, prop.vref) ) {
+            await this.rewriteToGroupFieldGet(node, obj, prop.vref, currC.name, ctx, wr);
+            return;
+          }
           const mDef = currC.findMethod(prop.vref);
           if ( (typeof(mDef) !== "undefined" && mDef != null )  ) {
             node.eval_type = 31;
@@ -10292,6 +10302,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
       }
       if ( (rootObjName == "this") || ctx.isVarDefined(rootObjName) ) {
+        if ( ((node.ns.length) == 2) && ctx.isVarDefined(rootObjName) ) {
+          const rootDef = ctx.getVariableDef(rootObjName);
+          if ( ((typeof(rootDef.nameNode) !== "undefined" && rootDef.nameNode != null ) ) && ((rootDef.nameNode.type_name.length) > 0) ) {
+            const gType = rootDef.nameNode.type_name;
+            const fieldName = node.ns[1];
+            if ( this.shapeGroupHasField(gType, fieldName) ) {
+              const recv = node.newVRefNode(rootObjName);
+              await this.rewriteToGroupFieldGet(node, recv, fieldName, gType, ctx, wr);
+              return;
+            }
+          }
+        }
         const vDef2 = ctx.getVariableDef(rootObjName);
         const activeFn = ctx.getCurrentMethod();
         const vDef = this.findParamDesc(node, ctx, wr);
@@ -11691,6 +11713,40 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     async cmdAssign (node, ctx, wr) {
       this.repairAssignMethodCallRhs(node);
       const target = node.getSecond();
+      if ( ((target.ns.length) == 2) && ctx.isVarDefined((target.ns[0])) ) {
+        const gRoot = target.ns[0];
+        const gField = target.ns[1];
+        const gRootDef = ctx.getVariableDef(gRoot);
+        if ( ((typeof(gRootDef.nameNode) !== "undefined" && gRootDef.nameNode != null ) ) && ((gRootDef.nameNode.type_name.length) > 0) ) {
+          const gType = gRootDef.nameNode.type_name;
+          if ( this.shapeGroupHasField(gType, gField) ) {
+            if ( ( typeof(this.shapeGroupAllValue[gType] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.shapeGroupAllValue, gType) ) ) {
+              if ( (( Object.prototype.hasOwnProperty.call(this.shapeGroupAllValue, gType) ? this.shapeGroupAllValue[gType] : undefined )) ) {
+                ctx.addError(node, ("cannot assign to a field of group " + gType) + ": its members are @(value) cases and immutable");
+                return;
+              }
+            }
+            const rhsNode = node.getThird();
+            const opsName = gType + "__ops";
+            const callNode = node.newExpressionNode();
+            const opsRef = node.newVRefNode(((opsName + ".set_") + gField));
+            opsRef.ns.length = 0;
+            opsRef.ns.push(opsName);
+            opsRef.ns.push("set_" + gField);
+            const args = node.newExpressionNode();
+            args.children.push(node.newVRefNode(gRoot));
+            args.children.push(rhsNode.copy());
+            callNode.children.push(opsRef);
+            callNode.children.push(args);
+            node.expression = true;
+            node.flow_done = false;
+            node.value_type = 0;
+            node.getChildrenFrom(callNode);
+            await this.WalkNode(node, ctx, wr);
+            return;
+          }
+        }
+      }
       await this.WalkNode(target, ctx, wr);
       if ( (target.nsp.length) > 0 ) {
         if ( (target.ns.length) > 1 ) {
@@ -13296,6 +13352,123 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.shapeViews[className] = v;
       this.shapeViews[viewName] = v;
     };
+    shapeTypeSpelling (typeName, arrayType, keyType) {
+      if ( (keyType.length) > 0 ) {
+        return ((("[" + keyType) + ":") + arrayType) + "]";
+      }
+      if ( (arrayType.length) > 0 ) {
+        return ("[" + arrayType) + "]";
+      }
+      return typeName;
+    };
+    shapeGroupHasField (groupCls, fieldName) {
+      if ( ( typeof(this.shapeGroupFields[groupCls] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.shapeGroupFields, groupCls) ) ) {
+        const fields = (( Object.prototype.hasOwnProperty.call(this.shapeGroupFields, groupCls) ? this.shapeGroupFields[groupCls] : undefined ));
+        if ( (fields.indexOf(fieldName)) >= 0 ) {
+          return true;
+        }
+      }
+      return false;
+    };
+    buildGroupFieldAccessorSrc (shapeName, gn, gClsName, mems, fieldNames, allowSet) {
+      let src = "";
+      for ( let fi = 0; fi < fieldNames.length; fi++) {
+        var fname = fieldNames[fi];
+        const key = (gClsName + ".") + fname;
+        let tName = "int";
+        let aType = "";
+        let kType = "";
+        if ( ( typeof(this.shapeGroupFieldTypeName[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.shapeGroupFieldTypeName, key) ) ) {
+          tName = (( Object.prototype.hasOwnProperty.call(this.shapeGroupFieldTypeName, key) ? this.shapeGroupFieldTypeName[key] : undefined ));
+        }
+        if ( ( typeof(this.shapeGroupFieldArrayType[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.shapeGroupFieldArrayType, key) ) ) {
+          aType = (( Object.prototype.hasOwnProperty.call(this.shapeGroupFieldArrayType, key) ? this.shapeGroupFieldArrayType[key] : undefined ));
+        }
+        if ( ( typeof(this.shapeGroupFieldKeyType[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.shapeGroupFieldKeyType, key) ) ) {
+          kType = (( Object.prototype.hasOwnProperty.call(this.shapeGroupFieldKeyType, key) ? this.shapeGroupFieldKeyType[key] : undefined ));
+        }
+        const typeSp = this.shapeTypeSpelling(tName, aType, kType);
+        src = src + ((("  sfn get_" + fname) + ":") + typeSp);
+        src = src + ((" (self:" + gClsName) + ") {\n");
+        src = src + "    match self {\n";
+        for ( let cni = 0; cni < mems.length; cni++) {
+          var cn = mems[cni];
+          const bind = (("__gf_" + cn) + "_") + fname;
+          src = (src + ((("      " + cn) + " ") + bind)) + " {\n";
+          src = (src + ((("        return " + bind) + ".") + fname)) + "\n";
+          src = src + "      }\n";
+        };
+        src = src + "    }\n";
+        if ( tName == "string" ) {
+          src = src + "    return \"\"\n";
+        } else {
+          if ( tName == "boolean" ) {
+            src = src + "    return false\n";
+          } else {
+            if ( tName == "double" ) {
+              src = src + "    return 0.0\n";
+            } else {
+              if ( ((aType.length) == 0) && ((kType.length) == 0) ) {
+                if ( (tName == "int") || (tName == "char") ) {
+                  src = src + "    return 0\n";
+                }
+              }
+            }
+          }
+        }
+        src = src + "  }\n";
+        if ( allowSet ) {
+          src = src + ((("  sfn set_" + fname) + ":void (self:") + gClsName);
+          src = src + ((" v:" + typeSp) + ") {\n");
+          src = src + "    match self {\n";
+          for ( let cni_1 = 0; cni_1 < mems.length; cni_1++) {
+            var cn_1 = mems[cni_1];
+            const bind2 = (("__gfs_" + cn_1) + "_") + fname;
+            src = (src + ((("      " + cn_1) + " ") + bind2)) + " {\n";
+            src = (src + ((("        " + bind2) + ".") + fname)) + " = v\n";
+            src = src + "      }\n";
+          };
+          src = src + "    }\n";
+          src = src + "  }\n";
+        }
+      };
+      return src;
+    };
+    async rewriteToGroupFieldGet (node, receiver, fieldName, groupCls, ctx, wr) {
+      const opsName = groupCls + "__ops";
+      const callNode = node.newExpressionNode();
+      const opsRef = node.newVRefNode(((opsName + ".get_") + fieldName));
+      opsRef.ns.length = 0;
+      opsRef.ns.push(opsName);
+      opsRef.ns.push("get_" + fieldName);
+      const args = node.newExpressionNode();
+      args.children.push(receiver.copy());
+      callNode.children.push(opsRef);
+      callNode.children.push(args);
+      node.expression = true;
+      node.flow_done = false;
+      node.value_type = 0;
+      node.getChildrenFrom(callNode);
+      await this.WalkNode(node, ctx, wr);
+    };
+    async rewriteToGroupWiden (node, targetGroupCls, sourceGroupCls, ctx, wr) {
+      const opsName = sourceGroupCls + "__ops";
+      const helper = "widen_to_" + targetGroupCls;
+      const callNode = node.newExpressionNode();
+      const opsRef = node.newVRefNode(((opsName + ".") + helper));
+      opsRef.ns.length = 0;
+      opsRef.ns.push(opsName);
+      opsRef.ns.push(helper);
+      const args = node.newExpressionNode();
+      args.children.push(node.copy());
+      callNode.children.push(opsRef);
+      callNode.children.push(args);
+      node.expression = true;
+      node.flow_done = false;
+      node.value_type = 0;
+      node.getChildrenFrom(callNode);
+      await this.WalkNode(node, ctx, wr);
+    };
     expandShape (shapeNode, parent, shapeIndex, ctx, wr, renames) {
       let insertAt = shapeIndex + 1;
       if ( (shapeNode.children.length) < 3 ) {
@@ -13711,6 +13884,43 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         this.caseIsValue[clsName] = isValue;
         this.caseFieldNames[clsName] = scalarFields;
         this.caseFieldNames[clsName + "__all"] = allFieldNames;
+        let ctorArgs = "";
+        let ctorOk = true;
+        for ( let fldi_1 = 0; fldi_1 < blk.children.length; fldi_1++) {
+          var fld_1 = blk.children[fldi_1];
+          if ( this.shapeMemberIsField(fld_1) ) {
+            const fNode = fld_1.getSecond();
+            if ( (fNode.key_type.length) > 0 ) {
+              ctorOk = false;
+            } else {
+              if ( (fNode.array_type.length) > 0 ) {
+                ctorOk = false;
+              } else {
+                const ft = fNode.type_name;
+                if ( ft == "double" ) {
+                  ctorArgs = ctorArgs + " 0.0";
+                } else {
+                  if ( ft == "string" ) {
+                    ctorArgs = ctorArgs + " \"\"";
+                  } else {
+                    if ( ft == "boolean" ) {
+                      ctorArgs = ctorArgs + " false";
+                    } else {
+                      if ( (ft == "int") || (ft == "char") ) {
+                        ctorArgs = ctorArgs + " 0";
+                      } else {
+                        ctorOk = false;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        };
+        if ( ctorOk ) {
+          this.shapeCaseCtorArgs[clsName] = ctorArgs;
+        }
         recNode.children.push(blk);
         parent.children.splice(insertAt, 0, recNode);
         insertAt = insertAt + 1;
@@ -13749,6 +13959,46 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             parentView = (shapeName + ".") + gp_1;
           }
           this.registerShapeView(shapeName, "group", (shapeName + ".") + gn_3, gClsName, gCaseList, parentView);
+          let availFields = [];
+          if ( ( typeof(groupAncestorsRootFirst[gn_3] ) != "undefined" && Object.prototype.hasOwnProperty.call(groupAncestorsRootFirst, gn_3) ) ) {
+            const chain_4 = (( Object.prototype.hasOwnProperty.call(groupAncestorsRootFirst, gn_3) ? groupAncestorsRootFirst[gn_3] : undefined ));
+            for ( let gi_5 = 0; gi_5 < chain_4.length; gi_5++) {
+              var g_4 = chain_4[gi_5];
+              if ( ( typeof(groupFieldNodes[g_4] ) != "undefined" && Object.prototype.hasOwnProperty.call(groupFieldNodes, g_4) ) ) {
+                const gFields_2 = (( Object.prototype.hasOwnProperty.call(groupFieldNodes, g_4) ? groupFieldNodes[g_4] : undefined ));
+                for ( let gfi_1 = 0; gfi_1 < gFields_2.length; gfi_1++) {
+                  var gf_1 = gFields_2[gfi_1];
+                  const fname_1 = this.shapeFieldName(gf_1);
+                  if ( (fname_1.length) > 0 ) {
+                    if ( (availFields.indexOf(fname_1)) < 0 ) {
+                      availFields.push(fname_1);
+                    }
+                    const fKey = (gClsName + ".") + fname_1;
+                    const fNameNode = gf_1.getSecond();
+                    this.shapeGroupFieldTypeName[fKey] = fNameNode.type_name;
+                    this.shapeGroupFieldArrayType[fKey] = fNameNode.array_type;
+                    this.shapeGroupFieldKeyType[fKey] = fNameNode.key_type;
+                  }
+                };
+              }
+            };
+          }
+          this.shapeGroupFields[gClsName] = availFields;
+          let allValue = true;
+          if ( (gCaseList.length) == 0 ) {
+            allValue = false;
+          }
+          for ( let cci = 0; cci < gCaseList.length; cci++) {
+            var ccls = gCaseList[cci];
+            let isV = false;
+            if ( ( typeof(this.caseIsValue[ccls] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.caseIsValue, ccls) ) ) {
+              isV = (( Object.prototype.hasOwnProperty.call(this.caseIsValue, ccls) ? this.caseIsValue[ccls] : undefined ));
+            }
+            if ( isV == false ) {
+              allValue = false;
+            }
+          };
+          this.shapeGroupAllValue[gClsName] = allValue;
         } else {
           ctx.addError(shapeNode, ("group " + gn_3) + " has no cases");
         }
@@ -13870,201 +14120,237 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       };
       for ( let gni_5 = 0; gni_5 < groupNames.length; gni_5++) {
         var gn_5 = groupNames[gni_5];
+        const mems_3 = (( Object.prototype.hasOwnProperty.call(groupMembers, gn_5) ? groupMembers[gn_5] : undefined ));
+        const gClsName_1 = (shapeName + "_") + gn_5;
+        const gOpsName = gClsName_1 + "__ops";
+        let defaultNodes = [];
+        let defaultStatic = [];
+        let defaultNames = [];
+        let dispSrc = "";
+        let gMethodNames_2 = [];
+        let gRequired_2 = [];
+        let gHasDefault_2 = [];
+        let gMethods_2 = [];
         if ( ( typeof(groupMethodNames[gn_5] ) != "undefined" && Object.prototype.hasOwnProperty.call(groupMethodNames, gn_5) ) ) {
-          const gMethodNames_2 = (( Object.prototype.hasOwnProperty.call(groupMethodNames, gn_5) ? groupMethodNames[gn_5] : undefined ));
-          if ( (gMethodNames_2.length) > 0 ) {
-            const gRequired_2 = (( Object.prototype.hasOwnProperty.call(groupMethodRequired, gn_5) ? groupMethodRequired[gn_5] : undefined ));
-            const gHasDefault_2 = (( Object.prototype.hasOwnProperty.call(groupMethodHasDefault, gn_5) ? groupMethodHasDefault[gn_5] : undefined ));
-            const gMethods_2 = (( Object.prototype.hasOwnProperty.call(groupMethodNodes, gn_5) ? groupMethodNodes[gn_5] : undefined ));
-            const mems_3 = (( Object.prototype.hasOwnProperty.call(groupMembers, gn_5) ? groupMembers[gn_5] : undefined ));
-            const gClsName_1 = (shapeName + "_") + gn_5;
-            const gOpsName = gClsName_1 + "__ops";
-            let defaultNodes = [];
-            let defaultStatic = [];
-            let defaultNames = [];
-            let dispSrc = "";
-            let mi_1 = 0;
-            const mcnt_1 = gMethodNames_2.length;
-            while (mi_1 < mcnt_1) {
-              const mName_1 = gMethodNames_2[mi_1];
-              const mNode = gMethods_2[mi_1];
-              const needImpl_1 = gRequired_2[mi_1];
-              const hasDefault_1 = gHasDefault_2[mi_1];
-              let anyOverride = false;
-              if ( hasDefault_1 ) {
-                for ( let cni_6 = 0; cni_6 < mems_3.length; cni_6++) {
-                  var cn_6 = mems_3[cni_6];
-                  if ( ( typeof(caseMethodNames[cn_6] ) != "undefined" && Object.prototype.hasOwnProperty.call(caseMethodNames, cn_6) ) ) {
-                    const cNames_2 = (( Object.prototype.hasOwnProperty.call(caseMethodNames, cn_6) ? caseMethodNames[cn_6] : undefined ));
-                    const cOverrides_2 = (( Object.prototype.hasOwnProperty.call(caseMethodOverride, cn_6) ? caseMethodOverride[cn_6] : undefined ));
-                    let cj_1 = 0;
-                    const cjcnt_1 = cNames_2.length;
-                    while (cj_1 < cjcnt_1) {
-                      if ( ((cNames_2[cj_1]) == mName_1) && (cOverrides_2[cj_1]) ) {
-                        anyOverride = true;
-                      }
-                      cj_1 = cj_1 + 1;
-                    };
+          gMethodNames_2 = (( Object.prototype.hasOwnProperty.call(groupMethodNames, gn_5) ? groupMethodNames[gn_5] : undefined ));
+          gRequired_2 = (( Object.prototype.hasOwnProperty.call(groupMethodRequired, gn_5) ? groupMethodRequired[gn_5] : undefined ));
+          gHasDefault_2 = (( Object.prototype.hasOwnProperty.call(groupMethodHasDefault, gn_5) ? groupMethodHasDefault[gn_5] : undefined ));
+          gMethods_2 = (( Object.prototype.hasOwnProperty.call(groupMethodNodes, gn_5) ? groupMethodNodes[gn_5] : undefined ));
+        }
+        let mi_1 = 0;
+        const mcnt_1 = gMethodNames_2.length;
+        while (mi_1 < mcnt_1) {
+          const mName_1 = gMethodNames_2[mi_1];
+          const mNode = gMethods_2[mi_1];
+          const needImpl_1 = gRequired_2[mi_1];
+          const hasDefault_1 = gHasDefault_2[mi_1];
+          let anyOverride = false;
+          if ( hasDefault_1 ) {
+            for ( let cni_6 = 0; cni_6 < mems_3.length; cni_6++) {
+              var cn_6 = mems_3[cni_6];
+              if ( ( typeof(caseMethodNames[cn_6] ) != "undefined" && Object.prototype.hasOwnProperty.call(caseMethodNames, cn_6) ) ) {
+                const cNames_2 = (( Object.prototype.hasOwnProperty.call(caseMethodNames, cn_6) ? caseMethodNames[cn_6] : undefined ));
+                const cOverrides_2 = (( Object.prototype.hasOwnProperty.call(caseMethodOverride, cn_6) ? caseMethodOverride[cn_6] : undefined ));
+                let cj_1 = 0;
+                const cjcnt_1 = cNames_2.length;
+                while (cj_1 < cjcnt_1) {
+                  if ( ((cNames_2[cj_1]) == mName_1) && (cOverrides_2[cj_1]) ) {
+                    anyOverride = true;
+                  }
+                  cj_1 = cj_1 + 1;
+                };
+              }
+            };
+          }
+          if ( needImpl_1 || anyOverride ) {
+            const nameNode_2 = mNode.getSecond();
+            const argsNode = mNode.children[2];
+            const retType = nameNode_2.type_name;
+            dispSrc = dispSrc + (("  sfn " + mName_1) + ":");
+            if ( (nameNode_2.array_type.length) > 0 ) {
+              dispSrc = dispSrc + (("[" + nameNode_2.array_type) + "]");
+            } else {
+              if ( (nameNode_2.key_type.length) > 0 ) {
+                dispSrc = dispSrc + (((("[" + nameNode_2.key_type) + ":") + nameNode_2.array_type) + "]");
+              } else {
+                dispSrc = dispSrc + retType;
+              }
+            }
+            dispSrc = dispSrc + ((" (self:" + gClsName_1) + "");
+            for ( let ai = 0; ai < argsNode.children.length; ai++) {
+              var arg = argsNode.children[ai];
+              dispSrc = dispSrc + (" " + arg.vref);
+              if ( (arg.key_type.length) > 0 ) {
+                dispSrc = dispSrc + ((((":[" + arg.key_type) + ":") + arg.array_type) + "]");
+              } else {
+                if ( (arg.array_type.length) > 0 ) {
+                  dispSrc = dispSrc + ((":[" + arg.array_type) + "]");
+                } else {
+                  dispSrc = dispSrc + (":" + arg.type_name);
+                }
+              }
+            };
+            dispSrc = dispSrc + ") {\n";
+            dispSrc = dispSrc + "    match self {\n";
+            for ( let cni_7 = 0; cni_7 < mems_3.length; cni_7++) {
+              var cn_7 = mems_3[cni_7];
+              const bind = ("__gm_" + cn_7) + ("_" + mName_1);
+              const caseOps = ((shapeName + "_") + cn_7) + "__ops";
+              let useCase = false;
+              if ( ( typeof(caseMethodNames[cn_7] ) != "undefined" && Object.prototype.hasOwnProperty.call(caseMethodNames, cn_7) ) ) {
+                const cNames2 = (( Object.prototype.hasOwnProperty.call(caseMethodNames, cn_7) ? caseMethodNames[cn_7] : undefined ));
+                for ( let cmni = 0; cmni < cNames2.length; cmni++) {
+                  var cmn = cNames2[cmni];
+                  if ( cmn == mName_1 ) {
+                    useCase = true;
                   }
                 };
               }
-              if ( needImpl_1 || anyOverride ) {
-                const nameNode_2 = mNode.getSecond();
-                const argsNode = mNode.children[2];
-                const retType = nameNode_2.type_name;
-                let retSuffix = "";
-                if ( (nameNode_2.array_type.length) > 0 ) {
-                  retSuffix = ":" + retType;
-                }
-                dispSrc = dispSrc + (("  sfn " + mName_1) + ":");
-                if ( (nameNode_2.array_type.length) > 0 ) {
-                  dispSrc = dispSrc + (("[" + nameNode_2.array_type) + "]");
-                } else {
-                  if ( (nameNode_2.key_type.length) > 0 ) {
-                    dispSrc = dispSrc + (((("[" + nameNode_2.key_type) + ":") + nameNode_2.array_type) + "]");
-                  } else {
-                    dispSrc = dispSrc + retType;
-                  }
-                }
-                dispSrc = dispSrc + ((" (self:" + gClsName_1) + "");
-                for ( let ai = 0; ai < argsNode.children.length; ai++) {
-                  var arg = argsNode.children[ai];
-                  dispSrc = dispSrc + (" " + arg.vref);
-                  if ( (arg.key_type.length) > 0 ) {
-                    dispSrc = dispSrc + ((((":[" + arg.key_type) + ":") + arg.array_type) + "]");
-                  } else {
-                    if ( (arg.array_type.length) > 0 ) {
-                      dispSrc = dispSrc + ((":[" + arg.array_type) + "]");
-                    } else {
-                      dispSrc = dispSrc + (":" + arg.type_name);
-                    }
-                  }
+              dispSrc = (dispSrc + ((("      " + cn_7) + " ") + bind)) + " {\n";
+              if ( useCase ) {
+                dispSrc = (dispSrc + ((("        return (" + caseOps) + ".") + mName_1)) + ("(" + bind);
+                for ( let ai_1 = 0; ai_1 < argsNode.children.length; ai_1++) {
+                  var arg_1 = argsNode.children[ai_1];
+                  dispSrc = dispSrc + (" " + arg_1.vref);
                 };
-                dispSrc = dispSrc + ") {\n";
-                dispSrc = dispSrc + "    match self {\n";
-                for ( let cni_7 = 0; cni_7 < mems_3.length; cni_7++) {
-                  var cn_7 = mems_3[cni_7];
-                  const bind = ("__gm_" + cn_7) + ("_" + mName_1);
-                  const caseOps = ((shapeName + "_") + cn_7) + "__ops";
-                  let useCase = false;
-                  if ( ( typeof(caseMethodNames[cn_7] ) != "undefined" && Object.prototype.hasOwnProperty.call(caseMethodNames, cn_7) ) ) {
-                    const cNames_3 = (( Object.prototype.hasOwnProperty.call(caseMethodNames, cn_7) ? caseMethodNames[cn_7] : undefined ));
-                    for ( let cmni = 0; cmni < cNames_3.length; cmni++) {
-                      var cmn = cNames_3[cmni];
-                      if ( cmn == mName_1 ) {
-                        useCase = true;
-                      }
-                    };
-                  }
-                  dispSrc = (dispSrc + ((("      " + cn_7) + " ") + bind)) + " {\n";
-                  if ( useCase ) {
-                    dispSrc = (dispSrc + ((("        return (" + caseOps) + ".") + mName_1)) + ("(" + bind);
-                    for ( let ai_1 = 0; ai_1 < argsNode.children.length; ai_1++) {
-                      var arg_1 = argsNode.children[ai_1];
-                      dispSrc = dispSrc + (" " + arg_1.vref);
-                    };
-                    dispSrc = dispSrc + "))\n";
-                  } else {
-                    if ( hasDefault_1 ) {
-                      dispSrc = (dispSrc + ((("        return (" + gOpsName) + ".__default_") + mName_1)) + ("(" + bind);
-                      for ( let ai_2 = 0; ai_2 < argsNode.children.length; ai_2++) {
-                        var arg_2 = argsNode.children[ai_2];
-                        dispSrc = dispSrc + (" " + arg_2.vref);
-                      };
-                      dispSrc = dispSrc + "))\n";
-                    } else {
-                      dispSrc = dispSrc + "        return\n";
-                    }
-                  }
-                  dispSrc = dispSrc + "      }\n";
-                };
-                dispSrc = dispSrc + "    }\n";
-                if ( retType == "void" ) {
-                  dispSrc = dispSrc + "  }\n";
-                } else {
-                  if ( retType == "string" ) {
-                    dispSrc = dispSrc + "    return \"\"\n  }\n";
-                  } else {
-                    if ( retType == "boolean" ) {
-                      dispSrc = dispSrc + "    return false\n  }\n";
-                    } else {
-                      if ( retType == "double" ) {
-                        dispSrc = dispSrc + "    return 0.0\n  }\n";
-                      } else {
-                        if ( (retType == "int") || (retType == "char") ) {
-                          dispSrc = dispSrc + "    return 0\n  }\n";
-                        } else {
-                          dispSrc = dispSrc + "  }\n";
-                        }
-                      }
-                    }
-                  }
-                }
-                renames[(((shapeName + ".") + gn_5) + ".") + mName_1] = (gOpsName + ".") + mName_1;
+                dispSrc = dispSrc + "))\n";
               } else {
                 if ( hasDefault_1 ) {
-                  defaultNodes.push(mNode);
-                  defaultStatic.push(false);
-                  defaultNames.push(mName_1);
-                  renames[(((shapeName + ".") + gn_5) + ".") + mName_1] = (gOpsName + ".") + mName_1;
+                  dispSrc = (dispSrc + ((("        return (" + gOpsName) + ".__default_") + mName_1)) + ("(" + bind);
+                  for ( let ai_2 = 0; ai_2 < argsNode.children.length; ai_2++) {
+                    var arg_2 = argsNode.children[ai_2];
+                    dispSrc = dispSrc + (" " + arg_2.vref);
+                  };
+                  dispSrc = dispSrc + "))\n";
+                } else {
+                  dispSrc = dispSrc + "        return\n";
                 }
               }
-              if ( hasDefault_1 && anyOverride ) {
-                const defCopy = mNode.copy();
-                const defHead = defCopy.getFirst();
-                defHead.vref = "fn";
-                const defNameNode = defCopy.getSecond();
-                defNameNode.vref = "__default_" + mName_1;
-                defNameNode.ns.length = 0;
-                defNameNode.ns.push(defNameNode.vref);
-                defaultNodes.push(defCopy);
-                defaultStatic.push(false);
-                defaultNames.push("__default_" + mName_1);
-              }
-              mi_1 = mi_1 + 1;
+              dispSrc = dispSrc + "      }\n";
             };
-            let needOps = false;
-            if ( ((defaultNodes.length) > 0) || ((dispSrc.length) > 0) ) {
-              needOps = true;
-            }
-            if ( needOps ) {
-              let opsSrc_1 = ("class " + gOpsName) + " {\n";
-              opsSrc_1 = opsSrc_1 + dispSrc;
-              if ( (defaultNodes.length) > 0 ) {
-                opsSrc_1 = opsSrc_1 + (("  sfn __shape_self_proto:void (self:" + gClsName_1) + ") {\n");
-                opsSrc_1 = opsSrc_1 + "  }\n";
-              }
-              opsSrc_1 = opsSrc_1 + "}\n";
-              const opsRootOpt_1 = this.parseOpsClassRoot(opsSrc_1, (("shape_group_ops_" + gClsName_1) + ".rgr"), shapeNode, ctx);
-              if ( (typeof(opsRootOpt_1) !== "undefined" && opsRootOpt_1 != null )  ) {
-                const opsRoot_1 = opsRootOpt_1;
-                if ( (defaultNodes.length) > 0 ) {
-                  let gFieldNames = [];
-                  if ( ( typeof(groupAncestorsRootFirst[gn_5] ) != "undefined" && Object.prototype.hasOwnProperty.call(groupAncestorsRootFirst, gn_5) ) ) {
-                    const chain_4 = (( Object.prototype.hasOwnProperty.call(groupAncestorsRootFirst, gn_5) ? groupAncestorsRootFirst[gn_5] : undefined ));
-                    for ( let gi_5 = 0; gi_5 < chain_4.length; gi_5++) {
-                      var g_4 = chain_4[gi_5];
-                      if ( ( typeof(groupFieldNodes[g_4] ) != "undefined" && Object.prototype.hasOwnProperty.call(groupFieldNodes, g_4) ) ) {
-                        const gFields_2 = (( Object.prototype.hasOwnProperty.call(groupFieldNodes, g_4) ? groupFieldNodes[g_4] : undefined ));
-                        for ( let gfi_1 = 0; gfi_1 < gFields_2.length; gfi_1++) {
-                          var gf_1 = gFields_2[gfi_1];
-                          const fname_1 = this.shapeFieldName(gf_1);
-                          if ( (fname_1.length) > 0 ) {
-                            gFieldNames.push(fname_1);
-                          }
-                        };
-                      }
-                    };
+            dispSrc = dispSrc + "    }\n";
+            if ( retType == "void" ) {
+              dispSrc = dispSrc + "  }\n";
+            } else {
+              if ( retType == "string" ) {
+                dispSrc = dispSrc + "    return \"\"\n  }\n";
+              } else {
+                if ( retType == "boolean" ) {
+                  dispSrc = dispSrc + "    return false\n  }\n";
+                } else {
+                  if ( retType == "double" ) {
+                    dispSrc = dispSrc + "    return 0.0\n  }\n";
+                  } else {
+                    if ( (retType == "int") || (retType == "char") ) {
+                      dispSrc = dispSrc + "    return 0\n  }\n";
+                    } else {
+                      dispSrc = dispSrc + "  }\n";
+                    }
                   }
-                  this.attachOpsMethods(opsRoot_1, (shapeName + ".") + gn_5, defaultNodes, defaultStatic, gFieldNames, ctx);
                 }
-                for ( let oi_1 = 0; oi_1 < opsRoot_1.children.length; oi_1++) {
-                  var och_1 = opsRoot_1.children[oi_1];
-                  parent.children.splice(insertAt, 0, och_1);
-                  insertAt = insertAt + 1;
-                };
               }
             }
+            renames[(((shapeName + ".") + gn_5) + ".") + mName_1] = (gOpsName + ".") + mName_1;
+          } else {
+            if ( hasDefault_1 ) {
+              defaultNodes.push(mNode);
+              defaultStatic.push(false);
+              defaultNames.push(mName_1);
+              renames[(((shapeName + ".") + gn_5) + ".") + mName_1] = (gOpsName + ".") + mName_1;
+            }
+          }
+          if ( hasDefault_1 && anyOverride ) {
+            const defCopy = mNode.copy();
+            const defHead = defCopy.getFirst();
+            defHead.vref = "fn";
+            const defNameNode = defCopy.getSecond();
+            defNameNode.vref = "__default_" + mName_1;
+            defNameNode.ns.length = 0;
+            defNameNode.ns.push(defNameNode.vref);
+            defaultNodes.push(defCopy);
+            defaultStatic.push(false);
+            defaultNames.push("__default_" + mName_1);
+          }
+          mi_1 = mi_1 + 1;
+        };
+        let availFields_1 = [];
+        if ( ( typeof(this.shapeGroupFields[gClsName_1] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.shapeGroupFields, gClsName_1) ) ) {
+          availFields_1 = (( Object.prototype.hasOwnProperty.call(this.shapeGroupFields, gClsName_1) ? this.shapeGroupFields[gClsName_1] : undefined ));
+        }
+        let allowSet = true;
+        if ( ( typeof(this.shapeGroupAllValue[gClsName_1] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.shapeGroupAllValue, gClsName_1) ) ) {
+          if ( (( Object.prototype.hasOwnProperty.call(this.shapeGroupAllValue, gClsName_1) ? this.shapeGroupAllValue[gClsName_1] : undefined )) ) {
+            allowSet = false;
+          }
+        }
+        if ( (availFields_1.length) > 0 ) {
+          dispSrc = dispSrc + this.buildGroupFieldAccessorSrc(shapeName, gn_5, gClsName_1, mems_3, availFields_1, allowSet);
+        }
+        if ( ( typeof(groupAncestorsRootFirst[gn_5] ) != "undefined" && Object.prototype.hasOwnProperty.call(groupAncestorsRootFirst, gn_5) ) ) {
+          const chain_5 = (( Object.prototype.hasOwnProperty.call(groupAncestorsRootFirst, gn_5) ? groupAncestorsRootFirst[gn_5] : undefined ));
+          for ( let ai_3 = 0; ai_3 < chain_5.length; ai_3++) {
+            var anc = chain_5[ai_3];
+            if ( anc != gn_5 ) {
+              const ancCls = (shapeName + "_") + anc;
+              dispSrc = dispSrc + ((("  sfn widen_to_" + ancCls) + ":") + ancCls);
+              dispSrc = dispSrc + ((" (self:" + gClsName_1) + ") {\n");
+              let wi = 0;
+              const wcnt = mems_3.length;
+              while (wi < wcnt) {
+                const cn_8 = mems_3[wi];
+                const bindw = (("__gw_" + cn_8) + "_") + anc;
+                const caseCls = (shapeName + "_") + cn_8;
+                dispSrc = (dispSrc + ((("    case self " + bindw) + ":") + caseCls)) + " {\n";
+                dispSrc = dispSrc + (("      return " + bindw) + "\n");
+                dispSrc = dispSrc + "    }\n";
+                wi = wi + 1;
+              };
+              if ( wcnt > 0 ) {
+                const fcn = mems_3[0];
+                const fcls = (shapeName + "_") + fcn;
+                const fbind = ("__gw_fb_" + fcn) + ("_" + anc);
+                dispSrc = (dispSrc + ((("    case self " + fbind) + ":") + fcls)) + " {\n";
+                dispSrc = dispSrc + (("      return " + fbind) + "\n");
+                dispSrc = dispSrc + "    }\n";
+                if ( ( typeof(this.shapeCaseCtorArgs[fcls] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.shapeCaseCtorArgs, fcls) ) ) {
+                  const cargs = (( Object.prototype.hasOwnProperty.call(this.shapeCaseCtorArgs, fcls) ? this.shapeCaseCtorArgs[fcls] : undefined ));
+                  dispSrc = (dispSrc + ((("    return (new " + fcls) + "(") + cargs)) + "))\n";
+                } else {
+                  dispSrc = dispSrc + (("    return (new " + fcls) + "())\n");
+                }
+              }
+              dispSrc = dispSrc + "  }\n";
+            }
+          };
+        }
+        let needOps = false;
+        if ( ((defaultNodes.length) > 0) || ((dispSrc.length) > 0) ) {
+          needOps = true;
+        }
+        if ( needOps ) {
+          let opsSrc_1 = ("class " + gOpsName) + " {\n";
+          opsSrc_1 = opsSrc_1 + dispSrc;
+          if ( (defaultNodes.length) > 0 ) {
+            opsSrc_1 = opsSrc_1 + (("  sfn __shape_self_proto:void (self:" + gClsName_1) + ") {\n");
+            opsSrc_1 = opsSrc_1 + "  }\n";
+          }
+          opsSrc_1 = opsSrc_1 + "}\n";
+          const opsRootOpt_1 = this.parseOpsClassRoot(opsSrc_1, (("shape_group_ops_" + gClsName_1) + ".rgr"), shapeNode, ctx);
+          if ( (typeof(opsRootOpt_1) !== "undefined" && opsRootOpt_1 != null )  ) {
+            const opsRoot_1 = opsRootOpt_1;
+            if ( (defaultNodes.length) > 0 ) {
+              let gFieldNames = [];
+              for ( let afi = 0; afi < availFields_1.length; afi++) {
+                var af = availFields_1[afi];
+                gFieldNames.push(af);
+              };
+              this.attachOpsMethods(opsRoot_1, (shapeName + ".") + gn_5, defaultNodes, defaultStatic, gFieldNames, ctx);
+            }
+            for ( let oi_1 = 0; oi_1 < opsRoot_1.children.length; oi_1++) {
+              var och_1 = opsRoot_1.children[oi_1];
+              parent.children.splice(insertAt, 0, och_1);
+              insertAt = insertAt + 1;
+            };
           }
         }
       };
@@ -14073,8 +14359,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       eqSrc = ((((eqSrc + "  sfn equals:boolean (a:") + shapeName) + " b:") + shapeName) + ") {\n";
       let eci = 0;
       for ( let cni_8 = 0; cni_8 < caseNames.length; cni_8++) {
-        var cn_8 = caseNames[cni_8];
-        const ecls = (shapeName + "_") + cn_8;
+        var cn_9 = caseNames[cni_8];
+        const ecls = (shapeName + "_") + cn_9;
         const la = "__ea" + eci;
         const lb = "__eb" + eci;
         eqSrc = ((((eqSrc + "    case a ") + la) + ":") + ecls) + " {\n";
@@ -14136,17 +14422,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       let allCaseClasses = [];
       const members = shapeNode.newExpressionNode();
       for ( let cni_9 = 0; cni_9 < caseNames.length; cni_9++) {
-        var cn_9 = caseNames[cni_9];
-        members.children.push(shapeNode.newVRefNode(((shapeName + "_") + cn_9)));
-        allCaseClasses.push((shapeName + "_") + cn_9);
+        var cn_10 = caseNames[cni_9];
+        members.children.push(shapeNode.newVRefNode(((shapeName + "_") + cn_10)));
+        allCaseClasses.push((shapeName + "_") + cn_10);
       };
       this.shapeCases[shapeName] = allCaseClasses;
       this.registerShapeView(shapeName, "shape", shapeName, shapeName, allCaseClasses, "");
       for ( let cni_10 = 0; cni_10 < caseNames.length; cni_10++) {
-        var cn_10 = caseNames[cni_10];
+        var cn_11 = caseNames[cni_10];
         let one = [];
-        one.push((shapeName + "_") + cn_10);
-        this.registerShapeView(shapeName, "case", (shapeName + ".") + cn_10, (shapeName + "_") + cn_10, one, "");
+        one.push((shapeName + "_") + cn_11);
+        this.registerShapeView(shapeName, "case", (shapeName + ".") + cn_11, (shapeName + "_") + cn_11, one, "");
       };
       const unionHead = shapeNode.newVRefNode("union");
       const unionName = shapeNode.newVRefNode(shapeName);
@@ -14157,8 +14443,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       if ( ctx.hasCompilerFlag("shape-debug") ) {
         console.log(("shape " + shapeName) + " lowered to:");
         for ( let cni_11 = 0; cni_11 < caseNames.length; cni_11++) {
-          var cn_11 = caseNames[cni_11];
-          console.log((("  record " + shapeName) + "_") + cn_11);
+          var cn_12 = caseNames[cni_11];
+          console.log((("  record " + shapeName) + "_") + cn_12);
         };
         console.log(((("  union " + shapeName) + " over ") + ("" + (caseNames.length))) + " cases");
       }
@@ -15823,6 +16109,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 return true;
               }
               if ( c2.isSameOrParentClass(n1.eval_type_name, ctx) ) {
+                await this.rewriteToGroupWiden(n2, n1.eval_type_name, n2.eval_type_name, ctx, wr);
                 return true;
               }
               if ( c1.isSameOrParentClass(n2.eval_type_name, ctx) ) {

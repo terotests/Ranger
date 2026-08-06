@@ -1,0 +1,21 @@
+; A group field is not available through the whole-shape type.
+shape Value {
+    group Ref {
+        def identityId:int 0
+    }
+    case Items does Ref {
+        def items:[int]
+    }
+    case Num {
+        def value:double 0.0
+    }
+}
+
+class Main {
+    fn bad:int (v:Value) {
+        return v.identityId
+    }
+
+    sfn main:void () {
+    }
+}

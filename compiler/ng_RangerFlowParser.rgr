@@ -94,6 +94,16 @@ class RangerFlowParser {
   def shapeViews:[string:ShapeViewDesc]
   ; group → parent group (nested `group Child does Parent`)
   def shapeGroupParent:[string:string]
+  ; C5: fields available through a group union (own + inherited), keyed by
+  ; mangled group class name (`Value_Ref`). Types keyed by `Group.field`.
+  def shapeGroupFields:[string:[string]]
+  def shapeGroupFieldTypeName:[string:string]
+  def shapeGroupFieldArrayType:[string:string]
+  def shapeGroupFieldKeyType:[string:string]
+  ; groups whose members are all @(value) — field sets are rejected
+  def shapeGroupAllValue:[string:boolean]
+  ; default `new Case(…)` argument source for widen fallbacks (C6)
+  def shapeCaseCtorArgs:[string:string]
 
   def stdCommands@(optional):CodeNode
   def lastProcessedNode@(weak):CodeNode
@@ -950,7 +960,12 @@ class RangerFlowParser {
             }
           }
           return
-        } 
+        }
+        ; C5: group field projection — `r.identityId` on a group union
+        if (currC.is_union && (this.shapeGroupHasField(currC.name prop.vref))) {
+          this.rewriteToGroupFieldGet(node obj prop.vref currC.name ctx wr)
+          return
+        }
         def mDef (currC.findMethod(prop.vref))
         if(!null? mDef) {
           ; node.flow_done = true
@@ -1026,6 +1041,20 @@ class RangerFlowParser {
       }
     }
     if ( rootObjName == "this" || (ctx.isVarDefined(rootObjName)) ) {
+
+      ; C5: `r.identityId` where r is a shape group union → ops getter
+      if (((size node.ns) == 2) && (ctx.isVarDefined(rootObjName))) {
+        def rootDef:RangerAppParamDesc (ctx.getVariableDef(rootObjName))
+        if ((!null? rootDef.nameNode) && ((strlen rootDef.nameNode.type_name) > 0)) {
+          def gType:string rootDef.nameNode.type_name
+          def fieldName:string (at node.ns 1)
+          if (this.shapeGroupHasField(gType fieldName)) {
+            def recv:CodeNode (node.newVRefNode(rootObjName))
+            this.rewriteToGroupFieldGet(node recv fieldName gType ctx wr)
+            return
+          }
+        }
+      }
 
       def vDef2:RangerAppParamDesc (ctx.getVariableDef(rootObjName))
       def activeFn:RangerAppFunctionDesc (ctx.getCurrentMethod())
@@ -2626,6 +2655,44 @@ class RangerFlowParser {
 
     this.repairAssignMethodCallRhs(node)
     def target:CodeNode (node.getSecond())
+
+    ; C5: assign through a group field projection before walking the dotted
+    ; path (which would otherwise fail — group unions have no variables).
+    if (((array_length target.ns) == 2) && (ctx.isVarDefined((at target.ns 0)))) {
+      def gRoot:string (at target.ns 0)
+      def gField:string (at target.ns 1)
+      def gRootDef:RangerAppParamDesc (ctx.getVariableDef(gRoot))
+      if ((!null? gRootDef.nameNode) && ((strlen gRootDef.nameNode.type_name) > 0)) {
+        def gType:string gRootDef.nameNode.type_name
+        if (this.shapeGroupHasField(gType gField)) {
+          if (has shapeGroupAllValue gType) {
+            if (unwrap (get shapeGroupAllValue gType)) {
+              ctx.addError(node (("cannot assign to a field of group " + gType) + ": its members are @(value) cases and immutable"))
+              return
+            }
+          }
+          def rhsNode:CodeNode (node.getThird())
+          def opsName:string (gType + "__ops")
+          def callNode:CodeNode (node.newExpressionNode())
+          def opsRef:CodeNode (node.newVRefNode((opsName + ".set_") + gField))
+          clear opsRef.ns
+          push opsRef.ns opsName
+          push opsRef.ns (("set_" + gField))
+          def args:CodeNode (node.newExpressionNode())
+          push args.children (node.newVRefNode(gRoot))
+          push args.children (rhsNode.copy())
+          push callNode.children opsRef
+          push callNode.children args
+          node.expression = true
+          node.flow_done = false
+          node.value_type = RangerNodeType.NoType
+          node.getChildrenFrom(callNode)
+          this.WalkNode(node ctx wr)
+          return
+        }
+      }
+    }
+
     this.WalkNode(target ctx wr)
 
     ; S4: a @(value) case compares by CONTENT, so its fields must not change
@@ -4560,6 +4627,129 @@ class RangerFlowParser {
     set shapeViews viewName v
   }
 
+  fn shapeTypeSpelling:string (typeName:string arrayType:string keyType:string) {
+    if ((strlen keyType) > 0) {
+      return (((("[" + keyType) + ":") + arrayType) + "]")
+    }
+    if ((strlen arrayType) > 0) {
+      return (("[" + arrayType) + "]")
+    }
+    return typeName
+  }
+
+  fn shapeGroupHasField:boolean (groupCls:string fieldName:string) {
+    if (has shapeGroupFields groupCls) {
+      def fields:[string] (unwrap (get shapeGroupFields groupCls))
+      if ((indexOf fields fieldName) >= 0) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; Build get_/set_ source for every field available through a group view.
+  fn buildGroupFieldAccessorSrc:string (shapeName:string gn:string gClsName:string mems:[string] fieldNames:[string] allowSet:boolean) {
+    def src:string ""
+    for fieldNames fname:string fi {
+      def key:string ((gClsName + ".") + fname)
+      def tName:string "int"
+      def aType:string ""
+      def kType:string ""
+      if (has shapeGroupFieldTypeName key) {
+        tName = (unwrap (get shapeGroupFieldTypeName key))
+      }
+      if (has shapeGroupFieldArrayType key) {
+        aType = (unwrap (get shapeGroupFieldArrayType key))
+      }
+      if (has shapeGroupFieldKeyType key) {
+        kType = (unwrap (get shapeGroupFieldKeyType key))
+      }
+      def typeSp:string (this.shapeTypeSpelling(tName aType kType))
+      src = src + ((("  sfn get_" + fname) + ":") + typeSp)
+      src = src + ((" (self:" + gClsName) + ") {\n")
+      src = src + "    match self {\n"
+      for mems cn:string cni {
+        def bind:string ((("__gf_" + cn) + "_") + fname)
+        src = src + ((("      " + cn) + " ") + bind) + " {\n"
+        src = src + ((("        return " + bind) + ".") + fname) + "\n"
+        src = src + "      }\n"
+      }
+      src = src + "    }\n"
+      if (tName == "string") {
+        src = src + "    return \"\"\n"
+      } {
+        if (tName == "boolean") {
+          src = src + "    return false\n"
+        } {
+          if (tName == "double") {
+            src = src + "    return 0.0\n"
+          } {
+            if (((strlen aType) == 0) && ((strlen kType) == 0)) {
+              if ((tName == "int") || (tName == "char")) {
+                src = src + "    return 0\n"
+              }
+            }
+          }
+        }
+      }
+      src = src + "  }\n"
+      if allowSet {
+        src = src + ((("  sfn set_" + fname) + ":void (self:") + gClsName)
+        src = src + ((" v:" + typeSp) + ") {\n")
+        src = src + "    match self {\n"
+        for mems cn:string cni {
+          def bind2:string ((("__gfs_" + cn) + "_") + fname)
+          src = src + ((("      " + cn) + " ") + bind2) + " {\n"
+          src = src + ((("        " + bind2) + ".") + fname) + " = v\n"
+          src = src + "      }\n"
+        }
+        src = src + "    }\n"
+        src = src + "  }\n"
+      }
+    }
+    return src
+  }
+
+  ; Rewrite a node into `Group__ops.get_field(receiver)`.
+  fn rewriteToGroupFieldGet:void (node:CodeNode receiver:CodeNode fieldName:string groupCls:string ctx:RangerAppWriterContext wr:CodeWriter) {
+    def opsName:string (groupCls + "__ops")
+    def callNode:CodeNode (node.newExpressionNode())
+    def opsRef:CodeNode (node.newVRefNode((opsName + ".get_") + fieldName))
+    clear opsRef.ns
+    push opsRef.ns opsName
+    push opsRef.ns (("get_" + fieldName))
+    def args:CodeNode (node.newExpressionNode())
+    push args.children (receiver.copy())
+    push callNode.children opsRef
+    push callNode.children args
+    node.expression = true
+    node.flow_done = false
+    node.value_type = RangerNodeType.NoType
+    node.getChildrenFrom(callNode)
+    this.WalkNode(node ctx wr)
+  }
+
+  ; Widen a subgroup-typed value to a parent group via a generated helper.
+  ; Name is `widen_to_*` (not `__as_*`) so Python does not mangledouble-underscore names.
+  fn rewriteToGroupWiden:void (node:CodeNode targetGroupCls:string sourceGroupCls:string ctx:RangerAppWriterContext wr:CodeWriter) {
+    def opsName:string (sourceGroupCls + "__ops")
+    def helper:string (("widen_to_" + targetGroupCls))
+    def callNode:CodeNode (node.newExpressionNode())
+    def opsRef:CodeNode (node.newVRefNode((opsName + ".") + helper))
+    clear opsRef.ns
+    push opsRef.ns opsName
+    push opsRef.ns helper
+    def args:CodeNode (node.newExpressionNode())
+    push args.children (node.copy())
+    push callNode.children opsRef
+    push callNode.children args
+    node.expression = true
+    node.flow_done = false
+    node.value_type = RangerNodeType.NoType
+    node.getChildrenFrom(callNode)
+    this.WalkNode(node ctx wr)
+  }
+
   fn expandShape:void (shapeNode@(lives):CodeNode parent@(lives):CodeNode shapeIndex:int ctx:RangerAppWriterContext wr:CodeWriter renames:[string:string]) {
     ; generated classes are spliced in where the shape was written, not appended
     ; to the end of the file: a target that emits classes in source order (and
@@ -4989,6 +5179,44 @@ class RangerFlowParser {
       ; retain every field name for method body rewriting (not only scalars)
       set caseFieldNames (clsName + "__all") allFieldNames
 
+      ; default constructor args for C6 widen fallbacks
+      def ctorArgs:string ""
+      def ctorOk:boolean true
+      for blk.children fld:CodeNode fldi {
+        if (this.shapeMemberIsField(fld)) {
+          def fNode:CodeNode (fld.getSecond())
+          if ((strlen fNode.key_type) > 0) {
+            ctorOk = false
+          } {
+            if ((strlen fNode.array_type) > 0) {
+              ctorOk = false
+            } {
+              def ft:string fNode.type_name
+              if (ft == "double") {
+                ctorArgs = (ctorArgs + " 0.0")
+              } {
+                if (ft == "string") {
+                  ctorArgs = (ctorArgs + " \"\"")
+                } {
+                  if (ft == "boolean") {
+                    ctorArgs = (ctorArgs + " false")
+                  } {
+                    if ((ft == "int") || (ft == "char")) {
+                      ctorArgs = (ctorArgs + " 0")
+                    } {
+                      ctorOk = false
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      if ctorOk {
+        set shapeCaseCtorArgs clsName ctorArgs
+      }
+
       push recNode.children blk
       insert parent.children insertAt recNode
       insertAt = insertAt + 1
@@ -5028,6 +5256,47 @@ class RangerFlowParser {
           parentView = ((shapeName + ".") + gp)
         }
         this.registerShapeView(shapeName "group" ((shapeName + ".") + gn) gClsName gCaseList parentView)
+
+        ; C5: fields available through this group (ancestor chain, root first)
+        def availFields:[string]
+        if (has groupAncestorsRootFirst gn) {
+          def chain:[string] (unwrap (get groupAncestorsRootFirst gn))
+          for chain g:string gi {
+            if (has groupFieldNodes g) {
+              def gFields:[CodeNode] (unwrap (get groupFieldNodes g))
+              for gFields gf:CodeNode gfi {
+                def fname:string (this.shapeFieldName(gf))
+                if ((strlen fname) > 0) {
+                  if ((indexOf availFields fname) < 0) {
+                    push availFields fname
+                  }
+                  def fKey:string ((gClsName + ".") + fname)
+                  def fNameNode:CodeNode (gf.getSecond())
+                  set shapeGroupFieldTypeName fKey fNameNode.type_name
+                  set shapeGroupFieldArrayType fKey fNameNode.array_type
+                  set shapeGroupFieldKeyType fKey fNameNode.key_type
+                }
+              }
+            }
+          }
+        }
+        set shapeGroupFields gClsName availFields
+
+        ; all members @(value)? then field sets are rejected
+        def allValue:boolean true
+        if ((array_length gCaseList) == 0) {
+          allValue = false
+        }
+        for gCaseList ccls:string cci {
+          def isV:boolean false
+          if (has caseIsValue ccls) {
+            isV = (unwrap (get caseIsValue ccls))
+          }
+          if (isV == false) {
+            allValue = false
+          }
+        }
+        set shapeGroupAllValue gClsName allValue
       } {
         ctx.addError(shapeNode (("group " + gn) + " has no cases"))
       }
@@ -5147,206 +5416,240 @@ class RangerFlowParser {
       }
     }
 
-    ; --- C4: group ops classes (defaults + required dispatchers) ---
+    ; --- C4/C5/C6: group ops — methods, field accessors, parent wideners ---
     for groupNames gn:string gni {
+      def mems:[string] (unwrap (get groupMembers gn))
+      def gClsName:string ((shapeName + "_") + gn)
+      def gOpsName:string (gClsName + "__ops")
+      def defaultNodes:[CodeNode]
+      def defaultStatic:[boolean]
+      def defaultNames:[string]
+      def dispSrc:string ""
+      def gMethodNames:[string]
+      def gRequired:[boolean]
+      def gHasDefault:[boolean]
+      def gMethods:[CodeNode]
       if (has groupMethodNames gn) {
-        def gMethodNames:[string] (unwrap (get groupMethodNames gn))
-        if ((array_length gMethodNames) > 0) {
-          def gRequired:[boolean] (unwrap (get groupMethodRequired gn))
-          def gHasDefault:[boolean] (unwrap (get groupMethodHasDefault gn))
-          def gMethods:[CodeNode] (unwrap (get groupMethodNodes gn))
-          def mems:[string] (unwrap (get groupMembers gn))
-          def gClsName:string ((shapeName + "_") + gn)
-          def gOpsName:string (gClsName + "__ops")
-          def defaultNodes:[CodeNode]
-          def defaultStatic:[boolean]
-          def defaultNames:[string]
-          def dispSrc:string ""
-          def mi:int 0
-          def mcnt:int (array_length gMethodNames)
-          while (mi < mcnt) {
-            def mName:string (itemAt gMethodNames mi)
-            def mNode:CodeNode (itemAt gMethods mi)
-            def needImpl:boolean (itemAt gRequired mi)
-            def hasDefault:boolean (itemAt gHasDefault mi)
-            ; does any member override a default?
-            def anyOverride:boolean false
-            if hasDefault {
-              for mems cn:string cni {
-                if (has caseMethodNames cn) {
-                  def cNames:[string] (unwrap (get caseMethodNames cn))
-                  def cOverrides:[boolean] (unwrap (get caseMethodOverride cn))
-                  def cj:int 0
-                  def cjcnt:int (array_length cNames)
-                  while (cj < cjcnt) {
-                    if (((itemAt cNames cj) == mName) && (itemAt cOverrides cj)) {
-                      anyOverride = true
-                    }
-                    cj = cj + 1
-                  }
+        gMethodNames = (unwrap (get groupMethodNames gn))
+        gRequired = (unwrap (get groupMethodRequired gn))
+        gHasDefault = (unwrap (get groupMethodHasDefault gn))
+        gMethods = (unwrap (get groupMethodNodes gn))
+      }
+      def mi:int 0
+      def mcnt:int (array_length gMethodNames)
+      while (mi < mcnt) {
+        def mName:string (itemAt gMethodNames mi)
+        def mNode:CodeNode (itemAt gMethods mi)
+        def needImpl:boolean (itemAt gRequired mi)
+        def hasDefault:boolean (itemAt gHasDefault mi)
+        def anyOverride:boolean false
+        if hasDefault {
+          for mems cn:string cni {
+            if (has caseMethodNames cn) {
+              def cNames:[string] (unwrap (get caseMethodNames cn))
+              def cOverrides:[boolean] (unwrap (get caseMethodOverride cn))
+              def cj:int 0
+              def cjcnt:int (array_length cNames)
+              while (cj < cjcnt) {
+                if (((itemAt cNames cj) == mName) && (itemAt cOverrides cj)) {
+                  anyOverride = true
+                }
+                cj = cj + 1
+              }
+            }
+          }
+        }
+        if (needImpl || anyOverride) {
+          def nameNode:CodeNode (mNode.getSecond())
+          def argsNode:CodeNode (itemAt mNode.children 2)
+          def retType:string nameNode.type_name
+          dispSrc = dispSrc + (("  sfn " + mName) + ":")
+          if ((strlen nameNode.array_type) > 0) {
+            dispSrc = dispSrc + (("[" + nameNode.array_type) + "]")
+          } {
+            if ((strlen nameNode.key_type) > 0) {
+              dispSrc = dispSrc + (((("[" + nameNode.key_type) + ":") + nameNode.array_type) + "]")
+            } {
+              dispSrc = dispSrc + retType
+            }
+          }
+          dispSrc = dispSrc + ((" (self:" + gClsName) + "")
+          for argsNode.children arg:CodeNode ai {
+            dispSrc = dispSrc + (" " + arg.vref)
+            if ((strlen arg.key_type) > 0) {
+              dispSrc = dispSrc + ((((":[" + arg.key_type) + ":") + arg.array_type) + "]")
+            } {
+              if ((strlen arg.array_type) > 0) {
+                dispSrc = dispSrc + ((":[" + arg.array_type) + "]")
+              } {
+                dispSrc = dispSrc + (":" + arg.type_name)
+              }
+            }
+          }
+          dispSrc = dispSrc + ") {\n"
+          dispSrc = dispSrc + "    match self {\n"
+          for mems cn:string cni {
+            def bind:string (("__gm_" + cn) + ("_" + mName))
+            def caseOps:string ((((shapeName + "_") + cn) + "__ops"))
+            def useCase:boolean false
+            if (has caseMethodNames cn) {
+              def cNames2:[string] (unwrap (get caseMethodNames cn))
+              for cNames2 cmn:string cmni {
+                if (cmn == mName) {
+                  useCase = true
                 }
               }
             }
-            if (needImpl || anyOverride) {
-              ; exhaustive dispatcher
-              def nameNode:CodeNode (mNode.getSecond())
-              def argsNode:CodeNode (itemAt mNode.children 2)
-              def retType:string nameNode.type_name
-              def retSuffix:string ""
-              if ((strlen nameNode.array_type) > 0) {
-                retSuffix = ((":" + retType) )
-                ; keep array spelling on the name node via reconstructed sig
-              }
-              dispSrc = dispSrc + (("  sfn " + mName) + ":")
-              if ((strlen nameNode.array_type) > 0) {
-                dispSrc = dispSrc + (("[" + nameNode.array_type) + "]")
-              } {
-                if ((strlen nameNode.key_type) > 0) {
-                  dispSrc = dispSrc + (((("[" + nameNode.key_type) + ":") + nameNode.array_type) + "]")
-                } {
-                  dispSrc = dispSrc + retType
-                }
-              }
-              dispSrc = dispSrc + ((" (self:" + gClsName) + "")
+            dispSrc = dispSrc + ((("      " + cn) + " ") + bind) + " {\n"
+            if useCase {
+              dispSrc = dispSrc + ((("        return (" + caseOps) + ".") + mName) + ("(" + bind)
               for argsNode.children arg:CodeNode ai {
                 dispSrc = dispSrc + (" " + arg.vref)
-                if ((strlen arg.key_type) > 0) {
-                  dispSrc = dispSrc + ((((":[" + arg.key_type) + ":") + arg.array_type) + "]")
-                } {
-                  if ((strlen arg.array_type) > 0) {
-                    dispSrc = dispSrc + ((":[" + arg.array_type) + "]")
-                  } {
-                    dispSrc = dispSrc + (":" + arg.type_name)
-                  }
-                }
               }
-              dispSrc = dispSrc + ") {\n"
-              dispSrc = dispSrc + "    match self {\n"
-              for mems cn:string cni {
-                def bind:string (("__gm_" + cn) + ("_" + mName))
-                def caseOps:string ((((shapeName + "_") + cn) + "__ops"))
-                def useCase:boolean false
-                if (has caseMethodNames cn) {
-                  def cNames:[string] (unwrap (get caseMethodNames cn))
-                  for cNames cmn:string cmni {
-                    if (cmn == mName) {
-                      useCase = true
-                    }
-                  }
-                }
-                dispSrc = dispSrc + ((("      " + cn) + " ") + bind) + " {\n"
-                if useCase {
-                  dispSrc = dispSrc + ((("        return (" + caseOps) + ".") + mName) + ("(" + bind)
-                  for argsNode.children arg:CodeNode ai {
-                    dispSrc = dispSrc + (" " + arg.vref)
-                  }
-                  dispSrc = dispSrc + "))\n"
-                } {
-                  ; fall back to the group default body via a direct call after
-                  ; re-attaching it under a private name — inlined as a call to
-                  ; the default sfn we also emit below when hasDefault.
-                  if hasDefault {
-                    dispSrc = dispSrc + ((("        return (" + gOpsName) + ".__default_") + mName) + ("(" + bind)
-                    for argsNode.children arg:CodeNode ai {
-                      dispSrc = dispSrc + (" " + arg.vref)
-                    }
-                    dispSrc = dispSrc + "))\n"
-                  } {
-                    dispSrc = dispSrc + "        return\n"
-                  }
-                }
-                dispSrc = dispSrc + "      }\n"
-              }
-              dispSrc = dispSrc + "    }\n"
-              ; unreachable fallback keeps typed returns happy on some targets
-              if (retType == "void") {
-                dispSrc = dispSrc + "  }\n"
-              } {
-                if (retType == "string") {
-                  dispSrc = dispSrc + "    return \"\"\n  }\n"
-                } {
-                  if (retType == "boolean") {
-                    dispSrc = dispSrc + "    return false\n  }\n"
-                  } {
-                    if (retType == "double") {
-                      dispSrc = dispSrc + "    return 0.0\n  }\n"
-                    } {
-                      if ((retType == "int") || (retType == "char")) {
-                        dispSrc = dispSrc + "    return 0\n  }\n"
-                      } {
-                        dispSrc = dispSrc + "  }\n"
-                      }
-                    }
-                  }
-                }
-              }
-              set renames ((((shapeName + ".") + gn) + ".") + mName) ((gOpsName + ".") + mName)
+              dispSrc = dispSrc + "))\n"
             } {
               if hasDefault {
-                ; concrete non-overridden default: reuse the method node
-                push defaultNodes mNode
-                push defaultStatic false
-                push defaultNames mName
-                set renames ((((shapeName + ".") + gn) + ".") + mName) ((gOpsName + ".") + mName)
+                dispSrc = dispSrc + ((("        return (" + gOpsName) + ".__default_") + mName) + ("(" + bind)
+                for argsNode.children arg:CodeNode ai {
+                  dispSrc = dispSrc + (" " + arg.vref)
+                }
+                dispSrc = dispSrc + "))\n"
+              } {
+                dispSrc = dispSrc + "        return\n"
               }
             }
-            ; when a default is overridden by some cases, keep the default body
-            ; under __default_<name> for the dispatcher arms that need it
-            if (hasDefault && anyOverride) {
-              def defCopy:CodeNode (mNode.copy())
-              def defHead:CodeNode (defCopy.getFirst())
-              defHead.vref = "fn"
-              def defNameNode:CodeNode (defCopy.getSecond())
-              defNameNode.vref = ("__default_" + mName)
-              clear defNameNode.ns
-              push defNameNode.ns defNameNode.vref
-              push defaultNodes defCopy
-              push defaultStatic false
-              push defaultNames ("__default_" + mName)
-            }
-            mi = mi + 1
+            dispSrc = dispSrc + "      }\n"
           }
-
-          def needOps:boolean false
-          if (((array_length defaultNodes) > 0) || ((strlen dispSrc) > 0)) {
-            needOps = true
-          }
-          if needOps {
-            def opsSrc:string (("class " + gOpsName) + " {\n")
-            opsSrc = opsSrc + dispSrc
-            if ((array_length defaultNodes) > 0) {
-              opsSrc = opsSrc + (("  sfn __shape_self_proto:void (self:" + gClsName) + ") {\n")
-              opsSrc = opsSrc + "  }\n"
-            }
-            opsSrc = opsSrc + "}\n"
-            def opsRootOpt@(optional):CodeNode (this.parseOpsClassRoot(opsSrc (("shape_group_ops_" + gClsName) + ".rgr") shapeNode ctx))
-            if (!null? opsRootOpt) {
-              def opsRoot:CodeNode (unwrap opsRootOpt)
-              if ((array_length defaultNodes) > 0) {
-                def gFieldNames:[string]
-                ; group default bodies may read group fields after C5; for now
-                ; collect field names along the ancestor chain for rewriting
-                if (has groupAncestorsRootFirst gn) {
-                  def chain:[string] (unwrap (get groupAncestorsRootFirst gn))
-                  for chain g:string gi {
-                    if (has groupFieldNodes g) {
-                      def gFields:[CodeNode] (unwrap (get groupFieldNodes g))
-                      for gFields gf:CodeNode gfi {
-                        def fname:string (this.shapeFieldName(gf))
-                        if ((strlen fname) > 0) {
-                          push gFieldNames fname
-                        }
-                      }
-                    }
+          dispSrc = dispSrc + "    }\n"
+          if (retType == "void") {
+            dispSrc = dispSrc + "  }\n"
+          } {
+            if (retType == "string") {
+              dispSrc = dispSrc + "    return \"\"\n  }\n"
+            } {
+              if (retType == "boolean") {
+                dispSrc = dispSrc + "    return false\n  }\n"
+              } {
+                if (retType == "double") {
+                  dispSrc = dispSrc + "    return 0.0\n  }\n"
+                } {
+                  if ((retType == "int") || (retType == "char")) {
+                    dispSrc = dispSrc + "    return 0\n  }\n"
+                  } {
+                    dispSrc = dispSrc + "  }\n"
                   }
                 }
-                this.attachOpsMethods(opsRoot ((shapeName + ".") + gn) defaultNodes defaultStatic gFieldNames ctx)
-              }
-              for opsRoot.children och@(lives):CodeNode oi {
-                insert parent.children insertAt och
-                insertAt = insertAt + 1
               }
             }
+          }
+          set renames ((((shapeName + ".") + gn) + ".") + mName) ((gOpsName + ".") + mName)
+        } {
+          if hasDefault {
+            push defaultNodes mNode
+            push defaultStatic false
+            push defaultNames mName
+            set renames ((((shapeName + ".") + gn) + ".") + mName) ((gOpsName + ".") + mName)
+          }
+        }
+        if (hasDefault && anyOverride) {
+          def defCopy:CodeNode (mNode.copy())
+          def defHead:CodeNode (defCopy.getFirst())
+          defHead.vref = "fn"
+          def defNameNode:CodeNode (defCopy.getSecond())
+          defNameNode.vref = ("__default_" + mName)
+          clear defNameNode.ns
+          push defNameNode.ns defNameNode.vref
+          push defaultNodes defCopy
+          push defaultStatic false
+          push defaultNames ("__default_" + mName)
+        }
+        mi = mi + 1
+      }
+
+      ; C5: field projection accessors
+      def availFields:[string]
+      if (has shapeGroupFields gClsName) {
+        availFields = (unwrap (get shapeGroupFields gClsName))
+      }
+      def allowSet:boolean true
+      if (has shapeGroupAllValue gClsName) {
+        if (unwrap (get shapeGroupAllValue gClsName)) {
+          allowSet = false
+        }
+      }
+      if ((array_length availFields) > 0) {
+        dispSrc = dispSrc + (this.buildGroupFieldAccessorSrc(shapeName gn gClsName mems availFields allowSet))
+      }
+
+      ; C6: widen this group to each ancestor group (Numeric → Printable).
+      ; Returns inside `case` plus a top-level fallback `return` of a default
+      ; first-member value — the return checker needs the trailing return, and
+      ; case→group `return n` wraps the native enum variant (S5).
+      if (has groupAncestorsRootFirst gn) {
+        def chain:[string] (unwrap (get groupAncestorsRootFirst gn))
+        for chain anc:string ai {
+          if (anc != gn) {
+            def ancCls:string ((shapeName + "_") + anc)
+            dispSrc = dispSrc + ((("  sfn widen_to_" + ancCls) + ":") + ancCls)
+            dispSrc = dispSrc + ((" (self:" + gClsName) + ") {\n")
+            def wi:int 0
+            def wcnt:int (array_length mems)
+            while (wi < wcnt) {
+              def cn:string (itemAt mems wi)
+              def bindw:string ((("__gw_" + cn) + "_") + anc)
+              def caseCls:string ((shapeName + "_") + cn)
+              dispSrc = dispSrc + ((("    case self " + bindw) + ":") + caseCls) + " {\n"
+              dispSrc = dispSrc + (("      return " + bindw) + "\n")
+              dispSrc = dispSrc + "    }\n"
+              wi = wi + 1
+            }
+            if (wcnt > 0) {
+              def fcn:string (itemAt mems 0)
+              def fcls:string ((shapeName + "_") + fcn)
+              def fbind:string (("__gw_fb_" + fcn) + ("_" + anc))
+              dispSrc = dispSrc + ((("    case self " + fbind) + ":") + fcls) + " {\n"
+              dispSrc = dispSrc + (("      return " + fbind) + "\n")
+              dispSrc = dispSrc + "    }\n"
+              if (has shapeCaseCtorArgs fcls) {
+                def cargs:string (unwrap (get shapeCaseCtorArgs fcls))
+                dispSrc = dispSrc + ((("    return (new " + fcls) + "(") + cargs) + "))\n"
+              } {
+                ; no scalar-default ctor — duplicate arm already returns above;
+                ; add a void-cast placeholder the checker still rejects, so
+                ; require ctor args for widen helpers in practice.
+                dispSrc = dispSrc + (("    return (new " + fcls) + "())\n")
+              }
+            }
+            dispSrc = dispSrc + "  }\n"
+          }
+        }
+      }
+
+      def needOps:boolean false
+      if (((array_length defaultNodes) > 0) || ((strlen dispSrc) > 0)) {
+        needOps = true
+      }
+      if needOps {
+        def opsSrc:string (("class " + gOpsName) + " {\n")
+        opsSrc = opsSrc + dispSrc
+        if ((array_length defaultNodes) > 0) {
+          opsSrc = opsSrc + (("  sfn __shape_self_proto:void (self:" + gClsName) + ") {\n")
+          opsSrc = opsSrc + "  }\n"
+        }
+        opsSrc = opsSrc + "}\n"
+        def opsRootOpt@(optional):CodeNode (this.parseOpsClassRoot(opsSrc (("shape_group_ops_" + gClsName) + ".rgr") shapeNode ctx))
+        if (!null? opsRootOpt) {
+          def opsRoot:CodeNode (unwrap opsRootOpt)
+          if ((array_length defaultNodes) > 0) {
+            def gFieldNames:[string]
+            for availFields af:string afi {
+              push gFieldNames af
+            }
+            this.attachOpsMethods(opsRoot ((shapeName + ".") + gn) defaultNodes defaultStatic gFieldNames ctx)
+          }
+          for opsRoot.children och@(lives):CodeNode oi {
+            insert parent.children insertAt och
+            insertAt = insertAt + 1
           }
         }
       }
@@ -7435,7 +7738,11 @@ class RangerFlowParser {
               if (n1.eval_type_name == n2.eval_type_name) {
                 return true
               }
+              ; C6: source is a subgroup of the expected group — widen via the
+              ; generated `__as_<Parent>` helper so native enum targets keep a
+              ; typed conversion (case → parent union) without a wrapper object.
               if ( c2.isSameOrParentClass (n1.eval_type_name ctx)) {
+                this.rewriteToGroupWiden(n2 n1.eval_type_name n2.eval_type_name ctx wr)
                 return true
               }
               if ( c1.isSameOrParentClass (n2.eval_type_name ctx)) {

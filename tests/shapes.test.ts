@@ -103,8 +103,8 @@ describe("shapes (closed variant families)", () => {
       expect(result.success, `Compile failed: ${result.error}`).toBe(true);
       expect(result.code).toContain("fn identityOf(&self, mut r : union_Value_Ref)");
       expect(result.code).toContain("pub enum union_Value_Ref");
-      // the group is a type, never a struct of its own
-      expect(result.code).not.toContain("struct Value_Ref");
+      // the group is a type, never a data struct of its own (ops class is ok)
+      expect(result.code).not.toMatch(/struct Value_Ref\s*\{/);
     });
 
     it("keeps generated classes where the shape was written", () => {
@@ -539,11 +539,17 @@ describe("shapes (closed variant families)", () => {
       expect(result.code).not.toContain("__shape_self_proto");
     });
 
-    it("accepts parent-group widening where unions are erased", () => {
-      // ES6 erases group unions to the case classes, so Numeric → Printable is
-      // a compile-time proof with no runtime conversion. Native enum targets
-      // still use a separate group container until C6.
+    it("widens a subgroup to its parent group", () => {
       expectOutput(`${FIXTURES_DIR}/shape_group_parent_widen.rgr`, "3");
+    });
+
+    it.skipIf(!isRustAvailable())("Rust widens Numeric → Printable via widen_to_", () => {
+      expectRustOutput(`${FIXTURES_DIR}/shape_group_parent_widen.rgr`, "3");
+      const result = getGeneratedRustCode(
+        `${FIXTURES_DIR}/shape_group_parent_widen.rgr`
+      );
+      expect(result.success).toBe(true);
+      expect(result.code).toContain("widen_to_Value_Printable");
     });
 
     it("runs a group default and an @(override)", () => {
@@ -578,6 +584,46 @@ describe("shapes (closed variant families)", () => {
       expectCompileError(
         `${FIXTURES_DIR}/shape_group_override_missing.rgr`,
         "@(override)"
+      );
+    });
+  });
+
+  /**
+   * Group field projection (PLAN_SHAPES.md §7 / C5). Fields declared on a
+   * group are read and written through the group type via generated get_/set_
+   * ops — no narrowing required, identity preserved for reference groups.
+   */
+  describe("group field projection", () => {
+    const FIELDS = `${FIXTURES_DIR}/shape_group_fields.rgr`;
+    const EXPECTED_FIELDS = ["7", "8", "8"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(FIELDS, EXPECTED_FIELDS);
+    });
+
+    it.skipIf(!isPythonAvailable())("Python", () => {
+      expectPythonOutput(FIELDS, EXPECTED_FIELDS);
+    });
+
+    it.skipIf(!isGoAvailable())("Go", () => {
+      expectGoOutput(FIELDS, EXPECTED_FIELDS);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(FIELDS, EXPECTED_FIELDS);
+    });
+
+    it("lowers group field access to get_/set_ ops", () => {
+      const result = getGeneratedCppCode(FIELDS);
+      expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("get_identityId");
+      expect(result.code).toContain("set_identityId");
+    });
+
+    it("rejects a group field accessed through the whole shape", () => {
+      expectCompileError(
+        `${FIXTURES_DIR}/shape_group_field_on_shape.rgr`,
+        "variable not found identityId"
       );
     });
   });

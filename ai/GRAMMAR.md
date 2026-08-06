@@ -89,6 +89,10 @@ A case belongs to at most one leaf group (and that group's ancestors via
 the group — all are usable as types. Construction is ordinary:
 `(new Value.Num(2.5))`.
 
+Group fields are readable through the group type without narrowing
+(`r.identityId` when `r:Value.Ref`); reference groups also allow assignment.
+Both lower to generated `get_` / `set_` ops with exhaustive dispatch.
+
 ## Match Statement
 
 ```bnf
