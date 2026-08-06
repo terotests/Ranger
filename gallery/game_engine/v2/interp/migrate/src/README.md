@@ -20,12 +20,12 @@
 - **✅ E4b (storage accessors)** — CE uses EvHandle accessors for arrays,
   property bags, proto, flags, functionNode, boundThis.
 - **✅ E4c (storage SoT + rename)** — Array/Map/Set + Object own-data,
-  accessors, attrs, proto and integrity live on `shape EvalValue`
-  (`EvPropertyBag` / case fields). `EvValueHandles` preserves ref identity.
-  Unused class storage fields deleted. Class renamed to `EvHandle`; shape
-  renamed to `EvalValue`. Thin shell remains for `slotOwned` / `functionNode`
-  / `payload` until a later step can move those without breaking Number
-  `@(value)` layout.
+  accessors, attrs, proto and integrity live on `shape EvalValue`.
+  Class renamed to `EvHandle`; shape renamed to `EvalValue`.
+- **✅ E4d (Function/Element shell)** — `EvalPayload` deleted. Element and
+  Function core/binding (incl. `functionNode`, `boundThis`) live on
+  `body:EvalValue`. Thin shell left: scalar caches, `slotOwned`,
+  `identityId` (Number `@(value)` blocks slotOwned / in-place number SoT).
 
 ## Unit / contract tests that gate this folder
 

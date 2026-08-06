@@ -1225,10 +1225,21 @@ that no `record` with a class-typed field could avoid are fixed
        (Hole sentinel for absent accessor halves).
      - Unused class storage fields deleted; class renamed `EvalValue` →
        `EvHandle`; shape renamed `EvValue` → `EvalValue`.
-     - Thin `EvHandle` shell remains (`slotOwned`, `functionNode`, `payload`,
-       scalar caches, `identityId`, `boundThis`) — full class deletion is
-       blocked until those move without breaking Number `@(value)`.
      Fixtures: `shape_evalvalue_e4c_array.rgr`, `shape_evalvalue_e4c_mapset.rgr`.
+   - **✅ E4d — Function/Element shell onto the shape:**
+     - Element SoT is `body.Element.element` (`EvalPayload.ElemBox` deleted).
+     - Function SoT is `body.Function.core` / `.binding`
+       (`EvFunctionCore` + `EvFunctionBinding`; `functionNode`,
+       `suppressedKeys`, `boundThis`, `boundArgs`, `boundExplicit`).
+     - `EvalPayload` deleted entirely; `withThis` copies core (sharing is a
+       later optimisation once bind’s rename/suppress writes leave core).
+     - Fixtures: `shape_evalvalue_e4d_element.rgr`,
+       `shape_evalvalue_e4d_fncore.rgr`.
+     - Thin `EvHandle` shell that remains: `body`, scalar caches
+       (`numberValue` / `stringValue` / `boolValue`), `slotOwned`,
+       `identityId` (also on Reference — class field is the hot-path cache).
+       Number `@(value)` blocks moving slotOwned / live number mutation onto
+       the shape without a body-rewrite protocol.
 5. **Re-measure.** `sizeof(EvHandle)` on C++, the eight benchmark cases on Node, C++,
    Rust, Go, Kotlin, Python and C#, and the small-integer pool's remaining value —
    with primitives no longer heap-allocated, the pool may stop earning its keep on the

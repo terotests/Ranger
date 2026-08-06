@@ -1,0 +1,72 @@
+; E4d2–4: Function core/binding on body is SoT (no EvalPayload.FnCore).
+Import "../../gallery/game_engine/v2/interp/migrate/src/EvValueBridge.rgr"
+
+class Main {
+    sfn main:void () {
+        def m:EvHandle (EvHandle.nativeMethod("Array" "slice"))
+        if ((m.fnName()) == "slice") {
+            if ((m.builtinKindOf()) == "Array") {
+                print "core"
+            } {
+                print "WRONG: kind"
+            }
+        } {
+            print "WRONG: name"
+        }
+
+        def shaped:EvalValue (EvValueBridge.fromTagged(m))
+        if (EvalValue.isFunction(shaped)) {
+            case shaped ff:EvalValue.Function {
+                def c:EvFunctionCore (unwrap ff.core)
+                if (c.functionName == "slice") {
+                    if (c.builtinKind == "Array") {
+                        print "sot"
+                    } {
+                        print "WRONG: body kind"
+                    }
+                } {
+                    print "WRONG: body name"
+                }
+            }
+        } {
+            print "WRONG: fromTagged"
+        }
+
+        ; withThis copies core; bind-style writes on the copy must not
+        ; rename the original.
+        def emptyKeys:[string]
+        def emptyVals:[EvHandle]
+        def recv:EvHandle (EvValueBridge.taggedObject(emptyKeys emptyVals))
+        def bound:EvHandle (m.withThis(recv))
+        bound.setFnName("bound slice")
+        if ((m.fnName()) == "slice") {
+            if ((bound.fnName()) == "bound slice") {
+                print "copy"
+            } {
+                print "WRONG: bound name"
+            }
+        } {
+            print "WRONG: original renamed"
+        }
+
+        if (bound.hasBoundThis()) {
+            def bt:EvHandle (bound.boundThisOf())
+            if (bt.equals(recv)) {
+                print "this"
+            } {
+                print "WRONG: boundThis"
+            }
+        } {
+            print "WRONG: hasBoundThis"
+        }
+
+        ; PropertyBag round-trip keeps binding.
+        def stored:EvalValue (bound.toStored())
+        def back:EvHandle (EvHandle.fromBody(stored))
+        if (back.hasBoundThis()) {
+            print "bind"
+        } {
+            print "WRONG: lost boundThis"
+        }
+    }
+}

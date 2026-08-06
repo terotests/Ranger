@@ -854,6 +854,38 @@ describe("shapes (closed variant families)", () => {
   });
 
   /**
+   * E4d1: Element.element on body is SoT (EvalPayload.ElemBox gone).
+   */
+  describe("EvalValue E4d element storage", () => {
+    const E4D_EL = `${FIXTURES_DIR}/shape_evalvalue_e4d_element.rgr`;
+    const EXPECTED_E4D_EL = ["el", "sot", "id"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E4D_EL, EXPECTED_E4D_EL);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E4D_EL, EXPECTED_E4D_EL);
+    });
+  });
+
+  /**
+   * E4d2–4: Function core/binding on body is SoT (EvalPayload.FnCore gone).
+   */
+  describe("EvalValue E4d function core/binding", () => {
+    const E4D_FN = `${FIXTURES_DIR}/shape_evalvalue_e4d_fncore.rgr`;
+    const EXPECTED_E4D_FN = ["core", "sot", "copy", "this", "bind"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E4D_FN, EXPECTED_E4D_FN);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E4D_FN, EXPECTED_E4D_FN);
+    });
+  });
+
+  /**
    * Group field projection (PLAN_SHAPES.md §7 / C5). Fields declared on a
    * group are read and written through the group type via generated get_/set_
    * ops — no narrowing required, identity preserved for reference groups.

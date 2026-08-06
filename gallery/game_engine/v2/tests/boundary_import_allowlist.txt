@@ -11,5 +11,6 @@ interp/migrate/src/ComponentEngine.rgr:../../../../../ts_parser/ts_ast_patch.rgr
 interp/migrate/src/ComponentEngine.rgr:../../../../../ts_parser/ts_lexer.rgr
 interp/migrate/src/ComponentEngine.rgr:../../../../../ts_parser/ts_parser_simple.rgr
 interp/migrate/src/EvHandle.rgr:../../../../../ts_parser/ts_parser_simple.rgr
+interp/migrate/src/EvalValue.rgr:../../../../../ts_parser/ts_parser_simple.rgr
 interp/migrate/src/JSXToEVG.rgr:../../../../../ts_parser/ts_lexer.rgr
 interp/migrate/src/JSXToEVG.rgr:../../../../../ts_parser/ts_parser_simple.rgr

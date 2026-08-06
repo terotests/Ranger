@@ -1086,9 +1086,8 @@ class ComponentEngine {
             def localName:string (itemAt localNames k)
             def existing:EvHandle (moduleScope.lookup(exportName))
             if (EvValueBridge.isFunction(existing)) {
-                if (null? existing.functionNode) {
-                } {
-                    def fnNode:TSNode (unwrap existing.functionNode)
+                if (existing.hasFunctionNode()) {
+                    def fnNode:TSNode (existing.functionNodeOf())
                     def emptyHelpers:[TSNode]
                     this.bindImportedFunction(exportName localName fnNode emptyHelpers "")
                 }

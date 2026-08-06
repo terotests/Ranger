@@ -1,0 +1,42 @@
+; E4d1: Element.element on body is SoT (no EvalPayload.ElemBox).
+Import "../../gallery/game_engine/v2/interp/migrate/src/EvValueBridge.rgr"
+
+class Main {
+    sfn main:void () {
+        def el:EVGElement (new EVGElement())
+        el.tagName = "div"
+        def v:EvHandle (EvValueBridge.taggedElement(el))
+        if (v.hasElement()) {
+            def got:EVGElement (v.elementOf())
+            if (got.tagName == "div") {
+                print "el"
+            } {
+                print "WRONG: tag"
+            }
+        } {
+            print "WRONG: hasElement"
+        }
+
+        def shaped:EvalValue (EvValueBridge.fromTagged(v))
+        if (EvalValue.isElement(shaped)) {
+            case shaped ee:EvalValue.Element {
+                def se:EVGElement (unwrap ee.element)
+                if (se.tagName == "div") {
+                    print "sot"
+                } {
+                    print "WRONG: body element"
+                }
+            }
+        } {
+            print "WRONG: fromTagged"
+        }
+
+        ; Round-trip keeps the same handle (===).
+        def again:EvHandle (EvHandle.fromBody(shaped))
+        if (again.equals(v)) {
+            print "id"
+        } {
+            print "WRONG: identity"
+        }
+    }
+}

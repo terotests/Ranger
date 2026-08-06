@@ -13,6 +13,7 @@
 ;   Callable        — values that can be invoked (required capability)
 
 Import "../../../evg/EVGElement.rgr"
+Import "../../../../../ts_parser/ts_parser_simple.rgr"
 
 class EvMapEntry {
     def key:EvalValue
@@ -321,7 +322,9 @@ class EvPropertyBag {
 }
 
 ; Function core shared across bindings (PLAN_SHAPES.md §7.3). Identity lives
-; on the Reference group of the Function case, not here.
+; on the Reference group of the Function case, not here. withThis currently
+; copies the core (bind renames / suppresses prototype keys); sharing the
+; core object is a later optimisation once those writes live only on binding.
 class EvFunctionCore {
     def functionName:string ""
     def closureId:int (0 - 1)
@@ -331,6 +334,10 @@ class EvFunctionCore {
     def builtinName:string ""
     def builtinNamespace:string ""
     def strictFn:boolean false
+    ; D-FNPROPS: names whose synthesised value has been deleted.
+    def suppressedKeys:[string:boolean]
+    ; AST node for script-defined functions (absent for builtins / stubs).
+    def functionNode@(optional):TSNode
 }
 
 class EvFunctionBinding {
