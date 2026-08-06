@@ -1901,6 +1901,44 @@ class EvalValue {
         body = (EvValue.arrayAt(identityId stored))
     }
 
+    ; Field/identity equality that does not go through equals()'s mut borrow
+    ; (Rust RefCell panics when a pooled primitive is compared to itself).
+    fn matches:boolean (other:EvalValue) {
+        def _k:EvValue body
+        def _o:EvValue other.body
+        if (EvValue.isNull(_k)) {
+            return (EvValue.isNull(_o))
+        }
+        if (EvValue.isHole(_k)) {
+            return (EvValue.isHole(_o))
+        }
+        if (EvValue.isUndefined(_k)) {
+            return (EvValue.isUndefined(_o))
+        }
+        if (EvValue.isNumber(_k)) {
+            if (false == (EvValue.isNumber(_o))) {
+                return false
+            }
+            return (numberValue == other.numberValue)
+        }
+        if (EvValue.isString(_k)) {
+            if (false == (EvValue.isString(_o))) {
+                return false
+            }
+            return (stringValue == other.stringValue)
+        }
+        if (EvValue.isBoolean(_k)) {
+            if (false == (EvValue.isBoolean(_o))) {
+                return false
+            }
+            return (boolValue == other.boolValue)
+        }
+        if (identityId > 0) {
+            return (identityId == other.identityId)
+        }
+        return false
+    }
+
     ; ---- Map helpers: SoT on body.Map.entries (EvMapEntry key/value) ----
     fn mapIndexOfKey:int (key:EvalValue) {
         def _k:EvValue body
@@ -1910,7 +1948,7 @@ class EvalValue {
                 while (i < (array_length m.entries)) {
                     def e:EvMapEntry (itemAt m.entries i)
                     def ek:EvalValue (EvalValue.fromBody((unwrap e.key)))
-                    if ((key.equals(ek))) {
+                    if ((key.matches(ek))) {
                         return i
                     }
                     i = (i + 1)
@@ -1924,16 +1962,19 @@ class EvalValue {
         if (false == (EvValue.isMap(_k))) {
             return
         }
+        ; Index before mutating — this.mapIndexOfKey re-borrows body on Rust.
+        def idx:int (this.mapIndexOfKey(key))
+        def kStored:EvValue (key.toStored())
+        def vStored:EvValue (value.toStored())
         case _k m:EvValue.Map {
             def entries:[EvMapEntry] m.entries
-            def idx:int (this.mapIndexOfKey(key))
             if (idx >= 0) {
                 def e:EvMapEntry (itemAt entries idx)
-                e.value = (value.toStored())
+                e.value = vStored
             } {
                 def ne:EvMapEntry (new EvMapEntry())
-                ne.key = (key.toStored())
-                ne.value = (value.toStored())
+                ne.key = kStored
+                ne.value = vStored
                 push entries ne
             }
             body = (new EvValue.Map(m.identityId m.properties entries))
@@ -1991,7 +2032,7 @@ class EvalValue {
                 def i:int 0
                 while (i < (array_length st.items)) {
                     def el:EvalValue (EvalValue.fromBody((itemAt st.items i)))
-                    if ((value.equals(el))) {
+                    if ((value.matches(el))) {
                         return true
                     }
                     i = (i + 1)
@@ -2010,7 +2051,7 @@ class EvalValue {
             def i:int 0
             while (i < (array_length st.items)) {
                 def el:EvalValue (EvalValue.fromBody((itemAt st.items i)))
-                if ((value.equals(el))) {
+                if ((value.matches(el))) {
                     idx = i
                 }
                 i = (i + 1)
