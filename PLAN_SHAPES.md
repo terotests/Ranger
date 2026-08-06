@@ -2,17 +2,19 @@
 
 > **Status:** design + staging plan for `shape` / `case` / `group` — a closed variant
 > family whose *source* reads like a small type hierarchy while each target picks its
-> own physical representation. **Stages S0–S4 are implemented, S5 is under way**
-> (§6): `union` + `case` narrowing works on every target the plan builds on;
-> `shape` parses, type-checks and lowers to a record class per case plus a union
-> over them; `match` covers a family with the compiler checking that every case is
+> own physical representation. **Stages S0–S5 (core) are implemented** (§6):
+> `union` + `case` narrowing works on every target the plan builds on; `shape`
+> parses, type-checks and lowers to a record class per case plus a union over
+> them; `match` covers a family with the compiler checking that every case is
 > handled exactly once; `@(value)` / `@(reference)` give each case declared
-> copy-and-compare semantics with the equality generated per shape; and six
-> targets now carry the family in their own representation — TypeScript as a
-> union type, Kotlin, C# and Dart as an interface the cases implement, Rust as a
-> native `enum` and C++ as a variant that holds its scalar cases inline, which
-> made the value layer **10× faster on C++ and 1.6× on Rust**. Swift, Go, the
-> ES6 tag dispatch and methods declared on a shape are still ahead.
+> copy-and-compare semantics with the equality generated per shape; six targets
+> carry the family in their own representation — TypeScript as a union type,
+> Kotlin, C# and Dart as an interface the cases implement, Rust as a native
+> `enum` and C++ as a variant that holds its scalar cases inline; and **shape
+> methods** lower through a generated ops class. **Stage C0–C4** (§7) extends
+> groups into a closed-family capability system: group/case methods, required
+> operations, and static exhaustive dispatch. Swift, Go and the ES6 tag dispatch
+> remain ahead on native representation.
 >
 > **Origin:** a design discussion about `gallery/game_engine/v2/interp/migrate/src/EvalValue.rgr`,
 > the largest hand-rolled tagged union in this repo.
@@ -400,7 +402,14 @@ Keyword construction (`EvalValue.Array items xs declaredLength 4`) should reuse
 `record`'s existing keyword-argument path (`expandRecordCtorArgsIfNeeded`,
 `ng_RangerFlowParser.rgr:3947`) rather than growing a second one.
 
-### 3.6 Methods — implemented (shape level)
+### 3.6 Methods — shape, group and case
+
+Methods are a **closed-family capability system**, not an open typeclass. The
+compiler knows every case of every group, so it can check completeness and
+synthesize exhaustive dispatch. No dictionaries, vtables or wrapper objects are
+involved when a case value is viewed through a group type.
+
+#### Shape methods — implemented
 
 A method declared in a shape body moves onto the generated ops class:
 
@@ -431,9 +440,78 @@ static one. That is also why the call spelling is `Value.describe(v)` rather tha
 `v.describe()` — a receiver-form call through a union would need per-target dispatch,
 which is the same reason `Value.equals(a b)` is spelled that way.
 
-Methods on a **group** or on a single **case** are not implemented. A case is a record
-class, so its own methods have a natural home; a group method would need the group's
-fields, which every member already carries. Both are additive.
+#### Group and case methods — language contract (C0)
+
+Canonical call spelling is statically qualified. Receiver sugar such as
+`(value.toBool)` may be added later and must resolve to the same static operation:
+
+```ranger
+(Value.Printable.render v)     ; group method
+(Value.Num.doubled n)          ; case method (after narrowing)
+(Value.describe v)             ; shape method
+```
+
+**Method categories**
+
+| Kind | Declared in | Receiver type | Availability |
+|---|---|---|---|
+| Shape method | shape body | whole family | all views of the shape |
+| Group method (concrete) | group body, with body | that group | group and its member cases |
+| Group method (required) | group body, **bodyless** | that group | every concrete member must implement |
+| Case method | case body | exact case | only after narrowing to that case |
+
+**Bodyless group method** = capability requirement. Exact signature match
+(parameter types and return type). Covariant/contravariant matching is deferred.
+
+**`@(override)`** is required when a case replaces a concrete group default.
+Implementing a bodyless requirement does not need `override`. A same-named
+case-only method does **not** silently satisfy a group requirement unless it is
+the implementation selected for that slot (same name + compatible signature on a
+member case).
+
+**Method lookup order** (for resolving an unqualified / receiver call later):
+
+```text
+exact case → innermost group → parent groups → shape
+```
+
+Qualified calls name the declaring view explicitly (`Value.Printable.render`).
+
+**Group nesting.** `group Numeric does Printable` is allowed. A case that
+`does Numeric` is a transitive member of `Printable`. For the first release,
+groups form **non-overlapping chains**: a case names one leaf group; orthogonal
+overlapping groups are deferred. Membership is still recorded as case lists /
+bitsets internally so orthogonal groups can be added without replacing the IR.
+
+**Subtyping** (argument matching):
+
+```text
+Case <: its groups (direct and ancestors)
+Group <: its parent group
+Every case and group <: owning shape
+```
+
+Widening allocates nothing and preserves identity. A whole-shape value cannot be
+passed to a group parameter merely because it *might* contain a member.
+
+**Dispatch**
+
+| Situation | Lowering |
+|---|---|
+| Concrete group method, not overridden | one static function on `Shape_Group__ops` |
+| Required or overridden group method | exhaustive `match` dispatcher on `Shape_Group__ops` calling per-case impls |
+| Case method | static function on `Shape_Case__ops` |
+| Exact case known at call site | direct call, no dispatch |
+
+**Conformance diagnostics** name the missing or incompatible slot, e.g.
+
+```text
+Value.Num implements Value.Printable but does not implement:
+    fn render:string ()
+```
+
+**Fixture:** `tests/fixtures/shape_group_methods.rgr` is the canonical
+cross-target program for this contract.
 
 ### 3.7 The `case` keyword collision
 
@@ -465,12 +543,15 @@ The implemented subset, against the design above:
 | Narrowing `case v x:Shape.Case { … }` | ✅ (the existing operator) |
 | `match` + exhaustiveness | ✅ S2 |
 | `A \| B { … }` arms, group arms, qualified `Shape.Case` arms | ✅ S2 |
-| Shape / group / case methods | ✖ later — a shape body holding anything else is an error |
+| Shape methods (`fn` / `sfn` in shape body) | ✅ ops class |
+| Group / case methods, required ops, `@(override)` | ✅ C2–C4 (§7) |
+| Nested groups (`group A does B`) | ✅ C2 (non-overlapping chains) |
 | `@(value)` / `@(reference)`, generated equality, `identical` | ✅ S4 |
 | Immutability of value cases, enforced | ✅ S4 |
+| Group field projection through a group-typed value | ✖ C5 — portable accessors; native writers later |
 | `==` rewritten to the generated equality | ✖ later — needs operand types during operator matching |
-| `Shape.Case(…)` construction without `new` | ✖ sugar, S2 |
-| Native per-target representations | ✖ S5 |
+| `Shape.Case(…)` construction without `new` | ✖ sugar |
+| Native per-target representations | ✅ S5 on TS/Kotlin/C#/Dart/Rust/C++ |
 
 ### 3.9 Explicitly not in v1
 
@@ -649,6 +730,10 @@ Each stage is independently shippable and independently testable.
 | **S3 — done in S1/S2** | `group`, group-typed parameters, group arms in `match`, group fields. | ✅ A group is a union of its members, carries fields its cases inherit, and types a parameter |
 | **S4 — done** | `@(value)` / `@(reference)`, the generated equality, the `identical` operator, the immutability rule for value cases (§6.3). | ✅ One program answers `true false false true false true` on ES6, Python, Go, C++ and Rust; mutating a value case and `@(value)` on a non-scalar case are compile errors |
 | **S5 — mostly done** | Native representations, one target at a time; `UnionOfClasses` stays the fallback (§6.4). **TypeScript, Kotlin, C#, Dart, Rust and C++** done. | ✅ TS passes `tsc --noEmit`; Kotlin/C#/Dart emit an interface each case implements; Rust a native `enum` with scalar cases inline; C++ a variant that carries them by value — 10× on the C++ value layer. Swift, Go and the ES6 tag remain |
+| **C0 — done** | Freeze the group/case method language contract (§3.6, §7). Canonical fixture. | ✅ Contract documented; `tests/fixtures/shape_group_methods.rgr` |
+| **C1–C4** | Shape-view descriptors, parse group/case methods, conformance, portable static dispatch (§7). | ✅ Group/case methods lower through `Shape_Group__ops` / `Shape_Case__ops` |
+| **C5** | Group field projection IR + portable accessors. | — |
+| **C6** | Shared family handle for group views on native enum targets; direct tag switches / payload access. | — |
 | **S6** | Inline payload records, tag pinning, whole-program variant elimination, `match` as an expression. | — |
 
 Testing follows the pattern already in the repo: fixtures under `tests/fixtures/`,
@@ -1248,6 +1333,33 @@ grep -c valueType gallery/game_engine/v2/interp/migrate/src/EvalValue.rgr       
 grep -c valueType gallery/game_engine/v2/interp/migrate/src/ComponentEngine.rgr  # 288
 grep -c isHole    gallery/game_engine/v2/interp/migrate/src/ComponentEngine.rgr  # 22
 ```
+
+---
+
+## 7. Closed-family capabilities (group methods)
+
+This stage turns groups into typeclass-like capabilities while keeping the family
+closed. See §3.6 for the source-level contract. Implementation order:
+
+| Milestone | Deliverable | Primary files |
+|---|---|---|
+| **C0** | Language contract + canonical fixture | `PLAN_SHAPES.md`, `tests/fixtures/shape_group_methods.rgr` |
+| **C1** | `ShapeViewDesc` (shape / group / case views with allowed-case lists); subtyping remains union-based for portable lowering | `ng_RangerAppClassDesc.rgr`, parser maps |
+| **C2** | Parse `fn`/`sfn` in group and case bodies; nested `group A does B`; bodyless = required | `ng_RangerFlowParser.rgr` |
+| **C3** | Required-method completeness; exact signature match; `@(override)` on replacing a default | shape finalization inside `expandShape` |
+| **C4** | Portable ops lowering: `Shape_Group__ops` dispatchers, `Shape_Case__ops` impls | `attachShapeMethods` / new helpers in the flow parser |
+| **C5** | Group field projection (get/set via generated accessors) | flow parser + later `GetProperty` |
+| **C6** | Shared family handle so Numeric → Printable widens with no conversion on Rust/C++; native tag switches | per-target writers |
+
+**Definition of done** for the capability system: a group-typed parameter such as
+`EvalValue.Callable` accepts member cases without wrapping, required methods
+dispatch through one exhaustive static match, exact-case methods are available
+only after narrowing, and identity is preserved across widening.
+
+**EvalValue migration** stays gated on C1–C5 (see the separate EvalValue notes):
+do not delete the tagged class until group arguments, field projection, required
+methods, per-case and exact-case methods, exhaustive group matches and
+cross-target identity tests all pass.
 
 ---
 

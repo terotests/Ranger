@@ -90,6 +90,10 @@ class RangerFlowParser {
   ; and which fields its generated equality reads
   def caseIsValue:[string:boolean]
   def caseFieldNames:[string:[string]]
+  ; C1: nominal shape / group / case views with their allowed case sets
+  def shapeViews:[string:ShapeViewDesc]
+  ; group → parent group (nested `group Child does Parent`)
+  def shapeGroupParent:[string:string]
 
   def stdCommands@(optional):CodeNode
   def lastProcessedNode@(weak):CodeNode
@@ -4349,18 +4353,107 @@ class RangerFlowParser {
     return found
   }
 
-  ; Moves the methods written in a shape body onto the generated ops class.
-  ;
-  ; The method node is REUSED rather than rewritten as text: only its head word
-  ; changes (`fn` becomes `sfn`, since the ops class is a namespace and not an
-  ; object) and, for a non-static method, the value it acts on is inserted as
-  ; the first parameter. The body node is untouched, so a `match` inside it is
-  ; the same node the later match expansion sees, and nothing has to survive a
-  ; round trip through the printer.
-  fn attachShapeMethods:void (eqRoot:CodeNode shapeName:string opsName:string methodNodes:[CodeNode] methodNames:[string] methodStatic:[boolean] ctx:RangerAppWriterContext) {
-    ; the class node the generated source declares, and its block
+  fn shapeMemberIsField:boolean (st:CodeNode) {
+    if ((array_length st.children) == 0) {
+      return false
+    }
+    def head:CodeNode (st.getFirst())
+    if (head.vref == "def") {
+      return true
+    }
+    if (head.vref == "let") {
+      return true
+    }
+    if (head.vref == "var") {
+      return true
+    }
+    return false
+  }
+
+  fn shapeMemberIsMethod:boolean (st:CodeNode) {
+    if ((array_length st.children) == 0) {
+      return false
+    }
+    def head:CodeNode (st.getFirst())
+    if (head.vref == "fn") {
+      return true
+    }
+    if (head.vref == "sfn") {
+      return true
+    }
+    return false
+  }
+
+  fn shapeMethodHasBody:boolean (st:CodeNode) {
+    for st.children part:CodeNode pi {
+      if part.is_block_node {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; Exact signature key for conformance (C3): return type + each parameter type.
+  fn shapeMethodSignatureKey:string (mNode:CodeNode) {
+    if ((array_length mNode.children) < 3) {
+      return ""
+    }
+    def nameNode:CodeNode (mNode.getSecond())
+    def argsNode:CodeNode (itemAt mNode.children 2)
+    def sig:string nameNode.type_name
+    if ((strlen nameNode.array_type) > 0) {
+      sig = ((sig + "[]") + nameNode.array_type)
+    }
+    if ((strlen nameNode.key_type) > 0) {
+      sig = ((sig + "<>") + nameNode.key_type)
+    }
+    for argsNode.children arg:CodeNode ai {
+      sig = (sig + ";")
+      sig = (sig + arg.type_name)
+      if ((strlen arg.array_type) > 0) {
+        sig = ((sig + "[]") + arg.array_type)
+      }
+      if ((strlen arg.key_type) > 0) {
+        sig = ((sig + "<>") + arg.key_type)
+      }
+    }
+    return sig
+  }
+
+  ; Rewrite bare field names inside a case/group method body to `self.field`
+  ; so an `fn` that used instance field lookup still works as an ops `sfn`.
+  fn rewriteMethodFieldRefs:void (node:CodeNode fieldNames:[string] selfName:string) {
+    if (((strlen node.vref) > 0) && (node.expression == false)) {
+      def nsLen:int (array_length node.ns)
+      def bare:string node.vref
+      def isBare:boolean false
+      if (nsLen <= 1) {
+        isBare = true
+      }
+      if ((nsLen == 1) && ((itemAt node.ns 0) != bare)) {
+        isBare = false
+      }
+      if isBare {
+        def fi:int 0
+        def fcnt:int (array_length fieldNames)
+        while (fi < fcnt) {
+          if ((itemAt fieldNames fi) == bare) {
+            this.setShapeRef(node ((selfName + ".") + bare))
+            fi = fcnt
+          } {
+            fi = fi + 1
+          }
+        }
+      }
+    }
+    for node.children ch:CodeNode i {
+      this.rewriteMethodFieldRefs(ch fieldNames selfName)
+    }
+  }
+
+  fn findOpsClassBlock@(optional):CodeNode (root:CodeNode) {
     def clsBlockOpt@(optional):CodeNode
-    for eqRoot.children ch:CodeNode ci {
+    for root.children ch:CodeNode ci {
       if (ch.isFirstVref("class")) {
         for ch.children part:CodeNode pi {
           if part.is_block_node {
@@ -4369,13 +4462,20 @@ class RangerFlowParser {
         }
       }
     }
+    return clsBlockOpt
+  }
+
+  ; Moves method nodes onto a generated ops class. The method node is reused:
+  ; `fn` becomes `sfn`, a non-static method gains `self:<selfType>` as its first
+  ; parameter, and bare field names in the body become `self.field`.
+  fn attachOpsMethods:void (opsRoot:CodeNode viewName:string methodNodes:[CodeNode] methodStatic:[boolean] fieldNames:[string] ctx:RangerAppWriterContext) {
+    def clsBlockOpt@(optional):CodeNode (this.findOpsClassBlock(opsRoot))
     if (null? clsBlockOpt) {
-      ctx.addError(eqRoot ("could not attach the methods of shape " + shapeName))
+      ctx.addError(opsRoot ("could not attach the methods of " + viewName))
       return
     }
     def clsBlock:CodeNode (unwrap clsBlockOpt)
 
-    ; the `self:<Shape>` parameter to copy, and the prototype that carried it
     def selfParamOpt@(optional):CodeNode
     def protoIndex:int (0 - 1)
     def bi:int 0
@@ -4395,7 +4495,7 @@ class RangerFlowParser {
       bi = bi + 1
     }
     if (null? selfParamOpt) {
-      ctx.addError(eqRoot ("could not build the receiver of the methods of shape " + shapeName))
+      ctx.addError(opsRoot ("could not build the receiver of the methods of " + viewName))
       return
     }
     def selfParam:CodeNode (unwrap selfParamOpt)
@@ -4407,15 +4507,57 @@ class RangerFlowParser {
       if (isStatic == false) {
         def argsNode:CodeNode (itemAt mNode.children 2)
         insert argsNode.children 0 (selfParam.copy())
+        if ((array_length fieldNames) > 0) {
+          for mNode.children part:CodeNode pi {
+            if part.is_block_node {
+              this.rewriteMethodFieldRefs(part fieldNames "self")
+            }
+          }
+        }
       }
       push clsBlock.children mNode
     }
 
-    ; the prototype has done its work; leaving it would put a function named
-    ; __shape_self_proto in the output of every shape that has a method
     if (protoIndex >= 0) {
       remove_index clsBlock.children protoIndex
     }
+  }
+
+  fn attachShapeMethods:void (eqRoot:CodeNode shapeName:string opsName:string methodNodes:[CodeNode] methodNames:[string] methodStatic:[boolean] ctx:RangerAppWriterContext) {
+    def noFields:[string]
+    this.attachOpsMethods(eqRoot shapeName methodNodes methodStatic noFields ctx)
+  }
+
+  fn parseOpsClassRoot@(optional):CodeNode (src:string filename:string shapeNode:CodeNode ctx:RangerAppWriterContext) {
+    def result@(optional):CodeNode
+    if (ctx.hasCompilerFlag("shape-debug")) {
+      print src
+    }
+    def code:SourceCode (new SourceCode (src))
+    code.filename = filename
+    def parser:RangerLispParser (new RangerLispParser (code))
+    parser.parse(false)
+    def rootOpt@(optional):CodeNode parser.rootNode
+    if (null? rootOpt) {
+      ctx.addError(shapeNode ("could not generate " + filename))
+      return result
+    }
+    result = (unwrap rootOpt)
+    return result
+  }
+
+  fn registerShapeView:void (shapeName:string viewKind:string viewName:string className:string allowed:[string] parentView:string) {
+    def v:ShapeViewDesc (new ShapeViewDesc())
+    v.shapeName = shapeName
+    v.viewKind = viewKind
+    v.viewName = viewName
+    v.className = className
+    for allowed c:string ci {
+      push v.allowedCases c
+    }
+    v.parentView = parentView
+    set shapeViews className v
+    set shapeViews viewName v
   }
 
   fn expandShape:void (shapeNode@(lives):CodeNode parent@(lives):CodeNode shapeIndex:int ctx:RangerAppWriterContext wr:CodeWriter renames:[string:string]) {
@@ -4436,9 +4578,15 @@ class RangerFlowParser {
     def body:CodeNode (shapeNode.getThird())
     def bcnt:int (array_length body.children)
 
-    ; --- groups first: a case may name one, and inherits its fields ---
+    ; --- groups: name, optional parent (`does`), fields, methods ---
     def groupNames:[string]
     def groupStmt:[string:int]
+    def groupParent:[string:string]
+    def groupFieldNodes:[string:[CodeNode]]
+    def groupMethodNodes:[string:[CodeNode]]
+    def groupMethodNames:[string:[string]]
+    def groupMethodRequired:[string:[boolean]]
+    def groupMethodHasDefault:[string:[boolean]]
     def bi:int 0
     while (bi < bcnt) {
       def st:CodeNode (itemAt body.children bi)
@@ -4446,17 +4594,105 @@ class RangerFlowParser {
         def head:CodeNode (st.getFirst())
         if (head.vref == "group") {
           def gnameNode:CodeNode (st.getSecond())
-          push groupNames gnameNode.vref
-          set groupStmt gnameNode.vref bi
+          def gname:string gnameNode.vref
+          if ((strlen gname) == 0) {
+            ctx.addError(st "a group needs a name")
+            bi = bi + 1
+            continue
+          }
+          push groupNames gname
+          set groupStmt gname bi
+          def gParent:string ""
+          def gi:int 2
+          def gcnt:int (array_length st.children)
+          while (gi < gcnt) {
+            def part:CodeNode (itemAt st.children gi)
+            if (part.is_block_node == false) {
+              def word:string part.vref
+              if ((word == "does") || (word == "extends")) {
+                if ((gi + 1) < gcnt) {
+                  def pref:CodeNode (itemAt st.children (gi + 1))
+                  gParent = pref.vref
+                  gi = gi + 1
+                } {
+                  ctx.addError(st "`does` needs a group name")
+                }
+              } {
+                if ((strlen word) > 0) {
+                  ctx.addError(st (("unexpected `" + word) + "` in a group — write `group Name does Parent { … }`"))
+                }
+              }
+            }
+            gi = gi + 1
+          }
+          set groupParent gname gParent
+          if ((strlen gParent) > 0) {
+            set shapeGroupParent ((shapeName + "_") + gname) ((shapeName + "_") + gParent)
+          }
+          def gFields:[CodeNode]
+          def gMethods:[CodeNode]
+          def gMethodNames:[string]
+          def gRequired:[boolean]
+          def gHasDefault:[boolean]
+          def gblk:CodeNode (this.shapeMemberBlock(st))
+          if gblk.is_block_node {
+            for gblk.children gm:CodeNode gmi {
+              if (this.shapeMemberIsField(gm)) {
+                push gFields gm
+              } {
+                if (this.shapeMemberIsMethod(gm)) {
+                  if ((array_length gm.children) < 3) {
+                    ctx.addError(gm "a method of a group needs a name and a parameter list")
+                  } {
+                    def gmName:CodeNode (gm.getSecond())
+                    if ((strlen gmName.vref) == 0) {
+                      ctx.addError(gm "a method of a group needs a name")
+                    } {
+                      def hasBody:boolean (this.shapeMethodHasBody(gm))
+                      push gMethods gm
+                      push gMethodNames gmName.vref
+                      push gRequired (hasBody == false)
+                      push gHasDefault hasBody
+                      def gmHead:CodeNode (gm.getFirst())
+                      if ((hasBody == false) && (gmHead.vref == "sfn")) {
+                        ctx.addError(gm "a required group method must be declared with `fn`, not `sfn`")
+                      }
+                    }
+                  }
+                } {
+                  ctx.addError(gm "only `def`, `fn` and `sfn` are allowed in a group body")
+                }
+              }
+            }
+          }
+          set groupFieldNodes gname gFields
+          set groupMethodNodes gname gMethods
+          set groupMethodNames gname gMethodNames
+          set groupMethodRequired gname gRequired
+          set groupMethodHasDefault gname gHasDefault
         }
       }
       bi = bi + 1
     }
 
-    ; --- cases: one record class each ---
+    ; validate group parents
+    for groupNames gn:string gni {
+      def gp:string (unwrap (get groupParent gn))
+      if ((strlen gp) > 0) {
+        if (has groupStmt gp) {
+        } {
+          ctx.addError(shapeNode ((("group " + gn) + " belongs to an undeclared group ") + gp))
+        }
+      }
+    }
+
+    ; --- cases and shape-level methods ---
     def caseNames:[string]
     def caseGroup:[string:string]
-    ; methods of the family, moved onto the generated ops class below
+    def caseFieldNodes:[string:[CodeNode]]
+    def caseMethodNodes:[string:[CodeNode]]
+    def caseMethodNames:[string:[string]]
+    def caseMethodOverride:[string:[boolean]]
     def methodNodes:[CodeNode]
     def methodNames:[string]
     def methodStatic:[boolean]
@@ -4470,15 +4706,6 @@ class RangerFlowParser {
       def head:CodeNode (st.getFirst())
       def kind:string head.vref
       def isCase:boolean ((kind == "case") || (kind == "variant"))
-      ; A METHOD of the family. It moves to the generated ops class, where an
-      ; `fn` gains the value it acts on as its first parameter, named `self`:
-      ;
-      ;   shape Value { case Num { … }  fn describe:string () { match self … } }
-      ;   (Value.describe v)     ->  Value__ops.describe(v)
-      ;
-      ; A union has no methods on most targets, so a dynamic call through the
-      ; family would need per-target dispatch; the static form needs none and
-      ; is what `Value.equals(a b)` already reads like.
       if ((kind == "fn") || (kind == "sfn")) {
         if ((array_length st.children) < 4) {
           ctx.addError(st "a method of a shape needs a name, a parameter list and a body")
@@ -4519,9 +4746,6 @@ class RangerFlowParser {
         continue
       }
 
-      ; `case Name does Group` / `case Name extends Group` — `extends` is
-      ; accepted so a shape written in the class-hierarchy spelling still
-      ; compiles, but it names a group, not a base class.
       def ownGroup:string ""
       def ci:int 2
       def ccnt:int (array_length st.children)
@@ -4544,11 +4768,139 @@ class RangerFlowParser {
         ci = ci + 1
       }
 
-      ; --- value or reference? (PLAN_SHAPES.md S4) ---
-      ; An explicit @(value) / @(reference) on the case wins, then the same on
-      ; its group; otherwise a case holding only scalars is a value and anything
-      ; else is a reference — which is the split EvalValue.equals already makes
-      ; by hand between numbers and arrays.
+      def cFields:[CodeNode]
+      def cMethods:[CodeNode]
+      def cMethodNames:[string]
+      def cOverrides:[boolean]
+      def ownBlk:CodeNode (this.shapeMemberBlock(st))
+      if ownBlk.is_block_node {
+        for ownBlk.children cf:CodeNode cfi {
+          if (this.shapeMemberIsField(cf)) {
+            push cFields cf
+          } {
+            if (this.shapeMemberIsMethod(cf)) {
+              if ((array_length cf.children) < 4) {
+                ctx.addError(cf "a method of a case needs a name, a parameter list and a body")
+              } {
+                def cmName:CodeNode (cf.getSecond())
+                if ((strlen cmName.vref) == 0) {
+                  ctx.addError(cf "a method of a case needs a name")
+                } {
+                  if ((this.shapeMethodHasBody(cf)) == false) {
+                    ctx.addError(cf "a case method must have a body")
+                  } {
+                    push cMethods cf
+                    push cMethodNames cmName.vref
+                    push cOverrides (cmName.hasFlag("override"))
+                  }
+                }
+              }
+            } {
+              ctx.addError(cf "only `def`, `fn` and `sfn` are allowed in a case body")
+            }
+          }
+        }
+      }
+      set caseFieldNodes caseName cFields
+      set caseMethodNodes caseName cMethods
+      set caseMethodNames caseName cMethodNames
+      set caseMethodOverride caseName cOverrides
+      push caseNames caseName
+      set caseGroup caseName ownGroup
+      bi = bi + 1
+    }
+
+    if ((array_length caseNames) == 0) {
+      ctx.addError(shapeNode (("shape " + shapeName) + " has no cases"))
+      return
+    }
+
+    ; ancestor chain for a group, root first (parent fields precede child fields)
+    def groupAncestorsRootFirst:[string:[string]]
+    for groupNames gn:string gni {
+      def chainRev:[string]
+      def cur:string gn
+      def guard:int 0
+      while (((strlen cur) > 0) && (guard < 64)) {
+        push chainRev cur
+        def p:string ""
+        if (has groupParent cur) {
+          p = (unwrap (get groupParent cur))
+        }
+        cur = p
+        guard = guard + 1
+      }
+      def chain:[string]
+      def ri:int (array_length chainRev)
+      while (ri > 0) {
+        ri = ri - 1
+        push chain (itemAt chainRev ri)
+      }
+      set groupAncestorsRootFirst gn chain
+    }
+
+    ; which groups each case belongs to (leaf + ancestors)
+    def caseGroups:[string:[string]]
+    for caseNames cn:string cni {
+      def gs:[string]
+      def og:string (unwrap (get caseGroup cn))
+      if ((strlen og) > 0) {
+        if (has groupAncestorsRootFirst og) {
+          def chain:[string] (unwrap (get groupAncestorsRootFirst og))
+          for chain g:string gi {
+            push gs g
+          }
+        } {
+          push gs og
+        }
+      }
+      set caseGroups cn gs
+    }
+
+    ; transitive members of each group
+    def groupMembers:[string:[string]]
+    for groupNames gn:string gni {
+      def mems:[string]
+      for caseNames cn:string cni {
+        def gs:[string] (unwrap (get caseGroups cn))
+        def belongs:boolean false
+        for gs g:string gi {
+          if (g == gn) {
+            belongs = true
+          }
+        }
+        if belongs {
+          push mems cn
+        }
+      }
+      set groupMembers gn mems
+    }
+
+    ; --- emit one record class per case ---
+    for caseNames cn:string cni {
+      def cnameNode:CodeNode (shapeNode.newVRefNode(cn))
+      ; recover annotations / semantics from the original case statement
+      def stIdx:int (0 - 1)
+      def si:int 0
+      while (si < bcnt) {
+        def stFind:CodeNode (itemAt body.children si)
+        if ((array_length stFind.children) > 1) {
+          def hFind:CodeNode (stFind.getFirst())
+          def kFind:string hFind.vref
+          def cFind:CodeNode (stFind.getSecond())
+          if (((kFind == "case") || (kFind == "variant")) && (cFind.vref == cn)) {
+            stIdx = si
+            cnameNode = cFind
+          }
+        }
+        si = si + 1
+      }
+      def st:CodeNode shapeNode
+      if (stIdx >= 0) {
+        st = (itemAt body.children stIdx)
+      }
+
+      def ownGroup:string (unwrap (get caseGroup cn))
       def isValue:boolean true
       def semanticsGiven:boolean false
       if (cnameNode.hasFlag("value")) {
@@ -4560,58 +4912,67 @@ class RangerFlowParser {
         semanticsGiven = true
       }
       if ((semanticsGiven == false) && ((strlen ownGroup) > 0)) {
-        if (has groupStmt ownGroup) {
-          def gsIdx:int (unwrap (get groupStmt ownGroup))
-          def gsNode:CodeNode (itemAt body.children gsIdx)
-          def gsName:CodeNode (gsNode.getSecond())
-          if (gsName.hasFlag("value")) {
-            isValue = true
-            semanticsGiven = true
-          }
-          if (gsName.hasFlag("reference")) {
-            isValue = false
-            semanticsGiven = true
+        ; walk ancestors root-first; nearest annotation wins if several set
+        if (has groupAncestorsRootFirst ownGroup) {
+          def chain:[string] (unwrap (get groupAncestorsRootFirst ownGroup))
+          for chain g:string gi {
+            if (has groupStmt g) {
+              def gsIdx:int (unwrap (get groupStmt g))
+              def gsNode:CodeNode (itemAt body.children gsIdx)
+              def gsName:CodeNode (gsNode.getSecond())
+              if (gsName.hasFlag("value")) {
+                isValue = true
+                semanticsGiven = true
+              }
+              if (gsName.hasFlag("reference")) {
+                isValue = false
+                semanticsGiven = true
+              }
+            }
           }
         }
       }
 
-      def clsName:string ((shapeName + "_") + caseName)
+      def clsName:string ((shapeName + "_") + cn)
       def recNode:CodeNode (shapeNode.newExpressionNode())
       push recNode.children (shapeNode.newVRefNode("record"))
       push recNode.children (shapeNode.newVRefNode(clsName))
       def blk:CodeNode (shapeNode.newExpressionNode())
       blk.is_block_node = true
 
-      ; the group's fields come first, so every member of a group shares one
-      ; field order — copies, because a node carries per-site analysis state
+      ; group fields from the ancestor chain, then the case's own fields
       if ((strlen ownGroup) > 0) {
-        if (has groupStmt ownGroup) {
-          def gidx:int (unwrap (get groupStmt ownGroup))
-          def gst:CodeNode (itemAt body.children gidx)
-          def gblk:CodeNode (this.shapeMemberBlock(gst))
-          if gblk.is_block_node {
-            for gblk.children gf:CodeNode gfi {
-              push blk.children (gf.copy())
+        if (has groupAncestorsRootFirst ownGroup) {
+          def chain:[string] (unwrap (get groupAncestorsRootFirst ownGroup))
+          for chain g:string gi {
+            if (has groupFieldNodes g) {
+              def gFields:[CodeNode] (unwrap (get groupFieldNodes g))
+              for gFields gf:CodeNode gfi {
+                push blk.children (gf.copy())
+              }
             }
           }
         } {
-          ctx.addError(st ((("case " + caseName) + " belongs to an undeclared group ") + ownGroup))
+          ctx.addError(st ((("case " + cn) + " belongs to an undeclared group ") + ownGroup))
         }
       }
-      def ownBlk:CodeNode (this.shapeMemberBlock(st))
-      if ownBlk.is_block_node {
-        for ownBlk.children cf:CodeNode cfi {
+      if (has caseFieldNodes cn) {
+        def cFields:[CodeNode] (unwrap (get caseFieldNodes cn))
+        for cFields cf:CodeNode cfi {
           push blk.children (cf.copy())
         }
       }
 
-      ; the fields, now that group and own are both in: all scalar means the
-      ; case can be a value, and names the fields its equality compares
       def scalarFields:[string]
       def allScalar:boolean true
+      def allFieldNames:[string]
       for blk.children fld:CodeNode fldi {
+        def fname:string (this.shapeFieldName(fld))
+        if ((strlen fname) > 0) {
+          push allFieldNames fname
+        }
         if (this.shapeFieldIsScalar(fld)) {
-          push scalarFields (this.shapeFieldName(fld))
+          push scalarFields fname
         } {
           allScalar = false
         }
@@ -4620,69 +4981,378 @@ class RangerFlowParser {
         isValue = allScalar
       }
       if (isValue && (allScalar == false)) {
-        ctx.addError(st ((("case " + caseName) + " is @(value) but holds a field that is not a scalar — a value case must be comparable by content, so mark it @(reference) or move the field out")))
+        ctx.addError(st ((("case " + cn) + " is @(value) but holds a field that is not a scalar — a value case must be comparable by content, so mark it @(reference) or move the field out")))
         isValue = false
       }
       set caseIsValue clsName isValue
       set caseFieldNames clsName scalarFields
+      ; retain every field name for method body rewriting (not only scalars)
+      set caseFieldNames (clsName + "__all") allFieldNames
 
       push recNode.children blk
       insert parent.children insertAt recNode
       insertAt = insertAt + 1
 
-      push caseNames caseName
-      set caseGroup caseName ownGroup
-      set renames ((shapeName + ".") + caseName) clsName
-      ; the registry `match` reads back (S2)
+      set renames ((shapeName + ".") + cn) clsName
       set caseShape clsName shapeName
-      set caseDisplay clsName ((shapeName + ".") + caseName)
-      this.registerShapeAlias(caseAlias caseName clsName)
+      set caseDisplay clsName ((shapeName + ".") + cn)
+      this.registerShapeAlias(caseAlias cn clsName)
       this.registerShapeAlias(caseAlias clsName clsName)
-      bi = bi + 1
     }
 
-    if ((array_length caseNames) == 0) {
-      ctx.addError(shapeNode (("shape " + shapeName) + " has no cases"))
-      return
-    }
-
-    ; --- a union per group, over that group's members ---
+    ; --- a union per group over its transitive members ---
     for groupNames gn:string gni {
-      def gMembers:CodeNode (shapeNode.newExpressionNode())
-      def gCount:int 0
-      for caseNames cn:string cni {
-        if ((unwrap (get caseGroup cn)) == gn) {
-          push gMembers.children (shapeNode.newVRefNode(((shapeName + "_") + cn)))
-          gCount = gCount + 1
-        }
-      }
+      def mems:[string] (unwrap (get groupMembers gn))
+      def gCount:int (array_length mems)
       if (gCount > 0) {
+        def gMembers:CodeNode (shapeNode.newExpressionNode())
+        def gCaseList:[string]
+        for mems cn:string cni {
+          push gMembers.children (shapeNode.newVRefNode(((shapeName + "_") + cn)))
+          push gCaseList ((shapeName + "_") + cn)
+        }
+        def gClsName:string ((shapeName + "_") + gn)
         def gUnion:CodeNode (shapeNode.newExpressionNode())
         push gUnion.children (shapeNode.newVRefNode("union"))
-        push gUnion.children (shapeNode.newVRefNode(((shapeName + "_") + gn)))
+        push gUnion.children (shapeNode.newVRefNode(gClsName))
         push gUnion.children gMembers
         insert parent.children insertAt gUnion
         insertAt = insertAt + 1
-        set renames ((shapeName + ".") + gn) ((shapeName + "_") + gn)
-        def gClsName:string ((shapeName + "_") + gn)
-        def gCaseList:[string]
-        for caseNames cn:string cni {
-          if ((unwrap (get caseGroup cn)) == gn) {
-            push gCaseList ((shapeName + "_") + cn)
-          }
-        }
+        set renames ((shapeName + ".") + gn) gClsName
         set shapeGroupCases gClsName gCaseList
         this.registerShapeAlias(groupAlias gn gClsName)
         this.registerShapeAlias(groupAlias gClsName gClsName)
+        def parentView:string ""
+        def gp:string (unwrap (get groupParent gn))
+        if ((strlen gp) > 0) {
+          parentView = ((shapeName + ".") + gp)
+        }
+        this.registerShapeView(shapeName "group" ((shapeName + ".") + gn) gClsName gCaseList parentView)
       } {
         ctx.addError(shapeNode (("group " + gn) + " has no cases"))
       }
     }
 
-    ; --- the generated equality (PLAN_SHAPES.md S4) ---
-    ; `Value.equals(a b)` compares two values of the family: content for a value
-    ; case, identity for a reference case, false across different cases. This is
-    ; the split EvalValue.equals writes by hand for twelve kinds.
+    ; --- C3: required-method conformance and override checks ---
+    for groupNames gn:string gni {
+      if (has groupMethodNames gn) {
+        def gMethodNames:[string] (unwrap (get groupMethodNames gn))
+        def gRequired:[boolean] (unwrap (get groupMethodRequired gn))
+        def gHasDefault:[boolean] (unwrap (get groupMethodHasDefault gn))
+        def gMethods:[CodeNode] (unwrap (get groupMethodNodes gn))
+        def mems:[string] (unwrap (get groupMembers gn))
+        def mi:int 0
+        def mcnt:int (array_length gMethodNames)
+        while (mi < mcnt) {
+          def mName:string (itemAt gMethodNames mi)
+          def reqNode:CodeNode (itemAt gMethods mi)
+          def needImpl:boolean (itemAt gRequired mi)
+          def hasDefault:boolean (itemAt gHasDefault mi)
+          def reqSig:string (this.shapeMethodSignatureKey(reqNode))
+          for mems cn:string cni {
+            def found:boolean false
+            def foundSig:string ""
+            def foundOverride:boolean false
+            if (has caseMethodNames cn) {
+              def cNames:[string] (unwrap (get caseMethodNames cn))
+              def cMethods:[CodeNode] (unwrap (get caseMethodNodes cn))
+              def cOverrides:[boolean] (unwrap (get caseMethodOverride cn))
+              def cj:int 0
+              def cjcnt:int (array_length cNames)
+              while (cj < cjcnt) {
+                if ((itemAt cNames cj) == mName) {
+                  found = true
+                  foundSig = (this.shapeMethodSignatureKey((itemAt cMethods cj)))
+                  foundOverride = (itemAt cOverrides cj)
+                }
+                cj = cj + 1
+              }
+            }
+            if needImpl {
+              if (found == false) {
+                def reqMethod:CodeNode (itemAt gMethods mi)
+                def reqNameNode:CodeNode (reqMethod.getSecond())
+                def missMsg:string (((((shapeName + ".") + cn) + " implements ") + shapeName) + ".")
+                missMsg = ((missMsg + gn) + " but does not implement:\n\n    fn ")
+                missMsg = ((missMsg + mName) + ":")
+                missMsg = (missMsg + reqNameNode.type_name)
+                missMsg = (missMsg + " ()")
+                ctx.addError(shapeNode missMsg)
+              } {
+                if (foundSig != reqSig) {
+                  def sigMsg:string ((("method `" + mName) + "` on ") + shapeName)
+                  sigMsg = (((sigMsg + ".") + cn) + " does not match the signature required by ")
+                  sigMsg = (((sigMsg + shapeName) + ".") + gn)
+                  ctx.addError(shapeNode sigMsg)
+                }
+              }
+            }
+            if (hasDefault && found) {
+              if (foundOverride == false) {
+                def ovMsg:string ((("case " + shapeName) + ".") + cn)
+                ovMsg = (((ovMsg + " replaces the default of ") + shapeName) + ".")
+                ovMsg = ((((ovMsg + gn) + ".") + mName) + " — mark it `@(override)`")
+                ctx.addError(shapeNode ovMsg)
+              } {
+                if (foundSig != reqSig) {
+                  def ovSig:string ((("overriding method `" + mName) + "` on ") + shapeName)
+                  ovSig = (((ovSig + ".") + cn) + " does not match the group default signature")
+                  ctx.addError(shapeNode ovSig)
+                }
+              }
+            }
+          }
+          mi = mi + 1
+        }
+      }
+    }
+
+    ; --- C4: case ops classes (exact-case and required impls) ---
+    for caseNames cn:string cni {
+      if (has caseMethodNodes cn) {
+        def cMethods:[CodeNode] (unwrap (get caseMethodNodes cn))
+        if ((array_length cMethods) > 0) {
+          def cNames:[string] (unwrap (get caseMethodNames cn))
+          def clsName:string ((shapeName + "_") + cn)
+          def opsName:string (clsName + "__ops")
+          def cStatic:[boolean]
+          for cMethods cm:CodeNode cmi {
+            push cStatic false
+          }
+          def fieldNames:[string]
+          if (has caseFieldNames (clsName + "__all")) {
+            fieldNames = (unwrap (get caseFieldNames (clsName + "__all")))
+          }
+          def opsSrc:string (("class " + opsName) + " {\n")
+          opsSrc = opsSrc + (("  sfn __shape_self_proto:void (self:" + clsName) + ") {\n")
+          opsSrc = opsSrc + "  }\n"
+          opsSrc = opsSrc + "}\n"
+          def opsRootOpt@(optional):CodeNode (this.parseOpsClassRoot(opsSrc (("shape_case_ops_" + clsName) + ".rgr") shapeNode ctx))
+          if (!null? opsRootOpt) {
+            def opsRoot:CodeNode (unwrap opsRootOpt)
+            this.attachOpsMethods(opsRoot ((shapeName + ".") + cn) cMethods cStatic fieldNames ctx)
+            for opsRoot.children och@(lives):CodeNode oi {
+              insert parent.children insertAt och
+              insertAt = insertAt + 1
+            }
+            def mj:int 0
+            def mjcnt:int (array_length cNames)
+            while (mj < mjcnt) {
+              def mn:string (itemAt cNames mj)
+              set renames ((((shapeName + ".") + cn) + ".") + mn) ((opsName + ".") + mn)
+              mj = mj + 1
+            }
+          }
+        }
+      }
+    }
+
+    ; --- C4: group ops classes (defaults + required dispatchers) ---
+    for groupNames gn:string gni {
+      if (has groupMethodNames gn) {
+        def gMethodNames:[string] (unwrap (get groupMethodNames gn))
+        if ((array_length gMethodNames) > 0) {
+          def gRequired:[boolean] (unwrap (get groupMethodRequired gn))
+          def gHasDefault:[boolean] (unwrap (get groupMethodHasDefault gn))
+          def gMethods:[CodeNode] (unwrap (get groupMethodNodes gn))
+          def mems:[string] (unwrap (get groupMembers gn))
+          def gClsName:string ((shapeName + "_") + gn)
+          def gOpsName:string (gClsName + "__ops")
+          def defaultNodes:[CodeNode]
+          def defaultStatic:[boolean]
+          def defaultNames:[string]
+          def dispSrc:string ""
+          def mi:int 0
+          def mcnt:int (array_length gMethodNames)
+          while (mi < mcnt) {
+            def mName:string (itemAt gMethodNames mi)
+            def mNode:CodeNode (itemAt gMethods mi)
+            def needImpl:boolean (itemAt gRequired mi)
+            def hasDefault:boolean (itemAt gHasDefault mi)
+            ; does any member override a default?
+            def anyOverride:boolean false
+            if hasDefault {
+              for mems cn:string cni {
+                if (has caseMethodNames cn) {
+                  def cNames:[string] (unwrap (get caseMethodNames cn))
+                  def cOverrides:[boolean] (unwrap (get caseMethodOverride cn))
+                  def cj:int 0
+                  def cjcnt:int (array_length cNames)
+                  while (cj < cjcnt) {
+                    if (((itemAt cNames cj) == mName) && (itemAt cOverrides cj)) {
+                      anyOverride = true
+                    }
+                    cj = cj + 1
+                  }
+                }
+              }
+            }
+            if (needImpl || anyOverride) {
+              ; exhaustive dispatcher
+              def nameNode:CodeNode (mNode.getSecond())
+              def argsNode:CodeNode (itemAt mNode.children 2)
+              def retType:string nameNode.type_name
+              def retSuffix:string ""
+              if ((strlen nameNode.array_type) > 0) {
+                retSuffix = ((":" + retType) )
+                ; keep array spelling on the name node via reconstructed sig
+              }
+              dispSrc = dispSrc + (("  sfn " + mName) + ":")
+              if ((strlen nameNode.array_type) > 0) {
+                dispSrc = dispSrc + (("[" + nameNode.array_type) + "]")
+              } {
+                if ((strlen nameNode.key_type) > 0) {
+                  dispSrc = dispSrc + (((("[" + nameNode.key_type) + ":") + nameNode.array_type) + "]")
+                } {
+                  dispSrc = dispSrc + retType
+                }
+              }
+              dispSrc = dispSrc + ((" (self:" + gClsName) + "")
+              for argsNode.children arg:CodeNode ai {
+                dispSrc = dispSrc + (" " + arg.vref)
+                if ((strlen arg.key_type) > 0) {
+                  dispSrc = dispSrc + ((((":[" + arg.key_type) + ":") + arg.array_type) + "]")
+                } {
+                  if ((strlen arg.array_type) > 0) {
+                    dispSrc = dispSrc + ((":[" + arg.array_type) + "]")
+                  } {
+                    dispSrc = dispSrc + (":" + arg.type_name)
+                  }
+                }
+              }
+              dispSrc = dispSrc + ") {\n"
+              dispSrc = dispSrc + "    match self {\n"
+              for mems cn:string cni {
+                def bind:string (("__gm_" + cn) + ("_" + mName))
+                def caseOps:string ((((shapeName + "_") + cn) + "__ops"))
+                def useCase:boolean false
+                if (has caseMethodNames cn) {
+                  def cNames:[string] (unwrap (get caseMethodNames cn))
+                  for cNames cmn:string cmni {
+                    if (cmn == mName) {
+                      useCase = true
+                    }
+                  }
+                }
+                dispSrc = dispSrc + ((("      " + cn) + " ") + bind) + " {\n"
+                if useCase {
+                  dispSrc = dispSrc + ((("        return (" + caseOps) + ".") + mName) + ("(" + bind)
+                  for argsNode.children arg:CodeNode ai {
+                    dispSrc = dispSrc + (" " + arg.vref)
+                  }
+                  dispSrc = dispSrc + "))\n"
+                } {
+                  ; fall back to the group default body via a direct call after
+                  ; re-attaching it under a private name — inlined as a call to
+                  ; the default sfn we also emit below when hasDefault.
+                  if hasDefault {
+                    dispSrc = dispSrc + ((("        return (" + gOpsName) + ".__default_") + mName) + ("(" + bind)
+                    for argsNode.children arg:CodeNode ai {
+                      dispSrc = dispSrc + (" " + arg.vref)
+                    }
+                    dispSrc = dispSrc + "))\n"
+                  } {
+                    dispSrc = dispSrc + "        return\n"
+                  }
+                }
+                dispSrc = dispSrc + "      }\n"
+              }
+              dispSrc = dispSrc + "    }\n"
+              ; unreachable fallback keeps typed returns happy on some targets
+              if (retType == "void") {
+                dispSrc = dispSrc + "  }\n"
+              } {
+                if (retType == "string") {
+                  dispSrc = dispSrc + "    return \"\"\n  }\n"
+                } {
+                  if (retType == "boolean") {
+                    dispSrc = dispSrc + "    return false\n  }\n"
+                  } {
+                    if (retType == "double") {
+                      dispSrc = dispSrc + "    return 0.0\n  }\n"
+                    } {
+                      if ((retType == "int") || (retType == "char")) {
+                        dispSrc = dispSrc + "    return 0\n  }\n"
+                      } {
+                        dispSrc = dispSrc + "  }\n"
+                      }
+                    }
+                  }
+                }
+              }
+              set renames ((((shapeName + ".") + gn) + ".") + mName) ((gOpsName + ".") + mName)
+            } {
+              if hasDefault {
+                ; concrete non-overridden default: reuse the method node
+                push defaultNodes mNode
+                push defaultStatic false
+                push defaultNames mName
+                set renames ((((shapeName + ".") + gn) + ".") + mName) ((gOpsName + ".") + mName)
+              }
+            }
+            ; when a default is overridden by some cases, keep the default body
+            ; under __default_<name> for the dispatcher arms that need it
+            if (hasDefault && anyOverride) {
+              def defCopy:CodeNode (mNode.copy())
+              def defHead:CodeNode (defCopy.getFirst())
+              defHead.vref = "fn"
+              def defNameNode:CodeNode (defCopy.getSecond())
+              defNameNode.vref = ("__default_" + mName)
+              clear defNameNode.ns
+              push defNameNode.ns defNameNode.vref
+              push defaultNodes defCopy
+              push defaultStatic false
+              push defaultNames ("__default_" + mName)
+            }
+            mi = mi + 1
+          }
+
+          def needOps:boolean false
+          if (((array_length defaultNodes) > 0) || ((strlen dispSrc) > 0)) {
+            needOps = true
+          }
+          if needOps {
+            def opsSrc:string (("class " + gOpsName) + " {\n")
+            opsSrc = opsSrc + dispSrc
+            if ((array_length defaultNodes) > 0) {
+              opsSrc = opsSrc + (("  sfn __shape_self_proto:void (self:" + gClsName) + ") {\n")
+              opsSrc = opsSrc + "  }\n"
+            }
+            opsSrc = opsSrc + "}\n"
+            def opsRootOpt@(optional):CodeNode (this.parseOpsClassRoot(opsSrc (("shape_group_ops_" + gClsName) + ".rgr") shapeNode ctx))
+            if (!null? opsRootOpt) {
+              def opsRoot:CodeNode (unwrap opsRootOpt)
+              if ((array_length defaultNodes) > 0) {
+                def gFieldNames:[string]
+                ; group default bodies may read group fields after C5; for now
+                ; collect field names along the ancestor chain for rewriting
+                if (has groupAncestorsRootFirst gn) {
+                  def chain:[string] (unwrap (get groupAncestorsRootFirst gn))
+                  for chain g:string gi {
+                    if (has groupFieldNodes g) {
+                      def gFields:[CodeNode] (unwrap (get groupFieldNodes g))
+                      for gFields gf:CodeNode gfi {
+                        def fname:string (this.shapeFieldName(gf))
+                        if ((strlen fname) > 0) {
+                          push gFieldNames fname
+                        }
+                      }
+                    }
+                  }
+                }
+                this.attachOpsMethods(opsRoot ((shapeName + ".") + gn) defaultNodes defaultStatic gFieldNames ctx)
+              }
+              for opsRoot.children och@(lives):CodeNode oi {
+                insert parent.children insertAt och
+                insertAt = insertAt + 1
+              }
+            }
+          }
+        }
+      }
+    }
+
+    ; --- the generated equality (PLAN_SHAPES.md S4) + shape methods ---
     def opsName:string shapeName + "__ops"
     def eqSrc:string "class " + opsName + " {\n"
     eqSrc = eqSrc + "  sfn equals:boolean (a:" + shapeName + " b:" + shapeName + ") {\n"
@@ -4723,29 +5393,15 @@ class RangerFlowParser {
     eqSrc = eqSrc + "    }\n"
     eqSrc = eqSrc + "    return true\n"
     eqSrc = eqSrc + "  }\n"
-    ; A parsed `self:<Shape>` parameter to copy onto every method below. Writing
-    ; the node by hand would mean reproducing what the parser puts on a typed
-    ; vref; parsing one and copying it cannot drift from that.
     if ((array_length methodNodes) > 0) {
       eqSrc = eqSrc + "  sfn __shape_self_proto:void (self:" + shapeName + ") {\n"
       eqSrc = eqSrc + "  }\n"
     }
     eqSrc = eqSrc + "}\n"
 
-
-    if (ctx.hasCompilerFlag("shape-debug")) {
-      print eqSrc
-    }
-    def eqCode:SourceCode (new SourceCode (eqSrc))
-    eqCode.filename = "shape_ops_" + shapeName + ".rgr"
-    def eqParser:RangerLispParser (new RangerLispParser (eqCode))
-    eqParser.parse(false)
-    def eqRootOpt@(optional):CodeNode eqParser.rootNode
-    if (null? eqRootOpt) {
-      ctx.addError(shapeNode ("could not generate the equality of shape " + shapeName))
-    } {
+    def eqRootOpt@(optional):CodeNode (this.parseOpsClassRoot(eqSrc ("shape_ops_" + shapeName + ".rgr") shapeNode ctx))
+    if (!null? eqRootOpt) {
       def eqRoot:CodeNode (unwrap eqRootOpt)
-      ; --- the methods of the family move onto the ops class ---
       if ((array_length methodNodes) > 0) {
         this.attachShapeMethods(eqRoot shapeName opsName methodNodes methodNames methodStatic ctx)
         for methodNames mn:string mni {
@@ -4768,6 +5424,12 @@ class RangerFlowParser {
       push allCaseClasses ((shapeName + "_") + cn)
     }
     set shapeCases shapeName allCaseClasses
+    this.registerShapeView(shapeName "shape" shapeName shapeName allCaseClasses "")
+    for caseNames cn:string cni {
+      def one:[string]
+      push one ((shapeName + "_") + cn)
+      this.registerShapeView(shapeName "case" ((shapeName + ".") + cn) ((shapeName + "_") + cn) one "")
+    }
     def unionHead:CodeNode (shapeNode.newVRefNode("union"))
     def unionName:CodeNode (shapeNode.newVRefNode(shapeName))
     clear shapeNode.children
@@ -5103,13 +5765,40 @@ class RangerFlowParser {
     if (has renames node.vref) {
       def direct:string (unwrap (get renames node.vref))
       this.setShapeRef(node direct)
-    }
-    ; a value reference reaches the parser split at the dot: (new EvalValue.Number())
-    if ((array_length node.ns) == 2) {
-      def joined:string (((itemAt node.ns 0) + ".") + (itemAt node.ns 1))
-      if (has renames joined) {
-        def mangled:string (unwrap (get renames joined))
-        this.setShapeRef(node mangled)
+    } {
+      ; Join all ns segments so `Value.Printable.render` and `Value.Num.doubled`
+      ; rename in one step. Prefer the full path over a 2-segment type rename
+      ; that would drop the method segment.
+      def nsLen:int (array_length node.ns)
+      if (nsLen >= 2) {
+        def joined:string ""
+        def ni:int 0
+        while (ni < nsLen) {
+          if (ni > 0) {
+            joined = (joined + ".")
+          }
+          joined = (joined + (itemAt node.ns ni))
+          ni = ni + 1
+        }
+        if (has renames joined) {
+          def mangled:string (unwrap (get renames joined))
+          this.setShapeRef(node mangled)
+        } {
+          if (nsLen == 2) {
+            def joined2:string (((itemAt node.ns 0) + ".") + (itemAt node.ns 1))
+            if (has renames joined2) {
+              def mangled2:string (unwrap (get renames joined2))
+              this.setShapeRef(node mangled2)
+            }
+          }
+          if (nsLen == 3) {
+            def prefix:string (((itemAt node.ns 0) + ".") + (itemAt node.ns 1))
+            if (has renames prefix) {
+              def mangledPrefix:string (unwrap (get renames prefix))
+              this.setShapeRef(node ((mangledPrefix + ".") + (itemAt node.ns 2)))
+            }
+          }
+        }
       }
     }
     for node.children ch@(lives):CodeNode i {
@@ -6741,6 +7430,17 @@ class RangerFlowParser {
             }      
 
             if( (c2.is_union == true) && (c1.is_union == true)) {
+              ; Same union, or a closed shape subgroup (Numeric <: Printable):
+              ; every member of the source union belongs to the target union.
+              if (n1.eval_type_name == n2.eval_type_name) {
+                return true
+              }
+              if ( c2.isSameOrParentClass (n1.eval_type_name ctx)) {
+                return true
+              }
+              if ( c1.isSameOrParentClass (n2.eval_type_name ctx)) {
+                return true
+              }
               ctx.addError( n1 ('Union types must be the same =>  ' + n1.eval_type_name + " <> " + n2.eval_type_name))
               return false
             }   

@@ -44,11 +44,16 @@ subsets (`group`). Lowers to one record class per case plus a union over them.
 
 <shape-member>  ::= <group-def> | <case-def> | <method-def>
 
-<group-def>     ::= 'group' <identifier> ('{' <property-def>* '}')?
+<group-def>     ::= 'group' <identifier> <annotations>?
+                    ('does' <identifier>)?
+                    ('{' (<property-def> | <method-def>)* '}')?
 
 <case-def>      ::= ('case' | 'variant') <identifier> <annotations>?
                     ('does' <identifier>)?
-                    ('{' <property-def>* '}')?
+                    ('{' (<property-def> | <method-def>)* '}')?
+
+<method-def>    ::= ('fn' | 'sfn') <identifier> <annotations>? ':' <type>
+                    '(' <params> ')' <block>?
 ```
 
 `@(value)` / `@(reference)` on a case or a group declare how it compares and
@@ -56,18 +61,32 @@ copies: a value case compares by content and may not be mutated after
 construction; a reference case compares by identity. Unannotated, a case
 holding only scalars is a value and anything else is a reference.
 
+A bodyless `fn` in a group is a **required** operation: every member case must
+provide a compatible implementation. A group `fn` with a body is a default.
+Replacing a default from a case requires `@(override)` on the case method name.
+Case-only methods are available only after narrowing to that case.
+
 ```ranger
 shape Value {
+    group Printable {
+        fn render:string ()                    ; required
+    }
     group Ref { def identityId:int 0 }
     case Nothing
-    case Num  { def value:double 0.0 }
+    case Num does Printable {
+        def value:double 0.0
+        fn render:string () { return (to_string value) }
+        fn doubled:Value.Num () { return (new Value.Num((value * 2.0))) }
+    }
     case Items does Ref { def items:[Value] }
 }
+(Value.Printable.render v)   (Value.Num.doubled n)
 ```
 
-A case belongs to at most one group and carries that group's fields as well as
-its own. `Value` names the whole family, `Value.Num` one variant and `Value.Ref`
-the group — all three are usable as types. Construction is ordinary:
+A case belongs to at most one leaf group (and that group's ancestors via
+`group Child does Parent`) and carries the group's fields as well as its own.
+`Value` names the whole family, `Value.Num` one variant and `Value.Printable`
+the group — all are usable as types. Construction is ordinary:
 `(new Value.Num(2.5))`.
 
 ## Match Statement
@@ -102,8 +121,9 @@ Every shape gets a generated equality: `Value.equals(a b)` and
 `Value.notEquals(a b)` compare content for value cases, identity for reference
 cases, and answer false across different cases.
 
-A shape body may also hold methods. An `fn` takes the value it acts on as `self`;
-an `sfn` takes nothing. Both are called on the family, not on the value:
+A shape body may also hold family-wide methods. An `fn` takes the value it acts
+on as `self`; an `sfn` takes nothing. Group and case methods use the same
+static call spelling, qualified by the view that declares them:
 
 ```ranger
 shape Value {
@@ -113,8 +133,6 @@ shape Value {
 }
 (Value.describe v)   (Value.zero())
 ```
-
-Methods on a single case or on a group are not implemented.
 
 Each target represents the family its own way: a union type on TypeScript, a
 sealed interface on Kotlin (an interface on C# and Dart), a native `enum` on

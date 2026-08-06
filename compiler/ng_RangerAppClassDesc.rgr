@@ -1,4 +1,31 @@
 
+; A view of a closed shape family: the whole shape, one group, or one case.
+; allowedCases is the set of concrete case class names visible through this
+; view (PLAN_SHAPES.md §7 / C1). Method lookup and API intent keep the nominal
+; viewName even when two groups currently contain the same cases.
+class ShapeViewDesc {
+  def shapeName:string ""
+  def viewKind:string ""
+  def viewName:string ""
+  def className:string ""
+  def allowedCases:[string]
+  def parentView:string ""
+  def methodNames:[string]
+  def requiredMethods:[string]
+}
+
+; One required or concrete method slot on a group, with the implementation
+; chosen for each member case (PLAN_SHAPES.md §4 / C3).
+class ShapeGroupMethodSlot {
+  def declaringGroup:string ""
+  def methodName:string ""
+  def isRequired:boolean false
+  def hasDefault:boolean false
+  def defaultNode@(weak optional):CodeNode
+  def implCaseNames:[string]
+  def implNodes@(weak):[CodeNode]
+}
+
 class RangerAppMethodVariants {
   def name:string ""
   def variants@(weak):[RangerAppFunctionDesc]
@@ -174,7 +201,27 @@ Tests if the `class name` is either
     }    
     if ((indexOf is_union_of class_name) >= 0) {
       return true
-    }    
+    }
+    ; Closed shape groups (PLAN_SHAPES.md §7): a group union is a subtype of
+    ; another when every one of its members belongs to the other. That is how
+    ; `group Numeric does Printable` widens to Printable without a wrapper.
+    if (is_union && (ctx.isDefinedClass(class_name))) {
+      def otherUnion:RangerAppClassDesc (ctx.findClass(class_name))
+      if otherUnion.is_union {
+        def memberCnt:int (array_length is_union_of)
+        if (memberCnt > 0) {
+          def allIn:boolean true
+          for is_union_of m:string mi {
+            if ((indexOf otherUnion.is_union_of m) < 0) {
+              allIn = false
+            }
+          }
+          if allIn {
+            return true
+          }
+        }
+      }
+    }
     for extends_classes c_name:string i {
       def c:RangerAppClassDesc (ctx.findClass(c_name))
       if (c.isSameOrParentClass(class_name ctx)) {

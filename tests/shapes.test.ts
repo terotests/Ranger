@@ -501,6 +501,88 @@ describe("shapes (closed variant families)", () => {
   });
 
   /**
+   * Group and case methods (PLAN_SHAPES.md §3.6 / §7). Bodyless group methods
+   * are required capabilities; nested groups widen membership; case-only
+   * methods are available after narrowing. Calls lower to static ops classes
+   * with exhaustive dispatch — no wrappers, no vtables.
+   */
+  describe("group and case methods", () => {
+    const GROUP_METHODS = `${FIXTURES_DIR}/shape_group_methods.rgr`;
+    // render Num, case-only doubled, render Text, Text.value, asDouble, Printable.render
+    const EXPECTED_GROUP = ["2.5", "doubled", "hi", "hi", "2.5", "2.5"].join(
+      "\n"
+    );
+
+    it("ES6", () => {
+      expectOutput(GROUP_METHODS, EXPECTED_GROUP);
+    });
+
+    it.skipIf(!isPythonAvailable())("Python", () => {
+      expectPythonOutput(GROUP_METHODS, EXPECTED_GROUP);
+    });
+
+    it.skipIf(!isGoAvailable())("Go", () => {
+      expectGoOutput(GROUP_METHODS, EXPECTED_GROUP);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(GROUP_METHODS, EXPECTED_GROUP);
+    });
+
+    it("lowers required methods to ops dispatchers and case ops", () => {
+      const result = getGeneratedCppCode(GROUP_METHODS);
+
+      expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("Value_Printable__ops");
+      expect(result.code).toContain("Value_Numeric__ops");
+      expect(result.code).toContain("Value_Num__ops");
+      expect(result.code).not.toContain("__shape_self_proto");
+    });
+
+    it("accepts parent-group widening where unions are erased", () => {
+      // ES6 erases group unions to the case classes, so Numeric → Printable is
+      // a compile-time proof with no runtime conversion. Native enum targets
+      // still use a separate group container until C6.
+      expectOutput(`${FIXTURES_DIR}/shape_group_parent_widen.rgr`, "3");
+    });
+
+    it("runs a group default and an @(override)", () => {
+      expectOutput(
+        `${FIXTURES_DIR}/shape_group_default.rgr`,
+        "num:1\nprintable"
+      );
+    });
+
+    it("rejects a missing required implementation", () => {
+      expectCompileError(
+        `${FIXTURES_DIR}/shape_group_missing_impl.rgr`,
+        "does not implement"
+      );
+    });
+
+    it("rejects a non-member passed to a group parameter", () => {
+      expectCompileError(
+        `${FIXTURES_DIR}/shape_group_bad_member.rgr`,
+        "invalid argument type"
+      );
+    });
+
+    it("rejects a case-only method called with a group-typed value", () => {
+      expectCompileError(
+        `${FIXTURES_DIR}/shape_case_method_on_group.rgr`,
+        "invalid argument type"
+      );
+    });
+
+    it("requires @(override) when replacing a group default", () => {
+      expectCompileError(
+        `${FIXTURES_DIR}/shape_group_override_missing.rgr`,
+        "@(override)"
+      );
+    });
+  });
+
+  /**
    * Methods on a shape (PLAN_SHAPES.md §3.6). A `fn` in a shape body moves to
    * the generated ops class and gains the value it acts on as `self`; an `sfn`
    * moves as it is. The body node is reused rather than reprinted, so a `match`

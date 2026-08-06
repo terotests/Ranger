@@ -1,0 +1,27 @@
+; A concrete group default is shared by every member; a case may replace it
+; with @(override).
+shape Value {
+    group Printable {
+        fn label:string () {
+            return "printable"
+        }
+    }
+    case Num does Printable {
+        def value:double 0.0
+        fn label@(override):string () {
+            return ("num:" + (to_string value))
+        }
+    }
+    case Text does Printable {
+        def value:string ""
+    }
+}
+
+class Main {
+    sfn main:void () {
+        def n:Value.Num (new Value.Num(1.0))
+        def t:Value.Text (new Value.Text("x"))
+        print (Value.Printable.label(n))
+        print (Value.Printable.label(t))
+    }
+}

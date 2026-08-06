@@ -1,0 +1,36 @@
+; Parent-group widening: a Numeric value is accepted where Printable is
+; required (PLAN_SHAPES.md §7). On targets that erase unions this is zero-cost;
+; native enum targets still use a separate group container until C6.
+shape Value {
+    group Printable {
+        fn render:string ()
+    }
+    group Numeric does Printable {
+        fn asDouble:double ()
+    }
+    case Num does Numeric {
+        def value:double 0.0
+        fn render:string () {
+            return (to_string value)
+        }
+        fn asDouble:double () {
+            return value
+        }
+    }
+}
+
+class Main {
+    fn show:void (v:Value.Printable) {
+        print (Value.Printable.render(v))
+    }
+
+    fn fromNumeric:void (v:Value.Numeric) {
+        this.show(v)
+    }
+
+    sfn main:void () {
+        def m:Main (new Main())
+        def n:Value.Num (new Value.Num(3.0))
+        m.fromNumeric(n)
+    }
+}

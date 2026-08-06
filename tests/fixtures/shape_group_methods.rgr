@@ -1,0 +1,80 @@
+; Closed-family group/case methods (PLAN_SHAPES.md §3.6 / §7).
+; A bodyless group method is a required capability; each member case provides
+; an implementation. Nested groups widen membership. Case-only methods are
+; available after narrowing. Calls are statically qualified and lower to
+; generated ops classes with exhaustive dispatch — no wrappers, no vtables.
+shape Value {
+    group Printable {
+        fn render:string ()
+    }
+
+    group Numeric does Printable {
+        fn asDouble:double ()
+    }
+
+    case Num does Numeric {
+        def value:double 0.0
+
+        fn render:string () {
+            return (to_string value)
+        }
+
+        fn asDouble:double () {
+            return value
+        }
+
+        fn doubled:Value.Num () {
+            return (new Value.Num((value * 2.0)))
+        }
+    }
+
+    case Text does Printable {
+        def value:string ""
+
+        fn render:string () {
+            return value
+        }
+    }
+
+    case Object
+}
+
+class Main {
+    fn consumePrintable:void (v:Value.Printable) {
+        print (Value.Printable.render(v))
+        match v {
+            Num n {
+                def d:Value.Num (Value.Num.doubled(n))
+                ; prove the case-only method ran (avoid float formatting drift)
+                if ((Value.Num.asDouble(d)) > 4.0) {
+                    print "doubled"
+                }
+            }
+            Text t {
+                print t.value
+            }
+        }
+    }
+
+    fn consumeNumeric:void (v:Value.Numeric) {
+        print (to_string (Value.Numeric.asDouble(v)))
+        ; Parent-group method via the case (zero-cost on every target). Direct
+        ; Numeric → Printable widening is accepted by the type checker; native
+        ; enum targets still use a separate group enum until C6 shares one
+        ; family handle, so the call below goes through the exact case.
+        match v {
+            Num n {
+                print (Value.Printable.render(n))
+            }
+        }
+    }
+
+    sfn main:void () {
+        def m:Main (new Main())
+        def n:Value.Num (new Value.Num(2.5))
+        def t:Value.Text (new Value.Text("hi"))
+        m.consumePrintable(n)
+        m.consumePrintable(t)
+        m.consumeNumeric(n)
+    }
+}
