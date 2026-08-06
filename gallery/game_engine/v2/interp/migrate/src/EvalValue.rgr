@@ -4,10 +4,10 @@
 ; Represents values that can be evaluated: numbers, strings, booleans, 
 ; null, arrays, objects, functions, and EVG elements.
 ;
-; Migration (PLAN_SHAPES.md §7.5 step 4 / E4c): kind lives in `body:EvValue`.
-; Collection stores, own-data, accessors, attrs, proto and integrity flags live
-; on the shape (`EvPropertyBag` / Array.items / Map.entries / Set.items).
-; Class fields for those are unused stubs. `EvValueHandles` round-trips refs.
+; Migration (PLAN_SHAPES.md §7.5 E4c): thin engine handle around `body:EvValue`.
+; All collection / property / proto / integrity storage lives on the shape.
+; This class keeps only: kind body, FnCore/Elem payload, scalar caches,
+; identityId, functionNode, boundThis, slotOwned — plus EvValueHandles.
 
 Import "../../../evg/EVGElement.rgr"
 Import "../../../../../ts_parser/ts_parser_simple.rgr"
@@ -119,43 +119,9 @@ class EvalValue {
     ; 0 and compare by value. Never changed by property writes, reparenting, or
     ; array reorder — assigned exactly once at the creation factory below.
     def identityId:int 0
-    def arrayValue:[EvalValue]
-    def mapVals:[EvalValue]     ; parallel to arrayValue for Map
-    def objectMap:[string:EvalValue]
     ; For a bound method reference (obj.method held as a value): the receiver the
     ; method is called on. null for plain functions/closures.
     def boundThis@(optional):EvalValue
-    ; D-PROTO: the prototype link. On a function value this is its `.prototype`
-    ; object (created on first read, so `F.prototype.m = ...` persists); on an
-    ; object it is the prototype it inherits from, set by `new F()`. A property
-    ; miss walks this chain, which is how a method defined on a prototype is
-    ; found through an instance.
-    def protoRef@(optional):EvalValue
-    ; D-ACCESSORS: getter/setter functions keyed by property name, held apart
-    ; from objectMap so an accessor property is never mistaken for a data one.
-    ; They cannot be INVOKED from here (EvalValue has no evaluator reference), so
-    ; the member-access sites in ComponentEngine look them up and call them.
-    def getterMap:[string:EvalValue]
-    def setterMap:[string:EvalValue]
-    ; D-ATTRS: per-property attributes, as a bitmask keyed by property name.
-    ;   bit 0 = writable, bit 1 = enumerable, bit 2 = configurable
-    ; An ABSENT key means all three true, which is what plain assignment
-    ; (`o.k = 1`) creates. Object.defineProperty defaults them to FALSE instead,
-    ; and the engine could not previously tell the two apart — every descriptor
-    ; reported writable/enumerable/configurable true regardless of how the
-    ; property was made.
-    def attrFlags:[string:int]
-    ; Object-level integrity: preventExtensions / seal / freeze. Stored as flags
-    ; rather than derived, because "frozen" must stay true for an empty object.
-    def extensibleFlag:boolean true
-    def sealedFlag:boolean false
-    def frozenFlag:boolean false
-    ; D-ARRAYSPARSE: an array `length` LARGER than the dense store can hold.
-    ; -1 means "the dense store is the length". The spec allows a length up to
-    ; 2^32-1 with no elements at all, which no dense container can materialise,
-    ; so the declared length is carried beside the elements instead. Every value
-    ; that IS stored still lives in arrayValue or, past the cap, as a property.
-    def declaredLength:int (0 - 1)
     def functionNode@(optional):TSNode  ; For function AST nodes
 
     ; ---- the payload, read and written through these -----------------------
@@ -582,7 +548,7 @@ class EvalValue {
         return v
     }
 
-    ; Empty Map: keys in arrayValue, values in mapVals by index.
+    ; Empty Map: entries on body.Map.entries.
     sfn mapEmpty:EvalValue () {
         def v:EvalValue (new EvalValue())
         def id:int ((EvalIdentityMinter.__singleton()).mint())
@@ -593,7 +559,7 @@ class EvalValue {
         return v
     }
 
-    ; Empty Set: unique elements in arrayValue (insertion order).
+    ; Empty Set: items on body.Set.items (insertion order).
     sfn setEmpty:EvalValue () {
         def v:EvalValue (new EvalValue())
         def id:int ((EvalIdentityMinter.__singleton()).mint())
@@ -1359,9 +1325,7 @@ class EvalValue {
         return (EvalValue.null())
     }
 
-    ; ---- E4b/E4c: property-bag accessors (data SoT on body.properties) ------
-    ; PropertyCarrier cases own an EvPropertyBag; class objectMap is unused for
-    ; data after E4c. Getters/setters/attrs remain on the class for now.
+    ; ---- E4c: property-bag accessors (SoT on body.properties) --------------
     fn tryProps@(optional):EvPropertyBag () {
         def _k:EvValue body
         case _k o:EvValue.Object {
@@ -1761,8 +1725,7 @@ class EvalValue {
         return dense
     }
 
-    ; ---- E4b/E4c: dense-store accessors ------------------------------------
-    ; ComponentEngine must not touch `.arrayValue` / `.declaredLength` fields.
+    ; ---- E4c: dense-store accessors ----------------------------------------
     ; Array → body.Array.items; Map keys → entries[].key; Set → body.Set.items.
     fn itemsOf:[EvalValue] () {
         def _k:EvValue body
@@ -1842,10 +1805,9 @@ class EvalValue {
                 return a.declaredLength
             }
         }
-        return declaredLength
+        return (0 - 1)
     }
     fn setDeclaredLength:void (n:int) {
-        declaredLength = n
         def _k:EvValue body
         if (EvValue.isArrayValue(_k)) {
             case _k a:EvValue.Array {

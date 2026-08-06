@@ -88,8 +88,7 @@ class EvPropertyBag {
         def out:[string]
         def ks:[string] (keys slots)
         for ks kk:string idx {
-            def slot:EvPropertySlot (unwrap (get slots kk))
-            case slot d:EvPropertySlot.Data {
+            if (this.hasData(kk)) {
                 push out kk
             }
         }
