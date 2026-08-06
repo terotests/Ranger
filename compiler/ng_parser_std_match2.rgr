@@ -974,6 +974,11 @@ extension RangerFlowParser {
                     }
                   }
                 }
+                ; C6: return Child where Parent is declared — insert widen_to_
+                ; (argument sites already do this via areEqualTypes).
+                if ((strlen activeFn.nameNode.type_name) > 0) {
+                  this.convertToUnion(activeFn.nameNode.type_name returnedValue ctx wr)
+                }
                 def argNode:CodeNode (unwrap activeFn.nameNode)
                 if( returnedValue.hasFlag("optional")) {
                   if ( false == (argNode.hasFlag("optional")) ) {

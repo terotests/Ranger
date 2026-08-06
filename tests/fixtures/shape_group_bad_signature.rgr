@@ -1,0 +1,17 @@
+; A required group method must match the group's signature exactly (C3).
+shape Value {
+    group Printable {
+        fn render:string ()
+    }
+    case Num does Printable {
+        def value:double 0.0
+        fn render:int () {
+            return 0
+        }
+    }
+}
+
+class Main {
+    sfn main:void () {
+    }
+}

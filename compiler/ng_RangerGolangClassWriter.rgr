@@ -5,7 +5,121 @@ class RangerGolangClassWriter {
   def write_raw_type:boolean false
   def did_write_nullable:boolean false
   def did_write_sseclient:boolean false
+  ; S5 (PLAN_SHAPES.md): a sealable union is a tagged struct with one pointer
+  ; field per variant. Construction wraps a case into the handle; narrowing
+  ; switches on the tag. Replaces the earlier marker-interface step.
+  def go_unions_written:boolean false
   def httpServerWriter:RangerGolangHttpServerWriter (new RangerGolangHttpServerWriter())
+
+  fn writeGoUnionStructs:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if go_unions_written {
+      return
+    }
+    go_unions_written = true
+    def names:[string] (this.sealableUnionNames(ctx))
+    for names uname:string ui {
+      def ucl:RangerAppClassDesc (ctx.findClass(uname))
+      def iface:string (this.unionInterfaceName(uname))
+      wr.out("" true)
+      wr.out("const (" true)
+      wr.indent(1)
+      def tagIdx:int 1
+      for ucl.is_union_of mname:string mi {
+        wr.out((((((iface + "_tag_") + mname) + " = ") + tagIdx) + "") true)
+        tagIdx = tagIdx + 1
+      }
+      wr.indent(-1)
+      wr.out(")" true)
+      wr.out((("type " + iface) + " struct {") true)
+      wr.indent(1)
+      wr.out("tag int" true)
+      for ucl.is_union_of mname2:string mi2 {
+        wr.out(((mname2 + " *") + mname2) true)
+      }
+      wr.indent(-1)
+      wr.out("}" true)
+      for ucl.is_union_of mname3:string mi3 {
+        def mk:string (((("func mk_" + iface) + "_") + mname3) + "(p *")
+        wr.out(((((mk + mname3) + ") ") + iface) + " {") true)
+        wr.indent(1)
+        wr.out((("return " + iface) + "{") true)
+        wr.indent(1)
+        wr.out((((( "tag: " + iface) + "_tag_") + mname3) + ",") true)
+        wr.out((mname3 + ": p,") true)
+        wr.indent(-1)
+        wr.out("}" true)
+        wr.indent(-1)
+        wr.out("}" true)
+      }
+    }
+  }
+
+  ; Declared class of a value node (new → constructed class, name → its type).
+  fn goDeclaredClassOf:string (nVal:CodeNode) {
+    if nVal.hasNewOper {
+      def newClOpt@(optional):RangerAppClassDesc nVal.clDesc
+      if (!null? newClOpt) {
+        def newCl:RangerAppClassDesc (unwrap newClOpt)
+        return newCl.name
+      }
+    }
+    if nVal.hasParamDesc {
+      def pd:RangerAppParamDesc nVal.paramDesc
+      def pdNN@(optional):CodeNode pd.nameNode
+      if (!null? pdNN) {
+        def pdNode:CodeNode (unwrap pdNN)
+        return pdNode.type_name
+      }
+    }
+    if ((strlen nVal.eval_type_name) > 0) {
+      return nVal.eval_type_name
+    }
+    return ""
+  }
+
+  fn goUnionHasMember:boolean (ucl:RangerAppClassDesc memberName:string) {
+    return ((indexOf ucl.is_union_of memberName) >= 0)
+  }
+
+  ; Writes a value into a union-typed slot. A MEMBER is wrapped with mk_<union>_<case>;
+  ; a value already of the family is written as-is. Returns true when it wrote.
+  fn goWriteUnionValue:boolean (targetTypeName:string nVal:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((strlen targetTypeName) == 0) {
+      return false
+    }
+    def tcOpt@(optional):RangerAppClassDesc (ctx.findClass(targetTypeName))
+    if (null? tcOpt) {
+      return false
+    }
+    def target:RangerAppClassDesc (unwrap tcOpt)
+    if ((this.unionIsSealable(target ctx)) == false) {
+      return false
+    }
+    def enumName:string (this.unionInterfaceName(targetTypeName))
+    def valClass:string (this.goDeclaredClassOf(nVal))
+    if (this.goUnionHasMember(target valClass)) {
+      wr.out((((("mk_" + enumName) + "_") + valClass) + "(") false)
+      ctx.setInExpr()
+      this.WalkNode(nVal ctx wr)
+      ctx.unsetInExpr()
+      wr.out(")" false)
+      return true
+    }
+    ; already a handle of the family (or unknown) — pass through
+    ctx.setInExpr()
+    this.WalkNode(nVal ctx wr)
+    ctx.unsetInExpr()
+    return true
+  }
+
+  fn goWriteUnionArg:boolean (arg:RangerAppParamDesc nVal:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def argNN@(optional):CodeNode arg.nameNode
+    if (null? argNN) {
+      return false
+    }
+    def argNameNode:CodeNode (unwrap argNN)
+    return (this.goWriteUnionValue(argNameNode.type_name nVal ctx wr))
+  }
  
   fn WriteScalarValue:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     switch node.value_type {
@@ -46,7 +160,7 @@ class RangerGolangClassWriter {
       def cc:RangerAppClassDesc (ctx.findClass(type_string))
 
       if(cc.is_union) {
-        return "interface{}"
+        return (this.sealableUnionTypeOr(type_string "interface{}" ctx))
       }
 
       if(cc.doesInherit()) {
@@ -148,7 +262,7 @@ class RangerGolangClassWriter {
     if(ctx.isDefinedClass(type_string)) {
       def cc:RangerAppClassDesc (ctx.findClass(type_string))
       if(cc.is_union) {
-        return "interface{}"
+        return (this.sealableUnionTypeOr(type_string "interface{}" ctx))
       }
     }    
     return (ctx.transformTypeName(type_string))
@@ -183,7 +297,7 @@ class RangerGolangClassWriter {
         if(ctx.isDefinedClass(a_name)) {
           def cc:RangerAppClassDesc (ctx.findClass(a_name))
           if(cc.is_union) {
-            wr.out("interface{}" , false)
+            wr.out((this.getObjectTypeString(a_name ctx)) false)
             return
           }
           if(cc.doesInherit()) {
@@ -202,7 +316,7 @@ class RangerGolangClassWriter {
         if(ctx.isDefinedClass(a_name)) {
           def cc:RangerAppClassDesc (ctx.findClass(a_name))
           if(cc.is_union) {
-            wr.out("interface{}" , false)
+            wr.out((this.getObjectTypeString(a_name ctx)) false)
             return
           }
           if(cc.doesInherit()) {
@@ -301,7 +415,7 @@ class RangerGolangClassWriter {
           if(ctx.isDefinedClass(a_name)) {
             def cc:RangerAppClassDesc (ctx.findClass(a_name))
             if(cc.is_union) {
-              wr.out("interface{}" , false)
+              wr.out((this.getObjectTypeString(a_name ctx)) false)
               return
             }
             if(cc.doesInherit()) {
@@ -324,7 +438,7 @@ class RangerGolangClassWriter {
         if(ctx.isDefinedClass(a_name)) {
           def cc:RangerAppClassDesc (ctx.findClass(a_name))
           if(cc.is_union) {
-            wr.out("interface{}" , false)
+            wr.out((this.getObjectTypeString(a_name ctx)) false)
             return
           }          
           if(cc.doesInherit()) {
@@ -388,7 +502,7 @@ class RangerGolangClassWriter {
           def cc:RangerAppClassDesc (ctx.findClass(t_name))
 
           if(cc.is_union) {
-            wr.out("interface{}" false)
+            wr.out((this.getObjectTypeString(t_name ctx)) false)
             return
           }
           if(cc.doesInherit()) {
@@ -1052,22 +1166,29 @@ class RangerGolangClassWriter {
           } 
         }
         wr.out("= " false)
-        ctx.setInExpr()
-        if( p.nameNode.eval_type_name == "char") {
-          wr.out("byte(" false)
+        def slotType:string p.nameNode.type_name
+        if ((strlen p.nameNode.eval_type_name) > 0) {
+          slotType = p.nameNode.eval_type_name
         }
-        ; Handle char to int conversion - Go requires explicit cast from byte to int64
-        if( (p.nameNode.eval_type_name == "int") && (value.eval_type_name == "char")) {
-          wr.out("int64(" false)
+        def wroteSlot:boolean (this.goWriteUnionValue(slotType value ctx wr))
+        if (wroteSlot == false) {
+          ctx.setInExpr()
+          if( p.nameNode.eval_type_name == "char") {
+            wr.out("byte(" false)
+          }
+          ; Handle char to int conversion - Go requires explicit cast from byte to int64
+          if( (p.nameNode.eval_type_name == "int") && (value.eval_type_name == "char")) {
+            wr.out("int64(" false)
+          }
+          this.WalkNode(value ctx wr)
+          if( p.nameNode.eval_type_name == "char") {
+            wr.out(")" false)
+          }
+          if( (p.nameNode.eval_type_name == "int") && (value.eval_type_name == "char")) {
+            wr.out(")" false)
+          }
+          ctx.unsetInExpr()
         }
-        this.WalkNode(value ctx wr)
-        if( p.nameNode.eval_type_name == "char") {
-          wr.out(")" false)
-        }
-        if( (p.nameNode.eval_type_name == "int") && (value.eval_type_name == "char")) {
-          wr.out(")" false)
-        }
-        ctx.unsetInExpr()
       } {
         if (nn.value_type == RangerNodeType.Array) {
           wr.out(" = make(" false)
@@ -1134,6 +1255,61 @@ class RangerGolangClassWriter {
     }
   }
 
+  fn writeFnCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if node.hasFnCall {
+      def fc:CodeNode (node.getFirst())
+      this.WriteVRef(fc ctx wr)
+      wr.out("(" false)
+      def givenArgs:CodeNode (node.getSecond())
+      ctx.setInExpr()
+      def cnt 0
+      for node.fnDesc.params arg:RangerAppParamDesc i {
+        if (arg.nameNode.hasFlag("keyword")) {
+          continue
+        }
+        if (cnt > 0) {
+          wr.out(", " false)
+        }
+        cnt = cnt + 1
+        if ((array_length givenArgs.children) <= i) {
+          def defVal@(optional):CodeNode (arg.nameNode.getFlag("default"))
+          if (!null? defVal) {
+            def fcDef:CodeNode (defVal.vref_annotation.getFirst())
+            this.WalkNode(fcDef ctx wr)
+          } {
+            ctx.addError(node "Default argument was missing")
+          }
+          continue
+        }
+        def n:CodeNode (itemAt givenArgs.children i)
+        if (this.goWriteUnionArg(arg n ctx wr)) {
+          continue
+        }
+        this.WalkNode(n ctx wr)
+      }
+      ctx.unsetInExpr()
+      wr.out(")" false)
+      if (has node.methodChain) {
+        for node.methodChain cc:CallChain i {
+          wr.out(("." + cc.methodName) false)
+          wr.out("(" false)
+          ctx.setInExpr()
+          for cc.args.children arg:CodeNode i {
+            if (i > 0) {
+              wr.out(", " false)
+            }
+            this.WalkNode(arg ctx wr)
+          }
+          ctx.unsetInExpr()
+          wr.out(")" false)
+        }
+      }
+      if ((ctx.expressionLevel()) == 0) {
+        wr.out(";" true)
+      }
+    }
+  }
+
   fn writeNewCall:void  (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasNewOper {
       def cl:RangerAppClassDesc node.clDesc
@@ -1162,9 +1338,18 @@ class RangerGolangClassWriter {
   fn writeArrayLiteral( node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     this.writeTypeDef(node ctx wr)
     wr.out(" {" false)
+    def elemType:string node.eval_array_type
+    if ((strlen elemType) == 0) {
+      elemType = node.array_type
+    }
     node.children.forEach({
       if( index > 0 ) {
         wr.out(", " false)
+      }
+      if ((strlen elemType) > 0) {
+        if (this.goWriteUnionValue(elemType item ctx wr)) {
+          return
+        }
       }
       this.WalkNode( item ctx wr )
     })
@@ -1289,21 +1474,32 @@ class RangerGolangClassWriter {
     if(cmd == "return" ) {
       if( (array_length node.children ) > 1 ) {
         def rValue (node.getSecond())
+        def retUnion:string ""
+        def currFnRet (ctx.getCurrentMethod())
+        if (!null? currFnRet.nameNode) {
+          retUnion = currFnRet.nameNode.type_name
+        }
         if( (ctx.isCatchBlock()) || (ctx.isTryBlock()) ) {
           wr.out("__ex_returned = true" true)
           wr.out("__exReturn = " false)
-          ctx.setInExpr()
-          this.WalkNode( rValue ctx wr )
-          ctx.unsetInExpr()
+          def wroteRet:boolean (this.goWriteUnionValue(retUnion rValue ctx wr))
+          if (wroteRet == false) {
+            ctx.setInExpr()
+            this.WalkNode( rValue ctx wr )
+            ctx.unsetInExpr()
+          }
           wr.newline()
           if( ctx.isTryBlock() ) {
             wr.out("return __ex_returned, __exReturn" true)
           }
         } {
           wr.out("return " false)
-          ctx.setInExpr()
-          this.WalkNode( rValue ctx wr )
-          ctx.unsetInExpr()
+          def wroteRet2:boolean (this.goWriteUnionValue(retUnion rValue ctx wr))
+          if (wroteRet2 == false) {
+            ctx.setInExpr()
+            this.WalkNode( rValue ctx wr )
+            ctx.unsetInExpr()
+          }
           wr.newline()
         }
       } {
@@ -1517,13 +1713,27 @@ class RangerGolangClassWriter {
         
 
         if( cmd == "push") {
+          def pushElemType:string ""
+          if left.hasParamDesc {
+            def pushNN@(optional):CodeNode left.paramDesc.nameNode
+            if (!null? pushNN) {
+              def pushNode:CodeNode (unwrap pushNN)
+              pushElemType = pushNode.array_type
+            }
+          }
           if last_was_setter {
             wr.out("(" false)
             ctx.setInExpr()
             wr.out("append(" false)
             this.WalkNode(left ctx wr)
             wr.out("," false)
-            this.WalkNode(right ctx wr)
+            def pushed:boolean false
+            if ((strlen pushElemType) > 0) {
+              pushed = (this.goWriteUnionValue(pushElemType right ctx wr))
+            }
+            if (pushed == false) {
+              this.WalkNode(right ctx wr)
+            }
             ctx.unsetInExpr()
             wr.out(")); "  true)
           } {
@@ -1532,24 +1742,50 @@ class RangerGolangClassWriter {
             ctx.setInExpr()
             this.WalkNode(left ctx wr)
             wr.out("," false)
-            this.WalkNode(right ctx wr)
+            def pushed2:boolean false
+            if ((strlen pushElemType) > 0) {
+              pushed2 = (this.goWriteUnionValue(pushElemType right ctx wr))
+            }
+            if (pushed2 == false) {
+              this.WalkNode(right ctx wr)
+            }
             ctx.unsetInExpr()
             wr.out("); "  true)
           }
           return
         }
 
+        def assignSlotType:string ""
+        if left.hasParamDesc {
+          def assignNN@(optional):CodeNode left.paramDesc.nameNode
+          if (!null? assignNN) {
+            def assignNode:CodeNode (unwrap assignNN)
+            assignSlotType = assignNode.type_name
+          }
+        }
         if last_was_setter {
           wr.out("(" false)
-          ctx.setInExpr()
-          this.WalkNode(right ctx wr)
-          ctx.unsetInExpr()
+          def wroteAssign:boolean false
+          if ((strlen assignSlotType) > 0) {
+            wroteAssign = (this.goWriteUnionValue(assignSlotType right ctx wr))
+          }
+          if (wroteAssign == false) {
+            ctx.setInExpr()
+            this.WalkNode(right ctx wr)
+            ctx.unsetInExpr()
+          }
           wr.out("); "  true)
         } {
           wr.out(" = " false)
-          ctx.setInExpr()
-          this.WalkNode(right ctx wr)
-          ctx.unsetInExpr()
+          def wroteAssign2:boolean false
+          if ((strlen assignSlotType) > 0) {
+            wroteAssign2 = (this.goWriteUnionValue(assignSlotType right ctx wr))
+          }
+          if (wroteAssign2 == false) {
+            ctx.setInExpr()
+            this.WalkNode(right ctx wr)
+            ctx.unsetInExpr()
+          }
           wr.out("; " true)
         }
         return
@@ -1558,9 +1794,23 @@ class RangerGolangClassWriter {
 
       this.WriteSetterVRef(left ctx wr)
       wr.out(" = " false)
-      ctx.setInExpr()
-      this.WalkNode(right ctx wr)
-      ctx.unsetInExpr()
+      def assignSlotType2:string ""
+      if left.hasParamDesc {
+        def assignNN2@(optional):CodeNode left.paramDesc.nameNode
+        if (!null? assignNN2) {
+          def assignNode2:CodeNode (unwrap assignNN2)
+          assignSlotType2 = assignNode2.type_name
+        }
+      }
+      def wroteAssign3:boolean false
+      if ((strlen assignSlotType2) > 0) {
+        wroteAssign3 = (this.goWriteUnionValue(assignSlotType2 right ctx wr))
+      }
+      if (wroteAssign3 == false) {
+        ctx.setInExpr()
+        this.WalkNode(right ctx wr)
+        ctx.unsetInExpr()
+      }
       wr.out("; /* custom */" true)
     }
   }
@@ -1655,6 +1905,7 @@ class RangerGolangClassWriter {
       wr.createTag("utilities")
       did_write_nullable = true
     }
+    this.writeGoUnionStructs(ctx wr)
     
     def declaredVariable:[string:boolean]
     def declaredFunction:[string:boolean]
@@ -1767,7 +2018,17 @@ class RangerGolangClassWriter {
           if ((array_length nn.children) > 2) {
             def valueNode:CodeNode (itemAt nn.children 2)
             wr.out((("me." + pvar.compiledName) + " = ") false)
-            this.WalkNode(valueNode ctx wr)
+            def fldTypeName:string ""
+            if (!null? pvar.nameNode) {
+              fldTypeName = pvar.nameNode.type_name
+            }
+            def wroteFld:boolean false
+            if ((strlen fldTypeName) > 0) {
+              wroteFld = (this.goWriteUnionValue(fldTypeName valueNode ctx wr))
+            }
+            if (wroteFld == false) {
+              this.WalkNode(valueNode ctx wr)
+            }
             wr.out("" true)
           } {
             def pNameN:CodeNode (unwrap pvar.nameNode)
@@ -1805,7 +2066,17 @@ class RangerGolangClassWriter {
       if ((array_length nn.children) > 2) {
         def valueNode:CodeNode (itemAt nn.children 2)
         wr.out((("me." + pvar.compiledName) + " = ") false)
-        this.WalkNode(valueNode ctx wr)
+        def fldTypeName2:string ""
+        if (!null? pvar.nameNode) {
+          fldTypeName2 = pvar.nameNode.type_name
+        }
+        def wroteFld2:boolean false
+        if ((strlen fldTypeName2) > 0) {
+          wroteFld2 = (this.goWriteUnionValue(fldTypeName2 valueNode ctx wr))
+        }
+        if (wroteFld2 == false) {
+          this.WalkNode(valueNode ctx wr)
+        }
         wr.out("" true)
       } {
         def pNameN:CodeNode pvar.nameNode

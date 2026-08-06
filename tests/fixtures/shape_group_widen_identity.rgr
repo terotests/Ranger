@@ -1,0 +1,43 @@
+; Identity is preserved across subgroup → parent widening (PLAN_SHAPES.md §7 DoD).
+; A reference-group value widened Child → Parent is still the same object:
+; both Parent views of one Obj compare identical, and the projected field matches.
+shape Value {
+    group Parent@(reference) {
+        def identityId:int 0
+        fn tag:string ()
+    }
+    group Child does Parent {
+        fn childTag:string ()
+    }
+    case Obj does Child {
+        def items:[int]
+        fn tag:string () {
+            return "obj"
+        }
+        fn childTag:string () {
+            return "child"
+        }
+    }
+}
+
+class Main {
+    fn asParent:Value.Parent (c:Value.Child) {
+        return c
+    }
+
+    sfn main:void () {
+        def m:Main (new Main())
+        def empty:[int]
+        def o:Value.Obj (new Value.Obj(7 empty))
+        def child:Value.Child o
+        def viaChild:Value.Parent (m.asParent(child))
+        def viaCase:Value.Parent o
+        if (identical viaChild viaCase) {
+            print "same"
+        } {
+            print "WRONG: widen allocated a new object"
+        }
+        print (to_string viaChild.identityId)
+        print (Value.Parent.tag(viaChild))
+    }
+}

@@ -1,0 +1,14 @@
+; A case that belongs to a group with a required method must implement it.
+shape Value {
+    group Printable {
+        fn render:string ()
+    }
+    case Num does Printable {
+        def value:double 0.0
+    }
+}
+
+class Main {
+    sfn main:void () {
+    }
+}

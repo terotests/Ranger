@@ -5,6 +5,7 @@ import * as path from "path";
 import { fileURLToPath } from "url";
 import {
   compileRangerToDart,
+  compileRangerToGo,
   expectCompileError,
   expectGoOutput,
   expectOutput,
@@ -13,6 +14,7 @@ import {
   getGeneratedCppCode,
   getGeneratedKotlinCode,
   getGeneratedRustCode,
+  getGeneratedSwiftCode,
   isGoAvailable,
   isPythonAvailable,
   isRustAvailable,
@@ -103,8 +105,8 @@ describe("shapes (closed variant families)", () => {
       expect(result.success, `Compile failed: ${result.error}`).toBe(true);
       expect(result.code).toContain("fn identityOf(&self, mut r : union_Value_Ref)");
       expect(result.code).toContain("pub enum union_Value_Ref");
-      // the group is a type, never a struct of its own
-      expect(result.code).not.toContain("struct Value_Ref");
+      // the group is a type, never a data struct of its own (ops class is ok)
+      expect(result.code).not.toMatch(/struct Value_Ref\s*\{/);
     });
 
     it("keeps generated classes where the shape was written", () => {
@@ -277,11 +279,84 @@ describe("shapes (closed variant families)", () => {
       expect(code).toContain("type union_Value_Ref = Value_Items;");
       expect(code).toMatch(/describe\s*\(v : union_Value\)/);
 
-      // and tsc agrees: instanceof narrowing types each arm
+      // FlatTaggedObject: each case carries a literal kind discriminant
+      expect(code).toContain('readonly __rg_kind: "Value_Num" = "Value_Num";');
+      expect(code).toContain('.__rg_kind === "Value_Num"');
+      expect(code).not.toMatch(/instanceof Value_Num/);
+
+      // and tsc agrees: kind-tag narrowing types each arm
       execSync(
         `npx tsc --noEmit --target es2017 --module commonjs "${file}"`,
         { cwd: ROOT, encoding: "utf-8", stdio: "pipe" }
       );
+    });
+
+    it("ES6: FlatTaggedObject kind tag instead of instanceof", () => {
+      const out = path.join(ROOT, "tests", ".output-es6-shapes");
+      execSync(
+        `node bin/output.js -es6 "${FIXTURES_DIR}/shape_match.rgr" -d=tests/.output-es6-shapes -o=shape_match.js`,
+        {
+          cwd: ROOT,
+          env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr;./lib/stdops.rgr" },
+          encoding: "utf-8",
+          stdio: "pipe",
+        }
+      );
+      const code = fs.readFileSync(path.join(out, "shape_match.js"), "utf-8");
+      expect(code).toContain('this.__rg_kind = "Value_Num";');
+      expect(code).toContain('.__rg_kind === "Value_Num"');
+      expect(code).not.toMatch(/instanceof Value_Num/);
+    });
+
+    it.skipIf(!isGoAvailable())("Go: tagged struct with per-variant pointers", () => {
+      const outDir = path.join(ROOT, "tests", ".output-go-shapes");
+      const compile = compileRangerToGo(
+        `${FIXTURES_DIR}/shape_match.rgr`,
+        outDir
+      );
+      expect(compile.success, `Compile failed: ${compile.error}`).toBe(true);
+      const code = fs.readFileSync(
+        path.join(outDir, "shape_match.go"),
+        "utf-8"
+      );
+      expect(code).toContain("type union_Value struct {");
+      expect(code).toContain("union_Value_tag_Value_Num");
+      expect(code).toContain("Value_Num *Value_Num");
+      expect(code).toContain("func mk_union_Value_Value_Num");
+      expect(code).toMatch(/describe \(v union_Value\)/);
+      expect(code).toContain(".tag == union_Value_tag_Value_Num");
+      expect(code).not.toContain("type union_Value interface");
+      expect(code).not.toMatch(/describe \(v interface\{\}\)/);
+    });
+
+    it("Swift6: a native enum with payload cases", () => {
+      const result = getGeneratedSwiftCode(`${FIXTURES_DIR}/shape_match.rgr`);
+      expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("enum union_Value {");
+      expect(result.code).toContain("case Value_Num(Value_Num)");
+      expect(result.code).toContain("enum union_Value_Ref {");
+      expect(result.code).toContain("if case let .Value_Num(");
+      expect(result.code).toMatch(/describe\(v : union_Value\)/);
+      expect(result.code).toContain("union_Value.Value_Num(");
+      expect(result.code).not.toContain("protocol union_Value");
+      expect(result.code).not.toMatch(/describe\(v : Any\)/);
+    });
+
+    it.skipIf(!isPythonAvailable())("Python: FlatTaggedObject kind tag instead of isinstance", () => {
+      const out = path.join(ROOT, "tests", ".output-python-shapes");
+      execSync(
+        `node bin/output.js -l=python "${FIXTURES_DIR}/shape_match.rgr" -d=tests/.output-python-shapes -o=shape_match.py`,
+        {
+          cwd: ROOT,
+          env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr;./lib/stdops.rgr" },
+          encoding: "utf-8",
+          stdio: "pipe",
+        }
+      );
+      const code = fs.readFileSync(path.join(out, "shape_match.py"), "utf-8");
+      expect(code).toContain('self._rg_kind = "Value_Num"');
+      expect(code).toContain('getattr(v, "_rg_kind", None) == "Value_Num"');
+      expect(code).not.toMatch(/isinstance\(\s*v\s*,\s*Value_Num\s*\)/);
     });
 
     it("Kotlin: a sealed interface the cases implement", () => {
@@ -497,6 +572,207 @@ describe("shapes (closed variant families)", () => {
       expect(result.code).toMatch(/bool operator==\(const IValue_Num& o\) const/);
       // IValue_List is a shared_ptr alternative — the variant compares pointers
       expect(result.code).not.toMatch(/bool operator==\(const IValue_List& o\) const/);
+    });
+  });
+
+  /**
+   * Group and case methods (PLAN_SHAPES.md §3.6 / §7). Bodyless group methods
+   * are required capabilities; nested groups widen membership; case-only
+   * methods are available after narrowing. Calls lower to static ops classes
+   * with exhaustive dispatch — no wrappers, no vtables.
+   */
+  describe("group and case methods", () => {
+    const GROUP_METHODS = `${FIXTURES_DIR}/shape_group_methods.rgr`;
+    // render Num, case-only doubled, render Text, Text.value, asDouble, Printable.render
+    const EXPECTED_GROUP = ["2.5", "doubled", "hi", "hi", "2.5", "2.5"].join(
+      "\n"
+    );
+
+    it("ES6", () => {
+      expectOutput(GROUP_METHODS, EXPECTED_GROUP);
+    });
+
+    it.skipIf(!isPythonAvailable())("Python", () => {
+      expectPythonOutput(GROUP_METHODS, EXPECTED_GROUP);
+    });
+
+    it.skipIf(!isGoAvailable())("Go", () => {
+      expectGoOutput(GROUP_METHODS, EXPECTED_GROUP);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(GROUP_METHODS, EXPECTED_GROUP);
+    });
+
+    it("lowers required methods to ops dispatchers and case ops", () => {
+      const result = getGeneratedCppCode(GROUP_METHODS);
+
+      expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("Value_Printable__ops");
+      expect(result.code).toContain("Value_Numeric__ops");
+      expect(result.code).toContain("Value_Num__ops");
+      expect(result.code).not.toContain("__shape_self_proto");
+    });
+
+    it("widens a subgroup to its parent group", () => {
+      expectOutput(`${FIXTURES_DIR}/shape_group_parent_widen.rgr`, "3");
+    });
+
+    it.skipIf(!isRustAvailable())("Rust widens Numeric → Printable via widen_to_", () => {
+      expectRustOutput(`${FIXTURES_DIR}/shape_group_parent_widen.rgr`, "3");
+      const result = getGeneratedRustCode(
+        `${FIXTURES_DIR}/shape_group_parent_widen.rgr`
+      );
+      expect(result.success).toBe(true);
+      expect(result.code).toContain("widen_to_Value_Printable");
+    });
+
+    it("runs a group default and an @(override)", () => {
+      expectOutput(
+        `${FIXTURES_DIR}/shape_group_default.rgr`,
+        "num:1\nprintable"
+      );
+    });
+
+    it("rejects a missing required implementation", () => {
+      expectCompileError(
+        `${FIXTURES_DIR}/shape_group_missing_impl.rgr`,
+        "does not implement"
+      );
+    });
+
+    it("rejects a non-member passed to a group parameter", () => {
+      expectCompileError(
+        `${FIXTURES_DIR}/shape_group_bad_member.rgr`,
+        "invalid argument type"
+      );
+    });
+
+    it("rejects a case-only method called with a group-typed value", () => {
+      expectCompileError(
+        `${FIXTURES_DIR}/shape_case_method_on_group.rgr`,
+        "invalid argument type"
+      );
+    });
+
+    it("requires @(override) when replacing a group default", () => {
+      expectCompileError(
+        `${FIXTURES_DIR}/shape_group_override_missing.rgr`,
+        "@(override)"
+      );
+    });
+
+    it("rejects a required method with the wrong signature", () => {
+      expectCompileError(
+        `${FIXTURES_DIR}/shape_group_bad_signature.rgr`,
+        "does not match the signature"
+      );
+    });
+
+    it("runs the Callable DoD example", () => {
+      expectOutput(
+        `${FIXTURES_DIR}/shape_group_callable.rgr`,
+        "greet:hi\nlen(x)\n1"
+      );
+    });
+
+    it.skipIf(!isRustAvailable())("Rust runs the Callable DoD example", () => {
+      expectRustOutput(
+        `${FIXTURES_DIR}/shape_group_callable.rgr`,
+        "greet:hi\nlen(x)\n1"
+      );
+    });
+
+    it("preserves identity across subgroup → parent widen", () => {
+      expectOutput(
+        `${FIXTURES_DIR}/shape_group_widen_identity.rgr`,
+        "same\n7\nobj"
+      );
+    });
+
+    it.skipIf(!isRustAvailable())(
+      "Rust preserves identity across Child → Parent widen",
+      () => {
+        expectRustOutput(
+          `${FIXTURES_DIR}/shape_group_widen_identity.rgr`,
+          "same\n7\nobj"
+        );
+      }
+    );
+  });
+
+  /**
+   * E1 (PLAN_SHAPES.md §7.5): target EvValue shape beside class EvalValue.
+   * Callable group + toBool + identity field; nothing in the engine imports
+   * it yet.
+   */
+  describe("EvValue E1 target shape", () => {
+    const E1 = `${FIXTURES_DIR}/shape_evalvalue_e1.rgr`;
+    const EXPECTED_E1 = ["greet", "zero", "two", "1"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E1, EXPECTED_E1);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E1, EXPECTED_E1);
+    });
+  });
+
+  describe("EvValue E2 compatibility bridge", () => {
+    const E2 = `${FIXTURES_DIR}/shape_evalvalue_e2.rgr`;
+    const EXPECTED_E2 = ["num", "truthy", "zero", "hole"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E2, EXPECTED_E2);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E2, EXPECTED_E2);
+    });
+  });
+
+  /**
+   * Group field projection (PLAN_SHAPES.md §7 / C5). Fields declared on a
+   * group are read and written through the group type via generated get_/set_
+   * ops — no narrowing required, identity preserved for reference groups.
+   */
+  describe("group field projection", () => {
+    const FIELDS = `${FIXTURES_DIR}/shape_group_fields.rgr`;
+    const EXPECTED_FIELDS = ["7", "8", "8"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(FIELDS, EXPECTED_FIELDS);
+    });
+
+    it.skipIf(!isPythonAvailable())("Python", () => {
+      expectPythonOutput(FIELDS, EXPECTED_FIELDS);
+    });
+
+    it.skipIf(!isGoAvailable())("Go", () => {
+      expectGoOutput(FIELDS, EXPECTED_FIELDS);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(FIELDS, EXPECTED_FIELDS);
+    });
+
+    it("lowers group field access to get_/set_ ops", () => {
+      const result = getGeneratedCppCode(FIELDS);
+      expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("get_identityId");
+      expect(result.code).toContain("set_identityId");
+    });
+
+    it("rejects a group field accessed through the whole shape", () => {
+      expectCompileError(
+        `${FIXTURES_DIR}/shape_group_field_on_shape.rgr`,
+        "variable not found identityId"
+      );
+    });
+
+    it("projects a class-typed group field", () => {
+      expectOutput(`${FIXTURES_DIR}/shape_group_class_field.rgr`, "ok");
     });
   });
 

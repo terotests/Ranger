@@ -89,6 +89,30 @@ class RangerGenericClassWriter {
     return out
   }
 
+  ; True when the class is a member of at least one sealable union (shape case).
+  fn classInSealableUnion:boolean (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    def ifaces:[string] (this.unionInterfacesOf(cl ctx))
+    if ((array_length ifaces) > 0) {
+      return true
+    }
+    return false
+  }
+
+  ; Type spelling for a union on targets that use a named interface/protocol
+  ; for sealable unions and a top type otherwise (Go interface{}, Swift Any, …).
+  fn sealableUnionTypeOr:string (unionName:string topType:string ctx:RangerAppWriterContext) {
+    if (ctx.isDefinedClass(unionName)) {
+      def cc:RangerAppClassDesc (ctx.findClass(unionName))
+      if cc.is_union {
+        if (this.unionIsSealable(cc ctx)) {
+          return (this.unionInterfaceName(unionName))
+        }
+        return topType
+      }
+    }
+    return topType
+  }
+
   fn lineEnding:string () {
     return ""
   }

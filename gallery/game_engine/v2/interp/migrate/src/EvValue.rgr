@@ -1,0 +1,184 @@
+; =============================================================================
+; EvValue — E1 target shape (PLAN_SHAPES.md §7.5 / §3.1)
+; =============================================================================
+; Closed family that will replace `class EvalValue` once call sites convert.
+; Named EvValue (not EvalValue) so the tagged class can keep serving the
+; engine; nothing imports this file yet except the E1 smoke fixture.
+;
+; Groups:
+;   Primitive       — Null / Undefined / Hole / Number / String / Boolean
+;   Reference       — identity-bearing cases
+;   PropertyCarrier — objects that own a property bag
+;   Callable        — values that can be invoked (required capability)
+
+Import "../../../evg/EVGElement.rgr"
+
+class EvMapEntry {
+    def key:EvValue
+    def value:EvValue
+}
+
+shape EvPropertySlot {
+    case Data {
+        def value:EvValue
+        def attributes:int 0
+    }
+    case Accessor {
+        def getter@(optional):EvValue
+        def setter@(optional):EvValue
+        def attributes:int 0
+    }
+}
+
+class EvPropertyBag {
+    def slots:[string:EvPropertySlot]
+    def prototype@(optional):EvValue
+    def extensible:boolean true
+    def sealed:boolean false
+    def frozen:boolean false
+}
+
+; Function core shared across bindings (PLAN_SHAPES.md §7.3). Identity lives
+; on the Reference group of the Function case, not here.
+class EvFunctionCore {
+    def functionName:string ""
+    def closureId:int (0 - 1)
+    def homeModule:string ""
+    def srcText:string ""
+    def builtinKind:string ""
+    def builtinName:string ""
+    def builtinNamespace:string ""
+    def strictFn:boolean false
+}
+
+class EvFunctionBinding {
+    def boundThis@(optional):EvValue
+    def boundArgs:[EvValue]
+    def boundExplicit:boolean false
+}
+
+shape EvValue {
+    group Primitive @(value)
+
+    group Reference @(reference) {
+        def identityId:int 0
+    }
+
+    group PropertyCarrier does Reference {
+        ; Default-constructed so the field is non-optional (class-typed
+        ; fields without a default are treated as optional, which breaks
+        ; the generated group getter's return type).
+        def properties:EvPropertyBag (new EvPropertyBag())
+    }
+
+    ; Capability: every callable case must name itself for dispatch smoke tests.
+    ; Real invoke (engine call) lands when ComponentEngine converts by kind.
+    group Callable does PropertyCarrier {
+        fn invokeLabel:string ()
+    }
+
+    case Null      does Primitive
+    case Undefined does Primitive
+    case Hole      does Primitive
+    case Number    does Primitive {
+        def value:double 0.0
+    }
+    case String    does Primitive {
+        def value:string ""
+    }
+    case Boolean   does Primitive {
+        def value:boolean false
+    }
+
+    case Array does PropertyCarrier {
+        def items:[EvValue]
+        def declaredLength:int (0 - 1)
+    }
+    case Object does PropertyCarrier
+    case Function does Callable {
+        def core:EvFunctionCore
+        def binding:EvFunctionBinding
+        fn invokeLabel:string () {
+            def c:EvFunctionCore core
+            return c.functionName
+        }
+    }
+    case Map does PropertyCarrier {
+        def entries:[EvMapEntry]
+    }
+    case Set does PropertyCarrier {
+        def items:[EvValue]
+    }
+    case Element does Reference {
+        def element:EVGElement
+    }
+
+    fn toBool:boolean () {
+        match self {
+            Null | Undefined | Hole {
+                return false
+            }
+            Number n {
+                return ((n.value == n.value) && (n.value != 0.0))
+            }
+            String s {
+                return ((strlen s.value) > 0)
+            }
+            Boolean b {
+                return b.value
+            }
+            Reference {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; ---- E2 compatibility factories (PLAN_SHAPES.md §7.5) -----------------
+    ; Same call spelling as class EvalValue.* so call sites can switch one
+    ; kind at a time. Not wired into ComponentEngine yet.
+
+    sfn null:EvValue () {
+        return (new EvValue.Null())
+    }
+    sfn undefined:EvValue () {
+        return (new EvValue.Undefined())
+    }
+    sfn hole:EvValue () {
+        return (new EvValue.Hole())
+    }
+    sfn number:EvValue (n:double) {
+        return (new EvValue.Number(n))
+    }
+    sfn string:EvValue (s:string) {
+        return (new EvValue.String(s))
+    }
+    sfn boolean:EvValue (b:boolean) {
+        return (new EvValue.Boolean(b))
+    }
+
+    fn isNull:boolean () {
+        case self n:EvValue.Null {
+            return true
+        }
+        return false
+    }
+    fn isNumber:boolean () {
+        case self n:EvValue.Number {
+            return true
+        }
+        return false
+    }
+    fn isString:boolean () {
+        case self n:EvValue.String {
+            return true
+        }
+        return false
+    }
+    fn isHole:boolean () {
+        case self n:EvValue.Hole {
+            return true
+        }
+        return false
+    }
+}

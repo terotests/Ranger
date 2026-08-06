@@ -1,0 +1,24 @@
+; A non-member cannot be passed to a group-typed parameter.
+shape Value {
+    group Printable {
+        fn render:string ()
+    }
+    case Num does Printable {
+        def value:double 0.0
+        fn render:string () {
+            return (to_string value)
+        }
+    }
+    case Object
+}
+
+class Main {
+    fn takePrintable:void (v:Value.Printable) {
+        print (Value.Printable.render(v))
+    }
+
+    sfn main:void () {
+        def m:Main (new Main())
+        m.takePrintable((new Value.Object()))
+    }
+}

@@ -1,0 +1,19 @@
+; Replacing a concrete group default requires @(override).
+shape Value {
+    group Printable {
+        fn render:string () {
+            return "?"
+        }
+    }
+    case Num does Printable {
+        def value:double 0.0
+        fn render:string () {
+            return (to_string value)
+        }
+    }
+}
+
+class Main {
+    sfn main:void () {
+    }
+}

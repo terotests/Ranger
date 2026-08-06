@@ -158,22 +158,23 @@ operators {
                         nl i "}"
             )  
             es6 (
-                (forkctx _ ) (def 2) "if( " (e 1) " instanceof " (typeof 2) " ) /* union case */ {" nl I
+                ; S5 FlatTaggedObject: narrow on the stable kind tag. Sealable
+                ; union members declare/set __rg_kind; a dual instanceof OR
+                ; would defeat TypeScript control-flow narrowing.
+                (forkctx _ ) (def 2) "if( " (e 1) " != null && " (e 1) ".__rg_kind === \"" (typeof 2) "\" ) /* union case */ {" nl I
                         "var " (e 2) " = " (e 1) ";" nl
                         (block 3)
                         
                         nl i "}"
             )  
             go (
-                (forkctx _ ) (def 2) "switch " (e 1) ".(type) {" nl I
-                        "case " (typeof 2) ":" nl
-                            I nl
-                            "var " (e 2) " " (typeof 2) " = " (e 1) ".(" (typeof 2) ");" nl
+                ; S5 tagged struct: narrow on the tag, bind the variant pointer.
+                (forkctx _ ) (def 2) "if " (e 1) ".tag == " (typeof 1) "_tag_" (rawtype 2) " { /* union case */" nl I
+                        "var " (e 2) " " (typeof 2) " = " (e 1) "." (rawtype 2) ";" nl
                             ; Go rejects a declared-and-unused local, and an arm
                             ; that only tests the type never reads the binding.
                             "_ = " (e 2) ";" nl
                             (block 3)
-                            i nl
                         nl i "}"
             ) 
             csharp (
@@ -183,17 +184,13 @@ operators {
                         nl i "}"
             ) 
             swift3 (
-                (forkctx _ ) (def 2) "if type(of: " (e 1) ") == " (typeof 2) ".self  {" nl I
-                        "let " (e 2) " = " (e 1) " as! " (typeof 2)";" nl
+                (forkctx _ ) (def 2) "if case let ." (rawtype 2) "(" (e 2) ") = " (e 1) " { /* union case */" nl I
                         (block 3)
-                        
                         nl i "}"
             ) 
             swift6 (
-                (forkctx _ ) (def 2) "if type(of: " (e 1) ") == " (typeof 2) ".self  {" nl I
-                        "let " (e 2) " = " (e 1) " as! " (typeof 2)";" nl
+                (forkctx _ ) (def 2) "if case let ." (rawtype 2) "(" (e 2) ") = " (e 1) " { /* union case */" nl I
                         (block 3)
-                        
                         nl i "}"
             ) 
             java7 (
@@ -210,7 +207,9 @@ operators {
                         nl i "}"
             ) 
             python (
-                (forkctx _ ) (def 2) "if isinstance(" (e 1) ", " (typeof 2) "):" nl I
+                ; S5 FlatTaggedObject: narrow on _rg_kind (single underscore —
+                ; __rg_kind would be Python-mangled on the instance).
+                (forkctx _ ) (def 2) "if " (e 1) " is not None and getattr(" (e 1) ", \"_rg_kind\", None) == \"" (typeof 2) "\":" nl I
                         (e 2) " = " (e 1) nl
                         (block 3)
                         nl i
