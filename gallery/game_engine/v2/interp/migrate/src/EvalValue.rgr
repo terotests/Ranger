@@ -408,11 +408,13 @@ class EvalValue {
         return pool.falseValue
     }
     
+
     sfn array:EvalValue (items:[EvalValue]) {
         def v:EvalValue (new EvalValue())
+        def id:int ((EvalIdentityMinter.__singleton()).mint())
         def _emptyItems:[EvValue]
-        v.body = (EvValue.array(_emptyItems))
-        v.identityId = ((EvalIdentityMinter.__singleton()).mint())
+        v.body = (EvValue.arrayAt(id _emptyItems))
+        v.identityId = id
         v.arrayValue = items
         return v
     }
@@ -420,23 +422,26 @@ class EvalValue {
     ; Empty Map: keys in arrayValue, values in mapVals by index.
     sfn mapEmpty:EvalValue () {
         def v:EvalValue (new EvalValue())
-        v.body = (EvValue.mapEmpty())
-        v.identityId = ((EvalIdentityMinter.__singleton()).mint())
+        def id:int ((EvalIdentityMinter.__singleton()).mint())
+        v.body = (EvValue.mapEmptyAt(id))
+        v.identityId = id
         return v
     }
 
     ; Empty Set: unique elements in arrayValue (insertion order).
     sfn setEmpty:EvalValue () {
         def v:EvalValue (new EvalValue())
-        v.body = (EvValue.setEmpty())
-        v.identityId = ((EvalIdentityMinter.__singleton()).mint())
+        def id:int ((EvalIdentityMinter.__singleton()).mint())
+        v.body = (EvValue.setEmptyAt(id))
+        v.identityId = id
         return v
     }
 
     sfn object:EvalValue (keys:[string] values:[EvalValue]) {
         def v:EvalValue (new EvalValue())
-        v.body = (EvValue.object())
-        v.identityId = ((EvalIdentityMinter.__singleton()).mint())
+        def id:int ((EvalIdentityMinter.__singleton()).mint())
+        v.body = (EvValue.objectAt(id))
+        v.identityId = id
         def i:int 0
         while (i < (array_length keys)) {
             if (i < (array_length values)) {
@@ -449,8 +454,9 @@ class EvalValue {
     
     sfn function:EvalValue (fnNode:TSNode) {
         def v:EvalValue (new EvalValue())
-        v.body = (EvValue.functionStub(""))
-        v.identityId = ((EvalIdentityMinter.__singleton()).mint())
+        def id:int ((EvalIdentityMinter.__singleton()).mint())
+        v.body = (EvValue.functionStubAt(id ""))
+        v.identityId = id
         v.functionNode = fnNode
         v.setFnName(fnNode.name)
         return v
@@ -463,8 +469,9 @@ class EvalValue {
     ; engine handles the construction itself.
     sfn nativeFunction:EvalValue (name:string) {
         def v:EvalValue (new EvalValue())
-        v.body = (EvValue.functionStub(""))
-        v.identityId = ((EvalIdentityMinter.__singleton()).mint())
+        def id:int ((EvalIdentityMinter.__singleton()).mint())
+        v.body = (EvValue.functionStubAt(id ""))
+        v.identityId = id
         v.setFnName(name)
         return v
     }
@@ -475,8 +482,9 @@ class EvalValue {
     ; exactly the case .call/.apply exist to supply.
     sfn nativeMethod:EvalValue (kind:string name:string) {
         def v:EvalValue (new EvalValue())
-        v.body = (EvValue.functionStub(""))
-        v.identityId = ((EvalIdentityMinter.__singleton()).mint())
+        def id:int ((EvalIdentityMinter.__singleton()).mint())
+        v.body = (EvValue.functionStubAt(id ""))
+        v.identityId = id
         def core:EvalPayload.FnCore (v.fnCore())
         core.functionName = name
         core.builtinKind = kind
@@ -489,8 +497,9 @@ class EvalValue {
     ; the namespace rather than a receiver kind -- a static has no receiver.
     sfn nativeStatic:EvalValue (ns:string name:string) {
         def v:EvalValue (new EvalValue())
-        v.body = (EvValue.functionStub(""))
-        v.identityId = ((EvalIdentityMinter.__singleton()).mint())
+        def id:int ((EvalIdentityMinter.__singleton()).mint())
+        v.body = (EvValue.functionStubAt(id ""))
+        v.identityId = id
         def core:EvalPayload.FnCore (v.fnCore())
         core.functionName = name
         core.builtinNamespace = ns
@@ -516,8 +525,9 @@ class EvalValue {
     ; receiver `this` it is bound to. Invoked like any function value.
     sfn boundMethod:EvalValue (fnNode:TSNode thisVal:EvalValue) {
         def v:EvalValue (new EvalValue())
-        v.body = (EvValue.functionStub(""))
-        v.identityId = ((EvalIdentityMinter.__singleton()).mint())
+        def id:int ((EvalIdentityMinter.__singleton()).mint())
+        v.body = (EvValue.functionStubAt(id ""))
+        v.identityId = id
         v.functionNode = fnNode
         v.setFnName(fnNode.name)
         v.boundThis = thisVal
@@ -531,7 +541,7 @@ class EvalValue {
     ; wrong module scope.
     fn withThis:EvalValue (recv:EvalValue) {
         def v:EvalValue (new EvalValue())
-        v.body = (EvValue.functionStub((this.fnName())))
+        v.body = (EvValue.functionStubAt(identityId (this.fnName())))
         v.identityId = identityId
         ; The payload is COPIED, not shared. Sharing it looks right — a rebinding
         ; does not change what the function IS — but `bind` writes boundArgs and
@@ -565,8 +575,9 @@ class EvalValue {
 
     sfn element:EvalValue (el:EVGElement) {
         def v:EvalValue (new EvalValue())
-        v.body = (EvValue.element(el))
-        v.identityId = ((EvalIdentityMinter.__singleton()).mint())
+        def id:int ((EvalIdentityMinter.__singleton()).mint())
+        v.body = (EvValue.elementAt(id el))
+        v.identityId = id
         v.setElement(el)
         return v
     }
@@ -1330,7 +1341,7 @@ class EvalValue {
     ; so existing references see the mutation — used by pop/shift/reverse/sort/…).
     fn arrSetItems:void (items:[EvalValue]) {
         def _emptyItems2:[EvValue]
-        body = (EvValue.array(_emptyItems2))
+        body = (EvValue.arrayAt(identityId _emptyItems2))
         arrayValue = items
     }
 

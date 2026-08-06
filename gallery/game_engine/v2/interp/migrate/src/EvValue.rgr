@@ -162,34 +162,52 @@ shape EvValue {
     ; Case ctors take Reference.identityId then PropertyCarrier.properties
     ; (when applicable) before the case's own fields — see E1 fixture.
     sfn element:EvValue (el:EVGElement) {
-        return (new EvValue.Element(0 el))
+        return (EvValue.elementAt(0 el))
+    }
+    sfn elementAt:EvValue (id:int el:EVGElement) {
+        return (new EvValue.Element(id el))
     }
     sfn array:EvValue (items:[EvValue]) {
+        return (EvValue.arrayAt(0 items))
+    }
+    sfn arrayAt:EvValue (id:int items:[EvValue]) {
         def props:EvPropertyBag (new EvPropertyBag())
-        return (new EvValue.Array(0 props items (array_length items)))
+        return (new EvValue.Array(id props items (array_length items)))
     }
     sfn object:EvValue () {
+        return (EvValue.objectAt(0))
+    }
+    sfn objectAt:EvValue (id:int) {
         def props:EvPropertyBag (new EvPropertyBag())
-        return (new EvValue.Object(0 props))
+        return (new EvValue.Object(id props))
     }
     sfn mapEmpty:EvValue () {
+        return (EvValue.mapEmptyAt(0))
+    }
+    sfn mapEmptyAt:EvValue (id:int) {
         def props:EvPropertyBag (new EvPropertyBag())
         ; Bind the empty literal — Rust case ctors drop a bare `([] _:T ())`
         ; argument (ISSUES / empty typed array as ctor arg).
         def entries:[EvMapEntry]
-        return (new EvValue.Map(0 props entries))
+        return (new EvValue.Map(id props entries))
     }
     sfn setEmpty:EvValue () {
+        return (EvValue.setEmptyAt(0))
+    }
+    sfn setEmptyAt:EvValue (id:int) {
         def props:EvPropertyBag (new EvPropertyBag())
         def items:[EvValue]
-        return (new EvValue.Set(0 props items))
+        return (new EvValue.Set(id props items))
     }
     sfn functionStub:EvValue (name:string) {
+        return (EvValue.functionStubAt(0 name))
+    }
+    sfn functionStubAt:EvValue (id:int name:string) {
         def props:EvPropertyBag (new EvPropertyBag())
         def c:EvFunctionCore (new EvFunctionCore())
         c.functionName = name
         def b:EvFunctionBinding (new EvFunctionBinding())
-        return (new EvValue.Function(0 props c b))
+        return (new EvValue.Function(id props c b))
     }
 
     fn isNull:boolean () {
