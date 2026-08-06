@@ -4,7 +4,9 @@
 
 | File | Role |
 |------|------|
-| `EvalValue.rgr` | Script values / NativeRef / identity |
+| `EvalValue.rgr` | Script values / NativeRef / identity (tagged class, live) |
+| `EvValue.rgr` | E1/E2 target `shape EvValue` (beside the class; not wired yet) |
+| `EvValueBridge.rgr` | E2 tagged → shape conversion for primitives / Hole |
 | `ComponentEngine.rgr` | Evaluator |
 | `JSXToEVG.rgr` | JSX → EVG (UI / EVG path) |
 

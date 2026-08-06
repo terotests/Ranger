@@ -3,6 +3,10 @@
 ; =============================================================================
 ; Represents values that can be evaluated: numbers, strings, booleans, 
 ; null, arrays, objects, functions, and EVG elements.
+;
+; Migration (PLAN_SHAPES.md §7.5): the target closed family lives beside this
+; class in `EvValue.rgr` (E1). Call sites still use this tagged class until the
+; compatibility layer and per-kind conversion land.
 
 Import "../../../evg/EVGElement.rgr"
 Import "../../../../../ts_parser/ts_parser_simple.rgr"

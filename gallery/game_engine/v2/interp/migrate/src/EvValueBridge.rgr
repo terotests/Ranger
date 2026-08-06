@@ -1,0 +1,36 @@
+; =============================================================================
+; EvValueBridge — E2 tagged-class → shape conversion (PLAN_SHAPES.md §7.5)
+; =============================================================================
+; One-way bridge from the live `class EvalValue` into the E1 `shape EvValue`.
+; Used by smoke tests and the coming per-kind migration; ComponentEngine still
+; talks only to the tagged class.
+
+Import "EvalValue.rgr"
+Import "EvValue.rgr"
+
+class EvValueBridge {
+    ; Map a tagged value to the closed family. Primitives and Hole first
+    ; (migration order §7.5); reference kinds return Undefined until those
+    ; conversions land.
+    sfn fromTagged:EvValue (v:EvalValue) {
+        if v.isHole {
+            return (EvValue.hole())
+        }
+        if (v.valueType == 0) {
+            return (EvValue.null())
+        }
+        if (v.valueType == 8) {
+            return (EvValue.undefined())
+        }
+        if (v.valueType == 1) {
+            return (EvValue.number(v.numberValue))
+        }
+        if (v.valueType == 2) {
+            return (EvValue.string(v.stringValue))
+        }
+        if (v.valueType == 3) {
+            return (EvValue.boolean(v.boolValue))
+        }
+        return (EvValue.undefined())
+    }
+}

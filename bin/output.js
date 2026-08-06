@@ -13399,22 +13399,31 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           src = src + "      }\n";
         };
         src = src + "    }\n";
+        let hadFallback = false;
         if ( tName == "string" ) {
           src = src + "    return \"\"\n";
+          hadFallback = true;
         } else {
           if ( tName == "boolean" ) {
             src = src + "    return false\n";
+            hadFallback = true;
           } else {
             if ( tName == "double" ) {
               src = src + "    return 0.0\n";
+              hadFallback = true;
             } else {
               if ( ((aType.length) == 0) && ((kType.length) == 0) ) {
                 if ( (tName == "int") || (tName == "char") ) {
                   src = src + "    return 0\n";
+                  hadFallback = true;
                 }
               }
             }
           }
+        }
+        if ( hadFallback == false ) {
+          src = src + (("    def __gf_unreach@(optional):" + typeSp) + "\n");
+          src = src + "    return (unwrap __gf_unreach)\n";
         }
         src = src + "  }\n";
         if ( allowSet ) {

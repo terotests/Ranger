@@ -4675,22 +4675,34 @@ class RangerFlowParser {
         src = src + "      }\n"
       }
       src = src + "    }\n"
+      ; Trailing return for the returns checker (match arms already cover every
+      ; member). Scalars get a typed zero; class / array / map fields use an
+      ; optional unwrap — unreachable at runtime.
+      def hadFallback:boolean false
       if (tName == "string") {
         src = src + "    return \"\"\n"
+        hadFallback = true
       } {
         if (tName == "boolean") {
           src = src + "    return false\n"
+          hadFallback = true
         } {
           if (tName == "double") {
             src = src + "    return 0.0\n"
+            hadFallback = true
           } {
             if (((strlen aType) == 0) && ((strlen kType) == 0)) {
               if ((tName == "int") || (tName == "char")) {
                 src = src + "    return 0\n"
+                hadFallback = true
               }
             }
           }
         }
+      }
+      if (hadFallback == false) {
+        src = src + ((("    def __gf_unreach@(optional):" + typeSp) + "\n"))
+        src = src + "    return (unwrap __gf_unreach)\n"
       }
       src = src + "  }\n"
       if allowSet {

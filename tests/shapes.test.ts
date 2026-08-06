@@ -627,6 +627,37 @@ describe("shapes (closed variant families)", () => {
   });
 
   /**
+   * E1 (PLAN_SHAPES.md §7.5): target EvValue shape beside class EvalValue.
+   * Callable group + toBool + identity field; nothing in the engine imports
+   * it yet.
+   */
+  describe("EvValue E1 target shape", () => {
+    const E1 = `${FIXTURES_DIR}/shape_evalvalue_e1.rgr`;
+    const EXPECTED_E1 = ["greet", "zero", "two", "1"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E1, EXPECTED_E1);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E1, EXPECTED_E1);
+    });
+  });
+
+  describe("EvValue E2 compatibility bridge", () => {
+    const E2 = `${FIXTURES_DIR}/shape_evalvalue_e2.rgr`;
+    const EXPECTED_E2 = ["num", "truthy", "zero", "hole"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E2, EXPECTED_E2);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E2, EXPECTED_E2);
+    });
+  });
+
+  /**
    * Group field projection (PLAN_SHAPES.md §7 / C5). Fields declared on a
    * group are read and written through the group type via generated get_/set_
    * ops — no narrowing required, identity preserved for reference groups.
@@ -663,6 +694,10 @@ describe("shapes (closed variant families)", () => {
         `${FIXTURES_DIR}/shape_group_field_on_shape.rgr`,
         "variable not found identityId"
       );
+    });
+
+    it("projects a class-typed group field", () => {
+      expectOutput(`${FIXTURES_DIR}/shape_group_class_field.rgr`, "ok");
     });
   });
 

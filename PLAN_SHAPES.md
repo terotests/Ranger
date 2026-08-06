@@ -1191,17 +1191,21 @@ that no `record` with a class-typed field could avoid are fixed
 
 ### 7.5 Migration order
 
-1. **S1–S2 land.** Define the shape beside the existing class; nothing calls it yet.
-2. **Compatibility layer.** Keep every current entry point as a thin wrapper —
-   `EvalValue.number(12.0)` → `EvalValue.Number(12.0)`, `v.isNumber()` →
-   `v is EvalValue.Number`. The 288 `valueType` sites in `ComponentEngine.rgr` keep
-   compiling.
+1. **✅ E1 — shape beside the class.** `gallery/game_engine/v2/interp/migrate/src/EvValue.rgr`
+   defines the target family (`Primitive` / `Reference` / `PropertyCarrier` /
+   `Callable` + cases from §3.1). Named `EvValue` so `class EvalValue` keeps
+   serving the engine. Smoke fixture: `tests/fixtures/shape_evalvalue_e1.rgr`.
+2. **✅ E2 — compatibility surface (primitives).** `EvValue.number` / `.null` /
+   `.hole` / `.isNumber` / … mirror the tagged-class entry points;
+   `EvValueBridge.fromTagged` converts primitives and Hole from `class EvalValue`.
+   `ComponentEngine.rgr` still uses the tagged class. Fixture:
+   `tests/fixtures/shape_evalvalue_e2.rgr`.
 3. **Convert by kind, not by call site.** `Hole` first (it is a correctness fix, not
    just a cleanup), then the primitives, then `Element`, then the property carriers.
    Each conversion is one `match` replacing one `valueType` chain, and the benchmark
    suite (`gallery/game_engine/v2/interp/bench/`, `npm run test:tsengine`) gates each
    step.
-4. **Delete the wrappers** and the `valueType` constants.
+4. **Delete the wrappers** and the `valueType` constants; rename `EvValue` → `EvalValue`.
 5. **Re-measure.** `sizeof(EvalValue)` on C++, the eight benchmark cases on Node, C++,
    Rust, Go, Kotlin, Python and C#, and the small-integer pool's remaining value —
    with primitives no longer heap-allocated, the pool may stop earning its keep on the

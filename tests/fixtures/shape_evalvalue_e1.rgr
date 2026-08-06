@@ -1,0 +1,37 @@
+; E1 smoke test (PLAN_SHAPES.md §7.5): the EvValue target shape compiles,
+; group-typed Callable accepts Function without wrapping, required invokeLabel
+; dispatches, and toBool matches exhaustively over the family.
+Import "../../gallery/game_engine/v2/interp/migrate/src/EvValue.rgr"
+
+class Main {
+    fn callLabel:string (c:EvValue.Callable) {
+        return (EvValue.Callable.invokeLabel(c))
+    }
+
+    fn asBool:boolean (v:EvValue) {
+        return (EvValue.toBool(v))
+    }
+
+    sfn main:void () {
+        def m:Main (new Main())
+        def props:EvPropertyBag (new EvPropertyBag())
+        def core:EvFunctionCore (new EvFunctionCore())
+        core.functionName = "greet"
+        def binding:EvFunctionBinding (new EvFunctionBinding())
+        def f:EvValue.Function (new EvValue.Function(1 props core binding))
+        print (m.callLabel(f))
+        def n:EvValue.Number (new EvValue.Number(0.0))
+        if (m.asBool(n)) {
+            print "WRONG: zero is truthy"
+        } {
+            print "zero"
+        }
+        def t:EvValue.Number (new EvValue.Number(2.0))
+        if (m.asBool(t)) {
+            print "two"
+        } {
+            print "WRONG: two is falsy"
+        }
+        print (to_string f.identityId)
+    }
+}

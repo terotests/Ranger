@@ -1,0 +1,29 @@
+; Class-typed group fields project through get_/set_ (C5). The trailing
+; return of the generated getter must be typed for non-scalars too.
+class Bag {
+    def label:string ""
+}
+
+shape Value {
+    group Carrier {
+        def bag:Bag (new Bag())
+    }
+    case Item does Carrier {
+        def n:int 0
+    }
+}
+
+class Main {
+    fn readLabel:string (c:Value.Carrier) {
+        def b:Bag c.bag
+        return b.label
+    }
+
+    sfn main:void () {
+        def m:Main (new Main())
+        def b:Bag (new Bag())
+        b.label = "ok"
+        def it:Value.Item (new Value.Item(b 1))
+        print (m.readLabel(it))
+    }
+}
