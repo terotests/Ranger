@@ -4,9 +4,10 @@
 ; Represents values that can be evaluated: numbers, strings, booleans, 
 ; null, arrays, objects, functions, and EVG elements.
 ;
-; Migration (PLAN_SHAPES.md §7.5 step 4): kind lives in `body:EvValue` (the
-; closed family). Collection payloads still sit on this class until the
-; property/array storage cutover; `valueType` is gone.
+; Migration (PLAN_SHAPES.md §7.5 step 4 / E4c): kind lives in `body:EvValue`.
+; Array dense items + declaredLength are SoT on `body` (Array case). Object /
+; Map / Set payloads still sit on this class until their cutovers. `valueType`
+; is gone. Shape storage holds `EvValue`; `EvValueHandles` round-trips refs.
 
 Import "../../../evg/EVGElement.rgr"
 Import "../../../../../ts_parser/ts_parser_simple.rgr"
@@ -409,13 +410,175 @@ class EvalValue {
     }
     
 
+    ; E4c: shape ↔ class. Primitives rebuild from scalar fields; refs return the
+    ; live `body` and register with EvValueHandles so Array.items can store
+    ; EvValue and still round-trip to the same class handle (===).
+    fn toStored:EvValue () {
+        def _k:EvValue body
+        if (EvValue.isHole(_k)) {
+            return (EvValue.hole())
+        }
+        if (EvValue.isNull(_k)) {
+            return (EvValue.null())
+        }
+        if (EvValue.isUndefined(_k)) {
+            return (EvValue.undefined())
+        }
+        if (EvValue.isNumber(_k)) {
+            return (EvValue.number(numberValue))
+        }
+        if (EvValue.isString(_k)) {
+            return (EvValue.string(stringValue))
+        }
+        if (EvValue.isBoolean(_k)) {
+            return (EvValue.boolean(boolValue))
+        }
+        ; Refs: return the live body. Factories / fromBody register the class
+        ; handle in EvValueHandles (do not pass `this` here — Rust codegen
+        ; double-wraps Rc when `this` is an argument).
+        return _k
+    }
+
+    sfn fromBody:EvalValue (ev:EvValue) {
+        case ev h:EvValue.Hole {
+            return (EvalValue.hole())
+        }
+        case ev n:EvValue.Null {
+            return (EvalValue.null())
+        }
+        case ev u:EvValue.Undefined {
+            return (EvalValue.undefined())
+        }
+        case ev num:EvValue.Number {
+            return (EvalValue.number(num.value))
+        }
+        case ev s:EvValue.String {
+            return (EvalValue.string(s.value))
+        }
+        case ev b:EvValue.Boolean {
+            return (EvalValue.boolean(b.value))
+        }
+        case ev el:EvValue.Element {
+            def id:int el.identityId
+            if (id > 0) {
+                def handles:EvValueHandles (EvValueHandles.__singleton())
+                def hit@(optional):EvalValue (handles.lookup(id))
+                if hit {
+                    return (unwrap hit)
+                }
+                def v:EvalValue (new EvalValue())
+                v.body = ev
+                v.identityId = id
+                v.setElement((unwrap el.element))
+                handles.remember(v)
+                return v
+            }
+            return (EvalValue.element((unwrap el.element)))
+        }
+        case ev a:EvValue.Array {
+            def id:int a.identityId
+            if (id > 0) {
+                def handles2:EvValueHandles (EvValueHandles.__singleton())
+                def hit2@(optional):EvalValue (handles2.lookup(id))
+                if hit2 {
+                    return (unwrap hit2)
+                }
+                def v2:EvalValue (new EvalValue())
+                v2.body = ev
+                v2.identityId = id
+                handles2.remember(v2)
+                return v2
+            }
+            def items:[EvalValue]
+            for a.items it:EvValue i {
+                push items (EvalValue.fromBody(it))
+            }
+            return (EvalValue.array(items))
+        }
+        case ev o:EvValue.Object {
+            def id3:int o.identityId
+            if (id3 > 0) {
+                def handles3:EvValueHandles (EvValueHandles.__singleton())
+                def hit3@(optional):EvalValue (handles3.lookup(id3))
+                if hit3 {
+                    return (unwrap hit3)
+                }
+                def v3:EvalValue (new EvalValue())
+                v3.body = ev
+                v3.identityId = id3
+                handles3.remember(v3)
+                return v3
+            }
+            return (EvalValue.object(([] _:string ()) ([] _:EvalValue ())))
+        }
+        case ev f:EvValue.Function {
+            def id4:int f.identityId
+            def c:EvFunctionCore (unwrap f.core)
+            if (id4 > 0) {
+                def handles4:EvValueHandles (EvValueHandles.__singleton())
+                def hit4@(optional):EvalValue (handles4.lookup(id4))
+                if hit4 {
+                    return (unwrap hit4)
+                }
+                def v4:EvalValue (new EvalValue())
+                v4.body = ev
+                v4.identityId = id4
+                v4.setFnName(c.functionName)
+                handles4.remember(v4)
+                return v4
+            }
+            return (EvalValue.nativeFunction(c.functionName))
+        }
+        case ev m:EvValue.Map {
+            def id5:int m.identityId
+            if (id5 > 0) {
+                def handles5:EvValueHandles (EvValueHandles.__singleton())
+                def hit5@(optional):EvalValue (handles5.lookup(id5))
+                if hit5 {
+                    return (unwrap hit5)
+                }
+                def v5:EvalValue (new EvalValue())
+                v5.body = ev
+                v5.identityId = id5
+                handles5.remember(v5)
+                return v5
+            }
+            return (EvalValue.mapEmpty())
+        }
+        case ev st:EvValue.Set {
+            def id6:int st.identityId
+            if (id6 > 0) {
+                def handles6:EvValueHandles (EvValueHandles.__singleton())
+                def hit6@(optional):EvalValue (handles6.lookup(id6))
+                if hit6 {
+                    return (unwrap hit6)
+                }
+                def v6:EvalValue (new EvalValue())
+                v6.body = ev
+                v6.identityId = id6
+                handles6.remember(v6)
+                return v6
+            }
+            return (EvalValue.setEmpty())
+        }
+        return (EvalValue.undefined())
+    }
+
     sfn array:EvalValue (items:[EvalValue]) {
         def v:EvalValue (new EvalValue())
         def id:int ((EvalIdentityMinter.__singleton()).mint())
-        def _emptyItems:[EvValue]
-        v.body = (EvValue.arrayAt(id _emptyItems))
+        ; E4c: dense store on body.Array.items (EvValue[]).
+        def stored:[EvValue]
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:EvalValue (itemAt items i)
+            push stored (it.toStored())
+            i = (i + 1)
+        }
+        v.body = (EvValue.arrayAt(id stored))
         v.identityId = id
-        v.arrayValue = items
+        def handles:EvValueHandles (EvValueHandles.__singleton())
+        handles.remember(v)
         return v
     }
 
@@ -425,6 +588,8 @@ class EvalValue {
         def id:int ((EvalIdentityMinter.__singleton()).mint())
         v.body = (EvValue.mapEmptyAt(id))
         v.identityId = id
+        def handles:EvValueHandles (EvValueHandles.__singleton())
+        handles.remember(v)
         return v
     }
 
@@ -434,6 +599,8 @@ class EvalValue {
         def id:int ((EvalIdentityMinter.__singleton()).mint())
         v.body = (EvValue.setEmptyAt(id))
         v.identityId = id
+        def handles:EvValueHandles (EvValueHandles.__singleton())
+        handles.remember(v)
         return v
     }
 
@@ -445,10 +612,12 @@ class EvalValue {
         def i:int 0
         while (i < (array_length keys)) {
             if (i < (array_length values)) {
-                set v.objectMap (itemAt keys i) (itemAt values i)
+                v.putOwnData((itemAt keys i) (itemAt values i))
             }
             i = (i + 1)
         }
+        def handles:EvValueHandles (EvValueHandles.__singleton())
+        handles.remember(v)
         return v
     }
     
@@ -459,6 +628,8 @@ class EvalValue {
         v.identityId = id
         v.functionNode = fnNode
         v.setFnName(fnNode.name)
+        def handles:EvValueHandles (EvValueHandles.__singleton())
+        handles.remember(v)
         return v
     }
 
@@ -473,6 +644,8 @@ class EvalValue {
         v.body = (EvValue.functionStubAt(id ""))
         v.identityId = id
         v.setFnName(name)
+        def handles:EvValueHandles (EvValueHandles.__singleton())
+        handles.remember(v)
         return v
     }
 
@@ -489,6 +662,8 @@ class EvalValue {
         core.functionName = name
         core.builtinKind = kind
         core.builtinName = name
+        def handles:EvValueHandles (EvValueHandles.__singleton())
+        handles.remember(v)
         return v
     }
 
@@ -504,6 +679,8 @@ class EvalValue {
         core.functionName = name
         core.builtinNamespace = ns
         core.builtinName = name
+        def handles:EvValueHandles (EvValueHandles.__singleton())
+        handles.remember(v)
         return v
     }
 
@@ -531,6 +708,8 @@ class EvalValue {
         v.functionNode = fnNode
         v.setFnName(fnNode.name)
         v.boundThis = thisVal
+        def handles:EvValueHandles (EvValueHandles.__singleton())
+        handles.remember(v)
         return v
     }
 
@@ -562,7 +741,11 @@ class EvalValue {
             dst.suppressedKeys = src.suppressedKeys
             dst.boundArgs = src.boundArgs
         }
-        v.objectMap = objectMap
+        ; Copy own data properties onto the new function's PropertyBag.
+        def ks:[string] (this.ownDataKeys())
+        for ks kk:string idx {
+            v.putOwnData(kk (this.getOwnData(kk)))
+        }
         v.boundThis = recv
         if functionNode {
             v.functionNode = (unwrap functionNode)
@@ -570,6 +753,8 @@ class EvalValue {
         if protoRef {
             v.protoRef = (unwrap protoRef)
         }
+        def handles:EvValueHandles (EvValueHandles.__singleton())
+        handles.remember(v)
         return v
     }
 
@@ -579,6 +764,8 @@ class EvalValue {
         v.body = (EvValue.elementAt(id el))
         v.identityId = id
         v.setElement(el)
+        def handles:EvValueHandles (EvValueHandles.__singleton())
+        handles.remember(v)
         return v
     }
 
@@ -732,11 +919,12 @@ class EvalValue {
         if (this.isArray()) {
             def result:string "["
             def i:int 0
-            while (i < (array_length arrayValue)) {
+            def n:int (this.denseLen())
+            while (i < n) {
                 if (i > 0) {
                     result = result + ", "
                 }
-                def item:EvalValue (itemAt arrayValue i)
+                def item:EvalValue (this.arrayItemAt(i))
                 def itemStr:string (item.toString())
                 result = result + itemStr
                 i = i + 1
@@ -745,13 +933,13 @@ class EvalValue {
         }
         if (this.isObject()) {
             def result:string "{"
-            def keyList:[string] (keys objectMap)
+            def keyList:[string] (this.ownDataKeys())
             def i:int 0
             for keyList kk:string idx {
                 if (i > 0) {
                     result = result + ", "
                 }
-                def val:EvalValue (unwrap (get objectMap kk))
+                def val:EvalValue (this.getOwnData(kk))
                 def valStr:string (val.toString())
                 result = result + kk + ": " + valStr
                 i = i + 1
@@ -845,7 +1033,7 @@ class EvalValue {
     ; freeze/seal act on every EXISTING property; later additions are blocked by
     ; extensibleFlag instead, which is why both are tracked.
     fn markAllNonConfigurable:void (alsoNonWritable:boolean) {
-        def ks:[string] (keys objectMap)
+        def ks:[string] (this.ownDataKeys())
         def i:int 0
         while (i < (array_length ks)) {
             def k:string (itemAt ks i)
@@ -908,14 +1096,7 @@ class EvalValue {
     }
 
     fn clearDataSlot:void (key:string) {
-        def rebuilt:[string:EvalValue]
-        def ks:[string] (keys objectMap)
-        for ks kk:string idx {
-            if (kk != key) {
-                set rebuilt kk (unwrap (get objectMap kk))
-            }
-        }
-        objectMap = rebuilt
+        this.removeOwnData(key)
     }
 
     fn findGetter:EvalValue (key:string depth:int) {
@@ -942,7 +1123,7 @@ class EvalValue {
         }
         if protoRef {
             def pr:EvalValue (unwrap protoRef)
-            if (has pr.objectMap key) {
+            if (pr.hasOwnData(key)) {
                 return false
             }
             return (pr.hasSetterFor(key))
@@ -1012,8 +1193,8 @@ class EvalValue {
         if (false == (this.isObject())) {
             return (this.getMember(key))
         }
-        if (has objectMap key) {
-            return (unwrap (get objectMap key))
+        if (this.hasOwnData(key)) {
+            return (this.getOwnData(key))
         }
         if protoRef {
             def pr:EvalValue (unwrap protoRef)
@@ -1050,8 +1231,8 @@ class EvalValue {
     ; Object member access
     fn getMember:EvalValue (key:string) {
         if (this.isObject()) {
-            if (has objectMap key) {
-                return (unwrap (get objectMap key))
+            if (this.hasOwnData(key)) {
+                return (this.getOwnData(key))
             }
             ; D-PROTO: an own-property miss walks the prototype chain, so a
             ; method defined as `F.prototype.m = ...` is reachable through an
@@ -1066,14 +1247,14 @@ class EvalValue {
             return (EvalValue.undefined())
         }
         ; D-FNPROPS: functions are objects. `f.x = 1` stores into the same
-        ; objectMap an object uses, so `f.x` reads it back and a property that
+        ; PropertyBag an object uses, so `f.x` reads it back and a property that
         ; holds a function (`assert.sameValue = function ...`) is callable. A
         ; missing own property reads as undefined, exactly as for an object;
         ; built-in fallbacks (`name`, `length`, `call`) are resolved by the
         ; engine before it reaches here.
         if (this.isFunction()) {
-            if (has objectMap key) {
-                return (unwrap (get objectMap key))
+            if (this.hasOwnData(key)) {
+                return (this.getOwnData(key))
             }
             ; D-FNPROPS: a synthesised property that was DELETED stays deleted,
             ; rather than being minted again on the next read.
@@ -1095,7 +1276,7 @@ class EvalValue {
                 def keys0:[string]
                 def vals0:[EvalValue]
                 def p:EvalValue (EvalValue.object(keys0 vals0))
-                set objectMap "prototype" p
+                this.putOwnData("prototype" p)
                 return p
             }
             if (key == "name") {
@@ -1121,9 +1302,9 @@ class EvalValue {
                 return (EvalValue.fromInt((this.arrayLength())))
             }
             ; A non-index property set on an array (`a.foo = 1`) lives in the
-            ; same map.
-            if (has objectMap key) {
-                return (unwrap (get objectMap key))
+            ; PropertyBag.
+            if (this.hasOwnData(key)) {
+                return (this.getOwnData(key))
             }
             ; An index reached BY NAME. `a[0]` goes through getIndex, but
             ; `a["0"]` and a prototype-chain read of "0" arrive here, and they
@@ -1131,8 +1312,8 @@ class EvalValue {
             def ai@(optional):int (to_int key)
             if ai {
                 def aidx:int (unwrap ai)
-                if ((aidx >= 0) && (aidx < (array_length arrayValue))) {
-                    def nslot:EvalValue (itemAt arrayValue aidx)
+                if ((aidx >= 0) && (aidx < (this.denseLen()))) {
+                    def nslot:EvalValue (this.arrayItemAt(aidx))
                     if (nslot.isHole()) {
                         return (EvalValue.undefined())
                     }
@@ -1142,8 +1323,8 @@ class EvalValue {
         }
         ; Map/Set carry ordinary properties too (`size` is handled by the engine).
         if ((this.isMap()) || (this.isSet())) {
-            if (has objectMap key) {
-                return (unwrap (get objectMap key))
+            if (this.hasOwnData(key)) {
+                return (this.getOwnData(key))
             }
         }
         ; String length property
@@ -1155,16 +1336,58 @@ class EvalValue {
         return (EvalValue.null())
     }
 
-    ; ---- E4b: property-bag accessors (class remains SoT until EvPropertyBag) --
+    ; ---- E4b/E4c: property-bag accessors (data SoT on body.properties) ------
+    ; PropertyCarrier cases own an EvPropertyBag; class objectMap is unused for
+    ; data after E4c. Getters/setters/attrs remain on the class for now.
+    fn tryProps@(optional):EvPropertyBag () {
+        def _k:EvValue body
+        case _k o:EvValue.Object {
+            def p:EvPropertyBag o.properties
+            def some@(optional):EvPropertyBag p
+            return some
+        }
+        case _k a:EvValue.Array {
+            def p2:EvPropertyBag a.properties
+            def some2@(optional):EvPropertyBag p2
+            return some2
+        }
+        case _k f:EvValue.Function {
+            def p3:EvPropertyBag f.properties
+            def some3@(optional):EvPropertyBag p3
+            return some3
+        }
+        case _k m:EvValue.Map {
+            def p4:EvPropertyBag m.properties
+            def some4@(optional):EvPropertyBag p4
+            return some4
+        }
+        case _k st:EvValue.Set {
+            def p5:EvPropertyBag st.properties
+            def some5@(optional):EvPropertyBag p5
+            return some5
+        }
+        def missing@(optional):EvPropertyBag
+        return missing
+    }
     fn hasOwnData:boolean (key:string) {
-        return (has objectMap key)
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (props.hasData(key))
+        }
+        return false
     }
     fn getOwnData:EvalValue (key:string) {
-        return (unwrap (get objectMap key))
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (EvalValue.fromBody((props.getData(key))))
+        }
+        return (EvalValue.undefined())
     }
     fn tryOwnData@(optional):EvalValue (key:string) {
-        if (has objectMap key) {
-            def hit:EvalValue (unwrap (get objectMap key))
+        if (this.hasOwnData(key)) {
+            def hit:EvalValue (this.getOwnData(key))
             def some@(optional):EvalValue hit
             return some
         }
@@ -1172,10 +1395,31 @@ class EvalValue {
         return missing
     }
     fn putOwnData:void (key:string value:EvalValue) {
-        set objectMap key value
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            def attrs:int 0
+            if (has attrFlags key) {
+                attrs = (unwrap (get attrFlags key))
+            }
+            props.putData(key (value.toStored()) attrs)
+        }
+    }
+    fn removeOwnData:void (key:string) {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            props.removeData(key)
+        }
     }
     fn ownDataKeys:[string] () {
-        return (keys objectMap)
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (props.dataKeys())
+        }
+        def none:[string]
+        return none
     }
     fn hasOwnGetter:boolean (key:string) {
         return (has getterMap key)
@@ -1280,7 +1524,7 @@ class EvalValue {
             if frozenFlag {
                 return
             }
-            if (has objectMap key) {
+            if (this.hasOwnData(key)) {
                 if (false == (this.isWritable(key))) {
                     return
                 }
@@ -1296,7 +1540,7 @@ class EvalValue {
                     return
                 }
             }
-            set objectMap key value
+            this.putOwnData(key value)
             return
         }
         if (EvValue.isFunction(_k)) {
@@ -1307,7 +1551,7 @@ class EvalValue {
             if frozenFlag {
                 return
             }
-            if (has objectMap key) {
+            if (this.hasOwnData(key)) {
                 if (false == (this.isWritable(key))) {
                     return
                 }
@@ -1321,15 +1565,15 @@ class EvalValue {
                 ; an ordinary write. That seeding is a [[DefineOwnProperty]]
                 ; in the spec, which does not consult the chain.
             }
-            set objectMap key value
+            this.putOwnData(key value)
             return
         }
         if (EvValue.isArrayValue(_k)) {
-            set objectMap key value
+            this.putOwnData(key value)
             return
         }
         if ((EvValue.isMap(_k)) || (EvValue.isSet(_k))) {
-            set objectMap key value
+            this.putOwnData(key value)
             return
         }
     }
@@ -1351,7 +1595,7 @@ class EvalValue {
         if (has p.setterMap key) {
             return false
         }
-        if (has p.objectMap key) {
+        if (p.hasOwnData(key)) {
             return (false == (p.isWritable(key)))
         }
         return (p.protoRefuses(key (depth + 1)))
@@ -1360,7 +1604,7 @@ class EvalValue {
     fn removeMember:void (key:string) {
         ; D-ATTRS: a non-configurable property cannot be deleted, which is what
         ; seal and freeze rely on.
-        if (has objectMap key) {
+        if (this.hasOwnData(key)) {
             if (false == (this.isConfigurable(key))) {
                 return
             }
@@ -1372,15 +1616,8 @@ class EvalValue {
         if (EvValue.isBoolean(_k)) { return }
         if (EvValue.isNull(_k)) { return }
         if (EvValue.isUndefined(_k)) { return }
-        if (has objectMap key) {
-            def rebuilt:[string:EvalValue]
-            def ks:[string] (keys objectMap)
-            for ks kk:string idx {
-                if (kk != key) {
-                    set rebuilt kk (unwrap (get objectMap kk))
-                }
-            }
-            objectMap = rebuilt
+        if (this.hasOwnData(key)) {
+            this.removeOwnData(key)
         }
         ; D-FNPROPS: a function's length/name/prototype are computed on read,
         ; so there is nothing in the map to remove -- the deletion is recorded
@@ -1422,29 +1659,67 @@ class EvalValue {
     ; D-ARRAYSPARSE: the array's length -- the declared one when it exceeds what
     ; the dense store holds, otherwise the number of elements.
     fn arrayLength:int () {
-        def dense:int (array_length arrayValue)
-        if (declaredLength > dense) {
-            return declaredLength
+        def dense:int (this.denseLen())
+        def decl:int (this.declaredLengthOf())
+        if (decl > dense) {
+            return decl
         }
         return dense
     }
 
-    ; ---- E4b: dense-store accessors (class remains SoT until shape items) --
+    ; ---- E4b/E4c: dense-store accessors ------------------------------------
     ; ComponentEngine must not touch `.arrayValue` / `.declaredLength` fields.
+    ; Array SoT is body.Array.items / declaredLength; Map/Set still use
+    ; class arrayValue until their cutovers.
     fn itemsOf:[EvalValue] () {
+        def _k:EvValue body
+        if (EvValue.isArrayValue(_k)) {
+            def out:[EvalValue]
+            case _k a:EvValue.Array {
+                for a.items it:EvValue i {
+                    push out (EvalValue.fromBody(it))
+                }
+            }
+            return out
+        }
         return arrayValue
     }
     fn denseLen:int () {
+        def _k:EvValue body
+        if (EvValue.isArrayValue(_k)) {
+            case _k a:EvValue.Array {
+                return (array_length a.items)
+            }
+        }
         return (array_length arrayValue)
     }
     fn arrayItemAt:EvalValue (i:int) {
+        def _k:EvValue body
+        if (EvValue.isArrayValue(_k)) {
+            case _k a:EvValue.Array {
+                return (EvalValue.fromBody((itemAt a.items i)))
+            }
+        }
         return (itemAt arrayValue i)
     }
     fn declaredLengthOf:int () {
+        def _k:EvValue body
+        if (EvValue.isArrayValue(_k)) {
+            case _k a:EvValue.Array {
+                return a.declaredLength
+            }
+        }
         return declaredLength
     }
     fn setDeclaredLength:void (n:int) {
         declaredLength = n
+        def _k:EvValue body
+        if (EvValue.isArrayValue(_k)) {
+            case _k a:EvValue.Array {
+                ; Write back — portable across value-copy and ref shape reps.
+                body = (new EvValue.Array(a.identityId a.properties a.items n))
+            }
+        }
     }
 
     fn setIndexAt:void (index:int value:EvalValue) {
@@ -1455,10 +1730,14 @@ class EvalValue {
         }
         ; D-HOLES: the slots skipped over are ABSENT, not undefined -- `a[3]=1`
         ; on an empty array leaves three holes, and `0 in a` is false.
-        while (index >= (array_length arrayValue)) {
-            push arrayValue (EvalValue.hole())
+        case _kind a:EvValue.Array {
+            def items:[EvValue] a.items
+            while (index >= (array_length items)) {
+                push items (EvValue.hole())
+            }
+            set items index (value.toStored())
+            body = (new EvValue.Array(a.identityId a.properties items a.declaredLength))
         }
-        set arrayValue index value
     }
 
     ; Append to the backing array in place; returns the new length (Array#push).
@@ -1467,16 +1746,26 @@ class EvalValue {
         if (false == (EvValue.isArrayValue(_kind))) {
             return 0
         }
-        push arrayValue value
-        return (array_length arrayValue)
+        case _kind a:EvValue.Array {
+            def items:[EvValue] a.items
+            push items (value.toStored())
+            body = (new EvValue.Array(a.identityId a.properties items a.declaredLength))
+            return (array_length items)
+        }
+        return 0
     }
 
     ; Replace the backing array items in place (keeps the same EvalValue instance
     ; so existing references see the mutation — used by pop/shift/reverse/sort/…).
     fn arrSetItems:void (items:[EvalValue]) {
-        def _emptyItems2:[EvValue]
-        body = (EvValue.arrayAt(identityId _emptyItems2))
-        arrayValue = items
+        def stored:[EvValue]
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:EvalValue (itemAt items i)
+            push stored (it.toStored())
+            i = (i + 1)
+        }
+        body = (EvValue.arrayAt(identityId stored))
     }
 
     ; ---- Map helpers: keys in arrayValue, values in mapVals ----
@@ -1583,11 +1872,11 @@ class EvalValue {
     ; Array index access
     fn getIndex:EvalValue (index:int) {
         if (this.isArray()) {
-            if ((index >= 0) && (index < (array_length arrayValue))) {
+            if ((index >= 0) && (index < (this.denseLen()))) {
                 ; D-HOLES: a hole READS as undefined. Only the code that asks
                 ; whether the element is present -- `in`, hasOwnProperty, the
                 ; iteration methods -- looks at the slot itself.
-                def slot:EvalValue (itemAt arrayValue index)
+                def slot:EvalValue (this.arrayItemAt(index))
                 if (slot.isHole()) {
                     return (EvalValue.undefined())
                 }
@@ -1611,8 +1900,8 @@ class EvalValue {
         ; property of that name; a missing one is undefined, not null.
         if (this.isObject()) {
             def ik:string (to_string index)
-            if (has objectMap ik) {
-                return (unwrap (get objectMap ik))
+            if (this.hasOwnData(ik)) {
+                return (this.getOwnData(ik))
             }
             return (EvalValue.undefined())
         }
@@ -1689,6 +1978,27 @@ class EvalIdentityMinter @singleton(true) {
         def id:int this.nextId
         this.nextId = (this.nextId + 1)
         return id
+    }
+}
+
+; E4c: shape storage holds EvValue; the engine speaks EvalValue. Reference
+; wrappers are cached by identityId so Array.items / PropertyBag can store
+; the live shape body and still round-trip to the same class handle (===).
+class EvValueHandles @singleton(true) {
+    def byId:[int:EvalValue]
+    fn remember:void (v:EvalValue) {
+        if (v.identityId > 0) {
+            set byId v.identityId v
+        }
+    }
+    fn lookup@(optional):EvalValue (id:int) {
+        if (has byId id) {
+            def hit:EvalValue (unwrap (get byId id))
+            def some@(optional):EvalValue hit
+            return some
+        }
+        def missing@(optional):EvalValue
+        return missing
     }
 }
 

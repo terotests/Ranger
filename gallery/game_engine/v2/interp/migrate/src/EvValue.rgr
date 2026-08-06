@@ -37,6 +37,59 @@ class EvPropertyBag {
     def extensible:boolean true
     def sealed:boolean false
     def frozen:boolean false
+
+    ; E4c: data-property helpers (Accessor slots stay beside class getter/setter
+    ; maps until that cutover). Value payload is EvValue to avoid an EvalValue
+    ; import cycle.
+    fn hasData:boolean (key:string) {
+        if (false == (has slots key)) {
+            return false
+        }
+        def slot:EvPropertySlot (unwrap (get slots key))
+        case slot d:EvPropertySlot.Data {
+            return true
+        }
+        return false
+    }
+    fn getData:EvValue (key:string) {
+        def slot:EvPropertySlot (unwrap (get slots key))
+        case slot d:EvPropertySlot.Data {
+            ; Case field typed as a shape without a default is optional at the
+            ; type level; putData always sets it.
+            return (unwrap d.value)
+        }
+        return (EvValue.undefined())
+    }
+    fn putData:void (key:string value:EvValue attrs:int) {
+        ; Bind through the union type so Rust gets union_EvPropertySlot, not the
+        ; bare case struct (same pattern as `def a:Value (new Value.Num(...))`).
+        def slot:EvPropertySlot (new EvPropertySlot.Data(value attrs))
+        set slots key slot
+    }
+    fn removeData:void (key:string) {
+        if (false == (has slots key)) {
+            return
+        }
+        def rebuilt:[string:EvPropertySlot]
+        def ks:[string] (keys slots)
+        for ks kk:string idx {
+            if (kk != key) {
+                set rebuilt kk (unwrap (get slots kk))
+            }
+        }
+        slots = rebuilt
+    }
+    fn dataKeys:[string] () {
+        def out:[string]
+        def ks:[string] (keys slots)
+        for ks kk:string idx {
+            def slot:EvPropertySlot (unwrap (get slots kk))
+            case slot d:EvPropertySlot.Data {
+                push out kk
+            }
+        }
+        return out
+    }
 }
 
 ; Function core shared across bindings (PLAN_SHAPES.md §7.3). Identity lives

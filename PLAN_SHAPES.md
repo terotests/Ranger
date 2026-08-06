@@ -1217,9 +1217,14 @@ that no `record` with a class-typed field could avoid are fixed
      (`denseLen` / `itemsOf` / `hasOwnData` / `setProto` / …). Class remains
      the source of truth; shape `body` collections stay empty stubs.
      Fixture: `shape_evalvalue_e4b_accessors.rgr`.
-   - **E4c ahead:** relocate SoT onto `EvPropertyBag` / `Array.items` /
-     `Map.entries`, migrate mutators onto the shape, delete the class shell,
-     rename `EvValue` → `EvalValue`.
+   - **E4c in progress — storage SoT on the shape:**
+     - **✅ Array dense store** on `body.Array.items` / `declaredLength`
+       (`toStored` / `fromBody` + `EvValueHandles` for ref identity).
+     - **✅ Object own-data** on `body.*.properties` (`EvPropertyBag` Data
+       slots). Getters/setters/attrs/proto/integrity still on the class.
+     - **Ahead:** Map.entries / Set.items, accessor+attr+proto cutover,
+       delete the class shell, rename `EvValue` → `EvalValue`.
+     Fixture: `shape_evalvalue_e4c_array.rgr`.
 5. **Re-measure.** `sizeof(EvalValue)` on C++, the eight benchmark cases on Node, C++,
    Rust, Go, Kotlin, Python and C#, and the small-integer pool's remaining value —
    with primitives no longer heap-allocated, the pool may stop earning its keep on the

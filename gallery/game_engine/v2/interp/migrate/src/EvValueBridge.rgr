@@ -2,9 +2,9 @@
 ; EvValueBridge — tagged ↔ shape conversion (PLAN_SHAPES.md §7.5)
 ; =============================================================================
 ; E3/E4: create/check APIs live here. E4: class EvalValue carries `body:EvValue`
-; as the kind discriminant (`valueType` is gone). Collection payloads still
-; sit on the class; fromTagged returns the live body (no rebuild).
-; Never round-trip a live stored ref through toTagged.
+; as the kind discriminant (`valueType` is gone). E4c: Array dense items live on
+; the shape; Object/Map/Set payloads still sit on the class. fromTagged returns
+; the live body (no rebuild). toTagged uses EvalValue.fromBody (handle cache).
 
 Import "EvalValue.rgr"
 Import "EvValue.rgr"
@@ -26,50 +26,7 @@ class EvValueBridge {
     }
 
     sfn toTagged:EvalValue (ev:EvValue) {
-        case ev h:EvValue.Hole {
-            return (EvalValue.hole())
-        }
-        case ev n:EvValue.Null {
-            return (EvalValue.null())
-        }
-        case ev u:EvValue.Undefined {
-            return (EvalValue.undefined())
-        }
-        case ev num:EvValue.Number {
-            return (EvalValue.number(num.value))
-        }
-        case ev s:EvValue.String {
-            return (EvalValue.string(s.value))
-        }
-        case ev b:EvValue.Boolean {
-            return (EvalValue.boolean(b.value))
-        }
-        case ev el:EvValue.Element {
-            ; Case field is class-typed without a default → optional at the
-            ; type level; factories always set it.
-            return (EvalValue.element((unwrap el.element)))
-        }
-        case ev a:EvValue.Array {
-            def items:[EvalValue]
-            for a.items it:EvValue i {
-                push items (EvValueBridge.toTagged(it))
-            }
-            return (EvalValue.array(items))
-        }
-        case ev o:EvValue.Object {
-            return (EvalValue.object(([] _:string ()) ([] _:EvalValue ())))
-        }
-        case ev f:EvValue.Function {
-            def c:EvFunctionCore (unwrap f.core)
-            return (EvalValue.nativeFunction(c.functionName))
-        }
-        case ev m:EvValue.Map {
-            return (EvalValue.mapEmpty())
-        }
-        case ev st:EvValue.Set {
-            return (EvalValue.setEmpty())
-        }
-        return (EvalValue.undefined())
+        return (EvalValue.fromBody(ev))
     }
 
     ; ---- Hole -------------------------------------------------------------

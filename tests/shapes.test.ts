@@ -821,6 +821,23 @@ describe("shapes (closed variant families)", () => {
   });
 
   /**
+   * E4c (PLAN_SHAPES.md §7.5): Array.items + Object EvPropertyBag are SoT.
+   * Class wrappers round-trip via EvValueHandles (identity preserved).
+   */
+  describe("EvValue E4c array/object storage", () => {
+    const E4C = `${FIXTURES_DIR}/shape_evalvalue_e4c_array.rgr`;
+    const EXPECTED_E4C = ["arr", "sot", "id", "obj"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E4C, EXPECTED_E4C);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E4C, EXPECTED_E4C);
+    });
+  });
+
+  /**
    * Group field projection (PLAN_SHAPES.md §7 / C5). Fields declared on a
    * group are read and written through the group type via generated get_/set_
    * ops — no narrowing required, identity preserved for reference groups.

@@ -1,0 +1,62 @@
+; E4c smoke: Array.items + Object EvPropertyBag are SoT (PLAN_SHAPES.md §7.5).
+; Round-trip through fromBody keeps reference identity (===).
+Import "../../gallery/game_engine/v2/interp/migrate/src/EvValueBridge.rgr"
+
+class Main {
+    sfn main:void () {
+        def empty:[EvalValue]
+        def a:EvalValue (EvValueBridge.taggedArray(empty))
+        a.arrPush((EvValueBridge.taggedNumber(1.0)))
+        a.arrPush((EvValueBridge.taggedNumber(2.0)))
+        if ((a.denseLen()) == 2) {
+            def first:EvalValue (a.arrayItemAt(0))
+            if (first.isNumber()) {
+                print "arr"
+            } {
+                print "WRONG: item"
+            }
+        } {
+            print "WRONG: denseLen"
+        }
+
+        ; Shape body holds the items; fromTagged returns live body.
+        def shaped:EvValue (EvValueBridge.fromTagged(a))
+        if (EvValue.isArrayValue(shaped)) {
+            case shaped aa:EvValue.Array {
+                if ((array_length aa.items) == 2) {
+                    print "sot"
+                } {
+                    print "WRONG: body items"
+                }
+            }
+        } {
+            print "WRONG: fromTagged"
+        }
+
+        ; Nested ref in items round-trips to the same handle.
+        def inner:EvalValue (EvValueBridge.taggedArray(empty))
+        inner.arrPush((EvValueBridge.taggedNumber(9.0)))
+        a.arrPush(inner)
+        def got:EvalValue (a.arrayItemAt(2))
+        if (got.identityId == inner.identityId) {
+            print "id"
+        } {
+            print "WRONG: identity"
+        }
+
+        ; Object own-data lives on body.Object.properties (EvPropertyBag).
+        def keys:[string]
+        def vals:[EvalValue]
+        def o:EvalValue (EvValueBridge.taggedObject(keys vals))
+        o.putOwnData("x" (EvValueBridge.taggedString("hi")))
+        def ob:EvValue (EvValueBridge.fromTagged(o))
+        case ob oo:EvValue.Object {
+            def props:EvPropertyBag oo.properties
+            if (props.hasData("x")) {
+                print "obj"
+            } {
+                print "WRONG: props"
+            }
+        }
+    }
+}
