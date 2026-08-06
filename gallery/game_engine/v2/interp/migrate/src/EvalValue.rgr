@@ -720,8 +720,13 @@ class EvalValue {
     ; wrong module scope.
     fn withThis:EvalValue (recv:EvalValue) {
         def v:EvalValue (new EvalValue())
-        v.body = (EvValue.functionStubAt(identityId (this.fnName())))
-        v.identityId = identityId
+        ; Fresh identity — a bound/rebound function is a distinct reference
+        ; (`f.bind(x) !== f`). Reusing the target's identityId made PropertyBag
+        ; round-trips (toStored/fromBody) recover the unbound original from
+        ; EvValueHandles and drop boundThis.
+        def id:int ((EvalIdentityMinter.__singleton()).mint())
+        v.body = (EvValue.functionStubAt(id (this.fnName())))
+        v.identityId = id
         ; The payload is COPIED, not shared. Sharing it looks right — a rebinding
         ; does not change what the function IS — but `bind` writes boundArgs and
         ; `delete f.length` writes suppressedKeys on the value it was handed, and
