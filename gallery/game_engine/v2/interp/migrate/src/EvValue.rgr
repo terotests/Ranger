@@ -45,6 +45,13 @@ class EvPropertyBag {
         }
         def slot:EvPropertySlot (unwrap (get slots key))
         case slot d:EvPropertySlot.Data {
+            ; Hole value = attrs-only placeholder (setAttrs before a value),
+            ; not a real data property — array index attrs must not shadow
+            ; dense elements on Array.prototype.
+            def v:EvValue (unwrap d.value)
+            if (EvValue.isHole(v)) {
+                return false
+            }
             return true
         }
         return false
@@ -107,9 +114,9 @@ class EvPropertyBag {
     }
     fn setAttrsOn:void (key:string attrs:int) {
         if (false == (has slots key)) {
-            ; Attribute bits without a value — placeholder data slot (absent
-            ; value is filled by a later putData / define*).
-            def slot0:EvPropertySlot (new EvPropertySlot.Data((EvValue.undefined()) attrs))
+            ; Attribute bits without a value — Hole placeholder so hasData is
+            ; false (must not shadow array dense indexes / inherited reads).
+            def slot0:EvPropertySlot (new EvPropertySlot.Data((EvValue.hole()) attrs))
             set slots key slot0
             return
         }
