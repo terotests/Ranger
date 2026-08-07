@@ -247,5 +247,128 @@
    },
    "errors": {}
   }
+ },
+ "es6": {
+  "richards": {
+   "status": "OK",
+   "out": "[tsx] Richards: 21.7\n",
+   "wall_ms": 9309.951192,
+   "rss_kb": 91604,
+   "scores": {
+    "Richards": 21.7
+   },
+   "errors": {}
+  },
+  "deltablue": {
+   "status": "OK",
+   "out": "[tsx] DeltaBlue: 40.6\n",
+   "wall_ms": 13322.162622000007,
+   "rss_kb": 128148,
+   "scores": {
+    "DeltaBlue": 40.6
+   },
+   "errors": {}
+  },
+  "splay": {
+   "status": "OK",
+   "out": "[tsx] Splay: 136\n[tsx] SplayLatency: 1683\n",
+   "wall_ms": 10421.866740000012,
+   "rss_kb": 738196,
+   "scores": {
+    "Splay": 136.0,
+    "SplayLatency": 1683.0
+   },
+   "errors": {}
+  },
+  "regexp": {
+   "status": "OK",
+   "out": "[tsx] RegExp: 27.9\n",
+   "wall_ms": 80180.484893,
+   "rss_kb": 126576,
+   "scores": {
+    "RegExp": 27.9
+   },
+   "errors": {}
+  },
+  "crypto": {
+   "status": "OK",
+   "out": "Unknown type: this\n[tsx] Crypto: Error: Crypto operation failed\n",
+   "wall_ms": 19993.857502000024,
+   "rss_kb": 118748,
+   "scores": {},
+   "errors": {
+    "Crypto": "Error: Crypto operation failed"
+   }
+  },
+  "raytrace": {
+   "status": "OK",
+   "out": "[tsx] RayTrace: Error: Scene rendered incorrectly\n",
+   "wall_ms": 3164.1826550000474,
+   "rss_kb": 93552,
+   "scores": {},
+   "errors": {
+    "RayTrace": "Error: Scene rendered incorrectly"
+   }
+  },
+  "earley-boyer": {
+   "status": "OK",
+   "out": "Parse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: expected ')' but got '.'\nUnknown type: return\nUnknown type: return\nUnknown type: return\nUnknown type: return\nUnknown type: return\nUnknown type: return\nParse error: expected ')' but got '='\nParse error: expected ']' but got ','\nParse error: expected ')' but got 'null'\nParse error: expected '(' but got 'sc_Pair'\nParse error: expected Identifier but got Punctuator\nParse error: expected ',' but got '('\nParse error: expected ',' but got '.'\nParse error: expected ')' but got ','\nParse error: expected ')' but got '('\nParse error: expected ')' but got '('\nParse error: expected ')' but got '('\nParse error: expected ')' but got '='\nParse error: expected ')' but got '('\nParse error: expected ')' but got '('\nParse error: expected ')' but got '='\nParse error: expected ')' but got 'function'\nParse error: expected ')' but got '.'\n[tsx] EarleyBoyer: TypeError: Cannot read properties of undefined (reading 'car')\n",
+   "wall_ms": 10864.458836999973,
+   "rss_kb": 451028,
+   "scores": {},
+   "errors": {
+    "EarleyBoyer": "TypeError: Cannot read properties of undefined (reading 'car')"
+   }
+  },
+  "navier-stokes": {
+   "status": "OK",
+   "out": "[tsx] NavierStokes: Error: checksum failed\n",
+   "wall_ms": 113465.87283000002,
+   "rss_kb": 190584,
+   "scores": {},
+   "errors": {
+    "NavierStokes": "Error: checksum failed"
+   }
+  }
+ },
+ "cpp": {
+  "richards": {
+   "status": "OK",
+   "out": "[tsx] Richards: 21.7\n",
+   "wall_ms": 8902.731836999976,
+   "rss_kb": 12752,
+   "scores": {
+    "Richards": 21.7
+   },
+   "errors": {}
+  },
+  "deltablue": {
+   "status": "OK",
+   "out": "[tsx] DeltaBlue: 40.6\n",
+   "wall_ms": 12200.817822999965,
+   "rss_kb": 49984,
+   "scores": {
+    "DeltaBlue": 40.6
+   },
+   "errors": {}
+  },
+  "splay": {
+   "status": "TIMEOUT",
+   "out": "",
+   "wall_ms": 600078.8052320002,
+   "rss_kb": 10680,
+   "scores": {},
+   "errors": {}
+  },
+  "regexp": {
+   "status": "OK",
+   "out": "[tsx] RegExp: Error: Wrong checksum.\n",
+   "wall_ms": 22327.704627999992,
+   "rss_kb": 29952,
+   "scores": {},
+   "errors": {
+    "RegExp": "Error: Wrong checksum."
+   }
+  }
  }
 }
