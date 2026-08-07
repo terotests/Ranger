@@ -148,20 +148,28 @@ started from a C++/QJS `array` ratio of 3451x:
 
 ```
 case      raw Node raw QuickJS   eng/ES6   eng/C++ | ES6/QJS   C++/QJS
-loop         0.450       0.583      25.8      18.7  |   44.3x     32.0x
-fib          0.358       0.606      36.0      35.5  |   59.4x     58.5x
-strcat       0.402       9.422       9.5      10.8  |    1.0x      1.1x
-array        1.201       1.422      54.7      34.9  |   38.5x     24.5x
-object       1.602       3.273      45.7      51.8  |   14.0x     15.8x
-method       1.707       3.793      77.1      65.8  |   20.3x     17.3x
-regex        1.548       5.313      56.7      76.9  |   10.7x     14.5x
-geomean      0.853       2.272      37.1      35.1  |   16.3x     15.4x
+loop         0.490       0.506      20.1      14.2  |   39.7x     28.0x
+fib          0.348       0.532      27.5      26.8  |   51.7x     50.4x
+strcat       0.465       7.859       7.8       7.6  |    1.0x      1.0x
+array        1.114       1.172      31.5      18.3  |   26.9x     15.6x
+object       1.444       2.574      38.1      43.7  |   14.8x     17.0x
+method       1.467       2.965      62.8      52.1  |   21.2x     17.6x
+regex        1.380       4.484      41.4      63.2  |    9.2x     14.1x
+geomean      0.824       1.886      28.0      25.8  |   14.8x     13.7x
 ```
 
-The C++ geomean against QuickJS went 63x → 15.4x over this work (the es6
-build: 20x → 16.3x). `strcat` is the row to stare at: the INTERPRETER now
+The C++ geomean against QuickJS went 63x → 13.7x over this work (the es6
+build: 20x → 14.8x). `strcat` is the row to stare at: the INTERPRETER now
 concatenates as fast as QuickJS runs the same loop natively, because qjs
 copies the accumulator per `+=` while the slot machinery appends in place.
+The `array` row's last big cut came from a CALL-SITE INLINE CACHE: a method
+call that resolved to a registry built-in memoises an opcode on its AST node,
+valid while a dispatch EPOCH stands still. The epoch bumps whenever a
+built-in prototype is minted, written or suppressed, and the per-call guards
+(receiver kind, zero own properties via a maintained slot count, no
+per-instance prototype) prove the full resolution would land in the same
+place — so `a.push(x)` skips the registry probes, the deleted/overridden
+checks and the name-compare chain, and goes straight to the store.
 
 ## What this folder is for
 

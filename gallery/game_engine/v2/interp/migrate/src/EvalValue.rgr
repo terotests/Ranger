@@ -278,6 +278,10 @@ shape EvPropertySlot {
 
 class EvPropertyBag {
     def slots:[string:EvPropertySlot]
+    ; Number of keys in `slots`, maintained by every writer below. O(1)
+    ; emptiness for the call-site inline cache (a generic map_length had no
+    ; working lowering on every target).
+    def slotCount:int 0
     ; Hole = no prototype. @(optional) on a shape lowers to `!= NULL` on C++,
     ; which does not work for by-value variants — use the Hole sentinel.
     def prototype:EvalValue (EvalValue.hole())
@@ -322,6 +326,9 @@ class EvPropertyBag {
         return (EvalValue.undefined())
     }
     fn putData:void (key:string value:EvalValue attrs:int) {
+        if (false == (has slots key)) {
+            slotCount = (slotCount + 1)
+        }
         ; Bind through the union type so Rust gets union_EvPropertySlot, not the
         ; bare case struct (same pattern as `def a:Value (new Value.Num(...))`).
         def slot:EvPropertySlot (new EvPropertySlot.Data(value attrs))
@@ -339,6 +346,7 @@ class EvPropertyBag {
             }
         }
         slots = rebuilt
+        slotCount = (slotCount - 1)
     }
     fn dataKeys:[string] () {
         def out:[string]
@@ -372,6 +380,7 @@ class EvPropertyBag {
             ; Attribute bits without a value — Hole placeholder so hasData is
             ; false (must not shadow array dense indexes / inherited reads).
             def slot0:EvPropertySlot (new EvPropertySlot.Data((EvalValue.hole()) attrs))
+            slotCount = (slotCount + 1)
             set slots key slot0
             return
         }
@@ -444,6 +453,9 @@ class EvPropertyBag {
     }
     fn putGetter:void (key:string g:EvalValue attrs:int) {
         everHadAccessor = true
+        if (false == (has slots key)) {
+            slotCount = (slotCount + 1)
+        }
         def useAttrs:int attrs
         def s:EvalValue (EvalValue.hole())
         if (has slots key) {
@@ -461,6 +473,9 @@ class EvPropertyBag {
     }
     fn putSetter:void (key:string s:EvalValue attrs:int) {
         everHadAccessor = true
+        if (false == (has slots key)) {
+            slotCount = (slotCount + 1)
+        }
         def useAttrs:int attrs
         def g:EvalValue (EvalValue.hole())
         if (has slots key) {

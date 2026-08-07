@@ -50,6 +50,10 @@ class EvHandle {
     ; script can alias -- and every pooled literal, which is shared by every
     ; occurrence of that constant -- keeps false and takes the minting path.
     def slotOwned:boolean false
+    ; True on a BUILT-IN prototype object (Array.prototype, …). Writes and
+    ; suppressions through such a handle bump the dispatch epoch, which is
+    ; what lets call-site inline caches skip the override probes.
+    def isProtoObject:boolean false
     ; D-IDENTITY: immutable reference identity. Object/array/function/Map/Set/
     ; element values are stamped with a unique id (>= 1) at mint; primitives keep
     ; 0 and compare by value. Never changed by property writes, reparenting, or
@@ -274,6 +278,10 @@ class EvHandle {
         return false
     }
     fn addSuppressed:void (key:string) {
+        if isProtoObject {
+            def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+            dEp.bump()
+        }
         def propsOpt@(optional):EvPropertyBag (this.tryProps())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
@@ -290,6 +298,10 @@ class EvHandle {
         return none
     }
     fn setSuppressed:void (m:[string:boolean]) {
+        if isProtoObject {
+            def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+            dEp.bump()
+        }
         def propsOpt@(optional):EvPropertyBag (this.tryProps())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
@@ -1198,6 +1210,10 @@ class EvHandle {
     }
 
     fn defineGetter:void (key:string fn:EvHandle) {
+        if isProtoObject {
+            def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+            dEp.bump()
+        }
         def propsOpt@(optional):EvPropertyBag (this.tryProps())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
@@ -1206,6 +1222,10 @@ class EvHandle {
     }
 
     fn defineSetter:void (key:string fn:EvHandle) {
+        if isProtoObject {
+            def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+            dEp.bump()
+        }
         def propsOpt@(optional):EvPropertyBag (this.tryProps())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
@@ -1457,6 +1477,10 @@ class EvHandle {
         return missing
     }
     fn putOwnData:void (key:string value:EvHandle) {
+        if isProtoObject {
+            def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+            dEp.bump()
+        }
         def propsOpt@(optional):EvPropertyBag (this.tryProps())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
@@ -1469,6 +1493,10 @@ class EvHandle {
         }
     }
     fn removeOwnData:void (key:string) {
+        if isProtoObject {
+            def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+            dEp.bump()
+        }
         def propsOpt@(optional):EvPropertyBag (this.tryProps())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
@@ -1559,6 +1587,10 @@ class EvHandle {
         return (EvHandle.null())
     }
     fn setProto:void (p:EvHandle) {
+        if isProtoObject {
+            def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+            dEp.bump()
+        }
         def propsOpt@(optional):EvPropertyBag (this.tryProps())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
@@ -1685,6 +1717,10 @@ class EvHandle {
     ; functions (6), arrays (4) and Map/Set (9/10). Primitives silently ignore
     ; the write, which is sloppy-mode behaviour.
     fn setMember:void (key:string value:EvHandle) {
+        if isProtoObject {
+            def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+            dEp.bump()
+        }
         ; Kind from a local body copy — this.is*() re-borrows via Rc on Rust.
         def _k:EvalValue body
         if (EvalValue.isObject(_k)) {
@@ -1773,6 +1809,10 @@ class EvHandle {
     }
 
     fn removeMember:void (key:string) {
+        if isProtoObject {
+            def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+            dEp.bump()
+        }
         ; D-ATTRS: a non-configurable property cannot be deleted, which is what
         ; seal and freeze rely on.
         if (this.hasOwnData(key)) {
@@ -1902,6 +1942,17 @@ class EvHandle {
             }
         }
         return 0.0
+    }
+    ; No own properties at all — a clean array/collection. One O(1) size
+    ; probe; lets the call-site inline cache prove no own-property override
+    ; without hashing the method name.
+    fn ownPropsEmpty:boolean () {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (props.slotCount == 0)
+        }
+        return true
     }
     ; True once any accessor was EVER defined on this object's own bag —
     ; monotone, so a false answer proves no own getter can exist under any key
@@ -2289,6 +2340,19 @@ class EvalIdentityMinter @singleton(true) {
 ; E4c: shape storage holds EvalValue; the engine speaks EvHandle. Reference
 ; wrappers are cached by identityId so Array.items / PropertyBag can store
 ; the live shape body and still round-trip to the same class handle (===).
+; The dispatch epoch: bumped whenever anything happens that could change how
+; a method CALL on a built-in receiver resolves — a built-in prototype object
+; is minted, written to, or has a registry method suppressed. Call-site
+; inline caches store the epoch they resolved under and re-resolve on any
+; mismatch, so correctness never depends on WHAT changed, only on noticing
+; THAT something did.
+class EvDispatchEpoch @singleton(true) {
+    def n:int 1
+    fn bump:void () {
+        n = (n + 1)
+    }
+}
+
 class EvValueHandles @singleton(true) {
     def byId:[int:EvHandle]
     fn remember:void (v:EvHandle) {

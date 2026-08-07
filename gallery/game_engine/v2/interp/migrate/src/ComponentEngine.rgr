@@ -8803,6 +8803,43 @@ class ComponentEngine {
                     this.trace("Method call: " + methodName + " on value type=" + (obj.kindName()))
                 }
 
+                ; INLINE CACHE: this call site already resolved to a registry
+                ; built-in under the current dispatch epoch. The guards prove
+                ; the full resolution would reach the same place: the receiver
+                ; is a clean array (right kind, no own properties, no
+                ; per-instance prototype — arrays are never class instances),
+                ; and the epoch proves no built-in prototype was minted,
+                ; written or suppressed since the slow pass resolved. Opcodes
+                ; are population-gated on ARITY too, so each body below is
+                ; exactly the registry body for its shape.
+                if (node.callSiteOp > 0) {
+                    def icEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+                    if (node.callSiteEpoch == icEp.n) {
+                        if (obj.isArray()) {
+                            if ((false == (obj.hasProto())) && (obj.ownPropsEmpty())) {
+                                ; op 1: single-argument Array#push
+                                if (node.callSiteOp == 1) {
+                                    def icArg:EvHandle (this.evaluateExpr((itemAt node.children 0)))
+                                    if scriptThrew {
+                                        return (EvValueBridge.taggedUndefined())
+                                    }
+                                    return (EvHandle.fromInt((obj.arrPush(icArg))))
+                                }
+                                ; op 2: zero-argument Array#pop
+                                if (node.callSiteOp == 2) {
+                                    def icN:int (obj.denseLen())
+                                    if (icN == 0) {
+                                        return (EvValueBridge.taggedUndefined())
+                                    }
+                                    def icLast:EvHandle (obj.arrayItemAt((icN - 1)))
+                                    obj.arrPop()
+                                    return icLast
+                                }
+                            }
+                        }
+                    }
+                }
+
                 ; user class instance: dispatch an instance method (with `this`),
                 ; or invoke a field that holds a function value (e.g. this.afterCb).
                 def uClsN:string (this.instanceClassName(obj))
@@ -8922,6 +8959,25 @@ class ComponentEngine {
                             return (this.invokeBuiltin("object" methodName obj dArgs))
                         }
                         return (this.throwSpecError("TypeError" (methodName + " is not a function")))
+                    }
+                    ; POPULATE the call-site inline cache: dispatch reached the
+                    ; registry with nothing deleted and nothing overridden, so
+                    ; the next call at this node under the same epoch may skip
+                    ; straight to the operation. Arity-gated so each cached
+                    ; body stays exactly the registry body for its shape.
+                    if (rKind == "array") {
+                        def popOverride:EvHandle (this.overriddenPrototypeMethod(rKind methodName))
+                        if (false == (popOverride.isFunction())) {
+                            def popEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+                            if ((methodName == "push") && ((array_length node.children) == 1)) {
+                                node.callSiteOp = 1
+                                node.callSiteEpoch = popEp.n
+                            }
+                            if ((methodName == "pop") && ((array_length node.children) == 0)) {
+                                node.callSiteOp = 2
+                                node.callSiteEpoch = popEp.n
+                            }
+                        }
                     }
                     def rArgs:[EvHandle] (this.collectCallArgs(node))
                     return (this.invokeBuiltin(rKind methodName obj rArgs))
@@ -11776,6 +11832,13 @@ class ComponentEngine {
             p.setMember("__fnprotocall__" (EvValueBridge.taggedBoolean(true)))
             p.setAttrs("__fnprotocall__" false false false)
         }
+        ; Mark the handle and bump the dispatch epoch: minting a prototype
+        ; changes what overriddenPrototypeMethod / kindRegistryDeleted can
+        ; answer, and every later write through the handle bumps again —
+        ; which is what lets call-site caches skip those probes entirely.
+        p.isProtoObject = true
+        def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+        dEp.bump()
         set builtinProtos nsName p
         ; D-PROTOCTOR: every built-in prototype inherits from Object.prototype,
         ; which is what makes `delete Number.prototype.toString` fall back to
