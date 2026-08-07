@@ -1910,8 +1910,12 @@ class EvHandle {
         def _k:EvalValue body
         if (EvalValue.isArrayValue(_k)) {
             case _k a:EvalValue.Array {
-                ; Write back — portable across value-copy and ref shape reps.
-                body = (new EvalValue.Array(a.identityId a.properties a.items n))
+                ; The Array case is a reference payload on every target (C++
+                ; rg_ptr in the variant, Rust Rc<RefCell> in the enum, a pointer
+                ; or object elsewhere), so a field write through the narrowing
+                ; is seen by `body`. The old write-back rebuilt the case and
+                ; copied `items` on the value-vector targets — O(n) per call.
+                a.declaredLength = n
             }
         }
     }
@@ -1924,13 +1928,17 @@ class EvHandle {
         }
         ; D-HOLES: the slots skipped over are ABSENT, not undefined -- `a[3]=1`
         ; on an empty array leaves three holes, and `0 in a` is false.
+        ;
+        ; Mutates a.items THROUGH the narrowing instead of copy-and-rebuild:
+        ; on the value-vector targets (C++) the old `def items ... a.items` +
+        ; `new EvalValue.Array(...)` pair copied the whole store twice per
+        ; write, which made an index-assignment loop O(n^2). The case payload
+        ; is shared on every target, so the write lands on `body` directly.
         case _kind a:EvalValue.Array {
-            def items:[EvalValue] a.items
-            while (index >= (array_length items)) {
-                push items (EvalValue.hole())
+            while (index >= (array_length a.items)) {
+                push a.items (EvalValue.hole())
             }
-            set items index (value.toStored())
-            body = (new EvalValue.Array(a.identityId a.properties items a.declaredLength))
+            set a.items index (value.toStored())
         }
     }
 
@@ -1941,16 +1949,29 @@ class EvHandle {
             return 0
         }
         case _kind a:EvalValue.Array {
-            def items:[EvalValue] a.items
-            push items (value.toStored())
-            body = (new EvalValue.Array(a.identityId a.properties items a.declaredLength))
-            return (array_length items)
+            push a.items (value.toStored())
+            return (array_length a.items)
         }
         return 0
     }
 
+    ; Drop the last dense element in place (Array#pop's storage step). Keeps
+    ; `declaredLength` tracking the store the way arrSetItems always has.
+    fn arrPop:void () {
+        def _kind:EvalValue body
+        if (false == (EvalValue.isArrayValue(_kind))) {
+            return
+        }
+        case _kind a:EvalValue.Array {
+            if ((array_length a.items) > 0) {
+                removeLast a.items
+            }
+            a.declaredLength = (array_length a.items)
+        }
+    }
+
     ; Replace the backing array items in place (keeps the same EvHandle instance
-    ; so existing references see the mutation — used by pop/shift/reverse/sort/…).
+    ; so existing references see the mutation — used by shift/reverse/sort/…).
     fn arrSetItems:void (items:[EvHandle]) {
         def stored:[EvalValue]
         def i:int 0
@@ -1958,6 +1979,16 @@ class EvHandle {
             def it:EvHandle (itemAt items i)
             push stored (it.toStored())
             i = (i + 1)
+        }
+        def _kind:EvalValue body
+        if (EvalValue.isArrayValue(_kind)) {
+            case _kind a:EvalValue.Array {
+                ; Rebuild around the SAME property bag — going through
+                ; EvalValue.arrayAt minted a fresh bag, so `a.foo = 1` was
+                ; silently dropped by pop/shift/reverse/sort.
+                body = (new EvalValue.Array(a.identityId a.properties stored (array_length stored)))
+            }
+            return
         }
         body = (EvalValue.arrayAt((this.identityIdOf()) stored))
     }
@@ -2029,17 +2060,17 @@ class EvHandle {
         def kStored:EvalValue (key.toStored())
         def vStored:EvalValue (value.toStored())
         case _k m:EvalValue.Map {
-            def entries:[EvMapEntry] m.entries
+            ; In place through the narrowing — the copy-and-rebuild write-back
+            ; made every Map#set O(n) on the value-vector targets.
             if (idx >= 0) {
-                def e:EvMapEntry (itemAt entries idx)
+                def e:EvMapEntry (itemAt m.entries idx)
                 e.value = vStored
             } {
                 def ne:EvMapEntry (new EvMapEntry())
                 ne.key = kStored
                 ne.value = vStored
-                push entries ne
+                push m.entries ne
             }
-            body = (new EvalValue.Map(m.identityId m.properties entries))
         }
     }
     fn mapGet:EvHandle (key:EvHandle) {
@@ -2082,9 +2113,8 @@ class EvHandle {
             return
         }
         case _k st:EvalValue.Set {
-            def items:[EvalValue] st.items
-            push items (value.toStored())
-            body = (new EvalValue.Set(st.identityId st.properties items))
+            ; In place — see mapSet; the rebuild made every Set#add O(n).
+            push st.items (value.toStored())
         }
     }
     fn setHas:boolean (value:EvHandle) {

@@ -14063,13 +14063,9 @@ class ComponentEngine {
                             return (EvValueBridge.taggedUndefined())
                         }
                         def last:EvHandle (recv.arrayItemAt((n - 1)))
-                        def items:[EvHandle]
-                        def q:int 0
-                        while (q < (n - 1)) {
-                            push items (recv.arrayItemAt(q))
-                            q = (q + 1)
-                        }
-                        recv.arrSetItems(items)
+                        ; O(1) removal — rebuilding the whole store made a
+                        ; pop-until-empty loop O(n^2).
+                        recv.arrPop()
                         return last
                     }
                     if (name == "shift") {

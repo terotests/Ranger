@@ -31,72 +31,75 @@ against their own empty case, so all three columns are measured alike.
 ## The result
 
 It works — every workload returns the same answer from the C++ binary as from
-Node — and it is **slower than the JavaScript build, by about 4x**:
+Node — and the two divergences this README used to document are fixed and now
+only guarded:
 
 ```
 case        node ms   js engine   cpp engine  |  js/node  cpp/node   cpp vs js
-loop           0.65        56.8        149.6  |      87x      230x       0.38x
-fib            0.47        37.3        126.3  |      80x      271x       0.30x
-strcat         0.52        31.4        115.3  |      60x      220x       0.27x
-array          1.51        96.2       2186.6  |      64x     1452x       0.04x
-object         2.32        43.7        116.5  |      19x       50x       0.38x
-method         2.10        87.7        252.0  |      42x      120x       0.35x
-regex          1.77        46.6        132.4  |      26x       75x       0.35x
-geometric mean vs Node:  js engine 48x,  cpp engine 190x
+loop          0.31        49.0         44.9  |     158x      145x       1.09x
+fib           0.24        48.9         57.6  |     207x      244x       0.85x
+strcat        0.24        28.4        147.9  |     117x      607x       0.19x
+array         1.22       123.8        229.0  |     102x      188x       0.54x
+object        2.37        74.0         93.9  |      31x       40x       0.79x
+method        2.32       114.8        154.4  |      50x       67x       0.74x
+regex         1.61        81.9        143.3  |      51x       89x       0.57x
+geometric mean vs Node:  js engine 84x,  cpp engine 138x
 ```
 
-`-O3` was measured and is worth 0–4% — the cost is not instruction scheduling.
-
-Two things explain it, and neither is C++ being slow.
+(Numbers move with the machine; the ratios are the stable part. `-O3` was
+measured and is worth 0–4% — the cost is not instruction scheduling.)
 
 **The value model suits a tracing GC, not `malloc`.** Every `EvalValue` carries
-three `std::vector`s and four `std::map`s, and one is allocated for every
-arithmetic result. On V8 those are nursery allocations a generational collector
-sweeps in bulk. In C++ each is a separate allocation freed by `shared_ptr`
-refcounting, and each `std::map` is a red-black tree with a node allocation per
-key. The engine allocates the way a JavaScript program does because it *is* a
-JavaScript program; the C++ target pays list price for it.
+collection payloads, and one is allocated for every arithmetic result. On V8
+those are nursery allocations a generational collector sweeps in bulk. In C++
+each is a separate allocation freed by `shared_ptr` refcounting. The engine
+allocates the way a JavaScript program does because it *is* a JavaScript
+program; the C++ target pays list price for it. That is what the remaining
+~1.4x against the JavaScript build is.
 
-**The array path is superlinear.** `run.cjs` reports the scaling directly:
+**The array path used to be superlinear, and the scaling check watches it.**
+`EvHandle`'s storage writers (`arrPush`, `setIndexAt`, `mapSet`, `setAdd`,
+Array#pop) used to copy the whole backing vector out of the `EvalValue.Array`
+case and rebuild the case per element — invisible on the es6 target, where the
+"copy" binds the live array, but O(n) per write on the value-vector C++ target,
+which made a push loop O(n²). They now mutate the case payload in place through
+the narrowing (the payload is shared on every target: `shared_ptr` in the C++
+variant, `Rc<RefCell>` in the Rust enum, a pointer on Go), and both builds are
+linear:
 
 ```
 array scaling (20000 vs 10000 elements; 2x = linear)
-  js engine   96.2 / 54.6 = 1.76x
-  cpp engine  2186.6 / 377.1 = 5.80x
+  js engine   123.8 / 62.9 = 1.97x
+  cpp engine  229.0 / 107.7 = 2.13x
 ```
 
-Doubling the element count costs the C++ build nearly six times the work. That
-is a bug in the generated code, not a property of the language — the same source
-is linear on the JavaScript target. Until it is found, the `array` row is
-measuring that bug and nothing else, and the 190x geometric mean is pulled by it.
+## Conformance canaries
 
-## The binary is not conformant
-
-`run.cjs` ends with a canary, and it fails:
+`run.cjs` ends with a key-order canary, and it passes on both builds:
 
 ```
 keyorder   node: 1,2,zebra,apple,mango|{"1":5,"2":4,"zebra":1,"apple":2,"mango":3}
            js:   1,2,zebra,apple,mango|{"1":5,"2":4,"zebra":1,"apple":2,"mango":3}   OK
-           cpp:  1,2,apple,mango,zebra|{"1":5,"2":4,"apple":2,"mango":3,"zebra":1}   DIVERGES
+           cpp:  1,2,zebra,apple,mango|{"1":5,"2":4,"zebra":1,"apple":2,"mango":3}   OK
 ```
 
 JavaScript enumerates string keys in **insertion** order. A Ranger string map
 becomes a JavaScript object on the es6 target, which is insertion-ordered and
-therefore correct by construction; on the C++ target it becomes `std::map`, which
-is **sorted**. So `Object.keys`, `for-in` and `JSON.stringify` all come out in
-the wrong order in the native build.
+therefore correct by construction; the C++ target used to back it with
+`std::map`, which is sorted and made `Object.keys`, `for-in` and
+`JSON.stringify` come out in the wrong order. It is now `rg_ordered_map` —
+vector storage in insertion order plus an open-addressed hash index — so the
+native build agrees, and is faster than the red-black tree was. The canary
+stays, because the property only holds while the container keeps it.
 
-The conformance score in `../../CONFORMANCE.md` — 6838/6839 — is measured on the
-JavaScript build only. It does not transfer to this binary, and no one should
-quote it for the native target until the map ordering is fixed. Switching the
-C++ map template to `std::unordered_map` would be faster but *not* a fix: it is
-unordered, which is a third answer rather than the right one. Insertion order
-needs an insertion-ordered container.
+The conformance score in `../../CONFORMANCE.md` — 6838/6839 — is still measured
+on the JavaScript build only; the native binary's guarantee is the seven
+answer-equality checks plus the canaries here, not that suite.
 
 ## What this folder is for
 
-Not to claim a native speedup — there isn't one. It exists so that the claim can
-be checked: the workloads are shared with the JavaScript benchmark, every case
-asserts all three targets agree before its timing is reported, and the two ways
-the native build currently differs (key order, array scaling) are measured on
-every run rather than remembered.
+Not to claim a native speedup — there isn't one yet. It exists so that the
+claim can be checked: the workloads are shared with the JavaScript benchmark,
+every case asserts all three targets agree before its timing is reported, and
+the two ways the native build used to diverge (key order, array scaling) are
+measured on every run rather than remembered.
