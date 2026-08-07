@@ -8786,15 +8786,36 @@ class ComponentEngine {
                     }
                 }
                 
-                ; Get the method name - try callee.name first (direct property)
-                ; then fall back to callee.right for computed access
-                methodName = callee.name
-                if ((strlen methodName) == 0) {
+                ; D-COMPUTEDCALL: `o[expr]()` calls whatever KEY the index
+                ; expression evaluates to -- never the text of the index node.
+                ; Taking the node text made `fns[i]()` look up a method
+                ; literally called "i". The key is evaluated exactly once,
+                ; here, after the receiver (the order the spec fixes), and
+                ; the by-name dispatch below resolves the resulting string --
+                ; so `arr["push"](x)` still reaches the registry built-in.
+                if callee.computed {
                     if callee.right {
-                        def propNode:TSNode (unwrap callee.right)
-                        methodName = propNode.name
-                        if ((strlen methodName) == 0) {
-                            methodName = propNode.value
+                        def ckNode:TSNode (unwrap callee.right)
+                        def ckVal:EvHandle (this.evaluateExpr(ckNode))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        methodName = (this.toPropertyKey(ckVal))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                    }
+                } {
+                    ; Get the method name - try callee.name first (direct
+                    ; property) then fall back to callee.right for a literal key
+                    methodName = callee.name
+                    if ((strlen methodName) == 0) {
+                        if callee.right {
+                            def propNode:TSNode (unwrap callee.right)
+                            methodName = propNode.name
+                            if ((strlen methodName) == 0) {
+                                methodName = propNode.value
+                            }
                         }
                     }
                 }
@@ -8903,7 +8924,20 @@ class ComponentEngine {
                 def canHoldProps:boolean false
                 if (obj.isObject()) { canHoldProps = true }
                 if (obj.isFunction()) { canHoldProps = true }
-                if (obj.isArray()) { canHoldProps = (obj.hasOwnData(methodName)) }
+                if (obj.isArray()) {
+                    canHoldProps = (obj.hasOwnData(methodName))
+                    ; D-COMPUTEDCALL: a dense index is an own property held in
+                    ; element storage, not the PropertyBag -- `fns[0]()` reads
+                    ; the element and calls it with `this` = the array.
+                    if (false == canHoldProps) {
+                        def aciCall:int (this.canonicalArrayIndex(methodName))
+                        if (aciCall >= 0) {
+                            if (aciCall < (obj.denseLen())) {
+                                canHoldProps = true
+                            }
+                        }
+                    }
+                }
                 if (obj.isMap()) { canHoldProps = (obj.hasOwnData(methodName)) }
                 if (obj.isSet()) { canHoldProps = (obj.hasOwnData(methodName)) }
                 if canHoldProps {
