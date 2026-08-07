@@ -6391,14 +6391,14 @@ class ComponentEngine {
                     if (gFn0.isFunction()) {
                         if (gFn0.hasFunctionNode()) {
                             def noArgs0:[EvHandle]
-                            def gb0:EvHandle (gFn0.withThis(obj))
+                            def gb0:EvHandle (gFn0.withThisForCall(obj))
                             cur0 = (this.callFnValueWithValues(gb0 noArgs0))
                         }
                     }
                     result = (this.applyAssignOp(opK cur0 rightValue))
                     def sArgs:[EvHandle]
                     push sArgs result
-                    def sBound:EvHandle (sFn.withThis(obj))
+                    def sBound:EvHandle (sFn.withThisForCall(obj))
                     def _sr:EvHandle (this.callFnValueWithValues(sBound sArgs))
                     return result
                 }
@@ -6512,7 +6512,7 @@ class ComponentEngine {
                         def ugf:EvHandle (uw.findGetter(varName 0))
                         if (ugf.isFunction()) {
                             def ugArgs:[EvHandle]
-                            ucur = (this.callFnValueWithValues((ugf.withThis(uw)) ugArgs))
+                            ucur = (this.callFnValueWithValues((ugf.withThisForCall(uw)) ugArgs))
                         }
                     } {
                         if (uw.hasOwnData(varName)) {
@@ -6528,7 +6528,7 @@ class ComponentEngine {
                     if (usf.isFunction()) {
                         def usArgs:[EvHandle]
                         push usArgs unew
-                        def _us:EvHandle (this.callFnValueWithValues((usf.withThis(uw)) usArgs))
+                        def _us:EvHandle (this.callFnValueWithValues((usf.withThisForCall(uw)) usArgs))
                     } {
                         if (false == (uw.hasOwnGetter(varName))) {
                             uw.setMember(varName unew)
@@ -7102,7 +7102,7 @@ class ComponentEngine {
                             def wgf:EvHandle (wobj.findGetter(varName 0))
                             if (wgf.isFunction()) {
                                 def wgArgs2:[EvHandle]
-                                wcur = (this.callFnValueWithValues((wgf.withThis(wobj)) wgArgs2))
+                                wcur = (this.callFnValueWithValues((wgf.withThisForCall(wobj)) wgArgs2))
                             }
                         } {
                             if (wobj.hasOwnData(varName)) {
@@ -7120,7 +7120,7 @@ class ComponentEngine {
                         if (wsf.isFunction()) {
                             def wsArgs:[EvHandle]
                             push wsArgs wres
-                            def _ws:EvHandle (this.callFnValueWithValues((wsf.withThis(wobj)) wsArgs))
+                            def _ws:EvHandle (this.callFnValueWithValues((wsf.withThisForCall(wobj)) wsArgs))
                             return wres
                         }
                         if (wobj.hasOwnGetter(varName)) {
@@ -9388,7 +9388,7 @@ class ComponentEngine {
                         def biArgs:[EvHandle] (this.collectCallArgs(node))
                         def biFn:EvHandle objMember
                         if (false == (objMember.boundExplicitOf())) {
-                            biFn = (objMember.withThis(obj))
+                            biFn = (objMember.withThisForCall(obj))
                         }
                         return (this.callFnValueWithValues(biFn biArgs))
                     }
@@ -9409,7 +9409,7 @@ class ComponentEngine {
                             if isArrow {
                                 return (this.callFnValueWithValues(objMember objCargs))
                             }
-                            def bound:EvHandle (objMember.withThis(obj))
+                            def bound:EvHandle (objMember.withThisForCall(obj))
                             return (this.callFnValueWithValues(bound objCargs))
                         }
                     }
@@ -9472,7 +9472,7 @@ class ComponentEngine {
                             if (borrowed.isFunction()) {
                                 if (borrowed.hasFunctionNode()) {
                                     def bwArgs2:[EvHandle] (this.collectCallArgs(node))
-                                    return (this.callFnValueWithValues((borrowed.withThis(obj)) bwArgs2))
+                                    return (this.callFnValueWithValues((borrowed.withThisForCall(obj)) bwArgs2))
                                 }
                             }
                         }
@@ -10157,7 +10157,7 @@ class ComponentEngine {
                                 }
                                 cai = (cai + 1)
                             }
-                            def callBound:EvHandle (obj.withThis(callThis))
+                            def callBound:EvHandle (obj.withThisForCall(callThis))
                             return (this.callFnValueWithValues(callBound callArgs))
                         }
                         if (methodName == "apply") {
@@ -10176,7 +10176,7 @@ class ComponentEngine {
                                     }
                                 }
                             }
-                            def applyBound:EvHandle (obj.withThis(applyThis))
+                            def applyBound:EvHandle (obj.withThisForCall(applyThis))
                             return (this.callFnValueWithValues(applyBound applyArgs))
                         }
                         if (methodName == "bind") {
@@ -10314,7 +10314,7 @@ class ComponentEngine {
                             def accG:EvHandle (obj.findGetter(methodName 0))
                             if (accG.isFunction()) {
                                 def accArgs:[EvHandle]
-                                def accOut:EvHandle (this.callFnValueWithValues((accG.withThis(obj)) accArgs))
+                                def accOut:EvHandle (this.callFnValueWithValues((accG.withThisForCall(obj)) accArgs))
                                 if scriptThrew {
                                     return (EvValueBridge.taggedUndefined())
                                 }
@@ -13445,7 +13445,7 @@ class ComponentEngine {
     fn invokeBuiltin:EvHandle (kind:string name:string recv:EvHandle args:[EvHandle]) {
         def override:EvHandle (this.overriddenPrototypeMethod(kind name))
         if (override.isFunction()) {
-            return (this.callFnValueWithValues((override.withThis(recv)) args))
+            return (this.callFnValueWithValues((override.withThisForCall(recv)) args))
         }
         ; D-THISCHECK: Number.prototype and Boolean.prototype methods require a
         ; receiver of their own type. Borrowing one --
@@ -15279,7 +15279,7 @@ class ComponentEngine {
                     }
                     i = (i + 1)
                 }
-                def b1:EvHandle (recv.withThis(callThis))
+                def b1:EvHandle (recv.withThisForCall(callThis))
                 return (this.callFnValueWithValues(b1 rest))
             }
             if (name == "apply") {
@@ -15315,7 +15315,7 @@ class ComponentEngine {
                         }
                     }
                 }
-                def b2:EvHandle (recv.withThis(applyThis))
+                def b2:EvHandle (recv.withThisForCall(applyThis))
                 return (this.callFnValueWithValues(b2 aargs))
             }
             if (name == "bind") {
@@ -15611,7 +15611,7 @@ class ComponentEngine {
         if (m.isFunction()) {
             if (m.hasFunctionNode()) {
                 def noArgs:[EvHandle]
-                def bound:EvHandle (m.withThis(obj))
+                def bound:EvHandle (m.withThisForCall(obj))
                 def out:EvHandle (this.callFnValueWithValues(bound noArgs))
                 ; A throw from the guest's own valueOf/toString is the answer.
                 ; Swallowing it here let ToPrimitive carry on and raise its own
@@ -16588,7 +16588,7 @@ class ComponentEngine {
         if (cb.hasBoundThis()) {
             return cb
         }
-        return (cb.withThis((itemAt args 1)))
+        return (cb.withThisForCall((itemAt args 1)))
     }
 
     ; D-ARRAYLIKE: the elements of any array-like receiver -- ToLength(this.length)
@@ -16712,7 +16712,7 @@ class ComponentEngine {
         def m:EvHandle (this.getPropertyValue(recv name))
         if (m.isFunction()) {
             if (m.hasFunctionNode()) {
-                return (this.callFnValueWithValues((m.withThis(recv)) args))
+                return (this.callFnValueWithValues((m.withThisForCall(recv)) args))
             }
             if (m.isBuiltinMethod()) {
                 return (this.invokeBuiltin((m.builtinKindOf()) (m.builtinNameOf()) recv args))
@@ -16785,7 +16785,7 @@ class ComponentEngine {
         if (g.isFunction()) {
             def noArgsG:[EvHandle]
             if (g.hasFunctionNode()) {
-                return (this.callFnValueWithValues((g.withThis(obj)) noArgsG))
+                return (this.callFnValueWithValues((g.withThisForCall(obj)) noArgsG))
             }
             if (g.isBuiltinMethod()) {
                 return (this.invokeBuiltin((g.builtinKindOf()) (g.builtinNameOf()) obj noArgsG))
@@ -17151,7 +17151,7 @@ class ComponentEngine {
                 def gFn:EvHandle (walk.getOwnGetter(key))
                 if (gFn.isFunction()) {
                     def noArgs:[EvHandle]
-                    return (this.callFnValueWithValues((gFn.withThis(desc)) noArgs))
+                    return (this.callFnValueWithValues((gFn.withThisForCall(desc)) noArgs))
                 }
             }
             ; A set-only accessor reads as undefined and does NOT fall through
@@ -18002,7 +18002,7 @@ class ComponentEngine {
                 def wgFn:EvHandle (wg.findGetter(name 0))
                 if (wgFn.isFunction()) {
                     def wgArgs:[EvHandle]
-                    return (this.callFnValueWithValues((wgFn.withThis(wg)) wgArgs))
+                    return (this.callFnValueWithValues((wgFn.withThisForCall(wg)) wgArgs))
                 }
             }
             if (wg.hasOwnData(name)) {
@@ -19498,7 +19498,7 @@ class ComponentEngine {
                         if (ownG.isFunction()) {
                             if (ownG.hasFunctionNode()) {
                                 def ownArgs:[EvHandle]
-                                return (this.callFnValueWithValues((ownG.withThis(obj)) ownArgs))
+                                return (this.callFnValueWithValues((ownG.withThisForCall(obj)) ownArgs))
                             }
                             ; D-ARGUMENTS: an OWN getter can be a BUILT-IN too --
                             ; the poisoned `callee` on a strict arguments object
@@ -19517,7 +19517,7 @@ class ComponentEngine {
                         if (gFn.isFunction()) {
                             if (gFn.hasFunctionNode()) {
                                 def noArgs:[EvHandle]
-                                def gBound:EvHandle (gFn.withThis(obj))
+                                def gBound:EvHandle (gFn.withThisForCall(obj))
                                 return (this.callFnValueWithValues(gBound noArgs))
                             }
                             ; D-REGEXACCESSOR: a getter can be a BUILT-IN with no
@@ -19669,7 +19669,7 @@ class ComponentEngine {
                         if (cgFn.isFunction()) {
                             if (cgFn.hasFunctionNode()) {
                                 def cgArgs:[EvHandle]
-                                return (this.callFnValueWithValues((cgFn.withThis(obj)) cgArgs))
+                                return (this.callFnValueWithValues((cgFn.withThisForCall(obj)) cgArgs))
                             }
                             ; D-REGEXACCESSOR: the computed form runs a built-in
                             ; getter too -- `re["source"]` is `re.source`.

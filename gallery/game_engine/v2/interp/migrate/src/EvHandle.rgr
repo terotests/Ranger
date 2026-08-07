@@ -7,7 +7,7 @@
 ; Migration (PLAN_SHAPES.md §7.5 E4e): thin engine handle around `body:EvalValue`.
 ; Collection / property / Function / Element / string / bool live on the shape.
 ; Shell left: numberValue + slotOwned (in-place i++), identityId hot-path cache
-; (also on Reference), EvValueHandles. Number `@(value)` blocks slotOwned on
+; (also on Reference). Number `@(value)` blocks slotOwned on
 ; the shape.
 
 Import "../../../evg/EVGElement.rgr"
@@ -494,7 +494,7 @@ class EvHandle {
     
 
     ; E4c: shape ↔ class. Primitives rebuild from scalar fields; refs return the
-    ; live `body` and register with EvValueHandles so Array.items can store
+    ; live `body` so Array.items can store
     ; EvalValue and still round-trip to the same class handle (===).
     fn toStored:EvalValue () {
         def _k:EvalValue body
@@ -516,8 +516,9 @@ class EvHandle {
         if (EvalValue.isBoolean(_k)) {
             return body
         }
-        ; Refs: return the live body. Factories / fromBody register the class
-        ; handle in EvValueHandles (do not pass `this` here — Rust codegen
+        ; Refs: return the live body. Identity rides IN the body, so a stored
+        ; value needs no side registry: fromBody mints a fresh wrapper around
+        ; the same shared case payload (do not pass `this` here — Rust codegen
         ; double-wraps Rc when `this` is an argument).
         return _k
     }
@@ -544,15 +545,9 @@ class EvHandle {
         case ev el:EvalValue.Element {
             def id:int el.identityId
             if (id > 0) {
-                def handles:EvValueHandles (EvValueHandles.__singleton())
-                def hit@(optional):EvHandle (handles.lookup(id))
-                if hit {
-                    return (unwrap hit)
-                }
                 def v:EvHandle (new EvHandle())
                 v.body = ev
                 v.identityId = id
-                handles.remember(v)
                 return v
             }
             return (EvHandle.element((unwrap el.element)))
@@ -560,15 +555,9 @@ class EvHandle {
         case ev a:EvalValue.Array {
             def id:int a.identityId
             if (id > 0) {
-                def handles2:EvValueHandles (EvValueHandles.__singleton())
-                def hit2@(optional):EvHandle (handles2.lookup(id))
-                if hit2 {
-                    return (unwrap hit2)
-                }
                 def v2:EvHandle (new EvHandle())
                 v2.body = ev
                 v2.identityId = id
-                handles2.remember(v2)
                 return v2
             }
             def items:[EvHandle]
@@ -580,15 +569,9 @@ class EvHandle {
         case ev o:EvalValue.Object {
             def id3:int o.identityId
             if (id3 > 0) {
-                def handles3:EvValueHandles (EvValueHandles.__singleton())
-                def hit3@(optional):EvHandle (handles3.lookup(id3))
-                if hit3 {
-                    return (unwrap hit3)
-                }
                 def v3:EvHandle (new EvHandle())
                 v3.body = ev
                 v3.identityId = id3
-                handles3.remember(v3)
                 return v3
             }
             return (EvHandle.object(([] _:string ()) ([] _:EvHandle ())))
@@ -597,15 +580,9 @@ class EvHandle {
             def id4:int f.identityId
             def c:EvFunctionCore (unwrap f.core)
             if (id4 > 0) {
-                def handles4:EvValueHandles (EvValueHandles.__singleton())
-                def hit4@(optional):EvHandle (handles4.lookup(id4))
-                if hit4 {
-                    return (unwrap hit4)
-                }
                 def v4:EvHandle (new EvHandle())
                 v4.body = ev
                 v4.identityId = id4
-                handles4.remember(v4)
                 return v4
             }
             return (EvHandle.nativeFunction(c.functionName))
@@ -613,15 +590,9 @@ class EvHandle {
         case ev m:EvalValue.Map {
             def id5:int m.identityId
             if (id5 > 0) {
-                def handles5:EvValueHandles (EvValueHandles.__singleton())
-                def hit5@(optional):EvHandle (handles5.lookup(id5))
-                if hit5 {
-                    return (unwrap hit5)
-                }
                 def v5:EvHandle (new EvHandle())
                 v5.body = ev
                 v5.identityId = id5
-                handles5.remember(v5)
                 return v5
             }
             return (EvHandle.mapEmpty())
@@ -629,15 +600,9 @@ class EvHandle {
         case ev st:EvalValue.Set {
             def id6:int st.identityId
             if (id6 > 0) {
-                def handles6:EvValueHandles (EvValueHandles.__singleton())
-                def hit6@(optional):EvHandle (handles6.lookup(id6))
-                if hit6 {
-                    return (unwrap hit6)
-                }
                 def v6:EvHandle (new EvHandle())
                 v6.body = ev
                 v6.identityId = id6
-                handles6.remember(v6)
                 return v6
             }
             return (EvHandle.setEmpty())
@@ -658,8 +623,6 @@ class EvHandle {
         }
         v.body = (EvalValue.arrayAt(id stored))
         v.identityId = id
-        def handles:EvValueHandles (EvValueHandles.__singleton())
-        handles.remember(v)
         return v
     }
 
@@ -669,8 +632,6 @@ class EvHandle {
         def id:int ((EvalIdentityMinter.__singleton()).mint())
         v.body = (EvalValue.mapEmptyAt(id))
         v.identityId = id
-        def handles:EvValueHandles (EvValueHandles.__singleton())
-        handles.remember(v)
         return v
     }
 
@@ -680,8 +641,6 @@ class EvHandle {
         def id:int ((EvalIdentityMinter.__singleton()).mint())
         v.body = (EvalValue.setEmptyAt(id))
         v.identityId = id
-        def handles:EvValueHandles (EvValueHandles.__singleton())
-        handles.remember(v)
         return v
     }
 
@@ -697,8 +656,6 @@ class EvHandle {
             }
             i = (i + 1)
         }
-        def handles:EvValueHandles (EvValueHandles.__singleton())
-        handles.remember(v)
         return v
     }
     
@@ -709,8 +666,6 @@ class EvHandle {
         v.identityId = id
         v.setFunctionNode(fnNode)
         v.setFnName(fnNode.name)
-        def handles:EvValueHandles (EvValueHandles.__singleton())
-        handles.remember(v)
         return v
     }
 
@@ -725,8 +680,6 @@ class EvHandle {
         v.body = (EvalValue.functionStubAt(id ""))
         v.identityId = id
         v.setFnName(name)
-        def handles:EvValueHandles (EvValueHandles.__singleton())
-        handles.remember(v)
         return v
     }
 
@@ -743,8 +696,6 @@ class EvHandle {
         core.functionName = name
         core.builtinKind = kind
         core.builtinName = name
-        def handles:EvValueHandles (EvValueHandles.__singleton())
-        handles.remember(v)
         return v
     }
 
@@ -760,8 +711,6 @@ class EvHandle {
         core.functionName = name
         core.builtinNamespace = ns
         core.builtinName = name
-        def handles:EvValueHandles (EvValueHandles.__singleton())
-        handles.remember(v)
         return v
     }
 
@@ -789,8 +738,6 @@ class EvHandle {
         v.setFunctionNode(fnNode)
         v.setFnName(fnNode.name)
         v.setBoundThis(thisVal)
-        def handles:EvValueHandles (EvValueHandles.__singleton())
-        handles.remember(v)
         return v
     }
 
@@ -799,12 +746,43 @@ class EvHandle {
     ; it is the receiver. Copies the closure/provenance fields, which a fresh
     ; boundMethod() would lose — dropping them would re-root the body in the
     ; wrong module scope.
+    ; PERF: the per-CALL bound clone. Dispatch (`o.m()`, getters, setters,
+    ; call/apply, callbacks) binds `this` for exactly one invocation and
+    ; never mutates the function's core -- so the core (name, node, SOURCE
+    ; TEXT, module) is SHARED with the original, and the clone costs a
+    ; binding plus a bag. The deep-copying withThis below stays for bind(),
+    ; which renames its result and so must own a private core. The deep copy
+    ; here charged a copy of the whole source text on every method call --
+    ; measured at 97% of a 5.7 GB Richards heap.
+    fn withThisForCall:EvHandle (recv:EvHandle) {
+        def _evBody:EvalValue body
+        case _evBody srcF:EvalValue.Function {
+            def sc:EvFunctionCore (unwrap srcF.core)
+            def srcB:EvFunctionBinding (unwrap srcF.binding)
+            def v:EvHandle (new EvHandle())
+            def id:int ((EvalIdentityMinter.__singleton()).mint())
+            def nb:EvFunctionBinding (new EvFunctionBinding())
+            nb.boundArgs = srcB.boundArgs
+            v.body = (EvalValue.functionSharedAt(id sc nb))
+            v.identityId = id
+            def ks:[string] (this.ownDataKeys())
+            for ks kk:string idx {
+                v.putOwnData(kk (this.getOwnData(kk)))
+            }
+            v.setSuppressed((this.copySuppressedMap()))
+            v.setBoundThis(recv)
+            if (this.hasProto()) {
+                v.setProto((this.protoOf()))
+            }
+            return v
+        }
+        return (this.withThis(recv))
+    }
+
     fn withThis:EvHandle (recv:EvHandle) {
         def v:EvHandle (new EvHandle())
         ; Fresh identity — a bound/rebound function is a distinct reference
-        ; (`f.bind(x) !== f`). Reusing the target's identityId made PropertyBag
-        ; round-trips (toStored/fromBody) recover the unbound original from
-        ; EvValueHandles and drop boundThis.
+        ; (`f.bind(x) !== f`).
         def id:int ((EvalIdentityMinter.__singleton()).mint())
         v.body = (EvalValue.functionStubAt(id (this.fnName())))
         v.identityId = id
@@ -843,8 +821,6 @@ class EvHandle {
         if (this.hasProto()) {
             v.setProto((this.protoOf()))
         }
-        def handles:EvValueHandles (EvValueHandles.__singleton())
-        handles.remember(v)
         return v
     }
 
@@ -853,8 +829,6 @@ class EvHandle {
         def id:int ((EvalIdentityMinter.__singleton()).mint())
         v.body = (EvalValue.elementAt(id el))
         v.identityId = id
-        def handles:EvValueHandles (EvValueHandles.__singleton())
-        handles.remember(v)
         return v
     }
 
@@ -2389,25 +2363,6 @@ class EvDispatchEpoch @singleton(true) {
     def n:int 1
     fn bump:void () {
         n = (n + 1)
-    }
-}
-
-class EvValueHandles @singleton(true) {
-    def byId:[int:EvHandle]
-    fn remember:void (v:EvHandle) {
-        def id:int (v.identityIdOf())
-        if (id > 0) {
-            set byId id v
-        }
-    }
-    fn lookup@(optional):EvHandle (id:int) {
-        if (has byId id) {
-            def hit:EvHandle (unwrap (get byId id))
-            def some@(optional):EvHandle hit
-            return some
-        }
-        def missing@(optional):EvHandle
-        return missing
     }
 }
 

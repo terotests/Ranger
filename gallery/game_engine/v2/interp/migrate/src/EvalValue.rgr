@@ -166,6 +166,13 @@ shape EvalValue {
         def b:EvFunctionBinding (new EvFunctionBinding())
         return (new EvalValue.Function(id props c b))
     }
+    ; A Function case that SHARES an existing core (name, node, source text,
+    ; module) and takes its own fresh binding. This is what lets a per-call
+    ; `this`-bound clone cost a binding instead of a copy of the whole core.
+    sfn functionSharedAt:EvalValue (id:int core:EvFunctionCore binding:EvFunctionBinding) {
+        def props:EvPropertyBag (new EvPropertyBag())
+        return (new EvalValue.Function(id props core binding))
+    }
 
     fn isNull:boolean () {
         case self n:EvalValue.Null {
