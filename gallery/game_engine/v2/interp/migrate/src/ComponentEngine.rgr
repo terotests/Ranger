@@ -2235,6 +2235,16 @@ class ComponentEngine {
         this.setCurrentSource(src)
         def ast:TSNode (this.parseProgramFromSrc(src))
         programAst = ast
+        ; A SyntaxError is a PARSE-time error: a script that does not parse does
+        ; not run at all -- the same rule `eval` and the `Function` constructor
+        ; already enforce below. Running the partial AST the recovery leaves
+        ; behind is how a malformed script (e.g. the Scheme-compiled
+        ; earley-boyer source) reached the evaluator and, on the value-vector
+        ; targets, allocated without bound where a clean early error was owed.
+        if (parser.errorCount > 0) {
+            this.throwSpecError("SyntaxError" "script contains syntax errors")
+            return
+        }
         ; D-STRICT: a program-level "use strict" applies to the whole script.
         strictMode = (this.bodyIsStrict(ast))
         ; Fresh module scope for this script; hostScope (registerGlobal) is kept.
