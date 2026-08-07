@@ -572,6 +572,20 @@ class EvalContext {
         }
         return child
     }
+
+    ; Strip everything a pooled frame could leak into its next call. The maps
+    ; are cleared IN PLACE — on C++ their tables keep capacity, which is the
+    ; point of pooling: a reused frame binds its parameters without a single
+    ; allocation.
+    fn resetForPool:void () {
+        map_clear bindings
+        map_clear slotNames
+        nullify withObject
+        nullify parent
+        nullify moduleRoot
+        isGlobalScope = false
+        isBlockScope = false
+    }
 }
 
 ; Reference holder for a captured closure scope. Stored in an array by index;
@@ -776,6 +790,11 @@ class ComponentEngine {
     ; environment rather than the call site.
     ; Indexed by closureId; append-only so the id stays a stable index.
     def closureScopes:[ClosureCell]
+    ; Reusable function-call frames. A frame goes back on this stack when the
+    ; call it served provably did not capture it: every way a context escapes
+    ; a call — a closure value, an `arguments` object's scope link — pushes a
+    ; ClosureCell, so "closureScopes did not grow" is the whole gate.
+    def ctxPool:[EvalContext]
 
     ; Cursor state for the recursive-descent JSON.parse (jsonParseValue advances
     ; jsonPos over jsonSrc). Only valid during a JSON.parse call.
@@ -7608,6 +7627,35 @@ class ComponentEngine {
         return (EvValueBridge.taggedArray(items))
     }
 
+    ; A pooled child frame: reuse a released one (its cleared maps keep their
+    ; tables on the native targets), or make a fresh child.
+    fn acquireFrame:EvalContext (parent:EvalContext) {
+        def n:int (array_length ctxPool)
+        if (n > 0) {
+            def reused:EvalContext (itemAt ctxPool (n - 1))
+            removeLast ctxPool
+            reused.parent = parent
+            if parent.moduleRoot {
+                def pmr:EvalContext (unwrap parent.moduleRoot)
+                reused.moduleRoot = pmr
+            } {
+                reused.moduleRoot = parent
+            }
+            return reused
+        }
+        return (parent.createChild())
+    }
+
+    ; Return a frame whose call did not capture it. The cap only bounds how
+    ; much cleared-map capacity idles between calls.
+    fn releaseFrame:void (frame:EvalContext) {
+        if ((array_length ctxPool) >= 64) {
+            return
+        }
+        frame.resetForPool()
+        push ctxPool frame
+    }
+
     fn callFnValueWithValues:EvHandle (fnValue:EvHandle argVals:[EvHandle]) {
         ; D-REGISTRY: a built-in extracted as a value (`var f = arr.slice`, or
         ; `Array.prototype.slice`) is invoked through the same dispatcher the
@@ -7703,7 +7751,10 @@ class ComponentEngine {
             }
         }
         currentModule = (fnValue.homeModuleOf())
-        context = (parent.createChild())
+        ; Pooled frame: closureScopes length is the capture gate (see ctxPool).
+        def framePoolMark:int (array_length closureScopes)
+        context = (this.acquireFrame((unwrap parent)))
+        def myFrame:EvalContext context
         if (fnValue.hasBoundThis()) {
             ; D-THISCOERCE: a SLOPPY function called with no receiver -- or with
             ; null/undefined through call/apply -- gets the GLOBAL OBJECT, and a
@@ -7814,6 +7865,9 @@ class ComponentEngine {
         currentModule = savedModule
         scriptDidReturn = savedDidReturn
         scriptReturnValue = savedReturnValue
+        if ((array_length closureScopes) == framePoolMark) {
+            this.releaseFrame((unwrap myFrame))
+        }
         return result
     }
 
@@ -18364,7 +18418,10 @@ class ComponentEngine {
             }
             currentModule = ""
         }
-        context = (parentScope.createChild())
+        ; Pooled frame: closureScopes length is the capture gate (see ctxPool).
+        def framePoolMark:int (array_length closureScopes)
+        context = (this.acquireFrame((unwrap parentScope)))
+        def myFrame:EvalContext context
         if hasThis {
             context.define("this" thisVal)
         }
@@ -18381,6 +18438,9 @@ class ComponentEngine {
         currentModule = savedModule
         scriptDidReturn = savedDidReturn
         scriptReturnValue = savedReturnValue
+        if ((array_length closureScopes) == framePoolMark) {
+            this.releaseFrame((unwrap myFrame))
+        }
         return result
     }
 

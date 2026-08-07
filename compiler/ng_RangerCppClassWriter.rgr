@@ -1746,7 +1746,11 @@ class RangerCppClassWriter {
     }
     if (cl.isSingletonClass()) {
       wr.out((("static " + (this.cppPtr(cl.name))) + " __singleton_instance;") true)
-      wr.out((("static " + (this.cppPtr(cl.name))) + " __singleton(") false)
+      ; Return the instance by CONST REFERENCE: the accessor sits on hot
+      ; paths (pooled constants read it per value), and a by-value return
+      ; charged a refcount pair per call. The instance is assigned once and
+      ; never cleared, so the reference cannot dangle.
+      wr.out((("static const " + (this.cppPtr(cl.name))) + "& __singleton(") false)
       if cl.has_constructor {
         def constr:RangerAppFunctionDesc cl.constructor_fn
         this.writeArgsDef((unwrap constr) ctx wr)
@@ -2169,7 +2173,7 @@ class RangerCppClassWriter {
     if (cl.isSingletonClass()) {
       ; Lazily-initialized process-wide singleton instance (matches JS/Swift).
       wr.out(((((this.cppPtr(cl.name)) + " ") + cl.name) + "::__singleton_instance = nullptr;") true)
-      wr.out(((((this.cppPtr(cl.name)) + " ") + cl.name) + "::__singleton(") false)
+      wr.out((((("const " + (this.cppPtr(cl.name))) + "& ") + cl.name) + "::__singleton(") false)
       if cl.has_constructor {
         def constr:RangerAppFunctionDesc cl.constructor_fn
         this.writeArgsDef((unwrap constr) ctx wr)

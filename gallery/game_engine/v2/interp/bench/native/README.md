@@ -148,18 +148,18 @@ started from a C++/QJS `array` ratio of 3451x:
 
 ```
 case      raw Node raw QuickJS   eng/ES6   eng/C++ | ES6/QJS   C++/QJS
-loop         0.490       0.506      20.1      14.2  |   39.7x     28.0x
-fib          0.348       0.532      27.5      26.8  |   51.7x     50.4x
-strcat       0.465       7.859       7.8       7.6  |    1.0x      1.0x
-array        1.114       1.172      31.5      18.3  |   26.9x     15.6x
-object       1.444       2.574      38.1      43.7  |   14.8x     17.0x
-method       1.467       2.965      62.8      52.1  |   21.2x     17.6x
-regex        1.380       4.484      41.4      63.2  |    9.2x     14.1x
-geomean      0.824       1.886      28.0      25.8  |   14.8x     13.7x
+loop         0.349       0.506      24.4      13.3  |   48.1x     26.2x
+fib          0.284       0.541      29.8      25.5  |   55.1x     47.2x
+strcat       0.537       8.438       7.9       7.6  |    0.9x      0.9x
+array        0.936       1.195      29.5      15.8  |   24.7x     13.3x
+object       1.461       2.602      35.4      38.6  |   13.6x     14.9x
+method       1.465       2.992      62.9      48.4  |   21.0x     16.2x
+regex        1.367       4.379      52.4      62.9  |   12.0x     14.4x
+geomean      0.760       1.914      29.6      24.2  |   15.4x     12.6x
 ```
 
-The C++ geomean against QuickJS went 63x → 13.7x over this work (the es6
-build: 20x → 14.8x). `strcat` is the row to stare at: the INTERPRETER now
+The C++ geomean against QuickJS went 63x → 12.6x over this work (the es6
+build: 20x → 15.4x). `strcat` is the row to stare at: the INTERPRETER now
 concatenates as fast as QuickJS runs the same loop natively, because qjs
 copies the accumulator per `+=` while the slot machinery appends in place.
 The `array` row's last big cut came from a CALL-SITE INLINE CACHE: a method
@@ -170,6 +170,22 @@ built-in prototype is minted, written or suppressed, and the per-call guards
 per-instance prototype) prove the full resolution would land in the same
 place — so `a.push(x)` skips the registry probes, the deleted/overridden
 checks and the name-compare chain, and goes straight to the store.
+
+Three C++-side taxes were cut after that table was first drawn:
+
+- **`-cpp-single-thread`** (build flag, see `build.sh`): handles ride a
+  `shared_ptr` whose control block is counted NON-atomically
+  (`__gnu_cxx::_S_single`). The interpreter has no second thread, and every
+  EvHandle copy was paying a lock-prefixed atomic pair.
+- **Singleton accessors return `const rg_ptr&`**: the constant pool and
+  dispatch epoch are read on every pooled value; returning the instance by
+  value charged a refcount round-trip per read.
+- **Call frames are POOLED**: a function call used to allocate an
+  `EvalContext` plus its two `rg_ordered_map` tables. A returned frame is
+  now reset (maps cleared IN PLACE, so their tables keep capacity) and
+  reused, gated on `closureScopes` length: if the call captured a closure,
+  the frame escaped and is simply not pooled. `fib` is the direct
+  beneficiary.
 
 ## What this folder is for
 

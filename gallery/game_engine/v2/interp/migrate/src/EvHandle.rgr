@@ -373,8 +373,7 @@ class EvHandle {
     ; are returned as shared singletons instead of allocating a new value every
     ; time. This removes the single largest source of interpreter allocations.
     sfn null:EvHandle () {
-        def pool:EvalConstPool (EvalConstPool.__singleton())
-        return pool.nullValue
+        return ((EvalConstPool.__singleton()).nullValue)
     }
 
     ; Allocating variants used to seed the shared constant pool.
@@ -403,8 +402,7 @@ class EvHandle {
     }
 
     sfn hole:EvHandle () {
-        def pool:EvalConstPool (EvalConstPool.__singleton())
-        return pool.holeValue
+        return ((EvalConstPool.__singleton()).holeValue)
     }
 
     ; True when this element is absent rather than undefined.
@@ -433,8 +431,7 @@ class EvHandle {
             def ni:int (to_int n)
             if ((to_double ni) == n) {
                 if ((ni != 0) || ((1.0 / n) > 0.0)) {
-                    def pool:EvalConstPool (EvalConstPool.__singleton())
-                    return (pool.smallInt(ni))
+                    return ((EvalConstPool.__singleton()).smallInt(ni))
                 }
             }
         }
@@ -445,8 +442,7 @@ class EvHandle {
 
     sfn fromInt:EvHandle (n:int) {
         if ((n >= 0) && (n < 4096)) {
-            def pool:EvalConstPool (EvalConstPool.__singleton())
-            return (pool.smallInt(n))
+            return ((EvalConstPool.__singleton()).smallInt(n))
         }
         def v:EvHandle (new EvHandle())
         v.setNumberOf((to_double n))
@@ -460,11 +456,10 @@ class EvHandle {
     }
     
     sfn boolean:EvHandle (b:boolean) {
-        def pool:EvalConstPool (EvalConstPool.__singleton())
         if b {
-            return pool.trueValue
+            return ((EvalConstPool.__singleton()).trueValue)
         }
-        return pool.falseValue
+        return ((EvalConstPool.__singleton()).falseValue)
     }
     
 
@@ -834,8 +829,7 @@ class EvHandle {
     }
 
     sfn undefined:EvHandle () {
-        def pool:EvalConstPool (EvalConstPool.__singleton())
-        return pool.undefinedValue
+        return ((EvalConstPool.__singleton()).undefinedValue)
     }
     
     ; Type checks — kind from body (shape EvalValue).

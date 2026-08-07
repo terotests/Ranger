@@ -2123,6 +2123,8 @@ class RangerRustClassWriter {
     if (n == "double_buffer_copy") { return true }
     if (n == "push") { return true }
     if (n == "str_append") { return true }
+    if (n == "map_clear") { return true }
+    if (n == "nullify") { return true }
     if (n == "set") { return true }
     if (n == "put") { return true }
     if (n == "insert") { return true }
@@ -4457,6 +4459,10 @@ class RangerRustClassWriter {
       header.out("    }" true)
       header.out("    fn keys(&self) -> impl Iterator<Item = &K> { self.entries.iter().map(|e| &e.0) }" true)
       header.out("    fn len(&self) -> usize { self.entries.len() }" true)
+      header.out("    fn clear(&mut self) {" true)
+      header.out("        self.entries.clear();" true)
+      header.out("        for s in self.index.iter_mut() { *s = -1; }" true)
+      header.out("    }" true)
       header.out("}" true)
       header.out("type HashMap<K, V> = RgOrderedMap<K, V>;" true)
       header.out("" true)

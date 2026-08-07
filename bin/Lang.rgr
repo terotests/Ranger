@@ -771,8 +771,19 @@ func _r_sha256(value string) string {
                 es6 ( (e 1) " = undefined;" nl)
                 java7 ( (e 1) " = null;" nl)
                 cpp ( (e 1) "= NULL;" nl)
-                go ( (e 1) " = nil;" nl )
+                ; Optionals ride a *GoNullable wrapper the constructor
+                ; allocates once; clearing means emptying the wrapper, never
+                ; nilling the wrapper pointer itself -- readers dereference it.
+                go ( (e 1) ".has_value = false; " (e 1) ".value = nil;" nl )
                 php ( 'unset(' (e 1) ');' nl)
+                kotlin ( (e 1) " = null" nl)
+                swift3 ( (e 1) " = nil" nl)
+                swift6 ( (e 1) " = nil" nl)
+                python ( (e 1) " = None" nl)
+                rust ( (e 1) " = None;" nl)
+                csharp ( (e 1) " = null;" nl)
+                dart ( (e 1) " = null;" nl)
+                scala ( (e 1) " = null" nl)
             }
         }
 
@@ -5326,20 +5337,42 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 * ( (e 1) ".length")
             }
         }
-        clear    _:void      ( array:[T] ) { 
+        clear    _:void      ( array:[T] ) {
             templates {
                  ranger ( "(clear " (e 1) ")")
-                 cpp ( (e 1) ".clear();" )                                                              
+                 cpp ( (e 1) ".clear();" )
                  swift3 ( (e 1) ".removeAll()")
                  swift6 ( (e 1) ".removeAll()")
                  php ( nl (e 1) " = array();" nl)
-                 java7 ( (e 1) ".clear();" )                                                              
+                 java7 ( (e 1) ".clear();" )
                  kotlin ( (e 1) ".clear()" )
                  dart ( (e 1) ".clear();" )
                  scala ( (e 1) ".clear()" )
                  go ( (e 1) " = " (e 1) "[:0]" )
                  rust ( (custom _) )
-                 * ( (e 1) ".length = 0;" nl )                                              
+                 * ( (e 1) ".length = 0;" nl )
+            }
+        }
+
+        ; Remove every entry of a map IN PLACE. On C++ this keeps the
+        ; rg_ordered_map's buffers (capacity survives a clear), which is what
+        ; makes pooled scopes reusable without re-allocating their tables.
+        map_clear    cmdMapClear:void      ( map@(mutates):[K:T] ) {
+            templates {
+                 ranger ( "(map_clear " (e 1) ")")
+                 cpp ( (e 1) ".clear();" )
+                 es6 ( (e 1) " = {};" )
+                 swift3 ( (e 1) ".removeAll()")
+                 swift6 ( (e 1) ".removeAll()")
+                 php ( nl (e 1) " = array();" nl)
+                 java7 ( (e 1) ".clear();" )
+                 kotlin ( (e 1) ".clear()" )
+                 dart ( (e 1) ".clear();" )
+                 scala ( (e 1) ".clear()" )
+                 go ( "for __mck := range " (e 1) " { delete(" (e 1) ", __mck) }" )
+                 python ( (e 1) ".clear()" )
+                 rust ( (e 1) ".clear();" )
+                 * ( (e 1) ".clear();" )
             }
         }
 

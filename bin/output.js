@@ -22754,7 +22754,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               };
               if ( cl.isSingletonClass() ) {
                 wr.out(("static " + this.cppPtr(cl.name)) + " __singleton_instance;", true);
-                wr.out(("static " + this.cppPtr(cl.name)) + " __singleton(", false);
+                wr.out(("static const " + this.cppPtr(cl.name)) + "& __singleton(", false);
                 if ( cl.has_constructor ) {
                   const constr_1 = cl.constructor_fn;
                   await this.writeArgsDef(constr_1, ctx, wr);
@@ -23126,7 +23126,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               wr.out("}", true);
               if ( cl.isSingletonClass() ) {
                 wr.out(((this.cppPtr(cl.name) + " ") + cl.name) + "::__singleton_instance = nullptr;", true);
-                wr.out(((this.cppPtr(cl.name) + " ") + cl.name) + "::__singleton(", false);
+                wr.out(((("const " + this.cppPtr(cl.name)) + "& ") + cl.name) + "::__singleton(", false);
                 if ( cl.has_constructor ) {
                   const constr_3 = cl.constructor_fn;
                   await this.writeArgsDef(constr_3, ctx, wr);
@@ -25001,6 +25001,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     return true;
                   }
                   if ( n == "str_append" ) {
+                    return true;
+                  }
+                  if ( n == "map_clear" ) {
+                    return true;
+                  }
+                  if ( n == "nullify" ) {
                     return true;
                   }
                   if ( n == "set" ) {
@@ -27035,6 +27041,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       header.out("    }", true);
                       header.out("    fn keys(&self) -> impl Iterator<Item = &K> { self.entries.iter().map(|e| &e.0) }", true);
                       header.out("    fn len(&self) -> usize { self.entries.len() }", true);
+                      header.out("    fn clear(&mut self) {", true);
+                      header.out("        self.entries.clear();", true);
+                      header.out("        for s in self.index.iter_mut() { *s = -1; }", true);
+                      header.out("    }", true);
                       header.out("}", true);
                       header.out("type HashMap<K, V> = RgOrderedMap<K, V>;", true);
                       header.out("", true);
@@ -48079,6 +48089,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           return true;
                         }
                         if ( n == "str_append" ) {
+                          return true;
+                        }
+                        if ( n == "map_clear" ) {
+                          return true;
+                        }
+                        if ( n == "nullify" ) {
                           return true;
                         }
                         if ( n == "set" ) {

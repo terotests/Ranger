@@ -39,8 +39,13 @@ EXTRA_ARGS=()
 if [ "$TARGET" = "llvm" ]; then
   EXTRA_ARGS=(-target=native-linux-gnu)
 fi
+# -cpp-single-thread: the interpreter is single-threaded, so handles ride a
+# non-atomically counted shared_ptr (rg_ptr) — without it every EvHandle copy
+# is a lock-prefixed atomic pair, a global tax with no thread to protect.
+# The flag is cpp-only and ignored elsewhere.
 RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l="$TARGET" \
-  "$SRC" -d="$OUT_DIR" -o=engine_bench."$EXT" -nodecli -native-fast-alloc "${EXTRA_ARGS[@]}"
+  "$SRC" -d="$OUT_DIR" -o=engine_bench."$EXT" -nodecli -native-fast-alloc \
+  -cpp-single-thread "${EXTRA_ARGS[@]}"
 
 case "$TARGET" in
   cpp)
