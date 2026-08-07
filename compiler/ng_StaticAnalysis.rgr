@@ -956,6 +956,22 @@ class StaticAnalyzer {
                   if ((strlen typeNode.array_type) > 0) {
                     isBufferOrArray = true
                   }
+                  ; A closed-family (union) parameter is a Rust enum passed by
+                  ; value — cloning it clones whichever variant it holds, and a
+                  ; by-value String case drags the whole string along. Read-only
+                  ; union params borrow instead; every call-site path already
+                  ; prefixes & for rust_borrow_type == 1.
+                  if (((strlen typeNode.array_type) == 0) && ((strlen typeNode.key_type) == 0)) {
+                    if (!null? ctx) {
+                      def bctxRoot:RangerAppWriterContext ((unwrap ctx).getRoot())
+                      if (bctxRoot.isDefinedClass(typeName)) {
+                        def bUnionCl:RangerAppClassDesc (bctxRoot.findClass(typeName))
+                        if bUnionCl.is_union {
+                          isBufferOrArray = true
+                        }
+                      }
+                    }
+                  }
                   ; NOTE: We intentionally do NOT include Object/VRef types here
                   ; because they may have optional fields that need as_mut().unwrap()
                   
@@ -1983,8 +1999,13 @@ class StaticAnalyzer {
           if (cvNode.hasFlag("optional")) {
             allScalar = false
           } {
+            ; A string is NOT scalar here (mirrors cppUnionValueCase): a
+            ; by-value String variant made every enum clone copy the whole
+            ; payload. Behind the member's Rc<RefCell> the clone is a pointer
+            ; bump; the generated __ops::equals still compares fields for
+            ; @(value) cases, so content equality is unaffected.
             def tn:string cvNode.type_name
-            def isScalar:boolean (((((tn == "int") || (tn == "double")) || (tn == "string")) || (tn == "boolean")) || (tn == "char"))
+            def isScalar:boolean ((((tn == "int") || (tn == "double")) || (tn == "boolean")) || (tn == "char"))
             if (isScalar == false) {
               allScalar = false
             }

@@ -59,18 +59,20 @@ honored everywhere, fib runs in ~85 ms.
 ms/run on this machine (reps=3 minus a reps=0 startup run, same subtraction
 `run.cjs` makes), next to the C++ build measured the same way the same day —
 after the union-copy reductions (kind checks pass `body` straight to the
-predicate; `build.sh` collapses the writer's stacked `.clone().clone()`
-pairs, each of which was a full extra copy of the value):
+predicate; read-only union parameters borrow instead of cloning; a
+string-bearing case is held behind the member's `Rc<RefCell>` in the enum so
+cloning the enum never clones the string; `build.sh` collapses the writer's
+stacked `.clone().clone()` pairs, each of which was a full extra copy):
 
 | case | rust | cpp |
 |---|---:|---:|
-| loop | 57 | 38 |
-| fib | 60 | 52 |
-| strcat | 211 | 120 |
-| array | 138 | 206 |
-| object | 90 | 85 |
-| method | 175 | 129 |
-| regex | 140 | 124 |
+| loop | 32 | 21 |
+| fib | 36 | 34 |
+| strcat | 95 | 84 |
+| array | 91 | 132 |
+| object | 50 | 53 |
+| method | 104 | 65 |
+| regex | 74 | 72 |
 
 Same league as C++ — ahead of it on `array`, behind on the string-heavy rows
 (`Rc<RefCell>` borrows plus owned `String` clones on every property key).

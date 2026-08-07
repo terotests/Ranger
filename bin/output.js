@@ -21503,7 +21503,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     allScalar = false;
                   } else {
                     const tn = cvNode.type_name;
-                    const isScalar = ((((tn == "int") || (tn == "double")) || (tn == "string")) || (tn == "boolean")) || (tn == "char");
+                    const isScalar = (((tn == "int") || (tn == "double")) || (tn == "boolean")) || (tn == "char");
                     if ( isScalar == false ) {
                       allScalar = false;
                     }
@@ -22396,6 +22396,32 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
               return false;
             };
+            cppReadonlyUnionParam (arg, ctx) {
+              if ( arg.set_cnt > 0 ) {
+                return false;
+              }
+              if ( arg.needs_cpp_reference ) {
+                return false;
+              }
+              if ( typeof(arg.nameNode) === "undefined" ) {
+                return false;
+              }
+              const typeNode = arg.nameNode;
+              if ( typeNode.hasFlag("optional") ) {
+                return false;
+              }
+              const tn = typeNode.type_name;
+              if ( (tn.length) == 0 ) {
+                return false;
+              }
+              if ( ctx.isDefinedClass(tn) ) {
+                const tc = ctx.findClass(tn);
+                if ( tc.is_union ) {
+                  return true;
+                }
+              }
+              return false;
+            };
             cppBorrowedObjectParam (fnDesc, arg, ctx) {
               if ( fnDesc.is_lambda ) {
                 return false;
@@ -22489,6 +22515,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
                 wr.out(" ", false);
                 let constRef = this.cppReadonlyValueParam(arg);
+                if ( constRef == false ) {
+                  constRef = this.cppReadonlyUnionParam(arg, ctx);
+                }
                 if ( constRef == false ) {
                   constRef = this.cppBorrowedObjectParam(fnDesc, arg, ctx);
                 }
@@ -50149,6 +50178,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                       if ( (typeNode.array_type.length) > 0 ) {
                                         isBufferOrArray = true;
                                       }
+                                      if ( ((typeNode.array_type.length) == 0) && ((typeNode.key_type.length) == 0) ) {
+                                        if ( (typeof(this.ctx) !== "undefined" && this.ctx != null )  ) {
+                                          const bctxRoot = ((this.ctx)).getRoot();
+                                          if ( bctxRoot.isDefinedClass(typeName) ) {
+                                            const bUnionCl = bctxRoot.findClass(typeName);
+                                            if ( bUnionCl.is_union ) {
+                                              isBufferOrArray = true;
+                                            }
+                                          }
+                                        }
+                                      }
                                       if ( isBufferOrArray ) {
                                         param.rust_borrow_type = 1;
                                         if ( this.debug ) {
@@ -50981,7 +51021,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 allScalar = false;
                               } else {
                                 const tn = cvNode.type_name;
-                                const isScalar = ((((tn == "int") || (tn == "double")) || (tn == "string")) || (tn == "boolean")) || (tn == "char");
+                                const isScalar = (((tn == "int") || (tn == "double")) || (tn == "boolean")) || (tn == "char");
                                 if ( isScalar == false ) {
                                   allScalar = false;
                                 }

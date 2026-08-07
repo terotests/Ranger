@@ -36,41 +36,51 @@ only guarded:
 
 ```
 case        node ms   js engine   cpp engine  |  js/node  cpp/node   cpp vs js
-loop          0.60        47.1         37.8  |      78x       63x       1.25x
-fib           0.53        42.2         51.8  |      80x       98x       0.82x
-strcat        0.48        27.9        120.4  |      58x      251x       0.23x
-array         1.53       116.5        205.6  |      76x      134x       0.57x
-object        2.54        64.2         85.3  |      25x       34x       0.75x
-method        2.33       108.5        128.7  |      47x       55x       0.84x
-regex         1.90        73.6        123.8  |      39x       65x       0.59x
-geometric mean vs Node:  js engine 54x,  cpp engine 82x
+loop          0.57        36.9         20.6  |      65x       36x       1.79x
+fib           0.45        34.5         33.6  |      77x       75x       1.02x
+strcat        0.57        21.0         83.9  |      37x      148x       0.25x
+array         1.30        87.2        131.9  |      67x      101x       0.66x
+object        1.84        51.3         52.7  |      28x       29x       0.97x
+method        1.77        83.7         65.2  |      47x       37x       1.28x
+regex         2.22        74.4         72.1  |      34x       33x       1.03x
+geometric mean vs Node:  js engine 47x,  cpp engine 54x
 ```
 
-Two copy killers took the C++ geomean from 190x to 82x over the course of
-this work. The value model still allocates per arithmetic result (see below),
-but the union itself no longer gets copied gratuitously: `EvHandle`'s kind
-checks and primitive accessors pass `body` straight to the static predicate
-instead of materialising a local copy first — for a String-bearing body each
-of those locals copied the whole string, which is why `strcat` was the worst
-row — and the Rust build collapses the writer's stacked `.clone().clone()`
-pairs (`build.sh` does it the way `fix_cpp_evalvalue_order.py` fixes the C++
-class order; each pair was a full extra copy of the value).
+The C++ build now WINS four of the seven rows against the JavaScript build
+(loop, fib, method, regex) and sits at 0.87x overall. It started this work at
+190x vs Node with a quadratic array row; the distance closed by refusing to
+copy the value union gratuitously, in four steps:
 
-The Rust build (`TARGET=rust bash build.sh`) now compiles and answers every
-workload identically as well — same league as C++, ahead of it on `array`,
-behind on the string-heavy rows. See `RUST.md` for the writer bugs that stood
-in the way, including the one that made recursion exponential.
+- `EvHandle`'s kind checks and primitive accessors pass `body` straight to
+  the static predicate instead of materialising a `def b:EvalValue body`
+  local first (each local was a full copy of the union).
+- Shape/union parameters that a function only reads pass as
+  `const r_union_X&` on C++ and `&union_X` on Rust instead of by value —
+  every kind predicate used to copy its argument.
+- A case that carries a string is now held BEHIND A POINTER in the variant
+  (`shared_ptr` / `Rc<RefCell>`), like the collection cases, instead of by
+  value: copying an `EvalValue` never copies a string payload again. Content
+  equality is untouched — the generated `__ops::equals` compares fields for
+  `@(value)` cases whatever their representation.
+- The Rust build collapses the writer's stacked `.clone().clone()` pairs in
+  `build.sh` (each pair was a full extra copy).
+
+The Rust build (`TARGET=rust bash build.sh`) compiles and answers every
+workload identically as well, within ~1.5x of C++ everywhere and ahead of it
+on `array`. See `RUST.md` for the writer bugs that stood in the way,
+including the one that made recursion exponential.
 
 (Numbers move with the machine; the ratios are the stable part. `-O3` was
 measured and is worth 0–4% — the cost is not instruction scheduling.)
 
-**The value model suits a tracing GC, not `malloc`.** Every `EvalValue` carries
-collection payloads, and one is allocated for every arithmetic result. On V8
-those are nursery allocations a generational collector sweeps in bulk. In C++
-each is a separate allocation freed by `shared_ptr` refcounting. The engine
-allocates the way a JavaScript program does because it *is* a JavaScript
-program; the C++ target pays list price for it. That is what the remaining
-~1.4x against the JavaScript build is.
+**The value model suits a tracing GC, not `malloc`.** Every reference
+`EvalValue` carries collection payloads, and a fresh value is allocated for
+every arithmetic result. On V8 those are nursery allocations a generational
+collector sweeps in bulk. In C++ each is a separate allocation freed by
+`shared_ptr` refcounting. The engine allocates the way a JavaScript program
+does because it *is* a JavaScript program; the C++ target pays list price for
+it. `strcat` is where that still shows: an immutable string rebuilt per
+concatenation with no rope representation behind it.
 
 **The array path used to be superlinear, and the scaling check watches it.**
 `EvHandle`'s storage writers (`arrPush`, `setIndexAt`, `mapSet`, `setAdd`,
@@ -84,8 +94,8 @@ linear:
 
 ```
 array scaling (20000 vs 10000 elements; 2x = linear)
-  js engine   116.5 / 69.9 = 1.67x
-  cpp engine  205.6 / 98.6 = 2.09x
+  js engine   87.2 / 43.4 = 2.01x
+  cpp engine  131.9 / 61.1 = 2.16x
 ```
 
 (The Rust build measures 1.95x on the same check.)
