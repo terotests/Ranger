@@ -194,21 +194,23 @@ Every engine runs the SAME prepared suite bodies. External engines
 | crypto | 41046 | 929 | 347 | FAIL | FAIL | FAIL |
 | raytrace | 57719 | 981 | 629 | FAIL | FAIL | FAIL |
 | navier-stokes | 39248 | 1623 | 1373 | FAIL | FAIL | FAIL |
-| earley-boyer | 66591 | 1530 | 684 | FAIL | FAIL* | FAIL* |
+| earley-boyer | 66591 | 1530 | 684 | FAIL | FAIL | FAIL |
 
 Four suites (richards, deltablue, splay, and — on es6 — regexp) produce a
 valid score on the Ranger engine. The other four fail the SAME way on every
 Ranger target, which locates them in the engine's semantics, not a target's
 lowering: crypto returns a wrong digest, raytrace renders the scene
 incorrectly, navier-stokes fails its checksum, and earley-boyer trips the
-engine's TS parser on the Scheme-compiled source (`TypeError: reading 'car'`
-on es6). `regexp` is the one target-specific split — see below.
+engine's TS parser on the Scheme-compiled source (leading-zero numeric keys
+in strict mode). `regexp` is the one target-specific split — see below.
 
-`*` earley-boyer on the native targets: the parser now *tokenizes* it in well
-under a second (was ~60 s — see the O(1) `at` cache), but evaluating the
-malformed AST the parse errors leave behind allocates unboundedly on the
-value-vector targets where es6 throws and stops. It is a broken suite on
-every engine; the native memory blow-up on the wreckage is not chased here.
+earley-boyer fails cleanly and fast on every target now — ~0.2 s on es6,
+~3 s on the natives (the parser tokenizes the 210 KB file quickly since the
+O(1) `at` cache, reports the syntax errors, and the script is rejected rather
+than run). Two earlier failure modes are gone: the ~60 s tokenizer hang (the
+O(n²) `at`) and the native ~15 GB allocation blow-up from evaluating the
+malformed post-recovery AST (a syntax-error script now throws instead of
+running — the rule `eval`/`Function` already followed).
 
 ### Binary size (stripped, this machine)
 
