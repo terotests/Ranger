@@ -835,6 +835,12 @@ class ComponentEngine {
     ; restored around every boundary crossing (module load, function/method call,
     ; construction); bare-name `new X()` resolves against the current module.
     def currentModule:string ""
+    ; D-SUPER: the class whose METHOD body is currently executing -- the
+    ; method's HOME class, which is what `super.m()` resolves against (its
+    ; PARENT), never the instance's own class: a method inherited two
+    ; levels down must still see its own superclass. Saved and restored
+    ; around every class-method invocation; "" outside one.
+    def currentHomeClass:string ""
     ; Survives loadScript(): skip tokenize+parse when path mtime is unchanged.
     def importAstCache:[CachedImportAst]
     
@@ -9167,6 +9173,17 @@ class ComponentEngine {
             
             ; Handle method calls (e.g., arr.map(), num.toFixed())
             if ((this.nodeKindOf(callee)) == 3) {
+                ; D-SUPER: `super.m(...)` is not a member call on a VALUE --
+                ; there is nothing to evaluate on the left. It resolves m on
+                ; the executing method's home-class PARENT chain and runs it
+                ; against the current `this`. Intercepted before the receiver
+                ; evaluation below, which would only manufacture undefined.
+                if callee.left {
+                    def supRecv:TSNode (unwrap callee.left)
+                    if (supRecv.nodeType == "Super") {
+                        return (this.callSuperMethod(node callee))
+                    }
+                }
                 ; Get the object and method name
                 def obj:EvHandle (EvValueBridge.taggedNull())
                 def methodName:string ""
@@ -9285,7 +9302,13 @@ class ComponentEngine {
                     def uCls:TSNode (this.classNodeForInstance(obj))
                     def uMethod:TSNode (this.findMethodOnClassNode(uCls methodName))
                     if (uMethod.nodeType == "MethodDefinition") {
-                        return (this.callUserFunctionNode(uMethod node.children obj true))
+                        ; D-SUPER: record the class this method was FOUND on so
+                        ; a `super.m()` in its body climbs from the right rung.
+                        def savedHomeU:string currentHomeClass
+                        currentHomeClass = (this.homeClassOfMethod(uCls uClsN methodName))
+                        def uRes:EvHandle (this.callUserFunctionNode(uMethod node.children obj true))
+                        currentHomeClass = savedHomeU
+                        return uRes
                     }
                     def uField:EvHandle (obj.getMember(methodName))
                     if (uField.isFunction()) {
@@ -18401,6 +18424,85 @@ class ComponentEngine {
 
     ; Run the base-class constructor against an instance under construction.
     ; Walks the chain so a three-deep hierarchy initialises every level.
+    ; The class the chain walk actually FINDS `methodName` on, starting at
+    ; `cls` (named `clsName`). This is the method's HOME class -- what its
+    ; own `super` must climb from.
+    fn homeClassOfMethod:string (cls:TSNode clsName:string methodName:string) {
+        def cur:TSNode cls
+        def curName:string clsName
+        def depth:int 0
+        while (depth < 16) {
+            if (null? cur.body) {
+                return curName
+            }
+            def body:TSNode (unwrap cur.body)
+            def i 0
+            while (i < (array_length body.children)) {
+                def m:TSNode (itemAt body.children i)
+                if (m.nodeType == "MethodDefinition") {
+                    if (m.name == methodName) {
+                        return curName
+                    }
+                }
+                i = (i + 1)
+            }
+            def supName:string (this.superClassNameOf(cur))
+            if ((strlen supName) == 0) {
+                return curName
+            }
+            def supCls:TSNode (this.classNodeByName(supName))
+            if ((this.nodeKindOf(supCls)) != 25) {
+                return curName
+            }
+            cur = supCls
+            curName = supName
+            depth = (depth + 1)
+        }
+        return curName
+    }
+
+    ; D-SUPER: `super.m(...)`. The search starts at the HOME class of the
+    ; method that is executing (falling back to the instance's class when no
+    ; register is set -- e.g. a method invoked through a stored value) and
+    ; resolves m from its PARENT upward. The found method runs with the
+    ; CURRENT `this`, and with the class it was found on as the home
+    ; register, so a further `super.m()` inside it keeps climbing.
+    fn callSuperMethod:EvHandle (node:TSNode callee:TSNode) {
+        def mName:string callee.name
+        if ((strlen mName) == 0) {
+            if callee.right {
+                def spn:TSNode (unwrap callee.right)
+                mName = spn.name
+                if ((strlen mName) == 0) {
+                    mName = spn.value
+                }
+            }
+        }
+        def selfV:EvHandle (context.lookup("this"))
+        def homeCls:string currentHomeClass
+        if ((strlen homeCls) == 0) {
+            homeCls = (this.instanceClassName(selfV))
+        }
+        def homeNode:TSNode (this.classNodeByName(homeCls))
+        if ((this.nodeKindOf(homeNode)) == 25) {
+            def supName:string (this.superClassNameOf(homeNode))
+            if ((strlen supName) > 0) {
+                def supCls:TSNode (this.classNodeByName(supName))
+                if ((this.nodeKindOf(supCls)) == 25) {
+                    def m:TSNode (this.findMethodOnClassNode(supCls mName))
+                    if (m.nodeType == "MethodDefinition") {
+                        def savedHome:string currentHomeClass
+                        currentHomeClass = (this.homeClassOfMethod(supCls supName mName))
+                        def r:EvHandle (this.callUserFunctionNode(m node.children selfV true))
+                        currentHomeClass = savedHome
+                        return r
+                    }
+                }
+            }
+        }
+        return (this.throwSpecError("TypeError" ("(intermediate value)." + (mName + " is not a function"))))
+    }
+
     fn runSuperConstructor:void (cls:TSNode inst:EvHandle argNodes:[TSNode] depth:int) {
         if (depth > 16) {
             return
@@ -18435,7 +18537,12 @@ class ComponentEngine {
         }
         def sCtor:TSNode (this.findConstructorOnClassNode(supCls))
         if (sCtor.nodeType == "MethodDefinition") {
+            ; D-SUPER: the base constructor's own class becomes the home
+            ; register while it runs.
+            def savedHomeS:string currentHomeClass
+            currentHomeClass = supName
             def _sr:EvHandle (this.callUserFunctionNode(sCtor argNodes inst true))
+            currentHomeClass = savedHomeS
         } {
             ; No explicit constructor: an implicit one just forwards upward.
             def nd:int (depth + 1)
@@ -19280,7 +19387,12 @@ class ComponentEngine {
         ; module); the body roots at the instance's home module via the tag.
         def ctor:TSNode (this.findConstructorOnClassNode(cls))
         if (ctor.nodeType == "MethodDefinition") {
+            ; D-SUPER: the constructor's home class, so `super.m()` in its
+            ; body climbs from this class's parent.
+            def savedHomeC:string currentHomeClass
+            currentHomeClass = cls.name
             def _r:EvHandle (this.callUserFunctionNode(ctor node.children inst true))
+            currentHomeClass = savedHomeC
         }
         return inst
     }
