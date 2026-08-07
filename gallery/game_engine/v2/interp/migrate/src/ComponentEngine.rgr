@@ -44,6 +44,15 @@ class CachedImportAst {
 ; =============================================================================
 class EvalContext {
     def bindings:[string:EvHandle]
+    ; PERF: PARAMETER SLOTS. A slot-safe function (plain named parameters,
+    ; no `arguments`/`eval`, no duplicates) binds its parameters into these
+    ; parallel vectors instead of the hash map: binding is a push, and a
+    ; read is a strcmp over one-to-four short names, which beats hashing.
+    ; Every name-based API on this class probes the vectors FIRST, so a
+    ; slot parameter behaves exactly like a map binding -- including for a
+    ; closure or eval that resolves it by name from a nested scope.
+    def paramNames:[string]
+    def paramVals:[EvHandle]
     ; The names this frame owns a private value SLOT for: hoisted `var`s whose
     ; body scan proved their value object never escapes the frame. Filled once
     ; per call from the memo on the body node. A name in here may have its
@@ -98,13 +107,53 @@ class EvalContext {
         return false
     }
 
+    ; The vector slot this name occupies, or -1. The empty-vector exit keeps
+    ; the probe free for every scope that carries no parameters (blocks,
+    ; module scopes, the global scope).
+    fn paramIdxOf:int (name:string) {
+        def pn:int (array_length paramNames)
+        if (pn == 0) {
+            return (0 - 1)
+        }
+        def pi:int 0
+        while (pi < pn) {
+            if ((itemAt paramNames pi) == name) {
+                return pi
+            }
+            pi = (pi + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; Bind a parameter into its vector slot. A duplicate name (sloppy
+    ; `function f(a, a)`) overwrites -- last one wins, as the map did.
+    fn bindParamSlot:void (name:string value:EvHandle) {
+        def bpi:int (this.paramIdxOf(name))
+        if (bpi >= 0) {
+            set paramVals bpi value
+            return
+        }
+        push paramNames name
+        push paramVals value
+    }
+
     fn define:void (name:string value:EvHandle) {
+        ; A hoisted var or function declaration that RE-declares a slot
+        ; parameter writes the slot, so reads keep one source of truth.
+        def dpi:int (this.paramIdxOf(name))
+        if (dpi >= 0) {
+            set paramVals dpi value
+            return
+        }
         set bindings name value
     }
 
     ; D-HOIST: is the name bound in THIS scope, ignoring the chain? Hoisting
     ; must not clobber a binding the frame already made (a parameter, say).
     fn hasOwnBinding:boolean (name:string) {
+        if ((this.paramIdxOf(name)) >= 0) {
+            return true
+        }
         return (has bindings name)
     }
     
@@ -125,6 +174,9 @@ class EvalContext {
                 return wo
             }
         }
+        if ((this.paramIdxOf(name)) >= 0) {
+            return (EvValueBridge.taggedNull())
+        }
         if (has bindings name) {
             return (EvValueBridge.taggedNull())
         }
@@ -141,10 +193,16 @@ class EvalContext {
     ; the RHS may create a nearer binding (an eval can), and the write must
     ; still land on the one the reference named.
     fn ownsBinding:boolean (name:string) {
+        if ((this.paramIdxOf(name)) >= 0) {
+            return true
+        }
         return (has bindings name)
     }
 
     fn contextOwning:EvalContext (name:string) {
+        if ((this.paramIdxOf(name)) >= 0) {
+            return this
+        }
         if (has bindings name) {
             return this
         }
@@ -164,6 +222,10 @@ class EvalContext {
             if (wo.hasOwnData(name)) {
                 return (wo.getOwnData(name))
             }
+        }
+        def lpi:int (this.paramIdxOf(name))
+        if (lpi >= 0) {
+            return (itemAt paramVals lpi)
         }
         ; Single map probe (avoids a second hasOwnProperty via `has` + `get`).
         def found@(optional):EvHandle (get bindings name)
@@ -190,6 +252,11 @@ class EvalContext {
                 return true
             }
         }
+        def api:int (this.paramIdxOf(name))
+        if (api >= 0) {
+            set paramVals api value
+            return true
+        }
         ; One lookup, not the has-then-set pair: this walks the scope chain on
         ; every assignment to an existing variable.
         if (RangerMem.mapPutIfPresent(bindings name value)) {
@@ -214,6 +281,15 @@ class EvalContext {
 
     ; Remove a binding from the nearest scope that owns it (parent chain walk).
     fn removeBinding:boolean (name:string) {
+        ; A removed slot keeps its position but loses its name: "" never
+        ; matches a real identifier, so has/lookup miss it exactly as they
+        ; miss a key deleted from the map.
+        def rpi:int (this.paramIdxOf(name))
+        if (rpi >= 0) {
+            set paramNames rpi ""
+            set paramVals rpi (EvValueBridge.taggedUndefined())
+            return true
+        }
         if (has bindings name) {
             def newBindings:[string:EvHandle]
             def keyList:[string] (keys bindings)
@@ -245,6 +321,9 @@ class EvalContext {
             if (wo.hasOwnData(name)) {
                 return true
             }
+        }
+        if ((this.paramIdxOf(name)) >= 0) {
+            return true
         }
         if (has bindings name) {
             return true
@@ -328,6 +407,9 @@ class EvalContext {
             }
             return false
         }
+        if ((this.paramIdxOf(name)) >= 0) {
+            return false
+        }
         if (has bindings name) {
             return false
         }
@@ -349,6 +431,9 @@ class EvalContext {
                     return c.numberValue
                 }
             }
+            return 0.0
+        }
+        if ((this.paramIdxOf(name)) >= 0) {
             return 0.0
         }
         if (has bindings name) {
@@ -373,6 +458,9 @@ class EvalContext {
             }
             return false
         }
+        if ((this.paramIdxOf(name)) >= 0) {
+            return false
+        }
         if (has bindings name) {
             return false
         }
@@ -393,6 +481,9 @@ class EvalContext {
                 def c:EvHandle (unwrap cur)
                 return (c.isString())
             }
+            return false
+        }
+        if ((this.paramIdxOf(name)) >= 0) {
             return false
         }
         if (has bindings name) {
@@ -431,6 +522,9 @@ class EvalContext {
             }
             return false
         }
+        if ((this.paramIdxOf(name)) >= 0) {
+            return false
+        }
         if (has bindings name) {
             return false
         }
@@ -447,6 +541,17 @@ class EvalContext {
         }
         if (has slotNames name) {
             return (this.bumpNumberInSlot(name delta))
+        }
+        ; A slot PARAMETER bumps by replacement: aliases keep the immutable
+        ; number they saw, exactly as the map path's minted replacement.
+        def bpp:int (this.paramIdxOf(name))
+        if (bpp >= 0) {
+            def bpv:EvHandle (itemAt paramVals bpp)
+            if (bpv.isNumber()) {
+                set paramVals bpp (EvValueBridge.taggedNumber((bpv.numberValue + delta)))
+                return true
+            }
+            return false
         }
         ; mapValueUnique already answers false for a key this scope does not
         ; hold, so the separate `has` probe it used to sit behind was a third
@@ -476,6 +581,11 @@ class EvalContext {
         if withObject {
             def noneW@(optional):EvHandle
             return noneW
+        }
+        def bop:int (this.paramIdxOf(name))
+        if (bop >= 0) {
+            def noneP@(optional):EvHandle
+            return noneP
         }
         def cur@(optional):EvHandle (get bindings name)
         if cur {
@@ -510,6 +620,11 @@ class EvalContext {
                 def noneW@(optional):EvHandle
                 return noneW
             }
+            def tdp:int (this.paramIdxOf(name))
+            if (tdp >= 0) {
+                def thit@(optional):EvHandle (itemAt paramVals tdp)
+                return thit
+            }
             return (get bindings name)
         }
         if parent {
@@ -525,6 +640,9 @@ class EvalContext {
     fn depthOfBinding:int (name:string) {
         if withObject {
             return (0 - 1)
+        }
+        if ((this.paramIdxOf(name)) >= 0) {
+            return 0
         }
         if (has bindings name) {
             return 0
@@ -547,6 +665,11 @@ class EvalContext {
                 def whit@(optional):EvHandle (wo.tryOwnData(name))
                 return whit
             }
+        }
+        def tlp:int (this.paramIdxOf(name))
+        if (tlp >= 0) {
+            def phit@(optional):EvHandle (itemAt paramVals tlp)
+            return phit
         }
         def found@(optional):EvHandle (get bindings name)
         if found {
@@ -580,6 +703,10 @@ class EvalContext {
     fn resetForPool:void () {
         map_clear bindings
         map_clear slotNames
+        while ((array_length paramNames) > 0) {
+            removeLast paramNames
+            removeLast paramVals
+        }
         nullify withObject
         nullify parent
         nullify moduleRoot
@@ -7453,9 +7580,56 @@ class ComponentEngine {
         return (unwrap cell.ctx)
     }
 
+    ; May this function's parameters ride the frame's slot VECTORS instead
+    ; of the bindings map? Requires every parameter to be a plain name (a
+    ; default initializer is fine -- it only reads names, and reads see the
+    ; vector), no duplicates, and no `arguments` in reach: the argument-
+    ; object machinery maps parameters BY NAME through the map, and the
+    ; existing scan already counts `eval` as reaching it. Arrows have no
+    ; `arguments` of their own, so only the shape checks apply to them.
+    fn paramSlotsOkFor:boolean (fnNode:TSNode) {
+        if fnNode.paramSlotScanned {
+            return fnNode.paramSlotsSafe
+        }
+        fnNode.paramSlotScanned = true
+        fnNode.paramSlotsSafe = false
+        if ((this.nodeKindOf(fnNode)) != 17) {
+            if (false == fnNode.argScanned) {
+                fnNode.argScanned = true
+                fnNode.usesArguments = (this.fnMentionsArguments(fnNode 0))
+            }
+            if fnNode.usesArguments {
+                return false
+            }
+        }
+        def np0:int (array_length fnNode.params)
+        def i0:int 0
+        while (i0 < np0) {
+            def p0:TSNode (itemAt fnNode.params i0)
+            if ((this.nodeKindOf(p0)) != 1) {
+                return false
+            }
+            if ((strlen p0.name) == 0) {
+                return false
+            }
+            def j0:int 0
+            while (j0 < i0) {
+                def q0:TSNode (itemAt fnNode.params j0)
+                if (q0.name == p0.name) {
+                    return false
+                }
+                j0 = (j0 + 1)
+            }
+            i0 = (i0 + 1)
+        }
+        fnNode.paramSlotsSafe = true
+        return true
+    }
+
     fn bindParamList:void (fnNode:TSNode argVals:[EvHandle]) {
         def np:int (array_length fnNode.params)
         def na:int (array_length argVals)
+        def useSlots:boolean (this.paramSlotsOkFor(fnNode))
         def pi:int 0
         while (pi < np) {
             def param:TSNode (itemAt fnNode.params pi)
@@ -7512,7 +7686,11 @@ class ComponentEngine {
                         v = (this.evaluateExpr((unwrap param.init)))
                     }
                 }
-                context.define(param.name v)
+                if useSlots {
+                    context.bindParamSlot(param.name v)
+                } {
+                    context.define(param.name v)
+                }
             }
             pi = (pi + 1)
         }

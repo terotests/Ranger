@@ -205,6 +205,16 @@ And a second profiling round (callgrind on `fib`) cut the call itself:
   casts, ...) one string compare at a time on every call. A pure
   predicate on the callee name stamps the node once; a name that CAN
   match keeps today's per-call behavior, shadowing checks included.
+- **Parameters ride SLOT VECTORS**: a slot-safe function (plain named
+  parameters, no duplicates, no `arguments`/`eval` in reach — memoised
+  scan) binds its parameters into two parallel vectors on the call frame
+  instead of the hash map. Binding is a push; a read is a strcmp over
+  one-to-four short names, which beats hashing. Every name-based scope
+  API probes the vectors first, so closures, `with`, eval and the
+  arguments machinery observe exactly what the map gave them — 34
+  targeted probes plus the conformance suite say so. Worth 4.4% of all
+  instructions on `fib` (callgrind), inside this box's ±10% timing noise
+  but visible in the count.
 
 ## What this folder is for
 
