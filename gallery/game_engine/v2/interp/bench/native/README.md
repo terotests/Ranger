@@ -140,6 +140,29 @@ The conformance score in `../../CONFORMANCE.md` — 6838/6839 — is still measu
 on the JavaScript build only; the native binary's guarantee is the seven
 answer-equality checks plus the canaries here, not that suite.
 
+## Against QuickJS
+
+`vs_quickjs.cjs` runs the same seven bodies through `qjs` (2021.03.27 here)
+and divides. The interesting column is the last one — the whole E4 review
+started from a C++/QJS `array` ratio of 3451x:
+
+```
+case      raw Node raw QuickJS   eng/ES6   eng/C++ | ES6/QJS   C++/QJS
+loop         0.450       0.583      25.8      18.7  |   44.3x     32.0x
+fib          0.358       0.606      36.0      35.5  |   59.4x     58.5x
+strcat       0.402       9.422       9.5      10.8  |    1.0x      1.1x
+array        1.201       1.422      54.7      34.9  |   38.5x     24.5x
+object       1.602       3.273      45.7      51.8  |   14.0x     15.8x
+method       1.707       3.793      77.1      65.8  |   20.3x     17.3x
+regex        1.548       5.313      56.7      76.9  |   10.7x     14.5x
+geomean      0.853       2.272      37.1      35.1  |   16.3x     15.4x
+```
+
+The C++ geomean against QuickJS went 63x → 15.4x over this work (the es6
+build: 20x → 16.3x). `strcat` is the row to stare at: the INTERPRETER now
+concatenates as fast as QuickJS runs the same loop natively, because qjs
+copies the accumulator per `+=` while the slot machinery appends in place.
+
 ## What this folder is for
 
 Not to claim a native speedup — there isn't one yet. It exists so that the
