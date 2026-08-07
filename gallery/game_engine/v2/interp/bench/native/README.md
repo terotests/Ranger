@@ -36,51 +36,68 @@ only guarded:
 
 ```
 case        node ms   js engine   cpp engine  |  js/node  cpp/node   cpp vs js
-loop          0.57        36.9         20.6  |      65x       36x       1.79x
-fib           0.45        34.5         33.6  |      77x       75x       1.02x
-strcat        0.57        21.0         83.9  |      37x      148x       0.25x
-array         1.30        87.2        131.9  |      67x      101x       0.66x
-object        1.84        51.3         52.7  |      28x       29x       0.97x
-method        1.77        83.7         65.2  |      47x       37x       1.28x
-regex         2.22        74.4         72.1  |      34x       33x       1.03x
-geometric mean vs Node:  js engine 47x,  cpp engine 54x
+loop          0.41        25.8         18.8  |      63x       46x       1.37x
+fib           0.36        40.8         35.0  |     113x       97x       1.17x
+strcat        0.55        9.89         9.91  |      18x       18x       1.00x
+array         1.14        48.4         35.0  |      42x       31x       1.38x
+object        1.68        44.7         53.9  |      27x       32x       0.83x
+method        1.69        78.6         67.1  |      47x       40x       1.17x
+regex         1.56        67.4         74.7  |      43x       48x       0.90x
+geometric mean vs Node:  js engine 43x,  cpp engine 40x
 ```
 
-The C++ build now WINS four of the seven rows against the JavaScript build
-(loop, fib, method, regex) and sits at 0.87x overall. It started this work at
-190x vs Node with a quadratic array row; the distance closed by refusing to
-copy the value union gratuitously, in four steps:
+The C++ build is now FASTER than the JavaScript build overall (1.10x) and
+wins five of the seven rows. It started this work at 190x vs Node with a
+quadratic array row. Two families of change closed the distance.
 
-- `EvHandle`'s kind checks and primitive accessors pass `body` straight to
-  the static predicate instead of materialising a `def b:EvalValue body`
-  local first (each local was a full copy of the union).
-- Shape/union parameters that a function only reads pass as
-  `const r_union_X&` on C++ and `&union_X` on Rust instead of by value —
-  every kind predicate used to copy its argument.
-- A case that carries a string is now held BEHIND A POINTER in the variant
-  (`shared_ptr` / `Rc<RefCell>`), like the collection cases, instead of by
-  value: copying an `EvalValue` never copies a string payload again. Content
-  equality is untouched — the generated `__ops::equals` compares fields for
-  `@(value)` cases whatever their representation.
-- The Rust build collapses the writer's stacked `.clone().clone()` pairs in
-  `build.sh` (each pair was a full extra copy).
+**The union stopped being copied gratuitously.** Kind checks and primitive
+accessors pass `body` straight to the static predicate; read-only shape
+parameters pass as `const r_union_X&` on C++ and `&union_X` on Rust; a case
+that carries a string rides behind a pointer in the variant like the
+collection cases (content equality is untouched — the generated
+`__ops::equals` compares fields for `@(value)` cases whatever their
+representation); and the Rust build collapses the writer's stacked
+`.clone().clone()` pairs in `build.sh`.
+
+**The interpreter stopped allocating results nobody reads.** The engine's
+slot analysis (a per-body escape scan) already proved which bindings never
+leak their value object; on top of it:
+
+- Loop tests (`i < 50000`, `j < a.length`) compare two doubles and mint
+  nothing — `evaluateCondBool` drives the relational through the transient
+  evaluator, whose admitted shapes may be re-evaluated on a fallback
+  without observable effect.
+- The transient evaluator now answers `a.length`, `s.length` and dense
+  in-bounds `a[j]` number reads without a value object OR a property-key
+  string. A monotone `everHadAccessor` flag on the property bag rules out
+  observable getters without minting the key; any miss (hole, non-number,
+  accessor history) falls back to the ordinary path.
+- `i++;` in statement position bumps the slot in place; the completion
+  value (observable only through `eval`, whose mention disables slots
+  altogether) comes from the interned small-int pool.
+- `s += "…"` on a proven-unshared string binding APPENDS IN PLACE through
+  the new `str_append` operator — amortized O(len) on C++/Rust's mutable
+  strings, `a = a + b` elsewhere, and the es6 build keeps V8's rope. That
+  is what took `strcat` from the worst row to parity: the escape scan
+  (extended to see that `.length` and index reads retain nothing) proves
+  the accumulator has no aliases, so the append cannot be observed.
 
 The Rust build (`TARGET=rust bash build.sh`) compiles and answers every
-workload identically as well, within ~1.5x of C++ everywhere and ahead of it
-on `array`. See `RUST.md` for the writer bugs that stood in the way,
-including the one that made recursion exponential.
+workload identically as well — strcat 12 ms, array 47, loop 19 on this
+machine. See `RUST.md` for the writer bugs that stood in the way, including
+the one that made recursion exponential.
 
 (Numbers move with the machine; the ratios are the stable part. `-O3` was
 measured and is worth 0–4% — the cost is not instruction scheduling.)
 
 **The value model suits a tracing GC, not `malloc`.** Every reference
 `EvalValue` carries collection payloads, and a fresh value is allocated for
-every arithmetic result. On V8 those are nursery allocations a generational
-collector sweeps in bulk. In C++ each is a separate allocation freed by
-`shared_ptr` refcounting. The engine allocates the way a JavaScript program
-does because it *is* a JavaScript program; the C++ target pays list price for
-it. `strcat` is where that still shows: an immutable string rebuilt per
-concatenation with no rope representation behind it.
+every arithmetic result the slot machinery cannot prove private. On V8 those
+are nursery allocations a generational collector sweeps in bulk. In C++ each
+is a separate allocation freed by `shared_ptr` refcounting. The engine
+allocates the way a JavaScript program does because it *is* a JavaScript
+program; the C++ target pays list price for it — which is why the remaining
+work is about not allocating at all rather than allocating faster.
 
 **The array path used to be superlinear, and the scaling check watches it.**
 `EvHandle`'s storage writers (`arrPush`, `setIndexAt`, `mapSet`, `setAdd`,
@@ -94,8 +111,8 @@ linear:
 
 ```
 array scaling (20000 vs 10000 elements; 2x = linear)
-  js engine   87.2 / 43.4 = 2.01x
-  cpp engine  131.9 / 61.1 = 2.16x
+  js engine   48.4 / 24.4 = 1.99x
+  cpp engine  35.0 / 18.9 = 1.85x
 ```
 
 (The Rust build measures 1.95x on the same check.)

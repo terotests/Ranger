@@ -72,6 +72,16 @@ class EvHandle {
         }
         return false
     }
+    ; Append to the backing string IN PLACE — amortized O(len(suffix)) where
+    ; the target string is mutable, one copy elsewhere. Only the slot
+    ; machinery calls this, and only on a handle it minted itself
+    ; (slotOwned): the escape scan proved nothing else can hold this body's
+    ; String case, so the mutation cannot be observed through an alias.
+    fn strSlotAppend:void (suffix:string) {
+        case body s:EvalValue.String {
+            str_append s.value suffix
+        }
+    }
     fn numberOf:double () {
         return numberValue
     }
@@ -1869,6 +1879,42 @@ class EvHandle {
         }
         return 0
     }
+    ; ---- Zero-mint dense probes for the transient evaluator -----------------
+    ; A dense in-bounds NUMBER element can be read as a bare double: no handle,
+    ; no property-key string. The two-step probe keeps the read allocation-free
+    ; on every target (an optional double does not lower portably).
+    fn denseIsNumberAt:boolean (i:int) {
+        case body a:EvalValue.Array {
+            if ((i >= 0) && (i < (array_length a.items))) {
+                def slot:EvalValue (itemAt a.items i)
+                return (EvalValue.isNumber(slot))
+            }
+        }
+        return false
+    }
+    fn denseNumberAt:double (i:int) {
+        case body a:EvalValue.Array {
+            if ((i >= 0) && (i < (array_length a.items))) {
+                def slot:EvalValue (itemAt a.items i)
+                case slot n:EvalValue.Number {
+                    return n.value
+                }
+            }
+        }
+        return 0.0
+    }
+    ; True once any accessor was EVER defined on this object's own bag —
+    ; monotone, so a false answer proves no own getter can exist under any key
+    ; and the hot read path may skip the probe (and its key-string mint).
+    fn ownAccessorsEver:boolean () {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return props.everHadAccessor
+        }
+        return false
+    }
+
     fn arrayItemAt:EvHandle (i:int) {
         def _k:EvalValue body
         if (EvalValue.isArrayValue(_k)) {

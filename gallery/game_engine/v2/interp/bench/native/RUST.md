@@ -66,13 +66,18 @@ stacked `.clone().clone()` pairs, each of which was a full extra copy):
 
 | case | rust | cpp |
 |---|---:|---:|
-| loop | 32 | 21 |
-| fib | 36 | 34 |
-| strcat | 95 | 84 |
-| array | 91 | 132 |
-| object | 50 | 53 |
-| method | 104 | 65 |
-| regex | 74 | 72 |
+| loop | 19 | 19 |
+| fib | 37 | 35 |
+| strcat | 12 | 10 |
+| array | 47 | 35 |
+| object | 45 | 54 |
+| method | 87 | 67 |
+| regex | 68 | 75 |
+
+(The strcat collapse — 95 → 12 — is the interpreter's slot machinery
+appending to a proven-unshared string IN PLACE through the new `str_append`
+operator, `String::push_str` on this target; the array drop is the transient
+evaluator answering dense `a[j]` number reads without a value object.)
 
 Same league as C++ — ahead of it on `array`, behind on the string-heavy rows
 (`Rc<RefCell>` borrows plus owned `String` clones on every property key).

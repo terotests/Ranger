@@ -2122,6 +2122,7 @@ class RangerRustClassWriter {
     if (n == "int_buffer_copy") { return true }
     if (n == "double_buffer_copy") { return true }
     if (n == "push") { return true }
+    if (n == "str_append") { return true }
     if (n == "set") { return true }
     if (n == "put") { return true }
     if (n == "insert") { return true }

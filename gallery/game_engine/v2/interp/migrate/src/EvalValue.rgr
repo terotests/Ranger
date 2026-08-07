@@ -288,6 +288,11 @@ class EvPropertyBag {
     ; method removed from a prototype). Lives on the bag so Object.prototype
     ; can record `delete Object.prototype.toString` without becoming a Function.
     def suppressedKeys:[string:boolean]
+    ; MONOTONE: true once ANY accessor was ever defined on this bag. Never
+    ; cleared (a deleted accessor leaves it set — conservative). Lets hot read
+    ; paths skip the per-key accessor probe, and its string-key mint, on the
+    ; overwhelmingly common accessor-free object.
+    def everHadAccessor:boolean false
 
     ; E4c: property-bag SoT. Value payload is EvalValue (avoids EvHandle import cycle).
     fn hasData:boolean (key:string) {
@@ -438,6 +443,7 @@ class EvPropertyBag {
         return (EvalValue.undefined())
     }
     fn putGetter:void (key:string g:EvalValue attrs:int) {
+        everHadAccessor = true
         def useAttrs:int attrs
         def s:EvalValue (EvalValue.hole())
         if (has slots key) {
@@ -454,6 +460,7 @@ class EvPropertyBag {
         set slots key slotN
     }
     fn putSetter:void (key:string s:EvalValue attrs:int) {
+        everHadAccessor = true
         def useAttrs:int attrs
         def g:EvalValue (EvalValue.hole())
         if (has slots key) {

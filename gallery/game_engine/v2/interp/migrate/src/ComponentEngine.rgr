@@ -383,6 +383,64 @@ class EvalContext {
         return false
     }
 
+    fn hasStringSlot:boolean (name:string) {
+        if withObject {
+            return false
+        }
+        if (has slotNames name) {
+            def cur@(optional):EvHandle (get bindings name)
+            if cur {
+                def c:EvHandle (unwrap cur)
+                return (c.isString())
+            }
+            return false
+        }
+        if (has bindings name) {
+            return false
+        }
+        if parent {
+            def p:EvalContext (unwrap parent)
+            return (p.hasStringSlot(name))
+        }
+        return false
+    }
+
+    ; Append to a slot STRING without rebuilding it: write through only an
+    ; object this slot minted, otherwise mint a private copy once and grow
+    ; that from then on — the same ownership rule setNumberInSlot applies.
+    ; This is what turns a `s += "…"` loop from O(n²) into O(n) on the
+    ; mutable-string targets.
+    fn appendStringInSlot:boolean (name:string suffix:string) {
+        if withObject {
+            return false
+        }
+        if (has slotNames name) {
+            def cur@(optional):EvHandle (get bindings name)
+            if cur {
+                def c:EvHandle (unwrap cur)
+                if (c.isString()) {
+                    if c.slotOwned {
+                        c.strSlotAppend(suffix)
+                        return true
+                    }
+                    def fresh:EvHandle (EvHandle.string(((c.stringOf()) + suffix)))
+                    fresh.slotOwned = true
+                    set bindings name fresh
+                    return true
+                }
+            }
+            return false
+        }
+        if (has bindings name) {
+            return false
+        }
+        if parent {
+            def p:EvalContext (unwrap parent)
+            return (p.appendStringInSlot(name suffix))
+        }
+        return false
+    }
+
     fn bumpNumberInPlace:boolean (name:string delta:double) {
         if withObject {
             return false
@@ -3618,6 +3676,42 @@ class ComponentEngine {
                 return false
             }
         }
+        ; A member READ retains nothing this analysis guards. In receiver
+        ; position the object is consulted (`a.length`, dense `a[j]`) and in
+        ; index position the value converts to a property key and is dropped;
+        ; neither stores the name's value object anywhere that outlives the
+        ; read. A plain `.foo` receiver stays an escape — a getter under that
+        ; key runs with the receiver as `this` and may capture it. (`length`
+        ; and index keys could meet a user getter only on a primitive's
+        ; prototype, where the engine already approximates `this` un-boxed.)
+        ; Without this rule `return s.length` cost `s` its slot, and
+        ; `t += a[j]` cost `j` its — the two shapes the slots exist for.
+        if (k == 3) {
+            if node.left {
+                def mel:TSNode (unwrap node.left)
+                if (this.identifierIs(mel name)) {
+                    if (false == node.computed) {
+                        if (node.name != "length") {
+                            return true
+                        }
+                    }
+                } {
+                    if (this.nameEscapesIn(mel name nd)) {
+                        return true
+                    }
+                }
+            }
+            if node.computed {
+                if node.right {
+                    def mei:TSNode (unwrap node.right)
+                    if (this.identifierIs(mei name)) {
+                        return false
+                    }
+                    return (this.nameEscapesIn(mei name nd))
+                }
+            }
+            return false
+        }
         ; Any other appearance of the bare name is an escape.
         if (k == 1) {
             if (node.name == name) {
@@ -3929,8 +4023,7 @@ class ComponentEngine {
             } {
                 def proceed:boolean true
                 if stmt.left {
-                    def testResult:EvHandle (this.evaluateExpr((unwrap stmt.left)))
-                    if ((testResult.toBool()) == false) {
+                    if ((this.evaluateCondBool((unwrap stmt.left))) == false) {
                         proceed = false
                     }
                 }
@@ -4075,8 +4168,7 @@ class ComponentEngine {
             } {
                 def proceed:boolean true
                 if stmt.left {
-                    def testResult:EvHandle (this.evaluateExpr((unwrap stmt.left)))
-                    if ((testResult.toBool()) == false) {
+                    if ((this.evaluateCondBool((unwrap stmt.left))) == false) {
                         proceed = false
                     }
                 }
@@ -4202,8 +4294,7 @@ class ComponentEngine {
                         } {
                             def proceed:boolean false
                             if stmt.left {
-                                def testResult:EvHandle (this.evaluateExpr((unwrap stmt.left)))
-                                if (testResult.toBool()) {
+                                if (this.evaluateCondBool((unwrap stmt.left))) {
                                     proceed = true
                                 }
                             }
@@ -5284,7 +5375,39 @@ class ComponentEngine {
 
         ; Handle UpdateExpression (i++, ++i) and AssignmentExpression (x = 1).
         if (seK == 7) {
-            completionValue = (this.evaluateAssignValue(node))
+            ; `i++;` as a STATEMENT on a slot number: bump in place, no chain
+            ; walks and no fresh value object for the new number. Only the
+            ; completion (observable through eval alone) still needs a value —
+            ; and small counters come out of the interned pool.
+            def upHandled:boolean false
+            if (false == anyWithScope) {
+                if node.left {
+                    def upL:TSNode (unwrap node.left)
+                    if ((this.nodeKindOf(upL)) == 1) {
+                        def upK:int (this.opKindOf(node))
+                        if ((upK == 17) || (upK == 18)) {
+                            if (context.hasNumberSlot(upL.name)) {
+                                def upD:double 1.0
+                                if (upK == 18) {
+                                    upD = (0.0 - 1.0)
+                                }
+                                def upOld:double (context.slotNumberOf(upL.name))
+                                if (context.setNumberInSlot(upL.name (upOld + upD))) {
+                                    if node.prefix {
+                                        completionValue = (EvValueBridge.taggedNumber((upOld + upD)))
+                                    } {
+                                        completionValue = (EvValueBridge.taggedNumber(upOld))
+                                    }
+                                    upHandled = true
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (upHandled == false) {
+                completionValue = (this.evaluateAssignValue(node))
+            }
             handledSE = true
         }
 
@@ -5304,8 +5427,16 @@ class ComponentEngine {
                 completionValue = (this.lookupIdentifier(seNm))
                 handledSE = true
             } {
-                completionValue = (this.evaluateAssignValue(node))
-                handledSE = true
+                ; `s += "…"` on a slot STRING appends in place — the step that
+                ; turns the concat loop linear on the mutable-string targets.
+                if (this.assignStringInSlot(node)) {
+                    def seLhsS:TSNode (unwrap node.left)
+                    completionValue = (this.lookupIdentifier(seLhsS.name))
+                    handledSE = true
+                } {
+                    completionValue = (this.evaluateAssignValue(node))
+                    handledSE = true
+                }
             }
         }
 
@@ -6380,6 +6511,25 @@ class ComponentEngine {
         def k:int (this.nodeKindOf(node))
         if (k == 1) { return true }
         if (k == 2) { return true }
+        ; A member read qualifies when re-evaluating it cannot fire an effect:
+        ; the receiver is a bare name and the read is either `.length` or a
+        ; computed index whose expression qualifies itself. Whether the read
+        ; really is a pure dense-element/length hit is decided AT RUNTIME
+        ; (array-ness, bounds, no own accessors); any miss falls back to the
+        ; ordinary evaluator, which may evaluate these operands again — safe
+        ; for exactly this shape.
+        if (k == 3) {
+            if node.left { } { return false }
+            def mrecv:TSNode (unwrap node.left)
+            if ((this.nodeKindOf(mrecv)) != 1) {
+                return false
+            }
+            if node.computed {
+                if node.right { } { return false }
+                return (this.transientOperandOk((unwrap node.right) (depth + 1)))
+            }
+            return (node.name == "length")
+        }
         if (k != 5) {
             return false
         }
@@ -6395,11 +6545,132 @@ class ComponentEngine {
         return (this.transientOperandOk((unwrap node.right) nd))
     }
 
+    ; A transient-admitted MEMBER read, tried as a pure numeric fast hit:
+    ; `a.length` / `s.length` as a bare count, `a[j]` as a dense in-bounds
+    ; NUMBER element of an accessor-free array. Returns the node's slot value
+    ; on a hit; on any miss the caller re-evaluates through the ordinary
+    ; path, which is safe because admission allowed only effect-free shapes.
+    fn tryTransientMemberNumber@(optional):EvHandle (node:TSNode) {
+        def none@(optional):EvHandle
+        if node.left { } { return none }
+        def mrecv:TSNode (unwrap node.left)
+        def base:EvHandle (this.lookupIdentifier(mrecv.name))
+        if scriptThrew {
+            return none
+        }
+        if (false == node.computed) {
+            ; .length of an array (dense or declared) or a string
+            if (base.isArray()) {
+                def lenHit@(optional):EvHandle (this.exprSlotNumber(node (to_double (base.arrayLength()))))
+                return lenHit
+            }
+            if (base.isString()) {
+                def slenHit@(optional):EvHandle (this.exprSlotNumber(node (to_double (strlen (base.stringOf())))))
+                return slenHit
+            }
+            return none
+        }
+        if node.right { } { return none }
+        def idxV:EvHandle (this.evaluateExprTransient((unwrap node.right)))
+        if scriptThrew {
+            return none
+        }
+        if (false == (idxV.isNumber())) {
+            return none
+        }
+        def idxD:double idxV.numberValue
+        def idx:int (to_int idxD)
+        if ((to_double idx) != idxD) {
+            return none
+        }
+        if (false == (base.isArray())) {
+            return none
+        }
+        ; An own accessor under a numeric key would make this read observable;
+        ; the monotone bag flag rules that out without minting the key string.
+        ; A dense NUMBER hit also shadows any prototype accessor by spec.
+        if (base.ownAccessorsEver()) {
+            return none
+        }
+        if (false == (base.denseIsNumberAt(idx))) {
+            return none
+        }
+        def elemHit@(optional):EvHandle (this.exprSlotNumber(node (base.denseNumberAt(idx))))
+        return elemHit
+    }
+
+    ; A loop test evaluated straight to a boolean. The hot shape — a
+    ; relational or equality over transient-admitted numeric operands
+    ; (`i < 50000`, `j < a.length`) — compares two doubles and mints
+    ; nothing. Everything else takes the ordinary evaluator; the fallback
+    ; may re-evaluate the operands, which admission made effect-free.
+    fn evaluateCondBool:boolean (node:TSNode) {
+        if (false == anyWithScope) {
+            if ((this.nodeKindOf(node)) == 5) {
+                def cop:string node.value
+                def copK:int 0
+                if (cop == "<") { copK = 1 }
+                if (cop == "<=") { copK = 2 }
+                if (cop == ">") { copK = 3 }
+                if (cop == ">=") { copK = 4 }
+                if (cop == "==") { copK = 5 }
+                if (cop == "===") { copK = 5 }
+                if (cop == "!=") { copK = 6 }
+                if (cop == "!==") { copK = 6 }
+                if (copK > 0) {
+                    if node.left {
+                    if node.right {
+                        def cl:TSNode (unwrap node.left)
+                        def cr:TSNode (unwrap node.right)
+                        if ((this.transientOperandOk(cl 0)) && (this.transientOperandOk(cr 0))) {
+                            def clv:EvHandle (this.evaluateExprTransient(cl))
+                            if scriptThrew {
+                                return false
+                            }
+                            if (clv.isNumber()) {
+                                def crv:EvHandle (this.evaluateExprTransient(cr))
+                                if scriptThrew {
+                                    return false
+                                }
+                                if (crv.isNumber()) {
+                                    def ca:double clv.numberValue
+                                    def cb:double crv.numberValue
+                                    if (copK == 1) { return (ca < cb) }
+                                    if (copK == 2) { return (ca <= cb) }
+                                    if (copK == 3) { return (ca > cb) }
+                                    if (copK == 4) { return (ca >= cb) }
+                                    if (copK == 5) { return (ca == cb) }
+                                    return (ca != cb)
+                                }
+                            }
+                        }
+                    }
+                    }
+                }
+            }
+        }
+        def condV:EvHandle (this.evaluateExpr(node))
+        return (condV.toBool())
+    }
+
     fn evaluateExprTransient:EvHandle (node:TSNode) {
         if anyWithScope {
             return (this.evaluateExpr(node))
         }
-        if ((this.nodeKindOf(node)) != 5) {
+        def tk:int (this.nodeKindOf(node))
+        if (tk == 3) {
+            if (this.transientOperandOk(node 0)) {
+                def mHit@(optional):EvHandle (this.tryTransientMemberNumber(node))
+                if mHit {
+                    return (unwrap mHit)
+                }
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+            }
+            return (this.evaluateExpr(node))
+        }
+        if (tk != 5) {
             return (this.evaluateExpr(node))
         }
         if ((this.transientOperandOk(node 0)) == false) {
@@ -6475,10 +6746,13 @@ class ComponentEngine {
         ; still lands in the slot when it is a number.
         ; Only a BINARY right-hand side can hold intermediates worth slotting;
         ; `s += i` goes straight to the ordinary evaluator, so the common shape
-        ; pays nothing for the check.
+        ; pays nothing for the check. A MEMBER read joins it: `t += a[j]` is a
+        ; dense-element hit the transient path answers without a handle or a
+        ; property-key string.
         def rhs:TSNode (unwrap node.right)
         def rv:EvHandle (EvValueBridge.taggedUndefined())
-        if ((this.nodeKindOf(rhs)) == 5) {
+        def rhsK:int (this.nodeKindOf(rhs))
+        if ((rhsK == 5) || (rhsK == 3)) {
             rv = (this.evaluateExprTransient(rhs))
         } {
             rv = (this.evaluateExpr(rhs))
@@ -6510,6 +6784,57 @@ class ComponentEngine {
         if (opK == 4) { out = (cur * rv.numberValue) }
         if (opK == 5) { out = (cur / rv.numberValue) }
         return (context.setNumberInSlot(nm out))
+    }
+
+    ; `name += <expr>` in STATEMENT position where the target holds a slot
+    ; STRING: append in place. Mirrors assignNumberInSlot — returns false
+    ; only BEFORE the right-hand side has run, so the caller can fall through
+    ; to the general path without evaluating anything twice.
+    fn assignStringInSlot:boolean (node:TSNode) {
+        if anyWithScope {
+            return false
+        }
+        if node.left { } {
+            return false
+        }
+        def lhs:TSNode (unwrap node.left)
+        if ((this.nodeKindOf(lhs)) != 1) {
+            return false
+        }
+        ; `+=` only: on a string every other compound op is a ToNumber dance.
+        if ((this.opKindOf(node)) != 2) {
+            return false
+        }
+        def nm:string lhs.name
+        if (false == (context.hasStringSlot(nm))) {
+            return false
+        }
+        if node.right { } {
+            return false
+        }
+        ; From here on the RHS runs exactly once and this function finishes
+        ; the assignment itself, whatever the value turns out to be.
+        def rv:EvHandle (this.evaluateExpr((unwrap node.right)))
+        if scriptThrew {
+            return true
+        }
+        if (rv.isString()) {
+            if (context.appendStringInSlot(nm (rv.stringOf()))) {
+                return true
+            }
+        }
+        ; Not a plain string-to-string append after all (a number RHS, an
+        ; object with a toPrimitive): finish with the value in hand.
+        def curV:EvHandle (this.lookupIdentifier(nm))
+        if scriptThrew {
+            return true
+        }
+        def resV:EvHandle (this.applyAssignOp(2 curV rv))
+        if scriptThrew {
+            return true
+        }
+        def _ok:boolean (context.assignExisting(nm resV))
+        return true
     }
 
     fn evaluateAssignValue:EvHandle (node:TSNode) {

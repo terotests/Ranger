@@ -25000,6 +25000,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   if ( n == "push" ) {
                     return true;
                   }
+                  if ( n == "str_append" ) {
+                    return true;
+                  }
                   if ( n == "set" ) {
                     return true;
                   }
@@ -48073,6 +48076,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           return true;
                         }
                         if ( n == "push" ) {
+                          return true;
+                        }
+                        if ( n == "str_append" ) {
                           return true;
                         }
                         if ( n == "set" ) {
