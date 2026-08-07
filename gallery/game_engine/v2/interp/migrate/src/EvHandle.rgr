@@ -184,6 +184,15 @@ class EvHandle {
         def c:EvFunctionCore (this.fnCore())
         c.homeModule = s
     }
+    ; PERF: presence probe without copying the name out.
+    fn hasHomeModule:boolean () {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
+            def c:EvFunctionCore (unwrap f.core)
+            return ((strlen c.homeModule) > 0)
+        }
+        return false
+    }
 
     fn srcTextOf:string () {
         def _evBody:EvalValue body
@@ -196,6 +205,27 @@ class EvHandle {
     fn setSrcText:void (s:string) {
         def c:EvFunctionCore (this.fnCore())
         c.srcText = s
+    }
+    ; PERF: presence probe without copying the text out.
+    fn hasSrcText:boolean () {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
+            def c:EvFunctionCore (unwrap f.core)
+            return ((strlen c.srcText) > 0)
+        }
+        return false
+    }
+    fn srcIdOf:int () {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
+            def c:EvFunctionCore (unwrap f.core)
+            return c.srcId
+        }
+        return 0
+    }
+    fn setSrcId:void (v:int) {
+        def c:EvFunctionCore (this.fnCore())
+        c.srcId = v
     }
 
     fn builtinKindOf:string () {

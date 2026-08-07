@@ -586,6 +586,10 @@ class EvFunctionCore {
     def closureId:int (0 - 1)
     def homeModule:string ""
     def srcText:string ""
+    ; Identity of srcText among the engine's source registers: two equal ids
+    ; mean the same TEXT, so a call whose callee shares the caller's source
+    ; skips the save/set/restore string copies entirely. 0 = unstamped.
+    def srcId:int 0
     def builtinKind:string ""
     def builtinName:string ""
     def builtinNamespace:string ""

@@ -621,6 +621,12 @@ class ComponentEngine {
     ; duration of an eval / Function() body / imported file, so a function value
     ; captured in there records the string its own start/end offsets index into.
     def currentSource:string ""
+    ; PERF: identity of currentSource. Every NEW text register mints a fresh
+    ; id, a captured function is stamped with the id of the text it recorded,
+    ; and a call whose callee carries the id already in effect skips the
+    ; whole-source save/set/restore copies (three per call otherwise).
+    def currentSrcId:int 0
+    def nextSrcId:int 1
     ; D-DATE: the realm's clock, in milliseconds since the epoch. Nothing in the
     ; interpreter reads a host clock -- doing so would make every Date result
     ; irreproducible and would tie the realm to one compilation target -- so
@@ -863,6 +869,21 @@ class ComponentEngine {
         if (quiet == false) {
             print msg
         }
+    }
+
+    ; PERF: register a NEW source text. The id changes whenever the text
+    ; does, which is what lets the call path compare ints instead of
+    ; copying whole scripts around (see currentSrcId).
+    fn setCurrentSource:void (src:string) {
+        currentSource = src
+        currentSrcId = nextSrcId
+        nextSrcId = (nextSrcId + 1)
+    }
+
+    ; Stamp a captured function value with the text in effect and its id.
+    fn stampSrcOn:void (fv:EvHandle) {
+        fv.setSrcText(currentSource)
+        fv.setSrcId(currentSrcId)
     }
     
     Constructor () {
@@ -1129,7 +1150,7 @@ class ComponentEngine {
         this.upsertLocalComponent(sym)
         def __fnv:EvHandle (EvValueBridge.taggedFunction(fnNode))
         __fnv.setStrictFn((this.strictForBody(fnNode)))
-        __fnv.setSrcText(currentSource)
+        this.stampSrcOn(__fnv)
         this.defineModuleBinding(localName __fnv)
         this.trace("Imported: " + localName + " (" + exportName + ") from " + sourcePath)
     }
@@ -1210,7 +1231,7 @@ class ComponentEngine {
     fn parse:EVGElement (src:string) {
         this.resetParseState()
         source = src
-        currentSource = src
+        this.setCurrentSource(src)
         
         ; Tokenize and parse
         def lexer (new TSLexer(src))
@@ -1530,7 +1551,7 @@ class ComponentEngine {
         while (i < (array_length node.children)) {
             def argNode:TSNode (itemAt node.children i)
             ; Spread a call argument: f(...xs) expands the array's elements.
-            if (argNode.nodeType == "SpreadElement") {
+            if ((this.nodeKindOf(argNode)) == 47) {
                 def sv:EvHandle (EvValueBridge.taggedNull())
                 if argNode.left {
                     sv = (this.evaluateExpr((unwrap argNode.left)))
@@ -1840,12 +1861,14 @@ class ComponentEngine {
                 ; gets the global object. The ambient flag is set aside for the
                 ; capture so `strictForBody` reads the body alone.
                 def savedFnSrc:string currentSource
+                def savedFnSrcId:int currentSrcId
                 def savedFnStrict:boolean strictMode
-                currentSource = src
+                this.setCurrentSource(src)
                 strictMode = false
                 def built:EvHandle (this.captureClosure(decl))
                 strictMode = savedFnStrict
                 currentSource = savedFnSrc
+                currentSrcId = savedFnSrcId
                 return built
             }
         }
@@ -1858,9 +1881,11 @@ class ComponentEngine {
         ; body has several exits, so the swap is done around the call rather
         ; than inside it.
         def savedEvalSrc:string currentSource
-        currentSource = src
+        def savedEvalSrcId:int currentSrcId
+        this.setCurrentSource(src)
         def evOut:EvHandle (this.runEvalSourceIn(src))
         currentSource = savedEvalSrc
+        currentSrcId = savedEvalSrcId
         return evOut
     }
 
@@ -2002,7 +2027,7 @@ class ComponentEngine {
         ; existed the moment anything else touched it.
         this.ensureErrorCtors()
         source = src
-        currentSource = src
+        this.setCurrentSource(src)
         def ast:TSNode (this.parseProgramFromSrc(src))
         programAst = ast
         ; D-STRICT: a program-level "use strict" applies to the whole script.
@@ -2127,7 +2152,7 @@ class ComponentEngine {
             return false
         }
         source = src
-        currentSource = src
+        this.setCurrentSource(src)
         programAst = newAst
         this.clearLocalComponents()
         this.clearImportState()
@@ -2147,7 +2172,7 @@ class ComponentEngine {
                             this.updateLocalComponentNode(ch.name fnNode)
                             def __fnv:EvHandle (EvValueBridge.taggedFunction(fnNode))
                             __fnv.setStrictFn((this.strictForBody(fnNode)))
-                            __fnv.setSrcText(currentSource)
+                            this.stampSrcOn(__fnv)
                             moduleScope.define(ch.name __fnv)
                             this.trace("Patched function: " + ch.name)
                         }
@@ -2501,7 +2526,7 @@ class ComponentEngine {
             if (node.name != "render") {
                 def __fnv:EvHandle (EvValueBridge.taggedFunction(node))
                 __fnv.setStrictFn((this.strictForBody(node)))
-                __fnv.setSrcText(currentSource)
+                this.stampSrcOn(__fnv)
                 this.defineModuleBinding(node.name __fnv)
             }
             return
@@ -2700,7 +2725,7 @@ class ComponentEngine {
         this.upsertLocalComponent(sym)
         def __fnv:EvHandle (EvValueBridge.taggedFunction(node))
         __fnv.setStrictFn((this.strictForBody(node)))
-        __fnv.setSrcText(currentSource)
+        this.stampSrcOn(__fnv)
         this.defineModuleBinding(node.name __fnv)
         this.trace("Registered local component: " + node.name)
     }
@@ -4624,10 +4649,16 @@ class ComponentEngine {
     ; string of a Binary/Assignment/Update/Unary expression is compared
     ; against up to forty literals per evaluation. Computed once per node,
     ; memoised, integer compares after that. 0 = unscanned, 99 = other.
+    ; PERF: same split as nodeKindOf below -- the memo hit inlines, the
+    ; string-compare chain runs once per node.
     fn opKindOf:int (node:TSNode) {
         if (node.evalOpKind > 0) {
             return node.evalOpKind
         }
+        return (this.opKindScan(node))
+    }
+
+    fn opKindScan:int (node:TSNode) {
         def ov:string node.value
         if (ov == "=") { node.evalOpKind = 1
             return 1
@@ -4777,10 +4808,19 @@ class ComponentEngine {
         return 99
     }
 
+    ; PERF: split so the memo HIT -- two loads and a compare, and by far the
+    ; hottest single path in the evaluator -- sits in a function small enough
+    ; for the C++ compiler to inline at every call site. The string-compare
+    ; chain below runs once per NODE, not once per visit, and keeping it out
+    ; of the hot function is exactly what makes the hot one inlinable.
     fn nodeKindOf:int (node:TSNode) {
         if (node.evalKind > 0) {
             return node.evalKind
         }
+        return (this.nodeKindScan(node))
+    }
+
+    fn nodeKindScan:int (node:TSNode) {
         def nt:string node.nodeType
         if (nt == "Identifier") { node.evalKind = 1
             return 1
@@ -4907,6 +4947,9 @@ class ComponentEngine {
         }
         if (nt == "TryStatement") { node.evalKind = 46
             return 46
+        }
+        if (nt == "SpreadElement") { node.evalKind = 47
+            return 47
         }
         node.evalKind = 99
         return 99
@@ -7121,6 +7164,81 @@ class ComponentEngine {
         return (context.findWithObjectFor(name))
     }
 
+    ; PERF: true when this function's own code could observe its `this`
+    ; binding. Same walk shape as fnMentionsArguments below: a nested
+    ; non-arrow function has a `this` of its own so the walk stops there,
+    ; an arrow reads the enclosing one so the walk goes through it. `super`
+    ; counts (its evaluation reads `this` off the scope chain) and so does
+    ; `eval`, whose text is invisible here. Conservative the same way: a
+    ; false positive costs a binding nobody reads, a false negative would
+    ; change what a ThisExpression resolves to.
+    fn fnMentionsThis:boolean (node:TSNode depth:int) {
+        if (depth > 40) {
+            return true
+        }
+        if (depth > 0) {
+            def ntT:string node.nodeType
+            if (ntT == "FunctionDeclaration") { return false }
+            if (ntT == "FunctionExpression") { return false }
+        }
+        if (node.nodeType == "ThisExpression") {
+            return true
+        }
+        if (node.nodeType == "Super") {
+            return true
+        }
+        if ((node.name == "eval") || (node.name == "super")) {
+            return true
+        }
+        def ndT:int (depth + 1)
+        def kT:int 0
+        while (kT < (array_length node.children)) {
+            if (this.fnMentionsThis((itemAt node.children kT) ndT)) {
+                return true
+            }
+            kT = (kT + 1)
+        }
+        def piT:int 0
+        while (piT < (array_length node.params)) {
+            if (this.fnMentionsThis((itemAt node.params piT) ndT)) {
+                return true
+            }
+            piT = (piT + 1)
+        }
+        if node.body {
+            if (this.fnMentionsThis((unwrap node.body) ndT)) { return true }
+        }
+        if node.left {
+            if (this.fnMentionsThis((unwrap node.left) ndT)) { return true }
+        }
+        if node.right {
+            if (this.fnMentionsThis((unwrap node.right) ndT)) { return true }
+        }
+        if node.init {
+            if (this.fnMentionsThis((unwrap node.init) ndT)) { return true }
+        }
+        if node.test {
+            if (this.fnMentionsThis((unwrap node.test) ndT)) { return true }
+        }
+        if node.consequent {
+            if (this.fnMentionsThis((unwrap node.consequent) ndT)) { return true }
+        }
+        if node.alternate {
+            if (this.fnMentionsThis((unwrap node.alternate) ndT)) { return true }
+        }
+        return false
+    }
+
+    ; Memoised entry: does a call to this function need a `this` binding at
+    ; all? Scanned once per node, exactly like the arguments-object gate.
+    fn fnNeedsThis:boolean (fnNode:TSNode) {
+        if (false == fnNode.thisScanned) {
+            fnNode.thisScanned = true
+            fnNode.usesThis = (this.fnMentionsThis(fnNode 0))
+        }
+        return fnNode.usesThis
+    }
+
     ; PERF: true when this function's own code could reach `arguments`. The walk
     ; stops at a nested non-arrow function -- that one has an `arguments` of its
     ; own -- but goes THROUGH an arrow, which sees the enclosing function's. A
@@ -7429,7 +7547,7 @@ class ComponentEngine {
         ; that created it was strict. Recorded here rather than asked at use
         ; time, because by then the defining scope is gone.
         fv.setStrictFn((this.strictForBody(fnNode)))
-        fv.setSrcText(currentSource)
+        this.stampSrcOn(fv)
         def id:int (array_length closureScopes)
         def cell (new ClosureCell)
         ; D-FNEXPRNAME: a NAMED function expression binds its own name inside its
@@ -7742,7 +7860,7 @@ class ComponentEngine {
             ; value roots in its module scope; an entry-owned value invoked FROM
             ; module code roots in the entry module scope (never the module's
             ; chain). Pure entry→entry calls keep the legacy caller chain.
-            if ((strlen (fnValue.homeModuleOf())) > 0) {
+            if (fnValue.hasHomeModule()) {
                 parent = (this.moduleScopeFor((fnValue.homeModuleOf())))
             } {
                 if ((strlen currentModule) > 0) {
@@ -7755,6 +7873,11 @@ class ComponentEngine {
         def framePoolMark:int (array_length closureScopes)
         context = (this.acquireFrame((unwrap parent)))
         def myFrame:EvalContext context
+        ; PERF: binding `this` is a map insert on every call, and most bodies
+        ; never read it. The memoised scan proves nothing in this function's
+        ; lexical this-scope (arrows included, `super`/`eval` conservatively)
+        ; can observe the binding, so an unread one is simply not written.
+        def bindThisV:boolean (this.fnNeedsThis(fnNode))
         if (fnValue.hasBoundThis()) {
             ; D-THISCOERCE: a SLOPPY function called with no receiver -- or with
             ; null/undefined through call/apply -- gets the GLOBAL OBJECT, and a
@@ -7780,7 +7903,9 @@ class ComponentEngine {
                     if (rawThis.isBoolean()) { rawThis = (this.toObjectValue(rawThis)) }
                 }
             }
-            context.define("this" rawThis)
+            if bindThisV {
+                context.define("this" rawThis)
+            }
         } {
             ; D-THISCOERCE: a bare `f()` supplies no receiver at all, which is
             ; the undefined case -- so a SLOPPY callee still gets the global
@@ -7796,7 +7921,9 @@ class ComponentEngine {
                 bareStrict = true
             }
             if (false == bareStrict) {
-                context.define("this" (this.theGlobalObject()))
+                if bindThisV {
+                    context.define("this" (this.theGlobalObject()))
+                }
             } {
                 ; A STRICT callee called bare has `this` UNDEFINED. Leaving it
                 ; unbound let the name resolve up the scope chain to whatever
@@ -7804,7 +7931,9 @@ class ComponentEngine {
                 ; sloppy one saw the sloppy one's global object. An arrow is the
                 ; exception: it genuinely has no `this` of its own.
                 if ((this.nodeKindOf(fnNode)) != 17) {
-                    context.define("this" (EvValueBridge.taggedUndefined()))
+                    if bindThisV {
+                        context.define("this" (EvValueBridge.taggedUndefined()))
+                    }
                 }
             }
         }
@@ -7845,9 +7974,19 @@ class ComponentEngine {
         ; D-FNSRC: the code about to run came from this function's source, so a
         ; function IT defines belongs to the same string. Without the swap a
         ; closure returned by an eval'd factory would slice the main script.
-        def savedSrcText:string currentSource
-        if ((strlen (fnValue.srcTextOf())) > 0) {
-            currentSource = (fnValue.srcTextOf())
+        ; PERF: the ids say when the swap is a no-op -- the common case, since
+        ; almost every callee was captured from the text already in effect --
+        ; and a no-op swap otherwise copied the whole script three times.
+        def savedSrcText:string ""
+        def savedSrcId:int currentSrcId
+        def srcSwapped:boolean false
+        if (fnValue.hasSrcText()) {
+            if ((fnValue.srcIdOf()) != currentSrcId) {
+                savedSrcText = currentSource
+                currentSource = (fnValue.srcTextOf())
+                currentSrcId = (fnValue.srcIdOf())
+                srcSwapped = true
+            }
         }
         def result:EvHandle (EvValueBridge.taggedNull())
         if fnNode.body {
@@ -7858,7 +7997,10 @@ class ComponentEngine {
                 result = (this.evaluateExpr(body))
             }
         }
-        currentSource = savedSrcText
+        if srcSwapped {
+            currentSource = savedSrcText
+            currentSrcId = savedSrcId
+        }
         strictMode = savedStrict
         callDepth = (callDepth - 1)
         context = savedContext
@@ -8013,7 +8155,7 @@ class ComponentEngine {
                     def helperName:string helperFn.name
                     def __fnv:EvHandle (EvValueBridge.taggedFunction(helperFn))
                     __fnv.setStrictFn((this.strictForBody(helperFn)))
-                    __fnv.setSrcText(currentSource)
+                    this.stampSrcOn(__fnv)
                     def helperValue:EvHandle __fnv
                     context.define(helperName helperValue)
                     print ("Registered helper function: " + helperName)
@@ -15674,6 +15816,12 @@ class ComponentEngine {
     }
 
     fn toNumberOf:double (v:EvHandle) {
+        ; PERF: a value that already IS a number converts to itself; the
+        ; toPrimitive round-trip below is an identity walk for it, paid on
+        ; every arithmetic compare.
+        if (v.isNumber()) {
+            return v.numberValue
+        }
         def p:EvHandle (this.toPrimitive(v false))
         if (EvValueBridge.isString(p)) {
             return (this.stringToNumber((p.stringOf())))
@@ -18350,7 +18498,7 @@ class ComponentEngine {
     ; needs -- callUserFunctionNode evaluates AST arguments it does not have.
     fn callUserFunctionValues:EvHandle (fnNode:TSNode argVals:[EvHandle] thisVal:EvHandle) {
         def fv:EvHandle (EvValueBridge.taggedFunction(fnNode))
-        fv.setSrcText(currentSource)
+        this.stampSrcOn(fv)
         fv.setStrictFn((this.strictForBody(fnNode)))
         fv.setBoundThis(thisVal)
         return (this.callFnValueWithValues(fv argVals))
@@ -18370,7 +18518,7 @@ class ComponentEngine {
         def i 0
         while (i < (array_length argNodes)) {
             def an:TSNode (itemAt argNodes i)
-            if (an.nodeType == "SpreadElement") {
+            if ((this.nodeKindOf(an)) == 47) {
                 def sv:EvHandle (EvValueBridge.taggedNull())
                 if an.left {
                     sv = (this.evaluateExpr((unwrap an.left)))
@@ -18423,7 +18571,11 @@ class ComponentEngine {
         context = (this.acquireFrame((unwrap parentScope)))
         def myFrame:EvalContext context
         if hasThis {
-            context.define("this" thisVal)
+            ; PERF: same gate as the value path -- a body that cannot observe
+            ; `this` does not pay the insert.
+            if (this.fnNeedsThis(fnNode)) {
+                context.define("this" thisVal)
+            }
         }
         this.bindParams(fnNode argVals)
         ; D-STRICT: same rule on the node-call path.
@@ -18896,7 +19048,7 @@ class ComponentEngine {
                     }
                     if ((mk == "get") || (mk == "set")) {
                         def accFn:EvHandle (EvValueBridge.taggedBoundMethod(m inst))
-                        accFn.setSrcText(currentSource)
+                        this.stampSrcOn(accFn)
                         if (mk == "get") {
                             inst.defineGetter(m.name accFn)
                         } {
@@ -19280,7 +19432,7 @@ class ComponentEngine {
                 def mnode:TSNode (this.findMethodOnClassNode(mcls propName))
                 if (mnode.nodeType == "MethodDefinition") {
                     def bm:EvHandle (EvValueBridge.taggedBoundMethod(mnode obj))
-                    bm.setSrcText(currentSource)
+                    this.stampSrcOn(bm)
                     ; provenance travels with the value: a stored method of a
                     ; module instance still roots in its module when invoked
                     bm.setHomeModule((this.instanceModuleTag(obj)))

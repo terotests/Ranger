@@ -41,6 +41,12 @@ class TSNode {
   ; all, and it never changes for a given node.
   def argScanned:boolean false
   def usesArguments:boolean false
+  ; Same memo for `this`: does the body mention `this` in its own lexical
+  ; this-scope (arrows included, nested ordinary functions not), or `super`
+  ; or `eval`, which reach it another way? Decides whether a call binds a
+  ; `this` value at all.
+  def thisScanned:boolean false
+  def usesThis:boolean false
   ; Memo for a NumericLiteral's value. The literal is held as source TEXT, so
   ; evaluating it means parsing that text -- once per evaluation, which for a
   ; loop bound means once per iteration. Parsed on first use and kept.
