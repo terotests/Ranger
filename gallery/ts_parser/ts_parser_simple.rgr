@@ -41,6 +41,21 @@ class TSNode {
   ; all, and it never changes for a given node.
   def argScanned:boolean false
   def usesArguments:boolean false
+  ; Same memo for `this`: does the body mention `this` in its own lexical
+  ; this-scope (arrows included, nested ordinary functions not), or `super`
+  ; or `eval`, which reach it another way? Decides whether a call binds a
+  ; `this` value at all.
+  def thisScanned:boolean false
+  def usesThis:boolean false
+  ; Memo for a CALL node with an Identifier callee: true once the name is
+  ; known to match none of the global built-in call names, so the dispatch
+  ; chain that tests them one string at a time is skipped forever after.
+  def notGlobalBuiltin:boolean false
+  ; Memo for a FUNCTION node: may its parameters be bound into the call
+  ; frame's slot vectors? Plain named parameters, no duplicates, and no
+  ; `arguments` in reach. Scanned once by the evaluator.
+  def paramSlotScanned:boolean false
+  def paramSlotsSafe:boolean false
   ; Memo for a NumericLiteral's value. The literal is held as source TEXT, so
   ; evaluating it means parsing that text -- once per evaluation, which for a
   ; loop bound means once per iteration. Parsed on first use and kept.
@@ -91,6 +106,12 @@ class TSNode {
   ; sits on the hot path -- asking it per evaluation walked the subtree again.
   ; -1 not asked, 0 no, 1 yes.
   def transientOk:int (0 - 1)
+  ; Inline cache for a method CALL site: the opcode the registry dispatch
+  ; resolved to at this node (0 none; the engine defines the codes), valid
+  ; while callSiteEpoch equals the engine's dispatch epoch — any mutation of
+  ; a built-in prototype bumps the epoch and every site re-resolves.
+  def callSiteOp:int 0
+  def callSiteEpoch:int (0 - 1)
   def method:boolean false    ; { foo() {} } method shorthand
   def generator:boolean false ; function* generators
   def async:boolean false     ; async functions

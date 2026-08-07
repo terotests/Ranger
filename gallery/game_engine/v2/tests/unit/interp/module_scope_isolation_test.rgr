@@ -89,13 +89,13 @@ class ModuleScopeIsolationTest {
     }
 
     sfn callNum:double (engine:ComponentEngine name:string) {
-        def r:EvalValue (engine.callFunction(name (EvalValue.null())))
+        def r:EvHandle (engine.callFunction(name (EvHandle.null())))
         return r.numberValue
     }
 
     sfn callStr:string (engine:ComponentEngine name:string) {
-        def r:EvalValue (engine.callFunction(name (EvalValue.null())))
-        return r.stringValue
+        def r:EvHandle (engine.callFunction(name (EvHandle.null())))
+        return (r.stringOf())
     }
 
     sfn m@(main):void () {

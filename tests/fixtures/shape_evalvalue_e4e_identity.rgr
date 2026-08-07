@@ -1,0 +1,42 @@
+; E4e: identityIdOf reads Reference id (class field stays as hot-path cache).
+Import "../../gallery/game_engine/v2/interp/migrate/src/EvValueBridge.rgr"
+
+class Main {
+    sfn main:void () {
+        def empty:[EvHandle]
+        def a:EvHandle (EvValueBridge.taggedArray(empty))
+        def id:int (a.identityIdOf())
+        if (id > 0) {
+            print "id"
+        } {
+            print "WRONG: id"
+        }
+        a.arrPush((EvValueBridge.taggedNumber(1.0)))
+        if ((a.identityIdOf()) == id) {
+            print "stable"
+        } {
+            print "WRONG: mutated id"
+        }
+        def m:EvHandle (EvHandle.nativeMethod("Array" "slice"))
+        def mid:int (m.identityIdOf())
+        def emptyKeys:[string]
+        def emptyVals:[EvHandle]
+        def recv:EvHandle (EvValueBridge.taggedObject(emptyKeys emptyVals))
+        def bound:EvHandle (m.withThis(recv))
+        def bid:int (bound.identityIdOf())
+        if ((bid > 0) && (bid != mid)) {
+            print "fresh"
+        } {
+            print "WRONG: withThis id"
+        }
+        def shaped:EvalValue (a.toStored())
+        def back:EvHandle (EvHandle.fromBody(shaped))
+        def aid:int (a.identityIdOf())
+        def backId:int (back.identityIdOf())
+        if (aid == backId) {
+            print "cache"
+        } {
+            print "WRONG: fromBody id"
+        }
+    }
+}

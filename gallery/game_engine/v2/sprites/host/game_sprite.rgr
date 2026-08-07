@@ -197,16 +197,16 @@ class GameSpriteRenderer {
         return result
     }
 
-    fn memInt:int (obj:EvalValue key:string dflt:int) {
-        def v:EvalValue (obj.getMember(key))
+    fn memInt:int (obj:EvHandle key:string dflt:int) {
+        def v:EvHandle (obj.getMember(key))
         if (v.isNull()) {
             return dflt
         }
         return (to_int v.numberValue)
     }
 
-    fn memDouble:double (obj:EvalValue key:string dflt:double) {
-        def v:EvalValue (obj.getMember(key))
+    fn memDouble:double (obj:EvHandle key:string dflt:double) {
+        def v:EvHandle (obj.getMember(key))
         if (v.isNull()) {
             return dflt
         }
@@ -222,17 +222,17 @@ class GameSpriteRenderer {
     }
 
     ; Parse one frame (array of row strings). Chars: X=body O=eye ./space=skip.
-    fn cacheOneBitmapFrame:int (e:GameEntity frameVal:EvalValue bodyR:int bodyG:int bodyB:int eyeR:int eyeG:int eyeB:int) {
+    fn cacheOneBitmapFrame:int (e:GameEntity frameVal:EvHandle bodyR:int bodyG:int bodyB:int eyeR:int eyeG:int eyeB:int) {
         if (false == (frameVal.isArray())) {
             return 0
         }
-        def rows:[EvalValue] frameVal.arrayValue
+        def rows:[EvHandle] (frameVal.itemsOf())
         def rowCount (array_length rows)
         def count 0
         def row 0
         while (row < rowCount) {
-            def rowVal:EvalValue (itemAt rows row)
-            def line:string rowVal.stringValue
+            def rowVal:EvHandle (itemAt rows row)
+            def line:string (rowVal.stringOf())
             def colCount:int (strlen line)
             def col 0
             def midCol (this.half(colCount))
@@ -256,13 +256,13 @@ class GameSpriteRenderer {
         return count
     }
 
-    fn cacheBitmapFrames:void (e:GameEntity d:EvalValue) {
+    fn cacheBitmapFrames:void (e:GameEntity d:EvHandle) {
         e.bmPx = (this.memInt(d "px" 3))
         e.bmFrameCount = 0
         clear e.bmFrameLen
         clear e.bmFrameStart
         clear e.bmPixels
-        def framesVal:EvalValue (d.getMember("frames"))
+        def framesVal:EvHandle (d.getMember("frames"))
         if (false == (framesVal.isArray())) {
             return
         }
@@ -272,7 +272,7 @@ class GameSpriteRenderer {
         def eyeR (this.memInt(d "er" 255))
         def eyeG (this.memInt(d "eg" 255))
         def eyeB (this.memInt(d "eb" 255))
-        def arr:[EvalValue] framesVal.arrayValue
+        def arr:[EvHandle] (framesVal.itemsOf())
         def fi 0
         while (fi < (array_length arr)) {
             if (fi >= 8) {
@@ -333,9 +333,9 @@ class GameSpriteRenderer {
         }
     }
 
-    fn loadSheetImage:void (e:GameEntity d:EvalValue) {
-        def pathv:EvalValue (d.getMember("path"))
-        e.shPath = pathv.stringValue
+    fn loadSheetImage:void (e:GameEntity d:EvHandle) {
+        def pathv:EvHandle (d.getMember("path"))
+        e.shPath = (pathv.stringOf())
         e.shFrameW = (this.memInt(d "frameW" 64))
         e.shFrameH = (this.memInt(d "frameH" 64))
         e.shCols = (this.memInt(d "cols" 9))
@@ -354,11 +354,11 @@ class GameSpriteRenderer {
     }
 
     ; Apply a sprites() entry to a fresh GameEntity (defaults + static fields).
-    fn applyDef:void (e:GameEntity d:EvalValue) {
-        def idv:EvalValue (d.getMember("id"))
-        def kindv:EvalValue (d.getMember("kind"))
-        e.id = idv.stringValue
-        e.kind = kindv.stringValue
+    fn applyDef:void (e:GameEntity d:EvHandle) {
+        def idv:EvHandle (d.getMember("id"))
+        def kindv:EvHandle (d.getMember("kind"))
+        e.id = (idv.stringOf())
+        e.kind = (kindv.stringOf())
         if (e.kind == "bitmap") {
             this.cacheBitmapFrames(e d)
             return
@@ -379,7 +379,7 @@ class GameSpriteRenderer {
     }
 
     ; Merge state.entities[id] into a retained entity (pose + optional overrides).
-    fn syncPose:void (e:GameEntity pos:EvalValue pw:int ph:int) {
+    fn syncPose:void (e:GameEntity pos:EvHandle pw:int ph:int) {
         def nx:int (this.memInt(pos "x" e.x))
         def ny:int (this.memInt(pos "y" e.y))
         if (nx != e.lastX) {
@@ -390,10 +390,10 @@ class GameSpriteRenderer {
             e.y = ny
             e.lastY = ny
         }
-        def vis:EvalValue (pos.getMember("visible"))
+        def vis:EvHandle (pos.getMember("visible"))
         if (false == (vis.isNull())) {
             if (vis.isBoolean()) {
-                e.visible = vis.boolValue
+                e.visible = (vis.boolOf())
             } {
                 e.visible = ((to_int vis.numberValue) != 0)
             }
@@ -404,35 +404,35 @@ class GameSpriteRenderer {
             if (nx > (pw + 24)) { e.visible = false }
             if (ny > (ph + 24)) { e.visible = false }
         }
-        def rv:EvalValue (pos.getMember("r"))
+        def rv:EvHandle (pos.getMember("r"))
         if (false == (rv.isNull())) {
             e.cr = (this.memInt(pos "r" e.cr))
             e.cg = (this.memInt(pos "g" e.cg))
             e.cb = (this.memInt(pos "b" e.cb))
         }
-        def p0v:EvalValue (pos.getMember("p0"))
+        def p0v:EvHandle (pos.getMember("p0"))
         if (false == (p0v.isNull())) {
             e.p0 = (this.memInt(pos "p0" e.p0))
         }
-        def p1v:EvalValue (pos.getMember("p1"))
+        def p1v:EvHandle (pos.getMember("p1"))
         if (false == (p1v.isNull())) {
             e.p1 = (this.memInt(pos "p1" e.p1))
         }
-        def p2v:EvalValue (pos.getMember("p2"))
+        def p2v:EvHandle (pos.getMember("p2"))
         if (false == (p2v.isNull())) {
             e.p2 = (this.memInt(pos "p2" e.p2))
         }
-        def angleV:EvalValue (pos.getMember("angle"))
+        def angleV:EvHandle (pos.getMember("angle"))
         if (false == (angleV.isNull())) {
             e.angleDeg = (this.memDouble(pos "angle" e.angleDeg))
         }
-        def radv:EvalValue (pos.getMember("rad"))
+        def radv:EvHandle (pos.getMember("rad"))
         if (false == (radv.isNull())) {
             e.rad = (this.memInt(pos "rad" e.rad))
         }
         ; Optional live draw scale for kind:"sheet" (percent, 100 = 1:1).
         ; Lets games do pseudo-3D depth without pre-baking every size.
-        def scaleV:EvalValue (pos.getMember("scale"))
+        def scaleV:EvHandle (pos.getMember("scale"))
         if (false == (scaleV.isNull())) {
             def sc:int (this.memInt(pos "scale" e.shScale))
             if (sc < 1) {
@@ -444,7 +444,7 @@ class GameSpriteRenderer {
             e.shScale = sc
         }
         ; Optional live size for kind:"rect" (pseudo-3D road strips, etc.).
-        def wv:EvalValue (pos.getMember("w"))
+        def wv:EvHandle (pos.getMember("w"))
         if (false == (wv.isNull())) {
             def nw:int (this.memInt(pos "w" e.w))
             if (nw < 1) {
@@ -452,7 +452,7 @@ class GameSpriteRenderer {
             }
             e.w = nw
         }
-        def hv:EvalValue (pos.getMember("h"))
+        def hv:EvHandle (pos.getMember("h"))
         if (false == (hv.isNull())) {
             def nh:int (this.memInt(pos "h" e.h))
             if (nh < 1) {

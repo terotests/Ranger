@@ -307,14 +307,14 @@ class RgRegistryBridge extends EvalNativeBridge {
         return (itemAt this.owned (id - 1))
     }
 
-    fn fail:EvalValue (msg:string) {
+    fn fail:EvHandle (msg:string) {
         this.errorCount = (this.errorCount + 1)
         this.lastError = msg
-        return (EvalValue.null())
+        return (EvHandle.null())
     }
 
     ; Surface a typed 3D handle rejection from RgRangerThree.lastErr.
-    fn fail3d:EvalValue (cmd:string) {
+    fn fail3d:EvHandle (cmd:string) {
         def msg:string this.d3.lastErr
         if (msg == "") {
             msg = "wrong-type"
@@ -329,7 +329,7 @@ class RgRegistryBridge extends EvalNativeBridge {
         return (idx != (0 - 1))
     }
 
-    fn invoke:EvalValue (name:string args:[EvalValue]) {
+    fn invoke:EvHandle (name:string args:[EvHandle]) {
         def idx:int (this.resolveName(name))
         if (idx == (0 - 1)) {
             return (this.fail("unknown-command:" + name))
@@ -343,14 +343,14 @@ class RgRegistryBridge extends EvalNativeBridge {
     }
 
     ; ---- generic decode (driven only by the row's argSpec) ------------------
-    fn decode:RgDecodedArgs (row:RgCommand args:[EvalValue]) {
+    fn decode:RgDecodedArgs (row:RgCommand args:[EvHandle]) {
         ; Fallback for callers that still pass a row without a table index
         ; (coverage / unit tests). Prefer decodeAt on the hot path.
         def idx:int (this.resolveName(row.name))
         return (this.decodeAt(idx row args))
     }
 
-    fn decodeAt:RgDecodedArgs (idx:int row:RgCommand args:[EvalValue]) {
+    fn decodeAt:RgDecodedArgs (idx:int row:RgCommand args:[EvHandle]) {
         def dec:RgDecodedArgs (new RgDecodedArgs)
         def toks:[string]
         if (idx >= 0) {
@@ -373,10 +373,10 @@ class RgRegistryBridge extends EvalNativeBridge {
         def i 0
         while (i < want) {
             def tk:string (itemAt toks i)
-            def v:EvalValue (itemAt args i)
+            def v:EvHandle (itemAt args i)
             dec.pad()
             if (tk == "i") {
-                if (v.valueType != 1) {
+                if (false == (v.isNumber())) {
                     dec.ok = false
                     dec.err = (("type:" + row.name) + ":i32-expected")
                     return dec
@@ -384,7 +384,7 @@ class RgRegistryBridge extends EvalNativeBridge {
                 set dec.ints i (to_int v.numberValue)
             }
             if (tk == "d") {
-                if (v.valueType != 1) {
+                if (false == (v.isNumber())) {
                     dec.ok = false
                     dec.err = (("type:" + row.name) + ":f64-expected")
                     return dec
@@ -392,15 +392,15 @@ class RgRegistryBridge extends EvalNativeBridge {
                 set dec.dbls i v.numberValue
             }
             if (tk == "s") {
-                if (v.valueType != 2) {
+                if (false == (v.isString())) {
                     dec.ok = false
                     dec.err = (("type:" + row.name) + ":string-expected")
                     return dec
                 }
-                set dec.strs i v.stringValue
+                set dec.strs i (v.stringOf())
             }
             if (tk == "h") {
-                if (v.valueType != 1) {
+                if (false == (v.isNumber())) {
                     dec.ok = false
                     dec.err = (("type:" + row.name) + ":handle-id-expected")
                     return dec
@@ -416,35 +416,37 @@ class RgRegistryBridge extends EvalNativeBridge {
                 set dec.guestIds i gid
             }
             if (tk == "ai") {
-                if (v.valueType != 4) {
+                if (false == (v.isArray())) {
                     dec.ok = false
                     dec.err = (("type:" + row.name) + ":array-expected")
                     return dec
                 }
-                def n:int (array_length v.arrayValue)
+                def aiItems:[EvHandle] (v.itemsOf())
+                def n:int (array_length aiItems)
                 ; Record this argument's window BEFORE appending, so several
                 ; array arguments stay individually addressable via aiAt(i).
                 set dec.aiOff i (array_length dec.ai)
                 set dec.aiLen i n
                 def k 0
                 while (k < n) {
-                    def e:EvalValue (itemAt v.arrayValue k)
+                    def e:EvHandle (itemAt aiItems k)
                     push dec.ai (to_int e.numberValue)
                     k = (k + 1)
                 }
             }
             if (tk == "ad") {
-                if (v.valueType != 4) {
+                if (false == (v.isArray())) {
                     dec.ok = false
                     dec.err = (("type:" + row.name) + ":array-expected")
                     return dec
                 }
-                def n:int (array_length v.arrayValue)
+                def adItems:[EvHandle] (v.itemsOf())
+                def n:int (array_length adItems)
                 set dec.adOff i (array_length dec.ad)
                 set dec.adLen i n
                 def k 0
                 while (k < n) {
-                    def e:EvalValue (itemAt v.arrayValue k)
+                    def e:EvHandle (itemAt adItems k)
                     push dec.ad e.numberValue
                     k = (k + 1)
                 }
@@ -455,8 +457,8 @@ class RgRegistryBridge extends EvalNativeBridge {
     }
 
     ; ---- result encoding ----------------------------------------------------
-    sfn retI:EvalValue (n:int) { return (EvalValue.number((to_double n))) }
-    sfn retD:EvalValue (n:double) { return (EvalValue.number(n)) }
+    sfn retI:EvHandle (n:int) { return (EvHandle.number((to_double n))) }
+    sfn retD:EvHandle (n:double) { return (EvHandle.number(n)) }
 
     ; ---- frame boundary (host pipeline step 7/8 side-effects) ---------------
     fn frameBoundary:void (dt:double) {
@@ -758,7 +760,7 @@ class RgRegistryBridge extends EvalNativeBridge {
     ; unhandled name or an errored dispatch is red. Replaced by generated
     ; registry/generated/RgDispatch.rgr in step 5.
     ; =========================================================================
-    fn dispatchRow:EvalValue (row:RgCommand a:RgDecodedArgs) {
+    fn dispatchRow:EvHandle (row:RgCommand a:RgDecodedArgs) {
         ; ---- ranger:2d ------------------------------------------------------
         if (row.name == "rg2d_texture_create") {
             def o:OwnedHandle (this.d2.textureCreate((a.intAt(0)) (a.intAt(1))))
@@ -794,31 +796,31 @@ class RgRegistryBridge extends EvalNativeBridge {
         }
         if (row.name == "rg2d_sprite_set_pos") {
             this.d2.spriteSetPos((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg2d_sprite_set_region") {
             this.d2.spriteSetRegion((a.handleAt(0)) (a.intAt(1)))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg2d_sprite_set_size") {
             this.d2.spriteSetSize((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg2d_sprite_set_z") {
             this.d2.spriteSetZ((a.handleAt(0)) (a.intAt(1)))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg2d_sprite_set_flip") {
             this.d2.spriteSetFlipX((a.handleAt(0)) (a.intAt(1)))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg2d_sprite_set_cell") {
             this.d2.spriteSetCell((a.handleAt(0)) (a.intAt(1)) (a.intAt(2)))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg2d_sprite_set_pane") {
             this.d2.spriteSetPaneOwner((a.handleAt(0)) (a.intAt(1)))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg2d_sprite_release") {
             def o:OwnedHandle (this.ownedOf((a.guestIdAt(0))))
@@ -832,11 +834,11 @@ class RgRegistryBridge extends EvalNativeBridge {
         }
         if (row.name == "rg2d_layer_add") {
             this.d2.layerAdd((a.handleAt(0)) (a.handleAt(1)))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg2d_layer_remove") {
             this.d2.layerRemove((a.handleAt(0)))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg2d_camera_create") {
             def o:OwnedHandle (this.d2.cameraCreate())
@@ -845,7 +847,7 @@ class RgRegistryBridge extends EvalNativeBridge {
         }
         if (row.name == "rg2d_camera_set") {
             this.d2.cameraSet((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.dblAt(4)))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg2d_player_create") {
             def o:OwnedHandle (this.d2.playerCreate((a.handleAt(0)) (a.intAt(1))))
@@ -858,23 +860,23 @@ class RgRegistryBridge extends EvalNativeBridge {
         }
         if (row.name == "rg2d_bg_begin") {
             this.d2.bgBegin()
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg2d_bg_rect") {
             this.d2.bgRect((a.dblAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.intAt(4)) (a.intAt(5)) (a.intAt(6)))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg2d_bg_circle") {
             this.d2.bgCircle((a.dblAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.intAt(3)) (a.intAt(4)) (a.intAt(5)))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg2d_ov_begin") {
             this.d2.ovBegin()
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg2d_ov_rect") {
             this.d2.ovRect((a.dblAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.intAt(4)) (a.intAt(5)) (a.intAt(6)) (a.intAt(7)))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
 
         ; ---- ranger:core ----------------------------------------------------
@@ -892,26 +894,26 @@ class RgRegistryBridge extends EvalNativeBridge {
         }
         if (row.name == "rgcore_input_rumble") {
             this.input.rumble((a.intAt(0)) (a.intAt(1)) (a.intAt(2)))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rgcore_surface_set_layout") {
             this.surface.setLayout((a.intAt(0)))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rgcore_surface_pane_player") {
             this.surface.paneSetPlayer((a.intAt(0)) (a.intAt(1)))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rgcore_surface_pane_view") {
             this.surface.paneSetView((a.intAt(0)) (a.handleAt(1)) (a.handleAt(2)))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg2d_render") {
             ; Append a Render2DPass (PLAN D2) and bind the pane view so present
             ; can still read last-wins pane state (compat with Rg2DPresenter).
             this.appendPass2D((a.handleAt(0)) (a.handleAt(1)) (a.intAt(2)))
             this.surface.paneSetView((a.intAt(2)) (a.handleAt(0)) (a.handleAt(1)))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rgcore_graphics_rt_create") {
             def o:OwnedHandle (this.d2.renderTargetCreate((a.intAt(0)) (a.intAt(1))))
@@ -933,14 +935,14 @@ class RgRegistryBridge extends EvalNativeBridge {
             if ((this.d3.cameraSet((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.dblAt(4)))) == false) {
                 return (this.fail3d(row.name))
             }
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg3d_camera_pose") {
             this.d3.clearErr()
             if ((this.d3.cameraPose((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.dblAt(4)) (a.dblAt(5)) (a.dblAt(6)))) == false) {
                 return (this.fail3d(row.name))
             }
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg3d_geometry_box") {
             def o:OwnedHandle (this.d3.geometryBox((a.dblAt(0)) (a.dblAt(1)) (a.dblAt(2))))
@@ -1002,7 +1004,7 @@ class RgRegistryBridge extends EvalNativeBridge {
             if ((this.d3.materialReflective((a.handleAt(0)) (a.dblAt(1)))) == false) {
                 return (this.fail3d(row.name))
             }
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg3d_material_map_rgba") {
             this.d3.clearErr()
@@ -1011,21 +1013,21 @@ class RgRegistryBridge extends EvalNativeBridge {
             if ((this.d3.materialMapRgba((a.handleAt(0)) a.ai (a.intAt(2)) (a.intAt(3)))) == false) {
                 return (this.fail3d(row.name))
             }
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg3d_scene_background") {
             this.d3.clearErr()
             if ((this.d3.sceneBackground((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)))) == false) {
                 return (this.fail3d(row.name))
             }
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg3d_scene_environment_studio") {
             this.d3.clearErr()
             if ((this.d3.sceneEnvironmentStudio((a.handleAt(0)) (a.intAt(1)))) == false) {
                 return (this.fail3d(row.name))
             }
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg3d_material_lambert") {
             def o:OwnedHandle (this.d3.materialLambert((a.intAt(0))))
@@ -1051,14 +1053,14 @@ class RgRegistryBridge extends EvalNativeBridge {
                     }
                 }
             }
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg3d_material_set_opacity") {
             this.d3.clearErr()
             if ((this.d3.materialSetOpacity((a.handleAt(0)) (a.dblAt(1)))) == false) {
                 return (this.fail3d(row.name))
             }
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg3d_light_ambient") {
             this.d3.clearErr()
@@ -1097,28 +1099,28 @@ class RgRegistryBridge extends EvalNativeBridge {
             if ((this.d3.meshTransform((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.dblAt(4)) (a.dblAt(5)) (a.dblAt(6)))) == false) {
                 return (this.fail3d(row.name))
             }
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg3d_mesh_set_scale") {
             this.d3.clearErr()
             if ((this.d3.meshSetScale((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)))) == false) {
                 return (this.fail3d(row.name))
             }
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg3d_entity_set_parent") {
             this.d3.clearErr()
             if ((this.d3.entitySetParent((a.handleAt(0)) (a.handleAt(1)))) == false) {
                 return (this.fail3d(row.name))
             }
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg3d_entity_remove") {
             this.d3.clearErr()
             if ((this.d3.entityRemove((a.handleAt(0)) (a.handleAt(1)))) == false) {
                 return (this.fail3d(row.name))
             }
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg3d_model_load") {
             def mid:int (this.loadModelAsset((a.strAt(0))))
@@ -1135,7 +1137,7 @@ class RgRegistryBridge extends EvalNativeBridge {
                 return (this.fail3d(row.name))
             }
             this.appendPass3D((a.handleAt(0)) (a.handleAt(1)) (a.handleAt(2)) (a.intAt(3)) (a.intAt(4)))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg3d_orbit_create") {
             this.d3.clearErr()
@@ -1151,35 +1153,35 @@ class RgRegistryBridge extends EvalNativeBridge {
             if ((this.d3.orbitViewport((a.handleAt(0)) (a.intAt(1)) (a.intAt(2)))) == false) {
                 return (this.fail3d(row.name))
             }
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg3d_orbit_target") {
             this.d3.clearErr()
             if ((this.d3.orbitTarget((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)))) == false) {
                 return (this.fail3d(row.name))
             }
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg3d_orbit_pointer") {
             this.d3.clearErr()
             if ((this.d3.orbitPointer((a.handleAt(0)) (a.intAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.intAt(4)))) == false) {
                 return (this.fail3d(row.name))
             }
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg3d_orbit_wheel") {
             this.d3.clearErr()
             if ((this.d3.orbitWheel((a.handleAt(0)) (a.dblAt(1)))) == false) {
                 return (this.fail3d(row.name))
             }
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rg3d_orbit_apply") {
             this.d3.clearErr()
             if ((this.d3.orbitApply((a.handleAt(0)))) == false) {
                 return (this.fail3d(row.name))
             }
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rgcore_assets_load_atlas") {
             def atlasId:int (this.loadAtlasAsset((a.strAt(0))))
@@ -1211,31 +1213,31 @@ class RgRegistryBridge extends EvalNativeBridge {
             spec.volume = clip.volume
             spec.wave = clip.wave
             this.gameAudio.queueSpec("oneshot" spec)
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rgcore_vocal") {
             push this.vocalCues (a.strAt(0))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rgcore_music_play") {
             this.musicPlaying = true
             this.musicScore = (a.strAt(0))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rgcore_music_stop") {
             this.musicPlaying = false
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rgcore_time_now") {
             return (RgRegistryBridge.retD(this.clock.now))
         }
         if (row.name == "rgcore_log") {
             push this.logLines (a.strAt(0))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "rgcore_launch") {
             this.launchRequest = (a.strAt(0))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
 
         ; ---- ranger:cannon (rigid-body physics, D-TYPE arena) ---------------
@@ -1245,11 +1247,11 @@ class RgRegistryBridge extends EvalNativeBridge {
         ; doubles for the guest to copy into a Three mesh (the three+cannon loop).
         if (row.name == "cannon_world_gravity") {
             this.phys.setGravity((a.dblAt(0)) (a.dblAt(1)) (a.dblAt(2)))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "cannon_world_step") {
             this.phys.step((a.dblAt(0)))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "cannon_body_sphere") {
             def o:OwnedHandle (this.phys.addSphere(1 (a.dblAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)) (a.dblAt(4))))
@@ -1268,11 +1270,11 @@ class RgRegistryBridge extends EvalNativeBridge {
         }
         if (row.name == "cannon_body_set_velocity") {
             this.phys.setVelocity((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "cannon_body_set_position") {
             this.phys.setPosition((a.handleAt(0)) (a.dblAt(1)) (a.dblAt(2)) (a.dblAt(3)))
-            return (EvalValue.null())
+            return (EvHandle.null())
         }
         if (row.name == "cannon_body_pos_x") {
             return (RgRegistryBridge.retD((this.phys.bodyX((a.handleAt(0))))))

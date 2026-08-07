@@ -20,7 +20,7 @@
 Import "../Model3dScriptBridge.rgr"
 Import "GlbFixture.rgr"
 Import "../../interp/migrate/src/ComponentEngine.rgr"
-Import "../../interp/migrate/src/EvalValue.rgr"
+Import "../../interp/migrate/src/EvHandle.rgr"
 
 class ScriptBridgeChecker {
     def passed:int 0
@@ -45,8 +45,8 @@ class ScriptBridgeChecker {
         }
     }
     ; Pull an int field out of the object the script returned and assert it.
-    fn eqMember:void (name:string obj:EvalValue key:string want:int) {
-        def v:EvalValue (obj.getMember(key))
+    fn eqMember:void (name:string obj:EvHandle key:string want:int) {
+        def v:EvHandle (obj.getMember(key))
         def got:int (to_int (v.toNumber()))
         this.eqInt(name got want)
     }
@@ -66,13 +66,13 @@ class Model3dScriptBridgeTest {
         engine.quiet = true
         def bridge (new Model3dScriptBridge)
         engine.setNativeBridge(bridge)
-        engine.registerGlobal("assetDir" (EvalValue.string(dir)))
+        engine.registerGlobal("assetDir" (EvHandle.string(dir)))
 
         ; 3. load the TSX fixture and run it — all GLB parse + GL-buffer prep
         ;    happens host-side, invoked purely through the interpreter.
         def buf:buffer (buffer_read_file "gallery/game_engine/v2/model3d/tests" "model3d_bridge_demo.tsx")
         engine.loadScript((buffer_to_string buf))
-        def res:EvalValue (engine.callFunction("run" (EvalValue.null())))
+        def res:EvHandle (engine.callFunction("run" (EvHandle.null())))
 
         print "== model3d TSX-bridge checks =="
         ck.ok("script returned an object" (res.isObject()))
@@ -101,7 +101,7 @@ class Model3dScriptBridgeTest {
         def words:int (em.vertexCount * 8)
         def refBridge:Model3dScriptBridge (new Model3dScriptBridge)
         def refCs:int (refBridge.checksum(em.vertsHp words))
-        def csV:EvalValue (res.getMember("checksum"))
+        def csV:EvHandle (res.getMember("checksum"))
         def csGot:int (to_int (csV.toNumber()))
         ck.eqInt("checksum matches host recompute" csGot refCs)
         ck.ok("checksum is non-trivial" (refCs != 0))

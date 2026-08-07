@@ -9,7 +9,7 @@
 ; right value", decoupled from whether anything draws.
 ;
 ; Instrumentation: after loadScript we drive each probe with engine.callFunction
-; and read the returned EvalValue tree (getMember / getIndex / toNumber / toBool),
+; and read the returned EvHandle tree (getMember / getIndex / toNumber / toBool),
 ; then diff it field-by-field against the parsed golden JSON. Missing façade
 ; methods degrade to null in the interpreter (they do not abort), so a gap shows
 ; up as a value mismatch — reported as GAP, never a crash.
@@ -23,7 +23,7 @@
 
 Import "../../src/three_json.rgr"
 Import "../../../../interp/migrate/src/ComponentEngine.rgr"
-Import "../../../../interp/migrate/src/EvalValue.rgr"
+Import "../../../../interp/migrate/src/EvHandle.rgr"
 
 ; ------------------------------------------------------------------ probe rig
 class ThreeValueProbe {
@@ -40,19 +40,19 @@ class ThreeValueProbe {
     fn boot:void () {
         engine.quiet = true
         def tk:[string]
-        def tv:[EvalValue]
+        def tv:[EvHandle]
         push tk "SRGBColorSpace"
-        push tv (EvalValue.string("srgb"))
-        engine.registerGlobal("THREE" (EvalValue.object(tk tv)))
+        push tv (EvHandle.string("srgb"))
+        engine.registerGlobal("THREE" (EvHandle.object(tk tv)))
         def wk:[string]
-        def wv:[EvalValue]
+        def wv:[EvHandle]
         push wk "innerWidth"
-        push wv (EvalValue.number(800.0))
+        push wv (EvHandle.number(800.0))
         push wk "innerHeight"
-        push wv (EvalValue.number(600.0))
+        push wv (EvHandle.number(600.0))
         push wk "devicePixelRatio"
-        push wv (EvalValue.number(1.0))
-        engine.registerGlobal("window" (EvalValue.object(wk wv)))
+        push wv (EvHandle.number(1.0))
+        engine.registerGlobal("window" (EvHandle.object(wk wv)))
 
         def facade:buffer (buffer_read_file "gallery/game_engine/three/tsx" "three.tsx")
         def scene:buffer (buffer_read_file "gallery/game_engine/three/tests/value_parity" "parity_probes.tsx")
@@ -64,8 +64,8 @@ class ThreeValueProbe {
         golds = (parser.parse((buffer_to_string gbuf)))
     }
 
-    fn callProbe:EvalValue (name:string) {
-        return (engine.callFunction(name (EvalValue.null())))
+    fn callProbe:EvHandle (name:string) {
+        return (engine.callFunction(name (EvHandle.null())))
     }
 
     sfn near:boolean (a:double b:double) {
@@ -74,8 +74,8 @@ class ThreeValueProbe {
         return (d < 0.0001)
     }
 
-    ; --- generic field compare: EvalValue member vs golden JSON value ---------
-    fn matchField:boolean (ev:EvalValue gold:ThreeJsonValue) {
+    ; --- generic field compare: EvHandle member vs golden JSON value ---------
+    fn matchField:boolean (ev:EvHandle gold:ThreeJsonValue) {
         if (gold.isNumber()) {
             return (ThreeValueProbe.near((ev.toNumber()) (gold.asNumber())))
         }
@@ -84,7 +84,7 @@ class ThreeValueProbe {
         }
         if (gold.isArray()) {
             def n:int (gold.length())
-            if ((array_length ev.arrayValue) != n) { return false }
+            if ((array_length (ev.itemsOf())) != n) { return false }
             def i:int 0
             while (i < n) {
                 if (false == (ThreeValueProbe.near(((ev.getIndex(i)).toNumber()) ((gold.at(i)).asNumber())))) {
@@ -103,16 +103,16 @@ class ThreeValueProbe {
         if (g.isArray()) { return ("[" + (to_string (g.length())) + " nums]") }
         return "?"
     }
-    sfn evStr:string (ev:EvalValue g:ThreeJsonValue) {
+    sfn evStr:string (ev:EvHandle g:ThreeJsonValue) {
         if (g.isBool()) { return (to_string (ev.toBool())) }
-        if (g.isArray()) { return ("[" + (to_string (array_length ev.arrayValue)) + " nums]") }
+        if (g.isArray()) { return ("[" + (to_string (array_length (ev.itemsOf()))) + " nums]") }
         return (to_string (ev.toNumber()))
     }
 
     ; --- run one golden-backed parity probe -----------------------------------
     fn parity:void (name:string) {
         total = (total + 1)
-        def result:EvalValue (this.callProbe(name))
+        def result:EvHandle (this.callProbe(name))
         def gold:ThreeJsonValue (golds.get(name))
         def ok:boolean true
         def detail:string ""
@@ -120,7 +120,7 @@ class ThreeValueProbe {
         while (i < (array_length gold.keys)) {
             def k:string (itemAt gold.keys i)
             def g:ThreeJsonValue (gold.get(k))
-            def ev:EvalValue (result.getMember(k))
+            def ev:EvHandle (result.getMember(k))
             if (false == (this.matchField(ev g))) {
                 ok = false
                 detail = (detail + " " + k + "(want=" + (ThreeValueProbe.goldStr(g)) + " got=" + (ThreeValueProbe.evStr(ev g)) + ")")
@@ -137,7 +137,7 @@ class ThreeValueProbe {
 
     ; --- baseline hard assert (a named field of a probe result == want) -------
     fn expectNum:void (label:string probe:string field:string want:double) {
-        def result:EvalValue (this.callProbe(probe))
+        def result:EvHandle (this.callProbe(probe))
         def got:double ((result.getMember(field)).toNumber())
         if (ThreeValueProbe.near(got want)) {
             passed = (passed + 1)

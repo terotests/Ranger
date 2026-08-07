@@ -81,8 +81,8 @@ class BenchMain {
             def engine (new ComponentEngine())
             engine.quiet = true
             engine.loadScript(src)
-            def out:EvalValue (engine.callFunction("__t__" (EvalValue.null())))
-            answer = out.stringValue
+            def out:EvHandle (engine.callFunction("__t__" (EvHandle.null())))
+            answer = (out.stringOf())
             r = (r + 1)
         }
         print (caseName + (" reps=" + ((to_string reps) + (" answer=" + answer))))

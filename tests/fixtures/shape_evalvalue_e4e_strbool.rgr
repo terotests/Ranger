@@ -1,0 +1,50 @@
+; E4e: string/bool SoT on body (no class stringValue/boolValue caches).
+Import "../../gallery/game_engine/v2/interp/migrate/src/EvValueBridge.rgr"
+
+class Main {
+    sfn main:void () {
+        def s:EvHandle (EvValueBridge.taggedString("hi"))
+        if ((s.stringOf()) == "hi") {
+            print "str"
+        } {
+            print "WRONG: stringOf"
+        }
+        def shaped:EvalValue (EvValueBridge.fromTagged(s))
+        if (EvalValue.isString(shaped)) {
+            case shaped ss:EvalValue.String {
+                if (ss.value == "hi") {
+                    print "strsot"
+                } {
+                    print "WRONG: body string"
+                }
+            }
+        } {
+            print "WRONG: fromTagged string"
+        }
+
+        def t:EvHandle (EvValueBridge.taggedBoolean(true))
+        def f:EvHandle (EvValueBridge.taggedBoolean(false))
+        if (t.boolOf()) {
+            if (false == (f.boolOf())) {
+                print "bool"
+            } {
+                print "WRONG: false"
+            }
+        } {
+            print "WRONG: true"
+        }
+        ; Pooled singletons — compare pointers via identity of the factory
+        ; return (equals(same Rc) RefCell-panics on Rust).
+        def t2:EvHandle (EvHandle.boolean(true))
+        def f2:EvHandle (EvHandle.boolean(false))
+        if ((t.boolOf()) && (false == (f2.boolOf()))) {
+            if ((false == (t2.boolOf())) == false) {
+                print "pool"
+            } {
+                print "WRONG: true pool"
+            }
+        } {
+            print "WRONG: pool bools"
+        }
+    }
+}

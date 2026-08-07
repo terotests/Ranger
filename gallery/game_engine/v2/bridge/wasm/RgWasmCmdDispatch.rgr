@@ -78,8 +78,8 @@ class RgWasmCmdDispatch {
     ; Decode one record's args from wasm memory per the row's semantic argSpec.
     ; A `slot` cursor advances by 1 for i/d/h and by 2 for s (a string is a
     ; ptr+len pair of slots), so the record layout stays argSpec-driven.
-    fn decodeArgs:[EvalValue] (h:int rb:int row:RgCommand) {
-        def args:[EvalValue]
+    fn decodeArgs:[EvHandle] (h:int rb:int row:RgCommand) {
+        def args:[EvHandle]
         if (row.argSpec == "") { return args }
         def toks:[string] (strsplit row.argSpec ":")
         def slot:int 0
@@ -88,20 +88,20 @@ class RgWasmCmdDispatch {
             def tk:string (itemAt toks k)
             def raw:int (wasm_mem_i32 h (rb + (8 + (slot * 4))))
             if (tk == "i") {
-                push args (EvalValue.number((to_double raw)))
+                push args (EvHandle.number((to_double raw)))
                 slot = (slot + 1)
             }
             if (tk == "d") {
-                push args (EvalValue.number(((to_double raw) / this.fixed)))
+                push args (EvHandle.number(((to_double raw) / this.fixed)))
                 slot = (slot + 1)
             }
             if (tk == "h") {
-                push args (EvalValue.number((to_double (itemAt this.map raw))))
+                push args (EvHandle.number((to_double (itemAt this.map raw))))
                 slot = (slot + 1)
             }
             if (tk == "s") {
                 def slen:int (wasm_mem_i32 h (rb + (8 + ((slot + 1) * 4))))
-                push args (EvalValue.string((wasm_mem_str h raw slen)))
+                push args (EvHandle.string((wasm_mem_str h raw slen)))
                 slot = (slot + 2)
             }
             k = (k + 1)
@@ -141,8 +141,8 @@ class RgWasmCmdDispatch {
             def id:int (wasm_mem_i32 h rb)
             def dst:int (wasm_mem_i32 h (rb + 4))
             def row:RgCommand (RgCodegen.findById(this.bridge.table id))
-            def args:[EvalValue] (this.decodeArgs(h rb row))
-            def res:EvalValue (this.bridge.invoke(row.name args))
+            def args:[EvHandle] (this.decodeArgs(h rb row))
+            def res:EvHandle (this.bridge.invoke(row.name args))
             this.dispatched = (this.dispatched + 1)
             if (row.retSpec == "h") {
                 def gid:int (to_int res.numberValue)

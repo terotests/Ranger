@@ -4,21 +4,34 @@
 
 | File | Role |
 |------|------|
-| `EvalValue.rgr` | Script values / NativeRef / identity (tagged class, live) |
-| `EvValue.rgr` | E1/E2 target `shape EvValue` (beside the class; not wired yet) |
-| `EvValueBridge.rgr` | E2 tagged → shape conversion for primitives / Hole |
-| `ComponentEngine.rgr` | Evaluator |
+| `EvHandle.rgr` | Script values — class shell + **kind/`Array`/`Object` data SoT in `body:EvalValue`** |
+| `EvalValue.rgr` | Target `shape EvalValue` (+ `EvPropertyBag` data helpers) |
+| `EvValueBridge.rgr` | Create/check APIs; `fromTagged` → live `body`; `toTagged` → `fromBody` |
+| `ComponentEngine.rgr` | Evaluator — no direct storage-field access |
 | `JSXToEVG.rgr` | JSX → EVG (UI / EVG path) |
 
-**Plan phase:** 1 (values/identity first), then 4 (adapter).
+**Plan:** `PLAN_SHAPES.md` §7.5.
 
 ## Status
 
-- **Staged copy.** Still coupled to `gallery/ts_parser/` and pdf_writer paths.
-- Split into `interp/values/`, `interp/engine/`, `interp/semantics/` as Phase 1
-  progresses — do not edit only the v1 originals for v2 work.
+- **✅ E1/E2** — shape + primitive bridge beside the class.
+- **✅ E3 (by-kind boundary)** — every kind's create/check through `EvValueBridge`.
+- **✅ E4a (kind discriminant)** — `valueType` deleted; `EvHandle.body:EvalValue`.
+- **✅ E4b (storage accessors)** — CE uses EvHandle accessors for arrays,
+  property bags, proto, flags, functionNode, boundThis.
+- **✅ E4c (storage SoT + rename)** — Array/Map/Set + Object own-data,
+  accessors, attrs, proto and integrity live on `shape EvalValue`.
+  Class renamed to `EvHandle`; shape renamed to `EvalValue`.
+- **✅ E4d (Function/Element shell)** — `EvalPayload` deleted. Element and
+  Function core/binding (incl. `functionNode`, `boundThis`) live on
+  `body:EvalValue`. `EvPropertyBag.suppressedKeys` records deleted
+  synthesised/registry keys (prototypes stay objects).
+- **✅ E4e (primitive accessors)** — `stringOf`/`boolOf` (body SoT);
+  `numberOf`/`setNumberOf` (cache + body rewrite); `identityIdOf`.
+  Shell left: `numberValue`, `slotOwned`, `identityId` cache.
 
 ## Unit / contract tests that gate this folder
 
-- `interp/semantics/tests` + `tests/contract/d_identity` (to be written against
-  these sources or their split descendants)
+- `tests/shapes.test.ts` — EvalValue E1–E4c fixtures
+- `npm run test:runtime` — `tests/runtime-conformance.test.ts`
+- `npm run test:tsengine` — native bench / multi-target engine gate

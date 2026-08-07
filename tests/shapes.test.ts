@@ -702,11 +702,11 @@ describe("shapes (closed variant families)", () => {
   });
 
   /**
-   * E1 (PLAN_SHAPES.md §7.5): target EvValue shape beside class EvalValue.
+   * E1 (PLAN_SHAPES.md §7.5): target EvalValue shape beside class EvHandle.
    * Callable group + toBool + identity field; nothing in the engine imports
    * it yet.
    */
-  describe("EvValue E1 target shape", () => {
+  describe("EvalValue E1 target shape", () => {
     const E1 = `${FIXTURES_DIR}/shape_evalvalue_e1.rgr`;
     const EXPECTED_E1 = ["greet", "zero", "two", "1"].join("\n");
 
@@ -719,7 +719,7 @@ describe("shapes (closed variant families)", () => {
     });
   });
 
-  describe("EvValue E2 compatibility bridge", () => {
+  describe("EvalValue E2 compatibility bridge", () => {
     const E2 = `${FIXTURES_DIR}/shape_evalvalue_e2.rgr`;
     const EXPECTED_E2 = ["num", "truthy", "zero", "hole"].join("\n");
 
@@ -729,6 +729,207 @@ describe("shapes (closed variant families)", () => {
 
     it.skipIf(!isRustAvailable())("Rust", () => {
       expectRustOutput(E2, EXPECTED_E2);
+    });
+  });
+
+  /**
+   * E3 (PLAN_SHAPES.md §7.5): Hole kind is shape-owned. Creation goes
+   * EvalValue.Hole → toTagged; ComponentEngine uses EvValueBridge.taggedHole /
+   * isHole. Storage encoding remains the tagged singleton for now.
+   */
+  describe("EvalValue E3 Hole kind", () => {
+    const E3 = `${FIXTURES_DIR}/shape_evalvalue_e3_hole.rgr`;
+    const EXPECTED_E3 = ["roundtrip", "engine", "distinct", "undef", "falsy"].join(
+      "\n"
+    );
+
+    it("ES6", () => {
+      expectOutput(E3, EXPECTED_E3);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E3, EXPECTED_E3);
+    });
+  });
+
+  /**
+   * E3 primitives: null / undefined / number / string / boolean creation and
+   * checks go through EvValueBridge so the shape owns those kinds too.
+   */
+  describe("EvalValue E3 primitive kinds", () => {
+    const E3P = `${FIXTURES_DIR}/shape_evalvalue_e3_prims.rgr`;
+    const EXPECTED_E3P = ["num", "zero", "nullish", "strb", "roundtrip"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E3P, EXPECTED_E3P);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E3P, EXPECTED_E3P);
+    });
+  });
+
+  /**
+   * E3 reference kinds: Element, Array, Object, Map, Set, Function — all
+   * create/check through EvValueBridge. Completes §7.5 step 3 (by-kind boundary).
+   */
+  describe("EvalValue E3 reference kinds", () => {
+    const E3R = `${FIXTURES_DIR}/shape_evalvalue_e3_refs.rgr`;
+    const EXPECTED_E3R = ["array", "object", "mapset", "fn", "element"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E3R, EXPECTED_E3R);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E3R, EXPECTED_E3R);
+    });
+  });
+
+  /**
+   * E4 (PLAN_SHAPES.md §7.5): valueType is deleted. Kind lives on
+   * EvHandle.body:EvalValue; is-predicates / kindName / fromTagged read the shape.
+   */
+  describe("EvalValue E4 kind discriminant", () => {
+    const E4 = `${FIXTURES_DIR}/shape_evalvalue_e4_kind.rgr`;
+    const EXPECTED_E4 = ["body", "kinds", "round", "name"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E4, EXPECTED_E4);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E4, EXPECTED_E4);
+    });
+  });
+
+  /**
+   * E4b (PLAN_SHAPES.md §7.5): storage fields hidden behind EvHandle
+   * accessors — array dense store, own-data bag, proto link.
+   */
+  describe("EvalValue E4b storage accessors", () => {
+    const E4B = `${FIXTURES_DIR}/shape_evalvalue_e4b_accessors.rgr`;
+    const EXPECTED_E4B = ["arr", "obj", "proto"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E4B, EXPECTED_E4B);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E4B, EXPECTED_E4B);
+    });
+  });
+
+  /**
+   * E4c (PLAN_SHAPES.md §7.5): Array.items + Object EvPropertyBag are SoT.
+   * Class wrappers round-trip via EvValueHandles (identity preserved).
+   */
+  describe("EvalValue E4c array/object storage", () => {
+    const E4C = `${FIXTURES_DIR}/shape_evalvalue_e4c_array.rgr`;
+    const EXPECTED_E4C = ["arr", "sot", "id", "obj"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E4C, EXPECTED_E4C);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E4C, EXPECTED_E4C);
+    });
+  });
+
+  /**
+   * E4c: Map.entries + Set.items are SoT on the shape body.
+   */
+  describe("EvalValue E4c map/set storage", () => {
+    const E4C_MS = `${FIXTURES_DIR}/shape_evalvalue_e4c_mapset.rgr`;
+    const EXPECTED_E4C_MS = ["map", "mapsot", "set", "setsot"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E4C_MS, EXPECTED_E4C_MS);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E4C_MS, EXPECTED_E4C_MS);
+    });
+  });
+
+  /**
+   * E4d1: Element.element on body is SoT (EvalPayload.ElemBox gone).
+   */
+  describe("EvalValue E4d element storage", () => {
+    const E4D_EL = `${FIXTURES_DIR}/shape_evalvalue_e4d_element.rgr`;
+    const EXPECTED_E4D_EL = ["el", "sot", "id"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E4D_EL, EXPECTED_E4D_EL);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E4D_EL, EXPECTED_E4D_EL);
+    });
+  });
+
+  /**
+   * E4d2–4: Function core/binding on body is SoT (EvalPayload.FnCore gone).
+   */
+  describe("EvalValue E4d function core/binding", () => {
+    const E4D_FN = `${FIXTURES_DIR}/shape_evalvalue_e4d_fncore.rgr`;
+    const EXPECTED_E4D_FN = ["core", "sot", "copy", "this", "bind"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E4D_FN, EXPECTED_E4D_FN);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E4D_FN, EXPECTED_E4D_FN);
+    });
+  });
+
+  /**
+   * E4e: string/bool SoT on body (class caches removed).
+   */
+  describe("EvalValue E4e string/bool accessors", () => {
+    const E4E_SB = `${FIXTURES_DIR}/shape_evalvalue_e4e_strbool.rgr`;
+    const EXPECTED_E4E_SB = ["str", "strsot", "bool", "pool"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E4E_SB, EXPECTED_E4E_SB);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E4E_SB, EXPECTED_E4E_SB);
+    });
+  });
+
+  /**
+   * E4e: setNumberOf keeps body.Number synced with the class cache.
+   */
+  describe("EvalValue E4e number sync", () => {
+    const E4E_N = `${FIXTURES_DIR}/shape_evalvalue_e4e_number.rgr`;
+    const EXPECTED_E4E_N = ["num", "numsot", "pool"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E4E_N, EXPECTED_E4E_N);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E4E_N, EXPECTED_E4E_N);
+    });
+  });
+
+  /**
+   * E4e: identityIdOf for Reference identity (class field remains a cache).
+   */
+  describe("EvalValue E4e identityIdOf", () => {
+    const E4E_ID = `${FIXTURES_DIR}/shape_evalvalue_e4e_identity.rgr`;
+    const EXPECTED_E4E_ID = ["id", "stable", "fresh", "cache"].join("\n");
+
+    it("ES6", () => {
+      expectOutput(E4E_ID, EXPECTED_E4E_ID);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expectRustOutput(E4E_ID, EXPECTED_E4E_ID);
     });
   });
 
@@ -819,7 +1020,7 @@ describe("shapes (closed variant families)", () => {
   });
 
   /**
-   * A shape held as a FIELD, which is the form the EvalValue migration needs
+   * A shape held as a FIELD, which is the form the EvHandle migration needs
    * (PLAN_SHAPES.md §7.3). Three writer faults were found by that migration
    * and are covered here; each one made the generated program fail to build,
    * so a target that RUNS the fixture proves the fix.

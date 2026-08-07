@@ -1,0 +1,35 @@
+; E4e: setNumberOf keeps body.Number in sync with the class cache.
+Import "../../gallery/game_engine/v2/interp/migrate/src/EvValueBridge.rgr"
+
+class Main {
+    sfn main:void () {
+        def n:EvHandle (EvHandle.rawNumber(1.0))
+        n.slotOwned = true
+        n.setNumberOf(3.0)
+        if ((n.numberOf()) == 3.0) {
+            print "num"
+        } {
+            print "WRONG: numberOf"
+        }
+        def shaped:EvalValue (EvValueBridge.fromTagged(n))
+        if (EvalValue.isNumber(shaped)) {
+            case shaped nn:EvalValue.Number {
+                if (nn.value == 3.0) {
+                    print "numsot"
+                } {
+                    print "WRONG: body number"
+                }
+            }
+        } {
+            print "WRONG: fromTagged number"
+        }
+        ; Pooled small int must not be mutated via setNumberOf in this fixture;
+        ; just prove a fresh rawNumber round-trips.
+        def p:EvHandle (EvHandle.number(2.0))
+        if ((p.numberOf()) == 2.0) {
+            print "pool"
+        } {
+            print "WRONG: pool read"
+        }
+    }
+}

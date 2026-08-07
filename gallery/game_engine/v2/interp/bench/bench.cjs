@@ -39,8 +39,10 @@
 //   node bench.cjs 1 loop,fib # only these cases
 const vm = require("vm");
 const path = require("path");
-const { ComponentEngine, EvalValue } = require(
+const __eng = require(
   path.join(__dirname, "..", "bin", "engine_module.cjs"));
+const { ComponentEngine } = __eng;
+const EvalValue = __eng.EvHandle || __eng.EvalValue;
 
 const SCALE = Number(process.argv[2] || 1);
 const ONLY = (process.argv[3] || "").split(",").filter(Boolean);
@@ -112,7 +114,7 @@ function runEngine(src) {
   try {
     e.loadScript("var __out__ = '';\n" + src + "\nfunction __t__() { return String(__out__); }\n");
     const r = e.callFunction("__t__", EvalValue.null());
-    return r ? String(r.stringValue) : "<null>";
+    return r ? String(r.stringOf ? r.stringOf() : r.stringValue) : "<null>";
   } finally {
     console.log = o;
   }

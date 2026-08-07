@@ -1,81 +1,96 @@
-# The Rust target cannot build the interpreter yet
+# The Rust target runs the interpreter
 
-Recorded 2026-08-03 against `origin/master` (`4586fc70`), rustc 1.94.1.
+Recorded 2026-08-07, rustc 1.94.1. This file used to document why
+`TARGET=rust bash build.sh` could not build the interpreter (676 rustc errors
+at the first recording, 28 after the E4 storage migration). All of them are
+fixed: the Rust binary now builds clean, answers all seven benchmark workloads
+and the keyorder canary identically to Node, the es6 engine and the C++
+binary, and the array path is linear (1.95x for 2x the elements).
 
-`build.sh` defaults to `cpp`. `TARGET=rust bash build.sh` gets as far as
-generating Rust and then fails in `rustc`. This note records how far it gets and
-what blocks it, so the next attempt starts from evidence rather than from
-scratch.
+`build.sh` still defaults to `cpp`; `TARGET=rust bash build.sh` produces
+`bin/rust/engine_bench` (36.5k lines of generated Rust, `rustc -C opt-level=3`).
+
+## What was actually wrong
+
+Four writer bugs in `ng_RangerRustClassWriter.rgr`, found by building this
+binary and running these workloads. Each one is general — none was specific to
+the interpreter.
+
+**1. An expression receiver of a `__self_rc` method dropped the hidden
+argument (23 × E0061).** A method that uses `this` as a value takes the
+receiver's Rc as a hidden first parameter, and the call site passes it. When
+the receiver was an expression rather than a named local —
+`(evaluateExpr(x)).toString()` — the emission had no name to pass and silently
+passed nothing. Such calls are now wrapped in a block that binds the receiver
+first: `{ let __t = EXPR; let __t_r = (__t).borrow_mut().m(&__t, …); __t_r }`
+(the result rides through a binding because a block-tail expression keeps its
+`RefMut` temporary alive past the receiver's drop, E0597).
+
+**2. The hidden argument named de-shadowed locals by their source name
+(5 × E0425).** The receiver itself is written through `WriteVRef`, which
+prefers the de-shadowed `compiledName` (`left` → `left_1`); the hidden-arg
+path rebuilt the name from the raw source path and emitted `&left` next to a
+receiver spelled `left_1`. It now follows `compiledName` too.
+
+**3. A bare `this` receiver routed through the expression-call path emitted
+`(__self_rc).borrow()` — a guaranteed RefCell double-borrow panic.** Inside a
+`&mut self` frame, borrowing the same cell again panics at runtime. The
+expression-call path now recognises a `this` receiver (bare or wrapped in
+expression nodes) and calls straight through `self.`, passing `__self_rc` on
+when the callee needs it. Relatedly, `EvHandle.equals` now delegates to
+`matches()` — the field-reading comparison that never takes a mutable borrow —
+so `x == x` on the same pooled handle (undefined, an interned small int)
+cannot panic either.
+
+**4. A pre-extracted argument was evaluated a second time — recursion went
+exponential.** To keep a nested self-call's borrow from overlapping its
+enclosing call (E0502), the writer extracts it into a `let _tmp_N = …;` ahead
+of the statement and marks the argument node to substitute the temp. Two of
+the three call-emission paths never consulted the mark and re-walked the
+argument, so the expression ran **twice** — harmless for a pure read,
+catastrophic for `callResultOf(evaluateFunctionBodyValue(body))`, where it ran
+every guest function body twice per frame: a recursive guest call tree cost
+2^depth. Measured directly: `g(20)` counted 4,194,302 invocations instead
+of 21, and `fib` (depth 20) did not finish in 150 s. With the substitution
+honored everywhere, fib runs in ~85 ms.
 
 ## Where it stands
 
-| Stage | Result |
-|---|---|
-| Ranger → Rust codegen | **passes** — 32111 lines of Rust, no compiler errors |
-| `rustc -O` on that output | **fails** — 676 errors |
+ms/run on this machine (reps=3 minus a reps=0 startup run, same subtraction
+`run.cjs` makes), next to the C++ build measured the same way the same day —
+after the union-copy reductions (kind checks pass `body` straight to the
+predicate; read-only union parameters borrow instead of cloning; a
+string-bearing case is held behind the member's `Rc<RefCell>` in the enum so
+cloning the enum never clones the string; `build.sh` collapses the writer's
+stacked `.clone().clone()` pairs, each of which was a full extra copy):
 
-The Ranger side is clean only after the operator additions committed alongside
-this note: `M_PI`, `tan`, `to_lowercase`, `to_uppercase` and `file_mtime` had no
-`rust` template at all, and their absence produced 15 type-inference failures
-(an operator with no template resolves to no type, and every binding that reads
-it inherits that). Those are fixed. What follows is what remains.
+| case | rust | cpp |
+|---|---:|---:|
+| loop | 19 | 19 |
+| fib | 37 | 35 |
+| strcat | 12 | 10 |
+| array | 47 | 35 |
+| object | 45 | 54 |
+| method | 87 | 67 |
+| regex | 68 | 75 |
 
-## What blocks it
+(The strcat collapse — 95 → 12 — is the interpreter's slot machinery
+appending to a proven-unshared string IN PLACE through the new `str_append`
+operator, `String::push_str` on this target; the array drop is the transient
+evaluator answering dense `a[j]` number reads without a value object.)
 
-Counted by distinct rustc message, most frequent first:
+Same league as C++ — ahead of it on `array`, behind on the string-heavy rows
+(`Rc<RefCell>` borrows plus owned `String` clones on every property key).
+All seven answers and the keyorder canary agree with Node.
 
-| n | Error | What it is |
-|---|---|---|
-| 416 | `mismatched types` | broad: owned vs borrowed, `T` vs `Rc<RefCell<T>>`, `i64` vs `usize` |
-| 35 | ``expected expression, found `let` statement`` | a temp is emitted *into* a binding: `let mut idTok: Rc<RefCell<Token>> = let _tmp_1 = …;` |
-| 27 | ``no method named `has` found for `&mut Rc<RefCell<EvalContext>>` `` | method calls not routed through the `RefCell` borrow |
-| 17 | ``no field `isHole` on type `Rc<RefCell<EvalValue>>` `` | field reads not routed through the borrow |
-| 16 | ``cannot find value `context` in this scope`` | a captured field referenced as a bare local |
-| 13 | ``expected type, found `=` `` | the declared type is dropped: `let mut savedLabels :  = …` |
-| 11 | ``no method named `unwrap` found for `Vec<String>` `` | a non-optional treated as `Option` |
+## What to watch
 
-The 13 + 11 pair is one bug seen twice. For
-
-```ranger
-def savedctorLabels:[string] this.activeLabels
-```
-
-the backend emits
-
-```rust
-let mut savedctorLabels :  = self.activeLabels.unwrap().clone();
-```
-
-— the declared `[string]` is lost *and* an `.unwrap()` is added to a field that
-is not optional. A local declared with an explicit type and initialised from a
-field is a common enough shape that this alone accounts for a fifth of the
-non-`mismatched-types` errors.
-
-## Scale check
-
-The interpreter is not merely large; the target does not yet handle programs of
-this shape at all. The TypeScript parser — a smaller, simpler program in the same
-repository — fails the same way:
-
-```
-npm run tsparser:compile:rust     # Ranger -> Rust: OK
-rustc -O gallery/ts_parser/bin/ts_parser_main.rs
-                                  # 37 errors, same categories
-```
-
-Meanwhile `npm run test:rust` and `codegen-rust.test.ts` both pass (67 checks).
-So the Rust backend is real and works on the programs it is tested against; the
-gap is between those programs and one of this size.
-
-## Suggested order of attack
-
-1. The empty-type / spurious-`unwrap` bug on `def x:T <field>` — one shape,
-   24 errors, and it is the only one whose root cause is already pinned down.
-2. The `let`-as-expression temp (35) — a statement emitted where an expression
-   was required, so probably one emit path.
-3. Route field reads and method calls on a shared class through the `RefCell`
-   borrow (44).
-
-That is roughly 100 of 676. The remaining `mismatched types` bulk needs a
-narrower repro than "the interpreter" — the TS parser at 37 errors is the better
-harness for it.
+- The interpreter exercises one deep path through the writer, not all of them.
+  The four fixes above are general, but the next program through this target
+  may find the next bug; keep `probe_main.rgr` around — arbitrary JS through
+  the Rust engine is how the exponential-recursion bug was isolated
+  (`./probe "function g(k){…} return g(20);"`).
+- RefCell discipline is structural: any new `&mut self` method on a shared
+  class that touches a cell it may alias will panic at runtime, not fail to
+  compile. `matches()`-style field reads (shared borrows, no method calls on
+  the other handle) are the pattern that survives.

@@ -1559,6 +1559,12 @@ class RangerRustClassWriter {
         def segD:RangerAppParamDesc (itemAt fc.nsp segIdx)
         haveSegD = true
         segMember = segD.is_class_variable
+        ; the receiver itself is written through WriteVRef, which prefers the
+        ; de-shadowed compiledName (`left` → `left_1`); the hidden-arg path
+        ; must follow it or it names a variable that no longer exists (E0425)
+        if ((strlen segD.compiledName) > 0) {
+          segName = (this.adjustType(segD.compiledName))
+        }
         if segD.is_optional {
           def sdNN@(optional):CodeNode segD.nameNode
           def segColl:boolean false
@@ -2116,6 +2122,9 @@ class RangerRustClassWriter {
     if (n == "int_buffer_copy") { return true }
     if (n == "double_buffer_copy") { return true }
     if (n == "push") { return true }
+    if (n == "str_append") { return true }
+    if (n == "map_clear") { return true }
+    if (n == "nullify") { return true }
     if (n == "set") { return true }
     if (n == "put") { return true }
     if (n == "insert") { return true }
@@ -2203,6 +2212,37 @@ class RangerRustClassWriter {
     ; This is a simplified version that doesn't use call graph
     ; Used when we don't have the full class context
     return (this.fnBodyDirectlyMutatesThis(node ctx))
+  }
+
+  ; Does `<obj>.<methodName>(…)` land on a method that takes the hidden
+  ; __self_rc argument, when the front end left node.fnDesc unresolved?
+  ; Resolves through the receiver's evaluated type (the current class for a
+  ; `this` receiver).
+  fn rustExprCallNeedsSelfRc:boolean (obj:CodeNode methodName:string recvIsThis:boolean ctx:RangerAppWriterContext) {
+    def recvT:string obj.eval_type_name
+    if (((strlen recvT) == 0) && recvIsThis) {
+      def thisCls@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+      if (!null? thisCls) {
+        def thisC:RangerAppClassDesc (unwrap thisCls)
+        recvT = thisC.name
+      }
+    }
+    if ((strlen recvT) == 0) {
+      return false
+    }
+    if ((this.rustClassIsShared(recvT ctx)) == false) {
+      return false
+    }
+    if ((ctx.isDefinedClass(recvT)) == false) {
+      return false
+    }
+    def recvCl:RangerAppClassDesc (ctx.findClass(recvT))
+    def recvM@(optional):RangerAppFunctionDesc (recvCl.findMethod(methodName))
+    if (null? recvM) {
+      return false
+    }
+    def recvMD:RangerAppFunctionDesc (unwrap recvM)
+    return (this.rustNeedsSelfRc(recvMD ctx))
   }
 
   fn CreateCallExpression(node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -2349,6 +2389,41 @@ class RangerRustClassWriter {
         }
       }
 
+      ; A `this` receiver routed through this path — bare or wrapped in
+      ; single-child expression nodes — is the borrowed struct: it calls as
+      ; `self.m(…)`. Walking it as a value emits `(__self_rc).borrow()`,
+      ; a RefCell double-borrow panic at runtime inside a &mut self frame.
+      def exprThisRecv:boolean false
+      if ((obj.expression == false) && (obj.vref == "this")) {
+        exprThisRecv = true
+      }
+      if (obj.expression && ((array_length obj.children) == 1)) {
+        def exprRecvCore:CodeNode (obj.getFirst())
+        if ((exprRecvCore.expression == false) && (exprRecvCore.vref == "this")) {
+          exprThisRecv = true
+        }
+        if (exprRecvCore.expression && ((array_length exprRecvCore.children) == 1)) {
+          def exprRecvCore2:CodeNode (exprRecvCore.getFirst())
+          if ((exprRecvCore2.expression == false) && (exprRecvCore2.vref == "this")) {
+            exprThisRecv = true
+          }
+        }
+      }
+      ; Does the callee take the hidden __self_rc argument? node.fnDesc when
+      ; the front end resolved it; otherwise through the receiver's evaluated
+      ; type — an unresolved fnDesc used to skip the hidden argument silently,
+      ; so the generated call was one argument short (E0061).
+      def exprSelfRcNeeded:boolean false
+      if (!null? node.fnDesc) {
+        exprSelfRcNeeded = (this.rustNeedsSelfRc((unwrap node.fnDesc) ctx))
+      } {
+        exprSelfRcNeeded = (this.rustExprCallNeedsSelfRc(obj method.vref exprThisRecv ctx))
+      }
+      ; An EXPRESSION receiver of a __self_rc method has no name to pass, so
+      ; the call is wrapped in a block that binds the receiver first:
+      ;   { let __t = EXPR; (__t).borrow_mut().m(&__t, …) }
+      def exprSelfRcTmp:string ""
+
       ; a method whose body never touches `this` was emitted as an
       ; associated fn (no self receiver): the call takes the static
       ; syntax, whatever the receiver expression was (E0599)
@@ -2419,10 +2494,26 @@ class RangerRustClassWriter {
         }
       } {
         ; Standard case - wrap in parentheses
-        wr.out("(" false)
-        ctx.setInExpr()
-        this.WalkNode(obj ctx wr)
-        ctx.unsetInExpr()
+        if exprThisRecv {
+          ; a self-call: the receiver is the already-borrowed struct
+          wr.out((thisName + ".") false)
+        } {
+        if (exprSelfRcNeeded && obj.expression) {
+          exprSelfRcTmp = (ctx.rustGetTempVar())
+          wr.out((("{ let " + exprSelfRcTmp) + " = ") false)
+          ctx.setInExpr()
+          this.WalkNode(obj ctx wr)
+          ctx.unsetInExpr()
+          ; the call lands in a binding, not the block tail: a tail
+          ; expression keeps its RefMut temporary alive past the drop of
+          ; the receiver binding (E0597)
+          wr.out((((("; let " + exprSelfRcTmp) + "_r = (") + exprSelfRcTmp) + "") false)
+        } {
+          wr.out("(" false)
+          ctx.setInExpr()
+          this.WalkNode(obj ctx wr)
+          ctx.unsetInExpr()
+        }
         if obj_is_trait_type {
           ; Trait types use Rc<RefCell<...>> - borrow_mut for interior mutability
           wr.out(").borrow_mut()." false)
@@ -2480,6 +2571,7 @@ class RangerRustClassWriter {
             wr.out(")." false)
           }
         }
+        }
       }
       
       wr.out(method.vref false)
@@ -2488,14 +2580,25 @@ class RangerRustClassWriter {
       ctx.setInExpr()
       ; the hidden Rc argument of a method that stores `this`
       def hc_wrote_selfrc:boolean false
-      if (!null? node.fnDesc) {
-        if (this.rustNeedsSelfRc((unwrap node.fnDesc) ctx)) {
+      if ((strlen exprSelfRcTmp) > 0) {
+        ; the receiver was bound in the wrapping block; hand its Rc on
+        wr.out(("&" + exprSelfRcTmp) false)
+        hc_wrote_selfrc = true
+      } {
+        if exprSelfRcNeeded {
+          if exprThisRecv {
+            ; self-call: the caller's own hidden argument is the Rc, and it
+            ; is already a reference — pass it through bare
+            wr.out("__self_rc" false)
+            hc_wrote_selfrc = true
+          } {
           if (((array_length obj.ns) <= 1) && (obj.expression == false)) {
             wr.out("&" false)
             this.WriteVRef(obj ctx wr)
             hc_wrote_selfrc = true
           } {
             ctx.addError(node "This method stores `this`, so its Rust form needs the receiver's Rc. Bind the receiver to a variable first: def recv:T (expr) — then recv.method(...).")
+          }
           }
         }
       }
@@ -2608,6 +2711,10 @@ class RangerRustClassWriter {
       }
       ctx.unsetInExpr()
       wr.out(")" false)
+      if ((strlen exprSelfRcTmp) > 0) {
+        ; closes `{ let __t = EXPR; let __t_r = …` from the receiver emission
+        wr.out(((("; " + exprSelfRcTmp) + "_r }") + "") false)
+      }
       if ((ctx.expressionLevel()) == 0) {
         wr.out(";" true)
       }
@@ -3115,7 +3222,25 @@ class RangerRustClassWriter {
                 }
                 ; Check if parameter needs immutable reference
                 def needsImmutableRef:boolean (arg.rust_borrow_type == 1)
-                
+
+                ; a pre-extracted argument substitutes its temporary.
+                ; Re-walking it here EVALUATED THE EXPRESSION A SECOND
+                ; TIME — on a recursive interpreter call chain that made
+                ; every guest function body run twice per frame, i.e. the
+                ; whole call tree exponential in recursion depth.
+                if ((strlen nVal.rust_use_tmpvar) > 0) {
+                  if needsMutRef {
+                    wr.out("&mut " false)
+                  } {
+                    if needsImmutableRef {
+                      wr.out("&" false)
+                    }
+                  }
+                  wr.out(nVal.rust_use_tmpvar false)
+                  nVal.rust_use_tmpvar = ""
+                  continue _
+                }
+
                 def borrowedLitDone2:boolean false
                 if needsMutRef {
                   wr.out("&mut " false)
@@ -3428,10 +3553,6 @@ class RangerRustClassWriter {
         if (this.rustWriteUnionArg(arg nVal ctx wr)) {
           continue _
         }
-            ; a freshly constructed union member takes its cell here
-            if (this.rustWriteUnionArg(arg nVal ctx wr)) {
-              continue _
-            }
             ; Check if parameter needs mutable reference
             def needsMutRef:boolean false
             if arg.needs_cpp_reference {
@@ -3440,7 +3561,24 @@ class RangerRustClassWriter {
             if (arg.rust_borrow_type == 2) {
               needsMutRef = true
             }
-            
+
+            ; a pre-extracted argument substitutes its temporary. Re-walking
+            ; it here EVALUATED THE EXPRESSION AGAIN — a recursive guest call
+            ; ran twice per frame, making interpretation exponential in
+            ; recursion depth (the Rust fib hang).
+            if ((strlen nVal.rust_use_tmpvar) > 0) {
+              if needsMutRef {
+                wr.out("&mut " false)
+              } {
+                if (arg.rust_borrow_type == 1) {
+                  wr.out("&" false)
+                }
+              }
+              wr.out(nVal.rust_use_tmpvar false)
+              nVal.rust_use_tmpvar = ""
+              continue _
+            }
+
             if needsMutRef {
               if ((this.rustArgIsAlreadyMutRef(nVal)) == false) {
                 wr.out("&mut " false)
@@ -4321,6 +4459,10 @@ class RangerRustClassWriter {
       header.out("    }" true)
       header.out("    fn keys(&self) -> impl Iterator<Item = &K> { self.entries.iter().map(|e| &e.0) }" true)
       header.out("    fn len(&self) -> usize { self.entries.len() }" true)
+      header.out("    fn clear(&mut self) {" true)
+      header.out("        self.entries.clear();" true)
+      header.out("        for s in self.index.iter_mut() { *s = -1; }" true)
+      header.out("    }" true)
       header.out("}" true)
       header.out("type HashMap<K, V> = RgOrderedMap<K, V>;" true)
       header.out("" true)
@@ -6308,6 +6450,15 @@ class RangerRustClassWriter {
                 if (this.rustWriteUnionArg(arg nVal ctx wr)) {
                   continue _
                 }
+                    ; pre-extracted argument: substitute, never re-evaluate
+                    if ((strlen nVal.rust_use_tmpvar) > 0) {
+                      if retArgRef {
+                        wr.out("&" false)
+                      }
+                      wr.out(nVal.rust_use_tmpvar false)
+                      nVal.rust_use_tmpvar = ""
+                      continue _
+                    }
                     def borrowedLitDone3:boolean false
                     if retArgRef {
                       ; a string literal passes bare (the parameter is &str)

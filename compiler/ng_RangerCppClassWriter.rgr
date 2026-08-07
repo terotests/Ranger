@@ -251,8 +251,14 @@ class RangerCppClassWriter {
           if (cvNode.hasFlag("optional")) {
             allScalar = false
           } {
+            ; A string is NOT scalar here: carrying it inside the variant made
+            ; every copy of the union copy the whole payload — a kind check on
+            ; a 40 KB strcat accumulator was O(len). Behind a shared_ptr the
+            ; variant copies a pointer; content equality is unaffected (the
+            ; generated __ops::equals compares FIELDS for @(value) cases,
+            ; whatever the representation).
             def tn:string cvNode.type_name
-            def isScalar:boolean (((((tn == "int") || (tn == "double")) || (tn == "string")) || (tn == "boolean")) || (tn == "char"))
+            def isScalar:boolean ((((tn == "int") || (tn == "double")) || (tn == "boolean")) || (tn == "char"))
             if (isScalar == false) {
               allScalar = false
             }
@@ -1300,6 +1306,37 @@ class RangerCppClassWriter {
     }
     return false
   }
+  ; A closed-family (shape/union) parameter is an mpark::variant. Passing it by
+  ; value copies whichever alternative it holds — for a by-value String case
+  ; that is the whole string, so every kind predicate was O(payload). The same
+  ; read-only test as cppReadonlyValueParam (set_cnt / needs_cpp_reference)
+  ; makes `const r_union_X&` safe, and a const ref binds temporaries too.
+  fn cppReadonlyUnionParam:boolean (arg:RangerAppParamDesc ctx:RangerAppWriterContext) {
+    if (arg.set_cnt > 0) {
+      return false
+    }
+    if arg.needs_cpp_reference {
+      return false
+    }
+    if (null? arg.nameNode) {
+      return false
+    }
+    def typeNode:CodeNode (unwrap arg.nameNode)
+    if (typeNode.hasFlag("optional")) {
+      return false
+    }
+    def tn:string typeNode.type_name
+    if ((strlen tn) == 0) {
+      return false
+    }
+    if (ctx.isDefinedClass(tn)) {
+      def tc:RangerAppClassDesc (ctx.findClass(tn))
+      if tc.is_union {
+        return true
+      }
+    }
+    return false
+  }
 
   ; An object parameter is a std::shared_ptr<T>. Passing it by value costs one
   ; atomic increment on the call and one atomic decrement on the return, for a
@@ -1438,6 +1475,9 @@ class RangerCppClassWriter {
       }
       wr.out(" " false)
       def constRef:boolean (this.cppReadonlyValueParam(arg))
+      if (constRef == false) {
+        constRef = (this.cppReadonlyUnionParam(arg ctx))
+      }
       if (constRef == false) {
         constRef = (this.cppBorrowedObjectParam(fnDesc arg ctx))
       }
@@ -1706,7 +1746,11 @@ class RangerCppClassWriter {
     }
     if (cl.isSingletonClass()) {
       wr.out((("static " + (this.cppPtr(cl.name))) + " __singleton_instance;") true)
-      wr.out((("static " + (this.cppPtr(cl.name))) + " __singleton(") false)
+      ; Return the instance by CONST REFERENCE: the accessor sits on hot
+      ; paths (pooled constants read it per value), and a by-value return
+      ; charged a refcount pair per call. The instance is assigned once and
+      ; never cleared, so the reference cannot dangle.
+      wr.out((("static const " + (this.cppPtr(cl.name))) + "& __singleton(") false)
       if cl.has_constructor {
         def constr:RangerAppFunctionDesc cl.constructor_fn
         this.writeArgsDef((unwrap constr) ctx wr)
@@ -2129,7 +2173,7 @@ class RangerCppClassWriter {
     if (cl.isSingletonClass()) {
       ; Lazily-initialized process-wide singleton instance (matches JS/Swift).
       wr.out(((((this.cppPtr(cl.name)) + " ") + cl.name) + "::__singleton_instance = nullptr;") true)
-      wr.out(((((this.cppPtr(cl.name)) + " ") + cl.name) + "::__singleton(") false)
+      wr.out((((("const " + (this.cppPtr(cl.name))) + "& ") + cl.name) + "::__singleton(") false)
       if cl.has_constructor {
         def constr:RangerAppFunctionDesc cl.constructor_fn
         this.writeArgsDef((unwrap constr) ctx wr)

@@ -20,15 +20,15 @@ Import "../../harness/RgTest.rgr"
 
 class DecodeArraySpansTest {
 
-    sfn numArr:EvalValue (vals:[double]) {
-        def items:[EvalValue]
+    sfn numArr:EvHandle (vals:[double]) {
+        def items:[EvHandle]
         def n:int (array_length vals)
         def i:int 0
         while (i < n) {
-            push items (EvalValue.number((itemAt vals i)))
+            push items (EvHandle.number((itemAt vals i)))
             i = (i + 1)
         }
-        return (EvalValue.array(items))
+        return (EvHandle.array(items))
     }
 
     sfn m@(main):void () {
@@ -55,7 +55,7 @@ class DecodeArraySpansTest {
         push idx 9.0
         push idx 11.0
 
-        def args:[EvalValue]
+        def args:[EvHandle]
         push args (DecodeArraySpansTest.numArr(pos))
         push args (DecodeArraySpansTest.numArr(nrm))
         push args (DecodeArraySpansTest.numArr(uv))
@@ -91,8 +91,8 @@ class DecodeArraySpansTest {
         def row2:RgCommand (RgCommand.of(999002 "test_scalar_then_array" "test_scalar_then_array"))
         row2.argSpec = "i:ad"
         row2.retSpec = "v"
-        def args2:[EvalValue]
-        push args2 (EvalValue.number(5.0))
+        def args2:[EvHandle]
+        push args2 (EvHandle.number(5.0))
         push args2 (DecodeArraySpansTest.numArr(nrm))
         def dec2:RgDecodedArgs (b.decode(row2 args2))
         t.ok("decode succeeded (scalar + array)" dec2.ok)
@@ -108,7 +108,7 @@ class DecodeArraySpansTest {
         def row3:RgCommand (RgCommand.of(999003 "test_single_arrays" "test_single_arrays"))
         row3.argSpec = "ad:ai"
         row3.retSpec = "v"
-        def args3:[EvalValue]
+        def args3:[EvHandle]
         push args3 (DecodeArraySpansTest.numArr(pos))
         push args3 (DecodeArraySpansTest.numArr(idx))
         def dec3:RgDecodedArgs (b.decode(row3 args3))

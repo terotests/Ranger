@@ -29,7 +29,7 @@
 Import "ModelLoader.rgr"
 Import "MeshBridge.rgr"
 Import "../interp/migrate/src/ComponentEngine.rgr"
-Import "../interp/migrate/src/EvalValue.rgr"
+Import "../interp/migrate/src/EvHandle.rgr"
 
 ; ------------------------------------------------------------------------------
 ; Injectable GL-upload seam. Default (this base class) is the headless "null"
@@ -80,18 +80,18 @@ class Model3dScriptBridge extends EvalNativeBridge {
     }
 
     ; Arg helpers --------------------------------------------------------------
-    fn argStr:string (args:[EvalValue] i:int) {
+    fn argStr:string (args:[EvHandle] i:int) {
         if ((array_length args) <= i) {
             return ""
         }
-        def v:EvalValue (itemAt args i)
+        def v:EvHandle (itemAt args i)
         return (v.toString())
     }
-    fn argInt:int (args:[EvalValue] i:int) {
+    fn argInt:int (args:[EvHandle] i:int) {
         if ((array_length args) <= i) {
             return 0
         }
-        def v:EvalValue (itemAt args i)
+        def v:EvHandle (itemAt args i)
         return (to_int (v.toNumber()))
     }
 
@@ -183,7 +183,7 @@ class Model3dScriptBridge extends EvalNativeBridge {
         return false
     }
 
-    fn invoke:EvalValue (name:string args:[EvalValue]) {
+    fn invoke:EvHandle (name:string args:[EvHandle]) {
         if (name == "loadModel") {
             return (this.doLoad(args))
         }
@@ -194,13 +194,13 @@ class Model3dScriptBridge extends EvalNativeBridge {
             return (this.doBuild(args))
         }
         if (name == "modelError") {
-            return (EvalValue.string(lastError))
+            return (EvHandle.string(lastError))
         }
-        return (EvalValue.null())
+        return (EvHandle.null())
     }
 
     ; loadModel(dir, file) -> number ------------------------------------------
-    fn doLoad:EvalValue (args:[EvalValue]) {
+    fn doLoad:EvHandle (args:[EvHandle]) {
         def dir:string (this.argStr(args 0))
         def file:string (this.argStr(args 1))
         def id:int 0
@@ -211,13 +211,13 @@ class Model3dScriptBridge extends EvalNativeBridge {
         }
         if (loader.ok == false) {
             lastError = loader.lastError
-            return (EvalValue.fromInt(0 - 1))
+            return (EvHandle.fromInt(0 - 1))
         }
         def model:ModelAsset (loader.getModel(id))
         def em:EngineMeshData (bridge.fromModel(model))
         if (em.ok == false) {
             lastError = em.error
-            return (EvalValue.fromInt(0 - 1))
+            return (EvHandle.fromInt(0 - 1))
         }
         def e:Model3dEntry (new Model3dEntry)
         e.id = id
@@ -225,19 +225,19 @@ class Model3dScriptBridge extends EvalNativeBridge {
         e.mesh = em
         push entries e
         lastError = ""
-        return (EvalValue.fromInt(id))
+        return (EvHandle.fromInt(id))
     }
 
     ; modelInfo(id) -> object -------------------------------------------------
-    fn doInfo:EvalValue (args:[EvalValue]) {
+    fn doInfo:EvHandle (args:[EvHandle]) {
         def id:int (this.argInt(args 0))
         def idx:int (this.findEntry(id))
         def keys:[string]
-        def vals:[EvalValue]
+        def vals:[EvHandle]
         if (idx < 0) {
             push keys "ok"
-            push vals (EvalValue.fromInt(0))
-            return (EvalValue.object(keys vals))
+            push vals (EvHandle.fromInt(0))
+            return (EvHandle.object(keys vals))
         }
         def e:Model3dEntry (itemAt entries idx)
         def m:ModelAsset e.model
@@ -254,46 +254,46 @@ class Model3dScriptBridge extends EvalNativeBridge {
             tex = 1
         }
         push keys "ok"
-        push vals (EvalValue.fromInt(1))
+        push vals (EvHandle.fromInt(1))
         push keys "nodes"
-        push vals (EvalValue.fromInt(nodes))
+        push vals (EvHandle.fromInt(nodes))
         push keys "meshes"
-        push vals (EvalValue.fromInt(meshes))
+        push vals (EvHandle.fromInt(meshes))
         push keys "textures"
-        push vals (EvalValue.fromInt(textures))
+        push vals (EvHandle.fromInt(textures))
         push keys "verts"
-        push vals (EvalValue.fromInt(em.vertexCount))
+        push vals (EvHandle.fromInt(em.vertexCount))
         push keys "indices"
-        push vals (EvalValue.fromInt(em.indexCount))
+        push vals (EvHandle.fromInt(em.indexCount))
         push keys "tris"
-        push vals (EvalValue.fromInt(tris))
+        push vals (EvHandle.fromInt(tris))
         push keys "hasTexture"
-        push vals (EvalValue.fromInt(tex))
+        push vals (EvHandle.fromInt(tex))
         push keys "texW"
-        push vals (EvalValue.fromInt(em.texWidth))
+        push vals (EvHandle.fromInt(em.texWidth))
         push keys "texH"
-        push vals (EvalValue.fromInt(em.texHeight))
+        push vals (EvHandle.fromInt(em.texHeight))
         push keys "sizeX"
-        push vals (EvalValue.number(szx))
+        push vals (EvHandle.number(szx))
         push keys "sizeY"
-        push vals (EvalValue.number(szy))
+        push vals (EvHandle.number(szy))
         push keys "sizeZ"
-        push vals (EvalValue.number(szz))
-        return (EvalValue.object(keys vals))
+        push vals (EvHandle.number(szz))
+        return (EvHandle.object(keys vals))
     }
 
     ; buildGLMesh(id) -> object -----------------------------------------------
     ; Runs the GL-upload seam. Headless: simulated handles + real checksum.
     ; SDL host: real gfx_3d_mesh_upload_hp / gfx_3d_upload_texture handles.
-    fn doBuild:EvalValue (args:[EvalValue]) {
+    fn doBuild:EvHandle (args:[EvHandle]) {
         def id:int (this.argInt(args 0))
         def idx:int (this.findEntry(id))
         def keys:[string]
-        def vals:[EvalValue]
+        def vals:[EvHandle]
         if (idx < 0) {
             push keys "ok"
-            push vals (EvalValue.fromInt(0))
-            return (EvalValue.object(keys vals))
+            push vals (EvHandle.fromInt(0))
+            return (EvHandle.object(keys vals))
         }
         def e:Model3dEntry (itemAt entries idx)
         def em:EngineMeshData e.mesh
@@ -317,27 +317,27 @@ class Model3dScriptBridge extends EvalNativeBridge {
             gl = 1
         }
         push keys "ok"
-        push vals (EvalValue.fromInt(1))
+        push vals (EvHandle.fromInt(1))
         push keys "glMeshId"
-        push vals (EvalValue.fromInt(glMesh))
+        push vals (EvHandle.fromInt(glMesh))
         push keys "glTexId"
-        push vals (EvalValue.fromInt(glTex))
+        push vals (EvHandle.fromInt(glTex))
         push keys "glReal"
-        push vals (EvalValue.fromInt(gl))
+        push vals (EvHandle.fromInt(gl))
         push keys "vertexCount"
-        push vals (EvalValue.fromInt(em.vertexCount))
+        push vals (EvHandle.fromInt(em.vertexCount))
         push keys "indexCount"
-        push vals (EvalValue.fromInt(em.indexCount))
+        push vals (EvHandle.fromInt(em.indexCount))
         push keys "triCount"
-        push vals (EvalValue.fromInt(tris))
+        push vals (EvHandle.fromInt(tris))
         push keys "hasTexture"
-        push vals (EvalValue.fromInt(tex))
+        push vals (EvHandle.fromInt(tex))
         push keys "texWidth"
-        push vals (EvalValue.fromInt(em.texWidth))
+        push vals (EvHandle.fromInt(em.texWidth))
         push keys "texHeight"
-        push vals (EvalValue.fromInt(em.texHeight))
+        push vals (EvHandle.fromInt(em.texHeight))
         push keys "checksum"
-        push vals (EvalValue.fromInt(cs))
-        return (EvalValue.object(keys vals))
+        push vals (EvHandle.fromInt(cs))
+        return (EvHandle.object(keys vals))
     }
 }

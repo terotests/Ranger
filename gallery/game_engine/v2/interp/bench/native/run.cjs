@@ -17,8 +17,10 @@
 const vm = require("vm");
 const path = require("path");
 const { execFileSync } = require("child_process");
-const { ComponentEngine, EvalValue } = require(
+const mod = require(
   path.join(__dirname, "..", "..", "bin", "engine_module.cjs"));
+const { ComponentEngine } = mod;
+const EvalValue = mod.EvHandle || mod.EvalValue;
 
 const BIN = path.join(__dirname, "..", "..", "bin", "cpp", "engine_bench");
 const REPS = Number(process.argv[2] || 3);
@@ -59,7 +61,7 @@ function runJsEngine(src) {
   try {
     e.loadScript("var __out__ = '';\n" + src + "\nfunction __t__() { return String(__out__); }\n");
     const r = e.callFunction("__t__", EvalValue.null());
-    return r ? String(r.stringValue) : "<null>";
+    return r ? String(r.stringOf ? r.stringOf() : r.stringValue) : "<null>";
   } finally {
     console.log = o;
   }

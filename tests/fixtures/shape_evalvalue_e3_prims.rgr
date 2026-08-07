@@ -1,0 +1,72 @@
+; E3 smoke test: primitive kinds are shape-owned (PLAN_SHAPES.md §7.5).
+Import "../../gallery/game_engine/v2/interp/migrate/src/EvValueBridge.rgr"
+
+class Main {
+    sfn main:void () {
+        ; number round-trip
+        def n:EvHandle (EvValueBridge.taggedNumber(3.0))
+        if (EvValueBridge.isNumber(n)) {
+            def ns:EvalValue (EvValueBridge.fromTagged(n))
+            if (EvalValue.isNumber(ns)) {
+                if (EvalValue.toBool(ns)) {
+                    print "num"
+                } {
+                    print "WRONG: 3 falsy"
+                }
+            } {
+                print "WRONG: fromTagged lost Number"
+            }
+        } {
+            print "WRONG: taggedNumber not a number"
+        }
+
+        ; zero is falsy
+        def z:EvHandle (EvValueBridge.taggedNumber(0.0))
+        def zs:EvalValue (EvValueBridge.fromTagged(z))
+        if (EvalValue.toBool(zs)) {
+            print "WRONG: zero truthy"
+        } {
+            print "zero"
+        }
+
+        ; null / undefined distinct from hole
+        def nu:EvHandle (EvValueBridge.taggedNull())
+        def un:EvHandle (EvValueBridge.taggedUndefined())
+        if (EvValueBridge.isNull(nu)) {
+            if (EvValueBridge.isUndefined(un)) {
+                if (EvValueBridge.isHole(nu)) {
+                    print "WRONG: null is hole"
+                } {
+                    print "nullish"
+                }
+            } {
+                print "WRONG: not undefined"
+            }
+        } {
+            print "WRONG: not null"
+        }
+
+        ; string / boolean
+        def s:EvHandle (EvValueBridge.taggedString("hi"))
+        def b:EvHandle (EvValueBridge.taggedBoolean(true))
+        if (EvValueBridge.isString(s)) {
+            if (EvValueBridge.isBoolean(b)) {
+                print "strb"
+            } {
+                print "WRONG: boolean"
+            }
+        } {
+            print "WRONG: string"
+        }
+
+        ; shape → tagged → shape for string
+        def shaped:EvalValue (EvalValue.string("x"))
+        def tagged:EvHandle (EvValueBridge.toTagged(shaped))
+        def back:EvalValue (EvValueBridge.fromTagged(tagged))
+        if (EvalValue.isString(back)) {
+            print "roundtrip"
+        } {
+            print "WRONG: string round-trip"
+        }
+    }
+}

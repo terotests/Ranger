@@ -12,7 +12,7 @@
 ; ==============================================================================
 
 Import "../web_tsx3d_host.rgr"
-Import "../../interp/migrate/src/EvalValue.rgr"
+Import "../../interp/migrate/src/EvHandle.rgr"
 Import "../../tests/harness/RgTest.rgr"
 
 class WebSmokeTest {
@@ -53,7 +53,7 @@ class WebSmokeTest {
         host.engine.quiet = true
         host.engine.setNativeBridge(host.bridge)
         host.engine.loadScript(script)
-        host.engine.callFunction("init" (EvalValue.null()))
+        host.engine.callFunction("init" (EvHandle.null()))
         t.eqInt("empty scene still declares no models after script" (host.modelCount()) 0)
 
         ; Re-render after driving the script: still builds a valid frame.

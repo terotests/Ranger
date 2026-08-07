@@ -1,0 +1,2458 @@
+; =============================================================================
+; EvHandle - Runtime value type for expression evaluation
+; =============================================================================
+; Represents values that can be evaluated: numbers, strings, booleans, 
+; null, arrays, objects, functions, and EVG elements.
+;
+; Migration (PLAN_SHAPES.md §7.5 E4e): thin engine handle around `body:EvalValue`.
+; Collection / property / Function / Element / string / bool live on the shape.
+; Shell left: numberValue + slotOwned (in-place i++), identityId hot-path cache
+; (also on Reference), EvValueHandles. Number `@(value)` blocks slotOwned on
+; the shape.
+
+Import "../../../evg/EVGElement.rgr"
+Import "../../../../../ts_parser/ts_parser_simple.rgr"
+Import "EvalValue.rgr"
+
+; Kind discriminant: `body` (shape EvalValue). Legacy int tags are gone.
+; Map SoT: body.Map.entries. Set SoT: body.Set.items.
+
+; Runtime hooks the LLVM backend replaces with intrinsics. Every other target
+; keeps these bodies, so the optimisations they gate simply never fire there --
+; the answers below are the conservative ones.
+class RangerMem {
+    sfn liveObjects:int () { return 0 }
+    sfn resetStats:void () { }
+    ; "Is the value under `key` held by nothing but this map?" Only a reference
+    ; counted runtime can answer; without one the honest answer is "cannot tell",
+    ; which callers must read as "not unique".
+    sfn mapValueUnique:boolean (m:[string:EvHandle] key:string) { return false }
+    ; "Assign only if the key is already there", answering whether it was. The
+    ; portable fallback is the two-lookup form the intrinsic replaces.
+    sfn mapPutIfPresent:boolean (m:[string:EvHandle] key:string v:EvHandle) {
+        if (has m key) {
+            set m key v
+            return true
+        }
+        return false
+    }
+}
+
+class EvHandle {
+    ; Kind discriminant — closed family (PLAN_SHAPES.md §7.5 step 4).
+    def body:EvalValue (new EvalValue.Undefined())
+    ; Live number cache — rewritten with body via setNumberOf. slotOwned i++
+    ; mutates in place; @(value) forbids putting that mutation on Number.value.
+    def numberValue:double 0.0
+    ; True only for a number minted to fill ONE binding's slot in a frame whose
+    ; body scan proved the name's value object never escapes. Nothing else can
+    ; be holding it, so `i++` writes via setNumberOf in place. Every value the
+    ; script can alias -- and every pooled literal, which is shared by every
+    ; occurrence of that constant -- keeps false and takes the minting path.
+    def slotOwned:boolean false
+    ; True on a BUILT-IN prototype object (Array.prototype, …). Writes and
+    ; suppressions through such a handle bump the dispatch epoch, which is
+    ; what lets call-site inline caches skip the override probes.
+    def isProtoObject:boolean false
+    ; D-IDENTITY: immutable reference identity. Object/array/function/Map/Set/
+    ; element values are stamped with a unique id (>= 1) at mint; primitives keep
+    ; 0 and compare by value. Never changed by property writes, reparenting, or
+    ; array reorder — assigned exactly once at the creation factory below.
+    ; (Also on body Reference.identityId; class field is the hot-path cache.)
+    def identityId:int 0
+
+    ; ---- Primitive accessors (string/bool SoT on body; number synced) ----
+    ; Case directly on the field — a `def b:EvalValue body` prelude copied
+    ; the union (string payload included) once more per read.
+    fn stringOf:string () {
+        case body s:EvalValue.String {
+            return s.value
+        }
+        return ""
+    }
+    fn boolOf:boolean () {
+        case body bo:EvalValue.Boolean {
+            return bo.value
+        }
+        return false
+    }
+    ; Append to the backing string IN PLACE — amortized O(len(suffix)) where
+    ; the target string is mutable, one copy elsewhere. Only the slot
+    ; machinery calls this, and only on a handle it minted itself
+    ; (slotOwned): the escape scan proved nothing else can hold this body's
+    ; String case, so the mutation cannot be observed through an alias.
+    fn strSlotAppend:void (suffix:string) {
+        case body s:EvalValue.String {
+            str_append s.value suffix
+        }
+    }
+    fn numberOf:double () {
+        return numberValue
+    }
+    ; Keep class cache and body.Number in lockstep after every mutation.
+    fn setNumberOf:void (n:double) {
+        numberValue = n
+        body = (EvalValue.number(n))
+    }
+    fn identityIdOf:int () {
+        ; Prefer the class cache (always stamped at mint). Fall back to body
+        ; case fields — case each Reference member (not the group) so Rust's
+        ; flat union lowering can match.
+        if (identityId > 0) {
+            return identityId
+        }
+        def b:EvalValue body
+        case b a:EvalValue.Array { return a.identityId }
+        case b o:EvalValue.Object { return o.identityId }
+        case b f:EvalValue.Function { return f.identityId }
+        case b m:EvalValue.Map { return m.identityId }
+        case b st:EvalValue.Set { return st.identityId }
+        case b el:EvalValue.Element { return el.identityId }
+        return 0
+    }
+
+    ; ---- Function SoT: body.Function.core / .binding (PLAN_SHAPES §7.3) ----
+    ; Ensure body is a Function case before writing core/binding fields.
+    fn ensureFunction:void () {
+        def b:EvalValue body
+        if (EvalValue.isFunction(b)) {
+            return
+        }
+        def id:int (this.identityIdOf())
+        if (id <= 0) {
+            id = ((EvalIdentityMinter.__singleton()).mint())
+            identityId = id
+        }
+        body = (EvalValue.functionStubAt(id ""))
+    }
+
+    fn fnCore:EvFunctionCore () {
+        this.ensureFunction()
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
+            return (unwrap f.core)
+        }
+        def fallback:EvFunctionCore (new EvFunctionCore())
+        return fallback
+    }
+
+    fn fnBinding:EvFunctionBinding () {
+        this.ensureFunction()
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
+            return (unwrap f.binding)
+        }
+        def fallback:EvFunctionBinding (new EvFunctionBinding())
+        return fallback
+    }
+
+    fn fnName:string () {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
+            def c:EvFunctionCore (unwrap f.core)
+            return c.functionName
+        }
+        return ""
+    }
+    fn setFnName:void (s:string) {
+        def c:EvFunctionCore (this.fnCore())
+        c.functionName = s
+    }
+
+    fn closureIdOf:int () {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
+            def c:EvFunctionCore (unwrap f.core)
+            return c.closureId
+        }
+        return (0 - 1)
+    }
+    fn setClosureId:void (v:int) {
+        def c:EvFunctionCore (this.fnCore())
+        c.closureId = v
+    }
+
+    fn homeModuleOf:string () {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
+            def c:EvFunctionCore (unwrap f.core)
+            return c.homeModule
+        }
+        return ""
+    }
+    fn setHomeModule:void (s:string) {
+        def c:EvFunctionCore (this.fnCore())
+        c.homeModule = s
+    }
+    ; PERF: presence probe without copying the name out.
+    fn hasHomeModule:boolean () {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
+            def c:EvFunctionCore (unwrap f.core)
+            return ((strlen c.homeModule) > 0)
+        }
+        return false
+    }
+
+    fn srcTextOf:string () {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
+            def c:EvFunctionCore (unwrap f.core)
+            return c.srcText
+        }
+        return ""
+    }
+    fn setSrcText:void (s:string) {
+        def c:EvFunctionCore (this.fnCore())
+        c.srcText = s
+    }
+    ; PERF: presence probe without copying the text out.
+    fn hasSrcText:boolean () {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
+            def c:EvFunctionCore (unwrap f.core)
+            return ((strlen c.srcText) > 0)
+        }
+        return false
+    }
+    fn srcIdOf:int () {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
+            def c:EvFunctionCore (unwrap f.core)
+            return c.srcId
+        }
+        return 0
+    }
+    fn setSrcId:void (v:int) {
+        def c:EvFunctionCore (this.fnCore())
+        c.srcId = v
+    }
+
+    fn builtinKindOf:string () {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
+            def c:EvFunctionCore (unwrap f.core)
+            return c.builtinKind
+        }
+        return ""
+    }
+    fn setBuiltinKind:void (s:string) {
+        def c:EvFunctionCore (this.fnCore())
+        c.builtinKind = s
+    }
+
+    fn builtinNameOf:string () {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
+            def c:EvFunctionCore (unwrap f.core)
+            return c.builtinName
+        }
+        return ""
+    }
+    fn setBuiltinName:void (s:string) {
+        def c:EvFunctionCore (this.fnCore())
+        c.builtinName = s
+    }
+
+    fn builtinNamespaceOf:string () {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
+            def c:EvFunctionCore (unwrap f.core)
+            return c.builtinNamespace
+        }
+        return ""
+    }
+    fn setBuiltinNamespace:void (s:string) {
+        def c:EvFunctionCore (this.fnCore())
+        c.builtinNamespace = s
+    }
+
+    fn strictFnOf:boolean () {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
+            def c:EvFunctionCore (unwrap f.core)
+            return c.strictFn
+        }
+        return false
+    }
+    fn setStrictFn:void (b:boolean) {
+        def c:EvFunctionCore (this.fnCore())
+        c.strictFn = b
+    }
+
+    fn boundExplicitOf:boolean () {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
+            def bind:EvFunctionBinding (unwrap f.binding)
+            return bind.boundExplicit
+        }
+        return false
+    }
+    fn setBoundExplicit:void (b:boolean) {
+        def bind:EvFunctionBinding (this.fnBinding())
+        bind.boundExplicit = b
+    }
+
+    ; The collections are reached through operations rather than handed out: a
+    ; target that returns a collection by value would copy it, and a caller that
+    ; wrote into the copy would lose the write.
+    ; Suppressed keys live on EvPropertyBag (not FunctionCore) so prototype
+    ; objects can record registry deletions without ensureFunction rewriting
+    ; their kind.
+    fn hasSuppressed:boolean (key:string) {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (has props.suppressedKeys key)
+        }
+        return false
+    }
+    fn addSuppressed:void (key:string) {
+        if isProtoObject {
+            def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+            dEp.bump()
+        }
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            set props.suppressedKeys key true
+        }
+    }
+    fn suppressedKeyList:[string] () {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (keys props.suppressedKeys)
+        }
+        def none:[string]
+        return none
+    }
+    fn setSuppressed:void (m:[string:boolean]) {
+        if isProtoObject {
+            def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+            dEp.bump()
+        }
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            props.suppressedKeys = m
+        }
+    }
+    fn copySuppressedMap:[string:boolean] () {
+        def out:[string:boolean]
+        def ks:[string] (this.suppressedKeyList())
+        for ks kk:string i {
+            set out kk true
+        }
+        return out
+    }
+
+    fn boundArgCount:int () {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
+            def bind:EvFunctionBinding (unwrap f.binding)
+            return (array_length bind.boundArgs)
+        }
+        return 0
+    }
+    fn boundArgAt:EvHandle (index:int) {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
+            def bind:EvFunctionBinding (unwrap f.binding)
+            if ((index >= 0) && (index < (array_length bind.boundArgs))) {
+                return (EvHandle.fromBody((itemAt bind.boundArgs index)))
+            }
+        }
+        return (EvHandle.undefined())
+    }
+    fn setBoundArgs:void (items:[EvHandle]) {
+        def bind:EvFunctionBinding (this.fnBinding())
+        def stored:[EvalValue]
+        for items it:EvHandle i {
+            push stored (it.toStored())
+        }
+        bind.boundArgs = stored
+    }
+
+    ; ---- Element (SoT: body.Element.element) --------------------------------
+    fn hasElement:boolean () {
+        def b:EvalValue body
+        return (EvalValue.isElement(b))
+    }
+    fn elementOf:EVGElement () {
+        def _evBody:EvalValue body
+        case _evBody el:EvalValue.Element {
+            return (unwrap el.element)
+        }
+        def pool:EvalConstPool (EvalConstPool.__singleton())
+        return pool.blankElement
+    }
+    fn setElement:void (el:EVGElement) {
+        ; Rewrite the Element case; keep Reference identity.
+        def id:int (this.identityIdOf())
+        if (id <= 0) {
+            id = ((EvalIdentityMinter.__singleton()).mint())
+            identityId = id
+        }
+        body = (EvalValue.elementAt(id el))
+    }
+
+    ; Constructors
+    ; null / undefined / true / false are immutable (never mutated in place — the
+    ; mutating ops setMember/setIndexAt/push only act on objects/arrays), so they
+    ; are returned as shared singletons instead of allocating a new value every
+    ; time. This removes the single largest source of interpreter allocations.
+    sfn null:EvHandle () {
+        return ((EvalConstPool.__singleton()).nullValue)
+    }
+
+    ; Allocating variants used to seed the shared constant pool.
+    sfn rawNull:EvHandle () {
+        def v:EvHandle (new EvHandle())
+        v.body = (EvalValue.null())
+        return v
+    }
+
+    sfn rawUndefined:EvHandle () {
+        def v:EvHandle (new EvHandle())
+        v.body = (EvalValue.undefined())
+        return v
+    }
+
+    ; D-HOLES: an ABSENT array element, as distinct from one holding undefined.
+    ; It reads as undefined everywhere a value is wanted, so nothing that merely
+    ; consumes elements has to know about it -- but `1 in [0,,2]` is false and
+    ; forEach/filter/every/map skip it, which no undefined can express. Its own
+    ; Kind is Hole, so any code that missed the distinction still sees
+    ; undefined rather than something it cannot classify.
+    sfn rawHole:EvHandle () {
+        def v:EvHandle (new EvHandle())
+        v.body = (EvalValue.hole())
+        return v
+    }
+
+    sfn hole:EvHandle () {
+        return ((EvalConstPool.__singleton()).holeValue)
+    }
+
+    ; True when this element is absent rather than undefined.
+    fn holeSlot:boolean () {
+        return (this.isHole())
+    }
+
+    sfn rawBoolean:EvHandle (b:boolean) {
+        def v:EvHandle (new EvHandle())
+        v.body = (EvalValue.boolean(b))
+        return v
+    }
+    
+    sfn rawNumber:EvHandle (n:double) {
+        def v:EvHandle (new EvHandle())
+        v.setNumberOf(n)
+        return v
+    }
+
+    sfn number:EvHandle (n:double) {
+        ; a small non-negative integer comes from the shared pool.
+        ; NEGATIVE ZERO must not: -0.0 >= 0.0 and -0.0 == 0.0 both hold,
+        ; but the pooled +0 loses the sign — 1/-0 is -Infinity, and
+        ; Object.is / toString / JSON all observe it.
+        if ((n >= 0.0) && (n < 4096.0)) {
+            def ni:int (to_int n)
+            if ((to_double ni) == n) {
+                if ((ni != 0) || ((1.0 / n) > 0.0)) {
+                    return ((EvalConstPool.__singleton()).smallInt(ni))
+                }
+            }
+        }
+        def v:EvHandle (new EvHandle())
+        v.setNumberOf(n)
+        return v
+    }
+
+    sfn fromInt:EvHandle (n:int) {
+        if ((n >= 0) && (n < 4096)) {
+            return ((EvalConstPool.__singleton()).smallInt(n))
+        }
+        def v:EvHandle (new EvHandle())
+        v.setNumberOf((to_double n))
+        return v
+    }
+    
+    sfn string:EvHandle (s:string) {
+        def v:EvHandle (new EvHandle())
+        v.body = (EvalValue.string(s))
+        return v
+    }
+    
+    sfn boolean:EvHandle (b:boolean) {
+        if b {
+            return ((EvalConstPool.__singleton()).trueValue)
+        }
+        return ((EvalConstPool.__singleton()).falseValue)
+    }
+    
+
+    ; E4c: shape ↔ class. Primitives rebuild from scalar fields; refs return the
+    ; live `body` and register with EvValueHandles so Array.items can store
+    ; EvalValue and still round-trip to the same class handle (===).
+    fn toStored:EvalValue () {
+        def _k:EvalValue body
+        if (EvalValue.isHole(_k)) {
+            return (EvalValue.hole())
+        }
+        if (EvalValue.isNull(_k)) {
+            return (EvalValue.null())
+        }
+        if (EvalValue.isUndefined(_k)) {
+            return (EvalValue.undefined())
+        }
+        if (EvalValue.isNumber(_k)) {
+            return (EvalValue.number((this.numberOf())))
+        }
+        if (EvalValue.isString(_k)) {
+            return body
+        }
+        if (EvalValue.isBoolean(_k)) {
+            return body
+        }
+        ; Refs: return the live body. Factories / fromBody register the class
+        ; handle in EvValueHandles (do not pass `this` here — Rust codegen
+        ; double-wraps Rc when `this` is an argument).
+        return _k
+    }
+
+    sfn fromBody:EvHandle (ev:EvalValue) {
+        case ev h:EvalValue.Hole {
+            return (EvHandle.hole())
+        }
+        case ev n:EvalValue.Null {
+            return (EvHandle.null())
+        }
+        case ev u:EvalValue.Undefined {
+            return (EvHandle.undefined())
+        }
+        case ev num:EvalValue.Number {
+            return (EvHandle.number(num.value))
+        }
+        case ev s:EvalValue.String {
+            return (EvHandle.string(s.value))
+        }
+        case ev b:EvalValue.Boolean {
+            return (EvHandle.boolean(b.value))
+        }
+        case ev el:EvalValue.Element {
+            def id:int el.identityId
+            if (id > 0) {
+                def handles:EvValueHandles (EvValueHandles.__singleton())
+                def hit@(optional):EvHandle (handles.lookup(id))
+                if hit {
+                    return (unwrap hit)
+                }
+                def v:EvHandle (new EvHandle())
+                v.body = ev
+                v.identityId = id
+                handles.remember(v)
+                return v
+            }
+            return (EvHandle.element((unwrap el.element)))
+        }
+        case ev a:EvalValue.Array {
+            def id:int a.identityId
+            if (id > 0) {
+                def handles2:EvValueHandles (EvValueHandles.__singleton())
+                def hit2@(optional):EvHandle (handles2.lookup(id))
+                if hit2 {
+                    return (unwrap hit2)
+                }
+                def v2:EvHandle (new EvHandle())
+                v2.body = ev
+                v2.identityId = id
+                handles2.remember(v2)
+                return v2
+            }
+            def items:[EvHandle]
+            for a.items it:EvalValue i {
+                push items (EvHandle.fromBody(it))
+            }
+            return (EvHandle.array(items))
+        }
+        case ev o:EvalValue.Object {
+            def id3:int o.identityId
+            if (id3 > 0) {
+                def handles3:EvValueHandles (EvValueHandles.__singleton())
+                def hit3@(optional):EvHandle (handles3.lookup(id3))
+                if hit3 {
+                    return (unwrap hit3)
+                }
+                def v3:EvHandle (new EvHandle())
+                v3.body = ev
+                v3.identityId = id3
+                handles3.remember(v3)
+                return v3
+            }
+            return (EvHandle.object(([] _:string ()) ([] _:EvHandle ())))
+        }
+        case ev f:EvalValue.Function {
+            def id4:int f.identityId
+            def c:EvFunctionCore (unwrap f.core)
+            if (id4 > 0) {
+                def handles4:EvValueHandles (EvValueHandles.__singleton())
+                def hit4@(optional):EvHandle (handles4.lookup(id4))
+                if hit4 {
+                    return (unwrap hit4)
+                }
+                def v4:EvHandle (new EvHandle())
+                v4.body = ev
+                v4.identityId = id4
+                handles4.remember(v4)
+                return v4
+            }
+            return (EvHandle.nativeFunction(c.functionName))
+        }
+        case ev m:EvalValue.Map {
+            def id5:int m.identityId
+            if (id5 > 0) {
+                def handles5:EvValueHandles (EvValueHandles.__singleton())
+                def hit5@(optional):EvHandle (handles5.lookup(id5))
+                if hit5 {
+                    return (unwrap hit5)
+                }
+                def v5:EvHandle (new EvHandle())
+                v5.body = ev
+                v5.identityId = id5
+                handles5.remember(v5)
+                return v5
+            }
+            return (EvHandle.mapEmpty())
+        }
+        case ev st:EvalValue.Set {
+            def id6:int st.identityId
+            if (id6 > 0) {
+                def handles6:EvValueHandles (EvValueHandles.__singleton())
+                def hit6@(optional):EvHandle (handles6.lookup(id6))
+                if hit6 {
+                    return (unwrap hit6)
+                }
+                def v6:EvHandle (new EvHandle())
+                v6.body = ev
+                v6.identityId = id6
+                handles6.remember(v6)
+                return v6
+            }
+            return (EvHandle.setEmpty())
+        }
+        return (EvHandle.undefined())
+    }
+
+    sfn array:EvHandle (items:[EvHandle]) {
+        def v:EvHandle (new EvHandle())
+        def id:int ((EvalIdentityMinter.__singleton()).mint())
+        ; E4c: dense store on body.Array.items (EvalValue[]).
+        def stored:[EvalValue]
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:EvHandle (itemAt items i)
+            push stored (it.toStored())
+            i = (i + 1)
+        }
+        v.body = (EvalValue.arrayAt(id stored))
+        v.identityId = id
+        def handles:EvValueHandles (EvValueHandles.__singleton())
+        handles.remember(v)
+        return v
+    }
+
+    ; Empty Map: entries on body.Map.entries.
+    sfn mapEmpty:EvHandle () {
+        def v:EvHandle (new EvHandle())
+        def id:int ((EvalIdentityMinter.__singleton()).mint())
+        v.body = (EvalValue.mapEmptyAt(id))
+        v.identityId = id
+        def handles:EvValueHandles (EvValueHandles.__singleton())
+        handles.remember(v)
+        return v
+    }
+
+    ; Empty Set: items on body.Set.items (insertion order).
+    sfn setEmpty:EvHandle () {
+        def v:EvHandle (new EvHandle())
+        def id:int ((EvalIdentityMinter.__singleton()).mint())
+        v.body = (EvalValue.setEmptyAt(id))
+        v.identityId = id
+        def handles:EvValueHandles (EvValueHandles.__singleton())
+        handles.remember(v)
+        return v
+    }
+
+    sfn object:EvHandle (keys:[string] values:[EvHandle]) {
+        def v:EvHandle (new EvHandle())
+        def id:int ((EvalIdentityMinter.__singleton()).mint())
+        v.body = (EvalValue.objectAt(id))
+        v.identityId = id
+        def i:int 0
+        while (i < (array_length keys)) {
+            if (i < (array_length values)) {
+                v.putOwnData((itemAt keys i) (itemAt values i))
+            }
+            i = (i + 1)
+        }
+        def handles:EvValueHandles (EvValueHandles.__singleton())
+        handles.remember(v)
+        return v
+    }
+    
+    sfn function:EvHandle (fnNode:TSNode) {
+        def v:EvHandle (new EvHandle())
+        def id:int ((EvalIdentityMinter.__singleton()).mint())
+        v.body = (EvalValue.functionStubAt(id ""))
+        v.identityId = id
+        v.setFunctionNode(fnNode)
+        v.setFnName(fnNode.name)
+        def handles:EvValueHandles (EvValueHandles.__singleton())
+        handles.remember(v)
+        return v
+    }
+
+    ; D-ERRORS: a function value with no body — an engine-provided constructor
+    ; such as TypeError. It is a real function value (typeof === "function", own
+    ; identity) so guest code can compare it by reference and read `.name`, but
+    ; it has no functionNode, so the call paths that require one skip it and the
+    ; engine handles the construction itself.
+    sfn nativeFunction:EvHandle (name:string) {
+        def v:EvHandle (new EvHandle())
+        def id:int ((EvalIdentityMinter.__singleton()).mint())
+        v.body = (EvalValue.functionStubAt(id ""))
+        v.identityId = id
+        v.setFnName(name)
+        def handles:EvValueHandles (EvValueHandles.__singleton())
+        handles.remember(v)
+        return v
+    }
+
+    ; D-REGISTRY: a built-in method as a first-class function value. `boundThis`
+    ; carries the receiver when the value came from `arr.slice`; it is absent for
+    ; the unbound form read off a prototype (`Array.prototype.slice`), which is
+    ; exactly the case .call/.apply exist to supply.
+    sfn nativeMethod:EvHandle (kind:string name:string) {
+        def v:EvHandle (new EvHandle())
+        def id:int ((EvalIdentityMinter.__singleton()).mint())
+        v.body = (EvalValue.functionStubAt(id ""))
+        v.identityId = id
+        def core:EvFunctionCore (v.fnCore())
+        core.functionName = name
+        core.builtinKind = kind
+        core.builtinName = name
+        def handles:EvValueHandles (EvValueHandles.__singleton())
+        handles.remember(v)
+        return v
+    }
+
+    ; D-STATICS: a built-in STATIC (Object.keys, Math.floor) as a first-class
+    ; value. Like nativeMethod it is identified by a pair, but the first half is
+    ; the namespace rather than a receiver kind -- a static has no receiver.
+    sfn nativeStatic:EvHandle (ns:string name:string) {
+        def v:EvHandle (new EvHandle())
+        def id:int ((EvalIdentityMinter.__singleton()).mint())
+        v.body = (EvalValue.functionStubAt(id ""))
+        v.identityId = id
+        def core:EvFunctionCore (v.fnCore())
+        core.functionName = name
+        core.builtinNamespace = ns
+        core.builtinName = name
+        def handles:EvValueHandles (EvValueHandles.__singleton())
+        handles.remember(v)
+        return v
+    }
+
+    fn isBuiltinStatic:boolean () {
+        if (false == (this.isFunction())) {
+            return false
+        }
+        return ((strlen (this.builtinNamespaceOf())) > 0)
+    }
+
+    fn isBuiltinMethod:boolean () {
+        if (false == (this.isFunction())) {
+            return false
+        }
+        return ((strlen (this.builtinNameOf())) > 0)
+    }
+
+    ; A method captured as a value (obj.method): the function node plus the
+    ; receiver `this` it is bound to. Invoked like any function value.
+    sfn boundMethod:EvHandle (fnNode:TSNode thisVal:EvHandle) {
+        def v:EvHandle (new EvHandle())
+        def id:int ((EvalIdentityMinter.__singleton()).mint())
+        v.body = (EvalValue.functionStubAt(id ""))
+        v.identityId = id
+        v.setFunctionNode(fnNode)
+        v.setFnName(fnNode.name)
+        v.setBoundThis(thisVal)
+        def handles:EvValueHandles (EvValueHandles.__singleton())
+        handles.remember(v)
+        return v
+    }
+
+    ; D-PROTO: the same function value with a receiver bound. Used when a method
+    ; is reached through an object (own property or prototype) so `this` inside
+    ; it is the receiver. Copies the closure/provenance fields, which a fresh
+    ; boundMethod() would lose — dropping them would re-root the body in the
+    ; wrong module scope.
+    fn withThis:EvHandle (recv:EvHandle) {
+        def v:EvHandle (new EvHandle())
+        ; Fresh identity — a bound/rebound function is a distinct reference
+        ; (`f.bind(x) !== f`). Reusing the target's identityId made PropertyBag
+        ; round-trips (toStored/fromBody) recover the unbound original from
+        ; EvValueHandles and drop boundThis.
+        def id:int ((EvalIdentityMinter.__singleton()).mint())
+        v.body = (EvalValue.functionStubAt(id (this.fnName())))
+        v.identityId = id
+        ; Core is COPIED, not shared. bind() renames (`bound foo`) and rewrites
+        ; suppressedKeys on the result; sharing the core would mutate the
+        ; original. Binding fields (boundArgs) are copied too; boundThis is
+        ; replaced with `recv`. Sharing the core is a later optimisation once
+        ; those writes stop touching core.
+        def _evBody:EvalValue body
+        case _evBody srcF:EvalValue.Function {
+            def src:EvFunctionCore (unwrap srcF.core)
+            def dst:EvFunctionCore (v.fnCore())
+            dst.functionName = src.functionName
+            dst.closureId = src.closureId
+            dst.homeModule = src.homeModule
+            dst.srcText = src.srcText
+            dst.builtinKind = src.builtinKind
+            dst.builtinName = src.builtinName
+            dst.builtinNamespace = src.builtinNamespace
+            dst.strictFn = src.strictFn
+            if src.functionNode {
+                dst.functionNode = (unwrap src.functionNode)
+            }
+            def srcB:EvFunctionBinding (unwrap srcF.binding)
+            def dstB:EvFunctionBinding (v.fnBinding())
+            dstB.boundArgs = srcB.boundArgs
+        }
+        ; Copy own data properties onto the new function's PropertyBag.
+        def ks:[string] (this.ownDataKeys())
+        for ks kk:string idx {
+            v.putOwnData(kk (this.getOwnData(kk)))
+        }
+        ; Copy suppressed synthesised keys (PropertyBag), same as old FnCore copy.
+        v.setSuppressed((this.copySuppressedMap()))
+        v.setBoundThis(recv)
+        if (this.hasProto()) {
+            v.setProto((this.protoOf()))
+        }
+        def handles:EvValueHandles (EvValueHandles.__singleton())
+        handles.remember(v)
+        return v
+    }
+
+    sfn element:EvHandle (el:EVGElement) {
+        def v:EvHandle (new EvHandle())
+        def id:int ((EvalIdentityMinter.__singleton()).mint())
+        v.body = (EvalValue.elementAt(id el))
+        v.identityId = id
+        def handles:EvValueHandles (EvValueHandles.__singleton())
+        handles.remember(v)
+        return v
+    }
+
+    sfn undefined:EvHandle () {
+        return ((EvalConstPool.__singleton()).undefinedValue)
+    }
+    
+    ; Type checks — kind from body (shape EvalValue).
+    ; Copy `body` into a local before calling EvalValue.* — Rust RefCell panics
+    ; if the field is borrowed across the shape ops call.
+    ; Kind checks pass `body` STRAIGHT to the static predicate. The old
+    ; `def b:EvalValue body` local materialised a second copy of the union
+    ; per check — for a String-bearing body that copied the whole string,
+    ; which made every kind check on a 40 KB strcat accumulator O(len).
+    fn isNull:boolean () {
+        return (EvalValue.isNull(body))
+    }
+
+    fn isNumber:boolean () {
+        return (EvalValue.isNumber(body))
+    }
+
+    fn isString:boolean () {
+        return (EvalValue.isString(body))
+    }
+
+    fn isBoolean:boolean () {
+        return (EvalValue.isBoolean(body))
+    }
+
+    fn isArray:boolean () {
+        return (EvalValue.isArrayValue(body))
+    }
+
+    fn isObject:boolean () {
+        return (EvalValue.isObject(body))
+    }
+
+    fn isFunction:boolean () {
+        return (EvalValue.isFunction(body))
+    }
+
+    fn isElement:boolean () {
+        return (EvalValue.isElement(body))
+    }
+
+    fn isUndefined:boolean () {
+        return (EvalValue.isUndefined(body))
+    }
+
+    fn isHole:boolean () {
+        return (EvalValue.isHole(body))
+    }
+
+    fn isMap:boolean () {
+        return (EvalValue.isMap(body))
+    }
+
+    fn isSet:boolean () {
+        return (EvalValue.isSet(body))
+    }
+
+    fn kindName:string () {
+        ; Case once on a local copy — chaining this.is*() re-borrows `body`
+        ; and panics on the Rust RefCell target.
+        def b:EvalValue body
+        case b h:EvalValue.Hole { return "Hole" }
+        case b n:EvalValue.Null { return "Null" }
+        case b u:EvalValue.Undefined { return "Undefined" }
+        case b num:EvalValue.Number { return "Number" }
+        case b s:EvalValue.String { return "String" }
+        case b bo:EvalValue.Boolean { return "Boolean" }
+        case b a:EvalValue.Array { return "Array" }
+        case b o:EvalValue.Object { return "Object" }
+        case b f:EvalValue.Function { return "Function" }
+        case b el:EvalValue.Element { return "Element" }
+        case b m:EvalValue.Map { return "Map" }
+        case b st:EvalValue.Set { return "Set" }
+        return "Unknown"
+    }
+    
+    ; Type coercion
+    fn toNumber:double () {
+        if (this.isNumber()) {
+            return (this.numberOf())
+        }
+        if (this.isString()) {
+            def sv:string (this.stringOf())
+            def parsed@(optional):double (to_double sv)
+            return (unwrap parsed)
+        }
+        if (this.isBoolean()) {
+            if (this.boolOf()) {
+                return 1.0
+            }
+            return 0.0
+        }
+        return 0.0
+    }
+    
+    fn toString:string () {
+        if (this.isNull()) {
+            return "null"
+        }
+        if (this.isHole()) {
+            ; A hole READS as undefined when stringified as a value.
+            return "undefined"
+        }
+        if (this.isUndefined()) {
+            return "undefined"
+        }
+        if (this.isNumber()) {
+            def nv:double (this.numberOf())
+            ; NaN and the infinities print their JS names — the native f64
+            ; formatters say "inf"/"-inf" where JavaScript says "Infinity"
+            if (nv != nv) {
+                return "NaN"
+            }
+            if (nv == (1.0 / 0.0)) {
+                return "Infinity"
+            }
+            if (nv == ((0.0 - 1.0) / 0.0)) {
+                return "-Infinity"
+            }
+            ; Format number - remove trailing zeros
+            def s:string (to_string nv)
+            ; Check if it's a whole number
+            def intVal:int (to_int nv)
+            if ((to_double intVal) == nv) {
+                return (to_string intVal)
+            }
+            return s
+        }
+        if (this.isString()) {
+            return (this.stringOf())
+        }
+        if (this.isBoolean()) {
+            if (this.boolOf()) {
+                return "true"
+            }
+            return "false"
+        }
+        if (this.isArray()) {
+            def result:string "["
+            def i:int 0
+            def n:int (this.denseLen())
+            while (i < n) {
+                if (i > 0) {
+                    result = result + ", "
+                }
+                def item:EvHandle (this.arrayItemAt(i))
+                def itemStr:string (item.toString())
+                result = result + itemStr
+                i = i + 1
+            }
+            return result + "]"
+        }
+        if (this.isObject()) {
+            def result:string "{"
+            def keyList:[string] (this.ownDataKeys())
+            def i:int 0
+            for keyList kk:string idx {
+                if (i > 0) {
+                    result = result + ", "
+                }
+                def val:EvHandle (this.getOwnData(kk))
+                def valStr:string (val.toString())
+                result = result + kk + ": " + valStr
+                i = i + 1
+            }
+            return result + "}"
+        }
+        if (this.isFunction()) {
+            return "[Function: " + (this.fnName()) + "]"
+        }
+        if (this.isElement()) {
+            if (this.hasElement()) {
+                def el:EVGElement (this.elementOf())
+                return "[EVGElement: " + el.tagName + "]"
+            }
+            return "[EVGElement: null]"
+        }
+        return "undefined"
+    }
+    
+    fn toBool:boolean () {
+        if (this.isNull()) {
+            return false
+        }
+        if (this.isHole()) {
+            return false
+        }
+        if (this.isUndefined()) {
+            return false
+        }
+        if (this.isNumber()) {
+            def nv:double (this.numberOf())
+            ; NaN is FALSY. `n != 0.0` is true for NaN, so `!NaN` answered false
+            ; and every `if (nan)` took the wrong branch.
+            if (nv != nv) {
+                return false
+            }
+            return (nv != 0.0)
+        }
+        if (this.isString()) {
+            return ((strlen (this.stringOf())) > 0)
+        }
+        if (this.isBoolean()) {
+            return (this.boolOf())
+        }
+        if (this.isArray()) {
+            return true ; Arrays are always truthy
+        }
+        if (this.isObject()) {
+            return true ; Objects are always truthy
+        }
+        if (this.isFunction()) {
+            return true ; Functions are always truthy
+        }
+        if (this.isElement()) {
+            return true ; Elements are always truthy
+        }
+        return false
+    }
+    
+    ; ---- D-ATTRS: property attribute accessors ---------------------------
+    ; Absent means the property was made by plain assignment: all three true.
+    fn attrOf:int (key:string) {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            if (props.hasSlot(key)) {
+                return (props.attrsOf(key))
+            }
+        }
+        return 7
+    }
+
+    fn isWritable:boolean (key:string) {
+        def f:int (this.attrOf(key))
+        return ((bit_and f 1) != 0)
+    }
+
+    fn isEnumerable:boolean (key:string) {
+        def f:int (this.attrOf(key))
+        return ((bit_and f 2) != 0)
+    }
+
+    fn isConfigurable:boolean (key:string) {
+        def f:int (this.attrOf(key))
+        return ((bit_and f 4) != 0)
+    }
+
+    fn setAttrs:void (key:string w:boolean e:boolean c:boolean) {
+        def f:int 0
+        if w { f = (bit_or f 1) }
+        if e { f = (bit_or f 2) }
+        if c { f = (bit_or f 4) }
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            props.setAttrsOn(key f)
+        }
+    }
+
+    ; freeze/seal act on every EXISTING property; later additions are blocked by
+    ; the bag's extensible flag instead, which is why both are tracked.
+    fn markAllNonConfigurable:void (alsoNonWritable:boolean) {
+        def ks:[string] (this.ownDataKeys())
+        def i:int 0
+        while (i < (array_length ks)) {
+            def k:string (itemAt ks i)
+            def w:boolean (this.isWritable(k))
+            if alsoNonWritable {
+                w = false
+            }
+            this.setAttrs(k w (this.isEnumerable(k)) false)
+            i = (i + 1)
+        }
+        def gk:[string] (this.ownGetterKeys())
+        def gi:int 0
+        while (gi < (array_length gk)) {
+            def gk1:string (itemAt gk gi)
+            this.setAttrs(gk1 (this.isWritable(gk1)) (this.isEnumerable(gk1)) false)
+            gi = (gi + 1)
+        }
+        def sk:[string] (this.ownSetterKeys())
+        def si:int 0
+        while (si < (array_length sk)) {
+            def sk1:string (itemAt sk si)
+            this.setAttrs(sk1 (this.isWritable(sk1)) (this.isEnumerable(sk1)) false)
+            si = (si + 1)
+        }
+    }
+
+    ; D-ACCESSORS: accessor lookup, walking the prototype chain like a data
+    ; property does — a getter defined on a prototype serves every instance.
+    ; Drop any accessor stored for this key. Used when defineProperty turns an
+    ; accessor property back into a data one -- leaving the functions behind
+    ; would let the getter keep winning over the new value.
+    fn clearAccessor:void (key:string) {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            props.clearAccessor(key)
+        }
+    }
+
+    ; Remove ONLY the getter, only the setter, or only the data slot. Redefining
+    ; an accessor replaces the halves the descriptor mentions and keeps the rest,
+    ; so clearing both together would drop a setter the descriptor never named.
+    fn clearGetterOnly:void (key:string) {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            props.clearGetter(key)
+        }
+    }
+
+    fn clearSetterOnly:void (key:string) {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            props.clearSetter(key)
+        }
+    }
+
+    fn clearDataSlot:void (key:string) {
+        this.removeOwnData(key)
+    }
+
+    fn findGetter:EvHandle (key:string depth:int) {
+        if (depth > 16) {
+            return (EvHandle.null())
+        }
+        if (this.hasOwnGetter(key)) {
+            return (this.getOwnGetter(key))
+        }
+        if (this.hasProto()) {
+            def pr:EvHandle (this.protoOf())
+            def nd:int (depth + 1)
+            return (pr.findGetter(key nd))
+        }
+        return (EvHandle.null())
+    }
+
+    ; True when this value or something up its chain defines a SETTER for the
+    ; key. A set-only accessor makes the property read as undefined rather than
+    ; falling through to a data property further up.
+    fn hasSetterFor:boolean (key:string) {
+        if (this.hasOwnSetter(key)) {
+            return true
+        }
+        if (this.hasProto()) {
+            def pr:EvHandle (this.protoOf())
+            if (pr.hasOwnData(key)) {
+                return false
+            }
+            return (pr.hasSetterFor(key))
+        }
+        return false
+    }
+
+    fn findSetter:EvHandle (key:string depth:int) {
+        if (depth > 16) {
+            return (EvHandle.null())
+        }
+        if (this.hasOwnSetter(key)) {
+            return (this.getOwnSetter(key))
+        }
+        if (this.hasProto()) {
+            def pr:EvHandle (this.protoOf())
+            def nd:int (depth + 1)
+            return (pr.findSetter(key nd))
+        }
+        return (EvHandle.null())
+    }
+
+    fn defineGetter:void (key:string fn:EvHandle) {
+        if isProtoObject {
+            def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+            dEp.bump()
+        }
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            props.putGetter(key (fn.toStored()) (props.attrsOf(key)))
+        }
+    }
+
+    fn defineSetter:void (key:string fn:EvHandle) {
+        if isProtoObject {
+            def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+            dEp.bump()
+        }
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            props.putSetter(key (fn.toStored()) (props.attrsOf(key)))
+        }
+    }
+
+    ; True when the property is an accessor anywhere up the chain. Used to keep
+    ; an accessor from being reported as a data property.
+    fn hasAccessor:boolean (key:string) {
+        ; PRESENCE in the map, not callability: `{get: undefined}` defines a real
+        ; accessor property whose getter is undefined, and testing for a function
+        ; made that property report as absent.
+        if (this.hasAccessorSlot(key 0)) {
+            return true
+        }
+        return false
+    }
+
+    fn hasAccessorSlot:boolean (key:string depth:int) {
+        if (depth > 16) {
+            return false
+        }
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            if (props.hasAccessor(key)) {
+                return true
+            }
+        }
+        if (this.hasProto()) {
+            def pr:EvHandle (this.protoOf())
+            return (pr.hasAccessorSlot(key (depth + 1)))
+        }
+        return false
+    }
+
+    ; D-PROTO: one step of the prototype-chain walk. Depth-bounded so a cyclic
+    ; chain (which guest code can build: `a.__proto__ = b; b.__proto__ = a`)
+    ; terminates instead of hanging the host.
+    fn getMemberDepth:EvHandle (key:string depth:int) {
+        if (depth > 16) {
+            return (EvHandle.undefined())
+        }
+        ; D-PROTO: a prototype need not be a plain object. `F.prototype = [1,2,3]`
+        ; is legal, and an instance made from it reads `length` off that array.
+        ; Only objectMap was consulted, so such a prototype answered undefined
+        ; for every property its own kind provides.
+        if (false == (this.isObject())) {
+            return (this.getMember(key))
+        }
+        if (this.hasOwnData(key)) {
+            return (this.getOwnData(key))
+        }
+        if (this.hasProto()) {
+            def pr:EvHandle (this.protoOf())
+            def nd:int (depth + 1)
+            return (pr.getMemberDepth(key nd))
+        }
+        return (EvHandle.undefined())
+    }
+
+    ; D-FNPROPS: `f.length` is the function's declared arity -- the parameters
+    ; ahead of the first one with a default value and ahead of any rest
+    ; parameter, per spec. It read as undefined before, which is the kind of
+    ; thing a callback dispatcher branches on.
+    fn functionArity:int () {
+        if (false == (this.hasFunctionNode())) {
+            return 0
+        }
+        def fnNode:TSNode (this.functionNodeOf())
+        def n:int 0
+        while (n < (array_length fnNode.params)) {
+            def p:TSNode (itemAt fnNode.params n)
+            def pt:string p.nodeType
+            if (pt == "RestElement") {
+                return n
+            }
+            if (pt == "AssignmentPattern") {
+                return n
+            }
+            n = (n + 1)
+        }
+        return n
+    }
+
+    ; Object member access
+    fn getMember:EvHandle (key:string) {
+        if (this.isObject()) {
+            if (this.hasOwnData(key)) {
+                return (this.getOwnData(key))
+            }
+            ; D-PROTO: an own-property miss walks the prototype chain, so a
+            ; method defined as `F.prototype.m = ...` is reachable through an
+            ; instance made by `new F()`.
+            if (this.hasProto()) {
+                def pr:EvHandle (this.protoOf())
+                return (pr.getMemberDepth(key 1))
+            }
+            ; D-IDENTITY: a missing object property reads as `undefined`, never
+            ; `null`. Callers that use a missing member as "nullish" already test
+            ; isUndefined alongside isNull (destructuring defaults, ??, ??=).
+            return (EvHandle.undefined())
+        }
+        ; D-FNPROPS: functions are objects. `f.x = 1` stores into the same
+        ; PropertyBag an object uses, so `f.x` reads it back and a property that
+        ; holds a function (`assert.sameValue = function ...`) is callable. A
+        ; missing own property reads as undefined, exactly as for an object;
+        ; built-in fallbacks (`name`, `length`, `call`) are resolved by the
+        ; engine before it reaches here.
+        if (this.isFunction()) {
+            if (this.hasOwnData(key)) {
+                return (this.getOwnData(key))
+            }
+            ; D-FNPROPS: a synthesised property that was DELETED stays deleted,
+            ; rather than being minted again on the next read.
+            if (this.hasSuppressed(key)) {
+                return (EvHandle.undefined())
+            }
+            ; D-PROTO: `F.prototype` is created on first read and stored, so
+            ; `F.prototype.m = fn` persists and `new F()` can link to the SAME
+            ; object. Creating a fresh one per read would silently discard every
+            ; method assigned to it.
+            if (key == "prototype") {
+                ; A BUILT-IN function has no `prototype` property -- it is not a
+                ; constructor. Minting one on demand made
+                ; `String.prototype.slice.prototype` an object where the spec
+                ; says undefined.
+                if ((strlen (this.builtinNameOf())) > 0) {
+                    return (EvHandle.undefined())
+                }
+                def keys0:[string]
+                def vals0:[EvHandle]
+                def p:EvHandle (EvHandle.object(keys0 vals0))
+                this.putOwnData("prototype" p)
+                return p
+            }
+            if (key == "name") {
+                return (EvHandle.string((this.fnName())))
+            }
+            if (key == "length") {
+                ; Function.prototype.bind fixes arguments, so the bound
+                ; function's arity is the target's minus however many were
+                ; fixed, never below zero.
+                def ar:int ((this.functionArity()) - (this.boundArgCount()))
+                if (ar < 0) { ar = 0 }
+                return (EvHandle.fromInt(ar))
+            }
+            if (this.hasProto()) {
+                def fpr:EvHandle (this.protoOf())
+                return (fpr.getMemberDepth(key 1))
+            }
+            return (EvHandle.undefined())
+        }
+        ; Array length property
+        if (this.isArray()) {
+            if (key == "length") {
+                return (EvHandle.fromInt((this.arrayLength())))
+            }
+            ; A non-index property set on an array (`a.foo = 1`) lives in the
+            ; PropertyBag.
+            if (this.hasOwnData(key)) {
+                return (this.getOwnData(key))
+            }
+            ; An index reached BY NAME. `a[0]` goes through getIndex, but
+            ; `a["0"]` and a prototype-chain read of "0" arrive here, and they
+            ; name the same property.
+            def ai@(optional):int (to_int key)
+            if ai {
+                def aidx:int (unwrap ai)
+                if ((aidx >= 0) && (aidx < (this.denseLen()))) {
+                    def nslot:EvHandle (this.arrayItemAt(aidx))
+                    if (nslot.isHole()) {
+                        return (EvHandle.undefined())
+                    }
+                    return nslot
+                }
+            }
+        }
+        ; Map/Set carry ordinary properties too (`size` is handled by the engine).
+        if ((this.isMap()) || (this.isSet())) {
+            if (this.hasOwnData(key)) {
+                return (this.getOwnData(key))
+            }
+        }
+        ; String length property
+        if (this.isString()) {
+            if (key == "length") {
+                return (EvHandle.fromInt((strlen (this.stringOf()))))
+            }
+        }
+        return (EvHandle.null())
+    }
+
+    ; ---- E4c: property-bag accessors (SoT on body.properties) --------------
+    fn tryProps@(optional):EvPropertyBag () {
+        def _k:EvalValue body
+        case _k o:EvalValue.Object {
+            def p:EvPropertyBag o.properties
+            def some@(optional):EvPropertyBag p
+            return some
+        }
+        case _k a:EvalValue.Array {
+            def p2:EvPropertyBag a.properties
+            def some2@(optional):EvPropertyBag p2
+            return some2
+        }
+        case _k f:EvalValue.Function {
+            def p3:EvPropertyBag f.properties
+            def some3@(optional):EvPropertyBag p3
+            return some3
+        }
+        case _k m:EvalValue.Map {
+            def p4:EvPropertyBag m.properties
+            def some4@(optional):EvPropertyBag p4
+            return some4
+        }
+        case _k st:EvalValue.Set {
+            def p5:EvPropertyBag st.properties
+            def some5@(optional):EvPropertyBag p5
+            return some5
+        }
+        def missing@(optional):EvPropertyBag
+        return missing
+    }
+    fn hasOwnData:boolean (key:string) {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (props.hasData(key))
+        }
+        return false
+    }
+    fn getOwnData:EvHandle (key:string) {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (EvHandle.fromBody((props.getData(key))))
+        }
+        return (EvHandle.undefined())
+    }
+    fn tryOwnData@(optional):EvHandle (key:string) {
+        if (this.hasOwnData(key)) {
+            def hit:EvHandle (this.getOwnData(key))
+            def some@(optional):EvHandle hit
+            return some
+        }
+        def missing@(optional):EvHandle
+        return missing
+    }
+    fn putOwnData:void (key:string value:EvHandle) {
+        if isProtoObject {
+            def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+            dEp.bump()
+        }
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            ; Plain assignment defaults all three attributes true (mask 7).
+            def attrs:int 7
+            if (props.hasSlot(key)) {
+                attrs = (props.attrsOf(key))
+            }
+            props.putData(key (value.toStored()) attrs)
+        }
+    }
+    fn removeOwnData:void (key:string) {
+        if isProtoObject {
+            def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+            dEp.bump()
+        }
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            props.removeData(key)
+        }
+    }
+    fn ownDataKeys:[string] () {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (props.dataKeys())
+        }
+        def none:[string]
+        return none
+    }
+    fn hasOwnGetter:boolean (key:string) {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (props.hasGetter(key))
+        }
+        return false
+    }
+    fn getOwnGetter:EvHandle (key:string) {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (EvHandle.fromBody((props.getGetter(key))))
+        }
+        return (EvHandle.undefined())
+    }
+    fn ownGetterKeys:[string] () {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (props.getterKeys())
+        }
+        def none:[string]
+        return none
+    }
+    fn hasOwnSetter:boolean (key:string) {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (props.hasSetter(key))
+        }
+        return false
+    }
+    fn getOwnSetter:EvHandle (key:string) {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (EvHandle.fromBody((props.getSetter(key))))
+        }
+        return (EvHandle.undefined())
+    }
+    fn ownSetterKeys:[string] () {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (props.setterKeys())
+        }
+        def none:[string]
+        return none
+    }
+    fn hasOwnAttrs:boolean (key:string) {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (props.hasSlot(key))
+        }
+        return false
+    }
+    fn hasProto:boolean () {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (props.hasPrototype())
+        }
+        return false
+    }
+    fn protoOf:EvHandle () {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (EvHandle.fromBody((props.getPrototype())))
+        }
+        return (EvHandle.null())
+    }
+    fn setProto:void (p:EvHandle) {
+        if isProtoObject {
+            def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+            dEp.bump()
+        }
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            props.setPrototype((p.toStored()))
+        }
+    }
+    fn isExtensible:boolean () {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return props.extensible
+        }
+        return true
+    }
+    fn setExtensible:void (b:boolean) {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            props.extensible = b
+        }
+    }
+    fn isSealedObj:boolean () {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return props.sealed
+        }
+        return false
+    }
+    fn setSealedObj:void (b:boolean) {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            props.sealed = b
+        }
+    }
+    fn isFrozenObj:boolean () {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return props.frozen
+        }
+        return false
+    }
+    fn setFrozenObj:void (b:boolean) {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            props.frozen = b
+        }
+    }
+    fn mapValAt:EvHandle (i:int) {
+        def _k:EvalValue body
+        if (EvalValue.isMap(_k)) {
+            case _k m:EvalValue.Map {
+                def e:EvMapEntry (itemAt m.entries i)
+                return (EvHandle.fromBody((unwrap e.value)))
+            }
+        }
+        return (EvHandle.undefined())
+    }
+    fn mapValsLen:int () {
+        return (this.denseLen())
+    }
+    fn hasFunctionNode:boolean () {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
+            def c:EvFunctionCore (unwrap f.core)
+            if c.functionNode {
+                return true
+            }
+        }
+        return false
+    }
+    fn functionNodeOf:TSNode () {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
+            def c:EvFunctionCore (unwrap f.core)
+            return (unwrap c.functionNode)
+        }
+        ; Callers check hasFunctionNode first.
+        def dummy:TSNode (new TSNode())
+        return dummy
+    }
+    fn setFunctionNode:void (n:TSNode) {
+        def c:EvFunctionCore (this.fnCore())
+        c.functionNode = n
+    }
+    fn adoptFunctionNode:void (other:EvHandle) {
+        if (false == (other.hasFunctionNode())) {
+            return
+        }
+        this.setFunctionNode((other.functionNodeOf()))
+    }
+    fn hasBoundThis:boolean () {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
+            def bind:EvFunctionBinding (unwrap f.binding)
+            ; Hole = unbound (shape fields cannot use @(optional) on C++).
+            if (false == (EvalValue.isHole(bind.boundThis))) {
+                return true
+            }
+        }
+        return false
+    }
+    fn boundThisOf:EvHandle () {
+        def _evBody:EvalValue body
+        case _evBody f:EvalValue.Function {
+            def bind:EvFunctionBinding (unwrap f.binding)
+            def bt:EvalValue bind.boundThis
+            if (false == (EvalValue.isHole(bt))) {
+                return (EvHandle.fromBody(bt))
+            }
+        }
+        return (EvHandle.undefined())
+    }
+    fn setBoundThis:void (v:EvHandle) {
+        def bind:EvFunctionBinding (this.fnBinding())
+        bind.boundThis = (v.toStored())
+    }
+    
+    ; Set or replace an object property (mutates in place).
+    ; D-FNPROPS: every object type accepts property writes — plain objects (5),
+    ; functions (6), arrays (4) and Map/Set (9/10). Primitives silently ignore
+    ; the write, which is sloppy-mode behaviour.
+    fn setMember:void (key:string value:EvHandle) {
+        if isProtoObject {
+            def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+            dEp.bump()
+        }
+        ; Kind from a local body copy — this.is*() re-borrows via Rc on Rust.
+        def _k:EvalValue body
+        if (EvalValue.isObject(_k)) {
+            ; D-ATTRS: a write is refused when the property is non-writable, or
+            ; when the object is frozen, or when it is a NEW property on a
+            ; non-extensible object. Sloppy mode ignores the failure silently,
+            ; which is what this models; strict mode would throw.
+            if (this.isFrozenObj()) {
+                return
+            }
+            if (this.hasOwnData(key)) {
+                if (false == (this.isWritable(key))) {
+                    return
+                }
+            } {
+                if (false == (this.isExtensible())) {
+                    return
+                }
+                ; A non-writable data property on the PROTOTYPE also refuses the
+                ; write -- no own property is created to shadow it. Only the own
+                ; map was consulted, so `o.bar = x` shadowed an unwritable
+                ; inherited `bar` instead of being ignored.
+                if (this.protoRefuses(key 0)) {
+                    return
+                }
+            }
+            this.putOwnData(key value)
+            return
+        }
+        if (EvalValue.isFunction(_k)) {
+            ; D-ATTRS: a FUNCTION object obeys the same rules -- a built-in
+            ; constructor's `Number.NaN` is non-writable, and the write was
+            ; taken unconditionally because this branch skipped the check
+            ; entirely.
+            if (this.isFrozenObj()) {
+                return
+            }
+            if (this.hasOwnData(key)) {
+                if (false == (this.isWritable(key))) {
+                    return
+                }
+            } {
+                if (false == (this.isExtensible())) {
+                    return
+                }
+                ; No protoRefuses here, unlike a plain object: a built-in
+                ; constructor inherits from another one that owns a
+                ; non-writable `prototype`, and the engine SEEDS its own with
+                ; an ordinary write. That seeding is a [[DefineOwnProperty]]
+                ; in the spec, which does not consult the chain.
+            }
+            this.putOwnData(key value)
+            return
+        }
+        if (EvalValue.isArrayValue(_k)) {
+            this.putOwnData(key value)
+            return
+        }
+        if ((EvalValue.isMap(_k)) || (EvalValue.isSet(_k))) {
+            this.putOwnData(key value)
+            return
+        }
+    }
+
+    ; Remove an object property (mutates in place), rebuilding the map without it.
+    ; Does an inherited data property refuse a write to this name?
+    fn protoRefuses:boolean (key:string depth:int) {
+        if (depth > 16) {
+            return false
+        }
+        if (false == (this.hasProto())) {
+            return false
+        }
+        def p:EvHandle (this.protoOf())
+        ; An accessor is handled by the setter path, not here.
+        if (p.hasOwnGetter(key)) {
+            return false
+        }
+        if (p.hasOwnSetter(key)) {
+            return false
+        }
+        if (p.hasOwnData(key)) {
+            return (false == (p.isWritable(key)))
+        }
+        return (p.protoRefuses(key (depth + 1)))
+    }
+
+    fn removeMember:void (key:string) {
+        if isProtoObject {
+            def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+            dEp.bump()
+        }
+        ; D-ATTRS: a non-configurable property cannot be deleted, which is what
+        ; seal and freeze rely on.
+        if (this.hasOwnData(key)) {
+            if (false == (this.isConfigurable(key))) {
+                return
+            }
+        }
+        if (this.hasOwnGetter(key)) {
+            if (false == (this.isConfigurable(key))) {
+                return
+            }
+        }
+        if (this.hasOwnSetter(key)) {
+            if (false == (this.isConfigurable(key))) {
+                return
+            }
+        }
+        ; D-FNPROPS: `delete` reaches every type that can hold properties.
+        def _k:EvalValue body
+        if (EvalValue.isNumber(_k)) { return }
+        if (EvalValue.isString(_k)) { return }
+        if (EvalValue.isBoolean(_k)) { return }
+        if (EvalValue.isNull(_k)) { return }
+        if (EvalValue.isUndefined(_k)) { return }
+        if (this.hasOwnData(key)) {
+            this.removeOwnData(key)
+        }
+        ; D-FNPROPS: a function's length/name/prototype are computed on read,
+        ; so there is nothing in the map to remove -- the deletion is recorded
+        ; instead, and the synthesis honours it.
+        if (EvalValue.isFunction(_k)) {
+            ; `prototype` on an ordinary function is NON-CONFIGURABLE, so the
+            ; delete simply fails; length and name are configurable and go.
+            if (key != "prototype") {
+                this.addSuppressed(key)
+            }
+        }
+        ; D-ACCESSORS: clear accessor slots on the bag too.
+        this.clearAccessor(key)
+    }
+    
+    ; Set an array element by index (extends with null when needed).
+    ; D-ARRAYSPARSE: the array's length -- the declared one when it exceeds what
+    ; the dense store holds, otherwise the number of elements.
+    fn arrayLength:int () {
+        def dense:int (this.denseLen())
+        def decl:int (this.declaredLengthOf())
+        if (decl > dense) {
+            return decl
+        }
+        return dense
+    }
+
+    ; ---- E4c: dense-store accessors ----------------------------------------
+    ; Array → body.Array.items; Map keys → entries[].key; Set → body.Set.items.
+    fn itemsOf:[EvHandle] () {
+        def _k:EvalValue body
+        if (EvalValue.isArrayValue(_k)) {
+            def out:[EvHandle]
+            case _k a:EvalValue.Array {
+                for a.items it:EvalValue i {
+                    push out (EvHandle.fromBody(it))
+                }
+            }
+            return out
+        }
+        if (EvalValue.isSet(_k)) {
+            def outS:[EvHandle]
+            case _k st:EvalValue.Set {
+                for st.items it2:EvalValue i2 {
+                    push outS (EvHandle.fromBody(it2))
+                }
+            }
+            return outS
+        }
+        if (EvalValue.isMap(_k)) {
+            def outM:[EvHandle]
+            case _k m:EvalValue.Map {
+                for m.entries e:EvMapEntry i3 {
+                    push outM (EvHandle.fromBody((unwrap e.key)))
+                }
+            }
+            return outM
+        }
+        def none:[EvHandle]
+        return none
+    }
+    fn denseLen:int () {
+        def _k:EvalValue body
+        if (EvalValue.isArrayValue(_k)) {
+            case _k a:EvalValue.Array {
+                return (array_length a.items)
+            }
+        }
+        if (EvalValue.isSet(_k)) {
+            case _k st:EvalValue.Set {
+                return (array_length st.items)
+            }
+        }
+        if (EvalValue.isMap(_k)) {
+            case _k m:EvalValue.Map {
+                return (array_length m.entries)
+            }
+        }
+        return 0
+    }
+    ; ---- Zero-mint dense probes for the transient evaluator -----------------
+    ; A dense in-bounds NUMBER element can be read as a bare double: no handle,
+    ; no property-key string. The two-step probe keeps the read allocation-free
+    ; on every target (an optional double does not lower portably).
+    fn denseIsNumberAt:boolean (i:int) {
+        case body a:EvalValue.Array {
+            if ((i >= 0) && (i < (array_length a.items))) {
+                def slot:EvalValue (itemAt a.items i)
+                return (EvalValue.isNumber(slot))
+            }
+        }
+        return false
+    }
+    fn denseNumberAt:double (i:int) {
+        case body a:EvalValue.Array {
+            if ((i >= 0) && (i < (array_length a.items))) {
+                def slot:EvalValue (itemAt a.items i)
+                case slot n:EvalValue.Number {
+                    return n.value
+                }
+            }
+        }
+        return 0.0
+    }
+    ; No own properties at all — a clean array/collection. One O(1) size
+    ; probe; lets the call-site inline cache prove no own-property override
+    ; without hashing the method name.
+    fn ownPropsEmpty:boolean () {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return (props.slotCount == 0)
+        }
+        return true
+    }
+    ; True once any accessor was EVER defined on this object's own bag —
+    ; monotone, so a false answer proves no own getter can exist under any key
+    ; and the hot read path may skip the probe (and its key-string mint).
+    fn ownAccessorsEver:boolean () {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return props.everHadAccessor
+        }
+        return false
+    }
+
+    fn arrayItemAt:EvHandle (i:int) {
+        def _k:EvalValue body
+        if (EvalValue.isArrayValue(_k)) {
+            case _k a:EvalValue.Array {
+                return (EvHandle.fromBody((itemAt a.items i)))
+            }
+        }
+        if (EvalValue.isSet(_k)) {
+            case _k st:EvalValue.Set {
+                return (EvHandle.fromBody((itemAt st.items i)))
+            }
+        }
+        if (EvalValue.isMap(_k)) {
+            case _k m:EvalValue.Map {
+                def e:EvMapEntry (itemAt m.entries i)
+                return (EvHandle.fromBody((unwrap e.key)))
+            }
+        }
+        return (EvHandle.undefined())
+    }
+    fn declaredLengthOf:int () {
+        def _k:EvalValue body
+        if (EvalValue.isArrayValue(_k)) {
+            case _k a:EvalValue.Array {
+                return a.declaredLength
+            }
+        }
+        return (0 - 1)
+    }
+    fn setDeclaredLength:void (n:int) {
+        def _k:EvalValue body
+        if (EvalValue.isArrayValue(_k)) {
+            case _k a:EvalValue.Array {
+                ; The Array case is a reference payload on every target (C++
+                ; rg_ptr in the variant, Rust Rc<RefCell> in the enum, a pointer
+                ; or object elsewhere), so a field write through the narrowing
+                ; is seen by `body`. The old write-back rebuilt the case and
+                ; copied `items` on the value-vector targets — O(n) per call.
+                a.declaredLength = n
+            }
+        }
+    }
+
+    fn setIndexAt:void (index:int value:EvHandle) {
+        ; Inline body kind check — this.isArray() re-borrows via Rc on Rust.
+        def _kind:EvalValue body
+        if (false == (EvalValue.isArrayValue(_kind))) {
+            return
+        }
+        ; D-HOLES: the slots skipped over are ABSENT, not undefined -- `a[3]=1`
+        ; on an empty array leaves three holes, and `0 in a` is false.
+        ;
+        ; Mutates a.items THROUGH the narrowing instead of copy-and-rebuild:
+        ; on the value-vector targets (C++) the old `def items ... a.items` +
+        ; `new EvalValue.Array(...)` pair copied the whole store twice per
+        ; write, which made an index-assignment loop O(n^2). The case payload
+        ; is shared on every target, so the write lands on `body` directly.
+        case _kind a:EvalValue.Array {
+            while (index >= (array_length a.items)) {
+                push a.items (EvalValue.hole())
+            }
+            set a.items index (value.toStored())
+        }
+    }
+
+    ; Append to the backing array in place; returns the new length (Array#push).
+    fn arrPush:int (value:EvHandle) {
+        def _kind:EvalValue body
+        if (false == (EvalValue.isArrayValue(_kind))) {
+            return 0
+        }
+        case _kind a:EvalValue.Array {
+            push a.items (value.toStored())
+            return (array_length a.items)
+        }
+        return 0
+    }
+
+    ; Append a NUMBER without a value object: the Number case rides by value
+    ; inside the variant, so the store is a plain element write — the closest
+    ; thing to a raw double buffer the current single representation has.
+    fn arrPushNumber:int (n:double) {
+        def _kind:EvalValue body
+        if (false == (EvalValue.isArrayValue(_kind))) {
+            return 0
+        }
+        case _kind a:EvalValue.Array {
+            push a.items (EvalValue.number(n))
+            return (array_length a.items)
+        }
+        return 0
+    }
+
+    ; Drop the last dense element in place (Array#pop's storage step). Keeps
+    ; `declaredLength` tracking the store the way arrSetItems always has.
+    fn arrPop:void () {
+        def _kind:EvalValue body
+        if (false == (EvalValue.isArrayValue(_kind))) {
+            return
+        }
+        case _kind a:EvalValue.Array {
+            if ((array_length a.items) > 0) {
+                removeLast a.items
+            }
+            a.declaredLength = (array_length a.items)
+        }
+    }
+
+    ; Replace the backing array items in place (keeps the same EvHandle instance
+    ; so existing references see the mutation — used by shift/reverse/sort/…).
+    fn arrSetItems:void (items:[EvHandle]) {
+        def stored:[EvalValue]
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:EvHandle (itemAt items i)
+            push stored (it.toStored())
+            i = (i + 1)
+        }
+        def _kind:EvalValue body
+        if (EvalValue.isArrayValue(_kind)) {
+            case _kind a:EvalValue.Array {
+                ; Rebuild around the SAME property bag — going through
+                ; EvalValue.arrayAt minted a fresh bag, so `a.foo = 1` was
+                ; silently dropped by pop/shift/reverse/sort.
+                body = (new EvalValue.Array(a.identityId a.properties stored (array_length stored)))
+            }
+            return
+        }
+        body = (EvalValue.arrayAt((this.identityIdOf()) stored))
+    }
+
+    ; Field/identity equality that does not go through equals()'s mut borrow
+    ; (Rust RefCell panics when a pooled primitive is compared to itself).
+    fn matches:boolean (other:EvHandle) {
+        def _k:EvalValue body
+        def _o:EvalValue other.body
+        if (EvalValue.isNull(_k)) {
+            return (EvalValue.isNull(_o))
+        }
+        if (EvalValue.isHole(_k)) {
+            return (EvalValue.isHole(_o))
+        }
+        if (EvalValue.isUndefined(_k)) {
+            return (EvalValue.isUndefined(_o))
+        }
+        if (EvalValue.isNumber(_k)) {
+            if (false == (EvalValue.isNumber(_o))) {
+                return false
+            }
+            return ((this.numberOf()) == (other.numberOf()))
+        }
+        if (EvalValue.isString(_k)) {
+            if (false == (EvalValue.isString(_o))) {
+                return false
+            }
+            return ((this.stringOf()) == (other.stringOf()))
+        }
+        if (EvalValue.isBoolean(_k)) {
+            if (false == (EvalValue.isBoolean(_o))) {
+                return false
+            }
+            return ((this.boolOf()) == (other.boolOf()))
+        }
+        def iid:int (this.identityIdOf())
+        if (iid > 0) {
+            return (iid == (other.identityIdOf()))
+        }
+        return false
+    }
+
+    ; ---- Map helpers: SoT on body.Map.entries (EvMapEntry key/value) ----
+    fn mapIndexOfKey:int (key:EvHandle) {
+        def _k:EvalValue body
+        if (EvalValue.isMap(_k)) {
+            case _k m:EvalValue.Map {
+                def i:int 0
+                while (i < (array_length m.entries)) {
+                    def e:EvMapEntry (itemAt m.entries i)
+                    def ek:EvHandle (EvHandle.fromBody((unwrap e.key)))
+                    if ((key.matches(ek))) {
+                        return i
+                    }
+                    i = (i + 1)
+                }
+            }
+        }
+        return (0 - 1)
+    }
+    fn mapSet:void (key:EvHandle value:EvHandle) {
+        def _k:EvalValue body
+        if (false == (EvalValue.isMap(_k))) {
+            return
+        }
+        ; Index before mutating — this.mapIndexOfKey re-borrows body on Rust.
+        def idx:int (this.mapIndexOfKey(key))
+        def kStored:EvalValue (key.toStored())
+        def vStored:EvalValue (value.toStored())
+        case _k m:EvalValue.Map {
+            ; In place through the narrowing — the copy-and-rebuild write-back
+            ; made every Map#set O(n) on the value-vector targets.
+            if (idx >= 0) {
+                def e:EvMapEntry (itemAt m.entries idx)
+                e.value = vStored
+            } {
+                def ne:EvMapEntry (new EvMapEntry())
+                ne.key = kStored
+                ne.value = vStored
+                push m.entries ne
+            }
+        }
+    }
+    fn mapGet:EvHandle (key:EvHandle) {
+        def idx:int (this.mapIndexOfKey(key))
+        if (idx >= 0) {
+            return (this.mapValAt(idx))
+        }
+        return (EvHandle.undefined())
+    }
+    fn mapHas:boolean (key:EvHandle) {
+        return ((this.mapIndexOfKey(key)) >= 0)
+    }
+    fn mapDelete:boolean (key:EvHandle) {
+        def idx:int (this.mapIndexOfKey(key))
+        if (idx < 0) {
+            return false
+        }
+        def _k:EvalValue body
+        case _k m:EvalValue.Map {
+            def rebuilt:[EvMapEntry]
+            def i:int 0
+            while (i < (array_length m.entries)) {
+                if (i != idx) {
+                    push rebuilt (itemAt m.entries i)
+                }
+                i = (i + 1)
+            }
+            body = (new EvalValue.Map(m.identityId m.properties rebuilt))
+        }
+        return true
+    }
+
+    ; ---- Set helpers: SoT on body.Set.items ----
+    fn setAdd:void (value:EvHandle) {
+        if (this.setHas(value)) {
+            return
+        }
+        def _k:EvalValue body
+        if (false == (EvalValue.isSet(_k))) {
+            return
+        }
+        case _k st:EvalValue.Set {
+            ; In place — see mapSet; the rebuild made every Set#add O(n).
+            push st.items (value.toStored())
+        }
+    }
+    fn setHas:boolean (value:EvHandle) {
+        def _k:EvalValue body
+        if (EvalValue.isSet(_k)) {
+            case _k st:EvalValue.Set {
+                def i:int 0
+                while (i < (array_length st.items)) {
+                    def el:EvHandle (EvHandle.fromBody((itemAt st.items i)))
+                    if ((value.matches(el))) {
+                        return true
+                    }
+                    i = (i + 1)
+                }
+            }
+        }
+        return false
+    }
+    fn setDelete:boolean (value:EvHandle) {
+        def _k:EvalValue body
+        if (false == (EvalValue.isSet(_k))) {
+            return false
+        }
+        case _k st:EvalValue.Set {
+            def idx:int (0 - 1)
+            def i:int 0
+            while (i < (array_length st.items)) {
+                def el:EvHandle (EvHandle.fromBody((itemAt st.items i)))
+                if ((value.matches(el))) {
+                    idx = i
+                }
+                i = (i + 1)
+            }
+            if (idx < 0) {
+                return false
+            }
+            def rebuilt:[EvalValue]
+            def j:int 0
+            while (j < (array_length st.items)) {
+                if (j != idx) {
+                    push rebuilt (itemAt st.items j)
+                }
+                j = (j + 1)
+            }
+            body = (new EvalValue.Set(st.identityId st.properties rebuilt))
+            return true
+        }
+        return false
+    }
+    fn collClear:void () {
+        def _k:EvalValue body
+        if (EvalValue.isMap(_k)) {
+            case _k m:EvalValue.Map {
+                def emptyE:[EvMapEntry]
+                body = (new EvalValue.Map(m.identityId m.properties emptyE))
+            }
+            return
+        }
+        if (EvalValue.isSet(_k)) {
+            case _k st:EvalValue.Set {
+                def emptyI:[EvalValue]
+                body = (new EvalValue.Set(st.identityId st.properties emptyI))
+            }
+        }
+    }
+    
+    ; Array index access
+    fn getIndex:EvHandle (index:int) {
+        if (this.isArray()) {
+            if ((index >= 0) && (index < (this.denseLen()))) {
+                ; D-HOLES: a hole READS as undefined. Only the code that asks
+                ; whether the element is present -- `in`, hasOwnProperty, the
+                ; iteration methods -- looks at the slot itself.
+                def slot:EvHandle (this.arrayItemAt(index))
+                if (slot.isHole()) {
+                    return (EvHandle.undefined())
+                }
+                return slot
+            }
+        }
+        ; String character access
+        if (this.isString()) {
+            def sidx:string (this.stringOf())
+            if ((index >= 0) && (index < (strlen sidx))) {
+                def charStr:string (substring sidx index (index + 1))
+                return (EvHandle.string(charStr))
+            }
+            ; An index past the end is a MISSING property, which reads as
+            ; undefined. Answering null made `s[11] === undefined` false.
+            return (EvHandle.undefined())
+        }
+        if (this.isArray()) {
+            return (EvHandle.undefined())
+        }
+        ; An OBJECT indexed by number -- a boxed string, say -- reads the
+        ; property of that name; a missing one is undefined, not null.
+        if (this.isObject()) {
+            def ik:string (to_string index)
+            if (this.hasOwnData(ik)) {
+                return (this.getOwnData(ik))
+            }
+            return (EvHandle.undefined())
+        }
+        return (EvHandle.null())
+    }
+    
+    ; Equality check
+    ; Same-kind value equality for primitives, identityId equality for
+    ; references (D-IDENTITY). Delegates to matches(): the comparison itself,
+    ; kind checks included, lives there — and matches never takes a mutable
+    ; borrow, so `x == x` on the same pooled handle cannot panic the Rust
+    ; RefCell. (Ids are globally unique, so id equality already implies the
+    ; kinds agree on the reference arm.)
+    fn equals:boolean (other:EvHandle) {
+        return (this.matches(other))
+    }
+}
+
+; Monotonic source of reference identities (D-IDENTITY). Mirrors RgRealm.mintId:
+; every object/array/function/Map/Set/element reference gets a unique, immutable
+; identityId (>= 1) when it is minted by an EvHandle factory. A single
+; process-global counter is a strict superset of the model's "one realm per
+; engine" — ids are globally unique, so reference `===` compares identityId
+; alone (no realm tag needed). A fresh compiled suite starts the counter at 1.
+class EvalIdentityMinter @singleton(true) {
+    def nextId:int 1
+    fn mint:int () {
+        def id:int this.nextId
+        this.nextId = (this.nextId + 1)
+        return id
+    }
+}
+
+; E4c: shape storage holds EvalValue; the engine speaks EvHandle. Reference
+; wrappers are cached by identityId so Array.items / PropertyBag can store
+; the live shape body and still round-trip to the same class handle (===).
+; The dispatch epoch: bumped whenever anything happens that could change how
+; a method CALL on a built-in receiver resolves — a built-in prototype object
+; is minted, written to, or has a registry method suppressed. Call-site
+; inline caches store the epoch they resolved under and re-resolve on any
+; mismatch, so correctness never depends on WHAT changed, only on noticing
+; THAT something did.
+class EvDispatchEpoch @singleton(true) {
+    def n:int 1
+    fn bump:void () {
+        n = (n + 1)
+    }
+}
+
+class EvValueHandles @singleton(true) {
+    def byId:[int:EvHandle]
+    fn remember:void (v:EvHandle) {
+        def id:int (v.identityIdOf())
+        if (id > 0) {
+            set byId id v
+        }
+    }
+    fn lookup@(optional):EvHandle (id:int) {
+        if (has byId id) {
+            def hit:EvHandle (unwrap (get byId id))
+            def some@(optional):EvHandle hit
+            return some
+        }
+        def missing@(optional):EvHandle
+        return missing
+    }
+}
+
+; Shared immutable constant values (null / undefined / true / false). These are
+; never mutated in place, so a single instance of each is reused for the whole
+; program instead of allocating on every EvHandle.null()/boolean()/undefined().
+class EvalConstPool @singleton(true) {
+    ; A stand-in for elementOf on a non-Element value. The read accessor has
+    ; to answer something, and one shared blank costs nothing -- every caller
+    ; tests hasElement() first, so nothing ever reads it.
+    def blankElement:EVGElement (new EVGElement())
+    def nullValue:EvHandle (EvHandle.rawNull())
+    def undefinedValue:EvHandle (EvHandle.rawUndefined())
+    def trueValue:EvHandle (EvHandle.rawBoolean(true))
+    def falseValue:EvHandle (EvHandle.rawBoolean(false))
+    def holeValue:EvHandle (EvHandle.rawHole())
+    ; PERF: shared SMALL INTEGER values, filled lazily on first use. A number
+    ; is immutable -- property writes on a primitive are discarded (see the
+    ; assignMember guard), nothing writes numberValue after construction --
+    ; so one instance per small int serves the whole program. Array indices,
+    ; loop counters, lengths and char codes hit this range constantly; on the
+    ; native targets each miss is a ~full-struct allocation.
+    ; Interned literal values, one per numeric-literal NODE in the program.
+    ; A literal is a constant and a number is immutable, so the same instance
+    ; serves every evaluation of that node -- the same argument that makes
+    ; smallInts safe, applied to the literals the small-integer range misses.
+    def litValues:[EvHandle]
+    fn addLiteral:int (v:EvHandle) {
+        push litValues v
+        return ((array_length litValues) - 1)
+    }
+    fn literalAt:EvHandle (i:int) {
+        return (itemAt litValues i)
+    }
+
+    def smallInts:[EvHandle]
+    fn smallInt:EvHandle (i:int) {
+        if ((array_length smallInts) == 0) {
+            def k:int 0
+            while (k < 4096) {
+                def v:EvHandle (EvHandle.rawNumber((to_double k)))
+                push smallInts v
+                k = (k + 1)
+            }
+        }
+        return (itemAt smallInts i)
+    }
+}

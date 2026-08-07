@@ -33,6 +33,6 @@ class OctaneMain {
         engine.liveClock = true
         engine.maxLoopIterations = 1000000000
         engine.loadScript((src + "\nfunction __zoo_done__() { return 'done'; }\n"))
-        def ignored:EvalValue (engine.callFunction("__zoo_done__" (EvalValue.null())))
+        def ignored:EvHandle (engine.callFunction("__zoo_done__" (EvHandle.null())))
     }
 }

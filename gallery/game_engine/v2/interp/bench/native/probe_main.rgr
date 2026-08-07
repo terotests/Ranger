@@ -17,7 +17,7 @@ class ProbeMain {
         def engine (new ComponentEngine())
         engine.quiet = true
         engine.loadScript(src)
-        def out:EvalValue (engine.callFunction("__t__" (EvalValue.null())))
-        print ("answer=" + out.stringValue)
+        def out:EvHandle (engine.callFunction("__t__" (EvHandle.null())))
+        print ("answer=" + (out.stringOf()))
     }
 }

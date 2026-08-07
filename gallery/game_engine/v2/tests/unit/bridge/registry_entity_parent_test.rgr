@@ -2,7 +2,7 @@
 ; registry_entity_parent_test — D-SYNC increments 1, 2 & 3: standalone membership.
 ; ==============================================================================
 ; Exercises the D-SYNC binding contract through the REAL generic bridge exactly
-; as a guest would (invoke with EvalValue args): object lifetime and scene
+; as a guest would (invoke with EvHandle args): object lifetime and scene
 ; membership are INDEPENDENT. The faithful lifecycle is:
 ;   const mesh = new THREE.Mesh(geometry, material);  // DETACHED create
 ;   scene.add(mesh);                                  // establish membership
@@ -27,13 +27,13 @@ class RegistryEntityParentTest {
     def b:RgRegistryBridge (RgRegistryBridge.create())
     def invoked:[string]
 
-    fn num:EvalValue (n:double) { return (EvalValue.number(n)) }
+    fn num:EvHandle (n:double) { return (EvHandle.number(n)) }
 
-    fn callI:int (name:string args:[EvalValue]) {
-        def r:EvalValue (this.b.invoke(name args))
+    fn callI:int (name:string args:[EvHandle]) {
+        def r:EvHandle (this.b.invoke(name args))
         return (to_int r.numberValue)
     }
-    fn callN:EvalValue (name:string args:[EvalValue]) {
+    fn callN:EvHandle (name:string args:[EvHandle]) {
         return (this.b.invoke(name args))
     }
 
@@ -59,24 +59,24 @@ class RegistryEntityParentTest {
         def b:RgRegistryBridge s.b
 
         ; --- build: two scenes, a geometry, a material, a mesh into scene A ----
-        def empty:[EvalValue]
+        def empty:[EvHandle]
         def sceneA:int (s.callI("rg3d_scene_create" empty))
         def sceneB:int (s.callI("rg3d_scene_create" empty))
         t.ok("scene A minted" (sceneA > 0))
         t.ok("scene B minted" (sceneB > 0))
 
-        def boxA:[EvalValue]
+        def boxA:[EvHandle]
         push boxA (s.num(1.0))
         push boxA (s.num(1.0))
         push boxA (s.num(1.0))
         def boxG:int (s.callI("rg3d_geometry_box" boxA))
 
-        def matA:[EvalValue]
+        def matA:[EvHandle]
         push matA (s.num(16711680.0))
         def mat:int (s.callI("rg3d_material_basic" matA))
 
         ; --- (1) DETACHED create: mesh_create(geo, mat) — in NO scene yet ------
-        def meshA:[EvalValue]
+        def meshA:[EvHandle]
         push meshA (s.num((to_double boxG)))
         push meshA (s.num((to_double mat)))
         def mesh:int (s.callI("rg3d_mesh_create" meshA))
@@ -86,7 +86,7 @@ class RegistryEntityParentTest {
 
         ; --- (2) establish membership: set_parent(mesh, sceneA) -> sceneA +1 ---
         def errBeforeAttach:int b.errorCount
-        def parA:[EvalValue]
+        def parA:[EvHandle]
         push parA (s.num((to_double mesh)))
         push parA (s.num((to_double sceneA)))
         s.callN("rg3d_entity_set_parent" parA)
@@ -100,7 +100,7 @@ class RegistryEntityParentTest {
         ; --- (3) detach membership ONLY: entity_remove(sceneA, mesh) ----------
         ; Scene.remove drops the membership edge but MUST NOT destroy the object.
         def errBeforeRemove:int b.errorCount
-        def remA:[EvalValue]
+        def remA:[EvHandle]
         push remA (s.num((to_double sceneA)))
         push remA (s.num((to_double mesh)))
         s.callN("rg3d_entity_remove" remA)
@@ -113,7 +113,7 @@ class RegistryEntityParentTest {
             ((b.resolveGuestId(mesh)).isValid()))
 
         ; the SAME (undestroyed) object re-attaches under a different scene
-        def repB:[EvalValue]
+        def repB:[EvHandle]
         push repB (s.num((to_double mesh)))
         push repB (s.num((to_double sceneB)))
         s.callN("rg3d_entity_set_parent" repB)
@@ -133,7 +133,7 @@ class RegistryEntityParentTest {
         t.eqInt("scene C starts empty" (s.sceneChildCount(sceneC)) 0)
 
         def errBeforeLight:int b.errorCount
-        def ambA:[EvalValue]
+        def ambA:[EvHandle]
         push ambA (s.num(16777215.0))
         push ambA (s.num(0.38))
         def light:int (s.callI("rg3d_light_ambient" ambA))
@@ -142,7 +142,7 @@ class RegistryEntityParentTest {
         t.eqInt("detached light create is a clean typed success (no bridge error)"
             b.errorCount errBeforeLight)
 
-        def litParA:[EvalValue]
+        def litParA:[EvHandle]
         push litParA (s.num((to_double light)))
         push litParA (s.num((to_double sceneC)))
         s.callN("rg3d_entity_set_parent" litParA)
@@ -160,7 +160,7 @@ class RegistryEntityParentTest {
         ;     valid handle and is usable in rg3d_mesh_create. size(d), segments(i),
         ;     then the 5 shape flags as i32 0/1 (bottom, lid, body, fitLid, blinn).
         def errBeforeTeapot:int b.errorCount
-        def teaA:[EvalValue]
+        def teaA:[EvHandle]
         push teaA (s.num(1.0))
         push teaA (s.num(2.0))
         push teaA (s.num(1.0))
@@ -172,7 +172,7 @@ class RegistryEntityParentTest {
         t.ok("teapot geometry minted" (teaG > 0))
         t.eqInt("teapot create is a clean typed success (no bridge error)"
             b.errorCount errBeforeTeapot)
-        def teaMeshA:[EvalValue]
+        def teaMeshA:[EvHandle]
         push teaMeshA (s.num((to_double teaG)))
         push teaMeshA (s.num((to_double mat)))
         def teaMesh:int (s.callI("rg3d_mesh_create" teaMeshA))
@@ -183,7 +183,7 @@ class RegistryEntityParentTest {
         ;     live command mints a valid handle usable in rg3d_mesh_create.
         ;     width(d), height(d), then wSeg(i), hSeg(i).
         def errBeforePlane:int b.errorCount
-        def plnA:[EvalValue]
+        def plnA:[EvHandle]
         push plnA (s.num(10.0))
         push plnA (s.num(10.0))
         push plnA (s.num(1.0))
@@ -192,7 +192,7 @@ class RegistryEntityParentTest {
         t.ok("plane geometry minted" (plnG > 0))
         t.eqInt("plane create is a clean typed success (no bridge error)"
             b.errorCount errBeforePlane)
-        def plnMeshA:[EvalValue]
+        def plnMeshA:[EvHandle]
         push plnMeshA (s.num((to_double plnG)))
         push plnMeshA (s.num((to_double mat)))
         def plnMesh:int (s.callI("rg3d_mesh_create" plnMeshA))
@@ -206,7 +206,7 @@ class RegistryEntityParentTest {
         t.eqInt("scene D starts empty" (s.sceneChildCount(sceneD)) 0)
 
         def errBeforeGroup:int b.errorCount
-        def grpArgs:[EvalValue]
+        def grpArgs:[EvHandle]
         def grp:int (s.callI("rg3d_group_create" grpArgs))
         t.ok("group minted (detached)" (grp > 0))
         t.eqInt("detached group create leaves scene D empty" (s.sceneChildCount(sceneD)) 0)
@@ -214,7 +214,7 @@ class RegistryEntityParentTest {
             b.errorCount errBeforeGroup)
 
         ; scene.add(group): scene D +1
-        def grpParD:[EvalValue]
+        def grpParD:[EvHandle]
         push grpParD (s.num((to_double grp)))
         push grpParD (s.num((to_double sceneD)))
         s.callN("rg3d_entity_set_parent" grpParD)
@@ -223,11 +223,11 @@ class RegistryEntityParentTest {
 
         ; group.add(mesh): nest a mesh UNDER the group — group +1, scene D direct
         ; child count UNCHANGED (the mesh is the group's child, not the scene's).
-        def gMeshA:[EvalValue]
+        def gMeshA:[EvHandle]
         push gMeshA (s.num((to_double boxG)))
         push gMeshA (s.num((to_double mat)))
         def gm:int (s.callI("rg3d_mesh_create" gMeshA))
-        def gmParG:[EvalValue]
+        def gmParG:[EvHandle]
         push gmParG (s.num((to_double gm)))
         push gmParG (s.num((to_double grp)))
         s.callN("rg3d_entity_set_parent" gmParG)
@@ -237,7 +237,7 @@ class RegistryEntityParentTest {
 
         ; reparent the mesh from the group to the scene: group loses it, scene gains
         ; it, and the mesh's guest id is unchanged (pure membership move).
-        def gmToScene:[EvalValue]
+        def gmToScene:[EvHandle]
         push gmToScene (s.num((to_double gm)))
         push gmToScene (s.num((to_double sceneD)))
         s.callN("rg3d_entity_set_parent" gmToScene)

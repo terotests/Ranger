@@ -1,5 +1,5 @@
 ; Variant A — today's model: one wide class, an int tag, a small-int pool.
-; The field list mirrors EvalValue.rgr's (33 members) so the allocation cost is
+; The field list mirrors EvHandle.rgr's (33 members) so the allocation cost is
 ; the real one, not a toy.
 class FatValue {
     def valueType:int 0

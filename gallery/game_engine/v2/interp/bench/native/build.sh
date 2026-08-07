@@ -39,16 +39,31 @@ EXTRA_ARGS=()
 if [ "$TARGET" = "llvm" ]; then
   EXTRA_ARGS=(-target=native-linux-gnu)
 fi
+# -cpp-single-thread: the interpreter is single-threaded, so handles ride a
+# non-atomically counted shared_ptr (rg_ptr) — without it every EvHandle copy
+# is a lock-prefixed atomic pair, a global tax with no thread to protect.
+# The flag is cpp-only and ignored elsewhere.
 RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l="$TARGET" \
-  "$SRC" -d="$OUT_DIR" -o=engine_bench."$EXT" -nodecli -native-fast-alloc "${EXTRA_ARGS[@]}"
+  "$SRC" -d="$OUT_DIR" -o=engine_bench."$EXT" -nodecli -native-fast-alloc \
+  -cpp-single-thread "${EXTRA_ARGS[@]}"
 
 case "$TARGET" in
   cpp)
+    # Shape case classes are emitted after ordinary classes; move the six
+    # by-value EvalValue alternatives ahead of EvMapEntry (see script).
+    python3 gallery/game_engine/v2/interp/bench/native/fix_cpp_evalvalue_order.py \
+      "$OUT_DIR/engine_bench.cpp"
     echo "== g++ -O3"
     g++ -O3 -march=native -std=c++17 "$OUT_DIR/engine_bench.cpp" -o "$OUT_DIR/engine_bench"
     echo "built: $OUT_DIR/engine_bench"
     ;;
   rust)
+    # The writer sometimes stacks a def/return clone on an expression that
+    # already ends in .clone() (an itemAt read, a field read). Clone::clone
+    # returns Self, so collapsing the pair is always semantics-preserving —
+    # and each pair was a full extra copy of the value (a union clone copies
+    # its string payload). Same spirit as fix_cpp_evalvalue_order.py above.
+    sed -i 's/\.clone()\.clone()/.clone()/g' "$OUT_DIR/engine_bench.rs"
     echo "== rustc -C opt-level=3"
     rustc -C opt-level=3 -C target-cpu=native -C codegen-units=1 \
       "$OUT_DIR/engine_bench.rs" -o "$OUT_DIR/engine_bench"

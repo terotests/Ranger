@@ -2,7 +2,7 @@
 ; orbit_controls_test — the live ranger:three orbit-camera command surface.
 ; ==============================================================================
 ; Drives the SAME generic transport a guest uses (RgRegistryBridge.invoke with
-; EvalValue args): create a scene + camera at a known start pose, build an
+; EvHandle args): create a scene + camera at a known start pose, build an
 ; OrbitControls bound to that camera, feed a horizontal rotate drag + a wheel
 ; dolly, and assert the bound camera's pose changed the way a spherical orbit
 ; predicts. Camera position is read back through the read-only cameraPos*
@@ -19,13 +19,13 @@ Import "../../harness/RgTest.rgr"
 class OrbitControlsTest {
     def b:RgRegistryBridge (RgRegistryBridge.create())
 
-    fn num:EvalValue (n:double) { return (EvalValue.number(n)) }
+    fn num:EvHandle (n:double) { return (EvHandle.number(n)) }
 
-    fn callI:int (name:string args:[EvalValue]) {
-        def r:EvalValue (this.b.invoke(name args))
+    fn callI:int (name:string args:[EvHandle]) {
+        def r:EvHandle (this.b.invoke(name args))
         return (to_int r.numberValue)
     }
-    fn callN:void (name:string args:[EvalValue]) {
+    fn callN:void (name:string args:[EvHandle]) {
         this.b.invoke(name args)
     }
 
@@ -40,12 +40,12 @@ class OrbitControlsTest {
         def b:RgRegistryBridge s.b
 
         ; ---- scene + camera at a known start pose (0,0,3) looking at origin ----
-        def empty:[EvalValue]
+        def empty:[EvHandle]
         def scene3:int (s.callI("rg3d_scene_create" empty))
         def cam3:int (s.callI("rg3d_camera_create" empty))
         t.ok("scene + camera minted" ((scene3 > 0) && (cam3 > 0)))
 
-        def cset:[EvalValue]
+        def cset:[EvHandle]
         push cset (s.num((to_double cam3)))
         push cset (s.num(50.0))
         push cset (s.num(1.0))
@@ -53,7 +53,7 @@ class OrbitControlsTest {
         push cset (s.num(100.0))
         s.callN("rg3d_camera_set" cset)
 
-        def cpose:[EvalValue]
+        def cpose:[EvHandle]
         push cpose (s.num((to_double cam3)))
         push cpose (s.num(0.0))
         push cpose (s.num(0.0))
@@ -71,18 +71,18 @@ class OrbitControlsTest {
         t.near("camera starts at z=3" startZ 3.0)
 
         ; ---- orbit controls bound to that camera ------------------------------
-        def ocA:[EvalValue]
+        def ocA:[EvHandle]
         push ocA (s.num((to_double cam3)))
         def orbit:int (s.callI("rg3d_orbit_create" ocA))
         t.ok("orbit controls minted" (orbit > 0))
 
-        def vpA:[EvalValue]
+        def vpA:[EvHandle]
         push vpA (s.num((to_double orbit)))
         push vpA (s.num(600.0))
         push vpA (s.num(600.0))
         s.callN("rg3d_orbit_viewport" vpA)
 
-        def tgA:[EvalValue]
+        def tgA:[EvHandle]
         push tgA (s.num((to_double orbit)))
         push tgA (s.num(0.0))
         push tgA (s.num(0.0))
@@ -90,7 +90,7 @@ class OrbitControlsTest {
         s.callN("rg3d_orbit_target" tgA)
 
         ; ---- horizontal rotate drag: down (100,100) → move (160,100) → up -----
-        def pdA:[EvalValue]
+        def pdA:[EvHandle]
         push pdA (s.num((to_double orbit)))
         push pdA (s.num(0.0))       ; phase 0 = down
         push pdA (s.num(100.0))
@@ -98,7 +98,7 @@ class OrbitControlsTest {
         push pdA (s.num(0.0))       ; button 0 = rotate
         s.callN("rg3d_orbit_pointer" pdA)
 
-        def pmA:[EvalValue]
+        def pmA:[EvHandle]
         push pmA (s.num((to_double orbit)))
         push pmA (s.num(1.0))       ; phase 1 = move
         push pmA (s.num(160.0))     ; +60px horizontal
@@ -106,7 +106,7 @@ class OrbitControlsTest {
         push pmA (s.num(0.0))
         s.callN("rg3d_orbit_pointer" pmA)
 
-        def puA:[EvalValue]
+        def puA:[EvHandle]
         push puA (s.num((to_double orbit)))
         push puA (s.num(2.0))       ; phase 2 = up
         push puA (s.num(0.0))
@@ -114,7 +114,7 @@ class OrbitControlsTest {
         push puA (s.num(0.0))
         s.callN("rg3d_orbit_pointer" puA)
 
-        def apA:[EvalValue]
+        def apA:[EvHandle]
         push apA (s.num((to_double orbit)))
         s.callN("rg3d_orbit_apply" apA)
 
@@ -133,7 +133,7 @@ class OrbitControlsTest {
         t.near("rotation preserves orbit radius" rotDist 3.0)
 
         ; ---- wheel dolly OUT increases the camera distance --------------------
-        def whA:[EvalValue]
+        def whA:[EvHandle]
         push whA (s.num((to_double orbit)))
         push whA (s.num(1.0))       ; positive delta = dolly out (radius *= 1.1)
         s.callN("rg3d_orbit_wheel" whA)
