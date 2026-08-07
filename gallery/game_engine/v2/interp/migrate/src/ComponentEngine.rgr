@@ -753,6 +753,9 @@ class BcProgram {
     def args:[int]
     def atoms:[string]
     def localNames:[string]
+    ; slot -> proven-unshared (the walker's slot escape scan): licenses the
+    ; in-place string append on addput_loc
+    def ownedSlots:[boolean]
     def paramCount:int 0
     def localCount:int 0
     def stackSize:int 0
@@ -8076,6 +8079,14 @@ class ComponentEngine {
         if (this.fnNeedsThis(fnNode)) {
             return (0 - 1)
         }
+        ; STRICT bodies keep the walker: its assign paths own the
+        ; frozen/non-writable TypeErrors the spec requires there.
+        if (this.bodyOnlyStrict(fnNode)) {
+            return (0 - 1)
+        }
+        if strictMode {
+            return (0 - 1)
+        }
         if (null? fnNode.body) {
             return (0 - 1)
         }
@@ -8115,6 +8126,25 @@ class ComponentEngine {
             bi = (bi + 1)
         }
         prog.localCount = (array_length prog.localNames)
+        ; which slots the escape scan proves unshared (in-place append license)
+        if (false == body.slotScanned) {
+            body.slotScanned = true
+            body.slotVarNames = (this.slotSafeVarNames(body))
+        }
+        def oi:int 0
+        while (oi < prog.localCount) {
+            def oName:string (itemAt prog.localNames oi)
+            def owned:boolean false
+            def oj:int 0
+            while (oj < (array_length body.slotVarNames)) {
+                if ((itemAt body.slotVarNames oj) == oName) {
+                    owned = true
+                }
+                oj = (oj + 1)
+            }
+            push prog.ownedSlots owned
+            oi = (oi + 1)
+        }
         if (false == (this.bcStmtList(body.children prog))) {
             return false
         }
@@ -8368,6 +8398,52 @@ class ComponentEngine {
             return false
         }
         def tgt:TSNode (unwrap node.left)
+        if ((this.nodeKindOf(tgt)) == 3) {
+            ; member/index target, plain `=` only
+            if ((this.opKindOf(node)) != 1) {
+                return false
+            }
+            if (null? node.right) {
+                return false
+            }
+            if (null? tgt.left) {
+                return false
+            }
+            if (false == (this.bcExpr((unwrap tgt.left) prog))) {
+                return false
+            }
+            if tgt.computed {
+                if (null? tgt.right) {
+                    return false
+                }
+                if (false == (this.bcExpr((unwrap tgt.right) prog))) {
+                    return false
+                }
+                if (false == (this.bcExpr((unwrap node.right) prog))) {
+                    return false
+                }
+                prog.emit(34 0 0 3)
+                return true
+            }
+            def mName:string (this.bcMemberName(tgt))
+            if ((strlen mName) == 0) {
+                return false
+            }
+            if (mName == "length") {
+                return false
+            }
+            if (mName == "__proto__") {
+                return false
+            }
+            if (mName == "prototype") {
+                return false
+            }
+            if (false == (this.bcExpr((unwrap node.right) prog))) {
+                return false
+            }
+            prog.emit(31 (prog.addAtom(mName)) 0 2)
+            return true
+        }
         if ((this.nodeKindOf(tgt)) != 1) {
             return false
         }
@@ -8394,6 +8470,19 @@ class ComponentEngine {
         if (aok == 6) { bop = 24 }
         if (bop == 0) {
             return false
+        }
+        if (aok == 2) {
+            ; s += x keeps the walker's in-place append when the escape scan
+            ; proved the slot unshared (operand: slot*2 + owned)
+            if (false == (this.bcExpr((unwrap node.right) prog))) {
+                return false
+            }
+            def ownBit:int 0
+            if (itemAt prog.ownedSlots slot) {
+                ownBit = 1
+            }
+            prog.emit(35 ((slot * 2) + ownBit) 0 1)
+            return true
         }
         prog.emit(8 slot 1 0)
         if (false == (this.bcExpr((unwrap node.right) prog))) {
@@ -8427,8 +8516,51 @@ class ComponentEngine {
         return false
     }
 
+    ; The property NAME of a non-computed member node, "" when absent --
+    ; same extraction the walker's dispatch uses.
+    fn bcMemberName:string (node:TSNode) {
+        if ((strlen node.name) > 0) {
+            return node.name
+        }
+        if node.right {
+            def pr:TSNode (unwrap node.right)
+            if ((strlen pr.name) > 0) {
+                return pr.name
+            }
+            return pr.value
+        }
+        return ""
+    }
+
     fn bcExpr:boolean (node:TSNode prog:BcProgram) {
         def k:int (this.nodeKindOf(node))
+        if (k == 3) {
+            if (null? node.left) {
+                return false
+            }
+            if (false == (this.bcExpr((unwrap node.left) prog))) {
+                return false
+            }
+            if node.computed {
+                if (null? node.right) {
+                    return false
+                }
+                if (false == (this.bcExpr((unwrap node.right) prog))) {
+                    return false
+                }
+                prog.emit(33 0 1 2)
+                return true
+            }
+            def mn:string (this.bcMemberName(node))
+            if ((strlen mn) == 0) {
+                return false
+            }
+            if (mn == "__proto__") {
+                return false
+            }
+            prog.emit(30 (prog.addAtom(mn)) 1 1)
+            return true
+        }
         if (k == 2) {
             if (false == node.numScanned) {
                 node.numScanned = true
@@ -8558,6 +8690,65 @@ class ComponentEngine {
             }
             return false
         }
+        if (k == 14) {
+            def anc:int (array_length node.children)
+            if (anc > 250) {
+                return false
+            }
+            def aei:int 0
+            while (aei < anc) {
+                def ael:TSNode (itemAt node.children aei)
+                def aek:int (this.nodeKindOf(ael))
+                if (aek == 22) {
+                    return false
+                }
+                if (aek == 47) {
+                    return false
+                }
+                if (false == (this.bcExpr(ael prog))) {
+                    return false
+                }
+                aei = (aei + 1)
+            }
+            prog.emit(36 anc 1 anc)
+            return true
+        }
+        if (k == 15) {
+            ; plain data properties only; accessors/computed/spread fall back
+            def onc:int (array_length node.children)
+            def opi:int 0
+            while (opi < onc) {
+                def oprop:TSNode (itemAt node.children opi)
+                if (oprop.nodeType != "Property") {
+                    return false
+                }
+                if oprop.computed {
+                    return false
+                }
+                if ((strlen oprop.accessor) > 0) {
+                    return false
+                }
+                if ((strlen oprop.name) == 0) {
+                    return false
+                }
+                opi = (opi + 1)
+            }
+            prog.emit(37 0 1 0)
+            def opj:int 0
+            while (opj < onc) {
+                def wprop:TSNode (itemAt node.children opj)
+                if (null? wprop.left) {
+                    return false
+                }
+                prog.emit(21 0 1 0)
+                if (false == (this.bcExpr((unwrap wprop.left) prog))) {
+                    return false
+                }
+                prog.emit(31 (prog.addAtom(wprop.name)) 0 2)
+                opj = (opj + 1)
+            }
+            return true
+        }
         if (k == 8) {
             def sPool:EvalConstPool (EvalConstPool.__singleton())
             def sId:int (sPool.addLiteral((EvValueBridge.taggedString(node.value))))
@@ -8608,6 +8799,44 @@ class ComponentEngine {
                 return false
             }
             def callee:TSNode (unwrap node.left)
+            if ((this.nodeKindOf(callee)) == 3) {
+                if callee.computed {
+                    return false
+                }
+                if (null? callee.left) {
+                    return false
+                }
+                def mrecv:TSNode (unwrap callee.left)
+                if ((this.nodeKindOf(mrecv)) == 1) {
+                    if ((prog.localIdxOf(mrecv.name)) < 0) {
+                        return false
+                    }
+                }
+                def mcn:string (this.bcMemberName(callee))
+                if ((strlen mcn) == 0) {
+                    return false
+                }
+                if (false == (this.bcExpr((unwrap callee.left) prog))) {
+                    return false
+                }
+                def margc:int (array_length node.children)
+                if (margc > 250) {
+                    return false
+                }
+                def mai:int 0
+                while (mai < margc) {
+                    def man:TSNode (itemAt node.children mai)
+                    if ((this.nodeKindOf(man)) == 47) {
+                        return false
+                    }
+                    if (false == (this.bcExpr(man prog))) {
+                        return false
+                    }
+                    mai = (mai + 1)
+                }
+                prog.emit(32 (((prog.addAtom(mcn)) * 256) + margc) 1 (margc + 1))
+                return true
+            }
             if ((this.nodeKindOf(callee)) != 1) {
                 return false
             }
@@ -8645,6 +8874,195 @@ class ComponentEngine {
     ; full extent. Any op that can raise checks scriptThrew and bails --
     ; compiled bodies contain no catch, so unwinding to the caller is
     ; exactly what the walker does.
+    ; ---- Bytecode tier: member/method helpers (walker-mirroring) ----------
+
+    fn bcGetField:EvHandle (obj:EvHandle name:string) {
+        if (name == "length") {
+            if (obj.isString()) {
+                return (EvHandle.fromInt((strlen (obj.stringOf()))))
+            }
+            if (obj.isArray()) {
+                return (EvHandle.fromInt((obj.arrayLength())))
+            }
+        }
+        if (name == "size") {
+            if ((obj.isMap()) || (obj.isSet())) {
+                return (EvHandle.fromInt((obj.denseLen())))
+            }
+        }
+        def g:EvHandle (this.resolveGetterOn(obj name))
+        if (g.isFunction()) {
+            if (g.hasFunctionNode()) {
+                def gArgs:[EvHandle]
+                return (this.callFnValueWithValues((g.withThisForCall(obj)) gArgs))
+            }
+            if (g.isBuiltinMethod()) {
+                def gbArgs:[EvHandle]
+                return (this.invokeBuiltin((g.builtinKindOf()) (g.builtinNameOf()) obj gbArgs))
+            }
+        }
+        return (obj.getMember(name))
+    }
+
+    fn bcPutField:void (obj:EvHandle name:string v:EvHandle) {
+        def st:EvHandle (this.resolveSetterOn(obj name))
+        if (st.isFunction()) {
+            if (st.hasFunctionNode()) {
+                def sArgs:[EvHandle]
+                push sArgs v
+                def _sr:EvHandle (this.callFnValueWithValues((st.withThisForCall(obj)) sArgs))
+                return
+            }
+        }
+        obj.setMember(name v)
+    }
+
+    fn bcGetElem:EvHandle (obj:EvHandle key:EvHandle) {
+        if (obj.isArray()) {
+            if (key.isNumber()) {
+                def kd:double key.numberValue
+                def ki:int (to_int kd)
+                if ((to_double ki) == kd) {
+                    if ((ki >= 0) && (ki < (obj.denseLen()))) {
+                        if ((false == (obj.hasProto())) && (false == (obj.ownAccessorsEver()))) {
+                            def el:EvHandle (obj.arrayItemAt(ki))
+                            if (el.isHole()) {
+                                return (EvHandle.undefined())
+                            }
+                            return el
+                        }
+                    }
+                }
+            }
+        }
+        def pk:string (this.toPropertyKey(key))
+        if scriptThrew {
+            return (EvValueBridge.taggedUndefined())
+        }
+        return (this.bcGetField(obj pk))
+    }
+
+    fn bcPutElem:void (obj:EvHandle key:EvHandle v:EvHandle) {
+        if (obj.isArray()) {
+            if (key.isNumber()) {
+                def kd:double key.numberValue
+                def ki:int (to_int kd)
+                if ((to_double ki) == kd) {
+                    if ((ki >= 0) && (ki <= (obj.denseLen()))) {
+                        if ((false == (obj.hasProto())) && (false == (obj.ownAccessorsEver()))) {
+                            if (ki == (obj.denseLen())) {
+                                def _pi:int (obj.arrPush(v))
+                                return
+                            }
+                            obj.setIndexAt(ki v)
+                            return
+                        }
+                    }
+                }
+            }
+        }
+        def pk:string (this.toPropertyKey(key))
+        if scriptThrew {
+            return
+        }
+        this.bcPutField(obj pk v)
+    }
+
+    ; Method dispatch on already-evaluated receiver+args, mirroring the
+    ; walker chain: own/proto members first (guest wins), then the class
+    ; table for instances, then the registry, then primitive borrows.
+    fn bcCallMethod:EvHandle (obj:EvHandle methodName:string argVals:[EvHandle]) {
+        if ((EvValueBridge.isNull(obj)) || (EvValueBridge.isUndefined(obj))) {
+            def nDesc:string "undefined"
+            if (EvValueBridge.isNull(obj)) {
+                nDesc = "null"
+            }
+            return (this.throwSpecError("TypeError" ("Cannot read properties of " + (nDesc + (" (reading '" + (methodName + "')"))))))
+        }
+        def canProps:boolean false
+        if (obj.isObject()) { canProps = true }
+        if (obj.isFunction()) { canProps = true }
+        if (obj.isArray()) { canProps = (obj.hasOwnData(methodName)) }
+        if (obj.isMap()) { canProps = (obj.hasOwnData(methodName)) }
+        if (obj.isSet()) { canProps = (obj.hasOwnData(methodName)) }
+        if canProps {
+            def m:EvHandle (obj.getMember(methodName))
+            if (m.isBuiltinStatic()) {
+                if (this.hasInvocableStatic((m.builtinNamespaceOf()) (m.builtinNameOf()))) {
+                    return (this.invokeBuiltinStatic((m.builtinNamespaceOf()) (m.builtinNameOf()) argVals))
+                }
+            } {
+                if (m.isBuiltinMethod()) {
+                    def bmFn:EvHandle m
+                    if (false == (m.boundExplicitOf())) {
+                        bmFn = (m.withThisForCall(obj))
+                    }
+                    return (this.callFnValueWithValues(bmFn argVals))
+                }
+            }
+            if (m.isFunction()) {
+                if (m.hasFunctionNode()) {
+                    def mNode:TSNode (m.functionNodeOf())
+                    if (m.hasBoundThis()) {
+                        return (this.callFnValueWithValues(m argVals))
+                    }
+                    if ((this.nodeKindOf(mNode)) == 17) {
+                        return (this.callFnValueWithValues(m argVals))
+                    }
+                    return (this.callFnValueWithValues((m.withThisForCall(obj)) argVals))
+                }
+            }
+        }
+        ; class-instance methods live on the class NODE, not the instance
+        def clsName:string (this.instanceClassName(obj))
+        if ((strlen clsName) > 0) {
+            def cls:TSNode (this.classNodeForInstance(obj))
+            def um:TSNode (this.findMethodOnClassNode(cls methodName))
+            if (um.nodeType == "MethodDefinition") {
+                def uv:EvHandle (EvValueBridge.taggedFunction(um))
+                uv.setHomeModule((this.instanceModuleTag(obj)))
+                return (this.callFnValueWithValues((uv.withThisForCall(obj)) argVals))
+            }
+        }
+        def rk:string (this.receiverKind(obj))
+        if (this.hasBuiltin(rk methodName)) {
+            if (this.registryMethodDeleted(obj methodName)) {
+                if (this.objectProtoFallbackFor(rk methodName)) {
+                    return (this.invokeBuiltin("object" methodName obj argVals))
+                }
+                return (this.throwSpecError("TypeError" (methodName + " is not a function")))
+            }
+            def ov:EvHandle (this.overriddenPrototypeMethod(rk methodName))
+            if (ov.isFunction()) {
+                if (ov.hasFunctionNode()) {
+                    return (this.callFnValueWithValues((ov.withThisForCall(obj)) argVals))
+                }
+            }
+            return (this.invokeBuiltin(rk methodName obj argVals))
+        }
+        if ((obj.isNumber()) || ((obj.isString()) || ((obj.isBoolean()) || ((obj.isFunction()) || (obj.isArray()))))) {
+            def pcn:string (this.ctorNameForKind(rk))
+            if ((strlen pcn) > 0) {
+                def kp:EvHandle (this.builtinPrototype(pcn))
+                if (kp.hasOwnData(methodName)) {
+                    def bw:EvHandle (kp.getOwnData(methodName))
+                    if (bw.isBuiltinMethod()) {
+                        return (this.invokeBuiltin((bw.builtinKindOf()) (bw.builtinNameOf()) obj argVals))
+                    }
+                    if (bw.isFunction()) {
+                        if (bw.hasFunctionNode()) {
+                            return (this.callFnValueWithValues((bw.withThisForCall(obj)) argVals))
+                        }
+                    }
+                }
+            }
+        }
+        if (this.objectProtoFallbackFor(rk methodName)) {
+            return (this.invokeBuiltin("object" methodName obj argVals))
+        }
+        return (this.throwSpecError("TypeError" (methodName + " is not a function")))
+    }
+
     fn runBytecode:EvHandle (prog:BcProgram argVals:[EvHandle] outer:EvalContext) {
         def base:int bcSp
         def needTop:int ((base + prog.localCount) + prog.stackSize)
@@ -8893,6 +9311,120 @@ class ComponentEngine {
             if (op == 7) {
                 set bcStack sp (EvValueBridge.taggedBoolean(false))
                 sp = (sp + 1)
+                continue
+            }
+            if (op == 30) {
+                def o30:EvHandle (itemAt bcStack (sp - 1))
+                set bcStack (sp - 1) (this.bcGetField(o30 (itemAt prog.atoms a)))
+                if scriptThrew {
+                    bcSp = base
+                    return (EvValueBridge.taggedUndefined())
+                }
+                continue
+            }
+            if (op == 31) {
+                def v31:EvHandle (itemAt bcStack (sp - 1))
+                def o31:EvHandle (itemAt bcStack (sp - 2))
+                sp = (sp - 2)
+                this.bcPutField(o31 (itemAt prog.atoms a) v31)
+                if scriptThrew {
+                    bcSp = base
+                    return (EvValueBridge.taggedUndefined())
+                }
+                continue
+            }
+            if (op == 32) {
+                def mArgc:int (bit_and a 255)
+                def mAtom:int (idiv a 256)
+                def mFnPos:int ((sp - mArgc) - 1)
+                def mArgs:[EvHandle]
+                def mi:int 0
+                while (mi < mArgc) {
+                    push mArgs (itemAt bcStack ((mFnPos + 1) + mi))
+                    mi = (mi + 1)
+                }
+                def mObj:EvHandle (itemAt bcStack mFnPos)
+                bcSp = needTop
+                def mRes:EvHandle (this.bcCallMethod(mObj (itemAt prog.atoms mAtom) mArgs))
+                bcSp = base
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                set bcStack mFnPos mRes
+                sp = (mFnPos + 1)
+                continue
+            }
+            if (op == 33) {
+                def k33:EvHandle (itemAt bcStack (sp - 1))
+                def o33:EvHandle (itemAt bcStack (sp - 2))
+                sp = (sp - 1)
+                set bcStack (sp - 1) (this.bcGetElem(o33 k33))
+                if scriptThrew {
+                    bcSp = base
+                    return (EvValueBridge.taggedUndefined())
+                }
+                continue
+            }
+            if (op == 34) {
+                def v34:EvHandle (itemAt bcStack (sp - 1))
+                def k34:EvHandle (itemAt bcStack (sp - 2))
+                def o34:EvHandle (itemAt bcStack (sp - 3))
+                sp = (sp - 3)
+                this.bcPutElem(o34 k34 v34)
+                if scriptThrew {
+                    bcSp = base
+                    return (EvValueBridge.taggedUndefined())
+                }
+                continue
+            }
+            if (op == 36) {
+                def cnt36:int a
+                def base36:int (sp - cnt36)
+                def items36:[EvHandle]
+                def ii36:int 0
+                while (ii36 < cnt36) {
+                    push items36 (itemAt bcStack (base36 + ii36))
+                    ii36 = (ii36 + 1)
+                }
+                sp = base36
+                set bcStack sp (EvValueBridge.taggedArray(items36))
+                sp = (sp + 1)
+                continue
+            }
+            if (op == 37) {
+                def ok37:[string]
+                def ov37:[EvHandle]
+                set bcStack sp (EvValueBridge.taggedObject(ok37 ov37))
+                sp = (sp + 1)
+                continue
+            }
+            if (op == 35) {
+                def slot35:int (idiv a 2)
+                def own35:int (bit_and a 1)
+                def x35:EvHandle (itemAt bcStack (sp - 1))
+                sp = (sp - 1)
+                def c35:EvHandle (itemAt bcStack (base + slot35))
+                if ((c35.isNumber()) && (x35.isNumber())) {
+                    set bcStack (base + slot35) (EvValueBridge.taggedNumber((c35.numberValue + x35.numberValue)))
+                    continue
+                }
+                if ((own35 == 1) && ((c35.isString()) && (x35.isString()))) {
+                    ; in-place append, mirroring the walker's slot rule: write
+                    ; through only a handle this slot MINTED, else mint one
+                    if c35.slotOwned {
+                        c35.strSlotAppend((x35.stringOf()))
+                        continue
+                    }
+                    def f35:EvHandle (EvHandle.string(((c35.stringOf()) + (x35.stringOf()))))
+                    f35.slotOwned = true
+                    set bcStack (base + slot35) f35
+                    continue
+                }
+                set bcStack (base + slot35) (this.applyBinaryOp(20 c35 x35))
+                if scriptThrew {
+                    bcSp = base
+                    return (EvValueBridge.taggedUndefined())
+                }
                 continue
             }
         }
