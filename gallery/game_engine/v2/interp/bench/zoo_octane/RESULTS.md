@@ -200,16 +200,15 @@ would narrow if those were added.
 
 ## Target comparison (passing suites only)
 
-| Suite | es6 | C++ | Rust | LLVM |
+| Suite | es6 (post-#541) | C++ | Rust | LLVM |
 | --- | ---: | ---: | ---: | ---: |
-| Richards | 59.0 | 21.7 | 7.98 | 7.98 |
-| DeltaBlue | 110 | 14.9 | 14.9 | 5.50 |
+| Richards | 21.7 | ≈2.6‡ / 21.7† | ≈4.1‡ / 7.98† | 7.98 |
+| DeltaBlue | 40.6 | 14.9† | 14.9† | 5.50 |
 | RegExp | 75.8 | FAIL | FAIL | not run |
 
-The LLVM column was measured on a different machine from the other three, so
-read it against its own **% of Node** row above rather than against these
-absolute scores.
+† historical adaptive Octane scores. ‡ fixed-N estimate on this host (adaptive
+OOMs — see COMPARE.md). LLVM column was measured on a different machine; read
+it against its own **% of Node** row above.
 
-es6 is the fastest of the three host builds here (V8 nursery vs native
-`malloc` / refcount cost for `EvalValue`), matching the story in
-`TS_ENGINE_PERF.md`.
+es6 remains the fastest host build here (V8 nursery vs native `malloc` /
+refcount cost for `EvalValue`), matching the story in `TS_ENGINE_PERF.md`.
