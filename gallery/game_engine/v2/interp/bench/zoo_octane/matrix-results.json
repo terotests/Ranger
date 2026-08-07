@@ -480,6 +480,14 @@
     "SplayLatency": 1683.0
    },
    "errors": {}
+  },
+  "earley-boyer": {
+   "status": "TIMEOUT",
+   "out": "",
+   "wall_ms": 353535.23946300003,
+   "rss_kb": 15877716,
+   "scores": {},
+   "errors": {}
   }
  }
 }
