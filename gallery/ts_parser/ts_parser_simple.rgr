@@ -47,6 +47,10 @@ class TSNode {
   ; `this` value at all.
   def thisScanned:boolean false
   def usesThis:boolean false
+  ; Memo for a CALL node with an Identifier callee: true once the name is
+  ; known to match none of the global built-in call names, so the dispatch
+  ; chain that tests them one string at a time is skipped forever after.
+  def notGlobalBuiltin:boolean false
   ; Memo for a NumericLiteral's value. The literal is held as source TEXT, so
   ; evaluating it means parsing that text -- once per evaluation, which for a
   ; loop bound means once per iteration. Parsed on first use and kept.

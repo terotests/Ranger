@@ -148,18 +148,18 @@ started from a C++/QJS `array` ratio of 3451x:
 
 ```
 case      raw Node raw QuickJS   eng/ES6   eng/C++ | ES6/QJS   C++/QJS
-loop         0.369       0.511      18.3      12.6  |   35.8x     24.6x
-fib          0.287       0.494      22.2      19.8  |   45.0x     40.2x
-strcat       0.467       8.031       7.6       6.8  |    0.9x      0.9x
-array        1.138       1.128      29.5      14.2  |   26.2x     12.6x
-object       1.649       2.609      33.9      38.6  |   13.0x     14.8x
-method       1.502       3.113      54.6      46.3  |   17.5x     14.9x
-regex        1.410       4.672      55.4      65.5  |   11.9x     14.0x
-geomean      0.793       1.892      26.6      22.4  |   14.0x     11.8x
+loop         0.364       0.509      19.4      11.8  |   38.0x     23.2x
+fib          0.318       0.531      20.5      18.3  |   38.7x     34.5x
+strcat       0.529       7.984       7.2       6.4  |    0.9x      0.8x
+array        1.022       1.199      30.4      14.8  |   25.4x     12.3x
+object       1.528       2.563      34.2      36.5  |   13.3x     14.3x
+method       1.421       2.996      55.0      44.9  |   18.4x     15.0x
+regex        1.376       4.543      46.9      63.5  |   10.3x     14.0x
+geomean      0.787       1.903      25.8      21.5  |   13.6x     11.3x
 ```
 
-The C++ geomean against QuickJS went 63x → 11.8x over this work (the es6
-build: 20x → 14.0x). `strcat` is the row to stare at: the INTERPRETER now
+The C++ geomean against QuickJS went 63x → 11.3x over this work (the es6
+build: 20x → 13.6x). `strcat` is the row to stare at: the INTERPRETER now
 concatenates as fast as QuickJS runs the same loop natively, because qjs
 copies the accumulator per `+=` while the slot machinery appends in place.
 The `array` row's last big cut came from a CALL-SITE INLINE CACHE: a method
@@ -200,6 +200,11 @@ And a second profiling round (callgrind on `fib`) cut the call itself:
 - **`nodeKindOf`/`opKindOf` split hot from cold**: the memo hit is two
   loads and a compare and now inlines at every call site; the
   string-compare chain runs once per node in its own function.
+- **Named calls memoise "not a global built-in"**: dispatching `f(...)`
+  tested ~26 built-in names (`Symbol`, `eval`, `parseInt`, the sized-int
+  casts, ...) one string compare at a time on every call. A pure
+  predicate on the callee name stamps the node once; a name that CAN
+  match keeps today's per-call behavior, shadowing checks included.
 
 ## What this folder is for
 

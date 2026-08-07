@@ -5898,6 +5898,32 @@ class ComponentEngine {
         return false
     }
 
+    ; The names the global built-in dispatch chain in evaluateCallExpr tests
+    ; one string compare at a time. A pure predicate on the NAME: it decides
+    ; only whether the chain COULD match, so a call node whose name misses
+    ; every entry is stamped and never walks the chain again -- while a hit
+    ; keeps its exact per-call behavior (shadowing checks included).
+    fn isGlobalBuiltinCallName:boolean (name:string) {
+        if (this.isSizedTypeName(name)) { return true }
+        if (name == "Symbol") { return true }
+        if (name == "eval") { return true }
+        if (name == "Array") { return true }
+        if (name == "RegExp") { return true }
+        if (name == "Date") { return true }
+        if (name == "Object") { return true }
+        if (name == "Function") { return true }
+        if (name == "parseInt") { return true }
+        if (name == "parseFloat") { return true }
+        if (name == "Number") { return true }
+        if (name == "String") { return true }
+        if (name == "Boolean") { return true }
+        if (name == "isNaN") { return true }
+        if (name == "isFinite") { return true }
+        if (name == "usePrintSettings") { return true }
+        if (name == "useImage") { return true }
+        return false
+    }
+
     ; Apply an AS numeric cast (i32(x), u8(x), …) with proper wraparound. i64/u64
     ; truncate to an integer (doubles cannot hold full 64-bit); f32/f64 pass the
     ; value through (no float32 rounding).
@@ -10151,6 +10177,16 @@ class ComponentEngine {
                     this.trace("Evaluating function call: " + fnName)
                 }
                 
+                ; PERF: the chain below is one string compare per built-in
+                ; name, paid on every named call. The stamp says this node's
+                ; name matches none of them, so the whole chain is skipped;
+                ; a name that CAN match keeps today's per-call behavior.
+                if (false == node.notGlobalBuiltin) {
+                    if (false == (this.isGlobalBuiltinCallName(fnName))) {
+                        node.notGlobalBuiltin = true
+                    }
+                }
+                if (false == node.notGlobalBuiltin) {
                 ; ============================================================
                 ; Global numeric functions
                 ; ============================================================
@@ -10341,6 +10377,7 @@ class ComponentEngine {
                     return (this.evaluateUseImage(srcArg))
                 }
 
+                }
                 if (nativeBridge) {
                     def bridge:EvalNativeBridge (unwrap nativeBridge)
                     if (bridge.has(fnName)) {
