@@ -8636,7 +8636,12 @@ class ComponentEngine {
                 }
             }
             def nv:double node.numValue
-            def ni:int (to_int nv)
+            def ni:int 0
+            if ((nv >= 0.0) && (nv < 2147483647.0)) {
+                ni = (to_int nv)
+            } {
+                ni = (0 - 1)
+            }
             if ((to_double ni) == nv) {
                 if ((ni > 0) || ((ni == 0) && ((1.0 / nv) > 0.0))) {
                     if (ni < 4096) {
@@ -8991,6 +8996,10 @@ class ComponentEngine {
         if (obj.isArray()) {
             if (key.isNumber()) {
                 def kd:double key.numberValue
+                ; range-check BEFORE converting: double->int out of int range
+                ; is UB on C++ and the round-trip guard below runs on the
+                ; already-poisoned value
+                if ((kd >= 0.0) && (kd < 2147483647.0)) {
                 def ki:int (to_int kd)
                 if ((to_double ki) == kd) {
                     if ((ki >= 0) && (ki < (obj.denseLen()))) {
@@ -9002,6 +9011,7 @@ class ComponentEngine {
                             return el
                         }
                     }
+                }
                 }
             }
         }
@@ -9016,6 +9026,7 @@ class ComponentEngine {
         if (obj.isArray()) {
             if (key.isNumber()) {
                 def kd:double key.numberValue
+                if ((kd >= 0.0) && (kd < 2147483647.0)) {
                 def ki:int (to_int kd)
                 if ((to_double ki) == kd) {
                     if ((ki >= 0) && (ki <= (obj.denseLen()))) {
@@ -9028,6 +9039,7 @@ class ComponentEngine {
                             return
                         }
                     }
+                }
                 }
             }
         }
