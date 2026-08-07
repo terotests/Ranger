@@ -1,0 +1,376 @@
+{
+ "node": {
+  "richards": {
+   "status": "OK",
+   "out": "Richards: 36940\n",
+   "wall_ms": 2200.460767999999,
+   "rss_kb": 57072,
+   "scores": {
+    "Richards": 36940.0
+   },
+   "errors": {}
+  },
+  "deltablue": {
+   "status": "OK",
+   "out": "DeltaBlue: 61761\n",
+   "wall_ms": 2095.1819960000007,
+   "rss_kb": 87896,
+   "scores": {
+    "DeltaBlue": 61761.0
+   },
+   "errors": {}
+  },
+  "crypto": {
+   "status": "OK",
+   "out": "Crypto: 41046\n",
+   "wall_ms": 4067.7163239999954,
+   "rss_kb": 59632,
+   "scores": {
+    "Crypto": 41046.0
+   },
+   "errors": {}
+  },
+  "raytrace": {
+   "status": "OK",
+   "out": "RayTrace: 57719\n",
+   "wall_ms": 2072.5968240000016,
+   "rss_kb": 73000,
+   "scores": {
+    "RayTrace": 57719.0
+   },
+   "errors": {}
+  },
+  "earley-boyer": {
+   "status": "OK",
+   "out": "EarleyBoyer: 66591\n",
+   "wall_ms": 4055.522746000001,
+   "rss_kb": 90696,
+   "scores": {
+    "EarleyBoyer": 66591.0
+   },
+   "errors": {}
+  },
+  "regexp": {
+   "status": "OK",
+   "out": "RegExp: 6994\n",
+   "wall_ms": 2119.7228620000033,
+   "rss_kb": 74552,
+   "scores": {
+    "RegExp": 6994.0
+   },
+   "errors": {}
+  },
+  "splay": {
+   "status": "OK",
+   "out": "Splay: 10300\nSplayLatency: 9128\n",
+   "wall_ms": 2191.677162000005,
+   "rss_kb": 454404,
+   "scores": {
+    "Splay": 10300.0,
+    "SplayLatency": 9128.0
+   },
+   "errors": {}
+  },
+  "navier-stokes": {
+   "status": "OK",
+   "out": "NavierStokes: 39248\n",
+   "wall_ms": 2054.5200339999924,
+   "rss_kb": 60808,
+   "scores": {
+    "NavierStokes": 39248.0
+   },
+   "errors": {}
+  }
+ },
+ "qjs": {
+  "richards": {
+   "status": "OK",
+   "out": "Richards: 669\n",
+   "wall_ms": 2086.374494999987,
+   "rss_kb": 10692,
+   "scores": {
+    "Richards": 669.0
+   },
+   "errors": {}
+  },
+  "deltablue": {
+   "status": "OK",
+   "out": "DeltaBlue: 691\n",
+   "wall_ms": 2014.8605909999874,
+   "rss_kb": 10696,
+   "scores": {
+    "DeltaBlue": 691.0
+   },
+   "errors": {}
+  },
+  "crypto": {
+   "status": "OK",
+   "out": "Crypto: 929\n",
+   "wall_ms": 7275.0794070000065,
+   "rss_kb": 10700,
+   "scores": {
+    "Crypto": 929.0
+   },
+   "errors": {}
+  },
+  "raytrace": {
+   "status": "OK",
+   "out": "RayTrace: 981\n",
+   "wall_ms": 4177.873731000005,
+   "rss_kb": 10700,
+   "scores": {
+    "RayTrace": 981.0
+   },
+   "errors": {}
+  },
+  "earley-boyer": {
+   "status": "OK",
+   "out": "EarleyBoyer: 1530\n",
+   "wall_ms": 8296.212738999999,
+   "rss_kb": 18052,
+   "scores": {
+    "EarleyBoyer": 1530.0
+   },
+   "errors": {}
+  },
+  "regexp": {
+   "status": "OK",
+   "out": "RegExp: 220\n",
+   "wall_ms": 8662.605667000009,
+   "rss_kb": 10700,
+   "scores": {
+    "RegExp": 220.0
+   },
+   "errors": {}
+  },
+  "splay": {
+   "status": "OK",
+   "out": "Splay: 1617\nSplayLatency: 3806\n",
+   "wall_ms": 3833.2971530000036,
+   "rss_kb": 171920,
+   "scores": {
+    "Splay": 1617.0,
+    "SplayLatency": 3806.0
+   },
+   "errors": {}
+  },
+  "navier-stokes": {
+   "status": "OK",
+   "out": "NavierStokes: 1623\n",
+   "wall_ms": 3050.728050999993,
+   "rss_kb": 10700,
+   "scores": {
+    "NavierStokes": 1623.0
+   },
+   "errors": {}
+  }
+ },
+ "duk": {
+  "richards": {
+   "status": "OK",
+   "out": "Richards: 281\n",
+   "wall_ms": 2011.9722470000029,
+   "rss_kb": 10700,
+   "scores": {
+    "Richards": 281.0
+   },
+   "errors": {}
+  },
+  "deltablue": {
+   "status": "OK",
+   "out": "DeltaBlue: 328\n",
+   "wall_ms": 2023.025845999996,
+   "rss_kb": 10700,
+   "scores": {
+    "DeltaBlue": 328.0
+   },
+   "errors": {}
+  },
+  "crypto": {
+   "status": "OK",
+   "out": "Crypto: 347\n",
+   "wall_ms": 14701.052516000003,
+   "rss_kb": 10700,
+   "scores": {
+    "Crypto": 347.0
+   },
+   "errors": {}
+  },
+  "raytrace": {
+   "status": "OK",
+   "out": "RayTrace: 629\n",
+   "wall_ms": 5284.739231999993,
+   "rss_kb": 10704,
+   "scores": {
+    "RayTrace": 629.0
+   },
+   "errors": {}
+  },
+  "earley-boyer": {
+   "status": "OK",
+   "out": "EarleyBoyer: 684\n",
+   "wall_ms": 15670.193688000012,
+   "rss_kb": 21544,
+   "scores": {
+    "EarleyBoyer": 684.0
+   },
+   "errors": {}
+  },
+  "regexp": {
+   "status": "OK",
+   "out": "RegExp: 157\n",
+   "wall_ms": 11082.805791999988,
+   "rss_kb": 10704,
+   "scores": {
+    "RegExp": 157.0
+   },
+   "errors": {}
+  },
+  "splay": {
+   "status": "OK",
+   "out": "Splay: 1172\nSplayLatency: 2226\n",
+   "wall_ms": 3675.7508750000056,
+   "rss_kb": 132264,
+   "scores": {
+    "Splay": 1172.0,
+    "SplayLatency": 2226.0
+   },
+   "errors": {}
+  },
+  "navier-stokes": {
+   "status": "OK",
+   "out": "NavierStokes: 1373\n",
+   "wall_ms": 3280.7337700000116,
+   "rss_kb": 10704,
+   "scores": {
+    "NavierStokes": 1373.0
+   },
+   "errors": {}
+  }
+ },
+ "es6": {
+  "richards": {
+   "status": "OK",
+   "out": "[tsx] Richards: 21.7\n",
+   "wall_ms": 13245.009806000013,
+   "rss_kb": 84272,
+   "scores": {
+    "Richards": 21.7
+   },
+   "errors": {}
+  },
+  "deltablue": {
+   "status": "OK",
+   "out": "[tsx] DeltaBlue: 14.9\n",
+   "wall_ms": 17511.282171000006,
+   "rss_kb": 118088,
+   "scores": {
+    "DeltaBlue": 14.9
+   },
+   "errors": {}
+  },
+  "crypto": {
+   "status": "OK",
+   "out": "Unknown type: this\n[tsx] Crypto: Error: Crypto operation failed\n",
+   "wall_ms": 22783.275201999997,
+   "rss_kb": 114140,
+   "scores": {},
+   "errors": {
+    "Crypto": "Error: Crypto operation failed"
+   }
+  },
+  "raytrace": {
+   "status": "OK",
+   "out": "[tsx] RayTrace: Error: Scene rendered incorrectly\n",
+   "wall_ms": 2811.0845920000147,
+   "rss_kb": 90296,
+   "scores": {},
+   "errors": {
+    "RayTrace": "Error: Scene rendered incorrectly"
+   }
+  },
+  "earley-boyer": {
+   "status": "OK",
+   "out": "Parse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: a leading-zero numeric key is not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: octal escape sequences are not allowed in strict mode\nParse error: expected ')' but got '.'\nUnknown type: return\nUnknown type: return\nUnknown type: return\nUnknown type: return\nUnknown type: return\nUnknown type: return\nParse error: expected ')' but got '='\nParse error: expected ']' but got ','\nParse error: expected ')' but got 'null'\nParse error: expected '(' but got 'sc_Pair'\nParse error: expected Identifier but got Punctuator\nParse error: expected ',' but got '('\nParse error: expected ',' but got '.'\nParse error: expected ')' but got ','\nParse error: expected ')' but got '('\nParse error: expected ')' but got '('\nParse error: expected ')' but got '('\nParse error: expected ')' but got '='\nParse error: expected ')' but got '('\nParse error: expected ')' but got '('\nParse error: expected ')' but got '='\nParse error: expected ')' but got 'function'\nParse error: expected ')' but got '.'\n[tsx] EarleyBoyer: TypeError: Cannot read properties of undefined (reading 'car')\n",
+   "wall_ms": 9754.46369299999,
+   "rss_kb": 424012,
+   "scores": {},
+   "errors": {
+    "EarleyBoyer": "TypeError: Cannot read properties of undefined (reading 'car')"
+   }
+  },
+  "regexp": {
+   "status": "OK",
+   "out": "[tsx] RegExp: 27.9\n",
+   "wall_ms": 60673.20103499998,
+   "rss_kb": 228656,
+   "scores": {
+    "RegExp": 27.9
+   },
+   "errors": {}
+  },
+  "splay": {
+   "status": "OK",
+   "out": "[tsx] Splay: 136\n[tsx] SplayLatency: 1683\n",
+   "wall_ms": 10168.262897000033,
+   "rss_kb": 729452,
+   "scores": {
+    "Splay": 136.0,
+    "SplayLatency": 1683.0
+   },
+   "errors": {}
+  },
+  "navier-stokes": {
+   "status": "OK",
+   "out": "[tsx] NavierStokes: Error: checksum failed\n",
+   "wall_ms": 86583.91766300003,
+   "rss_kb": 184032,
+   "scores": {},
+   "errors": {
+    "NavierStokes": "Error: checksum failed"
+   }
+  }
+ },
+ "cpp": {
+  "richards": {
+   "status": "OK",
+   "out": "[tsx] Richards: 21.7\n",
+   "wall_ms": 14116.235244999985,
+   "rss_kb": 12756,
+   "scores": {
+    "Richards": 21.7
+   },
+   "errors": {}
+  },
+  "deltablue": {
+   "status": "OK",
+   "out": "[tsx] DeltaBlue: 14.9\n",
+   "wall_ms": 20603.888629999972,
+   "rss_kb": 48404,
+   "scores": {
+    "DeltaBlue": 14.9
+   },
+   "errors": {}
+  },
+  "crypto": {
+   "status": "OK",
+   "out": "Unknown type: this\n[tsx] Crypto: Error: Crypto operation failed\n",
+   "wall_ms": 18409.688869000034,
+   "rss_kb": 26292,
+   "scores": {},
+   "errors": {
+    "Crypto": "Error: Crypto operation failed"
+   }
+  },
+  "raytrace": {
+   "status": "OK",
+   "out": "[tsx] RayTrace: Error: Scene rendered incorrectly\n",
+   "wall_ms": 7525.751602000014,
+   "rss_kb": 16020,
+   "scores": {},
+   "errors": {
+    "RayTrace": "Error: Scene rendered incorrectly"
+   }
+  }
+ }
+}
