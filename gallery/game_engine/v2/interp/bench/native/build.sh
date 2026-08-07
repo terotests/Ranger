@@ -44,6 +44,10 @@ RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l="$TARGET" 
 
 case "$TARGET" in
   cpp)
+    # Shape case classes are emitted after ordinary classes; move the six
+    # by-value EvalValue alternatives ahead of EvMapEntry (see script).
+    python3 gallery/game_engine/v2/interp/bench/native/fix_cpp_evalvalue_order.py \
+      "$OUT_DIR/engine_bench.cpp"
     echo "== g++ -O3"
     g++ -O3 -march=native -std=c++17 "$OUT_DIR/engine_bench.cpp" -o "$OUT_DIR/engine_bench"
     echo "built: $OUT_DIR/engine_bench"

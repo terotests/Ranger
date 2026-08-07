@@ -1655,7 +1655,8 @@ class EvHandle {
         def _evBody:EvalValue body
         case _evBody f:EvalValue.Function {
             def bind:EvFunctionBinding (unwrap f.binding)
-            if bind.boundThis {
+            ; Hole = unbound (shape fields cannot use @(optional) on C++).
+            if (false == (EvalValue.isHole(bind.boundThis))) {
                 return true
             }
         }
@@ -1665,8 +1666,9 @@ class EvHandle {
         def _evBody:EvalValue body
         case _evBody f:EvalValue.Function {
             def bind:EvFunctionBinding (unwrap f.binding)
-            if bind.boundThis {
-                return (EvHandle.fromBody((unwrap bind.boundThis)))
+            def bt:EvalValue bind.boundThis
+            if (false == (EvalValue.isHole(bt))) {
+                return (EvHandle.fromBody(bt))
             }
         }
         return (EvHandle.undefined())
