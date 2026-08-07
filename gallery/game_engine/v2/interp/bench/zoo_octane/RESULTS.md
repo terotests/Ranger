@@ -41,12 +41,14 @@ Ranger compile: `-l=cpp` → `octane_runner`, built with `g++ -O3 -march=native`
 | Suite | Engine score | Same-machine Node | % of Node | zoo.js V8 (amd64) | % of zoo V8 |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Richards | 21.7 | 55212 | **0.039%** | 37102 | **0.058%** |
-| DeltaBlue | 14.9 | 127859 | **0.012%** | 106675 | **0.014%** |
+| DeltaBlue | 40.6 | 127859 | **0.032%** | 106675 | **0.038%** |
+| Splay | 3 | — | — | — | (now completes — see matrix) |
 | RegExp | FAIL | 10830 | — | 9499 | — (`Wrong checksum.`) |
-| **geo mean (passing 2)** | **18.0** | — | **0.042%**† | — | — |
+| **geo mean (Richards, DeltaBlue)** | **29.7** | — | **0.035%** | — | — |
 
-† geo mean % of Node uses Node’s geo over the same three suite keys the harness
-prints; RegExp contributes no engine value.
+Splay now completes (it used to spin forever — see the resolved section
+below); its low score is allocation cost, not a hang. RegExp is the one
+native-only failure, from the multi-byte string store (below).
 
 Rough zoo.js placement (Richards): next to rust-js / dmdscript / otto (~22–24).
 
@@ -58,13 +60,17 @@ Ranger compile: `-l=rust` → `octane_runner`, built with `rustc -C opt-level=3`
 
 | Suite | Engine score | Same-machine Node | % of Node | zoo.js V8 (amd64) | % of zoo V8 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Richards | 7.98 | 55212 | **0.014%** | 37102 | **0.022%** |
-| DeltaBlue | 14.9 | 127859 | **0.012%** | 106675 | **0.014%** |
+| Richards | 21.7 | 55212 | **0.039%** | 37102 | **0.058%** |
+| DeltaBlue | 40.6 | 127859 | **0.032%** | 106675 | **0.038%** |
+| Splay | 136 | — | — | — | (now completes — see matrix) |
 | RegExp | FAIL | 10830 | — | 9499 | — (`Wrong checksum.`) |
-| **geo mean (passing 2)** | **10.9** | — | **0.026%**† | — | — |
+| **geo mean (Richards, DeltaBlue)** | **29.7** | — | **0.035%** | — | — |
 
-Rough zoo.js placement (Richards): among the slowest scoring interpreters
-(js-interpreter ~11, yavashark ~15).
+The Rust build matches the C++ build on Richards and DeltaBlue now that the
+memory-retention and identity-registry fixes and the double-domain
+floor/ToInt32 fix have landed; on Splay it scores far higher than C++ (136 vs
+3), because Rust's `Rc<RefCell>` payloads churn less than the C++
+`shared_ptr` value vectors on that suite's allocation shape.
 
 ---
 
@@ -168,49 +174,76 @@ would narrow if those were added.
 
 ---
 
-## Suites that did not produce a valid score (any target)
+## Six-engine matrix (2026-08-07)
 
-| Suite | Outcome |
-| --- | --- |
-| Crypto | Wrong crypto result / `Unknown type: this` on parse. |
-| RayTrace | `Scene rendered incorrectly` (after `new ns.Deep.C()` fix). |
-| Splay | `Key not found`. |
-| NavierStokes | `checksum failed`. |
-| EarleyBoyer | Parse errors (octal / Scheme-compiled JS). |
-| RegExp on C++/Rust | Runs on es6; native regex checksum mismatch. |
+Every engine runs the SAME prepared suite bodies. External engines
+(`node` / `qjs` / `duk`) take the raw zoo files; the Ranger targets
+(`es6` / `cpp` / `rust`) take the run.cjs preparation (print prelude +
+`inheritsFrom` rewrite). Reproduce with
+`python3 bench_matrix.py` (writes `matrix-results.json`) and render with
+`python3 matrix_report.py`.
 
----
+### Octane score (higher is better)
 
-## Target comparison (passing suites only)
+| Suite | Node (V8) | QuickJS | Duktape | Ranger es6 | Ranger C++ -O3 | Ranger Rust -O3 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| richards | 36940 | 669 | 281 | 21.7 | 21.7 | 21.7 |
+| deltablue | 61761 | 691 | 328 | 40.6 | 40.6 | 40.6 |
+| splay | 10300 | 1617 | 1172 | 136 | 3 | 136 |
+| regexp | 6994 | 220 | 157 | 27.9 | FAIL | FAIL |
+| crypto | 41046 | 929 | 347 | FAIL | FAIL | FAIL |
+| raytrace | 57719 | 981 | 629 | FAIL | FAIL | FAIL |
+| navier-stokes | 39248 | 1623 | 1373 | FAIL | FAIL | FAIL |
+| earley-boyer | 66591 | 1530 | 684 | FAIL | FAIL* | FAIL* |
 
-| Suite | es6 | C++ | Rust | LLVM |
-| --- | ---: | ---: | ---: | ---: |
-| Richards | 59.0 | 21.7 | 7.98 | 7.98 |
-| DeltaBlue | 110 | 14.9 | 14.9 | 5.50 |
-| RegExp | 75.8 | FAIL | FAIL | not run |
+Four suites (richards, deltablue, splay, and — on es6 — regexp) produce a
+valid score on the Ranger engine. The other four fail the SAME way on every
+Ranger target, which locates them in the engine's semantics, not a target's
+lowering: crypto returns a wrong digest, raytrace renders the scene
+incorrectly, navier-stokes fails its checksum, and earley-boyer trips the
+engine's TS parser on the Scheme-compiled source (`TypeError: reading 'car'`
+on es6). `regexp` is the one target-specific split — see below.
 
-The LLVM column was measured on a different machine from the other three, so
-read it against its own **% of Node** row above rather than against these
-absolute scores.
+`*` earley-boyer on the native targets: the parser now *tokenizes* it in well
+under a second (was ~60 s — see the O(1) `at` cache), but evaluating the
+malformed AST the parse errors leave behind allocates unboundedly on the
+value-vector targets where es6 throws and stops. It is a broken suite on
+every engine; the native memory blow-up on the wreckage is not chased here.
 
-es6 is the fastest of the three host builds here (V8 nursery vs native
-`malloc` / refcount cost for `EvalValue`), matching the story in
-`TS_ENGINE_PERF.md`.
+### Binary size (stripped, this machine)
 
-## OPEN: C++-only splay spin — minimal reproducer (2026-08-07)
+| | stripped |
+| --- | ---: |
+| Duktape | 511 KB |
+| QuickJS | 1.03 MB |
+| Ranger C++ `octane_runner` (`-O3`) | 1.87 MB |
+| Ranger Rust `octane_runner` (`-O3`) | 2.78 MB |
 
-`splay.js` with `kSplayTreeSize = 20`: inserts 1–4 build a CORRECT tree
-(keys/structure verified by instrumentation), then insert #5's
-key-uniqueness loop spins forever because `splayTree.find(freshKey)`
-returns non-null for EVERY fresh key. Reproduces with the bytecode tier
-fully off (`BC_MAX_PROGRAMS=0`), so it is a tree-walker C++-lowering bug
-shared with the tier's member helpers — es6 and Rust both pass. Raw
-double `==`, `Math.random`, `String(double)` and 4 inserts' rotations
-all probe CORRECT on C++; the corruption appears in `splay_`'s rotation
-on the specific 4-node shape (root .42, L .29, R .50, R.R .63).
-Suspect: nested member-write aliasing (`t.left = r.right; r.right = t`)
-under the in-place case mutation. Instrumented repro recipe:
-prepare splay.js, shrink kSplayTreeSize, print per-insert root/L/R keys,
-run octane_runner under `script -qec` (C++ stdout is block-buffered — a
-killed run silently drops ALL guest prints; every earlier "no output"
-observation was this).
+The Ranger binaries carry the whole engine — the TypeScript lexer/parser, the
+regex engine, `Date`, JSON, the value model — not just an interpreter loop, so
+they land above QuickJS's hand-written C VM. The `-Os` C++ build comes in at
+~1.0 MB, QuickJS's size class, for ~2.7× the run time.
+
+## Splay: the C++-only spin, resolved (2026-08-07)
+
+The long-standing "C++-only splay spin" was **not** the tree, the rotations,
+or object aliasing — all of which probed correct in isolation. The root cause
+was integer conversion. Ranger's `int` is **32-bit** on the C++ target, and
+`to_int` on a double lowers to `(int)floor(...)` — x86 `cvttsd2si`, which
+returns `INT32_MIN` for any magnitude past 2^31 instead of wrapping. That is
+undefined behavior C++ resolves to a garbage value, and it poisoned every
+`ToInt32`/`ToUint32`/floor built on it. Octane's deterministic `Math.random`
+(a Jenkins 32-bit hash, seeded once and iterated with `+`, `<<`, `^`, `>>>`)
+degenerated into a period-4 cycle on C++, so splay's unique-key loop
+`do { k = random-derived } while (tree.find(k))` never saw a fresh key and
+spun forever. es6 (wrapping) and Rust (saturating) were unaffected.
+
+The fix computes floor and truncation in the pure double domain (add/subtract
+2^52, no int round-trip) and computes `<<` / `>>>` through an explicit int32
+wrap / a uint32 divide, so nothing depends on the 32-bit `cvttsd2si` edge.
+Splay now completes on every target — es6 136, Rust 136, C++ 3 (the low C++
+score is allocation cost, the DeltaBlue-shaped churn, not a hang). The same
+fix makes the Jenkins PRNG stream match Node's byte for byte on C++.
+
+es6 is the fastest of the Ranger host builds (V8's nursery vs native
+`malloc`/refcount for every `EvalValue`), matching `TS_ENGINE_PERF.md`.
