@@ -2044,6 +2044,21 @@ class EvHandle {
         return 0
     }
 
+    ; Append a NUMBER without a value object: the Number case rides by value
+    ; inside the variant, so the store is a plain element write — the closest
+    ; thing to a raw double buffer the current single representation has.
+    fn arrPushNumber:int (n:double) {
+        def _kind:EvalValue body
+        if (false == (EvalValue.isArrayValue(_kind))) {
+            return 0
+        }
+        case _kind a:EvalValue.Array {
+            push a.items (EvalValue.number(n))
+            return (array_length a.items)
+        }
+        return 0
+    }
+
     ; Drop the last dense element in place (Array#pop's storage step). Keeps
     ; `declaredLength` tracking the store the way arrSetItems always has.
     fn arrPop:void () {

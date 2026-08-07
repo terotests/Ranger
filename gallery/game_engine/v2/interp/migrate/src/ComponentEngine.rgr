@@ -8819,7 +8819,22 @@ class ComponentEngine {
                             if ((false == (obj.hasProto())) && (obj.ownPropsEmpty())) {
                                 ; op 1: single-argument Array#push
                                 if (node.callSiteOp == 1) {
-                                    def icArg:EvHandle (this.evaluateExpr((itemAt node.children 0)))
+                                    def icArgNode:TSNode (itemAt node.children 0)
+                                    ; A transient-admitted argument (`i * 2`)
+                                    ; evaluates into its expression slot and the
+                                    ; NUMBER is stored without ever becoming a
+                                    ; value object — the push allocates nothing.
+                                    if (this.transientOperandOk(icArgNode 0)) {
+                                        def icTv:EvHandle (this.evaluateExprTransient(icArgNode))
+                                        if scriptThrew {
+                                            return (EvValueBridge.taggedUndefined())
+                                        }
+                                        if (icTv.isNumber()) {
+                                            return (EvHandle.fromInt((obj.arrPushNumber(icTv.numberValue))))
+                                        }
+                                        return (EvHandle.fromInt((obj.arrPush(icTv))))
+                                    }
+                                    def icArg:EvHandle (this.evaluateExpr(icArgNode))
                                     if scriptThrew {
                                         return (EvValueBridge.taggedUndefined())
                                     }
