@@ -16,7 +16,9 @@ node gallery/game_engine/v2/interp/bench/zoo_octane/run.cjs
 node gallery/game_engine/v2/interp/bench/zoo_octane/run.cjs --targets=es6,cpp,rust richards,deltablue,regexp
 ```
 
-See `RESULTS.md` for the latest measured tables (separate sections per target).
+See [`COMPARE.md`](./COMPARE.md) for the post-PR #541 QuickJS / Duktape /
+C++ / Rust comparison (binary size, Richards, RSS, microbench), and
+`RESULTS.md` for per-target Octane tables.
 
 ## Scoring
 

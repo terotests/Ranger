@@ -3,6 +3,9 @@
 Measured against the same Octane v9 suites published on
 [zoo.js.org](https://zoo.js.org/?arch=amd64&v8=true) (`arch=amd64`, V8 columns).
 
+> **Post-PR #541 cross-engine table** (QuickJS, Duktape, C++/Rust binary size,
+> RSS, microbench): see [`COMPARE.md`](./COMPARE.md).
+
 ```bash
 bash scripts/build-engine-module.sh
 bash gallery/game_engine/v2/interp/bench/zoo_octane/build-native.sh
@@ -23,14 +26,21 @@ Live `Date` uses a relative wall clock (`liveClock`) so readings stay inside
 
 Ranger compile: `-es6 -nodemodule` → `engine_module.cjs`, run in-process under Node.
 
+Re-measured on `333cce69` (after PR #541), same machine as `COMPARE.md`
+(Node Richards 56480):
+
 | Suite | Engine score | Same-machine Node | % of Node | zoo.js V8 (amd64) | % of zoo V8 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Richards | 59.0 | 55212 | **0.107%** | 37102 | **0.159%** |
-| DeltaBlue | 110 | 127859 | **0.086%** | 106675 | **0.103%** |
-| RegExp | 75.8 | 10830 | **0.700%** | 9499 | **0.798%** |
-| **geo mean (these 3)** | **78.9** | 42442 | **0.186%** | — | — |
+| Richards | 21.7 | 56480 | **0.038%** | 37102 | **0.058%** |
+| DeltaBlue | 40.6 | 121406 | **0.033%** | 106675 | **0.038%** |
+| RegExp | 75.8 | 10664 | **0.711%** | 9499 | **0.798%** |
+| **geo mean (these 3)** | **40.5** | 41800 | **0.097%** | — | — |
 
-Rough zoo.js placement (Richards): near sval (~28) / dscriptcpp (~47) / eval5 (~48).
+Rough zoo.js placement (Richards): next to rust-js / dmdscript / otto (~22–24).
+Peak RSS on this run: Richards ~915 MB, DeltaBlue ~2.4 GB, RegExp ~2.1 GB.
+
+Earlier table on this page (Richards 59 / DeltaBlue 110) was from a prior
+revision; RegExp is unchanged at 75.8.
 
 ---
 
@@ -38,17 +48,24 @@ Rough zoo.js placement (Richards): near sval (~28) / dscriptcpp (~47) / eval5 (~
 
 Ranger compile: `-l=cpp` → `octane_runner`, built with `g++ -O3 -march=native`.
 
+**Post-PR #541 note:** full adaptive Octane no longer finishes on a 16 GB host —
+`shared_ptr` retains object cycles and RSS hits multi-GB (5 fixed Richards
+iterations → ~6.4 GB, score ≈ **2.6**). See [`COMPARE.md`](./COMPARE.md).
+Historical adaptive scores below are kept for reference from an earlier run:
+
 | Suite | Engine score | Same-machine Node | % of Node | zoo.js V8 (amd64) | % of zoo V8 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Richards | 21.7 | 55212 | **0.039%** | 37102 | **0.058%** |
-| DeltaBlue | 14.9 | 127859 | **0.012%** | 106675 | **0.014%** |
+| Richards | 21.7† | 55212 | **0.039%** | 37102 | **0.058%** |
+| DeltaBlue | 14.9† | 127859 | **0.012%** | 106675 | **0.014%** |
 | RegExp | FAIL | 10830 | — | 9499 | — (`Wrong checksum.`) |
-| **geo mean (passing 2)** | **18.0** | — | **0.042%**† | — | — |
+| **geo mean (passing 2)** | **18.0** | — | **0.042%**†† | — | — |
 
-† geo mean % of Node uses Node’s geo over the same three suite keys the harness
+† historical adaptive scores (pre-leak / different host conditions).
+†† geo mean % of Node uses Node’s geo over the same three suite keys the harness
 prints; RegExp contributes no engine value.
 
-Rough zoo.js placement (Richards): next to rust-js / dmdscript / otto (~22–24).
+Stripped binary size now: **1.82 MB** (see COMPARE.md vs QuickJS 1.03 MB /
+Duktape 0.51 MB).
 
 ---
 
