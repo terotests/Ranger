@@ -148,20 +148,25 @@ started from a C++/QJS `array` ratio of 3451x:
 
 ```
 case      raw Node raw QuickJS   eng/ES6   eng/C++ | ES6/QJS   C++/QJS
-loop         0.364       0.509      19.4      11.8  |   38.0x     23.2x
-fib          0.318       0.531      20.5      18.3  |   38.7x     34.5x
-strcat       0.529       7.984       7.2       6.4  |    0.9x      0.8x
-array        1.022       1.199      30.4      14.8  |   25.4x     12.3x
-object       1.528       2.563      34.2      36.5  |   13.3x     14.3x
-method       1.421       2.996      55.0      44.9  |   18.4x     15.0x
-regex        1.376       4.543      46.9      63.5  |   10.3x     14.0x
-geomean      0.787       1.903      25.8      21.5  |   13.6x     11.3x
+loop         0.269       0.370      15.2      10.7  |   41.1x     29.0x
+fib          0.221       0.418      18.3      16.0  |   43.8x     38.2x
+strcat       0.260       6.188     6.266     5.981  |    1.0x      1.0x
+array        0.728       1.320      24.9      13.3  |   18.8x     10.0x
+object       1.202       2.129      27.5      31.4  |   12.9x     14.8x
+method       1.129       2.488      45.5      38.9  |   18.3x     15.6x
+regex        1.052       3.848      32.5      46.1  |    8.4x     12.0x
+geomean      0.554       1.591      20.9      18.6  |   13.2x     11.7x
 ```
 
-The C++ geomean against QuickJS went 63x → 11.3x over this work (the es6
-build: 20x → 13.6x). `strcat` is the row to stare at: the INTERPRETER now
+(Re-measured on master after PR #541 with QuickJS 2024-01-13; earlier draft of
+this table was 13.6× / 11.3× on a previous machine.)
+
+The C++ geomean against QuickJS went 63x → **11.7x** over this work (the es6
+build: 20x → 13.2x). `strcat` is the row to stare at: the INTERPRETER now
 concatenates as fast as QuickJS runs the same loop natively, because qjs
 copies the accumulator per `+=` while the slot machinery appends in place.
+Octane Richards is a different story (allocation/cycles) — see
+[`../zoo_octane/COMPARE.md`](../zoo_octane/COMPARE.md).
 The `array` row's last big cut came from a CALL-SITE INLINE CACHE: a method
 call that resolved to a registry built-in memoises an opcode on its AST node,
 valid while a dispatch EPOCH stands still. The epoch bumps whenever a

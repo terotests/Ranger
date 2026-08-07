@@ -1,0 +1,230 @@
+{
+  "when": "2026-08-07T15:05:26Z",
+  "host": {
+    "cpu": "Intel(R) Xeon(R) Processor",
+    "node": "v22.14.0",
+    "g++": "g++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+    "rustc": "rustc 1.83.0 (90b35a623 2024-11-26)",
+    "qjs": "QuickJS 2024-01-13 (-O2 -flto, stripped)",
+    "duk": "Duktape 2.7.0 (gcc -O3 + print/console)",
+    "ranger_commit": "333cce69",
+    "ranger_cpp_flags": "g++ -O3 -march=native -std=c++17",
+    "ranger_rust_flags": "rustc -C opt-level=3 -C target-cpu=native -C codegen-units=1"
+  },
+  "binaries": {
+    "qjs": {
+      "on_disk": 1079728,
+      "path": "/tmp/js-engines/qjs",
+      "stripped": 1079728,
+      ".text": 736402,
+      ".rodata": 128741
+    },
+    "duk": {
+      "on_disk": 601024,
+      "path": "/tmp/js-engines/duk",
+      "stripped": 526552,
+      ".text": 409543,
+      ".rodata": 28384
+    },
+    "duk_stripped": {
+      "on_disk": 526552,
+      "path": "/tmp/js-engines/duk-stripped",
+      "stripped": 526552,
+      ".text": 409543,
+      ".rodata": 28384
+    },
+    "ranger_cpp": {
+      "on_disk": 2243184,
+      "path": "/workspace/gallery/game_engine/v2/interp/bin/cpp/octane_runner",
+      "stripped": 1911160,
+      ".text": 1604637,
+      ".rodata": 37296
+    },
+    "ranger_rust": {
+      "on_disk": 6432952,
+      "path": "/workspace/gallery/game_engine/v2/interp/bin/rust/octane_runner",
+      "stripped": 2804200,
+      ".text": 2142027,
+      ".rodata": 106368
+    },
+    "ranger_es6_module": {
+      "on_disk": 1043971,
+      "path": "/workspace/gallery/game_engine/v2/interp/bin/engine_module.cjs"
+    }
+  },
+  "fixed_richards_n20": {
+    "node": {
+      "ms": 9.0,
+      "us_per": 450.0,
+      "RichardsApprox": 7844.9,
+      "peak_rss_kb": 52908
+    },
+    "qjs": {
+      "ms": 79.0,
+      "us_per": 3950.0,
+      "RichardsApprox": 893.7,
+      "peak_rss_kb": 8296
+    },
+    "duk": {
+      "ms": 174.0,
+      "us_per": 8700.0,
+      "RichardsApprox": 405.8,
+      "peak_rss_kb": 8308
+    },
+    "ranger_es6": {
+      "ms": 4944.0,
+      "us_per": 247200.0,
+      "RichardsApprox": 14.28,
+      "peak_rss_kb": 564924,
+      "rc": 1
+    }
+  },
+  "fixed_richards_n5_native": {
+    "ranger_cpp": {
+      "ms": 6787.0,
+      "us_per": 1357400.0,
+      "RichardsApprox": 2.6,
+      "peak_rss_kb": 6553708,
+      "wall_s": 8.0
+    },
+    "ranger_rust": {
+      "ms": 4285.0,
+      "us_per": 857000.0,
+      "RichardsApprox": 4.12,
+      "peak_rss_kb": 6534112,
+      "wall_s": 4.5
+    }
+  },
+  "notes": {
+    "native_memory": "C++/Rust shared_ptr/Rc retain object cycles; 5 Richards iterations already reach ~6.4 GB RSS. Full adaptive Octane OOMs/times out on 16 GB hosts. LLVM target (cycle collector) is the size-comparable build documented previously in RESULTS.md.",
+    "score_formula": "RichardsApprox = 100 * (35302 / usec_per_iteration)",
+    "zoo_published": {
+      "QuickJS Richards": 787,
+      "Duktape Richards": 381,
+      "QuickJS binary": "1.1M",
+      "Duktape binary": "691K",
+      "V8 Richards (amd64)": 37102
+    }
+  },
+  "full_octane": {
+    "richards": {
+      "node": {
+        "scores": {
+          "Richards": 56480.0
+        },
+        "wall_s": 2.03,
+        "peak_rss_kb": 55568,
+        "maxrss_kb": 56884,
+        "rc": 0
+      },
+      "qjs": {
+        "scores": {
+          "Richards": 912.0
+        },
+        "wall_s": 2.025,
+        "peak_rss_kb": 9436,
+        "maxrss_kb": 10276,
+        "rc": 0
+      },
+      "duk": {
+        "scores": {
+          "Richards": 404.0
+        },
+        "wall_s": 2.021,
+        "peak_rss_kb": 9448,
+        "maxrss_kb": 10288,
+        "rc": 0
+      }
+    },
+    "deltablue": {
+      "node": {
+        "scores": {
+          "DeltaBlue": 121406.0
+        },
+        "wall_s": 2.037,
+        "peak_rss_kb": 69796,
+        "maxrss_kb": 70672,
+        "rc": 0
+      },
+      "qjs": {
+        "scores": {
+          "DeltaBlue": 952.0
+        },
+        "wall_s": 2.02,
+        "peak_rss_kb": 9592,
+        "maxrss_kb": 10304,
+        "rc": 0
+      },
+      "duk": {
+        "scores": {
+          "DeltaBlue": 487.0
+        },
+        "wall_s": 2.02,
+        "peak_rss_kb": 9532,
+        "maxrss_kb": 10308,
+        "rc": 0
+      }
+    },
+    "regexp": {
+      "node": {
+        "scores": {
+          "RegExp": 10664.0
+        },
+        "wall_s": 2.084,
+        "peak_rss_kb": 83336,
+        "maxrss_kb": 84108,
+        "rc": 0
+      },
+      "qjs": {
+        "scores": {
+          "RegExp": 352.0
+        },
+        "wall_s": 5.473,
+        "peak_rss_kb": 8180,
+        "maxrss_kb": 10320,
+        "rc": 0
+      },
+      "duk": {
+        "scores": {
+          "RegExp": 274.0
+        },
+        "wall_s": 7.05,
+        "peak_rss_kb": 7932,
+        "maxrss_kb": 10328,
+        "rc": 0
+      }
+    }
+  },
+  "full_octane_ranger_es6": {
+    "richards": {
+      "scores": {
+        "Richards": 21.7
+      },
+      "wall_s": 9.291,
+      "peak_rss_kb": 937176,
+      "maxrss_kb": 938664,
+      "rc": 0,
+      "tail": "[tsx] Richards: 21.7\nENGINE_ERROR: TypeError: Cannot read properties of undefined (reading 'null')\n"
+    },
+    "deltablue": {
+      "scores": {
+        "DeltaBlue": 40.6
+      },
+      "wall_s": 14.885,
+      "peak_rss_kb": 2478808,
+      "maxrss_kb": 2485768,
+      "rc": 0,
+      "tail": "[tsx] DeltaBlue: 40.6\nENGINE_ERROR: TypeError: Cannot read properties of undefined (reading 'null')\n"
+    },
+    "regexp": {
+      "scores": {
+        "RegExp": 75.8
+      },
+      "wall_s": 46.895,
+      "peak_rss_kb": 2161964,
+      "maxrss_kb": 2163724,
+      "rc": 0,
+      "tail": "[tsx] RegExp: 75.8\nENGINE_ERROR: TypeError: Cannot read properties of undefined (reading 'null')\n"
+    }
+  }
+}
