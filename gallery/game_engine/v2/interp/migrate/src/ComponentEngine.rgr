@@ -735,6 +735,68 @@ class EvalNativeBridge {
 ; =============================================================================
 ; ComponentEngine - Main engine for JSX processing with components
 ; =============================================================================
+
+; =============================================================================
+; Bytecode tier (design: migrate/BYTECODE.md). One i32 opcode + one i32
+; operand per instruction, parallel arrays. Opcodes:
+;   1 push_lit A   (EvalConstPool literal id -- numbers AND strings)
+;   2 push_int A   (operand IS the value, pooled mint)
+;   4 push_undef   5 push_null   6 push_true   7 push_false
+;   8 get_loc A    9 put_loc A   10 get_name A (atoms, outer chain)
+;  12 bin A        (binary operator kind -> applyBinaryOp; number fast paths)
+;  13 neg  14 not  25 to_num
+;  15 goto A  16 if_false A  17 if_true A  18 ret  19 ret_undef
+;  20 call A (argc; stack: fn a1..aN)  21 dup  22 drop
+;  23 inc_loc A  24 dec_loc A
+class BcProgram {
+    def ops:[int]
+    def args:[int]
+    def atoms:[string]
+    def localNames:[string]
+    def paramCount:int 0
+    def localCount:int 0
+    def stackSize:int 0
+    def curStack:int 0
+
+    fn emit:void (op:int a:int npush:int npop:int) {
+        push ops op
+        push args a
+        curStack = ((curStack - npop) + npush)
+        if (curStack > stackSize) {
+            stackSize = curStack
+        }
+    }
+    fn here:int () {
+        return (array_length ops)
+    }
+    fn patch:void (site:int target:int) {
+        set args site target
+    }
+    fn localIdxOf:int (name:string) {
+        def n:int (array_length localNames)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt localNames i) == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+    fn addAtom:int (s:string) {
+        def n:int (array_length atoms)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt atoms i) == s) {
+                return i
+            }
+            i = (i + 1)
+        }
+        push atoms s
+        return n
+    }
+}
+
 class ComponentEngine {
     def parser:TSParserSimple
     ; When false, scripts are parsed in non-JSX mode: `<` is only comparison /
@@ -934,6 +996,13 @@ class ComponentEngine {
     ; a call — a closure value, an `arguments` object's scope link — pushes a
     ; ClosureCell, so "closureScopes did not grow" is the whole gate.
     def ctxPool:[EvalContext]
+    ; Bytecode tier state: compiled programs by id (TSNode.bcProgramId), the
+    ; ONE shared operand/locals stack, and its top. bcEnabled is the A/B
+    ; switch for differential runs.
+    def bcEnabled:boolean true
+    def bcPrograms:[BcProgram]
+    def bcStack:[EvHandle]
+    def bcSp:int 0
 
     ; Cursor state for the recursive-descent JSON.parse (jsonParseValue advances
     ; jsonPos over jsonSrc). Only valid during a JSON.parse call.
@@ -7612,8 +7681,13 @@ class ComponentEngine {
         def i0:int 0
         while (i0 < np0) {
             def p0:TSNode (itemAt fnNode.params i0)
-            if ((this.nodeKindOf(p0)) != 1) {
-                return false
+            ; A plain named parameter is a "Parameter" node (an arrow's can be
+            ; a bare Identifier); rest/defaults-as-pattern/destructuring
+            ; arrive as their own node types and fall back to the map.
+            if (p0.nodeType != "Parameter") {
+                if ((this.nodeKindOf(p0)) != 1) {
+                    return false
+                }
             }
             if ((strlen p0.name) == 0) {
                 return false
@@ -7984,6 +8058,848 @@ class ComponentEngine {
         push ctxPool frame
     }
 
+
+    ; ---- Bytecode tier: gate + compiler (see migrate/BYTECODE.md) ---------
+
+    ; Program id for this function, or -1. Scanned ONCE per node: the
+    ; compiler itself is the gate -- the first unsupported construct aborts
+    ; and the function stays on the tree-walker forever.
+    fn bcProgramFor:int (fnNode:TSNode) {
+        if fnNode.bcScanned {
+            return fnNode.bcProgramId
+        }
+        fnNode.bcScanned = true
+        fnNode.bcProgramId = (0 - 1)
+        if (false == (this.paramSlotsOkFor(fnNode))) {
+            return (0 - 1)
+        }
+        if (this.fnNeedsThis(fnNode)) {
+            return (0 - 1)
+        }
+        if (null? fnNode.body) {
+            return (0 - 1)
+        }
+        def fb:TSNode (unwrap fnNode.body)
+        if ((this.nodeKindOf(fb)) != 34) {
+            return (0 - 1)
+        }
+        def prog:BcProgram (new BcProgram())
+        if (false == (this.bcCompileFunction(fnNode fb prog))) {
+            return (0 - 1)
+        }
+        push bcPrograms prog
+        fnNode.bcProgramId = ((array_length bcPrograms) - 1)
+        return fnNode.bcProgramId
+    }
+
+    fn bcCompileFunction:boolean (fnNode:TSNode body:TSNode prog:BcProgram) {
+        def np:int (array_length fnNode.params)
+        def i:int 0
+        while (i < np) {
+            def pn:TSNode (itemAt fnNode.params i)
+            ; a parameter DEFAULT evaluates lazily per call; not compiled yet
+            if pn.init {
+                return false
+            }
+            push prog.localNames pn.name
+            i = (i + 1)
+        }
+        prog.paramCount = np
+        ; every `var` in the compiled subset joins the slot table -- the
+        ; compiler's own walk over exactly the statements it accepts (the
+        ; hoist memo skips for-init declarations, which the walker binds
+        ; lazily instead)
+        def bi:int 0
+        while (bi < (array_length body.children)) {
+            this.bcCollectVars((itemAt body.children bi) prog)
+            bi = (bi + 1)
+        }
+        prog.localCount = (array_length prog.localNames)
+        if (false == (this.bcStmtList(body.children prog))) {
+            return false
+        }
+        prog.emit(19 0 0 0)
+        return true
+    }
+
+    ; Add every `var`-declared name under this statement to the slot table.
+    ; Walks only the statement shapes bcStmt accepts; anything else simply
+    ; contributes nothing (the compile pass will reject it anyway).
+    fn bcCollectVars:void (node:TSNode prog:BcProgram) {
+        def k:int (this.nodeKindOf(node))
+        if (k == 31) {
+            def di:int 0
+            while (di < (array_length node.children)) {
+                def decl:TSNode (itemAt node.children di)
+                if ((strlen decl.name) > 0) {
+                    if ((prog.localIdxOf(decl.name)) < 0) {
+                        push prog.localNames decl.name
+                    }
+                }
+                di = (di + 1)
+            }
+            return
+        }
+        if (k == 34) {
+            def ci:int 0
+            while (ci < (array_length node.children)) {
+                this.bcCollectVars((itemAt node.children ci) prog)
+                ci = (ci + 1)
+            }
+            return
+        }
+        if (k == 32) {
+            if node.body {
+                this.bcCollectVars((unwrap node.body) prog)
+            }
+            if node.right {
+                this.bcCollectVars((unwrap node.right) prog)
+            }
+            return
+        }
+        if ((k == 36) || (k == 43)) {
+            if node.body {
+                this.bcCollectVars((unwrap node.body) prog)
+            }
+            return
+        }
+        if (k == 33) {
+            if node.init {
+                this.bcCollectVars((unwrap node.init) prog)
+            }
+            if node.body {
+                this.bcCollectVars((unwrap node.body) prog)
+            }
+            return
+        }
+    }
+
+    fn bcStmtList:boolean (list:[TSNode] prog:BcProgram) {
+        def i:int 0
+        while (i < (array_length list)) {
+            if (false == (this.bcStmt((itemAt list i) prog))) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    fn bcStmt:boolean (node:TSNode prog:BcProgram) {
+        def k:int (this.nodeKindOf(node))
+        if (k == 34) {
+            return (this.bcStmtList(node.children prog))
+        }
+        if (k == 30) {
+            if node.left {
+                def ex:TSNode (unwrap node.left)
+                def ek:int (this.nodeKindOf(ex))
+                if (ek == 6) {
+                    return (this.bcAssignStmt(ex prog))
+                }
+                if (ek == 7) {
+                    return (this.bcUpdateStmt(ex prog))
+                }
+                if (false == (this.bcExpr(ex prog))) {
+                    return false
+                }
+                prog.emit(22 0 0 1)
+                return true
+            }
+            return true
+        }
+        if (k == 31) {
+            if ((node.kind != "var") && ((strlen node.kind) != 0)) {
+                return false
+            }
+            def di:int 0
+            while (di < (array_length node.children)) {
+                def decl:TSNode (itemAt node.children di)
+                if (decl.nodeType != "VariableDeclarator") {
+                    return false
+                }
+                ; a pattern target rides decl.left; only plain names compile
+                if decl.left {
+                    return false
+                }
+                if ((strlen decl.name) == 0) {
+                    return false
+                }
+                def slot:int (prog.localIdxOf(decl.name))
+                if (slot < 0) {
+                    return false
+                }
+                if decl.init {
+                    if (false == (this.bcExpr((unwrap decl.init) prog))) {
+                        return false
+                    }
+                    prog.emit(9 slot 0 1)
+                }
+                di = (di + 1)
+            }
+            return true
+        }
+        if (k == 35) {
+            if node.left {
+                if (false == (this.bcExpr((unwrap node.left) prog))) {
+                    return false
+                }
+                prog.emit(18 0 0 1)
+                return true
+            }
+            prog.emit(19 0 0 0)
+            return true
+        }
+        if (k == 32) {
+            if (null? node.left) {
+                return false
+            }
+            if (false == (this.bcExpr((unwrap node.left) prog))) {
+                return false
+            }
+            def jElse:int (prog.here())
+            prog.emit(16 0 0 1)
+            if node.body {
+                if (false == (this.bcStmt((unwrap node.body) prog))) {
+                    return false
+                }
+            }
+            if node.right {
+                def jEnd:int (prog.here())
+                prog.emit(15 0 0 0)
+                prog.patch(jElse (prog.here()))
+                if (false == (this.bcStmt((unwrap node.right) prog))) {
+                    return false
+                }
+                prog.patch(jEnd (prog.here()))
+                return true
+            }
+            prog.patch(jElse (prog.here()))
+            return true
+        }
+        if (k == 36) {
+            if (null? node.left) {
+                return false
+            }
+            def wTop:int (prog.here())
+            if (false == (this.bcExpr((unwrap node.left) prog))) {
+                return false
+            }
+            def wExit:int (prog.here())
+            prog.emit(16 0 0 1)
+            if node.body {
+                if (false == (this.bcStmt((unwrap node.body) prog))) {
+                    return false
+                }
+            }
+            prog.emit(15 wTop 0 0)
+            prog.patch(wExit (prog.here()))
+            return true
+        }
+        if (k == 33) {
+            if node.init {
+                def fInit:TSNode (unwrap node.init)
+                def fik:int (this.nodeKindOf(fInit))
+                if (fik == 31) {
+                    if (false == (this.bcStmt(fInit prog))) {
+                        return false
+                    }
+                } {
+                    if (fik == 6) {
+                        if (false == (this.bcAssignStmt(fInit prog))) {
+                            return false
+                        }
+                    } {
+                        if (false == (this.bcExpr(fInit prog))) {
+                            return false
+                        }
+                        prog.emit(22 0 0 1)
+                    }
+                }
+            }
+            def fTop:int (prog.here())
+            def fExit:int (0 - 1)
+            if node.left {
+                if (false == (this.bcExpr((unwrap node.left) prog))) {
+                    return false
+                }
+                fExit = (prog.here())
+                prog.emit(16 0 0 1)
+            }
+            if node.body {
+                if (false == (this.bcStmt((unwrap node.body) prog))) {
+                    return false
+                }
+            }
+            if node.right {
+                def fUpd:TSNode (unwrap node.right)
+                def fuk:int (this.nodeKindOf(fUpd))
+                if (fuk == 7) {
+                    if (false == (this.bcUpdateStmt(fUpd prog))) {
+                        return false
+                    }
+                } {
+                    if (fuk == 6) {
+                        if (false == (this.bcAssignStmt(fUpd prog))) {
+                            return false
+                        }
+                    } {
+                        if (false == (this.bcExpr(fUpd prog))) {
+                            return false
+                        }
+                        prog.emit(22 0 0 1)
+                    }
+                }
+            }
+            prog.emit(15 fTop 0 0)
+            if (fExit >= 0) {
+                prog.patch(fExit (prog.here()))
+            }
+            return true
+        }
+        if (node.nodeType == "EmptyStatement") {
+            return true
+        }
+        return false
+    }
+
+    fn bcAssignStmt:boolean (node:TSNode prog:BcProgram) {
+        if (null? node.left) {
+            return false
+        }
+        def tgt:TSNode (unwrap node.left)
+        if ((this.nodeKindOf(tgt)) != 1) {
+            return false
+        }
+        def slot:int (prog.localIdxOf(tgt.name))
+        if (slot < 0) {
+            return false
+        }
+        if (null? node.right) {
+            return false
+        }
+        def aok:int (this.opKindOf(node))
+        if (aok == 1) {
+            if (false == (this.bcExpr((unwrap node.right) prog))) {
+                return false
+            }
+            prog.emit(9 slot 0 1)
+            return true
+        }
+        def bop:int 0
+        if (aok == 2) { bop = 20 }
+        if (aok == 3) { bop = 21 }
+        if (aok == 4) { bop = 22 }
+        if (aok == 5) { bop = 23 }
+        if (aok == 6) { bop = 24 }
+        if (bop == 0) {
+            return false
+        }
+        prog.emit(8 slot 1 0)
+        if (false == (this.bcExpr((unwrap node.right) prog))) {
+            return false
+        }
+        prog.emit(12 bop 1 2)
+        prog.emit(9 slot 0 1)
+        return true
+    }
+
+    fn bcUpdateStmt:boolean (node:TSNode prog:BcProgram) {
+        if (null? node.left) {
+            return false
+        }
+        def opd:TSNode (unwrap node.left)
+        if ((this.nodeKindOf(opd)) != 1) {
+            return false
+        }
+        def slot:int (prog.localIdxOf(opd.name))
+        if (slot < 0) {
+            return false
+        }
+        if (node.value == "++") {
+            prog.emit(23 slot 0 0)
+            return true
+        }
+        if (node.value == "--") {
+            prog.emit(24 slot 0 0)
+            return true
+        }
+        return false
+    }
+
+    fn bcExpr:boolean (node:TSNode prog:BcProgram) {
+        def k:int (this.nodeKindOf(node))
+        if (k == 2) {
+            if (false == node.numScanned) {
+                node.numScanned = true
+                def parsedNum@(optional):double (to_double node.value)
+                if parsedNum {
+                    node.numValue = (unwrap parsedNum)
+                }
+            }
+            def nv:double node.numValue
+            def ni:int (to_int nv)
+            if ((to_double ni) == nv) {
+                if ((ni > 0) || ((ni == 0) && ((1.0 / nv) > 0.0))) {
+                    if (ni < 4096) {
+                        prog.emit(2 ni 1 0)
+                        return true
+                    }
+                }
+            }
+            def numPool:EvalConstPool (EvalConstPool.__singleton())
+            if (node.numCacheId < 0) {
+                node.numCacheId = (numPool.addLiteral((EvValueBridge.taggedNumber(nv))))
+            }
+            prog.emit(1 node.numCacheId 1 0)
+            return true
+        }
+        if (k == 1) {
+            def slot:int (prog.localIdxOf(node.name))
+            if (slot >= 0) {
+                prog.emit(8 slot 1 0)
+                return true
+            }
+            if (node.name == "undefined") {
+                prog.emit(4 0 1 0)
+                return true
+            }
+            def aIdx:int (prog.addAtom(node.name))
+            prog.emit(10 aIdx 1 0)
+            return true
+        }
+        if (k == 5) {
+            def bok:int (this.opKindOf(node))
+            if (null? node.left) {
+                return false
+            }
+            if (null? node.right) {
+                return false
+            }
+            if (bok == 34) {
+                if (false == (this.bcExpr((unwrap node.left) prog))) {
+                    return false
+                }
+                prog.emit(21 0 1 0)
+                def aEnd:int (prog.here())
+                prog.emit(16 0 0 1)
+                prog.emit(22 0 0 1)
+                if (false == (this.bcExpr((unwrap node.right) prog))) {
+                    return false
+                }
+                prog.patch(aEnd (prog.here()))
+                return true
+            }
+            if (bok == 35) {
+                if (false == (this.bcExpr((unwrap node.left) prog))) {
+                    return false
+                }
+                prog.emit(21 0 1 0)
+                def oEnd:int (prog.here())
+                prog.emit(17 0 0 1)
+                prog.emit(22 0 0 1)
+                if (false == (this.bcExpr((unwrap node.right) prog))) {
+                    return false
+                }
+                prog.patch(oEnd (prog.here()))
+                return true
+            }
+            if (bok == 36) {
+                return false
+            }
+            if (bok == 43) {
+                return false
+            }
+            if (bok == 44) {
+                return false
+            }
+            if (false == (this.bcExpr((unwrap node.left) prog))) {
+                return false
+            }
+            if (false == (this.bcExpr((unwrap node.right) prog))) {
+                return false
+            }
+            prog.emit(12 bok 1 2)
+            return true
+        }
+        if (k == 13) {
+            if (null? node.test) {
+                return false
+            }
+            if (null? node.consequent) {
+                return false
+            }
+            if (null? node.alternate) {
+                return false
+            }
+            if (false == (this.bcExpr((unwrap node.test) prog))) {
+                return false
+            }
+            def tElse:int (prog.here())
+            prog.emit(16 0 0 1)
+            if (false == (this.bcExpr((unwrap node.consequent) prog))) {
+                return false
+            }
+            def tEnd:int (prog.here())
+            prog.emit(15 0 0 0)
+            prog.patch(tElse (prog.here()))
+            ; the two arms merge to ONE stack slot; the else arm re-uses the
+            ; depth the then arm consumed
+            prog.curStack = (prog.curStack - 1)
+            if (false == (this.bcExpr((unwrap node.alternate) prog))) {
+                return false
+            }
+            prog.patch(tEnd (prog.here()))
+            return true
+        }
+        if (k == 23) {
+            if node.left {
+                return (this.bcExpr((unwrap node.left) prog))
+            }
+            return false
+        }
+        if (k == 8) {
+            def sPool:EvalConstPool (EvalConstPool.__singleton())
+            def sId:int (sPool.addLiteral((EvValueBridge.taggedString(node.value))))
+            prog.emit(1 sId 1 0)
+            return true
+        }
+        if (k == 9) {
+            if (node.value == "true") {
+                prog.emit(6 0 1 0)
+            } {
+                prog.emit(7 0 1 0)
+            }
+            return true
+        }
+        if (k == 10) {
+            prog.emit(5 0 1 0)
+            return true
+        }
+        if (k == 12) {
+            if (null? node.left) {
+                return false
+            }
+            if (node.value == "-") {
+                if (false == (this.bcExpr((unwrap node.left) prog))) {
+                    return false
+                }
+                prog.emit(13 0 1 1)
+                return true
+            }
+            if (node.value == "!") {
+                if (false == (this.bcExpr((unwrap node.left) prog))) {
+                    return false
+                }
+                prog.emit(14 0 1 1)
+                return true
+            }
+            if (node.value == "+") {
+                if (false == (this.bcExpr((unwrap node.left) prog))) {
+                    return false
+                }
+                prog.emit(25 0 1 1)
+                return true
+            }
+            return false
+        }
+        if (k == 4) {
+            if (null? node.left) {
+                return false
+            }
+            def callee:TSNode (unwrap node.left)
+            if ((this.nodeKindOf(callee)) != 1) {
+                return false
+            }
+            if (this.isGlobalBuiltinCallName(callee.name)) {
+                return false
+            }
+            def cslot:int (prog.localIdxOf(callee.name))
+            if (cslot >= 0) {
+                prog.emit(8 cslot 1 0)
+            } {
+                def cIdx:int (prog.addAtom(callee.name))
+                prog.emit(10 cIdx 1 0)
+            }
+            def argc:int (array_length node.children)
+            def ai:int 0
+            while (ai < argc) {
+                def an:TSNode (itemAt node.children ai)
+                if ((this.nodeKindOf(an)) == 47) {
+                    return false
+                }
+                if (false == (this.bcExpr(an prog))) {
+                    return false
+                }
+                ai = (ai + 1)
+            }
+            prog.emit(20 argc 1 (argc + 1))
+            return true
+        }
+        return false
+    }
+
+    ; ---- Bytecode tier: the VM --------------------------------------------
+    ; Locals live at [base, base+localCount) of the ONE shared stack;
+    ; operands above them. A nested compiled call bases above this frame's
+    ; full extent. Any op that can raise checks scriptThrew and bails --
+    ; compiled bodies contain no catch, so unwinding to the caller is
+    ; exactly what the walker does.
+    fn runBytecode:EvHandle (prog:BcProgram argVals:[EvHandle] outer:EvalContext) {
+        def base:int bcSp
+        def needTop:int ((base + prog.localCount) + prog.stackSize)
+        while ((array_length bcStack) < needTop) {
+            push bcStack (EvValueBridge.taggedUndefined())
+        }
+        def na:int (array_length argVals)
+        def li:int 0
+        while (li < prog.localCount) {
+            if ((li < prog.paramCount) && (li < na)) {
+                set bcStack (base + li) (itemAt argVals li)
+            } {
+                set bcStack (base + li) (EvValueBridge.taggedUndefined())
+            }
+            li = (li + 1)
+        }
+        def sp:int (base + prog.localCount)
+        def pc:int 0
+        def n:int (array_length prog.ops)
+        def backJumps:int 0
+        def result:EvHandle (EvValueBridge.taggedUndefined())
+        while (pc < n) {
+            def op:int (itemAt prog.ops pc)
+            def a:int (itemAt prog.args pc)
+            pc = (pc + 1)
+            if (op == 8) {
+                set bcStack sp (itemAt bcStack (base + a))
+                sp = (sp + 1)
+                continue
+            }
+            if (op == 12) {
+                def r12:EvHandle (itemAt bcStack (sp - 1))
+                def l12:EvHandle (itemAt bcStack (sp - 2))
+                sp = (sp - 1)
+                if ((l12.isNumber()) && (r12.isNumber())) {
+                    if (a == 20) {
+                        set bcStack (sp - 1) (EvValueBridge.taggedNumber((l12.numberValue + r12.numberValue)))
+                        continue
+                    }
+                    if (a == 26) {
+                        set bcStack (sp - 1) (EvValueBridge.taggedBoolean((l12.numberValue < r12.numberValue)))
+                        continue
+                    }
+                    if (a == 21) {
+                        set bcStack (sp - 1) (EvValueBridge.taggedNumber((l12.numberValue - r12.numberValue)))
+                        continue
+                    }
+                    if (a == 27) {
+                        set bcStack (sp - 1) (EvValueBridge.taggedBoolean((l12.numberValue > r12.numberValue)))
+                        continue
+                    }
+                    if (a == 28) {
+                        set bcStack (sp - 1) (EvValueBridge.taggedBoolean((l12.numberValue <= r12.numberValue)))
+                        continue
+                    }
+                    if (a == 29) {
+                        set bcStack (sp - 1) (EvValueBridge.taggedBoolean((l12.numberValue >= r12.numberValue)))
+                        continue
+                    }
+                    if (a == 22) {
+                        set bcStack (sp - 1) (EvValueBridge.taggedNumber((l12.numberValue * r12.numberValue)))
+                        continue
+                    }
+                }
+                set bcStack (sp - 1) (this.applyBinaryOp(a l12 r12))
+                if scriptThrew {
+                    bcSp = base
+                    return (EvValueBridge.taggedUndefined())
+                }
+                continue
+            }
+            if (op == 16) {
+                sp = (sp - 1)
+                def c16:EvHandle (itemAt bcStack sp)
+                if ((c16.toBool()) == false) {
+                    pc = a
+                }
+                continue
+            }
+            if (op == 2) {
+                set bcStack sp (EvHandle.fromInt(a))
+                sp = (sp + 1)
+                continue
+            }
+            if (op == 20) {
+                def argc:int a
+                def fnPos:int ((sp - argc) - 1)
+                def cargs:[EvHandle]
+                def ci:int 0
+                while (ci < argc) {
+                    push cargs (itemAt bcStack ((fnPos + 1) + ci))
+                    ci = (ci + 1)
+                }
+                def fnv:EvHandle (itemAt bcStack fnPos)
+                bcSp = needTop
+                def cres:EvHandle (this.callFnValueWithValues(fnv cargs))
+                bcSp = base
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                if scriptDidReturn {
+                    ; a return raised by eval-style host machinery inside the
+                    ; callee belongs to IT, not to this frame; the callee
+                    ; cleared its own flag, so seeing it here means bail.
+                    scriptDidReturn = false
+                }
+                set bcStack fnPos cres
+                sp = (fnPos + 1)
+                continue
+            }
+            if (op == 9) {
+                sp = (sp - 1)
+                set bcStack (base + a) (itemAt bcStack sp)
+                continue
+            }
+            if (op == 15) {
+                backJumps = (backJumps + 1)
+                if (backJumps > maxLoopIterations) {
+                    bcSp = base
+                    return result
+                }
+                pc = a
+                continue
+            }
+            if (op == 23) {
+                def v23:EvHandle (itemAt bcStack (base + a))
+                if (v23.isNumber()) {
+                    set bcStack (base + a) (EvValueBridge.taggedNumber((v23.numberValue + 1.0)))
+                    continue
+                }
+                def n23:double (this.toNumberOf(v23))
+                if scriptThrew {
+                    bcSp = base
+                    return (EvValueBridge.taggedUndefined())
+                }
+                set bcStack (base + a) (EvValueBridge.taggedNumber((n23 + 1.0)))
+                continue
+            }
+            if (op == 24) {
+                def v24:EvHandle (itemAt bcStack (base + a))
+                if (v24.isNumber()) {
+                    set bcStack (base + a) (EvValueBridge.taggedNumber((v24.numberValue - 1.0)))
+                    continue
+                }
+                def n24:double (this.toNumberOf(v24))
+                if scriptThrew {
+                    bcSp = base
+                    return (EvValueBridge.taggedUndefined())
+                }
+                set bcStack (base + a) (EvValueBridge.taggedNumber((n24 - 1.0)))
+                continue
+            }
+            if (op == 18) {
+                sp = (sp - 1)
+                result = (itemAt bcStack sp)
+                pc = n
+                continue
+            }
+            if (op == 19) {
+                result = (EvValueBridge.taggedUndefined())
+                pc = n
+                continue
+            }
+            if (op == 1) {
+                def lp1:EvalConstPool (EvalConstPool.__singleton())
+                set bcStack sp (lp1.literalAt(a))
+                sp = (sp + 1)
+                continue
+            }
+            if (op == 10) {
+                def nm10:string (itemAt prog.atoms a)
+                def hit10@(optional):EvHandle (outer.tryLookup(nm10))
+                if hit10 {
+                    set bcStack sp (unwrap hit10)
+                    sp = (sp + 1)
+                    continue
+                }
+                def thrown10:EvHandle (this.throwSpecError("ReferenceError" (nm10 + " is not defined")))
+                bcSp = base
+                return thrown10
+            }
+            if (op == 17) {
+                sp = (sp - 1)
+                def c17:EvHandle (itemAt bcStack sp)
+                if (c17.toBool()) {
+                    pc = a
+                }
+                continue
+            }
+            if (op == 21) {
+                set bcStack sp (itemAt bcStack (sp - 1))
+                sp = (sp + 1)
+                continue
+            }
+            if (op == 22) {
+                sp = (sp - 1)
+                continue
+            }
+            if (op == 13) {
+                def v13:EvHandle (itemAt bcStack (sp - 1))
+                if (v13.isNumber()) {
+                    set bcStack (sp - 1) (EvValueBridge.taggedNumber((v13.numberValue * (0.0 - 1.0))))
+                    continue
+                }
+                def n13:double (this.toNumberOf(v13))
+                if scriptThrew {
+                    bcSp = base
+                    return (EvValueBridge.taggedUndefined())
+                }
+                set bcStack (sp - 1) (EvValueBridge.taggedNumber((n13 * (0.0 - 1.0))))
+                continue
+            }
+            if (op == 14) {
+                def v14:EvHandle (itemAt bcStack (sp - 1))
+                set bcStack (sp - 1) (EvValueBridge.taggedBoolean(((v14.toBool()) == false)))
+                continue
+            }
+            if (op == 25) {
+                def v25:EvHandle (itemAt bcStack (sp - 1))
+                if (v25.isNumber()) {
+                    continue
+                }
+                def n25:double (this.toNumberOf(v25))
+                if scriptThrew {
+                    bcSp = base
+                    return (EvValueBridge.taggedUndefined())
+                }
+                set bcStack (sp - 1) (EvValueBridge.taggedNumber(n25))
+                continue
+            }
+            if (op == 4) {
+                set bcStack sp (EvValueBridge.taggedUndefined())
+                sp = (sp + 1)
+                continue
+            }
+            if (op == 5) {
+                set bcStack sp (EvValueBridge.taggedNull())
+                sp = (sp + 1)
+                continue
+            }
+            if (op == 6) {
+                set bcStack sp (EvValueBridge.taggedBoolean(true))
+                sp = (sp + 1)
+                continue
+            }
+            if (op == 7) {
+                set bcStack sp (EvValueBridge.taggedBoolean(false))
+                sp = (sp + 1)
+                continue
+            }
+        }
+        bcSp = base
+        return result
+    }
+
     fn callFnValueWithValues:EvHandle (fnValue:EvHandle argVals:[EvHandle]) {
         ; D-REGISTRY: a built-in extracted as a value (`var f = arr.slice`, or
         ; `Array.prototype.slice`) is invoked through the same dispatcher the
@@ -8079,6 +8995,24 @@ class ComponentEngine {
             }
         }
         currentModule = (fnValue.homeModuleOf())
+        ; BYTECODE TIER: a compilable body runs on the VM -- slot locals, no
+        ; EvalContext, no `this` (the gate proves nothing can observe one).
+        ; Bound arguments still merge on the walker path only.
+        if bcEnabled {
+            if ((fnValue.boundArgCount()) == 0) {
+                def bcId:int (this.bcProgramFor(fnNode))
+                if (bcId >= 0) {
+                    def bcProg:BcProgram (itemAt bcPrograms bcId)
+                    callDepth = (callDepth + 1)
+                    def bcOut:EvHandle (this.runBytecode(bcProg argVals (unwrap parent)))
+                    callDepth = (callDepth - 1)
+                    currentModule = savedModule
+                    scriptDidReturn = savedDidReturn
+                    scriptReturnValue = savedReturnValue
+                    return bcOut
+                }
+            }
+        }
         ; Pooled frame: closureScopes length is the capture gate (see ctxPool).
         def framePoolMark:int (array_length closureScopes)
         context = (this.acquireFrame((unwrap parent)))
@@ -11068,6 +12002,14 @@ class ComponentEngine {
             return (EvValueBridge.taggedBoolean(false))
         }
         
+        return (this.applyBinaryOp(opK left right))
+    }
+
+    ; The VALUE-level operator table: arithmetic, bitwise, shifts,
+    ; relational and equality on two already-evaluated operands. One
+    ; implementation serves the tree-walker (evaluateBinaryExpr) and the
+    ; bytecode VM, so the semantics cannot fork.
+    fn applyBinaryOp:EvHandle (opK:int left:EvHandle right:EvHandle) {
         ; Arithmetic
         if (opK == 20) {
             ; PERF fast path: two plain strings concatenate directly. The

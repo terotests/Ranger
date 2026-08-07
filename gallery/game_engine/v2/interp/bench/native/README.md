@@ -148,18 +148,23 @@ started from a C++/QJS `array` ratio of 3451x:
 
 ```
 case      raw Node raw QuickJS   eng/ES6   eng/C++ | ES6/QJS   C++/QJS
-loop         0.364       0.509      19.4      11.8  |   38.0x     23.2x
-fib          0.318       0.531      20.5      18.3  |   38.7x     34.5x
-strcat       0.529       7.984       7.2       6.4  |    0.9x      0.8x
-array        1.022       1.199      30.4      14.8  |   25.4x     12.3x
-object       1.528       2.563      34.2      36.5  |   13.3x     14.3x
-method       1.421       2.996      55.0      44.9  |   18.4x     15.0x
-regex        1.376       4.543      46.9      63.5  |   10.3x     14.0x
-geomean      0.787       1.903      25.8      21.5  |   13.6x     11.3x
+loop         0.768       0.740      19.8       8.0  |   26.8x     10.9x
+fib          0.512       0.840      17.8      13.8  |   21.2x     16.5x
+strcat       0.470      10.500      13.5      10.5  |    1.3x      1.0x
+array        1.476       2.289      50.7      24.3  |   22.1x     10.6x
+object       2.807       4.414      51.8      61.8  |   11.7x     14.0x
+method       2.258       5.188      87.9      71.2  |   17.0x     13.7x
+regex        1.878       7.203      67.1      79.4  |    9.3x     11.0x
+geomean      1.183       3.052      35.7      26.8  |   11.7x      8.8x
 ```
 
-The C++ geomean against QuickJS went 63x → 11.3x over this work (the es6
-build: 20x → 13.6x). `strcat` is the row to stare at: the INTERPRETER now
+The C++ geomean against QuickJS went 63x → 8.8x over this work (the es6
+build: 20x → 11.7x). The last cut is the BYTECODE TIER (migrate/BYTECODE.md):
+a compilable function body -- plain params, locals, arithmetic, branches,
+loops, direct calls -- compiles once into a flat opcode stream and runs on
+a slot-indexed stack VM with no per-call EvalContext at all; everything
+else stays on the tree-walker, and the two call each other freely through
+the same dispatch. `loop` went 23x → 10.9x and `fib` 34x → 16.5x on it. `strcat` is the row to stare at: the INTERPRETER now
 concatenates as fast as QuickJS runs the same loop natively, because qjs
 copies the accumulator per `+=` while the slot machinery appends in place.
 The `array` row's last big cut came from a CALL-SITE INLINE CACHE: a method

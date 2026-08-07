@@ -371,6 +371,24 @@
    "errors": {
     "RayTrace": "Error: Scene rendered incorrectly"
    }
+  },
+  "earley-boyer": {
+   "status": "TIMEOUT",
+   "out": "",
+   "wall_ms": 829302.144374,
+   "rss_kb": 15935044,
+   "scores": {},
+   "errors": {}
+  },
+  "regexp": {
+   "status": "OK",
+   "out": "[tsx] RegExp: Error: Wrong checksum.\n",
+   "wall_ms": 27073.64165499996,
+   "rss_kb": 29764,
+   "scores": {},
+   "errors": {
+    "RegExp": "Error: Wrong checksum."
+   }
   }
  }
 }
