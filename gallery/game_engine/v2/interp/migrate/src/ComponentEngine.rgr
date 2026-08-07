@@ -8067,6 +8067,60 @@ class ComponentEngine {
     ; Program id for this function, or -1. Scanned ONCE per node: the
     ; compiler itself is the gate -- the first unsupported construct aborts
     ; and the function stays on the tree-walker forever.
+    ; True when the body's only route to `this` is the keyword itself --
+    ; no `super`, no `eval` (both resolve through a scope chain a compiled
+    ; frame does not have).
+    fn bcThisIsPlain:boolean (fnNode:TSNode) {
+        return (false == (this.bcMentionsSuperOrEval(fnNode 0)))
+    }
+
+    fn bcMentionsSuperOrEval:boolean (node:TSNode depth:int) {
+        if (depth > 40) {
+            return true
+        }
+        if (depth > 0) {
+            def ntB:string node.nodeType
+            if (ntB == "FunctionDeclaration") { return false }
+            if (ntB == "FunctionExpression") { return false }
+        }
+        if (node.nodeType == "Super") {
+            return true
+        }
+        if ((node.name == "eval") || (node.name == "super")) {
+            return true
+        }
+        def ndB:int (depth + 1)
+        def kB:int 0
+        while (kB < (array_length node.children)) {
+            if (this.bcMentionsSuperOrEval((itemAt node.children kB) ndB)) {
+                return true
+            }
+            kB = (kB + 1)
+        }
+        if node.body {
+            if (this.bcMentionsSuperOrEval((unwrap node.body) ndB)) { return true }
+        }
+        if node.left {
+            if (this.bcMentionsSuperOrEval((unwrap node.left) ndB)) { return true }
+        }
+        if node.right {
+            if (this.bcMentionsSuperOrEval((unwrap node.right) ndB)) { return true }
+        }
+        if node.init {
+            if (this.bcMentionsSuperOrEval((unwrap node.init) ndB)) { return true }
+        }
+        if node.test {
+            if (this.bcMentionsSuperOrEval((unwrap node.test) ndB)) { return true }
+        }
+        if node.consequent {
+            if (this.bcMentionsSuperOrEval((unwrap node.consequent) ndB)) { return true }
+        }
+        if node.alternate {
+            if (this.bcMentionsSuperOrEval((unwrap node.alternate) ndB)) { return true }
+        }
+        return false
+    }
+
     fn bcProgramFor:int (fnNode:TSNode) {
         if fnNode.bcScanned {
             return fnNode.bcProgramId
@@ -8076,8 +8130,20 @@ class ComponentEngine {
         if (false == (this.paramSlotsOkFor(fnNode))) {
             return (0 - 1)
         }
+        ; An ARROW takes `this` lexically from the defining frame; compiled
+        ; frames have no context to resolve through, so an arrow that can
+        ; observe `this` stays on the walker. A plain function gets its
+        ; receiver as a VM register (push_this).
+        if ((this.nodeKindOf(fnNode)) == 17) {
+            if (this.fnNeedsThis(fnNode)) {
+                return (0 - 1)
+            }
+        }
+        ; `super` reaches `this` through the scope chain; keep those walked.
         if (this.fnNeedsThis(fnNode)) {
-            return (0 - 1)
+            if (false == (this.bcThisIsPlain(fnNode))) {
+                return (0 - 1)
+            }
         }
         ; STRICT bodies keep the walker: its assign paths own the
         ; frozen/non-writable TypeErrors the spec requires there.
@@ -8684,6 +8750,10 @@ class ComponentEngine {
             prog.patch(tEnd (prog.here()))
             return true
         }
+        if (k == 20) {
+            prog.emit(38 0 1 0)
+            return true
+        }
         if (k == 23) {
             if node.left {
                 return (this.bcExpr((unwrap node.left) prog))
@@ -9063,7 +9133,7 @@ class ComponentEngine {
         return (this.throwSpecError("TypeError" (methodName + " is not a function")))
     }
 
-    fn runBytecode:EvHandle (prog:BcProgram argVals:[EvHandle] outer:EvalContext) {
+    fn runBytecode:EvHandle (prog:BcProgram argVals:[EvHandle] outer:EvalContext thisVal:EvHandle) {
         def base:int bcSp
         def needTop:int ((base + prog.localCount) + prog.stackSize)
         while ((array_length bcStack) < needTop) {
@@ -9240,9 +9310,19 @@ class ComponentEngine {
                     sp = (sp + 1)
                     continue
                 }
-                def thrown10:EvHandle (this.throwSpecError("ReferenceError" (nm10 + " is not defined")))
-                bcSp = base
-                return thrown10
+                ; miss: the walker's own resolution decides -- globals,
+                ; undefined-vs-ReferenceError -- against the CALLEE chain
+                def savedCtx10:EvalContext context
+                context = outer
+                def mv10:EvHandle (this.lookupIdentifier(nm10))
+                context = savedCtx10
+                if scriptThrew {
+                    bcSp = base
+                    return (EvValueBridge.taggedUndefined())
+                }
+                set bcStack sp mv10
+                sp = (sp + 1)
+                continue
             }
             if (op == 17) {
                 sp = (sp - 1)
@@ -9398,6 +9478,14 @@ class ComponentEngine {
                 sp = (sp + 1)
                 continue
             }
+            if (op == 38) {
+                ; bind first: the register is pushed many times per run, and
+                ; Rust would MOVE a bare parameter on the first push
+                def tv38:EvHandle thisVal
+                set bcStack sp tv38
+                sp = (sp + 1)
+                continue
+            }
             if (op == 35) {
                 def slot35:int (idiv a 2)
                 def own35:int (bit_and a 1)
@@ -9535,8 +9623,26 @@ class ComponentEngine {
                 def bcId:int (this.bcProgramFor(fnNode))
                 if (bcId >= 0) {
                     def bcProg:BcProgram (itemAt bcPrograms bcId)
+                    ; D-THISCOERCE, compiled form: bodies here are never
+                    ; strict (gate), so null/undefined become the global
+                    ; object and primitives box; a bare call gets the global.
+                    def bcThis:EvHandle (EvValueBridge.taggedUndefined())
+                    if (fnValue.hasBoundThis()) {
+                        bcThis = (fnValue.boundThisOf())
+                        if ((EvValueBridge.isNull(bcThis)) || (EvValueBridge.isUndefined(bcThis))) {
+                            bcThis = (this.theGlobalObject())
+                        } {
+                            if (bcThis.isString()) { bcThis = (this.toObjectValue(bcThis)) }
+                            if (bcThis.isNumber()) { bcThis = (this.toObjectValue(bcThis)) }
+                            if (bcThis.isBoolean()) { bcThis = (this.toObjectValue(bcThis)) }
+                        }
+                    } {
+                        if ((this.nodeKindOf(fnNode)) != 17) {
+                            bcThis = (this.theGlobalObject())
+                        }
+                    }
                     callDepth = (callDepth + 1)
-                    def bcOut:EvHandle (this.runBytecode(bcProg argVals (unwrap parent)))
+                    def bcOut:EvHandle (this.runBytecode(bcProg argVals (unwrap parent) bcThis))
                     callDepth = (callDepth - 1)
                     currentModule = savedModule
                     scriptDidReturn = savedDidReturn
