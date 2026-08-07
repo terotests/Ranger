@@ -36,15 +36,20 @@ only guarded:
 
 ```
 case        node ms   js engine   cpp engine  |  js/node  cpp/node   cpp vs js
-loop          0.31        49.0         44.9  |     158x      145x       1.09x
-fib           0.24        48.9         57.6  |     207x      244x       0.85x
-strcat        0.24        28.4        147.9  |     117x      607x       0.19x
-array         1.22       123.8        229.0  |     102x      188x       0.54x
-object        2.37        74.0         93.9  |      31x       40x       0.79x
-method        2.32       114.8        154.4  |      50x       67x       0.74x
-regex         1.61        81.9        143.3  |      51x       89x       0.57x
-geometric mean vs Node:  js engine 84x,  cpp engine 138x
+loop          0.56        47.8         46.7  |      85x       83x       1.02x
+fib           0.45        47.2         57.1  |     104x      126x       0.83x
+strcat        0.54        29.2        147.7  |      54x      275x       0.20x
+array         1.58       119.9        238.6  |      76x      151x       0.50x
+object        2.59        69.6        102.2  |      27x       40x       0.68x
+method        2.27       103.9        155.4  |      46x       69x       0.67x
+regex         1.87        88.7        139.0  |      47x       74x       0.64x
+geometric mean vs Node:  js engine 58x,  cpp engine 98x
 ```
+
+The Rust build (`TARGET=rust bash build.sh`) now compiles and answers every
+workload identically as well — same league as C++, ahead of it on `array`,
+behind on the string-heavy rows. See `RUST.md` for the writer bugs that stood
+in the way, including the one that made recursion exponential.
 
 (Numbers move with the machine; the ratios are the stable part. `-O3` was
 measured and is worth 0–4% — the cost is not instruction scheduling.)
@@ -69,9 +74,11 @@ linear:
 
 ```
 array scaling (20000 vs 10000 elements; 2x = linear)
-  js engine   123.8 / 62.9 = 1.97x
-  cpp engine  229.0 / 107.7 = 2.13x
+  js engine   119.9 / 59.7 = 2.01x
+  cpp engine  238.6 / 110.1 = 2.17x
 ```
+
+(The Rust build measures 1.95x on the same check.)
 
 ## Conformance canaries
 

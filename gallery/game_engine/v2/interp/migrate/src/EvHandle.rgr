@@ -2222,63 +2222,14 @@ class EvHandle {
     }
     
     ; Equality check
+    ; Same-kind value equality for primitives, identityId equality for
+    ; references (D-IDENTITY). Delegates to matches(): the comparison itself,
+    ; kind checks included, lives there — and matches never takes a mutable
+    ; borrow, so `x == x` on the same pooled handle cannot panic the Rust
+    ; RefCell. (Ids are globally unique, so id equality already implies the
+    ; kinds agree on the reference arm.)
     fn equals:boolean (other:EvHandle) {
-        if (this.isNull()) {
-            return (other.isNull())
-        }
-        if (this.isHole()) {
-            return (other.isHole())
-        }
-        if (this.isUndefined()) {
-            return (other.isUndefined())
-        }
-        if (this.isNumber()) {
-            if (false == (other.isNumber())) {
-                return false
-            }
-            return ((this.numberOf()) == (other.numberOf()))
-        }
-        if (this.isString()) {
-            if (false == (other.isString())) {
-                return false
-            }
-            return ((this.stringOf()) == (other.stringOf()))
-        }
-        if (this.isBoolean()) {
-            if (false == (other.isBoolean())) {
-                return false
-            }
-            return ((this.boolOf()) == (other.boolOf()))
-        }
-        ; Reference values — identityId (D-IDENTITY). Kind must match.
-        ; Compare ids via locals to avoid RefCell self-borrow on same Rc.
-        def iid:int (this.identityIdOf())
-        def oid:int (other.identityIdOf())
-        if (this.isArray()) {
-            if (false == (other.isArray())) { return false }
-            return (iid == oid)
-        }
-        if (this.isObject()) {
-            if (false == (other.isObject())) { return false }
-            return (iid == oid)
-        }
-        if (this.isFunction()) {
-            if (false == (other.isFunction())) { return false }
-            return (iid == oid)
-        }
-        if (this.isMap()) {
-            if (false == (other.isMap())) { return false }
-            return (iid == oid)
-        }
-        if (this.isSet()) {
-            if (false == (other.isSet())) { return false }
-            return (iid == oid)
-        }
-        if (this.isElement()) {
-            if (false == (other.isElement())) { return false }
-            return (iid == oid)
-        }
-        return false
+        return (this.matches(other))
     }
 }
 
