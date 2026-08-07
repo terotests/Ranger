@@ -1311,6 +1311,32 @@ class EvHandle {
     }
 
     ; Object member access
+    ; The canonical dense-array index this key names, or ABSENT: all
+    ; digits, no leading zero (except "0" itself), at most 9 digits so the
+    ; value stays far from every target's int edge.
+    fn canonicalIndexOf:int (key:string) {
+        def n:int (strlen key)
+        if ((n == 0) || (n > 9)) {
+            return (0 - 1)
+        }
+        if (n > 1) {
+            if ((charAt key 0) == 48) {
+                return (0 - 1)
+            }
+        }
+        def v:int 0
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt key i)
+            if ((c < 48) || (c > 57)) {
+                return (0 - 1)
+            }
+            v = ((v * 10) + (c - 48))
+            i = (i + 1)
+        }
+        return v
+    }
+
     fn getMember:EvHandle (key:string) {
         if (this.isObject()) {
             if (this.hasOwnData(key)) {
@@ -1391,9 +1417,13 @@ class EvHandle {
             ; An index reached BY NAME. `a[0]` goes through getIndex, but
             ; `a["0"]` and a prototype-chain read of "0" arrive here, and they
             ; name the same property.
-            def ai@(optional):int (to_int key)
-            if ai {
-                def aidx:int (unwrap ai)
+            ; STRICT canonical-index parse: digits only, no leading zero,
+            ; bounded well under 2^31. `to_int` accepted "2.5" (as 2) on
+            ; every target and OVERFLOWED into garbage on C++ for a huge
+            ; numeric string -- which is what made a[1e18] read a[2] there.
+            def ai:int (this.canonicalIndexOf(key))
+            if (ai >= 0) {
+                def aidx:int ai
                 if ((aidx >= 0) && (aidx < (this.denseLen()))) {
                     def nslot:EvHandle (this.arrayItemAt(aidx))
                     if (nslot.isHole()) {
