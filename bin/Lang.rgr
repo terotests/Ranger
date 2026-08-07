@@ -5255,8 +5255,27 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
             }
         }
 
+        ; In-place string append: `str_append s suffix`. On targets whose
+        ; string is mutable (C++ std::string, Rust String) this is an
+        ; amortized-O(len(suffix)) grow; immutable-string targets lower it to
+        ; `a = a + b`, one copy, which is what they would spell anyway. The
+        ; interpreter's slot machinery drives `s += "..."` through it once a
+        ; binding's string is proven unshared.
+        str_append    cmdStrAppend:void  ( target@(mutates):string item:string ) {
+            templates {
+                ranger ( nl "str_append " (e 1) " " (e 2) "" nl)
+                 cpp ( (e 1) " += " (e 2) ";")
+                 rust ( (e 1) ".push_str(&" (e 2) ");")
+                 go ( (e 1) " += " (e 2) )
+                 python ( (e 1) " += " (e 2) )
+                 php ( (e 1) " .= " (e 2) ";")
+                 scala ( (e 1) " = " (e 1) " + " (e 2) )
+                 * ( (e 1) " += " (e 2) ";" )
+            }
+        }
+
         ; think: how to release the strong array
-        removeLast  cmdRemoveLast:void  ( array@(mutates):[T] ) { 
+        removeLast  cmdRemoveLast:void  ( array@(mutates):[T] ) {
             templates {
                 ranger ( "removeLast " (e 1) "")
                  cpp ( (e 1) ".pop_back();")
