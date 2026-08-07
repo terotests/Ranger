@@ -6246,25 +6246,25 @@ class ComponentEngine {
             return (this.evaluateRemainder((this.toNumberOf(current)) (this.toNumberOf(rightValue))))
         }
         if (opK == 7) {
-            return (EvValueBridge.taggedNumber((this.powNum((this.toNumberOf(current)) (to_int (this.toNumberOf(rightValue)))))))
+            return (EvValueBridge.taggedNumber((this.powNum((this.toNumberOf(current)) (this.toInt32Of(rightValue))))))
         }
         if (opK == 11) {
-            return (EvHandle.fromInt((bit_and (to_int (this.toNumberOf(current))) (to_int (this.toNumberOf(rightValue))))))
+            return (EvHandle.fromInt((bit_and (this.toInt32Of(current)) (this.toInt32Of(rightValue)))))
         }
         if (opK == 12) {
-            return (EvHandle.fromInt((bit_or (to_int (this.toNumberOf(current))) (to_int (this.toNumberOf(rightValue))))))
+            return (EvHandle.fromInt((bit_or (this.toInt32Of(current)) (this.toInt32Of(rightValue)))))
         }
         if (opK == 13) {
-            return (EvHandle.fromInt((bit_xor (to_int (this.toNumberOf(current))) (to_int (this.toNumberOf(rightValue))))))
+            return (EvHandle.fromInt((bit_xor (this.toInt32Of(current)) (this.toInt32Of(rightValue)))))
         }
         if (opK == 8) {
-            return (EvHandle.fromInt((bit_shl (to_int (this.toNumberOf(current))) (bit_and (to_int (this.toNumberOf(rightValue))) 31))))
+            return (EvHandle.fromInt((bit_shl (this.toInt32Of(current)) (bit_and (this.toInt32Of(rightValue)) 31))))
         }
         if (opK == 9) {
-            return (EvHandle.fromInt((bit_shr (to_int (this.toNumberOf(current))) (bit_and (to_int (this.toNumberOf(rightValue))) 31))))
+            return (EvHandle.fromInt((bit_shr (this.toInt32Of(current)) (bit_and (this.toInt32Of(rightValue)) 31))))
         }
         if (opK == 10) {
-            return (EvHandle.fromInt((bit_ushr (to_int (this.toNumberOf(current))) (bit_and (to_int (this.toNumberOf(rightValue))) 31))))
+            return (EvHandle.fromInt((bit_ushr (this.toInt32Of(current)) (bit_and (this.toInt32Of(rightValue)) 31))))
         }
         if (opK == 14) {
             if (current.toBool()) {
@@ -8127,6 +8127,19 @@ class ComponentEngine {
         }
         fnNode.bcScanned = true
         fnNode.bcProgramId = (0 - 1)
+        ; BISECT HOOK: BC_MAX_PROGRAMS caps how many bodies may compile in
+        ; this process (unset = unlimited), and its presence turns on a
+        ; per-compile print -- a target-specific divergence can be halved
+        ; down to ONE program without a rebuild.
+        def bcCapS:string (env_var "BC_MAX_PROGRAMS")
+        if ((strlen bcCapS) > 0) {
+            def bcCapN@(optional):double (to_double bcCapS)
+            if bcCapN {
+                if ((to_double (array_length bcPrograms)) >= (unwrap bcCapN)) {
+                    return (0 - 1)
+                }
+            }
+        }
         if (false == (this.paramSlotsOkFor(fnNode))) {
             return (0 - 1)
         }
@@ -8166,6 +8179,9 @@ class ComponentEngine {
         }
         push bcPrograms prog
         fnNode.bcProgramId = ((array_length bcPrograms) - 1)
+        if ((strlen bcCapS) > 0) {
+            print ("[bc] compiled #" + ((to_string fnNode.bcProgramId) + (" " + fnNode.name)))
+        }
         return fnNode.bcProgramId
     }
 
@@ -12750,8 +12766,8 @@ class ComponentEngine {
 
         ; Bitwise (JS coerces operands to int32; common idiom "x | 0" truncates to int)
         if (opK == 38) {
-            def leftInt:int (to_int (this.toNumberOf(left)))
-            def rightInt:int (to_int (this.toNumberOf(right)))
+            def leftInt:int (this.toInt32Of(left))
+            def rightInt:int (this.toInt32Of(right))
             return (EvHandle.fromInt((bit_or leftInt rightInt)))
         }
         if (opK == 37) {
@@ -13170,7 +13186,7 @@ class ComponentEngine {
             if (name == "pow") {
                 def pe:int 0
                 if ((array_length args) > 1) {
-                    pe = (to_int (this.toNumberOf((itemAt args 1))))
+                    pe = (this.toInt32Of((itemAt args 1)))
                 }
                 return (EvValueBridge.taggedNumber((this.powNum(n0 pe))))
             }
@@ -18231,7 +18247,7 @@ class ComponentEngine {
         ; the StringNumericLiteral grammar -- a `length` of "0x0002" is 2, not
         ; NaN. Reading the value's own toNumber knew nothing of the radix
         ; prefixes, so an array-like with a hex length iterated zero times.
-        def n:int (to_int (this.toNumberOf(lenV)))
+        def n:int (this.toInt32Of(lenV))
         if scriptThrew {
             return out
         }
@@ -18342,7 +18358,7 @@ class ComponentEngine {
             if scriptThrew {
                 return (EvValueBridge.taggedUndefined())
             }
-            n = (to_int (this.toNumberOf(lv)))
+            n = (this.toInt32Of(lv))
             if scriptThrew {
                 return (EvValueBridge.taggedUndefined())
             }
