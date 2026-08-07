@@ -369,6 +369,117 @@
    "errors": {
     "RegExp": "Error: Wrong checksum."
    }
+  },
+  "crypto": {
+   "status": "OK",
+   "out": "Unknown type: this\n[tsx] Crypto: Error: Crypto operation failed\n",
+   "wall_ms": 16078.647529999998,
+   "rss_kb": 26324,
+   "scores": {},
+   "errors": {
+    "Crypto": "Error: Crypto operation failed"
+   }
+  },
+  "raytrace": {
+   "status": "OK",
+   "out": "[tsx] RayTrace: Error: Scene rendered incorrectly\n",
+   "wall_ms": 6647.715406000003,
+   "rss_kb": 16084,
+   "scores": {},
+   "errors": {
+    "RayTrace": "Error: Scene rendered incorrectly"
+   }
+  },
+  "navier-stokes": {
+   "status": "OK",
+   "out": "[tsx] NavierStokes: Error: checksum failed\n",
+   "wall_ms": 264376.718859,
+   "rss_kb": 20932,
+   "scores": {},
+   "errors": {
+    "NavierStokes": "Error: checksum failed"
+   }
+  },
+  "earley-boyer": {
+   "status": "TIMEOUT",
+   "out": "",
+   "wall_ms": 334737.175501,
+   "rss_kb": 15908408,
+   "scores": {},
+   "errors": {}
+  }
+ },
+ "rust": {
+  "richards": {
+   "status": "OK",
+   "out": "[tsx] Richards: 21.7\n",
+   "wall_ms": 9902.856949000012,
+   "rss_kb": 11732,
+   "scores": {
+    "Richards": 21.7
+   },
+   "errors": {}
+  },
+  "deltablue": {
+   "status": "OK",
+   "out": "[tsx] DeltaBlue: 40.6\n",
+   "wall_ms": 13451.496367999993,
+   "rss_kb": 54948,
+   "scores": {
+    "DeltaBlue": 40.6
+   },
+   "errors": {}
+  },
+  "crypto": {
+   "status": "OK",
+   "out": "Unknown type: this\n[tsx] Crypto: Error: Crypto operation failed\n",
+   "wall_ms": 19863.070477999998,
+   "rss_kb": 26940,
+   "scores": {},
+   "errors": {
+    "Crypto": "Error: Crypto operation failed"
+   }
+  },
+  "raytrace": {
+   "status": "OK",
+   "out": "[tsx] RayTrace: Error: Scene rendered incorrectly\n",
+   "wall_ms": 2614.5440529999746,
+   "rss_kb": 15064,
+   "scores": {},
+   "errors": {
+    "RayTrace": "Error: Scene rendered incorrectly"
+   }
+  },
+  "regexp": {
+   "status": "OK",
+   "out": "[tsx] RegExp: Error: Wrong checksum.\n",
+   "wall_ms": 3868.3095299999763,
+   "rss_kb": 30076,
+   "scores": {},
+   "errors": {
+    "RegExp": "Error: Wrong checksum."
+   }
+  },
+  "navier-stokes": {
+   "status": "OK",
+   "out": "[tsx] NavierStokes: Error: checksum failed\n",
+   "wall_ms": 92981.32972899998,
+   "rss_kb": 19040,
+   "scores": {},
+   "errors": {
+    "NavierStokes": "Error: checksum failed"
+   }
+  },
+  "splay": {
+   "status": "OK",
+   "out": "[tsx] Splay: 136\n[tsx] SplayLatency: 1683\n",
+   "wall_ms": 9711.963624999953,
+   "rss_kb": 535856,
+   "scores": {
+    "Splay": 136.0,
+    "SplayLatency": 1683.0
+   },
+   "errors": {}
   }
  }
 }

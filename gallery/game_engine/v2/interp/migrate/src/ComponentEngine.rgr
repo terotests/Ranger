@@ -9154,7 +9154,22 @@ class ComponentEngine {
         def n:int (array_length prog.ops)
         def backJumps:int 0
         def result:EvHandle (EvValueBridge.taggedUndefined())
+        def bcSteps:int 0
         while (pc < n) {
+            ; VM SELF-CHECK (temporary diagnostic): a stack pointer outside
+            ; the frame or a runaway step count prints and bails instead of
+            ; corrupting silently on the value-vector targets.
+            bcSteps = (bcSteps + 1)
+            if (bcSteps > 400000000) {
+                print ("[bcvm] runaway: pc=" + ((to_string pc) + (" n=" + (to_string n))))
+                bcSp = base
+                return result
+            }
+            if ((sp < (base + prog.localCount)) || (sp > needTop)) {
+                print ("[bcvm] sp out of frame: sp=" + ((to_string sp) + (" base=" + ((to_string base) + (" top=" + ((to_string needTop) + (" pc=" + (to_string pc))))))))
+                bcSp = base
+                return result
+            }
             def op:int (itemAt prog.ops pc)
             def a:int (itemAt prog.args pc)
             pc = (pc + 1)
