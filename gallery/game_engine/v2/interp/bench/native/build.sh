@@ -53,6 +53,12 @@ case "$TARGET" in
     echo "built: $OUT_DIR/engine_bench"
     ;;
   rust)
+    # The writer sometimes stacks a def/return clone on an expression that
+    # already ends in .clone() (an itemAt read, a field read). Clone::clone
+    # returns Self, so collapsing the pair is always semantics-preserving —
+    # and each pair was a full extra copy of the value (a union clone copies
+    # its string payload). Same spirit as fix_cpp_evalvalue_order.py above.
+    sed -i 's/\.clone()\.clone()/.clone()/g' "$OUT_DIR/engine_bench.rs"
     echo "== rustc -C opt-level=3"
     rustc -C opt-level=3 -C target-cpu=native -C codegen-units=1 \
       "$OUT_DIR/engine_bench.rs" -o "$OUT_DIR/engine_bench"

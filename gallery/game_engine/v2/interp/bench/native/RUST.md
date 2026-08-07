@@ -57,17 +57,20 @@ honored everywhere, fib runs in ~85 ms.
 ## Where it stands
 
 ms/run on this machine (reps=3 minus a reps=0 startup run, same subtraction
-`run.cjs` makes), next to the C++ build measured the same way the same day:
+`run.cjs` makes), next to the C++ build measured the same way the same day —
+after the union-copy reductions (kind checks pass `body` straight to the
+predicate; `build.sh` collapses the writer's stacked `.clone().clone()`
+pairs, each of which was a full extra copy of the value):
 
 | case | rust | cpp |
 |---|---:|---:|
-| loop | 78 | 45 |
-| fib | 93 | 58 |
-| strcat | 276 | 148 |
-| array | 204 | 229 |
-| object | 125 | 94 |
-| method | 248 | 154 |
-| regex | 158 | 143 |
+| loop | 57 | 38 |
+| fib | 60 | 52 |
+| strcat | 211 | 120 |
+| array | 138 | 206 |
+| object | 90 | 85 |
+| method | 175 | 129 |
+| regex | 140 | 124 |
 
 Same league as C++ — ahead of it on `array`, behind on the string-heavy rows
 (`Rc<RefCell>` borrows plus owned `String` clones on every property key).

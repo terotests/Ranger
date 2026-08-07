@@ -58,16 +58,16 @@ class EvHandle {
     def identityId:int 0
 
     ; ---- Primitive accessors (string/bool SoT on body; number synced) ----
+    ; Case directly on the field — a `def b:EvalValue body` prelude copied
+    ; the union (string payload included) once more per read.
     fn stringOf:string () {
-        def b:EvalValue body
-        case b s:EvalValue.String {
+        case body s:EvalValue.String {
             return s.value
         }
         return ""
     }
     fn boolOf:boolean () {
-        def b:EvalValue body
-        case b bo:EvalValue.Boolean {
+        case body bo:EvalValue.Boolean {
             return bo.value
         }
         return false
@@ -819,64 +819,56 @@ class EvHandle {
     ; Type checks — kind from body (shape EvalValue).
     ; Copy `body` into a local before calling EvalValue.* — Rust RefCell panics
     ; if the field is borrowed across the shape ops call.
+    ; Kind checks pass `body` STRAIGHT to the static predicate. The old
+    ; `def b:EvalValue body` local materialised a second copy of the union
+    ; per check — for a String-bearing body that copied the whole string,
+    ; which made every kind check on a 40 KB strcat accumulator O(len).
     fn isNull:boolean () {
-        def b:EvalValue body
-        return (EvalValue.isNull(b))
+        return (EvalValue.isNull(body))
     }
-    
+
     fn isNumber:boolean () {
-        def b:EvalValue body
-        return (EvalValue.isNumber(b))
+        return (EvalValue.isNumber(body))
     }
-    
+
     fn isString:boolean () {
-        def b:EvalValue body
-        return (EvalValue.isString(b))
+        return (EvalValue.isString(body))
     }
-    
+
     fn isBoolean:boolean () {
-        def b:EvalValue body
-        return (EvalValue.isBoolean(b))
+        return (EvalValue.isBoolean(body))
     }
-    
+
     fn isArray:boolean () {
-        def b:EvalValue body
-        return (EvalValue.isArrayValue(b))
+        return (EvalValue.isArrayValue(body))
     }
-    
+
     fn isObject:boolean () {
-        def b:EvalValue body
-        return (EvalValue.isObject(b))
+        return (EvalValue.isObject(body))
     }
-    
+
     fn isFunction:boolean () {
-        def b:EvalValue body
-        return (EvalValue.isFunction(b))
+        return (EvalValue.isFunction(body))
     }
-    
+
     fn isElement:boolean () {
-        def b:EvalValue body
-        return (EvalValue.isElement(b))
+        return (EvalValue.isElement(body))
     }
 
     fn isUndefined:boolean () {
-        def b:EvalValue body
-        return (EvalValue.isUndefined(b))
+        return (EvalValue.isUndefined(body))
     }
 
     fn isHole:boolean () {
-        def b:EvalValue body
-        return (EvalValue.isHole(b))
+        return (EvalValue.isHole(body))
     }
 
     fn isMap:boolean () {
-        def b:EvalValue body
-        return (EvalValue.isMap(b))
+        return (EvalValue.isMap(body))
     }
 
     fn isSet:boolean () {
-        def b:EvalValue body
-        return (EvalValue.isSet(b))
+        return (EvalValue.isSet(body))
     }
 
     fn kindName:string () {

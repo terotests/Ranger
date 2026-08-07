@@ -36,15 +36,25 @@ only guarded:
 
 ```
 case        node ms   js engine   cpp engine  |  js/node  cpp/node   cpp vs js
-loop          0.56        47.8         46.7  |      85x       83x       1.02x
-fib           0.45        47.2         57.1  |     104x      126x       0.83x
-strcat        0.54        29.2        147.7  |      54x      275x       0.20x
-array         1.58       119.9        238.6  |      76x      151x       0.50x
-object        2.59        69.6        102.2  |      27x       40x       0.68x
-method        2.27       103.9        155.4  |      46x       69x       0.67x
-regex         1.87        88.7        139.0  |      47x       74x       0.64x
-geometric mean vs Node:  js engine 58x,  cpp engine 98x
+loop          0.60        47.1         37.8  |      78x       63x       1.25x
+fib           0.53        42.2         51.8  |      80x       98x       0.82x
+strcat        0.48        27.9        120.4  |      58x      251x       0.23x
+array         1.53       116.5        205.6  |      76x      134x       0.57x
+object        2.54        64.2         85.3  |      25x       34x       0.75x
+method        2.33       108.5        128.7  |      47x       55x       0.84x
+regex         1.90        73.6        123.8  |      39x       65x       0.59x
+geometric mean vs Node:  js engine 54x,  cpp engine 82x
 ```
+
+Two copy killers took the C++ geomean from 190x to 82x over the course of
+this work. The value model still allocates per arithmetic result (see below),
+but the union itself no longer gets copied gratuitously: `EvHandle`'s kind
+checks and primitive accessors pass `body` straight to the static predicate
+instead of materialising a local copy first — for a String-bearing body each
+of those locals copied the whole string, which is why `strcat` was the worst
+row — and the Rust build collapses the writer's stacked `.clone().clone()`
+pairs (`build.sh` does it the way `fix_cpp_evalvalue_order.py` fixes the C++
+class order; each pair was a full extra copy of the value).
 
 The Rust build (`TARGET=rust bash build.sh`) now compiles and answers every
 workload identically as well — same league as C++, ahead of it on `array`,
@@ -74,8 +84,8 @@ linear:
 
 ```
 array scaling (20000 vs 10000 elements; 2x = linear)
-  js engine   119.9 / 59.7 = 2.01x
-  cpp engine  238.6 / 110.1 = 2.17x
+  js engine   116.5 / 69.9 = 1.67x
+  cpp engine  205.6 / 98.6 = 2.09x
 ```
 
 (The Rust build measures 1.95x on the same check.)
