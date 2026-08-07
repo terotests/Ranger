@@ -196,3 +196,21 @@ absolute scores.
 es6 is the fastest of the three host builds here (V8 nursery vs native
 `malloc` / refcount cost for `EvalValue`), matching the story in
 `TS_ENGINE_PERF.md`.
+
+## OPEN: C++-only splay spin — minimal reproducer (2026-08-07)
+
+`splay.js` with `kSplayTreeSize = 20`: inserts 1–4 build a CORRECT tree
+(keys/structure verified by instrumentation), then insert #5's
+key-uniqueness loop spins forever because `splayTree.find(freshKey)`
+returns non-null for EVERY fresh key. Reproduces with the bytecode tier
+fully off (`BC_MAX_PROGRAMS=0`), so it is a tree-walker C++-lowering bug
+shared with the tier's member helpers — es6 and Rust both pass. Raw
+double `==`, `Math.random`, `String(double)` and 4 inserts' rotations
+all probe CORRECT on C++; the corruption appears in `splay_`'s rotation
+on the specific 4-node shape (root .42, L .29, R .50, R.R .63).
+Suspect: nested member-write aliasing (`t.left = r.right; r.right = t`)
+under the in-place case mutation. Instrumented repro recipe:
+prepare splay.js, shrink kSplayTreeSize, print per-insert root/L/R keys,
+run octane_runner under `script -qec` (C++ stdout is block-buffered — a
+killed run silently drops ALL guest prints; every earlier "no output"
+observation was this).
