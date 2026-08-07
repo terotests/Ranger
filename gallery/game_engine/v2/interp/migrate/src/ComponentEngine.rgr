@@ -6019,6 +6019,13 @@ class ComponentEngine {
         return (0.0 * (0.0 - 1.0))
     }
 
+    ; Floor in PURE double arithmetic. The old `to_double (to_int v)`
+    ; truncation rides the target's int, and Ranger's int is 32 BITS on the
+    ; C++ target -- any |v| >= 2^31 saturated to INT32_MIN there (x86
+    ; cvttsd2si), which corrupted every ToInt32/ToUint32 and all date math
+    ; built on this floor. Adding and subtracting 2^52 rounds to an integer
+    ; in the double domain itself; one compare corrects round-up to floor.
+    ; A magnitude at or above 2^52 is already integral.
     fn floorNum:double (v:double) {
         if (v != v) {
             return v
@@ -6026,11 +6033,37 @@ class ComponentEngine {
         if (false == (this.isFiniteNum(v))) {
             return v
         }
-        def t:double (to_double (to_int v))
+        ; ±0 floors to ITSELF -- the add/subtract below would turn -0 into
+        ; +0, and Math.ceil's sign dance reads floor(-0) as -0.
+        if (v == 0.0) {
+            return v
+        }
+        def big:double 4503599627370496.0
+        def av:double v
+        if (av < 0.0) {
+            av = (0.0 - av)
+        }
+        if (av >= big) {
+            return v
+        }
+        def t:double 0.0
+        if (v >= 0.0) {
+            t = ((v + big) - big)
+        } {
+            t = ((v - big) + big)
+        }
         if (t > v) {
             return (t - 1.0)
         }
         return t
+    }
+
+    ; Truncation toward zero, same double-domain discipline as floorNum.
+    fn truncNum:double (v:double) {
+        if (v < 0.0) {
+            return (0.0 - (this.floorNum((0.0 - v))))
+        }
+        return (this.floorNum(v))
     }
 
     fn isFiniteNum:boolean (v:double) {
@@ -6073,9 +6106,9 @@ class ComponentEngine {
     ; matching AssemblyScript's i8/u8/i16/u16/i32/u32 truncation. Computed in
     ; doubles (exact up to 2^53, so u32 fits) via truncate-then-modulo-2^bits.
     fn wrapInt:double (v:double bits:int signed:boolean) {
-        def iv:double (to_double (to_int v))
+        def iv:double (this.truncNum(v))
         def m:double (this.powNum(2.0 bits))
-        def r:double (iv - (m * (to_double (to_int (iv / m)))))
+        def r:double (iv - (m * (this.truncNum((iv / m)))))
         if (r < 0.0) {
             r = (r + m)
         }
@@ -6258,13 +6291,13 @@ class ComponentEngine {
             return (EvHandle.fromInt((bit_xor (this.toInt32Of(current)) (this.toInt32Of(rightValue)))))
         }
         if (opK == 8) {
-            return (EvHandle.fromInt((bit_shl (this.toInt32Of(current)) (bit_and (this.toInt32Of(rightValue)) 31))))
+            return (EvHandle.fromInt((this.int32Wrap((bit_shl (this.toInt32Of(current)) (bit_and (this.toInt32Of(rightValue)) 31))))))
         }
         if (opK == 9) {
             return (EvHandle.fromInt((bit_shr (this.toInt32Of(current)) (bit_and (this.toInt32Of(rightValue)) 31))))
         }
         if (opK == 10) {
-            return (EvHandle.fromInt((bit_ushr (this.toInt32Of(current)) (bit_and (this.toInt32Of(rightValue)) 31))))
+            return (this.ushr32Of(current rightValue))
         }
         if (opK == 14) {
             if (current.toBool()) {
@@ -8127,19 +8160,6 @@ class ComponentEngine {
         }
         fnNode.bcScanned = true
         fnNode.bcProgramId = (0 - 1)
-        ; BISECT HOOK: BC_MAX_PROGRAMS caps how many bodies may compile in
-        ; this process (unset = unlimited), and its presence turns on a
-        ; per-compile print -- a target-specific divergence can be halved
-        ; down to ONE program without a rebuild.
-        def bcCapS:string (env_var "BC_MAX_PROGRAMS")
-        if ((strlen bcCapS) > 0) {
-            def bcCapN@(optional):double (to_double bcCapS)
-            if bcCapN {
-                if ((to_double (array_length bcPrograms)) >= (unwrap bcCapN)) {
-                    return (0 - 1)
-                }
-            }
-        }
         if (false == (this.paramSlotsOkFor(fnNode))) {
             return (0 - 1)
         }
@@ -8179,9 +8199,6 @@ class ComponentEngine {
         }
         push bcPrograms prog
         fnNode.bcProgramId = ((array_length bcPrograms) - 1)
-        if ((strlen bcCapS) > 0) {
-            print ("[bc] compiled #" + ((to_string fnNode.bcProgramId) + (" " + fnNode.name)))
-        }
         return fnNode.bcProgramId
     }
 
@@ -11161,7 +11178,7 @@ class ComponentEngine {
                     if (methodName == "parseInt") {
                         if ((array_length node.children) > 0) {
                             def piv:EvHandle (this.evaluateExpr((itemAt node.children 0)))
-                            return (EvHandle.fromInt((to_int (piv.toNumber()))))
+                            return (EvValueBridge.taggedNumber((this.truncNum((piv.toNumber())))))
                         }
                         return (EvValueBridge.taggedNumber((0.0 / 0.0)))
                     }
@@ -11223,7 +11240,13 @@ class ComponentEngine {
                     if (methodName == "isInteger") {
                         if (EvValueBridge.isNumber(nv)) {
                             def d:double (nv.toNumber())
-                            return (EvValueBridge.taggedBoolean(((to_double (to_int d)) == d)))
+                            if (d != d) {
+                                return (EvValueBridge.taggedBoolean(false))
+                            }
+                            if (false == (this.isFiniteNum(d))) {
+                                return (EvValueBridge.taggedBoolean(false))
+                            }
+                            return (EvValueBridge.taggedBoolean(((this.floorNum(d)) == d)))
                         }
                         return (EvValueBridge.taggedBoolean(false))
                     }
@@ -12114,7 +12137,7 @@ class ComponentEngine {
                 if (fnName == "parseInt") {
                     if ((array_length node.children) > 0) {
                         def pv:EvHandle (this.evaluateExpr((itemAt node.children 0)))
-                        return (EvHandle.fromInt((to_int (pv.toNumber()))))
+                        return (EvValueBridge.taggedNumber((this.truncNum((pv.toNumber())))))
                     }
                     return (EvValueBridge.taggedNumber(0.0))
                 }
@@ -12690,6 +12713,41 @@ class ComponentEngine {
     ; relational and equality on two already-evaluated operands. One
     ; implementation serves the tree-walker (evaluateBinaryExpr) and the
     ; bytecode VM, so the semantics cannot fork.
+    ; Exact ToInt32 wrap for a raw int64 result: JS bitwise results are
+    ; SIGNED 32-bit however wide the target's int is. On es6 the generated
+    ; `&` is already 32-bit so this is an identity; on C++/Rust it folds
+    ; the high bits away.
+    fn int32Wrap:int (n:int) {
+        def m:int (bit_and n 4294967295)
+        if (m >= 2147483648) {
+            return (m - 4294967296)
+        }
+        return m
+    }
+
+    ; JS `>>>` computed in the DOUBLE domain. ToUint32(left) lives in
+    ; [0, 2^32) and need not fit a SIGNED 32-bit int -- `-1 >>> 0` is
+    ; 4294967295 -- and Ranger's int IS 32 bits on the C++ target, where an
+    ; int-typed mask both narrows the mask away again and cannot hold the
+    ; result. The uint32 pattern as an exact double, divided by 2^count and
+    ; floored, is exact IEEE arithmetic on every target.
+    fn ushr32Of:EvHandle (left:EvHandle right:EvHandle) {
+        def d:double (this.toNumberOf(left))
+        def t:double 0.0
+        if (d == d) {
+            if (this.isFiniteNum(d)) {
+                t = (this.floorNum(d))
+                if (d < 0.0) {
+                    t = (0.0 - (this.floorNum((0.0 - d))))
+                }
+            }
+        }
+        def u:double (this.wrapUint32(t))
+        def cnt:int (bit_and (this.toInt32Of(right)) 31)
+        def div:double (this.powNum(2.0 cnt))
+        return (EvValueBridge.taggedNumber((this.floorNum((u / div)))))
+    }
+
     fn applyBinaryOp:EvHandle (opK:int left:EvHandle right:EvHandle) {
         ; Arithmetic
         if (opK == 20) {
@@ -12785,7 +12843,7 @@ class ComponentEngine {
         if (opK == 40) {
             def leftInt:int (this.toInt32Of(left))
             def cnt:int (bit_and (this.toInt32Of(right)) 31)
-            return (EvHandle.fromInt((bit_shl leftInt cnt)))
+            return (EvHandle.fromInt((this.int32Wrap((bit_shl leftInt cnt)))))
         }
         if (opK == 41) {
             def leftInt:int (this.toInt32Of(left))
@@ -12793,9 +12851,7 @@ class ComponentEngine {
             return (EvHandle.fromInt((bit_shr leftInt cnt)))
         }
         if (opK == 42) {
-            def leftInt:int (this.toInt32Of(left))
-            def cnt:int (bit_and (this.toInt32Of(right)) 31)
-            return (EvHandle.fromInt((bit_ushr leftInt cnt)))
+            return (this.ushr32Of(left right))
         }
         ; Exponentiation (a ** b). Integer-exponent fast path (covers game/AS use);
         ; falls back to repeated multiply for the truncated integer exponent.
@@ -15578,7 +15634,11 @@ class ComponentEngine {
                             idx = (this.toIntegerOf((itemAt args 0)))
                         }
                         if ((idx >= 0) && (idx < (strlen s))) {
-                            return (EvHandle.fromInt((charAt s idx)))
+                            ; A code unit is UNSIGNED (0..255 for a single-byte
+                            ; store); `charAt` rides the target's char, which is
+                            ; SIGNED on C++, so byte 0xA4 came back as -92. Mask
+                            ; to the low byte to restore the unsigned code unit.
+                            return (EvHandle.fromInt((bit_and (charAt s idx) 255)))
                         }
                         ; Out of range is NaN, not 0 -- 0 is a real code unit.
                         return (EvValueBridge.taggedNumber((0.0 / 0.0)))
@@ -17602,13 +17662,20 @@ class ComponentEngine {
             if (d > 0.0) { return 2147483647 }
             return (0 - 2147483647)
         }
-        ; Truncate TOWARD ZERO. `to_int` floors on this backend, so -0.1 became
-        ; -1 and `(1).toFixed(-0.1)` raised a RangeError where the spec asks for
-        ; ToInteger(-0.1) = 0.
-        if (d < 0.0) {
-            return (0 - (to_int (0.0 - d)))
+        ; Truncate TOWARD ZERO in the double domain (see floorNum), then
+        ; SATURATE at the int32 range: the return type is the target's int,
+        ; which is 32 bits on C++, where an unguarded conversion of a larger
+        ; magnitude is undefined behavior (x86 answers INT32_MIN). Every
+        ; caller compares against string/array lengths, so the saturated
+        ; value behaves identically to the unrepresentable exact one.
+        def t:double (this.truncNum(d))
+        if (t >= 2147483647.0) {
+            return 2147483647
         }
-        return (to_int d)
+        if (t <= (0.0 - 2147483647.0)) {
+            return (0 - 2147483647)
+        }
+        return (to_int t)
     }
 
     ; ToUint16: ToInteger, then reduced modulo 2^16 into [0, 65535].
