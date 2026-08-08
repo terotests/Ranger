@@ -10144,9 +10144,14 @@ class ComponentEngine {
                 if ((itemAt bcTags fnPos) == 0) {
                     def ick:int (itemAt prog.icKeys (pc - 1))
                     if (ick > 0) {
-                        def fnvIC:EvHandle (itemAt bcStack fnPos)
-                        if ((fnvIC.identityIdOf()) == ick) {
-                            if (false == (fnvIC.hasOwnData("__fnprotocall__"))) {
+                        ; identity + epoch re-prove the whole ladder: every
+                        ; laddered property of a function value is immutable
+                        ; after mint, and the one exception -- a write of the
+                        ; __fnprotocall__ marker -- bumps the dispatch epoch
+                        ; at its write funnels
+                        def icEp20:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+                        if ((itemAt prog.icEpochs (pc - 1)) == icEp20.n) {
+                            if (((itemAt bcStack fnPos).identityIdOf()) == ick) {
                                 dcr = (this.bcDirectCallKnown(fnPos argc needTop ((itemAt prog.icOps (pc - 1)) - 1)))
                             }
                         }
@@ -10156,8 +10161,10 @@ class ComponentEngine {
                         def dtr:int (this.bcTryDirectCall(fnPos argc needTop))
                         if (dtr >= 2) {
                             if (fnIdA > 0) {
+                                def icEpA:EvDispatchEpoch (EvDispatchEpoch.__singleton())
                                 set prog.icKeys (pc - 1) fnIdA
                                 set prog.icOps (pc - 1) (dtr - 1)
+                                set prog.icEpochs (pc - 1) icEpA.n
                             }
                             dcr = 0
                         } {

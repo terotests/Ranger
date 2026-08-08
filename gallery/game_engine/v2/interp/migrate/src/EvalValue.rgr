@@ -304,6 +304,10 @@ class EvPropertyBag {
     ; paths skip the per-key accessor probe, and its string-key mint, on the
     ; overwhelmingly common accessor-free object.
     def everHadAccessor:boolean false
+    ; MONOTONE: true once any slot on this bag ever carried non-default
+    ; attributes. False proves every property is plain writable data, so
+    ; the fast write path can store without the attrs probes.
+    def everHadAttrs:boolean false
 
     ; E4c: property-bag SoT. Value payload is EvalValue (avoids EvHandle import cycle).
     fn hasData:boolean (key:string) {
@@ -349,6 +353,9 @@ class EvPropertyBag {
     fn putData:void (key:string value:EvalValue attrs:int) {
         if (false == (has slots key)) {
             slotCount = (slotCount + 1)
+        }
+        if (attrs != 7) {
+            everHadAttrs = true
         }
         ; Bind through the union type so Rust gets union_EvPropertySlot, not the
         ; bare case struct (same pattern as `def a:Value (new Value.Num(...))`).
@@ -397,6 +404,7 @@ class EvPropertyBag {
         return 7
     }
     fn setAttrsOn:void (key:string attrs:int) {
+        everHadAttrs = true
         if (false == (has slots key)) {
             ; Attribute bits without a value — Hole placeholder so hasData is
             ; false (must not shadow array dense indexes / inherited reads).

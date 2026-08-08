@@ -434,6 +434,23 @@ Fixed work, C++, interleaved: **method 460 → 154 ms (−67%)**,
 (−68%). Conformance: es6 1317/1317; C++ 1255+36+2 and Rust 1276+15+2,
 failure sets bit-unchanged.
 
+The re-profile after that round showed the next two taxes and both got
+the same monotone-flag treatment. The op-20 IC's own per-call
+`__fnprotocall__` probe (12.4M `hasOwnData` calls on richards) is now
+epoch-based: every write funnel of that marker (putOwnData, setAttrs,
+the fast write) bumps the dispatch epoch, so the IC hit needs only
+identity + epoch — a probe that swaps the marker onto a live function
+mid-run confirms sites re-arm and match the walker exactly. And plain
+property WRITES (up to five probes: hasOwnData, isWritable/attrsOf,
+extensible, protoRefuses, then putData) collapse to one store behind
+`everHadAttrs` — a chain whose bags never carried attributes or
+accessors, own bag unfrozen/unsealed/extensible, cannot refuse or
+redirect, and with no attrs anywhere every existing slot is already at
+default attributes so overwrites preserve them. Interleaved, C++:
+fib −9.5%, object −10.6%, splay kernel −1.4%, richards flat.
+Frozen/sealed/defineProperty/read-only-proto/setter probes all hold on
+all three targets; failure sets bit-unchanged.
+
 ## Splay: the C++-only spin, resolved (2026-08-07)
 
 The long-standing "C++-only splay spin" was **not** the tree, the rotations,

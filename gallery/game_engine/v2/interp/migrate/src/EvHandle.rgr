@@ -1083,6 +1083,11 @@ class EvHandle {
     }
 
     fn setAttrs:void (key:string w:boolean e:boolean c:boolean) {
+        if (key == "__fnprotocall__") {
+            ; the callable-prototype marker is epoch-guarded at call sites
+            def fpEp3:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+            fpEp3.bump()
+        }
         def f:int 0
         if w { f = (bit_or f 1) }
         if e { f = (bit_or f 2) }
@@ -1509,6 +1514,11 @@ class EvHandle {
             def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
             dEp.bump()
         }
+        if (key == "__fnprotocall__") {
+            ; the callable-prototype marker is epoch-guarded at call sites
+            def fpEp2:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+            fpEp2.bump()
+        }
         def propsOpt@(optional):EvPropertyBag (this.tryProps())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
@@ -1744,7 +1754,72 @@ class EvHandle {
     ; D-FNPROPS: every object type accepts property writes — plain objects (5),
     ; functions (6), arrays (4) and Map/Set (9/10). Primitives silently ignore
     ; the write, which is sloppy-mode behaviour.
+    ; The plain-store fast path: an OBJECT whose whole chain never carried
+    ; attributes or accessors, own bag not frozen/sealed and extensible --
+    ; nothing anywhere can refuse or redirect the write, so it is one bag
+    ; store with default attributes (which also preserves existing slots'
+    ; attributes: with everHadAttrs false they are all 7 already). False =
+    ; take the full machinery.
+    fn setMemberFast:boolean (key:string value:EvHandle) {
+        if isProtoObject {
+            return false
+        }
+        case body o:EvalValue.Object {
+            def bag:EvPropertyBag o.properties
+            if bag.everHadAttrs {
+                return false
+            }
+            if bag.everHadAccessor {
+                return false
+            }
+            if bag.frozen {
+                return false
+            }
+            if bag.sealed {
+                return false
+            }
+            if (false == bag.extensible) {
+                return false
+            }
+            def pr:EvalValue bag.prototype
+            def depth:int 0
+            while (depth < 17) {
+                if (EvalValue.isHole(pr)) {
+                    if (key == "__fnprotocall__") {
+                        ; the callable-prototype marker is epoch-guarded at
+                        ; call sites; any write of it re-arms them
+                        def fpEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+                        fpEp.bump()
+                    }
+                    bag.putData(key (value.toStored()) 7)
+                    return true
+                }
+                def stepped:boolean false
+                case pr po:EvalValue.Object {
+                    def pbag:EvPropertyBag po.properties
+                    if pbag.everHadAttrs {
+                        return false
+                    }
+                    if pbag.everHadAccessor {
+                        return false
+                    }
+                    pr = pbag.prototype
+                    stepped = true
+                }
+                if (false == stepped) {
+                    return false
+                }
+                depth = (depth + 1)
+            }
+            return false
+        }
+        return false
+    }
+
     fn setMember:void (key:string value:EvHandle) {
+        if (this.setMemberFast(key value)) {
+            return
+        }
         if isProtoObject {
             def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
             dEp.bump()
