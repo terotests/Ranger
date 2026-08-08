@@ -929,6 +929,118 @@ class EvHandle {
         return 0.0
     }
     
+    ; ECMA-262 Number::toString(10) NOTATION applied to the target's own
+    ; shortest-round-trip digits. The natives are faithful but wear the
+    ; wrong clothes: C++ prints scientific where JS wants plain decimal
+    ; (1e20 -> "100000000000000000000") and Rust prints full decimal where
+    ; JS wants scientific (MAX_VALUE). Parse the native string into
+    ; (digits, exponent) and re-emit by the spec's k/n rules; anything
+    ; surprising fails the round-trip check and falls back to the native
+    ; form unchanged.
+    sfn jsNumberFormat:string (v:double nat:string) {
+        def s:string nat
+        def sign:string ""
+        if ((strlen s) > 0) {
+            if ((substring s 0 1) == "-") {
+                sign = "-"
+                s = (substring s 1 (strlen s))
+            }
+        }
+        ; split off an exponent suffix
+        def mant:string s
+        def exp10:int 0
+        def ei:int 0
+        def eAt:int (0 - 1)
+        while (ei < (strlen s)) {
+            def ch:string (substring s ei (ei + 1))
+            if ((ch == "e") || (ch == "E")) {
+                eAt = ei
+                ei = (strlen s)
+            } {
+                ei = (ei + 1)
+            }
+        }
+        if (eAt >= 0) {
+            mant = (substring s 0 eAt)
+            def expStr:string (substring s (eAt + 1) (strlen s))
+            def pe@(optional):double (to_double expStr)
+            if pe {
+                exp10 = (to_int (unwrap pe))
+            } {
+                return nat
+            }
+        }
+        ; split the mantissa on the decimal point
+        def ip:string mant
+        def fp:string ""
+        def di:int 0
+        while (di < (strlen mant)) {
+            if ((substring mant di (di + 1)) == ".") {
+                ip = (substring mant 0 di)
+                fp = (substring mant (di + 1) (strlen mant))
+                di = (strlen mant)
+            } {
+                di = (di + 1)
+            }
+        }
+        def digits:string (ip + fp)
+        ; value = 0.digits * 10^n once leading zeros are absorbed into n
+        def n:int ((strlen ip) + exp10)
+        while (((strlen digits) > 0) && ((substring digits 0 1) == "0")) {
+            digits = (substring digits 1 (strlen digits))
+            n = (n - 1)
+        }
+        while (((strlen digits) > 0) && ((substring digits ((strlen digits) - 1) (strlen digits)) == "0")) {
+            digits = (substring digits 0 ((strlen digits) - 1))
+        }
+        if ((strlen digits) == 0) {
+            return (sign + "0")
+        }
+        def k:int (strlen digits)
+        def out:string ""
+        if ((k <= n) && (n <= 21)) {
+            out = digits
+            def z1:int k
+            while (z1 < n) {
+                out = (out + "0")
+                z1 = (z1 + 1)
+            }
+        } {
+            if ((0 < n) && (n <= 21)) {
+                out = ((substring digits 0 n) + ("." + (substring digits n k)))
+            } {
+                if (((0 - 6) < n) && (n <= 0)) {
+                    out = "0."
+                    def z2:int n
+                    while (z2 < 0) {
+                        out = (out + "0")
+                        z2 = (z2 + 1)
+                    }
+                    out = (out + digits)
+                } {
+                    def e1:int (n - 1)
+                    out = (substring digits 0 1)
+                    if (k > 1) {
+                        out = ((out + ".") + (substring digits 1 k))
+                    }
+                    if (e1 >= 0) {
+                        out = ((out + "e+") + (to_string e1))
+                    } {
+                        out = ((out + "e-") + (to_string (0 - e1)))
+                    }
+                }
+            }
+        }
+        def full:string (sign + out)
+        def back@(optional):double (to_double full)
+        if back {
+            if ((unwrap back) == v) {
+                return full
+            }
+        }
+        return nat
+    }
+
     fn toString:string () {
         if (this.isNull()) {
             return "null"
@@ -953,14 +1065,16 @@ class EvHandle {
             if (nv == ((0.0 - 1.0) / 0.0)) {
                 return "-Infinity"
             }
-            ; Format number - remove trailing zeros
-            def s:string (to_string nv)
-            ; Check if it's a whole number
-            def intVal:int (to_int nv)
-            if ((to_double intVal) == nv) {
-                return (to_string intVal)
+            ; whole numbers in int range print through the int (RANGE-GUARDED:
+            ; to_int is 32-bit on the C++ target, so probing it with a bigger
+            ; value is undefined behavior, not a conversion)
+            if ((nv > (0.0 - 2147483000.0)) && (nv < 2147483000.0)) {
+                def intVal:int (to_int nv)
+                if ((to_double intVal) == nv) {
+                    return (to_string intVal)
+                }
             }
-            return s
+            return (EvHandle.jsNumberFormat(nv (to_string nv)))
         }
         if (this.isString()) {
             return (this.stringOf())
@@ -1412,7 +1526,8 @@ class EvHandle {
         ; Array length property
         if (this.isArray()) {
             if (key == "length") {
-                return (EvHandle.fromInt((this.arrayLength())))
+                ; Exact double lane: a declared length can exceed the int.
+                return (EvHandle.number((this.arrayLengthD())))
             }
             ; A non-index property set on an array (`a.foo = 1`) lives in the
             ; PropertyBag.
@@ -1962,11 +2077,28 @@ class EvHandle {
     ; the dense store holds, otherwise the number of elements.
     fn arrayLength:int () {
         def dense:int (this.denseLen())
-        def decl:int (this.declaredLengthOf())
-        if (decl > dense) {
-            return decl
+        def decl:double (this.declaredLengthOfD())
+        if (decl > (to_double dense)) {
+            ; A declared length past the int lane is CLAMPED here -- callers
+            ; that must see the exact value (the `.length` read, far-index
+            ; writes) use arrayLengthD. to_int past 2^31 is UB on C++.
+            if (decl > 2147483000.0) {
+                return 2147483000
+            }
+            return (to_int decl)
         }
         return dense
+    }
+
+    ; The exact length in the double lane -- a declared length can be up to
+    ; 2^32-1, which only a double carries on every target.
+    fn arrayLengthD:double () {
+        def dense:int (this.denseLen())
+        def decl:double (this.declaredLengthOfD())
+        if (decl > (to_double dense)) {
+            return decl
+        }
+        return (to_double dense)
     }
 
     ; ---- E4c: dense-store accessors ----------------------------------------
@@ -2089,16 +2221,19 @@ class EvHandle {
         }
         return (EvHandle.undefined())
     }
-    fn declaredLengthOf:int () {
+    fn declaredLengthOfD:double () {
         def _k:EvalValue body
         if (EvalValue.isArrayValue(_k)) {
             case _k a:EvalValue.Array {
                 return a.declaredLength
             }
         }
-        return (0 - 1)
+        return (0.0 - 1.0)
     }
     fn setDeclaredLength:void (n:int) {
+        this.setDeclaredLengthD((to_double n))
+    }
+    fn setDeclaredLengthD:void (n:double) {
         def _k:EvalValue body
         if (EvalValue.isArrayValue(_k)) {
             case _k a:EvalValue.Array {
@@ -2270,7 +2405,7 @@ class EvHandle {
             if ((array_length a.items) > 0) {
                 removeLast a.items
             }
-            a.declaredLength = (array_length a.items)
+            a.declaredLength = (to_double (array_length a.items))
         }
     }
 
@@ -2290,7 +2425,7 @@ class EvHandle {
                 ; Rebuild around the SAME property bag — going through
                 ; EvalValue.arrayAt minted a fresh bag, so `a.foo = 1` was
                 ; silently dropped by pop/shift/reverse/sort.
-                body = (new EvalValue.Array(a.identityId a.properties stored (array_length stored)))
+                body = (new EvalValue.Array(a.identityId a.properties stored (to_double (array_length stored))))
             }
             return
         }

@@ -2084,16 +2084,18 @@ class ComponentEngine {
                 if ((this.floorNum(rawLen)) != rawLen) {
                     return (this.throwSpecError("RangeError" "Invalid array length"))
                 }
-                def slots:int (to_int rawLen)
                 ; D-ARRAYSPARSE: a length past what the dense store can hold is
                 ; DECLARED rather than materialised -- `new Array(4294967295)`
                 ; is legal and has no elements at all, and a RangeError for it
                 ; confused "too big to allocate" with "not a length".
-                if (slots > 10000000) {
+                ; The big branch is decided on the DOUBLE: to_int of a length
+                ; past 2^31 is UB on the C++ target.
+                if (rawLen > 10000000.0) {
                     def bigArr2:EvHandle (EvValueBridge.taggedArray(items))
-                    bigArr2.setDeclaredLength(slots)
+                    bigArr2.setDeclaredLengthD(rawLen)
                     return bigArr2
                 }
+                def slots:int (to_int rawLen)
                 ; D-HOLES: `new Array(5)` has five ABSENT elements, so forEach
                 ; visits none of them -- filling with undefined made every
                 ; iteration method run five times.
@@ -6079,7 +6081,11 @@ class ComponentEngine {
     }
 
     fn negativeZero:double () {
-        return (0.0 * (0.0 - 1.0))
+        ; through a VARIABLE, not literals: the C++ writer prints double
+        ; literals bare, so `0.0 * (0.0 - 1.0)` became integer 0 * -1 = +0
+        ; there. A double binding forces the whole product into f64.
+        def z:double 0.0
+        return (z * (0.0 - 1.0))
     }
 
     ; Floor in PURE double arithmetic. The old `to_double (to_int v)`
@@ -6465,11 +6471,17 @@ class ComponentEngine {
         ; text, not by whether the expression happened to be a number. `x["0"]`
         ; is the element and `x[-1]` is a property, and routing on the operand's
         ; type got both of those backwards.
+        def numIdxD:double (0.0 - 1.0)
         if (obj.isArray()) {
-            def ai0:int (this.canonicalArrayIndex(key))
-            if (ai0 >= 0) {
+            ; D lane: an index up to 2^32-2 is canonical, and only a double
+            ; carries it on the C++ target.
+            def ai0:double (this.canonicalArrayIndexD(key))
+            if (ai0 >= 0.0) {
                 numericIndexes = true
-                numIdx = ai0
+                numIdxD = ai0
+                if (ai0 <= 10000000.0) {
+                    numIdx = (to_int ai0)
+                }
             }
         }
         ; An ELEMENT defined as an accessor takes the write through its setter,
@@ -6489,15 +6501,15 @@ class ComponentEngine {
             ; length". Such an index is stored as an ordinary property instead,
             ; which keeps the value readable and cannot crash. What it does not do
             ; is move `length`, and that is the documented limit of the model.
-            if (numIdx > 10000000) {
-                def farKey:string (this.toPropertyKey((EvHandle.fromInt(numIdx))))
+            if (numIdxD > 10000000.0) {
+                def farKey:string (this.toPropertyKey((EvHandle.number(numIdxD))))
                 def farCur:EvHandle (obj.getMember(farKey))
                 result = (this.applyAssignOp(opK farCur rightValue))
                 obj.setMember(farKey result)
                 ; The element is past the dense store, but it still moves the
                 ; length -- `a[2147483648] = 1` makes a.length 2147483649.
-                if ((numIdx + 1) > (obj.arrayLength())) {
-                    obj.setDeclaredLength((numIdx + 1))
+                if ((numIdxD + 1.0) > (obj.arrayLengthD())) {
+                    obj.setDeclaredLengthD((numIdxD + 1.0))
                 }
             } {
                 def curIdx:EvHandle (obj.getIndex(numIdx))
@@ -6512,7 +6524,7 @@ class ComponentEngine {
             ; untouched and every assertion about it read the old contents.
             if (obj.isArray()) {
                 if (key == "length") {
-                    def lenCur:EvHandle (EvHandle.fromInt((obj.arrayLength())))
+                    def lenCur:EvHandle (EvHandle.number((obj.arrayLengthD())))
                     def lenWant:EvHandle (this.applyAssignOp(opK lenCur rightValue))
                     if scriptThrew {
                         return (EvValueBridge.taggedUndefined())
@@ -6535,8 +6547,7 @@ class ComponentEngine {
                     ; D-ARRAYSPARSE: beyond the dense cap only the DECLARED
                     ; length moves -- the spec allows a length of 2^32-1 with no
                     ; elements, which no dense container can materialise.
-                    def newLen:int (to_int lenU)
-                    this.setArrayLength(obj newLen)
+                    this.setArrayLength(obj lenU)
                     return lenWant
                 }
             }
@@ -6950,7 +6961,7 @@ class ComponentEngine {
         if (false == node.computed) {
             ; .length of an array (dense or declared) or a string
             if (base.isArray()) {
-                def lenHit@(optional):EvHandle (this.exprSlotNumber(node (to_double (base.arrayLength()))))
+                def lenHit@(optional):EvHandle (this.exprSlotNumber(node (base.arrayLengthD())))
                 return lenHit
             }
             if (base.isString()) {
@@ -8100,16 +8111,18 @@ class ComponentEngine {
                 if ((this.floorNum(rawLen)) != rawLen) {
                     return (this.throwSpecError("RangeError" "Invalid array length"))
                 }
-                def slots:int (to_int rawLen)
                 ; D-ARRAYSPARSE: a length past what the dense store can hold is
                 ; DECLARED rather than materialised -- `new Array(4294967295)`
                 ; is legal and has no elements at all, and raising a RangeError
                 ; for it confused "too big to allocate" with "not a length".
-                if (slots > 10000000) {
+                ; The big branch is decided on the DOUBLE: to_int of a length
+                ; past 2^31 is UB on the C++ target.
+                if (rawLen > 10000000.0) {
                     def bigArr:EvHandle (EvValueBridge.taggedArray(items))
-                    bigArr.setDeclaredLength(slots)
+                    bigArr.setDeclaredLengthD(rawLen)
                     return bigArr
                 }
+                def slots:int (to_int rawLen)
                 def si:int 0
                 while (si < slots) {
                     push items (EvValueBridge.taggedHole())
@@ -9754,7 +9767,8 @@ class ComponentEngine {
                 return (EvHandle.fromInt((strlen (obj.stringOf()))))
             }
             if (obj.isArray()) {
-                return (EvHandle.fromInt((obj.arrayLength())))
+                ; Exact double lane: a declared length can exceed the int.
+                return (EvHandle.number((obj.arrayLengthD())))
             }
         }
         if (name == "size") {
@@ -9801,6 +9815,16 @@ class ComponentEngine {
         }
         if (this.objectProtoFallbackFor(grk name)) {
             return (this.sharedNativeMethod("object" name))
+        }
+        ; the KIND prototype's own data answers next, as the walker's read
+        ; does -- `constructor` on Array.prototype is what makes
+        ; `[].constructor === Array` hold in a compiled body
+        def gcn:string (this.ctorNameForKind(grk))
+        if ((strlen gcn) > 0) {
+            def gkp:EvHandle (this.builtinPrototype(gcn))
+            if (gkp.hasOwnData(name)) {
+                return (gkp.getOwnData(name))
+            }
         }
         return (EvHandle.undefined())
     }
@@ -9943,20 +9967,20 @@ class ComponentEngine {
                     def _lt:EvHandle (this.throwSpecError("RangeError" "Invalid array length"))
                     return
                 }
-                this.setArrayLength(obj (to_int lenU))
+                this.setArrayLength(obj lenU)
                 return
             }
-            def ai0:int (this.canonicalArrayIndex(pk))
-            if (ai0 >= 0) {
+            def ai0:double (this.canonicalArrayIndexD(pk))
+            if (ai0 >= 0.0) {
                 if ((false == (obj.hasOwnSetter(pk))) && (false == (obj.hasOwnGetter(pk)))) {
-                    if (ai0 > 10000000) {
+                    if (ai0 > 10000000.0) {
                         obj.setMember(pk v)
-                        if ((ai0 + 1) > (obj.arrayLength())) {
-                            obj.setDeclaredLength((ai0 + 1))
+                        if ((ai0 + 1.0) > (obj.arrayLengthD())) {
+                            obj.setDeclaredLengthD((ai0 + 1.0))
                         }
                         return
                     }
-                    obj.setIndexAt(ai0 v)
+                    obj.setIndexAt((to_int ai0) v)
                     return
                 }
             }
@@ -21075,24 +21099,41 @@ class ComponentEngine {
     ; that do not move `length`. Only ToString(ToUint32(k)) === k qualifies, and
     ; 2^32-1 is deliberately excluded -- it is the one uint32 that is not an index.
     fn canonicalArrayIndex:int (key:string) {
-        def n:int (strlen key)
-        if (n == 0) {
+        ; The int lane. An index past 2^31 cannot ride in a C++ int (to_int
+        ; would be UB), so it answers -1 here -- the funnels that must see
+        ; such an index exactly (far-index writes, length shrink) use the
+        ; D variant. Indexes that large are far past the dense cap on every
+        ; path, so an int-lane caller treats them as ordinary properties,
+        ; which is where they are stored anyway.
+        def v:double (this.canonicalArrayIndexD(key))
+        if (v < 0.0) {
             return (0 - 1)
         }
-        if (n > 10) {
+        if (v > 2147483000.0) {
             return (0 - 1)
+        }
+        return (to_int v)
+    }
+
+    fn canonicalArrayIndexD:double (key:string) {
+        def n:int (strlen key)
+        if (n == 0) {
+            return (0.0 - 1.0)
+        }
+        if (n > 10) {
+            return (0.0 - 1.0)
         }
         def i:int 0
         while (i < n) {
             def c:int (charAt key i)
-            if (c < 48) { return (0 - 1) }
-            if (c > 57) { return (0 - 1) }
+            if (c < 48) { return (0.0 - 1.0) }
+            if (c > 57) { return (0.0 - 1.0) }
             i = (i + 1)
         }
         ; A leading zero means the text is not ToString of the number.
         if (n > 1) {
             if ((charAt key 0) == 48) {
-                return (0 - 1)
+                return (0.0 - 1.0)
             }
         }
         def v:double 0.0
@@ -21102,9 +21143,9 @@ class ComponentEngine {
             j = (j + 1)
         }
         if (v >= 4294967295.0) {
-            return (0 - 1)
+            return (0.0 - 1.0)
         }
-        return (to_int v)
+        return v
     }
 
     fn toPropertyKey:string (v:EvHandle) {
@@ -21278,10 +21319,10 @@ class ComponentEngine {
             if (key == "length") {
                 return (this.defineArrayLength(obj desc))
             }
-            def elemIdx:int (this.canonicalArrayIndex(key))
-            if (elemIdx >= 0) {
-                if (elemIdx <= 10000000) {
-                    return (this.defineArrayIndex(obj elemIdx desc))
+            def elemIdx:double (this.canonicalArrayIndexD(key))
+            if (elemIdx >= 0.0) {
+                if (elemIdx <= 10000000.0) {
+                    return (this.defineArrayIndex(obj (to_int elemIdx) desc))
                 }
                 ; Past the dense store the element is an ordinary property, but
                 ; it still moves the length.
@@ -21289,8 +21330,8 @@ class ComponentEngine {
                 if ((strlen farErr) > 0) {
                     return farErr
                 }
-                if ((elemIdx + 1) > (obj.arrayLength())) {
-                    obj.setDeclaredLength((elemIdx + 1))
+                if ((elemIdx + 1.0) > (obj.arrayLengthD())) {
+                    obj.setDeclaredLengthD((elemIdx + 1.0))
                 }
                 return ""
             }
@@ -21492,7 +21533,7 @@ class ComponentEngine {
                     return "cannot change the length of an array whose length is not writable"
                 }
             }
-            this.setArrayLength(obj newLen)
+            this.setArrayLength(obj (to_double newLen))
             obj.setAttrs("length" wantWritable false false)
             return ""
         }
@@ -21515,7 +21556,7 @@ class ComponentEngine {
             }
             scan = (scan - 1)
         }
-        this.setArrayLength(obj stopAt)
+        this.setArrayLength(obj (to_double stopAt))
         obj.setAttrs("length" wantWritable false false)
         if blocked {
             return "cannot delete a non-configurable element while shortening length"
@@ -21527,15 +21568,18 @@ class ComponentEngine {
     ; themselves are resized; beyond it only the DECLARED length moves, because
     ; no dense container can hold 2^32-1 slots and the spec allows a length that
     ; large with no elements at all.
-    fn setArrayLength:void (obj:EvHandle newLen:int) {
-        if (newLen > 10000000) {
+    fn setArrayLength:void (obj:EvHandle newLenD:double) {
+        ; DOUBLE parameter: a length write runs to 2^32-1, past the C++ int.
+        if (newLenD > 10000000.0) {
             def dense:int (obj.denseLen())
-            if (newLen < dense) {
-                this.resizeArrayTo(obj newLen)
+            if (newLenD < (to_double dense)) {
+                ; Below the dense count, so the int conversion is in range.
+                this.resizeArrayTo(obj (to_int newLenD))
             }
-            obj.setDeclaredLength(newLen)
+            obj.setDeclaredLengthD(newLenD)
             return
         }
+        def newLen:int (to_int newLenD)
         this.resizeArrayTo(obj newLen)
         obj.setDeclaredLength((0 - 1))
     }
@@ -21550,10 +21594,12 @@ class ComponentEngine {
         def i:int 0
         while (i < (array_length ks)) {
             def k:string (itemAt ks i)
-            def ki:int (this.canonicalArrayIndex(k))
+            ; D lane: the far indexes this walk exists to drop are exactly the
+            ; ones past the int.
+            def ki:double (this.canonicalArrayIndexD(k))
             def keep:boolean true
-            if (ki >= 0) {
-                if (ki >= newLen) {
+            if (ki >= 0.0) {
+                if (ki >= (to_double newLen)) {
                     keep = false
                 }
             }
@@ -23200,11 +23246,15 @@ class ComponentEngine {
                 ; name ("C") and used to return null. Construct from the value
                 ; we already resolved — same path as `var C = ns.Deep.C; new C()`.
                 if (protoTarget.isFunction()) {
+                    ; Rust: the callee-name read must not stay an argument
+                    ; expression -- its borrow guard would live across the whole
+                    ; construct call and collide with borrows inside it.
+                    def ncCtorName:string newCallee.name
                     if (protoTarget.hasFunctionNode()) {
-                        return (this.constructFromFunction(protoTarget newCallee.name node.children))
+                        return (this.constructFromFunction(protoTarget ncCtorName node.children))
                     }
                     if ((strlen (this.builtinCtorNameOf(protoTarget))) > 0) {
-                        return (this.constructFromFunction(protoTarget newCallee.name node.children))
+                        return (this.constructFromFunction(protoTarget ncCtorName node.children))
                     }
                 }
             }
@@ -23364,7 +23414,11 @@ class ComponentEngine {
             def cnt:string calleeN.nodeType
             if ((cnt == "FunctionExpression") || (cnt == "ArrowFunctionExpression")) {
                 def fnVal:EvHandle (this.captureClosure(calleeN))
-                return (this.constructFromFunction(fnVal calleeN.name node.children))
+                ; Rust: hoist the name read -- as an argument expression its
+                ; borrow guard on calleeN would outlive into the construct call,
+                ; where fnNeedsThis mutably borrows the SAME function node.
+                def feName:string calleeN.name
+                return (this.constructFromFunction(fnVal feName node.children))
             }
             ; D-NEWCALLEE: the callee is a CALL whose result is the constructor
             ; -- `new (Function("...; return f").apply())`. There is no name to
@@ -23376,7 +23430,11 @@ class ComponentEngine {
                     return (EvValueBridge.taggedUndefined())
                 }
                 if (calledV.isFunction()) {
-                    return (this.constructFromFunction(calledV (calledV.fnName()) node.children))
+                    ; Rust: hoist fnName() -- called inline it keeps calledV
+                    ; borrowed across constructFromFunction, which immediately
+                    ; borrows the same handle mutably for getMember.
+                    def cvName:string (calledV.fnName())
+                    return (this.constructFromFunction(calledV cvName node.children))
                 }
                 return (this.throwSpecError("TypeError" "expression is not a constructor"))
             }

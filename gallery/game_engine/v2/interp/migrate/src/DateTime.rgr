@@ -101,10 +101,14 @@ class DateTime {
         if (false == (this.isFiniteD(v))) {
             return v
         }
+        ; PURE double domain: to_int is 32-bit on the C++ target and going
+        ; through it saturated every epoch-millisecond value at 2^31 --
+        ; which is exactly the 1969/1970 dates the conformance rows showed.
+        ; floorD's magic-number trick truncates at any magnitude.
         if (v < 0.0) {
-            return (0.0 - (to_double (to_int (0.0 - v))))
+            return (0.0 - (this.floorD((0.0 - v))))
         }
-        return (to_double (to_int v))
+        return (this.floorD(v))
     }
 
     fn msPerDay:double () {

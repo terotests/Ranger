@@ -1929,14 +1929,18 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                     swift6 ( (e 1) " + String(" (e 2)")" )
                     kotlin ( (e 1) " + " (e 2)".toString()" )
                     dart ( (e 1) " + " (e 2)".toString()" )
-                    cpp ( (e 1 ) " + " "r_double_to_string(" (e 2) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>")
+                    cpp ( (e 1 ) " + " "r_double_to_string(" (e 2) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>") (imp "<cstdlib>")
 (create_polyfill "
 inline std::string r_double_to_string(double v) {
     for (int p = 1; p < 18; p++) {
         std::ostringstream s;
         s << std::setprecision(p) << v;
-        if (std::stod(s.str()) == v) {
-            return s.str();
+        /* strtod, not stod: stod THROWS out_of_range when a low-precision
+       candidate like \"2e+308\" overflows; strtod answers HUGE_VAL, which
+       simply fails the round-trip test. */
+        const std::string cand = s.str();
+        if (std::strtod(cand.c_str(), nullptr) == v) {
+            return cand;
         }
     }
     std::ostringstream s;
@@ -2117,14 +2121,18 @@ inline std::string r_double_to_string(double v) {
                     kotlin ( (e 1) ".toString() + " (e 2) )
                     dart ( (e 1) ".toString() + " (e 2) )
                     go ( "strings.Join([]string{ strconv.FormatFloat(" (e 1) ",'f', -1, 64)," (e 2) " }, \"\")" (imp "strings") (imp "strconv"))
-                    cpp ( "r_double_to_string(" (e 1) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>")
+                    cpp ( "r_double_to_string(" (e 1) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>") (imp "<cstdlib>")
 (create_polyfill "
 inline std::string r_double_to_string(double v) {
     for (int p = 1; p < 18; p++) {
         std::ostringstream s;
         s << std::setprecision(p) << v;
-        if (std::stod(s.str()) == v) {
-            return s.str();
+        /* strtod, not stod: stod THROWS out_of_range when a low-precision
+       candidate like \"2e+308\" overflows; strtod answers HUGE_VAL, which
+       simply fails the round-trip test. */
+        const std::string cand = s.str();
+        if (std::strtod(cand.c_str(), nullptr) == v) {
+            return cand;
         }
     }
     std::ostringstream s;
@@ -4292,14 +4300,18 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
         double2str   cmdDoubleToString:string       ( value:double ) { 
             templates {
                 ranger ( "(double2str " (e 1) ")")
-                cpp ( "r_double_to_string(" (e 1) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>")
+                cpp ( "r_double_to_string(" (e 1) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>") (imp "<cstdlib>")
 (create_polyfill "
 inline std::string r_double_to_string(double v) {
     for (int p = 1; p < 18; p++) {
         std::ostringstream s;
         s << std::setprecision(p) << v;
-        if (std::stod(s.str()) == v) {
-            return s.str();
+        /* strtod, not stod: stod THROWS out_of_range when a low-precision
+       candidate like \"2e+308\" overflows; strtod answers HUGE_VAL, which
+       simply fails the round-trip test. */
+        const std::string cand = s.str();
+        if (std::strtod(cand.c_str(), nullptr) == v) {
+            return cand;
         }
     }
     std::ostringstream s;
@@ -4322,14 +4334,18 @@ inline std::string r_double_to_string(double v) {
         to_string  _:string       ( value:double ) { 
             templates {
                 ranger ( "(double2str " (e 1) ")")
-                cpp ( "r_double_to_string(" (e 1) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>")
+                cpp ( "r_double_to_string(" (e 1) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>") (imp "<cstdlib>")
 (create_polyfill "
 inline std::string r_double_to_string(double v) {
     for (int p = 1; p < 18; p++) {
         std::ostringstream s;
         s << std::setprecision(p) << v;
-        if (std::stod(s.str()) == v) {
-            return s.str();
+        /* strtod, not stod: stod THROWS out_of_range when a low-precision
+       candidate like \"2e+308\" overflows; strtod answers HUGE_VAL, which
+       simply fails the round-trip test. */
+        const std::string cand = s.str();
+        if (std::strtod(cand.c_str(), nullptr) == v) {
+            return cand;
         }
     }
     std::ostringstream s;
@@ -4547,11 +4563,20 @@ class r_optional_primitive {
 (create_polyfill
 "r_optional_primitive<double> cpp_str_to_double(std::string s) {
     r_optional_primitive<double> result;
-    try {
-        result.value = std::stod(s);
-        result.has_value = true;
-    } catch (...) {
-        
+    /* strtod, not stod: glibc's stod throws out_of_range whenever strtod
+       sets ERANGE, which includes SUBNORMAL results -- parsing 5e-324
+       (Number.MIN_VALUE) answered nothing at all. strtod still returns the
+       correctly rounded subnormal; only a leftover suffix or an empty parse
+       means failure. */
+    const char *cs = s.c_str();
+    char *end = nullptr;
+    double v = std::strtod(cs, &end);
+    if (end != cs) {
+        while (*end == 32 || *end == 9 || *end == 10 || *end == 13) { end++; }
+        if (*end == 0) {
+            result.value = v;
+            result.has_value = true;
+        }
     }
     return result;
 }"

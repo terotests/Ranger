@@ -475,6 +475,51 @@ evaluates ALL case tests even after a match where Node stops at the
 first hit; tier and walker agree with each other, not with Node —
 a pre-existing divergence, now documented.
 
+## Native conformance closed to the es6 gap set (2026-08-08)
+
+The native failure piles — C++ 36+2 crashes, Rust 15+2 panics of 1303 —
+are gone: **both targets now score 1297/1303 with zero crashes**, and
+the six survivors are exactly the suite's documented engine-level
+syntax gaps (for-of expression LHS, destructuring swap, computed
+object keys, generators, optional chaining, nullish coalescing),
+identical on every target. What the piles were made of:
+
+- **C++ dates (17)**: DateTime's truncD round-tripped through the
+  32-bit int; now pure double domain (2^52 magic-add floor).
+- **C++ number text**: r_double_to_string / cpp_str_to_double used
+  std::stod, which THROWS on overflow ("2e+308" candidates — the two
+  crashes) and on subnormals (Number.MIN_VALUE undefined) where strtod
+  saturates; toString now range-guards its int fast path and formats
+  by the ECMA notation rules (jsNumberFormat).
+- **Rust ctor panics (2)**: generated argument temporaries kept the
+  callee borrowed across constructFromFunction — `calleeN.name` /
+  `calledV.fnName()` inline in the call — while the body re-borrowed
+  the same node/handle. Hoisted to locals.
+- **Rust substring miscompile**: the writer printed the skip/take
+  length as `end - start` with BOTH operands' parens suppressed, so
+  `substring t (i+1) (i+2)` became `take(i + 2 - i + 1)` = 3 — `$&`
+  in a replace template read three chars and never matched, and JSON's
+  \uXXXX decoding sliced garbage. The writer now parenthesizes each
+  side; compiler rebootstrapped (bin/output.js +6 lines).
+- **Array lengths past 2^31 (C++)**: `declaredLength` is a double now
+  (a JS length runs to 2^32-1; Ranger's int is 32-bit on C++), with a
+  D-suffixed exact lane (arrayLengthD, canonicalArrayIndexD,
+  setArrayLength taking a double) used by the `.length` read/write
+  funnels, far-index element writes and the shrink walk; the int
+  lane survives clamped for the hot loop paths.
+- **U+2028/29 (C++)**: the \uXXXX string-escape decoder truncated any
+  code past 0xFF through `char()` (`" "` decoded to `"("`!) —
+  codeUnitString now writes the UTF-8 bytes on the byte-model target.
+  The lexer recognises the separator as its three-byte substring
+  (isLsPsUtf8) in isLineTerminatorChar / isWhitespace / advance, and
+  codePointAt/advance survive the `at`-past-the-last-code-point ""
+  that a multi-byte char in a byte-counted source produces.
+
+es6 suite 1327/1327 throughout; fixed-work rows sanity-checked after
+the round (fib 54ms, array 49ms, method ~165ms — within this
+container's noise of the recorded numbers, no interleaved re-baseline
+claimed).
+
 ## Splay: the C++-only spin, resolved (2026-08-07)
 
 The long-standing "C++-only splay spin" was **not** the tree, the rotations,

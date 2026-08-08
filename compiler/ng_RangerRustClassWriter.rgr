@@ -5639,15 +5639,19 @@ class RangerRustClassWriter {
           wr.out(") as usize" false)
         }
       } {
-        wr.out("(" false)
+        ; Each side gets its OWN parens: with the outer parens suppressed,
+        ; an additive operand pair like end=(i + 2) start=(i + 1) printed as
+        ; `i + 2 - i + 1`, which is 3, not 1 — $& in a replace template was
+        ; read as a 3-char slice and never matched.
+        wr.out("((" false)
         wr.suppress_expr_parens = true
         this.WalkNode(subEnd ctx wr)
         wr.suppress_expr_parens = false
-        wr.out(" - " false)
+        wr.out(") - (" false)
         wr.suppress_expr_parens = true
         this.WalkNode(subStart ctx wr)
         wr.suppress_expr_parens = false
-        wr.out(") as usize" false)
+        wr.out(")) as usize" false)
       }
       wr.out(").collect::<String>()" false)
       ctx.unsetInExpr()

@@ -50,7 +50,9 @@ shape EvalValue {
 
     case Array does PropertyCarrier {
         def items:[EvalValue]
-        def declaredLength:int (0 - 1)
+        ; DOUBLE, not int: a JS array length runs to 2^32-1, which does not
+        ; fit the 32-bit int the C++ target gives Ranger's int.
+        def declaredLength:double (0.0 - 1.0)
     }
     case Object does PropertyCarrier
     case Function does Callable {
@@ -129,7 +131,7 @@ shape EvalValue {
     }
     sfn arrayAt:EvalValue (id:int items:[EvalValue]) {
         def props:EvPropertyBag (new EvPropertyBag())
-        return (new EvalValue.Array(id props items (array_length items)))
+        return (new EvalValue.Array(id props items (to_double (array_length items))))
     }
     sfn object:EvalValue () {
         return (EvalValue.objectAt(0))
