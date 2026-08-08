@@ -56,6 +56,52 @@ command-line target in the support row, including Dart. A mark ✔ is an own
 template; ✱ is the default `*` template; ✕ means the operator has no template
 for that target.
 
+## The state of a shape on each target language
+
+A [shape](/Ranger/docs/language/shapes/) is a closed set of cases. The
+declaration writes one class for each case and one union over the classes. The
+table states the result of one program that tests each case and each group. The
+program compares the answer of the operator `case` against the answer of the
+operator `is`.
+
+| Target | The program runs | The known limit |
+| --- | --- | --- |
+| JavaScript | yes | none |
+| Python | yes | none |
+| Go | yes | none |
+| Kotlin | yes | none |
+| Java | yes | none |
+| C++ | yes | The variant holds a scalar case behind a pointer. The test asks for the case by value. |
+| Rust | yes | A case value is not wrapped into the union. See the note below. |
+| PHP | yes | none for a shape |
+| Swift | not tested | The toolchain is not available in the test container. The test reads the output of the writer. |
+| Dart, C#, Scala | not tested | No toolchain in the test container. |
+| llvm | no | The writer has no template for `case`, so it compiles no shape. |
+
+**The limit of the Rust target.** A value of a case type does not become a
+value of the union type at an argument. The program below does not compile,
+because `add` takes the union and `n` has the type of the case:
+
+```lisp
+def n:Value (new Value.Num(2.0))
+p.add(n)          ; expected &union_Value, found &Value_Num
+```
+
+Give the value a name of the union type first. The writer then wraps the value:
+
+```lisp
+def n:Value (new Value.Num(2.0))
+def v:Value n
+p.add(v)
+```
+
+This limit is the reason for 8 of the 11 shape tests that fail today.
+
+**A group.** The operator `is` accepts a group on each target language. The
+compiler writes one test for each case of the group. The operator `case` does
+not accept a group, because it must bind a narrowed value, and no target has a
+type for the group on every writer. Use `is` for the test of a group.
+
 ## Other targets in the language file
 
 The file `compiler/Lang.rgr` declares more targets than the command line lists:

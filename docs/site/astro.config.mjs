@@ -88,6 +88,7 @@ export default defineConfig({
           items: [
             { label: "Program structure", slug: "language/structure" },
             { label: "Types", slug: "language/types" },
+            { label: "Shapes", slug: "language/shapes" },
             { label: "Strings", slug: "language/strings" },
             { label: "Optional values", slug: "language/optionals" },
             { label: "Ownership and lifetime", slug: "language/ownership" },
