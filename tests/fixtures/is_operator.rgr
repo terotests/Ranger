@@ -1,0 +1,114 @@
+; `is v _:Shape.Case` / `is v _:Shape.Group` — the kind test of `case` without
+; the binding or the block (SHAPES_IS_OPERATOR.md).
+;
+; Every question is answered TWICE: once through `case`, once through `is`.
+; A target where the two lowerings disagree prints a mismatched pair, so this
+; fixture proves agreement rather than merely proving the program compiled.
+;
+; The group rows matter most: a group is not a discriminant any target can
+; test, so `is` on a group expands into a disjunction over the group's member
+; cases. Rust and Go would not compile a group tag at all, and ES6/Python would
+; compare against a tag no case ever carries.
+
+shape Val {
+    group Prim @(value)
+    group Ref @(reference) {
+        def id:int 0
+    }
+
+    case Nul does Prim
+    case Num does Prim {
+        def n:double 0.0
+    }
+    case Txt does Ref {
+        def s:string ""
+    }
+    case Lst does Ref {
+        def k:int 0
+    }
+}
+
+class IsProbe {
+    sfn caseNul:boolean (v:Val) {
+        case v x:Val.Nul {
+            return true
+        }
+        return false
+    }
+    sfn isNul:boolean (v:Val) {
+        return (is v _:Val.Nul)
+    }
+    sfn caseNum:boolean (v:Val) {
+        case v x:Val.Num {
+            return true
+        }
+        return false
+    }
+    sfn isNum:boolean (v:Val) {
+        return (is v _:Val.Num)
+    }
+    sfn caseTxt:boolean (v:Val) {
+        case v x:Val.Txt {
+            return true
+        }
+        return false
+    }
+    sfn isTxt:boolean (v:Val) {
+        return (is v _:Val.Txt)
+    }
+    ; group tests — expand to a disjunction over the group's cases
+    sfn isPrim:boolean (v:Val) {
+        return (is v _:Val.Prim)
+    }
+    sfn isRef:boolean (v:Val) {
+        return (is v _:Val.Ref)
+    }
+    ; `is` composed: disjunction, negation, and as an `if` condition with the
+    ; payload read by a following `case`
+    sfn isNumOrTxt:boolean (v:Val) {
+        return ((is v _:Val.Num) || (is v _:Val.Txt))
+    }
+    sfn isNotNum:boolean (v:Val) {
+        return (false == (is v _:Val.Num))
+    }
+    sfn describe:string (v:Val) {
+        if (is v _:Val.Nul) {
+            return "nul"
+        }
+        if (is v _:Val.Num) {
+            case v x:Val.Num {
+                return ("num" + (to_string (floor x.n)))
+            }
+        }
+        if (is v _:Val.Txt) {
+            case v x:Val.Txt {
+                return ("txt" + x.s)
+            }
+        }
+        return "lst"
+    }
+    sfn b:string (x:boolean) {
+        return (? x "T" "F")
+    }
+    sfn row:string (v:Val) {
+        def line:string ""
+        line = line + (IsProbe.b((IsProbe.caseNul(v)))) + (IsProbe.b((IsProbe.caseNum(v)))) + (IsProbe.b((IsProbe.caseTxt(v))))
+        line = line + "/" + (IsProbe.b((IsProbe.isNul(v)))) + (IsProbe.b((IsProbe.isNum(v)))) + (IsProbe.b((IsProbe.isTxt(v))))
+        line = line + "/" + (IsProbe.b((IsProbe.isPrim(v)))) + (IsProbe.b((IsProbe.isRef(v))))
+        line = line + "/" + (IsProbe.b((IsProbe.isNumOrTxt(v)))) + (IsProbe.b((IsProbe.isNotNum(v))))
+        line = line + "/" + (IsProbe.describe(v))
+        return line
+    }
+    sfn m@(main):void () {
+        def a:Val (new Val.Nul())
+        def c:Val (new Val.Num(42.0))
+        def d:Val (new Val.Txt(0 "hi"))
+        def e:Val (new Val.Lst(0 3))
+        def out:string ""
+        out = out + (IsProbe.row(a)) + " "
+        out = out + (IsProbe.row(c)) + " "
+        out = out + (IsProbe.row(d)) + " "
+        out = out + (IsProbe.row(e))
+        print out
+    }
+}

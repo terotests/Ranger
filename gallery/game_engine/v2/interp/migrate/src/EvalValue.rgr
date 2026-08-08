@@ -177,86 +177,44 @@ shape EvalValue {
     }
 
     fn isNull:boolean () {
-        case self n:EvalValue.Null {
-            return true
-        }
-        return false
+        return (is self _:EvalValue.Null)
     }
     fn isNumber:boolean () {
-        case self n:EvalValue.Number {
-            return true
-        }
-        return false
+        return (is self _:EvalValue.Number)
     }
     fn isString:boolean () {
-        case self n:EvalValue.String {
-            return true
-        }
-        return false
+        return (is self _:EvalValue.String)
     }
     fn isHole:boolean () {
-        case self n:EvalValue.Hole {
-            return true
-        }
-        return false
+        return (is self _:EvalValue.Hole)
     }
     fn isUndefined:boolean () {
-        case self n:EvalValue.Undefined {
-            return true
-        }
-        return false
+        return (is self _:EvalValue.Undefined)
     }
     fn isBoolean:boolean () {
-        case self n:EvalValue.Boolean {
-            return true
-        }
-        return false
+        return (is self _:EvalValue.Boolean)
     }
     fn isNullOrUndefined:boolean () {
-        case self n:EvalValue.Null {
-            return true
-        }
-        case self u:EvalValue.Undefined {
-            return true
-        }
-        return false
+        return ((is self _:EvalValue.Null) || (is self _:EvalValue.Undefined))
     }
     fn isElement:boolean () {
-        case self n:EvalValue.Element {
-            return true
-        }
-        return false
+        return (is self _:EvalValue.Element)
     }
     ; Named isArrayValue — a global `isArray` operator blocks methods named isArray.
     fn isArrayValue:boolean () {
-        case self n:EvalValue.Array {
-            return true
-        }
-        return false
+        return (is self _:EvalValue.Array)
     }
     fn isObject:boolean () {
-        case self n:EvalValue.Object {
-            return true
-        }
-        return false
+        return (is self _:EvalValue.Object)
     }
     fn isFunction:boolean () {
-        case self n:EvalValue.Function {
-            return true
-        }
-        return false
+        return (is self _:EvalValue.Function)
     }
     fn isMap:boolean () {
-        case self n:EvalValue.Map {
-            return true
-        }
-        return false
+        return (is self _:EvalValue.Map)
     }
     fn isSet:boolean () {
-        case self n:EvalValue.Set {
-            return true
-        }
-        return false
+        return (is self _:EvalValue.Set)
     }
 }
 
@@ -463,10 +421,7 @@ class EvPropertyBag {
             return false
         }
         def slot:EvPropertySlot (unwrap (get slots key))
-        case slot a:EvPropertySlot.Accessor {
-            return true
-        }
-        return false
+        return (is slot _:EvPropertySlot.Accessor)
     }
     fn getGetter:EvalValue (key:string) {
         def slot:EvPropertySlot (unwrap (get slots key))
@@ -569,7 +524,7 @@ class EvPropertyBag {
             return
         }
         def slot:EvPropertySlot (unwrap (get slots key))
-        case slot a:EvPropertySlot.Accessor {
+        if (is slot _:EvPropertySlot.Accessor) {
             this.removeData(key)
         }
     }

@@ -524,13 +524,13 @@ class EvHandle {
     }
 
     sfn fromBody:EvHandle (ev:EvalValue) {
-        case ev h:EvalValue.Hole {
+        if (is ev _:EvalValue.Hole) {
             return (EvHandle.hole())
         }
-        case ev n:EvalValue.Null {
+        if (is ev _:EvalValue.Null) {
             return (EvHandle.null())
         }
-        case ev u:EvalValue.Undefined {
+        if (is ev _:EvalValue.Undefined) {
             return (EvHandle.undefined())
         }
         case ev num:EvalValue.Number {

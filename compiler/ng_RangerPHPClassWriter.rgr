@@ -93,6 +93,12 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       }
     }
     if ((array_length node.nsp) > 0) {
+      ; A leading class name is a static reference, not a variable: PHP spells
+      ; it `Cls::member`, and emitting `$Cls->member` reads a variable that was
+      ; never assigned. The plain-ns branch below already handles this; the
+      ; param-desc branch has to as well, or a static call from `main` dies at
+      ; runtime.
+      def nsp_was_static:boolean false
       for node.nsp p:RangerAppParamDesc i {
 
         if (i == 0) {
@@ -100,14 +106,23 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
           if(part == "this") {
             wr.out("$this" false)
             continue
-          } 
-        }        
+          }
+        }
 
         if (i > 0) {
-          wr.out("->" false)
+          if ((i == 1) && nsp_was_static) {
+            wr.out("::" false)
+          } {
+            wr.out("->" false)
+          }
         }
         if (i == 0) {
-          wr.out("$" false)
+          def part0:string (itemAt node.ns 0)
+          if (ctx.hasClass(part0)) {
+            nsp_was_static = true
+          } {
+            wr.out("$" false)
+          }
           if (p.nameNode.hasFlag("optional")) {
           }
           def part:string (itemAt node.ns 0)

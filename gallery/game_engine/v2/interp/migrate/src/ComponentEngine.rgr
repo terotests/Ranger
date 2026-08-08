@@ -1502,14 +1502,14 @@ class ComponentEngine {
             def exportName:string (itemAt exportNames k)
             def localName:string (itemAt localNames k)
             def existing:EvHandle (moduleScope.lookup(exportName))
-            if (EvValueBridge.isFunction(existing)) {
+            if (existing.isFunction()) {
                 if (existing.hasFunctionNode()) {
                     def fnNode:TSNode (existing.functionNodeOf())
                     def emptyHelpers:[TSNode]
                     this.bindImportedFunction(exportName localName fnNode emptyHelpers "")
                 }
             } {
-                if (false == (EvValueBridge.isNull(existing))) {
+                if (false == (existing.isNull())) {
                     this.defineModuleBinding(localName existing)
                 }
             }
@@ -1875,7 +1875,7 @@ class ComponentEngine {
                 if argNode.left {
                     sv = (this.evaluateExpr((unwrap argNode.left)))
                 }
-                if (EvValueBridge.isArrayValue(sv)) {
+                if (sv.isArray()) {
                     def k:int 0
                     while (k < (sv.denseLen())) {
                         push args (sv.arrayItemAt(k))
@@ -1898,7 +1898,7 @@ class ComponentEngine {
     ; Convenience: read back a registered / script-defined global by name.
     fn getGlobal:EvHandle (name:string) {
         def v:EvHandle (context.lookup(name))
-        if (false == (EvValueBridge.isNull(v))) {
+        if (false == (v.isNull())) {
             return v
         }
         return (hostScope.lookup(name))
@@ -2069,7 +2069,7 @@ class ComponentEngine {
         def n:int (array_length argNodes)
         if (n == 1) {
             def only:EvHandle (this.evaluateExpr((itemAt argNodes 0)))
-            if (EvValueBridge.isNumber(only)) {
+            if (only.isNumber()) {
                 ; D-ARRAYLEN: `Array(len)` accepts only a uint32. A negative or
                 ; fractional length is a RangeError, and an enormous one used to
                 ; be a host crash ("Invalid array length") rather than a guest
@@ -2234,7 +2234,7 @@ class ComponentEngine {
         }
         def evSrc:EvHandle (itemAt args 0)
         ; eval of a non-string returns the argument untouched.
-        if (false == (EvValueBridge.isString(evSrc))) {
+        if (false == (evSrc.isString())) {
             return evSrc
         }
         def savedEvalCtx:EvalContext context
@@ -2530,14 +2530,14 @@ class ComponentEngine {
     ; non-function names return null.
     fn callFunction:EvHandle (name:string props:EvHandle) {
         def fnValue:EvHandle (context.lookup(name))
-        if (false == (EvValueBridge.isFunction(fnValue))) {
+        if (false == (fnValue.isFunction())) {
             ; Host lifecycle door: a name not in the entry scope may be a loaded
             ; virtual module's top-level function (e.g. the ranger:core
             ; __rgGameInit / __rgGameUpdate entry points — module scopes are
             ; isolated, so they are NOT entry bindings). Module functions carry
             ; their closure, so the call roots in their own module scope.
             def mv:EvHandle (this.lookupModuleExport(name))
-            if (EvValueBridge.isFunction(mv)) {
+            if (mv.isFunction()) {
                 if (mv.hasFunctionNode()) {
                     def margs:[EvHandle]
                     push margs props
@@ -2570,7 +2570,7 @@ class ComponentEngine {
     ; element tree (for screen render functions).
     fn callRender:EVGElement (name:string props:EvHandle) {
         def fnValue:EvHandle (context.lookup(name))
-        if (false == (EvValueBridge.isFunction(fnValue))) {
+        if (false == (fnValue.isFunction())) {
             def empty (new EVGElement())
             return empty
         }
@@ -3450,7 +3450,7 @@ class ComponentEngine {
         }
         if (pattern.nodeType == "AssignmentPattern") {
             def v:EvHandle value
-            if ((EvValueBridge.isNull(v)) || (EvValueBridge.isUndefined(v))) {
+            if ((v.isNull()) || (v.isUndefined())) {
                 if pattern.right {
                     v = (this.evaluateExpr((unwrap pattern.right)))
                 }
@@ -3480,7 +3480,7 @@ class ComponentEngine {
             } {
                 if (el.nodeType == "RestElement") {
                     def items:[EvHandle]
-                    if (EvValueBridge.isArrayValue(value)) {
+                    if (value.isArray()) {
                         def k:int idx
                         while (k < (value.denseLen())) {
                             push items (value.arrayItemAt(k))
@@ -3499,7 +3499,7 @@ class ComponentEngine {
                     }
                 } {
                     def elemVal:EvHandle (EvValueBridge.taggedUndefined())
-                    if (EvValueBridge.isArrayValue(value)) {
+                    if (value.isArray()) {
                         if (idx < (value.denseLen())) {
                             elemVal = (value.arrayItemAt(idx))
                         }
@@ -3522,7 +3522,7 @@ class ComponentEngine {
             if (prop.nodeType == "RestElement") {
                 def rkeys:[string]
                 def rvals:[EvHandle]
-                if (EvValueBridge.isObject(value)) {
+                if (value.isObject()) {
                     def ks:[string] (value.ownDataKeys())
                     def ki:int 0
                     while (ki < (array_length ks)) {
@@ -3539,7 +3539,7 @@ class ComponentEngine {
                 def srcKey:string prop.name
                 push usedKeys srcKey
                 def v:EvHandle (value.getMember(srcKey))
-                if ((EvValueBridge.isNull(v)) || (EvValueBridge.isUndefined(v))) {
+                if ((v.isNull()) || (v.isUndefined())) {
                     if prop.init {
                         v = (this.evaluateExpr((unwrap prop.init)))
                     }
@@ -3676,7 +3676,7 @@ class ComponentEngine {
 
                 ; a missing prop now reads as undefined (rule 6); treat null OR
                 ; undefined as absent so the default still fires.
-                if ((EvValueBridge.isNull(propValue)) || (EvValueBridge.isUndefined(propValue))) {
+                if ((propValue.isNull()) || (propValue.isUndefined())) {
                     ; Use default value if provided
                     if prop.init {
                         def initNode:TSNode (unwrap prop.init)
@@ -4768,7 +4768,7 @@ class ComponentEngine {
             if (walk.hasOwnSetter(key)) { return true }
             if (this.objHasKey(walk key)) { return true }
             def nxt:EvHandle (this.protoOfValue(walk))
-            if (EvValueBridge.isNull(nxt)) {
+            if (nxt.isNull()) {
                 return false
             }
             walk = nxt
@@ -5351,7 +5351,7 @@ class ComponentEngine {
         if (stmt.nodeType == "WithStatement") {
             if stmt.left {
                 def wRaw:EvHandle (this.evaluateExpr((unwrap stmt.left)))
-                if ((EvValueBridge.isNull(wRaw)) || (EvValueBridge.isUndefined(wRaw))) {
+                if ((wRaw.isNull()) || (wRaw.isUndefined())) {
                     def _w:EvHandle (this.throwSpecError("TypeError" "with(...) requires an object"))
                     return
                 }
@@ -5813,7 +5813,7 @@ class ComponentEngine {
                         def objValue:EvHandle (context.lookup(objName))
                         
                         ; Array.push()
-                        if ((methodName == "push") && (EvValueBridge.isArrayValue(objValue))) {
+                        if ((methodName == "push") && (objValue.isArray())) {
                             ; Get arguments from node.children
                             if ((array_length node.children) > 0) {
                                 def argNode:TSNode (itemAt node.children 0)
@@ -5927,7 +5927,7 @@ class ComponentEngine {
             def rightNode:TSNode (unwrap node.right)
             def arrayValue:EvHandle (this.evaluateExpr(rightNode))
             
-            if (EvValueBridge.isArrayValue(arrayValue)) {
+            if (arrayValue.isArray()) {
                 def i:int 0
                 while (i < (arrayValue.denseLen())) {
                     def item:EvHandle (arrayValue.arrayItemAt(i))
@@ -6314,7 +6314,7 @@ class ComponentEngine {
             ; `x = new String("1"); x += 1` gave 2 instead of "11".
             def lp:EvHandle (this.toPrimitiveDefault(current))
             def rp:EvHandle (this.toPrimitiveDefault(rightValue))
-            if ((EvValueBridge.isString(lp)) || (EvValueBridge.isString(rp))) {
+            if ((lp.isString()) || (rp.isString())) {
                 return (EvValueBridge.taggedString((this.toStringOf(lp)) + (this.toStringOf(rp))))
             }
             return (EvValueBridge.taggedNumber((this.toNumberOf(lp)) + (this.toNumberOf(rp))))
@@ -6383,7 +6383,7 @@ class ComponentEngine {
         if (opK == 16) {
             ; nullish: assign when the current value is null OR undefined
             ; (a missing member now reads as undefined — D-IDENTITY rule 6).
-            if ((EvValueBridge.isNull(current)) || (EvValueBridge.isUndefined(current))) {
+            if ((current.isNull()) || (current.isUndefined())) {
                 return rightValue
             }
             return current
@@ -6418,9 +6418,9 @@ class ComponentEngine {
         ; mode. It was silently dropped, so a test that expected the throw saw
         ; nothing happen at all.
         if strictReferences {
-            if ((EvValueBridge.isNull(obj)) || (EvValueBridge.isUndefined(obj))) {
+            if ((obj.isNull()) || (obj.isUndefined())) {
                 def baseDesc:string "undefined"
-                if (EvValueBridge.isNull(obj)) { baseDesc = "null" }
+                if (obj.isNull()) { baseDesc = "null" }
                 def wname:string leftNode.name
                 if ((strlen wname) == 0) { wname = "property" }
                 return (this.throwSpecError("TypeError" ("Cannot set properties of " + (baseDesc + (" (setting '" + (wname + "')"))))))
@@ -6794,7 +6794,7 @@ class ComponentEngine {
         if leftNode.computed {
             if leftNode.right {
                 def indexVal:EvHandle (this.evaluateExpr((unwrap leftNode.right)))
-                if (EvValueBridge.isNumber(indexVal)) {
+                if (indexVal.isNumber()) {
                     return (obj.getIndex((to_int (indexVal.toNumber()))))
                 }
                 return (obj.getMember((indexVal.toString())))
@@ -7729,7 +7729,7 @@ class ComponentEngine {
             return ""
         }
         def nmV:EvHandle (namesV.arrayItemAt(idx))
-        if (false == (EvValueBridge.isString(nmV))) {
+        if (false == (nmV.isString())) {
             return ""
         }
         return (nmV.stringOf())
@@ -7860,7 +7860,7 @@ class ComponentEngine {
                 ; `function ({a = 5} = {})`. The default was only applied to
                 ; plain identifier parameters, so calling with no argument
                 ; destructured `undefined` and bound nothing.
-                if (EvValueBridge.isUndefined(pv)) {
+                if (pv.isUndefined()) {
                     if param.init {
                         pv = (this.evaluateExpr((unwrap param.init)))
                     }
@@ -7871,7 +7871,7 @@ class ComponentEngine {
                 if (pi < na) {
                     v = (itemAt argVals pi)
                 }
-                if (EvValueBridge.isUndefined(v)) {
+                if (v.isUndefined()) {
                     if param.init {
                         v = (this.evaluateExpr((unwrap param.init)))
                     }
@@ -7923,7 +7923,7 @@ class ComponentEngine {
             return argNode
         }
         def v:EvHandle (this.evaluateExpr(argNode))
-        if (EvValueBridge.isFunction(v)) {
+        if (v.isFunction()) {
             if (v.hasFunctionNode()) {
                 return (v.functionNodeOf())
             }
@@ -8028,7 +8028,7 @@ class ComponentEngine {
             def emsg:string ""
             if ((array_length args) > 0) {
                 def ev:EvHandle (itemAt args 0)
-                if (false == (EvValueBridge.isUndefined(ev))) {
+                if (false == (ev.isUndefined())) {
                     emsg = (this.toStringOf(ev))
                     if scriptThrew {
                         return (EvValueBridge.taggedUndefined())
@@ -8073,19 +8073,19 @@ class ComponentEngine {
             }
             ; Called as a FUNCTION a wrapper coerces rather than boxes.
             if (name == "String") {
-                if (EvValueBridge.isNull(prim)) {
+                if (prim.isNull()) {
                     return (EvValueBridge.taggedString(""))
                 }
                 return (EvValueBridge.taggedString((this.toStringOf(prim))))
             }
             if (name == "Number") {
-                if (EvValueBridge.isNull(prim)) {
+                if (prim.isNull()) {
                     return (EvValueBridge.taggedNumber(0.0))
                 }
                 return (EvValueBridge.taggedNumber((this.toNumberOf(prim))))
             }
             if (name == "Boolean") {
-                if (EvValueBridge.isNull(prim)) {
+                if (prim.isNull()) {
                     return (EvValueBridge.taggedBoolean(false))
                 }
                 return (EvValueBridge.taggedBoolean((prim.toBool())))
@@ -8100,7 +8100,7 @@ class ComponentEngine {
         def n:int (array_length args)
         if (n == 1) {
             def only:EvHandle (itemAt args 0)
-            if (EvValueBridge.isNumber(only)) {
+            if (only.isNumber()) {
                 def rawLen:double (only.toNumber())
                 if ((rawLen < 0.0) || (rawLen > 4294967295.0)) {
                     return (this.throwSpecError("RangeError" "Invalid array length"))
@@ -9755,9 +9755,9 @@ class ComponentEngine {
         ; Reading a property of null/undefined is a TypeError, same message
         ; as the walker's member read. The gate keeps `?.` on the walker, so
         ; reaching here with a nullish base always means a plain `.` / `[]`.
-        if ((EvValueBridge.isNull(obj)) || (EvValueBridge.isUndefined(obj))) {
+        if ((obj.isNull()) || (obj.isUndefined())) {
             def rDesc:string "undefined"
-            if (EvValueBridge.isNull(obj)) {
+            if (obj.isNull()) {
                 rDesc = "null"
             }
             return (this.throwSpecError("TypeError" ("Cannot read properties of " + (rDesc + (" (reading '" + (name + "')"))))))
@@ -9848,9 +9848,9 @@ class ComponentEngine {
         ; Writing a property of null/undefined is a TypeError, under the
         ; same realm flag the walker's assignment path uses.
         if strictReferences {
-            if ((EvValueBridge.isNull(obj)) || (EvValueBridge.isUndefined(obj))) {
+            if ((obj.isNull()) || (obj.isUndefined())) {
                 def wDesc:string "undefined"
-                if (EvValueBridge.isNull(obj)) {
+                if (obj.isNull()) {
                     wDesc = "null"
                 }
                 def _wt:EvHandle (this.throwSpecError("TypeError" ("Cannot set properties of " + (wDesc + (" (setting '" + (name + "')"))))))
@@ -9992,9 +9992,9 @@ class ComponentEngine {
     ; walker chain: own/proto members first (guest wins), then the class
     ; table for instances, then the registry, then primitive borrows.
     fn bcCallMethod:EvHandle (obj:EvHandle methodName:string argVals:[EvHandle]) {
-        if ((EvValueBridge.isNull(obj)) || (EvValueBridge.isUndefined(obj))) {
+        if ((obj.isNull()) || (obj.isUndefined())) {
             def nDesc:string "undefined"
-            if (EvValueBridge.isNull(obj)) {
+            if (obj.isNull()) {
                 nDesc = "null"
             }
             return (this.throwSpecError("TypeError" ("Cannot read properties of " + (nDesc + (" (reading '" + (methodName + "')"))))))
@@ -11425,7 +11425,7 @@ class ComponentEngine {
         def bcThisF:EvHandle (EvValueBridge.taggedUndefined())
         if (fnv.hasBoundThis()) {
             bcThisF = (fnv.boundThisOf())
-            if ((EvValueBridge.isNull(bcThisF)) || (EvValueBridge.isUndefined(bcThisF))) {
+            if ((bcThisF.isNull()) || (bcThisF.isUndefined())) {
                 bcThisF = (this.theGlobalObject())
             } {
                 if (bcThisF.isString()) { bcThisF = (this.toObjectValue(bcThisF)) }
@@ -11704,7 +11704,7 @@ class ComponentEngine {
                 si2 = (si2 + 1)
             }
             def nextIn:EvHandle (this.protoOfValue(walkIn))
-            if (EvValueBridge.isNull(nextIn)) {
+            if (nextIn.isNull()) {
                 inSteps = 16
             } {
                 walkIn = nextIn
@@ -11719,13 +11719,13 @@ class ComponentEngine {
     ; the walker and the bytecode tier.
     fn forOfItemList:[EvHandle] (src:EvHandle) {
         def items:[EvHandle]
-        if (EvValueBridge.isArrayValue(src)) {
+        if (src.isArray()) {
             items = (src.itemsOf())
         } {
-            if (EvValueBridge.isSet(src)) {
+            if (src.isSet()) {
                 items = (src.itemsOf())
             } {
-                if (EvValueBridge.isMap(src)) {
+                if (src.isMap()) {
                     def k:int 0
                     while (k < (src.denseLen())) {
                         def pair:[EvHandle]
@@ -11735,7 +11735,7 @@ class ComponentEngine {
                         k = (k + 1)
                     }
                 } {
-                    if (EvValueBridge.isString(src)) {
+                    if (src.isString()) {
                         def si:int 0
                         while (si < (strlen (src.stringOf()))) {
                             push items (EvValueBridge.taggedString((substring (src.stringOf()) si (si + 1))))
@@ -12014,7 +12014,7 @@ class ComponentEngine {
                 mvj = (mvj + 1)
             }
             def cOut:EvHandle (this.callBuiltinCtorValues(ctorNameV mergedV false))
-            if (false == (EvValueBridge.isNull(cOut))) {
+            if (false == (cOut.isNull())) {
                 return cOut
             }
             if scriptThrew {
@@ -12092,7 +12092,7 @@ class ComponentEngine {
                     def bcThis:EvHandle (EvValueBridge.taggedUndefined())
                     if (fnValue.hasBoundThis()) {
                         bcThis = (fnValue.boundThisOf())
-                        if ((EvValueBridge.isNull(bcThis)) || (EvValueBridge.isUndefined(bcThis))) {
+                        if ((bcThis.isNull()) || (bcThis.isUndefined())) {
                             bcThis = (this.theGlobalObject())
                         } {
                             if (bcThis.isString()) { bcThis = (this.toObjectValue(bcThis)) }
@@ -12154,7 +12154,7 @@ class ComponentEngine {
                 calleeStrict = true
             }
             if (false == calleeStrict) {
-                if ((EvValueBridge.isNull(rawThis)) || (EvValueBridge.isUndefined(rawThis))) {
+                if ((rawThis.isNull()) || (rawThis.isUndefined())) {
                     rawThis = (this.theGlobalObject())
                 } {
                     if (rawThis.isString()) { rawThis = (this.toObjectValue(rawThis)) }
@@ -12299,7 +12299,7 @@ class ComponentEngine {
         ; Fallback: any other expression (e.g. a helper call that returns JSX,
         ; like hud() -> playHud(...)). Evaluate it and unwrap the element result.
         def val:EvHandle (this.evaluateExpr(node))
-        if (EvValueBridge.isElement(val)) {
+        if (val.isElement()) {
             if (val.hasElement()) {
                 return (val.elementOf())
             }
@@ -12514,15 +12514,15 @@ class ComponentEngine {
                     def exprNode:TSNode (unwrap child.left)
                     def exprValue:EvHandle (this.evaluateExpr(exprNode))
                     
-                    if (EvValueBridge.isElement(exprValue)) {
+                    if (exprValue.isElement()) {
                         push results exprValue
                     }
-                    if (EvValueBridge.isArrayValue(exprValue)) {
+                    if (exprValue.isArray()) {
                         ; Flatten array elements into children
                         def ai:int 0
                         while (ai < (exprValue.denseLen())) {
                             def arrItem:EvHandle (exprValue.arrayItemAt(ai))
-                            if (EvValueBridge.isElement(arrItem)) {
+                            if (arrItem.isElement()) {
                                 push results arrItem
                             }
                             ai = ai + 1
@@ -12716,11 +12716,11 @@ class ComponentEngine {
                 def callResult:EvHandle (this.evaluateExpr(exprNode))
                 
                 ; Handle array result (array of elements from function)
-                if (EvValueBridge.isArrayValue(callResult)) {
+                if (callResult.isArray()) {
                     def ai:int 0
                     while (ai < (callResult.denseLen())) {
                         def arrItem:EvHandle (callResult.arrayItemAt(ai))
-                        if (EvValueBridge.isElement(arrItem)) {
+                        if (arrItem.isElement()) {
                             if (arrItem.hasElement()) {
                                 def arrChildEl:EVGElement (arrItem.elementOf())
                                 if ((strlen arrChildEl.tagName) > 0) {
@@ -12734,7 +12734,7 @@ class ComponentEngine {
                 }
                 
                 ; Handle single element result
-                if (EvValueBridge.isElement(callResult)) {
+                if (callResult.isElement()) {
                     if (callResult.hasElement()) {
                         def childEl:EVGElement (callResult.elementOf())
                         if ((strlen childEl.tagName) > 0) {
@@ -12745,8 +12745,8 @@ class ComponentEngine {
                 }
                 
                 ; Handle string/number result as text
-                def isStr:boolean (EvValueBridge.isString(callResult))
-                def isNum:boolean (EvValueBridge.isNumber(callResult))
+                def isStr:boolean (callResult.isString())
+                def isNum:boolean (callResult.isNumber())
                 if (isStr || isNum) {
                     def textEl (new EVGElement())
                     textEl.tagName = "text"
@@ -12774,7 +12774,7 @@ class ComponentEngine {
             def value:EvHandle (this.evaluateExpr(exprNode))
             
             ; Handle EVGElement values (e.g., {children} prop containing JSX)
-            if (EvValueBridge.isElement(value)) {
+            if (value.isElement()) {
                 if (value.hasElement()) {
                     def childEl:EVGElement (value.elementOf())
                     if ((strlen childEl.tagName) > 0) {
@@ -12785,11 +12785,11 @@ class ComponentEngine {
             }
             
             ; Handle arrays of EVGElements (e.g., {children} containing multiple elements)
-            if (EvValueBridge.isArrayValue(value)) {
+            if (value.isArray()) {
                 def ai:int 0
                 while (ai < (value.denseLen())) {
                     def arrItem:EvHandle (value.arrayItemAt(ai))
-                    if (EvValueBridge.isElement(arrItem)) {
+                    if (arrItem.isElement()) {
                         if (arrItem.hasElement()) {
                             def arrChildEl:EVGElement (arrItem.elementOf())
                             if ((strlen arrChildEl.tagName) > 0) {
@@ -12802,8 +12802,8 @@ class ComponentEngine {
                 return
             }
             
-            def isStr:boolean (EvValueBridge.isString(value))
-            def isNum:boolean (EvValueBridge.isNumber(value))
+            def isStr:boolean (value.isString())
+            def isNum:boolean (value.isNumber())
             if (isStr || isNum) {
                 def textEl (new EVGElement())
                 textEl.tagName = "text"
@@ -12825,7 +12825,7 @@ class ComponentEngine {
                         def arrayExpr:TSNode (unwrap calleeNode.left)
                         def arrayValue:EvHandle (this.evaluateExpr(arrayExpr))
                         
-                        if (EvValueBridge.isArrayValue(arrayValue)) {
+                        if (arrayValue.isArray()) {
                             ; Get the callback function
                             if ((array_length callNode.children) > 0) {
                                 def callback:TSNode (itemAt callNode.children 0)
@@ -12891,7 +12891,7 @@ class ComponentEngine {
                 ; generic expression body — e.g. (e, i) => buildTile(e, i) — is
                 ; evaluated like any expression; an element result is the child.
                 def v:EvHandle (this.evaluateExpr(body))
-                if (EvValueBridge.isElement(v)) {
+                if (v.isElement()) {
                     if (v.hasElement()) {
                         return (v.elementOf())
                     }
@@ -13387,9 +13387,9 @@ class ComponentEngine {
                 ; the same as reading one. The read path already said so; the
                 ; CALL path fell through and answered nothing.
                 if strictReferences {
-                    if ((EvValueBridge.isNull(obj)) || (EvValueBridge.isUndefined(obj))) {
+                    if ((obj.isNull()) || (obj.isUndefined())) {
                         def nullDesc:string "undefined"
-                        if (EvValueBridge.isNull(obj)) { nullDesc = "null" }
+                        if (obj.isNull()) { nullDesc = "null" }
                         return (this.throwSpecError("TypeError" ("Cannot read properties of " + (nullDesc + (" (reading '" + (methodName + "')"))))))
                     }
                 }
@@ -13616,14 +13616,14 @@ class ComponentEngine {
                         def frItems:[EvHandle]
                         if ((array_length node.children) > 0) {
                             def srcV:EvHandle (this.evaluateExpr((itemAt node.children 0)))
-                            if (EvValueBridge.isArrayValue(srcV)) {
+                            if (srcV.isArray()) {
                                 def fi:int 0
                                 while (fi < (srcV.denseLen())) {
                                     push frItems (srcV.arrayItemAt(fi))
                                     fi = (fi + 1)
                                 }
                             }
-                            if (EvValueBridge.isString(srcV)) {
+                            if (srcV.isString()) {
                                 def sIdx:int 0
                                 while (sIdx < (strlen (srcV.stringOf()))) {
                                     def sEnd:int (sIdx + 1)
@@ -13631,7 +13631,7 @@ class ComponentEngine {
                                     sIdx = (sIdx + 1)
                                 }
                             }
-                            if (EvValueBridge.isSet(srcV)) {
+                            if (srcV.isSet()) {
                                 def stI:int 0
                                 while (stI < (srcV.denseLen())) {
                                     push frItems (srcV.arrayItemAt(stI))
@@ -13646,7 +13646,7 @@ class ComponentEngine {
                         if ((array_length node.children) > 0) {
                             tv = (this.evaluateExpr((itemAt node.children 0)))
                         }
-                        return (EvValueBridge.taggedBoolean((EvValueBridge.isArrayValue(tv))))
+                        return (EvValueBridge.taggedBoolean((tv.isArray())))
                     }
                 }
                 if (arrStaticName == "Number") {
@@ -13655,7 +13655,7 @@ class ComponentEngine {
                         nv = (this.evaluateExpr((itemAt node.children 0)))
                     }
                     if (methodName == "isInteger") {
-                        if (EvValueBridge.isNumber(nv)) {
+                        if (nv.isNumber()) {
                             def d:double (nv.toNumber())
                             if (d != d) {
                                 return (EvValueBridge.taggedBoolean(false))
@@ -13668,14 +13668,14 @@ class ComponentEngine {
                         return (EvValueBridge.taggedBoolean(false))
                     }
                     if (methodName == "isNaN") {
-                        if (EvValueBridge.isNumber(nv)) {
+                        if (nv.isNumber()) {
                             def d2:double (nv.toNumber())
                             return (EvValueBridge.taggedBoolean((d2 != d2)))
                         }
                         return (EvValueBridge.taggedBoolean(false))
                     }
                     if (methodName == "isFinite") {
-                        if (EvValueBridge.isNumber(nv)) {
+                        if (nv.isNumber()) {
                             def d3:double (nv.toNumber())
                             return (EvValueBridge.taggedBoolean((d3 == d3)))
                         }
@@ -13694,7 +13694,7 @@ class ComponentEngine {
                     ; continued, and the assertion that followed measured
                     ; whatever the no-op left behind.
                     if (this.objectStaticCoerces(methodName)) {
-                        if ((EvValueBridge.isNull(src)) || (EvValueBridge.isUndefined(src))) {
+                        if ((src.isNull()) || (src.isUndefined())) {
                             return (this.throwSpecError("TypeError" ("Object." + methodName + " called on null or undefined")))
                         }
                     }
@@ -13711,7 +13711,7 @@ class ComponentEngine {
                             ; way to make a prototype-less object, so null is
                             ; allowed for create alone.
                             if (methodName == "create") {
-                                if (EvValueBridge.isNull(src)) {
+                                if (src.isNull()) {
                                     okKind = true
                                 }
                             }
@@ -13794,7 +13794,7 @@ class ComponentEngine {
                     if (methodName == "is") {
                         if ((array_length node.children) > 1) {
                             def isB:EvHandle (this.evaluateExpr((itemAt node.children 1)))
-                            if ((EvValueBridge.isNumber(src)) && (EvValueBridge.isNumber(isB))) {
+                            if ((src.isNumber()) && (isB.isNumber())) {
                                 def an:double (src.toNumber())
                                 def bn:double (isB.toNumber())
                                 if (an != an) {
@@ -13902,7 +13902,7 @@ class ComponentEngine {
                             }
                             ; An explicit `undefined` second argument means "no
                             ; properties"; anything else must be an object.
-                            if (false == (EvValueBridge.isUndefined(cDescs))) {
+                            if (false == (cDescs.isUndefined())) {
                                 def cErr:string (this.applyDescriptorMap(created cDescs))
                                 if scriptThrew {
                                     return (EvValueBridge.taggedUndefined())
@@ -13966,7 +13966,7 @@ class ComponentEngine {
                             ; stringValue rather than objectMap, so the
                             ; descriptor came back undefined for a property that
                             ; plainly exists. `length` likewise.
-                            if (EvValueBridge.isArrayValue(src)) {
+                            if (src.isArray()) {
                                 if (dk == "length") {
                                     def keysL:[string]
                                     def valsL:[EvHandle]
@@ -14006,7 +14006,7 @@ class ComponentEngine {
                                     }
                                 }
                             }
-                            if (EvValueBridge.isString(src)) {
+                            if (src.isString()) {
                                 if (dk == "length") {
                                     def keysS:[string]
                                     def valsS:[EvHandle]
@@ -14223,7 +14223,7 @@ class ComponentEngine {
                             }
                             if ((array_length node.children) > 1) {
                                 def arr:EvHandle (this.evaluateExpr((itemAt node.children 1)))
-                                if (EvValueBridge.isArrayValue(arr)) {
+                                if (arr.isArray()) {
                                     def aai:int 0
                                     while (aai < (arr.denseLen())) {
                                         push applyArgs (arr.arrayItemAt(aai))
@@ -14315,7 +14315,7 @@ class ComponentEngine {
                         def steps:int 0
                         while (steps < 16) {
                             def nxt:EvHandle (this.protoOfValue(walk))
-                            if (EvValueBridge.isNull(nxt)) {
+                            if (nxt.isNull()) {
                                 steps = 16
                             } {
                                 if (nxt.equals(obj)) {
@@ -14461,7 +14461,7 @@ class ComponentEngine {
                     def sDesc:string ""
                     if ((array_length node.children) > 0) {
                         def sdv:EvHandle (this.evaluateExpr((itemAt node.children 0)))
-                        if (false == (EvValueBridge.isUndefined(sdv))) {
+                        if (false == (sdv.isUndefined())) {
                             sDesc = (sdv.toString())
                         }
                     }
@@ -14483,7 +14483,7 @@ class ComponentEngine {
                     }
                     def evSrcV:EvHandle (this.evaluateExpr((itemAt node.children 0)))
                     ; eval of a non-string returns the argument untouched.
-                    if (false == (EvValueBridge.isString(evSrcV))) {
+                    if (false == (evSrcV.isString())) {
                         return evSrcV
                     }
                     return (this.runEvalSource((evSrcV.stringOf())))
@@ -14529,7 +14529,7 @@ class ComponentEngine {
                         if scriptThrew {
                             return (EvValueBridge.taggedUndefined())
                         }
-                        if (false == (EvValueBridge.isUndefined(emv))) {
+                        if (false == (emv.isUndefined())) {
                             emsg = (this.toStringOf(emv))
                             if scriptThrew {
                                 return (EvValueBridge.taggedUndefined())
@@ -14645,7 +14645,7 @@ class ComponentEngine {
                 ; Look up the function in context
                 def fnValue:EvHandle (context.lookup(fnName))
                 if (false == quiet) {
-                    this.trace("Lookup function '" + fnName + "' -> type=" + (fnValue.kindName()) + " isFunction=" + (to_string (EvValueBridge.isFunction(fnValue))))
+                    this.trace("Lookup function '" + fnName + "' -> type=" + (fnValue.kindName()) + " isFunction=" + (to_string (fnValue.isFunction())))
                 }
                 ; D-REGISTRY: a built-in held in a variable is callable like any
                 ; other function value. It has no functionNode, so the paths
@@ -14661,7 +14661,7 @@ class ComponentEngine {
                     }
                     return (this.runIndirectEval(ieArgs0))
                 }
-                if (EvValueBridge.isFunction(fnValue)) {
+                if (fnValue.isFunction()) {
                     if (fnValue.hasFunctionNode()) {
                         ; Args (with ...spread) bound centrally; the call scope is
                         ; parented on the function's captured closure when it has
@@ -14712,7 +14712,7 @@ class ComponentEngine {
                 }
                 return (this.runIndirectEval(ieArgs1))
             }
-            if (EvValueBridge.isFunction(calleeFn)) {
+            if (calleeFn.isFunction()) {
                 if (calleeFn.hasFunctionNode()) {
                     def calleeArgs:[EvHandle] (this.collectCallArgs(node))
                     return (this.callFnValueWithValues(calleeFn calleeArgs))
@@ -14891,7 +14891,7 @@ class ComponentEngine {
                 def left:EvHandle (this.evaluateExpr(leftExpr))
                 ; nullish: fall through to the right only when left is null OR
                 ; undefined (a missing member now reads as undefined — rule 6).
-                if (false == ((EvValueBridge.isNull(left)) || (EvValueBridge.isUndefined(left)))) {
+                if (false == ((left.isNull()) || (left.isUndefined()))) {
                     return left
                 }
                 if node.right {
@@ -14980,12 +14980,12 @@ class ComponentEngine {
                 ; A FUNCTION left-operand is object-like too, and its
                 ; prototype-chain answer (including the TypeError for a
                 ; non-object F.prototype) has to be reached the same way.
-                def lvObjectLike:boolean (EvValueBridge.isObject(lv))
+                def lvObjectLike:boolean (lv.isObject())
                 if (lv.isFunction()) { lvObjectLike = true }
                 if (lv.isArray()) { lvObjectLike = true }
                 if lvObjectLike {
                     def tag:EvHandle (lv.getMember("__class__"))
-                    if (EvValueBridge.isString(tag)) {
+                    if (tag.isString()) {
                         return (EvValueBridge.taggedBoolean(((tag.stringOf()) == cname)))
                     }
                     ; D-ERRORS: every native error inherits from Error, so
@@ -15183,7 +15183,7 @@ class ComponentEngine {
             ; returning a number must add, not concatenate.
             def lp:EvHandle (this.toPrimitiveDefault(left))
             def rp:EvHandle (this.toPrimitiveDefault(right))
-            if ((EvValueBridge.isString(lp)) || (EvValueBridge.isString(rp))) {
+            if ((lp.isString()) || (rp.isString())) {
                 return (EvValueBridge.taggedString((this.toStringOf(lp)) + (this.toStringOf(rp))))
             }
             return (EvValueBridge.taggedNumber((this.toNumberOf(lp)) + (this.toNumberOf(rp))))
@@ -15283,7 +15283,7 @@ class ComponentEngine {
         if ((opK == 26) || (opK == 27) || (opK == 28) || (opK == 29)) {
             def lr:EvHandle (this.toPrimitive(left false))
             def rr:EvHandle (this.toPrimitive(right false))
-            if ((EvValueBridge.isString(lr)) && (EvValueBridge.isString(rr))) {
+            if ((lr.isString()) && (rr.isString())) {
                 def ls:string (lr.stringOf())
                 def rs:string (rr.stringOf())
                 def cmp:int (this.compareStrings(ls rs))
@@ -15334,8 +15334,8 @@ class ComponentEngine {
     ; null/undefined special case, so `1 == '1'`, `true == 1` and
     ; `[1] == 1` were all false -- the comparisons `==` exists to make.
     fn looseEquals:boolean (left:EvHandle right:EvHandle) {
-        def ln:boolean ((EvValueBridge.isNull(left)) || (EvValueBridge.isUndefined(left)))
-        def rn:boolean ((EvValueBridge.isNull(right)) || (EvValueBridge.isUndefined(right)))
+        def ln:boolean ((left.isNull()) || (left.isUndefined()))
+        def rn:boolean ((right.isNull()) || (right.isUndefined()))
         ; null and undefined equal each other and nothing else.
         if (ln || rn) {
             return (ln && rn)
@@ -15359,13 +15359,13 @@ class ComponentEngine {
             return (this.looseEquals(left rp))
         }
         ; Same primitive type: strict comparison.
-        if ((EvValueBridge.isString(left)) && (EvValueBridge.isString(right))) {
+        if ((left.isString()) && (right.isString())) {
             return (left.equals(right))
         }
-        if ((EvValueBridge.isNumber(left)) && (EvValueBridge.isNumber(right))) {
+        if ((left.isNumber()) && (right.isNumber())) {
             return (left.equals(right))
         }
-        if ((EvValueBridge.isBoolean(left)) && (EvValueBridge.isBoolean(right))) {
+        if ((left.isBoolean()) && (right.isBoolean())) {
             return (left.equals(right))
         }
         ; Mixed primitives compare numerically, which is what makes
@@ -15437,7 +15437,7 @@ class ComponentEngine {
     ; constructors answer 0 for their own primitive: `'a' instanceof String` is
     ; false while `new String('a') instanceof String` is true.
     fn builtinInstanceOf:int (v:EvHandle cname:string) {
-        if ((v.isNull()) || (EvValueBridge.isUndefined(v))) {
+        if ((v.isNull()) || (v.isUndefined())) {
             return 0
         }
         def isObjectLike:boolean false
@@ -15726,20 +15726,20 @@ class ComponentEngine {
             if (name == "isNaN") {
                 if ((array_length args) == 0) { return (EvValueBridge.taggedBoolean(false)) }
                 def nv:EvHandle (itemAt args 0)
-                if (false == (EvValueBridge.isNumber(nv))) { return (EvValueBridge.taggedBoolean(false)) }
+                if (false == (nv.isNumber())) { return (EvValueBridge.taggedBoolean(false)) }
                 def nn:double nv.numberValue
                 return (EvValueBridge.taggedBoolean((nn != nn)))
             }
             if (name == "isFinite") {
                 if ((array_length args) == 0) { return (EvValueBridge.taggedBoolean(false)) }
                 def fv:EvHandle (itemAt args 0)
-                if (false == (EvValueBridge.isNumber(fv))) { return (EvValueBridge.taggedBoolean(false)) }
+                if (false == (fv.isNumber())) { return (EvValueBridge.taggedBoolean(false)) }
                 return (EvValueBridge.taggedBoolean((this.isFiniteNum(fv.numberValue))))
             }
             if (name == "isInteger") {
                 if ((array_length args) == 0) { return (EvValueBridge.taggedBoolean(false)) }
                 def iv:EvHandle (itemAt args 0)
-                if (false == (EvValueBridge.isNumber(iv))) { return (EvValueBridge.taggedBoolean(false)) }
+                if (false == (iv.isNumber())) { return (EvValueBridge.taggedBoolean(false)) }
                 def dn:double iv.numberValue
                 if (false == (this.isFiniteNum(dn))) { return (EvValueBridge.taggedBoolean(false)) }
                 return (EvValueBridge.taggedBoolean(((this.floorNum(dn)) == dn)))
@@ -15773,7 +15773,7 @@ class ComponentEngine {
             ; They have to be repeated here rather than assumed, since this is a
             ; second door into the same statics.
             if (this.objectStaticCoerces(name)) {
-                if ((EvValueBridge.isNull(a0)) || (EvValueBridge.isUndefined(a0))) {
+                if ((a0.isNull()) || (a0.isUndefined())) {
                     return (this.throwSpecError("TypeError" ("Object." + name + " called on null or undefined")))
                 }
             }
@@ -17051,7 +17051,7 @@ class ComponentEngine {
         def filler:string " "
         if ((array_length args) > 1) {
             def fv:EvHandle (itemAt args 1)
-            if (false == (EvValueBridge.isUndefined(fv))) {
+            if (false == (fv.isUndefined())) {
                 filler = (fv.toString())
             }
         }
@@ -17076,12 +17076,12 @@ class ComponentEngine {
     ; ToString for a value used as an ARRAY ELEMENT during join/toString: null
     ; and undefined render as empty, everything else by its own rules.
     fn elementToString:string (v:EvHandle) {
-        if (EvValueBridge.isNull(v)) { return "" }
-        if (EvValueBridge.isUndefined(v)) { return "" }
+        if (v.isNull()) { return "" }
+        if (v.isUndefined()) { return "" }
         ; Hole used to share valueType 8 with Undefined; now it is its own
         ; kind, so join/toString must skip it explicitly (spec: empty string).
-        if (EvValueBridge.isHole(v)) { return "" }
-        if (EvValueBridge.isArrayValue(v)) {
+        if (v.isHole()) { return "" }
+        if (v.isArray()) {
             return (this.arrayJoinString(v ","))
         }
         return (v.toString())
@@ -17638,7 +17638,7 @@ class ComponentEngine {
         if coercesReceiver {
             ; ToObject on the receiver: null and undefined are a TypeError, which
             ; is what `Object.prototype.hasOwnProperty.call(null, "x")` asserts.
-            if ((EvValueBridge.isNull(recv)) || (EvValueBridge.isUndefined(recv))) {
+            if ((recv.isNull()) || (recv.isUndefined())) {
                 return (this.throwSpecError("TypeError" ("Object.prototype." + name + " called on null or undefined")))
             }
         }
@@ -17691,7 +17691,7 @@ class ComponentEngine {
             def steps0:int 0
             while (steps0 < 16) {
                 def nxt0:EvHandle (this.protoOfValue(walk0))
-                if (EvValueBridge.isNull(nxt0)) {
+                if (nxt0.isNull()) {
                     return (EvValueBridge.taggedBoolean(false))
                 }
                 if (nxt0.equals(recv)) {
@@ -17725,7 +17725,7 @@ class ComponentEngine {
             if (kind == "number") {
                 if ((array_length args) > 0) {
                     def rv:EvHandle (itemAt args 0)
-                    if (false == (EvValueBridge.isUndefined(rv))) {
+                    if (false == (rv.isUndefined())) {
                         def radix:int (to_int (rv.toNumber()))
                         if ((radix < 2) || (radix > 36)) {
                             return (this.throwSpecError("RangeError" "toString() radix must be between 2 and 36"))
@@ -17823,7 +17823,7 @@ class ComponentEngine {
             ; f(1)` — arrives with no receiver. Per spec that is a TypeError,
             ; not an operation on the empty string, which is what reading
             ; stringValue off undefined would have silently produced.
-            if ((EvValueBridge.isNull(recv)) || (EvValueBridge.isUndefined(recv))) {
+            if ((recv.isNull()) || (recv.isUndefined())) {
                 return (this.throwSpecError("TypeError" ("String.prototype." + name + " called on null or undefined")))
             }
             ; D-REGISTRY: String.prototype methods coerce `this` via ToString.
@@ -17963,7 +17963,7 @@ class ComponentEngine {
                         }
                         if ((array_length args) > 1) {
                             def lenArg:EvHandle (itemAt args 1)
-                            if (false == (EvValueBridge.isUndefined(lenArg))) {
+                            if (false == (lenArg.isUndefined())) {
                                 sbLen = (to_int (lenArg.toNumber()))
                             }
                         }
@@ -18040,7 +18040,7 @@ class ComponentEngine {
                             ; An UNDEFINED end means "to the end of the string",
                             ; not 0 -- `s.slice(-4, undefined)` keeps the tail.
                             def eV:EvHandle (itemAt args 1)
-                            if (false == (EvValueBridge.isUndefined(eV))) {
+                            if (false == (eV.isUndefined())) {
                                 b = (this.toIntegerOf(eV))
                             }
                         }
@@ -18088,7 +18088,7 @@ class ComponentEngine {
                         def limitN:int 0
                         if ((array_length args) > 1) {
                             def limV:EvHandle (itemAt args 1)
-                            if (false == (EvValueBridge.isUndefined(limV))) {
+                            if (false == (limV.isUndefined())) {
                                 hasLimit = true
                                 ; The limit is ToUINT32, not a clamped integer:
                                 ; -(2^32)+1 wraps to 1, so the result keeps one
@@ -18107,7 +18107,7 @@ class ComponentEngine {
                         def sepRe:EvHandle (EvValueBridge.taggedNull())
                         if ((array_length args) > 0) {
                             def sepV:EvHandle (itemAt args 0)
-                            if (false == (EvValueBridge.isUndefined(sepV))) {
+                            if (false == (sepV.isUndefined())) {
                                 haveSep = true
                                 ; D-REGEX: a RegExp separator splits on every
                                 ; match and interleaves its captures into the
@@ -18461,7 +18461,7 @@ class ComponentEngine {
                 }
                 if ((array_length args) > 1) {
                     def av1:EvHandle (itemAt args 1)
-                    if (false == (EvValueBridge.isUndefined(av1))) {
+                    if (false == (av1.isUndefined())) {
                         a1 = (this.toIntegerOf(av1))
                     }
                 }
@@ -18618,7 +18618,7 @@ class ComponentEngine {
             ; D-REGISTRY: same as for strings — an unbound extraction invoked
             ; with no receiver is a TypeError, not an operation on an empty
             ; array, which is what reading arrayValue off undefined would give.
-            if ((EvValueBridge.isNull(recv)) || (EvValueBridge.isUndefined(recv))) {
+            if ((recv.isNull()) || (recv.isUndefined())) {
                 return (this.throwSpecError("TypeError" ("Array.prototype." + name + " called on null or undefined")))
             }
             ; D-CBCHECK: the higher-order methods require a callable. Given a
@@ -18670,7 +18670,7 @@ class ComponentEngine {
             if (name == "fill") { isArrayMutator = true }
             def elems:[EvHandle]
             if (false == isArrayMutator) {
-                if (EvValueBridge.isArrayValue(recv)) {
+                if (recv.isArray()) {
                     elems = (recv.itemsOf())
                 } {
                     elems = (this.arrayLikeElements(recv))
@@ -18697,8 +18697,8 @@ class ComponentEngine {
                     }
                     def tlsEl:EvHandle (this.arrayElemAt(recv tlsI))
                     def skipEl:boolean false
-                    if (EvValueBridge.isNull(tlsEl)) { skipEl = true }
-                    if (EvValueBridge.isUndefined(tlsEl)) { skipEl = true }
+                    if (tlsEl.isNull()) { skipEl = true }
+                    if (tlsEl.isUndefined()) { skipEl = true }
                     if (false == skipEl) {
                         def tlsArgs:[EvHandle]
                         def tlsV:EvHandle (this.callMethodOnValue(tlsEl "toLocaleString" tlsArgs))
@@ -18764,9 +18764,9 @@ class ComponentEngine {
                             ; disagreed about the same array.
                             def jv:EvHandle (this.arrayElemAt(recv ii))
                             def jSkip:boolean false
-                            if (EvValueBridge.isHole(jv)) { jSkip = true }
-                            if (EvValueBridge.isNull(jv)) { jSkip = true }
-                            if (EvValueBridge.isUndefined(jv)) { jSkip = true }
+                            if (jv.isHole()) { jSkip = true }
+                            if (jv.isNull()) { jSkip = true }
+                            if (jv.isUndefined()) { jSkip = true }
                             if (false == jSkip) {
                                 out = (out + (this.toStringOf(jv)))
                                 if scriptThrew {
@@ -18856,7 +18856,7 @@ class ComponentEngine {
                             while (ii < alen) {
                                 def el:EvHandle (this.arrayElemAt(recv ii))
                                 ; D-HOLES: an ABSENT element is not visited.
-                                if (EvValueBridge.isHole(el)) {
+                                if (el.isHole()) {
                                     ii = (ii + 1)
                                 } {
                                     def cargs:[EvHandle]
@@ -19208,7 +19208,7 @@ class ComponentEngine {
                         ; element, whatever `length` it happens to inherit. The
                         ; receiver was spread unconditionally, so a plain object
                         ; came out as its indices instead of as itself.
-                        if (EvValueBridge.isArrayValue(recv)) {
+                        if (recv.isArray()) {
                             def q:int 0
                             while (q < alen) {
                                 push items (this.arrayElemAt(recv q))
@@ -19220,7 +19220,7 @@ class ComponentEngine {
                         def ai:int 0
                         while (ai < (array_length args)) {
                             def av:EvHandle (itemAt args ai)
-                            if (EvValueBridge.isArrayValue(av)) {
+                            if (av.isArray()) {
                                 ; D-HOLES: an element the argument does not have
                                 ; is not copied, but one INHERITED from its
                                 ; prototype is -- concat asks HasProperty, which
@@ -19244,7 +19244,7 @@ class ComponentEngine {
                         def q:int 0
                         while (q < (array_length elems)) {
                             def el:EvHandle (this.arrayElemAt(recv q))
-                            if (EvValueBridge.isArrayValue(el)) {
+                            if (el.isArray()) {
                                 def r:int 0
                                 while (r < (el.denseLen())) {
                                     push items (el.arrayItemAt(r))
@@ -19308,7 +19308,7 @@ class ComponentEngine {
                 if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
                 }
-                return (EvValueBridge.taggedBoolean((EvValueBridge.isArrayValue(hit))))
+                return (EvValueBridge.taggedBoolean((hit.isArray())))
             }
         }
         ; ---- Number.prototype ----------------------------------------------
@@ -19323,7 +19323,7 @@ class ComponentEngine {
                 def digits:int 0
                 if ((array_length args) > 0) {
                     def dv:EvHandle (itemAt args 0)
-                    if (false == (EvValueBridge.isUndefined(dv))) {
+                    if (false == (dv.isUndefined())) {
                         digits = (this.toIntegerOf(dv))
                     }
                 }
@@ -19339,7 +19339,7 @@ class ComponentEngine {
                 def eauto:boolean true
                 if ((array_length args) > 0) {
                     def ev:EvHandle (itemAt args 0)
-                    if (false == (EvValueBridge.isUndefined(ev))) {
+                    if (false == (ev.isUndefined())) {
                         edigits = (this.toIntegerOf(ev))
                         eauto = false
                     }
@@ -19356,7 +19356,7 @@ class ComponentEngine {
                     return (EvValueBridge.taggedString((this.toStringOf(fprim))))
                 }
                 def pv:EvHandle (itemAt args 0)
-                if (EvValueBridge.isUndefined(pv)) {
+                if (pv.isUndefined()) {
                     return (EvValueBridge.taggedString((this.toStringOf(fprim))))
                 }
                 def prec:int (this.toIntegerOf(pv))
@@ -19400,7 +19400,7 @@ class ComponentEngine {
                     ; which is what lets `f.apply(null, arguments)` forward a
                     ; call. A primitive that is not null/undefined is a
                     ; TypeError rather than an empty argument list.
-                    if (false == ((EvValueBridge.isNull(arr)) || (EvValueBridge.isUndefined(arr)))) {
+                    if (false == ((arr.isNull()) || (arr.isUndefined()))) {
                         def okArgs:boolean false
                         if (arr.isArray()) { okArgs = true }
                         if (arr.isObject()) { okArgs = true }
@@ -19492,7 +19492,7 @@ class ComponentEngine {
         if (v.isString()) { return (this.makeWrapper("String" v)) }
         if (v.isNumber()) { return (this.makeWrapper("Number" v)) }
         if (v.isBoolean()) { return (this.makeWrapper("Boolean" v)) }
-        if ((v.isNull()) || (EvValueBridge.isUndefined(v))) {
+        if ((v.isNull()) || (v.isUndefined())) {
             def keysO:[string]
             def valsO:[EvHandle]
             def o:EvHandle (EvValueBridge.taggedObject(keysO valsO))
@@ -19564,7 +19564,7 @@ class ComponentEngine {
     ; than the value type.
     ; --------------------------------------------------------------------------
     fn objectClassOf:string (v:EvHandle) {
-        if (EvValueBridge.isUndefined(v)) { return "Undefined" }
+        if (v.isUndefined()) { return "Undefined" }
         if (v.isNull()) { return "Null" }
         if (v.isArray()) { return "Array" }
         if (v.isFunction()) { return "Function" }
@@ -19679,7 +19679,7 @@ class ComponentEngine {
             return true
         }
         ; Present but not a function: not the default, and not usable either.
-        if (false == (EvValueBridge.isUndefined(m))) {
+        if (false == (m.isUndefined())) {
             return false
         }
         return true
@@ -20174,13 +20174,13 @@ class ComponentEngine {
             return v.numberValue
         }
         def p:EvHandle (this.toPrimitive(v false))
-        if (EvValueBridge.isString(p)) {
+        if (p.isString()) {
             return (this.stringToNumber((p.stringOf())))
         }
-        if (EvValueBridge.isUndefined(p)) {
+        if (p.isUndefined()) {
             return (0.0 / 0.0)
         }
-        if (EvValueBridge.isNull(p)) {
+        if (p.isNull()) {
             return 0.0
         }
         return (p.toNumber())
@@ -20215,7 +20215,7 @@ class ComponentEngine {
             if hasGet {
                 def g:EvHandle (this.descGet(d "get"))
                 if (false == (g.isFunction())) {
-                    if (false == (EvValueBridge.isUndefined(g))) {
+                    if (false == (g.isUndefined())) {
                         return "getter must be a function"
                     }
                 }
@@ -20223,7 +20223,7 @@ class ComponentEngine {
             if hasSet {
                 def st:EvHandle (this.descGet(d "set"))
                 if (false == (st.isFunction())) {
-                    if (false == (EvValueBridge.isUndefined(st))) {
+                    if (false == (st.isUndefined())) {
                         return "setter must be a function"
                     }
                 }
@@ -20271,7 +20271,7 @@ class ComponentEngine {
                 pattern = (this.regexSourceOf(pv))
                 flags = (this.regexFlagsOf(pv))
             } {
-                if (false == (EvValueBridge.isUndefined(pv))) {
+                if (false == (pv.isUndefined())) {
                     pattern = (this.toStringOf(pv))
                     if scriptThrew {
                         return (EvValueBridge.taggedUndefined())
@@ -20284,7 +20284,7 @@ class ComponentEngine {
             if scriptThrew {
                 return (EvValueBridge.taggedUndefined())
             }
-            if (false == (EvValueBridge.isUndefined(fv))) {
+            if (false == (fv.isUndefined())) {
                 flags = (this.toStringOf(fv))
                 if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
@@ -20330,7 +20330,7 @@ class ComponentEngine {
                 pattern = (this.regexSourceOf(pv))
                 flags = (this.regexFlagsOf(pv))
             } {
-                if (false == (EvValueBridge.isUndefined(pv))) {
+                if (false == (pv.isUndefined())) {
                     pattern = (this.toStringOf(pv))
                     if scriptThrew {
                         return (EvValueBridge.taggedUndefined())
@@ -20340,7 +20340,7 @@ class ComponentEngine {
         }
         if ((array_length args) > 1) {
             def fv:EvHandle (itemAt args 1)
-            if (false == (EvValueBridge.isUndefined(fv))) {
+            if (false == (fv.isUndefined())) {
                 flags = (this.toStringOf(fv))
                 if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
@@ -20434,10 +20434,10 @@ class ComponentEngine {
     fn errorToString:string (e:EvHandle) {
         def nm:string "Error"
         def nv:EvHandle (e.getMember("name"))
-        if (EvValueBridge.isString(nv)) { nm = (nv.stringOf()) }
+        if (nv.isString()) { nm = (nv.stringOf()) }
         def msg:string ""
         def mv:EvHandle (e.getMember("message"))
-        if (EvValueBridge.isString(mv)) { msg = (mv.stringOf()) }
+        if (mv.isString()) { msg = (mv.stringOf()) }
         if ((strlen msg) == 0) {
             return nm
         }
@@ -20456,7 +20456,7 @@ class ComponentEngine {
 
     fn regexFlagsOf:string (v:EvHandle) {
         def f:EvHandle (v.getMember("flags"))
-        if (EvValueBridge.isString(f)) {
+        if (f.isString()) {
             return (f.stringOf())
         }
         return ""
@@ -20464,7 +20464,7 @@ class ComponentEngine {
 
     fn regexSourceOf:string (v:EvHandle) {
         def sv:EvHandle (v.getMember("source"))
-        if (EvValueBridge.isString(sv)) {
+        if (sv.isString()) {
             return (sv.stringOf())
         }
         return ""
@@ -20583,7 +20583,7 @@ class ComponentEngine {
         if (this.isRegexValue(v)) {
             return v
         }
-        if (EvValueBridge.isUndefined(v)) {
+        if (v.isUndefined()) {
             return (this.makeRegexValue("" ""))
         }
         ; null is NOT the empty pattern: `'gnulluna'.match(null)` looks for the
@@ -20711,10 +20711,10 @@ class ComponentEngine {
     ; through .call().
     fn arrayLikeElements:[EvHandle] (v:EvHandle) {
         def out:[EvHandle]
-        if (EvValueBridge.isArrayValue(v)) {
+        if (v.isArray()) {
             return (v.itemsOf())
         }
-        if (EvValueBridge.isString(v)) {
+        if (v.isString()) {
             def si:int 0
             while (si < (strlen (v.stringOf()))) {
                 push out (EvValueBridge.taggedString((substring (v.stringOf()) si (si + 1))))
@@ -20730,7 +20730,7 @@ class ComponentEngine {
         if scriptThrew {
             return out
         }
-        if (EvValueBridge.isUndefined(lenV)) {
+        if (lenV.isUndefined()) {
             return out
         }
         ; D-STRNUM: ToUint32 goes through the engine's ToNumber, which follows
@@ -20777,7 +20777,7 @@ class ComponentEngine {
     ; answers the HOLE sentinel, which is exactly what the skip tests already
     ; look for, so no call site has to learn a new shape.
     fn arrayElemAt:EvHandle (recv:EvHandle idx:int) {
-        if (EvValueBridge.isArrayValue(recv)) {
+        if (recv.isArray()) {
             ; D-ACCESSORS: an index redefined as an ACCESSOR --
             ; `Object.defineProperty(arr, "0", {get: …})` -- is a real property
             ; of the array and its getter runs. Reading the dense slot first
@@ -20790,7 +20790,7 @@ class ComponentEngine {
             }
             if (idx < (recv.denseLen())) {
                 def slot:EvHandle (recv.arrayItemAt(idx))
-                if (false == (EvValueBridge.isHole(slot))) {
+                if (false == (slot.isHole())) {
                     return slot
                 }
             }
@@ -20804,7 +20804,7 @@ class ComponentEngine {
             }
             return (EvValueBridge.taggedHole())
         }
-        if (EvValueBridge.isString(recv)) {
+        if (recv.isString()) {
             if (idx < (strlen (recv.stringOf()))) {
                 return (EvValueBridge.taggedString((substring (recv.stringOf()) idx (idx + 1))))
             }
@@ -20843,7 +20843,7 @@ class ComponentEngine {
     ; and everything else through ToString so an object runs its own.
     fn arrayJoinLive:EvHandle (recv:EvHandle sep:string) {
         def n:int (recv.arrayLength())
-        if (false == (EvValueBridge.isArrayValue(recv))) {
+        if (false == (recv.isArray())) {
             def lv:EvHandle (this.getPropertyValue(recv "length"))
             if scriptThrew {
                 return (EvValueBridge.taggedUndefined())
@@ -20866,9 +20866,9 @@ class ComponentEngine {
                 return (EvValueBridge.taggedUndefined())
             }
             def skip:boolean false
-            if (EvValueBridge.isHole(v)) { skip = true }
-            if (EvValueBridge.isNull(v)) { skip = true }
-            if (EvValueBridge.isUndefined(v)) { skip = true }
+            if (v.isHole()) { skip = true }
+            if (v.isNull()) { skip = true }
+            if (v.isUndefined()) { skip = true }
             if (false == skip) {
                 out = (out + (this.toStringOf(v)))
                 if scriptThrew {
@@ -20910,7 +20910,7 @@ class ComponentEngine {
             }
         }
         def direct:EvHandle (obj.getMember(key))
-        if (false == (EvValueBridge.isUndefined(direct))) {
+        if (false == (direct.isUndefined())) {
             return direct
         }
         ; D-PROTO: an ARRAY carries no prototype link of its own, so the value
@@ -20927,7 +20927,7 @@ class ComponentEngine {
     ; ToString: an object runs its own toString/valueOf, everything else answers
     ; for itself.
     fn toStringOf:string (v:EvHandle) {
-        if (EvValueBridge.isString(v)) {
+        if (v.isString()) {
             return (v.stringOf())
         }
         def p:EvHandle v
@@ -20936,7 +20936,7 @@ class ComponentEngine {
         if (v.isObject()) { p = (this.toPrimitive(v true)) }
         if (v.isArray()) { p = (this.toPrimitive(v true)) }
         if (v.isFunction()) { p = (this.toPrimitive(v true)) }
-        if (EvValueBridge.isString(p)) {
+        if (p.isString()) {
             ; Bind before returning. `p` here is a value this scope OWNS --
             ; toPrimitive handed back a fresh one -- so returning its stringValue
             ; directly gave the caller a pointer into a value that scope exit
@@ -21008,7 +21008,7 @@ class ComponentEngine {
         def walk:EvHandle (this.protoOfValue(obj))
         def steps:int 0
         while (steps < 16) {
-            if (EvValueBridge.isNull(walk)) {
+            if (walk.isNull()) {
                 return (EvValueBridge.taggedNull())
             }
             if (walk.hasOwnData(key)) {
@@ -21021,7 +21021,7 @@ class ComponentEngine {
                 if (wi >= 0) {
                     if (wi < (walk.denseLen())) {
                         def wslot:EvHandle (walk.arrayItemAt(wi))
-                        if (false == (EvValueBridge.isHole(wslot))) {
+                        if (false == (wslot.isHole())) {
                             return wslot
                         }
                     }
@@ -21149,14 +21149,14 @@ class ComponentEngine {
     }
 
     fn toPropertyKey:string (v:EvHandle) {
-        if (EvValueBridge.isString(v)) {
+        if (v.isString()) {
             return (v.stringOf())
         }
         def p:EvHandle v
         if (v.isObject()) { p = (this.toPrimitive(v true)) }
         if (v.isArray()) { p = (this.toPrimitive(v true)) }
         if (v.isFunction()) { p = (this.toPrimitive(v true)) }
-        if (EvValueBridge.isString(p)) {
+        if (p.isString()) {
             ; Bind before returning. `p` here is a value this scope OWNS --
             ; toPrimitive handed back a fresh one -- so returning its stringValue
             ; directly gave the caller a pointer into a value that scope exit
@@ -21184,7 +21184,7 @@ class ComponentEngine {
         ; `Object.defineProperties(o, false)` boxes the boolean, finds no own
         ; enumerable property on it, and quietly returns o. Only null and
         ; undefined are a TypeError, and ToObject raises that itself.
-        if ((EvValueBridge.isNull(rawDescs)) || (EvValueBridge.isUndefined(rawDescs))) {
+        if ((rawDescs.isNull()) || (rawDescs.isUndefined())) {
             return "Properties must be an object"
         }
         def descs:EvHandle (this.toObjectValue(rawDescs))
@@ -21260,7 +21260,7 @@ class ComponentEngine {
             if (walk.hasOwnGetter(key)) { return true }
             if (walk.hasOwnSetter(key)) { return true }
             def nxt:EvHandle (this.protoOfValue(walk))
-            if (EvValueBridge.isNull(nxt)) {
+            if (nxt.isNull()) {
                 return false
             }
             walk = nxt
@@ -21293,7 +21293,7 @@ class ComponentEngine {
                 return (walk.getOwnData(key))
             }
             def nxt:EvHandle (this.protoOfValue(walk))
-            if (EvValueBridge.isNull(nxt)) {
+            if (nxt.isNull()) {
                 return (EvValueBridge.taggedUndefined())
             }
             walk = nxt
@@ -22212,28 +22212,28 @@ class ComponentEngine {
     }
 
     fn typeofTag:string (val:EvHandle) {
-        if (EvValueBridge.isUndefined(val)) {
+        if (val.isUndefined()) {
             return "undefined"
         }
-        if (EvValueBridge.isNull(val)) {
+        if (val.isNull()) {
             return "object"
         }
-        if (EvValueBridge.isNumber(val)) {
+        if (val.isNumber()) {
             return "number"
         }
-        if (EvValueBridge.isString(val)) {
+        if (val.isString()) {
             return "string"
         }
-        if (EvValueBridge.isBoolean(val)) {
+        if (val.isBoolean()) {
             return "boolean"
         }
-        if (EvValueBridge.isFunction(val)) {
+        if (val.isFunction()) {
             return "function"
         }
-        if (EvValueBridge.isArrayValue(val)) {
+        if (val.isArray()) {
             return "object"
         }
-        if (EvValueBridge.isObject(val)) {
+        if (val.isObject()) {
             ; D-SYMBOL: symbols are modelled as objects internally, but `typeof`
             ; must answer "symbol" — that is how guest code tells them apart, and
             ; answering "object" would make every symbol type-check wrong.
@@ -22243,13 +22243,13 @@ class ComponentEngine {
             }
             return "object"
         }
-        if (EvValueBridge.isMap(val)) {
+        if (val.isMap()) {
             return "object"
         }
-        if (EvValueBridge.isSet(val)) {
+        if (val.isSet()) {
             return "object"
         }
-        if (EvValueBridge.isElement(val)) {
+        if (val.isElement()) {
             return "object"
         }
         return "undefined"
@@ -22980,7 +22980,7 @@ class ComponentEngine {
                 if an.left {
                     sv = (this.evaluateExpr((unwrap an.left)))
                 }
-                if (EvValueBridge.isArrayValue(sv)) {
+                if (sv.isArray()) {
                     def k:int 0
                     while (k < (sv.denseLen())) {
                         push argVals (sv.arrayItemAt(k))
@@ -23106,11 +23106,11 @@ class ComponentEngine {
             def m:EvHandle (EvValueBridge.taggedMapEmpty())
             if ((array_length node.children) > 0) {
                 def init:EvHandle (this.evaluateExpr((itemAt node.children 0)))
-                if (EvValueBridge.isArrayValue(init)) {
+                if (init.isArray()) {
                     def i:int 0
                     while (i < (init.denseLen())) {
                         def pair:EvHandle (init.arrayItemAt(i))
-                        if (EvValueBridge.isArrayValue(pair)) {
+                        if (pair.isArray()) {
                             m.mapSet((pair.getIndex(0)) (pair.getIndex(1)))
                         }
                         i = (i + 1)
@@ -23123,7 +23123,7 @@ class ComponentEngine {
             def st:EvHandle (EvValueBridge.taggedSetEmpty())
             if ((array_length node.children) > 0) {
                 def init:EvHandle (this.evaluateExpr((itemAt node.children 0)))
-                if (EvValueBridge.isArrayValue(init)) {
+                if (init.isArray()) {
                     def i:int 0
                     while (i < (init.denseLen())) {
                         st.setAdd((init.arrayItemAt(i)))
@@ -23147,7 +23147,7 @@ class ComponentEngine {
                         if scriptThrew {
                             return (EvValueBridge.taggedUndefined())
                         }
-                        if (false == (EvValueBridge.isUndefined(mv))) {
+                        if (false == (mv.isUndefined())) {
                             msg = (this.toStringOf(mv))
                             if scriptThrew {
                                 return (EvValueBridge.taggedUndefined())
@@ -23327,13 +23327,13 @@ class ComponentEngine {
                         ; does not -- so the value's own function name is the
                         ; fallback. Without it `var F = RegExp.prototype.constructor;
                         ; new F` built a plain object.
-                        if (false == (EvValueBridge.isString(aliasName))) {
+                        if (false == (aliasName.isString())) {
                             def aliasCtor:string (this.builtinCtorNameOf(aliasV))
                             if ((strlen aliasCtor) > 0) {
                                 aliasName = (EvValueBridge.taggedString(aliasCtor))
                             }
                         }
-                        if (EvValueBridge.isString(aliasName)) {
+                        if (aliasName.isString()) {
                             def an:string (aliasName.stringOf())
                             if (this.isBuiltinCtorName(an)) {
                                 if (this.isWrapperCtorName(an)) {
@@ -23601,9 +23601,9 @@ class ComponentEngine {
             ; before this point and must not throw.
             if strictReferences {
                 if (node.optional == false) {
-                    if ((EvValueBridge.isNull(obj)) || (EvValueBridge.isUndefined(obj))) {
+                    if ((obj.isNull()) || (obj.isUndefined())) {
                         def tgtDesc:string "undefined"
-                        if (EvValueBridge.isNull(obj)) {
+                        if (obj.isNull()) {
                             tgtDesc = "null"
                         }
                         def pn:string propName
@@ -23775,7 +23775,7 @@ class ComponentEngine {
 
             ; Map/Set .size property (element count).
             if (propName == "size") {
-                if ((EvValueBridge.isMap(obj)) || (EvValueBridge.isSet(obj))) {
+                if ((obj.isMap()) || (obj.isSet())) {
                     return (EvHandle.fromInt((obj.denseLen())))
                 }
             }
@@ -23796,8 +23796,8 @@ class ComponentEngine {
                     ; runs. Only the written form was checked, above, so the
                     ; getter was skipped and the read answered undefined.
                     def ckey:string ""
-                    if (EvValueBridge.isString(indexVal)) { ckey = (indexVal.stringOf()) }
-                    if (EvValueBridge.isNumber(indexVal)) { ckey = (this.toPropertyKey(indexVal)) }
+                    if (indexVal.isString()) { ckey = (indexVal.stringOf()) }
+                    if (indexVal.isNumber()) { ckey = (this.toPropertyKey(indexVal)) }
                     ; D-ARGMAP: `arguments[0]` and the first named parameter are
                     ; ONE binding in sloppy mode, so a reassignment of either is
                     ; visible through the other. The object held a snapshot taken
@@ -23864,14 +23864,14 @@ class ComponentEngine {
                         }
                         return viaFar
                     }
-                    if (EvValueBridge.isNumber(indexVal)) {
+                    if (indexVal.isNumber()) {
                         def idx:int (to_int (indexVal.toNumber()))
                         if (false == quiet) {
                             this.trace("  Getting index " + (to_string idx) + " from array of length " + (to_string (obj.denseLen())))
                         }
                         return (obj.getIndex(idx))
                     }
-                    if (EvValueBridge.isString(indexVal)) {
+                    if (indexVal.isString()) {
                         ; A string key that names an index reaches the character,
                         ; and a key that names nothing reads as undefined --
                         ; `'abc'['foo']` is undefined, not null.
@@ -23945,7 +23945,7 @@ class ComponentEngine {
                 if elem.left {
                     sv = (this.evaluateExpr((unwrap elem.left)))
                 }
-                if (EvValueBridge.isArrayValue(sv)) {
+                if (sv.isArray()) {
                     def k:int 0
                     while (k < (sv.denseLen())) {
                         push items (sv.arrayItemAt(k))
@@ -24134,7 +24134,7 @@ class ComponentEngine {
             }
             return out
         }
-        if (EvValueBridge.isObject(v)) {
+        if (v.isObject()) {
             out = (v.ownDataKeys())
             ; D-ACCESSORS: an accessor property lives in getterMap/setterMap
             ; rather than objectMap, so listing only objectMap left every
@@ -24164,7 +24164,7 @@ class ComponentEngine {
         }
         ; A string coerces to an object whose own keys are its character
         ; indices, which is what Object.keys('abc') returns.
-        if (EvValueBridge.isString(v)) {
+        if (v.isString()) {
             def si:int 0
             while (si < (strlen (v.stringOf()))) {
                 push out (to_string si)
@@ -24175,7 +24175,7 @@ class ComponentEngine {
         ; D-ARRAYKEYS: an array's own keys are its INDICES, as strings. Elements
         ; live in arrayValue rather than objectMap, so Object.keys([1,2]) used to
         ; answer nothing at all instead of ["0","1"].
-        if (EvValueBridge.isArrayValue(v)) {
+        if (v.isArray()) {
             def i:int 0
             while (i < (v.denseLen())) {
                 ; D-HOLES: an ABSENT element has no key, so Object.keys and
@@ -24227,7 +24227,7 @@ class ComponentEngine {
 
     fn objectEnumerableKeysRaw:[string] (v:EvHandle) {
         def out:[string]
-        if (EvValueBridge.isArrayValue(v)) {
+        if (v.isArray()) {
             ; An index is enumerable UNLESS defineProperty recorded otherwise --
             ; `Object.defineProperties(a, {"0": {value: 1}})` creates a
             ; non-enumerable element, and for-in must skip it.
@@ -24242,10 +24242,10 @@ class ComponentEngine {
             }
             return out
         }
-        if (EvValueBridge.isString(v)) {
+        if (v.isString()) {
             return (this.objectKeys(v))
         }
-        def holdsProps:boolean (EvValueBridge.isObject(v))
+        def holdsProps:boolean (v.isObject())
         if (v.isFunction()) { holdsProps = true }
         if holdsProps {
             def all:[string] (this.objectKeys(v))
@@ -24264,7 +24264,7 @@ class ComponentEngine {
     ; True if an object value owns `key` (distinguishes a present-but-null value
     ; from an absent key, which getMember cannot). Used by the `in` operator.
     fn objHasKey:boolean (v:EvHandle key:string) {
-        if (EvValueBridge.isObject(v)) {
+        if (v.isObject()) {
             return (v.hasOwnData(key))
         }
         ; D-FNPROPS: length, name and prototype are OWN properties of every
@@ -24346,15 +24346,15 @@ class ComponentEngine {
     ; Serialise a value to JSON. undefined/functions become null (JSON has no such
     ; types); the internal __class__ tag on class instances is omitted.
     fn jsonStringify:string (v:EvHandle) {
-        if (EvValueBridge.isNull(v)) {
+        if (v.isNull()) {
             return "null"
         }
-        if (EvValueBridge.isUndefined(v)) {
+        if (v.isUndefined()) {
             return "null"
         }
         ; D-IEEE: JSON has no NaN or Infinity; both serialise as null. Emitting
         ; the literal text "NaN" produces JSON that will not parse back.
-        if (EvValueBridge.isNumber(v)) {
+        if (v.isNumber()) {
             def nv:double (v.toNumber())
             if (nv != nv) {
                 return "null"
@@ -24367,19 +24367,19 @@ class ComponentEngine {
                 return "null"
             }
         }
-        if (EvValueBridge.isBoolean(v)) {
+        if (v.isBoolean()) {
             if (v.toBool()) {
                 return "true"
             }
             return "false"
         }
-        if (EvValueBridge.isNumber(v)) {
+        if (v.isNumber()) {
             return (v.toString())
         }
-        if (EvValueBridge.isString(v)) {
+        if (v.isString()) {
             return (this.jsonQuote((v.stringOf())))
         }
-        if (EvValueBridge.isArrayValue(v)) {
+        if (v.isArray()) {
             def out:string "["
             def i:int 0
             while (i < (v.denseLen())) {
@@ -24391,7 +24391,7 @@ class ComponentEngine {
             }
             return (out + "]")
         }
-        if (EvValueBridge.isObject(v)) {
+        if (v.isObject()) {
             def out:string "{"
             def ks:[string] (this.objectKeys(v))
             def i:int 0
@@ -24824,7 +24824,7 @@ class ComponentEngine {
                 if prop.left {
                     sv = (this.evaluateExpr((unwrap prop.left)))
                 }
-                if (EvValueBridge.isObject(sv)) {
+                if (sv.isObject()) {
                     def sks:[string] (this.objectKeys(sv))
                     def si:int 0
                     while (si < (array_length sks)) {

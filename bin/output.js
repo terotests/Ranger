@@ -2683,6 +2683,26 @@ class CodeNode  {
       match.builtNodes[this.vref] = newNode_2;
       return newNode_2;
     }
+    if ( (this.ns.length) > 1 ) {
+      if ( ( typeof(match.nodes[(this.ns[0])] ) != "undefined" && Object.prototype.hasOwnProperty.call(match.nodes, (this.ns[0])) ) ) {
+        const rootAst = (( Object.prototype.hasOwnProperty.call(match.nodes, (this.ns[0])) ? match.nodes[(this.ns[0])] : undefined ));
+        if ( ((((rootAst.children.length) == 0) && ((rootAst.ns.length) < 2)) && ((rootAst.vref.length) > 0)) && (rootAst.expression == false) ) {
+          const nsNode = new CodeNode(this.code, this.sp, this.ep);
+          nsNode.value_type = this.value_type;
+          nsNode.expression = this.expression;
+          for ( let i = 0; i < this.ns.length; i++) {
+            var n = this.ns[i];
+            if ( i == 0 ) {
+              nsNode.ns.push(rootAst.vref);
+            } else {
+              nsNode.ns.push(n);
+            }
+          };
+          nsNode.vref = nsNode.ns.join(".");
+          return nsNode;
+        }
+      }
+    }
     newNode.has_operator = this.has_operator;
     newNode.op_index = this.op_index;
     newNode.mutable_def = this.mutable_def;
@@ -2713,14 +2733,14 @@ class CodeNode  {
       const t_ann = this.type_annotation;
       newNode.type_annotation = t_ann.rebuildWithType(match, true);
     }
-    for ( let i = 0; i < this.ns.length; i++) {
-      var n = this.ns[i];
+    for ( let i_1 = 0; i_1 < this.ns.length; i_1++) {
+      var n_1 = this.ns[i_1];
       if ( changeVref ) {
-        const new_ns = match.getTypeName(n);
+        const new_ns = match.getTypeName(n_1);
         newNode.ns.push(new_ns);
       } else {
         newNode.vref = this.vref;
-        newNode.ns.push(n);
+        newNode.ns.push(n_1);
       }
     };
     newNode.string_value = this.string_value;
@@ -2743,21 +2763,21 @@ class CodeNode  {
         }
         break;
     };
-    for ( let i_1 = 0; i_1 < this.prop_keys.length; i_1++) {
-      var key = this.prop_keys[i_1];
+    for ( let i_2 = 0; i_2 < this.prop_keys.length; i_2++) {
+      var key = this.prop_keys[i_2];
       newNode.prop_keys.push(key);
       const oldp = ( Object.prototype.hasOwnProperty.call(this.props, key) ? this.props[key] : undefined );
       const np = oldp.rebuildWithType(match, changeVref);
       newNode.props[key] = np;
     };
-    for ( let i_2 = 0; i_2 < this.children.length; i_2++) {
-      var ch = this.children[i_2];
+    for ( let i_3 = 0; i_3 < this.children.length; i_3++) {
+      var ch = this.children[i_3];
       const newCh = ch.rebuildWithType(match, changeVref);
       newCh.parent = newNode;
       newNode.children.push(newCh);
     };
-    for ( let i_3 = 0; i_3 < this.attrs.length; i_3++) {
-      var ch_1 = this.attrs[i_3];
+    for ( let i_4 = 0; i_4 < this.attrs.length; i_4++) {
+      var ch_1 = this.attrs[i_4];
       const newCh_1 = ch_1.rebuildWithType(match, changeVref);
       newNode.attrs.push(newCh_1);
     };
@@ -9558,6 +9578,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.isDefinedArgSignature = {};
       this.extendedClasses = {};
       this.allNewRNodes = [];     /** note: unused */
+      this.inline_static_depth = 0;
       this.infinite_recursion = false;
       this.match_types = {};
     }
@@ -11231,6 +11252,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         this.checkInitializedObjectReceiver(rootName, node, ctx);
         const vFnDef = this.findFunctionDesc(fnNode, ctx, wr);
         if ( (typeof(vFnDef) !== "undefined" && vFnDef != null )  ) {
+          if ( ctx.hasCompilerFlag("inline-statics") ) {
+            if ( await this.tryInlineTrivialStatic(node, fnNode, (vFnDef), ctx, wr) ) {
+              return true;
+            }
+          }
           if ( vFnDef.nameNode.hasFlag("throws") ) {
             if ( false == ctx.isTryBlock() ) {
               ctx.addError(node, ("The method " + vFnDef.name) + " potentially throws an exception, try { } block is required");
@@ -12129,6 +12155,137 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         await this.WalkNode(node, ctx, wr);
       }
       return am.builtNodes;
+    };
+    async inlineStaticEligible (m, fnNode, ctx) {
+      if ( typeof(m.fnBody) === "undefined" ) {
+        return false;
+      }
+      const body = m.fnBody;
+      if ( (body.children.length) != 1 ) {
+        return false;
+      }
+      const ret = body.children[0];
+      if ( false == ret.isFirstVref("return") ) {
+        return false;
+      }
+      if ( (ret.children.length) != 2 ) {
+        return false;
+      }
+      if ( m.nameNode.hasFlag("optional") ) {
+        return false;
+      }
+      const retExpr = ret.children[1];
+      if ( retExpr.expression == false ) {
+        return false;
+      }
+      let paramNames = {};
+      let b_ok = true;
+      for ( let i = 0; i < m.params.length; i++) {
+        var p = m.params[i];
+        if ( p.nameNode.hasFlag("optional") ) {
+          b_ok = false;
+        }
+        if ( p.nameNode.hasFlag("keyword") ) {
+          b_ok = false;
+        }
+        if ( p.nameNode.hasFlag("default") ) {
+          b_ok = false;
+        }
+        paramNames[p.name] = true;
+      };
+      if ( b_ok == false ) {
+        return false;
+      }
+      const fullName = fnNode.vref;
+      await retExpr.forTree((async (item, i) => { 
+        if ( (item.vref.length) > 0 ) {
+          let rootName = item.vref;
+          if ( (item.ns.length) > 0 ) {
+            rootName = item.ns[0];
+          }
+          if ( ( typeof(paramNames[rootName] ) != "undefined" && Object.prototype.hasOwnProperty.call(paramNames, rootName) ) ) {
+          } else {
+            if ( item.vref == fullName ) {
+              b_ok = false;
+            } else {
+              if ( ctx.isDefinedClass(rootName) ) {
+              } else {
+                const ops = await ctx.getOperators(item.vref);
+                if ( (ops.length) > 0 ) {
+                } else {
+                  b_ok = false;
+                }
+              }
+            }
+          }
+        }
+      }));
+      return b_ok;
+    };
+    async tryInlineTrivialStatic (node, fnNode, m, ctx, wr) {
+      if ( this.inline_static_depth > 6 ) {
+        return false;
+      }
+      if ( m.is_static == false ) {
+        return false;
+      }
+      if ( (fnNode.ns.length) != 2 ) {
+        return false;
+      }
+      const clName = fnNode.ns[0];
+      if ( false == ctx.isDefinedClass(clName) ) {
+        return false;
+      }
+      const cl = ctx.findClass(clName);
+      if ( cl.is_template ) {
+        return false;
+      }
+      if ( false == cl.hasStaticMethod((fnNode.ns[((fnNode.ns.length) - 1)])) ) {
+        return false;
+      }
+      if ( (node.children.length) != 2 ) {
+        return false;
+      }
+      const callArgs = node.getSecond();
+      if ( callArgs.expression == false ) {
+        return false;
+      }
+      if ( (callArgs.children.length) != (m.params.length) ) {
+        return false;
+      }
+      let b_atoms = true;
+      for ( let i = 0; i < callArgs.children.length; i++) {
+        var a = callArgs.children[i];
+        if ( ((a.expression || ((a.children.length) > 0)) || ((a.ns.length) > 1)) || ((a.vref.length) == 0) ) {
+          b_atoms = false;
+        }
+      };
+      if ( b_atoms == false ) {
+        return false;
+      }
+      if ( false == await this.inlineStaticEligible(m, fnNode, ctx) ) {
+        return false;
+      }
+      const am = new RangerArgMatch();
+      for ( let i_1 = 0; i_1 < callArgs.children.length; i_1++) {
+        var a_1 = callArgs.children[i_1];
+        const p = m.params[i_1];
+        am.addNode(p.name, a_1);
+      };
+      const body = m.fnBody;
+      const ret = body.children[0];
+      const retExpr = ret.children[1];
+      const newExpr = retExpr.rebuildWithType(am, true);
+      if ( ctx.hasCompilerFlag("show-inline-statics") ) {
+        console.log((("inline-statics: " + fnNode.vref) + " -> ") + newExpr.getCode());
+      }
+      node.getChildrenFrom(newExpr);
+      node.flow_done = false;
+      node.hasFnCall = false;
+      this.inline_static_depth = this.inline_static_depth + 1;
+      await this.WalkNode(node, ctx, wr);
+      this.inline_static_depth = this.inline_static_depth - 1;
+      return true;
     };
     async TransformOpFn (opFnList, origNode, ctx, wr) {
       if ( this.infinite_recursion ) {
@@ -13043,6 +13200,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       if ( ((Object.keys(renames)).length) > 0 ) {
         this.rewriteShapeRefs(node, renames);
         this.expandMatchesIn(node, ctx, wr);
+        this.expandGroupKindTests(node, ctx, wr);
       }
     };
     isShapeDeclaration (node) {
@@ -14498,6 +14656,53 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           this.expandMatchesInFn(ch, nextFn, ctx, wr);
         }
       };
+    };
+    expandGroupKindTests (node, ctx, wr) {
+      for ( let i = 0; i < node.children.length; i++) {
+        var ch = node.children[i];
+        this.expandGroupKindTests(ch, ctx, wr);
+      };
+      if ( (node.children.length) != 3 ) {
+        return;
+      }
+      const head = node.children[0];
+      if ( head.vref != "is" ) {
+        return;
+      }
+      const typeNode = node.children[2];
+      if ( (typeNode.type_name.length) == 0 ) {
+        return;
+      }
+      if ( (( typeof(this.shapeGroupCases[typeNode.type_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.shapeGroupCases, typeNode.type_name) )) == false ) {
+        return;
+      }
+      const members = (( Object.prototype.hasOwnProperty.call(this.shapeGroupCases, typeNode.type_name) ? this.shapeGroupCases[typeNode.type_name] : undefined ));
+      if ( (members.length) == 0 ) {
+        ctx.addError(node, ("group " + typeNode.type_name) + " has no cases to test");
+        return;
+      }
+      const scrutinee = node.children[1];
+      let acc = this.buildCaseKindTest(node, scrutinee, (members[0]));
+      for ( let mi = 0; mi < members.length; mi++) {
+        var m = members[mi];
+        if ( mi > 0 ) {
+          const orNode = node.newExpressionNode();
+          orNode.children.push(node.newVRefNode("||"));
+          orNode.children.push(acc);
+          orNode.children.push(this.buildCaseKindTest(node, scrutinee, m));
+          acc = orNode;
+        }
+      };
+      node.getChildrenFrom(acc);
+    };
+    buildCaseKindTest (proto, scrutinee, cls) {
+      const e = proto.newExpressionNode();
+      e.children.push(proto.newVRefNode("is"));
+      e.children.push(scrutinee.copy());
+      const typeNode = proto.newVRefNode("_");
+      typeNode.type_name = cls;
+      e.children.push(typeNode);
+      return e;
     };
     declaredTypeOf (fnNode, name) {
       if ( (fnNode.children.length) > 2 ) {
@@ -34448,6 +34653,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                         }
                         if ( (node.nsp.length) > 0 ) {
+                          let nsp_was_static = false;
                           for ( let i = 0; i < node.nsp.length; i++) {
                             var p = node.nsp[i];
                             if ( i == 0 ) {
@@ -34458,10 +34664,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                             }
                             if ( i > 0 ) {
-                              wr.out("->", false);
+                              if ( (i == 1) && nsp_was_static ) {
+                                wr.out("::", false);
+                              } else {
+                                wr.out("->", false);
+                              }
                             }
                             if ( i == 0 ) {
-                              wr.out("$", false);
+                              const part0 = node.ns[0];
+                              if ( ctx.hasClass(part0) ) {
+                                nsp_was_static = true;
+                              } else {
+                                wr.out("$", false);
+                              }
                               if ( p.nameNode.hasFlag("optional") ) {
                               }
                               const part_1 = node.ns[0];
@@ -52492,7 +52707,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                         let the_file = "";
                                                         let plugins_only = false;
                                                         const valid_options = ["l", "Selected language, one of " + (allowed_languages.join(", ")), "d", "output directory, default directory is \"bin/\"", "o", "output file, default is \"output.<language>\"", "classdoc", "write class documentation .md file", "operatordoc", "write operator documention into .md file"];
-                                                        const valid_flags = ["no-color", "Disable colored output", "deadcode", "Eliminate functions which are not called by any other functions", "dead4main", "Eliminate functions and classes which are unreachable from the main function", "forever", "Leave the main program into eternal loop (Go, Swift)", "allowti", "Allow type inference at target lang (creates slightly smaller code)", "plugins-only", "ignore built-in language output and use only plugins", "plugins", "(node compiler only) run specified npm plugins -plugins=\"plugin1,plugin2\"", "strict", "Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.", "strict-ownership", "Print the inferred ownership of each function parameter (borrowed, moved, shared, owned, unknown)", "rust-shared-classes", "Emit Rc<RefCell<T>> for classes the sharing analysis marks as shared (Rust target; the default since the conformance gate closed — kept for compatibility)", "rust-value-classes", "Every class is a plain value struct on Rust (the pre-ownership object model); disables the shared-class Rc<RefCell<T>> emission", "native-fast-alloc", "Rust/C++ targets: emit a thread-local size-class freelist allocator (never returns memory to the OS; single-process benchmark/tool builds)", "cpp-single-thread", "C++ target: reference-count objects WITHOUT atomics (rg_ptr). Same aliasing as std::shared_ptr and no lock-prefixed increment per copy; a pointer copied across threads corrupts the count, so single-threaded builds only", "typescript", "Writes JavaScript code with TypeScript annotations", "esm", "Writes JavaScript code with ESM module syntax", "npm", "Write the package.json to the output directory", "pubspec", "Write pubspec.yaml for a Dart / Flutter package (requires -name= -version= -description=)", "flutter", "When used with -pubspec, emit a Flutter-oriented pubspec.yaml", "nodecli", "Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file", "nodemodule", "Export the classes as Node.js CommonJS modules", "client", "the code is ment to be run in the client environment", "scalafiddle", "scalafiddle.io compatible output", "compiler", "recompile the compiler", "copysrc", "copy all the source codes into the target directory"];
+                                                        const valid_flags = ["no-color", "Disable colored output", "deadcode", "Eliminate functions which are not called by any other functions", "dead4main", "Eliminate functions and classes which are unreachable from the main function", "forever", "Leave the main program into eternal loop (Go, Swift)", "allowti", "Allow type inference at target lang (creates slightly smaller code)", "plugins-only", "ignore built-in language output and use only plugins", "plugins", "(node compiler only) run specified npm plugins -plugins=\"plugin1,plugin2\"", "strict", "Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.", "strict-ownership", "Print the inferred ownership of each function parameter (borrowed, moved, shared, owned, unknown)", "rust-shared-classes", "Emit Rc<RefCell<T>> for classes the sharing analysis marks as shared (Rust target; the default since the conformance gate closed — kept for compatibility)", "rust-value-classes", "Every class is a plain value struct on Rust (the pre-ownership object model); disables the shared-class Rc<RefCell<T>> emission", "inline-statics", "Expand trivial static forwarders (a single return of an expression over the parameters) at their call sites instead of emitting a call", "native-fast-alloc", "Rust/C++ targets: emit a thread-local size-class freelist allocator (never returns memory to the OS; single-process benchmark/tool builds)", "cpp-single-thread", "C++ target: reference-count objects WITHOUT atomics (rg_ptr). Same aliasing as std::shared_ptr and no lock-prefixed increment per copy; a pointer copied across threads corrupts the count, so single-threaded builds only", "typescript", "Writes JavaScript code with TypeScript annotations", "esm", "Writes JavaScript code with ESM module syntax", "npm", "Write the package.json to the output directory", "pubspec", "Write pubspec.yaml for a Dart / Flutter package (requires -name= -version= -description=)", "flutter", "When used with -pubspec, emit a Flutter-oriented pubspec.yaml", "nodecli", "Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file", "nodemodule", "Export the classes as Node.js CommonJS modules", "client", "the code is ment to be run in the client environment", "scalafiddle", "scalafiddle.io compatible output", "compiler", "recompile the compiler", "copysrc", "copy all the source codes into the target directory"];
                                                         const parser_pragmas = ["@noinfix(true)", "disable operator infix parsing and automatic type definition checking "];
                                                         if ( ( typeof(params.flags["compiler"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "compiler") ) ) {
                                                           cli.printHeader();

@@ -2124,6 +2124,14 @@ class RangerFlowParser {
 
       if (!null? vFnDef) {
 
+        ; -inline-statics: a trivial static forwarder expands into its body
+        ; here instead of becoming a call
+        if( ctx.hasCompilerFlag("inline-statics") ) {
+          if( this.tryInlineTrivialStatic( node fnNode (unwrap vFnDef) ctx wr ) ) {
+            return true
+          }
+        }
+
         if(vFnDef.nameNode.hasFlag("throws")) {
           if(false == (ctx.isTryBlock()) ) {
             ctx.addError(node ('The method ' + vFnDef.name + " potentially throws an exception, try { } block is required"))
@@ -3151,11 +3159,168 @@ class RangerFlowParser {
     return am.builtNodes
   }
 
+  ; ---- -inline-statics ------------------------------------------------------
+  ; A TRIVIAL static forwarder -- `sfn isUndefined:boolean (v:EvHandle) {
+  ; return (v.isUndefined()) }` -- expands into its body at the call site
+  ; instead of paying a function call (and, on the Rust target, an Rc clone
+  ; per handle argument). Deliberately conservative: the body must be exactly
+  ; one `return (expr)`, every name in it must be a parameter, a
+  ; class-qualified reference or a language operator, and every call
+  ; argument must be a plain bare name, so nothing can double-evaluate or
+  ; change evaluation order. Anything else keeps the ordinary call.
+  def inline_static_depth:int 0
+
+  fn inlineStaticEligible:boolean (m:RangerAppFunctionDesc fnNode:CodeNode ctx:RangerAppWriterContext) {
+    if( null? m.fnBody ) {
+      return false
+    }
+    def body:CodeNode (unwrap m.fnBody)
+    if( (array_length body.children) != 1 ) {
+      return false
+    }
+    def ret (first body.children)
+    if( false == (ret.isFirstVref("return")) ) {
+      return false
+    }
+    if( (array_length ret.children) != 2 ) {
+      return false
+    }
+    if( m.nameNode.hasFlag("optional") ) {
+      return false
+    }
+    def retExpr (at ret.children 1)
+    ; a bare-atom body (`return v`) is possible but rare -- only expression
+    ; bodies are expanded, so the call node keeps its expression shape
+    if( retExpr.expression == false ) {
+      return false
+    }
+    def paramNames:[string:boolean]
+    def b_ok true
+    for m.params p:RangerAppParamDesc i {
+      if( p.nameNode.hasFlag("optional") ) {
+        b_ok = false
+      }
+      if( p.nameNode.hasFlag("keyword") ) {
+        b_ok = false
+      }
+      if( p.nameNode.hasFlag("default") ) {
+        b_ok = false
+      }
+      set paramNames p.name true
+    }
+    if( b_ok == false ) {
+      return false
+    }
+    def fullName:string fnNode.vref
+    retExpr.forTree({
+      if( (strlen item.vref) > 0 ) {
+        def rootName:string item.vref
+        if( (array_length item.ns) > 0 ) {
+          rootName = (first item.ns)
+        }
+        if( has paramNames rootName ) {
+          ; a parameter use
+        } {
+          if( item.vref == fullName ) {
+            ; direct recursion can never terminate the expansion
+            b_ok = false
+          } {
+            if( ctx.isDefinedClass(rootName) ) {
+              ; a class-qualified reference resolves the same anywhere
+            } {
+              def ops (ctx.getOperators(item.vref))
+              if( (array_length ops) > 0 ) {
+                ; a language operator
+              } {
+                ; a bare name from the callee's scope -- substituting it
+                ; into the caller would capture the wrong binding
+                b_ok = false
+              }
+            }
+          }
+        }
+      }
+    })
+    return b_ok
+  }
+
+  fn tryInlineTrivialStatic:boolean (node:CodeNode fnNode:CodeNode m:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    if( inline_static_depth > 6 ) {
+      return false
+    }
+    if( m.is_static == false ) {
+      return false
+    }
+    ; only the plain `Class.name args` shape -- a variable-rooted or deeper
+    ; chain is an instance call or a namespace walk
+    if( (array_length fnNode.ns) != 2 ) {
+      return false
+    }
+    def clName:string (first fnNode.ns)
+    if( false == (ctx.isDefinedClass(clName)) ) {
+      return false
+    }
+    def cl (ctx.findClass(clName))
+    if( cl.is_template ) {
+      return false
+    }
+    if( false == (cl.hasStaticMethod( (last fnNode.ns) )) ) {
+      return false
+    }
+    if( (array_length node.children) != 2 ) {
+      return false
+    }
+    def callArgs (node.getSecond())
+    if( callArgs.expression == false ) {
+      return false
+    }
+    if( (array_length callArgs.children) != (array_length m.params) ) {
+      return false
+    }
+    ; every argument must be a plain bare name: an expression argument moved
+    ; into the body's position could evaluate in a different order (or, if a
+    ; parameter repeats, twice), and a literal cannot root a member chain
+    def b_atoms true
+    for callArgs.children a:CodeNode i {
+      if( a.expression || ( (array_length a.children) > 0 ) || ( (array_length a.ns) > 1 ) || ( (strlen a.vref) == 0 ) ) {
+        b_atoms = false
+      }
+    }
+    if( b_atoms == false ) {
+      return false
+    }
+    if( false == (this.inlineStaticEligible(m fnNode ctx)) ) {
+      return false
+    }
+    def am@(lives) (new RangerArgMatch)
+    for callArgs.children a:CodeNode i {
+      def p:RangerAppParamDesc (at m.params i)
+      am.addNode( p.name a )
+    }
+    def body:CodeNode (unwrap m.fnBody)
+    def ret (first body.children)
+    def retExpr (at ret.children 1)
+    def newExpr (retExpr.rebuildWithType(am true))
+    if(ctx.hasCompilerFlag("show-inline-statics")) {
+      print "inline-statics: " + fnNode.vref + " -> " + (newExpr.getCode())
+    }
+    ; splice the rebuilt body into the call node and re-flow it in the
+    ; CALLER's context -- types, param descriptors and ref counts are all
+    ; computed for the new expression exactly as if it had been written here
+    node.getChildrenFrom(newExpr)
+    node.flow_done = false
+    node.hasFnCall = false
+    inline_static_depth = inline_static_depth + 1
+    this.WalkNode(node ctx wr)
+    inline_static_depth = inline_static_depth - 1
+    return true
+  }
+
   ; transforms a node
   ; origNode has the syntax (opname x y z)
   ; against given operator definition nodes in opFnList in format
   ;   defn someOp (x) (x + 1)
-  ; 
+  ;
   def infinite_recursion false
   def match_types:[string:string]
 
@@ -4285,6 +4450,9 @@ class RangerFlowParser {
       this.rewriteShapeRefs(node renames)
       ; after the rename, an arm written as `Value.Num` reads as `Value_Num`
       this.expandMatchesIn(node ctx wr)
+      ; …and `is v _:Value.Prim` reads as `Value_Prim`, which is a group, not a
+      ; tag any target can compare — expand it into its member cases
+      this.expandGroupKindTests(node ctx wr)
     }
   }
 
@@ -5827,6 +5995,65 @@ class RangerFlowParser {
         this.expandMatchesInFn(ch nextFn ctx wr)
       }
     }
+  }
+
+  ; `is v _:Shape.Group` — a group is not a discriminant any target can test.
+  ; The generated union carries one tag per CASE, so asking a writer for a
+  ; group tag produces a name that does not exist (`union_Val::union_Val_Prim`
+  ; on Rust, `union_Val_tag_union_Val_Prim` on Go) or, on the tag-string
+  ; targets, a comparison that is simply never true. So a group test expands
+  ; here into a disjunction over the group's member cases — the same move
+  ; `match` makes for a group arm — and every target then sees only per-case
+  ; tests it already knows how to lower.
+  ;
+  ; Runs on the renamed tree, so the annotation already reads as the generated
+  ; group class name.
+  fn expandGroupKindTests:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    for node.children ch:CodeNode i {
+      this.expandGroupKindTests(ch ctx wr)
+    }
+    if ((array_length node.children) != 3) {
+      return
+    }
+    def head:CodeNode (first node.children)
+    if (head.vref != "is") {
+      return
+    }
+    def typeNode:CodeNode (itemAt node.children 2)
+    if ((strlen typeNode.type_name) == 0) {
+      return
+    }
+    if ((has shapeGroupCases typeNode.type_name) == false) {
+      return
+    }
+    def members:[string] (unwrap (get shapeGroupCases typeNode.type_name))
+    if ((array_length members) == 0) {
+      ctx.addError(node (("group " + typeNode.type_name) + " has no cases to test"))
+      return
+    }
+    def scrutinee:CodeNode (itemAt node.children 1)
+    def acc:CodeNode (this.buildCaseKindTest(node scrutinee (first members)))
+    for members m:string mi {
+      if (mi > 0) {
+        def orNode:CodeNode (node.newExpressionNode())
+        push orNode.children (node.newVRefNode("||"))
+        push orNode.children acc
+        push orNode.children (this.buildCaseKindTest(node scrutinee m))
+        acc = orNode
+      }
+    }
+    node.getChildrenFrom(acc)
+  }
+
+  ; One `is v _:Case` node, built the way expandMatch builds its narrowings.
+  fn buildCaseKindTest:CodeNode (proto:CodeNode scrutinee:CodeNode cls:string) {
+    def e:CodeNode (proto.newExpressionNode())
+    push e.children (proto.newVRefNode("is"))
+    push e.children (scrutinee.copy())
+    def typeNode:CodeNode (proto.newVRefNode("_"))
+    typeNode.type_name = cls
+    push e.children typeNode
+    return e
   }
 
   ; The declared type of `name` inside this function: a parameter first, then a
