@@ -148,25 +148,28 @@ started from a C++/QJS `array` ratio of 3451x:
 
 ```
 case      raw Node raw QuickJS   eng/ES6   eng/C++ | ES6/QJS   C++/QJS
-loop         0.768       0.740      19.8       8.0  |   26.8x     10.9x
-fib          0.512       0.840      17.8      13.8  |   21.2x     16.5x
-strcat       0.470      10.500      13.5      10.5  |    1.3x      1.0x
-array        1.476       2.289      50.7      24.3  |   22.1x     10.6x
-object       2.807       4.414      51.8      61.8  |   11.7x     14.0x
-method       2.258       5.188      87.9      71.2  |   17.0x     13.7x
-regex        1.878       7.203      67.1      79.4  |    9.3x     11.0x
-geomean      1.183       3.052      35.7      26.8  |   11.7x      8.8x
+loop         0.270       0.365     2.102     1.589  |    5.8x      4.4x
+fib          0.227       0.409     3.038     4.951  |    7.4x     12.1x
+strcat       0.243       6.172     0.532     1.544  |    0.1x      0.3x
+array        0.685       1.320     4.126     4.734  |    3.1x      3.6x
+object       1.144       2.137      10.6     7.748  |    5.0x      3.6x
+method       1.127       2.430      12.2      14.3  |    5.0x      5.9x
+regex        1.028       3.719      27.8      29.7  |    7.5x      8.0x
+geomean      0.541       1.570     4.701     5.676  |    3.0x      3.6x
 ```
 
-The C++ geomean against QuickJS went 63x → 8.8x over this work (the es6
-build: 20x → 11.7x). The last cut is the BYTECODE TIER (migrate/BYTECODE.md):
-a compilable function body -- plain params, locals, arithmetic, branches,
-loops, direct calls -- compiles once into a flat opcode stream and runs on
-a slot-indexed stack VM with no per-call EvalContext at all; everything
-else stays on the tree-walker, and the two call each other freely through
-the same dispatch. `loop` went 23x → 10.9x and `fib` 34x → 16.5x on it. `strcat` is the row to stare at: the INTERPRETER now
-concatenates as fast as QuickJS runs the same loop natively, because qjs
-copies the accumulator per `+=` while the slot machinery appends in place.
+(Re-measured on `9e1edf89` / master after #543 with QuickJS 2024-01-13.)
+
+The C++ geomean against QuickJS went 63x → **3.6x** over this work (the es6
+build → **3.0x**). The last big cut is the BYTECODE TIER
+(migrate/BYTECODE.md): a compilable function body -- plain params, locals,
+arithmetic, branches, loops, direct calls -- compiles once into a flat
+opcode stream and runs on a slot-indexed stack VM with no per-call
+EvalContext at all; everything else stays on the tree-walker, and the two
+call each other freely through the same dispatch. `strcat` beats QuickJS
+because the slot machinery appends in place while qjs copies. Octane
+Richards (~16× behind QJS on es6/Rust) is still the object-graph story —
+see `../zoo_octane/RESULTS.md`.
 The `array` row's last big cut came from a CALL-SITE INLINE CACHE: a method
 call that resolved to a registry built-in memoises an opcode on its AST node,
 valid while a dispatch EPOCH stands still. The epoch bumps whenever a
