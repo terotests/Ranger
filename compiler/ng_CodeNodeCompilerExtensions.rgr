@@ -497,6 +497,31 @@ extension CodeNode {
       set match.builtNodes vref newNode
       return newNode
     }
+    ; a QUALIFIED reference whose ROOT segment is a substituted node --
+    ; `v.isUndefined` with v bound to a call argument (the static-forwarder
+    ; inliner and defn bodies that touch a member of a parameter). Only a
+    ; plain bare name can stand in as the root of a member chain, so an
+    ; expression or literal binding leaves the node untouched here -- the
+    ; inliner refuses such arguments before building the match.
+    if( (array_length ns) > 1 ) {
+      if( has match.nodes (first ns) ) {
+        def rootAst (unwrap (get match.nodes (first ns)))
+        if( ( (array_length rootAst.children) == 0 ) && ( (array_length rootAst.ns) < 2 ) && ( (strlen rootAst.vref) > 0 ) && (rootAst.expression == false) ) {
+          def nsNode@(lives):CodeNode (new CodeNode ( (unwrap code) sp ep))
+          nsNode.value_type = value_type
+          nsNode.expression = expression
+          for ns n:string i {
+            if( i == 0 ) {
+              push nsNode.ns rootAst.vref
+            } {
+              push nsNode.ns n
+            }
+          }
+          nsNode.vref = (join nsNode.ns ".")
+          return nsNode
+        }
+      }
+    }
     newNode.has_operator = has_operator
     newNode.op_index = op_index
     newNode.mutable_def = mutable_def
