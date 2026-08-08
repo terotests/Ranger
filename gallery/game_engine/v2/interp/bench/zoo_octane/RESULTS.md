@@ -451,6 +451,30 @@ fib −9.5%, object −10.6%, splay kernel −1.4%, richards flat.
 Frozen/sealed/defineProperty/read-only-proto/setter probes all hold on
 all three targets; failure sets bit-unchanged.
 
+## Bytecode tier: switch and try/finally compile (2026-08-08)
+
+The last two phase-4 statements of any weight. switch compiles in the
+walker's exact shape — every case test evaluates in order (side
+effects included), the first strict-equal match wins, bodies run from
+there by fall-through — and is a break target with its own patch
+window, distinct from loops, so `continue` inside a switch still
+reaches the enclosing loop and pops the right number of try handlers
+on the way. try/finally compiles when nothing can exit the guarded
+blocks abruptly except a throw (escaping return/break/continue keeps
+the statement walked): the normal path runs the finalizer inline; the
+exception path binds the pending value to a hidden slot, runs a
+second copy of the finalizer, and rethrows — which also gives the
+"finalizer's own throw replaces the pending one" rule for free.
+
+Ten new suite probes (fall-through, default-first, strict-equality
+cases, continue-through-switch, and finally on the normal / caught /
+replacing / cross-function paths): es6 1327/1327, C++ 1265/1293 and
+Rust 1286/1293 — the same 36+2 and 15+2 pre-existing failures, zero
+regressions. One walker trait recorded while probing: the engine
+evaluates ALL case tests even after a match where Node stops at the
+first hit; tier and walker agree with each other, not with Node —
+a pre-existing divergence, now documented.
+
 ## Splay: the C++-only spin, resolved (2026-08-07)
 
 The long-standing "C++-only splay spin" was **not** the tree, the rotations,

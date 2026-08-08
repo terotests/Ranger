@@ -783,12 +783,17 @@ class BcProgram {
     def cntSites:[int]
     def cntTop:int 0
     def loopDepth:int 0
+    ; break binds to the innermost BREAKABLE (loop or switch); continue
+    ; to the innermost LOOP. Each tracks its own depth and the tryDepth
+    ; at its entry.
+    def brkDepth:int 0
     ; open try_push..try_pop brackets at the current compile point, and
-    ; the value it had when the innermost loop began -- a break/continue
-    ; emits the difference as try_pop ops so the handler stack cannot
-    ; leak past a jump out of a try.
+    ; the value it had when the innermost loop/breakable began -- a
+    ; break/continue emits the difference as try_pop ops so the handler
+    ; stack cannot leak past a jump out of a try.
     def tryDepth:int 0
     def loopTryDepth:int 0
+    def brkTryDepth:int 0
     ; catch parameters that became slots (name -> slot), so disjoint
     ; clauses binding the same name share one slot.
     def catchNames:[string]
@@ -8388,6 +8393,20 @@ class ComponentEngine {
             }
             return
         }
+        if (k == 42) {
+            ; every case body hoists its vars
+            def sci:int 0
+            while (sci < (array_length node.children)) {
+                def scase:TSNode (itemAt node.children sci)
+                def scj:int 0
+                while (scj < (array_length scase.children)) {
+                    this.bcCollectVars((itemAt scase.children scj) prog)
+                    scj = (scj + 1)
+                }
+                sci = (sci + 1)
+            }
+            return
+        }
     }
 
     fn bcStmtList:boolean (list:[TSNode] prog:BcProgram) {
@@ -8500,12 +8519,17 @@ class ComponentEngine {
             def wBrkBase:int prog.brkTop
             def wCntBase:int prog.cntTop
             def wSavedLoopTd:int prog.loopTryDepth
+            def wSavedBrkTd:int prog.brkTryDepth
             prog.loopTryDepth = prog.tryDepth
+            prog.brkTryDepth = prog.tryDepth
             prog.loopDepth = (prog.loopDepth + 1)
+            prog.brkDepth = (prog.brkDepth + 1)
             def wTop:int (prog.here())
             if (false == (this.bcExpr((unwrap node.left) prog))) {
                 prog.loopDepth = (prog.loopDepth - 1)
+                prog.brkDepth = (prog.brkDepth - 1)
                 prog.loopTryDepth = wSavedLoopTd
+            prog.brkTryDepth = wSavedBrkTd
                 return false
             }
             def wExit:int (prog.here())
@@ -8513,7 +8537,9 @@ class ComponentEngine {
             if node.body {
                 if (false == (this.bcStmt((unwrap node.body) prog))) {
                     prog.loopDepth = (prog.loopDepth - 1)
+                    prog.brkDepth = (prog.brkDepth - 1)
                     prog.loopTryDepth = wSavedLoopTd
+            prog.brkTryDepth = wSavedBrkTd
                     return false
                 }
             }
@@ -8521,7 +8547,9 @@ class ComponentEngine {
             def wEnd:int (prog.here())
             prog.patch(wExit wEnd)
             prog.loopDepth = (prog.loopDepth - 1)
+            prog.brkDepth = (prog.brkDepth - 1)
             prog.loopTryDepth = wSavedLoopTd
+            prog.brkTryDepth = wSavedBrkTd
             def wci:int wCntBase
             while (wci < prog.cntTop) {
                 def ps1:int (itemAt prog.cntSites wci)
@@ -8546,26 +8574,35 @@ class ComponentEngine {
             def dBrkBase:int prog.brkTop
             def dCntBase:int prog.cntTop
             def dSavedLoopTd:int prog.loopTryDepth
+            def dSavedBrkTd:int prog.brkTryDepth
             prog.loopTryDepth = prog.tryDepth
+            prog.brkTryDepth = prog.tryDepth
             prog.loopDepth = (prog.loopDepth + 1)
+            prog.brkDepth = (prog.brkDepth + 1)
             def dTop:int (prog.here())
             if node.body {
                 if (false == (this.bcStmt((unwrap node.body) prog))) {
                     prog.loopDepth = (prog.loopDepth - 1)
+                    prog.brkDepth = (prog.brkDepth - 1)
                     prog.loopTryDepth = dSavedLoopTd
+            prog.brkTryDepth = dSavedBrkTd
                     return false
                 }
             }
             def dCont:int (prog.here())
             if (false == (this.bcExpr((unwrap node.left) prog))) {
                 prog.loopDepth = (prog.loopDepth - 1)
+                prog.brkDepth = (prog.brkDepth - 1)
                 prog.loopTryDepth = dSavedLoopTd
+            prog.brkTryDepth = dSavedBrkTd
                 return false
             }
             prog.emit(17 dTop 0 1)
             def dEnd:int (prog.here())
             prog.loopDepth = (prog.loopDepth - 1)
+            prog.brkDepth = (prog.brkDepth - 1)
             prog.loopTryDepth = dSavedLoopTd
+            prog.brkTryDepth = dSavedBrkTd
             def dci:int dCntBase
             while (dci < prog.cntTop) {
                 def ps3:int (itemAt prog.cntSites dci)
@@ -8588,10 +8625,10 @@ class ComponentEngine {
             if ((strlen node.name) > 0) {
                 return false
             }
-            if (prog.loopDepth == 0) {
+            if (prog.brkDepth == 0) {
                 return false
             }
-            def pops38:int (prog.tryDepth - prog.loopTryDepth)
+            def pops38:int (prog.tryDepth - prog.brkTryDepth)
             def pi38:int 0
             while (pi38 < pops38) {
                 prog.emit(44 0 0 0)
@@ -8630,60 +8667,240 @@ class ComponentEngine {
             prog.emit(45 0 0 1)
             return true
         }
+        if (k == 42) {
+            ; switch, walker-shaped: EVERY case test evaluates in order
+            ; (side effects and all), the first strict-equal match wins,
+            ; default fills in, and bodies run from the match with
+            ; fall-through. A switch is a break target but not a continue
+            ; target.
+            if (null? node.left) {
+                return false
+            }
+            def swN:int (array_length node.children)
+            def swDefault:int swN
+            def hDisc:int (prog.addHidden())
+            def hTarget:int (prog.addHidden())
+            def hTest:int (prog.addHidden())
+            if (false == (this.bcExpr((unwrap node.left) prog))) {
+                return false
+            }
+            prog.emit(9 hDisc 0 1)
+            ; hTarget = swN means "no match yet / none"
+            prog.emit(2 swN 1 0)
+            prog.emit(9 hTarget 0 1)
+            def swi:int 0
+            while (swi < swN) {
+                def swCase:TSNode (itemAt node.children swi)
+                if (swCase.kind == "default") {
+                    swDefault = swi
+                } {
+                    if (null? swCase.left) {
+                        return false
+                    }
+                    if (false == (this.bcExpr((unwrap swCase.left) prog))) {
+                        return false
+                    }
+                    prog.emit(9 hTest 0 1)
+                    ; if (hTarget == swN && disc === test) hTarget = i
+                    prog.emit(8 hTarget 1 0)
+                    prog.emit(2 swN 1 0)
+                    prog.emit(12 32 1 2)
+                    def swSkip1:int (prog.here())
+                    prog.emit(16 0 0 1)
+                    prog.emit(8 hDisc 1 0)
+                    prog.emit(8 hTest 1 0)
+                    prog.emit(12 32 1 2)
+                    def swSkip2:int (prog.here())
+                    prog.emit(16 0 0 1)
+                    prog.emit(2 swi 1 0)
+                    prog.emit(9 hTarget 0 1)
+                    prog.patch(swSkip1 (prog.here()))
+                    prog.patch(swSkip2 (prog.here()))
+                }
+                swi = (swi + 1)
+            }
+            ; no match -> the default clause (or past the end)
+            if (swDefault < swN) {
+                prog.emit(8 hTarget 1 0)
+                prog.emit(2 swN 1 0)
+                prog.emit(12 32 1 2)
+                def swNoDef:int (prog.here())
+                prog.emit(16 0 0 1)
+                prog.emit(2 swDefault 1 0)
+                prog.emit(9 hTarget 0 1)
+                prog.patch(swNoDef (prog.here()))
+            }
+            ; dispatch chain into the bodies; fall-through is emission order
+            def swSites:[int]
+            def swj:int 0
+            while (swj < swN) {
+                prog.emit(8 hTarget 1 0)
+                prog.emit(2 swj 1 0)
+                prog.emit(12 32 1 2)
+                def swHit:int (prog.here())
+                prog.emit(17 0 0 1)
+                push swSites swHit
+                swj = (swj + 1)
+            }
+            def swMiss:int (prog.here())
+            prog.emit(42 0 0 0)
+            ; break context: the switch's own window
+            def swBrkBase:int prog.brkTop
+            def swSavedBrkTd:int prog.brkTryDepth
+            prog.brkTryDepth = prog.tryDepth
+            prog.brkDepth = (prog.brkDepth + 1)
+            def swk:int 0
+            while (swk < swN) {
+                def swBody:TSNode (itemAt node.children swk)
+                def swSite:int (itemAt swSites swk)
+                prog.patch(swSite (prog.here()))
+                def swm:int 0
+                while (swm < (array_length swBody.children)) {
+                    if (false == (this.bcStmt((itemAt swBody.children swm) prog))) {
+                        prog.brkDepth = (prog.brkDepth - 1)
+                        prog.brkTryDepth = swSavedBrkTd
+                        return false
+                    }
+                    swm = (swm + 1)
+                }
+                swk = (swk + 1)
+            }
+            def swEnd:int (prog.here())
+            prog.patch(swMiss swEnd)
+            prog.brkDepth = (prog.brkDepth - 1)
+            prog.brkTryDepth = swSavedBrkTd
+            def swb:int swBrkBase
+            while (swb < prog.brkTop) {
+                def swps:int (itemAt prog.brkSites swb)
+                prog.patch(swps swEnd)
+                swb = (swb + 1)
+            }
+            prog.brkTop = swBrkBase
+            return true
+        }
         if (k == 46) {
             ; try/catch without finally; the catch parameter becomes a
             ; slot, sound only when the name appears nowhere outside catch
             ; clauses that bind it (the walker scopes it to the clause)
-            if node.right {
-                return false
-            }
-            if (null? node.left) {
-                return false
-            }
-            def catchNode:TSNode (unwrap node.left)
-            if (catchNode.nodeType != "CatchClause") {
-                return false
-            }
+            def hasCatch:boolean false
             def cSlot:int (0 - 1)
-            if ((strlen catchNode.name) > 0) {
-                if (null? prog.rootBody) {
+            if node.left {
+                def catchNode:TSNode (unwrap node.left)
+                if (catchNode.nodeType != "CatchClause") {
                     return false
                 }
-                if (this.bcNameUsedOutsideCatch((unwrap prog.rootBody) catchNode.name)) {
-                    return false
-                }
-                def cExisting:int (prog.localIdxOf(catchNode.name))
-                if (cExisting >= 0) {
-                    if ((prog.catchSlotFor(catchNode.name)) == cExisting) {
-                        cSlot = cExisting
-                    } {
+                hasCatch = true
+                if ((strlen catchNode.name) > 0) {
+                    if (null? prog.rootBody) {
                         return false
                     }
-                } {
-                    cSlot = (prog.addCatchLocal(catchNode.name))
+                    if (this.bcNameUsedOutsideCatch((unwrap prog.rootBody) catchNode.name)) {
+                        return false
+                    }
+                    def cExisting:int (prog.localIdxOf(catchNode.name))
+                    if (cExisting >= 0) {
+                        if ((prog.catchSlotFor(catchNode.name)) == cExisting) {
+                            cSlot = cExisting
+                        } {
+                            return false
+                        }
+                    } {
+                        cSlot = (prog.addCatchLocal(catchNode.name))
+                    }
                 }
             }
-            def tpSite:int (prog.here())
-            prog.emit(43 0 0 0)
-            prog.tryDepth = (prog.tryDepth + 1)
+            def hasFin:boolean false
+            if node.right {
+                hasFin = true
+            }
+            if ((false == hasCatch) && (false == hasFin)) {
+                return false
+            }
+            def hExc:int (0 - 1)
+            if hasFin {
+                ; finally compiles only when nothing can EXIT the guarded
+                ; blocks abruptly except a throw: a return, or a
+                ; break/continue bound outside them, would have to run the
+                ; finalizer on the way out, and that detour stays walked.
+                ; (Abrupt completions RAISED IN the finalizer itself replace
+                ; the pending one, which the emitted form gives for free.)
+                if node.body {
+                    if (this.bcHasEscapingAbrupt((unwrap node.body) 0 0)) {
+                        return false
+                    }
+                }
+                if hasCatch {
+                    def cn46:TSNode (unwrap node.left)
+                    if cn46.body {
+                        if (this.bcHasEscapingAbrupt((unwrap cn46.body) 0 0)) {
+                            return false
+                        }
+                    }
+                }
+                hExc = (prog.addHidden())
+            }
+            def tpF:int (0 - 1)
+            if hasFin {
+                tpF = (prog.here())
+                prog.emit(43 0 0 0)
+                prog.tryDepth = (prog.tryDepth + 1)
+            }
+            def tpC:int (0 - 1)
+            if hasCatch {
+                tpC = (prog.here())
+                prog.emit(43 0 0 0)
+                prog.tryDepth = (prog.tryDepth + 1)
+            }
             if node.body {
                 if (false == (this.bcStmt((unwrap node.body) prog))) {
-                    prog.tryDepth = (prog.tryDepth - 1)
+                    if hasCatch {
+                        prog.tryDepth = (prog.tryDepth - 1)
+                    }
+                    if hasFin {
+                        prog.tryDepth = (prog.tryDepth - 1)
+                    }
                     return false
                 }
             }
-            prog.tryDepth = (prog.tryDepth - 1)
-            prog.emit(44 0 0 0)
-            def jOver:int (prog.here())
-            prog.emit(42 0 0 0)
-            prog.patch(tpSite (prog.here()))
-            prog.emit(46 cSlot 0 0)
-            if catchNode.body {
-                if (false == (this.bcStmt((unwrap catchNode.body) prog))) {
+            if hasCatch {
+                prog.tryDepth = (prog.tryDepth - 1)
+                prog.emit(44 0 0 0)
+                def jOver:int (prog.here())
+                prog.emit(42 0 0 0)
+                prog.patch(tpC (prog.here()))
+                prog.emit(46 cSlot 0 0)
+                def catchNode2:TSNode (unwrap node.left)
+                if catchNode2.body {
+                    if (false == (this.bcStmt((unwrap catchNode2.body) prog))) {
+                        if hasFin {
+                            prog.tryDepth = (prog.tryDepth - 1)
+                        }
+                        return false
+                    }
+                }
+                prog.patch(jOver (prog.here()))
+            }
+            if hasFin {
+                prog.tryDepth = (prog.tryDepth - 1)
+                prog.emit(44 0 0 0)
+                ; normal path runs the finalizer inline...
+                if (false == (this.bcStmt((unwrap node.right) prog))) {
                     return false
                 }
+                def jEnd46:int (prog.here())
+                prog.emit(42 0 0 0)
+                ; ...and the exception path runs a second copy, then
+                ; rethrows the saved pending value (a throw raised by the
+                ; finalizer itself unwinds outward and replaces it)
+                prog.patch(tpF (prog.here()))
+                prog.emit(46 hExc 0 0)
+                if (false == (this.bcStmt((unwrap node.right) prog))) {
+                    return false
+                }
+                prog.emit(8 hExc 1 0)
+                prog.emit(45 0 0 1)
+                prog.patch(jEnd46 (prog.here()))
             }
-            prog.patch(jOver (prog.here()))
             return true
         }
         if (k == 44) {
@@ -8738,8 +8955,11 @@ class ComponentEngine {
             def fiBrkBase:int prog.brkTop
             def fiCntBase:int prog.cntTop
             def fiSavedLoopTd:int prog.loopTryDepth
+            def fiSavedBrkTd:int prog.brkTryDepth
             prog.loopTryDepth = prog.tryDepth
+            prog.brkTryDepth = prog.tryDepth
             prog.loopDepth = (prog.loopDepth + 1)
+            prog.brkDepth = (prog.brkDepth + 1)
             def fiTop:int (prog.here())
             prog.emit(8 hIdx 1 0)
             prog.emit(8 hKeys 1 0)
@@ -8759,7 +8979,10 @@ class ComponentEngine {
             if node.body {
                 if (false == (this.bcStmt((unwrap node.body) prog))) {
                     prog.loopDepth = (prog.loopDepth - 1)
+                    prog.brkDepth = (prog.brkDepth - 1)
                     prog.loopTryDepth = fiSavedLoopTd
+            prog.brkTryDepth = fiSavedBrkTd
+                    prog.brkTryDepth = fiSavedBrkTd
                     return false
                 }
             }
@@ -8770,7 +8993,9 @@ class ComponentEngine {
             def fiEnd:int (prog.here())
             prog.patch(fiExit fiEnd)
             prog.loopDepth = (prog.loopDepth - 1)
+            prog.brkDepth = (prog.brkDepth - 1)
             prog.loopTryDepth = fiSavedLoopTd
+            prog.brkTryDepth = fiSavedBrkTd
             def fci:int fiCntBase
             while (fci < prog.cntTop) {
                 def ps5:int (itemAt prog.cntSites fci)
@@ -8830,8 +9055,11 @@ class ComponentEngine {
             def foBrkBase:int prog.brkTop
             def foCntBase:int prog.cntTop
             def foSavedLoopTd:int prog.loopTryDepth
+            def foSavedBrkTd:int prog.brkTryDepth
             prog.loopTryDepth = prog.tryDepth
+            prog.brkTryDepth = prog.tryDepth
             prog.loopDepth = (prog.loopDepth + 1)
+            prog.brkDepth = (prog.brkDepth + 1)
             def foTop:int (prog.here())
             prog.emit(8 hIdx2 1 0)
             prog.emit(8 hItems 1 0)
@@ -8846,7 +9074,10 @@ class ComponentEngine {
             if node.body {
                 if (false == (this.bcStmt((unwrap node.body) prog))) {
                     prog.loopDepth = (prog.loopDepth - 1)
+                    prog.brkDepth = (prog.brkDepth - 1)
                     prog.loopTryDepth = foSavedLoopTd
+            prog.brkTryDepth = foSavedBrkTd
+                    prog.brkTryDepth = foSavedBrkTd
                     return false
                 }
             }
@@ -8856,7 +9087,9 @@ class ComponentEngine {
             def foEnd:int (prog.here())
             prog.patch(foExit foEnd)
             prog.loopDepth = (prog.loopDepth - 1)
+            prog.brkDepth = (prog.brkDepth - 1)
             prog.loopTryDepth = foSavedLoopTd
+            prog.brkTryDepth = foSavedBrkTd
             def oci:int foCntBase
             while (oci < prog.cntTop) {
                 def ps7:int (itemAt prog.cntSites oci)
@@ -8897,14 +9130,20 @@ class ComponentEngine {
             def fBrkBase:int prog.brkTop
             def fCntBase:int prog.cntTop
             def fSavedLoopTd:int prog.loopTryDepth
+            def fSavedBrkTd:int prog.brkTryDepth
             prog.loopTryDepth = prog.tryDepth
+            prog.brkTryDepth = prog.tryDepth
             prog.loopDepth = (prog.loopDepth + 1)
+            prog.brkDepth = (prog.brkDepth + 1)
             def fTop:int (prog.here())
             def fExit:int (0 - 1)
             if node.left {
                 if (false == (this.bcExpr((unwrap node.left) prog))) {
                     prog.loopDepth = (prog.loopDepth - 1)
+                    prog.brkDepth = (prog.brkDepth - 1)
                     prog.loopTryDepth = fSavedLoopTd
+            prog.brkTryDepth = fSavedBrkTd
+                    prog.brkTryDepth = fSavedBrkTd
                     return false
                 }
                 fExit = (prog.here())
@@ -8913,7 +9152,10 @@ class ComponentEngine {
             if node.body {
                 if (false == (this.bcStmt((unwrap node.body) prog))) {
                     prog.loopDepth = (prog.loopDepth - 1)
+                    prog.brkDepth = (prog.brkDepth - 1)
                     prog.loopTryDepth = fSavedLoopTd
+            prog.brkTryDepth = fSavedBrkTd
+                    prog.brkTryDepth = fSavedBrkTd
                     return false
                 }
             }
@@ -8925,20 +9167,27 @@ class ComponentEngine {
                 if (fuk == 7) {
                     if (false == (this.bcUpdateStmt(fUpd prog))) {
                         prog.loopDepth = (prog.loopDepth - 1)
+                        prog.brkDepth = (prog.brkDepth - 1)
                         prog.loopTryDepth = fSavedLoopTd
+            prog.brkTryDepth = fSavedBrkTd
+                        prog.brkTryDepth = fSavedBrkTd
                         return false
                     }
                 } {
                     if (fuk == 6) {
                         if (false == (this.bcAssignStmt(fUpd prog))) {
                             prog.loopDepth = (prog.loopDepth - 1)
+                            prog.brkDepth = (prog.brkDepth - 1)
                             prog.loopTryDepth = fSavedLoopTd
+            prog.brkTryDepth = fSavedBrkTd
                             return false
                         }
                     } {
                         if (false == (this.bcExpr(fUpd prog))) {
                             prog.loopDepth = (prog.loopDepth - 1)
+                            prog.brkDepth = (prog.brkDepth - 1)
                             prog.loopTryDepth = fSavedLoopTd
+            prog.brkTryDepth = fSavedBrkTd
                             return false
                         }
                         prog.emit(22 0 0 1)
@@ -8951,7 +9200,9 @@ class ComponentEngine {
                 prog.patch(fExit fEnd)
             }
             prog.loopDepth = (prog.loopDepth - 1)
+            prog.brkDepth = (prog.brkDepth - 1)
             prog.loopTryDepth = fSavedLoopTd
+            prog.brkTryDepth = fSavedBrkTd
             def fci2:int fCntBase
             while (fci2 < prog.cntTop) {
                 def ps9:int (itemAt prog.cntSites fci2)
@@ -11548,6 +11799,83 @@ class ComponentEngine {
         }
         if node.alternate {
             if (this.bcNameUsedOutsideCatch((unwrap node.alternate) name)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; Would running this statement ever complete abruptly OUT of it --
+    ; a return, or a break/continue bound to something enclosing it?
+    ; Loops and switches absorb their own breaks (and loops their
+    ; continues); labelled forms count as escaping (labels never compile
+    ; anyway). Conservative over-walking only routes a function to the
+    ; walker.
+    fn bcHasEscapingAbrupt:boolean (node:TSNode loops:int brks:int) {
+        def k:int (this.nodeKindOf(node))
+        if (k == 35) {
+            return true
+        }
+        if (k == 38) {
+            if ((strlen node.name) > 0) {
+                return true
+            }
+            return (brks == 0)
+        }
+        if (k == 39) {
+            if ((strlen node.name) > 0) {
+                return true
+            }
+            return (loops == 0)
+        }
+        def nl:int loops
+        def nb:int brks
+        if ((k == 36) || ((k == 33) || ((k == 43) || ((k == 44) || (k == 37))))) {
+            nl = (nl + 1)
+            nb = (nb + 1)
+        }
+        if (k == 42) {
+            nb = (nb + 1)
+        }
+        def i:int 0
+        while (i < (array_length node.children)) {
+            if (this.bcHasEscapingAbrupt((itemAt node.children i) nl nb)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        if node.left {
+            if (this.bcHasEscapingAbrupt((unwrap node.left) nl nb)) {
+                return true
+            }
+        }
+        if node.right {
+            if (this.bcHasEscapingAbrupt((unwrap node.right) nl nb)) {
+                return true
+            }
+        }
+        if node.init {
+            if (this.bcHasEscapingAbrupt((unwrap node.init) nl nb)) {
+                return true
+            }
+        }
+        if node.test {
+            if (this.bcHasEscapingAbrupt((unwrap node.test) nl nb)) {
+                return true
+            }
+        }
+        if node.body {
+            if (this.bcHasEscapingAbrupt((unwrap node.body) nl nb)) {
+                return true
+            }
+        }
+        if node.consequent {
+            if (this.bcHasEscapingAbrupt((unwrap node.consequent) nl nb)) {
+                return true
+            }
+        }
+        if node.alternate {
+            if (this.bcHasEscapingAbrupt((unwrap node.alternate) nl nb)) {
                 return true
             }
         }

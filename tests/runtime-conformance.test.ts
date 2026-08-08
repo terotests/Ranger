@@ -1669,6 +1669,20 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["vmlt-forof-string", "function f() { var s = ''; for (var ch of 'abc') { s += ch + '.'; } return s; } return f();", "vmlongtail"],
   ["vmlt-forof-break", "function f() { var a = [1, 2, 3, 4]; var s = 0; for (var v of a) { if (v == 3) break; s = s + v; } return s; } return f();", "vmlongtail"],
   ["vmlt-finally-still-walker", "function f() { var r = ''; try { r += 't'; } finally { r += 'f'; } return r; } return f();", "vmlongtail"],
+
+  // --- switch and try/finally in compiled bodies: fall-through, default
+  // anywhere, continue passing through a switch to its loop, finally on
+  // the normal / caught / replacing-throw / cross-function paths.
+  ["vmsw-fallthrough", "function f(x) { var r = ''; switch (x) { case 1: r += 'a'; case 2: r += 'b'; break; case 3: r += 'c'; default: r += 'd'; } return r; } return f(1) + ',' + f(2) + ',' + f(3) + ',' + f(9);", "vmswitch"],
+  ["vmsw-default-first", "function f(x) { switch (x) { default: return 'def'; case 1: return 'one'; } } return f(1) + ',' + f(7);", "vmswitch"],
+  ["vmsw-strict-eq", "function f(x) { var r = ''; switch (x) { case 's': r = 'str'; break; case null: r = 'nul'; break; case undefined: r = 'und'; break; } return r + '!'; } return f('s') + ',' + f(null) + ',' + f(undefined) + ',' + f(0);", "vmswitch"],
+  ["vmsw-continue-through", "function f() { var s = 0; for (var i = 0; i < 6; i++) { switch (i % 3) { case 0: s += 100; break; case 1: continue; case 2: s += i; break; } s += 1; } return s; } return f();", "vmswitch"],
+  ["vmfin-normal", "function f() { var r = ''; try { r += 't'; } finally { r += 'f'; } return r; } return f();", "vmfinally"],
+  ["vmfin-caught-then-finally", "function f() { var r = ''; try { r += 't'; null.x; r += 'X'; } catch (e) { r += 'c'; } finally { r += 'f'; } return r; } return f();", "vmfinally"],
+  ["vmfin-runs-before-outer-catch", "function f() { var r = ''; try { try { r += 't'; throw 'e1'; } finally { r += 'f'; } } catch (e) { r += 'c:' + e; } return r; } return f();", "vmfinally"],
+  ["vmfin-throw-replaces", "function f() { var r = ''; try { try { throw 'orig'; } finally { r += 'f'; throw 'repl'; } } catch (e) { return r + '|' + e; } } return f();", "vmfinally"],
+  ["vmfin-loop-inside-try", "function f() { var r = ''; try { for (var i = 0; i < 3; i++) { if (i == 1) continue; r += i; } } finally { r += 'f'; } return r; } return f();", "vmfinally"],
+  ["vmfin-cross-function", "function inner7() { var r = ''; try { throw 'deep'; } finally { r += 'fin'; } } function f() { try { return inner7(); } catch (e) { return 'caught:' + e; } } return f();", "vmfinally"],
 ];
 
 /**

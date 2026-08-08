@@ -1,13 +1,21 @@
 # Bytecode tier for ComponentEngine — design plan
 
 Status: phases 1–3, 5 and 6 are IMPLEMENTED (`bcEnabled` on by
-default), and phase 4's statement tail largely so: try/catch (no
-finally), throw, for-in, for-of, do-while and unlabelled
-break/continue all compile, each mirroring the walker's own machinery
+default), and phase 4's statement tail nearly so: try/catch, throw,
+for-in, for-of, do-while, unlabelled break/continue, switch, and
+try/finally all compile, each mirroring the walker's own machinery
 (shared key-snapshot/item-normalisation helpers, a handler stack the
 throw sites unwind through, catch parameters as slots gated on a
-conservative name-escape scan). finally, labels, switch and
-destructuring stay on the walker. Call sites carry an identity-keyed
+conservative name-escape scan). switch is walker-shaped — every case
+test evaluates in order, first strict-equal match wins, fall-through
+by emission order — and is a break target with its own patch window
+and try-depth base while continue passes through to the enclosing
+loop. finally compiles when nothing exits the guarded blocks abruptly
+except a throw (an escaping return/break/continue keeps the statement
+on the walker): the normal path runs the finalizer inline, the
+exception path runs a second copy and rethrows the saved pending
+value, so a finalizer's own throw replaces it, as the spec says.
+Labels and destructuring stay on the walker. Call sites carry an identity-keyed
 inline cache: the op-20 guard ladder runs once per (site, function
 identity) — every laddered property except the mutable
 `__fnprotocall__` own-data marker is immutable on a function value,
