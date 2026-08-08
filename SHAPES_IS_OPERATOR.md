@@ -133,11 +133,67 @@ ValueMain.isNumNew = function(v) {
 
 No target evaluates the value operand more than once.
 
-## Equivalence
+## Cross-target verification
 
-The probe compiles both forms side by side and prints them together. ES6,
-Python, Rust, C++ and Go all answer `TT / FF / FF` — `is` agrees with `case` on
-a matching case, a different case, and a payload-free case.
+A probe declares a four-case shape (payload-free, scalar-payload, and two
+reference cases in a group) and answers every question **twice** — once through
+`case`, once through `is` — plus `is` composed with `||`, negated with
+`false ==`, used as an `if` condition, and followed by a `case` that reads the
+payload. Any target where the two lowerings disagree prints a mismatched row.
+
+| target | compiles | runs here | result |
+| --- | --- | --- | --- |
+| es6 | ✅ | ✅ | reference output |
+| python | ✅ | ✅ | **matches es6** |
+| go | ✅ | ✅ | **matches es6** |
+| rust | ✅ | ✅ | **matches es6** |
+| cpp | ✅ | ✅ | **matches es6** |
+| java7 | ✅ | ✅ | **matches es6** |
+| php | ✅ | ✗ | `is` lowering correct; program fails on an unrelated writer bug (below) |
+| swift6 / swift3 | ✅ | — | no toolchain here; emission inspected |
+| kotlin | ✅ | — | no toolchain here; emission inspected |
+| dart | ✅ | — | no toolchain here; emission inspected |
+| csharp | ✅ | — | no toolchain here; emission inspected |
+| scala | ✅ | — | no toolchain here; emission inspected |
+
+Reference output, identical on all six runnable targets:
+
+```
+nul case=TFFF is=TFFF or=F not=T d=nul
+num case=FTFF is=FTFF or=T not=F d=num:42
+txt case=FFTF is=FFTF or=T not=T d=txt:hi
+lst case=FFFT is=FFFT or=F not=T d=lst
+```
+
+**PHP** compiles and the operator itself lowers correctly —
+`return (is_object($v) && get_class($v) == "Val_Nul");` — but the program
+cannot run, because the PHP writer emits a static call from `main` as
+`$Probe->row(...)` on an undefined variable. This is unrelated to shapes: a
+seven-line class with one `sfn` and no shape at all reproduces it
+(`$T->hello("there")`).
+
+**Not executed:** swift, kotlin, dart, csharp and scala have no toolchain in
+this container, so only their emitted expressions were checked
+(`({ () -> Bool in if case .Val_Nul = v { … } })()`, `(v is Val_Nul)`,
+`(v is Val_Nul)`, `(v is Val_Nul)`, `(v.isInstanceOf[Val_Nul])`).
+
+## Limitation: group views do not work — and neither does `case`
+
+`is v _:Shape.Group` (a group rather than a case) is **broken**, but it is
+broken in exactly the way `case v x:Shape.Group` is already broken, because
+both ask the writer for a discriminant named after the group:
+
+- **rust** — both emit `union_Val::union_Val_Prim`; the enum has no such
+  variant, so the file fails to compile with two identical `E0599` errors, one
+  from `case` and one from `is`.
+- **go** — both emit `union_Val_tag_union_Val_Prim`; undefined, same story.
+- **es6 / python** — both compare against `"union_Val_Prim"`, a tag no case
+  ever carries, so both silently answer `false` for every value.
+
+So `is` is faithful to `case` here too: it neither fixes nor worsens group
+narrowing. This is the same gap as the known-failing
+`shapes.test.ts > lowering > makes a group a type of its own`. Test against a
+**case**, not a group, until that is fixed.
 
 ## Measured effect on the interpreter
 
