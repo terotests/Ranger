@@ -212,7 +212,7 @@ InputFSFolder.fromDictionary = function(dict) {
       let arr_i = 0;
       while (arr_i < arr_len) {
         const item = arr[arr_i];
-        if( item != null && item.__rg_kind === "Object" ) /* union case */ {
+        if( item instanceof Object ) /* union case */ {
           var oo = item;
           const newObj = InputFSFolder.fromDictionary(oo);
           obj.folders.push(newObj);
@@ -227,7 +227,7 @@ InputFSFolder.fromDictionary = function(dict) {
       let arr_i_1 = 0;
       while (arr_i_1 < arr_len_1) {
         const item_1 = arr_1[arr_i_1];
-        if( item_1 != null && item_1.__rg_kind === "Object" ) /* union case */ {
+        if( item_1 instanceof Object ) /* union case */ {
           var oo_1 = item_1;
           const newObj_1 = InputFSFile.fromDictionary(oo_1);
           obj.files.push(newObj_1);
@@ -1727,7 +1727,7 @@ CodeNodeLiteral.fromDictionary = function(dict) {
       let arr_i_2 = 0;
       while (arr_i_2 < arr_len_2) {
         const item_3 = arr_2[arr_i_2];
-        if( item_3 != null && item_3.__rg_kind === "Object" ) /* union case */ {
+        if( item_3 instanceof Object ) /* union case */ {
           var oo_2 = item_3;
           const newObj_4 = CodeNodeLiteral.fromDictionary(oo_2);
           obj.comments.push(newObj_4);
@@ -1742,7 +1742,7 @@ CodeNodeLiteral.fromDictionary = function(dict) {
       let arr_i_3 = 0;
       while (arr_i_3 < arr_len_3) {
         const item_4 = arr_3[arr_i_3];
-        if( item_4 != null && item_4.__rg_kind === "Object" ) /* union case */ {
+        if( item_4 instanceof Object ) /* union case */ {
           var oo_3 = item_4;
           const newObj_5 = CodeNodeLiteral.fromDictionary(oo_3);
           obj.children.push(newObj_5);
@@ -1757,7 +1757,7 @@ CodeNodeLiteral.fromDictionary = function(dict) {
       let arr_i_4 = 0;
       while (arr_i_4 < arr_len_4) {
         const item_5 = arr_4[arr_i_4];
-        if( item_5 != null && item_5.__rg_kind === "Object" ) /* union case */ {
+        if( item_5 instanceof Object ) /* union case */ {
           var oo_4 = item_5;
           const newObj_6 = CodeNodeLiteral.fromDictionary(oo_4);
           obj.attrs.push(newObj_6);

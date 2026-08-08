@@ -73,6 +73,36 @@ class Pen {
 
 The target language receives the type `int`. The type check is in the compiler.
 
+An `Enum` gives a name no fields. Use a [shape](/Ranger/docs/language/shapes/)
+when each name must carry its own data.
+
+## Shapes
+
+A shape is a closed set of cases, and each case has its own fields. A value of
+the shape type holds one case at a time.
+
+```lisp
+shape Value {
+    case Nothing
+    case Num {
+        def n:double 0.0
+    }
+    case Text {
+        def s:string ""
+    }
+}
+```
+
+The operator `case` narrows a value and binds the fields of the case. The
+operator `is` tests the case and gives a boolean.
+
+```lisp
+def b:boolean (is v _:Value.Num)
+```
+
+The page [Shapes](/Ranger/docs/language/shapes/) states the declaration, the
+groups and the output of each target language.
+
 ## Buffers
 
 A buffer holds binary data. The types are `buffer`, `int_buffer`,
