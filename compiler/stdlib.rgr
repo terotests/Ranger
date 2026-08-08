@@ -241,10 +241,51 @@ operators {
                 (forkctx _ ) (def 2) "if let " (typeof 1) "::" (typeof 2) "(" (e 2) ") = " (e 1) ".clone() { /* union case */" nl I
                         (block 3)
                         nl i "}"
-            ) 
-            
+            )
+
         }
-    }    
+    }
+    ; `is v Shape.Case` — the kind test of `case` with the binding and the
+    ; block taken away. `case v x:Shape.Case { … }` answers "is it this case?"
+    ; and then hands the arm a narrowed `x`; an arm that only wants the answer
+    ; pays for a binding it never reads. On Rust that binding costs a
+    ; `.clone()` of the scrutinee (a refcount pair for every reference case),
+    ; on Go a declared-and-discarded local, on ES6/Python a dead assignment.
+    ; This is an expression, so it composes: `return (is self EvalValue.Number)`
+    ; replaces the whole `case self n:… { return true } return false` shape.
+    ; Every template below is the same discriminant test the `case` operator
+    ; above already lowers to on that target — nothing new is invented, and no
+    ; target evaluates (e 1) more than once.
+    is _:boolean ( arg@(union):T item@(noeval):T ) {
+        templates {
+            ranger ( "(is " (e 1) " " (typeof 2) ")" )
+            ; S5 FlatTaggedObject: the stable kind tag, no `var x = …` after it
+            es6    ( "(" (e 1) " != null && " (e 1) ".__rg_kind === \"" (typeof 2) "\")" )
+            ; single underscore — __rg_kind would be Python-mangled on the instance
+            python ( "(" (e 1) " is not None and getattr(" (e 1) ", \"_rg_kind\", None) == \"" (typeof 2) "\")" )
+            ; S5 tagged struct: the tag compare alone, no variant pointer bound
+            go     ( "(" (e 1) ".tag == " (typeof 1) "_tag_" (rawtype 2) ")" )
+            ; matches! reads the discriminant in place — no clone of the
+            ; scrutinee, which is the whole point of this operator on Rust
+            rust   ( "matches!(" (e 1) ", " (typeof 1) "::" (typeof 2) "(..))" )
+            ; holds_alternative is already the bare index compare; the `case`
+            ; template only added mpark::get on top of it
+            cpp    ( "mpark::holds_alternative<" (typeof 2) ">(" (e 1) ")"
+                (plugin 'makefile' ((dep 'variant.hpp' 'https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp')))
+            )
+            csharp ( "(" (e 1) " is " (typeof 2) ")" )
+            kotlin ( "(" (e 1) " is " (typeof 2) ")" )
+            dart   ( "(" (e 1) " is " (typeof 2) ")" )
+            java7  ( "(" (e 1) " instanceof " (typeof 2) ")" )
+            php    ( "(is_object(" (e 1) ") && get_class(" (e 1) ") == \"" (typeof 2) "\")" )
+            scala  ( "(" (e 1) ".isInstanceOf[" (typeof 2) "])" )
+            ; Swift's enum test is `if case`, a statement — an immediately
+            ; applied closure is the only way to spell it as an expression.
+            ; (e 1) is still named once, so it is still evaluated once.
+            swift3 ( "({ () -> Bool in if case ." (rawtype 2) " = " (e 1) " { return true }; return false })()" )
+            swift6 ( "({ () -> Bool in if case ." (rawtype 2) " = " (e 1) " { return true }; return false })()" )
+        }
+    }
     ; Reference identity: are these two names the same object? `==` means
     ; something different on every target — structural on Kotlin, a trait bound
     ; on Rust, pointer on C++ — so identity gets its own operator rather than a

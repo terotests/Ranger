@@ -131,12 +131,21 @@ not matter. `getValue` is a built-in operator form the serializer emits
 is almost certainly why eligibility rejects it — but that has not been proven,
 and the effect is only that an optimisation is skipped, never wrong code.
 
-## NEXT LEVER (user directive): fold shape-case type tests
+## NEXT LEVER — DONE, and it won: the `is` operator
 
-The step-5 numbers make this lever *more* important, not less: removing the
-static call around a type test bought nothing, because the cost is not the
-call — it is the case machinery underneath it. That is what this section
-removes.
+**Implemented. See `SHAPES_IS_OPERATOR.md`.** The prediction below held: the
+cost was never the call, it was the case machinery underneath it.
+`is v _:Shape.Case` is the `case` discriminant test with the binding and the
+block removed, so Rust emits `matches!` where it used to emit
+`if let … = v.clone()`.
+
+Measured on the interpreter, interleaved wall time: **Rust 16–20% faster on the
+Octane suites and 10–19% on the fixed-work micros**; C++ and es6 flat — exactly
+the split this document predicted, and the opposite of `-inline-statics`, which
+was flat everywhere. Conformance unchanged (1327/1327 es6, 1297/1303 native,
+0 crashes).
+
+The original reasoning is kept below because it is what pointed at the fix.
 
 The forwarders bottom out in EvHandle/EvalValue instance methods with this
 shape:

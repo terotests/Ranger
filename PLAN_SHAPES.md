@@ -120,6 +120,7 @@ are just written in the language of a fat class instead of declared to the compi
 |---|---|---|---|
 | `union Name (A B C)` | `ng_RangerFlowParser.rgr:4718`; `RangerAppClassDesc.is_union` / `.is_union_of` (`:35` / `:66`) | A nominal set of existing classes usable as a type | No payload, no closedness guarantee, no exhaustiveness, no declared semantics |
 | `case v x:T { … }` | `lib/stdlib.rgr:149` (operator with a template per target) | Runtime narrowing to one member | Not a statement the compiler reasons about — no arm coverage analysis |
+| `is v _:Shape.Case` | `lib/stdlib.rgr`, right after `case` (see `SHAPES_IS_OPERATOR.md`) | The discriminant test alone, as an expression — no binding, no block | No narrowing: when the arm reads the payload, `case` is still the operator |
 | `record` | `ng_RangerFlowParser.rgr:3935`, `:3985`, `:4861` | A class with a synthesized keyword constructor | A reference type on every target — no inline payload |
 | `Enum N:int (…)` | `ng_RangerAppEnums.rgr` | A plain integer enum | No payload |
 | `systemunion` | `ng_RangerFlowParser.rgr:3909` | Unions over system classes | Same limits |
