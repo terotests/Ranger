@@ -13200,6 +13200,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       if ( ((Object.keys(renames)).length) > 0 ) {
         this.rewriteShapeRefs(node, renames);
         this.expandMatchesIn(node, ctx, wr);
+        this.expandGroupKindTests(node, ctx, wr);
       }
     };
     isShapeDeclaration (node) {
@@ -14655,6 +14656,53 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           this.expandMatchesInFn(ch, nextFn, ctx, wr);
         }
       };
+    };
+    expandGroupKindTests (node, ctx, wr) {
+      for ( let i = 0; i < node.children.length; i++) {
+        var ch = node.children[i];
+        this.expandGroupKindTests(ch, ctx, wr);
+      };
+      if ( (node.children.length) != 3 ) {
+        return;
+      }
+      const head = node.children[0];
+      if ( head.vref != "is" ) {
+        return;
+      }
+      const typeNode = node.children[2];
+      if ( (typeNode.type_name.length) == 0 ) {
+        return;
+      }
+      if ( (( typeof(this.shapeGroupCases[typeNode.type_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.shapeGroupCases, typeNode.type_name) )) == false ) {
+        return;
+      }
+      const members = (( Object.prototype.hasOwnProperty.call(this.shapeGroupCases, typeNode.type_name) ? this.shapeGroupCases[typeNode.type_name] : undefined ));
+      if ( (members.length) == 0 ) {
+        ctx.addError(node, ("group " + typeNode.type_name) + " has no cases to test");
+        return;
+      }
+      const scrutinee = node.children[1];
+      let acc = this.buildCaseKindTest(node, scrutinee, (members[0]));
+      for ( let mi = 0; mi < members.length; mi++) {
+        var m = members[mi];
+        if ( mi > 0 ) {
+          const orNode = node.newExpressionNode();
+          orNode.children.push(node.newVRefNode("||"));
+          orNode.children.push(acc);
+          orNode.children.push(this.buildCaseKindTest(node, scrutinee, m));
+          acc = orNode;
+        }
+      };
+      node.getChildrenFrom(acc);
+    };
+    buildCaseKindTest (proto, scrutinee, cls) {
+      const e = proto.newExpressionNode();
+      e.children.push(proto.newVRefNode("is"));
+      e.children.push(scrutinee.copy());
+      const typeNode = proto.newVRefNode("_");
+      typeNode.type_name = cls;
+      e.children.push(typeNode);
+      return e;
     };
     declaredTypeOf (fnNode, name) {
       if ( (fnNode.children.length) > 2 ) {
@@ -34605,6 +34653,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                         }
                         if ( (node.nsp.length) > 0 ) {
+                          let nsp_was_static = false;
                           for ( let i = 0; i < node.nsp.length; i++) {
                             var p = node.nsp[i];
                             if ( i == 0 ) {
@@ -34615,10 +34664,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                             }
                             if ( i > 0 ) {
-                              wr.out("->", false);
+                              if ( (i == 1) && nsp_was_static ) {
+                                wr.out("::", false);
+                              } else {
+                                wr.out("->", false);
+                              }
                             }
                             if ( i == 0 ) {
-                              wr.out("$", false);
+                              const part0 = node.ns[0];
+                              if ( ctx.hasClass(part0) ) {
+                                nsp_was_static = true;
+                              } else {
+                                wr.out("$", false);
+                              }
                               if ( p.nameNode.hasFlag("optional") ) {
                               }
                               const part_1 = node.ns[0];

@@ -141,7 +141,7 @@ reference cases in a group) and answers every question **twice** — once throug
 `false ==`, used as an `if` condition, and followed by a `case` that reads the
 payload. Any target where the two lowerings disagree prints a mismatched row.
 
-| target | compiles | runs here | result |
+| target | compiles | executed | result |
 | --- | --- | --- | --- |
 | es6 | ✅ | ✅ | reference output |
 | python | ✅ | ✅ | **matches es6** |
@@ -149,14 +149,14 @@ payload. Any target where the two lowerings disagree prints a mismatched row.
 | rust | ✅ | ✅ | **matches es6** |
 | cpp | ✅ | ✅ | **matches es6** |
 | java7 | ✅ | ✅ | **matches es6** |
-| php | ✅ | ✗ | `is` lowering correct; program fails on an unrelated writer bug (below) |
-| swift6 / swift3 | ✅ | — | no toolchain here; emission inspected |
-| kotlin | ✅ | — | no toolchain here; emission inspected |
+| kotlin | ✅ | ✅ | **matches es6** |
+| php | ✅ | ✅ | **matches es6** (needed a writer fix — see below) |
+| swift6 / swift3 | ✅ | ✗ | toolchain unreachable; emission asserted by test |
 | dart | ✅ | — | no toolchain here; emission inspected |
 | csharp | ✅ | — | no toolchain here; emission inspected |
 | scala | ✅ | — | no toolchain here; emission inspected |
 
-Reference output, identical on all six runnable targets:
+Reference output, identical on all eight executed targets:
 
 ```
 nul case=TFFF is=TFFF or=F not=T d=nul
@@ -165,35 +165,59 @@ txt case=FFTF is=FFTF or=T not=T d=txt:hi
 lst case=FFFT is=FFFT or=F not=T d=lst
 ```
 
-**PHP** compiles and the operator itself lowers correctly —
-`return (is_object($v) && get_class($v) == "Val_Nul");` — but the program
-cannot run, because the PHP writer emits a static call from `main` as
-`$Probe->row(...)` on an undefined variable. This is unrelated to shapes: a
-seven-line class with one `sfn` and no shape at all reproduces it
-(`$T->hello("there")`).
+`tests/is-operator.test.ts` runs `tests/fixtures/is_operator.rgr` on ES6,
+Python, Go, Rust and Kotlin (each skipped when its toolchain is absent) and
+asserts the emitted expression for Rust, C++, Kotlin and Swift — so Swift, whose
+toolchain cannot be fetched in a sandbox, is still regression-locked.
 
-**Not executed:** swift, kotlin, dart, csharp and scala have no toolchain in
-this container, so only their emitted expressions were checked
-(`({ () -> Bool in if case .Val_Nul = v { … } })()`, `(v is Val_Nul)`,
-`(v is Val_Nul)`, `(v is Val_Nul)`, `(v.isInstanceOf[Val_Nul])`).
+**Swift is the one target never executed.** Its only distribution host,
+`download.swift.org`, is refused by the network policy here (the proxy answers
+403 to CONNECT), so the claim for Swift rests on reading the emitted code and on
+the codegen assertions in the test, not on a run.
 
-## Limitation: group views do not work — and neither does `case`
+**PHP needed a writer fix to be testable at all.** It emitted a static call from
+`main` as `$Probe->row(...)` — a member call on an undefined variable. The
+param-desc branch of `writeVRef` was missing the leading-class check the plain-ns
+branch already had, so it always wrote `$name->`. Fixed in
+`ng_RangerPHPClassWriter.rgr`; PHP now emits `T::hello(...)` and runs both
+probes correctly. Nothing to do with shapes — a seven-line class with one `sfn`
+reproduced it.
 
-`is v _:Shape.Group` (a group rather than a case) is **broken**, but it is
-broken in exactly the way `case v x:Shape.Group` is already broken, because
-both ask the writer for a discriminant named after the group:
+## Groups: expanded into their member cases
 
-- **rust** — both emit `union_Val::union_Val_Prim`; the enum has no such
-  variant, so the file fails to compile with two identical `E0599` errors, one
-  from `case` and one from `is`.
-- **go** — both emit `union_Val_tag_union_Val_Prim`; undefined, same story.
-- **es6 / python** — both compare against `"union_Val_Prim"`, a tag no case
-  ever carries, so both silently answer `false` for every value.
+A group is **not** a discriminant any target can test. The generated union
+carries one tag per *case*, so asking a writer for a group tag produces a name
+that does not exist:
 
-So `is` is faithful to `case` here too: it neither fixes nor worsens group
-narrowing. This is the same gap as the known-failing
-`shapes.test.ts > lowering > makes a group a type of its own`. Test against a
-**case**, not a group, until that is fixed.
+- **rust** — `union_Val::union_Val_Prim` names no variant (`E0599`)
+- **go** — `union_Val_tag_union_Val_Prim` is undefined
+- **es6 / python** — a comparison against a tag no case ever carries, silently
+  false for every value
+- **swift** — a group lowers to its *own separate enum*, so a group tag is a
+  comparison against a different type entirely
+
+So `is v _:Shape.Group` is expanded at desugar time into a disjunction over the
+group's member cases — the same move `match` already makes for a group arm —
+and every target then sees only per-case tests it already knows how to lower:
+
+```rust
+pub fn isPrim(v : &union_Val) -> bool {
+  (matches!(v, union_Val::Val_Nul(..))) || (matches!(v, union_Val::Val_Num(..)))
+}
+```
+
+Verified running on ES6, Python, Go, Rust, C++, Kotlin, Java and PHP.
+
+On the interface-lowering targets (Kotlin, Java, C#, Dart, Scala) a group *is* a
+real type — Kotlin emits `sealed interface union_Val_Prim` and each case
+implements it — so the disjunction is redundant there, but still correct. The
+expansion is deliberately target-independent: putting "does this target make
+groups real types?" into the flow would push writer knowledge up a layer.
+
+**`case v x:Shape.Group` is still broken** — it needs a narrowed *binding*, not
+just an answer, so the same expansion does not apply to it. That remains the
+known-failing `shapes.test.ts > lowering > makes a group a type of its own`. Use
+`is` for a group test; use `case` on a concrete case when you need the payload.
 
 ## Measured effect on the interpreter
 

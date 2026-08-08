@@ -4450,6 +4450,9 @@ class RangerFlowParser {
       this.rewriteShapeRefs(node renames)
       ; after the rename, an arm written as `Value.Num` reads as `Value_Num`
       this.expandMatchesIn(node ctx wr)
+      ; …and `is v _:Value.Prim` reads as `Value_Prim`, which is a group, not a
+      ; tag any target can compare — expand it into its member cases
+      this.expandGroupKindTests(node ctx wr)
     }
   }
 
@@ -5992,6 +5995,65 @@ class RangerFlowParser {
         this.expandMatchesInFn(ch nextFn ctx wr)
       }
     }
+  }
+
+  ; `is v _:Shape.Group` — a group is not a discriminant any target can test.
+  ; The generated union carries one tag per CASE, so asking a writer for a
+  ; group tag produces a name that does not exist (`union_Val::union_Val_Prim`
+  ; on Rust, `union_Val_tag_union_Val_Prim` on Go) or, on the tag-string
+  ; targets, a comparison that is simply never true. So a group test expands
+  ; here into a disjunction over the group's member cases — the same move
+  ; `match` makes for a group arm — and every target then sees only per-case
+  ; tests it already knows how to lower.
+  ;
+  ; Runs on the renamed tree, so the annotation already reads as the generated
+  ; group class name.
+  fn expandGroupKindTests:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    for node.children ch:CodeNode i {
+      this.expandGroupKindTests(ch ctx wr)
+    }
+    if ((array_length node.children) != 3) {
+      return
+    }
+    def head:CodeNode (first node.children)
+    if (head.vref != "is") {
+      return
+    }
+    def typeNode:CodeNode (itemAt node.children 2)
+    if ((strlen typeNode.type_name) == 0) {
+      return
+    }
+    if ((has shapeGroupCases typeNode.type_name) == false) {
+      return
+    }
+    def members:[string] (unwrap (get shapeGroupCases typeNode.type_name))
+    if ((array_length members) == 0) {
+      ctx.addError(node (("group " + typeNode.type_name) + " has no cases to test"))
+      return
+    }
+    def scrutinee:CodeNode (itemAt node.children 1)
+    def acc:CodeNode (this.buildCaseKindTest(node scrutinee (first members)))
+    for members m:string mi {
+      if (mi > 0) {
+        def orNode:CodeNode (node.newExpressionNode())
+        push orNode.children (node.newVRefNode("||"))
+        push orNode.children acc
+        push orNode.children (this.buildCaseKindTest(node scrutinee m))
+        acc = orNode
+      }
+    }
+    node.getChildrenFrom(acc)
+  }
+
+  ; One `is v _:Case` node, built the way expandMatch builds its narrowings.
+  fn buildCaseKindTest:CodeNode (proto:CodeNode scrutinee:CodeNode cls:string) {
+    def e:CodeNode (proto.newExpressionNode())
+    push e.children (proto.newVRefNode("is"))
+    push e.children (scrutinee.copy())
+    def typeNode:CodeNode (proto.newVRefNode("_"))
+    typeNode.type_name = cls
+    push e.children typeNode
+    return e
   }
 
   ; The declared type of `name` inside this function: a parameter first, then a
