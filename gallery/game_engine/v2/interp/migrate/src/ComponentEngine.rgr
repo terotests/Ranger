@@ -1023,6 +1023,14 @@ class ComponentEngine {
     ; the inline nullish equality in the VM sound.
     def bcTags:[int]
     def bcNums:[double]
+    ; Phase 6: the VM's return-value lanes. runBytecode writes its result
+    ; here (same tag scheme as the slots); a direct VM->VM call copies the
+    ; lanes straight into the caller's slot, and the walker boundary boxes
+    ; them once via bcRetBox. Only valid immediately after runBytecode
+    ; returns -- nothing holds these across another op.
+    def bcRetTag:int 3
+    def bcRetNum:double 0.0
+    def bcRetRef:EvHandle (EvValueBridge.taggedUndefined())
 
     ; Cursor state for the recursive-descent JSON.parse (jsonParseValue advances
     ; jsonPos over jsonSrc). Only valid during a JSON.parse call.
@@ -8661,6 +8669,12 @@ class ComponentEngine {
     fn bcExpr:boolean (node:TSNode prog:BcProgram) {
         def k:int (this.nodeKindOf(node))
         if (k == 3) {
+            ; `?.` short-circuits instead of throwing on a nullish base;
+            ; get_field throws (as the walker does for a plain `.`), so an
+            ; optional access stays on the walker
+            if node.optional {
+                return false
+            }
             if (null? node.left) {
                 return false
             }
@@ -8935,8 +8949,15 @@ class ComponentEngine {
             if (null? node.left) {
                 return false
             }
+            if node.optional {
+                ; f?.() -- call short-circuits on nullish; walker only
+                return false
+            }
             def callee:TSNode (unwrap node.left)
             if ((this.nodeKindOf(callee)) == 3) {
+                if callee.optional {
+                    return false
+                }
                 if callee.computed {
                     return false
                 }
@@ -9014,6 +9035,16 @@ class ComponentEngine {
     ; ---- Bytecode tier: member/method helpers (walker-mirroring) ----------
 
     fn bcGetField:EvHandle (obj:EvHandle name:string) {
+        ; Reading a property of null/undefined is a TypeError, same message
+        ; as the walker's member read. The gate keeps `?.` on the walker, so
+        ; reaching here with a nullish base always means a plain `.` / `[]`.
+        if ((EvValueBridge.isNull(obj)) || (EvValueBridge.isUndefined(obj))) {
+            def rDesc:string "undefined"
+            if (EvValueBridge.isNull(obj)) {
+                rDesc = "null"
+            }
+            return (this.throwSpecError("TypeError" ("Cannot read properties of " + (rDesc + (" (reading '" + (name + "')"))))))
+        }
         if (name == "length") {
             if (obj.isString()) {
                 return (EvHandle.fromInt((strlen (obj.stringOf()))))
@@ -9042,6 +9073,18 @@ class ComponentEngine {
     }
 
     fn bcPutField:void (obj:EvHandle name:string v:EvHandle) {
+        ; Writing a property of null/undefined is a TypeError, under the
+        ; same realm flag the walker's assignment path uses.
+        if strictReferences {
+            if ((EvValueBridge.isNull(obj)) || (EvValueBridge.isUndefined(obj))) {
+                def wDesc:string "undefined"
+                if (EvValueBridge.isNull(obj)) {
+                    wDesc = "null"
+                }
+                def _wt:EvHandle (this.throwSpecError("TypeError" ("Cannot set properties of " + (wDesc + (" (setting '" + (name + "')"))))))
+                return
+            }
+        }
         def st:EvHandle (this.resolveSetterOn(obj name))
         if (st.isFunction()) {
             if (st.hasFunctionNode()) {
@@ -9258,39 +9301,55 @@ class ComponentEngine {
         set bcStack i h
     }
 
-    fn runBytecode:EvHandle (prog:BcProgram argVals:[EvHandle] outer:EvalContext thisVal:EvHandle) {
-        def base:int bcSp
-        def needTop:int ((base + prog.localCount) + prog.stackSize)
-        ; The three lanes grow independently so their lengths can never
-        ; drift apart -- a shared loop conditioned on one array's length
-        ; would silently misalign the others if anything ever grew one.
-        while ((array_length bcStack) < needTop) {
+    ; Grow the three slot lanes to `top` in lockstep. Each lane has its own
+    ; loop so their lengths can never drift apart.
+    fn bcGrowTo:void (top:int) {
+        while ((array_length bcStack) < top) {
             push bcStack (EvValueBridge.taggedUndefined())
         }
-        while ((array_length bcTags) < needTop) {
+        while ((array_length bcTags) < top) {
             push bcTags 3
         }
-        while ((array_length bcNums) < needTop) {
+        while ((array_length bcNums) < top) {
             push bcNums 0.0
         }
-        def na:int (array_length argVals)
-        def li:int 0
+    }
+    ; Box the VM's return lanes for a walker caller -- the one place a
+    ; compiled function's result becomes a handle.
+    fn bcRetBox:EvHandle () {
+        if (bcRetTag == 1) {
+            return (EvHandle.number(bcRetNum))
+        }
+        if (bcRetTag == 0) {
+            return bcRetRef
+        }
+        if (bcRetTag == 2) {
+            return (EvHandle.boolean((bcRetNum != 0.0)))
+        }
+        if (bcRetTag == 3) {
+            return (EvHandle.undefined())
+        }
+        return (EvHandle.null())
+    }
+
+    ; Run a compiled body. The first `placed` parameter slots have already
+    ; been written at [bcSp, bcSp+placed) by the caller -- as raw lanes on
+    ; a direct VM->VM call, via bcSlotPut on the walker boundary -- and
+    ; placed never exceeds prog.paramCount. The result comes back in the
+    ; bcRet lanes, NOT as a return value.
+    fn runBytecode:void (prog:BcProgram placed:int outer:EvalContext thisVal:EvHandle) {
+        def base:int bcSp
+        def needTop:int ((base + prog.localCount) + prog.stackSize)
+        this.bcGrowTo(needTop)
+        def li:int placed
         while (li < prog.localCount) {
-            if ((li < prog.paramCount) && (li < na)) {
-                ; a number argument becomes a raw slot double here; the callee
-                ; sees a snapshot, which IS the by-value semantics of an
-                ; argument
-                this.bcSlotPut((base + li) (itemAt argVals li))
-            } {
-                set bcTags (base + li) 3
-            }
+            set bcTags (base + li) 3
             li = (li + 1)
         }
         def sp:int (base + prog.localCount)
         def pc:int 0
         def n:int (array_length prog.ops)
         def backJumps:int 0
-        def result:EvHandle (EvValueBridge.taggedUndefined())
         def bcSteps:int 0
         while (pc < n) {
             ; VM SELF-CHECK (temporary diagnostic): a stack pointer outside
@@ -9299,13 +9358,15 @@ class ComponentEngine {
             bcSteps = (bcSteps + 1)
             if (bcSteps > 400000000) {
                 print ("[bcvm] runaway: pc=" + ((to_string pc) + (" n=" + (to_string n))))
+                bcRetTag = 3
                 bcSp = base
-                return result
+                return
             }
             if ((sp < (base + prog.localCount)) || (sp > needTop)) {
                 print ("[bcvm] sp out of frame: sp=" + ((to_string sp) + (" base=" + ((to_string base) + (" top=" + ((to_string needTop) + (" pc=" + (to_string pc))))))))
+                bcRetTag = 3
                 bcSp = base
-                return result
+                return
             }
             def op:int (itemAt prog.ops pc)
             def a:int (itemAt prog.args pc)
@@ -9456,7 +9517,8 @@ class ComponentEngine {
                 def o12:EvHandle (this.applyBinaryOp(a l12 r12))
                 bcSp = base
                 if scriptThrew {
-                    return (EvValueBridge.taggedUndefined())
+                    bcRetTag = 3
+                    return
                 }
                 this.bcSlotPut((sp - 1) o12)
                 continue
@@ -9502,6 +9564,19 @@ class ComponentEngine {
             if (op == 20) {
                 def argc:int a
                 def fnPos:int ((sp - argc) - 1)
+                ; direct VM->VM first: a compiled callee takes its arguments
+                ; as slot lanes and answers through the bcRet lanes, so the
+                ; whole call boxes nothing
+                def dcr:int (this.bcTryDirectCall(fnPos argc needTop))
+                if (dcr >= 0) {
+                    bcSp = base
+                    if (dcr == 1) {
+                        bcRetTag = 3
+                        return
+                    }
+                    sp = (fnPos + 1)
+                    continue
+                }
                 def cargs:[EvHandle]
                 def ci:int 0
                 while (ci < argc) {
@@ -9513,7 +9588,8 @@ class ComponentEngine {
                 def cres:EvHandle (this.callFnValueWithValues(fnv cargs))
                 bcSp = base
                 if scriptThrew {
-                    return (EvValueBridge.taggedUndefined())
+                    bcRetTag = 3
+                    return
                 }
                 if scriptDidReturn {
                     ; a return raised by eval-style host machinery inside the
@@ -9539,8 +9615,9 @@ class ComponentEngine {
             if (op == 15) {
                 backJumps = (backJumps + 1)
                 if (backJumps > maxLoopIterations) {
+                    bcRetTag = 3
                     bcSp = base
-                    return result
+                    return
                 }
                 pc = a
                 continue
@@ -9555,7 +9632,8 @@ class ComponentEngine {
                 def n23:double (this.toNumberOf(v23))
                 bcSp = base
                 if scriptThrew {
-                    return (EvValueBridge.taggedUndefined())
+                    bcRetTag = 3
+                    return
                 }
                 set bcTags (base + a) 1
                 set bcNums (base + a) (n23 + 1.0)
@@ -9571,7 +9649,8 @@ class ComponentEngine {
                 def n24:double (this.toNumberOf(v24))
                 bcSp = base
                 if scriptThrew {
-                    return (EvValueBridge.taggedUndefined())
+                    bcRetTag = 3
+                    return
                 }
                 set bcTags (base + a) 1
                 set bcNums (base + a) (n24 - 1.0)
@@ -9579,14 +9658,20 @@ class ComponentEngine {
             }
             if (op == 18) {
                 sp = (sp - 1)
-                result = (this.bcSlotBox(sp))
-                pc = n
-                continue
+                def rt18:int (itemAt bcTags sp)
+                bcRetTag = rt18
+                if (rt18 == 0) {
+                    bcRetRef = (itemAt bcStack sp)
+                } {
+                    bcRetNum = (itemAt bcNums sp)
+                }
+                bcSp = base
+                return
             }
             if (op == 19) {
-                result = (EvValueBridge.taggedUndefined())
-                pc = n
-                continue
+                bcRetTag = 3
+                bcSp = base
+                return
             }
             if (op == 1) {
                 def lp1:EvalConstPool (EvalConstPool.__singleton())
@@ -9611,7 +9696,8 @@ class ComponentEngine {
                 bcSp = base
                 context = savedCtx10
                 if scriptThrew {
-                    return (EvValueBridge.taggedUndefined())
+                    bcRetTag = 3
+                    return
                 }
                 this.bcSlotPut(sp mv10)
                 sp = (sp + 1)
@@ -9667,7 +9753,8 @@ class ComponentEngine {
                 def n13:double (this.toNumberOf(v13))
                 bcSp = base
                 if scriptThrew {
-                    return (EvValueBridge.taggedUndefined())
+                    bcRetTag = 3
+                    return
                 }
                 set bcTags (sp - 1) 1
                 set bcNums (sp - 1) (n13 * (0.0 - 1.0))
@@ -9720,7 +9807,8 @@ class ComponentEngine {
                 def n25:double (this.toNumberOf(v25))
                 bcSp = base
                 if scriptThrew {
-                    return (EvValueBridge.taggedUndefined())
+                    bcRetTag = 3
+                    return
                 }
                 set bcTags (sp - 1) 1
                 set bcNums (sp - 1) n25
@@ -9756,7 +9844,8 @@ class ComponentEngine {
                 def f30:EvHandle (this.bcGetField(o30 (itemAt prog.atoms a)))
                 bcSp = base
                 if scriptThrew {
-                    return (EvValueBridge.taggedUndefined())
+                    bcRetTag = 3
+                    return
                 }
                 this.bcSlotPut((sp - 1) f30)
                 continue
@@ -9769,7 +9858,8 @@ class ComponentEngine {
                 this.bcPutField(o31 (itemAt prog.atoms a) v31)
                 bcSp = base
                 if scriptThrew {
-                    return (EvValueBridge.taggedUndefined())
+                    bcRetTag = 3
+                    return
                 }
                 continue
             }
@@ -9788,7 +9878,8 @@ class ComponentEngine {
                 def mRes:EvHandle (this.bcCallMethod(mObj (itemAt prog.atoms mAtom) mArgs))
                 bcSp = base
                 if scriptThrew {
-                    return (EvValueBridge.taggedUndefined())
+                    bcRetTag = 3
+                    return
                 }
                 this.bcSlotPut(mFnPos mRes)
                 sp = (mFnPos + 1)
@@ -9802,7 +9893,8 @@ class ComponentEngine {
                 def e33:EvHandle (this.bcGetElem(o33 k33))
                 bcSp = base
                 if scriptThrew {
-                    return (EvValueBridge.taggedUndefined())
+                    bcRetTag = 3
+                    return
                 }
                 this.bcSlotPut((sp - 1) e33)
                 continue
@@ -9816,7 +9908,8 @@ class ComponentEngine {
                 this.bcPutElem(o34 k34 v34)
                 bcSp = base
                 if scriptThrew {
-                    return (EvValueBridge.taggedUndefined())
+                    bcRetTag = 3
+                    return
                 }
                 continue
             }
@@ -9884,14 +9977,149 @@ class ComponentEngine {
                 def r35:EvHandle (this.applyBinaryOp(20 cb35 xb35))
                 bcSp = base
                 if scriptThrew {
-                    return (EvValueBridge.taggedUndefined())
+                    bcRetTag = 3
+                    return
                 }
                 this.bcSlotPut((base + slot35) r35)
                 continue
             }
         }
+        ; fell past the last instruction without a ret (a jump target can be
+        ; the very end): completes as undefined
+        bcRetTag = 3
         bcSp = base
-        return result
+        return
+    }
+
+    ; The op-20 fast path: a direct VM->VM call when the callee slot holds a
+    ; plain user function whose body is compiled. Mirrors the guard ladder
+    ; and the compiled-call prologue of callFnValueWithValues exactly; the
+    ; only difference is transport -- arguments are copied as slot lanes
+    ; into the callee frame and the result comes back through the bcRet
+    ; lanes, so nothing at the boundary boxes. Answers:
+    ;   -1 = not eligible (caller takes the generic path, which re-runs the
+    ;        ladder and handles every special case)
+    ;    0 = called; result lanes already written into fnPos's slot
+    ;    1 = called and the callee threw
+    fn bcTryDirectCall:int (fnPos:int argc:int needTop:int) {
+        if ((itemAt bcTags fnPos) != 0) {
+            return (0 - 1)
+        }
+        def fnv:EvHandle (itemAt bcStack fnPos)
+        if (fnv.isBuiltinStatic()) {
+            return (0 - 1)
+        }
+        if (false == (fnv.isFunction())) {
+            return (0 - 1)
+        }
+        if (fnv.hasOwnData("__fnprotocall__")) {
+            return (0 - 1)
+        }
+        def ctorN:string (this.builtinCtorNameOf(fnv))
+        if ((strlen ctorN) > 0) {
+            return (0 - 1)
+        }
+        if (fnv.isBuiltinMethod()) {
+            return (0 - 1)
+        }
+        if (this.isEvalFunctionValue(fnv)) {
+            return (0 - 1)
+        }
+        if (false == (fnv.hasFunctionNode())) {
+            return (0 - 1)
+        }
+        if ((fnv.boundArgCount()) != 0) {
+            return (0 - 1)
+        }
+        def fnNode:TSNode (fnv.functionNodeOf())
+        def pid:int (this.bcProgramFor(fnNode))
+        if (pid < 0) {
+            return (0 - 1)
+        }
+        def prF:BcProgram (itemAt bcPrograms pid)
+        if (argc > prF.paramCount) {
+            ; extra arguments would land past the parameter slots; the
+            ; generic path materializes and drops them correctly
+            return (0 - 1)
+        }
+        ; --- the compiled-call prologue, verbatim from callFnValueWithValues
+        def savedDidReturnF:boolean scriptDidReturn
+        def savedReturnValueF:EvHandle scriptReturnValue
+        def savedModuleF:string currentModule
+        scriptDidReturn = false
+        scriptReturnValue = (EvValueBridge.taggedNull())
+        def parentF:EvalContext context
+        if ((fnv.closureIdOf()) >= 0) {
+            if ((fnv.closureIdOf()) < (array_length closureScopes)) {
+                def cellF:ClosureCell (itemAt closureScopes (fnv.closureIdOf()))
+                if cellF.ctx {
+                    parentF = (unwrap cellF.ctx)
+                }
+            }
+        } {
+            if (fnv.hasHomeModule()) {
+                parentF = (this.moduleScopeFor((fnv.homeModuleOf())))
+            } {
+                if ((strlen currentModule) > 0) {
+                    parentF = moduleScope
+                }
+            }
+        }
+        currentModule = (fnv.homeModuleOf())
+        ; D-THISCOERCE, compiled form (same as the call-in block)
+        def bcThisF:EvHandle (EvValueBridge.taggedUndefined())
+        if (fnv.hasBoundThis()) {
+            bcThisF = (fnv.boundThisOf())
+            if ((EvValueBridge.isNull(bcThisF)) || (EvValueBridge.isUndefined(bcThisF))) {
+                bcThisF = (this.theGlobalObject())
+            } {
+                if (bcThisF.isString()) { bcThisF = (this.toObjectValue(bcThisF)) }
+                if (bcThisF.isNumber()) { bcThisF = (this.toObjectValue(bcThisF)) }
+                if (bcThisF.isBoolean()) { bcThisF = (this.toObjectValue(bcThisF)) }
+            }
+        } {
+            if ((this.nodeKindOf(fnNode)) != 17) {
+                bcThisF = (this.theGlobalObject())
+            }
+        }
+        ; copy the argument lanes into the callee's param slots ABOVE this
+        ; frame's live region
+        this.bcGrowTo((needTop + argc))
+        def ai:int 0
+        while (ai < argc) {
+            def sIdx:int ((fnPos + 1) + ai)
+            def tA:int (itemAt bcTags sIdx)
+            set bcTags (needTop + ai) tA
+            if (tA == 0) {
+                set bcStack (needTop + ai) (itemAt bcStack sIdx)
+            } {
+                set bcNums (needTop + ai) (itemAt bcNums sIdx)
+            }
+            ai = (ai + 1)
+        }
+        bcSp = needTop
+        callDepth = (callDepth + 1)
+        this.runBytecode(prF argc (unwrap parentF) bcThisF)
+        callDepth = (callDepth - 1)
+        currentModule = savedModuleF
+        scriptDidReturn = savedDidReturnF
+        scriptReturnValue = savedReturnValueF
+        if scriptThrew {
+            return 1
+        }
+        if scriptDidReturn {
+            scriptDidReturn = false
+        }
+        ; result lanes -> the callee-position slot (the ref goes through a
+        ; local so the Rust writer clones instead of moving the field)
+        set bcTags fnPos bcRetTag
+        if (bcRetTag == 0) {
+            def rr:EvHandle bcRetRef
+            set bcStack fnPos rr
+        } {
+            set bcNums fnPos bcRetNum
+        }
+        return 0
     }
 
     fn callFnValueWithValues:EvHandle (fnValue:EvHandle argVals:[EvHandle]) {
@@ -10015,13 +10243,27 @@ class ComponentEngine {
                             bcThis = (this.theGlobalObject())
                         }
                     }
+                    ; place the handle arguments into the callee's param
+                    ; slots (unboxing numbers/booleans on the way), then run
+                    ; and box the result lanes once for this walker caller
+                    def bcBase:int bcSp
+                    def bcArgc:int (array_length argVals)
+                    if (bcArgc > bcProg.paramCount) {
+                        bcArgc = bcProg.paramCount
+                    }
+                    this.bcGrowTo((bcBase + bcArgc))
+                    def bcAi:int 0
+                    while (bcAi < bcArgc) {
+                        this.bcSlotPut((bcBase + bcAi) (itemAt argVals bcAi))
+                        bcAi = (bcAi + 1)
+                    }
                     callDepth = (callDepth + 1)
-                    def bcOut:EvHandle (this.runBytecode(bcProg argVals (unwrap parent) bcThis))
+                    this.runBytecode(bcProg bcArgc (unwrap parent) bcThis)
                     callDepth = (callDepth - 1)
                     currentModule = savedModule
                     scriptDidReturn = savedDidReturn
                     scriptReturnValue = savedReturnValue
-                    return bcOut
+                    return (this.bcRetBox())
                 }
             }
         }

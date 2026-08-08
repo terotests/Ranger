@@ -1,7 +1,7 @@
 # Bytecode tier for ComponentEngine — design plan
 
-Status: phases 1–3 and 5 are IMPLEMENTED (`bcEnabled` on by default);
-phase 4 (try/catch, for-in/of, destructuring) remains. The plan below is
+Status: phases 1–3, 5 and 6 are IMPLEMENTED (`bcEnabled` on by
+default); phase 4 (try/catch, for-in/of, destructuring) remains. The plan below is
 kept as written; the phase list at the bottom records what each landed
 phase measured. Originally written after the PR #541 optimization rounds
 took the C++ tree-walker from 63× to ~12× of QuickJS on
@@ -203,8 +203,25 @@ monomorphic case (v2, after the IC learns method targets).
    tier on; C++ and Rust native failure sets bit-identical to the
    pre-phase-5 build. The remaining allocation in compiled code is the
    call boundary (args/results box through `callFnValueWithValues`),
-   which is the next lever: a compiled→compiled call that passes slots
-   directly.
+   which phase 6 takes.
+6. **Direct VM→VM calls** — DONE. `call` (op 20) short-circuits to
+   `bcTryDirectCall` when the callee slot holds a plain user function
+   with a compiled body: argument lanes copy straight into the callee
+   frame, the result returns through the `bcRet*` lanes, and nothing at
+   the boundary boxes. The guard ladder mirrors
+   `callFnValueWithValues`'s checks exactly; builtins, bound functions,
+   constructors, eval values and argc > paramCount fall back to the
+   generic path. The walker call-in uses the same slot protocol
+   (bcSlotPut per argument, bcRetBox once on exit). Two walker-parity
+   fixes shipped with it: compiled member reads/writes on
+   null/undefined throw the walker's TypeError (they answered undefined
+   before), and `?.` is gate-rejected so optional chaining keeps the
+   walker's short-circuit. `fib` −19% from the pre-phase-5 base on both
+   native targets; C++ splay score 3 → 136 (parity with es6/Rust).
+   Method calls (op 32) still dispatch through `bcCallMethod` — the
+   receiver-polymorphic version of this fast path is the next lever,
+   along with an inline cache so the guard ladder itself is paid once
+   per call site, not per call.
 
 ## Testing discipline
 

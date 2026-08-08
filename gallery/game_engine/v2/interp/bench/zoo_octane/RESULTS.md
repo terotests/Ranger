@@ -189,12 +189,16 @@ Every engine runs the SAME prepared suite bodies. External engines
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | richards | 36940 | 669 | 281 | 21.7 | 21.7 | 21.7 |
 | deltablue | 61761 | 691 | 328 | 40.6 | 40.6 | 40.6 |
-| splay | 10300 | 1617 | 1172 | 136 | 3 | 136 |
+| splay | 10300 | 1617 | 1172 | 136 | 136† | 136 |
 | regexp | 6994 | 220 | 157 | 27.9 | FAIL | FAIL |
 | crypto | 41046 | 929 | 347 | FAIL | FAIL | FAIL |
 | raytrace | 57719 | 981 | 629 | FAIL | FAIL | FAIL |
 | navier-stokes | 39248 | 1623 | 1373 | FAIL | FAIL | FAIL |
 | earley-boyer | 66591 | 1530 | 684 | FAIL | FAIL | FAIL |
+
+† C++ splay scored 3 when this matrix was first recorded; the phase-6
+direct VM→VM call path (below) brought it to the same 136 the other two
+targets report.
 
 Four suites (richards, deltablue, splay, and — on es6 — regexp) produce a
 valid score on the Ranger engine. The other four fail the SAME way on every
@@ -266,6 +270,41 @@ to the pre-phase-5 build (1208/1257 and 1229/1257 — the same
 pre-existing native gaps); richards / deltablue / splay / crypto /
 raytrace / regexp / navier-stokes behave identically per the matrix
 above.
+
+## Bytecode tier, phase 6: direct VM→VM calls (2026-08-08)
+
+`call` (op 20) now recognises a callee slot holding a plain user
+function whose body is compiled, and calls it directly: the argument
+lanes are copied into the callee frame's parameter slots and the result
+comes back through return lanes (`bcRet*`), so a compiled→compiled call
+boxes nothing at all — no argument vector, no handle per argument, no
+handle for the result. The guard ladder mirrors
+`callFnValueWithValues`'s special-case checks one for one, and anything
+that is not a plain compiled call (builtins, bound functions,
+constructors, eval, extra arguments) falls back to the generic path,
+which re-runs the ladder itself.
+
+Same fixed-work protocol as the phase-5 table:
+
+| case | C++ ph5 | C++ ph6 | Rust ph5 | Rust ph6 |
+| --- | ---: | ---: | ---: | ---: |
+| fib | 121 ms | **107 ms** | 121 ms | **108 ms** |
+| loop / strcat / array | — | unchanged | — | unchanged |
+
+`fib` is now −19% from where this branch started (132/148 ms). The
+visible suite effect is C++ **splay: score 3 → 136** — splay's hot path
+is exactly this shape (recursive user-function calls carrying numbers) —
+bringing C++ to parity with the es6 and Rust rows.
+
+Two tier-vs-walker divergences found by the differential probes while
+building this, both pre-existing, both fixed: reading or writing a
+property of null/undefined inside a compiled body now throws the same
+TypeError the walker throws (it silently answered undefined before),
+and `?.` no longer compiles — the VM's member ops throw on nullish
+bases, so optional access stays on the walker, which short-circuits.
+The runtime suite carries eight new `vmreentry` probes plus the null
+member cases; all three targets pass every one (es6 1289/1289; C++ and
+Rust native failure sets unchanged from base: 47 and 26).
 
 ## Splay: the C++-only spin, resolved (2026-08-07)
 
