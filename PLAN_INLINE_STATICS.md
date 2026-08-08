@@ -1,9 +1,11 @@
-# PLAN: -inline-statics — trivial static forwarder inlining (WIP handoff)
+# PLAN: -inline-statics — trivial static forwarder inlining
 
-Status: **implemented but unverified**. The compiler rebootstraps cleanly with
-the pass compiled in, the flag is strictly opt-in (`-inline-statics`), and no
-build uses it yet. Nothing about default compilation changes until the flag is
-passed. This document is the handoff for the next session.
+Status: **implemented, verified correct, and NOT worth turning on**. The full
+battery below is green — es6, C++ and Rust all keep their conformance scores
+with the flag — but the measured speedup is within noise on Rust and small and
+mixed on C++. The flag therefore stays strictly opt-in (`-inline-statics`) and
+no build script enables it. Nothing about default compilation changes unless
+the flag is passed. See "Verification results" for the numbers.
 
 ## Why
 
@@ -64,31 +66,77 @@ ComponentEngine.rgr alone has ~1200 EvValueBridge call sites. Per target:
 `bin/output.js` on this branch is the rebootstrapped compiler containing the
 pass (`npm run compile` was clean).
 
-## Verification state — what the next session must do
+## Verification results
 
-1. **Probe test is UNFINISHED.** Scratch probe (a Bridge class + forwarders,
-   compiled with and without the flag, outputs diffed) kept failing to
-   compile in the BASELINE (no flag) — the probe's own Ranger syntax for
-   multi-arg static calls in print/def positions was wrong, not the pass.
-   Write the probe as plain def-position statements
-   (`def s:int (Bridge.add2(x y))` style — mirror engine sources), get the
-   baseline green FIRST, then diff flag-on vs flag-off generated es6 and
-   check the call disappeared (grep for `Bridge.add2` / `isUndefined(`).
-2. `npm test` / compiler feature tests (tests/, feature_tests.rgr) without
-   the flag — prove the default path is untouched (the rebuildWithType
-   extension runs on any `nodes`-lane match, so `defn` tests matter).
-3. Engine es6 build WITH `-inline-statics` added to
-   scripts/build-engine-module.sh (temporarily) → `npm run test:runtime`
-   (1327 must hold). Use `-show-inline-statics` once to eyeball expansions.
-4. Native builds with the flag (add to bench/zoo_octane/build-native.sh
-   RANGER invocation) → conformance-native.cjs on both targets
-   (1297/1303, 0 crashes must hold).
-5. Perf: interleaved fixed-work timing, **Rust** binary before/after the flag
-   (scratchpad fixed/ suite; method/richards rows). C++/es6 expected flat.
-6. If green and Rust wins: leave the flag ON in the two engine build scripts
-   and document in RESULTS.md; otherwise keep opt-in and record numbers.
+All six steps ran. Reproduce the native A/B with the `EXTRA_RANGER_FLAGS` hook
+added to `bench/zoo_octane/build-native.sh`:
+`EXTRA_RANGER_FLAGS=-inline-statics bash .../build-native.sh`.
+
+1. **Probe — green.** A Bridge class of forwarders (`sfn f(b:Box)` →
+   `b.method()`), compiled with and without the flag. Runtime output is
+   byte-identical; the generated es6 shows exactly the intended rewrite:
+   `Bridge.valueOf(b)` → `b.fetchValue()`, `Bridge.plus(b n)` → `b.plus(n)`,
+   `Bridge.isZero(z)` → `z.isZero()`. Cascades fold all the way down
+   (`Bridge.valueOf2(b)` → `b.fetchValue()`, two levels). The deliberately
+   ineligible two-statement forwarder keeps its call. Bridge call sites in
+   the output: 12 → 6.
+2. **`npm test` — no regression.** 1432 passed, 11 failed. The 11 failures are
+   all in `shapes.test.ts` (Rust shape lowering + two writer expectations) and
+   reproduce **identically on the base commit** with the four changed files
+   reverted — pre-existing, unrelated to this pass.
+3. **es6 engine with the flag — green.** 785 expansions
+   (`taggedUndefined` 218, `taggedNull` 111, `taggedString` 64,
+   `isUndefined` 61, `isNull` 51, `taggedNumber`/`taggedArray` 46 each,
+   `taggedObject` 44, `isString` 36, `isNumber` 20, …).
+   `npm run test:runtime`: **1327/1327**, same as baseline.
+4. **Native with the flag — green.** conformance-native.cjs:
+   C++ **1297/1303, 0 crashes**; Rust **1297/1303, 0 crashes**. Both match
+   baseline exactly, same six failures (err 2, for/destr/obj/iter 1 each).
+5. **Perf — flat.** Interleaved fixed-work wall time, 9 reps, min ms,
+   base → flag:
+
+   | script | Rust | C++ |
+   | --- | ---: | ---: |
+   | arith_big | −0.4% | +3.3% |
+   | prop | −2.8% | −5.8% |
+   | call | −1.6% | −3.7% |
+   | method | −1.9% | −3.9% |
+   | typemix | +0.0% | −1.9% |
+   | pool_hit | +1.9% | −0.5% |
+   | pool_miss | +0.9% | −1.9% |
+
+   Rust is noise in both directions. C++ is a consistent but small win outside
+   `arith_big`. Neither justifies turning the flag on by default.
+
+   **Why the Rust win did not materialise.** The generated `octane_runner.rs`
+   loses 313 of 1265 `EvValueBridge::` call sites but only **207 of 7761
+   `.clone()` calls (2.7%)** — because the highest-count forwarders
+   (`taggedUndefined` 218, `taggedNull` 111, `taggedHole` …) take **no
+   arguments**, so they never carried an `Rc` clone to begin with. The
+   handle-taking predicates that do (`isUndefined`, `isNull`, `isString`,
+   `isNumber` — ~200 sites) are the only ones whose clone disappears, and that
+   is too small a slice of the total to show up in wall time.
+6. **Decision: keep opt-in.** No build script enables the flag. The pass is
+   correct and costs nothing when off.
+
+### Known, harmless bail
+
+A forwarder whose body calls a method named exactly `getValue` is never
+expanded — `sfn aaa:int (b:Box) { return (b.getValue()) }` bails, while the
+identical body with the method renamed (`fetchIt`, `readIt`, `getFoo`,
+`getValueX`, `get_value`, …) expands. It is the identifier alone: renaming the
+field, changing the callee's body, or moving the forwarder in the class does
+not matter. `getValue` is a built-in operator form the serializer emits
+(`ng_RangerSerializeClass.rgr` writes `(getValue arr arr_i)`), so the collision
+is almost certainly why eligibility rejects it — but that has not been proven,
+and the effect is only that an optimisation is skipped, never wrong code.
 
 ## NEXT LEVER (user directive): fold shape-case type tests
+
+The step-5 numbers make this lever *more* important, not less: removing the
+static call around a type test bought nothing, because the cost is not the
+call — it is the case machinery underneath it. That is what this section
+removes.
 
 The forwarders bottom out in EvHandle/EvalValue instance methods with this
 shape:
@@ -134,10 +182,9 @@ this is the highest-frequency code in the interpreter.
 
 ## Invariants for whoever continues
 
-- The designated perf branch is `claude/ranger-performance-improvements-uy9a2n`
-  (conformance round pushed as 4a52458). THIS work is parked on its own
-  branch so it can be verified independently — do not merge until the full
-  battery above is green.
+- The perf round this branched from is merged (PR #543, 4a52458). The battery
+  above is green, so this branch is mergeable on correctness grounds — but it
+  buys no measured speed, so merging it only adds an unused flag.
 - Never trust a build ran from the wrong cwd; build scripts must run from
   the repo root; check artifacts, not exit codes.
 - All perf claims: interleaved fixed-work wall time only (RESULTS.md

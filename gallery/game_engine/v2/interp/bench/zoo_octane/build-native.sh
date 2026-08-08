@@ -29,7 +29,7 @@ for T in $TARGETS; do
   # single-threaded (cpp-only flag, ignored elsewhere). See bench/native.
   RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l="$T" \
     "$SRC" -d="$OUT_DIR" -o=octane_runner."$EXT" -nodecli -native-fast-alloc \
-    -cpp-single-thread $TARGET_FLAG
+    -cpp-single-thread $TARGET_FLAG $EXTRA_RANGER_FLAGS
   case "$T" in
     cpp)
       # Shape case classes are emitted after ordinary classes; move the
