@@ -1,7 +1,21 @@
 # Bytecode tier for ComponentEngine — design plan
 
 Status: phases 1–3, 5 and 6 are IMPLEMENTED (`bcEnabled` on by
-default); phase 4 (try/catch, for-in/of, destructuring) remains. The plan below is
+default), and phase 4's statement tail largely so: try/catch (no
+finally), throw, for-in, for-of, do-while and unlabelled
+break/continue all compile, each mirroring the walker's own machinery
+(shared key-snapshot/item-normalisation helpers, a handler stack the
+throw sites unwind through, catch parameters as slots gated on a
+conservative name-escape scan). finally, labels, switch and
+destructuring stay on the walker. Call sites carry an identity-keyed
+inline cache: the op-20 guard ladder runs once per (site, function
+identity) — every laddered property except the mutable
+`__fnprotocall__` own-data marker is immutable on a function value,
+and that one is re-probed on every hit. Fixed work: C++ fib
+105→79 ms, Rust 107→86 ms; member-heavy bodies that newly compile
+(splay's tree walk) run within a few percent of their walker versions
+— the VM's member ops lack the walker's node-level memos, which is the
+next lever. The plan below is
 kept as written; the phase list at the bottom records what each landed
 phase measured. Originally written after the PR #541 optimization rounds
 took the C++ tree-walker from 63× to ~12× of QuickJS on

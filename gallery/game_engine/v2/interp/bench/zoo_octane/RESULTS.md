@@ -349,6 +349,42 @@ conformance runs on each target: C++ 47 → 36, Rust 26 → 15 (of 1274
 probes, now including nine new `vmelem` cases). The es6 suite stands at
 1298/1298 with the tier on.
 
+## Bytecode tier: the statement long tail + call-site IC (2026-08-08)
+
+The remaining phase-4 statements compile now: try/catch (finally stays
+on the walker), throw, for-in, for-of, do-while, and unlabelled
+break/continue — including break out of a try, rethrow from catch, and
+exceptions crossing compiled/walker call boundaries in both
+directions. The loops reuse the walker's own snapshot machinery
+(`forInKeyList` / `forOfItemList` are now shared helpers, so the two
+engines cannot diverge), exceptions unwind through a handler stack
+that every throwing op consults, and a catch parameter becomes a slot
+only when a conservative scan proves the name escapes nowhere outside
+its clauses.
+
+Call sites also gained an identity-keyed inline cache: op 20's guard
+ladder now runs once per (site, callee identity) instead of per call —
+sound because a function value's laddered properties are immutable
+after mint except the `__fnprotocall__` marker, which stays a per-call
+probe.
+
+Fixed work, interleaved against the phase-6b build: **fib
+105 → 79 ms C++ (−25%), 107 → 86 ms Rust** — the IC's win. The newly
+compiled member-heavy bodies (splay's tree walk, richards' scheduler
+tails) run within ~2–4% of their walker versions in either direction:
+the VM's member ops pay a helper call and a getter probe per access
+where the walker has node-level memos. Making those per-site ICs too
+is the next lever.
+
+Two parity finds from this round's probes, both fixed: calling a
+non-callable value from a compiled body now throws the walker's
+`<name> is not a function` TypeError (it silently answered null
+before, exposed the moment try/catch compiled), and the runtime suite
+gained 19 `vmlongtail` probes — 1317/1317 on es6, with the C++ and
+Rust native failure sets unchanged (36+2 and 15+2, all pre-existing;
+the two `crash` entries are an old `std::out_of_range` on
+Number.MAX_VALUE probes that predates this branch).
+
 ## Splay: the C++-only spin, resolved (2026-08-07)
 
 The long-standing "C++-only splay spin" was **not** the tree, the rotations,

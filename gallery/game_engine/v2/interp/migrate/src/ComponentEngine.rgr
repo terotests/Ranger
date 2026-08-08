@@ -764,21 +764,91 @@ class BcProgram {
     def localCount:int 0
     def stackSize:int 0
     def curStack:int 0
-    ; Per-instruction inline-cache lanes (walker callSiteOp mirror): a
-    ; call_method site that resolved to a registry array op under some
-    ; dispatch epoch remembers the verdict here; a stale epoch re-verifies.
+    ; Per-instruction inline-cache lanes. call_method sites: the walker
+    ; callSiteOp mirror (registry array verdict under a dispatch epoch).
+    ; call sites: icKeys holds the callee's identityId and icOps its
+    ; progId+1, so the guard ladder runs once per site -- identity is
+    ; minted once and every laddered property except the __fnprotocall__
+    ; own-data marker is immutable on a function value, and that one is
+    ; re-probed on every hit.
     def icOps:[int]
     def icEpochs:[int]
+    def icKeys:[int]
+    ; ---- compile-time context (loops, try nesting, catch slots) ----
+    ; break/continue collect patch sites for the INNERMOST loop through
+    ; these grow-only stacks; each loop brackets [brkTop,cntTop] around
+    ; its body and patches its own window.
+    def brkSites:[int]
+    def brkTop:int 0
+    def cntSites:[int]
+    def cntTop:int 0
+    def loopDepth:int 0
+    ; open try_push..try_pop brackets at the current compile point, and
+    ; the value it had when the innermost loop began -- a break/continue
+    ; emits the difference as try_pop ops so the handler stack cannot
+    ; leak past a jump out of a try.
+    def tryDepth:int 0
+    def loopTryDepth:int 0
+    ; catch parameters that became slots (name -> slot), so disjoint
+    ; clauses binding the same name share one slot.
+    def catchNames:[string]
+    def catchIdxs:[int]
+    ; the function body being compiled, for the catch-name escape scan
+    def rootBody@(optional):TSNode
 
     fn emit:void (op:int a:int npush:int npop:int) {
         push ops op
         push args a
         push icOps 0
         push icEpochs (0 - 1)
+        push icKeys 0
         curStack = ((curStack - npop) + npush)
         if (curStack > stackSize) {
             stackSize = curStack
         }
+    }
+    ; A compiler-owned slot no JS identifier can collide with ('%' is not
+    ; a name character). Registered after the var-collect pass;
+    ; bcCompileFunction refreshes localCount when compilation ends.
+    fn addHidden:int () {
+        def idx:int (array_length localNames)
+        push localNames ("%h$" + (to_string idx))
+        push ownedSlots false
+        return idx
+    }
+    fn addCatchLocal:int (n:string) {
+        def idx:int (array_length localNames)
+        push localNames n
+        push ownedSlots false
+        push catchNames n
+        push catchIdxs idx
+        return idx
+    }
+    fn catchSlotFor:int (n:string) {
+        def i:int 0
+        while (i < (array_length catchNames)) {
+            if ((itemAt catchNames i) == n) {
+                return (itemAt catchIdxs i)
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+    fn pushBrkSite:void (site:int) {
+        if (brkTop < (array_length brkSites)) {
+            set brkSites brkTop site
+        } {
+            push brkSites site
+        }
+        brkTop = (brkTop + 1)
+    }
+    fn pushCntSite:void (site:int) {
+        if (cntTop < (array_length cntSites)) {
+            set cntSites cntTop site
+        } {
+            push cntSites site
+        }
+        cntTop = (cntTop + 1)
     }
     fn here:int () {
         return (array_length ops)
@@ -1038,6 +1108,13 @@ class ComponentEngine {
     def bcRetTag:int 3
     def bcRetNum:double 0.0
     def bcRetRef:EvHandle (EvValueBridge.taggedUndefined())
+    ; The VM's exception-handler stack (try_push/try_pop): handler pc and
+    ; the operand sp to restore, grow-only with an explicit top. Each
+    ; frame records its base at entry and truncates back to it on every
+    ; exit, so a jump out of a try can never leak a handler.
+    def bcTryPcs:[int]
+    def bcTrySps:[int]
+    def bcTryTop:int 0
 
     ; Cursor state for the recursive-descent JSON.parse (jsonParseValue advances
     ; jsonPos over jsonSrc). Only valid during a JSON.parse call.
@@ -4375,35 +4452,9 @@ class ComponentEngine {
         if stmt.right {
             def rightNode:TSNode (unwrap stmt.right)
             def src:EvHandle (this.evaluateExpr(rightNode))
-            ; Normalise any iterable to a list of per-iteration values: array/Set
-            ; elements as-is, Map entries as [key, value] pairs, string chars.
-            def items:[EvHandle]
-            if (EvValueBridge.isArrayValue(src)) {
-                items = (src.itemsOf())
-            } {
-                if (EvValueBridge.isSet(src)) {
-                    items = (src.itemsOf())
-                } {
-                    if (EvValueBridge.isMap(src)) {
-                        def k:int 0
-                        while (k < (src.denseLen())) {
-                            def pair:[EvHandle]
-                            push pair (src.arrayItemAt(k))
-                            push pair (src.mapValAt(k))
-                            push items (EvValueBridge.taggedArray(pair))
-                            k = (k + 1)
-                        }
-                    } {
-                        if (EvValueBridge.isString(src)) {
-                            def si:int 0
-                            while (si < (strlen (src.stringOf()))) {
-                                push items (EvValueBridge.taggedString((substring (src.stringOf()) si (si + 1))))
-                                si = (si + 1)
-                            }
-                        }
-                    }
-                }
-            }
+            ; normalisation shared with the bytecode tier (forOfItemList)
+            ; so the two paths cannot diverge
+            def items:[EvHandle] (this.forOfItemList(src))
             def i:int 0
             def looping:boolean true
             while ((i < (array_length items)) && looping) {
@@ -4640,44 +4691,9 @@ class ComponentEngine {
         if stmt.right {
             def rightNode:TSNode (unwrap stmt.right)
             def target:EvHandle (this.evaluateExpr(rightNode))
-            def theKeys:[string]
-            ; D-ATTRS: for-in visits ENUMERABLE properties only, never the
-            ; engine's internal bookkeeping keys, and it walks the PROTOTYPE
-            ; CHAIN -- a property put on Boolean.prototype shows up in a for-in
-            ; over a Boolean object. A name already seen nearer the object
-            ; shadows the inherited one, whether or not the nearer one was
-            ; enumerable.
-            def seenKeys:[string:boolean]
-            def walkIn:EvHandle target
-            def inSteps:int 0
-            while (inSteps < 16) {
-                def rawKeys:[string] (this.objectEnumerableKeys(walkIn))
-                def ki:int 0
-                while (ki < (array_length rawKeys)) {
-                    def rk:string (itemAt rawKeys ki)
-                    if (false == (this.isHiddenInstanceKey(rk))) {
-                        if (false == (has seenKeys rk)) {
-                            set seenKeys rk true
-                            push theKeys rk
-                        }
-                    }
-                    ki = (ki + 1)
-                }
-                ; A non-enumerable own property still shadows an inherited one.
-                def shadow:[string] (this.objectKeys(walkIn))
-                def si2:int 0
-                while (si2 < (array_length shadow)) {
-                    set seenKeys (itemAt shadow si2) true
-                    si2 = (si2 + 1)
-                }
-                def nextIn:EvHandle (this.protoOfValue(walkIn))
-                if (EvValueBridge.isNull(nextIn)) {
-                    inSteps = 16
-                } {
-                    walkIn = nextIn
-                    inSteps = (inSteps + 1)
-                }
-            }
+            ; snapshot shared with the bytecode tier (forInKeyList) so the
+            ; two paths cannot diverge
+            def theKeys:[string] (this.forInKeyList(target))
             def i:int 0
             def looping:boolean true
             while ((i < (array_length theKeys)) && looping) {
@@ -8286,10 +8302,13 @@ class ComponentEngine {
             push prog.ownedSlots owned
             oi = (oi + 1)
         }
+        prog.rootBody = body
         if (false == (this.bcStmtList(body.children prog))) {
             return false
         }
         prog.emit(19 0 0 0)
+        ; compilation may have added hidden and catch slots
+        prog.localCount = (array_length prog.localNames)
         return true
     }
 
@@ -8340,6 +8359,32 @@ class ComponentEngine {
             }
             if node.body {
                 this.bcCollectVars((unwrap node.body) prog)
+            }
+            return
+        }
+        if ((k == 44) || (k == 37)) {
+            ; for-in / for-of: a declared loop var plus the body
+            if node.left {
+                this.bcCollectVars((unwrap node.left) prog)
+            }
+            if node.body {
+                this.bcCollectVars((unwrap node.body) prog)
+            }
+            return
+        }
+        if (k == 46) {
+            ; try block, catch body and finalizer all hoist their vars
+            if node.body {
+                this.bcCollectVars((unwrap node.body) prog)
+            }
+            if node.left {
+                def cc:TSNode (unwrap node.left)
+                if cc.body {
+                    this.bcCollectVars((unwrap cc.body) prog)
+                }
+            }
+            if node.right {
+                this.bcCollectVars((unwrap node.right) prog)
             }
             return
         }
@@ -8452,19 +8497,380 @@ class ComponentEngine {
             if (null? node.left) {
                 return false
             }
+            def wBrkBase:int prog.brkTop
+            def wCntBase:int prog.cntTop
+            def wSavedLoopTd:int prog.loopTryDepth
+            prog.loopTryDepth = prog.tryDepth
+            prog.loopDepth = (prog.loopDepth + 1)
             def wTop:int (prog.here())
             if (false == (this.bcExpr((unwrap node.left) prog))) {
+                prog.loopDepth = (prog.loopDepth - 1)
+                prog.loopTryDepth = wSavedLoopTd
                 return false
             }
             def wExit:int (prog.here())
             prog.emit(16 0 0 1)
             if node.body {
                 if (false == (this.bcStmt((unwrap node.body) prog))) {
+                    prog.loopDepth = (prog.loopDepth - 1)
+                    prog.loopTryDepth = wSavedLoopTd
                     return false
                 }
             }
             prog.emit(15 wTop 0 0)
-            prog.patch(wExit (prog.here()))
+            def wEnd:int (prog.here())
+            prog.patch(wExit wEnd)
+            prog.loopDepth = (prog.loopDepth - 1)
+            prog.loopTryDepth = wSavedLoopTd
+            def wci:int wCntBase
+            while (wci < prog.cntTop) {
+                def ps1:int (itemAt prog.cntSites wci)
+                prog.patch(ps1 wTop)
+                wci = (wci + 1)
+            }
+            prog.cntTop = wCntBase
+            def wbi:int wBrkBase
+            while (wbi < prog.brkTop) {
+                def ps2:int (itemAt prog.brkSites wbi)
+                prog.patch(ps2 wEnd)
+                wbi = (wbi + 1)
+            }
+            prog.brkTop = wBrkBase
+            return true
+        }
+        if (k == 43) {
+            ; do-while: body first, continue targets the test
+            if (null? node.left) {
+                return false
+            }
+            def dBrkBase:int prog.brkTop
+            def dCntBase:int prog.cntTop
+            def dSavedLoopTd:int prog.loopTryDepth
+            prog.loopTryDepth = prog.tryDepth
+            prog.loopDepth = (prog.loopDepth + 1)
+            def dTop:int (prog.here())
+            if node.body {
+                if (false == (this.bcStmt((unwrap node.body) prog))) {
+                    prog.loopDepth = (prog.loopDepth - 1)
+                    prog.loopTryDepth = dSavedLoopTd
+                    return false
+                }
+            }
+            def dCont:int (prog.here())
+            if (false == (this.bcExpr((unwrap node.left) prog))) {
+                prog.loopDepth = (prog.loopDepth - 1)
+                prog.loopTryDepth = dSavedLoopTd
+                return false
+            }
+            prog.emit(17 dTop 0 1)
+            def dEnd:int (prog.here())
+            prog.loopDepth = (prog.loopDepth - 1)
+            prog.loopTryDepth = dSavedLoopTd
+            def dci:int dCntBase
+            while (dci < prog.cntTop) {
+                def ps3:int (itemAt prog.cntSites dci)
+                prog.patch(ps3 dCont)
+                dci = (dci + 1)
+            }
+            prog.cntTop = dCntBase
+            def dbi:int dBrkBase
+            while (dbi < prog.brkTop) {
+                def ps4:int (itemAt prog.brkSites dbi)
+                prog.patch(ps4 dEnd)
+                dbi = (dbi + 1)
+            }
+            prog.brkTop = dBrkBase
+            return true
+        }
+        if (k == 38) {
+            ; break, unlabelled, inside a compiled loop: pop any try
+            ; brackets opened since the loop began, then jump to its end
+            if ((strlen node.name) > 0) {
+                return false
+            }
+            if (prog.loopDepth == 0) {
+                return false
+            }
+            def pops38:int (prog.tryDepth - prog.loopTryDepth)
+            def pi38:int 0
+            while (pi38 < pops38) {
+                prog.emit(44 0 0 0)
+                pi38 = (pi38 + 1)
+            }
+            def bs38:int (prog.here())
+            prog.emit(42 0 0 0)
+            prog.pushBrkSite(bs38)
+            return true
+        }
+        if (k == 39) {
+            if ((strlen node.name) > 0) {
+                return false
+            }
+            if (prog.loopDepth == 0) {
+                return false
+            }
+            def pops39:int (prog.tryDepth - prog.loopTryDepth)
+            def pi39:int 0
+            while (pi39 < pops39) {
+                prog.emit(44 0 0 0)
+                pi39 = (pi39 + 1)
+            }
+            def cs39:int (prog.here())
+            prog.emit(42 0 0 0)
+            prog.pushCntSite(cs39)
+            return true
+        }
+        if (k == 45) {
+            if (null? node.left) {
+                return false
+            }
+            if (false == (this.bcExpr((unwrap node.left) prog))) {
+                return false
+            }
+            prog.emit(45 0 0 1)
+            return true
+        }
+        if (k == 46) {
+            ; try/catch without finally; the catch parameter becomes a
+            ; slot, sound only when the name appears nowhere outside catch
+            ; clauses that bind it (the walker scopes it to the clause)
+            if node.right {
+                return false
+            }
+            if (null? node.left) {
+                return false
+            }
+            def catchNode:TSNode (unwrap node.left)
+            if (catchNode.nodeType != "CatchClause") {
+                return false
+            }
+            def cSlot:int (0 - 1)
+            if ((strlen catchNode.name) > 0) {
+                if (null? prog.rootBody) {
+                    return false
+                }
+                if (this.bcNameUsedOutsideCatch((unwrap prog.rootBody) catchNode.name)) {
+                    return false
+                }
+                def cExisting:int (prog.localIdxOf(catchNode.name))
+                if (cExisting >= 0) {
+                    if ((prog.catchSlotFor(catchNode.name)) == cExisting) {
+                        cSlot = cExisting
+                    } {
+                        return false
+                    }
+                } {
+                    cSlot = (prog.addCatchLocal(catchNode.name))
+                }
+            }
+            def tpSite:int (prog.here())
+            prog.emit(43 0 0 0)
+            prog.tryDepth = (prog.tryDepth + 1)
+            if node.body {
+                if (false == (this.bcStmt((unwrap node.body) prog))) {
+                    prog.tryDepth = (prog.tryDepth - 1)
+                    return false
+                }
+            }
+            prog.tryDepth = (prog.tryDepth - 1)
+            prog.emit(44 0 0 0)
+            def jOver:int (prog.here())
+            prog.emit(42 0 0 0)
+            prog.patch(tpSite (prog.here()))
+            prog.emit(46 cSlot 0 0)
+            if catchNode.body {
+                if (false == (this.bcStmt((unwrap catchNode.body) prog))) {
+                    return false
+                }
+            }
+            prog.patch(jOver (prog.here()))
+            return true
+        }
+        if (k == 44) {
+            ; for-in over the walker's own key snapshot, with its per-step
+            ; presence re-check; loop var must be a plain local
+            def fiSlot:int (0 - 1)
+            if (null? node.left) {
+                return false
+            }
+            def fiLeft:TSNode (unwrap node.left)
+            def flk:int (this.nodeKindOf(fiLeft))
+            if (flk == 31) {
+                if ((array_length fiLeft.children) != 1) {
+                    return false
+                }
+                def fiDecl:TSNode (itemAt fiLeft.children 0)
+                if fiDecl.left {
+                    return false
+                }
+                if fiDecl.init {
+                    return false
+                }
+                if ((strlen fiDecl.name) == 0) {
+                    return false
+                }
+                fiSlot = (prog.localIdxOf(fiDecl.name))
+            } {
+                if (flk == 1) {
+                    fiSlot = (prog.localIdxOf(fiLeft.name))
+                } {
+                    return false
+                }
+            }
+            if (fiSlot < 0) {
+                return false
+            }
+            if (null? node.right) {
+                return false
+            }
+            def hObj:int (prog.addHidden())
+            def hKeys:int (prog.addHidden())
+            def hIdx:int (prog.addHidden())
+            if (false == (this.bcExpr((unwrap node.right) prog))) {
+                return false
+            }
+            prog.emit(9 hObj 0 1)
+            prog.emit(8 hObj 1 0)
+            prog.emit(47 0 1 1)
+            prog.emit(9 hKeys 0 1)
+            prog.emit(2 0 1 0)
+            prog.emit(9 hIdx 0 1)
+            def fiBrkBase:int prog.brkTop
+            def fiCntBase:int prog.cntTop
+            def fiSavedLoopTd:int prog.loopTryDepth
+            prog.loopTryDepth = prog.tryDepth
+            prog.loopDepth = (prog.loopDepth + 1)
+            def fiTop:int (prog.here())
+            prog.emit(8 hIdx 1 0)
+            prog.emit(8 hKeys 1 0)
+            prog.emit(30 (prog.addAtom("length")) 1 1)
+            prog.emit(12 26 1 2)
+            def fiExit:int (prog.here())
+            prog.emit(16 0 0 1)
+            prog.emit(8 hKeys 1 0)
+            prog.emit(8 hIdx 1 0)
+            prog.emit(33 0 1 2)
+            prog.emit(9 fiSlot 0 1)
+            prog.emit(8 hObj 1 0)
+            prog.emit(8 fiSlot 1 0)
+            prog.emit(48 0 1 2)
+            def fiSkip:int (prog.here())
+            prog.emit(16 0 0 1)
+            if node.body {
+                if (false == (this.bcStmt((unwrap node.body) prog))) {
+                    prog.loopDepth = (prog.loopDepth - 1)
+                    prog.loopTryDepth = fiSavedLoopTd
+                    return false
+                }
+            }
+            def fiCont:int (prog.here())
+            prog.patch(fiSkip fiCont)
+            prog.emit(23 hIdx 0 0)
+            prog.emit(15 fiTop 0 0)
+            def fiEnd:int (prog.here())
+            prog.patch(fiExit fiEnd)
+            prog.loopDepth = (prog.loopDepth - 1)
+            prog.loopTryDepth = fiSavedLoopTd
+            def fci:int fiCntBase
+            while (fci < prog.cntTop) {
+                def ps5:int (itemAt prog.cntSites fci)
+                prog.patch(ps5 fiCont)
+                fci = (fci + 1)
+            }
+            prog.cntTop = fiCntBase
+            def fbi:int fiBrkBase
+            while (fbi < prog.brkTop) {
+                def ps6:int (itemAt prog.brkSites fbi)
+                prog.patch(ps6 fiEnd)
+                fbi = (fbi + 1)
+            }
+            prog.brkTop = fiBrkBase
+            return true
+        }
+        if (k == 37) {
+            ; for-of over the walker's own normalised item list; only the
+            ; declared single-name form compiles (the walker's bare-name
+            ; form has its own quirk and keeps it)
+            if (null? node.left) {
+                return false
+            }
+            def foLeft:TSNode (unwrap node.left)
+            if ((this.nodeKindOf(foLeft)) != 31) {
+                return false
+            }
+            if ((array_length foLeft.children) != 1) {
+                return false
+            }
+            def foDecl:TSNode (itemAt foLeft.children 0)
+            if foDecl.left {
+                return false
+            }
+            if foDecl.init {
+                return false
+            }
+            if ((strlen foDecl.name) == 0) {
+                return false
+            }
+            def foSlot:int (prog.localIdxOf(foDecl.name))
+            if (foSlot < 0) {
+                return false
+            }
+            if (null? node.right) {
+                return false
+            }
+            def hItems:int (prog.addHidden())
+            def hIdx2:int (prog.addHidden())
+            if (false == (this.bcExpr((unwrap node.right) prog))) {
+                return false
+            }
+            prog.emit(49 0 1 1)
+            prog.emit(9 hItems 0 1)
+            prog.emit(2 0 1 0)
+            prog.emit(9 hIdx2 0 1)
+            def foBrkBase:int prog.brkTop
+            def foCntBase:int prog.cntTop
+            def foSavedLoopTd:int prog.loopTryDepth
+            prog.loopTryDepth = prog.tryDepth
+            prog.loopDepth = (prog.loopDepth + 1)
+            def foTop:int (prog.here())
+            prog.emit(8 hIdx2 1 0)
+            prog.emit(8 hItems 1 0)
+            prog.emit(30 (prog.addAtom("length")) 1 1)
+            prog.emit(12 26 1 2)
+            def foExit:int (prog.here())
+            prog.emit(16 0 0 1)
+            prog.emit(8 hItems 1 0)
+            prog.emit(8 hIdx2 1 0)
+            prog.emit(33 0 1 2)
+            prog.emit(9 foSlot 0 1)
+            if node.body {
+                if (false == (this.bcStmt((unwrap node.body) prog))) {
+                    prog.loopDepth = (prog.loopDepth - 1)
+                    prog.loopTryDepth = foSavedLoopTd
+                    return false
+                }
+            }
+            def foCont:int (prog.here())
+            prog.emit(23 hIdx2 0 0)
+            prog.emit(15 foTop 0 0)
+            def foEnd:int (prog.here())
+            prog.patch(foExit foEnd)
+            prog.loopDepth = (prog.loopDepth - 1)
+            prog.loopTryDepth = foSavedLoopTd
+            def oci:int foCntBase
+            while (oci < prog.cntTop) {
+                def ps7:int (itemAt prog.cntSites oci)
+                prog.patch(ps7 foCont)
+                oci = (oci + 1)
+            }
+            prog.cntTop = foCntBase
+            def obi:int foBrkBase
+            while (obi < prog.brkTop) {
+                def ps8:int (itemAt prog.brkSites obi)
+                prog.patch(ps8 foEnd)
+                obi = (obi + 1)
+            }
+            prog.brkTop = foBrkBase
             return true
         }
         if (k == 33) {
@@ -8488,10 +8894,17 @@ class ComponentEngine {
                     }
                 }
             }
+            def fBrkBase:int prog.brkTop
+            def fCntBase:int prog.cntTop
+            def fSavedLoopTd:int prog.loopTryDepth
+            prog.loopTryDepth = prog.tryDepth
+            prog.loopDepth = (prog.loopDepth + 1)
             def fTop:int (prog.here())
             def fExit:int (0 - 1)
             if node.left {
                 if (false == (this.bcExpr((unwrap node.left) prog))) {
+                    prog.loopDepth = (prog.loopDepth - 1)
+                    prog.loopTryDepth = fSavedLoopTd
                     return false
                 }
                 fExit = (prog.here())
@@ -8499,23 +8912,33 @@ class ComponentEngine {
             }
             if node.body {
                 if (false == (this.bcStmt((unwrap node.body) prog))) {
+                    prog.loopDepth = (prog.loopDepth - 1)
+                    prog.loopTryDepth = fSavedLoopTd
                     return false
                 }
             }
+            ; continue lands on the update (or the test when there is none)
+            def fCont:int (prog.here())
             if node.right {
                 def fUpd:TSNode (unwrap node.right)
                 def fuk:int (this.nodeKindOf(fUpd))
                 if (fuk == 7) {
                     if (false == (this.bcUpdateStmt(fUpd prog))) {
+                        prog.loopDepth = (prog.loopDepth - 1)
+                        prog.loopTryDepth = fSavedLoopTd
                         return false
                     }
                 } {
                     if (fuk == 6) {
                         if (false == (this.bcAssignStmt(fUpd prog))) {
+                            prog.loopDepth = (prog.loopDepth - 1)
+                            prog.loopTryDepth = fSavedLoopTd
                             return false
                         }
                     } {
                         if (false == (this.bcExpr(fUpd prog))) {
+                            prog.loopDepth = (prog.loopDepth - 1)
+                            prog.loopTryDepth = fSavedLoopTd
                             return false
                         }
                         prog.emit(22 0 0 1)
@@ -8523,9 +8946,26 @@ class ComponentEngine {
                 }
             }
             prog.emit(15 fTop 0 0)
+            def fEnd:int (prog.here())
             if (fExit >= 0) {
-                prog.patch(fExit (prog.here()))
+                prog.patch(fExit fEnd)
             }
+            prog.loopDepth = (prog.loopDepth - 1)
+            prog.loopTryDepth = fSavedLoopTd
+            def fci2:int fCntBase
+            while (fci2 < prog.cntTop) {
+                def ps9:int (itemAt prog.cntSites fci2)
+                prog.patch(ps9 fCont)
+                fci2 = (fci2 + 1)
+            }
+            prog.cntTop = fCntBase
+            def fbi2:int fBrkBase
+            while (fbi2 < prog.brkTop) {
+                def ps10:int (itemAt prog.brkSites fbi2)
+                prog.patch(ps10 fEnd)
+                fbi2 = (fbi2 + 1)
+            }
+            prog.brkTop = fBrkBase
             return true
         }
         if (node.nodeType == "EmptyStatement") {
@@ -9016,6 +9456,9 @@ class ComponentEngine {
                 prog.emit(10 cIdx 1 0)
             }
             def argc:int (array_length node.children)
+            if (argc > 250) {
+                return false
+            }
             def ai:int 0
             while (ai < argc) {
                 def an:TSNode (itemAt node.children ai)
@@ -9027,7 +9470,10 @@ class ComponentEngine {
                 }
                 ai = (ai + 1)
             }
-            prog.emit(20 argc 1 (argc + 1))
+            ; the callee NAME rides the high operand bits so the VM can
+            ; word the not-a-function TypeError exactly as the walker does
+            def cnAtom:int (prog.addAtom(callee.name))
+            prog.emit(20 ((cnAtom * 256) + argc) 1 (argc + 1))
             return true
         }
         return false
@@ -9441,6 +9887,7 @@ class ComponentEngine {
     ; bcRet lanes, NOT as a return value.
     fn runBytecode:void (prog:BcProgram placed:int outer:EvalContext thisVal:EvHandle) {
         def base:int bcSp
+        def tryBase:int bcTryTop
         def needTop:int ((base + prog.localCount) + prog.stackSize)
         this.bcGrowTo(needTop)
         def li:int placed
@@ -9461,12 +9908,14 @@ class ComponentEngine {
             if (bcSteps > 400000000) {
                 print ("[bcvm] runaway: pc=" + ((to_string pc) + (" n=" + (to_string n))))
                 bcRetTag = 3
+                bcTryTop = tryBase
                 bcSp = base
                 return
             }
             if ((sp < (base + prog.localCount)) || (sp > needTop)) {
                 print ("[bcvm] sp out of frame: sp=" + ((to_string sp) + (" base=" + ((to_string base) + (" top=" + ((to_string needTop) + (" pc=" + (to_string pc))))))))
                 bcRetTag = 3
+                bcTryTop = tryBase
                 bcSp = base
                 return
             }
@@ -9619,6 +10068,14 @@ class ComponentEngine {
                 def o12:EvHandle (this.applyBinaryOp(a l12 r12))
                 bcSp = base
                 if scriptThrew {
+                    if (bcTryTop > tryBase) {
+                        bcTryTop = (bcTryTop - 1)
+                        pc = (itemAt bcTryPcs bcTryTop)
+                        sp = (itemAt bcTrySps bcTryTop)
+                        scriptThrew = false
+                        continue
+                    }
+                    bcTryTop = tryBase
                     bcRetTag = 3
                     return
                 }
@@ -9664,15 +10121,51 @@ class ComponentEngine {
                 continue
             }
             if (op == 20) {
-                def argc:int a
+                def argc:int (bit_and a 255)
                 def fnPos:int ((sp - argc) - 1)
                 ; direct VM->VM first: a compiled callee takes its arguments
                 ; as slot lanes and answers through the bcRet lanes, so the
-                ; whole call boxes nothing
-                def dcr:int (this.bcTryDirectCall(fnPos argc needTop))
+                ; whole call boxes nothing. The site's identity cache skips
+                ; the guard ladder after the first call: every laddered
+                ; property except the __fnprotocall__ own-data marker is
+                ; immutable on a function value, so identity + that one
+                ; probe re-proves the whole ladder.
+                def dcr:int (0 - 2)
+                if ((itemAt bcTags fnPos) == 0) {
+                    def ick:int (itemAt prog.icKeys (pc - 1))
+                    if (ick > 0) {
+                        def fnvIC:EvHandle (itemAt bcStack fnPos)
+                        if ((fnvIC.identityIdOf()) == ick) {
+                            if (false == (fnvIC.hasOwnData("__fnprotocall__"))) {
+                                dcr = (this.bcDirectCallKnown(fnPos argc needTop ((itemAt prog.icOps (pc - 1)) - 1)))
+                            }
+                        }
+                    }
+                    if (dcr == (0 - 2)) {
+                        def fnIdA:int ((itemAt bcStack fnPos).identityIdOf())
+                        def dtr:int (this.bcTryDirectCall(fnPos argc needTop))
+                        if (dtr >= 2) {
+                            if (fnIdA > 0) {
+                                set prog.icKeys (pc - 1) fnIdA
+                                set prog.icOps (pc - 1) (dtr - 1)
+                            }
+                            dcr = 0
+                        } {
+                            dcr = dtr
+                        }
+                    }
+                }
                 if (dcr >= 0) {
                     bcSp = base
                     if (dcr == 1) {
+                        if (bcTryTop > tryBase) {
+                            bcTryTop = (bcTryTop - 1)
+                            pc = (itemAt bcTryPcs bcTryTop)
+                            sp = (itemAt bcTrySps bcTryTop)
+                            scriptThrew = false
+                            continue
+                        }
+                        bcTryTop = tryBase
                         bcRetTag = 3
                         return
                     }
@@ -9686,10 +10179,53 @@ class ComponentEngine {
                     ci = (ci + 1)
                 }
                 def fnv:EvHandle (this.bcSlotBox(fnPos))
+                ; D-ERRORS, walker parity: the name resolved (get_name would
+                ; have raised ReferenceError), so a non-callable value is the
+                ; TypeError arm. Arguments are already evaluated, as the spec
+                ; orders.
+                def callable20:boolean (fnv.isFunction())
+                if (false == callable20) {
+                    if (fnv.isBuiltinStatic()) { callable20 = true }
+                }
+                if (false == callable20) {
+                    if (fnv.isBuiltinMethod()) { callable20 = true }
+                }
+                if (false == callable20) {
+                    if ((strlen (this.builtinCtorNameOf(fnv))) > 0) { callable20 = true }
+                }
+                if (false == callable20) {
+                    if (this.isEvalFunctionValue(fnv)) { callable20 = true }
+                }
+                if (false == callable20) {
+                    if strictReferences {
+                        def cn20:string (itemAt prog.atoms (idiv a 256))
+                        def _t20:EvHandle (this.throwSpecError("TypeError" (cn20 + " is not a function")))
+                        if scriptThrew {
+                            if (bcTryTop > tryBase) {
+                                bcTryTop = (bcTryTop - 1)
+                                pc = (itemAt bcTryPcs bcTryTop)
+                                sp = (itemAt bcTrySps bcTryTop)
+                                scriptThrew = false
+                                continue
+                            }
+                            bcTryTop = tryBase
+                            bcRetTag = 3
+                            return
+                        }
+                    }
+                }
                 bcSp = needTop
                 def cres:EvHandle (this.callFnValueWithValues(fnv cargs))
                 bcSp = base
                 if scriptThrew {
+                    if (bcTryTop > tryBase) {
+                        bcTryTop = (bcTryTop - 1)
+                        pc = (itemAt bcTryPcs bcTryTop)
+                        sp = (itemAt bcTrySps bcTryTop)
+                        scriptThrew = false
+                        continue
+                    }
+                    bcTryTop = tryBase
                     bcRetTag = 3
                     return
                 }
@@ -9718,6 +10254,7 @@ class ComponentEngine {
                 backJumps = (backJumps + 1)
                 if (backJumps > maxLoopIterations) {
                     bcRetTag = 3
+                    bcTryTop = tryBase
                     bcSp = base
                     return
                 }
@@ -9734,6 +10271,14 @@ class ComponentEngine {
                 def n23:double (this.toNumberOf(v23))
                 bcSp = base
                 if scriptThrew {
+                    if (bcTryTop > tryBase) {
+                        bcTryTop = (bcTryTop - 1)
+                        pc = (itemAt bcTryPcs bcTryTop)
+                        sp = (itemAt bcTrySps bcTryTop)
+                        scriptThrew = false
+                        continue
+                    }
+                    bcTryTop = tryBase
                     bcRetTag = 3
                     return
                 }
@@ -9751,6 +10296,14 @@ class ComponentEngine {
                 def n24:double (this.toNumberOf(v24))
                 bcSp = base
                 if scriptThrew {
+                    if (bcTryTop > tryBase) {
+                        bcTryTop = (bcTryTop - 1)
+                        pc = (itemAt bcTryPcs bcTryTop)
+                        sp = (itemAt bcTrySps bcTryTop)
+                        scriptThrew = false
+                        continue
+                    }
+                    bcTryTop = tryBase
                     bcRetTag = 3
                     return
                 }
@@ -9767,11 +10320,13 @@ class ComponentEngine {
                 } {
                     bcRetNum = (itemAt bcNums sp)
                 }
+                bcTryTop = tryBase
                 bcSp = base
                 return
             }
             if (op == 19) {
                 bcRetTag = 3
+                bcTryTop = tryBase
                 bcSp = base
                 return
             }
@@ -9798,6 +10353,14 @@ class ComponentEngine {
                 bcSp = base
                 context = savedCtx10
                 if scriptThrew {
+                    if (bcTryTop > tryBase) {
+                        bcTryTop = (bcTryTop - 1)
+                        pc = (itemAt bcTryPcs bcTryTop)
+                        sp = (itemAt bcTrySps bcTryTop)
+                        scriptThrew = false
+                        continue
+                    }
+                    bcTryTop = tryBase
                     bcRetTag = 3
                     return
                 }
@@ -9855,6 +10418,14 @@ class ComponentEngine {
                 def n13:double (this.toNumberOf(v13))
                 bcSp = base
                 if scriptThrew {
+                    if (bcTryTop > tryBase) {
+                        bcTryTop = (bcTryTop - 1)
+                        pc = (itemAt bcTryPcs bcTryTop)
+                        sp = (itemAt bcTrySps bcTryTop)
+                        scriptThrew = false
+                        continue
+                    }
+                    bcTryTop = tryBase
                     bcRetTag = 3
                     return
                 }
@@ -9909,6 +10480,14 @@ class ComponentEngine {
                 def n25:double (this.toNumberOf(v25))
                 bcSp = base
                 if scriptThrew {
+                    if (bcTryTop > tryBase) {
+                        bcTryTop = (bcTryTop - 1)
+                        pc = (itemAt bcTryPcs bcTryTop)
+                        sp = (itemAt bcTrySps bcTryTop)
+                        scriptThrew = false
+                        continue
+                    }
+                    bcTryTop = tryBase
                     bcRetTag = 3
                     return
                 }
@@ -9946,6 +10525,14 @@ class ComponentEngine {
                 def f30:EvHandle (this.bcGetField(o30 (itemAt prog.atoms a)))
                 bcSp = base
                 if scriptThrew {
+                    if (bcTryTop > tryBase) {
+                        bcTryTop = (bcTryTop - 1)
+                        pc = (itemAt bcTryPcs bcTryTop)
+                        sp = (itemAt bcTrySps bcTryTop)
+                        scriptThrew = false
+                        continue
+                    }
+                    bcTryTop = tryBase
                     bcRetTag = 3
                     return
                 }
@@ -9960,6 +10547,14 @@ class ComponentEngine {
                 this.bcPutField(o31 (itemAt prog.atoms a) v31)
                 bcSp = base
                 if scriptThrew {
+                    if (bcTryTop > tryBase) {
+                        bcTryTop = (bcTryTop - 1)
+                        pc = (itemAt bcTryPcs bcTryTop)
+                        sp = (itemAt bcTrySps bcTryTop)
+                        scriptThrew = false
+                        continue
+                    }
+                    bcTryTop = tryBase
                     bcRetTag = 3
                     return
                 }
@@ -10027,6 +10622,14 @@ class ComponentEngine {
                             if (dmr >= 0) {
                                 bcSp = base
                                 if (dmr == 1) {
+                                    if (bcTryTop > tryBase) {
+                                        bcTryTop = (bcTryTop - 1)
+                                        pc = (itemAt bcTryPcs bcTryTop)
+                                        sp = (itemAt bcTrySps bcTryTop)
+                                        scriptThrew = false
+                                        continue
+                                    }
+                                    bcTryTop = tryBase
                                     bcRetTag = 3
                                     return
                                 }
@@ -10047,6 +10650,14 @@ class ComponentEngine {
                 def mRes:EvHandle (this.bcCallMethod(mObj (itemAt prog.atoms mAtom) mArgs))
                 bcSp = base
                 if scriptThrew {
+                    if (bcTryTop > tryBase) {
+                        bcTryTop = (bcTryTop - 1)
+                        pc = (itemAt bcTryPcs bcTryTop)
+                        sp = (itemAt bcTrySps bcTryTop)
+                        scriptThrew = false
+                        continue
+                    }
+                    bcTryTop = tryBase
                     bcRetTag = 3
                     return
                 }
@@ -10094,6 +10705,14 @@ class ComponentEngine {
                     def en33:EvHandle (this.bcGetElemNum(o33 (itemAt bcNums sp)))
                     bcSp = base
                     if scriptThrew {
+                        if (bcTryTop > tryBase) {
+                            bcTryTop = (bcTryTop - 1)
+                            pc = (itemAt bcTryPcs bcTryTop)
+                            sp = (itemAt bcTrySps bcTryTop)
+                            scriptThrew = false
+                            continue
+                        }
+                        bcTryTop = tryBase
                         bcRetTag = 3
                         return
                     }
@@ -10105,6 +10724,14 @@ class ComponentEngine {
                 def e33:EvHandle (this.bcGetElem(o33 k33))
                 bcSp = base
                 if scriptThrew {
+                    if (bcTryTop > tryBase) {
+                        bcTryTop = (bcTryTop - 1)
+                        pc = (itemAt bcTryPcs bcTryTop)
+                        sp = (itemAt bcTrySps bcTryTop)
+                        scriptThrew = false
+                        continue
+                    }
+                    bcTryTop = tryBase
                     bcRetTag = 3
                     return
                 }
@@ -10146,6 +10773,14 @@ class ComponentEngine {
                     this.bcPutElemNum(o34 (itemAt bcNums (sp + 1)) v34)
                     bcSp = base
                     if scriptThrew {
+                        if (bcTryTop > tryBase) {
+                            bcTryTop = (bcTryTop - 1)
+                            pc = (itemAt bcTryPcs bcTryTop)
+                            sp = (itemAt bcTrySps bcTryTop)
+                            scriptThrew = false
+                            continue
+                        }
+                        bcTryTop = tryBase
                         bcRetTag = 3
                         return
                     }
@@ -10156,6 +10791,14 @@ class ComponentEngine {
                 this.bcPutElem(o34 k34 v34)
                 bcSp = base
                 if scriptThrew {
+                    if (bcTryTop > tryBase) {
+                        bcTryTop = (bcTryTop - 1)
+                        pc = (itemAt bcTryPcs bcTryTop)
+                        sp = (itemAt bcTrySps bcTryTop)
+                        scriptThrew = false
+                        continue
+                    }
+                    bcTryTop = tryBase
                     bcRetTag = 3
                     return
                 }
@@ -10225,16 +10868,108 @@ class ComponentEngine {
                 def r35:EvHandle (this.applyBinaryOp(20 cb35 xb35))
                 bcSp = base
                 if scriptThrew {
+                    if (bcTryTop > tryBase) {
+                        bcTryTop = (bcTryTop - 1)
+                        pc = (itemAt bcTryPcs bcTryTop)
+                        sp = (itemAt bcTrySps bcTryTop)
+                        scriptThrew = false
+                        continue
+                    }
+                    bcTryTop = tryBase
                     bcRetTag = 3
                     return
                 }
                 this.bcSlotPut((base + slot35) r35)
                 continue
             }
+            if (op == 42) {
+                ; forward jump (break/continue/over-handler): never counts
+                ; toward the loop-iteration guard
+                pc = a
+                continue
+            }
+            if (op == 43) {
+                while ((array_length bcTryPcs) <= bcTryTop) {
+                    push bcTryPcs 0
+                }
+                while ((array_length bcTrySps) <= bcTryTop) {
+                    push bcTrySps 0
+                }
+                set bcTryPcs bcTryTop a
+                set bcTrySps bcTryTop sp
+                bcTryTop = (bcTryTop + 1)
+                continue
+            }
+            if (op == 44) {
+                bcTryTop = (bcTryTop - 1)
+                continue
+            }
+            if (op == 45) {
+                ; throw: an operand-evaluation throw unwound before this op
+                ; could run, so the operand IS the exception (walker rule)
+                sp = (sp - 1)
+                scriptThrowValue = (this.bcSlotBox(sp))
+                scriptThrew = true
+                if (bcTryTop > tryBase) {
+                    bcTryTop = (bcTryTop - 1)
+                    pc = (itemAt bcTryPcs bcTryTop)
+                    sp = (itemAt bcTrySps bcTryTop)
+                    scriptThrew = false
+                    continue
+                }
+                bcTryTop = tryBase
+                bcRetTag = 3
+                return
+            }
+            if (op == 46) {
+                ; catch entry: bind the pending exception to the parameter
+                ; slot (a < 0: parameter-less catch), then reset the value
+                ; exactly as the walker's catch does
+                if (a >= 0) {
+                    this.bcSlotPut((base + a) scriptThrowValue)
+                }
+                scriptThrowValue = (EvValueBridge.taggedNull())
+                continue
+            }
+            if (op == 47) {
+                def o47:EvHandle (this.bcSlotBox((sp - 1)))
+                bcSp = needTop
+                def keys47:EvHandle (this.bcForInKeys(o47))
+                bcSp = base
+                set bcTags (sp - 1) 0
+                set bcStack (sp - 1) keys47
+                continue
+            }
+            if (op == 48) {
+                def k48:EvHandle (this.bcSlotBox((sp - 1)))
+                def o48:EvHandle (this.bcSlotBox((sp - 2)))
+                sp = (sp - 1)
+                def has48:boolean true
+                if (o48.isObject()) {
+                    has48 = (this.objHasKeyUpChain(o48 (k48.stringOf())))
+                }
+                set bcTags (sp - 1) 2
+                if has48 {
+                    set bcNums (sp - 1) 1.0
+                } {
+                    set bcNums (sp - 1) 0.0
+                }
+                continue
+            }
+            if (op == 49) {
+                def s49:EvHandle (this.bcSlotBox((sp - 1)))
+                bcSp = needTop
+                def items49:EvHandle (this.bcForOfItems(s49))
+                bcSp = base
+                set bcTags (sp - 1) 0
+                set bcStack (sp - 1) items49
+                continue
+            }
         }
         ; fell past the last instruction without a ret (a jump target can be
         ; the very end): completes as undefined
         bcRetTag = 3
+        bcTryTop = tryBase
         bcSp = base
         return
     }
@@ -10284,12 +11019,28 @@ class ComponentEngine {
         if (pid < 0) {
             return (0 - 1)
         }
-        def prF:BcProgram (itemAt bcPrograms pid)
-        if (argc > prF.paramCount) {
+        def prChk0:BcProgram (itemAt bcPrograms pid)
+        if (argc > prChk0.paramCount) {
             ; extra arguments would land past the parameter slots; the
             ; generic path materializes and drops them correctly
             return (0 - 1)
         }
+        def dkr:int (this.bcDirectCallKnown(fnPos argc needTop pid))
+        if (dkr == 1) {
+            return 1
+        }
+        ; ladder passed and the call ran: report the program id so the
+        ; call site can arm its identity cache
+        return (pid + 2)
+    }
+
+    ; The prologue + slot call for a callee the ladder (or the site's
+    ; identity cache) already proved: a plain user function whose body is
+    ; program `pid`. Answers 0 done / 1 threw.
+    fn bcDirectCallKnown:int (fnPos:int argc:int needTop:int pid:int) {
+        def fnv:EvHandle (itemAt bcStack fnPos)
+        def fnNode:TSNode (fnv.functionNodeOf())
+        def prF:BcProgram (itemAt bcPrograms pid)
         ; --- the compiled-call prologue, verbatim from callFnValueWithValues
         def savedDidReturnF:boolean scriptDidReturn
         def savedReturnValueF:EvHandle scriptReturnValue
@@ -10559,6 +11310,164 @@ class ComponentEngine {
             set bcNums mFnPos bcRetNum
         }
         return 0
+    }
+
+    ; D-ATTRS: for-in visits ENUMERABLE properties only, never the
+    ; engine's internal bookkeeping keys, and it walks the PROTOTYPE
+    ; CHAIN -- a property put on Boolean.prototype shows up in a for-in
+    ; over a Boolean object. A name already seen nearer the object
+    ; shadows the inherited one, whether or not the nearer one was
+    ; enumerable. Snapshotted at loop entry; shared by the walker and
+    ; the bytecode tier.
+    fn forInKeyList:[string] (target:EvHandle) {
+        def theKeys:[string]
+        def seenKeys:[string:boolean]
+        def walkIn:EvHandle target
+        def inSteps:int 0
+        while (inSteps < 16) {
+            def rawKeys:[string] (this.objectEnumerableKeys(walkIn))
+            def ki:int 0
+            while (ki < (array_length rawKeys)) {
+                def rk:string (itemAt rawKeys ki)
+                if (false == (this.isHiddenInstanceKey(rk))) {
+                    if (false == (has seenKeys rk)) {
+                        set seenKeys rk true
+                        push theKeys rk
+                    }
+                }
+                ki = (ki + 1)
+            }
+            ; A non-enumerable own property still shadows an inherited one.
+            def shadow:[string] (this.objectKeys(walkIn))
+            def si2:int 0
+            while (si2 < (array_length shadow)) {
+                set seenKeys (itemAt shadow si2) true
+                si2 = (si2 + 1)
+            }
+            def nextIn:EvHandle (this.protoOfValue(walkIn))
+            if (EvValueBridge.isNull(nextIn)) {
+                inSteps = 16
+            } {
+                walkIn = nextIn
+                inSteps = (inSteps + 1)
+            }
+        }
+        return theKeys
+    }
+    ; Normalise any iterable to a list of per-iteration values: array/Set
+    ; elements as-is, Map entries as [key, value] pairs, string chars.
+    ; itemsOf copies, so the list is a snapshot on every kind. Shared by
+    ; the walker and the bytecode tier.
+    fn forOfItemList:[EvHandle] (src:EvHandle) {
+        def items:[EvHandle]
+        if (EvValueBridge.isArrayValue(src)) {
+            items = (src.itemsOf())
+        } {
+            if (EvValueBridge.isSet(src)) {
+                items = (src.itemsOf())
+            } {
+                if (EvValueBridge.isMap(src)) {
+                    def k:int 0
+                    while (k < (src.denseLen())) {
+                        def pair:[EvHandle]
+                        push pair (src.arrayItemAt(k))
+                        push pair (src.mapValAt(k))
+                        push items (EvValueBridge.taggedArray(pair))
+                        k = (k + 1)
+                    }
+                } {
+                    if (EvValueBridge.isString(src)) {
+                        def si:int 0
+                        while (si < (strlen (src.stringOf()))) {
+                            push items (EvValueBridge.taggedString((substring (src.stringOf()) si (si + 1))))
+                            si = (si + 1)
+                        }
+                    }
+                }
+            }
+        }
+        return items
+    }
+    ; The tier-facing forms: the same lists as VALUE ARRAYS for the
+    ; forin_keys / forof_items ops.
+    fn bcForInKeys:EvHandle (target:EvHandle) {
+        def ks:[string] (this.forInKeyList(target))
+        def out:[EvHandle]
+        def i:int 0
+        while (i < (array_length ks)) {
+            push out (EvHandle.string((itemAt ks i)))
+            i = (i + 1)
+        }
+        return (EvValueBridge.taggedArray(out))
+    }
+    fn bcForOfItems:EvHandle (src:EvHandle) {
+        return (EvValueBridge.taggedArray((this.forOfItemList(src))))
+    }
+    ; Does `name` appear as an identifier anywhere in this body OUTSIDE
+    ; catch clauses that bind it? Property-name positions count too --
+    ; deliberately conservative, a false positive only routes the
+    ; function to the walker.
+    fn bcNameUsedOutsideCatch:boolean (node:TSNode name:string) {
+        def k:int (this.nodeKindOf(node))
+        if (k == 1) {
+            if (node.name == name) {
+                return true
+            }
+        }
+        def skipLeft:boolean false
+        if (k == 46) {
+            if node.left {
+                def cn:TSNode (unwrap node.left)
+                if (cn.name == name) {
+                    skipLeft = true
+                }
+            }
+        }
+        def i:int 0
+        while (i < (array_length node.children)) {
+            if (this.bcNameUsedOutsideCatch((itemAt node.children i) name)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        if node.left {
+            if (false == skipLeft) {
+                if (this.bcNameUsedOutsideCatch((unwrap node.left) name)) {
+                    return true
+                }
+            }
+        }
+        if node.right {
+            if (this.bcNameUsedOutsideCatch((unwrap node.right) name)) {
+                return true
+            }
+        }
+        if node.init {
+            if (this.bcNameUsedOutsideCatch((unwrap node.init) name)) {
+                return true
+            }
+        }
+        if node.test {
+            if (this.bcNameUsedOutsideCatch((unwrap node.test) name)) {
+                return true
+            }
+        }
+        if node.body {
+            if (this.bcNameUsedOutsideCatch((unwrap node.body) name)) {
+                return true
+            }
+        }
+        if node.consequent {
+            if (this.bcNameUsedOutsideCatch((unwrap node.consequent) name)) {
+                return true
+            }
+        }
+        if node.alternate {
+            if (this.bcNameUsedOutsideCatch((unwrap node.alternate) name)) {
+                return true
+            }
+        }
+        return false
     }
 
     ; The walker IC's arming condition, verbatim: the registry still owns

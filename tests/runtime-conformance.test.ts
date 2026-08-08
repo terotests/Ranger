@@ -1645,6 +1645,30 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["vmic-push-override", "function f() { var a = [1]; var old = Array.prototype.push; Array.prototype.push = function (v) { this[this.length] = v * 100; return this.length; }; a.push(2); Array.prototype.push = old; a.push(3); return a.join(','); } return f();", "vmelem"],
   ["vmic-own-push-wins", "function f() { var a = [1]; a.push = function (v) { return 'own:' + v; }; return a.push(9) + ',' + a.length; } return f();", "vmelem"],
   ["vmic-pop-empty", "function f() { var a = []; return '' + a.pop() + ',' + a.length; } return f();", "vmelem"],
+
+  // --- the compiled long tail: break/continue in every loop kind,
+  // try/catch/throw (nested, rethrow, across calls, inside loops),
+  // for-in with the walker's snapshot + delete semantics, for-of over
+  // arrays and strings. finally and labels stay on the walker.
+  ["vmlt-break", "function f() { var s = 0; for (var i = 0; i < 100; i++) { if (i == 7) break; s = s + i; } return s; } return f();", "vmlongtail"],
+  ["vmlt-continue", "function f() { var s = 0; for (var i = 0; i < 10; i++) { if (i % 2 == 0) continue; s = s + i; } return s; } return f();", "vmlongtail"],
+  ["vmlt-while-true-break", "function f() { var i = 0; var s = 0; while (true) { i++; if (i > 5) break; if (i == 2) continue; s = s + i; } return s + ',' + i; } return f();", "vmlongtail"],
+  ["vmlt-dowhile", "function f() { var i = 0; var s = 0; do { i++; if (i == 3) continue; s = s + i; } while (i < 6); return s + ',' + i; } return f();", "vmlongtail"],
+  ["vmlt-catch-typeerror", "function f() { try { null.x; } catch (e) { return 'c:' + (e instanceof TypeError); } return 'no'; } return f();", "vmlongtail"],
+  ["vmlt-throw-string", "function f() { var r = ''; try { r += 'a'; throw 'boom'; } catch (err) { r += 'c:' + err; } return r; } return f();", "vmlongtail"],
+  ["vmlt-throw-across-call", "function inner3() { throw 42; } function f() { try { return inner3(); } catch (e) { return 'outer:' + e; } } return f();", "vmlongtail"],
+  ["vmlt-try-in-loop", "function f() { var n = 0; for (var i = 0; i < 5; i++) { try { if (i == 2) throw i; n = n + 10; } catch (e) { n = n + e; } } return n; } return f();", "vmlongtail"],
+  ["vmlt-nested-rethrow", "function f() { try { try { throw 'in'; } catch (a) { throw 're:' + a; } } catch (b) { return b; } } return f();", "vmlongtail"],
+  ["vmlt-break-inside-try", "function f() { var s = ''; while (true) { try { s += 'x'; break; } catch (e) { s += 'bad'; } } try { null.x; } catch (e2) { s += '!ok'; } return s; } return f();", "vmlongtail"],
+  ["vmlt-throw-object", "function f() { try { throw { code: 5 }; } catch (e) { return e.code; } } return f();", "vmlongtail"],
+  ["vmlt-forin-order", "function f() { var o = { a: 1, b: 2, c: 3 }; var s = ''; for (var k in o) { s += k + ':' + o[k] + ';'; } return s; } return f();", "vmlongtail"],
+  ["vmlt-forin-break-continue", "function f() { var o = { x: 1, y: 2, z: 3 }; var s = ''; for (var k in o) { if (k == 'y') continue; if (k == 'z') break; s += k; } return s; } return f();", "vmlongtail"],
+  ["vmlt-forin-array", "function f() { var a = [10, 20, 30]; var s = ''; for (var i in a) { s += i + '=' + a[i] + ','; } return s; } return f();", "vmlongtail"],
+  ["vmlt-forin-delete", "function f() { var o = { p: 1, q: 2, r: 3 }; var s = ''; for (var k in o) { s += k; delete o.r; } return s; } return f();", "vmlongtail"],
+  ["vmlt-forof-array", "function f() { var a = [3, 5, 7]; var s = 0; for (var v of a) { s = s + v; } return s; } return f();", "vmlongtail"],
+  ["vmlt-forof-string", "function f() { var s = ''; for (var ch of 'abc') { s += ch + '.'; } return s; } return f();", "vmlongtail"],
+  ["vmlt-forof-break", "function f() { var a = [1, 2, 3, 4]; var s = 0; for (var v of a) { if (v == 3) break; s = s + v; } return s; } return f();", "vmlongtail"],
+  ["vmlt-finally-still-walker", "function f() { var r = ''; try { r += 't'; } finally { r += 'f'; } return r; } return f();", "vmlongtail"],
 ];
 
 /**
