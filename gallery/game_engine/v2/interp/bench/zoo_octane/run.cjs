@@ -158,7 +158,10 @@ function runNode(filePath) {
 }
 
 function runEs6(preparedSrc) {
-  const { ComponentEngine, EvalValue } = require(path.join(BIN_ROOT, "engine_module.cjs"));
+  const mod = require(path.join(BIN_ROOT, "engine_module.cjs"));
+  const ComponentEngine = mod.ComponentEngine;
+  // Value class renamed EvHandle in the E4 shape migration; accept both.
+  const EvalValue = mod.EvHandle || mod.EvalValue;
   const lines = [];
   const oLog = console.log;
   const oWarn = console.warn;

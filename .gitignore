@@ -93,3 +93,4 @@ gallery/ts_parser/bin/ts_parser_native
 
 # Dart Flutter logic example generated package
 examples/dart_flutter_logic/generated/
+__pycache__/

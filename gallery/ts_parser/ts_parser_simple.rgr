@@ -56,6 +56,10 @@ class TSNode {
   ; `arguments` in reach. Scanned once by the evaluator.
   def paramSlotScanned:boolean false
   def paramSlotsSafe:boolean false
+  ; Memo for a FUNCTION node: id of its compiled bytecode program in the
+  ; evaluator's registry, -1 = not compilable. Scanned once.
+  def bcScanned:boolean false
+  def bcProgramId:int (0 - 1)
   ; Memo for a NumericLiteral's value. The literal is held as source TEXT, so
   ; evaluating it means parsing that text -- once per evaluation, which for a
   ; loop bound means once per iteration. Parsed on first use and kept.

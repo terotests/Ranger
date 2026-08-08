@@ -42,6 +42,11 @@ class DateTime {
         return (0.0 / 0.0)
     }
 
+    ; Floor in PURE double arithmetic (see ComponentEngine.floorNum): the
+    ; old `to_double (to_int v)` truncation saturates at 2^31 on the C++
+    ; target, whose Ranger int is 32 bits -- fatal for millisecond
+    ; timestamps, which passed 2^31 in January 1970. The 2^52 add/subtract
+    ; rounds within the double domain; the compare corrects to floor.
     fn floorD:double (v:double) {
         if (v != v) {
             return v
@@ -49,7 +54,24 @@ class DateTime {
         if (false == (this.isFiniteD(v))) {
             return v
         }
-        def t:double (to_double (to_int v))
+        ; ±0 floors to itself; the add/subtract would turn -0 into +0.
+        if (v == 0.0) {
+            return v
+        }
+        def big:double 4503599627370496.0
+        def av:double v
+        if (av < 0.0) {
+            av = (0.0 - av)
+        }
+        if (av >= big) {
+            return v
+        }
+        def t:double 0.0
+        if (v >= 0.0) {
+            t = ((v + big) - big)
+        } {
+            t = ((v - big) + big)
+        }
         if (t > v) {
             return (t - 1.0)
         }
@@ -79,10 +101,14 @@ class DateTime {
         if (false == (this.isFiniteD(v))) {
             return v
         }
+        ; PURE double domain: to_int is 32-bit on the C++ target and going
+        ; through it saturated every epoch-millisecond value at 2^31 --
+        ; which is exactly the 1969/1970 dates the conformance rows showed.
+        ; floorD's magic-number trick truncates at any magnitude.
         if (v < 0.0) {
-            return (0.0 - (to_double (to_int (0.0 - v))))
+            return (0.0 - (this.floorD((0.0 - v))))
         }
-        return (to_double (to_int v))
+        return (this.floorD(v))
     }
 
     fn msPerDay:double () {

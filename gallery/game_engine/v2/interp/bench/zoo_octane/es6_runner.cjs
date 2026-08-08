@@ -16,7 +16,11 @@ if (!dir || !file) {
   process.exit(0);
 }
 
-const { ComponentEngine, EvalValue } = require(MODULE);
+const mod = require(MODULE);
+const ComponentEngine = mod.ComponentEngine;
+// The value class was renamed EvHandle in the E4 shape migration; accept both
+// so the runner works against either build.
+const EvalValue = mod.EvHandle || mod.EvalValue;
 const src = fs.readFileSync(path.join(dir, file), "utf8");
 
 // The native runner prefixes engine-side logging with [tsx]; match it so the

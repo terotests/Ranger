@@ -25,15 +25,24 @@ for T in $TARGETS; do
     TARGET_FLAG='-target=native-linux-gnu'
   fi
   echo "== Ranger -> $T (octane_runner)"
+  # -cpp-single-thread: non-atomic rg_ptr refcounts; the interpreter is
+  # single-threaded (cpp-only flag, ignored elsewhere). See bench/native.
   RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l="$T" \
-    "$SRC" -d="$OUT_DIR" -o=octane_runner."$EXT" -nodecli -native-fast-alloc $TARGET_FLAG
+    "$SRC" -d="$OUT_DIR" -o=octane_runner."$EXT" -nodecli -native-fast-alloc \
+    -cpp-single-thread $TARGET_FLAG
   case "$T" in
     cpp)
+      # Shape case classes are emitted after ordinary classes; move the
+      # by-value EvalValue alternatives ahead of first use (see script).
+      python3 gallery/game_engine/v2/interp/bench/native/fix_cpp_evalvalue_order.py \
+        "$OUT_DIR/octane_runner.cpp"
       echo "== g++ -O3 octane_runner"
       g++ -O3 -march=native -std=c++17 "$OUT_DIR/octane_runner.cpp" -o "$OUT_DIR/octane_runner"
       echo "built: $OUT_DIR/octane_runner"
       ;;
     rust)
+      # Collapse writer-stacked .clone().clone() pairs (see bench/native).
+      sed -i 's/\.clone()\.clone()/.clone()/g' "$OUT_DIR/octane_runner.rs"
       echo "== rustc -C opt-level=3 octane_runner"
       rustc -C opt-level=3 -C target-cpu=native -C codegen-units=1 \
         "$OUT_DIR/octane_runner.rs" -o "$OUT_DIR/octane_runner"

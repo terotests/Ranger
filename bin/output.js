@@ -28109,15 +28109,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               wr.out(") as usize", false);
                             }
                           } else {
-                            wr.out("(", false);
+                            wr.out("((", false);
                             wr.suppress_expr_parens = true;
                             await this.WalkNode(subEnd, ctx, wr);
                             wr.suppress_expr_parens = false;
-                            wr.out(" - ", false);
+                            wr.out(") - (", false);
                             wr.suppress_expr_parens = true;
                             await this.WalkNode(subStart, ctx, wr);
                             wr.suppress_expr_parens = false;
-                            wr.out(") as usize", false);
+                            wr.out(")) as usize", false);
                           }
                           wr.out(").collect::<String>()", false);
                           ctx.unsetInExpr();

@@ -76,6 +76,13 @@ class TSLexer {
         }
         def ch:string (at source pos)
         pos = pos + 1
+        ; Past the last code point but inside the byte-counted `len` (a
+        ; multi-byte char earlier shrank the code-point count below the byte
+        ; count): `at` answers "" there, and charAt on "" is a hard error on
+        ; the C++ target.
+        if ((strlen ch) == 0) {
+            return ch
+        }
         ; A lone CR is a line terminator in JS just as LF is; counting only LF
         ; made `continue \r label` look like it was on one line, which changes
         ; whether automatic semicolon insertion applies.
@@ -84,6 +91,7 @@ class TSLexer {
         if ((ch == "\n") || (ch == "\r") || (ch == "\r\n")) { isTerminator = true }
         if (chCode == 8232) { isTerminator = true }
         if (chCode == 8233) { isTerminator = true }
+        if (this.isLsPsUtf8(ch)) { isTerminator = true }
         if isTerminator {
             line = line + 1
             col = 1
@@ -125,6 +133,9 @@ class TSLexer {
         def idx:int (pos + offset)
         if (idx >= len) { return -1 }
         def first:string (at source idx)
+        ; `at` answers "" past the last code point of a byte-counted source
+        ; (multi-byte chars make the code-point count smaller than `len`).
+        if ((strlen first) == 0) { return -1 }
         def hi:int (charAt first 0)
         if (hi >= 55296) {
             if (hi <= 56319) {
@@ -259,6 +270,9 @@ class TSLexer {
         if (code == 8287) { return true }    ; medium mathematical space
         if (code == 12288) { return true }   ; ideographic space
         if (code == 65279) { return true }   ; zero width no-break space (BOM)
+        ; LS/PS as a UTF-8 substring on the byte-model target (the 8232/8233
+        ; code checks above only fire where `at` yields decoded chars).
+        if (this.isLsPsUtf8(ch)) { return true }
         return false
     }
 
@@ -296,6 +310,23 @@ class TSLexer {
         def code:int (charAt ch 0)
         if (code == 8232) { return true }
         if (code == 8233) { return true }
+        if (this.isLsPsUtf8(ch)) { return true }
+        return false
+    }
+
+    ; U+2028 / U+2029 handed out as a UTF-8 SUBSTRING. On the char-model
+    ; targets (es6, Rust) `at` yields one-char strings, so the length-3 gate
+    ; never opens and the plain code checks above decide. On C++ `at` walks
+    ; code points but returns their UTF-8 bytes -- charAt sees the signed
+    ; LEAD byte (-30), never 8232 -- so the separator is recognised by its
+    ; three bytes E2 80 A8 / A9, masked out of the signed chars.
+    fn isLsPsUtf8:boolean (ch:string) {
+        if ((strlen ch) != 3) { return false }
+        if ((bit_and (charAt ch 0) 255) != 226) { return false }
+        if ((bit_and (charAt ch 1) 255) != 128) { return false }
+        def c2:int (bit_and (charAt ch 2) 255)
+        if (c2 == 168) { return true }
+        if (c2 == 169) { return true }
         return false
     }
 
@@ -423,7 +454,7 @@ class TSLexer {
                                                 }
                                                 this.advance()
                                                 this.advance()
-                                                value = value + (strfromcode ((hv1 * 16) + hv2))
+                                                value = value + (this.codeUnitString(((hv1 * 16) + hv2)))
                                             } {
                                                 if (esc == "u") {
                                                     def uEsc:string (this.readUnicodeEscapeBody())
@@ -809,9 +840,31 @@ class TSLexer {
             def high:int (floor (restD / 1024.0))
             def hi:int (55296 + high)
             def lo:int (56320 + (rest - (high * 1024)))
-            return ((strfromcode hi) + (strfromcode lo))
+            return ((this.codeUnitString(hi)) + (this.codeUnitString(lo)))
         }
-        return (strfromcode code)
+        return (this.codeUnitString(code))
+    }
+
+    ; One code unit as a guest string. On the char-model targets (es6, Rust)
+    ; strfromcode IS that. On the byte-model C++ target strfromcode truncates
+    ; the code to one byte -- " " decoded to "(" -- so anything past
+    ; 0x7F is written out as its UTF-8 bytes by hand. The gate probes what
+    ; strfromcode actually did with a two-byte-plus code.
+    fn codeUnitString:string (code:int) {
+        if (code < 128) {
+            return (strfromcode code)
+        }
+        if ((charAt (strfromcode 8232) 0) == 8232) {
+            return (strfromcode code)
+        }
+        def lo6:int (bit_and code 63)
+        if (code < 2048) {
+            def hi5:int (to_int ((to_double code) / 64.0))
+            return ((strfromcode (192 + hi5)) + (strfromcode (128 + lo6)))
+        }
+        def mid6:int (bit_and (to_int ((to_double code) / 64.0)) 63)
+        def hi4:int (to_int ((to_double code) / 4096.0))
+        return ((strfromcode (224 + hi4)) + ((strfromcode (128 + mid6)) + (strfromcode (128 + lo6))))
     }
 
     fn readIdentifier:Token () {

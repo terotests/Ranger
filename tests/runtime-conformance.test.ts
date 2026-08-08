@@ -1617,6 +1617,72 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["eval-var-visible-to-caller", "function g() { eval('var ev = 5;'); return String(ev); } return g();", "evalvar"],
   ["eval-fn-visible-to-caller", "function g() { eval('function ef() { return 3; }'); return String(ef()); } return g();", "evalvar"],
   ["eval-strict-var-not-visible", "function g() { 'use strict'; eval('var sv = 5;'); return String(typeof sv); } return g();", "evalvar"],
+
+  // --- VM re-entry: user code reached THROUGH an operation inside a compiled
+  // body (getter, setter, valueOf, toString) must not corrupt the caller's
+  // frame. These caught a real clobber: helper call-outs from the bytecode VM
+  // ran nested compiled frames on top of the caller's live slots.
+  ["reentry-getter", "var o = { get g() { var a = 1; var b = 2; return 10; } }; function f() { var x = 5; var y = 42; var z = o.g; return x + ',' + y + ',' + z; } return f();", "vmreentry"],
+  ["reentry-setter", "var hit = 0; var o = { set s(v) { var c = 3; hit = v + c; } }; function f() { var x = 5; var y = 6; o.s = 1; return x + ',' + y + ',' + hit; } return f();", "vmreentry"],
+  ["reentry-valueof-add", "var vo = { valueOf: function () { var a = 7; var b = 8; return 100; } }; function f() { var x = 5; var y = 6; var t = vo + 1; return x + ',' + y + ',' + t; } return f();", "vmreentry"],
+  ["reentry-valueof-compare", "var vo = { valueOf: function () { var a = 7; return 100; } }; function f() { var x = 5; var y = 6; var t = vo < 200; return x + ',' + y + ',' + t; } return f();", "vmreentry"],
+  ["reentry-valueof-inc", "var vo = { valueOf: function () { var a = 7; return 100; } }; function f() { var x = 5; var y = 6; var c = vo; c++; return x + ',' + y + ',' + c; } return f();", "vmreentry"],
+  ["reentry-valueof-neg", "var vo = { valueOf: function () { var a = 7; return 100; } }; function f() { var x = 5; var y = 6; var t = -vo; return x + ',' + y + ',' + t; } return f();", "vmreentry"],
+  ["reentry-valueof-addput", "var vo = { valueOf: function () { var a = 7; return 100; } }; function f() { var x = 5; var y = 6; var s = 1; s += vo; return x + ',' + y + ',' + s; } return f();", "vmreentry"],
+  ["reentry-getter-into-array", "var o = { get g() { var a = 1; var b = 2; return 10; } }; function f(p, q) { var arr = [7]; arr[0] = arr[0] + o.g; return p + ',' + q + ',' + arr[0]; } return f(9, 11);", "vmreentry"],
+
+  // --- compiled member/element access agrees with the walker on the edge
+  // shapes: misses read undefined (never null), sparse writes pad and move
+  // length, non-canonical string keys are properties, arguments-mapped
+  // indexes alias parameters through compiled callees, and the array
+  // push/pop inline cache respects overrides and own properties.
+  ["vmelem-miss-empty-array", "function f() { var a = []; return '' + a[0]; } return f();", "vmelem"],
+  ["vmelem-noncanonical-key", "function f() { var a = [4, 5]; return '' + a['1'] + ',' + a['01']; } return f();", "vmelem"],
+  ["vmelem-primitive-miss", "function f() { var s = 'ab'; var n = 5; return '' + s.foo + ',' + n.foo; } return f();", "vmelem"],
+  ["vmelem-sparse-write", "function f() { var a = []; a[5] = 7; return a.length + ',' + a[0] + ',' + a[5]; } return f();", "vmelem"],
+  ["vmelem-frac-neg-keys", "function f() { var a = [1, 2]; a[-1] = 5; a[0.5] = 9; return '' + a[-1] + ',' + a[0.5] + ',' + a.length + ',' + a[0]; } return f();", "vmelem"],
+  ["vmelem-argmap-through-call", "function writer(a) { a[0] = 99; return a[0]; } function outer(x, y) { var w = writer(arguments); return x + ',' + y + ',' + w; } return outer(1, 2);", "vmelem"],
+  ["vmic-push-override", "function f() { var a = [1]; var old = Array.prototype.push; Array.prototype.push = function (v) { this[this.length] = v * 100; return this.length; }; a.push(2); Array.prototype.push = old; a.push(3); return a.join(','); } return f();", "vmelem"],
+  ["vmic-own-push-wins", "function f() { var a = [1]; a.push = function (v) { return 'own:' + v; }; return a.push(9) + ',' + a.length; } return f();", "vmelem"],
+  ["vmic-pop-empty", "function f() { var a = []; return '' + a.pop() + ',' + a.length; } return f();", "vmelem"],
+
+  // --- the compiled long tail: break/continue in every loop kind,
+  // try/catch/throw (nested, rethrow, across calls, inside loops),
+  // for-in with the walker's snapshot + delete semantics, for-of over
+  // arrays and strings. finally and labels stay on the walker.
+  ["vmlt-break", "function f() { var s = 0; for (var i = 0; i < 100; i++) { if (i == 7) break; s = s + i; } return s; } return f();", "vmlongtail"],
+  ["vmlt-continue", "function f() { var s = 0; for (var i = 0; i < 10; i++) { if (i % 2 == 0) continue; s = s + i; } return s; } return f();", "vmlongtail"],
+  ["vmlt-while-true-break", "function f() { var i = 0; var s = 0; while (true) { i++; if (i > 5) break; if (i == 2) continue; s = s + i; } return s + ',' + i; } return f();", "vmlongtail"],
+  ["vmlt-dowhile", "function f() { var i = 0; var s = 0; do { i++; if (i == 3) continue; s = s + i; } while (i < 6); return s + ',' + i; } return f();", "vmlongtail"],
+  ["vmlt-catch-typeerror", "function f() { try { null.x; } catch (e) { return 'c:' + (e instanceof TypeError); } return 'no'; } return f();", "vmlongtail"],
+  ["vmlt-throw-string", "function f() { var r = ''; try { r += 'a'; throw 'boom'; } catch (err) { r += 'c:' + err; } return r; } return f();", "vmlongtail"],
+  ["vmlt-throw-across-call", "function inner3() { throw 42; } function f() { try { return inner3(); } catch (e) { return 'outer:' + e; } } return f();", "vmlongtail"],
+  ["vmlt-try-in-loop", "function f() { var n = 0; for (var i = 0; i < 5; i++) { try { if (i == 2) throw i; n = n + 10; } catch (e) { n = n + e; } } return n; } return f();", "vmlongtail"],
+  ["vmlt-nested-rethrow", "function f() { try { try { throw 'in'; } catch (a) { throw 're:' + a; } } catch (b) { return b; } } return f();", "vmlongtail"],
+  ["vmlt-break-inside-try", "function f() { var s = ''; while (true) { try { s += 'x'; break; } catch (e) { s += 'bad'; } } try { null.x; } catch (e2) { s += '!ok'; } return s; } return f();", "vmlongtail"],
+  ["vmlt-throw-object", "function f() { try { throw { code: 5 }; } catch (e) { return e.code; } } return f();", "vmlongtail"],
+  ["vmlt-forin-order", "function f() { var o = { a: 1, b: 2, c: 3 }; var s = ''; for (var k in o) { s += k + ':' + o[k] + ';'; } return s; } return f();", "vmlongtail"],
+  ["vmlt-forin-break-continue", "function f() { var o = { x: 1, y: 2, z: 3 }; var s = ''; for (var k in o) { if (k == 'y') continue; if (k == 'z') break; s += k; } return s; } return f();", "vmlongtail"],
+  ["vmlt-forin-array", "function f() { var a = [10, 20, 30]; var s = ''; for (var i in a) { s += i + '=' + a[i] + ','; } return s; } return f();", "vmlongtail"],
+  ["vmlt-forin-delete", "function f() { var o = { p: 1, q: 2, r: 3 }; var s = ''; for (var k in o) { s += k; delete o.r; } return s; } return f();", "vmlongtail"],
+  ["vmlt-forof-array", "function f() { var a = [3, 5, 7]; var s = 0; for (var v of a) { s = s + v; } return s; } return f();", "vmlongtail"],
+  ["vmlt-forof-string", "function f() { var s = ''; for (var ch of 'abc') { s += ch + '.'; } return s; } return f();", "vmlongtail"],
+  ["vmlt-forof-break", "function f() { var a = [1, 2, 3, 4]; var s = 0; for (var v of a) { if (v == 3) break; s = s + v; } return s; } return f();", "vmlongtail"],
+  ["vmlt-finally-still-walker", "function f() { var r = ''; try { r += 't'; } finally { r += 'f'; } return r; } return f();", "vmlongtail"],
+
+  // --- switch and try/finally in compiled bodies: fall-through, default
+  // anywhere, continue passing through a switch to its loop, finally on
+  // the normal / caught / replacing-throw / cross-function paths.
+  ["vmsw-fallthrough", "function f(x) { var r = ''; switch (x) { case 1: r += 'a'; case 2: r += 'b'; break; case 3: r += 'c'; default: r += 'd'; } return r; } return f(1) + ',' + f(2) + ',' + f(3) + ',' + f(9);", "vmswitch"],
+  ["vmsw-default-first", "function f(x) { switch (x) { default: return 'def'; case 1: return 'one'; } } return f(1) + ',' + f(7);", "vmswitch"],
+  ["vmsw-strict-eq", "function f(x) { var r = ''; switch (x) { case 's': r = 'str'; break; case null: r = 'nul'; break; case undefined: r = 'und'; break; } return r + '!'; } return f('s') + ',' + f(null) + ',' + f(undefined) + ',' + f(0);", "vmswitch"],
+  ["vmsw-continue-through", "function f() { var s = 0; for (var i = 0; i < 6; i++) { switch (i % 3) { case 0: s += 100; break; case 1: continue; case 2: s += i; break; } s += 1; } return s; } return f();", "vmswitch"],
+  ["vmfin-normal", "function f() { var r = ''; try { r += 't'; } finally { r += 'f'; } return r; } return f();", "vmfinally"],
+  ["vmfin-caught-then-finally", "function f() { var r = ''; try { r += 't'; null.x; r += 'X'; } catch (e) { r += 'c'; } finally { r += 'f'; } return r; } return f();", "vmfinally"],
+  ["vmfin-runs-before-outer-catch", "function f() { var r = ''; try { try { r += 't'; throw 'e1'; } finally { r += 'f'; } } catch (e) { r += 'c:' + e; } return r; } return f();", "vmfinally"],
+  ["vmfin-throw-replaces", "function f() { var r = ''; try { try { throw 'orig'; } finally { r += 'f'; throw 'repl'; } } catch (e) { return r + '|' + e; } } return f();", "vmfinally"],
+  ["vmfin-loop-inside-try", "function f() { var r = ''; try { for (var i = 0; i < 3; i++) { if (i == 1) continue; r += i; } } finally { r += 'f'; } return r; } return f();", "vmfinally"],
+  ["vmfin-cross-function", "function inner7() { var r = ''; try { throw 'deep'; } finally { r += 'fin'; } } function f() { try { return inner7(); } catch (e) { return 'caught:' + e; } } return f();", "vmfinally"],
 ];
 
 /**

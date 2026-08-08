@@ -7,7 +7,7 @@
 ; Migration (PLAN_SHAPES.md §7.5 E4e): thin engine handle around `body:EvalValue`.
 ; Collection / property / Function / Element / string / bool live on the shape.
 ; Shell left: numberValue + slotOwned (in-place i++), identityId hot-path cache
-; (also on Reference), EvValueHandles. Number `@(value)` blocks slotOwned on
+; (also on Reference). Number `@(value)` blocks slotOwned on
 ; the shape.
 
 Import "../../../evg/EVGElement.rgr"
@@ -494,7 +494,7 @@ class EvHandle {
     
 
     ; E4c: shape ↔ class. Primitives rebuild from scalar fields; refs return the
-    ; live `body` and register with EvValueHandles so Array.items can store
+    ; live `body` so Array.items can store
     ; EvalValue and still round-trip to the same class handle (===).
     fn toStored:EvalValue () {
         def _k:EvalValue body
@@ -516,8 +516,9 @@ class EvHandle {
         if (EvalValue.isBoolean(_k)) {
             return body
         }
-        ; Refs: return the live body. Factories / fromBody register the class
-        ; handle in EvValueHandles (do not pass `this` here — Rust codegen
+        ; Refs: return the live body. Identity rides IN the body, so a stored
+        ; value needs no side registry: fromBody mints a fresh wrapper around
+        ; the same shared case payload (do not pass `this` here — Rust codegen
         ; double-wraps Rc when `this` is an argument).
         return _k
     }
@@ -544,15 +545,9 @@ class EvHandle {
         case ev el:EvalValue.Element {
             def id:int el.identityId
             if (id > 0) {
-                def handles:EvValueHandles (EvValueHandles.__singleton())
-                def hit@(optional):EvHandle (handles.lookup(id))
-                if hit {
-                    return (unwrap hit)
-                }
                 def v:EvHandle (new EvHandle())
                 v.body = ev
                 v.identityId = id
-                handles.remember(v)
                 return v
             }
             return (EvHandle.element((unwrap el.element)))
@@ -560,15 +555,9 @@ class EvHandle {
         case ev a:EvalValue.Array {
             def id:int a.identityId
             if (id > 0) {
-                def handles2:EvValueHandles (EvValueHandles.__singleton())
-                def hit2@(optional):EvHandle (handles2.lookup(id))
-                if hit2 {
-                    return (unwrap hit2)
-                }
                 def v2:EvHandle (new EvHandle())
                 v2.body = ev
                 v2.identityId = id
-                handles2.remember(v2)
                 return v2
             }
             def items:[EvHandle]
@@ -580,15 +569,9 @@ class EvHandle {
         case ev o:EvalValue.Object {
             def id3:int o.identityId
             if (id3 > 0) {
-                def handles3:EvValueHandles (EvValueHandles.__singleton())
-                def hit3@(optional):EvHandle (handles3.lookup(id3))
-                if hit3 {
-                    return (unwrap hit3)
-                }
                 def v3:EvHandle (new EvHandle())
                 v3.body = ev
                 v3.identityId = id3
-                handles3.remember(v3)
                 return v3
             }
             return (EvHandle.object(([] _:string ()) ([] _:EvHandle ())))
@@ -597,15 +580,9 @@ class EvHandle {
             def id4:int f.identityId
             def c:EvFunctionCore (unwrap f.core)
             if (id4 > 0) {
-                def handles4:EvValueHandles (EvValueHandles.__singleton())
-                def hit4@(optional):EvHandle (handles4.lookup(id4))
-                if hit4 {
-                    return (unwrap hit4)
-                }
                 def v4:EvHandle (new EvHandle())
                 v4.body = ev
                 v4.identityId = id4
-                handles4.remember(v4)
                 return v4
             }
             return (EvHandle.nativeFunction(c.functionName))
@@ -613,15 +590,9 @@ class EvHandle {
         case ev m:EvalValue.Map {
             def id5:int m.identityId
             if (id5 > 0) {
-                def handles5:EvValueHandles (EvValueHandles.__singleton())
-                def hit5@(optional):EvHandle (handles5.lookup(id5))
-                if hit5 {
-                    return (unwrap hit5)
-                }
                 def v5:EvHandle (new EvHandle())
                 v5.body = ev
                 v5.identityId = id5
-                handles5.remember(v5)
                 return v5
             }
             return (EvHandle.mapEmpty())
@@ -629,15 +600,9 @@ class EvHandle {
         case ev st:EvalValue.Set {
             def id6:int st.identityId
             if (id6 > 0) {
-                def handles6:EvValueHandles (EvValueHandles.__singleton())
-                def hit6@(optional):EvHandle (handles6.lookup(id6))
-                if hit6 {
-                    return (unwrap hit6)
-                }
                 def v6:EvHandle (new EvHandle())
                 v6.body = ev
                 v6.identityId = id6
-                handles6.remember(v6)
                 return v6
             }
             return (EvHandle.setEmpty())
@@ -658,8 +623,6 @@ class EvHandle {
         }
         v.body = (EvalValue.arrayAt(id stored))
         v.identityId = id
-        def handles:EvValueHandles (EvValueHandles.__singleton())
-        handles.remember(v)
         return v
     }
 
@@ -669,8 +632,6 @@ class EvHandle {
         def id:int ((EvalIdentityMinter.__singleton()).mint())
         v.body = (EvalValue.mapEmptyAt(id))
         v.identityId = id
-        def handles:EvValueHandles (EvValueHandles.__singleton())
-        handles.remember(v)
         return v
     }
 
@@ -680,8 +641,6 @@ class EvHandle {
         def id:int ((EvalIdentityMinter.__singleton()).mint())
         v.body = (EvalValue.setEmptyAt(id))
         v.identityId = id
-        def handles:EvValueHandles (EvValueHandles.__singleton())
-        handles.remember(v)
         return v
     }
 
@@ -697,8 +656,6 @@ class EvHandle {
             }
             i = (i + 1)
         }
-        def handles:EvValueHandles (EvValueHandles.__singleton())
-        handles.remember(v)
         return v
     }
     
@@ -709,8 +666,6 @@ class EvHandle {
         v.identityId = id
         v.setFunctionNode(fnNode)
         v.setFnName(fnNode.name)
-        def handles:EvValueHandles (EvValueHandles.__singleton())
-        handles.remember(v)
         return v
     }
 
@@ -725,8 +680,6 @@ class EvHandle {
         v.body = (EvalValue.functionStubAt(id ""))
         v.identityId = id
         v.setFnName(name)
-        def handles:EvValueHandles (EvValueHandles.__singleton())
-        handles.remember(v)
         return v
     }
 
@@ -743,8 +696,6 @@ class EvHandle {
         core.functionName = name
         core.builtinKind = kind
         core.builtinName = name
-        def handles:EvValueHandles (EvValueHandles.__singleton())
-        handles.remember(v)
         return v
     }
 
@@ -760,8 +711,6 @@ class EvHandle {
         core.functionName = name
         core.builtinNamespace = ns
         core.builtinName = name
-        def handles:EvValueHandles (EvValueHandles.__singleton())
-        handles.remember(v)
         return v
     }
 
@@ -789,8 +738,6 @@ class EvHandle {
         v.setFunctionNode(fnNode)
         v.setFnName(fnNode.name)
         v.setBoundThis(thisVal)
-        def handles:EvValueHandles (EvValueHandles.__singleton())
-        handles.remember(v)
         return v
     }
 
@@ -799,12 +746,43 @@ class EvHandle {
     ; it is the receiver. Copies the closure/provenance fields, which a fresh
     ; boundMethod() would lose — dropping them would re-root the body in the
     ; wrong module scope.
+    ; PERF: the per-CALL bound clone. Dispatch (`o.m()`, getters, setters,
+    ; call/apply, callbacks) binds `this` for exactly one invocation and
+    ; never mutates the function's core -- so the core (name, node, SOURCE
+    ; TEXT, module) is SHARED with the original, and the clone costs a
+    ; binding plus a bag. The deep-copying withThis below stays for bind(),
+    ; which renames its result and so must own a private core. The deep copy
+    ; here charged a copy of the whole source text on every method call --
+    ; measured at 97% of a 5.7 GB Richards heap.
+    fn withThisForCall:EvHandle (recv:EvHandle) {
+        def _evBody:EvalValue body
+        case _evBody srcF:EvalValue.Function {
+            def sc:EvFunctionCore (unwrap srcF.core)
+            def srcB:EvFunctionBinding (unwrap srcF.binding)
+            def v:EvHandle (new EvHandle())
+            def id:int ((EvalIdentityMinter.__singleton()).mint())
+            def nb:EvFunctionBinding (new EvFunctionBinding())
+            nb.boundArgs = srcB.boundArgs
+            v.body = (EvalValue.functionSharedAt(id sc nb))
+            v.identityId = id
+            def ks:[string] (this.ownDataKeys())
+            for ks kk:string idx {
+                v.putOwnData(kk (this.getOwnData(kk)))
+            }
+            v.setSuppressed((this.copySuppressedMap()))
+            v.setBoundThis(recv)
+            if (this.hasProto()) {
+                v.setProto((this.protoOf()))
+            }
+            return v
+        }
+        return (this.withThis(recv))
+    }
+
     fn withThis:EvHandle (recv:EvHandle) {
         def v:EvHandle (new EvHandle())
         ; Fresh identity — a bound/rebound function is a distinct reference
-        ; (`f.bind(x) !== f`). Reusing the target's identityId made PropertyBag
-        ; round-trips (toStored/fromBody) recover the unbound original from
-        ; EvValueHandles and drop boundThis.
+        ; (`f.bind(x) !== f`).
         def id:int ((EvalIdentityMinter.__singleton()).mint())
         v.body = (EvalValue.functionStubAt(id (this.fnName())))
         v.identityId = id
@@ -843,8 +821,6 @@ class EvHandle {
         if (this.hasProto()) {
             v.setProto((this.protoOf()))
         }
-        def handles:EvValueHandles (EvValueHandles.__singleton())
-        handles.remember(v)
         return v
     }
 
@@ -853,8 +829,6 @@ class EvHandle {
         def id:int ((EvalIdentityMinter.__singleton()).mint())
         v.body = (EvalValue.elementAt(id el))
         v.identityId = id
-        def handles:EvValueHandles (EvValueHandles.__singleton())
-        handles.remember(v)
         return v
     }
 
@@ -955,6 +929,118 @@ class EvHandle {
         return 0.0
     }
     
+    ; ECMA-262 Number::toString(10) NOTATION applied to the target's own
+    ; shortest-round-trip digits. The natives are faithful but wear the
+    ; wrong clothes: C++ prints scientific where JS wants plain decimal
+    ; (1e20 -> "100000000000000000000") and Rust prints full decimal where
+    ; JS wants scientific (MAX_VALUE). Parse the native string into
+    ; (digits, exponent) and re-emit by the spec's k/n rules; anything
+    ; surprising fails the round-trip check and falls back to the native
+    ; form unchanged.
+    sfn jsNumberFormat:string (v:double nat:string) {
+        def s:string nat
+        def sign:string ""
+        if ((strlen s) > 0) {
+            if ((substring s 0 1) == "-") {
+                sign = "-"
+                s = (substring s 1 (strlen s))
+            }
+        }
+        ; split off an exponent suffix
+        def mant:string s
+        def exp10:int 0
+        def ei:int 0
+        def eAt:int (0 - 1)
+        while (ei < (strlen s)) {
+            def ch:string (substring s ei (ei + 1))
+            if ((ch == "e") || (ch == "E")) {
+                eAt = ei
+                ei = (strlen s)
+            } {
+                ei = (ei + 1)
+            }
+        }
+        if (eAt >= 0) {
+            mant = (substring s 0 eAt)
+            def expStr:string (substring s (eAt + 1) (strlen s))
+            def pe@(optional):double (to_double expStr)
+            if pe {
+                exp10 = (to_int (unwrap pe))
+            } {
+                return nat
+            }
+        }
+        ; split the mantissa on the decimal point
+        def ip:string mant
+        def fp:string ""
+        def di:int 0
+        while (di < (strlen mant)) {
+            if ((substring mant di (di + 1)) == ".") {
+                ip = (substring mant 0 di)
+                fp = (substring mant (di + 1) (strlen mant))
+                di = (strlen mant)
+            } {
+                di = (di + 1)
+            }
+        }
+        def digits:string (ip + fp)
+        ; value = 0.digits * 10^n once leading zeros are absorbed into n
+        def n:int ((strlen ip) + exp10)
+        while (((strlen digits) > 0) && ((substring digits 0 1) == "0")) {
+            digits = (substring digits 1 (strlen digits))
+            n = (n - 1)
+        }
+        while (((strlen digits) > 0) && ((substring digits ((strlen digits) - 1) (strlen digits)) == "0")) {
+            digits = (substring digits 0 ((strlen digits) - 1))
+        }
+        if ((strlen digits) == 0) {
+            return (sign + "0")
+        }
+        def k:int (strlen digits)
+        def out:string ""
+        if ((k <= n) && (n <= 21)) {
+            out = digits
+            def z1:int k
+            while (z1 < n) {
+                out = (out + "0")
+                z1 = (z1 + 1)
+            }
+        } {
+            if ((0 < n) && (n <= 21)) {
+                out = ((substring digits 0 n) + ("." + (substring digits n k)))
+            } {
+                if (((0 - 6) < n) && (n <= 0)) {
+                    out = "0."
+                    def z2:int n
+                    while (z2 < 0) {
+                        out = (out + "0")
+                        z2 = (z2 + 1)
+                    }
+                    out = (out + digits)
+                } {
+                    def e1:int (n - 1)
+                    out = (substring digits 0 1)
+                    if (k > 1) {
+                        out = ((out + ".") + (substring digits 1 k))
+                    }
+                    if (e1 >= 0) {
+                        out = ((out + "e+") + (to_string e1))
+                    } {
+                        out = ((out + "e-") + (to_string (0 - e1)))
+                    }
+                }
+            }
+        }
+        def full:string (sign + out)
+        def back@(optional):double (to_double full)
+        if back {
+            if ((unwrap back) == v) {
+                return full
+            }
+        }
+        return nat
+    }
+
     fn toString:string () {
         if (this.isNull()) {
             return "null"
@@ -979,14 +1065,16 @@ class EvHandle {
             if (nv == ((0.0 - 1.0) / 0.0)) {
                 return "-Infinity"
             }
-            ; Format number - remove trailing zeros
-            def s:string (to_string nv)
-            ; Check if it's a whole number
-            def intVal:int (to_int nv)
-            if ((to_double intVal) == nv) {
-                return (to_string intVal)
+            ; whole numbers in int range print through the int (RANGE-GUARDED:
+            ; to_int is 32-bit on the C++ target, so probing it with a bigger
+            ; value is undefined behavior, not a conversion)
+            if ((nv > (0.0 - 2147483000.0)) && (nv < 2147483000.0)) {
+                def intVal:int (to_int nv)
+                if ((to_double intVal) == nv) {
+                    return (to_string intVal)
+                }
             }
-            return s
+            return (EvHandle.jsNumberFormat(nv (to_string nv)))
         }
         if (this.isString()) {
             return (this.stringOf())
@@ -1109,6 +1197,11 @@ class EvHandle {
     }
 
     fn setAttrs:void (key:string w:boolean e:boolean c:boolean) {
+        if (key == "__fnprotocall__") {
+            ; the callable-prototype marker is epoch-guarded at call sites
+            def fpEp3:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+            fpEp3.bump()
+        }
         def f:int 0
         if w { f = (bit_or f 1) }
         if e { f = (bit_or f 2) }
@@ -1337,6 +1430,32 @@ class EvHandle {
     }
 
     ; Object member access
+    ; The canonical dense-array index this key names, or ABSENT: all
+    ; digits, no leading zero (except "0" itself), at most 9 digits so the
+    ; value stays far from every target's int edge.
+    fn canonicalIndexOf:int (key:string) {
+        def n:int (strlen key)
+        if ((n == 0) || (n > 9)) {
+            return (0 - 1)
+        }
+        if (n > 1) {
+            if ((charAt key 0) == 48) {
+                return (0 - 1)
+            }
+        }
+        def v:int 0
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt key i)
+            if ((c < 48) || (c > 57)) {
+                return (0 - 1)
+            }
+            v = ((v * 10) + (c - 48))
+            i = (i + 1)
+        }
+        return v
+    }
+
     fn getMember:EvHandle (key:string) {
         if (this.isObject()) {
             if (this.hasOwnData(key)) {
@@ -1407,7 +1526,8 @@ class EvHandle {
         ; Array length property
         if (this.isArray()) {
             if (key == "length") {
-                return (EvHandle.fromInt((this.arrayLength())))
+                ; Exact double lane: a declared length can exceed the int.
+                return (EvHandle.number((this.arrayLengthD())))
             }
             ; A non-index property set on an array (`a.foo = 1`) lives in the
             ; PropertyBag.
@@ -1417,9 +1537,13 @@ class EvHandle {
             ; An index reached BY NAME. `a[0]` goes through getIndex, but
             ; `a["0"]` and a prototype-chain read of "0" arrive here, and they
             ; name the same property.
-            def ai@(optional):int (to_int key)
-            if ai {
-                def aidx:int (unwrap ai)
+            ; STRICT canonical-index parse: digits only, no leading zero,
+            ; bounded well under 2^31. `to_int` accepted "2.5" (as 2) on
+            ; every target and OVERFLOWED into garbage on C++ for a huge
+            ; numeric string -- which is what made a[1e18] read a[2] there.
+            def ai:int (this.canonicalIndexOf(key))
+            if (ai >= 0) {
+                def aidx:int ai
                 if ((aidx >= 0) && (aidx < (this.denseLen()))) {
                     def nslot:EvHandle (this.arrayItemAt(aidx))
                     if (nslot.isHole()) {
@@ -1504,6 +1628,11 @@ class EvHandle {
         if isProtoObject {
             def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
             dEp.bump()
+        }
+        if (key == "__fnprotocall__") {
+            ; the callable-prototype marker is epoch-guarded at call sites
+            def fpEp2:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+            fpEp2.bump()
         }
         def propsOpt@(optional):EvPropertyBag (this.tryProps())
         if propsOpt {
@@ -1740,7 +1869,72 @@ class EvHandle {
     ; D-FNPROPS: every object type accepts property writes — plain objects (5),
     ; functions (6), arrays (4) and Map/Set (9/10). Primitives silently ignore
     ; the write, which is sloppy-mode behaviour.
+    ; The plain-store fast path: an OBJECT whose whole chain never carried
+    ; attributes or accessors, own bag not frozen/sealed and extensible --
+    ; nothing anywhere can refuse or redirect the write, so it is one bag
+    ; store with default attributes (which also preserves existing slots'
+    ; attributes: with everHadAttrs false they are all 7 already). False =
+    ; take the full machinery.
+    fn setMemberFast:boolean (key:string value:EvHandle) {
+        if isProtoObject {
+            return false
+        }
+        case body o:EvalValue.Object {
+            def bag:EvPropertyBag o.properties
+            if bag.everHadAttrs {
+                return false
+            }
+            if bag.everHadAccessor {
+                return false
+            }
+            if bag.frozen {
+                return false
+            }
+            if bag.sealed {
+                return false
+            }
+            if (false == bag.extensible) {
+                return false
+            }
+            def pr:EvalValue bag.prototype
+            def depth:int 0
+            while (depth < 17) {
+                if (EvalValue.isHole(pr)) {
+                    if (key == "__fnprotocall__") {
+                        ; the callable-prototype marker is epoch-guarded at
+                        ; call sites; any write of it re-arms them
+                        def fpEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+                        fpEp.bump()
+                    }
+                    bag.putData(key (value.toStored()) 7)
+                    return true
+                }
+                def stepped:boolean false
+                case pr po:EvalValue.Object {
+                    def pbag:EvPropertyBag po.properties
+                    if pbag.everHadAttrs {
+                        return false
+                    }
+                    if pbag.everHadAccessor {
+                        return false
+                    }
+                    pr = pbag.prototype
+                    stepped = true
+                }
+                if (false == stepped) {
+                    return false
+                }
+                depth = (depth + 1)
+            }
+            return false
+        }
+        return false
+    }
+
     fn setMember:void (key:string value:EvHandle) {
+        if (this.setMemberFast(key value)) {
+            return
+        }
         if isProtoObject {
             def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
             dEp.bump()
@@ -1883,11 +2077,28 @@ class EvHandle {
     ; the dense store holds, otherwise the number of elements.
     fn arrayLength:int () {
         def dense:int (this.denseLen())
-        def decl:int (this.declaredLengthOf())
-        if (decl > dense) {
-            return decl
+        def decl:double (this.declaredLengthOfD())
+        if (decl > (to_double dense)) {
+            ; A declared length past the int lane is CLAMPED here -- callers
+            ; that must see the exact value (the `.length` read, far-index
+            ; writes) use arrayLengthD. to_int past 2^31 is UB on C++.
+            if (decl > 2147483000.0) {
+                return 2147483000
+            }
+            return (to_int decl)
         }
         return dense
+    }
+
+    ; The exact length in the double lane -- a declared length can be up to
+    ; 2^32-1, which only a double carries on every target.
+    fn arrayLengthD:double () {
+        def dense:int (this.denseLen())
+        def decl:double (this.declaredLengthOfD())
+        if (decl > (to_double dense)) {
+            return decl
+        }
+        return (to_double dense)
     }
 
     ; ---- E4c: dense-store accessors ----------------------------------------
@@ -2010,16 +2221,19 @@ class EvHandle {
         }
         return (EvHandle.undefined())
     }
-    fn declaredLengthOf:int () {
+    fn declaredLengthOfD:double () {
         def _k:EvalValue body
         if (EvalValue.isArrayValue(_k)) {
             case _k a:EvalValue.Array {
                 return a.declaredLength
             }
         }
-        return (0 - 1)
+        return (0.0 - 1.0)
     }
     fn setDeclaredLength:void (n:int) {
+        this.setDeclaredLengthD((to_double n))
+    }
+    fn setDeclaredLengthD:void (n:double) {
         def _k:EvalValue body
         if (EvalValue.isArrayValue(_k)) {
             case _k a:EvalValue.Array {
@@ -2068,6 +2282,103 @@ class EvHandle {
         return 0
     }
 
+    ; One-pass plain member READ for the VM's member ops: an OBJECT
+    ; receiver whose chain never defined an accessor answers directly --
+    ; own data, inherited data through object links, undefined on a miss
+    ; -- with a single case dispatch per link (the bag itself carries the
+    ; prototype, so no per-link wrapper mints). Answers the HOLE sentinel
+    ; when anything on the path needs the general machinery: a non-object
+    ; receiver or prototype link, or any bag that ever had an accessor.
+    ; hasData excludes Hole values, so the sentinel is unambiguous.
+    fn memberFastAt:EvHandle (key:string) {
+        case body o:EvalValue.Object {
+            def bag:EvPropertyBag o.properties
+            def depth:int 0
+            while (depth < 17) {
+                if bag.everHadAccessor {
+                    return (EvHandle.hole())
+                }
+                def dv:EvalValue (bag.dataOrHole(key))
+                if (false == (EvalValue.isHole(dv))) {
+                    return (EvHandle.fromBody(dv))
+                }
+                def pr:EvalValue bag.prototype
+                if (EvalValue.isHole(pr)) {
+                    return (EvHandle.undefined())
+                }
+                def stepped:boolean false
+                case pr po:EvalValue.Object {
+                    bag = po.properties
+                    stepped = true
+                }
+                if (false == stepped) {
+                    return (EvHandle.hole())
+                }
+                depth = (depth + 1)
+            }
+            return (EvHandle.hole())
+        }
+        return (EvHandle.hole())
+    }
+    ; The WRITE-side gate: true when the receiver is an object whose
+    ; whole chain is accessor-free, so an assignment is a plain own-data
+    ; store and the setter probe can be skipped.
+    fn chainAccessorFreeAt:boolean () {
+        case body o:EvalValue.Object {
+            def bag:EvPropertyBag o.properties
+            def depth:int 0
+            while (depth < 17) {
+                if bag.everHadAccessor {
+                    return false
+                }
+                def pr:EvalValue bag.prototype
+                if (EvalValue.isHole(pr)) {
+                    return true
+                }
+                def stepped:boolean false
+                case pr po:EvalValue.Object {
+                    bag = po.properties
+                    stepped = true
+                }
+                if (false == stepped) {
+                    return false
+                }
+                depth = (depth + 1)
+            }
+            return false
+        }
+        return false
+    }
+
+    ; Dense numeric element read without a value object. Answers the number,
+    ; or NaN when the element is NOT a number — the caller re-reads through
+    ; arrayItemAt then, which also covers the (rare) genuine NaN element.
+    fn arrayItemNumOrNaN:double (i:int) {
+        case body a:EvalValue.Array {
+            def it:EvalValue (itemAt a.items i)
+            case it n:EvalValue.Number {
+                return n.value
+            }
+            return (0.0 / 0.0)
+        }
+        return (0.0 / 0.0)
+    }
+
+    ; setIndexAt's number twin: the element write without a value object.
+    ; Same hole-padding rule, same in-place mutation through the narrowing.
+    fn setIndexNumberAt:void (index:int n:double) {
+        def _kind:EvalValue body
+        if (false == (EvalValue.isArrayValue(_kind))) {
+            return
+        }
+        case _kind a:EvalValue.Array {
+            while (index >= (array_length a.items)) {
+                push a.items (EvalValue.hole())
+            }
+            set a.items index (EvalValue.number(n))
+        }
+    }
+
     ; Append a NUMBER without a value object: the Number case rides by value
     ; inside the variant, so the store is a plain element write — the closest
     ; thing to a raw double buffer the current single representation has.
@@ -2094,7 +2405,7 @@ class EvHandle {
             if ((array_length a.items) > 0) {
                 removeLast a.items
             }
-            a.declaredLength = (array_length a.items)
+            a.declaredLength = (to_double (array_length a.items))
         }
     }
 
@@ -2114,7 +2425,7 @@ class EvHandle {
                 ; Rebuild around the SAME property bag — going through
                 ; EvalValue.arrayAt minted a fresh bag, so `a.foo = 1` was
                 ; silently dropped by pop/shift/reverse/sort.
-                body = (new EvalValue.Array(a.identityId a.properties stored (array_length stored)))
+                body = (new EvalValue.Array(a.identityId a.properties stored (to_double (array_length stored))))
             }
             return
         }
@@ -2389,25 +2700,6 @@ class EvDispatchEpoch @singleton(true) {
     def n:int 1
     fn bump:void () {
         n = (n + 1)
-    }
-}
-
-class EvValueHandles @singleton(true) {
-    def byId:[int:EvHandle]
-    fn remember:void (v:EvHandle) {
-        def id:int (v.identityIdOf())
-        if (id > 0) {
-            set byId id v
-        }
-    }
-    fn lookup@(optional):EvHandle (id:int) {
-        if (has byId id) {
-            def hit:EvHandle (unwrap (get byId id))
-            def some@(optional):EvHandle hit
-            return some
-        }
-        def missing@(optional):EvHandle
-        return missing
     }
 }
 

@@ -50,7 +50,9 @@ shape EvalValue {
 
     case Array does PropertyCarrier {
         def items:[EvalValue]
-        def declaredLength:int (0 - 1)
+        ; DOUBLE, not int: a JS array length runs to 2^32-1, which does not
+        ; fit the 32-bit int the C++ target gives Ranger's int.
+        def declaredLength:double (0.0 - 1.0)
     }
     case Object does PropertyCarrier
     case Function does Callable {
@@ -129,7 +131,7 @@ shape EvalValue {
     }
     sfn arrayAt:EvalValue (id:int items:[EvalValue]) {
         def props:EvPropertyBag (new EvPropertyBag())
-        return (new EvalValue.Array(id props items (array_length items)))
+        return (new EvalValue.Array(id props items (to_double (array_length items))))
     }
     sfn object:EvalValue () {
         return (EvalValue.objectAt(0))
@@ -165,6 +167,13 @@ shape EvalValue {
         c.functionName = name
         def b:EvFunctionBinding (new EvFunctionBinding())
         return (new EvalValue.Function(id props c b))
+    }
+    ; A Function case that SHARES an existing core (name, node, source text,
+    ; module) and takes its own fresh binding. This is what lets a per-call
+    ; `this`-bound clone cost a binding instead of a copy of the whole core.
+    sfn functionSharedAt:EvalValue (id:int core:EvFunctionCore binding:EvFunctionBinding) {
+        def props:EvPropertyBag (new EvPropertyBag())
+        return (new EvalValue.Function(id props core binding))
     }
 
     fn isNull:boolean () {
@@ -297,6 +306,10 @@ class EvPropertyBag {
     ; paths skip the per-key accessor probe, and its string-key mint, on the
     ; overwhelmingly common accessor-free object.
     def everHadAccessor:boolean false
+    ; MONOTONE: true once any slot on this bag ever carried non-default
+    ; attributes. False proves every property is plain writable data, so
+    ; the fast write path can store without the attrs probes.
+    def everHadAttrs:boolean false
 
     ; E4c: property-bag SoT. Value payload is EvalValue (avoids EvHandle import cycle).
     fn hasData:boolean (key:string) {
@@ -325,9 +338,26 @@ class EvPropertyBag {
         }
         return (EvalValue.undefined())
     }
+    ; hasData + getData in ONE lookup pair for the hot member path. Hole
+    ; means "no data property here" — real data values are never Hole
+    ; (the attrs-only placeholder is the one Hole a Data slot can hold,
+    ; and it means absent), and an Accessor slot answers Hole too.
+    fn dataOrHole:EvalValue (key:string) {
+        if (false == (has slots key)) {
+            return (EvalValue.hole())
+        }
+        def slot:EvPropertySlot (unwrap (get slots key))
+        case slot d:EvPropertySlot.Data {
+            return (unwrap d.value)
+        }
+        return (EvalValue.hole())
+    }
     fn putData:void (key:string value:EvalValue attrs:int) {
         if (false == (has slots key)) {
             slotCount = (slotCount + 1)
+        }
+        if (attrs != 7) {
+            everHadAttrs = true
         }
         ; Bind through the union type so Rust gets union_EvPropertySlot, not the
         ; bare case struct (same pattern as `def a:Value (new Value.Num(...))`).
@@ -376,6 +406,7 @@ class EvPropertyBag {
         return 7
     }
     fn setAttrsOn:void (key:string attrs:int) {
+        everHadAttrs = true
         if (false == (has slots key)) {
             ; Attribute bits without a value — Hole placeholder so hasData is
             ; false (must not shadow array dense indexes / inherited reads).
