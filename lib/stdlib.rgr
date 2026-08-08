@@ -146,6 +146,214 @@ operators {
             )
         }
     }
+    ; A member of a system union -- the JSON unions over JSONDataObject and
+    ; JSONArrayObject -- is an ordinary object of the target language. It
+    ; carries no shape tag, so the generic overload below, which narrows on
+    ; __rg_kind / _rg_kind / .tag, can never be true for one. These two
+    ; overloads keep the class test that a system union needs; the generic
+    ; overload keeps the tag test that a shape case needs.
+    ; Every `@serialize` deserializer emits `case item oo:JSONDataObject`,
+    ; so without these the reader of an array of objects reads nothing.
+    case             _@(newcontext):void           ( arg@(union):T item2@(define):JSONDataObject code:block )  {
+        templates {
+            ranger ( "case " (e 1) " " (e 2) ":" (typeof 2) " {" nl
+                        I (block 3) i nl "}" nl
+            )
+            php (
+                (forkctx _ ) (def 2) "if( is_object(" (e 1) ") && get_class(" (e 1) ") == \"" (typeof 2) "\" ) /* union case */ {" nl I
+                        (e 2) " = " (e 1) ";" nl
+                        (block 3)                        
+                        nl i "}"
+            )  
+            es6 (
+                (forkctx _ ) (def 2) "if( " (e 1) " instanceof " (typeof 2) " ) /* union case */ {" nl I
+                        "var " (e 2) " = " (e 1) ";" nl
+                        (block 3)
+                        
+                        nl i "}"
+            )  
+            go (
+                (forkctx _ ) (def 2) "switch " (e 1) ".(type) {" nl I
+                        "case " (typeof 2) ":" nl
+                            I nl
+                            "var " (e 2) " " (typeof 2) " = " (e 1) ".(" (typeof 2) ");" nl
+                            ; Go rejects a declared-and-unused local, and an arm
+                            ; that only tests the type never reads the binding.
+                            "_ = " (e 2) ";" nl
+                            (block 3)
+                            i nl
+                        nl i "}"
+            ) 
+            csharp (
+                (forkctx _ ) (def 2) "if( " (e 1) " is " (typeof 2) " ) {" nl I
+                        (typeof 2) " " (e 2) " = (" (typeof 2) ")" (e 1) ";" nl
+                        (block 3)
+                        nl i "}"
+            ) 
+            swift3 (
+                (forkctx _ ) (def 2) "if type(of: " (e 1) ") == " (typeof 2) ".self  {" nl I
+                        "let " (e 2) " = " (e 1) " as! " (typeof 2)";" nl
+                        (block 3)
+                        
+                        nl i "}"
+            ) 
+            swift6 (
+                (forkctx _ ) (def 2) "if type(of: " (e 1) ") == " (typeof 2) ".self  {" nl I
+                        "let " (e 2) " = " (e 1) " as! " (typeof 2)";" nl
+                        (block 3)
+                        
+                        nl i "}"
+            ) 
+            java7 (
+                (forkctx _ ) (def 2) "if( " (e 1) " instanceof " (typeof 2) ") {" nl I
+                        (typeof 2) " " (e 2) " = (" (typeof 2) ") " (e 1) ";" nl
+                        (block 3)
+                        
+                        nl i "}"
+            )
+            kotlin (
+                (forkctx _ ) (def 2) "if( " (e 1) " is " (typeof 2) " ) /* union case */ {" nl I
+                        "val " (e 2) " : " (typeof 2) " = " (e 1) " as " (typeof 2) ";" nl
+                        (block 3)
+                        nl i "}"
+            ) 
+            python (
+                (forkctx _ ) (def 2) "if isinstance(" (e 1) ", " (typeof 2) "):" nl I
+                        (e 2) " = " (e 1) nl
+                        (block 3)
+                        nl i
+            ) 
+            cpp (
+                (forkctx _ ) (def 2) "if( mpark::holds_alternative<" (typeof 2) ">(" (e 1) ") ) {" nl I
+                        (typeof 2) " " (e 2) " = mpark::get<" (typeof 2) ">(" (e 1) ");" nl
+                        (block 3)
+                        
+                        nl i "}"
+
+                (plugin 'makefile' ((dep 'variant.hpp' 'https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp')))
+            ) 
+            scala (
+                (forkctx _ ) (def 2) (e 1) " match {" nl
+                I "case " (e 2) " : " (typeof 2) " => {" nl I
+                            (block 3)
+                        nl i "}" nl
+                  "case _ => {} " nl i 
+                  "}" nl
+            ) 
+            dart (
+                (forkctx _ ) (def 2) "if( " (e 1) " is " (typeof 2) " ) /* union case */ {" nl I
+                        (typeof 2) " " (e 2) " = " (e 1) " as " (typeof 2) ";" nl
+                        (block 3)
+                        nl i "}"
+            ) 
+            rust (
+                (forkctx _ ) (def 2) "if let " (typeof 1) "::" (typeof 2) "(" (e 2) ") = " (e 1) ".clone() { /* union case */" nl I
+                        (block 3)
+                        nl i "}"
+            ) 
+            
+        }
+    }
+    case             _@(newcontext):void           ( arg@(union):T item2@(define):JSONArrayObject code:block )  {
+        templates {
+            ranger ( "case " (e 1) " " (e 2) ":" (typeof 2) " {" nl
+                        I (block 3) i nl "}" nl
+            )
+            php (
+                (forkctx _ ) (def 2) "if( is_object(" (e 1) ") && get_class(" (e 1) ") == \"" (typeof 2) "\" ) /* union case */ {" nl I
+                        (e 2) " = " (e 1) ";" nl
+                        (block 3)                        
+                        nl i "}"
+            )  
+            es6 (
+                (forkctx _ ) (def 2) "if( " (e 1) " instanceof " (typeof 2) " ) /* union case */ {" nl I
+                        "var " (e 2) " = " (e 1) ";" nl
+                        (block 3)
+                        
+                        nl i "}"
+            )  
+            go (
+                (forkctx _ ) (def 2) "switch " (e 1) ".(type) {" nl I
+                        "case " (typeof 2) ":" nl
+                            I nl
+                            "var " (e 2) " " (typeof 2) " = " (e 1) ".(" (typeof 2) ");" nl
+                            ; Go rejects a declared-and-unused local, and an arm
+                            ; that only tests the type never reads the binding.
+                            "_ = " (e 2) ";" nl
+                            (block 3)
+                            i nl
+                        nl i "}"
+            ) 
+            csharp (
+                (forkctx _ ) (def 2) "if( " (e 1) " is " (typeof 2) " ) {" nl I
+                        (typeof 2) " " (e 2) " = (" (typeof 2) ")" (e 1) ";" nl
+                        (block 3)
+                        nl i "}"
+            ) 
+            swift3 (
+                (forkctx _ ) (def 2) "if type(of: " (e 1) ") == " (typeof 2) ".self  {" nl I
+                        "let " (e 2) " = " (e 1) " as! " (typeof 2)";" nl
+                        (block 3)
+                        
+                        nl i "}"
+            ) 
+            swift6 (
+                (forkctx _ ) (def 2) "if type(of: " (e 1) ") == " (typeof 2) ".self  {" nl I
+                        "let " (e 2) " = " (e 1) " as! " (typeof 2)";" nl
+                        (block 3)
+                        
+                        nl i "}"
+            ) 
+            java7 (
+                (forkctx _ ) (def 2) "if( " (e 1) " instanceof " (typeof 2) ") {" nl I
+                        (typeof 2) " " (e 2) " = (" (typeof 2) ") " (e 1) ";" nl
+                        (block 3)
+                        
+                        nl i "}"
+            )
+            kotlin (
+                (forkctx _ ) (def 2) "if( " (e 1) " is " (typeof 2) " ) /* union case */ {" nl I
+                        "val " (e 2) " : " (typeof 2) " = " (e 1) " as " (typeof 2) ";" nl
+                        (block 3)
+                        nl i "}"
+            ) 
+            python (
+                (forkctx _ ) (def 2) "if isinstance(" (e 1) ", " (typeof 2) "):" nl I
+                        (e 2) " = " (e 1) nl
+                        (block 3)
+                        nl i
+            ) 
+            cpp (
+                (forkctx _ ) (def 2) "if( mpark::holds_alternative<" (typeof 2) ">(" (e 1) ") ) {" nl I
+                        (typeof 2) " " (e 2) " = mpark::get<" (typeof 2) ">(" (e 1) ");" nl
+                        (block 3)
+                        
+                        nl i "}"
+
+                (plugin 'makefile' ((dep 'variant.hpp' 'https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp')))
+            ) 
+            scala (
+                (forkctx _ ) (def 2) (e 1) " match {" nl
+                I "case " (e 2) " : " (typeof 2) " => {" nl I
+                            (block 3)
+                        nl i "}" nl
+                  "case _ => {} " nl i 
+                  "}" nl
+            ) 
+            dart (
+                (forkctx _ ) (def 2) "if( " (e 1) " is " (typeof 2) " ) /* union case */ {" nl I
+                        (typeof 2) " " (e 2) " = " (e 1) " as " (typeof 2) ";" nl
+                        (block 3)
+                        nl i "}"
+            ) 
+            rust (
+                (forkctx _ ) (def 2) "if let " (typeof 1) "::" (typeof 2) "(" (e 2) ") = " (e 1) ".clone() { /* union case */" nl I
+                        (block 3)
+                        nl i "}"
+            ) 
+            
+        }
+    }
     case             _@(newcontext):void           ( arg@(union):T item@(define):T code:block )  {
         templates {
             ranger ( "case " (e 1) " " (e 2) ":" (typeof 2) " {" nl
