@@ -17,9 +17,14 @@ and that one is re-probed on every hit. Fixed work: C++ fib
 data walk into one bag-level chain pass (the bag holds its prototype,
 so no per-link wrapper mints), guarded by the monotone
 `everHadAccessor` flag; ops 30/31 run it inline. C++ richards
-−21% interleaved. Remaining levers: property-name interning (atom →
-pointer-compare map keys) and shape/slot-offset storage — both
-backend-level redesigns. The plan below is
+−21% interleaved. The profile-guided follow-up added the string-method
+registry IC on call_method sites (epoch-validated, entering
+invokeBuiltin past its override probe) and the single-probe bag read:
+method row −67%, richards a further −18.5%. Remaining levers:
+property-name interning (atom → pointer-compare map keys) and
+shape/slot-offset storage — both backend-level redesigns — plus the
+refcount churn (~5% of instructions in shared_count teardown) that a
+borrowed-handle discipline in the VM loop could cut. The plan below is
 kept as written; the phase list at the bottom records what each landed
 phase measured. Originally written after the PR #541 optimization rounds
 took the C++ tree-walker from 63× to ~12× of QuickJS on

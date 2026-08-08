@@ -409,6 +409,31 @@ between batches, so only interleaved pairs are comparable).
 Conformance: es6 1317/1317; C++ 1255+36+2 and Rust 1276+15+2,
 failure sets unchanged.
 
+## Bytecode tier: profile-guided round — string dispatch IC (2026-08-08)
+
+First round aimed by a real profile (callgrind on the C++ build; the
+`-march=native` binary needs a plain `-O3` twin, valgrind cannot decode
+AVX-512). On the `method` row, ~14% of all instructions were
+string-method RESOLUTION — `overriddenPrototypeMethod` re-probed on
+every call inside `invokeBuiltin`, `hasBuiltin`'s arity chain,
+`registryMethodDeleted` — and the fused member read still paid two
+map lookups (`hasData` then `getData`).
+
+Three changes: `dataOrHole` collapses the bag probe pair into one;
+`invokeBuiltin` splits so callers that already proved no override can
+enter past the probe (`invokeBuiltinDirect`); and call_method sites
+carry a registry IC for STRING receivers — prototype writes, overrides
+and deletions all bump the dispatch epoch, so an unchanged epoch
+re-proves the whole resolution per site. A probe that overrides
+`String.prototype.indexOf` mid-run and reverts it confirms the epoch
+invalidation takes effect immediately.
+
+Fixed work, C++, interleaved: **method 460 → 154 ms (−67%)**,
+**richards 5.29 → 4.31 s (−18.5%, on top of the fused-member round's
+−21%)**, splay kernel −3.5%, object flat. Rust: method 667 → 214 ms
+(−68%). Conformance: es6 1317/1317; C++ 1255+36+2 and Rust 1276+15+2,
+failure sets bit-unchanged.
+
 ## Splay: the C++-only spin, resolved (2026-08-07)
 
 The long-standing "C++-only splay spin" was **not** the tree, the rotations,

@@ -2088,8 +2088,9 @@ class EvHandle {
                 if bag.everHadAccessor {
                     return (EvHandle.hole())
                 }
-                if (bag.hasData(key)) {
-                    return (EvHandle.fromBody((bag.getData(key))))
+                def dv:EvalValue (bag.dataOrHole(key))
+                if (false == (EvalValue.isHole(dv))) {
+                    return (EvHandle.fromBody(dv))
                 }
                 def pr:EvalValue bag.prototype
                 if (EvalValue.isHole(pr)) {

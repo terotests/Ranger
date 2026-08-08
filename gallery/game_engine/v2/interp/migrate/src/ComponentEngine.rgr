@@ -10599,8 +10599,52 @@ class ComponentEngine {
                 ; unchanged epoch), object/function receivers try the direct
                 ; VM->VM method call, and everything else -- strings above
                 ; all -- goes straight to the generic path with no probing.
-                if (((itemAt bcTags mFnPos) == 0) && ((itemAt bcStack mFnPos).isString()) == false) {
+                if ((itemAt bcTags mFnPos) == 0) {
                     def rcv32:EvHandle (itemAt bcStack mFnPos)
+                    if (rcv32.isString()) {
+                        ; registry IC for string methods: prototype writes,
+                        ; overrides and deletions all bump the dispatch
+                        ; epoch, so an unchanged epoch re-proves the whole
+                        ; resolution and the override probe
+                        def icEpS:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+                        def icoS:int 0
+                        if ((itemAt prog.icEpochs (pc - 1)) == icEpS.n) {
+                            icoS = (itemAt prog.icOps (pc - 1))
+                        } {
+                            def mNameS:string (itemAt prog.atoms mAtom)
+                            if (this.bcRegistryOwnsStringMethod(rcv32 mNameS)) {
+                                icoS = 3
+                            }
+                            set prog.icOps (pc - 1) icoS
+                            set prog.icEpochs (pc - 1) icEpS.n
+                        }
+                        if (icoS == 3) {
+                            def sArgs32:[EvHandle]
+                            def si32:int 0
+                            while (si32 < mArgc) {
+                                push sArgs32 (this.bcSlotBox(((mFnPos + 1) + si32)))
+                                si32 = (si32 + 1)
+                            }
+                            bcSp = needTop
+                            def sRes32:EvHandle (this.invokeBuiltinDirect("string" (itemAt prog.atoms mAtom) rcv32 sArgs32))
+                            bcSp = base
+                            if scriptThrew {
+                                if (bcTryTop > tryBase) {
+                                    bcTryTop = (bcTryTop - 1)
+                                    pc = (itemAt bcTryPcs bcTryTop)
+                                    sp = (itemAt bcTrySps bcTryTop)
+                                    scriptThrew = false
+                                    continue
+                                }
+                                bcTryTop = tryBase
+                                bcRetTag = 3
+                                return
+                            }
+                            this.bcSlotPut(mFnPos sRes32)
+                            sp = (mFnPos + 1)
+                            continue
+                        }
+                    }
                     if (rcv32.isArray()) {
                         if ((false == (rcv32.hasProto())) && (rcv32.ownPropsEmpty())) {
                             def icEp32:EvDispatchEpoch (EvDispatchEpoch.__singleton())
@@ -11514,6 +11558,23 @@ class ComponentEngine {
             return false
         }
         def ov:EvHandle (this.overriddenPrototypeMethod("array" name))
+        if (ov.isFunction()) {
+            return false
+        }
+        return true
+    }
+    ; Same arming for STRING receivers, any registry method: prototype
+    ; writes, overrides and deletions all bump the dispatch epoch, so a
+    ; per-site verdict under an unchanged epoch skips the whole
+    ; resolution -- and the override probe inside invokeBuiltin.
+    fn bcRegistryOwnsStringMethod:boolean (obj:EvHandle name:string) {
+        if (false == (this.hasBuiltin("string" name))) {
+            return false
+        }
+        if (this.registryMethodDeleted(obj name)) {
+            return false
+        }
+        def ov:EvHandle (this.overriddenPrototypeMethod("string" name))
         if (ov.isFunction()) {
             return false
         }
@@ -17123,6 +17184,12 @@ class ComponentEngine {
         if (override.isFunction()) {
             return (this.callFnValueWithValues((override.withThisForCall(recv)) args))
         }
+        return (this.invokeBuiltinDirect(kind name recv args))
+    }
+    ; The registry body WITHOUT the per-call override probe -- for callers
+    ; that already proved no override under the current dispatch epoch
+    ; (the call-site ICs).
+    fn invokeBuiltinDirect:EvHandle (kind:string name:string recv:EvHandle args:[EvHandle]) {
         ; D-THISCHECK: Number.prototype and Boolean.prototype methods require a
         ; receiver of their own type. Borrowing one --
         ;   var o = {}; o.f = Boolean.prototype.toString; o.f();

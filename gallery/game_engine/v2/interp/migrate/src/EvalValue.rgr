@@ -332,6 +332,20 @@ class EvPropertyBag {
         }
         return (EvalValue.undefined())
     }
+    ; hasData + getData in ONE lookup pair for the hot member path. Hole
+    ; means "no data property here" — real data values are never Hole
+    ; (the attrs-only placeholder is the one Hole a Data slot can hold,
+    ; and it means absent), and an Accessor slot answers Hole too.
+    fn dataOrHole:EvalValue (key:string) {
+        if (false == (has slots key)) {
+            return (EvalValue.hole())
+        }
+        def slot:EvPropertySlot (unwrap (get slots key))
+        case slot d:EvPropertySlot.Data {
+            return (unwrap d.value)
+        }
+        return (EvalValue.hole())
+    }
     fn putData:void (key:string value:EvalValue attrs:int) {
         if (false == (has slots key)) {
             slotCount = (slotCount + 1)
