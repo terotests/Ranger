@@ -1630,6 +1630,21 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["reentry-valueof-neg", "var vo = { valueOf: function () { var a = 7; return 100; } }; function f() { var x = 5; var y = 6; var t = -vo; return x + ',' + y + ',' + t; } return f();", "vmreentry"],
   ["reentry-valueof-addput", "var vo = { valueOf: function () { var a = 7; return 100; } }; function f() { var x = 5; var y = 6; var s = 1; s += vo; return x + ',' + y + ',' + s; } return f();", "vmreentry"],
   ["reentry-getter-into-array", "var o = { get g() { var a = 1; var b = 2; return 10; } }; function f(p, q) { var arr = [7]; arr[0] = arr[0] + o.g; return p + ',' + q + ',' + arr[0]; } return f(9, 11);", "vmreentry"],
+
+  // --- compiled member/element access agrees with the walker on the edge
+  // shapes: misses read undefined (never null), sparse writes pad and move
+  // length, non-canonical string keys are properties, arguments-mapped
+  // indexes alias parameters through compiled callees, and the array
+  // push/pop inline cache respects overrides and own properties.
+  ["vmelem-miss-empty-array", "function f() { var a = []; return '' + a[0]; } return f();", "vmelem"],
+  ["vmelem-noncanonical-key", "function f() { var a = [4, 5]; return '' + a['1'] + ',' + a['01']; } return f();", "vmelem"],
+  ["vmelem-primitive-miss", "function f() { var s = 'ab'; var n = 5; return '' + s.foo + ',' + n.foo; } return f();", "vmelem"],
+  ["vmelem-sparse-write", "function f() { var a = []; a[5] = 7; return a.length + ',' + a[0] + ',' + a[5]; } return f();", "vmelem"],
+  ["vmelem-frac-neg-keys", "function f() { var a = [1, 2]; a[-1] = 5; a[0.5] = 9; return '' + a[-1] + ',' + a[0.5] + ',' + a.length + ',' + a[0]; } return f();", "vmelem"],
+  ["vmelem-argmap-through-call", "function writer(a) { a[0] = 99; return a[0]; } function outer(x, y) { var w = writer(arguments); return x + ',' + y + ',' + w; } return outer(1, 2);", "vmelem"],
+  ["vmic-push-override", "function f() { var a = [1]; var old = Array.prototype.push; Array.prototype.push = function (v) { this[this.length] = v * 100; return this.length; }; a.push(2); Array.prototype.push = old; a.push(3); return a.join(','); } return f();", "vmelem"],
+  ["vmic-own-push-wins", "function f() { var a = [1]; a.push = function (v) { return 'own:' + v; }; return a.push(9) + ',' + a.length; } return f();", "vmelem"],
+  ["vmic-pop-empty", "function f() { var a = []; return '' + a.pop() + ',' + a.length; } return f();", "vmelem"],
 ];
 
 /**

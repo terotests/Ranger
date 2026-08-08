@@ -196,9 +196,11 @@ Every engine runs the SAME prepared suite bodies. External engines
 | navier-stokes | 39248 | 1623 | 1373 | FAIL | FAIL | FAIL |
 | earley-boyer | 66591 | 1530 | 684 | FAIL | FAIL | FAIL |
 
-† C++ splay scored 3 when this matrix was first recorded; the phase-6
-direct VM→VM call path (below) brought it to the same 136 the other two
-targets report.
+† C++ splay's score flips between 3 and 136 from run to run on this
+container without any code change — the engine's coarse live clock
+quantizes the harness's timing windows. A fixed-work splay kernel puts
+the C++ target at the same wall time across the phase-5/6 builds, so
+read this row as "runs and verifies", not as a stable throughput.
 
 Four suites (richards, deltablue, splay, and — on es6 — regexp) produce a
 valid score on the Ranger engine. The other four fail the SAME way on every
@@ -291,10 +293,12 @@ Same fixed-work protocol as the phase-5 table:
 | fib | 121 ms | **107 ms** | 121 ms | **108 ms** |
 | loop / strcat / array | — | unchanged | — | unchanged |
 
-`fib` is now −19% from where this branch started (132/148 ms). The
-visible suite effect is C++ **splay: score 3 → 136** — splay's hot path
-is exactly this shape (recursive user-function calls carrying numbers) —
-bringing C++ to parity with the es6 and Rust rows.
+`fib` is now −19% from where this branch started (132/148 ms). (An
+earlier revision of this section claimed C++ splay's Octane score moved
+3 → 136 with this change; that reading was the coarse-clock scoring
+artifact described above — the same binary flips between those two
+quantized scores at the same real speed. A fixed-work splay kernel
+shows phase 6 left splay's wall time roughly unchanged.)
 
 Two tier-vs-walker divergences found by the differential probes while
 building this, both pre-existing, both fixed: reading or writing a
@@ -305,6 +309,45 @@ bases, so optional access stays on the walker, which short-circuits.
 The runtime suite carries eight new `vmreentry` probes plus the null
 member cases; all three targets pass every one (es6 1289/1289; C++ and
 Rust native failure sets unchanged from base: 47 and 26).
+
+## Bytecode tier, phase 6b: method dispatch and array ops (2026-08-08)
+
+Three additions on top of phase 6, all inside `call_method` (op 32) and
+the element ops:
+
+1. **Direct VM→VM method calls.** An object/function receiver resolves
+   its member once (the `canProps`/`getMember` prefix of `bcCallMethod`,
+   verbatim); a plain user function with a compiled body then runs as a
+   slot call with the receiver as `this` — no bound-clone allocation, no
+   argument boxing. Anything else — builtin methods, statics, bound
+   functions, arrows, non-compilable bodies — completes through the same
+   resolved value without a second lookup.
+2. **Registry-array inline cache.** `push`/`pop` on a clean array (no
+   proto, no own properties) run the registry body directly under the
+   walker IC's exact guards (dispatch epoch + arming condition);
+   `push` of a NUMBER slot stores the raw double via `arrPushNumber`.
+3. **Unboxed element access.** `a[i]` with a numeric key on a dense
+   array reads and writes without minting key or value handles
+   (`arrayItemNumOrNaN` / `setIndexNumberAt`); non-fast shapes route
+   through helpers that now mirror the walker's element-vs-property
+   rules exactly.
+
+Fixed work, C++, interleaved best-of runs against the phase-6 build:
+**array 237 → 63 ms (−73%)**, richards 8.14 → 7.51 s (−7.7%),
+fib −4%, splay/method/object/loop within noise. Rust: array
+286 → 69 ms (−76%), others flat.
+
+The differential probes for this round caught four more pre-existing
+tier-vs-walker divergences, fixed in the same change: member reads that
+miss now answer `undefined` (never `getMember`'s internal null — a miss
+resolves to the registry method value or undefined, exactly as the
+walker does), sparse element writes pad holes and move `length` (they
+stored a plain property before), `a["length"] = n` resizes, and
+arguments-mapped indexes alias their parameters through compiled
+callees. Those four closed 11 pre-existing failures in the NATIVE
+conformance runs on each target: C++ 47 → 36, Rust 26 → 15 (of 1274
+probes, now including nine new `vmelem` cases). The es6 suite stands at
+1298/1298 with the tier on.
 
 ## Splay: the C++-only spin, resolved (2026-08-07)
 

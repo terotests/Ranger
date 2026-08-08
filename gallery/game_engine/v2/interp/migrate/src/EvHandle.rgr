@@ -2072,6 +2072,35 @@ class EvHandle {
         return 0
     }
 
+    ; Dense numeric element read without a value object. Answers the number,
+    ; or NaN when the element is NOT a number — the caller re-reads through
+    ; arrayItemAt then, which also covers the (rare) genuine NaN element.
+    fn arrayItemNumOrNaN:double (i:int) {
+        case body a:EvalValue.Array {
+            def it:EvalValue (itemAt a.items i)
+            case it n:EvalValue.Number {
+                return n.value
+            }
+            return (0.0 / 0.0)
+        }
+        return (0.0 / 0.0)
+    }
+
+    ; setIndexAt's number twin: the element write without a value object.
+    ; Same hole-padding rule, same in-place mutation through the narrowing.
+    fn setIndexNumberAt:void (index:int n:double) {
+        def _kind:EvalValue body
+        if (false == (EvalValue.isArrayValue(_kind))) {
+            return
+        }
+        case _kind a:EvalValue.Array {
+            while (index >= (array_length a.items)) {
+                push a.items (EvalValue.hole())
+            }
+            set a.items index (EvalValue.number(n))
+        }
+    }
+
     ; Append a NUMBER without a value object: the Number case rides by value
     ; inside the variant, so the store is a plain element write — the closest
     ; thing to a raw double buffer the current single representation has.

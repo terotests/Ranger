@@ -764,10 +764,17 @@ class BcProgram {
     def localCount:int 0
     def stackSize:int 0
     def curStack:int 0
+    ; Per-instruction inline-cache lanes (walker callSiteOp mirror): a
+    ; call_method site that resolved to a registry array op under some
+    ; dispatch epoch remembers the verdict here; a stale epoch re-verifies.
+    def icOps:[int]
+    def icEpochs:[int]
 
     fn emit:void (op:int a:int npush:int npop:int) {
         push ops op
         push args a
+        push icOps 0
+        push icEpochs (0 - 1)
         curStack = ((curStack - npop) + npush)
         if (curStack > stackSize) {
             stackSize = curStack
@@ -9069,7 +9076,45 @@ class ComponentEngine {
                 return (this.invokeBuiltin((g.builtinKindOf()) (g.builtinNameOf()) obj gbArgs))
             }
         }
-        return (obj.getMember(name))
+        def gm:EvHandle (obj.getMember(name))
+        if (false == (gm.isNull())) {
+            return gm
+        }
+        ; getMember's null is EITHER a stored null (a real property that
+        ; happens to hold null) or its miss sentinel for the receivers whose
+        ; branch has no own answer (arrays with non-element keys, Map/Set,
+        ; primitives). A stored null is found on the own/proto chain; a true
+        ; miss resolves the way the walker's member read does -- a registry
+        ; method reads as the shared method value, everything else is
+        ; undefined, never null.
+        if (this.bcMemberExists(obj name 0)) {
+            return gm
+        }
+        def grk:string (this.receiverKind(obj))
+        if (this.hasBuiltin(grk name)) {
+            if (false == (this.registryMethodDeleted(obj name))) {
+                return (this.sharedNativeMethod(grk name))
+            }
+        }
+        if (this.objectProtoFallbackFor(grk name)) {
+            return (this.sharedNativeMethod("object" name))
+        }
+        return (EvHandle.undefined())
+    }
+
+    ; Own-or-inherited data property existence, the depth-capped chain walk
+    ; getMemberDepth uses.
+    fn bcMemberExists:boolean (obj:EvHandle name:string depth:int) {
+        if (depth > 16) {
+            return false
+        }
+        if (obj.hasOwnData(name)) {
+            return true
+        }
+        if (obj.hasProto()) {
+            return (this.bcMemberExists((obj.protoOf()) name (depth + 1)))
+        }
+        return false
     }
 
     fn bcPutField:void (obj:EvHandle name:string v:EvHandle) {
@@ -9124,6 +9169,15 @@ class ComponentEngine {
         if scriptThrew {
             return (EvValueBridge.taggedUndefined())
         }
+        ; D-ARGMAP, walker parity: a mapped arguments index reads the
+        ; parameter it aliases.
+        def gmn:string (this.argMapName(obj pk))
+        if ((strlen gmn) > 0) {
+            def gmc:EvalContext (this.argMapScopeOf(obj))
+            if (gmc.has(gmn)) {
+                return (gmc.lookup(gmn))
+            }
+        }
         return (this.bcGetField(obj pk))
     }
 
@@ -9151,6 +9205,54 @@ class ComponentEngine {
         def pk:string (this.toPropertyKey(key))
         if scriptThrew {
             return
+        }
+        ; D-ARGMAP, walker parity: a write to a mapped arguments index writes
+        ; the parameter too.
+        def wm:string (this.argMapName(obj pk))
+        if ((strlen wm) > 0) {
+            def wmc:EvalContext (this.argMapScopeOf(obj))
+            if (wmc.has(wm)) {
+                wmc.assign(wm v)
+                obj.setMember(pk v)
+                return
+            }
+        }
+        if (obj.isArray()) {
+            ; the walker's element-vs-property routing, decided by the KEY
+            ; TEXT (D-ARRAYSPARSE): a canonical index within the dense cap
+            ; pads holes and stores; past the cap it is a property that still
+            ; moves length; `length` itself resizes.
+            if (pk == "length") {
+                def lenNum:double (this.toNumberOf(v))
+                if scriptThrew {
+                    return
+                }
+                def lenTrunc:double (this.floorNum(lenNum))
+                if (lenNum < 0.0) {
+                    lenTrunc = (0.0 - (this.floorNum((0.0 - lenNum))))
+                }
+                def lenU:double (this.wrapUint32(lenTrunc))
+                if (lenU != lenNum) {
+                    def _lt:EvHandle (this.throwSpecError("RangeError" "Invalid array length"))
+                    return
+                }
+                this.setArrayLength(obj (to_int lenU))
+                return
+            }
+            def ai0:int (this.canonicalArrayIndex(pk))
+            if (ai0 >= 0) {
+                if ((false == (obj.hasOwnSetter(pk))) && (false == (obj.hasOwnGetter(pk)))) {
+                    if (ai0 > 10000000) {
+                        obj.setMember(pk v)
+                        if ((ai0 + 1) > (obj.arrayLength())) {
+                            obj.setDeclaredLength((ai0 + 1))
+                        }
+                        return
+                    }
+                    obj.setIndexAt(ai0 v)
+                    return
+                }
+            }
         }
         this.bcPutField(obj pk v)
     }
@@ -9867,6 +9969,73 @@ class ComponentEngine {
                 def mArgc:int (bit_and a 255)
                 def mAtom:int (idiv a 256)
                 def mFnPos:int ((sp - mArgc) - 1)
+                ; One receiver read decides the whole dispatch shape: arrays
+                ; try the registry IC (walker callSiteOp guards: clean array,
+                ; unchanged epoch), object/function receivers try the direct
+                ; VM->VM method call, and everything else -- strings above
+                ; all -- goes straight to the generic path with no probing.
+                if (((itemAt bcTags mFnPos) == 0) && ((itemAt bcStack mFnPos).isString()) == false) {
+                    def rcv32:EvHandle (itemAt bcStack mFnPos)
+                    if (rcv32.isArray()) {
+                        if ((false == (rcv32.hasProto())) && (rcv32.ownPropsEmpty())) {
+                            def icEp32:EvDispatchEpoch (EvDispatchEpoch.__singleton())
+                            def icoOp:int 0
+                            if ((itemAt prog.icEpochs (pc - 1)) == icEp32.n) {
+                                icoOp = (itemAt prog.icOps (pc - 1))
+                            } {
+                                def mName32:string (itemAt prog.atoms mAtom)
+                                if ((mName32 == "push") && (mArgc == 1)) {
+                                    if (this.bcRegistryOwnsArrayMethod(rcv32 mName32)) {
+                                        icoOp = 1
+                                    }
+                                }
+                                if ((mName32 == "pop") && (mArgc == 0)) {
+                                    if (this.bcRegistryOwnsArrayMethod(rcv32 mName32)) {
+                                        icoOp = 2
+                                    }
+                                }
+                                set prog.icOps (pc - 1) icoOp
+                                set prog.icEpochs (pc - 1) icEp32.n
+                            }
+                            if (icoOp == 1) {
+                                def pv32:int 0
+                                if ((itemAt bcTags (sp - 1)) == 1) {
+                                    pv32 = (rcv32.arrPushNumber((itemAt bcNums (sp - 1))))
+                                } {
+                                    pv32 = (rcv32.arrPush((this.bcSlotBox((sp - 1)))))
+                                }
+                                sp = (sp - 1)
+                                set bcTags (sp - 1) 1
+                                set bcNums (sp - 1) (to_double pv32)
+                                continue
+                            }
+                            if (icoOp == 2) {
+                                def pn32:int (rcv32.denseLen())
+                                if (pn32 == 0) {
+                                    set bcTags (sp - 1) 3
+                                    continue
+                                }
+                                def pl32:EvHandle (rcv32.arrayItemAt((pn32 - 1)))
+                                rcv32.arrPop()
+                                this.bcSlotPut((sp - 1) pl32)
+                                continue
+                            }
+                        }
+                    } {
+                        if ((rcv32.isObject()) || (rcv32.isFunction())) {
+                            def dmr:int (this.bcTryDirectMethodCall(mFnPos mArgc (itemAt prog.atoms mAtom) needTop))
+                            if (dmr >= 0) {
+                                bcSp = base
+                                if (dmr == 1) {
+                                    bcRetTag = 3
+                                    return
+                                }
+                                sp = (mFnPos + 1)
+                                continue
+                            }
+                        }
+                    }
+                }
                 def mArgs:[EvHandle]
                 def mi:int 0
                 while (mi < mArgc) {
@@ -9886,9 +10055,52 @@ class ComponentEngine {
                 continue
             }
             if (op == 33) {
-                def k33:EvHandle (this.bcSlotBox((sp - 1)))
-                def o33:EvHandle (this.bcSlotBox((sp - 2)))
+                def kt33:int (itemAt bcTags (sp - 1))
                 sp = (sp - 1)
+                if ((kt33 == 1) && ((itemAt bcTags (sp - 1)) == 0)) {
+                    ; dense numeric read fully in the loop: no key handle,
+                    ; and a Number element lands straight in the lane
+                    def oh33:EvHandle (itemAt bcStack (sp - 1))
+                    if (oh33.isArray()) {
+                        def kd33:double (itemAt bcNums sp)
+                        if ((kd33 >= 0.0) && (kd33 < 2147483647.0)) {
+                            def ki33:int (to_int kd33)
+                            if ((to_double ki33) == kd33) {
+                                if ((ki33 >= 0) && (ki33 < (oh33.denseLen()))) {
+                                    if ((false == (oh33.hasProto())) && (false == (oh33.ownAccessorsEver()))) {
+                                        def nv33:double (oh33.arrayItemNumOrNaN(ki33))
+                                        if (nv33 == nv33) {
+                                            set bcTags (sp - 1) 1
+                                            set bcNums (sp - 1) nv33
+                                            continue
+                                        }
+                                        def elf33:EvHandle (oh33.arrayItemAt(ki33))
+                                        if (elf33.isHole()) {
+                                            set bcTags (sp - 1) 3
+                                            continue
+                                        }
+                                        this.bcSlotPut((sp - 1) elf33)
+                                        continue
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                def o33:EvHandle (this.bcSlotBox((sp - 1)))
+                if (kt33 == 1) {
+                    ; raw double key: the generic helper without a key handle
+                    bcSp = needTop
+                    def en33:EvHandle (this.bcGetElemNum(o33 (itemAt bcNums sp)))
+                    bcSp = base
+                    if scriptThrew {
+                        bcRetTag = 3
+                        return
+                    }
+                    this.bcSlotPut((sp - 1) en33)
+                    continue
+                }
+                def k33:EvHandle (this.bcSlotBox(sp))
                 bcSp = needTop
                 def e33:EvHandle (this.bcGetElem(o33 k33))
                 bcSp = base
@@ -9900,10 +10112,46 @@ class ComponentEngine {
                 continue
             }
             if (op == 34) {
-                def v34:EvHandle (this.bcSlotBox((sp - 1)))
-                def k34:EvHandle (this.bcSlotBox((sp - 2)))
-                def o34:EvHandle (this.bcSlotBox((sp - 3)))
+                def vt34:int (itemAt bcTags (sp - 1))
+                def kt34:int (itemAt bcTags (sp - 2))
+                def ot34:int (itemAt bcTags (sp - 3))
                 sp = (sp - 3)
+                if ((vt34 == 1) && ((kt34 == 1) && (ot34 == 0))) {
+                    ; numeric value into a dense slot: neither the key nor
+                    ; the value ever becomes a handle
+                    def oh34:EvHandle (itemAt bcStack sp)
+                    if (oh34.isArray()) {
+                        def kd34:double (itemAt bcNums (sp + 1))
+                        if ((kd34 >= 0.0) && (kd34 < 2147483647.0)) {
+                            def ki34:int (to_int kd34)
+                            if ((to_double ki34) == kd34) {
+                                if ((ki34 >= 0) && (ki34 <= (oh34.denseLen()))) {
+                                    if ((false == (oh34.hasProto())) && (false == (oh34.ownAccessorsEver()))) {
+                                        if (ki34 == (oh34.denseLen())) {
+                                            def _pn34:int (oh34.arrPushNumber((itemAt bcNums (sp + 2))))
+                                            continue
+                                        }
+                                        oh34.setIndexNumberAt(ki34 (itemAt bcNums (sp + 2)))
+                                        continue
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                def v34:EvHandle (this.bcSlotBox((sp + 2)))
+                def o34:EvHandle (this.bcSlotBox(sp))
+                if (kt34 == 1) {
+                    bcSp = needTop
+                    this.bcPutElemNum(o34 (itemAt bcNums (sp + 1)) v34)
+                    bcSp = base
+                    if scriptThrew {
+                        bcRetTag = 3
+                        return
+                    }
+                    continue
+                }
+                def k34:EvHandle (this.bcSlotBox((sp + 1)))
                 bcSp = needTop
                 this.bcPutElem(o34 k34 v34)
                 bcSp = base
@@ -10120,6 +10368,257 @@ class ComponentEngine {
             set bcNums fnPos bcRetNum
         }
         return 0
+    }
+
+    ; The op-32 fast path: a direct VM->VM METHOD call when the receiver's
+    ; member resolves to a plain user function with a compiled body -- the
+    ; canProps/getMember prefix of bcCallMethod, verbatim, ending in a slot
+    ; call with the receiver as `this` instead of a bound clone boxed
+    ; through callFnValueWithValues. getMember never runs user code (a
+    ; getter goes through resolveGetterOn, which this path does not take),
+    ; so a -1 fallback into bcCallMethod repeats the lookup safely.
+    ; Answers -1 / 0 / 1 like bcTryDirectCall.
+    fn bcTryDirectMethodCall:int (mFnPos:int mArgc:int mName:string needTop:int) {
+        if ((itemAt bcTags mFnPos) != 0) {
+            ; nullish receivers carry tags 3/4 and take the generic path,
+            ; which throws the walker's TypeError
+            return (0 - 1)
+        }
+        def obj:EvHandle (itemAt bcStack mFnPos)
+        ; Plain object/function receivers only. Strings and arrays almost
+        ; always dispatch to builtins, and probing their own-data here would
+        ; tax every push/slice with a map lookup the generic path repeats;
+        ; the rare array-with-own-method calls just stay generic.
+        if (false == (obj.isObject())) {
+            if (false == (obj.isFunction())) {
+                return (0 - 1)
+            }
+        }
+        def m:EvHandle (obj.getMember(mName))
+        if (m.isBuiltinStatic()) {
+            ; bcCallMethod's first branch, without a second getMember: an
+            ; invocable static runs here; a non-invocable one is the rare
+            ; case the generic chain resolves
+            if (this.hasInvocableStatic((m.builtinNamespaceOf()) (m.builtinNameOf()))) {
+                def sArgsD:[EvHandle]
+                def si:int 0
+                while (si < mArgc) {
+                    push sArgsD (this.bcSlotBox(((mFnPos + 1) + si)))
+                    si = (si + 1)
+                }
+                ; bcSp stays raised until the op-32 caller restores it
+                bcSp = needTop
+                def sRes:EvHandle (this.invokeBuiltinStatic((m.builtinNamespaceOf()) (m.builtinNameOf()) sArgsD))
+                if scriptThrew {
+                    return 1
+                }
+                this.bcSlotPut(mFnPos sRes)
+                return 0
+            }
+            return (0 - 1)
+        }
+        if (m.isBuiltinMethod()) {
+            def bmFn:EvHandle m
+            if (false == (m.boundExplicitOf())) {
+                bmFn = (m.withThisForCall(obj))
+            }
+            def bArgsD:[EvHandle]
+            def bi:int 0
+            while (bi < mArgc) {
+                push bArgsD (this.bcSlotBox(((mFnPos + 1) + bi)))
+                bi = (bi + 1)
+            }
+            bcSp = needTop
+            def bRes:EvHandle (this.callFnValueWithValues(bmFn bArgsD))
+            if scriptThrew {
+                return 1
+            }
+            this.bcSlotPut(mFnPos bRes)
+            return 0
+        }
+        if (false == (m.isFunction())) {
+            return (0 - 1)
+        }
+        if (false == (m.hasFunctionNode())) {
+            ; a function-kind value with no body: constructors and stubs --
+            ; the generic chain owns those
+            return (0 - 1)
+        }
+        def mDirect:boolean true
+        if (m.hasBoundThis()) {
+            mDirect = false
+        }
+        if (m.hasOwnData("__fnprotocall__")) {
+            mDirect = false
+        }
+        def mCtorN:string (this.builtinCtorNameOf(m))
+        if ((strlen mCtorN) > 0) {
+            mDirect = false
+        }
+        if ((m.boundArgCount()) != 0) {
+            mDirect = false
+        }
+        def fnNodeM:TSNode (m.functionNodeOf())
+        def mIsArrow:boolean false
+        if ((this.nodeKindOf(fnNodeM)) == 17) {
+            ; an arrow found as a member keeps its lexical `this`
+            mIsArrow = true
+            mDirect = false
+        }
+        if mDirect {
+            def pidM:int (this.bcProgramFor(fnNodeM))
+            if (pidM < 0) {
+                mDirect = false
+            } {
+                def prChk:BcProgram (itemAt bcPrograms pidM)
+                if (mArgc > prChk.paramCount) {
+                    mDirect = false
+                }
+            }
+        }
+        if (false == mDirect) {
+            ; still one resolution: run bcCallMethod's guest-function branch
+            ; here with the value already in hand
+            def gFn:EvHandle m
+            if ((false == (m.hasBoundThis())) && (false == mIsArrow)) {
+                gFn = (m.withThisForCall(obj))
+            }
+            def gArgsD:[EvHandle]
+            def gi:int 0
+            while (gi < mArgc) {
+                push gArgsD (this.bcSlotBox(((mFnPos + 1) + gi)))
+                gi = (gi + 1)
+            }
+            bcSp = needTop
+            def gRes:EvHandle (this.callFnValueWithValues(gFn gArgsD))
+            if scriptThrew {
+                return 1
+            }
+            this.bcSlotPut(mFnPos gRes)
+            return 0
+        }
+        def pidM2:int (this.bcProgramFor(fnNodeM))
+        def prM:BcProgram (itemAt bcPrograms pidM2)
+        ; --- prologue: what callFnValueWithValues does for the bound clone.
+        ; The receiver is object-like here (canProps), so D-THISCOERCE is a
+        ; no-op and `this` is exactly obj.
+        def savedDidReturnM:boolean scriptDidReturn
+        def savedReturnValueM:EvHandle scriptReturnValue
+        def savedModuleM:string currentModule
+        scriptDidReturn = false
+        scriptReturnValue = (EvValueBridge.taggedNull())
+        def parentM:EvalContext context
+        if ((m.closureIdOf()) >= 0) {
+            if ((m.closureIdOf()) < (array_length closureScopes)) {
+                def cellM:ClosureCell (itemAt closureScopes (m.closureIdOf()))
+                if cellM.ctx {
+                    parentM = (unwrap cellM.ctx)
+                }
+            }
+        } {
+            if (m.hasHomeModule()) {
+                parentM = (this.moduleScopeFor((m.homeModuleOf())))
+            } {
+                if ((strlen currentModule) > 0) {
+                    parentM = moduleScope
+                }
+            }
+        }
+        currentModule = (m.homeModuleOf())
+        this.bcGrowTo((needTop + mArgc))
+        def ai:int 0
+        while (ai < mArgc) {
+            def sIdx:int ((mFnPos + 1) + ai)
+            def tA:int (itemAt bcTags sIdx)
+            set bcTags (needTop + ai) tA
+            if (tA == 0) {
+                set bcStack (needTop + ai) (itemAt bcStack sIdx)
+            } {
+                set bcNums (needTop + ai) (itemAt bcNums sIdx)
+            }
+            ai = (ai + 1)
+        }
+        bcSp = needTop
+        callDepth = (callDepth + 1)
+        this.runBytecode(prM mArgc (unwrap parentM) obj)
+        callDepth = (callDepth - 1)
+        currentModule = savedModuleM
+        scriptDidReturn = savedDidReturnM
+        scriptReturnValue = savedReturnValueM
+        if scriptThrew {
+            return 1
+        }
+        if scriptDidReturn {
+            scriptDidReturn = false
+        }
+        set bcTags mFnPos bcRetTag
+        if (bcRetTag == 0) {
+            def rrM:EvHandle bcRetRef
+            set bcStack mFnPos rrM
+        } {
+            set bcNums mFnPos bcRetNum
+        }
+        return 0
+    }
+
+    ; The walker IC's arming condition, verbatim: the registry still owns
+    ; this array method -- present, not deleted through this receiver, and
+    ; no guest override on Array.prototype.
+    fn bcRegistryOwnsArrayMethod:boolean (obj:EvHandle name:string) {
+        if (false == (this.hasBuiltin("array" name))) {
+            return false
+        }
+        if (this.registryMethodDeleted(obj name)) {
+            return false
+        }
+        def ov:EvHandle (this.overriddenPrototypeMethod("array" name))
+        if (ov.isFunction()) {
+            return false
+        }
+        return true
+    }
+
+    ; get_elem / put_elem with a raw double key -- the array fast path from
+    ; bcGetElem/bcPutElem without minting a key handle; anything off the
+    ; fast path boxes the key once and takes the generic helper.
+    fn bcGetElemNum:EvHandle (obj:EvHandle kd:double) {
+        if (obj.isArray()) {
+            if ((kd >= 0.0) && (kd < 2147483647.0)) {
+                def ki:int (to_int kd)
+                if ((to_double ki) == kd) {
+                    if ((ki >= 0) && (ki < (obj.denseLen()))) {
+                        if ((false == (obj.hasProto())) && (false == (obj.ownAccessorsEver()))) {
+                            def el:EvHandle (obj.arrayItemAt(ki))
+                            if (el.isHole()) {
+                                return (EvHandle.undefined())
+                            }
+                            return el
+                        }
+                    }
+                }
+            }
+        }
+        return (this.bcGetElem(obj (EvHandle.number(kd))))
+    }
+    fn bcPutElemNum:void (obj:EvHandle kd:double v:EvHandle) {
+        if (obj.isArray()) {
+            if ((kd >= 0.0) && (kd < 2147483647.0)) {
+                def ki:int (to_int kd)
+                if ((to_double ki) == kd) {
+                    if ((ki >= 0) && (ki <= (obj.denseLen()))) {
+                        if ((false == (obj.hasProto())) && (false == (obj.ownAccessorsEver()))) {
+                            if (ki == (obj.denseLen())) {
+                                def _pi:int (obj.arrPush(v))
+                                return
+                            }
+                            obj.setIndexAt(ki v)
+                            return
+                        }
+                    }
+                }
+            }
+        }
+        this.bcPutElem(obj (EvHandle.number(kd)) v)
     }
 
     fn callFnValueWithValues:EvHandle (fnValue:EvHandle argVals:[EvHandle]) {

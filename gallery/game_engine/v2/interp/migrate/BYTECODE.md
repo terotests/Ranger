@@ -218,10 +218,16 @@ monomorphic case (v2, after the IC learns method targets).
    before), and `?.` is gate-rejected so optional chaining keeps the
    walker's short-circuit. `fib` −19% from the pre-phase-5 base on both
    native targets; C++ splay score 3 → 136 (parity with es6/Rust).
-   Method calls (op 32) still dispatch through `bcCallMethod` — the
-   receiver-polymorphic version of this fast path is the next lever,
-   along with an inline cache so the guard ladder itself is paid once
-   per call site, not per call.
+   Phase 6b extends the same treatment to method calls: op 32 resolves
+   the member once (bcCallMethod's canProps/getMember prefix) and
+   direct-calls a compiled body with the receiver as `this`; resolved
+   builtins and non-compilable functions complete through the resolved
+   value without a second lookup. Array push/pop run under the walker
+   IC's epoch guards with raw-double stores, and dense numeric element
+   reads/writes never mint a handle (arrayItemNumOrNaN /
+   setIndexNumberAt). Remaining levers: an identity-keyed IC on op
+   20/32 so the guard ladder is paid per site rather than per call, and
+   phase 4's long tail (try/catch, for-in/of).
 
 ## Testing discipline
 
