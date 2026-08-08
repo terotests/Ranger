@@ -1617,6 +1617,19 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["eval-var-visible-to-caller", "function g() { eval('var ev = 5;'); return String(ev); } return g();", "evalvar"],
   ["eval-fn-visible-to-caller", "function g() { eval('function ef() { return 3; }'); return String(ef()); } return g();", "evalvar"],
   ["eval-strict-var-not-visible", "function g() { 'use strict'; eval('var sv = 5;'); return String(typeof sv); } return g();", "evalvar"],
+
+  // --- VM re-entry: user code reached THROUGH an operation inside a compiled
+  // body (getter, setter, valueOf, toString) must not corrupt the caller's
+  // frame. These caught a real clobber: helper call-outs from the bytecode VM
+  // ran nested compiled frames on top of the caller's live slots.
+  ["reentry-getter", "var o = { get g() { var a = 1; var b = 2; return 10; } }; function f() { var x = 5; var y = 42; var z = o.g; return x + ',' + y + ',' + z; } return f();", "vmreentry"],
+  ["reentry-setter", "var hit = 0; var o = { set s(v) { var c = 3; hit = v + c; } }; function f() { var x = 5; var y = 6; o.s = 1; return x + ',' + y + ',' + hit; } return f();", "vmreentry"],
+  ["reentry-valueof-add", "var vo = { valueOf: function () { var a = 7; var b = 8; return 100; } }; function f() { var x = 5; var y = 6; var t = vo + 1; return x + ',' + y + ',' + t; } return f();", "vmreentry"],
+  ["reentry-valueof-compare", "var vo = { valueOf: function () { var a = 7; return 100; } }; function f() { var x = 5; var y = 6; var t = vo < 200; return x + ',' + y + ',' + t; } return f();", "vmreentry"],
+  ["reentry-valueof-inc", "var vo = { valueOf: function () { var a = 7; return 100; } }; function f() { var x = 5; var y = 6; var c = vo; c++; return x + ',' + y + ',' + c; } return f();", "vmreentry"],
+  ["reentry-valueof-neg", "var vo = { valueOf: function () { var a = 7; return 100; } }; function f() { var x = 5; var y = 6; var t = -vo; return x + ',' + y + ',' + t; } return f();", "vmreentry"],
+  ["reentry-valueof-addput", "var vo = { valueOf: function () { var a = 7; return 100; } }; function f() { var x = 5; var y = 6; var s = 1; s += vo; return x + ',' + y + ',' + s; } return f();", "vmreentry"],
+  ["reentry-getter-into-array", "var o = { get g() { var a = 1; var b = 2; return 10; } }; function f(p, q) { var arr = [7]; arr[0] = arr[0] + o.g; return p + ',' + q + ',' + arr[0]; } return f(9, 11);", "vmreentry"],
 ];
 
 /**

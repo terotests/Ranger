@@ -9449,9 +9449,13 @@ class ComponentEngine {
                 }
                 def l12:EvHandle (this.bcSlotBox((sp - 1)))
                 def r12:EvHandle (this.bcSlotBox(sp))
+                ; valueOf/toString on an object operand re-enters user code,
+                ; which may run compiled frames: they must base ABOVE this
+                ; frame's live slots, not on top of them
+                bcSp = needTop
                 def o12:EvHandle (this.applyBinaryOp(a l12 r12))
+                bcSp = base
                 if scriptThrew {
-                    bcSp = base
                     return (EvValueBridge.taggedUndefined())
                 }
                 this.bcSlotPut((sp - 1) o12)
@@ -9547,9 +9551,10 @@ class ComponentEngine {
                     continue
                 }
                 def v23:EvHandle (this.bcSlotBox((base + a)))
+                bcSp = needTop
                 def n23:double (this.toNumberOf(v23))
+                bcSp = base
                 if scriptThrew {
-                    bcSp = base
                     return (EvValueBridge.taggedUndefined())
                 }
                 set bcTags (base + a) 1
@@ -9562,9 +9567,10 @@ class ComponentEngine {
                     continue
                 }
                 def v24:EvHandle (this.bcSlotBox((base + a)))
+                bcSp = needTop
                 def n24:double (this.toNumberOf(v24))
+                bcSp = base
                 if scriptThrew {
-                    bcSp = base
                     return (EvValueBridge.taggedUndefined())
                 }
                 set bcTags (base + a) 1
@@ -9600,10 +9606,11 @@ class ComponentEngine {
                 ; undefined-vs-ReferenceError -- against the CALLEE chain
                 def savedCtx10:EvalContext context
                 context = outer
+                bcSp = needTop
                 def mv10:EvHandle (this.lookupIdentifier(nm10))
+                bcSp = base
                 context = savedCtx10
                 if scriptThrew {
-                    bcSp = base
                     return (EvValueBridge.taggedUndefined())
                 }
                 this.bcSlotPut(sp mv10)
@@ -9656,9 +9663,10 @@ class ComponentEngine {
                     continue
                 }
                 def v13:EvHandle (this.bcSlotBox((sp - 1)))
+                bcSp = needTop
                 def n13:double (this.toNumberOf(v13))
+                bcSp = base
                 if scriptThrew {
-                    bcSp = base
                     return (EvValueBridge.taggedUndefined())
                 }
                 set bcTags (sp - 1) 1
@@ -9708,9 +9716,10 @@ class ComponentEngine {
                     continue
                 }
                 def v25:EvHandle (itemAt bcStack (sp - 1))
+                bcSp = needTop
                 def n25:double (this.toNumberOf(v25))
+                bcSp = base
                 if scriptThrew {
-                    bcSp = base
                     return (EvValueBridge.taggedUndefined())
                 }
                 set bcTags (sp - 1) 1
@@ -9741,9 +9750,12 @@ class ComponentEngine {
             }
             if (op == 30) {
                 def o30:EvHandle (this.bcSlotBox((sp - 1)))
+                ; a GETTER (and any proto-chain trap) is user code: compiled
+                ; frames it starts must base above this frame's live slots
+                bcSp = needTop
                 def f30:EvHandle (this.bcGetField(o30 (itemAt prog.atoms a)))
+                bcSp = base
                 if scriptThrew {
-                    bcSp = base
                     return (EvValueBridge.taggedUndefined())
                 }
                 this.bcSlotPut((sp - 1) f30)
@@ -9753,9 +9765,10 @@ class ComponentEngine {
                 def v31:EvHandle (this.bcSlotBox((sp - 1)))
                 def o31:EvHandle (this.bcSlotBox((sp - 2)))
                 sp = (sp - 2)
+                bcSp = needTop
                 this.bcPutField(o31 (itemAt prog.atoms a) v31)
+                bcSp = base
                 if scriptThrew {
-                    bcSp = base
                     return (EvValueBridge.taggedUndefined())
                 }
                 continue
@@ -9785,9 +9798,10 @@ class ComponentEngine {
                 def k33:EvHandle (this.bcSlotBox((sp - 1)))
                 def o33:EvHandle (this.bcSlotBox((sp - 2)))
                 sp = (sp - 1)
+                bcSp = needTop
                 def e33:EvHandle (this.bcGetElem(o33 k33))
+                bcSp = base
                 if scriptThrew {
-                    bcSp = base
                     return (EvValueBridge.taggedUndefined())
                 }
                 this.bcSlotPut((sp - 1) e33)
@@ -9798,9 +9812,10 @@ class ComponentEngine {
                 def k34:EvHandle (this.bcSlotBox((sp - 2)))
                 def o34:EvHandle (this.bcSlotBox((sp - 3)))
                 sp = (sp - 3)
+                bcSp = needTop
                 this.bcPutElem(o34 k34 v34)
+                bcSp = base
                 if scriptThrew {
-                    bcSp = base
                     return (EvValueBridge.taggedUndefined())
                 }
                 continue
@@ -9865,9 +9880,10 @@ class ComponentEngine {
                 }
                 def cb35:EvHandle (this.bcSlotBox((base + slot35)))
                 def xb35:EvHandle (this.bcSlotBox(sp))
+                bcSp = needTop
                 def r35:EvHandle (this.applyBinaryOp(20 cb35 xb35))
+                bcSp = base
                 if scriptThrew {
-                    bcSp = base
                     return (EvValueBridge.taggedUndefined())
                 }
                 this.bcSlotPut((base + slot35) r35)
