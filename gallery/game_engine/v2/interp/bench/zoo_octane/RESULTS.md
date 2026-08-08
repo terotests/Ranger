@@ -226,6 +226,47 @@ regex engine, `Date`, JSON, the value model — not just an interpreter loop, so
 they land above QuickJS's hand-written C VM. The `-Os` C++ build comes in at
 ~1.0 MB, QuickJS's size class, for ~2.7× the run time.
 
+## Bytecode tier, phase 5: unboxed number slots (2026-08-08)
+
+The VM's stack slots are now tagged lanes (`bcTags`/`bcNums`/`bcStack`)
+instead of an `EvHandle` per slot: numbers and booleans flow between
+compiled ops as raw doubles, and a value object is minted only where a
+value crosses into walker territory — calls, member helpers, outer
+names, the return value (design and invariants in
+`migrate/BYTECODE.md`, phase 5).
+
+Octane *scores* are not the instrument for this change: on this
+container the engine's live clock is coarse enough that richards /
+deltablue / splay scores quantize to the same values on every target,
+before and after. Fixed work under wall time is. Each case runs its
+`vs_quickjs.cjs` body 10× in one process (so engine load amortizes),
+best of 3 runs, identical outputs checked, same machine, engine vs
+itself:
+
+| case | C++ before | C++ after | Rust before | Rust after |
+| --- | ---: | ---: | ---: | ---: |
+| loop | 55 ms | **21 ms** | 103 ms | **22 ms** |
+| strcat | 26 ms | **18 ms** | 42 ms | **22 ms** |
+| array | 257 ms | **228 ms** | 338 ms | **274 ms** |
+| fib | 132 ms | **121 ms** | 148 ms | **121 ms** |
+| object | 490 ms | 485 ms | 456 ms | 451 ms |
+| method | 619 ms | 615 ms | 795 ms | 789 ms |
+| regex | 605 ms | 625 ms | 549 ms | 528 ms |
+
+The shape is the diagnosis: rows whose inner loop is arithmetic on
+locals collapse (an empty-ish `loop` iteration now allocates nothing),
+rows bound by property maps and method dispatch (`object`, `method`,
+and the Octane suites built from them) do not move, and `fib` improves
+only ~8–18% because every recursion still boxes its argument and result
+through `callFnValueWithValues` — the call boundary is the next lever.
+
+Verification for the change: es6 runtime suite 1281/1281 with the tier
+on; the C++ and Rust native conformance failure sets are bit-identical
+to the pre-phase-5 build (1208/1257 and 1229/1257 — the same
+pre-existing native gaps); richards / deltablue / splay / crypto /
+raytrace / regexp / navier-stokes behave identically per the matrix
+above.
+
 ## Splay: the C++-only spin, resolved (2026-08-07)
 
 The long-standing "C++-only splay spin" was **not** the tree, the rotations,

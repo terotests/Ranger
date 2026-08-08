@@ -1,7 +1,10 @@
 # Bytecode tier for ComponentEngine — design plan
 
-Status: PLAN (nothing here is implemented). Written after the PR #541
-optimization rounds took the C++ tree-walker from 63× to ~12× of QuickJS on
+Status: phases 1–3 and 5 are IMPLEMENTED (`bcEnabled` on by default);
+phase 4 (try/catch, for-in/of, destructuring) remains. The plan below is
+kept as written; the phase list at the bottom records what each landed
+phase measured. Originally written after the PR #541 optimization rounds
+took the C++ tree-walker from 63× to ~12× of QuickJS on
 the micro geomean and the profiles went flat — no line above ~4%. What is
 left is the *shape* of a tree-walker: AST dispatch per visit, a heap handle
 per value, a name touch per identifier. QuickJS pays none of those in its
@@ -180,11 +183,28 @@ monomorphic case (v2, after the IC learns method targets).
 4. **try/catch, for-in/of, destructuring** — walker parity for the long
    tail, driven by whatever the conformance suite still routes to the
    walker at that point.
-5. **Value representation** (separate design): tagged slots
-   (`{tag:int, num:double, ref:EvHandle}`) in `bcStack` so numbers never
-   heap-allocate inside compiled code. This is the QuickJS "0 allocs per
-   iteration" property and the single biggest remaining lever — but it
-   only pays once phases 1–2 exist to host it.
+5. **Value representation** — DONE. Tagged slots, laid out as parallel
+   lanes rather than a slot struct: `bcTags:[int]` (0 REF / 1 NUMBER /
+   2 BOOLEAN / 3 UNDEFINED / 4 NULL), `bcNums:[double]`, with `bcStack`
+   as the REF lane. Numbers and booleans flow between compiled ops as
+   raw doubles; an EvHandle is minted only where a value crosses into
+   walker territory (`bcSlotBox`) and walker results unbox on the way
+   in (`bcSlotPut`). Numeric literals ride a per-program `constNums`
+   double pool (`push_dnum`, op 3) instead of interned value objects.
+   The invariant that makes the inline nullish equality sound: a tag-0
+   slot never holds a number/boolean/undefined/null handle — bcSlotPut
+   unboxes all four. Fixed-work results (10 reps/process, best of 3,
+   identical outputs, same machine): C++ `loop` 55→21 ms, `strcat`
+   26→18 ms, `array` 257→228 ms, `fib` 132→121 ms; Rust `loop`
+   103→22 ms, `strcat` 42→22 ms, `array` 338→274 ms, `fib` 148→121 ms.
+   `object`/`method` rows are flat — they are bound by property-map and
+   dispatch machinery, not value minting — which is why Richards and
+   DeltaBlue scores do not move. Conformance: es6 1281/1281 with the
+   tier on; C++ and Rust native failure sets bit-identical to the
+   pre-phase-5 build. The remaining allocation in compiled code is the
+   call boundary (args/results box through `callFnValueWithValues`),
+   which is the next lever: a compiled→compiled call that passes slots
+   directly.
 
 ## Testing discipline
 

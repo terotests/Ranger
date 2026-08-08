@@ -752,6 +752,10 @@ class BcProgram {
     def ops:[int]
     def args:[int]
     def atoms:[string]
+    ; Double constants for push_dnum (op 3): literals the operand itself
+    ; cannot carry (fractions, negatives after folding, ints >= 4096). The
+    ; VM reads the double straight into a number slot -- no value object.
+    def constNums:[double]
     def localNames:[string]
     ; slot -> proven-unshared (the walker's slot escape scan): licenses the
     ; in-place string append on addput_loc
@@ -1006,6 +1010,19 @@ class ComponentEngine {
     def bcPrograms:[BcProgram]
     def bcStack:[EvHandle]
     def bcSp:int 0
+    ; Phase 5 (BYTECODE.md): tagged slots. A VM slot i is (bcTags[i], payload):
+    ;   tag 0 = REF        -> the EvHandle in bcStack[i]
+    ;   tag 1 = NUMBER     -> the double in bcNums[i]
+    ;   tag 2 = BOOLEAN    -> bcNums[i] is 0.0 / 1.0
+    ;   tag 3 = UNDEFINED, tag 4 = NULL (no payload)
+    ; Numbers and booleans flowing between compiled ops never touch the value
+    ; heap; an EvHandle is minted only where a value crosses into walker
+    ; territory (calls, member helpers, outer names, the return value).
+    ; INVARIANT: a tag-0 slot never holds an undefined/null/number/boolean
+    ; handle -- bcSlotPut unboxes those to their tags -- which is what makes
+    ; the inline nullish equality in the VM sound.
+    def bcTags:[int]
+    def bcNums:[double]
 
     ; Cursor state for the recursive-descent JSON.parse (jsonParseValue advances
     ; jsonPos over jsonSrc). Only valid during a JSON.parse call.
@@ -8693,11 +8710,13 @@ class ComponentEngine {
                     }
                 }
             }
-            def numPool:EvalConstPool (EvalConstPool.__singleton())
-            if (node.numCacheId < 0) {
-                node.numCacheId = (numPool.addLiteral((EvValueBridge.taggedNumber(nv))))
-            }
-            prog.emit(1 node.numCacheId 1 0)
+            ; push_dnum: the double rides the program's own constant pool and
+            ; lands straight in a number slot -- no interned value object.
+            ; The index is a separate local so the emit call's receiver
+            ; borrow does not overlap the pool read on Rust.
+            push prog.constNums nv
+            def dnumIdx:int ((array_length prog.constNums) - 1)
+            prog.emit(3 dnumIdx 1 0)
             return true
         }
         if (k == 1) {
@@ -9188,19 +9207,82 @@ class ComponentEngine {
         return (this.throwSpecError("TypeError" (methodName + " is not a function")))
     }
 
+    ; Mint an EvHandle for the slot at i -- the walker boundary. Small ints
+    ; and the singleton undefined/null/booleans come from the pool, so boxing
+    ; a loop counter or a flag allocates nothing.
+    fn bcSlotBox:EvHandle (i:int) {
+        def t:int (itemAt bcTags i)
+        if (t == 1) {
+            return (EvHandle.number((itemAt bcNums i)))
+        }
+        if (t == 0) {
+            return (itemAt bcStack i)
+        }
+        if (t == 2) {
+            return (EvHandle.boolean(((itemAt bcNums i) != 0.0)))
+        }
+        if (t == 3) {
+            return (EvHandle.undefined())
+        }
+        return (EvHandle.null())
+    }
+    ; Store a walker-produced value into the slot at i, unboxing the
+    ; primitives the fast paths read unboxed. Everything else keeps the
+    ; handle under tag 0. Every write of a handle into a slot MUST go
+    ; through here (or set the tag itself) -- a stale tag reads the wrong
+    ; lane.
+    fn bcSlotPut:void (i:int h:EvHandle) {
+        if (h.isNumber()) {
+            set bcTags i 1
+            set bcNums i h.numberValue
+            return
+        }
+        if (h.isBoolean()) {
+            set bcTags i 2
+            if (h.boolOf()) {
+                set bcNums i 1.0
+            } {
+                set bcNums i 0.0
+            }
+            return
+        }
+        if (h.isUndefined()) {
+            set bcTags i 3
+            return
+        }
+        if (h.isNull()) {
+            set bcTags i 4
+            return
+        }
+        set bcTags i 0
+        set bcStack i h
+    }
+
     fn runBytecode:EvHandle (prog:BcProgram argVals:[EvHandle] outer:EvalContext thisVal:EvHandle) {
         def base:int bcSp
         def needTop:int ((base + prog.localCount) + prog.stackSize)
+        ; The three lanes grow independently so their lengths can never
+        ; drift apart -- a shared loop conditioned on one array's length
+        ; would silently misalign the others if anything ever grew one.
         while ((array_length bcStack) < needTop) {
             push bcStack (EvValueBridge.taggedUndefined())
+        }
+        while ((array_length bcTags) < needTop) {
+            push bcTags 3
+        }
+        while ((array_length bcNums) < needTop) {
+            push bcNums 0.0
         }
         def na:int (array_length argVals)
         def li:int 0
         while (li < prog.localCount) {
             if ((li < prog.paramCount) && (li < na)) {
-                set bcStack (base + li) (itemAt argVals li)
+                ; a number argument becomes a raw slot double here; the callee
+                ; sees a snapshot, which IS the by-value semantics of an
+                ; argument
+                this.bcSlotPut((base + li) (itemAt argVals li))
             } {
-                set bcStack (base + li) (EvValueBridge.taggedUndefined())
+                set bcTags (base + li) 3
             }
             li = (li + 1)
         }
@@ -9229,61 +9311,187 @@ class ComponentEngine {
             def a:int (itemAt prog.args pc)
             pc = (pc + 1)
             if (op == 8) {
-                set bcStack sp (itemAt bcStack (base + a))
+                def t8:int (itemAt bcTags (base + a))
+                set bcTags sp t8
+                if (t8 == 0) {
+                    set bcStack sp (itemAt bcStack (base + a))
+                } {
+                    set bcNums sp (itemAt bcNums (base + a))
+                }
                 sp = (sp + 1)
                 continue
             }
             if (op == 12) {
-                def r12:EvHandle (itemAt bcStack (sp - 1))
-                def l12:EvHandle (itemAt bcStack (sp - 2))
+                def lt12:int (itemAt bcTags (sp - 2))
+                def rt12:int (itemAt bcTags (sp - 1))
                 sp = (sp - 1)
-                if ((l12.isNumber()) && (r12.isNumber())) {
+                if ((lt12 == 1) && (rt12 == 1)) {
+                    ; both slots hold raw doubles: the whole operation stays
+                    ; in the number lane. Result tag: NUM ops leave the lhs
+                    ; tag (already 1); compare/equality ops write 2.
+                    def lv12:double (itemAt bcNums (sp - 1))
+                    def rv12:double (itemAt bcNums sp)
                     if (a == 20) {
-                        set bcStack (sp - 1) (EvValueBridge.taggedNumber((l12.numberValue + r12.numberValue)))
+                        set bcNums (sp - 1) (lv12 + rv12)
                         continue
                     }
                     if (a == 26) {
-                        set bcStack (sp - 1) (EvValueBridge.taggedBoolean((l12.numberValue < r12.numberValue)))
+                        set bcTags (sp - 1) 2
+                        if (lv12 < rv12) {
+                            set bcNums (sp - 1) 1.0
+                        } {
+                            set bcNums (sp - 1) 0.0
+                        }
                         continue
                     }
                     if (a == 21) {
-                        set bcStack (sp - 1) (EvValueBridge.taggedNumber((l12.numberValue - r12.numberValue)))
+                        set bcNums (sp - 1) (lv12 - rv12)
                         continue
                     }
                     if (a == 27) {
-                        set bcStack (sp - 1) (EvValueBridge.taggedBoolean((l12.numberValue > r12.numberValue)))
+                        set bcTags (sp - 1) 2
+                        if (lv12 > rv12) {
+                            set bcNums (sp - 1) 1.0
+                        } {
+                            set bcNums (sp - 1) 0.0
+                        }
                         continue
                     }
                     if (a == 28) {
-                        set bcStack (sp - 1) (EvValueBridge.taggedBoolean((l12.numberValue <= r12.numberValue)))
+                        set bcTags (sp - 1) 2
+                        if (lv12 <= rv12) {
+                            set bcNums (sp - 1) 1.0
+                        } {
+                            set bcNums (sp - 1) 0.0
+                        }
                         continue
                     }
                     if (a == 29) {
-                        set bcStack (sp - 1) (EvValueBridge.taggedBoolean((l12.numberValue >= r12.numberValue)))
+                        set bcTags (sp - 1) 2
+                        if (lv12 >= rv12) {
+                            set bcNums (sp - 1) 1.0
+                        } {
+                            set bcNums (sp - 1) 0.0
+                        }
                         continue
                     }
                     if (a == 22) {
-                        set bcStack (sp - 1) (EvValueBridge.taggedNumber((l12.numberValue * r12.numberValue)))
+                        set bcNums (sp - 1) (lv12 * rv12)
+                        continue
+                    }
+                    if (a == 23) {
+                        ; mirror applyBinaryOp's zero-divisor form exactly:
+                        ; lv * (1/rv) keeps the SIGN of a zero divisor
+                        if (rv12 == 0.0) {
+                            set bcNums (sp - 1) (lv12 * (1.0 / rv12))
+                        } {
+                            set bcNums (sp - 1) (lv12 / rv12)
+                        }
+                        continue
+                    }
+                    if ((a == 30) || (a == 32)) {
+                        ; ==/=== on two numbers are the same double compare;
+                        ; NaN != NaN and -0 == 0 both fall out of IEEE
+                        set bcTags (sp - 1) 2
+                        if (lv12 == rv12) {
+                            set bcNums (sp - 1) 1.0
+                        } {
+                            set bcNums (sp - 1) 0.0
+                        }
+                        continue
+                    }
+                    if ((a == 31) || (a == 33)) {
+                        set bcTags (sp - 1) 2
+                        if (lv12 == rv12) {
+                            set bcNums (sp - 1) 0.0
+                        } {
+                            set bcNums (sp - 1) 1.0
+                        }
                         continue
                     }
                 }
-                set bcStack (sp - 1) (this.applyBinaryOp(a l12 r12))
+                if ((a >= 30) && (a <= 33)) {
+                    ; Equality with a known answer without touching a handle.
+                    ; Sound because tag-0 never holds a nullish handle (the
+                    ; bcSlotPut invariant): a nullish tag against ANY other
+                    ; tag -- number, boolean or reference -- is not equal,
+                    ; and two nullish tags compare by nullish rules.
+                    def eqKnown12:boolean false
+                    def eqVal12:boolean false
+                    if ((lt12 == 2) && (rt12 == 2)) {
+                        eqKnown12 = true
+                        eqVal12 = ((itemAt bcNums (sp - 1)) == (itemAt bcNums sp))
+                    }
+                    if ((lt12 >= 3) && (rt12 >= 3)) {
+                        eqKnown12 = true
+                        if ((a == 30) || (a == 31)) {
+                            eqVal12 = true
+                        } {
+                            eqVal12 = (lt12 == rt12)
+                        }
+                    }
+                    if (((lt12 >= 3) && (rt12 < 3)) || ((rt12 >= 3) && (lt12 < 3))) {
+                        eqKnown12 = true
+                        eqVal12 = false
+                    }
+                    if eqKnown12 {
+                        if ((a == 31) || (a == 33)) {
+                            eqVal12 = (eqVal12 == false)
+                        }
+                        set bcTags (sp - 1) 2
+                        if eqVal12 {
+                            set bcNums (sp - 1) 1.0
+                        } {
+                            set bcNums (sp - 1) 0.0
+                        }
+                        continue
+                    }
+                }
+                def l12:EvHandle (this.bcSlotBox((sp - 1)))
+                def r12:EvHandle (this.bcSlotBox(sp))
+                def o12:EvHandle (this.applyBinaryOp(a l12 r12))
                 if scriptThrew {
                     bcSp = base
                     return (EvValueBridge.taggedUndefined())
                 }
+                this.bcSlotPut((sp - 1) o12)
                 continue
             }
             if (op == 16) {
                 sp = (sp - 1)
-                def c16:EvHandle (itemAt bcStack sp)
-                if ((c16.toBool()) == false) {
-                    pc = a
+                def t16:int (itemAt bcTags sp)
+                if (t16 == 2) {
+                    if ((itemAt bcNums sp) == 0.0) {
+                        pc = a
+                    }
+                    continue
                 }
+                if (t16 == 1) {
+                    def n16:double (itemAt bcNums sp)
+                    if ((n16 == 0.0) || (n16 != n16)) {
+                        pc = a
+                    }
+                    continue
+                }
+                if (t16 == 0) {
+                    if (((itemAt bcStack sp).toBool()) == false) {
+                        pc = a
+                    }
+                    continue
+                }
+                ; undefined and null are falsy
+                pc = a
                 continue
             }
             if (op == 2) {
-                set bcStack sp (EvHandle.fromInt(a))
+                set bcTags sp 1
+                set bcNums sp (to_double a)
+                sp = (sp + 1)
+                continue
+            }
+            if (op == 3) {
+                set bcTags sp 1
+                set bcNums sp (itemAt prog.constNums a)
                 sp = (sp + 1)
                 continue
             }
@@ -9293,10 +9501,10 @@ class ComponentEngine {
                 def cargs:[EvHandle]
                 def ci:int 0
                 while (ci < argc) {
-                    push cargs (itemAt bcStack ((fnPos + 1) + ci))
+                    push cargs (this.bcSlotBox(((fnPos + 1) + ci)))
                     ci = (ci + 1)
                 }
-                def fnv:EvHandle (itemAt bcStack fnPos)
+                def fnv:EvHandle (this.bcSlotBox(fnPos))
                 bcSp = needTop
                 def cres:EvHandle (this.callFnValueWithValues(fnv cargs))
                 bcSp = base
@@ -9309,13 +9517,19 @@ class ComponentEngine {
                     ; cleared its own flag, so seeing it here means bail.
                     scriptDidReturn = false
                 }
-                set bcStack fnPos cres
+                this.bcSlotPut(fnPos cres)
                 sp = (fnPos + 1)
                 continue
             }
             if (op == 9) {
                 sp = (sp - 1)
-                set bcStack (base + a) (itemAt bcStack sp)
+                def t9:int (itemAt bcTags sp)
+                set bcTags (base + a) t9
+                if (t9 == 0) {
+                    set bcStack (base + a) (itemAt bcStack sp)
+                } {
+                    set bcNums (base + a) (itemAt bcNums sp)
+                }
                 continue
             }
             if (op == 15) {
@@ -9328,36 +9542,38 @@ class ComponentEngine {
                 continue
             }
             if (op == 23) {
-                def v23:EvHandle (itemAt bcStack (base + a))
-                if (v23.isNumber()) {
-                    set bcStack (base + a) (EvValueBridge.taggedNumber((v23.numberValue + 1.0)))
+                if ((itemAt bcTags (base + a)) == 1) {
+                    set bcNums (base + a) ((itemAt bcNums (base + a)) + 1.0)
                     continue
                 }
+                def v23:EvHandle (this.bcSlotBox((base + a)))
                 def n23:double (this.toNumberOf(v23))
                 if scriptThrew {
                     bcSp = base
                     return (EvValueBridge.taggedUndefined())
                 }
-                set bcStack (base + a) (EvValueBridge.taggedNumber((n23 + 1.0)))
+                set bcTags (base + a) 1
+                set bcNums (base + a) (n23 + 1.0)
                 continue
             }
             if (op == 24) {
-                def v24:EvHandle (itemAt bcStack (base + a))
-                if (v24.isNumber()) {
-                    set bcStack (base + a) (EvValueBridge.taggedNumber((v24.numberValue - 1.0)))
+                if ((itemAt bcTags (base + a)) == 1) {
+                    set bcNums (base + a) ((itemAt bcNums (base + a)) - 1.0)
                     continue
                 }
+                def v24:EvHandle (this.bcSlotBox((base + a)))
                 def n24:double (this.toNumberOf(v24))
                 if scriptThrew {
                     bcSp = base
                     return (EvValueBridge.taggedUndefined())
                 }
-                set bcStack (base + a) (EvValueBridge.taggedNumber((n24 - 1.0)))
+                set bcTags (base + a) 1
+                set bcNums (base + a) (n24 - 1.0)
                 continue
             }
             if (op == 18) {
                 sp = (sp - 1)
-                result = (itemAt bcStack sp)
+                result = (this.bcSlotBox(sp))
                 pc = n
                 continue
             }
@@ -9368,7 +9584,7 @@ class ComponentEngine {
             }
             if (op == 1) {
                 def lp1:EvalConstPool (EvalConstPool.__singleton())
-                set bcStack sp (lp1.literalAt(a))
+                this.bcSlotPut(sp (lp1.literalAt(a)))
                 sp = (sp + 1)
                 continue
             }
@@ -9376,7 +9592,7 @@ class ComponentEngine {
                 def nm10:string (itemAt prog.atoms a)
                 def hit10@(optional):EvHandle (outer.tryLookup(nm10))
                 if hit10 {
-                    set bcStack sp (unwrap hit10)
+                    this.bcSlotPut(sp (unwrap hit10))
                     sp = (sp + 1)
                     continue
                 }
@@ -9390,20 +9606,42 @@ class ComponentEngine {
                     bcSp = base
                     return (EvValueBridge.taggedUndefined())
                 }
-                set bcStack sp mv10
+                this.bcSlotPut(sp mv10)
                 sp = (sp + 1)
                 continue
             }
             if (op == 17) {
                 sp = (sp - 1)
-                def c17:EvHandle (itemAt bcStack sp)
-                if (c17.toBool()) {
-                    pc = a
+                def t17:int (itemAt bcTags sp)
+                if (t17 == 2) {
+                    if ((itemAt bcNums sp) != 0.0) {
+                        pc = a
+                    }
+                    continue
+                }
+                if (t17 == 1) {
+                    def n17:double (itemAt bcNums sp)
+                    if ((n17 != 0.0) && (n17 == n17)) {
+                        pc = a
+                    }
+                    continue
+                }
+                if (t17 == 0) {
+                    if ((itemAt bcStack sp).toBool()) {
+                        pc = a
+                    }
+                    continue
                 }
                 continue
             }
             if (op == 21) {
-                set bcStack sp (itemAt bcStack (sp - 1))
+                def t21:int (itemAt bcTags (sp - 1))
+                set bcTags sp t21
+                if (t21 == 0) {
+                    set bcStack sp (itemAt bcStack (sp - 1))
+                } {
+                    set bcNums sp (itemAt bcNums (sp - 1))
+                }
                 sp = (sp + 1)
                 continue
             }
@@ -9412,69 +9650,108 @@ class ComponentEngine {
                 continue
             }
             if (op == 13) {
-                def v13:EvHandle (itemAt bcStack (sp - 1))
-                if (v13.isNumber()) {
-                    set bcStack (sp - 1) (EvValueBridge.taggedNumber((v13.numberValue * (0.0 - 1.0))))
+                if ((itemAt bcTags (sp - 1)) == 1) {
+                    ; multiply, not subtract-from-zero: -(0) must be -0
+                    set bcNums (sp - 1) ((itemAt bcNums (sp - 1)) * (0.0 - 1.0))
                     continue
                 }
+                def v13:EvHandle (this.bcSlotBox((sp - 1)))
                 def n13:double (this.toNumberOf(v13))
                 if scriptThrew {
                     bcSp = base
                     return (EvValueBridge.taggedUndefined())
                 }
-                set bcStack (sp - 1) (EvValueBridge.taggedNumber((n13 * (0.0 - 1.0))))
+                set bcTags (sp - 1) 1
+                set bcNums (sp - 1) (n13 * (0.0 - 1.0))
                 continue
             }
             if (op == 14) {
-                def v14:EvHandle (itemAt bcStack (sp - 1))
-                set bcStack (sp - 1) (EvValueBridge.taggedBoolean(((v14.toBool()) == false)))
+                def t14:int (itemAt bcTags (sp - 1))
+                def tr14:boolean false
+                if (t14 == 2) {
+                    tr14 = ((itemAt bcNums (sp - 1)) != 0.0)
+                }
+                if (t14 == 1) {
+                    def n14:double (itemAt bcNums (sp - 1))
+                    tr14 = ((n14 != 0.0) && (n14 == n14))
+                }
+                if (t14 == 0) {
+                    tr14 = ((itemAt bcStack (sp - 1)).toBool())
+                }
+                set bcTags (sp - 1) 2
+                if tr14 {
+                    set bcNums (sp - 1) 0.0
+                } {
+                    set bcNums (sp - 1) 1.0
+                }
                 continue
             }
             if (op == 25) {
-                def v25:EvHandle (itemAt bcStack (sp - 1))
-                if (v25.isNumber()) {
+                def t25:int (itemAt bcTags (sp - 1))
+                if (t25 == 1) {
                     continue
                 }
+                if (t25 == 2) {
+                    ; the boolean lane already holds 0/1, the very doubles
+                    ; ToNumber produces
+                    set bcTags (sp - 1) 1
+                    continue
+                }
+                if (t25 == 3) {
+                    set bcTags (sp - 1) 1
+                    set bcNums (sp - 1) (0.0 / 0.0)
+                    continue
+                }
+                if (t25 == 4) {
+                    set bcTags (sp - 1) 1
+                    set bcNums (sp - 1) 0.0
+                    continue
+                }
+                def v25:EvHandle (itemAt bcStack (sp - 1))
                 def n25:double (this.toNumberOf(v25))
                 if scriptThrew {
                     bcSp = base
                     return (EvValueBridge.taggedUndefined())
                 }
-                set bcStack (sp - 1) (EvValueBridge.taggedNumber(n25))
+                set bcTags (sp - 1) 1
+                set bcNums (sp - 1) n25
                 continue
             }
             if (op == 4) {
-                set bcStack sp (EvValueBridge.taggedUndefined())
+                set bcTags sp 3
                 sp = (sp + 1)
                 continue
             }
             if (op == 5) {
-                set bcStack sp (EvValueBridge.taggedNull())
+                set bcTags sp 4
                 sp = (sp + 1)
                 continue
             }
             if (op == 6) {
-                set bcStack sp (EvValueBridge.taggedBoolean(true))
+                set bcTags sp 2
+                set bcNums sp 1.0
                 sp = (sp + 1)
                 continue
             }
             if (op == 7) {
-                set bcStack sp (EvValueBridge.taggedBoolean(false))
+                set bcTags sp 2
+                set bcNums sp 0.0
                 sp = (sp + 1)
                 continue
             }
             if (op == 30) {
-                def o30:EvHandle (itemAt bcStack (sp - 1))
-                set bcStack (sp - 1) (this.bcGetField(o30 (itemAt prog.atoms a)))
+                def o30:EvHandle (this.bcSlotBox((sp - 1)))
+                def f30:EvHandle (this.bcGetField(o30 (itemAt prog.atoms a)))
                 if scriptThrew {
                     bcSp = base
                     return (EvValueBridge.taggedUndefined())
                 }
+                this.bcSlotPut((sp - 1) f30)
                 continue
             }
             if (op == 31) {
-                def v31:EvHandle (itemAt bcStack (sp - 1))
-                def o31:EvHandle (itemAt bcStack (sp - 2))
+                def v31:EvHandle (this.bcSlotBox((sp - 1)))
+                def o31:EvHandle (this.bcSlotBox((sp - 2)))
                 sp = (sp - 2)
                 this.bcPutField(o31 (itemAt prog.atoms a) v31)
                 if scriptThrew {
@@ -9490,35 +9767,36 @@ class ComponentEngine {
                 def mArgs:[EvHandle]
                 def mi:int 0
                 while (mi < mArgc) {
-                    push mArgs (itemAt bcStack ((mFnPos + 1) + mi))
+                    push mArgs (this.bcSlotBox(((mFnPos + 1) + mi)))
                     mi = (mi + 1)
                 }
-                def mObj:EvHandle (itemAt bcStack mFnPos)
+                def mObj:EvHandle (this.bcSlotBox(mFnPos))
                 bcSp = needTop
                 def mRes:EvHandle (this.bcCallMethod(mObj (itemAt prog.atoms mAtom) mArgs))
                 bcSp = base
                 if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
                 }
-                set bcStack mFnPos mRes
+                this.bcSlotPut(mFnPos mRes)
                 sp = (mFnPos + 1)
                 continue
             }
             if (op == 33) {
-                def k33:EvHandle (itemAt bcStack (sp - 1))
-                def o33:EvHandle (itemAt bcStack (sp - 2))
+                def k33:EvHandle (this.bcSlotBox((sp - 1)))
+                def o33:EvHandle (this.bcSlotBox((sp - 2)))
                 sp = (sp - 1)
-                set bcStack (sp - 1) (this.bcGetElem(o33 k33))
+                def e33:EvHandle (this.bcGetElem(o33 k33))
                 if scriptThrew {
                     bcSp = base
                     return (EvValueBridge.taggedUndefined())
                 }
+                this.bcSlotPut((sp - 1) e33)
                 continue
             }
             if (op == 34) {
-                def v34:EvHandle (itemAt bcStack (sp - 1))
-                def k34:EvHandle (itemAt bcStack (sp - 2))
-                def o34:EvHandle (itemAt bcStack (sp - 3))
+                def v34:EvHandle (this.bcSlotBox((sp - 1)))
+                def k34:EvHandle (this.bcSlotBox((sp - 2)))
+                def o34:EvHandle (this.bcSlotBox((sp - 3)))
                 sp = (sp - 3)
                 this.bcPutElem(o34 k34 v34)
                 if scriptThrew {
@@ -9533,10 +9811,11 @@ class ComponentEngine {
                 def items36:[EvHandle]
                 def ii36:int 0
                 while (ii36 < cnt36) {
-                    push items36 (itemAt bcStack (base36 + ii36))
+                    push items36 (this.bcSlotBox((base36 + ii36)))
                     ii36 = (ii36 + 1)
                 }
                 sp = base36
+                set bcTags sp 0
                 set bcStack sp (EvValueBridge.taggedArray(items36))
                 sp = (sp + 1)
                 continue
@@ -9544,6 +9823,7 @@ class ComponentEngine {
             if (op == 37) {
                 def ok37:[string]
                 def ov37:[EvHandle]
+                set bcTags sp 0
                 set bcStack sp (EvValueBridge.taggedObject(ok37 ov37))
                 sp = (sp + 1)
                 continue
@@ -9552,37 +9832,45 @@ class ComponentEngine {
                 ; bind first: the register is pushed many times per run, and
                 ; Rust would MOVE a bare parameter on the first push
                 def tv38:EvHandle thisVal
-                set bcStack sp tv38
+                this.bcSlotPut(sp tv38)
                 sp = (sp + 1)
                 continue
             }
             if (op == 35) {
                 def slot35:int (idiv a 2)
                 def own35:int (bit_and a 1)
-                def x35:EvHandle (itemAt bcStack (sp - 1))
+                def st35:int (itemAt bcTags (base + slot35))
+                def xt35:int (itemAt bcTags (sp - 1))
                 sp = (sp - 1)
-                def c35:EvHandle (itemAt bcStack (base + slot35))
-                if ((c35.isNumber()) && (x35.isNumber())) {
-                    set bcStack (base + slot35) (EvValueBridge.taggedNumber((c35.numberValue + x35.numberValue)))
+                if ((st35 == 1) && (xt35 == 1)) {
+                    set bcNums (base + slot35) ((itemAt bcNums (base + slot35)) + (itemAt bcNums sp))
                     continue
                 }
-                if ((own35 == 1) && ((c35.isString()) && (x35.isString()))) {
-                    ; in-place append, mirroring the walker's slot rule: write
-                    ; through only a handle this slot MINTED, else mint one
-                    if c35.slotOwned {
-                        c35.strSlotAppend((x35.stringOf()))
+                if ((own35 == 1) && ((st35 == 0) && (xt35 == 0))) {
+                    def c35:EvHandle (itemAt bcStack (base + slot35))
+                    def x35:EvHandle (itemAt bcStack sp)
+                    if ((c35.isString()) && (x35.isString())) {
+                        ; in-place append, mirroring the walker's slot rule:
+                        ; write through only a handle this slot MINTED, else
+                        ; mint one
+                        if c35.slotOwned {
+                            c35.strSlotAppend((x35.stringOf()))
+                            continue
+                        }
+                        def f35:EvHandle (EvHandle.string(((c35.stringOf()) + (x35.stringOf()))))
+                        f35.slotOwned = true
+                        set bcStack (base + slot35) f35
                         continue
                     }
-                    def f35:EvHandle (EvHandle.string(((c35.stringOf()) + (x35.stringOf()))))
-                    f35.slotOwned = true
-                    set bcStack (base + slot35) f35
-                    continue
                 }
-                set bcStack (base + slot35) (this.applyBinaryOp(20 c35 x35))
+                def cb35:EvHandle (this.bcSlotBox((base + slot35)))
+                def xb35:EvHandle (this.bcSlotBox(sp))
+                def r35:EvHandle (this.applyBinaryOp(20 cb35 xb35))
                 if scriptThrew {
                     bcSp = base
                     return (EvValueBridge.taggedUndefined())
                 }
+                this.bcSlotPut((base + slot35) r35)
                 continue
             }
         }
