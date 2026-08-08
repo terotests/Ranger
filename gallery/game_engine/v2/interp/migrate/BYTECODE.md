@@ -12,10 +12,14 @@ inline cache: the op-20 guard ladder runs once per (site, function
 identity) — every laddered property except the mutable
 `__fnprotocall__` own-data marker is immutable on a function value,
 and that one is re-probed on every hit. Fixed work: C++ fib
-105→79 ms, Rust 107→86 ms; member-heavy bodies that newly compile
-(splay's tree walk) run within a few percent of their walker versions
-— the VM's member ops lack the walker's node-level memos, which is the
-next lever. The plan below is
+105→79 ms, Rust 107→86 ms. The member-op follow-up landed too:
+`memberFastAt`/`chainAccessorFreeAt` fuse the accessor probe and the
+data walk into one bag-level chain pass (the bag holds its prototype,
+so no per-link wrapper mints), guarded by the monotone
+`everHadAccessor` flag; ops 30/31 run it inline. C++ richards
+−21% interleaved. Remaining levers: property-name interning (atom →
+pointer-compare map keys) and shape/slot-offset storage — both
+backend-level redesigns. The plan below is
 kept as written; the phase list at the bottom records what each landed
 phase measured. Originally written after the PR #541 optimization rounds
 took the C++ tree-walker from 63× to ~12× of QuickJS on

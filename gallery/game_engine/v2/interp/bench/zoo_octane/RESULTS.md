@@ -385,6 +385,30 @@ Rust native failure sets unchanged (36+2 and 15+2, all pre-existing;
 the two `crash` entries are an old `std::out_of_range` on
 Number.MAX_VALUE probes that predates this branch).
 
+## Bytecode tier: fused member ops (2026-08-08)
+
+The member-op lever the long-tail write-up pointed at. A plain member
+access used to walk the prototype chain up to three times —
+`findGetter` per link, `getMember` per link, and a wrapper handle
+minted per link step — each link paying a by-value union copy. The
+property bag carries its own prototype, so `memberFastAt` /
+`chainAccessorFreeAt` (EvHandle) now do the whole read or write gate
+in ONE bag-level pass: per link, a monotone `everHadAccessor` flag
+check and one hash probe, no wrapper mints. Anything off the plain
+path — non-object receivers or links, any bag that ever defined an
+accessor — answers a sentinel and takes the full machinery unchanged.
+Wired into ops 30/31 inline (no helper call, no bcSp bracket on the
+hot case), the get_elem/method funnels, and method resolution.
+
+Fixed work, C++, interleaved against the long-tail build:
+**richards 6.74 → 5.31 s (−21%)** — the scheduler is exactly
+member-traffic — with splay-kernel −3% (recovering the long-tail
+round's cost), `object` −7%, `method`/`fib` flat. Rust numbers move
+the same direction (not interleaved; the container's speed shifted
+between batches, so only interleaved pairs are comparable).
+Conformance: es6 1317/1317; C++ 1255+36+2 and Rust 1276+15+2,
+failure sets unchanged.
+
 ## Splay: the C++-only spin, resolved (2026-08-07)
 
 The long-standing "C++-only splay spin" was **not** the tree, the rotations,

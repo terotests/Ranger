@@ -9511,6 +9511,12 @@ class ComponentEngine {
                 return (EvHandle.fromInt((obj.denseLen())))
             }
         }
+        ; fused plain read first (covers the get_elem / method funnels; the
+        ; op-30 body already tried it for direct member reads)
+        def fmg:EvHandle (obj.memberFastAt(name))
+        if (false == (fmg.isHole())) {
+            return fmg
+        }
         def g:EvHandle (this.resolveGetterOn(obj name))
         if (g.isFunction()) {
             if (g.hasFunctionNode()) {
@@ -9575,6 +9581,10 @@ class ComponentEngine {
                 def _wt:EvHandle (this.throwSpecError("TypeError" ("Cannot set properties of " + (wDesc + (" (setting '" + (name + "')"))))))
                 return
             }
+        }
+        if (obj.chainAccessorFreeAt()) {
+            obj.setMember(name v)
+            return
         }
         def st:EvHandle (this.resolveSetterOn(obj name))
         if (st.isFunction()) {
@@ -10518,6 +10528,15 @@ class ComponentEngine {
                 continue
             }
             if (op == 30) {
+                if ((itemAt bcTags (sp - 1)) == 0) {
+                    ; fused plain read: object receiver, accessor-free chain
+                    ; -- no helper call, no bracket, no getter probe
+                    def fm30:EvHandle ((itemAt bcStack (sp - 1)).memberFastAt((itemAt prog.atoms a)))
+                    if (false == (fm30.isHole())) {
+                        this.bcSlotPut((sp - 1) fm30)
+                        continue
+                    }
+                }
                 def o30:EvHandle (this.bcSlotBox((sp - 1)))
                 ; a GETTER (and any proto-chain trap) is user code: compiled
                 ; frames it starts must base above this frame's live slots
@@ -10540,6 +10559,17 @@ class ComponentEngine {
                 continue
             }
             if (op == 31) {
+                if ((itemAt bcTags (sp - 2)) == 0) {
+                    ; fused plain write: accessor-free object chain means the
+                    ; assignment is an own-data store
+                    def oh31:EvHandle (itemAt bcStack (sp - 2))
+                    if (oh31.chainAccessorFreeAt()) {
+                        def vf31:EvHandle (this.bcSlotBox((sp - 1)))
+                        oh31.setMember((itemAt prog.atoms a) vf31)
+                        sp = (sp - 2)
+                        continue
+                    }
+                }
                 def v31:EvHandle (this.bcSlotBox((sp - 1)))
                 def o31:EvHandle (this.bcSlotBox((sp - 2)))
                 sp = (sp - 2)
@@ -11145,7 +11175,10 @@ class ComponentEngine {
                 return (0 - 1)
             }
         }
-        def m:EvHandle (obj.getMember(mName))
+        def m:EvHandle (obj.memberFastAt(mName))
+        if (m.isHole()) {
+            m = (obj.getMember(mName))
+        }
         if (m.isBuiltinStatic()) {
             ; bcCallMethod's first branch, without a second getMember: an
             ; invocable static runs here; a non-invocable one is the rare

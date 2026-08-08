@@ -2072,6 +2072,73 @@ class EvHandle {
         return 0
     }
 
+    ; One-pass plain member READ for the VM's member ops: an OBJECT
+    ; receiver whose chain never defined an accessor answers directly --
+    ; own data, inherited data through object links, undefined on a miss
+    ; -- with a single case dispatch per link (the bag itself carries the
+    ; prototype, so no per-link wrapper mints). Answers the HOLE sentinel
+    ; when anything on the path needs the general machinery: a non-object
+    ; receiver or prototype link, or any bag that ever had an accessor.
+    ; hasData excludes Hole values, so the sentinel is unambiguous.
+    fn memberFastAt:EvHandle (key:string) {
+        case body o:EvalValue.Object {
+            def bag:EvPropertyBag o.properties
+            def depth:int 0
+            while (depth < 17) {
+                if bag.everHadAccessor {
+                    return (EvHandle.hole())
+                }
+                if (bag.hasData(key)) {
+                    return (EvHandle.fromBody((bag.getData(key))))
+                }
+                def pr:EvalValue bag.prototype
+                if (EvalValue.isHole(pr)) {
+                    return (EvHandle.undefined())
+                }
+                def stepped:boolean false
+                case pr po:EvalValue.Object {
+                    bag = po.properties
+                    stepped = true
+                }
+                if (false == stepped) {
+                    return (EvHandle.hole())
+                }
+                depth = (depth + 1)
+            }
+            return (EvHandle.hole())
+        }
+        return (EvHandle.hole())
+    }
+    ; The WRITE-side gate: true when the receiver is an object whose
+    ; whole chain is accessor-free, so an assignment is a plain own-data
+    ; store and the setter probe can be skipped.
+    fn chainAccessorFreeAt:boolean () {
+        case body o:EvalValue.Object {
+            def bag:EvPropertyBag o.properties
+            def depth:int 0
+            while (depth < 17) {
+                if bag.everHadAccessor {
+                    return false
+                }
+                def pr:EvalValue bag.prototype
+                if (EvalValue.isHole(pr)) {
+                    return true
+                }
+                def stepped:boolean false
+                case pr po:EvalValue.Object {
+                    bag = po.properties
+                    stepped = true
+                }
+                if (false == stepped) {
+                    return false
+                }
+                depth = (depth + 1)
+            }
+            return false
+        }
+        return false
+    }
+
     ; Dense numeric element read without a value object. Answers the number,
     ; or NaN when the element is NOT a number — the caller re-reads through
     ; arrayItemAt then, which also covers the (rare) genuine NaN element.
