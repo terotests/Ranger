@@ -153,4 +153,19 @@ describe("TS engine -> Go / Kotlin / Swift / Python / C# / Dart", () => {
     },
     900000
   );
+
+  it.skipIf(!hasTool("swiftc"))(
+    "the Swift 6 build runs and answers like JavaScript",
+    () => {
+      const { file } = compileEngine("swift6");
+      const dir = path.dirname(file);
+      const bin = path.join(dir, "engine_bench");
+      execFileSync("swiftc", ["-O", file, "-o", bin], {
+        encoding: "utf8",
+        maxBuffer: 64 * 1024 * 1024,
+      });
+      expectMatchesJavaScript(bin);
+    },
+    900000
+  );
 });

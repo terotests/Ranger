@@ -20235,6 +20235,40 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
           return tn;
         };
+        isSwiftValueCollection (nn) {
+          if ( nn.value_type == 6 ) {
+            return true;
+          }
+          if ( nn.value_type == 7 ) {
+            return true;
+          }
+          if ( nn.value_type == 16 ) {
+            return true;
+          }
+          if ( nn.value_type == 17 ) {
+            return true;
+          }
+          if ( nn.value_type == 18 ) {
+            return true;
+          }
+          if ( nn.value_type == 15 ) {
+            return true;
+          }
+          return false;
+        };
+        paramNeedsInout (arg) {
+          const nn = arg.nameNode;
+          if ( nn.hasFlag("mutates") ) {
+            return true;
+          }
+          if ( (arg.set_cnt > 0) && this.isSwiftValueCollection(nn) ) {
+            return true;
+          }
+          if ( (arg.set_cnt > 0) && (nn.type_name == "string") ) {
+            return true;
+          }
+          return false;
+        };
         writeSwiftUnionEnums (ctx, wr) {
           if ( this.swift_unions_written ) {
             return;
@@ -20350,7 +20384,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             case "buffer" : 
               return "[UInt8]";
             case "int_buffer" : 
-              return "[Int64]";
+              return "[Int]";
             case "double_buffer" : 
               return "[Double]";
             case "char" : 
@@ -20400,7 +20434,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             case "buffer" : 
               return "[UInt8]";
             case "int_buffer" : 
-              return "[Int64]";
+              return "[Int]";
             case "double_buffer" : 
               return "[Double]";
             case "char" : 
@@ -20473,7 +20507,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               wr.out("[UInt8]", false);
               break;
             case 17 : 
-              wr.out("[Int64]", false);
+              wr.out("[Int]", false);
               break;
             case 18 : 
               wr.out("[Double]", false);
@@ -20671,7 +20705,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( is_weak ) {
               wr.out(("weak var " + p.compiledName) + " : ", false);
             } else {
-              if ( (((p.set_cnt > 0) || p.is_class_variable) || (nn.value_type == 6)) || (nn.value_type == 7) ) {
+              if ( ((p.set_cnt > 0) || p.is_class_variable) || this.isSwiftValueCollection(nn) ) {
                 wr.out(("var " + p.compiledName) + " : ", false);
               } else {
                 wr.out(("let " + p.compiledName) + " : ", false);
@@ -20702,6 +20736,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 await this.writeTypeDef(p.nameNode, ctx, wr);
                 wr.out("()", false);
               }
+              if ( nn.hasFlag("optional") ) {
+                if ( (nn.value_type != 6) && (nn.value_type != 7) ) {
+                  wr.out(" = nil", false);
+                }
+              }
             }
             if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
               wr.out("     /** note: unused */", false);
@@ -20730,7 +20769,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( nn.value_type == 20 ) {
               wr.out("  @escaping  ", false);
             }
-            if ( nn.hasFlag("mutates") ) {
+            if ( this.paramNeedsInout(arg) ) {
               wr.out("inout ", false);
             }
             await this.writeTypeDef(arg.nameNode, ctx, wr);
@@ -20757,7 +20796,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 wr.out("  @escaping  ", false);
               }
             }
-            if ( nn.hasFlag("mutates") ) {
+            if ( this.paramNeedsInout(arg) || this.paramNeedsInout(local) ) {
               wr.out("inout ", false);
             }
             await this.writeTypeDef(arg.nameNode, ctx, wr);
@@ -20858,7 +20897,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( i < (mm.params.length) ) {
                   const pDesc = mm.params[i];
                   wr.out(pDesc.compiledName + " : ", false);
-                  if ( ((pDesc.nameNode)).hasFlag("mutates") ) {
+                  if ( this.paramNeedsInout(pDesc) ) {
                     wr.out("&", false);
                   }
                   await this.WalkNode(arg, ctx, wr);
@@ -20904,7 +20943,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
               const n = givenArgs.children[i];
               wr.out(arg.compiledName + " : ", false);
-              if ( ((arg.nameNode)).hasFlag("mutates") ) {
+              if ( this.paramNeedsInout(arg) ) {
                 wr.out("&", false);
               }
               if ( await this.swiftWriteUnionArg(arg, n, ctx, wr) ) {
@@ -21010,7 +21049,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   }
                   written = written + 1;
                   wr.out(arg.name + " : ", false);
-                  if ( ((arg.nameNode)).hasFlag("mutates") ) {
+                  if ( this.paramNeedsInout(arg) ) {
                     wr.out("&", false);
                   }
                   await this.WalkNode(n, ctx, wr);
@@ -21036,7 +21075,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
                 written_1 = written_1 + 1;
                 wr.out(arg_1.name + " : ", false);
-                if ( ((arg_1.nameNode)).hasFlag("mutates") ) {
+                if ( this.paramNeedsInout(arg_1) ) {
                   wr.out("&", false);
                 }
                 await this.WalkNode(n_1, ctx, wr);
@@ -21399,10 +21438,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               const theEnd = wr.getTag("file_end");
               theEnd.newline();
               theEnd.out("// Main entry point", true);
-              theEnd.out("@main", true);
-              theEnd.out("struct Main {", true);
-              theEnd.indent(1);
-              theEnd.out("static func main() {", true);
+              theEnd.out("func __main__swift() {", true);
               theEnd.indent(1);
               const subCtx_3 = variant_4.fnCtx;
               subCtx_3.is_function = true;
@@ -21413,8 +21449,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               theEnd.newline();
               theEnd.indent(-1);
               theEnd.out("}", true);
-              theEnd.indent(-1);
-              theEnd.out("}", true);
+              theEnd.out("__main__swift()", true);
+              if ( ctx.hasCompilerFlag("forever") ) {
+                theEnd.out("CFRunLoopRun()", true);
+              }
             }
           };
         };
