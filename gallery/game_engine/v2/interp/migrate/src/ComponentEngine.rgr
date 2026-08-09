@@ -1059,6 +1059,15 @@ class ComponentEngine {
     ; is the global object even under a strict program, so "am I inside a call"
     ; has to be answerable separately from "am I strict".
     def callDepth:int 0
+    ; ---- Generators (see makeGeneratorValue) -------------------------------
+    ; A yield appends to this buffer while a generator body runs. genDepth > 0
+    ; means "inside a generator body", which is what makes a bare `yield`
+    ; outside one still evaluate to undefined rather than corrupting a buffer.
+    def genCollect:[EvHandle]
+    def genDepth:int 0
+    ; A generator whose body never terminates would otherwise hang the engine.
+    ; Failing loudly at a bound beats spinning forever.
+    def genLimit:int 1000000
     ; D-BUILTINPROTO: one prototype object per built-in constructor name, kept
     ; for the engine's lifetime so identity and stored properties survive reads.
     def builtinProtos:[string:EvHandle]
@@ -5262,6 +5271,9 @@ class ComponentEngine {
         }
         if (nt == "TemplateLiteral") { node.evalKind = 11
             return 11
+        }
+        if (nt == "YieldExpression") { node.evalKind = 26
+            return 26
         }
         if (nt == "UnaryExpression") { node.evalKind = 12
             return 12
@@ -11933,9 +11945,65 @@ class ComponentEngine {
     ; Normalise any iterable to a list of per-iteration values: array/Set
     ; elements as-is, Map entries as [key, value] pairs, string chars.
     ; itemsOf copies, so the list is a snapshot on every kind. Shared by
+    ; ---- Generators --------------------------------------------------------
+    ; HOW THIS WORKS, AND WHAT IT COSTS. A tree-walking interpreter has no way
+    ; to suspend a C++/Rust call frame mid-body, so a generator cannot be
+    ; resumed at the yield. Instead the body is run to completion at CALL time
+    ; and every `yield` appends to a buffer; the object handed back iterates
+    ; that buffer.
+    ;
+    ; Correct for: for-of, spread, Array.from, manual next() over a finite
+    ; generator, yield* delegation, and the value sequence in all of those.
+    ;
+    ; NOT correct for: two-way next(v) -- a yield always evaluates to undefined;
+    ; interleaving of the body's side effects with consumption -- they all
+    ; happen at the call; and early termination -- `break` in a for-of does not
+    ; stop a body that has already run. An unbounded generator hits genLimit
+    ; and throws a RangeError naming the reason rather than hanging.
+    ;
+    ; These are real limits, so they fail LOUDLY where they can and are named
+    ; here rather than discovered.
+    fn generatorItemsOf:[EvHandle] (v:EvHandle) {
+        def items:[EvHandle]
+        def cur:EvHandle (v.getMember("__genidx__"))
+        def buf:EvHandle (v.getMember("__genitems__"))
+        if (buf.isArrayValue()) {
+            def k:int (to_int (cur.numberOf()))
+            while (k < (buf.denseLen())) {
+                push items (buf.arrayItemAt(k))
+                k = (k + 1)
+            }
+        }
+        return items
+    }
+    fn isGeneratorValue:boolean (v:EvHandle) {
+        if (false == (v.isObject())) {
+            return false
+        }
+        return (v.hasOwnData("__genitems__"))
+    }
+    fn makeGeneratorValue:EvHandle (items:[EvHandle]) {
+        def keys:[string]
+        def vals:[EvHandle]
+        def g:EvHandle (EvValueBridge.taggedObject(keys vals))
+        g.setMember("__genitems__" (EvValueBridge.taggedArray(items)))
+        g.setAttrs("__genitems__" false false false)
+        g.setMember("__genidx__" (EvHandle.fromInt(0)))
+        g.setAttrs("__genidx__" true false false)
+        g.setMember("next" (this.sharedNativeMethod("Generator" "next")))
+        g.setAttrs("next" true false true)
+        g.setMember("return" (this.sharedNativeMethod("Generator" "return")))
+        g.setAttrs("return" true false true)
+        return g
+    }
+
     ; the walker and the bytecode tier.
     fn forOfItemList:[EvHandle] (src:EvHandle) {
         def items:[EvHandle]
+        ; A generator object iterates the values its body produced.
+        if (this.isGeneratorValue(src)) {
+            return (this.generatorItemsOf(src))
+        }
         if (src.isArrayValue()) {
             items = (src.itemsOf())
         } {
@@ -12465,6 +12533,16 @@ class ComponentEngine {
             }
         }
         def result:EvHandle (EvValueBridge.taggedNull())
+        ; A generator call runs the body NOW, buffering its yields, and answers
+        ; an iterator over that buffer. See makeGeneratorValue for the limits.
+        def isGenCall:boolean fnNode.generator
+        def savedGenCollect:[EvHandle] genCollect
+        def savedGenDepth:int genDepth
+        if isGenCall {
+            def freshCollect:[EvHandle]
+            genCollect = freshCollect
+            genDepth = (genDepth + 1)
+        }
         if fnNode.body {
             def body:TSNode (unwrap fnNode.body)
             if ((this.nodeKindOf(body)) == 34) {
@@ -12472,6 +12550,12 @@ class ComponentEngine {
             } {
                 result = (this.evaluateExpr(body))
             }
+        }
+        if isGenCall {
+            def produced:[EvHandle] genCollect
+            genCollect = savedGenCollect
+            genDepth = savedGenDepth
+            result = (this.makeGeneratorValue(produced))
         }
         if srcSwapped {
             currentSource = savedSrcText
@@ -13199,6 +13283,35 @@ class ComponentEngine {
             }
             return (this.lookupIdentifier(node.name))
         }
+        ; `yield x` inside a generator body: the value joins the buffer the
+        ; generator call is collecting. The expression itself evaluates to
+        ; undefined, because this implementation cannot receive a value back
+        ; from next(v) -- see makeGeneratorValue for what that costs.
+        if (exprK == 26) {
+            def yv:EvHandle (EvValueBridge.taggedUndefined())
+            if node.left {
+                yv = (this.evaluateExpr((unwrap node.left)))
+            }
+            if (genDepth > 0) {
+                if ((array_length genCollect) >= genLimit) {
+                    this.throwSpecError("RangeError" "generator produced too many values: this engine collects a generator eagerly, so an unbounded generator cannot be consumed lazily")
+                    return (EvValueBridge.taggedUndefined())
+                }
+                ; `yield* xs` delegates: the operand's items join the buffer
+                ; one at a time rather than the iterable joining as one value.
+                if node.delegate {
+                    def sub:[EvHandle] (this.forOfItemList(yv))
+                    def di:int 0
+                    while (di < (array_length sub)) {
+                        push genCollect (itemAt sub di)
+                        di = (di + 1)
+                    }
+                } {
+                    push genCollect yv
+                }
+            }
+            return (EvValueBridge.taggedUndefined())
+        }
         ; PERF: a numeric literal is held as source TEXT, so evaluating it means
         ; parsing that text -- and a loop bound is evaluated once per iteration.
         ; The parse is memoised on the node, and the case sits at the front
@@ -13853,6 +13966,17 @@ class ComponentEngine {
                                 while (stI < (srcV.denseLen())) {
                                     push frItems (srcV.arrayItemAt(stI))
                                     stI = (stI + 1)
+                                }
+                            }
+                            ; A generator (or anything else for-of walks and the
+                            ; three cases above miss) goes through the shared
+                            ; list, so Array.from and for-of cannot disagree.
+                            if (this.isGeneratorValue(srcV)) {
+                                def gi2:[EvHandle] (this.forOfItemList(srcV))
+                                def gk2:int 0
+                                while (gk2 < (array_length gi2)) {
+                                    push frItems (itemAt gi2 gk2)
+                                    gk2 = (gk2 + 1)
                                 }
                             }
                         }
@@ -17776,6 +17900,42 @@ class ComponentEngine {
     ; that already proved no override under the current dispatch epoch
     ; (the call-site ICs).
     fn invokeBuiltinDirect:EvHandle (kind:string name:string recv:EvHandle args:[EvHandle]) {
+        ; Generator iteration over the buffer built at call time. next(v) takes
+        ; no value: this implementation cannot deliver one back into the body.
+        if (kind == "Generator") {
+            def gk:[string]
+            def gv:[EvHandle]
+            def res:EvHandle (EvValueBridge.taggedObject(gk gv))
+            if (name == "return") {
+                def endBuf:EvHandle (recv.getMember("__genitems__"))
+                if (endBuf.isArrayValue()) {
+                    recv.setMember("__genidx__" (EvHandle.fromInt((endBuf.denseLen()))))
+                }
+                def rv:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 0) {
+                    rv = (itemAt args 0)
+                }
+                res.setMember("value" rv)
+                res.setMember("done" (EvValueBridge.taggedBoolean(true)))
+                return res
+            }
+            def idxV:EvHandle (recv.getMember("__genidx__"))
+            def idx:int (to_int (idxV.numberOf()))
+            def buf:EvHandle (recv.getMember("__genitems__"))
+            def n:int 0
+            if (buf.isArrayValue()) {
+                n = (buf.denseLen())
+            }
+            if (idx < n) {
+                res.setMember("value" (buf.arrayItemAt(idx)))
+                res.setMember("done" (EvValueBridge.taggedBoolean(false)))
+                recv.setMember("__genidx__" (EvHandle.fromInt((idx + 1))))
+            } {
+                res.setMember("value" (EvValueBridge.taggedUndefined()))
+                res.setMember("done" (EvValueBridge.taggedBoolean(true)))
+            }
+            return res
+        }
         ; D-THISCHECK: Number.prototype and Boolean.prototype methods require a
         ; receiver of their own type. Borrowing one --
         ;   var o = {}; o.f = Boolean.prototype.toString; o.f();
@@ -24194,6 +24354,16 @@ class ComponentEngine {
                     while (k < (sv.denseLen())) {
                         push items (sv.arrayItemAt(k))
                         k = (k + 1)
+                    }
+                } {
+                    ; `[...g()]`, `[..."ab"]`, `[...set]` -- anything for-of can
+                    ; walk, spread can too. Only the array case was handled, so
+                    ; spreading a generator produced an empty array.
+                    def sp:[EvHandle] (this.forOfItemList(sv))
+                    def sk:int 0
+                    while (sk < (array_length sp)) {
+                        push items (itemAt sp sk)
+                        sk = (sk + 1)
                     }
                 }
             } {
