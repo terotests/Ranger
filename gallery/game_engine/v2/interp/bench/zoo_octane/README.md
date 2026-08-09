@@ -28,9 +28,11 @@ Octane scores are throughput relative to a fixed reference (higher is faster).
 | `% of Node` | engine score / same-machine Node score (fair ratio) |
 | `% of zoo V8` | engine score / V8 column on zoo.js.org amd64 (rough table placement) |
 
-The engine needs a live `Date` clock for Octane's `new Date() - start` timing
-(the realm clock is frozen by default) and a raised `maxLoopIterations` so
-long suites are not silently truncated. Both are applied in `run.cjs`.
+The engine needs a live clock for Octane timing (the realm clock is frozen by
+default) and a raised `maxLoopIterations` so long suites are not silently
+truncated. `run.cjs` turns on `liveClock`, rewrites Octane’s `Measure` loop to
+use `performance.now` (sub-ms; `Date` alone is TimeClip’d to whole ms), and
+exposes that API from the interpreter.
 
 `console.log` is not a first-class value in this realm, so Octane's
 `print = console.log` is replaced with a small `print` prelude.

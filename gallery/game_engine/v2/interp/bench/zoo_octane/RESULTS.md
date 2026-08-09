@@ -14,8 +14,11 @@ Octane scores are higher-is-faster throughput numbers. Percentages are
 `engine / baseline × 100`. Same-machine Node is the fair ratio; zoo V8 is for
 table placement against the published amd64 column.
 
-Live `Date` uses a relative wall clock (`liveClock`) so readings stay inside
-32-bit `truncD` on C++ (absolute epoch ms overflow there).
+Live timing uses `liveClock` + `performance.now` (fractional ms from
+`wall_clock_ms`). Absolute epoch ms still overflows 32-bit `truncD` on C++ for
+`Date`, so the relative clock remains; Octane’s `Measure` loop no longer goes
+through TimeClip’d `new Date()` deltas (those pinned scores to discrete
+buckets).
 
 ---
 
