@@ -5064,6 +5064,21 @@ class ComponentEngine {
     ; prototype chain, which is what decides if a snapshotted for-in key is
     ; still worth visiting.
     fn objHasKeyUpChain:boolean (obj:EvHandle key:string) {
+        ; D-PROXY: the `has` trap answers `k in p`.
+        if (this.isProxyValue(obj)) {
+            def hTgt:EvHandle (this.proxyTargetOf(obj))
+            def hTrap:EvHandle (this.proxyTrap(obj "has"))
+            if scriptThrew {
+                return false
+            }
+            if (hTrap.isFunction()) {
+                def hArgs:[EvHandle]
+                push hArgs hTgt
+                push hArgs (EvValueBridge.taggedString(key))
+                return ((this.callProxyTrap(hTrap hArgs)).toBool())
+            }
+            return (this.objHasKeyUpChain(hTgt key))
+        }
         def walk:EvHandle obj
         def steps:int 0
         while (steps < 16) {
@@ -6870,6 +6885,38 @@ class ComponentEngine {
                 return (this.throwSpecError("TypeError" ("Cannot set properties of " + (baseDesc + (" (setting '" + (wname + "')"))))))
             }
         }
+        ; D-PROXY: a write to a proxy is the `set` trap, whichever form it took.
+        if (this.isProxyValue(obj)) {
+            def pwKey:string leftNode.name
+            if leftNode.computed {
+                if leftNode.right {
+                    def pwKv:EvHandle (this.evaluateExpr((unwrap leftNode.right)))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    pwKey = (this.toPropertyKey(pwKv))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                }
+            }
+            def pwVal:EvHandle rightValue
+            if (opK != 1) {
+                def pwCur:EvHandle (this.getPropertyValue(obj pwKey))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                pwVal = (this.applyAssignOp(opK pwCur rightValue))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+            }
+            this.bcPutField(obj pwKey pwVal)
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            return pwVal
+        }
         def result:EvHandle rightValue
         ; A COMPUTED key differs from a written one only in how the name is
         ; obtained -- `o["bar"] = 1` is the same write `o.bar = 1` is, setter and
@@ -8512,6 +8559,9 @@ class ComponentEngine {
         }
         if (name == "Promise") {
             return (this.constructPromise(args))
+        }
+        if (name == "Proxy") {
+            return (this.constructProxy(args))
         }
         ; D-REGEX: the constructor reached through a VALUE -- `var F =
         ; RegExp.prototype.constructor; new F()`. Without a case here it fell off
@@ -10308,6 +10358,25 @@ class ComponentEngine {
     }
 
     fn bcPutField:void (obj:EvHandle name:string v:EvHandle) {
+        ; D-PROXY: the `set` trap.
+        if (this.isProxyValue(obj)) {
+            def sTgt:EvHandle (this.proxyTargetOf(obj))
+            def sTrap:EvHandle (this.proxyTrap(obj "set"))
+            if scriptThrew {
+                return
+            }
+            if (sTrap.isFunction()) {
+                def sArgs:[EvHandle]
+                push sArgs sTgt
+                push sArgs (EvValueBridge.taggedString(name))
+                push sArgs v
+                push sArgs obj
+                def _sv:EvHandle (this.callProxyTrap(sTrap sArgs))
+                return
+            }
+            this.bcPutField(sTgt name v)
+            return
+        }
         ; Writing a property of null/undefined is a TypeError, under the
         ; same realm flag the walker's assignment path uses.
         if strictReferences {
@@ -15733,6 +15802,10 @@ class ComponentEngine {
             if (false == inHolds) {
                 return (this.throwSpecError("TypeError" "Cannot use 'in' operator on a non-object"))
             }
+            ; D-PROXY: `k in p` is the `has` trap.
+            if (this.isProxyValue(right)) {
+                return (EvValueBridge.taggedBoolean((this.objHasKeyUpChain(right inKey))))
+            }
             if (this.objHasKey(right inKey)) {
                 return (EvValueBridge.taggedBoolean(true))
             }
@@ -16132,6 +16205,7 @@ class ComponentEngine {
         if (name == "Date") { return true }
         if (name == "RegExp") { return true }
         if (name == "Promise") { return true }
+        if (name == "Proxy") { return true }
         return (this.isErrorCtorName(name))
     }
 
@@ -16481,7 +16555,10 @@ class ComponentEngine {
                 def acc:string ""
                 def ri:int 0
                 while (ri < rawLen) {
-                    acc = (acc + (this.toStringOf((this.getPropertyValue(rawArr (to_string ri))))))
+                    ; Hoisted: nesting two `this.` calls is a double borrow of
+                    ; self on the Rust target.
+                    def segV:EvHandle (this.getPropertyValue(rawArr (to_string ri)))
+                    acc = (acc + (this.toStringOf(segV)))
                     if scriptThrew {
                         return (EvValueBridge.taggedUndefined())
                     }
@@ -16733,6 +16810,24 @@ class ComponentEngine {
                 return a0
             }
         }
+        ; D-PROXY: Proxy.revocable hands back the proxy and a function that
+        ; detaches its handler. Every operation on a revoked proxy is a
+        ; TypeError, which proxyTrap raises when the handler is gone.
+        if (nsName == "Proxy") {
+            if (name == "revocable") {
+                def rp:EvHandle (this.constructProxy(args))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                def keysV:[string]
+                def valsV:[EvHandle]
+                def outV:EvHandle (EvValueBridge.taggedObject(keysV valsV))
+                outV.setProto((this.builtinPrototype("Object")))
+                outV.setMember("proxy" rp)
+                outV.setMember("revoke" ((EvValueBridge.taggedNativeMethod("proxyrevoke" "revoke")).withThisForCall(rp)))
+                return outV
+            }
+        }
         ; D-PROMISE: the four statics. Each one's `this` must be an object --
         ; they are specified over a constructor C, and `Promise.all.call(86, [])`
         ; is a TypeError before anything else happens.
@@ -16959,6 +17054,13 @@ class ComponentEngine {
                 return (EvValueBridge.taggedBoolean((this.objHasKeyUpChain(rTgt rKey))))
             }
             if (name == "deleteProperty") {
+                def rPxDel:int (this.proxyDelete(rTgt rKey))
+                if (rPxDel >= 0) {
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    return (EvValueBridge.taggedBoolean((rPxDel == 1)))
+                }
                 if (this.deleteRefused(rTgt rKey)) {
                     return (EvValueBridge.taggedBoolean(false))
                 }
@@ -17133,6 +17235,7 @@ class ComponentEngine {
         if (nsName == "RegExp") { return 2 }
         if (nsName == "Date") { return 7 }
         if (nsName == "Promise") { return 1 }
+        if (nsName == "Proxy") { return 2 }
         if (nsName == "Map") { return 0 }
         if (nsName == "Set") { return 0 }
         return 0
@@ -17163,6 +17266,10 @@ class ComponentEngine {
         ; D-REFLECT: every Reflect method is an ordinary function on the
         ; namespace object -- there is no `Reflect.get` call-site form to fall
         ; back on, so this list IS the namespace.
+        if (nsName == "Proxy") {
+            push out "revocable"
+            return out
+        }
         if (nsName == "Promise") {
             push out "all"
             push out "race"
@@ -17302,6 +17409,21 @@ class ComponentEngine {
     ; reporting get/set rather than a value, own-only lookup, the array-index
     ; and string-index cases. Two implementations would drift.
     fn ownPropertyDescriptorOf:EvHandle (src:EvHandle dk:string) {
+        ; D-PROXY: the `getOwnPropertyDescriptor` trap.
+        if (this.isProxyValue(src)) {
+            def dTgt:EvHandle (this.proxyTargetOf(src))
+            def dTrap:EvHandle (this.proxyTrap(src "getOwnPropertyDescriptor"))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            if (dTrap.isFunction()) {
+                def dArgs:[EvHandle]
+                push dArgs dTgt
+                push dArgs (EvValueBridge.taggedString(dk))
+                return (this.callProxyTrap(dTrap dArgs))
+            }
+            return (this.ownPropertyDescriptorOf(dTgt dk))
+        }
                         if true {
                             ; D-ACCESSORS: an accessor property reports get/set,
                             ; never a `value` — reporting it as data would make
@@ -17504,6 +17626,9 @@ class ComponentEngine {
         }
         if (nsName == "Promise") {
             return (this.hasBuiltinStatic(nsName name))
+        }
+        if (nsName == "Proxy") {
+            return (name == "revocable")
         }
         if (nsName == "Symbol") {
             if (name == "for") { return true }
@@ -18100,6 +18225,20 @@ class ComponentEngine {
     ; `Array.prototype.isPrototypeOf([])` was false. Object.prototype terminates
     ; the chain, and answering it for itself would loop.
     fn protoOfValue:EvHandle (v:EvHandle) {
+        ; D-PROXY: the `getPrototypeOf` trap.
+        if (this.isProxyValue(v)) {
+            def qTgt:EvHandle (this.proxyTargetOf(v))
+            def qTrap:EvHandle (this.proxyTrap(v "getPrototypeOf"))
+            if scriptThrew {
+                return (EvValueBridge.taggedNull())
+            }
+            if (qTrap.isFunction()) {
+                def qArgs:[EvHandle]
+                push qArgs qTgt
+                return (this.callProxyTrap(qTrap qArgs))
+            }
+            return (this.protoOfValue(qTgt))
+        }
         if (v.hasProto()) {
             return (v.protoOf())
         }
@@ -18365,6 +18504,9 @@ class ComponentEngine {
         if (kind == "listiterator") {
             if (name == "next") { return 0 }
             if (name == "@@iterator") { return 0 }
+        }
+        if (kind == "proxyrevoke") {
+            if (name == "revoke") { return 0 }
         }
         ; D-ITERATOR: the iteration methods share one arity across every kind
         ; that has them.
@@ -19000,6 +19142,36 @@ class ComponentEngine {
     ; D-ATTRS: a NON-CONFIGURABLE own property cannot be deleted -- `delete
     ; Number.NaN` is false, and a TypeError in strict mode. The delete operator
     ; removed whatever it was pointed at, attributes and all.
+    ; D-PROXY: the `deleteProperty` trap, as a single entry point every delete
+    ; form can consult. Answers 1 for "the trap handled it and said yes", 0 for
+    ; "handled it and said no", and -1 for "not a proxy, carry on".
+    fn proxyDelete:int (obj:EvHandle key:string) {
+        if (false == (this.isProxyValue(obj))) {
+            return (0 - 1)
+        }
+        def dTgt:EvHandle (this.proxyTargetOf(obj))
+        def dTrap:EvHandle (this.proxyTrap(obj "deleteProperty"))
+        if scriptThrew {
+            return 0
+        }
+        if (dTrap.isFunction()) {
+            def dArgs:[EvHandle]
+            push dArgs dTgt
+            push dArgs (EvValueBridge.taggedString(key))
+            def dRes:EvHandle (this.callProxyTrap(dTrap dArgs))
+            if scriptThrew {
+                return 0
+            }
+            if (dRes.toBool()) {
+                return 1
+            }
+            return 0
+        }
+        this.unmapArgIndex(dTgt key)
+        dTgt.removeMember(key)
+        return 1
+    }
+
     fn deleteRefused:boolean (obj:EvHandle key:string) {
         ; D-GLOBALTHIS: a script's `var` and function declarations are properties
         ; of the global object with { DontDelete }, so `delete this["x"]` answers
@@ -21225,6 +21397,20 @@ class ComponentEngine {
                 return (this.makeListIterator((this.iterationItemsOf(recv which))))
             }
         }
+        if (kind == "proxyrevoke") {
+            ; The receiver is the proxy when the function was called detached,
+            ; and the { proxy, revoke } wrapper when it was called as a method
+            ; off it -- the member-call path rebinds `this` to the object the
+            ; name was read from. Both reach the same proxy.
+            def rvTarget:EvHandle recv
+            if (false == (this.isProxyValue(rvTarget))) {
+                rvTarget = (recv.getMember("proxy"))
+            }
+            if (this.isProxyValue(rvTarget)) {
+                rvTarget.setMember("__proxyhandler__" (EvValueBridge.taggedNull()))
+            }
+            return (EvValueBridge.taggedUndefined())
+        }
         ; ---- the shared list iterator -------------------------------------
         if (kind == "listiterator") {
             if (name == "@@iterator") {
@@ -22624,6 +22810,82 @@ class ComponentEngine {
         return out
     }
 
+    ; ==========================================================================
+    ; D-PROXY: Proxy, as a target plus a handler consulted at every operation.
+    ; --------------------------------------------------------------------------
+    ; A proxy is not a kind of object here -- it is a marker the object
+    ; operations check before doing their own work, which is what lets one
+    ; check at the top of getPropertyValue serve `p.k`, `p["k"]`,
+    ; `Reflect.get(p, "k")` and `Object.getOwnPropertyDescriptor` alike: every
+    ; one of them funnels through the same handful of primitives.
+    ; --------------------------------------------------------------------------
+    fn isProxyValue:boolean (v:EvHandle) {
+        if (false == (v.isObject())) { return false }
+        return (v.hasOwnData("__proxytarget__"))
+    }
+
+    fn proxyTargetOf:EvHandle (v:EvHandle) {
+        return (v.getOwnData("__proxytarget__"))
+    }
+
+    ; The trap named `name`, or a non-function when the handler does not supply
+    ; one -- in which case the operation runs against the target directly. A
+    ; REVOKED proxy has no handler at all and every operation on it is a
+    ; TypeError.
+    fn proxyTrap:EvHandle (v:EvHandle name:string) {
+        def h:EvHandle (v.getOwnData("__proxyhandler__"))
+        if (false == (this.isDescriptorObject(h))) {
+            def _e:EvHandle (this.throwSpecError("TypeError" "Cannot perform operation on a proxy that has been revoked"))
+            return (EvValueBridge.taggedUndefined())
+        }
+        def t:EvHandle (this.getPropertyValue(h name))
+        if scriptThrew {
+            return (EvValueBridge.taggedUndefined())
+        }
+        if (t.isUndefined()) {
+            return t
+        }
+        if (t.isNull()) {
+            return (EvValueBridge.taggedUndefined())
+        }
+        if (false == (t.isFunction())) {
+            def _e2:EvHandle (this.throwSpecError("TypeError" ("proxy handler's " + (name + " trap is not a function"))))
+            return (EvValueBridge.taggedUndefined())
+        }
+        return t
+    }
+
+    fn callProxyTrap:EvHandle (trap:EvHandle args:[EvHandle]) {
+        return (this.callFnValueWithValues(trap args))
+    }
+
+    ; `new Proxy(target, handler)`. BOTH must be objects; a non-object on
+    ; either side is a TypeError before anything else happens.
+    fn constructProxy:EvHandle (args:[EvHandle]) {
+        def pt:EvHandle (EvValueBridge.taggedUndefined())
+        def ph:EvHandle (EvValueBridge.taggedUndefined())
+        if ((array_length args) > 0) { pt = (itemAt args 0) }
+        if ((array_length args) > 1) { ph = (itemAt args 1) }
+        if (false == (this.isDescriptorObject(pt))) {
+            return (this.throwSpecError("TypeError" "Cannot create proxy with a non-object as target or handler"))
+        }
+        if (false == (this.isDescriptorObject(ph))) {
+            return (this.throwSpecError("TypeError" "Cannot create proxy with a non-object as target or handler"))
+        }
+        return (this.makeProxyValue(pt ph))
+    }
+
+    fn makeProxyValue:EvHandle (target:EvHandle handler:EvHandle) {
+        def keysX:[string]
+        def valsX:[EvHandle]
+        def p:EvHandle (EvValueBridge.taggedObject(keysX valsX))
+        p.setMember("__proxytarget__" target)
+        p.setMember("__proxyhandler__" handler)
+        ; A proxy answers `typeof` as its target does, and inherits nothing of
+        ; its own -- every read goes through the traps.
+        return p
+    }
+
     ; D-REGISTRY: the registry entry a COMPUTED read should answer with.
     ; `arr.slice` went through the dotted path, which consults the registry;
     ; `arr["slice"]` did not, so bracket access to any built-in method -- and to
@@ -23369,6 +23631,22 @@ class ComponentEngine {
     ; layer's getMember knows nothing about accessors, so every generic
     ; Array.prototype method read past them.
     fn getPropertyValue:EvHandle (obj:EvHandle key:string) {
+        ; D-PROXY: the `get` trap, ahead of every other lookup rule.
+        if (this.isProxyValue(obj)) {
+            def gTgt:EvHandle (this.proxyTargetOf(obj))
+            def gTrap:EvHandle (this.proxyTrap(obj "get"))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            if (gTrap.isFunction()) {
+                def gArgs:[EvHandle]
+                push gArgs gTgt
+                push gArgs (EvValueBridge.taggedString(key))
+                push gArgs obj
+                return (this.callProxyTrap(gTrap gArgs))
+            }
+            return (this.getPropertyValue(gTgt key))
+        }
         ; D-ARGMAP: a mapped index reads the PARAMETER, which the body may have
         ; reassigned since the object was built.
         def mappedName:string (this.argMapName(obj key))
@@ -23826,6 +24104,30 @@ class ComponentEngine {
     }
 
     fn definePropertyOn:string (obj:EvHandle key:string desc:EvHandle) {
+        ; D-PROXY: the `defineProperty` trap. A falsy answer is a rejection,
+        ; which the caller turns into a throw or a `false` as its own rules say.
+        if (this.isProxyValue(obj)) {
+            def pTgt:EvHandle (this.proxyTargetOf(obj))
+            def pTrap:EvHandle (this.proxyTrap(obj "defineProperty"))
+            if scriptThrew {
+                return ""
+            }
+            if (pTrap.isFunction()) {
+                def pArgs:[EvHandle]
+                push pArgs pTgt
+                push pArgs (EvValueBridge.taggedString(key))
+                push pArgs desc
+                def pRes:EvHandle (this.callProxyTrap(pTrap pArgs))
+                if scriptThrew {
+                    return ""
+                }
+                if (pRes.toBool()) {
+                    return ""
+                }
+                return "proxy defineProperty trap returned falsish"
+            }
+            return (this.definePropertyOn(pTgt key desc))
+        }
         if (false == (this.isDescriptorObject(desc))) {
             return "Property description must be an object"
         }
@@ -24687,6 +24989,7 @@ class ComponentEngine {
         if (name == "JSON") { return true }
         if (name == "Reflect") { return true }
         if (name == "Promise") { return true }
+        if (name == "Proxy") { return true }
         if (name == "Object") { return true }
         if (name == "Array") { return true }
         if (name == "String") { return true }
@@ -24761,6 +25064,7 @@ class ComponentEngine {
             push gnames "JSON"
             push gnames "Reflect"
             push gnames "Promise"
+            push gnames "Proxy"
             ; The error constructors are globals too -- getOwnPropertyNames on
             ; the global object is expected to list every one of them.
             def enames:[string] (this.errorKindNames())
@@ -25089,6 +25393,13 @@ class ComponentEngine {
                                     }
                                 }
                             }
+                            def pxDel:int (this.proxyDelete(obj dkey))
+                            if (pxDel >= 0) {
+                                if scriptThrew {
+                                    return (EvValueBridge.taggedUndefined())
+                                }
+                                return (EvValueBridge.taggedBoolean((pxDel == 1)))
+                            }
                             if (this.deleteRefused(obj dkey)) {
                                 if strictMode {
                                     return (this.throwSpecError("TypeError" ("cannot delete " + dkey)))
@@ -25103,6 +25414,13 @@ class ComponentEngine {
                             }
                         }
                     } {
+                        def pxDel2:int (this.proxyDelete(obj tgt.name))
+                        if (pxDel2 >= 0) {
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                            return (EvValueBridge.taggedBoolean((pxDel2 == 1)))
+                        }
                         if (this.deleteRefused(obj tgt.name)) {
                             if strictMode {
                                 return (this.throwSpecError("TypeError" ("cannot delete " + tgt.name)))
@@ -26280,6 +26598,19 @@ class ComponentEngine {
             }
             return (this.constructPromise(prArgs))
         }
+        ; D-PROXY: `new Proxy(target, handler)`.
+        if (className == "Proxy") {
+            def pxArgs:[EvHandle]
+            def pxi:int 0
+            while (pxi < (array_length node.children)) {
+                push pxArgs (this.evaluateExpr((itemAt node.children pxi)))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                pxi = (pxi + 1)
+            }
+            return (this.constructProxy(pxArgs))
+        }
         ; D-TOOBJECT: `new Object(...)` had no case here at all -- it fell through
         ; to class instantiation and produced something that could not hold a
         ; property, so `var o = new Object(); o.a = 1; o.a` read undefined. Both
@@ -26507,6 +26838,25 @@ class ComponentEngine {
                 if ((obj.isNull()) || (obj.isUndefined())) {
                     return (EvValueBridge.taggedUndefined())
                 }
+            }
+            ; D-PROXY: every read of a proxy property is the `get` trap, whether
+            ; it was written `p.k` or `p[k]`. The ordinary member rules below
+            ; would read the proxy's own (empty) map instead.
+            if (this.isProxyValue(obj)) {
+                def pxKey:string propName
+                if node.computed {
+                    if node.right {
+                        def pxKv:EvHandle (this.evaluateExpr((unwrap node.right)))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        pxKey = (this.toPropertyKey(pxKv))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                    }
+                }
+                return (this.getPropertyValue(obj pxKey))
             }
             ; D-PROTO: reading `F.prototype` MINTS it, and the object the spec
             ; mints already carries `constructor` back to F and inherits from
@@ -26995,6 +27345,8 @@ class ComponentEngine {
         if (k == "__pvalue__") { return true }
         if (k == "__iterlist__") { return true }
         if (k == "__iteridx__") { return true }
+        if (k == "__proxytarget__") { return true }
+        if (k == "__proxyhandler__") { return true }
         ; D-SYMKEY: a symbol-keyed property is never listed by Object.keys,
         ; getOwnPropertyNames or for-in. Symbol keys are minted as "@@..." so
         ; the one prefix covers both well-known and user symbols.
@@ -27101,6 +27453,33 @@ class ComponentEngine {
     }
 
     fn objectKeys:[string] (v:EvHandle) {
+        ; D-PROXY: the `ownKeys` trap supplies the key list every enumeration
+        ; and every getOwnPropertyNames reads.
+        if (this.isProxyValue(v)) {
+            def kTgt:EvHandle (this.proxyTargetOf(v))
+            def kTrap:EvHandle (this.proxyTrap(v "ownKeys"))
+            if scriptThrew {
+                def emptyK:[string]
+                return emptyK
+            }
+            if (kTrap.isFunction()) {
+                def kArgs:[EvHandle]
+                push kArgs kTgt
+                def kRes:EvHandle (this.callProxyTrap(kTrap kArgs))
+                def outK:[string]
+                if scriptThrew {
+                    return outK
+                }
+                def kEls:[EvHandle] (this.arrayLikeElements(kRes))
+                def ki2:int 0
+                while (ki2 < (array_length kEls)) {
+                    push outK (this.toPropertyKey((itemAt kEls ki2)))
+                    ki2 = (ki2 + 1)
+                }
+                return outK
+            }
+            return (this.objectKeys(kTgt))
+        }
         return (this.orderEnumKeys((this.objectKeysRaw(v))))
     }
 
