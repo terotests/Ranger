@@ -128,6 +128,15 @@ class RangerAppParamDesc {
   def escapes_via:string "none" ; none | return | field | member-coll
   def escape_owners:[string]    ; distinct owner paths the value escapes into (e.g. "parent.left", "self.tokens")
   def escape_via_call:boolean false ; passed as argument into another (non-pure) call -> ownership depends on callee summary (interprocedural, not yet resolved)
+  ; True while every escape of this parameter is a RETURN — directly, or through
+  ; calls whose matching parameter is itself return-only. A return is not an
+  ; ownership transfer on a reference-counted target: the callee copies the
+  ; handle into the return value, and the caller's argument is alive for the
+  ; whole call, so such a parameter can still be taken by reference. A store
+  ; into a field or a collection clears this, because those outlive the call.
+  ; Kept beside ownership_kind rather than folded into it: the Rust writer reads
+  ; ownership_kind to choose `&T`, where a returned borrow would need a lifetime.
+  def escape_return_only:boolean true
   def ownership_read_only:boolean false ; observed only in read positions
   
   def node@(weak):CodeNode

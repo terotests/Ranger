@@ -1556,6 +1556,10 @@ class StaticAnalyzer {
       push p.escape_owners ownerPath
     }
     p.escapes_function = true
+    ; A store into a field or a collection outlives the call; a return does not.
+    if (via != "return") {
+      p.escape_return_only = false
+    }
     if (p.escapes_via == "none") {
       p.escapes_via = via
     }
@@ -1880,6 +1884,16 @@ class StaticAnalyzer {
           continue
         }
         if ((cp.ownership_kind == 3) || (cp.ownership_kind == 4)) {
+          ; The argument inherits the callee's escape shape: passing it into a
+          ; parameter that only returns keeps it return-only, passing it into
+          ; one that stores does not. Monotone (true -> false only), so the
+          ; surrounding fixpoint still terminates.
+          if (cp.escape_return_only == false) {
+            if ap.escape_return_only {
+              ap.escape_return_only = false
+              changed = true
+            }
+          }
           def ownerPath:string ((("call " + callee.name) + ".") + cp.name)
           def already:boolean false
           for ap.escape_owners o:string oi {

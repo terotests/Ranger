@@ -286,10 +286,93 @@ device that let `is` give twelve targets a discriminant test without any writer
 learning the word "shape": put the decision in the flow, and the spelling in a
 template.
 
+## Implemented: return-only escapes no longer force a copy
+
+Decision 1 above is now in the compiler.
+
+The ownership analysis was already a proper interprocedural fixpoint, and it was
+already right about most parameters — 267 of 351 were `const&`. The 84 that were
+not traced back through `-strict-ownership`, which prints its own reasoning:
+
+```
+ownership[infer] fn applyBinaryOp:
+  param 'left'  -> shared (call toPrimitive.v, call toPrimitiveDefault.v, …)
+ownership[infer] fn toPrimitiveDefault:
+  param 'v'     -> moved  (call toPrimitive.v)
+ownership[infer] fn toPrimitive:
+  param 'v'     -> shared (<return>, call callPrimitiveMethod.obj, …)
+```
+
+The chain bottoms out at `<return>`: `toPrimitive` **returns** its parameter,
+which the analysis counted as an ownership transfer. That verdict then
+propagated up every caller — `toPrimitiveDefault`, then `applyBinaryOp`, then
+`runBytecode` — so a return three calls away made every arithmetic operation
+copy both of its operands.
+
+**A return is not an ownership transfer on a reference-counted target.** The
+writer copies the handle at the `return` statement, and the caller's argument is
+alive for the whole call, so nothing outlives the reference. Taking the
+parameter by value does not remove that copy — it adds a second one to *every*
+call, including the calls that never reach the returning path.
+
+A store into a field or a collection is different: it genuinely outlives the
+call, and still forces by value.
+
+The change is three edits:
+
+- `RangerAppParamDesc.escape_return_only` — true while every escape is a return.
+- `recordEscape` clears it for any `via` other than `"return"` (`field`,
+  `member-coll`).
+- `resolveCallEscapes` propagates it across call edges — an argument stays
+  return-only only if the callee's matching parameter is. Monotone
+  (true → false only), so the existing fixpoint still terminates.
+- `cppBorrowedObjectParam` accepts `moved`/`shared` when the flag holds.
+
+It is kept **beside** `ownership_kind` rather than folded into it, because the
+Rust writer reads `ownership_kind` to choose `&T`, where a returned borrow would
+need a lifetime annotation. Rust is deliberately untouched.
+
+### Result
+
+| | before | after |
+| --- | ---: | ---: |
+| `rg_ptr` parameters by value | 123 | **83** |
+| `rg_ptr` parameters by `const&` | 301 | **394** |
+
+`applyBinaryOp`, `looseEquals`, `bcGetElem`, `toPrimitive` and
+`toPrimitiveDefault` are all now `const&`:
+
+```cpp
+rg_ptr<EvHandle> ComponentEngine::applyBinaryOp( int opK,
+    const rg_ptr<EvHandle>& left, const rg_ptr<EvHandle>& right );
+```
+
+Interleaved fixed-work wall time, 11 reps, min — **every row improved**:
+
+| script | C++ | Rust |
+| --- | ---: | ---: |
+| arith_big | −3.2% | +1.4% |
+| prop | −3.0% | −1.1% |
+| call | −1.2% | −0.8% |
+| method | −4.2% | +2.6% |
+| typemix | −4.7% | −0.5% |
+| pool_hit | −1.1% | +2.0% |
+| pool_miss | −3.4% | −1.2% |
+
+Rust is noise in both directions, which is the intended outcome. Octane
+deltablue on C++ measured −0.6% min / −1.4% median over 9 reps; a 5-rep run of
+the same pair had said +9.9%, which is how much the time-targeted suites move on
+this host and why the fixed-work micros are the measurement.
+
+Conformance unchanged: es6 1327/1327, C++ and Rust 1297/1303 with 0 crashes, and
+`shapes.test.ts` still fails exactly its 11 pre-existing tests with no C++
+codegen test affected.
+
 ## Ranked, honestly
 
-1. **Unwind the by-value cascade** — measured 4× on the pattern, mechanical, no
-   representation change. **Start here.**
+1. ~~**Unwind the by-value cascade**~~ — **done**, see above. 123 by-value
+   parameters down to 83, every hot signature now `const&`, C++ −1.1% to −4.7%
+   on fixed work with Rust untouched.
 2. **`std::optional` for optional-of-union** — fixes a silent-wrong-narrowing
    trap on C++ and unblocks the property-bag work (11.3% of es6 runtime).
    C++17 is already the baseline.

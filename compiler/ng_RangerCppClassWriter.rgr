@@ -1366,8 +1366,21 @@ class RangerCppClassWriter {
     if (arg.ownership_resolved == false) {
       return false
     }
+    ; `borrowed` is the obvious case. `moved`/`shared` also qualify when every
+    ; escape is a RETURN: the writer copies the handle at the return statement,
+    ; and the caller's argument is alive for the whole call, so nothing outlives
+    ; the reference. Taking such a parameter by value does not avoid a
+    ; reference-count operation — it adds one to EVERY call, including the calls
+    ; that never reach the returning path. Measured: by value 56.7 ms against
+    ; 14.2 ms for `const&` on the engine's argument-passing shape.
+    ; A store into a field or a collection still forces by value.
     if (arg.ownership_kind != 2) {
-      return false
+      if (((arg.ownership_kind == 3) || (arg.ownership_kind == 4)) == false) {
+        return false
+      }
+      if (arg.escape_return_only == false) {
+        return false
+      }
     }
     if (arg.set_cnt > 0) {
       return false

@@ -478,6 +478,7 @@ class RangerAppParamDesc  {
     this.escapes_via = "none";
     this.escape_owners = [];
     this.escape_via_call = false;
+    this.escape_return_only = true;
     this.ownership_read_only = false;     /** note: unused */
     this.params = [];     /** note: unused */
     this.description = "";     /** note: unused */
@@ -22635,7 +22636,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 return false;
               }
               if ( arg.ownership_kind != 2 ) {
-                return false;
+                if ( ((arg.ownership_kind == 3) || (arg.ownership_kind == 4)) == false ) {
+                  return false;
+                }
+                if ( arg.escape_return_only == false ) {
+                  return false;
+                }
               }
               if ( arg.set_cnt > 0 ) {
                 return false;
@@ -50882,6 +50888,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           p.escape_owners.push(ownerPath);
                         }
                         p.escapes_function = true;
+                        if ( via != "return" ) {
+                          p.escape_return_only = false;
+                        }
                         if ( p.escapes_via == "none" ) {
                           p.escapes_via = via;
                         }
@@ -51151,6 +51160,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               continue;
                             }
                             if ( (cp.ownership_kind == 3) || (cp.ownership_kind == 4) ) {
+                              if ( cp.escape_return_only == false ) {
+                                if ( ap.escape_return_only ) {
+                                  ap.escape_return_only = false;
+                                  changed = true;
+                                }
+                              }
                               const ownerPath = (("call " + callee.name) + ".") + cp.name;
                               let already = false;
                               for ( let oi = 0; oi < ap.escape_owners.length; oi++) {
