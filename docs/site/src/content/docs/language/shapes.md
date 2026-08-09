@@ -295,7 +295,7 @@ The operator `is` writes the discriminant test that the target already uses for
 | Python | `(v is not None and getattr(v, "_rg_kind", None) == "Value_Num")` |
 | Go | `(v.tag == union_Value_tag_Value_Num)` |
 | Rust | `matches!(v, union_Value::Value_Num(..))` |
-| C++ | `mpark::holds_alternative<Value_Num>(v)` |
+| C++ | `std::holds_alternative<Value_Num>(v)` |
 | Kotlin, Dart, C# | `(v is Value_Num)` |
 | Java | `(v instanceof Value_Num)` |
 | Scala | `(v.isInstanceOf[Value_Num])` |

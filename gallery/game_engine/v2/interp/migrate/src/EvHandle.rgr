@@ -2297,6 +2297,38 @@ class EvHandle {
     ; when anything on the path needs the general machinery: a non-object
     ; receiver or prototype link, or any bag that ever had an accessor.
     ; hasData excludes Hole values, so the sentinel is unambiguous.
+    ; memberFastAt for a caller holding the atom id (the bytecode's
+    ; BcProgram.atomIds). Same walk, no string hashed at any level.
+    fn memberFastAtAtom:EvHandle (ka:int) {
+        case body o:EvalValue.Object {
+            def bag:EvPropertyBag o.properties
+            def depth:int 0
+            while (depth < 17) {
+                if bag.everHadAccessor {
+                    return (EvHandle.hole())
+                }
+                def dv:EvalValue (bag.dataOrHoleAtom(ka))
+                if (false == (EvalValue.isHole(dv))) {
+                    return (EvHandle.fromBody(dv))
+                }
+                def pr:EvalValue bag.prototype
+                if (EvalValue.isHole(pr)) {
+                    return (EvHandle.undefined())
+                }
+                def stepped:boolean false
+                case pr po:EvalValue.Object {
+                    bag = po.properties
+                    stepped = true
+                }
+                if (false == stepped) {
+                    return (EvHandle.hole())
+                }
+                depth = (depth + 1)
+            }
+            return (EvHandle.hole())
+        }
+        return (EvHandle.hole())
+    }
     fn memberFastAt:EvHandle (key:string) {
         case body o:EvalValue.Object {
             def bag:EvPropertyBag o.properties

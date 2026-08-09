@@ -27,9 +27,17 @@ for T in $TARGETS; do
   echo "== Ranger -> $T (octane_runner)"
   # -cpp-single-thread: non-atomic rg_ptr refcounts; the interpreter is
   # single-threaded (cpp-only flag, ignored elsewhere). See bench/native.
+  # See bench/native/build.sh: the compiler exits 0 on failure, so without this
+  # the native step rebuilds the previous run's stale source and says "built".
   RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l="$T" \
     "$SRC" -d="$OUT_DIR" -o=octane_runner."$EXT" -nodecli -native-fast-alloc \
-    -cpp-single-thread $TARGET_FLAG $EXTRA_RANGER_FLAGS
+    -cpp-single-thread $TARGET_FLAG $EXTRA_RANGER_FLAGS 2>&1 | tee /tmp/rgr_oct_$$.log
+  if grep -q "Compilation FAILED" /tmp/rgr_oct_$$.log; then
+    rm -f /tmp/rgr_oct_$$.log
+    echo "Ranger -> $T FAILED; refusing to build a stale $OUT_DIR/octane_runner.$EXT" >&2
+    exit 1
+  fi
+  rm -f /tmp/rgr_oct_$$.log
   case "$T" in
     cpp)
       # Shape case classes are emitted after ordinary classes; move the

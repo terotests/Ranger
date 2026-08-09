@@ -45,9 +45,20 @@ fi
 # non-atomically counted shared_ptr (rg_ptr) — without it every EvHandle copy
 # is a lock-prefixed atomic pair, a global tax with no thread to protect.
 # The flag is cpp-only and ignored elsewhere.
+# `node bin/output.js` EXITS 0 EVEN WHEN COMPILATION FAILS, so `set -e` does
+# not catch it -- and the native step below would then happily rebuild the
+# previous run's stale generated source and report success. That is how a
+# benchmark starts comparing a change against itself. Tee the output and fail
+# on the compiler's own verdict.
 RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l="$TARGET" \
   "$SRC" -d="$OUT_DIR" -o=engine_bench."$EXT" -nodecli -native-fast-alloc \
-  -cpp-single-thread "${EXTRA_ARGS[@]}"
+  -cpp-single-thread "${EXTRA_ARGS[@]}" 2>&1 | tee /tmp/rgr_build_$$.log
+if grep -q "Compilation FAILED" /tmp/rgr_build_$$.log; then
+  rm -f /tmp/rgr_build_$$.log
+  echo "Ranger -> $TARGET FAILED; refusing to build a stale $OUT_DIR/engine_bench.$EXT" >&2
+  exit 1
+fi
+rm -f /tmp/rgr_build_$$.log
 
 case "$TARGET" in
   cpp)
