@@ -866,7 +866,7 @@ class EvHandle {
         return (EvalValue.isBoolean(body))
     }
 
-    fn isArray:boolean () {
+    fn isArrayValue:boolean () {
         return (EvalValue.isArrayValue(body))
     }
 
@@ -1092,7 +1092,7 @@ class EvHandle {
             }
             return "false"
         }
-        if (this.isArray()) {
+        if (this.isArrayValue()) {
             def result:string "["
             def i:int 0
             def n:int (this.denseLen())
@@ -1160,7 +1160,7 @@ class EvHandle {
         if (this.isBoolean()) {
             return (this.boolOf())
         }
-        if (this.isArray()) {
+        if (this.isArrayValue()) {
             return true ; Arrays are always truthy
         }
         if (this.isObject()) {
@@ -1531,7 +1531,7 @@ class EvHandle {
             return (EvHandle.undefined())
         }
         ; Array length property
-        if (this.isArray()) {
+        if (this.isArrayValue()) {
             if (key == "length") {
                 ; Exact double lane: a declared length can exceed the int.
                 return (EvHandle.number((this.arrayLengthD())))
@@ -2255,7 +2255,7 @@ class EvHandle {
     }
 
     fn setIndexAt:void (index:int value:EvHandle) {
-        ; Inline body kind check — this.isArray() re-borrows via Rc on Rust.
+        ; Inline body kind check — this.isArrayValue() re-borrows via Rc on Rust.
         def _kind:EvalValue body
         if (false == (EvalValue.isArrayValue(_kind))) {
             return
@@ -2629,7 +2629,7 @@ class EvHandle {
     
     ; Array index access
     fn getIndex:EvHandle (index:int) {
-        if (this.isArray()) {
+        if (this.isArrayValue()) {
             if ((index >= 0) && (index < (this.denseLen()))) {
                 ; D-HOLES: a hole READS as undefined. Only the code that asks
                 ; whether the element is present -- `in`, hasOwnProperty, the
@@ -2652,7 +2652,7 @@ class EvHandle {
             ; undefined. Answering null made `s[11] === undefined` false.
             return (EvHandle.undefined())
         }
-        if (this.isArray()) {
+        if (this.isArrayValue()) {
             return (EvHandle.undefined())
         }
         ; An OBJECT indexed by number -- a boxed string, say -- reads the

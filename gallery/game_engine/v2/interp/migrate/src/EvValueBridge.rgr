@@ -88,7 +88,7 @@ class EvValueBridge {
     }
     ; Named isArrayValue — a global `isArray` operator blocks Class.isArray sfns.
     sfn isArrayValue:boolean (v:EvHandle) {
-        return (v.isArray())
+        return (v.isArrayValue())
     }
     sfn isObject:boolean (v:EvHandle) {
         return (v.isObject())
