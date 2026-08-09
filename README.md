@@ -81,12 +81,11 @@ external plugins are only available as npm packages.
 and `C++` (C++14).
 
 The TypeScript/ES5 interpreter in `gallery/game_engine/v2/interp` is the largest
-cross-target gate: Go, Kotlin, Python and C# each compile, build and answer
-**8/8** of the Node benchmark cases (`npm run test:tsengine`). Swift 6 accepts
-the same ~31k-line program; a Swift toolchain is not always available in CI, so
-that column is compile-only there. Dart’s golden is `gallery/ts_parser` (AST
-identical to the JS `-d` demo). Details: [`TS_ENGINE_PERF.md`](TS_ENGINE_PERF.md),
-[`TARGET_NOTES.md`](TARGET_NOTES.md).
+cross-target gate: Go, Kotlin, Python, C#, Dart and Swift 6 each compile, and
+where the toolchain is on `PATH` they build and answer the Node benchmark cases
+(`npm run test:tsengine`). Dart also keeps the `gallery/ts_parser` golden
+(AST identical to the JS `-d` demo). Details:
+[`TS_ENGINE_PERF.md`](TS_ENGINE_PERF.md), [`TARGET_NOTES.md`](TARGET_NOTES.md).
 
 **Thinner CI** — `PHP`, `Java 7` and `Scala` still have operator templates and
 appear in the syntax-app matrix, but they are not on the large-engine golden
@@ -101,7 +100,7 @@ a compiler flag. Support is uneven:
 | Self-hosting | Actively used, but full compiler generation quality is strongest in JavaScript |
 | JavaScript / ES6 | Best baseline target and most reliable place to start |
 | Go / Python / Kotlin / C# / Rust / C++ | Large programs verified (TS engine and/or jpeg / parsers); expect remaining edge cases |
-| Dart / Swift | Strong for substantial modules (ts_parser; Swift compiles the TS engine); Flutter packages via `-l=dart -pubspec` |
+| Dart / Swift | Strong for substantial modules (ts_parser; TS engine builds and matches Node on both when toolchains are present); Flutter packages via `-l=dart -pubspec` |
 | PHP / Java / Scala | Templates + syntax-app coverage; fewer end-to-end goldens |
 | **LLVM / WASM** (`-l=llvm`) | **Experimental.** Lowers to LLVM IR; optional WAT export for freestanding WASM. Native libc builds work for demos like Space Invaders; browser WASM is still rough. Another codegen path from the same sources, not a separate surface language. See `npm run test:llvm`, `npm run game:build:llvm`. |
 | Gallery examples | Good for understanding direction and capability, but some require manual setup or platform-specific tooling |

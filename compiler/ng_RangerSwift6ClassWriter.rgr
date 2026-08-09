@@ -2,7 +2,7 @@
 ; Based on Swift3 writer with updates for Swift 6 compatibility
 ; Main changes:
 ; - Uses "swift6" for system class lookups
-; - Entry point uses @main attribute pattern
+; - Entry point is a top-level call (not @main), so operator overloads stay valid
 
 class RangerSwift6ClassWriter {
   Extends (RangerGenericClassWriter)
@@ -14,6 +14,45 @@ class RangerSwift6ClassWriter {
       return "self"
     }
     return tn
+  }
+
+  ; Swift value-type collections need `inout` + `&` when the callee mutates
+  ; them. Flow bumps set_cnt for `@(mutates)` operator params (push/set/…),
+  ; but the param itself rarely carries the mutates flag.
+  fn isSwiftValueCollection:boolean (nn:CodeNode) {
+    if (nn.value_type == RangerNodeType.Array) {
+      return true
+    }
+    if (nn.value_type == RangerNodeType.Hash) {
+      return true
+    }
+    if (nn.value_type == RangerNodeType.Buffer) {
+      return true
+    }
+    if (nn.value_type == RangerNodeType.IntBuffer) {
+      return true
+    }
+    if (nn.value_type == RangerNodeType.DoubleBuffer) {
+      return true
+    }
+    if (nn.value_type == RangerNodeType.CharBuffer) {
+      return true
+    }
+    return false
+  }
+
+  fn paramNeedsInout:boolean (arg:RangerAppParamDesc) {
+    def nn:CodeNode (unwrap arg.nameNode)
+    if (nn.hasFlag("mutates")) {
+      return true
+    }
+    if ((arg.set_cnt > 0) && (this.isSwiftValueCollection(nn))) {
+      return true
+    }
+    if ((arg.set_cnt > 0) && (nn.type_name == "string")) {
+      return true
+    }
+    return false
   }
   
   ; S5 (PLAN_SHAPES.md): a sealable union is a native enum; construction wraps
@@ -149,7 +188,7 @@ class RangerSwift6ClassWriter {
         return "[UInt8]"
       }
       case "int_buffer" {
-        return "[Int64]"
+        return "[Int]"
       }
       case "double_buffer" {
         return "[Double]"
@@ -212,7 +251,7 @@ class RangerSwift6ClassWriter {
         return "[UInt8]"
       }
       case "int_buffer" {
-        return "[Int64]"
+        return "[Int]"
       }
       case "double_buffer" {
         return "[Double]"
@@ -290,7 +329,7 @@ class RangerSwift6ClassWriter {
         wr.out("[UInt8]" false)
       }
       case RangerNodeType.IntBuffer {
-        wr.out("[Int64]" false)
+        wr.out("[Int]" false)
       }
       case RangerNodeType.DoubleBuffer {
         wr.out("[Double]" false)
@@ -504,7 +543,9 @@ class RangerSwift6ClassWriter {
       if is_weak {
         wr.out((("weak var " + p.compiledName) + " : ") false)
       } {
-        if ((p.set_cnt > 0) || p.is_class_variable || (nn.value_type == RangerNodeType.Array) || (nn.value_type == RangerNodeType.Hash)) {
+        ; Arrays, hashes and buffers are value types; subscript writes and
+        ; `.append` need `var` storage even when flow did not bump set_cnt.
+        if ((p.set_cnt > 0) || p.is_class_variable || (this.isSwiftValueCollection(nn))) {
           wr.out((("var " + p.compiledName) + " : ") false)
         } {
           wr.out((("let " + p.compiledName) + " : ") false)
@@ -534,6 +575,14 @@ class RangerSwift6ClassWriter {
           wr.out(" = " false)
           this.writeTypeDef( (unwrap p.nameNode) ctx wr)
           wr.out("()" false)
+        }
+        ; `let x: T?` without an initializer is not nil in Swift — it is
+        ; uninitialized. Optional "missing" returns (`def missing@(optional):T`)
+        ; need an explicit `= nil`.
+        if (nn.hasFlag("optional")) {
+          if ((nn.value_type != RangerNodeType.Array) && (nn.value_type != RangerNodeType.Hash)) {
+            wr.out(" = nil" false)
+          }
         }
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
@@ -569,7 +618,7 @@ class RangerSwift6ClassWriter {
       if(nn.value_type == RangerNodeType.ExpressionType ) {
         wr.out("  @escaping  " false)
       }
-      if(nn.hasFlag("mutates")) {
+      if (this.paramNeedsInout(arg)) {
         wr.out("inout " false)
       }
       this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
@@ -597,7 +646,7 @@ class RangerSwift6ClassWriter {
           wr.out("  @escaping  " false)
         }
       }
-      if(nn.hasFlag("mutates")) {
+      if ((this.paramNeedsInout(arg)) || (this.paramNeedsInout(local))) {
         wr.out("inout " false)
       }
       this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
@@ -712,7 +761,7 @@ class RangerSwift6ClassWriter {
           if (i < (size mm.params)) {
             def pDesc:RangerAppParamDesc (itemAt mm.params i)
             wr.out((pDesc.compiledName + " : ") false)
-            if ((unwrap pDesc.nameNode).hasFlag("mutates")) {
+            if (this.paramNeedsInout(pDesc)) {
               wr.out("&" false)
             }
             this.WalkNode(arg ctx wr)
@@ -761,7 +810,7 @@ class RangerSwift6ClassWriter {
         }
         def n:CodeNode (itemAt givenArgs.children i)
         wr.out((arg.compiledName + " : ") false)
-        if ((unwrap arg.nameNode).hasFlag("mutates")) {
+        if (this.paramNeedsInout(arg)) {
           wr.out("&" false)
         }
         if (this.swiftWriteUnionArg(arg n ctx wr)) {
@@ -869,7 +918,7 @@ class RangerSwift6ClassWriter {
             }
             written = written + 1
             wr.out((arg.name + " : ") false)
-            if ((unwrap arg.nameNode).hasFlag("mutates")) {
+            if (this.paramNeedsInout(arg)) {
               wr.out("&" false)
             }
             this.WalkNode(n ctx wr)
@@ -897,7 +946,7 @@ class RangerSwift6ClassWriter {
           }
           written = written + 1
           wr.out((arg.name + " : ") false)
-          if ((unwrap arg.nameNode).hasFlag("mutates")) {
+          if (this.paramNeedsInout(arg)) {
             wr.out("&" false)
           }
           this.WalkNode(n ctx wr)
@@ -1283,12 +1332,10 @@ class RangerSwift6ClassWriter {
         def theEnd (wr.getTag("file_end"))
 
         theEnd.newline()
-        ; Swift 6 compatible main entry point - using @main attribute
+        ; Top-level call — avoid @main, which conflicts with file-level
+        ; `func ==` overloads emitted for Hashable classes.
         theEnd.out("// Main entry point" true)
-        theEnd.out("@main" true)
-        theEnd.out("struct Main {" true)
-        theEnd.indent(1)
-        theEnd.out("static func main() {" true)
+        theEnd.out("func __main__swift() {" true)
         theEnd.indent(1)
         def subCtx:RangerAppWriterContext (unwrap variant.fnCtx)
         subCtx.is_function = true
@@ -1299,8 +1346,10 @@ class RangerSwift6ClassWriter {
         theEnd.newline()
         theEnd.indent(-1)
         theEnd.out("}" true)
-        theEnd.indent(-1)
-        theEnd.out("}" true)
+        theEnd.out("__main__swift()" true)
+        if( ctx.hasCompilerFlag('forever')) {
+          theEnd.out('CFRunLoopRun()' true)
+        }
       }
     }
   }

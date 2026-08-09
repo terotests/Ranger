@@ -34,6 +34,7 @@ const EXT: Record<string, string> = {
   swift6: "swift",
   python: "py",
   csharp: "cs",
+  dart: "dart",
 };
 
 // Kept identical to bench_main.rgr's caseBody, which is itself kept identical
@@ -93,8 +94,8 @@ function expectMatchesJavaScript(cmd: string, pre: string[] = []) {
   }
 }
 
-describe("TS engine -> Go / Kotlin / Swift / Python / C#", () => {
-  for (const target of ["go", "kotlin", "swift6", "python", "csharp"]) {
+describe("TS engine -> Go / Kotlin / Swift / Python / C# / Dart", () => {
+  for (const target of ["go", "kotlin", "swift6", "python", "csharp", "dart"]) {
     it(`compiles the whole engine to ${target}`, () => {
       const { out, file } = compileEngine(target);
       expect(out, `Ranger rejected the engine on ${target}:\n${out}`).not.toMatch(
@@ -140,6 +141,30 @@ describe("TS engine -> Go / Kotlin / Swift / Python / C#", () => {
       const exe = path.join(dir, "engine_bench.exe");
       execFileSync("mcs", [`-out:${exe}`, file], { encoding: "utf8" });
       expectMatchesJavaScript("mono", [exe]);
+    },
+    900000
+  );
+
+  it.skipIf(!hasTool("dart"))(
+    "the Dart build runs and answers like JavaScript",
+    () => {
+      const { file } = compileEngine("dart");
+      expectMatchesJavaScript("dart", ["run", file]);
+    },
+    900000
+  );
+
+  it.skipIf(!hasTool("swiftc"))(
+    "the Swift 6 build runs and answers like JavaScript",
+    () => {
+      const { file } = compileEngine("swift6");
+      const dir = path.dirname(file);
+      const bin = path.join(dir, "engine_bench");
+      execFileSync("swiftc", ["-O", file, "-o", bin], {
+        encoding: "utf8",
+        maxBuffer: 64 * 1024 * 1024,
+      });
+      expectMatchesJavaScript(bin);
     },
     900000
   );

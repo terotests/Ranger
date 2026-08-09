@@ -10,6 +10,7 @@
 #   TARGET=python  none               -> engine_bench.py    (run with python3)
 #   TARGET=csharp  mcs                -> engine_bench.exe   (run with mono)
 #   TARGET=swift6  swiftc -O          -> engine_bench       (needs a Swift toolchain)
+#   TARGET=dart    none               -> engine_bench.dart  (run with dart run)
 #   TARGET=llvm    clang -O2          -> engine_bench       (LLVM IR + the C runtime)
 #
 # Every target after the Ranger step is skipped when its toolchain is absent;
@@ -29,6 +30,7 @@ case "$TARGET" in
   python) EXT="py" ;;
   csharp) EXT="cs" ;;
   swift6|swift3) EXT="swift" ;;
+  dart) EXT="dart" ;;
   llvm) EXT="ll" ;;
 esac
 # LLVM needs a concrete triple: the reference counting and the object runtime
@@ -108,6 +110,9 @@ case "$TARGET" in
     else
       echo "no swiftc; generated $OUT_DIR/engine_bench.swift only"
     fi
+    ;;
+  dart)
+    echo "generated: $OUT_DIR/engine_bench.dart   (dart run $OUT_DIR/engine_bench.dart loop 1)"
     ;;
   llvm)
     # The LLVM backend emits @main for the Ranger entry point, so it is renamed

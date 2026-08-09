@@ -42,14 +42,15 @@ high count does not mean a large program has run on that target.
 | C# | yes | yes (Mono `mcs` in CI; .NET also) | TS engine 8/8 |
 | Rust | yes | yes (`rustc`) | jpeg scaler; TS engine path |
 | C++ | yes | yes (`g++`) | jpeg scaler; TS engine path |
-| Dart | yes | yes (`dart`, when on `PATH`) | `gallery/ts_parser` AST = JS |
-| Swift 6 | yes | when `swiftc` is present | TS engine compiles (~31k lines); run not always in CI |
+| Dart | yes | yes (`dart`, when on `PATH`) | TS engine (same Node answers); `gallery/ts_parser` AST = JS |
+| Swift 6 | yes | when `swiftc` is present | TS engine builds and matches Node (~39k lines) when `swiftc` is on `PATH` |
 | Java, PHP, Scala | yes, with more gaps | varies | syntax-app matrix; no large-engine golden |
 
 `npm run test:tsengine` compiles the TypeScript engine in
-`gallery/game_engine/v2/interp` to Go, Kotlin, Python, C# and Swift 6, and
-builds and runs the Go, Python and C# results when those tools are installed.
-`npm run test:dart` and `npm run test:dart:tsparser` exercise Dart.
+`gallery/game_engine/v2/interp` to Go, Kotlin, Python, C#, Swift 6 and Dart, and
+builds and runs the Go, Python, C# and Dart results when those tools are
+installed. `npm run test:dart` and `npm run test:dart:tsparser` still exercise
+the smaller Dart golden.
 
 Each [operator page](/Ranger/docs/reference/operators/statements/) lists every
 command-line target in the support row, including Dart. A mark ✔ is an own
@@ -58,11 +59,13 @@ for that target.
 
 ## The state of a shape on each target language
 
-A [shape](/Ranger/docs/language/shapes/) is a closed set of cases. The
-declaration writes one class for each case and one union over the classes. The
-table states the result of one program that tests each case and each group. The
-program compares the answer of the operator `case` against the answer of the
-operator `is`.
+A [shape](/Ranger/docs/language/shapes/) is a closed family of cases with one
+target-independent semantic model. Backends may use a native form — a typed
+union with a discriminant, a native enum, a tagged struct, an interface, or a
+variant with scalar cases stored by value — rather than only a portable
+class-per-case union. The table states the result of one program that tests
+each case and each group. The program compares the answer of the operator
+`case` against the answer of the operator `is`.
 
 | Target | The program runs | The known limit |
 | --- | --- | --- |
@@ -71,10 +74,10 @@ operator `is`.
 | Go | yes | none |
 | Kotlin | yes | none |
 | Java | yes | none |
-| C++ | yes | The variant holds a scalar case behind a pointer. The test asks for the case by value. |
+| C++ | yes | Scalar value cases ride inside the variant by value. |
 | Rust | yes | A case value is not wrapped into the union. See the note below. |
 | PHP | yes | none for a shape |
-| Swift | not tested | The toolchain is not available in the test container. The test reads the output of the writer. |
+| Swift | not in this container | `swiftc` is not installed here, so `tests/is-operator.test.ts` reads the output of the writer instead. The TypeScript engine builds and matches Node where `swiftc` is present. |
 | Dart, C#, Scala | not tested | No toolchain in the test container. |
 | llvm | no | The writer has no template for `case`, so it compiles no shape. |
 

@@ -916,10 +916,10 @@ class RangerAppWriterContext {
     }
     ; `null`, `true` and `false` cannot go in the reserved_words block: the
     ; Ranger parser reads them as literals rather than names, so the
-    ; `word transform` pair does not parse. C# is the target that needs them
+    ; `word transform` pair does not parse. C# and Dart both need them
     ; renamed -- the TypeScript engine declares a static method called `null`,
-    ; and C# has no way to spell that.
-    if ((this.getTargetLang()) == "csharp") {
+    ; and neither language can spell that as an identifier.
+    if (((this.getTargetLang()) == "csharp") || ((this.getTargetLang()) == "dart")) {
       if (input_word == "null") {
         return "_null"
       }
