@@ -15660,10 +15660,39 @@ class ComponentEngine {
         if (opK == 44) {
             if node.left {
                 def lv:EvHandle (this.evaluateExpr((unwrap node.left)))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
                 def cname:string ""
                 if node.right {
                     def rn:TSNode (unwrap node.right)
                     cname = rn.name
+                }
+                ; ES2015: @@hasInstance on the RIGHT operand decides, ahead of
+                ; every structural rule below. That is how a class overrides
+                ; what `x instanceof C` means, and nothing consulted it.
+                if node.right {
+                    def hiRight:EvHandle (this.evaluateExpr((unwrap node.right)))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    if (this.isDescriptorObject(hiRight)) {
+                        def hiFn:EvHandle (this.getPropertyValue(hiRight "@@hasInstance"))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        if (hiFn.isFunction()) {
+                            if (hiFn.hasFunctionNode()) {
+                                def hiArgs:[EvHandle]
+                                push hiArgs lv
+                                def hiRes:EvHandle (this.callFnValueWithValues((hiFn.withThisForCall(hiRight)) hiArgs))
+                                if scriptThrew {
+                                    return (EvValueBridge.taggedUndefined())
+                                }
+                                return (EvValueBridge.taggedBoolean((hiRes.toBool())))
+                            }
+                        }
+                    }
                 }
                 ; D-INSTANCEOF: the built-in constructors. `[] instanceof Array`,
                 ; `({}) instanceof Object` and `f instanceof Function` were all
