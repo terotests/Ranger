@@ -22620,6 +22620,32 @@ class ComponentEngine {
         if (objLike == false) {
             return v
         }
+        ; ES2015: @@toPrimitive, when the object has one, IS the conversion --
+        ; it is called with the hint and its answer stands, ahead of the
+        ; valueOf/toString pair. Nothing consulted it, so an object that
+        ; defines one converted through the ordinary methods instead.
+        def tpFn:EvHandle (this.getPropertyValue(v "@@toPrimitive"))
+        if scriptThrew {
+            return v
+        }
+        if (tpFn.isFunction()) {
+            if (tpFn.hasFunctionNode()) {
+                def hint:string "number"
+                if wantString { hint = "string" }
+                def tpArgs:[EvHandle]
+                push tpArgs (EvValueBridge.taggedString(hint))
+                def tpRes:EvHandle (this.callFnValueWithValues((tpFn.withThisForCall(v)) tpArgs))
+                if scriptThrew {
+                    return v
+                }
+                ; An object answer is a TypeError: the point of the hook is to
+                ; produce a primitive.
+                if (this.isDescriptorObject(tpRes)) {
+                    return (this.throwSpecError("TypeError" "Cannot convert object to primitive value"))
+                }
+                return tpRes
+            }
+        }
         def boxed:boolean (this.defaultValueOfIsPrimitive(v))
         def first:string "valueOf"
         def second:string "toString"
