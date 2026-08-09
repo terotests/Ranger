@@ -381,14 +381,84 @@ JSValue *local_buf, *stack_buf, *sp; │  std::vector<rg_ptr<EvHandle>> bcStack;
 ```
 
 QuickJS's operand stack is a raw pointer into `alloca`'d 16-byte **immediates**.
-A push is a 16-byte store; a pop is a decrement. Ranger's is a heap `std::vector`
-of **reference-counted handles**, so a push is a refcount increment plus a
-capacity check and a pop is a decrement plus a possible free.
+Ranger's `bcStack` is a heap `std::vector` of reference-counted handles — but
+reading only that line gets the comparison wrong, and an earlier draft of this
+document did.
 
-The engine already knows this matters — `bcSlotPut` keeps a parallel
-`bcTags[]`/`bcNums[]` and stores numbers, booleans, `null` and `undefined`
-**unboxed**, falling back to `bcStack[i] = h` only for reference kinds. That is
-the right idea, applied to slots. It has not reached the operand stack.
+`bcStack` is **not** the whole value. A VM slot is a *tagged* triple:
+
+```
+tag 0 = REF       -> the EvHandle in bcStack[i]
+tag 1 = NUMBER    -> the raw double in bcNums[i]
+tag 2 = BOOLEAN   -> bcNums[i] is 0.0 / 1.0
+tag 3 = UNDEFINED, tag 4 = NULL (no payload)
+```
+
+and `bcStack` is described in the source as "the ONE shared operand/locals
+stack". So numbers, booleans, `null` and `undefined` already flow between
+compiled ops **without touching the value heap** — the same immediate/heap split
+QuickJS makes, over the operand stack, already implemented. A handle is minted
+only at the walker boundary (`bcSlotBox`), and small integers come from a pool
+even then.
+
+The binary-operator opcode already has the matching unboxed path: when both
+slots are tag 1 it reads `bcNums` directly, writes `bcNums` directly and
+`continue`s, never constructing a handle — structurally the same as QuickJS's
+`OP_add` fast path. **The design is present and correct.** What was missing was
+coverage.
+
+### Implemented: the missing half of the unboxed fast path
+
+The fast path covered `+ - * /` and the four relational operators. Instrumenting
+`applyBinaryOp` — which the VM reaches only when the fast path *misses* — on
+Richards showed what fell through:
+
+| op | calls that missed | of those, both operands numbers |
+| --- | ---: | ---: |
+| `&` | 544,767 | **544,767 (100%)** |
+| `==` | 302,602 | 96,020 |
+| `\|` | 203,434 | **203,434 (100%)** |
+| `!=` | 45,116 | 86 |
+| `>>` | 42,957 | **42,957 (100%)** |
+| `^` | 21,371 | **21,371 (100%)** |
+| | **1,200,615 total** | |
+
+The bitwise operators alone were **812,529 misses, every one of them with two
+numbers in hand** — 68% of all misses, boxing both operands and allocating a
+result for an operation that is two integer instructions.
+
+Added to the tag-1/tag-1 block: `&`, `|`, `^`, `<<`, `>>`, and the four equality
+operators. Two details that matter for correctness:
+
+- `ToInt32` was split into `int32OfNum(d:double)`, which both the boxed path
+  (`toInt32Of`) and the new unboxed path call, so the two cannot drift.
+- `>>>` is deliberately **left on the boxed path**: its result is a `uint32`
+  that does not fit Ranger's signed `int`, and the existing `ushr32Of` already
+  handles that range.
+- Equality on two tag-1 slots is the raw double compare: loose and strict agree
+  when both operands are numbers, and `NaN != NaN` falls out of IEEE, which is
+  what both operators want.
+
+Result: fast-path misses on Richards **1,200,615 → 495,372 (−59%)**. What
+remains comes from the *walker*, not the VM — the tree-walking interpreter calls
+`applyBinaryOp` directly and has no tagged lanes to read.
+
+Measured, interleaved wall time, 9 reps, min:
+
+| suite | es6 | C++ | Rust |
+| --- | ---: | ---: | ---: |
+| richards | **−2.1%** | −1.2% | +0.6% |
+| deltablue | **−2.3%** | −0.4% | −0.9% |
+
+The fixed-work micros show nothing, correctly: none of `arith`, `prop`, `call`,
+`method`, `typemix` or the pool benchmarks use a bitwise operator. Richards does,
+which is why the benefit only appears there. Conformance unchanged: 1327/1327
+es6, 1297/1303 with 0 crashes on both native targets.
+
+Eight hundred thousand removed boxing operations buying 2% is the honest ratio,
+and it is worth stating plainly: at ~50–100 ns of avoided work each, 812 k
+operations is 40–80 ms out of a 5.4 s run. The arithmetic checks out, and it is
+a useful calibration for the remaining items on this list.
 
 ### Adding two numbers
 

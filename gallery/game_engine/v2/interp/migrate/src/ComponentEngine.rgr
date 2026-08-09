@@ -10254,6 +10254,58 @@ class ComponentEngine {
                         }
                         continue
                     }
+                    ; Equality on two NUMBERS: loose and strict agree, and both
+                    ; are the raw double compare -- NaN != NaN falls out of the
+                    ; IEEE comparison, which is what both operators want. A
+                    ; tag-1 slot is a number by the slot invariant, so no
+                    ; ToPrimitive can be owed here.
+                    if ((a == 30) || (a == 32)) {
+                        set bcTags (sp - 1) 2
+                        if (lv12 == rv12) {
+                            set bcNums (sp - 1) 1.0
+                        } {
+                            set bcNums (sp - 1) 0.0
+                        }
+                        continue
+                    }
+                    if ((a == 31) || (a == 33)) {
+                        set bcTags (sp - 1) 2
+                        if (lv12 != rv12) {
+                            set bcNums (sp - 1) 1.0
+                        } {
+                            set bcNums (sp - 1) 0.0
+                        }
+                        continue
+                    }
+                    ; Bitwise and shifts. ToInt32 of a tag-1 slot is
+                    ; int32OfNum of the double it already holds -- the same
+                    ; helper the boxed path calls -- and an int32 result is
+                    ; exact in a double, so the slot stays in the number lane.
+                    ; `>>>` is deliberately absent: its result is a uint32 that
+                    ; does not fit Ranger's signed int, so it keeps the boxed
+                    ; path that already handles the range.
+                    if (((((a == 37) || (a == 38)) || (a == 39)) || (a == 40)) || (a == 41)) {
+                        def li12:int (this.int32OfNum(lv12))
+                        def ri12:int (this.int32OfNum(rv12))
+                        def bres:int 0
+                        if (a == 37) {
+                            bres = (bit_and li12 ri12)
+                        }
+                        if (a == 38) {
+                            bres = (bit_or li12 ri12)
+                        }
+                        if (a == 39) {
+                            bres = (bit_xor li12 ri12)
+                        }
+                        if (a == 40) {
+                            bres = (this.int32Wrap((bit_shl li12 (bit_and ri12 31))))
+                        }
+                        if (a == 41) {
+                            bres = (bit_shr li12 (bit_and ri12 31))
+                        }
+                        set bcNums (sp - 1) (to_double bres)
+                        continue
+                    }
                     if (a == 28) {
                         set bcTags (sp - 1) 2
                         if (lv12 <= rv12) {
@@ -20112,7 +20164,13 @@ class ComponentEngine {
     ; `.toNumber()` off the value skipped the object conversion entirely --
     ; `({valueOf: function () { return 1; }}) << 1` answered 0.
     fn toInt32Of:int (v:EvHandle) {
-        def d:double (this.toNumberOf(v))
+        return (this.int32OfNum((this.toNumberOf(v))))
+    }
+
+    ; ToInt32 on a raw double. Split out of toInt32Of so the VM's unboxed
+    ; bitwise fast path and the boxed path cannot drift apart: a tag-1 slot
+    ; already holds the double that toNumberOf would return.
+    fn int32OfNum:int (d:double) {
         if (d != d) { return 0 }
         if (false == (this.isFiniteNum(d))) { return 0 }
         def t:double (this.floorNum(d))
