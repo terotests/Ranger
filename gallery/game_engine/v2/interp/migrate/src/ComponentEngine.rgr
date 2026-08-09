@@ -6304,6 +6304,78 @@ class ComponentEngine {
         return true
     }
 
+    ; Round a double to the nearest value representable as a float32, which is
+    ; what Math.fround answers. Ranger has no float32, so the round trip is done
+    ; by hand: normalise the magnitude into [1,2), round the 24-bit mantissa,
+    ; then scale back. Infinities, zeroes and NaN pass through untouched, and a
+    ; magnitude past the float32 range saturates to Infinity as the spec says.
+    fn toFloat32:double (v:double) {
+        if (v != v) { return v }
+        if (v == 0.0) { return v }
+        def neg:boolean (v < 0.0)
+        def m:double v
+        if neg { m = (0.0 - v) }
+        ; The float32 range check is done on the EXPONENT after normalising,
+        ; not against a literal maximum: a 39-digit double literal is emitted as
+        ; `3.4028234663852886e+38.0` by the es6 writer, which is not valid
+        ; JavaScript. Pinned separately; avoided here.
+        ; exponent by repeated scaling -- no frexp intrinsic, and the loop runs
+        ; at most ~150 times for the extremes of the double range
+        def e:int 0
+        while (m >= 2.0) {
+            m = (m / 2.0)
+            e = (e + 1)
+        }
+        while (m < 1.0) {
+            m = (m * 2.0)
+            e = (e - 1)
+        }
+        ; float32 has a 24-bit significand (1 implicit + 23 stored)
+        def scale:double 8388608.0
+        def r:double (m * scale)
+        ; IEEE rounds the significand ties-to-EVEN, not ties-away. floor(x+0.5)
+        ; would be wrong on an exact tie, and exact ties are exactly what a
+        ; fround test corpus is made of.
+        def fl:double (to_double (floor r))
+        def diff:double (r - fl)
+        def rounded:double fl
+        if (diff > 0.5) {
+            rounded = (fl + 1.0)
+        }
+        if (diff == 0.5) {
+            def half:double (fl / 2.0)
+            if ((half - (to_double (floor half))) != 0.0) {
+                rounded = (fl + 1.0)
+            }
+        }
+        if (rounded >= (scale * 2.0)) {
+            rounded = (rounded / 2.0)
+            e = (e + 1)
+        }
+        ; float32 tops out at 2^128 (exponent 127 with a full significand); a
+        ; magnitude past it saturates to Infinity, which is what the spec says.
+        if (e > 127) {
+            def infv:double (1.0 / 0.0)
+            if neg { return (0.0 - infv) }
+            return infv
+        }
+        def outv:double (rounded / scale)
+        def k:int 0
+        if (e > 0) {
+            while (k < e) {
+                outv = (outv * 2.0)
+                k = (k + 1)
+            }
+        } {
+            while (k > e) {
+                outv = (outv / 2.0)
+                k = (k - 1)
+            }
+        }
+        if neg { return (0.0 - outv) }
+        return outv
+    }
+
     fn powNum:double (base:double expn:int) {
         def acc:double 1.0
         if (expn >= 0) {
@@ -16014,6 +16086,128 @@ class ComponentEngine {
                 }
                 return (EvValueBridge.taggedNumber((this.powNum(n0 pe))))
             }
+            ; ---- ES2015 Math additions --------------------------------------
+            ; Built from the intrinsics the engine already wraps (expNum/logNum
+            ; and the sqrt operator) via the identities the spec names, so there
+            ; is one definition per function rather than a per-target intrinsic
+            ; table. NaN and the signed zeroes are handled explicitly: cbrt(-0)
+            ; is -0, and every one of these answers NaN for a NaN argument.
+            if (name == "cbrt") {
+                if (n0 != n0) { return (EvValueBridge.taggedNumber(n0)) }
+                if (n0 == 0.0) { return (EvValueBridge.taggedNumber(n0)) }
+                ; exp(log(x)/3) lands within an ulp or two -- cbrt(27) came
+                ; back 3.0000000000000004. Two Newton steps on y^3 = x pull it
+                ; onto the exactly-representable answer where one exists.
+                def mag:double n0
+                if (n0 < 0.0) { mag = (0.0 - n0) }
+                def lg:double (this.logNum(mag))
+                def y:double (this.expNum((lg / 3.0)))
+                def it:int 0
+                while (it < 2) {
+                    if (y != 0.0) {
+                        y = (y - (((y * (y * y)) - mag) / (3.0 * (y * y))))
+                    }
+                    it = (it + 1)
+                }
+                if (n0 < 0.0) {
+                    return (EvValueBridge.taggedNumber((0.0 - y)))
+                }
+                return (EvValueBridge.taggedNumber(y))
+            }
+            if (name == "log2") {
+                if (n0 != n0) { return (EvValueBridge.taggedNumber(n0)) }
+                def l2a:double (this.logNum(n0))
+                def l2b:double (this.logNum(2.0))
+                return (EvValueBridge.taggedNumber((l2a / l2b)))
+            }
+            if (name == "log10") {
+                if (n0 != n0) { return (EvValueBridge.taggedNumber(n0)) }
+                def l10a:double (this.logNum(n0))
+                def l10b:double (this.logNum(10.0))
+                return (EvValueBridge.taggedNumber((l10a / l10b)))
+            }
+            if (name == "log1p") {
+                if (n0 != n0) { return (EvValueBridge.taggedNumber(n0)) }
+                if (n0 == 0.0) { return (EvValueBridge.taggedNumber(n0)) }
+                return (EvValueBridge.taggedNumber((this.logNum((1.0 + n0)))))
+            }
+            if (name == "expm1") {
+                if (n0 != n0) { return (EvValueBridge.taggedNumber(n0)) }
+                if (n0 == 0.0) { return (EvValueBridge.taggedNumber(n0)) }
+                def e1:double (this.expNum(n0))
+                return (EvValueBridge.taggedNumber((e1 - 1.0)))
+            }
+            if (name == "sinh") {
+                if (n0 != n0) { return (EvValueBridge.taggedNumber(n0)) }
+                if (n0 == 0.0) { return (EvValueBridge.taggedNumber(n0)) }
+                def sp:double (this.expNum(n0))
+                def sm:double (this.expNum((0.0 - n0)))
+                return (EvValueBridge.taggedNumber(((sp - sm) / 2.0)))
+            }
+            if (name == "cosh") {
+                if (n0 != n0) { return (EvValueBridge.taggedNumber(n0)) }
+                def cp:double (this.expNum(n0))
+                def cm:double (this.expNum((0.0 - n0)))
+                return (EvValueBridge.taggedNumber(((cp + cm) / 2.0)))
+            }
+            if (name == "tanh") {
+                if (n0 != n0) { return (EvValueBridge.taggedNumber(n0)) }
+                if (n0 == 0.0) { return (EvValueBridge.taggedNumber(n0)) }
+                def tp:double (this.expNum(n0))
+                def tm:double (this.expNum((0.0 - n0)))
+                return (EvValueBridge.taggedNumber(((tp - tm) / (tp + tm))))
+            }
+            if (name == "asinh") {
+                if (n0 != n0) { return (EvValueBridge.taggedNumber(n0)) }
+                if (n0 == 0.0) { return (EvValueBridge.taggedNumber(n0)) }
+                def ash:double (sqrt ((n0 * n0) + 1.0))
+                return (EvValueBridge.taggedNumber((this.logNum((n0 + ash)))))
+            }
+            if (name == "acosh") {
+                if (n0 != n0) { return (EvValueBridge.taggedNumber(n0)) }
+                def ach:double (sqrt ((n0 * n0) - 1.0))
+                return (EvValueBridge.taggedNumber((this.logNum((n0 + ach)))))
+            }
+            if (name == "atanh") {
+                if (n0 != n0) { return (EvValueBridge.taggedNumber(n0)) }
+                if (n0 == 0.0) { return (EvValueBridge.taggedNumber(n0)) }
+                def atn:double (this.logNum(((1.0 + n0) / (1.0 - n0))))
+                return (EvValueBridge.taggedNumber((0.5 * atn)))
+            }
+            ; clz32 and imul are the INTEGER pair: both take their arguments
+            ; through the same 32-bit wrap the bitwise operators use rather than
+            ; through the double domain.
+            if (name == "clz32") {
+                def cz:int (this.toInt32Of((itemAt args 0)))
+                if (cz == 0) {
+                    return (EvValueBridge.taggedNumber(32.0))
+                }
+                def cnt:int 0
+                while (cnt < 32) {
+                    def shifted:int (bit_shr cz (31 - cnt))
+                    if ((bit_and shifted 1) != 0) {
+                        return (EvValueBridge.taggedNumber((to_double cnt)))
+                    }
+                    cnt = (cnt + 1)
+                }
+                return (EvValueBridge.taggedNumber(32.0))
+            }
+            if (name == "imul") {
+                def ia:int (this.toInt32Of((itemAt args 0)))
+                def ib:int 0
+                if ((array_length args) > 1) {
+                    ib = (this.toInt32Of((itemAt args 1)))
+                }
+                def prod:int (this.int32Wrap((ia * ib)))
+                return (EvValueBridge.taggedNumber((to_double prod)))
+            }
+            ; fround answers the nearest float32. Ranger has no float32, so the
+            ; round trip is done by hand -- see toFloat32.
+            if (name == "fround") {
+                if (n0 != n0) { return (EvValueBridge.taggedNumber(n0)) }
+                if (n0 == 0.0) { return (EvValueBridge.taggedNumber(n0)) }
+                return (EvValueBridge.taggedNumber((this.toFloat32(n0))))
+            }
             if (name == "hypot") {
                 def acc:double 0.0
                 def hi:int 0
@@ -16295,6 +16489,21 @@ class ComponentEngine {
             push out "sqrt"
             push out "tan"
             push out "trunc"
+            ; --- ES2015 additions ---
+            push out "cbrt"
+            push out "clz32"
+            push out "expm1"
+            push out "fround"
+            push out "imul"
+            push out "log10"
+            push out "log1p"
+            push out "log2"
+            push out "sinh"
+            push out "cosh"
+            push out "tanh"
+            push out "asinh"
+            push out "acosh"
+            push out "atanh"
             return out
         }
         if (nsName == "Array") {
