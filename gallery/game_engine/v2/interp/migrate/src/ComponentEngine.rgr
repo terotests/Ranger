@@ -16802,6 +16802,13 @@ class ComponentEngine {
             ; frozen.
             def a0Obj:boolean (this.isDescriptorObject(a0))
             if (name == "isExtensible") {
+                def oxE:int (this.proxyBoolTrap(a0 "isExtensible" (EvValueBridge.taggedUndefined()) false))
+                if (oxE >= 0) {
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    return (EvValueBridge.taggedBoolean((oxE == 1)))
+                }
                 if (false == a0Obj) {
                     return (EvValueBridge.taggedBoolean(false))
                 }
@@ -16937,6 +16944,13 @@ class ComponentEngine {
             if (name == "setPrototypeOf") {
                 if ((array_length args) > 1) {
                     def npV:EvHandle (itemAt args 1)
+                    def oxS:int (this.proxyBoolTrap(a0 "setPrototypeOf" npV true))
+                    if (oxS >= 0) {
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        return a0
+                    }
                     if (npV.isObject()) {
                         a0.setProto(npV)
                     }
@@ -16961,6 +16975,13 @@ class ComponentEngine {
                 return a0
             }
             if (name == "preventExtensions") {
+                def oxP:int (this.proxyBoolTrap(a0 "preventExtensions" (EvValueBridge.taggedUndefined()) false))
+                if (oxP >= 0) {
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    return a0
+                }
                 if a0Obj {
                     a0.setExtensible(false)
                 }
@@ -17288,6 +17309,13 @@ class ComponentEngine {
                 if (false == ((rProto.isObject()) || (rProto.isNull()))) {
                     return (this.throwSpecError("TypeError" "Object prototype may only be an Object or null"))
                 }
+                def pxS:int (this.proxyBoolTrap(rTgt "setPrototypeOf" rProto true))
+                if (pxS >= 0) {
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    return (EvValueBridge.taggedBoolean((pxS == 1)))
+                }
                 if (false == (rTgt.isExtensible())) {
                     return (EvValueBridge.taggedBoolean(false))
                 }
@@ -17297,9 +17325,23 @@ class ComponentEngine {
                 return (EvValueBridge.taggedBoolean(true))
             }
             if (name == "isExtensible") {
+                def pxE:int (this.proxyBoolTrap(rTgt "isExtensible" (EvValueBridge.taggedUndefined()) false))
+                if (pxE >= 0) {
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    return (EvValueBridge.taggedBoolean((pxE == 1)))
+                }
                 return (EvValueBridge.taggedBoolean((rTgt.isExtensible())))
             }
             if (name == "preventExtensions") {
+                def pxP:int (this.proxyBoolTrap(rTgt "preventExtensions" (EvValueBridge.taggedUndefined()) false))
+                if (pxP >= 0) {
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    return (EvValueBridge.taggedBoolean((pxP == 1)))
+                }
                 rTgt.setExtensible(false)
                 return (EvValueBridge.taggedBoolean(true))
             }
@@ -23210,6 +23252,49 @@ class ComponentEngine {
             return (this.throwSpecError("TypeError" "Cannot create proxy with a non-object as target or handler"))
         }
         return (this.makeProxyValue(pt ph))
+    }
+
+    ; D-PROXY: a trap whose answer is a boolean and whose only argument is the
+    ; target (isExtensible, preventExtensions) or the target plus one value
+    ; (setPrototypeOf). -1 means "not a proxy, carry on".
+    fn proxyBoolTrap:int (obj:EvHandle name:string extra:EvHandle hasExtra:boolean) {
+        if (false == (this.isProxyValue(obj))) {
+            return (0 - 1)
+        }
+        def bTgt:EvHandle (this.proxyTargetOf(obj))
+        def bTrap:EvHandle (this.proxyTrap(obj name))
+        if scriptThrew {
+            return 0
+        }
+        if (bTrap.isFunction()) {
+            def bArgs:[EvHandle]
+            push bArgs bTgt
+            if hasExtra {
+                push bArgs extra
+            }
+            def bRes:EvHandle (this.callProxyTrap(bTrap bArgs))
+            if scriptThrew {
+                return 0
+            }
+            if (bRes.toBool()) { return 1 }
+            return 0
+        }
+        ; No trap: the operation runs against the target.
+        if (name == "isExtensible") {
+            if (bTgt.isExtensible()) { return 1 }
+            return 0
+        }
+        if (name == "preventExtensions") {
+            bTgt.setExtensible(false)
+            return 1
+        }
+        if (name == "setPrototypeOf") {
+            if (extra.isObject()) {
+                bTgt.setProto(extra)
+            }
+            return 1
+        }
+        return 1
     }
 
     fn makeProxyValue:EvHandle (target:EvHandle handler:EvHandle) {
