@@ -9,10 +9,11 @@ bugs in [ISSUES.md](ISSUES.md).
 
 The interpreter in `gallery/game_engine/v2/interp` is the largest program used
 as a multi-target gate. Besides C++ and Rust, it compiles to **Go, Kotlin,
-Python, C#, Swift 6 and Dart**. Go, Kotlin, Python, C#, Dart and Swift 6 each
-build and answer all of the Node benchmark cases when their toolchains are on
-`PATH`. C# in CI uses Mono 6.8 (`mcs`); a modern .NET SDK is fine when
-available. See `TS_ENGINE_PERF.md` and `npm run test:tsengine`.
+Python, C#, Swift 6 and Dart**. Each of those six builds and answers all of the
+Node benchmark cases when its toolchain is on `PATH` (`kotlinc`+`java`,
+`swiftc`, `dart`, `go`, `python3`, `mcs`+`mono`). C# in CI uses Mono 6.8
+(`mcs`); a modern .NET SDK is fine when available. See `TS_ENGINE_PERF.md` and
+`npm run test:tsengine`.
 
 One defect showed up on three targets at once: an unused `def` whose
 initializer is a call was commented out, so `def ignored:T (this.work())`

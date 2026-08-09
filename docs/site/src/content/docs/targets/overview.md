@@ -48,9 +48,9 @@ high count does not mean a large program has run on that target.
 
 `npm run test:tsengine` compiles the TypeScript engine in
 `gallery/game_engine/v2/interp` to Go, Kotlin, Python, C#, Swift 6 and Dart, and
-builds and runs the Go, Python, C# and Dart results when those tools are
-installed. `npm run test:dart` and `npm run test:dart:tsparser` still exercise
-the smaller Dart golden.
+builds and runs each of those when the matching toolchain is installed.
+`npm run test:dart` and `npm run test:dart:tsparser` still exercise the smaller
+Dart golden.
 
 Each [operator page](/Ranger/docs/reference/operators/statements/) lists every
 command-line target in the support row, including Dart. A mark ✔ is an own
