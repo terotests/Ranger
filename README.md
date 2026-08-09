@@ -260,14 +260,30 @@ so it compiles to every target the compiler has. Four commands build it and
 measure it, and each skips any target whose toolchain is not installed.
 
 ```bash
+npm run jsengine:check         # report which C++/libstdc++ toolchain is usable
 npm run jsengine:build         # es6 module + cpp and rust binaries
 npm run jsengine:bench         # against Node, and QuickJS if `qjs` is on PATH
 npm run jsengine:conformance   # 1303 JS probes, answers checked against Node
 npm run jsengine:all           # all three in order
 ```
 
-`jsengine:build` needs `g++` for the C++ target and `rustc` for the Rust one;
-without them it still writes the generated source and says which it skipped.
+`jsengine:build` needs a C++ compiler for the cpp target and `rustc` for the
+Rust one; without them it still writes the generated source and says which it
+skipped. Run `npm run jsengine:check` first if a native build fails — it probes
+for a compiler that can use `-cpp-single-thread` (libstdc++
+`__shared_ptr` / `_S_single`).
+
+On **macOS**, Apple's Command Line Tools `g++` is clang + libc++ and **cannot**
+build that fast path. Install real GCC:
+
+```bash
+brew install gcc          # provides g++-14 / g++-15 / …
+npm run jsengine:check    # should report rg_ptr: OK
+npm run jsengine:build
+```
+
+Without Homebrew GCC the build still proceeds, but omits `-cpp-single-thread`
+(atomic `std::shared_ptr` — correct, slower). Set `CXX` to pin a compiler.
 `jsengine:bench` reports one table across every engine that got built:
 
 ```

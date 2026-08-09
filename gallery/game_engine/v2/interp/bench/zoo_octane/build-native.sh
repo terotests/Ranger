@@ -7,8 +7,17 @@
 #   TARGET=llvm bash build-native.sh
 set -e
 cd "$(dirname "$0")/../../../../../.."
+ROOT="$(pwd)"
 TARGETS="${TARGET:-cpp rust}"
 SRC=gallery/game_engine/v2/interp/bench/zoo_octane/octane_main.rgr
+
+# Resolve a real libstdc++ g++ when possible (Apple's g++ is clang/libc++).
+# shellcheck source=scripts/cpp-toolchain.sh
+. "$ROOT/scripts/cpp-toolchain.sh"
+if [ -z "${CXX:-}" ] || [ -z "${CXX_SUPPORTS_SINGLE_THREAD:-}" ]; then
+  cpp_toolchain_resolve || true
+fi
+CXX="${CXX:-g++}"
 
 for T in $TARGETS; do
   OUT_DIR=gallery/game_engine/v2/interp/bin/$T
@@ -24,6 +33,21 @@ for T in $TARGETS; do
   if [ "$T" = "llvm" ]; then
     TARGET_FLAG='-target=native-linux-gnu'
   fi
+  CPP_ST_FLAGS=()
+  if [ "$T" = "cpp" ]; then
+    if [ "${CXX_SUPPORTS_SINGLE_THREAD:-0}" = "1" ]; then
+      CPP_ST_FLAGS=(-cpp-single-thread)
+    else
+      echo "note: $CXX cannot build -cpp-single-thread (need GCC/libstdc++);" >&2
+      echo "      compiling with atomic std::shared_ptr instead." >&2
+      if [ "$(uname -s)" = "Darwin" ]; then
+        echo "      tip: brew install gcc   # then re-run; g++-14 will be picked up" >&2
+      fi
+    fi
+  else
+    # Harmless on non-cpp targets (flag ignored); keep prior behavior.
+    CPP_ST_FLAGS=(-cpp-single-thread)
+  fi
   echo "== Ranger -> $T (octane_runner)"
   # -cpp-single-thread: non-atomic rg_ptr refcounts; the interpreter is
   # single-threaded (cpp-only flag, ignored elsewhere). See bench/native.
@@ -31,7 +55,7 @@ for T in $TARGETS; do
   # the native step rebuilds the previous run's stale source and says "built".
   RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l="$T" \
     "$SRC" -d="$OUT_DIR" -o=octane_runner."$EXT" -nodecli -native-fast-alloc \
-    -cpp-single-thread $TARGET_FLAG $EXTRA_RANGER_FLAGS 2>&1 | tee /tmp/rgr_oct_$$.log
+    "${CPP_ST_FLAGS[@]}" $TARGET_FLAG $EXTRA_RANGER_FLAGS 2>&1 | tee /tmp/rgr_oct_$$.log
   if grep -q "Compilation FAILED" /tmp/rgr_oct_$$.log; then
     rm -f /tmp/rgr_oct_$$.log
     echo "Ranger -> $T FAILED; refusing to build a stale $OUT_DIR/octane_runner.$EXT" >&2
@@ -44,8 +68,8 @@ for T in $TARGETS; do
       # by-value EvalValue alternatives ahead of first use (see script).
       python3 gallery/game_engine/v2/interp/bench/native/fix_cpp_evalvalue_order.py \
         "$OUT_DIR/octane_runner.cpp"
-      echo "== g++ -O3 octane_runner"
-      g++ -O3 -march=native -std=c++17 "$OUT_DIR/octane_runner.cpp" -o "$OUT_DIR/octane_runner"
+      echo "== $CXX -O3 octane_runner"
+      "$CXX" -O3 -march=native -std=c++17 "$OUT_DIR/octane_runner.cpp" -o "$OUT_DIR/octane_runner"
       echo "built: $OUT_DIR/octane_runner"
       ;;
     rust)
