@@ -12751,6 +12751,12 @@ class ComponentEngine {
     }
 
     fn callFnValueWithValues:EvHandle (fnValue:EvHandle argVals:[EvHandle]) {
+        ; D-PROXY: calling a proxy is the `apply` trap, or the target when the
+        ; handler supplies none. A proxy is not a function value, so without
+        ; this every call through one was "not a function".
+        if (this.isProxyValue(fnValue)) {
+            return (this.callProxyApply(fnValue (EvValueBridge.taggedUndefined()) argVals))
+        }
         ; D-REGISTRY: a built-in extracted as a value (`var f = arr.slice`, or
         ; `Array.prototype.slice`) is invoked through the same dispatcher the
         ; direct call uses, so the two paths cannot diverge. Its receiver is
@@ -17231,7 +17237,11 @@ class ComponentEngine {
                 return (this.throwSpecError("TypeError" ("Reflect." + (name + " called on non-object"))))
             }
             if (name == "apply") {
-                if (false == (rTgt.isFunction())) {
+                ; A callable PROXY is a function for this purpose; the apply
+                ; trap decides what happens.
+                def applyOk:boolean (rTgt.isFunction())
+                if (this.isProxyValue(rTgt)) { applyOk = true }
+                if (false == applyOk) {
                     return (this.throwSpecError("TypeError" "Reflect.apply target is not a function"))
                 }
                 def rThis:EvHandle (EvValueBridge.taggedUndefined())
@@ -17250,6 +17260,11 @@ class ComponentEngine {
                     }
                 } {
                     return (this.throwSpecError("TypeError" "CreateListFromArrayLike called on non-object"))
+                }
+                ; A PROXY carries no bound-this slot, so the receiver rides as
+                ; the trap's second argument instead of on the value.
+                if (this.isProxyValue(rTgt)) {
+                    return (this.callProxyApply(rTgt rThis rArgs))
                 }
                 return (this.callFnValueWithValues((rTgt.withThisForCall(rThis)) rArgs))
             }
@@ -23465,6 +23480,28 @@ class ComponentEngine {
         return 1
     }
 
+    ; D-PROXY: calling a proxy is the `apply` trap, or the target when the
+    ; handler supplies none. A proxy is not a function value, so the receiver
+    ; cannot ride on it -- it is passed in.
+    fn callProxyApply:EvHandle (p:EvHandle thisArg:EvHandle argVals:[EvHandle]) {
+        def aTgt:EvHandle (this.proxyTargetOf(p))
+        def aTrap:EvHandle (this.proxyTrap(p "apply"))
+        if scriptThrew {
+            return (EvValueBridge.taggedUndefined())
+        }
+        if (aTrap.isFunction()) {
+            def apArgs:[EvHandle]
+            push apArgs aTgt
+            push apArgs thisArg
+            push apArgs (EvValueBridge.taggedArray(argVals))
+            return (this.callProxyTrap(aTrap apArgs))
+        }
+        if (false == (aTgt.isFunction())) {
+            return (this.throwSpecError("TypeError" "proxy target is not a function"))
+        }
+        return (this.callFnValueWithValues((aTgt.withThisForCall(thisArg)) argVals))
+    }
+
     fn makeProxyValue:EvHandle (target:EvHandle handler:EvHandle) {
         def keysX:[string]
         def valsX:[EvHandle]
@@ -25890,6 +25927,11 @@ class ComponentEngine {
     fn typeofTag:string (val:EvHandle) {
         if (val.isUndefined()) {
             return "undefined"
+        }
+        ; D-PROXY: a proxy answers `typeof` as its TARGET does, so a proxy
+        ; wrapping a function is "function".
+        if (this.isProxyValue(val)) {
+            return (this.typeofTag((this.proxyTargetOf(val))))
         }
         if (val.isNull()) {
             return "object"
