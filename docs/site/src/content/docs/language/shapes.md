@@ -268,8 +268,9 @@ def b:boolean (is v _:Value.Printable)
 `is` is an expression. It goes into a `return`, into an `if` condition, and into
 a boolean operator. Prefer `match` when the program must cover the family;
 prefer `case` when one arm reads a payload; prefer `is` when only the boolean
-matters. The binding of `case` has a cost: on the Rust target it writes a clone
-of the value.
+matters. The choice is what the program does with the answer, not what it costs:
+a binding the block only reads is a reference on every target, and copies
+nothing. A block that needs the payload as a value of its own must copy it.
 
 ## Representation per target
 

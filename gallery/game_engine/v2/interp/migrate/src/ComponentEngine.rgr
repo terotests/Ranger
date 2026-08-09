@@ -1875,7 +1875,7 @@ class ComponentEngine {
                 if argNode.left {
                     sv = (this.evaluateExpr((unwrap argNode.left)))
                 }
-                if (sv.isArray()) {
+                if (sv.isArrayValue()) {
                     def k:int 0
                     while (k < (sv.denseLen())) {
                         push args (sv.arrayItemAt(k))
@@ -3480,7 +3480,7 @@ class ComponentEngine {
             } {
                 if (el.nodeType == "RestElement") {
                     def items:[EvHandle]
-                    if (value.isArray()) {
+                    if (value.isArrayValue()) {
                         def k:int idx
                         while (k < (value.denseLen())) {
                             push items (value.arrayItemAt(k))
@@ -3499,7 +3499,7 @@ class ComponentEngine {
                     }
                 } {
                     def elemVal:EvHandle (EvValueBridge.taggedUndefined())
-                    if (value.isArray()) {
+                    if (value.isArrayValue()) {
                         if (idx < (value.denseLen())) {
                             elemVal = (value.arrayItemAt(idx))
                         }
@@ -5813,7 +5813,7 @@ class ComponentEngine {
                         def objValue:EvHandle (context.lookup(objName))
                         
                         ; Array.push()
-                        if ((methodName == "push") && (objValue.isArray())) {
+                        if ((methodName == "push") && (objValue.isArrayValue())) {
                             ; Get arguments from node.children
                             if ((array_length node.children) > 0) {
                                 def argNode:TSNode (itemAt node.children 0)
@@ -5927,7 +5927,7 @@ class ComponentEngine {
             def rightNode:TSNode (unwrap node.right)
             def arrayValue:EvHandle (this.evaluateExpr(rightNode))
             
-            if (arrayValue.isArray()) {
+            if (arrayValue.isArrayValue()) {
                 def i:int 0
                 while (i < (arrayValue.denseLen())) {
                     def item:EvHandle (arrayValue.arrayItemAt(i))
@@ -6472,7 +6472,7 @@ class ComponentEngine {
         ; is the element and `x[-1]` is a property, and routing on the operand's
         ; type got both of those backwards.
         def numIdxD:double (0.0 - 1.0)
-        if (obj.isArray()) {
+        if (obj.isArrayValue()) {
             ; D lane: an index up to 2^32-2 is canonical, and only a double
             ; carries it on the C++ target.
             def ai0:double (this.canonicalArrayIndexD(key))
@@ -6522,7 +6522,7 @@ class ComponentEngine {
             ; value that is not a uint32 is a RangeError. It used to be stored as
             ; an ordinary property and ignored, so `x.length = 0` left the array
             ; untouched and every assertion about it read the old contents.
-            if (obj.isArray()) {
+            if (obj.isArrayValue()) {
                 if (key == "length") {
                     def lenCur:EvHandle (EvHandle.number((obj.arrayLengthD())))
                     def lenWant:EvHandle (this.applyAssignOp(opK lenCur rightValue))
@@ -6960,7 +6960,7 @@ class ComponentEngine {
         }
         if (false == node.computed) {
             ; .length of an array (dense or declared) or a string
-            if (base.isArray()) {
+            if (base.isArrayValue()) {
                 def lenHit@(optional):EvHandle (this.exprSlotNumber(node (base.arrayLengthD())))
                 return lenHit
             }
@@ -6983,7 +6983,7 @@ class ComponentEngine {
         if ((to_double idx) != idxD) {
             return none
         }
-        if (false == (base.isArray())) {
+        if (false == (base.isArrayValue())) {
             return none
         }
         ; An own accessor under a numeric key would make this read observable;
@@ -9766,7 +9766,7 @@ class ComponentEngine {
             if (obj.isString()) {
                 return (EvHandle.fromInt((strlen (obj.stringOf()))))
             }
-            if (obj.isArray()) {
+            if (obj.isArrayValue()) {
                 ; Exact double lane: a declared length can exceed the int.
                 return (EvHandle.number((obj.arrayLengthD())))
             }
@@ -9874,7 +9874,7 @@ class ComponentEngine {
     }
 
     fn bcGetElem:EvHandle (obj:EvHandle key:EvHandle) {
-        if (obj.isArray()) {
+        if (obj.isArrayValue()) {
             if (key.isNumber()) {
                 def kd:double key.numberValue
                 ; range-check BEFORE converting: double->int out of int range
@@ -9913,7 +9913,7 @@ class ComponentEngine {
     }
 
     fn bcPutElem:void (obj:EvHandle key:EvHandle v:EvHandle) {
-        if (obj.isArray()) {
+        if (obj.isArrayValue()) {
             if (key.isNumber()) {
                 def kd:double key.numberValue
                 if ((kd >= 0.0) && (kd < 2147483647.0)) {
@@ -9948,7 +9948,7 @@ class ComponentEngine {
                 return
             }
         }
-        if (obj.isArray()) {
+        if (obj.isArrayValue()) {
             ; the walker's element-vs-property routing, decided by the KEY
             ; TEXT (D-ARRAYSPARSE): a canonical index within the dense cap
             ; pads holes and stores; past the cap it is a property that still
@@ -10002,7 +10002,7 @@ class ComponentEngine {
         def canProps:boolean false
         if (obj.isObject()) { canProps = true }
         if (obj.isFunction()) { canProps = true }
-        if (obj.isArray()) { canProps = (obj.hasOwnData(methodName)) }
+        if (obj.isArrayValue()) { canProps = (obj.hasOwnData(methodName)) }
         if (obj.isMap()) { canProps = (obj.hasOwnData(methodName)) }
         if (obj.isSet()) { canProps = (obj.hasOwnData(methodName)) }
         if canProps {
@@ -10060,7 +10060,7 @@ class ComponentEngine {
             }
             return (this.invokeBuiltin(rk methodName obj argVals))
         }
-        if ((obj.isNumber()) || ((obj.isString()) || ((obj.isBoolean()) || ((obj.isFunction()) || (obj.isArray()))))) {
+        if ((obj.isNumber()) || ((obj.isString()) || ((obj.isBoolean()) || ((obj.isFunction()) || (obj.isArrayValue()))))) {
             def pcn:string (this.ctorNameForKind(rk))
             if ((strlen pcn) > 0) {
                 def kp:EvHandle (this.builtinPrototype(pcn))
@@ -10252,6 +10252,58 @@ class ComponentEngine {
                         } {
                             set bcNums (sp - 1) 0.0
                         }
+                        continue
+                    }
+                    ; Equality on two NUMBERS: loose and strict agree, and both
+                    ; are the raw double compare -- NaN != NaN falls out of the
+                    ; IEEE comparison, which is what both operators want. A
+                    ; tag-1 slot is a number by the slot invariant, so no
+                    ; ToPrimitive can be owed here.
+                    if ((a == 30) || (a == 32)) {
+                        set bcTags (sp - 1) 2
+                        if (lv12 == rv12) {
+                            set bcNums (sp - 1) 1.0
+                        } {
+                            set bcNums (sp - 1) 0.0
+                        }
+                        continue
+                    }
+                    if ((a == 31) || (a == 33)) {
+                        set bcTags (sp - 1) 2
+                        if (lv12 != rv12) {
+                            set bcNums (sp - 1) 1.0
+                        } {
+                            set bcNums (sp - 1) 0.0
+                        }
+                        continue
+                    }
+                    ; Bitwise and shifts. ToInt32 of a tag-1 slot is
+                    ; int32OfNum of the double it already holds -- the same
+                    ; helper the boxed path calls -- and an int32 result is
+                    ; exact in a double, so the slot stays in the number lane.
+                    ; `>>>` is deliberately absent: its result is a uint32 that
+                    ; does not fit Ranger's signed int, so it keeps the boxed
+                    ; path that already handles the range.
+                    if (((((a == 37) || (a == 38)) || (a == 39)) || (a == 40)) || (a == 41)) {
+                        def li12:int (this.int32OfNum(lv12))
+                        def ri12:int (this.int32OfNum(rv12))
+                        def bres:int 0
+                        if (a == 37) {
+                            bres = (bit_and li12 ri12)
+                        }
+                        if (a == 38) {
+                            bres = (bit_or li12 ri12)
+                        }
+                        if (a == 39) {
+                            bres = (bit_xor li12 ri12)
+                        }
+                        if (a == 40) {
+                            bres = (this.int32Wrap((bit_shl li12 (bit_and ri12 31))))
+                        }
+                        if (a == 41) {
+                            bres = (bit_shr li12 (bit_and ri12 31))
+                        }
+                        set bcNums (sp - 1) (to_double bres)
                         continue
                     }
                     if (a == 28) {
@@ -10927,7 +10979,7 @@ class ComponentEngine {
                             continue
                         }
                     }
-                    if (rcv32.isArray()) {
+                    if (rcv32.isArrayValue()) {
                         if ((false == (rcv32.hasProto())) && (rcv32.ownPropsEmpty())) {
                             def icEp32:EvDispatchEpoch (EvDispatchEpoch.__singleton())
                             def icoOp:int 0
@@ -11028,7 +11080,7 @@ class ComponentEngine {
                     ; dense numeric read fully in the loop: no key handle,
                     ; and a Number element lands straight in the lane
                     def oh33:EvHandle (itemAt bcStack (sp - 1))
-                    if (oh33.isArray()) {
+                    if (oh33.isArrayValue()) {
                         def kd33:double (itemAt bcNums sp)
                         if ((kd33 >= 0.0) && (kd33 < 2147483647.0)) {
                             def ki33:int (to_int kd33)
@@ -11103,7 +11155,7 @@ class ComponentEngine {
                     ; numeric value into a dense slot: neither the key nor
                     ; the value ever becomes a handle
                     def oh34:EvHandle (itemAt bcStack sp)
-                    if (oh34.isArray()) {
+                    if (oh34.isArrayValue()) {
                         def kd34:double (itemAt bcNums (sp + 1))
                         if ((kd34 >= 0.0) && (kd34 < 2147483647.0)) {
                             def ki34:int (to_int kd34)
@@ -11719,7 +11771,7 @@ class ComponentEngine {
     ; the walker and the bytecode tier.
     fn forOfItemList:[EvHandle] (src:EvHandle) {
         def items:[EvHandle]
-        if (src.isArray()) {
+        if (src.isArrayValue()) {
             items = (src.itemsOf())
         } {
             if (src.isSet()) {
@@ -11944,7 +11996,7 @@ class ComponentEngine {
     ; bcGetElem/bcPutElem without minting a key handle; anything off the
     ; fast path boxes the key once and takes the generic helper.
     fn bcGetElemNum:EvHandle (obj:EvHandle kd:double) {
-        if (obj.isArray()) {
+        if (obj.isArrayValue()) {
             if ((kd >= 0.0) && (kd < 2147483647.0)) {
                 def ki:int (to_int kd)
                 if ((to_double ki) == kd) {
@@ -11963,7 +12015,7 @@ class ComponentEngine {
         return (this.bcGetElem(obj (EvHandle.number(kd))))
     }
     fn bcPutElemNum:void (obj:EvHandle kd:double v:EvHandle) {
-        if (obj.isArray()) {
+        if (obj.isArrayValue()) {
             if ((kd >= 0.0) && (kd < 2147483647.0)) {
                 def ki:int (to_int kd)
                 if ((to_double ki) == kd) {
@@ -12517,7 +12569,7 @@ class ComponentEngine {
                     if (exprValue.isElement()) {
                         push results exprValue
                     }
-                    if (exprValue.isArray()) {
+                    if (exprValue.isArrayValue()) {
                         ; Flatten array elements into children
                         def ai:int 0
                         while (ai < (exprValue.denseLen())) {
@@ -12716,7 +12768,7 @@ class ComponentEngine {
                 def callResult:EvHandle (this.evaluateExpr(exprNode))
                 
                 ; Handle array result (array of elements from function)
-                if (callResult.isArray()) {
+                if (callResult.isArrayValue()) {
                     def ai:int 0
                     while (ai < (callResult.denseLen())) {
                         def arrItem:EvHandle (callResult.arrayItemAt(ai))
@@ -12785,7 +12837,7 @@ class ComponentEngine {
             }
             
             ; Handle arrays of EVGElements (e.g., {children} containing multiple elements)
-            if (value.isArray()) {
+            if (value.isArrayValue()) {
                 def ai:int 0
                 while (ai < (value.denseLen())) {
                     def arrItem:EvHandle (value.arrayItemAt(ai))
@@ -12825,7 +12877,7 @@ class ComponentEngine {
                         def arrayExpr:TSNode (unwrap calleeNode.left)
                         def arrayValue:EvHandle (this.evaluateExpr(arrayExpr))
                         
-                        if (arrayValue.isArray()) {
+                        if (arrayValue.isArrayValue()) {
                             ; Get the callback function
                             if ((array_length callNode.children) > 0) {
                                 def callback:TSNode (itemAt callNode.children 0)
@@ -13302,7 +13354,7 @@ class ComponentEngine {
                 if (node.callSiteOp > 0) {
                     def icEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
                     if (node.callSiteEpoch == icEp.n) {
-                        if (obj.isArray()) {
+                        if (obj.isArrayValue()) {
                             if ((false == (obj.hasProto())) && (obj.ownPropsEmpty())) {
                                 ; op 1: single-argument Array#push
                                 if (node.callSiteOp == 1) {
@@ -13396,7 +13448,7 @@ class ComponentEngine {
                 def canHoldProps:boolean false
                 if (obj.isObject()) { canHoldProps = true }
                 if (obj.isFunction()) { canHoldProps = true }
-                if (obj.isArray()) {
+                if (obj.isArrayValue()) {
                     canHoldProps = (obj.hasOwnData(methodName))
                     ; D-COMPUTEDCALL: a dense index is an own property held in
                     ; element storage, not the PropertyBag -- `fns[0]()` reads
@@ -13508,7 +13560,7 @@ class ComponentEngine {
                 ; (11).myUp()` puts the method on Number.prototype, and the
                 ; number itself has no property map to find it in -- the lookup
                 ; has to go to its kind's prototype object.
-                if ((obj.isNumber()) || (obj.isString()) || (obj.isBoolean()) || (obj.isFunction()) || (obj.isArray())) {
+                if ((obj.isNumber()) || (obj.isString()) || (obj.isBoolean()) || (obj.isFunction()) || (obj.isArrayValue())) {
                     def pcCtor:string (this.ctorNameForKind(rKind))
                     if ((strlen pcCtor) > 0) {
                         def kProto2:EvHandle (this.builtinPrototype(pcCtor))
@@ -13616,7 +13668,7 @@ class ComponentEngine {
                         def frItems:[EvHandle]
                         if ((array_length node.children) > 0) {
                             def srcV:EvHandle (this.evaluateExpr((itemAt node.children 0)))
-                            if (srcV.isArray()) {
+                            if (srcV.isArrayValue()) {
                                 def fi:int 0
                                 while (fi < (srcV.denseLen())) {
                                     push frItems (srcV.arrayItemAt(fi))
@@ -13646,7 +13698,7 @@ class ComponentEngine {
                         if ((array_length node.children) > 0) {
                             tv = (this.evaluateExpr((itemAt node.children 0)))
                         }
-                        return (EvValueBridge.taggedBoolean((tv.isArray())))
+                        return (EvValueBridge.taggedBoolean((tv.isArrayValue())))
                     }
                 }
                 if (arrStaticName == "Number") {
@@ -13703,7 +13755,7 @@ class ComponentEngine {
                             ; Arrays and functions are objects too; only true
                             ; primitives and null/undefined are rejected.
                             def okKind:boolean false
-                            if (src.isArray()) { okKind = true }
+                            if (src.isArrayValue()) { okKind = true }
                             if (src.isFunction()) { okKind = true }
                             if (src.isMap()) { okKind = true }
                             if (src.isSet()) { okKind = true }
@@ -13966,7 +14018,7 @@ class ComponentEngine {
                             ; stringValue rather than objectMap, so the
                             ; descriptor came back undefined for a property that
                             ; plainly exists. `length` likewise.
-                            if (src.isArray()) {
+                            if (src.isArrayValue()) {
                                 if (dk == "length") {
                                     def keysL:[string]
                                     def valsL:[EvHandle]
@@ -14223,7 +14275,7 @@ class ComponentEngine {
                             }
                             if ((array_length node.children) > 1) {
                                 def arr:EvHandle (this.evaluateExpr((itemAt node.children 1)))
-                                if (arr.isArray()) {
+                                if (arr.isArrayValue()) {
                                     def aai:int 0
                                     while (aai < (arr.denseLen())) {
                                         push applyArgs (arr.arrayItemAt(aai))
@@ -14303,7 +14355,7 @@ class ComponentEngine {
                         ; looking at all -- `String.prototype.isPrototypeOf('a')`
                         ; is false, even though 'a' dispatches to it.
                         def candIsObj:boolean false
-                        if (cand.isArray()) { candIsObj = true }
+                        if (cand.isArrayValue()) { candIsObj = true }
                         if (cand.isObject()) { candIsObj = true }
                         if (cand.isFunction()) { candIsObj = true }
                         if (cand.isMap()) { candIsObj = true }
@@ -14360,7 +14412,7 @@ class ComponentEngine {
                     ; exactly which methods an array has. Before, an unregistered
                     ; name could still have been served by the unguarded block,
                     ; so throwing would have been wrong.
-                    if (obj.isArray()) { rcvHolds = true }
+                    if (obj.isArrayValue()) { rcvHolds = true }
                     ; An ACCESSOR whose value is not callable still runs its
                     ; getter first -- `o.bar(foo())` where bar is a getter
                     ; returning 42 must call the getter, then throw.
@@ -14982,7 +15034,7 @@ class ComponentEngine {
                 ; non-object F.prototype) has to be reached the same way.
                 def lvObjectLike:boolean (lv.isObject())
                 if (lv.isFunction()) { lvObjectLike = true }
-                if (lv.isArray()) { lvObjectLike = true }
+                if (lv.isArrayValue()) { lvObjectLike = true }
                 if lvObjectLike {
                     def tag:EvHandle (lv.getMember("__class__"))
                     if (tag.isString()) {
@@ -15011,7 +15063,7 @@ class ComponentEngine {
                             def protoF:EvHandle (rvF.getMember("prototype"))
                             def protoIsObject:boolean false
                             if (protoF.isObject()) { protoIsObject = true }
-                            if (protoF.isArray()) { protoIsObject = true }
+                            if (protoF.isArrayValue()) { protoIsObject = true }
                             if (protoF.isFunction()) { protoIsObject = true }
                             if (false == protoIsObject) {
                                 return (this.throwSpecError("TypeError" "Function has non-object prototype in instanceof"))
@@ -15096,7 +15148,7 @@ class ComponentEngine {
                 return (EvValueBridge.taggedUndefined())
             }
             def inHolds:boolean false
-            if (right.isArray()) { inHolds = true }
+            if (right.isArrayValue()) { inHolds = true }
             if (right.isObject()) { inHolds = true }
             if (right.isFunction()) { inHolds = true }
             if (right.isMap()) { inHolds = true }
@@ -15446,7 +15498,7 @@ class ComponentEngine {
             return 0
         }
         def isObjectLike:boolean false
-        if (v.isArray()) { isObjectLike = true }
+        if (v.isArrayValue()) { isObjectLike = true }
         if (v.isObject()) { isObjectLike = true }
         if (v.isFunction()) { isObjectLike = true }
         if (v.isMap()) { isObjectLike = true }
@@ -15462,7 +15514,7 @@ class ComponentEngine {
             return 0
         }
         if (cname == "Array") {
-            if (v.isArray()) { return 1 }
+            if (v.isArrayValue()) { return 1 }
             if ((this.protoChainKind(v)) == "array") { return 1 }
             return 0
         }
@@ -15785,7 +15837,7 @@ class ComponentEngine {
             if (this.objectStaticNeedsObject(name)) {
                 if (false == (a0.isObject())) {
                     def okKind:boolean false
-                    if (a0.isArray()) { okKind = true }
+                    if (a0.isArrayValue()) { okKind = true }
                     if (a0.isFunction()) { okKind = true }
                     if (a0.isMap()) { okKind = true }
                     if (a0.isSet()) { okKind = true }
@@ -15993,8 +16045,9 @@ class ComponentEngine {
     ; suite compares built-in methods by identity all over.
     fn sharedNativeMethod:EvHandle (kind:string name:string) {
         def key:string (kind + ("." + name))
-        if (has nativeMethodCache key) {
-            return (unwrap (get nativeMethodCache key))
+        def found@(optional):EvHandle (get nativeMethodCache key)
+        if (!null? found) {
+            return (unwrap found)
         }
         def v:EvHandle (EvValueBridge.taggedNativeMethod(kind name))
         ; A built-in reports its registered arity as `length`, like any other
@@ -16054,8 +16107,9 @@ class ComponentEngine {
     }
 
     fn builtinGlobalObject:EvHandle (nsName:string) {
-        if (has builtinGlobals nsName) {
-            return (unwrap (get builtinGlobals nsName))
+        def found@(optional):EvHandle (get builtinGlobals nsName)
+        if (!null? found) {
+            return (unwrap found)
         }
         def keysG:[string]
         def valsG:[EvHandle]
@@ -16390,8 +16444,9 @@ class ComponentEngine {
     }
 
     fn builtinPrototype:EvHandle (nsName:string) {
-        if (has builtinProtos nsName) {
-            return (unwrap (get builtinProtos nsName))
+        def found@(optional):EvHandle (get builtinProtos nsName)
+        if (!null? found) {
+            return (unwrap found)
         }
         def keysB:[string]
         def valsB:[EvHandle]
@@ -16609,7 +16664,7 @@ class ComponentEngine {
             }
         }
         if (v.isString()) { return "string" }
-        if (v.isArray()) { return "array" }
+        if (v.isArrayValue()) { return "array" }
         if (v.isNumber()) { return "number" }
         if (v.isBoolean()) { return "boolean" }
         if (v.isFunction()) { return "function" }
@@ -17086,7 +17141,7 @@ class ComponentEngine {
         ; Hole used to share valueType 8 with Undefined; now it is its own
         ; kind, so join/toString must skip it explicitly (spec: empty string).
         if (v.isHole()) { return "" }
-        if (v.isArray()) {
+        if (v.isArrayValue()) {
             return (this.arrayJoinString(v ","))
         }
         return (v.toString())
@@ -17494,10 +17549,11 @@ class ComponentEngine {
         if ((strlen cn) == 0) {
             return false
         }
-        if (false == (has builtinProtos cn)) {
+        def found@(optional):EvHandle (get builtinProtos cn)
+        if (null? found) {
             return false
         }
-        def p:EvHandle (unwrap (get builtinProtos cn))
+        def p:EvHandle (unwrap found)
         if (false == (p.hasSuppressed(name))) {
             return false
         }
@@ -17519,10 +17575,11 @@ class ComponentEngine {
         ; Do not CREATE the prototype here: a prototype that has never been
         ; touched cannot carry an override, and creating one would populate it
         ; from the registry during dispatch.
-        if (false == (has builtinProtos cn)) {
+        def found@(optional):EvHandle (get builtinProtos cn)
+        if (null? found) {
             return (EvValueBridge.taggedNull())
         }
-        def p:EvHandle (unwrap (get builtinProtos cn))
+        def p:EvHandle (unwrap found)
         if (false == (p.hasOwnData(name))) {
             return (EvValueBridge.taggedNull())
         }
@@ -17684,7 +17741,7 @@ class ComponentEngine {
             }
             def cand0:EvHandle (itemAt args 0)
             def candObj:boolean false
-            if (cand0.isArray()) { candObj = true }
+            if (cand0.isArrayValue()) { candObj = true }
             if (cand0.isObject()) { candObj = true }
             if (cand0.isFunction()) { candObj = true }
             if (cand0.isMap()) { candObj = true }
@@ -18675,7 +18732,7 @@ class ComponentEngine {
             if (name == "fill") { isArrayMutator = true }
             def elems:[EvHandle]
             if (false == isArrayMutator) {
-                if (recv.isArray()) {
+                if (recv.isArrayValue()) {
                     elems = (recv.itemsOf())
                 } {
                     elems = (this.arrayLikeElements(recv))
@@ -19213,7 +19270,7 @@ class ComponentEngine {
                         ; element, whatever `length` it happens to inherit. The
                         ; receiver was spread unconditionally, so a plain object
                         ; came out as its indices instead of as itself.
-                        if (recv.isArray()) {
+                        if (recv.isArrayValue()) {
                             def q:int 0
                             while (q < alen) {
                                 push items (this.arrayElemAt(recv q))
@@ -19225,7 +19282,7 @@ class ComponentEngine {
                         def ai:int 0
                         while (ai < (array_length args)) {
                             def av:EvHandle (itemAt args ai)
-                            if (av.isArray()) {
+                            if (av.isArrayValue()) {
                                 ; D-HOLES: an element the argument does not have
                                 ; is not copied, but one INHERITED from its
                                 ; prototype is -- concat asks HasProperty, which
@@ -19249,7 +19306,7 @@ class ComponentEngine {
                         def q:int 0
                         while (q < (array_length elems)) {
                             def el:EvHandle (this.arrayElemAt(recv q))
-                            if (el.isArray()) {
+                            if (el.isArrayValue()) {
                                 def r:int 0
                                 while (r < (el.denseLen())) {
                                     push items (el.arrayItemAt(r))
@@ -19313,7 +19370,7 @@ class ComponentEngine {
                 if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
                 }
-                return (EvValueBridge.taggedBoolean((hit.isArray())))
+                return (EvValueBridge.taggedBoolean((hit.isArrayValue())))
             }
         }
         ; ---- Number.prototype ----------------------------------------------
@@ -19407,7 +19464,7 @@ class ComponentEngine {
                     ; TypeError rather than an empty argument list.
                     if (false == ((arr.isNull()) || (arr.isUndefined()))) {
                         def okArgs:boolean false
-                        if (arr.isArray()) { okArgs = true }
+                        if (arr.isArrayValue()) { okArgs = true }
                         if (arr.isObject()) { okArgs = true }
                         ; A FUNCTION is an object with a length, and so are Map
                         ; and Set -- `fun.apply("", Array)` forwards Array's one
@@ -19571,7 +19628,7 @@ class ComponentEngine {
     fn objectClassOf:string (v:EvHandle) {
         if (v.isUndefined()) { return "Undefined" }
         if (v.isNull()) { return "Null" }
-        if (v.isArray()) { return "Array" }
+        if (v.isArrayValue()) { return "Array" }
         if (v.isFunction()) { return "Function" }
         if (v.isString()) { return "String" }
         if (v.isNumber()) { return "Number" }
@@ -19710,7 +19767,7 @@ class ComponentEngine {
                     return (EvValueBridge.taggedUndefined())
                 }
                 if (bpOut.isObject()) { return (EvValueBridge.taggedNull()) }
-                if (bpOut.isArray()) { return (EvValueBridge.taggedNull()) }
+                if (bpOut.isArrayValue()) { return (EvValueBridge.taggedNull()) }
                 if (bpOut.isFunction()) { return (EvValueBridge.taggedNull()) }
                 primitiveMethodUsable = true
                 if (bpOut.isNull()) {
@@ -19736,7 +19793,7 @@ class ComponentEngine {
                 if (out.isObject()) {
                     return (EvValueBridge.taggedNull())
                 }
-                if (out.isArray()) {
+                if (out.isArrayValue()) {
                     return (EvValueBridge.taggedNull())
                 }
                 if (out.isFunction()) {
@@ -19824,7 +19881,7 @@ class ComponentEngine {
             }
             return (EvValueBridge.taggedString(("[object " + (this.objectClassOf(v)) + "]")))
         }
-        if (v.isArray()) {
+        if (v.isArrayValue()) {
             return (EvValueBridge.taggedString((this.arrayJoinString(v ","))))
         }
         if (v.isFunction()) {
@@ -19883,7 +19940,7 @@ class ComponentEngine {
         ; primitive short-circuited to its primitive before either method got a
         ; turn: `(new String("ABC")).valueOf = f` had no effect.
         def objLike:boolean false
-        if (v.isArray()) { objLike = true }
+        if (v.isArrayValue()) { objLike = true }
         if (v.isObject()) { objLike = true }
         if (v.isFunction()) { objLike = true }
         if (objLike == false) {
@@ -20112,7 +20169,13 @@ class ComponentEngine {
     ; `.toNumber()` off the value skipped the object conversion entirely --
     ; `({valueOf: function () { return 1; }}) << 1` answered 0.
     fn toInt32Of:int (v:EvHandle) {
-        def d:double (this.toNumberOf(v))
+        return (this.int32OfNum((this.toNumberOf(v))))
+    }
+
+    ; ToInt32 on a raw double. Split out of toInt32Of so the VM's unboxed
+    ; bitwise fast path and the boxed path cannot drift apart: a tag-1 slot
+    ; already holds the double that toNumberOf would return.
+    fn int32OfNum:int (d:double) {
         if (d != d) { return 0 }
         if (false == (this.isFiniteNum(d))) { return 0 }
         def t:double (this.floorNum(d))
@@ -20716,7 +20779,7 @@ class ComponentEngine {
     ; through .call().
     fn arrayLikeElements:[EvHandle] (v:EvHandle) {
         def out:[EvHandle]
-        if (v.isArray()) {
+        if (v.isArrayValue()) {
             return (v.itemsOf())
         }
         if (v.isString()) {
@@ -20782,7 +20845,7 @@ class ComponentEngine {
     ; answers the HOLE sentinel, which is exactly what the skip tests already
     ; look for, so no call site has to learn a new shape.
     fn arrayElemAt:EvHandle (recv:EvHandle idx:int) {
-        if (recv.isArray()) {
+        if (recv.isArrayValue()) {
             ; D-ACCESSORS: an index redefined as an ACCESSOR --
             ; `Object.defineProperty(arr, "0", {get: …})` -- is a real property
             ; of the array and its getter runs. Reading the dense slot first
@@ -20848,7 +20911,7 @@ class ComponentEngine {
     ; and everything else through ToString so an object runs its own.
     fn arrayJoinLive:EvHandle (recv:EvHandle sep:string) {
         def n:int (recv.arrayLength())
-        if (false == (recv.isArray())) {
+        if (false == (recv.isArrayValue())) {
             def lv:EvHandle (this.getPropertyValue(recv "length"))
             if scriptThrew {
                 return (EvValueBridge.taggedUndefined())
@@ -20939,7 +21002,7 @@ class ComponentEngine {
         ; Functions convert too -- a guest override of Function.prototype.toString
         ; has to be honoured, and the engine's debug form is not the answer.
         if (v.isObject()) { p = (this.toPrimitive(v true)) }
-        if (v.isArray()) { p = (this.toPrimitive(v true)) }
+        if (v.isArrayValue()) { p = (this.toPrimitive(v true)) }
         if (v.isFunction()) { p = (this.toPrimitive(v true)) }
         if (p.isString()) {
             ; Bind before returning. `p` here is a value this scope OWNS --
@@ -20990,7 +21053,7 @@ class ComponentEngine {
         }
         ; An ARRAY's elements are properties too, and a length that can still
         ; move means the array is neither sealed nor frozen.
-        if (v.isArray()) {
+        if (v.isArrayValue()) {
             if (v.hasOwnAttrs("length")) {
                 if wantFrozen {
                     if (v.isWritable("length")) {
@@ -21021,7 +21084,7 @@ class ComponentEngine {
             }
             ; A prototype may itself be an ARRAY -- Array.prototype is one -- and
             ; then an index property lives in its elements rather than its map.
-            if (walk.isArray()) {
+            if (walk.isArrayValue()) {
                 def wi:int (this.canonicalArrayIndex(key))
                 if (wi >= 0) {
                     if (wi < (walk.denseLen())) {
@@ -21049,7 +21112,7 @@ class ComponentEngine {
         }
         ; An OWN array element shadows an accessor inherited from
         ; Array.prototype under the same index.
-        if (obj.isArray()) {
+        if (obj.isArrayValue()) {
             def oi:int (this.canonicalArrayIndex(key))
             if (oi >= 0) {
                 if (oi < (obj.denseLen())) {
@@ -21062,8 +21125,9 @@ class ComponentEngine {
         if (false == (obj.isObject())) {
             def cn:string (this.ctorNameForKind((this.receiverKind(obj))))
             if ((strlen cn) > 0) {
-                if (has builtinProtos cn) {
-                    def kp:EvHandle (unwrap (get builtinProtos cn))
+                def found@(optional):EvHandle (get builtinProtos cn)
+                if (!null? found) {
+                    def kp:EvHandle (unwrap found)
                     return (kp.findGetter(key 0))
                 }
             }
@@ -21076,7 +21140,7 @@ class ComponentEngine {
         if (own.isFunction()) {
             return own
         }
-        if (obj.isArray()) {
+        if (obj.isArrayValue()) {
             def oj:int (this.canonicalArrayIndex(key))
             if (oj >= 0) {
                 if (oj < (obj.denseLen())) {
@@ -21089,8 +21153,9 @@ class ComponentEngine {
         if (false == (obj.isObject())) {
             def cn:string (this.ctorNameForKind((this.receiverKind(obj))))
             if ((strlen cn) > 0) {
-                if (has builtinProtos cn) {
-                    def kp:EvHandle (unwrap (get builtinProtos cn))
+                def found@(optional):EvHandle (get builtinProtos cn)
+                if (!null? found) {
+                    def kp:EvHandle (unwrap found)
                     return (kp.findSetter(key 0))
                 }
             }
@@ -21159,7 +21224,7 @@ class ComponentEngine {
         }
         def p:EvHandle v
         if (v.isObject()) { p = (this.toPrimitive(v true)) }
-        if (v.isArray()) { p = (this.toPrimitive(v true)) }
+        if (v.isArrayValue()) { p = (this.toPrimitive(v true)) }
         if (v.isFunction()) { p = (this.toPrimitive(v true)) }
         if (p.isString()) {
             ; Bind before returning. `p` here is a value this scope OWNS --
@@ -21238,7 +21303,7 @@ class ComponentEngine {
 
     fn isDescriptorObject:boolean (v:EvHandle) {
         if (v.isObject()) { return true }
-        if (v.isArray()) { return true }
+        if (v.isArrayValue()) { return true }
         if (v.isFunction()) { return true }
         if (v.isMap()) { return true }
         if (v.isSet()) { return true }
@@ -21320,7 +21385,7 @@ class ComponentEngine {
         ; an element and may push `length` out. Neither went anywhere near the
         ; elements before -- `Object.defineProperty(a, "length", {value: 0})`
         ; stored a stray property and left the array as it was.
-        if (obj.isArray()) {
+        if (obj.isArrayValue()) {
             if (key == "length") {
                 return (this.defineArrayLength(obj desc))
             }
@@ -21759,7 +21824,7 @@ class ComponentEngine {
         ; D-ARRAYDEFINE: an array ELEMENT exists too, even though it lives in
         ; arrayValue rather than objectMap -- without this none of the
         ; non-configurable rules below ever applied to one.
-        if (obj.isArray()) {
+        if (obj.isArrayValue()) {
             def reIdx:int (this.canonicalArrayIndex(key))
             if (reIdx >= 0) {
                 if (reIdx < (obj.denseLen())) {
@@ -21978,8 +22043,9 @@ class ComponentEngine {
     ; The prototype object for an error kind, created by ensureErrorCtors.
     fn errorPrototypeFor:EvHandle (kind:string) {
         this.ensureErrorCtors()
-        if (has builtinProtos kind) {
-            return (unwrap (get builtinProtos kind))
+        def found@(optional):EvHandle (get builtinProtos kind)
+        if (!null? found) {
+            return (unwrap found)
         }
         return (this.builtinPrototype("Object"))
     }
@@ -22235,7 +22301,7 @@ class ComponentEngine {
         if (val.isFunction()) {
             return "function"
         }
-        if (val.isArray()) {
+        if (val.isArrayValue()) {
             return "object"
         }
         if (val.isObject()) {
@@ -22392,7 +22458,7 @@ class ComponentEngine {
                             ; about the property map, so `delete a[1]` did
                             ; nothing at all and the element stayed readable.
                             def dkey:string (this.toPropertyKey(iv))
-                            if (obj.isArray()) {
+                            if (obj.isArrayValue()) {
                                 def didx@(optional):int (to_int dkey)
                                 if didx {
                                     def dn:int (unwrap didx)
@@ -22985,7 +23051,7 @@ class ComponentEngine {
                 if an.left {
                     sv = (this.evaluateExpr((unwrap an.left)))
                 }
-                if (sv.isArray()) {
+                if (sv.isArrayValue()) {
                     def k:int 0
                     while (k < (sv.denseLen())) {
                         push argVals (sv.arrayItemAt(k))
@@ -23111,11 +23177,11 @@ class ComponentEngine {
             def m:EvHandle (EvValueBridge.taggedMapEmpty())
             if ((array_length node.children) > 0) {
                 def init:EvHandle (this.evaluateExpr((itemAt node.children 0)))
-                if (init.isArray()) {
+                if (init.isArrayValue()) {
                     def i:int 0
                     while (i < (init.denseLen())) {
                         def pair:EvHandle (init.arrayItemAt(i))
-                        if (pair.isArray()) {
+                        if (pair.isArrayValue()) {
                             m.mapSet((pair.getIndex(0)) (pair.getIndex(1)))
                         }
                         i = (i + 1)
@@ -23128,7 +23194,7 @@ class ComponentEngine {
             def st:EvHandle (EvValueBridge.taggedSetEmpty())
             if ((array_length node.children) > 0) {
                 def init:EvHandle (this.evaluateExpr((itemAt node.children 0)))
-                if (init.isArray()) {
+                if (init.isArrayValue()) {
                     def i:int 0
                     while (i < (init.denseLen())) {
                         st.setAdd((init.arrayItemAt(i)))
@@ -23759,7 +23825,7 @@ class ComponentEngine {
                         def ownFirst:boolean false
                         if (propName == "length") {
                             if (obj.isString()) { ownFirst = true }
-                            if (obj.isArray()) { ownFirst = true }
+                            if (obj.isArrayValue()) { ownFirst = true }
                         }
                         ; Any OWN property wins over the kind's prototype. An
                         ; array holds its non-index properties in objectMap, and
@@ -23835,7 +23901,7 @@ class ComponentEngine {
                     ; ARRAY answers from its elements only for a canonical index;
                     ; everything else -- `x[-1]`, `x["00"]`, a far index that had
                     ; to be stored as a property -- is a property read.
-                    if (obj.isArray()) {
+                    if (obj.isArrayValue()) {
                         def rk:string (this.toPropertyKey(indexVal))
                         if scriptThrew {
                             return (EvValueBridge.taggedUndefined())
@@ -23950,7 +24016,7 @@ class ComponentEngine {
                 if elem.left {
                     sv = (this.evaluateExpr((unwrap elem.left)))
                 }
-                if (sv.isArray()) {
+                if (sv.isArrayValue()) {
                     def k:int 0
                     while (k < (sv.denseLen())) {
                         push items (sv.arrayItemAt(k))
@@ -24183,7 +24249,7 @@ class ComponentEngine {
         ; D-ARRAYKEYS: an array's own keys are its INDICES, as strings. Elements
         ; live in arrayValue rather than objectMap, so Object.keys([1,2]) used to
         ; answer nothing at all instead of ["0","1"].
-        if (v.isArray()) {
+        if (v.isArrayValue()) {
             def i:int 0
             while (i < (v.denseLen())) {
                 ; D-HOLES: an ABSENT element has no key, so Object.keys and
@@ -24235,7 +24301,7 @@ class ComponentEngine {
 
     fn objectEnumerableKeysRaw:[string] (v:EvHandle) {
         def out:[string]
-        if (v.isArray()) {
+        if (v.isArrayValue()) {
             ; An index is enumerable UNLESS defineProperty recorded otherwise --
             ; `Object.defineProperties(a, {"0": {value: 1}})` creates a
             ; non-enumerable element, and for-in must skip it.
@@ -24297,7 +24363,7 @@ class ComponentEngine {
             if (key == "prototype") { return true }
             return false
         }
-        if (v.isArray()) {
+        if (v.isArrayValue()) {
             if (v.hasOwnData(key)) {
                 return true
             }
@@ -24387,7 +24453,7 @@ class ComponentEngine {
         if (v.isString()) {
             return (this.jsonQuote((v.stringOf())))
         }
-        if (v.isArray()) {
+        if (v.isArrayValue()) {
             def out:string "["
             def i:int 0
             while (i < (v.denseLen())) {

@@ -765,3 +765,112 @@ Each changes behaviour, so the choice belongs to whoever owns the semantics:
 
 Option 3 is the right end state if `at` is meant to be UTF-8-aware. Option 1 is
 the cheap one, and it is what the LLVM runtime already assumes.
+
+## es6 profile, 2026-08-09: where the TypeScript engine's time goes
+
+`node --cpu-prof` on Richards through `es6_runner.cjs`, 7.3 s sampled, self time
+aggregated per subsystem:
+
+| bucket | share |
+| --- | ---: |
+| member access (`evaluateMemberExpr`, `memberFastAt`, `setMember`, `receiverKind`, …) | 14.2% |
+| `runBytecode` (VM dispatch) | 12.5% |
+| property bag (`hasData`, `dataOrHole`, `putData`, `attrsOf`, …) | 11.3% |
+| node startup / module load | 6.3% |
+| `EvHandle.fromBody` | 5.8% |
+| `bcTryDirectMethodCall` | 5.2% |
+| garbage collector | 3.8% |
+
+GC at 3.8% says the allocation problem `zoo_octane/PROFILE.md` documents (28
+allocations per loop iteration) is fixed by the E4 shape migration. The 6.3%
+startup cost is fixed per process and inflates every short benchmark.
+
+### Fixed: the kind test order in `EvHandle.fromBody`
+
+`fromBody` runs **20.5 million times** on Richards and tests its arms in
+declaration order, each arm a string compare on the kind tag. Measured kind
+frequency on that run:
+
+| kind | share | old position |
+| --- | ---: | ---: |
+| Object | 34.2% | 9th |
+| Null | 31.2% | 2nd |
+| Number | 15.8% | 4th |
+| Function | 7.7% | 10th |
+| Undefined | 4.4% | 3rd |
+| String | 4.0% | 5th |
+| Boolean | 1.7% | 6th |
+| Array | 1.0% | 8th |
+| Hole | 0.01% | **1st** |
+
+Declaration order cost ~5.6 compares per call; frequency order costs ~2.4. The
+arms are mutually exclusive, so the order is free to change. Re-profiled after:
+`fromBody` **418 ms → 267 ms, −36%**.
+
+### Fixed: the double lookup in the builtin-prototype caches
+
+`if (has m k) … (unwrap (get m k))` compiles on es6 to **four property reads and
+two `Object.prototype.hasOwnProperty.call`** where one read would do, because
+`has` and `get` each emit their own guard. Ten sites in `ComponentEngine.rgr`
+now take the single-lookup form the file already used elsewhere:
+
+```lisp
+def found@(optional):EvHandle (get builtinProtos cn)
+if (null? found) { … }
+```
+
+### Measured
+
+Interleaved fixed-work wall time, 11 reps, min ms, both changes together:
+
+| target | result |
+| --- | --- |
+| **es6** | **−1.2% to −3.0%** on six of seven micros |
+| Rust | −4.8% to +2.5% — noise |
+| C++ | −3.9% to +2.8% — noise |
+
+Both fixes remove costs that only es6 pays: a string compare per arm, and
+`hasOwnProperty.call` per map read. A native map read is a hash probe, so doing
+it twice costs proportionally less. The Octane suites are time-targeted, so
+their wall time self-normalizes and their medians show nothing; the fixed-work
+micros are the measurement.
+
+### Blocked: the property bag, 11.3% of runtime
+
+The same collapse applied to `EvPropertyBag` (`slots`) measured **−4% to −5.5%**
+on es6 — roughly twice the win above — but it cannot ship. `slots` is
+`[string:EvPropertySlot]` and `EvPropertySlot` is a **shape**, so the single
+lookup needs an `<optional>` of a union, and **C++ has no representation for
+one**:
+
+```cpp
+r_union_EvPropertySlot found = r_map_get_val(slots, key);
+if ( found == NULL ) {          // error: no operator== for mpark::variant
+```
+
+The compile error is the safe half. The dangerous half is that `r_map_get_val`
+returns a **default-constructed variant** for a missing key, and a
+default-constructed `mpark::variant` holds its **first alternative** — so an
+unguarded `(get shapeMap key)` on C++ narrows to case #1 with a null pointer
+inside and dereferences it. Every current site guards with `has` first, which is
+exactly the double lookup this would have removed, so the trap is latent.
+
+Only C++ is affected: Rust gets `Option<union_X>`, Go a `has_value` struct,
+es6/Python plain null. The fix has a clear shape — the C++ runtime already ships
+`r_optional_primitive<T>` for optional scalars and the build is already
+`-std=c++17`, so giving optional-of-union that wrapper (and having
+`r_map_get_val` return it) fixes the diagnostic, the trap and the optimisation
+together.
+
+### Still open, in order of measured size
+
+1. **Member access, 14.2%.** `evaluateMemberExpr` alone is 3.9%, and it is the
+   **AST** path, not the bytecode path — a share of member access on Richards is
+   still interpreted from the tree. Worth finding why those sites do not reach
+   `runBytecode`.
+2. **Property bag, 11.3%.** Blocked above.
+3. **Shape dispatch is linear.** `is` made each kind test cheap, but a chain of
+   them — and `match`, which `expandMatchesIn` lowers to a chain of `case`
+   narrowings — is still O(number of cases). Lowering a chain to a `switch` on
+   the discriminant would make it O(1) and would help every shape dispatch, not
+   only `fromBody`.

@@ -1556,6 +1556,10 @@ class StaticAnalyzer {
       push p.escape_owners ownerPath
     }
     p.escapes_function = true
+    ; A store into a field or a collection outlives the call; a return does not.
+    if (via != "return") {
+      p.escape_return_only = false
+    }
     if (p.escapes_via == "none") {
       p.escapes_via = via
     }
@@ -1880,6 +1884,16 @@ class StaticAnalyzer {
           continue
         }
         if ((cp.ownership_kind == 3) || (cp.ownership_kind == 4)) {
+          ; The argument inherits the callee's escape shape: passing it into a
+          ; parameter that only returns keeps it return-only, passing it into
+          ; one that stores does not. Monotone (true -> false only), so the
+          ; surrounding fixpoint still terminates.
+          if (cp.escape_return_only == false) {
+            if ap.escape_return_only {
+              ap.escape_return_only = false
+              changed = true
+            }
+          }
           def ownerPath:string ((("call " + callee.name) + ".") + cp.name)
           def already:boolean false
           for ap.escape_owners o:string oi {
@@ -2593,9 +2607,15 @@ class StaticAnalyzer {
   fn markDescRcWrap:void (p:RangerAppParamDesc) {
     if ((strlen (this.sharedClassOfDesc(p))) > 0) {
       p.rust_needs_rc_wrap = true
-      ; an Rc-wrapped value passes as a clone of the Rc; the borrow modes of
-      ; the mutation pass do not apply to it
-      p.rust_borrow_type = 0
+      ; An Rc-wrapped value passes as a clone of the Rc, so the borrow modes of
+      ; the MUTATION pass (2 = &mut) do not apply -- interior mutability goes
+      ; through the RefCell instead. A borrow the OWNERSHIP pass proved (1) is
+      ; different: it says the callee never stores the handle, so the parameter
+      ; can be `&Rc<RefCell<T>>` and the call site passes a reference instead
+      ; of cloning. That is the point of proving it, so it survives the wrap.
+      if (p.rust_borrow_type != 1) {
+        p.rust_borrow_type = 0
+      }
       p.needs_cpp_reference = false
       ; a `def x@(optional):T (init)` keeps its optionality on the name
       ; node's flag alone — the desc's is_optional stays false when an
@@ -2784,6 +2804,34 @@ class StaticAnalyzer {
   ; and restores `.clone()` when a reference goes to an owned parameter, so
   ; the upgrade is the flag alone. Run after analyzeOwnershipAll, and after
   ; analyzeAll, for the rust target.
+  ; True when this parameter's declared type is a class the sharing analysis
+  ; emits as `Rc<RefCell<T>>` on Rust.
+  fn rustParamHasRefSemantics:boolean (param:RangerAppParamDesc) {
+    if (null? param.nameNode) {
+      return false
+    }
+    def tn:CodeNode (unwrap param.nameNode)
+    if ((strlen tn.array_type) > 0) {
+      return false
+    }
+    if ((strlen tn.key_type) > 0) {
+      return false
+    }
+    def typeName:string tn.type_name
+    if ((strlen typeName) == 0) {
+      return false
+    }
+    if (null? ctx) {
+      return false
+    }
+    def rootCtx:RangerAppWriterContext ((unwrap ctx).getRoot())
+    if ((rootCtx.isDefinedClass(typeName)) == false) {
+      return false
+    }
+    def tc:RangerAppClassDesc (rootCtx.findClass(typeName))
+    return tc.rust_needs_ref_semantics
+  }
+
   fn rustBorrowedObjectParam:boolean (cl:RangerAppClassDesc param:RangerAppParamDesc) {
     if (param.varType != RangerContextVarType.FunctionParameter) {
       return false
@@ -2791,25 +2839,48 @@ class StaticAnalyzer {
     if (param.ownership_resolved == false) {
       return false
     }
+    ; `borrowed` is the obvious case. `moved`/`shared` also qualify when every
+    ; escape is a RETURN: returning from behind `&Rc<RefCell<T>>` needs no
+    ; lifetime, because the writer clones the handle at the return and yields
+    ; an OWNED Rc, and the caller's argument is alive for the whole call.
     if (param.ownership_kind != 2) {
-      return false
+      if (((param.ownership_kind == 3) || (param.ownership_kind == 4)) == false) {
+        return false
+      }
+      if (param.escape_return_only == false) {
+        return false
+      }
     }
-    if (param.rust_borrow_type != 0) {
-      return false
+    ; A class the sharing analysis marks `rust_needs_ref_semantics` is emitted
+    ; as `Rc<RefCell<T>>`. Mutation through such a parameter goes through the
+    ; RefCell, and `&Rc<RefCell<T>>` supports `.borrow_mut()` exactly as an
+    ; owned handle does -- interior mutability is the point of the wrapper. So
+    ; "the callee mutates it" is no reason to hand over an owned handle and
+    ; make every call site clone. For a plain `struct` it is: that needs `&mut`
+    ; and a different signature, so those keep the owned form.
+    def refSem:boolean (this.rustParamHasRefSemantics(param))
+    if (refSem == false) {
+      if (param.rust_borrow_type != 0) {
+        return false
+      }
+      if param.needs_cpp_reference {
+        return false
+      }
+      if param.is_mutating {
+        return false
+      }
+      if (param.mutation_count > 0) {
+        return false
+      }
+    } {
+      if (param.rust_borrow_type == 1) {
+        return false
+      }
     }
     if param.rust_needs_rc_wrap {
       return false
     }
-    if param.needs_cpp_reference {
-      return false
-    }
     if param.rust_assigned_to_field {
-      return false
-    }
-    if param.is_mutating {
-      return false
-    }
-    if (param.mutation_count > 0) {
       return false
     }
     if (param.set_cnt > 0) {

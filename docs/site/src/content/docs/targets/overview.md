@@ -77,7 +77,7 @@ each case and each group. The program compares the answer of the operator
 | C++ | yes | Scalar value cases ride inside the variant by value. |
 | Rust | yes | A case value is not wrapped into the union. See the note below. |
 | PHP | yes | none for a shape |
-| Swift | not tested | The toolchain is not available in the test container. The test reads the output of the writer. |
+| Swift | not in this container | `swiftc` is not installed here, so `tests/is-operator.test.ts` reads the output of the writer instead. The TypeScript engine builds and matches Node where `swiftc` is present. |
 | Dart, C#, Scala | not tested | No toolchain in the test container. |
 | llvm | no | The writer has no template for `case`, so it compiles no shape. |
 
