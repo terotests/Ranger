@@ -6885,6 +6885,26 @@ class ComponentEngine {
                 return (this.throwSpecError("TypeError" ("Cannot set properties of " + (baseDesc + (" (setting '" + (wname + "')"))))))
             }
         }
+        ; annexB B.2.2.1: writing `o.__proto__` IS [[SetPrototypeOf]]. Only an
+        ; object or null does anything; anything else is ignored rather than
+        ; stored as a property.
+        if (leftNode.name == "__proto__") {
+            if (false == leftNode.computed) {
+                if ((obj.isNull()) || (obj.isUndefined())) {
+                    return (this.throwSpecError("TypeError" "Cannot convert undefined or null to object"))
+                }
+                if (this.isDescriptorObject(obj)) {
+                    if (rightValue.isObject()) {
+                        obj.setProto(rightValue)
+                    } {
+                        if (rightValue.isNull()) {
+                            obj.setProto(rightValue)
+                        }
+                    }
+                }
+                return rightValue
+            }
+        }
         ; D-PROXY: a write to a proxy is the `set` trap, whichever form it took.
         if (this.isProxyValue(obj)) {
             def pwKey:string leftNode.name
@@ -18364,6 +18384,13 @@ class ComponentEngine {
             p.setMember("__primitive__" (EvValueBridge.taggedBoolean(false)))
             p.setMember("__wrapper__" (EvValueBridge.taggedString("Boolean")))
         }
+        ; annexB B.2.2.1: Object.prototype.__proto__, as the accessor pair the
+        ; spec defines rather than a data property.
+        if (nsName == "Object") {
+            p.defineGetter("__proto__" (this.sharedNativeMethod("protoaccessor" "get")))
+            p.defineSetter("__proto__" (this.sharedNativeMethod("protoaccessor" "set")))
+            p.setAttrs("__proto__" false false true)
+        }
         ; D-REGEXACCESSOR: source/global/ignoreCase/multiline are ACCESSORS on
         ; RegExp.prototype -- get-only, non-enumerable, configurable -- which is
         ; the shape getOwnPropertyDescriptor is asked about. The instance keeps
@@ -18565,6 +18592,13 @@ class ComponentEngine {
         ; carries. Both halves are the same entry -- reading or writing throws.
         if (kind == "argpoison") {
             if (name == "callee") { return 0 }
+            return (0 - 1)
+        }
+        ; annexB B.2.2.1: Object.prototype.__proto__ is an ACCESSOR pair, and
+        ; the setter takes one argument.
+        if (kind == "protoaccessor") {
+            if (name == "get") { return 0 }
+            if (name == "set") { return 1 }
             return (0 - 1)
         }
         if (kind == "regexpget") {
@@ -19629,6 +19663,37 @@ class ComponentEngine {
         ; ES2015 moved source/global/ignoreCase/multiline off the instance and
         ; onto the prototype as getters, and getOwnPropertyDescriptor is written
         ; to find them there.
+        ; annexB B.2.2.1: `o.__proto__` IS [[GetPrototypeOf]], and writing it is
+        ; [[SetPrototypeOf]] -- an accessor on Object.prototype, not a data
+        ; property, which is what makes it inherited by every object and
+        ; describable as a getter/setter pair.
+        if (kind == "protoaccessor") {
+            if (name == "get") {
+                if ((recv.isNull()) || (recv.isUndefined())) {
+                    return (this.throwSpecError("TypeError" "Cannot convert undefined or null to object"))
+                }
+                return (this.protoOfValue(recv))
+            }
+            def npv:EvHandle (EvValueBridge.taggedUndefined())
+            if ((array_length args) > 0) { npv = (itemAt args 0) }
+            if ((recv.isNull()) || (recv.isUndefined())) {
+                return (this.throwSpecError("TypeError" "Cannot convert undefined or null to object"))
+            }
+            ; Only an object or null does anything; anything else is ignored
+            ; rather than a TypeError.
+            if (this.isDescriptorObject(recv)) {
+                if (npv.isObject()) {
+                    recv.setProto(npv)
+                } {
+                    if (npv.isNull()) {
+                        ; A null prototype is stored as the null VALUE, which is
+                        ; what hasProto/protoOf already read as "no prototype".
+                        recv.setProto(npv)
+                    }
+                }
+            }
+            return (EvValueBridge.taggedUndefined())
+        }
         if (kind == "regexpget") {
             def isRe:boolean false
             if (recv.isObject()) {
@@ -27328,6 +27393,18 @@ class ComponentEngine {
             if node.optional {
                 if ((obj.isNull()) || (obj.isUndefined())) {
                     return (EvValueBridge.taggedUndefined())
+                }
+            }
+            ; annexB B.2.2.1: `o.__proto__` IS [[GetPrototypeOf]]. The accessor
+            ; lives on Object.prototype, but the member read resolves the name
+            ; through the value layer first, which answers for a slot it owns --
+            ; so the read is handled here, where the base is already in hand.
+            if (propName == "__proto__") {
+                if (false == node.computed) {
+                    if ((obj.isNull()) || (obj.isUndefined())) {
+                        return (this.throwSpecError("TypeError" "Cannot convert undefined or null to object"))
+                    }
+                    return (this.protoOfValue(obj))
                 }
             }
             ; D-SUPER: `super.g` is a property READ against the home class's
