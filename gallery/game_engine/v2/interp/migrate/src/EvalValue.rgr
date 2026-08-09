@@ -243,8 +243,47 @@ shape EvPropertySlot {
     }
 }
 
+; Property names, interned to dense integers.
+;
+; QuickJS keys a property table by a 32-bit atom: the hash is an integer mask
+; and the compare is an int compare. This engine keyed it by std::string, so
+; every probe hashed the key's bytes and confirmed with a memcmp, and every
+; entry carried a 32-byte std::string beside its value.
+;
+; Interning moves that cost to where a name is FIRST seen. `idOf` still hashes
+; a string -- there is no way around that when the caller holds a name -- but
+; the bag itself no longer does, and a caller that already holds an id (the
+; bytecode does: see BcProgram.atomIds) pays nothing at all.
+class EvAtomTable @singleton(true) {
+    def names:[string]
+    def ids:[string:int]
+    fn idOf:int (name:string) {
+        def found@(optional):int (get ids name)
+        if found {
+            return (unwrap found)
+        }
+        def next:int (array_length names)
+        push names name
+        set ids name next
+        return next
+    }
+    fn nameOf:string (a:int) {
+        if ((a >= 0) && (a < (array_length names))) {
+            return (itemAt names a)
+        }
+        return ""
+    }
+}
+
 class EvPropertyBag {
-    def slots:[string:EvPropertySlot]
+    ; keyed by EvAtomTable id, not by name -- see EvAtomTable
+    def slots:[int:EvPropertySlot]
+    ; The names, in insertion order. JavaScript enumerates string keys in the
+    ; order they were added, and the ids in `slots` are global (minted the
+    ; first time ANY bag saw the name), so the id order is not this bag's
+    ; order. Keeping the names here is also what lets dataKeys answer without
+    ; mapping every id back through the atom table.
+    def slotNames:[string]
     ; Number of keys in `slots`, maintained by every writer below. O(1)
     ; emptiness for the call-site inline cache (a generic map_length had no
     ; working lowering on every target).
@@ -269,12 +308,20 @@ class EvPropertyBag {
     ; the fast write path can store without the attrs probes.
     def everHadAttrs:boolean false
 
+    ; Record a name the first time this bag gets a slot for it. Every write
+    ; below funnels through here, so `slotNames` and `slots` cannot drift.
+    fn noteKey:void (ka:int key:string) {
+        if (false == (has slots ka)) {
+            push slotNames key
+        }
+    }
     ; E4c: property-bag SoT. Value payload is EvalValue (avoids EvHandle import cycle).
     fn hasData:boolean (key:string) {
-        if (false == (has slots key)) {
+        def ka:int ((EvAtomTable.__singleton()).idOf(key))
+        if (false == (has slots ka)) {
             return false
         }
-        def slot:EvPropertySlot (unwrap (get slots key))
+        def slot:EvPropertySlot (unwrap (get slots ka))
         case slot d:EvPropertySlot.Data {
             ; Hole value = attrs-only placeholder (setAttrs before a value),
             ; not a real data property — array index attrs must not shadow
@@ -288,7 +335,8 @@ class EvPropertyBag {
         return false
     }
     fn getData:EvalValue (key:string) {
-        def slot:EvPropertySlot (unwrap (get slots key))
+        def ka:int ((EvAtomTable.__singleton()).idOf(key))
+        def slot:EvPropertySlot (unwrap (get slots ka))
         case slot d:EvPropertySlot.Data {
             ; Case field typed as a shape without a default is optional at the
             ; type level; putData always sets it.
@@ -300,18 +348,34 @@ class EvPropertyBag {
     ; means "no data property here" — real data values are never Hole
     ; (the attrs-only placeholder is the one Hole a Data slot can hold,
     ; and it means absent), and an Accessor slot answers Hole too.
-    fn dataOrHole:EvalValue (key:string) {
-        if (false == (has slots key)) {
+    ; dataOrHole for a caller that already holds the atom id -- the bytecode
+    ; does, so a property read walks a prototype chain of any depth without
+    ; hashing a single string. This is the whole point of interning: the string
+    ; work happens once when the bytecode is built, never per access.
+    fn dataOrHoleAtom:EvalValue (ka:int) {
+        if (false == (has slots ka)) {
             return (EvalValue.hole())
         }
-        def slot:EvPropertySlot (unwrap (get slots key))
+        def slot:EvPropertySlot (unwrap (get slots ka))
+        case slot d:EvPropertySlot.Data {
+            return (unwrap d.value)
+        }
+        return (EvalValue.hole())
+    }
+    fn dataOrHole:EvalValue (key:string) {
+        def ka:int ((EvAtomTable.__singleton()).idOf(key))
+        if (false == (has slots ka)) {
+            return (EvalValue.hole())
+        }
+        def slot:EvPropertySlot (unwrap (get slots ka))
         case slot d:EvPropertySlot.Data {
             return (unwrap d.value)
         }
         return (EvalValue.hole())
     }
     fn putData:void (key:string value:EvalValue attrs:int) {
-        if (false == (has slots key)) {
+        def ka:int ((EvAtomTable.__singleton()).idOf(key))
+        if (false == (has slots ka)) {
             slotCount = (slotCount + 1)
         }
         if (attrs != 7) {
@@ -320,41 +384,48 @@ class EvPropertyBag {
         ; Bind through the union type so Rust gets union_EvPropertySlot, not the
         ; bare case struct (same pattern as `def a:Value (new Value.Num(...))`).
         def slot:EvPropertySlot (new EvPropertySlot.Data(value attrs))
-        set slots key slot
+        this.noteKey(ka key)
+        set slots ka slot
     }
     fn removeData:void (key:string) {
-        if (false == (has slots key)) {
+        def ka:int ((EvAtomTable.__singleton()).idOf(key))
+        if (false == (has slots ka)) {
             return
         }
-        def rebuilt:[string:EvPropertySlot]
-        def ks:[string] (keys slots)
-        for ks kk:string idx {
-            if (kk != key) {
-                set rebuilt kk (unwrap (get slots kk))
+        def rebuilt:[int:EvPropertySlot]
+        def rebuiltNames:[string]
+        def atoms:EvAtomTable (EvAtomTable.__singleton())
+        for slotNames nm:string idx {
+            def nka:int (atoms.idOf(nm))
+            if (nka != ka) {
+                set rebuilt nka (unwrap (get slots nka))
+                push rebuiltNames nm
             }
         }
         slots = rebuilt
+        slotNames = rebuiltNames
         slotCount = (slotCount - 1)
     }
     fn dataKeys:[string] () {
         def out:[string]
-        def ks:[string] (keys slots)
-        for ks kk:string idx {
-            if (this.hasData(kk)) {
-                push out kk
+        for slotNames nm:string idx {
+            if (this.hasData(nm)) {
+                push out nm
             }
         }
         return out
     }
 
     fn hasSlot:boolean (key:string) {
-        return (has slots key)
+        def ka:int ((EvAtomTable.__singleton()).idOf(key))
+        return (has slots ka)
     }
     fn attrsOf:int (key:string) {
-        if (false == (has slots key)) {
+        def ka:int ((EvAtomTable.__singleton()).idOf(key))
+        if (false == (has slots ka)) {
             return 7
         }
-        def slot:EvPropertySlot (unwrap (get slots key))
+        def slot:EvPropertySlot (unwrap (get slots ka))
         case slot d:EvPropertySlot.Data {
             return d.attributes
         }
@@ -364,19 +435,22 @@ class EvPropertyBag {
         return 7
     }
     fn setAttrsOn:void (key:string attrs:int) {
+        def ka:int ((EvAtomTable.__singleton()).idOf(key))
         everHadAttrs = true
-        if (false == (has slots key)) {
+        if (false == (has slots ka)) {
             ; Attribute bits without a value — Hole placeholder so hasData is
             ; false (must not shadow array dense indexes / inherited reads).
             def slot0:EvPropertySlot (new EvPropertySlot.Data((EvalValue.hole()) attrs))
             slotCount = (slotCount + 1)
-            set slots key slot0
+            this.noteKey(ka key)
+            set slots ka slot0
             return
         }
-        def slot:EvPropertySlot (unwrap (get slots key))
+        def slot:EvPropertySlot (unwrap (get slots ka))
         case slot d:EvPropertySlot.Data {
             def slotD:EvPropertySlot (new EvPropertySlot.Data((unwrap d.value) attrs))
-            set slots key slotD
+            this.noteKey(ka key)
+            set slots ka slotD
             return
         }
         case slot a:EvPropertySlot.Accessor {
@@ -386,15 +460,17 @@ class EvPropertyBag {
             g = a.getter
             s = a.setter
             def slotA:EvPropertySlot (new EvPropertySlot.Accessor(g s attrs))
-            set slots key slotA
+            this.noteKey(ka key)
+            set slots ka slotA
         }
     }
 
     fn hasGetter:boolean (key:string) {
-        if (false == (has slots key)) {
+        def ka:int ((EvAtomTable.__singleton()).idOf(key))
+        if (false == (has slots ka)) {
             return false
         }
-        def slot:EvPropertySlot (unwrap (get slots key))
+        def slot:EvPropertySlot (unwrap (get slots ka))
         case slot a:EvPropertySlot.Accessor {
             def g:EvalValue a.getter
             if (false == (EvalValue.isHole(g))) {
@@ -404,10 +480,11 @@ class EvPropertyBag {
         return false
     }
     fn hasSetter:boolean (key:string) {
-        if (false == (has slots key)) {
+        def ka:int ((EvAtomTable.__singleton()).idOf(key))
+        if (false == (has slots ka)) {
             return false
         }
-        def slot:EvPropertySlot (unwrap (get slots key))
+        def slot:EvPropertySlot (unwrap (get slots ka))
         case slot a:EvPropertySlot.Accessor {
             def s:EvalValue a.setter
             if (false == (EvalValue.isHole(s))) {
@@ -417,35 +494,39 @@ class EvPropertyBag {
         return false
     }
     fn hasAccessor:boolean (key:string) {
-        if (false == (has slots key)) {
+        def ka:int ((EvAtomTable.__singleton()).idOf(key))
+        if (false == (has slots ka)) {
             return false
         }
-        def slot:EvPropertySlot (unwrap (get slots key))
+        def slot:EvPropertySlot (unwrap (get slots ka))
         return (is slot _:EvPropertySlot.Accessor)
     }
     fn getGetter:EvalValue (key:string) {
-        def slot:EvPropertySlot (unwrap (get slots key))
+        def ka:int ((EvAtomTable.__singleton()).idOf(key))
+        def slot:EvPropertySlot (unwrap (get slots ka))
         case slot a:EvPropertySlot.Accessor {
             return a.getter
         }
         return (EvalValue.undefined())
     }
     fn getSetter:EvalValue (key:string) {
-        def slot:EvPropertySlot (unwrap (get slots key))
+        def ka:int ((EvAtomTable.__singleton()).idOf(key))
+        def slot:EvPropertySlot (unwrap (get slots ka))
         case slot a:EvPropertySlot.Accessor {
             return a.setter
         }
         return (EvalValue.undefined())
     }
     fn putGetter:void (key:string g:EvalValue attrs:int) {
+        def ka:int ((EvAtomTable.__singleton()).idOf(key))
         everHadAccessor = true
-        if (false == (has slots key)) {
+        if (false == (has slots ka)) {
             slotCount = (slotCount + 1)
         }
         def useAttrs:int attrs
         def s:EvalValue (EvalValue.hole())
-        if (has slots key) {
-            def slot:EvPropertySlot (unwrap (get slots key))
+        if (has slots ka) {
+            def slot:EvPropertySlot (unwrap (get slots ka))
             case slot a:EvPropertySlot.Accessor {
                 def sv:EvalValue a.setter
                 if (false == (EvalValue.isHole(sv))) {
@@ -455,17 +536,19 @@ class EvPropertyBag {
             }
         }
         def slotN:EvPropertySlot (new EvPropertySlot.Accessor(g s useAttrs))
-        set slots key slotN
+        this.noteKey(ka key)
+        set slots ka slotN
     }
     fn putSetter:void (key:string s:EvalValue attrs:int) {
+        def ka:int ((EvAtomTable.__singleton()).idOf(key))
         everHadAccessor = true
-        if (false == (has slots key)) {
+        if (false == (has slots ka)) {
             slotCount = (slotCount + 1)
         }
         def useAttrs:int attrs
         def g:EvalValue (EvalValue.hole())
-        if (has slots key) {
-            def slot:EvPropertySlot (unwrap (get slots key))
+        if (has slots ka) {
+            def slot:EvPropertySlot (unwrap (get slots ka))
             case slot a:EvPropertySlot.Accessor {
                 def gv:EvalValue a.getter
                 if (false == (EvalValue.isHole(gv))) {
@@ -475,13 +558,15 @@ class EvPropertyBag {
             }
         }
         def slotN:EvPropertySlot (new EvPropertySlot.Accessor(g s useAttrs))
-        set slots key slotN
+        this.noteKey(ka key)
+        set slots ka slotN
     }
     fn clearGetter:void (key:string) {
-        if (false == (has slots key)) {
+        def ka:int ((EvAtomTable.__singleton()).idOf(key))
+        if (false == (has slots ka)) {
             return
         }
-        def slot:EvPropertySlot (unwrap (get slots key))
+        def slot:EvPropertySlot (unwrap (get slots ka))
         case slot a:EvPropertySlot.Accessor {
             def s:EvalValue (EvalValue.hole())
             def at:int a.attributes
@@ -494,15 +579,17 @@ class EvPropertyBag {
             } {
                 def g:EvalValue (EvalValue.hole())
                 def slotN:EvPropertySlot (new EvPropertySlot.Accessor(g s at))
-                set slots key slotN
+                this.noteKey(ka key)
+                set slots ka slotN
             }
         }
     }
     fn clearSetter:void (key:string) {
-        if (false == (has slots key)) {
+        def ka:int ((EvAtomTable.__singleton()).idOf(key))
+        if (false == (has slots ka)) {
             return
         }
-        def slot:EvPropertySlot (unwrap (get slots key))
+        def slot:EvPropertySlot (unwrap (get slots ka))
         case slot a:EvPropertySlot.Accessor {
             def g:EvalValue (EvalValue.hole())
             def at:int a.attributes
@@ -515,35 +602,35 @@ class EvPropertyBag {
             } {
                 def s:EvalValue (EvalValue.hole())
                 def slotN:EvPropertySlot (new EvPropertySlot.Accessor(g s at))
-                set slots key slotN
+                this.noteKey(ka key)
+                set slots ka slotN
             }
         }
     }
     fn clearAccessor:void (key:string) {
-        if (false == (has slots key)) {
+        def ka:int ((EvAtomTable.__singleton()).idOf(key))
+        if (false == (has slots ka)) {
             return
         }
-        def slot:EvPropertySlot (unwrap (get slots key))
+        def slot:EvPropertySlot (unwrap (get slots ka))
         if (is slot _:EvPropertySlot.Accessor) {
             this.removeData(key)
         }
     }
     fn getterKeys:[string] () {
         def out:[string]
-        def ks:[string] (keys slots)
-        for ks kk:string idx {
-            if (this.hasGetter(kk)) {
-                push out kk
+        for slotNames nm:string idx {
+            if (this.hasGetter(nm)) {
+                push out nm
             }
         }
         return out
     }
     fn setterKeys:[string] () {
         def out:[string]
-        def ks:[string] (keys slots)
-        for ks kk:string idx {
-            if (this.hasSetter(kk)) {
-                push out kk
+        for slotNames nm:string idx {
+            if (this.hasSetter(nm)) {
+                push out nm
             }
         }
         return out

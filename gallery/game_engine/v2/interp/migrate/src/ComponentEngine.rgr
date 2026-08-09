@@ -752,6 +752,8 @@ class BcProgram {
     def ops:[int]
     def args:[int]
     def atoms:[string]
+    ; parallel to `atoms`: the EvAtomTable id of each name (see addAtom)
+    def atomIds:[int]
     ; Double constants for push_dnum (op 3): literals the operand itself
     ; cannot carry (fractions, negatives after folding, ints >= 4096). The
     ; VM reads the double straight into a number slot -- no value object.
@@ -882,6 +884,10 @@ class BcProgram {
             i = (i + 1)
         }
         push atoms s
+        ; The GLOBAL atom id for this name, minted once here at compile time.
+        ; A property opcode carries the site's index into these, so the hot
+        ; path hands the bag an int and nothing hashes a string at run time.
+        push atomIds ((EvAtomTable.__singleton()).idOf(s))
         return n
     }
 }
@@ -10865,7 +10871,8 @@ class ComponentEngine {
                 if ((itemAt bcTags (sp - 1)) == 0) {
                     ; fused plain read: object receiver, accessor-free chain
                     ; -- no helper call, no bracket, no getter probe
-                    def fm30:EvHandle ((itemAt bcStack (sp - 1)).memberFastAt((itemAt prog.atoms a)))
+                    ; atom id, not the name: the walk hashes no string (E-ATOM)
+                    def fm30:EvHandle ((itemAt bcStack (sp - 1)).memberFastAtAtom((itemAt prog.atomIds a)))
                     if (false == (fm30.isHole())) {
                         this.bcSlotPut((sp - 1) fm30)
                         continue
