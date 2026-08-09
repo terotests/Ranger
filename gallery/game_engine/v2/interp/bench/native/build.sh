@@ -17,10 +17,29 @@
 # the generated source is still written, which is what the target test checks.
 set -e
 cd "$(dirname "$0")/../../../../../.."
+ROOT="$(pwd)"
 TARGET="${TARGET:-cpp}"
 OUT_DIR=gallery/game_engine/v2/interp/bin/$TARGET
 SRC=gallery/game_engine/v2/interp/bench/native/bench_main.rgr
 mkdir -p "$OUT_DIR"
+
+# Resolve a real libstdc++ g++ when possible (Apple's g++ is clang/libc++).
+# shellcheck source=scripts/cpp-toolchain.sh
+. "$ROOT/scripts/cpp-toolchain.sh"
+if [ -z "${CXX:-}" ] || [ -z "${CXX_SUPPORTS_SINGLE_THREAD:-}" ]; then
+  cpp_toolchain_resolve || true
+fi
+CXX="${CXX:-g++}"
+CPP_ST_FLAGS=()
+if [ "${CXX_SUPPORTS_SINGLE_THREAD:-0}" = "1" ]; then
+  CPP_ST_FLAGS=(-cpp-single-thread)
+elif [ "$TARGET" = "cpp" ]; then
+  echo "note: $CXX cannot build -cpp-single-thread (need GCC/libstdc++);" >&2
+  echo "      compiling with atomic std::shared_ptr instead." >&2
+  if [ "$(uname -s)" = "Darwin" ]; then
+    echo "      tip: brew install gcc   # then re-run; g++-14 will be picked up" >&2
+  fi
+fi
 
 echo "== Ranger -> $TARGET"
 EXT="$TARGET"
@@ -44,7 +63,8 @@ fi
 # -cpp-single-thread: the interpreter is single-threaded, so handles ride a
 # non-atomically counted shared_ptr (rg_ptr) — without it every EvHandle copy
 # is a lock-prefixed atomic pair, a global tax with no thread to protect.
-# The flag is cpp-only and ignored elsewhere.
+# The flag is cpp-only and ignored elsewhere. Omitted when the selected CXX
+# is Apple clang / libc++ (see scripts/cpp-toolchain.sh).
 # `node bin/output.js` EXITS 0 EVEN WHEN COMPILATION FAILS, so `set -e` does
 # not catch it -- and the native step below would then happily rebuild the
 # previous run's stale generated source and report success. That is how a
@@ -52,7 +72,7 @@ fi
 # on the compiler's own verdict.
 RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l="$TARGET" \
   "$SRC" -d="$OUT_DIR" -o=engine_bench."$EXT" -nodecli -native-fast-alloc \
-  -cpp-single-thread "${EXTRA_ARGS[@]}" 2>&1 | tee /tmp/rgr_build_$$.log
+  "${CPP_ST_FLAGS[@]}" "${EXTRA_ARGS[@]}" 2>&1 | tee /tmp/rgr_build_$$.log
 if grep -q "Compilation FAILED" /tmp/rgr_build_$$.log; then
   rm -f /tmp/rgr_build_$$.log
   echo "Ranger -> $TARGET FAILED; refusing to build a stale $OUT_DIR/engine_bench.$EXT" >&2
@@ -66,8 +86,8 @@ case "$TARGET" in
     # by-value EvalValue alternatives ahead of EvMapEntry (see script).
     python3 gallery/game_engine/v2/interp/bench/native/fix_cpp_evalvalue_order.py \
       "$OUT_DIR/engine_bench.cpp"
-    echo "== g++ -O3"
-    g++ -O3 -march=native -std=c++17 "$OUT_DIR/engine_bench.cpp" -o "$OUT_DIR/engine_bench"
+    echo "== $CXX -O3"
+    "$CXX" -O3 -march=native -std=c++17 "$OUT_DIR/engine_bench.cpp" -o "$OUT_DIR/engine_bench"
     echo "built: $OUT_DIR/engine_bench"
     ;;
   rust)
