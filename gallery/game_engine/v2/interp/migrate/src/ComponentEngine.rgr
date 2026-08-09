@@ -20012,6 +20012,28 @@ class ComponentEngine {
                         return (EvValueBridge.taggedString(s))
                     }
                     if (name == "normalize") {
+                        ; This realm has no Unicode normalisation tables, so
+                        ; every form answers the string unchanged -- but the
+                        ; FORM is still validated: anything other than the four
+                        ; named ones is a RangeError, which is the part a
+                        ; program can observe without the tables.
+                        if ((array_length args) > 0) {
+                            def nfV:EvHandle (itemAt args 0)
+                            if (false == (nfV.isUndefined())) {
+                                def nf:string (this.toStringOf(nfV))
+                                if scriptThrew {
+                                    return (EvValueBridge.taggedUndefined())
+                                }
+                                def okForm:boolean false
+                                if (nf == "NFC") { okForm = true }
+                                if (nf == "NFD") { okForm = true }
+                                if (nf == "NFKC") { okForm = true }
+                                if (nf == "NFKD") { okForm = true }
+                                if (false == okForm) {
+                                    return (this.throwSpecError("RangeError" "The normalization form should be one of NFC, NFD, NFKC, NFKD."))
+                                }
+                            }
+                        }
                         return (EvValueBridge.taggedString(s))
                     }
                     if (name == "localeCompare") {
