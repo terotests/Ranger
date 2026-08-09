@@ -12140,11 +12140,82 @@ class ComponentEngine {
                             push items (EvValueBridge.taggedString((substring (src.stringOf()) si (si + 1))))
                             si = (si + 1)
                         }
+                    } {
+                        ; D-ITERATOR: anything else iterates through the
+                        ; protocol -- `obj[Symbol.iterator]()` and then `next()`
+                        ; until `done`. The built-in kinds above are answered
+                        ; directly because they have no guest-visible iterator
+                        ; object yet; everything else was silently an empty
+                        ; sequence, so `for (x of myIterable)` ran zero times.
+                        return (this.iteratorProtocolItems(src))
                     }
                 }
             }
         }
         return items
+    }
+
+    ; Drain a guest iterable through the iterator protocol. Bounded by the
+    ; realm's loop limit: an iterator that never reports done is a runaway loop,
+    ; not a hang of the host.
+    fn iteratorProtocolItems:[EvHandle] (src:EvHandle) {
+        def out:[EvHandle]
+        ; A boxed string iterates its characters, like the primitive.
+        if (this.isDescriptorObject(src)) {
+            if ((this.receiverKind(src)) == "string") {
+                def bs:string (this.toStringOf(src))
+                def bi:int 0
+                while (bi < (strlen bs)) {
+                    push out (EvValueBridge.taggedString((substring bs bi (bi + 1))))
+                    bi = (bi + 1)
+                }
+                return out
+            }
+        } {
+            ; A primitive that is not a string has no iterator at all, and
+            ; `for (x of null)` is a TypeError rather than zero iterations.
+            def _e1:EvHandle (this.throwSpecError("TypeError" ((this.typeofTag(src)) + " is not iterable")))
+            return out
+        }
+        def itFn:EvHandle (this.getPropertyValue(src "@@iterator"))
+        if (false == (itFn.isFunction())) {
+            ; GetIterator on a value with no Symbol.iterator is a TypeError.
+            ; Answering an empty sequence made `for (x of {})` a silent no-op.
+            def _e0:EvHandle (this.throwSpecError("TypeError" ((this.typeofTag(src)) + " is not iterable")))
+            return out
+        }
+        def noArgs:[EvHandle]
+        def iter:EvHandle (this.callFnValueWithValues((itFn.withThisForCall(src)) noArgs))
+        if scriptThrew {
+            return out
+        }
+        if (false == (this.isDescriptorObject(iter))) {
+            def _e:EvHandle (this.throwSpecError("TypeError" "Result of the Symbol.iterator method is not an object"))
+            return out
+        }
+        def guard:int 0
+        def going:boolean true
+        while (going && (guard < maxLoopIterations)) {
+            def stepArgs:[EvHandle]
+            def step:EvHandle (this.callMethodOnValue(iter "next" stepArgs))
+            if scriptThrew {
+                going = false
+            } {
+                if (this.isDescriptorObject(step)) {
+                    def doneV:EvHandle (this.getPropertyValue(step "done"))
+                    if (doneV.toBool()) {
+                        going = false
+                    } {
+                        push out (this.getPropertyValue(step "value"))
+                    }
+                } {
+                    def _e2:EvHandle (this.throwSpecError("TypeError" "Iterator result is not an object"))
+                    going = false
+                }
+            }
+            guard = (guard + 1)
+        }
+        return out
     }
     ; The tier-facing forms: the same lists as VALUE ARRAYS for the
     ; forin_keys / forof_items ops.
@@ -16818,7 +16889,16 @@ class ComponentEngine {
         if (ar < 0) { ar = 0 }
         v.setMember("length" (EvHandle.fromInt(ar)))
         v.setAttrs("length" false false true)
-        v.setMember("name" (EvValueBridge.taggedString(name)))
+        ; A symbol-keyed method is NAMED for its symbol: the method registered
+        ; under the key `@@match` reports "[Symbol.match]", which is the name
+        ; the spec gives it and what the suite reads off it.
+        def dispName:string name
+        if ((strlen name) > 2) {
+            if ((substring name 0 2) == "@@") {
+                dispName = ("[Symbol." + ((substring name 2 (strlen name)) + "]"))
+            }
+        }
+        v.setMember("name" (EvValueBridge.taggedString(dispName)))
         v.setAttrs("name" false false true)
         set nativeMethodCache key v
         return v
@@ -17316,6 +17396,13 @@ class ComponentEngine {
         if (kind == "regexp") {
             push out "exec"
             push out "test"
+            ; D-REGEXSYMBOL: the ES2015 well-known-symbol methods. Their keys are
+            ; the symbol keys `@@match` … themselves, which is what publishes
+            ; them under `RegExp.prototype[Symbol.match]`.
+            push out "@@match"
+            push out "@@replace"
+            push out "@@search"
+            push out "@@split"
         }
         if (kind == "number") {
             push out "toExponential"
@@ -17856,6 +17943,10 @@ class ComponentEngine {
         if (kind == "regexp") {
             if (name == "exec") { return 1 }
             if (name == "test") { return 1 }
+            if (name == "@@match") { return 1 }
+            if (name == "@@search") { return 1 }
+            if (name == "@@replace") { return 2 }
+            if (name == "@@split") { return 2 }
         }
         if (kind == "number") {
             if (name == "toExponential") { return 1 }
@@ -18944,6 +19035,33 @@ class ComponentEngine {
             ; carried on as an empty string.
             if scriptThrew {
                 return (EvValueBridge.taggedUndefined())
+            }
+            ; D-REGEXSYMBOL: ES2015 respecified match/replace/search/split to
+            ; DELEGATE -- if the argument carries the matching well-known-symbol
+            ; method, that method IS the operation. The pattern argument was
+            ; always coerced to a RegExp instead, so a guest object could not
+            ; stand in for one.
+            ;
+            ; Only a GUEST method is delegated to: the built-in
+            ; RegExp.prototype[@@match] is itself implemented by calling back
+            ; here, and delegating to it would be an infinite regress.
+            if ((name == "match") || ((name == "search") || ((name == "replace") || (name == "split")))) {
+                if ((array_length args) > 0) {
+                    def patV:EvHandle (itemAt args 0)
+                    if (this.isDescriptorObject(patV)) {
+                        def symM:EvHandle (this.getPropertyValue(patV ("@@" + name)))
+                        if (symM.isFunction()) {
+                            if (symM.hasFunctionNode()) {
+                                def delArgs:[EvHandle]
+                                push delArgs (EvValueBridge.taggedString(s))
+                                if ((array_length args) > 1) {
+                                    push delArgs (itemAt args 1)
+                                }
+                                return (this.callFnValueWithValues((symM.withThisForCall(patV)) delArgs))
+                            }
+                        }
+                    }
+                }
             }
                     ; The locale-sensitive methods have no locale data behind
                     ; them here, so they are the plain ones -- which is exactly
@@ -20507,6 +20625,42 @@ class ComponentEngine {
                     return (EvValueBridge.taggedUndefined())
                 }
                 return (EvValueBridge.taggedBoolean((hit.isArrayValue())))
+            }
+            ; D-REGEXSYMBOL: ES2015 moved the four string operations that take a
+            ; pattern onto RegExp.prototype as well-known-symbol methods, and
+            ; respecified String.prototype.match/replace/search/split to
+            ; DELEGATE to them. They were missing entirely, so
+            ; `re[Symbol.match](s)` was undefined and any code written against
+            ; the ES2015 shape reached nothing.
+            ;
+            ; Each one is the string operation with the arguments the other way
+            ; round -- the receiver is the pattern rather than the subject -- so
+            ; they run through the same implementation instead of a second copy
+            ; of the matcher.
+            if ((name == "@@match") || ((name == "@@search") || ((name == "@@split") || (name == "@@replace")))) {
+                ; `this` must be an object; the methods are generic over any
+                ; object, not just a RegExp instance.
+                if (false == (this.isDescriptorObject(recv))) {
+                    return (this.throwSpecError("TypeError" (name + " called on a non-object")))
+                }
+                def symSubject:EvHandle (EvValueBridge.taggedString(reSubject))
+                def symArgs:[EvHandle]
+                push symArgs recv
+                if (name == "@@match") {
+                    return (this.invokeBuiltin("string" "match" symSubject symArgs))
+                }
+                if (name == "@@search") {
+                    return (this.invokeBuiltin("string" "search" symSubject symArgs))
+                }
+                ; split and replace each take one further argument -- the limit
+                ; and the replacement -- which rides along unchanged.
+                if ((array_length args) > 1) {
+                    push symArgs (itemAt args 1)
+                }
+                if (name == "@@split") {
+                    return (this.invokeBuiltin("string" "split" symSubject symArgs))
+                }
+                return (this.invokeBuiltin("string" "replace" symSubject symArgs))
             }
         }
         ; ---- Number.prototype ----------------------------------------------
@@ -24048,20 +24202,42 @@ class ComponentEngine {
                 def onStatic:boolean (m.kind == "static")
                 def home:EvHandle proto
                 if onStatic { home = cv }
-                if (m.kind != "constructor") {
+                ; A COMPUTED member name -- `[Symbol.iterator]() {}` or
+                ; `[expr]() {}` -- carries its key as an expression rather than a
+                ; name. Without evaluating it the method landed under "" and was
+                ; unreachable, which is why a class could not publish an
+                ; iterator at all.
+                def mKey:string m.name
+                if m.computed {
+                    if m.init {
+                        def mKeyV:EvHandle (this.evaluateExpr((unwrap m.init)))
+                        if (false == scriptThrew) {
+                            mKey = (this.toPropertyKey(mKeyV))
+                        }
+                    }
+                }
+                if ((m.kind != "constructor") && ((strlen mKey) > 0)) {
                     def mv:EvHandle (EvValueBridge.taggedFunction(m))
-                    mv.setMember("name" (EvValueBridge.taggedString(m.name)))
+                    ; A class method is NOT a constructor: it has no `prototype`
+                    ; at all, which `'prototype' in C.prototype.m` asks directly.
+                    mv.addSuppressed("prototype")
+                    ; An accessor's name carries its kind -- the getter for `g`
+                    ; is named "get g", not "g".
+                    def mName:string mKey
+                    if (acc == "get") { mName = ("get " + mKey) }
+                    if (acc == "set") { mName = ("set " + mKey) }
+                    mv.setMember("name" (EvValueBridge.taggedString(mName)))
                     mv.setAttrs("name" false false true)
                     if (acc == "get") {
-                        home.defineGetter(m.name mv)
-                        home.setAttrs(m.name true false true)
+                        home.defineGetter(mKey mv)
+                        home.setAttrs(mKey true false true)
                     } {
                         if (acc == "set") {
-                            home.defineSetter(m.name mv)
-                            home.setAttrs(m.name true false true)
+                            home.defineSetter(mKey mv)
+                            home.setAttrs(mKey true false true)
                         } {
-                            home.setMember(m.name mv)
-                            home.setAttrs(m.name true false true)
+                            home.setMember(mKey mv)
+                            home.setAttrs(mKey true false true)
                         }
                     }
                 }
