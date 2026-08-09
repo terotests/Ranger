@@ -3367,6 +3367,7 @@ class ComponentEngine {
                 if decl.init {
                     def initNode:TSNode (unwrap decl.init)
                     def value:EvHandle (this.evaluateExpr(initNode))
+                    this.nameAnonymousValue(value varName)
                     moduleScope.define(varName value)
                     if (false == quiet) {
                         this.trace("Defined module binding: " + varName + " = " + (value.toString()))
@@ -3384,6 +3385,30 @@ class ComponentEngine {
         context = saved
     }
     
+    ; D-FNNAME: `var f = function () {}` gives the function the name `f`, and so
+    ; do `var C = class {}` and `var g = () => 1`. The name comes from the
+    ; ASSIGNMENT TARGET -- the expression itself is anonymous -- so a function
+    ; value that reached a declarator without a name of its own takes the
+    ; declarator's. Every `fn-name-*` test262 file asks this directly, and
+    ; `f.name` read "" for every anonymous function in the program.
+    fn nameAnonymousValue:void (v:EvHandle nm:string) {
+        if ((strlen nm) == 0) { return }
+        if (false == (v.isFunction())) { return }
+        ; A function expression that named ITSELF keeps that name. The `name`
+        ; property is the authority -- an anonymous CLASS expression carries the
+        ; class table's generated key as its fnName, which is an identity, not a
+        ; name anyone may read.
+        def cur:EvHandle (v.getMember("name"))
+        if (cur.isString()) {
+            if ((strlen (cur.stringOf())) > 0) { return }
+        } {
+            if ((strlen (v.fnName())) > 0) { return }
+        }
+        v.setAttrs("name" true false true)
+        v.setMember("name" (EvValueBridge.taggedString(nm)))
+        v.setAttrs("name" false false true)
+    }
+
     fn processVariableDeclaration:void (node:TSNode) {
         def i:int 0
         while (i < (array_length node.children)) {
@@ -3410,6 +3435,7 @@ class ComponentEngine {
                     if decl.init {
                         def initNode:TSNode (unwrap decl.init)
                         def value:EvHandle (this.evaluateExpr(initNode))
+                        this.nameAnonymousValue(value varName)
                         ; D-WITH: a `var`'s INITIALISER is an ordinary assignment
                         ; to the name, so inside a `with` block whose object owns
                         ; that name it writes the PROPERTY -- the declaration
@@ -23904,6 +23930,9 @@ class ComponentEngine {
         def cv:EvHandle (this.classValueFor(nm))
         ; An ANONYMOUS class expression carries the generated table key as its
         ; identity but has no `name` of its own.
+        ; classValueFor already stamped the TABLE key as `name` and froze it, so
+        ; the generated key for an anonymous class expression stuck.
+        cv.setAttrs("name" true false true)
         cv.setMember("name" (EvValueBridge.taggedString(declaredName)))
         cv.setAttrs("name" false false true)
         return cv

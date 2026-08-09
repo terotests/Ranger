@@ -207,6 +207,9 @@ class TSLexer  {
     }
     const ch = this.source[this.pos];
     this.pos = this.pos + 1;
+    if ( (ch.length) == 0 ) {
+      return ch;
+    }
     const chCode = ch.charCodeAt(0 );
     let isTerminator = false;
     if ( ((ch == "\n") || (ch == "\r")) || (ch == "\r\n") ) {
@@ -216,6 +219,9 @@ class TSLexer  {
       isTerminator = true;
     }
     if ( chCode == 8233 ) {
+      isTerminator = true;
+    }
+    if ( this.isLsPsUtf8(ch) ) {
       isTerminator = true;
     }
     if ( isTerminator ) {
@@ -275,6 +281,9 @@ class TSLexer  {
       return -1;
     }
     const first = this.source[idx];
+    if ( (first.length) == 0 ) {
+      return -1;
+    }
     const hi = first.charCodeAt(0 );
     if ( hi >= 55296 ) {
       if ( hi <= 56319 ) {
@@ -447,6 +456,9 @@ class TSLexer  {
     if ( code == 65279 ) {
       return true;
     }
+    if ( this.isLsPsUtf8(ch) ) {
+      return true;
+    }
     return false;
   };
   skipWhitespace () {
@@ -487,6 +499,28 @@ class TSLexer  {
       return true;
     }
     if ( code == 8233 ) {
+      return true;
+    }
+    if ( this.isLsPsUtf8(ch) ) {
+      return true;
+    }
+    return false;
+  };
+  isLsPsUtf8 (ch) {
+    if ( (ch.length) != 3 ) {
+      return false;
+    }
+    if ( (((ch.charCodeAt(0 )) & 255)) != 226 ) {
+      return false;
+    }
+    if ( (((ch.charCodeAt(1 )) & 255)) != 128 ) {
+      return false;
+    }
+    const c2 = ((ch.charCodeAt(2 )) & 255);
+    if ( c2 == 168 ) {
+      return true;
+    }
+    if ( c2 == 169 ) {
       return true;
     }
     return false;
@@ -605,7 +639,7 @@ class TSLexer  {
                         }
                         this.advance();
                         this.advance();
-                        value = value + (String.fromCharCode(((hv1 * 16) + hv2)));
+                        value = value + this.codeUnitString(((hv1 * 16) + hv2));
                       } else {
                         if ( esc == "u" ) {
                           const uEsc = this.readUnicodeEscapeBody();
@@ -993,9 +1027,25 @@ class TSLexer  {
       const high = Math.floor((restD / 1024.0));
       const hi = 55296 + high;
       const lo = 56320 + (rest - (high * 1024));
-      return (String.fromCharCode(hi)) + (String.fromCharCode(lo));
+      return this.codeUnitString(hi) + this.codeUnitString(lo);
     }
-    return String.fromCharCode(code);
+    return this.codeUnitString(code);
+  };
+  codeUnitString (code) {
+    if ( code < 128 ) {
+      return String.fromCharCode(code);
+    }
+    if ( ((String.fromCharCode(8232)).charCodeAt(0 )) == 8232 ) {
+      return String.fromCharCode(code);
+    }
+    const lo6 = (code & 63);
+    if ( code < 2048 ) {
+      const hi5 = Math.floor( ((code) / 64.0));
+      return (String.fromCharCode((192 + hi5))) + (String.fromCharCode((128 + lo6)));
+    }
+    const mid6 = ((Math.floor( ((code) / 64.0))) & 63);
+    const hi4 = Math.floor( ((code) / 4096.0));
+    return (String.fromCharCode((224 + hi4))) + ((String.fromCharCode((128 + mid6))) + (String.fromCharCode((128 + lo6))));
   };
   readIdentifier () {
     const startPos = this.pos;
@@ -2001,8 +2051,28 @@ class TSNode  {
     this.hasEscape = false;
     this.argScanned = false;     /** note: unused */
     this.usesArguments = false;     /** note: unused */
+    this.thisScanned = false;     /** note: unused */
+    this.usesThis = false;     /** note: unused */
+    this.notGlobalBuiltin = false;     /** note: unused */
+    this.paramSlotScanned = false;     /** note: unused */
+    this.paramSlotsSafe = false;     /** note: unused */
+    this.bcScanned = false;     /** note: unused */
+    this.bcProgramId = 0 - 1;     /** note: unused */
     this.numScanned = false;     /** note: unused */
     this.numValue = 0.0;     /** note: unused */
+    this.numCacheId = 0 - 1;     /** note: unused */
+    this.scopeHops = 0 - 1;     /** note: unused */
+    this.evalKind = 0;     /** note: unused */
+    this.evalOpKind = 0;     /** note: unused */
+    this.hoistScanned = false;     /** note: unused */
+    this.hoistedVarNames = [];     /** note: unused */
+    this.slotScanned = false;     /** note: unused */
+    this.slotVarNames = [];     /** note: unused */
+    this.exprId = 0 - 1;     /** note: unused */
+    this.exprSlotCount = 0 - 1;     /** note: unused */
+    this.transientOk = 0 - 1;     /** note: unused */
+    this.callSiteOp = 0;     /** note: unused */
+    this.callSiteEpoch = 0 - 1;     /** note: unused */
     this.method = false;
     this.generator = false;
     this.async = false;
@@ -2047,6 +2117,7 @@ class TSParserSimple  {
     this.inForOfHead = false;     /** note: unused */
     this.inParamList = false;
     this.parsingFunctionExpression = false;
+    this.parsingClassExpression = false;
     this.pendingExportRefs = [];
     this.inSingleStatementBody = false;
     this.singleBodyIsIfBranch = false;
@@ -3748,6 +3819,8 @@ class TSParserSimple  {
   parseClass () {
     const node = new TSNode();
     node.nodeType = "ClassDeclaration";
+    const asClassExpr = this.parsingClassExpression;
+    this.parsingClassExpression = false;
     const startTok = this.peek();
     node.start = startTok.start;
     node.line = startTok.line;
@@ -3770,7 +3843,9 @@ class TSParserSimple  {
       const nameTok = this.expectBindingName();
       this.strictMode = savedNameStrict;
       node.name = nameTok.value;
-      this.declareBinding("l", nameTok.value);
+      if ( false == asClassExpr ) {
+        this.declareBinding("l", nameTok.value);
+      }
     }
     if ( this.matchValue("<") ) {
       const typeParams = this.parseTypeParams();
@@ -6398,7 +6473,7 @@ class TSParserSimple  {
       this.advance();
       const right = this.parseTernary();
       const nullish = new TSNode();
-      nullish.nodeType = "LogicalExpression";
+      nullish.nodeType = "BinaryExpression";
       nullish.value = "??";
       nullish.left = left;
       nullish.right = right;
@@ -7350,6 +7425,7 @@ class TSParserSimple  {
       }
     }
     if ( tokVal == "class" ) {
+      this.parsingClassExpression = true;
       const clsExpr = this.parseClass();
       clsExpr.nodeType = "ClassExpression";
       return clsExpr;

@@ -230,6 +230,11 @@ class TSParserSimple {
   ; enclosing one (so `function* yield(){}` at top level is fine but
   ; `function *g(){ function yield(){} }` is not).
   def parsingFunctionExpression:boolean false
+  ; Same, for a class EXPRESSION. A named class expression binds its own name
+  ; in a scope holding nothing but the class body -- not in the enclosing
+  ; scope -- so `var C = class C {}` is legal. Declaring it outside made the
+  ; two `C`s a redeclaration and the whole script failed to parse.
+  def parsingClassExpression:boolean false
   ; Local names an `export { ... }` clause referred to without a `from`. They
   ; must resolve to a declaration somewhere in the module, which can only be
   ; checked once the whole module has been read.
@@ -2224,6 +2229,10 @@ class TSParserSimple {
   fn parseClass:TSNode () {
     def node (new TSNode())
     node.nodeType = "ClassDeclaration"
+    ; Claimed at entry and cleared, so a class DECLARATION nested in this
+    ; class's body still declares its name normally.
+    def asClassExpr:boolean this.parsingClassExpression
+    this.parsingClassExpression = false
     def startTok (this.peek())
     node.start = startTok.start
     node.line = startTok.line
@@ -2251,7 +2260,9 @@ class TSParserSimple {
       def nameTok (this.expectBindingName())
       this.strictMode = savedNameStrict
       node.name = nameTok.value
-      this.declareBinding("l" nameTok.value)
+      if (false == asClassExpr) {
+        this.declareBinding("l" nameTok.value)
+      }
     }
 
     ; Parse generic type parameters <T, U>
@@ -6786,6 +6797,7 @@ class TSParserSimple {
 
     ; Class expression: class {} / class Name extends B {}
     if (tokVal == "class") {
+      this.parsingClassExpression = true
       def clsExpr (this.parseClass())
       clsExpr.nodeType = "ClassExpression"
       return clsExpr
