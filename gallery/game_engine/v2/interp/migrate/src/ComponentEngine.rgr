@@ -17298,7 +17298,9 @@ class ComponentEngine {
                 return (this.callFnValueWithValues((rTgt.withThisForCall(rThis)) rArgs))
             }
             if (name == "construct") {
-                if (false == (rTgt.isFunction())) {
+                def ctorOk:boolean (rTgt.isFunction())
+                if (this.isProxyValue(rTgt)) { ctorOk = true }
+                if (false == ctorOk) {
                     return (this.throwSpecError("TypeError" "Reflect.construct target is not a constructor"))
                 }
                 def cArgs:[EvHandle]
@@ -17481,6 +17483,30 @@ class ComponentEngine {
     ; AST path (constructFromFunction) evaluates argument NODES it is handed;
     ; this one is the same operation reached from a value.
     fn constructWithValues:EvHandle (fnV:EvHandle argVals:[EvHandle] newTarget:EvHandle) {
+        ; D-PROXY: `new p(...)` is the `construct` trap, or the target when the
+        ; handler supplies none.
+        if (this.isProxyValue(fnV)) {
+            def cTgt:EvHandle (this.proxyTargetOf(fnV))
+            def cTrap:EvHandle (this.proxyTrap(fnV "construct"))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            if (cTrap.isFunction()) {
+                def ctArgs:[EvHandle]
+                push ctArgs cTgt
+                push ctArgs (EvValueBridge.taggedArray(argVals))
+                push ctArgs newTarget
+                def ctRes:EvHandle (this.callProxyTrap(cTrap ctArgs))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                if (false == (this.isDescriptorObject(ctRes))) {
+                    return (this.throwSpecError("TypeError" "proxy construct trap returned a non-object"))
+                }
+                return ctRes
+            }
+            return (this.constructWithValues(cTgt argVals cTgt))
+        }
         def merged:[EvHandle]
         def mi:int 0
         while (mi < (fnV.boundArgCount())) {
@@ -27353,6 +27379,21 @@ class ComponentEngine {
             if ((strlen className) > 0) {
                 if (context.has(className)) {
                     def fnV:EvHandle (context.lookup(className))
+                    ; D-PROXY: `new p(...)` where p is a proxy goes through the
+                    ; construct trap. A proxy is not a function value, so the
+                    ; guard below would decline it.
+                    if (this.isProxyValue(fnV)) {
+                        def pxCArgs:[EvHandle]
+                        def pxci:int 0
+                        while (pxci < (array_length node.children)) {
+                            push pxCArgs (this.evaluateExpr((itemAt node.children pxci)))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                            pxci = (pxci + 1)
+                        }
+                        return (this.constructWithValues(fnV pxCArgs fnV))
+                    }
                     if (fnV.isFunction()) {
                         if (fnV.hasFunctionNode()) {
                             ; D-ARROW: an arrow has no [[Construct]].
