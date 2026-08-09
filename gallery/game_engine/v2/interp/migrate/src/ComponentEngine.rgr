@@ -14847,13 +14847,19 @@ class ComponentEngine {
                         return (this.protoOfValue(src))
                     }
                     if (methodName == "setPrototypeOf") {
+                        ; The call-site copy used to be a bare setProto that
+                        ; never refused anything. It defers to the value path so
+                        ; the two doors agree on cycles, non-extensible targets
+                        ; and what counts as a prototype.
+                        def spArgs:[EvHandle]
+                        push spArgs src
                         if ((array_length node.children) > 1) {
-                            def np:EvHandle (this.evaluateExpr((itemAt node.children 1)))
-                            if (np.isObject()) {
-                                src.setProto(np)
-                            }
+                            push spArgs (this.evaluateExpr((itemAt node.children 1)))
                         }
-                        return src
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        return (this.invokeBuiltinStatic("Object" "setPrototypeOf" spArgs))
                     }
                     if (methodName == "create") {
                         def keysC:[string]
@@ -17199,18 +17205,68 @@ class ComponentEngine {
                 return a0
             }
             if (name == "setPrototypeOf") {
-                if ((array_length args) > 1) {
-                    def npV:EvHandle (itemAt args 1)
-                    def oxS:int (this.proxyBoolTrap(a0 "setPrototypeOf" npV true))
-                    if (oxS >= 0) {
-                        if scriptThrew {
-                            return (EvValueBridge.taggedUndefined())
+                ; RequireObjectCoercible(O) comes first: null and undefined
+                ; throw, every other primitive is returned untouched below.
+                if ((a0.isNull()) || (a0.isUndefined())) {
+                    return (this.throwSpecError("TypeError" "Object.setPrototypeOf called on null or undefined"))
+                }
+                ; §19.1.2.20 in order: the new prototype is validated FIRST, so
+                ; `Object.setPrototypeOf(1, 'x')` throws even though a primitive
+                ; O is otherwise returned untouched. A missing second argument
+                ; is undefined, which is not a prototype.
+                def npV:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 1) { npV = (itemAt args 1) }
+                def protoOk:boolean ((npV.isObject()) || (npV.isNull()))
+                if (this.isSymbolValue(npV)) { protoOk = false }
+                if (false == protoOk) {
+                    return (this.throwSpecError("TypeError" "Object prototype may only be an Object or null"))
+                }
+                ; A primitive O has no prototype slot to write; it comes back
+                ; unchanged rather than throwing. A symbol is one of those.
+                def oIsObj:boolean (a0.isObject())
+                if (this.isSymbolValue(a0)) { oIsObj = false }
+                if (false == oIsObj) {
+                    return a0
+                }
+                def oxS:int (this.proxyBoolTrap(a0 "setPrototypeOf" npV true))
+                if (oxS >= 0) {
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    if (oxS == 0) {
+                        return (this.throwSpecError("TypeError" "proxy setPrototypeOf refused"))
+                    }
+                    return a0
+                }
+                ; Setting the prototype it already has is a no-op that succeeds;
+                ; anything else on a non-extensible object, or anything that
+                ; would close a cycle, is a TypeError.
+                def oCur:EvHandle (this.protoOfValue(a0))
+                def oSame:boolean false
+                if (npV.isNull()) {
+                    if (oCur.isNull()) { oSame = true }
+                    if (oCur.isUndefined()) { oSame = true }
+                } {
+                    if (oCur.isObject()) {
+                        if (oCur.equals(npV)) { oSame = true }
+                    }
+                }
+                if (false == oSame) {
+                    if (false == (a0.isExtensible())) {
+                        return (this.throwSpecError("TypeError" "object is not extensible"))
+                    }
+                    def oWalk:EvHandle npV
+                    def oGuard:int 0
+                    while (oGuard < 1024) {
+                        if (false == (oWalk.isObject())) { oGuard = 1024 } {
+                            if (oWalk.equals(a0)) {
+                                return (this.throwSpecError("TypeError" "cyclic prototype chain"))
+                            }
+                            oWalk = (this.protoOfValue(oWalk))
+                            oGuard = (oGuard + 1)
                         }
-                        return a0
                     }
-                    if ((npV.isObject()) || (npV.isNull())) {
-                        a0.setProto(npV)
-                    }
+                    a0.setProto(npV)
                 }
                 return a0
             }
@@ -17496,6 +17552,17 @@ class ComponentEngine {
                 }
             }
             if (name == "get") {
+                ; The optional RECEIVER is the `this` a getter sees, which is
+                ; the whole point of the third argument -- reading `o.x` through
+                ; a different receiver is how a proxy forwards a get.
+                if ((array_length args) > 2) {
+                    def gRecv:EvHandle (itemAt args 2)
+                    def gFn:EvHandle (rTgt.findGetter(rKey 0))
+                    if (gFn.isFunction()) {
+                        def gArgs:[EvHandle]
+                        return (this.callFnValueWithValues((gFn.withThisForCall(gRecv)) gArgs))
+                    }
+                }
                 return (this.getPropertyValue(rTgt rKey))
             }
             if (name == "set") {
@@ -17531,9 +17598,26 @@ class ComponentEngine {
                 def sTarget:EvHandle rTgt
                 if ((array_length args) > 3) {
                     def rcv:EvHandle (itemAt args 3)
-                    if (this.isDescriptorObject(rcv)) {
-                        sTarget = rcv
+                    ; A receiver that is not an object has nowhere to put the
+                    ; property, so the write fails rather than falling back to
+                    ; the target.
+                    if (false == (this.isDescriptorObject(rcv))) {
+                        return (EvValueBridge.taggedBoolean(false))
                     }
+                    if (this.isSymbolValue(rcv)) {
+                        return (EvValueBridge.taggedBoolean(false))
+                    }
+                    ; The receiver's OWN property decides as well: a
+                    ; non-writable one there refuses the write even when the
+                    ; target's descriptor would have allowed it.
+                    if (rcv.hasOwnData(rKey)) {
+                        if (false == (rcv.hasOwnSetter(rKey))) {
+                            if (false == (rcv.isWritable(rKey))) {
+                                return (EvValueBridge.taggedBoolean(false))
+                            }
+                        }
+                    }
+                    sTarget = rcv
                 }
                 this.bcPutField(sTarget rKey sVal)
                 if scriptThrew {
@@ -18424,6 +18508,7 @@ class ComponentEngine {
     fn builtinNames:[string] (kind:string) {
         def out:[string]
         if (kind == "function") {
+            push out "@@hasInstance"
             push out "call"
             push out "apply"
             push out "bind"
@@ -18942,6 +19027,7 @@ class ComponentEngine {
     ; can never disagree.
     fn builtinArity:int (kind:string name:string) {
         if (kind == "function") {
+            if (name == "@@hasInstance") { return 1 }
             if (name == "call") { return 1 }
             if (name == "apply") { return 2 }
             if (name == "bind") { return 1 }
@@ -22417,6 +22503,44 @@ class ComponentEngine {
             }
         }
         if (kind == "function") {
+            ; OrdinaryHasInstance, which is what `x instanceof f` falls back to.
+            ; It answers FALSE rather than throwing for a non-callable receiver
+            ; or a primitive argument, so it is checked before the callable
+            ; guard the other three share.
+            if (name == "@@hasInstance") {
+                if (false == (recv.isFunction())) {
+                    return (EvValueBridge.taggedBoolean(false))
+                }
+                def hiArg:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 0) { hiArg = (itemAt args 0) }
+                if (false == (this.isDescriptorObject(hiArg))) {
+                    return (EvValueBridge.taggedBoolean(false))
+                }
+                if (this.isSymbolValue(hiArg)) {
+                    return (EvValueBridge.taggedBoolean(false))
+                }
+                ; A bound function carries a COPY of its target's core here, so
+                ; its `prototype` is already the target's -- no unwrapping step.
+                def hiProto:EvHandle (recv.getMember("prototype"))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                if (false == (this.isDescriptorObject(hiProto))) {
+                    return (this.throwSpecError("TypeError" "prototype is not an object"))
+                }
+                def hiWalk:EvHandle (this.protoOfValue(hiArg))
+                def hiGuard:int 0
+                while (hiGuard < 1024) {
+                    if (false == (hiWalk.isObject())) { hiGuard = 1024 } {
+                        if (hiWalk.equals(hiProto)) {
+                            return (EvValueBridge.taggedBoolean(true))
+                        }
+                        hiWalk = (this.protoOfValue(hiWalk))
+                        hiGuard = (hiGuard + 1)
+                    }
+                }
+                return (EvValueBridge.taggedBoolean(false))
+            }
             ; call/apply/bind operate ON a function. Reaching them with a
             ; non-callable receiver — `var c = f.call; c(x)` — is a TypeError,
             ; which is exactly what an unbound extraction must produce.
@@ -25857,7 +25981,6 @@ class ComponentEngine {
     fn objectStaticNeedsObject:boolean (name:string) {
         if (name == "defineProperty") { return true }
         if (name == "defineProperties") { return true }
-        if (name == "setPrototypeOf") { return true }
         if (name == "create") { return true }
         return false
     }
