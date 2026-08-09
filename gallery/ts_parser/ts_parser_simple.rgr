@@ -5598,7 +5598,11 @@ class TSParserSimple {
       def right (this.parseTernary())
       
       def nullish (new TSNode())
-      nullish.nodeType = "LogicalExpression"
+      ; BinaryExpression, like `&&` and `||` above -- the engine dispatches
+      ; short-circuit operators off nodeKind 5 and already implements `??`
+      ; as opKind 36. Emitting "LogicalExpression" here meant the node never
+      ; reached evaluateBinaryExpr and `x ?? y` silently answered undefined.
+      nullish.nodeType = "BinaryExpression"
       nullish.value = "??"
       nullish.left = left
       nullish.right = right

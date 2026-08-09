@@ -5107,7 +5107,19 @@ class ComponentEngine {
         if (nt == "MemberExpression") { node.evalKind = 3
             return 3
         }
+        ; `o?.x` and `o?.[i]`. The parser gives these their own node type and
+        ; sets `optional`; everything else about them is a member read, so they
+        ; share the member kind and the guard lives in evaluateMemberExpr.
+        ; Unmapped, they fell through to the default and answered undefined --
+        ; which happens to look right for `o?.x` on a null `o` and is wrong for
+        ; every other case.
+        if (nt == "OptionalMemberExpression") { node.evalKind = 3
+            return 3
+        }
         if (nt == "CallExpression") { node.evalKind = 4
+            return 4
+        }
+        if (nt == "OptionalCallExpression") { node.evalKind = 4
             return 4
         }
         if (nt == "BinaryExpression") { node.evalKind = 5
@@ -23669,6 +23681,14 @@ class ComponentEngine {
             if scriptThrew {
                 return (EvValueBridge.taggedUndefined())
             }
+            ; `o?.x` on null/undefined is undefined, not a TypeError. Guarded
+            ; after the base is evaluated so the base's own side effects still
+            ; happen exactly once, which is what the spec asks for.
+            if node.optional {
+                if ((obj.isNull()) || (obj.isUndefined())) {
+                    return (EvValueBridge.taggedUndefined())
+                }
+            }
             ; D-PROTO: reading `F.prototype` MINTS it, and the object the spec
             ; mints already carries `constructor` back to F and inherits from
             ; Object.prototype. Only `new F()` filled those in, so a program that
@@ -24892,6 +24912,18 @@ class ComponentEngine {
             def prop:TSNode (itemAt node.children i)
             if (prop.nodeType == "Property") {
                 def key:string prop.name
+                ; `{ [expr]: v }` -- the parser leaves `name` empty and puts the
+                ; key expression on `right`. Reading `name` regardless built the
+                ; object with an EMPTY key, so `{[k]:1}` answered `{"":1}` and
+                ; `o.x` read undefined. ToPropertyKey is ToString here, which is
+                ; what every other key path in this function already assumes.
+                if prop.computed {
+                    if prop.right {
+                        def keyNode:TSNode (unwrap prop.right)
+                        def keyVal:EvHandle (this.evaluateExpr(keyNode))
+                        key = (this.toStringOf(keyVal))
+                    }
+                }
                 ; The parser tags an object-literal accessor on `kind`
                 ; (get/set/init); `accessor` carries the same idea for a CLASS
                 ; member. Accept either so both forms are handled.
