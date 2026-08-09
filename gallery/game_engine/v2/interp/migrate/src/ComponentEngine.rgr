@@ -12431,6 +12431,12 @@ class ComponentEngine {
         }
         def itFn:EvHandle (this.getPropertyValue(src "@@iterator"))
         if (false == (itFn.isFunction())) {
+            ; An ARGUMENTS object is iterable: its Symbol.iterator is
+            ; Array.prototype.values. It carries no prototype link to reach it
+            ; through, so the slot is what identifies it.
+            if (src.hasOwnData("__arguments__")) {
+                return (this.arrayLikeElements(src))
+            }
             ; GetIterator on a value with no Symbol.iterator is a TypeError.
             ; Answering an empty sequence made `for (x of {})` a silent no-op.
             def _e0:EvHandle (this.throwSpecError("TypeError" ((this.typeofTag(src)) + " is not iterable")))
@@ -15133,13 +15139,18 @@ class ComponentEngine {
                 ; identity stamp already gives.
                 if (fnName == "Symbol") {
                     def sDesc:string ""
+                    def sHasDesc:boolean false
                     if ((array_length node.children) > 0) {
                         def sdv:EvHandle (this.evaluateExpr((itemAt node.children 0)))
                         if (false == (sdv.isUndefined())) {
-                            sDesc = (sdv.toString())
+                            sDesc = (this.toStringOf(sdv))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                            sHasDesc = true
                         }
                     }
-                    return (this.mintSymbol(sDesc))
+                    return (this.mintSymbolDesc(sDesc sHasDesc))
                 }
                 ; D-EVAL: direct eval. Parses the string and runs it in the
                 ; CURRENT scope, so declarations it makes are visible to the
@@ -24949,13 +24960,23 @@ class ComponentEngine {
     ; description is what it PRINTS as; the sequenced id is what makes it a
     ; distinct property key.
     fn mintSymbol:EvHandle (desc:string) {
+        return (this.mintSymbolDesc(desc true))
+    }
+
+    ; `hasDesc` false is `Symbol()` with no argument, whose `description` is
+    ; undefined rather than the empty string -- the two are distinguishable.
+    fn mintSymbolDesc:EvHandle (desc:string hasDesc:boolean) {
         def keysY:[string]
         def valsY:[EvHandle]
         def minted:EvHandle (EvValueBridge.taggedObject(keysY valsY))
         minted.setMember("__symbol__" (EvValueBridge.taggedString(desc)))
         symbolSeq = (symbolSeq + 1)
         minted.setMember("__symid__" (EvValueBridge.taggedString(("@@" + (to_string symbolSeq)))))
-        minted.setMember("description" (EvValueBridge.taggedString(desc)))
+        if hasDesc {
+            minted.setMember("description" (EvValueBridge.taggedString(desc)))
+        } {
+            minted.setMember("description" (EvValueBridge.taggedUndefined()))
+        }
         return minted
     }
 
