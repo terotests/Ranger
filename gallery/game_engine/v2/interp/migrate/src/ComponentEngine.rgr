@@ -25148,6 +25148,22 @@ class ComponentEngine {
         }
         def supCls:TSNode (this.classNodeByName(supName))
         if ((this.nodeKindOf(supCls)) != 25) {
+            ; D-CLASSBUILTIN: `class E extends TypeError`. The base is a
+            ; BUILT-IN constructor, not a class node, so the chain walk stopped
+            ; and `super(msg)` did nothing at all -- the instance carried no
+            ; message and was not an Error by any test.
+            if (this.isBuiltinCtorName(supName)) {
+                def bArgs:[EvHandle]
+                def bi2:int 0
+                while (bi2 < (array_length argNodes)) {
+                    push bArgs (this.evaluateExpr((itemAt argNodes bi2)))
+                    if scriptThrew {
+                        return
+                    }
+                    bi2 = (bi2 + 1)
+                }
+                this.initFromBuiltinBase(supName inst bArgs)
+            }
             return
         }
         ; Base field initialisers first, then its constructor — the same order
@@ -25182,6 +25198,53 @@ class ComponentEngine {
             ; No explicit constructor: an implicit one just forwards upward.
             def nd:int (depth + 1)
             this.runSuperConstructor(supCls inst argNodes nd)
+        }
+    }
+
+    ; D-CLASSBUILTIN: give an instance the internal state its BUILT-IN base
+    ; constructor would have given it. The instance object already exists (the
+    ; class path made it and linked its prototype), so the base's result is
+    ; copied onto it rather than replacing it -- which is what keeps the derived
+    ; prototype and the `__class__` stamp.
+    fn initFromBuiltinBase:void (baseName:string inst:EvHandle args:[EvHandle]) {
+        def built:EvHandle (this.callBuiltinCtorValues(baseName args true))
+        if scriptThrew {
+            return
+        }
+        if (false == (this.isDescriptorObject(built))) {
+            return
+        }
+        def ks:[string] (this.objectKeys(built))
+        def i:int 0
+        while (i < (array_length ks)) {
+            def k:string (itemAt ks i)
+            inst.setMember(k (built.getMember(k)))
+            i = (i + 1)
+        }
+        ; The internal slots the key walk does not see, because they are hidden.
+        def slots:[string]
+        push slots "__error__"
+        push slots "__primitive__"
+        push slots "__wrapper__"
+        push slots "__date__"
+        push slots "__regex__"
+        push slots "__promise__"
+        push slots "__pid__"
+        push slots "__pstate__"
+        push slots "__pvalue__"
+        def si:int 0
+        while (si < (array_length slots)) {
+            def sk:string (itemAt slots si)
+            if (built.hasOwnData(sk)) {
+                inst.setMember(sk (built.getOwnData(sk)))
+            }
+            si = (si + 1)
+        }
+        ; An error carries `message` and `stack` as own properties the key walk
+        ; skips: both are non-enumerable.
+        if (built.hasOwnData("message")) {
+            inst.setMember("message" (built.getOwnData("message")))
+            inst.setAttrs("message" true false true)
         }
     }
 
@@ -25240,6 +25303,25 @@ class ComponentEngine {
                     proto.setProto(supProto)
                     cv.setProto(supV)
                     linked = true
+                }
+            } {
+                ; D-CLASSBUILTIN: `class E extends TypeError` -- the base is a
+                ; built-in, so the chain is linked to ITS prototype and
+                ; constructor. Without it the derived prototype hung off
+                ; Object.prototype and `new E() instanceof TypeError` was false.
+                if (this.isErrorCtorName(supName)) {
+                    proto.setProto((this.errorPrototypeFor(supName)))
+                    def ectr:EvHandle (this.errorCtorFor(supName))
+                    if (ectr.isFunction()) {
+                        cv.setProto(ectr)
+                    }
+                    linked = true
+                } {
+                    if (this.isBuiltinCtorName(supName)) {
+                        proto.setProto((this.builtinPrototype(supName)))
+                        cv.setProto((this.builtinGlobalObject(supName)))
+                        linked = true
+                    }
                 }
             }
         }
@@ -26193,6 +26275,11 @@ class ComponentEngine {
             currentHomeClass = cls.name
             def _r:EvHandle (this.callUserFunctionNode(ctor node.children inst true))
             currentHomeClass = savedHomeC
+        } {
+            ; D-CLASSBUILTIN: a derived class with NO constructor has an
+            ; implicit one that forwards every argument to its base --
+            ; `class E extends Error {}; new E("y")` has to reach Error("y").
+            this.runSuperConstructor(cls inst node.children 0)
         }
         return inst
     }
