@@ -5014,7 +5014,12 @@ class ComponentEngine {
                         ; a name the body removed was still handed out.
                         def stillThere:boolean true
                         if (target.isObject()) {
-                            stillThere = (this.objHasKeyUpChain(target k))
+                            ; D-PROXY: the ownKeys trap already decided which
+                            ; keys there are; re-asking through `has` would run
+                            ; a second trap the spec does not call here.
+                            if (false == (this.isProxyValue(target))) {
+                                stillThere = (this.objHasKeyUpChain(target k))
+                            }
                         }
                         if (false == stillThere) {
                             i = (i + 1)
@@ -12302,6 +12307,12 @@ class ComponentEngine {
     ; the bytecode tier.
     fn forInKeyList:[string] (target:EvHandle) {
         def theKeys:[string]
+        ; D-PROXY: for-in over a proxy asks the ownKeys trap, which objectKeys
+        ; already routes; the chain walk below would read the proxy's own
+        ; (empty) map instead.
+        if (this.isProxyValue(target)) {
+            return (this.objectKeys(target))
+        }
         def seenKeys:[string:boolean]
         def walkIn:EvHandle target
         def inSteps:int 0
@@ -16724,7 +16735,15 @@ class ComponentEngine {
                 if ((array_length args) == 0) {
                     return (EvValueBridge.taggedBoolean(false))
                 }
-                return (EvValueBridge.taggedBoolean((EvValueBridge.isArrayValue((itemAt args 0)))))
+                ; D-PROXY: isArray looks THROUGH a proxy at its target, which is
+                ; the one question a handler cannot intercept.
+                def iaV:EvHandle (itemAt args 0)
+                def iaSteps:int 0
+                while ((this.isProxyValue(iaV)) && (iaSteps < 16)) {
+                    iaV = (this.proxyTargetOf(iaV))
+                    iaSteps = (iaSteps + 1)
+                }
+                return (EvValueBridge.taggedBoolean((EvValueBridge.isArrayValue(iaV))))
             }
         }
         if (nsName == "Number") {
