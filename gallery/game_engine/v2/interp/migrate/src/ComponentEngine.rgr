@@ -8483,6 +8483,13 @@ class ComponentEngine {
                 capturedCtx.define(fnNode.name fv)
             }
         }
+        ; D-ARROW: an arrow function is not a constructor -- it has no
+        ; `prototype` at all, and `new (() => {})` is a TypeError. Minting a
+        ; prototype on demand made both answer as if it were an ordinary
+        ; function.
+        if ((this.nodeKindOf(fnNode)) == 17) {
+            fv.addSuppressed("prototype")
+        }
         cell.ctx = capturedCtx
         push closureScopes cell
         fv.setClosureId(id)
@@ -26968,6 +26975,10 @@ class ComponentEngine {
                     def fnV:EvHandle (context.lookup(className))
                     if (fnV.isFunction()) {
                         if (fnV.hasFunctionNode()) {
+                            ; D-ARROW: an arrow has no [[Construct]].
+                            if ((this.nodeKindOf((fnV.functionNodeOf()))) == 17) {
+                                return (this.throwSpecError("TypeError" (className + " is not a constructor")))
+                            }
                             return (this.constructFromFunction(fnV className node.children))
                         }
                         ; D-CTORVALUE: a bound BUILT-IN constructor held in a
