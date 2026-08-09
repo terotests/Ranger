@@ -311,12 +311,11 @@ EarleyBoyer, RegExp, Splay and NavierStokes — on every target that was built,
 and places the result against same-machine Node and the published amd64 V8
 column.
 
-**Read the es6 column, not the native ones.** An Octane score is derived from a
-wall clock the benchmark reads through `Date`, and the native targets use a
-relative `liveClock` so readings stay inside 32-bit `truncD`. Its resolution
-pins the C++ score to exactly 0.500 run after run — a floor, not a measurement.
-`jsengine:bench` times all targets from outside the engine and is the one to
-use for cross-target comparison.
+Octane’s harness times suites with `performance.now` (fractional `liveClock`
+ms). Prefer that over quoting older tables that used `new Date()` — Date is
+TimeClip’d to whole milliseconds and pinned many native scores to a few
+discrete buckets. `jsengine:bench` still times from outside the engine and is
+the one to use for cross-target microbenchmarks.
 
 For the engine's own test coverage:
 

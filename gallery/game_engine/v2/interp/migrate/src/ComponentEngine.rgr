@@ -14520,6 +14520,12 @@ class ComponentEngine {
                         return (this.invokeBuiltinStatic("Math" methodName mArgs))
                     }
                 }
+                if (mathObjName == "performance") {
+                    if (this.hasBuiltinStatic("performance" methodName)) {
+                        def pArgs:[EvHandle] (this.collectCallArgs(node))
+                        return (this.invokeBuiltinStatic("performance" methodName pArgs))
+                    }
+                }
 
                 ; D-CLASSSTATIC: `A.s()` where A names a class. A class is not a
                 ; scope binding in this engine, so the receiver evaluated to
@@ -16115,6 +16121,15 @@ class ComponentEngine {
                 return (EvValueBridge.taggedNumber((this.dateFromParts(args true))))
             }
         }
+        ; High-resolution monotonic-ish clock for benchmarks. Unlike Date.now /
+        ; new Date(), this is NOT TimeClip'd to whole milliseconds — Octane's
+        ; Measure loop and SplayLatency need sub-ms deltas (Date alone pins
+        ; scores to a few discrete buckets).
+        if (nsName == "performance") {
+            if (name == "now") {
+                return (EvValueBridge.taggedNumber((this.realmNowMs())))
+            }
+        }
         if (nsName == "Object") {
             def a0:EvHandle (EvValueBridge.taggedUndefined())
             if ((array_length args) > 0) {
@@ -16233,6 +16248,10 @@ class ComponentEngine {
             if (name == "stringify") { return 3 }
             return 2
         }
+        if (nsName == "performance") {
+            if (name == "now") { return 0 }
+            return 0
+        }
         return 1
     }
 
@@ -16324,6 +16343,10 @@ class ComponentEngine {
             push out "UTC"
             return out
         }
+        if (nsName == "performance") {
+            push out "now"
+            return out
+        }
         return out
     }
 
@@ -16385,6 +16408,9 @@ class ComponentEngine {
         if (nsName == "Date") {
             return (this.hasBuiltinStatic(nsName name))
         }
+        if (nsName == "performance") {
+            return (this.hasBuiltinStatic(nsName name))
+        }
         return false
     }
 
@@ -16422,6 +16448,7 @@ class ComponentEngine {
         ; Math and JSON brand as themselves, not as Object.
         if (nsName == "Math") { g.setMember("__nsbrand__" (EvValueBridge.taggedString("Math"))) }
         if (nsName == "JSON") { g.setMember("__nsbrand__" (EvValueBridge.taggedString("JSON"))) }
+        if (nsName == "performance") { g.setMember("__nsbrand__" (EvValueBridge.taggedString("performance"))) }
         if (this.isBuiltinCtorName(nsName)) {
             g.setMember("prototype" (this.builtinPrototype(nsName)))
             g.setAttrs("prototype" false false false)
@@ -22430,6 +22457,7 @@ class ComponentEngine {
         if (name == "Date") { return true }
         if (name == "RegExp") { return true }
         if (name == "console") { return true }
+        if (name == "performance") { return true }
         if (name == "globalThis") { return true }
         if (name == "NaN") { return true }
         if (name == "Infinity") { return true }
@@ -22490,6 +22518,7 @@ class ComponentEngine {
             push gnames "RegExp"
             push gnames "Math"
             push gnames "JSON"
+            push gnames "performance"
             ; The error constructors are globals too -- getOwnPropertyNames on
             ; the global object is expected to list every one of them.
             def enames:[string] (this.errorKindNames())

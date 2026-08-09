@@ -97,6 +97,23 @@ function prepareEngineSource(src) {
   this.superConstructor = shuper;
 };`
   );
+  // Octane's Measure loop times with `new Date() - start`. Date values are
+  // TimeClip'd to whole milliseconds (ES spec), so every suite that finishes
+  // inside a few ms of the same integer bucket reports the same score — and
+  // native targets look identical to es6. Drive Measure (and keep Splay's
+  // latency path) through performance.now, which the engine exposes as a
+  // fractional liveClock reading.
+  s = s.replace(
+    /function Measure\(data\) \{\s*var elapsed = 0;\s*var start = new Date\(\);\s*/m,
+    `function Measure(data) {
+    var elapsed = 0;
+    var start = performance.now();
+  `
+  );
+  s = s.replace(
+    /elapsed = new Date\(\) - start;/g,
+    "elapsed = performance.now() - start;"
+  );
   return ENGINE_PRELUDE + s;
 }
 
@@ -264,7 +281,10 @@ try {
     fs.writeFileSync(prepPath, prepared);
 
     process.stdout.write("Node   " + name + " ... ");
-    const n = runNode(file);
+    // Same prepared source as the engine targets: Measure uses
+    // performance.now (sub-ms) rather than Date (whole ms). Node's own
+    // performance.now is high-res, so the baseline stays fair.
+    const n = runNode(prepPath);
     if (n.err) {
       console.log("ERROR", n.err.message || n.err);
       rows.push({ name, error: "node: " + String(n.err) });
