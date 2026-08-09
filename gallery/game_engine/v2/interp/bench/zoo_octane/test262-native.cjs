@@ -48,9 +48,11 @@ function frontmatter(src) {
   const m = /\/\*---([\s\S]*?)---\*\//.exec(src);
   if (!m) return null;
   const body = m[1];
-  const meta = { includes: [], flags: [], features: [], negative: null, es5id: null };
+  const meta = { includes: [], flags: [], features: [], negative: null, es5id: null, es6id: null };
   const idm = /^\s*es5id:\s*(\S+)/m.exec(body);
   if (idm) meta.es5id = idm[1];
+  const id6 = /^\s*es6id:\s*(\S+)/m.exec(body);
+  if (id6) meta.es6id = id6[1];
   const inc = /^\s*includes:\s*\[(.*?)\]/m.exec(body);
   if (inc) meta.includes = inc[1].split(",").map((s) => s.trim()).filter(Boolean);
   const incBlock = /^\s*includes:\s*\n((?:\s*-\s*\S+\n)+)/m.exec(body);
@@ -99,12 +101,19 @@ const root = path.join(opt.corpus, opt.dir);
 let files = walk(root, []);
 files = files.filter((f) => !/[\\/](intl402|staging|Temporal)[\\/]/.test(f));
 
-// ES5 scope: the corpus tags every ES5-era test with es5id.
+// Era scope. The corpus tags ES5-era tests with es5id and ES2015-era tests with
+// es6id; later editions carry only the modern `esid`, so --era=es6 means "the
+// ES2015 additions", not "everything after ES5".
+const ERA = (process.env.T262_ERA || "es5");
 const selected = [];
 for (const f of files) {
   const src = fs.readFileSync(f, "utf8");
   const meta = frontmatter(src);
-  if (!meta || !meta.es5id) continue;
+  if (ERA === "es6") {
+    if (!meta || !meta.es6id) continue;
+  } else {
+    if (!meta || !meta.es5id) continue;
+  }
   if (meta.flags.includes("module")) continue;
   if (meta.flags.includes("async")) continue;
   selected.push({ file: f, src, meta });
