@@ -138,40 +138,28 @@ while (h) {
 names, not interned integers. Nothing in the pipeline turns a property name
 into a dense int that the map can compare in one instruction.
 
-The cost is not confined to property-heavy code, and the clearest evidence is
-on **`fib`** — a benchmark whose JavaScript contains no property access at all.
-Callgrind's caller tree gives the exact path:
+On `object`, `EvPropertyBag::hasData` is **1.8%** and `putData` **1.4%** of
+instructions, with `rg_ordered_map`, `__memcmp_avx2_movbe` and the `std::string`
+copies behind them adding several more. Interning would turn all of it into
+integer compares.
 
-```
-7.39%   ComponentEngine::bcDirectCallKnown  ->  EvHandle::hasOwnData(std::string)
-8.73%   EvHandle::hasOwnData                ->  EvPropertyBag::hasData  ->  rg_ordered_map
-```
+> **Correction.** An earlier version of this document claimed the call-site
+> inline cache re-probes its `__fnprotocall__` marker by string on every hit,
+> at 7.4% of `fib`. **That was wrong, and it was wrong because the profile was
+> taken at `reps=1`, where engine construction dominates.** Callgrind's caller
+> tree at `reps=20` attributes 12.89% of `hasOwnData` to
+> `ComponentEngine::seedGlobalConstants` — engine *startup* — while
+> `bcTryDirectCall` reaches it 19 times per rep, which is 0.00%. The inline
+> cache is not paying a per-call string probe. And because the harness now
+> subtracts a `__empty__` floor that includes `seedGlobalConstants` (§1), that
+> startup cost is already excluded from every ratio in §2.
 
-That is the call-site inline cache doing exactly what its own comment says it
-does:
 
-> every laddered property except the `__fnprotocall__` own-data marker is
-> immutable on a function value, and that one is re-probed on every hit
-
-The ladder is skipped on a cache hit — the design is sound — but the one
-surviving probe is a **string** probe. `hasOwnData("__fnprotocall__")` hashes
-15 bytes and then does a full compare, on **every call**, and that alone is
-**7.4% of every instruction `fib` executes**. Add the shared_ptr and variant
-traffic those calls drag along and the string-keyed property machinery is
-about 10% of the run.
-
-QuickJS reaches a callee through a `JSObject*` and a class-id check. Even if it
-did probe, the probe would be an `int` compare against an atom.
-
-Two ways out, in increasing order of cost: make the marker a field on the
-function value rather than a property (removes this probe entirely), or intern
-property names to integers (removes the whole class of cost).
-
-This is the single biggest structural difference left. It also explains the
-worst row: `fib` (8.1x) is almost nothing but calls, so the per-call probe has
-nothing to hide behind. It does *not* by itself explain the best row —
-`object` at 2.8x owes as much to QuickJS being slow there in absolute terms
-(3.65 ms against Node's 1.45 ms on a `for…in` over a 50-key object) as to
+This is still the biggest *representational* difference, but with the
+correction above it is no longer the biggest cost: on the rows that actually
+use properties it is a few per cent, not ten. It does not explain the best row
+either — `object` at 2.8x owes as much to QuickJS being slow there in absolute
+terms (3.65 ms against Node's 1.45 ms on a `for…in` over a 50-key object) as to
 anything we do well.
 
 ### 3.3 The variant is not trivially copyable, so assigning one is an indirect call
@@ -181,7 +169,7 @@ copyable, so `operator=` dispatches through libstdc++'s generated visit table.
 `__variant::__gen_vtable_impl<…>::__visit_invoke` is **1.0%** on `object` — an
 indirect jump every time a value slot is written. QuickJS assigns 16 bytes.
 
-### 3.4 VM slot reads are bounds-checked, on C++ only
+### 3.4 VM slot reads are bounds-checked
 
 ```cpp
 int op = prog->ops.at(pc);          // std::vector::at — compare + throw path
@@ -223,17 +211,37 @@ noise on the rows dominated by allocation and string work. Real, cheap, and
 nowhere near the whole gap — worth doing precisely because it costs a template
 change, not an engine rewrite.
 
-### 3.5 A call grows a heap stack; QuickJS allocas on the C stack
+### 3.5 The call prologue narrows the callee union more than once
 
-```c
-local_buf = alloca(alloca_size);        /* QuickJS: callee frame on the C stack */
+This is where `fib` actually loses its 8x, and it is our own doing rather than
+a representation difference. On the amortised profile:
+
+```
+7.75%   ComponentEngine::bcDirectCallKnown  ->  EvHandle::closureIdOf
 ```
 
-Ours calls `ComponentEngine::bcGrowTo` per call (**1.7%** on `fib`) against a
-`std::vector` slab, and resolves the callee through `EvHandle::closureIdOf`
-(**5.8%** on `fib`, counting its shared_ptr and variant costs). Between the
-frame growth, the callee resolution and the string-keyed probe of §3.2, the
-call sequence is where `fib` loses its 8x.
+`closureIdOf` narrows the value union and derefs the function core. The
+compiled-call prologue called it **three times on the same handle**:
+
+```
+if ((fnv.closureIdOf()) >= 0) {
+    if ((fnv.closureIdOf()) < (array_length closureScopes)) {
+        def cellF:ClosureCell (itemAt closureScopes (fnv.closureIdOf()))
+```
+
+and reached the home module three more times (`hasHomeModule` plus two
+`homeModuleOf`). Each is a `case` on a 12-alternative variant followed by an
+`Rc`/`shared_ptr` deref. Reading each once is the fix — see §6.
+
+QuickJS's own call sequence is cheaper for a structural reason too — the callee
+frame is one `alloca` on the C stack:
+
+```c
+local_buf = alloca(alloca_size);
+```
+
+where ours calls `ComponentEngine::bcGrowTo` against a `std::vector` slab
+(**1.8%** on `fib`).
 
 ### 3.6 Dispatch is closer than it looks
 
@@ -251,21 +259,21 @@ and an `sp`-within-frame check — plus the bounds checks of §3.4.
 
 Ordered by measured payoff against cost, not by appeal:
 
-1. **Kill the `__fnprotocall__` string probe on the IC hit path** (§3.2). It is
-   7.4% of `fib` on its own and it is the smallest change on this list: the
-   marker wants to be a field on the function value, not a property that has to
-   be looked up by name. Do this one first.
-2. **Intern property names to integers.** The general form of §3.2 — worth
-   ~10% on a benchmark that does not even use properties. It is also the
-   largest change here.
-3. **Stop bounds-checking VM slot reads** (§3.4). 6% geomean for a template
+1. **Read the callee's fields once in the call prologue** (§3.5). 7.75% of
+   `fib` goes into `closureIdOf` alone, because the prologue narrowed the same
+   handle three times. It is the smallest change on this list and the only one
+   that is a plain bug rather than a design trade. **Done — see §6.**
+2. **Stop bounds-checking VM slot reads** (§3.4). 6% geomean for a template
    change plus a static-analysis gate. Ranger already computes the ownership
    and escape facts that would justify an unchecked read; a
    `-cpp-unchecked-index` flag would prove the ceiling before the analysis is
    wired in.
-4. **Shrink the boxing boundary** (§3.1). The tagged-slot representation is
+3. **Shrink the boxing boundary** (§3.1). The tagged-slot representation is
    already right; the cost is in `bcSlotBox` at the edges, so the win is in
    widening opcode coverage so fewer values cross.
+4. **Intern property names to integers** (§3.2). The largest change here, and
+   after the correction above the payoff is a few per cent on property-using
+   rows rather than the ten I first claimed. Worth doing, but not first.
 5. Leave dispatch alone (§3.6). GCC already builds the jump table, and the two
    loop guards are cheap next to everything above.
 
@@ -279,3 +287,39 @@ Ordered by measured payoff against cost, not by appeal:
   ratios are slightly *better* than the table says.
 - `raw Node fib` at 0.06–0.34 ms across the two runs is V8 folding a constant
   call; ignore that column for `fib`.
+
+---
+
+## 6. Fixed: the call prologue now reads the callee once
+
+`bcDirectCallKnown` hoists the closure id and the home module into locals:
+
+```
+def cidF:int  (fnv.closureIdOf())
+def homeF:string (fnv.homeModuleOf())
+```
+
+`hasHomeModule()` is `(strlen homeModule) > 0` and the name was copied out
+unconditionally two lines later anyway, so the presence probe folds into the
+same read with no extra copy.
+
+Measured `before` against `after`, both `g++ -O3 -march=native`, per-rep with
+the launch and the engine floor subtracted, best-of-5 launches, two runs:
+
+| case | run 1 | run 2 | |
+| --- | ---: | ---: | --- |
+| **fib** | **1.096x** | **1.106x** | the row the change targets — almost nothing but calls |
+| loop | 1.082x | 0.979x | control: no calls in the body, so this is the noise floor |
+| array | 1.026x | | |
+| object | 0.955x | | |
+| method | 1.009x | 1.048x | |
+| regex | 1.012x | | |
+
+**~10% on `fib`, reproducibly.** `loop` swinging ±8% between runs is the honest
+error bar on any single row here, and it is why the claim rests on `fib`
+agreeing with itself across two runs and on the profile that predicted it,
+rather than on the 1.029x geomean — which is within that noise.
+
+Correctness unchanged: all seven workloads and the key-order canary answer
+identically to Node, and the native conformance suite scores **1297/1303 with
+0 crashes both before and after** — the same six failures, which predate this.
