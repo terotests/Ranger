@@ -18018,6 +18018,18 @@ class ComponentEngine {
         if (nsName == "Math") { g.setMember("__nsbrand__" (EvValueBridge.taggedString("Math"))) }
         if (nsName == "JSON") { g.setMember("__nsbrand__" (EvValueBridge.taggedString("JSON"))) }
         if (nsName == "Reflect") { g.setMember("__nsbrand__" (EvValueBridge.taggedString("Reflect"))) }
+        ; ES2015: the constructors that publish @@species. It is a get-only
+        ; accessor answering the constructor itself.
+        def hasSpecies:boolean false
+        if (nsName == "Array") { hasSpecies = true }
+        if (nsName == "Map") { hasSpecies = true }
+        if (nsName == "Set") { hasSpecies = true }
+        if (nsName == "RegExp") { hasSpecies = true }
+        if (nsName == "Promise") { hasSpecies = true }
+        if hasSpecies {
+            g.defineGetter("@@species" (this.sharedNativeMethod("speciesget" "get")))
+            g.setAttrs("@@species" false false true)
+        }
         if (this.isBuiltinCtorName(nsName)) {
             g.setMember("prototype" (this.builtinPrototype(nsName)))
             g.setAttrs("prototype" false false false)
@@ -18478,6 +18490,31 @@ class ComponentEngine {
             p.setMember("__primitive__" (EvValueBridge.taggedBoolean(false)))
             p.setMember("__wrapper__" (EvValueBridge.taggedString("Boolean")))
         }
+        ; ES2015 22.1.3.32: Array.prototype[@@unscopables] names the methods a
+        ; `with` block must not shadow -- the ones added after ES5, which older
+        ; code may be using as its own variable names.
+        if (nsName == "Array") {
+            def unsK:[string]
+            def unsV:[EvHandle]
+            def uns:EvHandle (EvValueBridge.taggedObject(unsK unsV))
+            uns.setProto((EvValueBridge.taggedNull()))
+            def unsNames:[string]
+            push unsNames "copyWithin"
+            push unsNames "entries"
+            push unsNames "fill"
+            push unsNames "find"
+            push unsNames "findIndex"
+            push unsNames "includes"
+            push unsNames "keys"
+            push unsNames "values"
+            def uni:int 0
+            while (uni < (array_length unsNames)) {
+                uns.setMember((itemAt unsNames uni) (EvValueBridge.taggedBoolean(true)))
+                uni = (uni + 1)
+            }
+            p.setMember("@@unscopables" uns)
+            p.setAttrs("@@unscopables" false false true)
+        }
         ; annexB B.2.2.1: Object.prototype.__proto__, as the accessor pair the
         ; spec defines rather than a data property.
         if (nsName == "Object") {
@@ -18693,6 +18730,11 @@ class ComponentEngine {
         if (kind == "protoaccessor") {
             if (name == "get") { return 0 }
             if (name == "set") { return 1 }
+            return (0 - 1)
+        }
+        ; @@species is a getter that answers the constructor it was read from.
+        if (kind == "speciesget") {
+            if (name == "get") { return 0 }
             return (0 - 1)
         }
         if (kind == "regexpget") {
@@ -19788,6 +19830,12 @@ class ComponentEngine {
         ; [[SetPrototypeOf]] -- an accessor on Object.prototype, not a data
         ; property, which is what makes it inherited by every object and
         ; describable as a getter/setter pair.
+        ; ES2015: `C[Symbol.species]` is a getter answering `this`, which is what
+        ; lets a subclass inherit it and a library read the constructor to use
+        ; for a derived object.
+        if (kind == "speciesget") {
+            return recv
+        }
         if (kind == "protoaccessor") {
             if (name == "get") {
                 if ((recv.isNull()) || (recv.isUndefined())) {
