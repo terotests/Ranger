@@ -16938,7 +16938,11 @@ class ComponentEngine {
                 if (a0.isObject()) {
                     madeC.setProto(a0)
                 } {
-                    if (false == (a0.isNull())) {
+                    if (a0.isNull()) {
+                        ; `Object.create(null)` makes an object with NO
+                        ; prototype, which is the whole point of passing null.
+                        madeC.setProto(a0)
+                    } {
                         return (this.throwSpecError("TypeError" "Object prototype may only be an Object or null"))
                     }
                 }
@@ -16978,7 +16982,7 @@ class ComponentEngine {
                         }
                         return a0
                     }
-                    if (npV.isObject()) {
+                    if ((npV.isObject()) || (npV.isNull())) {
                         a0.setProto(npV)
                     }
                 }
@@ -17346,7 +17350,9 @@ class ComponentEngine {
                 if (false == (rTgt.isExtensible())) {
                     return (EvValueBridge.taggedBoolean(false))
                 }
-                if (rProto.isObject()) {
+                ; NULL is a prototype too -- `Reflect.setPrototypeOf(o, null)`
+                ; detaches the chain rather than doing nothing.
+                if ((rProto.isObject()) || (rProto.isNull())) {
                     rTgt.setProto(rProto)
                 }
                 return (EvValueBridge.taggedBoolean(true))
