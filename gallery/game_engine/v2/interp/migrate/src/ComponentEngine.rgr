@@ -19998,6 +19998,12 @@ class ComponentEngine {
             if (recv.hasOwnData(hk0)) { return (EvValueBridge.taggedBoolean(true)) }
             if (recv.hasOwnGetter(hk0)) { return (EvValueBridge.taggedBoolean(true)) }
             if (recv.hasOwnSetter(hk0)) { return (EvValueBridge.taggedBoolean(true)) }
+            ; ToObject on the receiver: a STRING has an own property per index
+            ; and an own `length`, which is what
+            ; `Object.prototype.hasOwnProperty.call("ab", 0)` asks about.
+            if (this.stringOwnKey(recv hk0)) {
+                return (EvValueBridge.taggedBoolean(true))
+            }
             return (EvValueBridge.taggedBoolean((this.objHasKey(recv hk0))))
         }
         if (name == "propertyIsEnumerable") {
@@ -20013,6 +20019,14 @@ class ComponentEngine {
             if (recv.hasOwnGetter(pk0)) { ownPk = true }
             if (recv.hasOwnSetter(pk0)) { ownPk = true }
             if (this.objHasKey(recv pk0)) { ownPk = true }
+            ; A string's INDICES are own and enumerable; its `length` is own but
+            ; not enumerable.
+            if (this.stringOwnKey(recv pk0)) {
+                if (pk0 == "length") {
+                    return (EvValueBridge.taggedBoolean(false))
+                }
+                return (EvValueBridge.taggedBoolean(true))
+            }
             if (false == ownPk) {
                 return (EvValueBridge.taggedBoolean(false))
             }
@@ -23734,6 +23748,29 @@ class ComponentEngine {
             }
         }
         return (v.isArrayValue())
+    }
+
+    ; Is `key` an OWN property of a string receiver -- an index inside its
+    ; length, or `length` itself? A string is not an object here, so the own
+    ; property checks never see the properties ToObject would give it.
+    fn stringOwnKey:boolean (recv:EvHandle key:string) {
+        def sv:EvHandle (this.unwrapPrimitive(recv))
+        if (false == (sv.isString())) {
+            return false
+        }
+        if (key == "length") {
+            return true
+        }
+        def idx@(optional):int (to_int key)
+        if idx {
+            def i:int (unwrap idx)
+            if ((to_string i) == key) {
+                if ((i >= 0) && (i < (strlen (sv.stringOf())))) {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     ; A relative index argument: negative counts from the end, and the result is
