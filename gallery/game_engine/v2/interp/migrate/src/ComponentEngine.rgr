@@ -24246,6 +24246,12 @@ class ComponentEngine {
                 if (eRes.isNull()) {
                     return eRes
                 }
+                ; A guest `return null` can arrive here as UNDEFINED -- the two
+                ; share a representation on the way out of a call -- and both
+                ; mean "no match", so only a real primitive is the error.
+                if (eRes.isUndefined()) {
+                    return (EvValueBridge.taggedNull())
+                }
                 if (this.isDescriptorObject(eRes)) {
                     return eRes
                 }
