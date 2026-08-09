@@ -368,6 +368,121 @@ Conformance unchanged: es6 1327/1327, C++ and Rust 1297/1303 with 0 crashes, and
 `shapes.test.ts` still fails exactly its 11 pre-existing tests with no C++
 codegen test affected.
 
+## Side by side with QuickJS, at source level
+
+Fetched `quickjs.c` / `quickjs.h` (bellard/quickjs, master) and read the same
+three operations in both engines.
+
+### The operand stack
+
+```c
+/* QuickJS */                        │  /* Ranger, generated */
+JSValue *local_buf, *stack_buf, *sp; │  std::vector<rg_ptr<EvHandle>> bcStack;
+```
+
+QuickJS's operand stack is a raw pointer into `alloca`'d 16-byte **immediates**.
+A push is a 16-byte store; a pop is a decrement. Ranger's is a heap `std::vector`
+of **reference-counted handles**, so a push is a refcount increment plus a
+capacity check and a pop is a decrement plus a possible free.
+
+The engine already knows this matters — `bcSlotPut` keeps a parallel
+`bcTags[]`/`bcNums[]` and stores numbers, booleans, `null` and `undefined`
+**unboxed**, falling back to `bcStack[i] = h` only for reference kinds. That is
+the right idea, applied to slots. It has not reached the operand stack.
+
+### Adding two numbers
+
+```c
+/* QuickJS: OP_add fast path */
+op1 = sp[-2]; op2 = sp[-1];
+if (likely(JS_VALUE_IS_BOTH_INT(op1, op2))) {
+    r = (int64_t)JS_VALUE_GET_INT(op1) + JS_VALUE_GET_INT(op2);
+    sp[-2] = JS_NewInt32(ctx, r);
+    sp--;
+}
+```
+
+```cpp
+// Ranger, after today's parameter fix
+rg_ptr<EvHandle> ComponentEngine::applyBinaryOp( int opK,
+    const rg_ptr<EvHandle>& left, const rg_ptr<EvHandle>& right ) {
+  if ( left->isNumber() && right->isNumber() ) {
+    return EvValueBridge::taggedNumber((left->numberValue + right->numberValue));
+  }
+```
+
+QuickJS: two stack loads, two tag tests, one store, **no dereference, no
+allocation, no refcount**. Ranger: two pointer dereferences, two variant tag
+tests, two field loads, then `taggedNumber` **mints a handle** and returns a
+refcounted 16-byte value. The `const&` is new today and removed two refcount
+round-trips; what remains is the boxing of the *result*.
+
+### Reading a property
+
+```c
+/* QuickJS: find_own_property */
+sh = p->shape;
+h  = (uintptr_t)atom & sh->prop_hash_mask;
+h  = sh->hash_table[h];
+while (h) {
+    pr = &prop[h - 1];
+    if (likely(pr->atom == atom)) { *ppr = &p->prop[h - 1]; return pr; }
+    h = pr->hash_next;
+}
+```
+
+```cpp
+// Ranger: EvHandle::memberFastAt
+if( mpark::holds_alternative<rg_ptr<EvalValue_Object>>(body) ) {
+  rg_ptr<EvalValue_Object> o = mpark::get<rg_ptr<EvalValue_Object>>(body); // copy → refcount
+  rg_ptr<EvPropertyBag> bag = o->properties;                               // copy → refcount
+  ...
+  r_union_EvalValue dv = bag->dataOrHole(key);   // 24-byte variant returned by value
+  if ( false == EvalValue__ops::isHole(dv) ) {
+    return EvHandle::fromBody(dv);               // mints a NEW handle
+```
+
+QuickJS compares **integers** — the atom — against a per-shape hash table and
+returns a pointer into the property array. No refcount, no allocation, about
+three loads.
+
+Ranger hashes the key **bytes**, and on the way there copies two `shared_ptr`s
+into locals, returns a 24-byte variant by value, and then re-boxes the result
+into a fresh `EvHandle`.
+
+### What this exposes that the parameter fix did not
+
+Those two lines — `rg_ptr<EvalValue_Object> o = mpark::get<…>(body);` and
+`rg_ptr<EvPropertyBag> bag = o->properties;` — are **local** copies, not
+parameters, so today's optimisation does not touch them. Counted across the
+generated file:
+
+| local `rg_ptr` initialised from | count |
+| --- | ---: |
+| `mpark::get<…>` (a variant payload) | 172 |
+| a field read (`x->y;`) | 195 |
+| another local (`x;`) | 164 |
+
+**531 refcount round-trips that a `const rg_ptr<T>&` binding would remove**, on
+locals that are read and never reassigned. This is the same optimisation one
+level down, and the same static analysis can decide it: a local that is not
+reassigned, does not escape, and whose source outlives it can bind by reference.
+
+`bcSlotPut( int i, rg_ptr<EvHandle> h )` is the matching case among the 83
+parameters still passed by value. It stores `h` on exactly **one of five**
+paths — the cold one — yet pays a refcount on every call, including every
+number store. `const&` plus a copy at the store site would move that cost onto
+the path that actually needs it. The analysis cannot see that today because
+`recordEscape` does not know which branch it is in; teaching it *conditional*
+escapes is the next step, and it is worth noting that this is where by-value
+would remain correct-but-slower rather than wrong.
+
+The reason not to make `const&` unconditional is real: a callee holding a
+reference into a container that the callee itself then clears has a dangling
+reference, and by-value protects against exactly that. Return-only escapes —
+what today's change covers — cannot store at all, which is why they were safe to
+flip without any new analysis.
+
 ## Ranked, honestly
 
 1. ~~**Unwind the by-value cascade**~~ — **done**, see above. 123 by-value
