@@ -3476,6 +3476,115 @@ class ComponentEngine {
         }
     }
 
+    ; ---- Destructuring ASSIGNMENT (as opposed to declaration) --------------
+    ; bindPattern above defines new bindings, which is right for
+    ; `var [a,b] = ...` and wrong for `[a,b] = ...`: the latter writes to
+    ; targets that already exist, and those targets may be member expressions
+    ; rather than names. Without this, `[a,b] = [b,a]` parsed fine, evaluated
+    ; its right-hand side, and then silently discarded it -- a swap that left
+    ; both variables untouched. `for (o.k of xs)` had the same hole.
+    ;
+    ; In assignment position the parser produces ArrayExpression /
+    ; ObjectExpression (a `[a,b]` there IS an array literal until the `=`
+    ; arrives), so both those and the Pattern spellings are accepted.
+    fn assignToTarget:void (target:TSNode value:EvHandle) {
+        def tk:int (this.nodeKindOf(target))
+        def tn:string target.nodeType
+        if (tk == 1) {
+            def cur:EvHandle (context.lookup(target.name))
+            context.assign(target.name value)
+            this.syncGlobalVar(target.name value)
+            return
+        }
+        if (tk == 3) {
+            ; opKind 1 is plain `=`; assignMember does the property store,
+            ; accessors and all.
+            this.assignMember(target 1 value)
+            return
+        }
+        if (tn == "AssignmentPattern") {
+            def v:EvHandle value
+            if ((v.isNull()) || (v.isUndefined())) {
+                if target.right {
+                    v = (this.evaluateExpr((unwrap target.right)))
+                }
+            }
+            if target.left {
+                this.assignToTarget((unwrap target.left) v)
+            }
+            return
+        }
+        if ((tk == 14) || (tn == "ArrayPattern")) {
+            this.assignArrayTarget(target value)
+            return
+        }
+        if ((tk == 15) || (tn == "ObjectPattern")) {
+            this.assignObjectTarget(target value)
+            return
+        }
+    }
+
+    fn assignArrayTarget:void (target:TSNode value:EvHandle) {
+        def idx:int 0
+        def ci:int 0
+        while (ci < (array_length target.children)) {
+            def el:TSNode (itemAt target.children ci)
+            def en:string el.nodeType
+            if ((en == "Elision") || (en == "ArrayHole")) {
+                idx = (idx + 1)
+            } {
+                if ((en == "RestElement") || (en == "SpreadElement")) {
+                    def items:[EvHandle]
+                    if (value.isArrayValue()) {
+                        def k:int idx
+                        while (k < (value.denseLen())) {
+                            push items (value.arrayItemAt(k))
+                            k = (k + 1)
+                        }
+                    }
+                    if el.left {
+                        this.assignToTarget((unwrap el.left) (EvValueBridge.taggedArray(items)))
+                    }
+                } {
+                    def elemVal:EvHandle (EvValueBridge.taggedUndefined())
+                    if (value.isArrayValue()) {
+                        if (idx < (value.denseLen())) {
+                            elemVal = (value.arrayItemAt(idx))
+                        }
+                    } {
+                        elemVal = (value.getIndex(idx))
+                    }
+                    this.assignToTarget(el elemVal)
+                    idx = (idx + 1)
+                }
+            }
+            ci = (ci + 1)
+        }
+    }
+
+    fn assignObjectTarget:void (target:TSNode value:EvHandle) {
+        def ci:int 0
+        while (ci < (array_length target.children)) {
+            def prop:TSNode (itemAt target.children ci)
+            if (prop.nodeType == "Property") {
+                def srcKey:string prop.name
+                if prop.computed {
+                    if prop.right {
+                        def keyNode:TSNode (unwrap prop.right)
+                        srcKey = (this.toStringOf((this.evaluateExpr(keyNode))))
+                    }
+                }
+                def v:EvHandle (value.getMember(srcKey))
+                ; `{a = 1} = o` -- the default lives on the VALUE slot here,
+                ; the same place a rename would.
+                if prop.left {
+                    this.assignToTarget((unwrap prop.left) v)
+                }
+            }
+            ci = (ci + 1)
+        }
+    }
+
     fn bindArrayPattern:void (pattern:TSNode value:EvHandle) {
         def idx:int 0
         def ci:int 0
@@ -4450,6 +4559,11 @@ class ComponentEngine {
         ; Loop target: a scalar name or a destructuring pattern (for [k,v] of map).
         def varName:string ""
         def varPattern@(optional):TSNode
+        ; `for (o.k of xs)` / `for ([a,b] of pairs)` -- no declaration, so the
+        ; loop writes to an EXISTING target each turn. Only the declaration
+        ; form was handled, which left the target untouched and every read of
+        ; it undefined.
+        def varTarget@(optional):TSNode
         if stmt.left {
             def leftNode:TSNode (unwrap stmt.left)
             if ((this.nodeKindOf(leftNode)) == 31) {
@@ -4460,6 +4574,8 @@ class ComponentEngine {
                         varPattern = (unwrap decl.left)
                     }
                 }
+            } {
+                varTarget = leftNode
             }
         }
         if stmt.right {
@@ -4483,6 +4599,10 @@ class ComponentEngine {
                         } {
                             if ((strlen varName) > 0) {
                                 context.define(varName item)
+                            } {
+                                if varTarget {
+                                    this.assignToTarget((unwrap varTarget) item)
+                                }
                             }
                         }
                         loopContinue = false
@@ -7405,6 +7525,15 @@ class ComponentEngine {
                 }
                 if ((this.nodeKindOf(leftNode)) == 3) {
                     return (this.assignMember(leftNode opK rightValue))
+                }
+                ; Destructuring assignment: `[a,b] = [b,a]`, `({a} = o)`.
+                ; Only `=` has this form -- the parser already rejects
+                ; `[a] += b` -- so the operator does not need re-applying.
+                def lk:int (this.nodeKindOf(leftNode))
+                def ln:string leftNode.nodeType
+                if ((lk == 14) || ((lk == 15) || ((ln == "ArrayPattern") || (ln == "ObjectPattern")))) {
+                    this.assignToTarget(leftNode rightValue)
+                    return rightValue
                 }
             }
         }
