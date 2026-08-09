@@ -23917,7 +23917,40 @@ class ComponentEngine {
         if ((indexOf flags "y") < 0) {
             newFlags = (flags + "y")
         }
-        def splitter:EvHandle (this.makeRegexValue((this.regexSourceOf(R)) newFlags))
+        ; SpeciesConstructor: `R.constructor[@@species]` builds the splitter when
+        ; the receiver names one, which is how a subclass takes over the pieces
+        ; the scan produces. The default is a plain RegExp.
+        def splitter:EvHandle (EvValueBridge.taggedNull())
+        def ctorV:EvHandle (this.getPropertyValue(R "constructor"))
+        if scriptThrew {
+            return (EvValueBridge.taggedUndefined())
+        }
+        if (false == (ctorV.isUndefined())) {
+            if (false == (this.isDescriptorObject(ctorV))) {
+                return (this.throwSpecError("TypeError" "constructor is not an object"))
+            }
+            def specV:EvHandle (this.getPropertyValue(ctorV "@@species"))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            if (false == ((specV.isUndefined()) || (specV.isNull()))) {
+                if (false == (specV.isFunction())) {
+                    return (this.throwSpecError("TypeError" "species is not a constructor"))
+                }
+                if (specV.hasFunctionNode()) {
+                    def spArgs:[EvHandle]
+                    push spArgs R
+                    push spArgs (EvValueBridge.taggedString(newFlags))
+                    splitter = (this.constructWithValues(specV spArgs specV))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                }
+            }
+        }
+        if (splitter.isNull()) {
+            splitter = (this.makeRegexValue((this.regexSourceOf(R)) newFlags))
+        }
         def out:[EvHandle]
         def lim:int 2147483647
         if (false == (limitV.isUndefined())) {
