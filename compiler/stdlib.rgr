@@ -224,13 +224,11 @@ operators {
                         nl i
             ) 
             cpp (
-                (forkctx _ ) (def 2) "if( mpark::holds_alternative<" (typeof 2) ">(" (e 1) ") ) {" nl I
-                        (typeof 2) " " (e 2) " = mpark::get<" (typeof 2) ">(" (e 1) ");" nl
+                (forkctx _ ) (def 2) "if( std::holds_alternative<" (typeof 2) ">(" (e 1) ") ) {" nl I
+                        (typeof 2) " " (e 2) " = std::get<" (typeof 2) ">(" (e 1) ");" nl
                         (block 3)
                         
                         nl i "}"
-
-                (plugin 'makefile' ((dep 'variant.hpp' 'https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp')))
             ) 
             scala (
                 (forkctx _ ) (def 2) (e 1) " match {" nl
@@ -324,13 +322,11 @@ operators {
                         nl i
             ) 
             cpp (
-                (forkctx _ ) (def 2) "if( mpark::holds_alternative<" (typeof 2) ">(" (e 1) ") ) {" nl I
-                        (typeof 2) " " (e 2) " = mpark::get<" (typeof 2) ">(" (e 1) ");" nl
+                (forkctx _ ) (def 2) "if( std::holds_alternative<" (typeof 2) ">(" (e 1) ") ) {" nl I
+                        (typeof 2) " " (e 2) " = std::get<" (typeof 2) ">(" (e 1) ");" nl
                         (block 3)
                         
                         nl i "}"
-
-                (plugin 'makefile' ((dep 'variant.hpp' 'https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp')))
             ) 
             scala (
                 (forkctx _ ) (def 2) (e 1) " match {" nl
@@ -423,13 +419,11 @@ operators {
                         nl i
             ) 
             cpp (
-                (forkctx _ ) (def 2) "if( mpark::holds_alternative<" (typeof 2) ">(" (e 1) ") ) {" nl I
-                        (typeof 2) " " (e 2) " = mpark::get<" (typeof 2) ">(" (e 1) ");" nl
+                (forkctx _ ) (def 2) "if( std::holds_alternative<" (typeof 2) ">(" (e 1) ") ) {" nl I
+                        (typeof 2) " " (e 2) " = std::get<" (typeof 2) ">(" (e 1) ");" nl
                         (block 3)
                         
                         nl i "}"
-
-                (plugin 'makefile' ((dep 'variant.hpp' 'https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp')))
             ) 
             scala (
                 (forkctx _ ) (def 2) (e 1) " match {" nl
@@ -477,10 +471,8 @@ operators {
             ; scrutinee, which is the whole point of this operator on Rust
             rust   ( "matches!(" (e 1) ", " (typeof 1) "::" (typeof 2) "(..))" )
             ; holds_alternative is already the bare index compare; the `case`
-            ; template only added mpark::get on top of it
-            cpp    ( "mpark::holds_alternative<" (typeof 2) ">(" (e 1) ")"
-                (plugin 'makefile' ((dep 'variant.hpp' 'https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp')))
-            )
+            ; template only added std::get on top of it
+            cpp    ( "std::holds_alternative<" (typeof 2) ">(" (e 1) ")" )
             csharp ( "(" (e 1) " is " (typeof 2) ")" )
             kotlin ( "(" (e 1) " is " (typeof 2) ")" )
             dart   ( "(" (e 1) " is " (typeof 2) ")" )

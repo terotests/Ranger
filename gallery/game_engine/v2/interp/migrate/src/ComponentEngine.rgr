@@ -752,6 +752,8 @@ class BcProgram {
     def ops:[int]
     def args:[int]
     def atoms:[string]
+    ; parallel to `atoms`: the EvAtomTable id of each name (see addAtom)
+    def atomIds:[int]
     ; Double constants for push_dnum (op 3): literals the operand itself
     ; cannot carry (fractions, negatives after folding, ints >= 4096). The
     ; VM reads the double straight into a number slot -- no value object.
@@ -882,6 +884,10 @@ class BcProgram {
             i = (i + 1)
         }
         push atoms s
+        ; The GLOBAL atom id for this name, minted once here at compile time.
+        ; A property opcode carries the site's index into these, so the hot
+        ; path hands the bag an int and nothing hashes a string at run time.
+        push atomIds ((EvAtomTable.__singleton()).idOf(s))
         return n
     }
 }
@@ -6360,7 +6366,14 @@ class ComponentEngine {
             return (EvHandle.fromInt((bit_xor (this.toInt32Of(current)) (this.toInt32Of(rightValue)))))
         }
         if (opK == 8) {
-            return (EvHandle.fromInt((this.int32Wrap((bit_shl (this.toInt32Of(current)) (bit_and (this.toInt32Of(rightValue)) 31))))))
+            ; The operands are read into locals before the int32Wrap call
+            ; because Rust cannot borrow `self` mutably for `toInt32Of` inside
+            ; the arguments of a call that already borrows it immutably
+            ; (E0502). Every other shift arm here already reads into locals or
+            ; calls no method of `this`, so this was the one that broke rustc.
+            def shl8L:int (this.toInt32Of(current))
+            def shl8R:int (this.toInt32Of(rightValue))
+            return (EvHandle.fromInt((this.int32Wrap((bit_shl shl8L (bit_and shl8R 31))))))
         }
         if (opK == 9) {
             return (EvHandle.fromInt((bit_shr (this.toInt32Of(current)) (bit_and (this.toInt32Of(rightValue)) 31))))
@@ -10865,7 +10878,8 @@ class ComponentEngine {
                 if ((itemAt bcTags (sp - 1)) == 0) {
                     ; fused plain read: object receiver, accessor-free chain
                     ; -- no helper call, no bracket, no getter probe
-                    def fm30:EvHandle ((itemAt bcStack (sp - 1)).memberFastAt((itemAt prog.atoms a)))
+                    ; atom id, not the name: the walk hashes no string (E-ATOM)
+                    def fm30:EvHandle ((itemAt bcStack (sp - 1)).memberFastAtAtom((itemAt prog.atomIds a)))
                     if (false == (fm30.isHole())) {
                         this.bcSlotPut((sp - 1) fm30)
                         continue
@@ -11456,23 +11470,33 @@ class ComponentEngine {
         scriptDidReturn = false
         scriptReturnValue = (EvValueBridge.taggedNull())
         def parentF:EvalContext context
-        if ((fnv.closureIdOf()) >= 0) {
-            if ((fnv.closureIdOf()) < (array_length closureScopes)) {
-                def cellF:ClosureCell (itemAt closureScopes (fnv.closureIdOf()))
+        ; PERF: read the closure id ONCE. closureIdOf narrows the value union
+        ; and derefs the function core, so three calls on the same handle were
+        ; three narrows and three derefs -- 7.75% of every instruction `fib`
+        ; executed, measured with callgrind on the amortised profile, and the
+        ; single largest cost on the compiled-call path.
+        def cidF:int (fnv.closureIdOf())
+        def homeF:string (fnv.homeModuleOf())
+        if (cidF >= 0) {
+            if (cidF < (array_length closureScopes)) {
+                def cellF:ClosureCell (itemAt closureScopes cidF)
                 if cellF.ctx {
                     parentF = (unwrap cellF.ctx)
                 }
             }
         } {
-            if (fnv.hasHomeModule()) {
-                parentF = (this.moduleScopeFor((fnv.homeModuleOf())))
+            ; same read-once rule: hasHomeModule is `(strlen homeModule) > 0`
+            ; and the name is copied out unconditionally two lines down anyway,
+            ; so one narrow does what three did
+            if ((strlen homeF) > 0) {
+                parentF = (this.moduleScopeFor(homeF))
             } {
                 if ((strlen currentModule) > 0) {
                     parentF = moduleScope
                 }
             }
         }
-        currentModule = (fnv.homeModuleOf())
+        currentModule = homeF
         ; D-THISCOERCE, compiled form (same as the call-in block)
         def bcThisF:EvHandle (EvValueBridge.taggedUndefined())
         if (fnv.hasBoundThis()) {

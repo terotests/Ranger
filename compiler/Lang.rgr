@@ -593,10 +593,7 @@ final Random rg_random = Random();
                 java7 ( "((" (typeof 2) ")" (e 1) ")" )
                 swift3 ( (e 1) " as " (typeof 2) "" )
                 swift6 ( (e 1) " as " (typeof 2) "" )
-                cpp ( "mpark::get<" (typeof 2) ">(" (e 1) ")" 
-                
-                    (plugin 'makefile' ((dep 'variant.hpp' 'https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp')))            
-                )
+                cpp ( "std::get<" (typeof 2) ">(" (e 1) ")" )
                 go ( (e 1) ".(" (typeof 2) ")" )
                 php ( (e 1) )
                 ; Python and Rust have no place to write the type: Python is
@@ -4888,11 +4885,28 @@ r_optional_primitive<double> cpp_get_map_string_double_value( const M & m , cons
 // Map read that never inserts on miss (unlike std::map::operator[]) and does a
 // single lookup. Returns a default-constructed value (e.g. null shared_ptr)
 // when the key is absent.
+//
+// A closed family (std::variant) is the one mapped_type with no null state:
+// every alternative is a live value, so a default-constructed variant reads
+// back as its FIRST alternative and a miss is indistinguishable from a genuine
+// value of that case. For those maps the result carries the presence bit in
+// r_optional_union; it converts back to the bare union, so a non-optional
+// destination behaves exactly as it did before. Every other mapped_type keeps
+// the original return type and body.
+#include <variant>
+// Defined next to the union typedefs when the program has a closed family. It
+// is only ever named for a variant-valued map, so a declaration is enough here
+// and a program with no shape at all still compiles.
+template <class T> class r_optional_union;
+template<typename T> struct r_map_result { typedef T type; };
+template<typename... A> struct r_map_result<std::variant<A...>> {
+    typedef r_optional_union<std::variant<A...>> type;
+};
 template<typename M, typename K>
-typename M::mapped_type r_map_get_val( const M & m , const K & key) {
+typename r_map_result<typename M::mapped_type>::type r_map_get_val( const M & m , const K & key) {
     auto it = m.find(key);
     if ( it != m.end() ) { return it->second; }
-    return typename M::mapped_type();
+    return typename r_map_result<typename M::mapped_type>::type();
 }
 "
 )

@@ -24,7 +24,7 @@ binding it never reads:
 | **Rust** | `.clone()` of the scrutinee — a refcount up/down pair for every reference case |
 | **Go** | a declared local plus `_ = x` to satisfy the unused-variable rule |
 | **ES6 / Python / PHP** | a dead assignment (`var x = v;`) |
-| **C++** | `mpark::get<T>(v)` on top of the `holds_alternative` test |
+| **C++** | `std::get<T>(v)` on top of the `holds_alternative` test |
 
 The Rust row is the expensive one. `union_EvalValue` carries
 `Rc<RefCell<…>>` in eight of its twelve variants, and the `case` template is
@@ -74,7 +74,7 @@ Compiled (`node bin/output.js -l=<target> is_probe.rgr`):
 | target | emitted body |
 | --- | --- |
 | **rust** | `matches!(v, union_Value::Value_Num(..))` |
-| **cpp** | `mpark::holds_alternative<Value_Num>(v)` |
+| **cpp** | `std::holds_alternative<Value_Num>(v)` |
 | **go** | `(v.tag == union_Value_tag_Value_Num)` |
 | **es6** | `(v != null && v.__rg_kind === "Value_Num")` |
 | **python** | `(v is not None and getattr(v, "_rg_kind", None) == "Value_Num")` |
@@ -120,8 +120,9 @@ ValueMain.isNumNew = function(v) {
 - **Rust** — `matches!` reads the discriminant through the reference. No clone,
   no borrow of the payload, no drop at the end of the expression.
 - **C++** — `holds_alternative` was already the bare index compare; the `case`
-  template only added `mpark::get` on top. The template carries the same
-  `variant.hpp` makefile dependency the `case` operator declares.
+  template only added `std::get` on top. Both sit on `std::variant` from
+  `<variant>`, so the test pulls in no vendored header and no makefile
+  dependency of its own.
 - **Swift** — `if case` is a statement, not an expression. An immediately
   applied closure is the only way to spell the test inline. `(e 1)` is named
   once, so the value is still evaluated exactly once.
@@ -260,7 +261,7 @@ Read the three targets separately, because the reason each moves is different:
   written for. Every `case` cloned the scrutinee; the predicates under every
   dynamic type dispatch now read the discriminant in place.
 - **C++ — flat, as predicted.** `holds_alternative` was already the bare index
-  compare, and `mpark::get` on a variant with inline scalar cases is close to
+  compare, and `std::get` on a variant with inline scalar cases is close to
   free. Nothing was there to remove. (es6 `splay` and C++ `arith_big` swing
   either way run to run; those rows are noise, not signal.)
 - **es6 — flat.** V8 already folds the string tag compare and eliminates the

@@ -21913,6 +21913,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( ctx.isDefinedClass(t_name) ) {
                   const cc = ctx.findClass(t_name);
                   if ( cc.is_union ) {
+                    if ( node.hasFlag("optional") ) {
+                      wr.out("r_optional_union<r_union_", false);
+                      wr.out(t_name, false);
+                      wr.out(">", false);
+                      return;
+                    }
                     wr.out("r_union_", false);
                     wr.out(t_name, false);
                     return;
@@ -23054,11 +23060,30 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             async CreateUnions (parser, ctx, wr) {
               this.readCppPtrFlag(ctx);
               const root = ctx.getRoot();
+              let wroteOptionalUnion = false;
               await operatorsOf_13.forEach_14(root.definedClasses, (async (item, index) => { 
                 if ( item.is_union ) {
-                  await this.compiler.installFile("variant.hpp", ctx, wr);
-                  ctx.addPluginNode("makefile", CodeNode.fromList([CodeNode.fromList([CodeNode.vref1("dep"), CodeNode.newStr("variant.hpp"), CodeNode.newStr("https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp")])]));
-                  wr.out("typedef mpark::variant<", false);
+                  if ( false == wroteOptionalUnion ) {
+                    wroteOptionalUnion = true;
+                    wr.addImport("<cstddef>");
+                    wr.addImport("<type_traits>");
+                    wr.out("template <class T>", true);
+                    wr.out("class r_optional_union {", true);
+                    wr.out("  public:", true);
+                    wr.out("    bool has_value = false;", true);
+                    wr.out("    T value = T();", true);
+                    wr.out("    r_optional_union() {}", true);
+                    wr.out("    r_optional_union(const T & a_value) : has_value(true), value(a_value) {}", true);
+                    wr.out("    template <class U, typename std::enable_if<std::is_constructible<T, const U &>::value, int>::type = 0>", true);
+                    wr.out("    r_optional_union(const U & a_value) : has_value(true), value(a_value) {}", true);
+                    wr.out("    operator T() const { return value; }", true);
+                    wr.out("    bool operator!=(std::nullptr_t) const { return has_value; }", true);
+                    wr.out("    bool operator==(std::nullptr_t) const { return !has_value; }", true);
+                    wr.out("    explicit operator bool() const { return has_value; }", true);
+                    wr.out("};", true);
+                  }
+                  wr.addImport("<variant>");
+                  wr.out("typedef std::variant<", false);
                   wr.indent(1);
                   let cnt = 0;
                   await operatorsOf.forEach_12(item.is_union_of, ((item, index) => { 
@@ -23082,7 +23107,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   }));
                   wr.indent(-1);
                   wr.out((">  r_union_" + index) + ";", true);
-                  wr.addImport("\"variant.hpp\"");
                 }
               }));
             };

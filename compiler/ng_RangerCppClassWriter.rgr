@@ -441,13 +441,25 @@ class RangerCppClassWriter {
 
           def cc (ctx.findClass(t_name))
           if(cc.is_union) {
+            ; A closed family is a std::variant, and a variant has no null
+            ; state: every alternative is a live value, so `r_union_X` alone
+            ; cannot say "absent". Left bare, an optional union produced
+            ; `found != NULL` against a variant — C++ that does not compile —
+            ; and a default-constructed variant reads back as its FIRST
+            ; alternative, so a missing map key was indistinguishable from a
+            ; genuine value of that case. r_optional_union carries the
+            ; presence bit beside the value and converts back to the bare
+            ; union, so a non-optional destination is unchanged.
+            if (node.hasFlag("optional")) {
+              wr.out("r_optional_union<r_union_" false)
+              wr.out(t_name false)
+              wr.out(">" false)
+              return
+            }
             wr.out("r_union_" false)
             wr.out(t_name false)
-;            if (node.hasFlag("optional")) {
-;              wr.out("?" false)
-;            }            
             return
-          }          
+          }
           def cc:RangerAppClassDesc (ctx.findClass(t_name))
           ; a value case of a closed family is carried by value — the same rule
           ; getObjectTypeString applies, so a narrowing binds what the variant
@@ -1306,7 +1318,7 @@ class RangerCppClassWriter {
     }
     return false
   }
-  ; A closed-family (shape/union) parameter is an mpark::variant. Passing it by
+  ; A closed-family (shape/union) parameter is a std::variant. Passing it by
   ; value copies whichever alternative it holds — for a by-value String case
   ; that is the whole string, so every kind predicate was O(payload). The same
   ; read-only test as cppReadonlyValueParam (set_cnt / needs_cpp_reference)
@@ -1823,21 +1835,50 @@ class RangerCppClassWriter {
   fn CreateUnions (parser:RangerFlowParser ctx:RangerAppWriterContext wr:CodeWriter) {
     this.readCppPtrFlag(ctx)
     def root (ctx.getRoot())
+    def wroteOptionalUnion:boolean false
     root.definedClasses.forEach({
       ; index == name
       ; item == class description
       if(item.is_union) {
-        this.compiler.installFile( "variant.hpp" ctx wr)
+        ; The nullable form of a union, written once ahead of the typedefs so
+        ; every `r_optional_union<r_union_X>` below is already declared. See
+        ; getTypeString2 for why a bare variant cannot carry "absent".
+        if (false == wroteOptionalUnion) {
+          wroteOptionalUnion = true
+          wr.addImport("<cstddef>")
+          wr.addImport("<type_traits>")
+          wr.out("template <class T>" true)
+          wr.out("class r_optional_union {" true)
+          wr.out("  public:" true)
+          wr.out("    bool has_value = false;" true)
+          wr.out("    T value = T();" true)
+          wr.out("    r_optional_union() {}" true)
+          wr.out("    r_optional_union(const T & a_value) : has_value(true), value(a_value) {}" true)
+          ; a CASE value assigned into an optional family slot would otherwise
+          ; need two user-defined conversions (Value_Num -> variant -> this),
+          ; and C++ allows one. Constrained so this stays a union wrapper.
+          wr.out("    template <class U, typename std::enable_if<std::is_constructible<T, const U &>::value, int>::type = 0>" true)
+          wr.out("    r_optional_union(const U & a_value) : has_value(true), value(a_value) {}" true)
+          ; converts back to the bare union, so a non-optional destination
+          ; keeps the behaviour it had before this type existed
+          wr.out("    operator T() const { return value; }" true)
+          ; `x != NULL` / `x == NULL` is how the generic optional templates in
+          ; Lang.rgr spell presence on the C++ target
+          wr.out("    bool operator!=(std::nullptr_t) const { return has_value; }" true)
+          wr.out("    bool operator==(std::nullptr_t) const { return !has_value; }" true)
+          wr.out("    explicit operator bool() const { return has_value; }" true)
+          wr.out("};" true)
+        }
+        ; std::variant is C++17, which is the standard the C++ output already
+        ; requires. The mpark polyfill it replaces was a C++11 backport that had
+        ; to be DOWNLOADED at build time, so every C++ build of a program with a
+        ; shape needed network access. Measured identical on the engine's
+        ; hottest pattern (holds_alternative + get): 160.0 ms against 161.5 ms,
+        ; same sizeof. This is a build-robustness change, not a speed one.
+        wr.addImport("<variant>")
 
-        ctx.addPluginNode('makefile' (r.expression (r.expression
-              (r.vref 'dep')
-              (r.value 'variant.hpp')
-              (r.value 'https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp')
-            )))
-;                 (plugin 'makefile' ((dep 'variant.hpp' 'https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp')))            
-        
         ; TODO: implement system class unions too...
-        wr.out("typedef mpark::variant<" false)
+        wr.out("typedef std::variant<" false)
         wr.indent(1)
           def cnt 0
           item.is_union_of.forEach({
@@ -1861,7 +1902,6 @@ class RangerCppClassWriter {
           })
         wr.indent(-1)
         wr.out(">  r_union_" + index + ";" , true)
-        wr.addImport("\"variant.hpp\"")
       }
     })
   }
