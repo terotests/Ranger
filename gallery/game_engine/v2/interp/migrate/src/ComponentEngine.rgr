@@ -21702,7 +21702,7 @@ class ComponentEngine {
                         ; element, whatever `length` it happens to inherit. The
                         ; receiver was spread unconditionally, so a plain object
                         ; came out as its indices instead of as itself.
-                        if (recv.isArrayValue()) {
+                        if (this.concatSpreads(recv)) {
                             def q:int 0
                             while (q < alen) {
                                 push items (this.arrayElemAt(recv q))
@@ -21714,7 +21714,7 @@ class ComponentEngine {
                         def ai:int 0
                         while (ai < (array_length args)) {
                             def av:EvHandle (itemAt args ai)
-                            if (av.isArrayValue()) {
+                            if (this.concatSpreads(av)) {
                                 ; D-HOLES: an element the argument does not have
                                 ; is not copied, but one INHERITED from its
                                 ; prototype is -- concat asks HasProperty, which
@@ -21722,7 +21722,11 @@ class ComponentEngine {
                                 ; saw a hole where `Array.prototype[1] = 1` had
                                 ; put a real value.
                                 def r:int 0
-                                while (r < (av.arrayLength())) {
+                                def avLen:int (av.arrayLength())
+                                if (false == (av.isArrayValue())) {
+                                    avLen = (this.toIntegerOf((this.getPropertyValue(av "length"))))
+                                }
+                                while (r < avLen) {
                                     push items (this.arrayElemAt(av r))
                                     r = (r + 1)
                                 }
@@ -23636,6 +23640,24 @@ class ComponentEngine {
             return (EvValueBridge.taggedNull())
         }
         return (this.sharedNativeMethod(bKind key))
+    }
+
+    ; ES2015 22.1.3.1.1 IsConcatSpreadable: @@isConcatSpreadable overrides the
+    ; array test in BOTH directions -- an array can refuse to spread, and a
+    ; plain object can ask to.
+    fn concatSpreads:boolean (v:EvHandle) {
+        if (this.isDescriptorObject(v)) {
+            def flag:EvHandle (this.getPropertyValue(v "@@isConcatSpreadable"))
+            if scriptThrew {
+                return false
+            }
+            ; ABSENT is the engine's null as often as its undefined, and only a
+            ; present value overrides the array test.
+            if (false == ((flag.isUndefined()) || (flag.isNull()))) {
+                return (flag.toBool())
+            }
+        }
+        return (v.isArrayValue())
     }
 
     ; A relative index argument: negative counts from the end, and the result is
