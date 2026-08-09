@@ -39,7 +39,13 @@ class RangerKotlinClassWriter {
         wr.out((("\"" + s) + "\"") false)
       }
       case RangerNodeType.Integer {
-        wr.out(("" + node.int_value) false)
+        ; Kotlin `Int` is signed 32-bit. Literals outside that range are Long
+        ; and will not type-check against Int parameters or `and`/`or`.
+        if ((node.int_value > 2147483647) || (node.int_value < (0 - 2147483648))) {
+          wr.out((("(" + node.int_value) + "L).toInt()") false)
+        } {
+          wr.out(("" + node.int_value) false)
+        }
       }
       case RangerNodeType.Boolean {
         if node.boolean_value {
@@ -49,6 +55,30 @@ class RangerKotlinClassWriter {
         }
       }
     }
+  }
+
+  ; Kotlin has no bare `[]` array literal (outside annotations). Empty and
+  ; non-empty lists both go through typed `arrayListOf`, matching the
+  ; `MutableList<T>` the rest of the writer emits.
+  fn writeArrayLiteral( node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def elemType:string node.eval_array_type
+    if ((strlen elemType) == 0) {
+      elemType = node.array_type
+    }
+    wr.out("arrayListOf<" false)
+    if ((strlen elemType) > 0) {
+      wr.out((this.getObjectTypeString(elemType ctx)) false)
+    } {
+      wr.out("Any" false)
+    }
+    wr.out(">(" false)
+    node.children.forEach({
+      if( index > 0 ) {
+        wr.out(", " false)
+      }
+      this.WalkNode( item ctx wr )
+    })
+    wr.out(")" false)
   }
   fn adjustType:string (tn:string) {
     if (tn == "this") {

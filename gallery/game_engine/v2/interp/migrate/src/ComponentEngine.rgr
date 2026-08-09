@@ -15203,12 +15203,17 @@ class ComponentEngine {
     ; SIGNED 32-bit however wide the target's int is. On es6 the generated
     ; `&` is already 32-bit so this is an identity; on C++/Rust it folds
     ; the high bits away.
+    ; Done in the double domain (same as toInt32Of) so targets whose int is
+    ; signed 32-bit — Kotlin, Java, C# — can compile it: the old form used
+    ; integer literals above Int.MAX_VALUE, which those languages reject.
     fn int32Wrap:int (n:int) {
-        def m:int (bit_and n 4294967295)
-        if (m >= 2147483648) {
-            return (m - 4294967296)
+        def t:double (to_double n)
+        def m:double (this.wrapUint32(t))
+        def half:double 2147483648.0
+        if (m >= half) {
+            m = (m - (half * 2.0))
         }
-        return m
+        return (to_int m)
     }
 
     ; JS `>>>` computed in the DOUBLE domain. ToUint32(left) lives in
@@ -24115,10 +24120,13 @@ class ComponentEngine {
             i = (i + 1)
         }
         if (n == 10) {
-            ; the spec bound: an array index is < 2^32 - 1
+            ; the spec bound: an array index is < 2^32 - 1.
+            ; Compare in the double domain: 4294967295 does not fit a signed
+            ; 32-bit int (Kotlin/Java/C#), and those targets' to_int on a
+            ; too-large digit string is empty rather than a wrapped value.
             def big@(optional):int (to_int k)
             if big {
-                if ((unwrap big) >= 4294967295) { return false }
+                if ((to_double (unwrap big)) >= 4294967295.0) { return false }
             }
         }
         return true
