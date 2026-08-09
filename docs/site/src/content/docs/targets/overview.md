@@ -42,14 +42,15 @@ high count does not mean a large program has run on that target.
 | C# | yes | yes (Mono `mcs` in CI; .NET also) | TS engine 8/8 |
 | Rust | yes | yes (`rustc`) | jpeg scaler; TS engine path |
 | C++ | yes | yes (`g++`) | jpeg scaler; TS engine path |
-| Dart | yes | yes (`dart`, when on `PATH`) | `gallery/ts_parser` AST = JS |
+| Dart | yes | yes (`dart`, when on `PATH`) | TS engine (same Node answers); `gallery/ts_parser` AST = JS |
 | Swift 6 | yes | when `swiftc` is present | TS engine compiles (~31k lines); run not always in CI |
 | Java, PHP, Scala | yes, with more gaps | varies | syntax-app matrix; no large-engine golden |
 
 `npm run test:tsengine` compiles the TypeScript engine in
-`gallery/game_engine/v2/interp` to Go, Kotlin, Python, C# and Swift 6, and
-builds and runs the Go, Python and C# results when those tools are installed.
-`npm run test:dart` and `npm run test:dart:tsparser` exercise Dart.
+`gallery/game_engine/v2/interp` to Go, Kotlin, Python, C#, Swift 6 and Dart, and
+builds and runs the Go, Python, C# and Dart results when those tools are
+installed. `npm run test:dart` and `npm run test:dart:tsparser` still exercise
+the smaller Dart golden.
 
 Each [operator page](/Ranger/docs/reference/operators/statements/) lists every
 command-line target in the support row, including Dart. A mark ✔ is an own

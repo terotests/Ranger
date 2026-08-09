@@ -1,20 +1,19 @@
 # TS engine — native compilation and performance
 
-> **Update (2026-08-04): five more targets.** The engine now compiles to
-> **Go, Kotlin, Python, C# and Swift 6** as well as C++ and Rust. Four of the
-> five were taken all the way — Go, Kotlin, Python and C# each build with their
-> own toolchain and answer **8 of 8** benchmark cases, `keyorder` included,
-> exactly as Node does. Swift 6 gets as far as the compiler accepting the
-> program and writing all ~31k lines; `download.swift.org` is not reachable
-> from the machine this was done on, so the Swift build is unverified beyond a
-> read of the generated source.
+> **Update (2026-08-09): Dart joins the gate.** The engine compiles to
+> **Go, Kotlin, Python, C#, Swift 6 and Dart** as well as C++ and Rust. Go,
+> Kotlin, Python, C# and Dart each build with their own toolchain and answer
+> the Node benchmark cases exactly as Node does. Swift 6 gets as far as the
+> compiler accepting the program and writing all ~31k lines; a Swift toolchain
+> is not always available in CI, so that column is compile-only there.
 >
-> `tests/ts-engine-targets.test.ts` guards all five: it compiles the engine to
-> each target, and builds and runs the Go, Python and C# results wherever those
-> toolchains exist. It has its own config for the reason `syntax-app` does —
-> a minute of blocking child processes starves the Vitest reporter — so it runs
-> as `npm run test:tsengine` rather than inside `npm test`. Kotlin is compiled
-> but not built there: `kotlinc` takes several minutes on a file this size.
+> `tests/ts-engine-targets.test.ts` guards the set: it compiles the engine to
+> each target, and builds and runs the Go, Python, C# and Dart results wherever
+> those toolchains exist. It has its own config for the reason `syntax-app`
+> does — a minute of blocking child processes starves the Vitest reporter — so
+> it runs as `npm run test:tsengine` rather than inside `npm test`. Kotlin is
+> compiled but not built there: `kotlinc` takes several minutes on a file this
+> size.
 >
 > **What had to be fixed.** Two defects turned out to be the *same* defect on
 > three different targets, and it is the interesting one:

@@ -9,11 +9,11 @@ bugs in [ISSUES.md](ISSUES.md).
 
 The interpreter in `gallery/game_engine/v2/interp` is the largest program used
 as a multi-target gate. Besides C++ and Rust, it compiles to **Go, Kotlin,
-Python, C# and Swift 6**. Go, Kotlin, Python and C# each build and answer all
-eight Node benchmark cases. C# in CI uses Mono 6.8 (`mcs`); a modern .NET SDK
-is fine when available. Swift 6 is accepted and written in full (~31k lines);
-run verification needs a local `swiftc`. See `TS_ENGINE_PERF.md` and
-`npm run test:tsengine`.
+Python, C#, Swift 6 and Dart**. Go, Kotlin, Python, C# and Dart each build and
+answer all of the Node benchmark cases. C# in CI uses Mono 6.8 (`mcs`); a
+modern .NET SDK is fine when available. Swift 6 is accepted and written in
+full (~31k lines); run verification needs a local `swiftc`. See
+`TS_ENGINE_PERF.md` and `npm run test:tsengine`.
 
 One defect showed up on three targets at once: an unused `def` whose
 initializer is a call was commented out, so `def ignored:T (this.work())`
@@ -51,6 +51,10 @@ See `PLAN_DART.md` and `examples/dart_flutter_logic/`.
 (`npm run tsparser:compile:dart && npm run tsparser:run:dart`, or
 `npm run test:dart:tsparser`). String literals escape `$` as `\$` so Dart
 interpolation does not break the lexer.
+
+**TS engine gate:** the full interpreter (`bench_main.rgr`) also compiles with
+`-l=dart` (~40k lines) and, when the Dart SDK is on `PATH`, answers the same
+Node benchmark cases as Go/Python/C# (`npm run test:tsengine`).
 
 ## Swift 6 (`-l=swift6`)
 
