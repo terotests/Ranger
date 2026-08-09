@@ -1345,7 +1345,9 @@ func r_file_mtime ( path:String, name:String ) -> Int {
 (create_polyfill "
 double r_wall_clock_ms() {
     using namespace std::chrono;
-    return duration<double, milli>(system_clock::now().time_since_epoch()).count();
+    // std::milli (from <ratio>): libc++ does not put milli in chrono's
+    // namespace for unqualified lookup the way libstdc++ often does.
+    return duration<double, std::milli>(system_clock::now().time_since_epoch()).count();
 }
 ")
                 )
