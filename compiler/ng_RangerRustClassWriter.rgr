@@ -1654,6 +1654,15 @@ class RangerRustClassWriter {
       ; Check if parameter is assigned to a weak field - needs Rc<RefCell<T>> type
       ; This is detected by static analysis when we see: this.weakField = param
       if arg.rust_needs_rc_wrap {
+        ; A proven-borrowed Rc parameter takes a reference: the callee reads the
+        ; handle and never stores it, so every call site passes `&x` instead of
+        ; cloning. `.borrow()` / `.borrow_mut()` work the same through it.
+        if (arg.rust_borrow_type == 1) {
+          wr.out((paramName + " : &Rc<RefCell<") false)
+          this.writeTypeDef(nameN ctx wr)
+          wr.out(">>" false)
+          continue
+        }
         ; Parameter is assigned to weak field - needs Rc<RefCell<T>> type
         wr.out(("mut " + paramName + " : Rc<RefCell<") false)
         this.writeTypeDef(nameN ctx wr)
@@ -3839,8 +3848,17 @@ class RangerRustClassWriter {
           continue _
         }
         ; a pre-extracted argument (writeVarDef pulled a nested self-call
-        ; out of a `let` initializer) substitutes its temporary
+        ; out of a `let` initializer) substitutes its temporary. The temporary
+        ; is owned by THIS frame, so a borrowed parameter takes a reference to
+        ; it -- without this the temp is moved into an `&` parameter (E0308).
         if ((strlen nVal.rust_use_tmpvar) > 0) {
+          if (arg.needs_cpp_reference || (arg.rust_borrow_type == 2)) {
+            wr.out("&mut " false)
+          } {
+            if (arg.rust_borrow_type == 1) {
+              wr.out("&" false)
+            }
+          }
           wr.out(nVal.rust_use_tmpvar false)
           nVal.rust_use_tmpvar = ""
           continue _
@@ -6458,6 +6476,11 @@ class RangerRustClassWriter {
                     if ((strlen nVal.rust_use_tmpvar) > 0) {
                       if retArgRef {
                         wr.out("&" false)
+                      } {
+                        ; a borrowed parameter takes a reference to the temp
+                        if (arg.rust_borrow_type == 1) {
+                          wr.out("&" false)
+                        }
                       }
                       wr.out(nVal.rust_use_tmpvar false)
                       nVal.rust_use_tmpvar = ""

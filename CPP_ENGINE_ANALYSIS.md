@@ -553,92 +553,84 @@ reference, and by-value protects against exactly that. Return-only escapes —
 what today's change covers — cannot store at all, which is why they were safe to
 flip without any new analysis.
 
-## Attempted and reverted: borrowed `Rc` parameters on Rust
+## Implemented: borrowed `Rc` parameters on Rust
 
-The C++ parameter fix has a Rust twin that is worth **far** more, and it is
-three-quarters implemented. It is written up here rather than shipped because
-the generated Rust does not yet compile.
+The C++ parameter fix has a Rust twin, and it is the largest single lever in
+this document.
 
 ### The size of it
 
-Rust is where C++ was before the fix, only worse:
+Rust was where C++ had been, only worse — every by-value `Rc` parameter is a
+`.clone()` at every call site:
 
-| | Rust | C++ (after its fix) |
-| --- | ---: | ---: |
-| `Rc<RefCell<..>>` params **by value** | **429** | 83 |
-| params by reference | 55 | 394 |
+| | before | after | C++ for comparison |
+| --- | ---: | ---: | ---: |
+| `Rc<RefCell<..>>` params by value | **429** | **97** | 83 |
+| params by reference | 55 | **387** | 394 |
+| `.clone()` in the generated engine | 7,310 | **5,930** | — |
 
-Every by-value `Rc` parameter is a `.clone()` at every call site.
-
-### Why the ownership analysis does not help
-
-`rustBorrowedObjectParam` gates on `ownership_kind == 2`, exactly as C++ did, so
-the same `escape_return_only` extension applies — returning a parameter from
-behind `&Rc<RefCell<T>>` needs no lifetime, because the writer clones at the
-`return` and yields an owned `Rc`.
-
-But two further gates block it, and both are wrong *for an Rc-wrapped type*:
-
-- `is_mutating` / `mutation_count > 0` / `rust_borrow_type == 2`. Mutation
-  through an `Rc<RefCell<T>>` goes through the **RefCell**, and
-  `&Rc<RefCell<T>>` supports `.borrow_mut()` exactly as an owned handle does.
-  Interior mutability is the entire point of the wrapper. (For a plain `struct`
-  this gate is right — that needs `&mut` and a different signature.)
-- `needs_cpp_reference`, a **C++** flag, is consulted on the Rust path.
-
-And then, decisively, `markDescRcWrap` (`ng_StaticAnalysis.rgr`) throws the
-answer away:
-
-```lisp
-p.rust_needs_rc_wrap = true
-; an Rc-wrapped value passes as a clone of the Rc; the borrow modes of
-; the mutation pass do not apply to it
-p.rust_borrow_type = 0
-p.needs_cpp_reference = false
-```
-
-That reset is the reason all 429 stay owned.
-
-### What the change produced
-
-Relaxing the two gates for `rust_needs_ref_semantics` classes, preserving a
-proven borrow (`rust_borrow_type == 1`) through `markDescRcWrap`, and teaching
-the Rust writer to emit `&Rc<RefCell<T>>` for it:
-
-| | before | after |
-| --- | ---: | ---: |
-| params by value | 429 | **97** |
-| params by reference | 55 | **387** |
-| `.clone()` calls in the generated engine | 7,310 | **5,930** |
+**1,380 clones removed.**
 
 ```rust
 fn applyBinaryOp(&mut self, opK : i64,
     left : &Rc<RefCell<EvHandle>>, right : &Rc<RefCell<EvHandle>>) -> Rc<RefCell<EvHandle>>
 ```
 
-**1,380 clones removed.** Given that the C++ probe measured `const&` at 4× a
-by-value handle, this is the largest single lever identified anywhere in this
-document.
+### Three things were in the way
 
-### Why it is not shipped
+1. **`rustBorrowedObjectParam` gated on `ownership_kind == 2`**, exactly as C++
+   did, so the same `escape_return_only` extension applies. Returning a
+   parameter from behind `&Rc<RefCell<T>>` needs no lifetime: the writer clones
+   at the `return` and yields an owned `Rc`.
 
-Eight `rustc` errors remain, all one shape — a generated temporary passed by
-value where the new signature wants a reference:
+2. **`is_mutating` / `mutation_count` / `rust_borrow_type == 2` disqualified it**,
+   which is wrong for an Rc-wrapped type. Mutation through `Rc<RefCell<T>>` goes
+   through the **RefCell**, and `&Rc<RefCell<T>>` supports `.borrow_mut()`
+   exactly as an owned handle does — interior mutability is the point of the
+   wrapper. (For a plain `struct` the gate is right: that needs `&mut` and a
+   different signature, so those keep the owned form.) `needs_cpp_reference`, a
+   **C++** flag, was also being consulted on the Rust path.
+
+3. **`markDescRcWrap` discarded the answer**: `p.rust_borrow_type = 0` for every
+   Rc-wrapped parameter. A borrow the ownership pass *proved* now survives it.
+
+### The emitter that took the longest to find
+
+Making the signatures references left eight `rustc` errors, all one shape — a
+generated temporary passed by value where the signature now wants a reference:
 
 ```
 let _tmp_1 = self.lookupIdentifier(&varName);
 let oldNum : f64 = self.toNumberOf(_tmp_1);   // expected &Rc<RefCell<EvHandle>>
 ```
 
-The temporary is created by `rustExtractSelfCallConflicts`
-(`ng_RangerRustClassWriter.rgr:5399`), which sets `cA.rust_use_tmpvar`. Four of
-the five emitters that consume `rust_use_tmpvar` already add the `&` — the two
-at `:2631` and `:2925` were patched, and `:3241` / `:3599` already had it — so
-these eight sites reach the call through a fifth path that was not found. That
-is the whole remaining task: locate it and add the same three-line prefix.
+There are **six** emitters that consume `rust_use_tmpvar`, not four. Two already
+handled the borrow, two more were patched, and the one that mattered was
+`ng_RangerRustClassWriter.rgr:3843` — whose own comment names the case exactly:
+*"a pre-extracted argument (writeVarDef pulled a nested self-call out of a `let`
+initializer) substitutes its temporary"*. It emitted the temp with no borrow
+prefix at all. Adding the prefix there took the errors to **zero**.
 
-Reverted rather than left half-applied, because a Rust target that does not
-compile is worse than a slow one. Everything needed to finish it is above.
+### Measured
+
+Interleaved fixed-work wall time, 11 reps, min — six of seven rows improved:
+
+| script | Rust |
+| --- | ---: |
+| arith_big | −4.0% |
+| prop | −3.2% |
+| call | −6.8% |
+| method | −6.3% |
+| typemix | +0.5% |
+| pool_hit | −7.2% |
+| pool_miss | −8.5% |
+
+Octane wall time, 9 reps, min: splay −6.9%, deltablue −0.6%, richards +1.8%
+(median −18.9%, so that row is the time-targeted noise this host shows).
+
+Conformance unchanged: Rust and C++ both 1297/1303 with 0 crashes, es6
+1327/1327, and the compiler suite fails exactly its 11 pre-existing shapes tests
+across 68 files — every Rust codegen test included.
 
 ## Ranked, honestly
 

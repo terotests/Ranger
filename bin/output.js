@@ -24846,6 +24846,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       needsMutRef = true;
                     }
                     if ( arg.rust_needs_rc_wrap ) {
+                      if ( arg.rust_borrow_type == 1 ) {
+                        wr.out(paramName + " : &Rc<RefCell<", false);
+                        await this.writeTypeDef(nameN, ctx, wr);
+                        wr.out(">>", false);
+                        continue;
+                      }
                       wr.out(("mut " + paramName) + " : Rc<RefCell<", false);
                       await this.writeTypeDef(nameN, ctx, wr);
                       wr.out(">>", false);
@@ -26751,6 +26757,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         continue;
                       }
                       if ( (nVal_4.rust_use_tmpvar.length) > 0 ) {
+                        if ( arg_4.needs_cpp_reference || (arg_4.rust_borrow_type == 2) ) {
+                          wr.out("&mut ", false);
+                        } else {
+                          if ( arg_4.rust_borrow_type == 1 ) {
+                            wr.out("&", false);
+                          }
+                        }
                         wr.out(nVal_4.rust_use_tmpvar, false);
                         nVal_4.rust_use_tmpvar = "";
                         continue;
@@ -29023,6 +29036,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                         if ( (nVal.rust_use_tmpvar.length) > 0 ) {
                                           if ( retArgRef ) {
                                             wr.out("&", false);
+                                          } else {
+                                            if ( arg_2.rust_borrow_type == 1 ) {
+                                              wr.out("&", false);
+                                            }
                                           }
                                           wr.out(nVal.rust_use_tmpvar, false);
                                           nVal.rust_use_tmpvar = "";
@@ -51907,7 +51924,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             markDescRcWrap (p) {
                               if ( (this.sharedClassOfDesc(p).length) > 0 ) {
                                 p.rust_needs_rc_wrap = true;
-                                p.rust_borrow_type = 0;
+                                if ( p.rust_borrow_type != 1 ) {
+                                  p.rust_borrow_type = 0;
+                                }
                                 p.needs_cpp_reference = false;
                                 if ( p.is_optional == false ) {
                                   const onn = p.nameNode;
@@ -52079,6 +52098,31 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                       }
                                     } };
                                   };
+                                  rustParamHasRefSemantics (param) {
+                                    if ( typeof(param.nameNode) === "undefined" ) {
+                                      return false;
+                                    }
+                                    const tn = param.nameNode;
+                                    if ( (tn.array_type.length) > 0 ) {
+                                      return false;
+                                    }
+                                    if ( (tn.key_type.length) > 0 ) {
+                                      return false;
+                                    }
+                                    const typeName = tn.type_name;
+                                    if ( (typeName.length) == 0 ) {
+                                      return false;
+                                    }
+                                    if ( typeof(this.ctx) === "undefined" ) {
+                                      return false;
+                                    }
+                                    const rootCtx = ((this.ctx)).getRoot();
+                                    if ( rootCtx.isDefinedClass(typeName) == false ) {
+                                      return false;
+                                    }
+                                    const tc = rootCtx.findClass(typeName);
+                                    return tc.rust_needs_ref_semantics;
+                                  };
                                   rustBorrowedObjectParam (cl, param) {
                                     if ( param.varType != 4 ) {
                                       return false;
@@ -52087,24 +52131,36 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                       return false;
                                     }
                                     if ( param.ownership_kind != 2 ) {
-                                      return false;
+                                      if ( ((param.ownership_kind == 3) || (param.ownership_kind == 4)) == false ) {
+                                        return false;
+                                      }
+                                      if ( param.escape_return_only == false ) {
+                                        return false;
+                                      }
                                     }
-                                    if ( param.rust_borrow_type != 0 ) {
-                                      return false;
+                                    const refSem = this.rustParamHasRefSemantics(param);
+                                    if ( refSem == false ) {
+                                      if ( param.rust_borrow_type != 0 ) {
+                                        return false;
+                                      }
+                                      if ( param.needs_cpp_reference ) {
+                                        return false;
+                                      }
+                                      if ( param.is_mutating ) {
+                                        return false;
+                                      }
+                                      if ( param.mutation_count > 0 ) {
+                                        return false;
+                                      }
+                                    } else {
+                                      if ( param.rust_borrow_type == 1 ) {
+                                        return false;
+                                      }
                                     }
                                     if ( param.rust_needs_rc_wrap ) {
                                       return false;
                                     }
-                                    if ( param.needs_cpp_reference ) {
-                                      return false;
-                                    }
                                     if ( param.rust_assigned_to_field ) {
-                                      return false;
-                                    }
-                                    if ( param.is_mutating ) {
-                                      return false;
-                                    }
-                                    if ( param.mutation_count > 0 ) {
                                       return false;
                                     }
                                     if ( param.set_cnt > 0 ) {
