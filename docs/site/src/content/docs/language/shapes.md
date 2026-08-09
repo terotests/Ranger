@@ -33,10 +33,48 @@ def b:Value (new Value.Num(42.0))
 def c:Value (new Value.Text("hello"))
 ```
 
-## The narrowing of a value
+## The examination of a value
 
-The operator `case` tests the value and binds the narrowed value to a name. The
-block reads the fields of the case.
+`match` reads one value against every case of the shape. It is the usual way to
+work with a shape.
+
+```lisp
+match v {
+    Num n {
+        return ("num" + (to_string n.n))
+    }
+    Text t {
+        return ("text" + t.s)
+    }
+    Nothing {
+        return "nothing"
+    }
+}
+```
+
+An arm names a case and, when the block reads the payload, a name for the
+narrowed value. An arm covers several cases with `|`:
+
+```lisp
+match v {
+    Num | Text {
+        return "has a payload"
+    }
+    Nothing {
+        return "empty"
+    }
+}
+```
+
+The compiler knows every case of the shape, so it reports an arm that is
+missing, an arm that appears two times, and a name that is not a case of this
+shape. An arm may also name a [group](#groups), which covers every case of that
+group.
+
+### One case at a time
+
+`case` narrows one case without listing the others. Use it when the program
+needs one case and does not answer for the rest.
 
 ```lisp
 case v x:Value.Num {
@@ -70,9 +108,10 @@ if (is v _:Value.Nothing) {
 return ((is v _:Value.Num) || (is v _:Value.Text))
 ```
 
-Use `case` when the block reads the payload of the case. Use `is` when the
-program needs the answer only. The binding of `case` has a cost: on the Rust
-target it writes a clone of the value.
+Use `match` to answer for every case, `case` for one case, and `is` when the
+program needs the answer only. The three are the same discriminant test; the
+choice is what the program does with the answer, not what it costs. A binding
+that the block only reads is a reference on every target — it copies nothing.
 
 ## Groups
 
@@ -102,6 +141,55 @@ of the group and joins the tests with `||`.
 ```lisp
 def b:boolean (is v _:Value.Prim)
 ```
+
+### A group is a type
+
+A group is a type of its own, so a function takes the subset instead of the
+whole shape. The caller may pass only a case of that group, and the body may
+narrow further.
+
+```lisp
+fn describeRef:string (r:Value.Ref) {
+    match r {
+        Text t {
+            return t.s
+        }
+    }
+}
+```
+
+The compiler knows the group holds exactly the cases that name it, so a `match`
+over a group value is exhaustive when it covers those cases — not every case of
+the shape.
+
+### A group declares methods
+
+A group declares a method with no body. Every case of the group must then
+define it. This states a requirement that the compiler checks, and it gives the
+group a method the program can call on any of its cases.
+
+```lisp
+shape EvalValue {
+    group Callable does Reference {
+        fn invokeLabel:string ()
+    }
+
+    case Function does Callable {
+        def core:EvFunctionCore
+        fn invokeLabel:string () {
+            def c:EvFunctionCore core
+            return c.functionName
+        }
+    }
+}
+```
+
+A case that does not define `invokeLabel` is a compile error. A group may also
+give a method a body, which each case receives and may replace with
+`@(override)`.
+
+Groups nest: `group Callable does Reference` puts every callable case in
+`Reference` as well, and a value of the narrower group widens to the wider one.
 
 ## The output of each target language
 
