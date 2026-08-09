@@ -16258,6 +16258,39 @@ class ComponentEngine {
                 }
                 return (EvValueBridge.taggedString(fcs))
             }
+            ; String.fromCodePoint: like fromCharCode but each argument is a
+            ; full code POINT, so an astral value becomes a surrogate pair and a
+            ; non-integer or out-of-range one is a RangeError rather than a
+            ; silent truncation.
+            if (name == "fromCodePoint") {
+                def cps:string ""
+                def cpi:int 0
+                while (cpi < (array_length args)) {
+                    def cpn:double (this.toNumberOf((itemAt args cpi)))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    def cpint:int (to_int cpn)
+                    if (cpn != (to_double cpint)) {
+                        return (this.throwSpecError("RangeError" "Invalid code point"))
+                    }
+                    if ((cpint < 0) || (cpint > 1114111)) {
+                        return (this.throwSpecError("RangeError" "Invalid code point"))
+                    }
+                    if (cpint > 65535) {
+                        ; UTF-16: the astral plane is a high/low surrogate pair
+                        def off:int (cpint - 65536)
+                        def hi:int (55296 + (bit_shr off 10))
+                        def lo:int (56320 + (bit_and off 1023))
+                        cps = (cps + (strfromcode hi))
+                        cps = (cps + (strfromcode lo))
+                    } {
+                        cps = (cps + (strfromcode cpint))
+                    }
+                    cpi = (cpi + 1)
+                }
+                return (EvValueBridge.taggedString(cps))
+            }
         }
         if (nsName == "Array") {
             if (name == "isArray") {
@@ -16512,6 +16545,7 @@ class ComponentEngine {
         }
         if (nsName == "String") {
             push out "fromCharCode"
+            push out "fromCodePoint"
             return out
         }
         if (nsName == "Number") {
@@ -16574,7 +16608,9 @@ class ComponentEngine {
             return (name == "isArray")
         }
         if (nsName == "String") {
-            return (name == "fromCharCode")
+            if (name == "fromCharCode") { return true }
+            if (name == "fromCodePoint") { return true }
+            return false
         }
         if (nsName == "Number") {
             if (name == "isNaN") { return true }
@@ -16762,6 +16798,35 @@ class ComponentEngine {
     ; Every registered method name for a kind. Kept beside builtinArity, which
     ; remains the authority on whether a name exists: builtinPrototype asserts
     ; each name here is registered, so the two cannot silently drift apart.
+    ; annexB B.2.2: each wrapper names a tag and, for four of them, one
+    ; attribute. Kept as a table rather than thirteen near-identical arms.
+    fn isHtmlWrapName:boolean (name:string) {
+        return ((strlen (this.htmlWrapTag(name))) > 0)
+    }
+    fn htmlWrapTag:string (name:string) {
+        if (name == "anchor") { return "a" }
+        if (name == "link") { return "a" }
+        if (name == "big") { return "big" }
+        if (name == "blink") { return "blink" }
+        if (name == "bold") { return "b" }
+        if (name == "fixed") { return "tt" }
+        if (name == "fontcolor") { return "font" }
+        if (name == "fontsize") { return "font" }
+        if (name == "italics") { return "i" }
+        if (name == "small") { return "small" }
+        if (name == "strike") { return "strike" }
+        if (name == "sub") { return "sub" }
+        if (name == "sup") { return "sup" }
+        return ""
+    }
+    fn htmlWrapAttr:string (name:string) {
+        if (name == "anchor") { return "name" }
+        if (name == "link") { return "href" }
+        if (name == "fontcolor") { return "color" }
+        if (name == "fontsize") { return "size" }
+        return ""
+    }
+
     fn builtinNames:[string] (kind:string) {
         def out:[string]
         if (kind == "function") {
@@ -16798,6 +16863,20 @@ class ComponentEngine {
             push out "toLocaleUpperCase"
             push out "toLowerCase"
             push out "toUpperCase"
+            ; --- annexB HTML wrappers (B.2.2), legacy but specified ---
+            push out "anchor"
+            push out "big"
+            push out "blink"
+            push out "bold"
+            push out "fixed"
+            push out "fontcolor"
+            push out "fontsize"
+            push out "italics"
+            push out "link"
+            push out "small"
+            push out "strike"
+            push out "sub"
+            push out "sup"
             push out "trim"
             push out "trimEnd"
             push out "trimStart"
@@ -17303,6 +17382,23 @@ class ComponentEngine {
             if (name == "trim") { return 0 }
             if (name == "substring") { return 2 }
             if (name == "padStart") { return 2 }
+            ; annexB B.2.2 wrappers: the four that take an attribute have
+            ; length 1, the rest 0. builtinArity IS the registry -- a name it
+            ; does not know is never published on the prototype, which is how
+            ; these stayed invisible after being added to builtinNames alone.
+            if (name == "anchor") { return 1 }
+            if (name == "link") { return 1 }
+            if (name == "fontcolor") { return 1 }
+            if (name == "fontsize") { return 1 }
+            if (name == "big") { return 0 }
+            if (name == "blink") { return 0 }
+            if (name == "bold") { return 0 }
+            if (name == "fixed") { return 0 }
+            if (name == "italics") { return 0 }
+            if (name == "small") { return 0 }
+            if (name == "strike") { return 0 }
+            if (name == "sub") { return 0 }
+            if (name == "sup") { return 0 }
             if (name == "padEnd") { return 2 }
         }
         if (kind == "map") {
@@ -18547,7 +18643,23 @@ class ComponentEngine {
                         if ((cpi < 0) || (cpi >= (strlen s))) {
                             return (EvValueBridge.taggedUndefined())
                         }
-                        return (EvHandle.fromInt((charAt s cpi)))
+                        ; codePointAt differs from charCodeAt exactly here: a
+                        ; HIGH surrogate followed by a LOW one is one code point,
+                        ; not two units. Returning the raw unit made
+                        ; String.fromCodePoint(0x1F600).codePointAt(0) answer
+                        ; 55357 instead of 128512 -- the pair round-tripped
+                        ; through fromCodePoint could not be read back.
+                        def cu:int (charAt s cpi)
+                        if ((cu >= 55296) && (cu <= 56319)) {
+                            if ((cpi + 1) < (strlen s)) {
+                                def lo:int (charAt s (cpi + 1))
+                                if ((lo >= 56320) && (lo <= 57343)) {
+                                    def combined:int (65536 + ((bit_shl (cu - 55296) 10) + (lo - 56320)))
+                                    return (EvHandle.fromInt(combined))
+                                }
+                            }
+                        }
+                        return (EvHandle.fromInt(cu))
                     }
                     ; substr takes a START and a LENGTH, unlike substring's two
                     ; indices, and a negative start counts from the end.
@@ -19044,6 +19156,41 @@ class ComponentEngine {
             if (name == "toUpperCase") { return (EvValueBridge.taggedString((to_uppercase s))) }
             if (name == "toLowerCase") { return (EvValueBridge.taggedString((to_lowercase s))) }
             if (name == "trim") { return (EvValueBridge.taggedString((trim s))) }
+            ; ---- annexB B.2.2 HTML wrappers ---------------------------------
+            ; CreateHTML: wrap the string in a tag, optionally with one
+            ; attribute whose value has every `"` replaced by `&quot;` -- and
+            ; ONLY `"`, which is what the spec says. Legacy, but tested.
+            if (this.isHtmlWrapName(name)) {
+                def tag:string (this.htmlWrapTag(name))
+                def attr:string (this.htmlWrapAttr(name))
+                def open:string ("<" + tag)
+                if ((strlen attr) > 0) {
+                    def av:string ""
+                    if ((array_length args) > 0) {
+                        av = (this.toStringOf((itemAt args 0)))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                    } {
+                        av = "undefined"
+                    }
+                    def esc:string ""
+                    def ei:int 0
+                    while (ei < (strlen av)) {
+                        def ee:int (ei + 1)
+                        def ch:string (substring av ei ee)
+                        if (ch == "\"") {
+                            esc = (esc + "&quot;")
+                        } {
+                            esc = (esc + ch)
+                        }
+                        ei = ee
+                    }
+                    open = (open + (" " + (attr + ("=\"" + (esc + "\"")))))
+                }
+                open = (open + ">")
+                return (EvValueBridge.taggedString((open + (s + ("</" + (tag + ">"))))))
+            }
             if (name == "charAt") {
                 def ci:int 0
                 if ((array_length args) > 0) {
