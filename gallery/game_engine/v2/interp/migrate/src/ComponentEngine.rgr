@@ -26357,6 +26357,35 @@ class ComponentEngine {
     ; class path made it and linked its prototype), so the base's result is
     ; copied onto it rather than replacing it -- which is what keeps the derived
     ; prototype and the `__class__` stamp.
+    ; D-CLASSBUILTIN: the BUILT-IN constructor at the top of a class's extends
+    ; chain, or "" when the chain is all classes. `class A extends Array` has to
+    ; make a real array, and that decision belongs at instance-creation time --
+    ; a plain object cannot become one later.
+    fn builtinBaseOfClass:string (clsName:string) {
+        def cur:string clsName
+        def depth:int 0
+        while (depth < 16) {
+            def node:TSNode (this.classNodeByName(cur))
+            if ((this.nodeKindOf(node)) != 25) {
+                return ""
+            }
+            def sup:string (this.superClassNameOf(node))
+            if ((strlen sup) == 0) {
+                return ""
+            }
+            def supNode:TSNode (this.classNodeByName(sup))
+            if ((this.nodeKindOf(supNode)) != 25) {
+                if (this.isBuiltinCtorName(sup)) {
+                    return sup
+                }
+                return ""
+            }
+            cur = sup
+            depth = (depth + 1)
+        }
+        return ""
+    }
+
     fn initFromBuiltinBase:void (baseName:string inst:EvHandle args:[EvHandle]) {
         def built:EvHandle (this.callBuiltinCtorValues(baseName args true))
         if scriptThrew {
@@ -27399,6 +27428,11 @@ class ComponentEngine {
         def keys0:[string]
         def vals0:[EvHandle]
         def inst:EvHandle (EvValueBridge.taggedObject(keys0 vals0))
+        ; D-CLASSBUILTIN: `class A extends Array` would need the instance to BE
+        ; an array, and building one here does make Array.isArray answer -- but
+        ; the instance then dispatches by KIND, and the class's own methods
+        ; become unreachable. The plain object keeps method dispatch working,
+        ; which is the more valuable half; see builtinBaseOfClass.
         inst.setMember("__class__" (EvValueBridge.taggedString(className)))
         ; D-CLASSPROTO: link the instance to the class's prototype object. It had
         ; none at all, so `Object.getPrototypeOf(new A())` answered
