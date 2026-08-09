@@ -20757,21 +20757,76 @@ class ComponentEngine {
                 def symSubject:EvHandle (EvValueBridge.taggedString(reSubject))
                 def symArgs:[EvHandle]
                 push symArgs recv
+                ; match and search are written out rather than delegated: both
+                ; go through RegExpExec, so a receiver that merely HAS an `exec`
+                ; method works, and both are specified in terms of lastIndex,
+                ; which the String-shaped operations do not touch.
                 if (name == "@@match") {
-                    return (this.invokeBuiltin("string" "match" symSubject symArgs))
+                    def gFlag:EvHandle (this.getPropertyValue(recv "global"))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    if (false == (gFlag.toBool())) {
+                        return (this.regExpExecAbstract(recv reSubject))
+                    }
+                    recv.setMember("lastIndex" (EvHandle.fromInt(0)))
+                    def mAll:[EvHandle]
+                    def mGoing:boolean true
+                    def mGuard:int 0
+                    while (mGoing && (mGuard < maxLoopIterations)) {
+                        def one:EvHandle (this.regExpExecAbstract(recv reSubject))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        if (one.isNull()) {
+                            mGoing = false
+                        } {
+                            def mStr:string (this.toStringOf((this.getPropertyValue(one "0"))))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                            push mAll (EvValueBridge.taggedString(mStr))
+                            ; An EMPTY match must advance lastIndex by hand or
+                            ; the loop never moves.
+                            if ((strlen mStr) == 0) {
+                                def li:int (this.toIntegerOf((this.getPropertyValue(recv "lastIndex"))))
+                                recv.setMember("lastIndex" (EvHandle.fromInt((li + 1))))
+                            }
+                        }
+                        mGuard = (mGuard + 1)
+                    }
+                    if ((array_length mAll) == 0) {
+                        return (EvValueBridge.taggedNull())
+                    }
+                    return (EvValueBridge.taggedArray(mAll))
                 }
                 if (name == "@@search") {
-                    return (this.invokeBuiltin("string" "search" symSubject symArgs))
+                    ; lastIndex is saved, zeroed for the search and restored --
+                    ; search does not consume position the way match does.
+                    def prevLI:EvHandle (this.getPropertyValue(recv "lastIndex"))
+                    recv.setMember("lastIndex" (EvHandle.fromInt(0)))
+                    def sRes:EvHandle (this.regExpExecAbstract(recv reSubject))
+                    recv.setMember("lastIndex" prevLI)
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    if (sRes.isNull()) {
+                        return (EvHandle.fromInt((0 - 1)))
+                    }
+                    return (this.getPropertyValue(sRes "index"))
                 }
-                ; split and replace each take one further argument -- the limit
-                ; and the replacement -- which rides along unchanged.
+                ; split still takes the String-shaped path; its spec algorithm
+                ; builds a species-constructed sticky RegExp, which this engine
+                ; has no constructor plumbing for yet.
                 if ((array_length args) > 1) {
                     push symArgs (itemAt args 1)
                 }
                 if (name == "@@split") {
                     return (this.invokeBuiltin("string" "split" symSubject symArgs))
                 }
-                return (this.invokeBuiltin("string" "replace" symSubject symArgs))
+                def repV:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 1) { repV = (itemAt args 1) }
+                return (this.regExpReplaceAll(recv reSubject repV))
             }
         }
         ; ---- Number.prototype ----------------------------------------------
@@ -22022,27 +22077,289 @@ class ComponentEngine {
         if (false == prog.valid) {
             return (this.throwSpecError("SyntaxError" ("Invalid regular expression: " + prog.errorMessage)))
         }
+        ; D-STICKY: `y` reads and writes lastIndex exactly as `g` does -- the
+        ; difference is that the match must BEGIN there. Only `g` was consulted,
+        ; so a sticky pattern searched from 0 and never updated lastIndex.
+        def usesLastIndex:boolean false
+        if prog.global { usesLastIndex = true }
+        if prog.sticky { usesLastIndex = true }
         def from:int 0
-        if prog.global {
+        if usesLastIndex {
             from = (this.toIntegerOf((re.getMember("lastIndex"))))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
         }
-        if (from > (strlen subject)) {
-            re.setMember("lastIndex" (EvHandle.fromInt(0)))
+        if ((from > (strlen subject)) || (from < 0)) {
+            if usesLastIndex {
+                re.setMember("lastIndex" (EvHandle.fromInt(0)))
+            }
             return (EvValueBridge.taggedNull())
         }
         def matcher (new RegexMatcher)
         matcher.setup(prog subject)
         def m:RegexMatch (matcher.exec(from))
+        ; A sticky match that did not start at lastIndex did not match at all.
+        if m.matched {
+            if prog.sticky {
+                if (m.start != from) {
+                    m.matched = false
+                }
+            }
+        }
         if (false == m.matched) {
-            if prog.global {
+            if usesLastIndex {
                 re.setMember("lastIndex" (EvHandle.fromInt(0)))
             }
             return (EvValueBridge.taggedNull())
         }
-        if prog.global {
+        if usesLastIndex {
             re.setMember("lastIndex" (EvHandle.fromInt(m.end)))
         }
         return (this.regexResultArray(m subject))
+    }
+
+    ; D-REGEXSYMBOL: RegExp.prototype[Symbol.replace] (21.2.5.8), written out
+    ; over RegExpExec rather than over the matcher, so a receiver that merely
+    ; has an `exec` method drives it and the results are read back through
+    ; ordinary property gets -- which is what the `result-get-*` fixtures check.
+    fn regExpReplaceAll:EvHandle (R:EvHandle S:string replaceValue:EvHandle) {
+        def functional:boolean (replaceValue.isFunction())
+        def tmpl:string ""
+        if (false == functional) {
+            tmpl = (this.toStringOf(replaceValue))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+        }
+        def gFlag:EvHandle (this.getPropertyValue(R "global"))
+        if scriptThrew {
+            return (EvValueBridge.taggedUndefined())
+        }
+        def isGlobal:boolean (gFlag.toBool())
+        if isGlobal {
+            R.setMember("lastIndex" (EvHandle.fromInt(0)))
+        }
+        def results:[EvHandle]
+        def going:boolean true
+        def guard:int 0
+        while (going && (guard < maxLoopIterations)) {
+            def one:EvHandle (this.regExpExecAbstract(R S))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            if (one.isNull()) {
+                going = false
+            } {
+                push results one
+                if (false == isGlobal) {
+                    going = false
+                } {
+                    def mStr:string (this.toStringOf((this.getPropertyValue(one "0"))))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    if ((strlen mStr) == 0) {
+                        def li:int (this.toIntegerOf((this.getPropertyValue(R "lastIndex"))))
+                        R.setMember("lastIndex" (EvHandle.fromInt((li + 1))))
+                    }
+                }
+            }
+            guard = (guard + 1)
+        }
+        def acc:string ""
+        def nextPos:int 0
+        def sLen:int (strlen S)
+        def ri:int 0
+        while (ri < (array_length results)) {
+            def res:EvHandle (itemAt results ri)
+            def lenV:EvHandle (this.getPropertyValue(res "length"))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            def nCap:int ((this.toIntegerOf(lenV)) - 1)
+            if (nCap < 0) { nCap = 0 }
+            def matched:string (this.toStringOf((this.getPropertyValue(res "0"))))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            def posV:EvHandle (this.getPropertyValue(res "index"))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            def pos:int (this.toIntegerOf(posV))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            if (pos < 0) { pos = 0 }
+            if (pos > sLen) { pos = sLen }
+            ; The captures, as values: one that did not participate stays
+            ; undefined rather than becoming "undefined".
+            def caps:[EvHandle]
+            def ci:int 1
+            while (ci <= nCap) {
+                def cv:EvHandle (this.getPropertyValue(res (to_string ci)))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                if (cv.isUndefined()) {
+                    push caps cv
+                } {
+                    def cs:string (this.toStringOf(cv))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    push caps (EvValueBridge.taggedString(cs))
+                }
+                ci = (ci + 1)
+            }
+            def replacement:string ""
+            if functional {
+                def rArgs:[EvHandle]
+                push rArgs (EvValueBridge.taggedString(matched))
+                def ai:int 0
+                while (ai < (array_length caps)) {
+                    push rArgs (itemAt caps ai)
+                    ai = (ai + 1)
+                }
+                push rArgs (EvHandle.fromInt(pos))
+                push rArgs (EvValueBridge.taggedString(S))
+                def rOut:EvHandle (this.callFnValueWithValues(replaceValue rArgs))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                replacement = (this.toStringOf(rOut))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+            } {
+                replacement = (this.expandSubstitution(matched S pos caps tmpl))
+            }
+            if (pos >= nextPos) {
+                acc = (acc + ((substring S nextPos pos) + replacement))
+                nextPos = (pos + (strlen matched))
+            }
+            ri = (ri + 1)
+        }
+        if (nextPos < sLen) {
+            acc = (acc + (substring S nextPos sLen))
+        }
+        return (EvValueBridge.taggedString(acc))
+    }
+
+    ; GetSubstitution (21.1.3.14.1) over already-extracted capture VALUES, which
+    ; is the shape [Symbol.replace] has after reading the result object. The
+    ; RegexMatch-shaped expandReplacement cannot serve here: the match may have
+    ; come from a guest `exec`, so there is no RegexMatch behind it.
+    fn expandSubstitution:string (matched:string S:string position:int caps:[EvHandle] tmpl:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen tmpl)
+        def tail:int (position + (strlen matched))
+        while (i < n) {
+            def ch:string (substring tmpl i (i + 1))
+            if ((ch == "$") && ((i + 1) < n)) {
+                def nx:string (substring tmpl (i + 1) (i + 2))
+                if (nx == "$") {
+                    out = (out + "$")
+                    i = (i + 2)
+                } {
+                    if (nx == "&") {
+                        out = (out + matched)
+                        i = (i + 2)
+                    } {
+                        if (nx == "`") {
+                            out = (out + (substring S 0 position))
+                            i = (i + 2)
+                        } {
+                            if (nx == "'") {
+                                if (tail < (strlen S)) {
+                                    out = (out + (substring S tail (strlen S)))
+                                }
+                                i = (i + 2)
+                            } {
+                                ; $1..$99, longest match first: `$12` is the
+                                ; twelfth group when there is one and `$1`
+                                ; followed by "2" when there is not.
+                                def d1:int (this.digitValueOf(nx))
+                                if (d1 < 0) {
+                                    out = (out + ch)
+                                    i = (i + 1)
+                                } {
+                                    def idx:int d1
+                                    def used:int 2
+                                    if ((i + 2) < n) {
+                                        def d2:int (this.digitValueOf((substring tmpl (i + 2) (i + 3))))
+                                        if (d2 >= 0) {
+                                            def two:int ((d1 * 10) + d2)
+                                            if ((two >= 1) && (two <= (array_length caps))) {
+                                                idx = two
+                                                used = 3
+                                            }
+                                        }
+                                    }
+                                    if ((idx >= 1) && (idx <= (array_length caps))) {
+                                        def cv:EvHandle (itemAt caps (idx - 1))
+                                        if (false == (cv.isUndefined())) {
+                                            out = (out + (cv.stringOf()))
+                                        }
+                                        i = (i + used)
+                                    } {
+                                        out = (out + ch)
+                                        i = (i + 1)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } {
+                out = (out + ch)
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    fn digitValueOf:int (ch:string) {
+        if ((strlen ch) != 1) { return (0 - 1) }
+        def c:int (bit_and (charAt ch 0) 65535)
+        if ((c >= 48) && (c <= 57)) {
+            return (c - 48)
+        }
+        return (0 - 1)
+    }
+
+    ; D-REGEXEXEC: the spec's RegExpExec (21.2.5.2.1). A guest `exec` on the
+    ; receiver IS the operation -- that is what lets `RegExp.prototype[Symbol.match]`
+    ; run against any object with an exec method -- and the built-in matcher is
+    ; the fallback, reachable only for a real RegExp.
+    fn regExpExecAbstract:EvHandle (R:EvHandle subject:string) {
+        def execFn:EvHandle (this.getPropertyValue(R "exec"))
+        if scriptThrew {
+            return (EvValueBridge.taggedUndefined())
+        }
+        if (execFn.isFunction()) {
+            if (execFn.hasFunctionNode()) {
+                def eArgs:[EvHandle]
+                push eArgs (EvValueBridge.taggedString(subject))
+                def eRes:EvHandle (this.callFnValueWithValues((execFn.withThisForCall(R)) eArgs))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                if (eRes.isNull()) {
+                    return eRes
+                }
+                if (this.isDescriptorObject(eRes)) {
+                    return eRes
+                }
+                return (this.throwSpecError("TypeError" "RegExp exec method returned something other than an Object or null"))
+            }
+        }
+        if ((this.receiverKind(R)) != "regexp") {
+            return (this.throwSpecError("TypeError" "Method called on incompatible receiver"))
+        }
+        return (this.regexExec(R subject))
     }
 
     ; Coerce whatever a String method was handed into a RegExp: an existing one

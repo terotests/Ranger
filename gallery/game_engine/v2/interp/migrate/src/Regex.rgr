@@ -63,6 +63,9 @@ class RegexProgram {
     def ignoreCase:boolean false
     def multiline:boolean false
     def global:boolean false
+    ; The `y` flag. A sticky match must begin exactly at lastIndex, which is a
+    ; different question from where the search may start.
+    def sticky:boolean false
     def valid:boolean true
     def errorMessage:string ""
     def source:string ""
@@ -103,6 +106,7 @@ class RegexCompiler {
             if (f == "i") { prog.ignoreCase = true }
             if (f == "m") { prog.multiline = true }
             if (f == "g") { prog.global = true }
+            if (f == "y") { prog.sticky = true }
             fi = (fi + 1)
         }
         prog.alternatives = (this.parseAlternatives())
