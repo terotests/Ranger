@@ -648,6 +648,13 @@ describe("shapes (closed variant families)", () => {
       );
     });
 
+    it("rejects a parent group passed where a child group is required", () => {
+      expectCompileError(
+        `${FIXTURES_DIR}/shape_group_parent_to_child.rgr`,
+        "invalid argument type"
+      );
+    });
+
     it("rejects a case-only method called with a group-typed value", () => {
       expectCompileError(
         `${FIXTURES_DIR}/shape_case_method_on_group.rgr`,

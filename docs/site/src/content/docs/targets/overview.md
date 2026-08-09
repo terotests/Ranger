@@ -59,11 +59,13 @@ for that target.
 
 ## The state of a shape on each target language
 
-A [shape](/Ranger/docs/language/shapes/) is a closed set of cases. The
-declaration writes one class for each case and one union over the classes. The
-table states the result of one program that tests each case and each group. The
-program compares the answer of the operator `case` against the answer of the
-operator `is`.
+A [shape](/Ranger/docs/language/shapes/) is a closed family of cases with one
+target-independent semantic model. Backends may use a native form — a typed
+union with a discriminant, a native enum, a tagged struct, an interface, or a
+variant with scalar cases stored by value — rather than only a portable
+class-per-case union. The table states the result of one program that tests
+each case and each group. The program compares the answer of the operator
+`case` against the answer of the operator `is`.
 
 | Target | The program runs | The known limit |
 | --- | --- | --- |
@@ -72,7 +74,7 @@ operator `is`.
 | Go | yes | none |
 | Kotlin | yes | none |
 | Java | yes | none |
-| C++ | yes | The variant holds a scalar case behind a pointer. The test asks for the case by value. |
+| C++ | yes | Scalar value cases ride inside the variant by value. |
 | Rust | yes | A case value is not wrapped into the union. See the note below. |
 | PHP | yes | none for a shape |
 | Swift | not tested | The toolchain is not available in the test container. The test reads the output of the writer. |
