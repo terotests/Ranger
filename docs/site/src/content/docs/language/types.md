@@ -78,30 +78,31 @@ when each name must carry its own data.
 
 ## Shapes
 
-A shape is a closed set of cases, and each case has its own fields. A value of
-the shape type holds one case at a time.
+A shape is a closed family of cases. Groups name restricted views of that
+family; `match` checks that every reachable case is handled.
 
 ```lisp
 shape Value {
-    case Nothing
-    case Num {
-        def n:double 0.0
+    group Printable {
+        fn render:string ()
     }
-    case Text {
+    case Num does Printable {
+        def n:double 0.0
+        fn render:string () {
+            return (to_string n)
+        }
+    }
+    case Text does Printable {
         def s:string ""
+        fn render:string () {
+            return s
+        }
     }
 }
 ```
 
-The operator `case` narrows a value and binds the fields of the case. The
-operator `is` tests the case and gives a boolean.
-
-```lisp
-def b:boolean (is v _:Value.Num)
-```
-
-The page [Shapes](/Ranger/docs/language/shapes/) states the declaration, the
-groups and the output of each target language.
+The page [Shapes](/Ranger/docs/language/shapes/) covers groups, `match`,
+required operations, value/reference semantics and per-target representation.
 
 ## Buffers
 

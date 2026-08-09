@@ -7995,14 +7995,13 @@ class RangerFlowParser {
               if (n1.eval_type_name == n2.eval_type_name) {
                 return true
               }
-              ; C6: source is a subgroup of the expected group — widen via the
-              ; generated `widen_to_<Parent>` helper so native enum targets keep
-              ; a typed conversion without a wrapper object.
+              ; C6: actual (n2/c2) is a subgroup of expected (n1/c1) — widen via
+              ; the generated `widen_to_<Parent>` helper so native enum targets
+              ; keep a typed conversion without a wrapper object.
+              ; Direction matters: Numeric → Printable is allowed; Printable →
+              ; Numeric is not (a Printable may hold a non-Numeric case).
               if ( c2.isSameOrParentClass (n1.eval_type_name ctx)) {
                 this.rewriteToGroupWiden(n2 n1.eval_type_name n2.eval_type_name ctx wr)
-                return true
-              }
-              if ( c1.isSameOrParentClass (n2.eval_type_name ctx)) {
                 return true
               }
               ctx.addError( n1 ('Union types must be the same =>  ' + n1.eval_type_name + " <> " + n2.eval_type_name))

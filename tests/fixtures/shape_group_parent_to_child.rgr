@@ -1,0 +1,46 @@
+; A parent-group value must not be accepted where a child group is required
+; (PLAN_SHAPES.md §7 / C6). Printable may hold Text, so it is not Numeric.
+shape Value {
+    group Printable {
+        fn render:string ()
+    }
+
+    group Numeric does Printable {
+        fn asDouble:double ()
+    }
+
+    case Num does Numeric {
+        def value:double 0.0
+
+        fn render:string () {
+            return (to_string value)
+        }
+
+        fn asDouble:double () {
+            return value
+        }
+    }
+
+    case Text does Printable {
+        def value:string ""
+
+        fn render:string () {
+            return value
+        }
+    }
+}
+
+class Main {
+    fn needsNumeric:void (v:Value.Numeric) {
+        print (to_string (Value.Numeric.asDouble(v)))
+    }
+
+    fn hasPrintable:void (v:Value.Printable) {
+        this.needsNumeric(v)
+    }
+
+    sfn main:void () {
+        def m:Main (new Main())
+        m.hasPrintable((new Value.Text("hi")))
+    }
+}

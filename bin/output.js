@@ -16338,9 +16338,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 await this.rewriteToGroupWiden(n2, n1.eval_type_name, n2.eval_type_name, ctx, wr);
                 return true;
               }
-              if ( c1.isSameOrParentClass(n2.eval_type_name, ctx) ) {
-                return true;
-              }
               ctx.addError(n1, (("Union types must be the same =>  " + n1.eval_type_name) + " <> ") + n2.eval_type_name);
               return false;
             }
