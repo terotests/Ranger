@@ -1,19 +1,17 @@
 # TS engine — native compilation and performance
 
-> **Update (2026-08-09): Dart joins the gate.** The engine compiles to
+> **Update (2026-08-09): Swift 6 joins the run gate.** The engine compiles to
 > **Go, Kotlin, Python, C#, Swift 6 and Dart** as well as C++ and Rust. Go,
-> Kotlin, Python, C# and Dart each build with their own toolchain and answer
-> the Node benchmark cases exactly as Node does. Swift 6 gets as far as the
-> compiler accepting the program and writing all ~31k lines; a Swift toolchain
-> is not always available in CI, so that column is compile-only there.
+> Kotlin, Python, C#, Dart and Swift 6 each build with their own toolchain
+> (when present) and answer the Node benchmark cases exactly as Node does.
 >
 > `tests/ts-engine-targets.test.ts` guards the set: it compiles the engine to
-> each target, and builds and runs the Go, Python, C# and Dart results wherever
-> those toolchains exist. It has its own config for the reason `syntax-app`
-> does — a minute of blocking child processes starves the Vitest reporter — so
-> it runs as `npm run test:tsengine` rather than inside `npm test`. Kotlin is
-> compiled but not built there: `kotlinc` takes several minutes on a file this
-> size.
+> each target, and builds and runs the Go, Python, C#, Dart and Swift results
+> wherever those toolchains exist. It has its own config for the reason
+> `syntax-app` does — a minute of blocking child processes starves the Vitest
+> reporter — so it runs as `npm run test:tsengine` rather than inside `npm test`.
+> Kotlin is compiled but not built there: `kotlinc` takes several minutes on a
+> file this size.
 >
 > **What had to be fixed.** Two defects turned out to be the *same* defect on
 > three different targets, and it is the interesting one:

@@ -248,11 +248,15 @@ language {
             operator _operator
             static _static
             init _init
+            guard _guard
         }
         swift6 {
             operator _operator
             static _static
             init _init
+            ; `guard` is a statement keyword; a loop counter named `guard`
+            ; must be renamed or the generated file does not parse.
+            guard _guard
         }
         ; A name that is a keyword of the target has to be renamed, or the
         ; generated file does not parse. `def double (fn:int (n:int) ...)`
@@ -2028,7 +2032,9 @@ inline std::string r_double_to_string(double v) {
                 cpp ( "((" (e 1) ") & (" (e 2) "))" )
                 java7 ( "((" (e 1) ") & (" (e 2) "))" )
                 python ( "((" (e 1) ") & (" (e 2) "))" )
-                swift6 ( "(Int64(" (e 1) ") & Int64(" (e 2) "))" )
+                ; Swift maps Ranger int to Int (not Int64); keep bitwise
+                ; results as Int so assignments and comparisons type-check.
+                swift6 ( "((" (e 1) ") & (" (e 2) "))" )
                 kotlin ( "((" (e 1) ") and (" (e 2) "))" )
                 csharp ( "((" (e 1) ") & (" (e 2) "))" )
                 * ( "((" (e 1) ") & (" (e 2) "))" )
@@ -2044,7 +2050,7 @@ inline std::string r_double_to_string(double v) {
                 cpp ( "((" (e 1) ") | (" (e 2) "))" )
                 java7 ( "((" (e 1) ") | (" (e 2) "))" )
                 python ( "((" (e 1) ") | (" (e 2) "))" )
-                swift6 ( "(Int64(" (e 1) ") | Int64(" (e 2) "))" )
+                swift6 ( "((" (e 1) ") | (" (e 2) "))" )
                 kotlin ( "((" (e 1) ") or (" (e 2) "))" )
                 csharp ( "((" (e 1) ") | (" (e 2) "))" )
                 * ( "((" (e 1) ") | (" (e 2) "))" )
@@ -2060,7 +2066,7 @@ inline std::string r_double_to_string(double v) {
                 cpp ( "((" (e 1) ") ^ (" (e 2) "))" )
                 java7 ( "((" (e 1) ") ^ (" (e 2) "))" )
                 python ( "((" (e 1) ") ^ (" (e 2) "))" )
-                swift6 ( "(Int64(" (e 1) ") ^ Int64(" (e 2) "))" )
+                swift6 ( "((" (e 1) ") ^ (" (e 2) "))" )
                 kotlin ( "((" (e 1) ") xor (" (e 2) "))" )
                 csharp ( "((" (e 1) ") ^ (" (e 2) "))" )
                 * ( "((" (e 1) ") ^ (" (e 2) "))" )
@@ -2076,7 +2082,7 @@ inline std::string r_double_to_string(double v) {
                 cpp ( "(~" (e 1) ")" )
                 java7 ( "(~" (e 1) ")" )
                 python ( "(~" (e 1) ")" )
-                swift6 ( "(~Int64(" (e 1) "))" )
+                swift6 ( "(~(" (e 1) "))" )
                 kotlin ( "((" (e 1) ").inv())" )
                 csharp ( "(~" (e 1) ")" )
                 * ( "(~" (e 1) ")" )
@@ -2092,7 +2098,7 @@ inline std::string r_double_to_string(double v) {
                 cpp ( "((" (e 1) ") << (" (e 2) "))" )
                 java7 ( "((" (e 1) ") << (" (e 2) "))" )
                 python ( "((" (e 1) ") << (" (e 2) "))" )
-                swift6 ( "(Int64(" (e 1) ") << Int64(" (e 2) "))" )
+                swift6 ( "((" (e 1) ") << (" (e 2) "))" )
                 kotlin ( "((" (e 1) ") shl (" (e 2) "))" )
                 csharp ( "((" (e 1) ") << (int)(" (e 2) "))" )
                 * ( "((" (e 1) ") << (" (e 2) "))" )
@@ -2108,7 +2114,7 @@ inline std::string r_double_to_string(double v) {
                 cpp ( "((" (e 1) ") >> (" (e 2) "))" )
                 java7 ( "((" (e 1) ") >> (" (e 2) "))" )
                 python ( "((" (e 1) ") >> (" (e 2) "))" )
-                swift6 ( "(Int64(" (e 1) ") >> Int64(" (e 2) "))" )
+                swift6 ( "((" (e 1) ") >> (" (e 2) "))" )
                 kotlin ( "((" (e 1) ") shr (" (e 2) "))" )
                 csharp ( "((" (e 1) ") >> (int)(" (e 2) "))" )
                 * ( "((" (e 1) ") >> (" (e 2) "))" )
@@ -2125,7 +2131,7 @@ inline std::string r_double_to_string(double v) {
                 java7 ( "((" (e 1) ") >>> (" (e 2) "))" )
                 python ( "((" (e 1) " & 0xFFFFFFFF) >> (" (e 2) "))" )
                 dart ( "((" (e 1) " & 0xFFFFFFFF) >> (" (e 2) "))" )
-                swift6 ( "Int64(bitPattern: UInt64(bitPattern: Int64(" (e 1) ")) >> UInt64(" (e 2) "))" )
+                swift6 ( "Int(bitPattern: UInt(bitPattern: " (e 1) ") >> UInt(" (e 2) "))" )
                 kotlin ( "((" (e 1) ") ushr (" (e 2) "))" )
                 csharp ( "(int)((uint)(" (e 1) ") >> (int)(" (e 2) "))" )
                 * ( "(" (e 1) " >>> " (e 2) ")" )
@@ -3486,7 +3492,7 @@ static bool r_regex_test_i(string pattern, string s) {
                 java7 ( (e 1) ".length" )
                 python ( "len(" (e 1) ")" )
                 dart ( (e 1) ".length" )
-                swift6 ( "Int64(" (e 1) ".count)" )
+                swift6 ( (e 1) ".count" )
                 csharp ( (e 1) ".Length" )
                 kotlin ( (e 1) ".size" )
             }
@@ -3504,14 +3510,14 @@ static bool r_regex_test_i(string pattern, string s) {
                 java7 ( "((" (e 1) "[(int)" (e 2) "] & 0xFF))" )
                 python ( (e 1) "[" (e 2) "]" )
                 dart ( (e 1) "[" (e 2) "]" )
-                swift6 ( "Int64(" (e 1) "[Int(" (e 2) ")])" )
+                swift6 ( "Int(" (e 1) "[Int(" (e 2) ")])" )
                 csharp ( "((int)" (e 1) "[" (e 2) "])" )
                 kotlin ( "(" (e 1) "[" (e 2) "].toInt() and 0xFF)" )
             }
         }
 
         ; Write a single byte at offset (value should be 0-255)
-        buffer_set      cmdBufferSet:void        ( buf:buffer offset:int value:int ) {
+        buffer_set      cmdBufferSet:void        ( buf@(mutates):buffer offset:int value:int ) {
             templates {
                 llvm ( "(buffer_set " (e 1) " " (e 2) " " (e 3) ")" )
                 ranger ( "(buffer_set " (e 1) " " (e 2) " " (e 3) ")" )
@@ -3648,7 +3654,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
         }
 
         ; Copy bytes from source buffer to destination buffer
-        buffer_copy     cmdBufferCopy:void       ( dest:buffer destOffset:int src:buffer srcOffset:int length:int ) {
+        buffer_copy     cmdBufferCopy:void       ( dest@(mutates):buffer destOffset:int src:buffer srcOffset:int length:int ) {
             templates {
                 ranger ( "(buffer_copy " (e 1) " " (e 2) " " (e 3) " " (e 4) " " (e 5) ")" )
                 es6 ( "(function(d,dOff,s,sOff,len){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(" (e 1) "," (e 2) "," (e 3) "," (e 4) "," (e 5) ")" )
@@ -3665,7 +3671,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
         }
 
         ; Fill buffer with a byte value
-        buffer_fill     cmdBufferFill:void       ( buf:buffer value:int start:int end:int ) {
+        buffer_fill     cmdBufferFill:void       ( buf@(mutates):buffer value:int start:int end:int ) {
             templates {
                 ranger ( "(buffer_fill " (e 1) " " (e 2) " " (e 3) " " (e 4) ")" )
                 es6 ( "(function(b,v,s,e){ var arr = new Uint8Array(b); for(var i=s;i<e;i++) arr[i]=v; })(" (e 1) "," (e 2) "," (e 3) "," (e 4) ")" )
@@ -3718,7 +3724,8 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 java7 ( "new long[(int)" (e 1) "]" )
                 python ( "[0] * " (e 1) )
                 dart ( (imp "dart:typed_data") "Int64List(" (e 1) ")" )
-                swift6 ( "[Int64](repeating: 0, count: Int(" (e 1) "))" )
+                ; Match Ranger int -> Swift Int (not Int64).
+                swift6 ( "[Int](repeating: 0, count: Int(" (e 1) "))" )
                 csharp ( "new long[" (e 1) "]" )
                 kotlin ( "LongArray(" (e 1) ")" )
             }
@@ -3735,7 +3742,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 cpp ( "static_cast<int64_t>(" (e 1) ".size())" )
                 java7 ( (e 1) ".length" )
                 python ( "len(" (e 1) ")" )
-                swift6 ( "Int64(" (e 1) ".count)" )
+                swift6 ( (e 1) ".count" )
                 csharp ( (e 1) ".Length" )
                 kotlin ( (e 1) ".size" )
             }
@@ -3760,7 +3767,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
         }
 
         ; Write an int64 at index
-        int_buffer_set      cmdIntBufferSet:void        ( buf:int_buffer index:int value:int ) {
+        int_buffer_set      cmdIntBufferSet:void        ( buf@(mutates):int_buffer index:int value:int ) {
             templates {
                 llvm ( "(int_buffer_set " (e 1) " " (e 2) " " (e 3) ")" )
                 ranger ( "(int_buffer_set " (e 1) " " (e 2) " " (e 3) ")" )
@@ -3778,7 +3785,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
         }
 
         ; Fill int_buffer with a value in range [start, end)
-        int_buffer_fill     cmdIntBufferFill:void       ( buf:int_buffer value:int start:int end:int ) {
+        int_buffer_fill     cmdIntBufferFill:void       ( buf@(mutates):int_buffer value:int start:int end:int ) {
             templates {
                 llvm ( "(int_buffer_fill " (e 1) " " (e 2) " " (e 3) " " (e 4) ")" )
                 ranger ( "(int_buffer_fill " (e 1) " " (e 2) " " (e 3) " " (e 4) ")" )
@@ -3796,7 +3803,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
         }
 
         ; Copy ints from source to destination
-        int_buffer_copy     cmdIntBufferCopy:void       ( dest:int_buffer destOffset:int src:int_buffer srcOffset:int length:int ) {
+        int_buffer_copy     cmdIntBufferCopy:void       ( dest@(mutates):int_buffer destOffset:int src:int_buffer srcOffset:int length:int ) {
             templates {
                 ranger ( "(int_buffer_copy " (e 1) " " (e 2) " " (e 3) " " (e 4) " " (e 5) ")" )
                 es6 ( (e 1) ".set(" (e 3) ".subarray(" (e 4) ", " (e 4) "+" (e 5) "), " (e 2) ")" )
@@ -3865,7 +3872,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 cpp ( "static_cast<int64_t>(" (e 1) ".size())" )
                 java7 ( (e 1) ".length" )
                 python ( "len(" (e 1) ")" )
-                swift6 ( "Int64(" (e 1) ".count)" )
+                swift6 ( (e 1) ".count" )
                 csharp ( (e 1) ".Length" )
                 kotlin ( (e 1) ".size" )
             }
@@ -3889,7 +3896,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
         }
 
         ; Write a double at index
-        double_buffer_set      cmdDoubleBufferSet:void        ( buf:double_buffer index:int value:double ) {
+        double_buffer_set      cmdDoubleBufferSet:void        ( buf@(mutates):double_buffer index:int value:double ) {
             templates {
                 ranger ( "(double_buffer_set " (e 1) " " (e 2) " " (e 3) ")" )
                 es6 ( (e 1) "[" (e 2) "] = " (e 3) )
@@ -3906,7 +3913,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
         }
 
         ; Fill double_buffer with a value in range [start, end)
-        double_buffer_fill     cmdDoubleBufferFill:void       ( buf:double_buffer value:double start:int end:int ) {
+        double_buffer_fill     cmdDoubleBufferFill:void       ( buf@(mutates):double_buffer value:double start:int end:int ) {
             templates {
                 ranger ( "(double_buffer_fill " (e 1) " " (e 2) " " (e 3) " " (e 4) ")" )
                 es6 ( (e 1) ".fill(" (e 2) ", " (e 3) ", " (e 4) ")" )
@@ -3923,7 +3930,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
         }
 
         ; Copy doubles from source to destination
-        double_buffer_copy     cmdDoubleBufferCopy:void       ( dest:double_buffer destOffset:int src:double_buffer srcOffset:int length:int ) {
+        double_buffer_copy     cmdDoubleBufferCopy:void       ( dest@(mutates):double_buffer destOffset:int src:double_buffer srcOffset:int length:int ) {
             templates {
                 ranger ( "(double_buffer_copy " (e 1) " " (e 2) " " (e 3) " " (e 4) " " (e 5) ")" )
                 es6 ( (e 1) ".set(" (e 3) ".subarray(" (e 4) ", " (e 4) "+" (e 5) "), " (e 2) ")" )
@@ -7138,7 +7145,7 @@ systemclass int_buffer {
     cpp "std::vector<int64_t>"
     java7 "long[]"
     python list
-    swift6 "[Int64]"
+    swift6 "[Int]"
     csharp "long[]"
     kotlin LongArray
     scala "Array[Long]"

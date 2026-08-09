@@ -9,11 +9,10 @@ bugs in [ISSUES.md](ISSUES.md).
 
 The interpreter in `gallery/game_engine/v2/interp` is the largest program used
 as a multi-target gate. Besides C++ and Rust, it compiles to **Go, Kotlin,
-Python, C#, Swift 6 and Dart**. Go, Kotlin, Python, C# and Dart each build and
-answer all of the Node benchmark cases. C# in CI uses Mono 6.8 (`mcs`); a
-modern .NET SDK is fine when available. Swift 6 is accepted and written in
-full (~31k lines); run verification needs a local `swiftc`. See
-`TS_ENGINE_PERF.md` and `npm run test:tsengine`.
+Python, C#, Swift 6 and Dart**. Go, Kotlin, Python, C#, Dart and Swift 6 each
+build and answer all of the Node benchmark cases when their toolchains are on
+`PATH`. C# in CI uses Mono 6.8 (`mcs`); a modern .NET SDK is fine when
+available. See `TS_ENGINE_PERF.md` and `npm run test:tsengine`.
 
 One defect showed up on three targets at once: an unused `def` whose
 initializer is a call was commented out, so `def ignored:T (this.work())`
@@ -59,7 +58,8 @@ Node benchmark cases as Go/Python/C# (`npm run test:tsengine`).
 ## Swift 6 (`-l=swift6`)
 
 - Modern Swift 6 compatible code generation
-- Simple `main()` entry point (avoids `@main` conflicts with operator overloads)
+- Top-level `__main__swift()` entry point (avoids `@main` conflicts with
+  file-level `func ==` overloads for Hashable classes)
 - Integer-to-string conversion through `String()`
 - Array operations using `.append()` instead of `.push()`
 - File I/O through the `Foundation` framework
@@ -67,6 +67,8 @@ Node benchmark cases as Go/Python/C# (`npm run test:tsengine`).
 - Optional handling with `unwrap` and `!!`
 - Command-line argument access
 - CRLF grapheme cluster handling for cross-platform string compatibility
+- Value-type collections (`Array` / `Dictionary` / buffers) use `inout` + `&`
+  when flow marks them mutated; uninitialized optionals emit `= nil`
 
 ```bash
 node bin/output.js myfile.rgr -l=swift6 -o=myfile.swift
@@ -76,6 +78,10 @@ swiftc myfile.swift -o myfile
 
 Both `gallery/js_parser` (4500+ lines) and `gallery/invaders` compile and run
 on this target.
+
+**TS engine gate:** the full interpreter (`bench_main.rgr`) compiles with
+`-l=swift6` (~39k lines) and, when `swiftc` is on `PATH`, answers the same
+Node benchmark cases as Go/Python/C#/Dart (`npm run test:tsengine`).
 
 ## Rust (`-l=rust`)
 

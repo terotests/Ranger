@@ -43,7 +43,7 @@ high count does not mean a large program has run on that target.
 | Rust | yes | yes (`rustc`) | jpeg scaler; TS engine path |
 | C++ | yes | yes (`g++`) | jpeg scaler; TS engine path |
 | Dart | yes | yes (`dart`, when on `PATH`) | TS engine (same Node answers); `gallery/ts_parser` AST = JS |
-| Swift 6 | yes | when `swiftc` is present | TS engine compiles (~31k lines); run not always in CI |
+| Swift 6 | yes | when `swiftc` is present | TS engine builds and matches Node (~39k lines) when `swiftc` is on `PATH` |
 | Java, PHP, Scala | yes, with more gaps | varies | syntax-app matrix; no large-engine golden |
 
 `npm run test:tsengine` compiles the TypeScript engine in
