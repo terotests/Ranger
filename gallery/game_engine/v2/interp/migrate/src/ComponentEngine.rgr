@@ -1128,6 +1128,8 @@ class ComponentEngine {
     def reactOnRej:[EvHandle]
     def reactDerived:[EvHandle]
     def promiseSeq:int 0
+    ; D-ITERATOR: the shared prototype every list iterator inherits from.
+    def listIterProto@(optional):EvHandle
     ; Symbol.for's cross-realm registry: description -> the one symbol for it.
     def symbolRegistry:[string:EvHandle]
     ; When true (the spec default) an unresolvable identifier read is a
@@ -17716,6 +17718,7 @@ class ComponentEngine {
             push out "bind"
         }
         if (kind == "string") {
+            push out "@@iterator"
             push out "at"
             push out "charAt"
             push out "charCodeAt"
@@ -17763,6 +17766,13 @@ class ComponentEngine {
             push out "trimStart"
         }
         if (kind == "array") {
+            ; D-ITERATOR: the ES2015 iteration methods, plus the well-known
+            ; symbol that makes an array iterable through the protocol rather
+            ; than only through the engine's own for-of special case.
+            push out "entries"
+            push out "keys"
+            push out "values"
+            push out "@@iterator"
             push out "at"
             push out "concat"
             push out "every"
@@ -17793,6 +17803,11 @@ class ComponentEngine {
             push out "catch"
             push out "then"
         }
+        ; D-ITERATOR: the shared iterator object's own methods.
+        if (kind == "listiterator") {
+            push out "next"
+            push out "@@iterator"
+        }
         if (kind == "regexp") {
             push out "exec"
             push out "test"
@@ -17811,6 +17826,7 @@ class ComponentEngine {
             push out "toPrecision"
         }
         if (kind == "map") {
+            push out "@@iterator"
             push out "clear"
             push out "delete"
             push out "entries"
@@ -17822,6 +17838,7 @@ class ComponentEngine {
             push out "values"
         }
         if (kind == "set") {
+            push out "@@iterator"
             push out "add"
             push out "clear"
             push out "delete"
@@ -18344,6 +18361,17 @@ class ComponentEngine {
         if (kind == "promise") {
             if (name == "then") { return 2 }
             if (name == "catch") { return 1 }
+        }
+        if (kind == "listiterator") {
+            if (name == "next") { return 0 }
+            if (name == "@@iterator") { return 0 }
+        }
+        ; D-ITERATOR: the iteration methods share one arity across every kind
+        ; that has them.
+        if ((name == "@@iterator") || ((name == "entries") || ((name == "keys") || (name == "values")))) {
+            if ((kind == "array") || ((kind == "string") || ((kind == "map") || (kind == "set")))) {
+                return 0
+            }
         }
         if (kind == "promisecap") {
             if (name == "resolve") { return 1 }
@@ -21141,6 +21169,87 @@ class ComponentEngine {
             }
             return (EvValueBridge.taggedUndefined())
         }
+        ; D-ITERATOR: the iteration methods, shared across every kind that has
+        ; them. `@@iterator` is `values` for everything except a Map, whose
+        ; default iteration is its entries.
+        if ((name == "@@iterator") || ((name == "entries") || ((name == "keys") || (name == "values")))) {
+            if ((kind == "array") || ((kind == "string") || ((kind == "map") || (kind == "set")))) {
+                def which:string name
+                if (name == "@@iterator") {
+                    which = "values"
+                    if (kind == "map") { which = "entries" }
+                }
+                ; A Map iterates [k, v] pairs already, and a Set's keys are its
+                ; values, so only Array and String derive index-based variants.
+                if ((kind == "map") || (kind == "set")) {
+                    def mvItems:[EvHandle] (this.forOfItemList(recv))
+                    if (which == "values") {
+                        if (kind == "map") {
+                            def justVals:[EvHandle]
+                            def mvi:int 0
+                            while (mvi < (array_length mvItems)) {
+                                push justVals ((itemAt mvItems mvi).getIndex(1))
+                                mvi = (mvi + 1)
+                            }
+                            return (this.makeListIterator(justVals))
+                        }
+                        return (this.makeListIterator(mvItems))
+                    }
+                    if (which == "keys") {
+                        if (kind == "map") {
+                            def justKeys:[EvHandle]
+                            def mki:int 0
+                            while (mki < (array_length mvItems)) {
+                                push justKeys ((itemAt mvItems mki).getIndex(0))
+                                mki = (mki + 1)
+                            }
+                            return (this.makeListIterator(justKeys))
+                        }
+                        return (this.makeListIterator(mvItems))
+                    }
+                    if (kind == "map") {
+                        return (this.makeListIterator(mvItems))
+                    }
+                    ; A Set's entries are [v, v].
+                    def setPairs:[EvHandle]
+                    def sei:int 0
+                    while (sei < (array_length mvItems)) {
+                        def sp:[EvHandle]
+                        push sp (itemAt mvItems sei)
+                        push sp (itemAt mvItems sei)
+                        push setPairs (EvValueBridge.taggedArray(sp))
+                        sei = (sei + 1)
+                    }
+                    return (this.makeListIterator(setPairs))
+                }
+                return (this.makeListIterator((this.iterationItemsOf(recv which))))
+            }
+        }
+        ; ---- the shared list iterator -------------------------------------
+        if (kind == "listiterator") {
+            if (name == "@@iterator") {
+                return recv
+            }
+            def keysR:[string]
+            def valsR:[EvHandle]
+            def res:EvHandle (EvValueBridge.taggedObject(keysR valsR))
+            def lst:EvHandle (recv.getMember("__iterlist__"))
+            def idx:int (this.toIntegerOf((recv.getMember("__iteridx__"))))
+            if (false == (lst.isArrayValue())) {
+                res.setMember("value" (EvValueBridge.taggedUndefined()))
+                res.setMember("done" (EvValueBridge.taggedBoolean(true)))
+                return res
+            }
+            if (idx >= (lst.denseLen())) {
+                res.setMember("value" (EvValueBridge.taggedUndefined()))
+                res.setMember("done" (EvValueBridge.taggedBoolean(true)))
+                return res
+            }
+            res.setMember("value" (lst.arrayItemAt(idx)))
+            res.setMember("done" (EvValueBridge.taggedBoolean(false)))
+            recv.setMember("__iteridx__" (EvHandle.fromInt((idx + 1))))
+            return res
+        }
         if (kind == "promise") {
             if (false == (this.isPromiseValue(recv))) {
                 return (this.throwSpecError("TypeError" ("Promise.prototype." + (name + " called on a non-Promise"))))
@@ -22460,6 +22569,83 @@ class ComponentEngine {
     ; reaction runs after the code that registered it and before control returns
     ; to the embedder.
     ; --------------------------------------------------------------------------
+    ; D-ITERATOR: one iterator object shape serves Array, String, Map and Set.
+    ; It walks a snapshot list, which is what an eagerly-materialised iteration
+    ; already is here -- the point is that `[].values()` is a real object with a
+    ; real `next`, reachable as a value and usable by any for-of.
+    fn listIteratorPrototype:EvHandle () {
+        if listIterProto {
+            return (unwrap listIterProto)
+        }
+        def keysI:[string]
+        def valsI:[EvHandle]
+        def p:EvHandle (EvValueBridge.taggedObject(keysI valsI))
+        listIterProto = p
+        p.setProto((this.builtinPrototype("Object")))
+        p.setMember("__protokind__" (EvValueBridge.taggedString("listiterator")))
+        p.setMember("next" (this.sharedNativeMethod("listiterator" "next")))
+        p.setAttrs("next" true false true)
+        p.setMember("@@iterator" (this.sharedNativeMethod("listiterator" "@@iterator")))
+        p.setAttrs("@@iterator" true false true)
+        return p
+    }
+
+    fn makeListIterator:EvHandle (items:[EvHandle]) {
+        def keysL:[string]
+        def valsL:[EvHandle]
+        def it:EvHandle (EvValueBridge.taggedObject(keysL valsL))
+        it.setMember("__iterlist__" (EvValueBridge.taggedArray(items)))
+        it.setMember("__iteridx__" (EvHandle.fromInt(0)))
+        it.setProto((this.listIteratorPrototype()))
+        return it
+    }
+
+    ; The elements a value iterates as: its own for a list-like, [k, v] pairs for
+    ; a Map, and the index/value/entry variants an ES2015 iterator method asks
+    ; for. `which` is "values", "keys" or "entries".
+    fn iterationItemsOf:[EvHandle] (recv:EvHandle which:string) {
+        def out:[EvHandle]
+        def base:[EvHandle] (this.forOfItemList(recv))
+        if (which == "values") {
+            return base
+        }
+        def i:int 0
+        while (i < (array_length base)) {
+            if (which == "keys") {
+                push out (EvHandle.fromInt(i))
+            } {
+                def pair:[EvHandle]
+                push pair (EvHandle.fromInt(i))
+                push pair (itemAt base i)
+                push out (EvValueBridge.taggedArray(pair))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; D-REGISTRY: the registry entry a COMPUTED read should answer with.
+    ; `arr.slice` went through the dotted path, which consults the registry;
+    ; `arr["slice"]` did not, so bracket access to any built-in method -- and to
+    ; every symbol-keyed one, which has no dotted form at all -- read undefined.
+    ; Null when the registry has nothing, so the caller falls through.
+    fn builtinMethodValueFor:EvHandle (obj:EvHandle key:string) {
+        if ((strlen key) == 0) {
+            return (EvValueBridge.taggedNull())
+        }
+        def bKind:string (this.receiverKind(obj))
+        if ((strlen bKind) == 0) {
+            return (EvValueBridge.taggedNull())
+        }
+        if (false == (this.hasBuiltin(bKind key))) {
+            return (EvValueBridge.taggedNull())
+        }
+        if (this.registryMethodDeleted(obj key)) {
+            return (EvValueBridge.taggedNull())
+        }
+        return (this.sharedNativeMethod(bKind key))
+    }
+
     fn isPromiseValue:boolean (v:EvHandle) {
         if (false == (v.isObject())) { return false }
         return (v.hasOwnData("__promise__"))
@@ -26613,6 +26799,10 @@ class ComponentEngine {
                         }
                         def viaFar:EvHandle (obj.getMember(rk))
                         if (viaFar.isNull()) {
+                            def rmFar:EvHandle (this.builtinMethodValueFor(obj rk))
+                            if (false == (rmFar.isNull())) {
+                                return rmFar
+                            }
                             return (EvValueBridge.taggedUndefined())
                         }
                         return viaFar
@@ -26636,16 +26826,37 @@ class ComponentEngine {
                             }
                             def viaMember:EvHandle (obj.getMember(sk))
                             if (viaMember.isNull()) {
+                                def rmStr:EvHandle (this.builtinMethodValueFor(obj sk))
+                                if (false == (rmStr.isNull())) {
+                                    return rmStr
+                                }
                                 return (EvValueBridge.taggedUndefined())
                             }
                             return viaMember
                         }
-                        return (obj.getMember(sk))
+                        def viaObj:EvHandle (obj.getMember(sk))
+                        if (viaObj.isNull()) {
+                            def rmObj:EvHandle (this.builtinMethodValueFor(obj sk))
+                            if (false == (rmObj.isNull())) {
+                                return rmObj
+                            }
+                        }
+                        if (viaObj.isUndefined()) {
+                            def rmObj2:EvHandle (this.builtinMethodValueFor(obj sk))
+                            if (false == (rmObj2.isNull())) {
+                                return rmObj2
+                            }
+                        }
+                        return viaObj
                     }
                     ; D-SYMKEY: a symbol index reads under the symbol's key.
                     if ((strlen cSymKey) > 0) {
                         def viaSym:EvHandle (this.getPropertyValue(obj cSymKey))
-                        if (viaSym.isNull()) {
+                        if ((viaSym.isNull()) || (viaSym.isUndefined())) {
+                            def rmSym:EvHandle (this.builtinMethodValueFor(obj cSymKey))
+                            if (false == (rmSym.isNull())) {
+                                return rmSym
+                            }
                             return (EvValueBridge.taggedUndefined())
                         }
                         return viaSym
@@ -26782,6 +26993,8 @@ class ComponentEngine {
         if (k == "__pid__") { return true }
         if (k == "__pstate__") { return true }
         if (k == "__pvalue__") { return true }
+        if (k == "__iterlist__") { return true }
+        if (k == "__iteridx__") { return true }
         ; D-SYMKEY: a symbol-keyed property is never listed by Object.keys,
         ; getOwnPropertyNames or for-in. Symbol keys are minted as "@@..." so
         ; the one prefix covers both well-known and user symbols.
