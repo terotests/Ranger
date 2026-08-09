@@ -14338,166 +14338,8 @@ class ComponentEngine {
                     ; silently accepted — see defineProperty below.
                     if (methodName == "getOwnPropertyDescriptor") {
                         if ((array_length node.children) > 1) {
-                            def dk:string (this.toPropertyKey((this.evaluateExpr((itemAt node.children 1)))))
-                            ; D-ACCESSORS: an accessor property reports get/set,
-                            ; never a `value` — reporting it as data would make
-                            ; the descriptor lie about the property's nature.
-                            ; OWN only: an INHERITED accessor has no descriptor
-                            ; on this object, and walking the chain reported one
-                            ; for a property the object does not have.
-                            def ownAcc:boolean false
-                            if (src.hasOwnGetter(dk)) { ownAcc = true }
-                            if (src.hasOwnSetter(dk)) { ownAcc = true }
-                            if ownAcc {
-                                def keysA:[string]
-                                def valsA:[EvHandle]
-                                def descA:EvHandle (EvValueBridge.taggedObject(keysA valsA))
-                                def ga:EvHandle (EvValueBridge.taggedNull())
-                                if (src.hasOwnGetter(dk)) {
-                                    ga = (src.getOwnGetter(dk))
-                                }
-                                def sa:EvHandle (EvValueBridge.taggedNull())
-                                if (src.hasOwnSetter(dk)) {
-                                    sa = (src.getOwnSetter(dk))
-                                }
-                                if (ga.isFunction()) {
-                                    descA.setMember("get" ga)
-                                } {
-                                    descA.setMember("get" (EvValueBridge.taggedUndefined()))
-                                }
-                                if (sa.isFunction()) {
-                                    descA.setMember("set" sa)
-                                } {
-                                    descA.setMember("set" (EvValueBridge.taggedUndefined()))
-                                }
-                                ; D-ATTRS: an accessor carries the same recorded
-                                ; attributes a data property does. Hardcoding
-                                ; both to true made every accessor report as
-                                ; configurable, which is the opposite of what
-                                ; defineProperty defaults them to.
-                                descA.setMember("enumerable" (EvValueBridge.taggedBoolean((src.isEnumerable(dk)))))
-                                descA.setMember("configurable" (EvValueBridge.taggedBoolean((src.isConfigurable(dk)))))
-                                return descA
-                            }
-                            ; D-INDEXDESC: an array index or string index is a
-                            ; real own property, but lives in arrayValue /
-                            ; stringValue rather than objectMap, so the
-                            ; descriptor came back undefined for a property that
-                            ; plainly exists. `length` likewise.
-                            if (src.isArrayValue()) {
-                                if (dk == "length") {
-                                    def keysL:[string]
-                                    def valsL:[EvHandle]
-                                    def dL:EvHandle (EvValueBridge.taggedObject(keysL valsL))
-                                    dL.setMember("value" (EvHandle.fromInt((src.denseLen()))))
-                                    dL.setMember("writable" (EvValueBridge.taggedBoolean(true)))
-                                    dL.setMember("enumerable" (EvValueBridge.taggedBoolean(false)))
-                                    dL.setMember("configurable" (EvValueBridge.taggedBoolean(false)))
-                                    return dL
-                                }
-                                def ai:int (this.canonicalArrayIndex(dk))
-                                if (ai >= 0) {
-                                    if (ai < (src.denseLen())) {
-                                        ; D-HOLES: a hole is an ABSENT property
-                                        ; and has no descriptor at all.
-                                        if (false == ((EvValueBridge.isHole((src.arrayItemAt(ai)))))) {
-                                            def keysI:[string]
-                                            def valsI:[EvHandle]
-                                            def dI:EvHandle (EvValueBridge.taggedObject(keysI valsI))
-                                            dI.setMember("value" (src.arrayItemAt(ai)))
-                                            ; Recorded attributes win: an element
-                                            ; defined through defineProperty is
-                                            ; not writable just because it is an
-                                            ; element.
-                                            if (src.hasOwnAttrs(dk)) {
-                                                dI.setMember("writable" (EvValueBridge.taggedBoolean((src.isWritable(dk)))))
-                                                dI.setMember("enumerable" (EvValueBridge.taggedBoolean((src.isEnumerable(dk)))))
-                                                dI.setMember("configurable" (EvValueBridge.taggedBoolean((src.isConfigurable(dk)))))
-                                            } {
-                                                dI.setMember("writable" (EvValueBridge.taggedBoolean(true)))
-                                                dI.setMember("enumerable" (EvValueBridge.taggedBoolean(true)))
-                                                dI.setMember("configurable" (EvValueBridge.taggedBoolean(true)))
-                                            }
-                                            return dI
-                                        }
-                                        return (EvValueBridge.taggedUndefined())
-                                    }
-                                }
-                            }
-                            if (src.isString()) {
-                                if (dk == "length") {
-                                    def keysS:[string]
-                                    def valsS:[EvHandle]
-                                    def dS:EvHandle (EvValueBridge.taggedObject(keysS valsS))
-                                    dS.setMember("value" (EvHandle.fromInt((strlen (src.stringOf())))))
-                                    dS.setMember("writable" (EvValueBridge.taggedBoolean(false)))
-                                    dS.setMember("enumerable" (EvValueBridge.taggedBoolean(false)))
-                                    dS.setMember("configurable" (EvValueBridge.taggedBoolean(false)))
-                                    return dS
-                                }
-                                def sIdx@(optional):int (to_int dk)
-                                if sIdx {
-                                    def si2:int (unwrap sIdx)
-                                    if ((si2 >= 0) && (si2 < (strlen (src.stringOf())))) {
-                                        def keysC:[string]
-                                        def valsC2:[EvHandle]
-                                        def dC:EvHandle (EvValueBridge.taggedObject(keysC valsC2))
-                                        def se:int (si2 + 1)
-                                        dC.setMember("value" (EvValueBridge.taggedString((substring (src.stringOf()) si2 se))))
-                                        dC.setMember("writable" (EvValueBridge.taggedBoolean(false)))
-                                        dC.setMember("enumerable" (EvValueBridge.taggedBoolean(true)))
-                                        dC.setMember("configurable" (EvValueBridge.taggedBoolean(false)))
-                                        return dC
-                                    }
-                                }
-                            }
-                            ; D-FNPROPS: a function's own length/name/prototype.
-                            ; They are resolved by getMember rather than stored,
-                            ; so objHasKey said they were absent and the
-                            ; descriptor came back undefined for three
-                            ; properties every function has.
-                            if (src.isFunction()) {
-                                if ((dk == "length") || (dk == "name")) {
-                                    if (false == (src.hasOwnData(dk))) {
-                                        def keysF:[string]
-                                        def valsF:[EvHandle]
-                                        def dF:EvHandle (EvValueBridge.taggedObject(keysF valsF))
-                                        dF.setMember("value" (src.getMember(dk)))
-                                        dF.setMember("writable" (EvValueBridge.taggedBoolean(false)))
-                                        dF.setMember("enumerable" (EvValueBridge.taggedBoolean(false)))
-                                        dF.setMember("configurable" (EvValueBridge.taggedBoolean(true)))
-                                        return dF
-                                    }
-                                }
-                                ; Only SYNTHESISED when the function does not
-                                ; actually hold the property. A built-in
-                                ; constructor stores its own `prototype` with
-                                ; recorded attributes -- non-writable among them
-                                ; -- and hardcoding writable here reported the
-                                ; opposite of what was recorded.
-                                if (dk == "prototype") {
-                                    if (false == (src.hasOwnData(dk))) {
-                                        def keysP:[string]
-                                        def valsP:[EvHandle]
-                                        def dP:EvHandle (EvValueBridge.taggedObject(keysP valsP))
-                                        dP.setMember("value" (src.getMember("prototype")))
-                                        dP.setMember("writable" (EvValueBridge.taggedBoolean(true)))
-                                        dP.setMember("enumerable" (EvValueBridge.taggedBoolean(false)))
-                                        dP.setMember("configurable" (EvValueBridge.taggedBoolean(false)))
-                                        return dP
-                                    }
-                                }
-                            }
-                            if (this.objHasKey(src dk)) {
-                                def keysD:[string]
-                                def valsD:[EvHandle]
-                                def desc:EvHandle (EvValueBridge.taggedObject(keysD valsD))
-                                desc.setMember("value" (src.getMember(dk)))
-                                desc.setMember("writable" (EvValueBridge.taggedBoolean((src.isWritable(dk)))))
-                                desc.setMember("enumerable" (EvValueBridge.taggedBoolean((src.isEnumerable(dk)))))
-                                desc.setMember("configurable" (EvValueBridge.taggedBoolean((src.isConfigurable(dk)))))
-                                return desc
-                            }
+                            def dk2:string (this.toPropertyKey((this.evaluateExpr((itemAt node.children 1)))))
+                            return (this.ownPropertyDescriptorOf(src dk2))
                         }
                         return (EvValueBridge.taggedUndefined())
                     }
@@ -16343,6 +16185,49 @@ class ComponentEngine {
             }
         }
         if (nsName == "Object") {
+            ; D-STATICS, widened. propertyHelper.js -- which 543 of the
+            ; es6id-tagged test262 files include -- opens with
+            ;   var __getOwnPropertyNames = Object.getOwnPropertyNames;
+            ; and then CALLS it detached. Statics that only existed on the
+            ; AST call-site chain answered undefined that way, so verifyProperty
+            ; died with "Cannot read properties of undefined (reading 'length')"
+            ; and every one of those 543 failed for a reason unrelated to what
+            ; it was testing. These two are the ones the harness needs.
+            if (name == "getOwnPropertyNames") {
+                def gopnSrc:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 0) {
+                    gopnSrc = (itemAt args 0)
+                }
+                ; ToObject first: null and undefined are a TypeError, not an
+                ; empty answer. The AST call-site chain checked this and the
+                ; value path has to as well, or the two disagree on
+                ; Object.getOwnPropertyNames(null).
+                if ((gopnSrc.isNull()) || (gopnSrc.isUndefined())) {
+                    return (this.throwSpecError("TypeError" "Cannot convert undefined or null to object"))
+                }
+                def gopnItems:[EvHandle]
+                def gopnKeys:[string] (this.objectKeys(gopnSrc))
+                def gopnI:int 0
+                while (gopnI < (array_length gopnKeys)) {
+                    push gopnItems (EvValueBridge.taggedString((itemAt gopnKeys gopnI)))
+                    gopnI = (gopnI + 1)
+                }
+                return (EvValueBridge.taggedArray(gopnItems))
+            }
+            if (name == "getOwnPropertyDescriptor") {
+                def gdSrc:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 0) {
+                    gdSrc = (itemAt args 0)
+                }
+                if ((gdSrc.isNull()) || (gdSrc.isUndefined())) {
+                    return (this.throwSpecError("TypeError" "Cannot convert undefined or null to object"))
+                }
+                if ((array_length args) < 2) {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                def gdKey:string (this.toPropertyKey((itemAt args 1)))
+                return (this.ownPropertyDescriptorOf(gdSrc gdKey))
+            }
             def a0:EvHandle (EvValueBridge.taggedUndefined())
             if ((array_length args) > 0) {
                 a0 = (itemAt args 0)
@@ -16600,6 +16485,176 @@ class ComponentEngine {
         return v
     }
 
+    ; The own-property descriptor of `key` on `src`, or undefined. Factored out
+    ; of the Object.getOwnPropertyDescriptor call-site chain so the value-call
+    ; path (invokeBuiltinStatic) answers with the SAME rules -- accessors
+    ; reporting get/set rather than a value, own-only lookup, the array-index
+    ; and string-index cases. Two implementations would drift.
+    fn ownPropertyDescriptorOf:EvHandle (src:EvHandle dk:string) {
+                        if true {
+                            ; D-ACCESSORS: an accessor property reports get/set,
+                            ; never a `value` — reporting it as data would make
+                            ; the descriptor lie about the property's nature.
+                            ; OWN only: an INHERITED accessor has no descriptor
+                            ; on this object, and walking the chain reported one
+                            ; for a property the object does not have.
+                            def ownAcc:boolean false
+                            if (src.hasOwnGetter(dk)) { ownAcc = true }
+                            if (src.hasOwnSetter(dk)) { ownAcc = true }
+                            if ownAcc {
+                                def keysA:[string]
+                                def valsA:[EvHandle]
+                                def descA:EvHandle (EvValueBridge.taggedObject(keysA valsA))
+                                def ga:EvHandle (EvValueBridge.taggedNull())
+                                if (src.hasOwnGetter(dk)) {
+                                    ga = (src.getOwnGetter(dk))
+                                }
+                                def sa:EvHandle (EvValueBridge.taggedNull())
+                                if (src.hasOwnSetter(dk)) {
+                                    sa = (src.getOwnSetter(dk))
+                                }
+                                if (ga.isFunction()) {
+                                    descA.setMember("get" ga)
+                                } {
+                                    descA.setMember("get" (EvValueBridge.taggedUndefined()))
+                                }
+                                if (sa.isFunction()) {
+                                    descA.setMember("set" sa)
+                                } {
+                                    descA.setMember("set" (EvValueBridge.taggedUndefined()))
+                                }
+                                ; D-ATTRS: an accessor carries the same recorded
+                                ; attributes a data property does. Hardcoding
+                                ; both to true made every accessor report as
+                                ; configurable, which is the opposite of what
+                                ; defineProperty defaults them to.
+                                descA.setMember("enumerable" (EvValueBridge.taggedBoolean((src.isEnumerable(dk)))))
+                                descA.setMember("configurable" (EvValueBridge.taggedBoolean((src.isConfigurable(dk)))))
+                                return descA
+                            }
+                            ; D-INDEXDESC: an array index or string index is a
+                            ; real own property, but lives in arrayValue /
+                            ; stringValue rather than objectMap, so the
+                            ; descriptor came back undefined for a property that
+                            ; plainly exists. `length` likewise.
+                            if (src.isArrayValue()) {
+                                if (dk == "length") {
+                                    def keysL:[string]
+                                    def valsL:[EvHandle]
+                                    def dL:EvHandle (EvValueBridge.taggedObject(keysL valsL))
+                                    dL.setMember("value" (EvHandle.fromInt((src.denseLen()))))
+                                    dL.setMember("writable" (EvValueBridge.taggedBoolean(true)))
+                                    dL.setMember("enumerable" (EvValueBridge.taggedBoolean(false)))
+                                    dL.setMember("configurable" (EvValueBridge.taggedBoolean(false)))
+                                    return dL
+                                }
+                                def ai:int (this.canonicalArrayIndex(dk))
+                                if (ai >= 0) {
+                                    if (ai < (src.denseLen())) {
+                                        ; D-HOLES: a hole is an ABSENT property
+                                        ; and has no descriptor at all.
+                                        if (false == ((EvValueBridge.isHole((src.arrayItemAt(ai)))))) {
+                                            def keysI:[string]
+                                            def valsI:[EvHandle]
+                                            def dI:EvHandle (EvValueBridge.taggedObject(keysI valsI))
+                                            dI.setMember("value" (src.arrayItemAt(ai)))
+                                            ; Recorded attributes win: an element
+                                            ; defined through defineProperty is
+                                            ; not writable just because it is an
+                                            ; element.
+                                            if (src.hasOwnAttrs(dk)) {
+                                                dI.setMember("writable" (EvValueBridge.taggedBoolean((src.isWritable(dk)))))
+                                                dI.setMember("enumerable" (EvValueBridge.taggedBoolean((src.isEnumerable(dk)))))
+                                                dI.setMember("configurable" (EvValueBridge.taggedBoolean((src.isConfigurable(dk)))))
+                                            } {
+                                                dI.setMember("writable" (EvValueBridge.taggedBoolean(true)))
+                                                dI.setMember("enumerable" (EvValueBridge.taggedBoolean(true)))
+                                                dI.setMember("configurable" (EvValueBridge.taggedBoolean(true)))
+                                            }
+                                            return dI
+                                        }
+                                        return (EvValueBridge.taggedUndefined())
+                                    }
+                                }
+                            }
+                            if (src.isString()) {
+                                if (dk == "length") {
+                                    def keysS:[string]
+                                    def valsS:[EvHandle]
+                                    def dS:EvHandle (EvValueBridge.taggedObject(keysS valsS))
+                                    dS.setMember("value" (EvHandle.fromInt((strlen (src.stringOf())))))
+                                    dS.setMember("writable" (EvValueBridge.taggedBoolean(false)))
+                                    dS.setMember("enumerable" (EvValueBridge.taggedBoolean(false)))
+                                    dS.setMember("configurable" (EvValueBridge.taggedBoolean(false)))
+                                    return dS
+                                }
+                                def sIdx@(optional):int (to_int dk)
+                                if sIdx {
+                                    def si2:int (unwrap sIdx)
+                                    if ((si2 >= 0) && (si2 < (strlen (src.stringOf())))) {
+                                        def keysC:[string]
+                                        def valsC2:[EvHandle]
+                                        def dC:EvHandle (EvValueBridge.taggedObject(keysC valsC2))
+                                        def se:int (si2 + 1)
+                                        dC.setMember("value" (EvValueBridge.taggedString((substring (src.stringOf()) si2 se))))
+                                        dC.setMember("writable" (EvValueBridge.taggedBoolean(false)))
+                                        dC.setMember("enumerable" (EvValueBridge.taggedBoolean(true)))
+                                        dC.setMember("configurable" (EvValueBridge.taggedBoolean(false)))
+                                        return dC
+                                    }
+                                }
+                            }
+                            ; D-FNPROPS: a function's own length/name/prototype.
+                            ; They are resolved by getMember rather than stored,
+                            ; so objHasKey said they were absent and the
+                            ; descriptor came back undefined for three
+                            ; properties every function has.
+                            if (src.isFunction()) {
+                                if ((dk == "length") || (dk == "name")) {
+                                    if (false == (src.hasOwnData(dk))) {
+                                        def keysF:[string]
+                                        def valsF:[EvHandle]
+                                        def dF:EvHandle (EvValueBridge.taggedObject(keysF valsF))
+                                        dF.setMember("value" (src.getMember(dk)))
+                                        dF.setMember("writable" (EvValueBridge.taggedBoolean(false)))
+                                        dF.setMember("enumerable" (EvValueBridge.taggedBoolean(false)))
+                                        dF.setMember("configurable" (EvValueBridge.taggedBoolean(true)))
+                                        return dF
+                                    }
+                                }
+                                ; Only SYNTHESISED when the function does not
+                                ; actually hold the property. A built-in
+                                ; constructor stores its own `prototype` with
+                                ; recorded attributes -- non-writable among them
+                                ; -- and hardcoding writable here reported the
+                                ; opposite of what was recorded.
+                                if (dk == "prototype") {
+                                    if (false == (src.hasOwnData(dk))) {
+                                        def keysP:[string]
+                                        def valsP:[EvHandle]
+                                        def dP:EvHandle (EvValueBridge.taggedObject(keysP valsP))
+                                        dP.setMember("value" (src.getMember("prototype")))
+                                        dP.setMember("writable" (EvValueBridge.taggedBoolean(true)))
+                                        dP.setMember("enumerable" (EvValueBridge.taggedBoolean(false)))
+                                        dP.setMember("configurable" (EvValueBridge.taggedBoolean(false)))
+                                        return dP
+                                    }
+                                }
+                            }
+                            if (this.objHasKey(src dk)) {
+                                def keysD:[string]
+                                def valsD:[EvHandle]
+                                def desc:EvHandle (EvValueBridge.taggedObject(keysD valsD))
+                                desc.setMember("value" (src.getMember(dk)))
+                                desc.setMember("writable" (EvValueBridge.taggedBoolean((src.isWritable(dk)))))
+                                desc.setMember("enumerable" (EvValueBridge.taggedBoolean((src.isEnumerable(dk)))))
+                                desc.setMember("configurable" (EvValueBridge.taggedBoolean((src.isConfigurable(dk)))))
+                                return desc
+                            }
+                        }
+                        return (EvValueBridge.taggedUndefined())
+    }
+
     fn hasInvocableStatic:boolean (nsName:string name:string) {
         if (nsName == "Math") {
             return (this.hasBuiltinStatic(nsName name))
@@ -16620,6 +16675,8 @@ class ComponentEngine {
         }
         if (nsName == "Object") {
             if (name == "keys") { return true }
+            if (name == "getOwnPropertyNames") { return true }
+            if (name == "getOwnPropertyDescriptor") { return true }
             if (name == "getPrototypeOf") { return true }
             if (name == "isExtensible") { return true }
             if (name == "isFrozen") { return true }
