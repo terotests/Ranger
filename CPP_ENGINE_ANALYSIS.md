@@ -162,6 +162,76 @@ alternative carries the double) and a separate `double numberValue`. One of them
 is redundant; which one can go depends on how `setNumberOf`/`slotOwned` mutate
 in place.
 
+## The ownership model, measured
+
+A probe compiled at `-O3 -march=native` doing what the engine does — pass two
+refcounted values into a function, read a field, return — 20 M iterations:
+
+| what is passed | time | note |
+| --- | ---: | --- |
+| `rg_ptr<Val>` by value | **56.7 ms** | what Ranger emits for 84 parameters |
+| intrusive refcount by value | 57.7 ms | QuickJS-style 8-byte handle |
+| `const rg_ptr<Val>&` | **14.2 ms** | what Ranger already emits for 267 |
+| `const IPtr&` (intrusive) | 14.2 ms | |
+| raw `const Val*` | 14.3 ms | no refcount at all |
+
+Three conclusions, one of which corrects what I wrote in the first draft of this
+document:
+
+1. **`const shared_ptr&` is exactly as fast as a raw pointer.** The 267
+   parameters the ownership analysis already proves borrowed cost nothing. There
+   is no reason to move them to raw pointers.
+2. **The 84 by-value parameters cost 4×** on this pattern. That is the whole
+   finding. It is not a representation problem — it is a parameter-passing
+   problem, and it is exactly the rule in the reference:
+   *"Vältä `shared_ptr` funktioparametrina — passaa `const shared_ptr&`."*
+   Note that Ranger already uses a **non-atomic** count (`_S_single` via
+   `-cpp-single-thread`), so this 4× is *without* the atomic traffic the usual
+   argument rests on. The guideline holds more strongly here, not less.
+3. **Switching to intrusive refcounting buys nothing.** By value it measured
+   57.7 ms against `shared_ptr`'s 56.7 — no better. The cost is the refcount
+   traffic itself, not the width of the handle. My earlier suggestion to adopt a
+   QuickJS-style intrusive counter for speed was wrong, and this is why:
+   QuickJS is not fast because its counter is intrusive, it is fast because
+   **immediates never touch a counter at all.**
+
+### Where `unique_ptr` does apply
+
+The reference's criterion is shared lifetime — the renderer and the UI both
+holding one texture. A JavaScript value referenced from two variables is exactly
+that, so engine **values** must stay shared. But several things in the engine are
+single-owner and pay refcounting for nothing:
+
+- `EvPropertyBag` — owned by exactly one `EvalValue` case (144 bytes behind a
+  second `rg_ptr`, and one of the five dependent loads on every property read)
+- `EvFunctionCore` / `EvFunctionBinding`
+- `TSNode` — the AST, owned by its tree
+
+These are the `unique_ptr` (or plain by-value member) candidates. Inlining the
+bag into the case would remove both a refcount and a dependent load.
+
+## What newer C++ standards would actually give
+
+The build is **already `-std=c++17`**, so most of this is available now and
+unused:
+
+- **`std::optional` — the one that matters.** It is the missing representation
+  for an `<optional>` of a union, which is what blocks the property-bag
+  optimisation (11.3% of es6 runtime) and which today silently narrows to case
+  #1 on a missing key. This is a correctness fix and an optimisation unblock in
+  one.
+- **`std::variant`** — measured against the vendored `mpark::variant` on the
+  engine's hottest pattern (`holds_alternative` + `get`, 100 M iterations):
+  **160.0 ms vs 161.5 ms, same `sizeof` of 24**. Switch to drop a vendored
+  header, not for speed.
+- **Guaranteed copy elision** (C++17) is already in effect.
+- **C++20** would add `[[likely]]`/`[[unlikely]]` for the hot arms of the kind
+  tests and `std::span` for borrowed array views. Both modest; neither changes
+  the picture.
+
+Raising the baseline is worth doing for `std::optional` and for dropping the
+polyfill. It is not worth doing in the expectation of speed.
+
 ## Is this a library or a style problem?
 
 Largely yes, and in a way that is fixable without redesigning the engine:
@@ -184,26 +254,56 @@ turns a heap-allocated, refcounted, five-loads-deep value into a 16-byte
 immediate. That is the design QuickJS chose, and it is the reason it is 3.6×
 ahead.
 
-## What to do next, ranked by return over difficulty
+## What static analysis should decide, and what operators should emit
 
-1. **Unwind the by-value cascade.** Make the leaf sinks (`toPrimitiveDefault`,
-   `toStringOf`, and whatever else the ownership analysis marks as owning) take
-   `const&`, and the 84 by-value parameters should collapse toward zero on their
-   own. Purely mechanical, no representation change, and it removes two refcount
-   round-trips from every binary operation. **Do this one.**
-2. **Drop the duplicated `numberValue`.** Small, contained, saves 8 bytes per
-   value and a store per number.
-3. **Shorten the property chase.** Hoisting the property bag into `EvHandle`, or
-   letting `EvalValue_Object` hold the map inline instead of behind a second
-   `rg_ptr`, removes one or two dependent loads from the hottest path in the
-   engine.
-4. **Intern property names.** An atom table turns every key hash into an integer
-   compare and is the precondition for any inline cache. Large, but it is the
-   step QuickJS's speed actually rests on.
-5. **Immediate values.** The real answer, and a rewrite of the engine's value
-   model that would touch every target. Not a C++ fix — a design change. Do not
-   start here.
+Ranger's advantage over a C++ compiler is that it already knows ownership —
+`ownership_kind`, `ownership_resolved`, `set_cnt`, `@(lives)`, `@(weak)`. A C++
+compiler cannot prove these things across translation units; Ranger can prove
+them from the whole program. Four decisions follow directly, in order of value:
 
-The honest summary: items 1–3 are tractable and worth maybe a few percent each;
-item 4 is a project; item 5 is the one that would close the QuickJS gap, and it
-is not a C++ problem at all.
+1. **Borrowed ⇒ `const&`.** Already done for 267 parameters, worth 4× each.
+   The 84 that miss out do so because the analysis is **transitive and
+   pessimistic**: `applyBinaryOp`'s operands are marked owning only because they
+   flow into `toPrimitiveDefault(rg_ptr<EvHandle> v)`, which is itself by value.
+   Fixing the leaf sinks unwinds the cascade upward without touching any caller.
+2. **Last use ⇒ `std::move`.** There are **zero** `std::move` in 41,584
+   generated lines. C++11's implicit move on `return localName;` covers most
+   returns, so the gap is at call sites: a dead local passed into an owning
+   parameter copies where it could transfer. This only matters for parameters
+   that genuinely take ownership — after decision 1, few remain.
+3. **Single owner ⇒ no refcount.** `EvPropertyBag`, `EvFunctionCore`, `TSNode`
+   have exactly one owner. `unique_ptr`, or a by-value member, removes both the
+   count and a dependent load.
+4. **Non-escaping ⇒ stack.** A value the analysis proves does not outlive its
+   frame needs no allocation at all. This is the largest of the four and the
+   hardest to prove.
+
+**Custom operators are the mechanism.** Value lifetime is expressible as
+operators with per-target templates — a `dup` / `drop` / `borrow` triple — so
+the C++ target emits a refcount operation only where the analysis says one is
+needed, and the es6 and Python targets emit nothing at all. That is the same
+device that let `is` give twelve targets a discriminant test without any writer
+learning the word "shape": put the decision in the flow, and the spelling in a
+template.
+
+## Ranked, honestly
+
+1. **Unwind the by-value cascade** — measured 4× on the pattern, mechanical, no
+   representation change. **Start here.**
+2. **`std::optional` for optional-of-union** — fixes a silent-wrong-narrowing
+   trap on C++ and unblocks the property-bag work (11.3% of es6 runtime).
+   C++17 is already the baseline.
+3. **Single-owner members** — inline `EvPropertyBag` into its case: one refcount
+   and one dependent load off the hottest path.
+4. **Drop the duplicated `numberValue`** — 8 bytes and a store per number.
+5. **Intern property names as atoms** — turns every key hash into an integer
+   compare and is the precondition for any inline cache. A project.
+6. **Immediate values** — the one that would actually close the QuickJS gap, and
+   the one thing on this list that is *not* a C++ problem. It is the engine's
+   value model, it would touch every target, and it should not be started
+   casually.
+
+Items 1–4 are tractable. What this exercise mostly shows is that the expensive
+part is not which smart pointer is used but **how many values are refcounted at
+all** — and that is a question the static analysis can answer, not the C++
+standard.
