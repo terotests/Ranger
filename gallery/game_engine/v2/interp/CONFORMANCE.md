@@ -825,10 +825,10 @@ after excluding intl402, Temporal, module and async flags:
 
 | | |
 |---|---|
-| **ES2015 overall** | **51.48% (1474/2863)** |
-| pass | 1474 |
+| **ES2015 overall** | **67.87% (1943/2863)** |
+| pass | 1943 |
 | fail (ran, wrong answer) | 6 |
-| crash (did not run to completion) | 1383 |
+| crash (did not run to completion) | 914 |
 
 **Six wrong answers, and that number has not moved.** It is the useful part of
 the ratio: what stands between this engine and ES2015 is missing surface, not
@@ -851,6 +851,15 @@ How it got here, each row a measured run of the same corpus against the C++
 | object-literal names and `__proto__`, `const`, defaulted-parameter arity | 1455 | 50.82% |
 | annexB `escape`/`unescape`, and `typeof` for the global function properties | 1471 | 51.38% |
 | `Array.from` over an iterable, an array-like, and a map function | 1474 | 51.48% |
+| tagged templates carry cooked and raw parts; `Promise` and its job queue | 1604 | 56.02% |
+| a block is a scope, and `for (let i…)` binds per iteration | 1637 | 57.18% |
+| `Proxy` and its traps, wired into every property operation | 1744 | 60.92% |
+| RegExp sticky flag, `RegExpExec` delegation, `@@replace`/`@@split` | 1802 | 62.94% |
+| `Symbol.species`, `@@unscopables`, `@@isConcatSpreadable` | 1847 | 64.51% |
+| a class's methods, accessors and statics land on a real prototype | 1876 | 65.53% |
+| a string's own properties; `Reflect.set` honours its receiver | 1881 | 65.70% |
+| `Math` special values, template ToString, function `name` inference | 1928 | 67.34% |
+| `Reflect` receivers, `Object.setPrototypeOf` rules, `@@hasInstance` | 1943 | 67.87% |
 
 The single largest step is not an ES2015 feature at all. `propertyHelper.js` --
 which 543 of these files include -- opens with
@@ -859,29 +868,37 @@ detached. Statics that existed only on the AST call-site chain answered
 undefined that way, so `verifyProperty` died on the first line and 543 files
 failed for a reason unrelated to what they were testing.
 
-Failures by family, at the end of the run above:
+Failures by family, at the end of the run above (920 files):
 
 | family | files | why |
 |---|---:|---|
-| `built-ins/Proxy` | 152 | **`typeof Proxy` is undefined -- not implemented** |
-| `built-ins/RegExp` | 136 | mostly the lastIndex / sticky / exec-delegation detail of the symbol methods |
-| `language/statements/class` | 121 | 67 of them subclass a BUILT-IN (`class E extends TypeError`) |
-| `built-ins/Promise` | 115 | **`typeof Promise` is undefined -- not implemented** |
-| `language/statements/for-of` | 84 | iterator CLOSE (`return()` on break) and the per-iteration binding |
-| `built-ins/String` | 71 | `normalize` (7), the iterator (4), and coercion-order fixtures |
-| `language/expressions/object` | 53 | |
-| `built-ins/Object` | 52 | |
-| `built-ins/GeneratorPrototype` | 45 | generators are buffered, not resumable (see ComponentEngine.makeGeneratorValue) |
-| `built-ins/Reflect` | 40 | Proxy traps, and the argument-order fixtures |
-| `annexB` | 39 | 20 of them RegExp.prototype.compile |
-| `language/expressions/yield` / `super` | 37 / 37 | |
-| `language/expressions/template-literal` | 24 | tagged templates: the lexer emits one token for the whole template, so there are no cooked/raw parts to hand a tag function |
+| `language/statements/class` | 103 | 55 of them subclass a BUILT-IN (`class E extends TypeError`) |
+| `language/statements/for-of` | 74 | iterator CLOSE (`return()` on break), and yield inside the body |
+| `built-ins/Proxy` | 70 | the invariant checks a trap result is held to, and revoked-proxy handling |
+| `built-ins/Promise` | 66 | resolve-function identity, species, and the subclassing fixtures |
+| `built-ins/RegExp` | 56 | unicode mode, and the property-descriptor shape of the flag accessors |
+| `built-ins/GeneratorPrototype` | 44 | generators are buffered, not resumable (see ComponentEngine.makeGeneratorValue) |
+| `language/expressions/object` | 40 | `yield` as a method name, and super-property in a method |
+| `language/expressions/yield` | 37 | same root cause as GeneratorPrototype |
+| `built-ins/String` | 33 | `normalize` (3), lone surrogates (12), and coercion-order fixtures |
+| `built-ins/Object` | 33 | 12 of them the descriptor shape of `Object.prototype.__proto__` |
+| `annexB` | 27 | 20 of them `RegExp.prototype.compile` |
+| `language/expressions/super` | 22 | |
+| `language/statements/for-in` | 17 | |
+| `language/statements`/`expressions/generators` | 14 / 14 | resumability again |
+| `language/expressions/new.target` | 11 | `new.target` parses but is never bound in a call frame |
 
-Three things are known-missing rather than subtly wrong, and account for 300 of
-the remaining files on their own: `Proxy`, `Promise` and `WeakMap`/`WeakSet`.
-Two more are structural: `let`/`const` do not get a per-block scope (a block
-does not create a child scope, so an inner `let` writes the outer binding), and
-generators are buffered rather than resumable.
+The largest remaining block is one structural gap, not many small ones:
+generators buffer eagerly rather than suspending, which accounts for
+`GeneratorPrototype`, `expressions/yield`, both `generators` directories and
+much of `for-of` -- around 160 files that need a CPS or state-machine rewrite of
+the interpreter's function-call path.
+
+Two smaller structural gaps follow it: extending a built-in (`class E extends
+Array`) needs the instance to BE an array while still dispatching the subclass's
+own methods, which the kind-tagged value model cannot express today; and
+`new.target` is parsed but never bound, because a call frame carries no
+new-target slot.
 
 #### The ES5 layer, on the same corpus
 
