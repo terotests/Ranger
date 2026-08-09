@@ -203,7 +203,8 @@ itemAt cmdItemAt@(weak):T ( array:[T] index:int ) {
 }
 ```
 
-C++ is the only target that pays for a checked read. I measured the ceiling by
+Rust indexing is checked too (it panics rather than throws), but every other
+target emits a raw subscript. I measured the ceiling by
 rewriting the 226 hot-vector `.at()` calls in the generated engine to
 `operator[]` and rebuilding at `-O3 -march=native`:
 
@@ -255,8 +256,8 @@ Ordered by measured payoff against cost, not by appeal:
    marker wants to be a field on the function value, not a property that has to
    be looked up by name. Do this one first.
 2. **Intern property names to integers.** The general form of §3.2 — worth
-   ~10% on a benchmark that does not even use properties, and the reason `fib`
-   is 3x worse than `object`. It is also the largest change here.
+   ~10% on a benchmark that does not even use properties. It is also the
+   largest change here.
 3. **Stop bounds-checking VM slot reads** (§3.4). 6% geomean for a template
    change plus a static-analysis gate. Ranger already computes the ownership
    and escape facts that would justify an unchecked read; a
@@ -276,5 +277,5 @@ Ordered by measured payoff against cost, not by appeal:
   once. The floors are now subtracted on both sides (§1), but body-parse cost
   still sits in the engine columns and not in the QuickJS one, so the true
   ratios are slightly *better* than the table says.
-- `raw Node fib` at 0.34–0.06 ms is V8 folding a constant call; ignore that
-  column for `fib`.
+- `raw Node fib` at 0.06–0.34 ms across the two runs is V8 folding a constant
+  call; ignore that column for `fib`.
