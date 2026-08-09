@@ -25903,7 +25903,51 @@ class ComponentEngine {
                 }
             }
         }
+        ; D-SUPER: the class-node walk only knows about classes declared in this
+        ; realm. Now that a class has a REAL prototype, the general answer is the
+        ; prototype chain -- which is also the only one that works for a static
+        ; method (whose `this` is the constructor) and for a base that is a
+        ; built-in.
+        def superFn:EvHandle (this.superLookup(selfV homeCls mName))
+        if (superFn.isFunction()) {
+            def sArgs:[EvHandle] (this.collectCallArgs(node))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            return (this.callFnValueWithValues((superFn.withThisForCall(selfV)) sArgs))
+        }
         return (this.throwSpecError("TypeError" ("(intermediate value)." + (mName + " is not a function"))))
+    }
+
+    ; D-SUPER: `super.<name>` resolved through the prototype chain. For an
+    ; instance method the home is the class's prototype and the answer lives one
+    ; link above it; for a STATIC the home is the constructor itself.
+    fn superLookup:EvHandle (selfV:EvHandle homeCls:string name:string) {
+        def start:EvHandle (EvValueBridge.taggedNull())
+        if (selfV.isFunction()) {
+            ; A static method: `this` is the constructor, and super is its own
+            ; prototype -- the base CONSTRUCTOR, not the base prototype.
+            start = (this.protoOfValue(selfV))
+        } {
+            if ((strlen homeCls) > 0) {
+                def homeV:EvHandle (this.classValueFor(homeCls))
+                def homeProto:EvHandle (homeV.getMember("prototype"))
+                if (this.isDescriptorObject(homeProto)) {
+                    start = (this.protoOfValue(homeProto))
+                }
+            }
+            if (start.isNull()) {
+                ; No home class in the register -- an object literal's method,
+                ; whose super is the literal's own prototype.
+                if (this.isDescriptorObject(selfV)) {
+                    start = (this.protoOfValue(selfV))
+                }
+            }
+        }
+        if (false == (this.isDescriptorObject(start))) {
+            return (EvValueBridge.taggedNull())
+        }
+        return (this.getPropertyValue(start name))
     }
 
     fn runSuperConstructor:void (cls:TSNode inst:EvHandle argNodes:[TSNode] depth:int) {
@@ -27101,6 +27145,62 @@ class ComponentEngine {
             if node.optional {
                 if ((obj.isNull()) || (obj.isUndefined())) {
                     return (EvValueBridge.taggedUndefined())
+                }
+            }
+            ; D-SUPER: `super.g` is a property READ against the home class's
+            ; parent, run with the current `this` -- an accessor there is its
+            ; getter, called on this instance. There was no case for it at all.
+            ; A `Super` base has no evalKind of its own, so the node type is
+            ; what identifies it.
+            if (leftExpr.nodeType == "Super") {
+                if true {
+                    def supSelf:EvHandle (context.lookup("this"))
+                    def supKey:string propName
+                    if node.computed {
+                        if node.right {
+                            def supKv:EvHandle (this.evaluateExpr((unwrap node.right)))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                            supKey = (this.toPropertyKey(supKv))
+                        }
+                    }
+                    def supHome:string currentHomeClass
+                    if ((strlen supHome) == 0) {
+                        supHome = (this.instanceClassName(supSelf))
+                    }
+                    def supStart:EvHandle (EvValueBridge.taggedNull())
+                    if (supSelf.isFunction()) {
+                        supStart = (this.protoOfValue(supSelf))
+                    } {
+                        if ((strlen supHome) > 0) {
+                            def shv:EvHandle (this.classValueFor(supHome))
+                            def shp:EvHandle (shv.getMember("prototype"))
+                            if (this.isDescriptorObject(shp)) {
+                                supStart = (this.protoOfValue(shp))
+                            }
+                        }
+                        if (supStart.isNull()) {
+                            if (this.isDescriptorObject(supSelf)) {
+                                supStart = (this.protoOfValue(supSelf))
+                            }
+                        }
+                    }
+                    if (false == (this.isDescriptorObject(supStart))) {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    ; An ACCESSOR up there runs with THIS instance as receiver.
+                    def supGet:EvHandle (this.resolveGetterOn(supStart supKey))
+                    if (supGet.isFunction()) {
+                        def noArgsS:[EvHandle]
+                        if (supGet.hasFunctionNode()) {
+                            return (this.callFnValueWithValues((supGet.withThisForCall(supSelf)) noArgsS))
+                        }
+                        if (supGet.isBuiltinMethod()) {
+                            return (this.invokeBuiltin((supGet.builtinKindOf()) (supGet.builtinNameOf()) supSelf noArgsS))
+                        }
+                    }
+                    return (this.getPropertyValue(supStart supKey))
                 }
             }
             ; D-PROXY: every read of a proxy property is the `get` trap, whether
