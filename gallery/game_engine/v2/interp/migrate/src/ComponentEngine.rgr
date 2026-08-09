@@ -18089,6 +18089,7 @@ class ComponentEngine {
             push out "@@iterator"
             push out "at"
             push out "concat"
+            push out "copyWithin"
             push out "every"
             push out "fill"
             push out "filter"
@@ -18665,6 +18666,7 @@ class ComponentEngine {
             if (name == "at") { return 1 }
             if (name == "concat") { return 1 }
             if (name == "every") { return 1 }
+            if (name == "copyWithin") { return 2 }
             if (name == "fill") { return 1 }
             if (name == "filter") { return 1 }
             if (name == "find") { return 1 }
@@ -20785,6 +20787,7 @@ class ComponentEngine {
             if (name == "reverse") { isArrayMutator = true }
             if (name == "sort") { isArrayMutator = true }
             if (name == "fill") { isArrayMutator = true }
+            if (name == "copyWithin") { isArrayMutator = true }
             def elems:[EvHandle]
             if (false == isArrayMutator) {
                 if (recv.isArrayValue()) {
@@ -21209,13 +21212,84 @@ class ComponentEngine {
                             fv = (itemAt args 0)
                         }
                         def n:int (recv.denseLen())
+                        ; fill takes a START and an END, both relative to the
+                        ; end when negative. Both were ignored, so `a.fill(0, 1)`
+                        ; overwrote the whole array.
+                        def fStart:int 0
+                        def fEnd:int n
+                        if ((array_length args) > 1) {
+                            def sV:EvHandle (itemAt args 1)
+                            if (false == (sV.isUndefined())) {
+                                fStart = (this.relativeIndexOf(sV n))
+                                if scriptThrew {
+                                    return (EvValueBridge.taggedUndefined())
+                                }
+                            }
+                        }
+                        if ((array_length args) > 2) {
+                            def eV:EvHandle (itemAt args 2)
+                            if (false == (eV.isUndefined())) {
+                                fEnd = (this.relativeIndexOf(eV n))
+                                if scriptThrew {
+                                    return (EvValueBridge.taggedUndefined())
+                                }
+                            }
+                        }
                         def items:[EvHandle]
                         def q:int 0
                         while (q < n) {
-                            push items fv
+                            if ((q >= fStart) && (q < fEnd)) {
+                                push items fv
+                            } {
+                                push items (recv.arrayItemAt(q))
+                            }
                             q = (q + 1)
                         }
                         recv.arrSetItems(items)
+                        return recv
+                    }
+                    ; copyWithin copies a slice of the array over another part of
+                    ; itself, in place, without changing its length.
+                    if (name == "copyWithin") {
+                        def cn:int (recv.denseLen())
+                        def cTo:int 0
+                        def cFrom:int 0
+                        def cEnd:int cn
+                        if ((array_length args) > 0) {
+                            cTo = (this.relativeIndexOf((itemAt args 0) cn))
+                        }
+                        if ((array_length args) > 1) {
+                            cFrom = (this.relativeIndexOf((itemAt args 1) cn))
+                        }
+                        if ((array_length args) > 2) {
+                            def ceV:EvHandle (itemAt args 2)
+                            if (false == (ceV.isUndefined())) {
+                                cEnd = (this.relativeIndexOf(ceV cn))
+                            }
+                        }
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        ; The source is READ first, so an overlapping copy sees
+                        ; the original values rather than the ones it just wrote.
+                        def srcVals:[EvHandle]
+                        def ci:int cFrom
+                        while (ci < cEnd) {
+                            push srcVals (recv.arrayItemAt(ci))
+                            ci = (ci + 1)
+                        }
+                        def outItems:[EvHandle]
+                        def oq:int 0
+                        while (oq < cn) {
+                            def off:int (oq - cTo)
+                            if ((oq >= cTo) && (off < (array_length srcVals))) {
+                                push outItems (itemAt srcVals off)
+                            } {
+                                push outItems (recv.arrayItemAt(oq))
+                            }
+                            oq = (oq + 1)
+                        }
+                        recv.arrSetItems(outItems)
                         return recv
                     }
                     if (name == "sort") {
@@ -21984,6 +22058,15 @@ class ComponentEngine {
             ; same place: `Object.prototype.toString.call(p)` is "[object Promise]".
             if (v.hasOwnData("__promise__")) { return "Promise" }
             if (v.hasOwnData("__arguments__")) { return "Arguments" }
+        }
+        ; ES2015: @@toStringTag, anywhere up the chain, names the brand -- which
+        ; is how a class publishes one. Checked after the internal slots so a
+        ; real Date still brands as Date.
+        if (this.isDescriptorObject(v)) {
+            def tagV:EvHandle (this.getPropertyValue(v "@@toStringTag"))
+            if (tagV.isString()) {
+                return (tagV.stringOf())
+            }
         }
         return "Object"
     }
@@ -23160,6 +23243,21 @@ class ComponentEngine {
             return (EvValueBridge.taggedNull())
         }
         return (this.sharedNativeMethod(bKind key))
+    }
+
+    ; A relative index argument: negative counts from the end, and the result is
+    ; clamped into [0, len]. fill, copyWithin, slice and splice all take them.
+    fn relativeIndexOf:int (v:EvHandle len:int) {
+        def r:int (this.toIntegerOf(v))
+        if scriptThrew {
+            return 0
+        }
+        if (r < 0) {
+            r = (len + r)
+        }
+        if (r < 0) { r = 0 }
+        if (r > len) { r = len }
+        return r
     }
 
     fn isPromiseValue:boolean (v:EvHandle) {
