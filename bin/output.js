@@ -4087,7 +4087,7 @@ class RangerAppWriterContext  {
       default: 
         break;
     };
-    if ( operatorsOfRangerAppWriterContext_21.getTargetLang_22(this) == "csharp" ) {
+    if ( (operatorsOfRangerAppWriterContext_21.getTargetLang_22(this) == "csharp") || (operatorsOf_21.getTargetLang_22(this) == "dart") ) {
       if ( input_word == "null" ) {
         return "_null";
       }
@@ -30203,7 +30203,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       WriteScalarValue (node, ctx, wr) {
                         switch (node.value_type ) { 
                           case 2 : 
-                            wr.out(node.getParsedString(), false);
+                            const dd_str = "" + node.double_value;
+                            const ii_str = "" + (Math.floor( node.double_value));
+                            if ( dd_str == ii_str ) {
+                              wr.out(dd_str + ".0", false);
+                            } else {
+                              wr.out(dd_str, false);
+                            }
                             break;
                           case 4 : 
                             const s = this.EncodeString(node, ctx, wr);
@@ -30375,6 +30381,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                         }
                       };
+                      namesStaticMember (cl, node) {
+                        if ( (node.ns.length) < 2 ) {
+                          return false;
+                        }
+                        const member = node.ns[1];
+                        if ( cl.hasStaticMethod(member) ) {
+                          return true;
+                        }
+                        return false;
+                      };
                       async WriteVRef (node, ctx, wr) {
                         if ( node.vref == "this" ) {
                           wr.out("this", false);
@@ -30404,7 +30420,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               if ( (typeof(uc) !== "undefined" && uc != null )  ) {
                                 const currC = uc;
                                 if ( part == currC.name ) {
-                                  if ( false == ctx.isInStatic() ) {
+                                  if ( (false == ctx.isInStatic()) && (false == this.namesStaticMember(currC, node)) ) {
                                     wr.out("this", false);
                                     continue;
                                   }
@@ -30451,7 +30467,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             if ( (typeof(uc_1) !== "undefined" && uc_1 != null )  ) {
                               const currC_1 = uc_1;
                               if ( part_1 == currC_1.name ) {
-                                if ( false == ctx.isInStatic() ) {
+                                if ( (false == ctx.isInStatic()) && (false == this.namesStaticMember(currC_1, node)) ) {
                                   wr.out("this", false);
                                   continue;
                                 }
@@ -30529,6 +30545,62 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           wr.out(" ", false);
                           wr.out(this.paramEmitName(arg, ctx), false);
                         };
+                      };
+                      receiverIsNullable (obj) {
+                        if ( obj.hasFlag("optional") ) {
+                          return true;
+                        }
+                        if ( obj.hasParamDesc ) {
+                          const p = obj.paramDesc;
+                          const nn = p.nameNode;
+                          if ( (typeof(nn) !== "undefined" && nn != null )  ) {
+                            if ( ((nn)).hasFlag("optional") ) {
+                              return true;
+                            }
+                          }
+                        }
+                        return false;
+                      };
+                      async CreateCallExpression (node, ctx, wr) {
+                        if ( node.has_call ) {
+                          const obj = node.getSecond();
+                          const method = node.getThird();
+                          const args = node.children[3];
+                          wr.out("(", false);
+                          ctx.setInExpr();
+                          await this.WalkNode(obj, ctx, wr);
+                          ctx.unsetInExpr();
+                          wr.out(")", false);
+                          if ( this.receiverIsNullable(obj) ) {
+                            wr.out("!", false);
+                          }
+                          wr.out(".", false);
+                          let methodName = method.vref;
+                          if ( ((typeof(node.fnDesc) !== "undefined" && node.fnDesc != null ) ) && ((node.fnDesc.compiledName.length) > 0) ) {
+                            methodName = node.fnDesc.compiledName;
+                          }
+                          wr.outMapped(methodName, method, false, method.vref);
+                          wr.out("(", false);
+                          ctx.setInExpr();
+                          const pms = operatorsOf.filter_36(args.children, ((item, index) => { 
+                            if ( item.hasFlag("keyword") ) {
+                              return false;
+                            }
+                            return true;
+                          }));
+                          for ( let i = 0; i < pms.length; i++) {
+                            var arg = pms[i];
+                            if ( i > 0 ) {
+                              wr.out(", ", false);
+                            }
+                            await this.WalkNode(arg, ctx, wr);
+                          };
+                          ctx.unsetInExpr();
+                          wr.out(")", false);
+                          if ( ctx.expressionLevel() == 0 ) {
+                            wr.out(";", true);
+                          }
+                        }
                       };
                       async writeFnCall (node, ctx, wr) {
                         if ( node.hasFnCall ) {

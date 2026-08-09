@@ -67,7 +67,16 @@ class RangerDartClassWriter {
   fn WriteScalarValue:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     switch node.value_type {
       case RangerNodeType.Double {
-        wr.out((node.getParsedString()) false)
+        ; Prefer the numeric value over getParsedString(): CRLF source files
+        ; shift character spans, and a raw slice then injects `\r` into the
+        ; output (which rewinds the line and garbles every later double).
+        def dd_str:string ("" + node.double_value)
+        def ii_str:string ("" + (to_int node.double_value))
+        if (dd_str == ii_str) {
+          wr.out((dd_str + ".0") false)
+        } {
+          wr.out(dd_str false)
+        }
       }
       case RangerNodeType.String {
         def s:string (this.EncodeString(node ctx wr))
@@ -274,6 +283,20 @@ class RangerDartClassWriter {
     }
   }
 
+  ; Same rule as Kotlin: keep `ClassName.staticFn` when the named member is
+  ; static. Dart rejects `this.staticFn()`, so rewriting the class name to
+  ; `this` for those calls is a compile error.
+  fn namesStaticMember:boolean (cl:RangerAppClassDesc node:CodeNode) {
+    if ((array_length node.ns) < 2) {
+      return false
+    }
+    def member:string (itemAt node.ns 1)
+    if (cl.hasStaticMethod(member)) {
+      return true
+    }
+    return false
+  }
+
   fn WriteVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (node.vref == "this") {
       wr.out("this" false)
@@ -302,7 +325,7 @@ class RangerDartClassWriter {
           if (!null? uc) {
             def currC:RangerAppClassDesc (unwrap uc)
             if (part == currC.name) {
-              if( false == (ctx.isInStatic()) ) {
+              if( (false == (ctx.isInStatic())) && (false == (this.namesStaticMember(currC node))) ) {
                 wr.out("this" false)
                 continue
               }
@@ -348,7 +371,7 @@ class RangerDartClassWriter {
         if (!null? uc) {
           def currC:RangerAppClassDesc (unwrap uc)
           if (part == currC.name) {
-            if( false == (ctx.isInStatic()) ) {
+            if( (false == (ctx.isInStatic())) && (false == (this.namesStaticMember(currC node))) ) {
               wr.out("this" false)
               continue
             }
@@ -428,6 +451,73 @@ class RangerDartClassWriter {
       this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
       wr.out(" " false)
       wr.out((this.paramEmitName(arg ctx)) false)
+    }
+  }
+
+  ; True when the receiver of a call is spelled with a nullable Dart type --
+  ; either the reference itself carries the optional flag, or it names a
+  ; variable whose declaration does. writeTypeDef gives such a declaration a
+  ; trailing `?`, and Dart then refuses a plain `.` call on it.
+  fn receiverIsNullable:boolean (obj:CodeNode) {
+    if (obj.hasFlag("optional")) {
+      return true
+    }
+    if obj.hasParamDesc {
+      def p:RangerAppParamDesc obj.paramDesc
+      def nn@(optional):CodeNode p.nameNode
+      if (!null? nn) {
+        if ((unwrap nn).hasFlag("optional")) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  ; Same shape as RangerGenericClassWriter.CreateCallExpression, plus the null
+  ; assertion Dart needs: a field declared without an initializer comes out
+  ; as `EvalContext?`, and `(moduleScope).has(k)` on it does not compile.
+  ; The namespaced path in WriteVRef already writes `!`; a bare single-name
+  ; receiver reached this one instead and got neither that nor `this.`.
+  fn CreateCallExpression(node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if node.has_call {
+      def obj:CodeNode (node.getSecond())
+      def method:CodeNode (node.getThird())
+      def args:CodeNode (itemAt node.children 3)
+
+      wr.out("(" false)
+      ctx.setInExpr()
+      this.WalkNode( obj ctx wr)
+      ctx.unsetInExpr()
+      wr.out(")" false)
+      if (this.receiverIsNullable(obj)) {
+        wr.out("!" false)
+      }
+      wr.out("." false)
+      def methodName method.vref
+      if ((!null? node.fnDesc) && ((strlen node.fnDesc.compiledName) > 0)) {
+        methodName = node.fnDesc.compiledName
+      }
+      wr.outMapped(methodName method false method.vref)
+      wr.out("(" false)
+      ctx.setInExpr()
+      def pms (filter (args.children) {
+        if( item.hasFlag('keyword')) {
+          return false
+        }
+        return true
+      })
+      for pms arg:CodeNode i {
+        if (i > 0) {
+          wr.out(", " false)
+        }
+        this.WalkNode(arg ctx wr)
+      }
+      ctx.unsetInExpr()
+      wr.out(")" false)
+      if ((ctx.expressionLevel()) == 0) {
+        wr.out(";" true)
+      }
     }
   }
 

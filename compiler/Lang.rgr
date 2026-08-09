@@ -571,6 +571,11 @@ static final java.util.Random rg_random = new java.util.Random();
                 )
                 scala ( "scala.util.Random.nextDouble()" )
                 php ( "(mt_rand() / mt_getrandmax())" )
+                dart ( "rg_random.nextDouble()" (imp "dart:math")
+(create_polyfill "
+final Random rg_random = Random();
+")
+                )
             }
         }
 
@@ -620,6 +625,11 @@ static final java.util.Random rg_random = new java.util.Random();
                 )
                 scala ( "(" (e 1) " + scala.util.Random.nextInt((" (e 2) " - " (e 1) ") + 1))" )
                 php ( "mt_rand(" (e 1) ", " (e 2) ")" )
+                dart ( "rg_random.nextInt((" (e 2) ") - (" (e 1) ") + 1) + (" (e 1) ")" (imp "dart:math")
+(create_polyfill "
+final Random rg_random = Random();
+")
+                )
             }
         }
         
@@ -809,7 +819,13 @@ func _r_sha256(value string) string {
                 swift3 ( "Double.pi" (imp "Foundation"))
                 swift6 ( "Double.pi" (imp "Foundation"))
                 python ( "math.pi" (imp "math") )
-                dart ( "pi" (imp "dart:math"))
+                ; Bare `pi` from dart:math shadows a local named `pi`
+                ; (`double pi = pi;`). Use a uniquely named constant instead.
+                dart ( "rg_pi" (imp "dart:math")
+(create_polyfill "
+const double rg_pi = pi;
+")
+                )
                 java7 ( "Math.PI" (imp "java.lang.Math"))
                 php ("pi()")
                 llvm ("(M_PI)")
@@ -872,6 +888,7 @@ func _r_sha256(value string) string {
                 swift6 ( "atan2(" (e 1) ", " (e 2) ")" (imp "Foundation"))
                 kotlin ( "Math.atan2(" (e 1) ", " (e 2) ")" (imp "java.lang.Math"))
                 python ( "math.atan2(" (e 1) ", " (e 2) ")" (imp "math"))
+                dart ( "atan2(" (e 1) ", " (e 2) ")" (imp "dart:math"))
                 * ( "Math.atan2(" (e 1) ", " (e 2) ")" )
             }
         }
@@ -1148,6 +1165,7 @@ func r_file_exists(pathName string, fileName string) bool {
                 kotlin ( "java.io.File(" (e 1) " + \"/\" + " (e 2) ").isFile()" )
                 csharp ( "System.IO.File.Exists(" (e 1) " + \"/\" + " (e 2) ")" )
                 scala ( "new java.io.File(" (e 1) " + \"/\" + " (e 2) ").isFile()" )
+                dart ( (imp "dart:io") "FileSystemEntity.isFileSync((" (e 1) ") + \"/\" + (" (e 2) "))" )
            }
         }
 
@@ -1308,6 +1326,7 @@ func r_file_mtime ( path:String, name:String ) -> Int {
                 scala ( "new java.io.File(" (e 1) " + \"/\" + " (e 2) ").lastModified().toInt()" )
                 php ( "(filemtime(" (e 1) ".'/'." (e 2) ") * 1000)" )
                 ranger ( "(file_mtime " (e 1) " " (e 2) ")" )
+                dart ( (imp "dart:io") "(() { try { return File((" (e 1) ") + \"/\" + (" (e 2) ")).lastModifiedSync().millisecondsSinceEpoch; } catch (_) { return 0; } })()" )
            }
         }
 
@@ -1655,6 +1674,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 go ( (e 1 ) )
                 swift6 ( "nil" )
                 kotlin ( "null" )
+                dart ( "null" )
                 rust ( "None" )
                 python ( "None" )
                 php ( "null" )
@@ -2506,6 +2526,7 @@ def r_div_f64(a, b):
                 go ( "if ( " (e 1) ".has_value) {" nl I (block 2) i nl "}" nl )
                 rust ( "if " (e 1) ".is_some() {" nl I (block 2) i nl "}" nl )
                 python ( "if " (e 1) " is not None:" nl I (block 2) i nl )
+                dart ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
                 * ( "if ( typeof(" ( e 1 ) ") != \"undefined\" ) {" nl I (block 2) i nl "}" nl )
             }
         }  
@@ -2524,6 +2545,7 @@ def r_div_f64(a, b):
                 go ( "if ( " (e 1) ".has_value) {" nl I (block 2) i nl "}" nl )
                 rust ( "if " (e 1) ".is_some() {" nl I (block 2) i nl "}" nl )
                 python ( "if " (e 1) " is not None:" nl I (block 2) i nl )
+                dart ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
                 * ( "if ( typeof(" ( e 1 ) ") != \"undefined\" ) {" nl I (block 2) i nl "}" nl )
             }
         }
@@ -2545,6 +2567,7 @@ def r_div_f64(a, b):
                 swift6 ( "if ( " (e 1) " != nil ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 go ( "if ( " (e 1) ".has_value ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 python ( "if " (e 1) " is not None:" I nl (block 2) i nl "else:" I nl (block 3) i nl)
+                dart ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 * ( "if ( typeof(" ( e 1 ) ") != \"undefined\" ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
             }
         }
@@ -2563,6 +2586,7 @@ def r_div_f64(a, b):
                 swift6 ( "if ( " (e 1) " != nil ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 go ( "if ( " (e 1) ".has_value ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 python ( "if " (e 1) " is not None:" I nl (block 2) i nl "else:" I nl (block 3) i nl)
+                dart ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 * ( "if ( typeof(" ( e 1 ) ") != \"undefined\" ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
             }
         }
@@ -3619,6 +3643,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 swift6 ( "(try? Data(contentsOf: URL(fileURLWithPath: " (e 1) " + \"/\" + " (e 2) "))).map { Array($0) } ?? []" (imp "Foundation") )
                 csharp ( "System.IO.File.ReadAllBytes(" (e 1) " + \"/\" + " (e 2) ")" )
                 kotlin ( "java.io.File(" (e 1) " + \"/\" + " (e 2) ").readBytes()" )
+                dart ( (imp "dart:io") (imp "dart:typed_data") "(() { try { return File((" (e 1) ") + \"/\" + (" (e 2) ")).readAsBytesSync(); } catch (_) { return Uint8List(0); } })()" )
             }
         }
 
@@ -4527,6 +4552,19 @@ def r_str_to_int(s):
     return int(s)
   except (TypeError, ValueError):
     return None
+")
+                )
+                ; Match JS parseInt prefix behaviour (and the Kotlin helper):
+                ; "12px" → 12, garbage → null.
+                dart ( "rangerStr2IntPrefix(" (e 1) ")"
+(create_polyfill "
+int? rangerStr2IntPrefix(String s) {
+  final m = RegExp(r'^-?\\d+').firstMatch(s);
+  if (m == null) {
+    return null;
+  }
+  return int.tryParse(m.group(0)!);
+}
 ")
                 )
                 * ( "isNaN( parseInt(" (e 1) ") ) ? undefined : parseInt(" (e 1) ")")

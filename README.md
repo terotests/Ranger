@@ -81,12 +81,12 @@ external plugins are only available as npm packages.
 and `C++` (C++14).
 
 The TypeScript/ES5 interpreter in `gallery/game_engine/v2/interp` is the largest
-cross-target gate: Go, Kotlin, Python and C# each compile, build and answer
-**8/8** of the Node benchmark cases (`npm run test:tsengine`). Swift 6 accepts
-the same ~31k-line program; a Swift toolchain is not always available in CI, so
-that column is compile-only there. Dart’s golden is `gallery/ts_parser` (AST
-identical to the JS `-d` demo). Details: [`TS_ENGINE_PERF.md`](TS_ENGINE_PERF.md),
-[`TARGET_NOTES.md`](TARGET_NOTES.md).
+cross-target gate: Go, Kotlin, Python, C# and Dart each compile, build and
+answer the Node benchmark cases (`npm run test:tsengine`). Swift 6 accepts the
+same ~31k-line program; a Swift toolchain is not always available in CI, so that
+column is compile-only there. Dart also keeps the `gallery/ts_parser` golden
+(AST identical to the JS `-d` demo). Details:
+[`TS_ENGINE_PERF.md`](TS_ENGINE_PERF.md), [`TARGET_NOTES.md`](TARGET_NOTES.md).
 
 **Thinner CI** — `PHP`, `Java 7` and `Scala` still have operator templates and
 appear in the syntax-app matrix, but they are not on the large-engine golden
