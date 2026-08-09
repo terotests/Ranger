@@ -23,6 +23,18 @@ OUT_DIR=gallery/game_engine/v2/interp/bin/$TARGET
 SRC=gallery/game_engine/v2/interp/bench/native/bench_main.rgr
 mkdir -p "$OUT_DIR"
 
+# GNU sed (Linux): sed -i '…' file
+# BSD sed (macOS): sed -i '' '…' file
+# Detect via --version (GNU only) so the rust .clone().clone() collapse works
+# on both. Do not use `sed -i ''` alone — GNU treats '' as the script name.
+sed_i() {
+  if sed --version >/dev/null 2>&1; then
+    sed -i "$@"
+  else
+    sed -i '' "$@"
+  fi
+}
+
 # Resolve a real libstdc++ g++ when possible (Apple's g++ is clang/libc++).
 # shellcheck source=scripts/cpp-toolchain.sh
 . "$ROOT/scripts/cpp-toolchain.sh"
@@ -96,7 +108,7 @@ case "$TARGET" in
     # returns Self, so collapsing the pair is always semantics-preserving —
     # and each pair was a full extra copy of the value (a union clone copies
     # its string payload). Same spirit as fix_cpp_evalvalue_order.py above.
-    sed -i 's/\.clone()\.clone()/.clone()/g' "$OUT_DIR/engine_bench.rs"
+    sed_i 's/\.clone()\.clone()/.clone()/g' "$OUT_DIR/engine_bench.rs"
     echo "== rustc -C opt-level=3"
     rustc -C opt-level=3 -C target-cpu=native -C codegen-units=1 \
       "$OUT_DIR/engine_bench.rs" -o "$OUT_DIR/engine_bench"

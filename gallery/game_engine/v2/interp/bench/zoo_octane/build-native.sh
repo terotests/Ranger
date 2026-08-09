@@ -11,6 +11,16 @@ ROOT="$(pwd)"
 TARGETS="${TARGET:-cpp rust}"
 SRC=gallery/game_engine/v2/interp/bench/zoo_octane/octane_main.rgr
 
+# GNU sed (Linux): sed -i '…' file
+# BSD sed (macOS): sed -i '' '…' file
+sed_i() {
+  if sed --version >/dev/null 2>&1; then
+    sed -i "$@"
+  else
+    sed -i '' "$@"
+  fi
+}
+
 # Resolve a real libstdc++ g++ when possible (Apple's g++ is clang/libc++).
 # shellcheck source=scripts/cpp-toolchain.sh
 . "$ROOT/scripts/cpp-toolchain.sh"
@@ -74,7 +84,7 @@ for T in $TARGETS; do
       ;;
     rust)
       # Collapse writer-stacked .clone().clone() pairs (see bench/native).
-      sed -i 's/\.clone()\.clone()/.clone()/g' "$OUT_DIR/octane_runner.rs"
+      sed_i 's/\.clone()\.clone()/.clone()/g' "$OUT_DIR/octane_runner.rs"
       echo "== rustc -C opt-level=3 octane_runner"
       rustc -C opt-level=3 -C target-cpu=native -C codegen-units=1 \
         "$OUT_DIR/octane_runner.rs" -o "$OUT_DIR/octane_runner"

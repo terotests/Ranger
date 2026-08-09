@@ -21603,22 +21603,26 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
           return tn;
         };
+        escapeCppTrigraphs (s) {
+          let out = s;
+          out = out.split("??=").join("\\?\\?=");
+          out = out.split("??(").join("\\?\\?(");
+          out = out.split("??/").join("\\?\\?/");
+          out = out.split("??)").join("\\?\\?)");
+          out = out.split("??'").join("\\?\\?'");
+          out = out.split("??<").join("\\?\\?<");
+          out = out.split("??!").join("\\?\\?!");
+          out = out.split("??>").join("\\?\\?>");
+          out = out.split("??-").join("\\?\\?-");
+          return out;
+        };
         WriteScalarValue (node, ctx, wr) {
           switch (node.value_type ) { 
             case 2 : 
               wr.out("" + node.double_value, false);
               break;
             case 4 : 
-              let s = this.EncodeString(node, ctx, wr);
-              s = s.split("??=").join("\\?\\?=");
-              s = s.split("??(").join("\\?\\?(");
-              s = s.split("??/").join("\\?\\?/");
-              s = s.split("??)").join("\\?\\?)");
-              s = s.split("??'").join("\\?\\?'");
-              s = s.split("??<").join("\\?\\?<");
-              s = s.split("??!").join("\\?\\?!");
-              s = s.split("??>").join("\\?\\?>");
-              s = s.split("??-").join("\\?\\?-");
+              let s = this.escapeCppTrigraphs(this.EncodeString(node, ctx, wr));
               wr.out(("std::string(" + (("\"" + s) + "\"")) + ")", false);
               break;
             case 3 : 
@@ -22337,7 +22341,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   ctx.setInExpr();
                   await this.WalkNode(svExprN, ctx, wr);
                   ctx.unsetInExpr();
-                  wr.out(((") " + cmd) + " std::string_view(\"") + this.EncodeString(svLitN, ctx, wr), false);
+                  const svEsc = this.escapeCppTrigraphs(this.EncodeString(svLitN, ctx, wr));
+                  wr.out(((") " + cmd) + " std::string_view(\"") + svEsc, false);
                   wr.out(("\", " + svLen) + "))", false);
                   return;
                 }
