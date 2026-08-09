@@ -3580,7 +3580,12 @@ class ComponentEngine {
                 if prop.computed {
                     if prop.right {
                         def keyNode:TSNode (unwrap prop.right)
-                        srcKey = (this.toStringOf((this.evaluateExpr(keyNode))))
+                        ; Two `this.` calls nested in one expression is two
+                        ; mutable borrows of self on Rust (E0499). The engine
+                        ; is written once and compiled to every target, so the
+                        ; local is not a style choice.
+                        def keyVal:EvHandle (this.evaluateExpr(keyNode))
+                        srcKey = (this.toStringOf(keyVal))
                     }
                 }
                 def v:EvHandle (value.getMember(srcKey))
