@@ -1083,6 +1083,10 @@ class ComponentEngine {
     def globalObject@(optional):EvHandle
     ; D-CLASSEXPR: counter for generated class-expression table keys.
     def classExprSeq:int 0
+    ; D-SYMKEY: mints the identity half of a symbol's property key.
+    def symbolSeq:int 0
+    ; Symbol.for's cross-realm registry: description -> the one symbol for it.
+    def symbolRegistry:[string:EvHandle]
     ; When true (the spec default) an unresolvable identifier read is a
     ; ReferenceError and calling a non-function is a TypeError, instead of
     ; silently evaluating to null. Kept as a switch because the failure mode it
@@ -3618,7 +3622,7 @@ class ComponentEngine {
                         ; is written once and compiled to every target, so the
                         ; local is not a style choice.
                         def keyVal:EvHandle (this.evaluateExpr(keyNode))
-                        srcKey = (this.toStringOf(keyVal))
+                        srcKey = (this.toPropertyKey(keyVal))
                     }
                 }
                 def v:EvHandle (value.getMember(srcKey))
@@ -14758,12 +14762,7 @@ class ComponentEngine {
                             sDesc = (sdv.toString())
                         }
                     }
-                    def keysY:[string]
-                    def valsY:[EvHandle]
-                    def minted:EvHandle (EvValueBridge.taggedObject(keysY valsY))
-                    minted.setMember("__symbol__" (EvValueBridge.taggedString(sDesc)))
-                    minted.setMember("description" (EvValueBridge.taggedString(sDesc)))
-                    return minted
+                    return (this.mintSymbol(sDesc))
                 }
                 ; D-EVAL: direct eval. Parses the string and runs it in the
                 ; CURRENT scope, so declarations it makes are visible to the
@@ -16249,7 +16248,12 @@ class ComponentEngine {
                 def gopnKeys:[string] (this.objectKeys(gopnSrc))
                 def gopnI:int 0
                 while (gopnI < (array_length gopnKeys)) {
-                    push gopnItems (EvValueBridge.taggedString((itemAt gopnKeys gopnI)))
+                    def gopnK:string (itemAt gopnKeys gopnI)
+                    ; An engine-internal slot and a SYMBOL key are both invisible
+                    ; to getOwnPropertyNames -- a symbol is not a "name".
+                    if (false == (this.isHiddenInstanceKey(gopnK))) {
+                        push gopnItems (EvValueBridge.taggedString(gopnK))
+                    }
                     gopnI = (gopnI + 1)
                 }
                 return (EvValueBridge.taggedArray(gopnItems))
@@ -16350,6 +16354,41 @@ class ComponentEngine {
                     return (this.throwDefineError(dErr))
                 }
                 return a0
+            }
+        }
+        ; D-SYMBOL: the global symbol registry. `Symbol.for(k)` answers the ONE
+        ; symbol for that key across the realm, and keyFor names it back.
+        if (nsName == "Symbol") {
+            if (name == "for") {
+                def fk:string ""
+                if ((array_length args) > 0) {
+                    fk = (this.toStringOf((itemAt args 0)))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                }
+                def hit@(optional):EvHandle (get symbolRegistry fk)
+                if (!null? hit) {
+                    return (unwrap hit)
+                }
+                def fresh:EvHandle (this.mintSymbol(fk))
+                fresh.setMember("__symreg__" (EvValueBridge.taggedString(fk)))
+                set symbolRegistry fk fresh
+                return fresh
+            }
+            if (name == "keyFor") {
+                if ((array_length args) == 0) {
+                    return (this.throwSpecError("TypeError" "Symbol.keyFor requires a symbol"))
+                }
+                def kv:EvHandle (itemAt args 0)
+                if (false == (this.isSymbolValue(kv))) {
+                    return (this.throwSpecError("TypeError" "Symbol.keyFor requires a symbol"))
+                }
+                def regV@(optional):EvHandle (kv.tryOwnData("__symreg__"))
+                if regV {
+                    return (unwrap regV)
+                }
+                return (EvValueBridge.taggedUndefined())
             }
         }
         ; D-REFLECT: the ES2015 Reflect namespace. Every one of these is the
@@ -16989,6 +17028,11 @@ class ComponentEngine {
         }
         if (nsName == "Reflect") {
             return (this.hasBuiltinStatic(nsName name))
+        }
+        if (nsName == "Symbol") {
+            if (name == "for") { return true }
+            if (name == "keyFor") { return true }
+            return false
         }
         return false
     }
@@ -19073,35 +19117,58 @@ class ComponentEngine {
                         }
                         return (EvHandle.fromInt((at + from)))
                     }
-                    if (name == "includes") {
-                        if ((array_length args) > 0) {
-                            def needle:string (this.toStringOf((itemAt args 0)))
-                            return (EvValueBridge.taggedBoolean(((indexOf s needle) >= 0)))
+                    ; D-STRSEARCH: includes/startsWith/endsWith all take a
+                    ; POSITION, which was ignored outright -- `"abc".includes("a", 1)`
+                    ; answered true and `"abc".startsWith("b", 1)` answered false.
+                    ; All three also reject a REGEXP as the search value rather
+                    ; than stringifying it, in the order the spec gives: IsRegExp
+                    ; first, then ToString of the search value, then ToInteger of
+                    ; the position, so a test with a throwing conversion on each
+                    ; sees the right one escape.
+                    if ((name == "includes") || ((name == "startsWith") || (name == "endsWith"))) {
+                        def needleV:EvHandle (EvValueBridge.taggedUndefined())
+                        if ((array_length args) > 0) { needleV = (itemAt args 0) }
+                        if ((this.receiverKind(needleV)) == "regexp") {
+                            return (this.throwSpecError("TypeError" ("First argument to String.prototype." + (name + " must not be a regular expression"))))
                         }
-                        return (EvValueBridge.taggedBoolean(false))
-                    }
-                    if (name == "startsWith") {
-                        if ((array_length args) > 0) {
-                            def pre:string (this.toStringOf((itemAt args 0)))
-                            def pl:int (strlen pre)
-                            if (pl > (strlen s)) {
+                        def needle:string (this.toStringOf(needleV))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        def sLen:int (strlen s)
+                        def nLen:int (strlen needle)
+                        ; endsWith's second argument is an END position and
+                        ; defaults to the whole string; the other two default to 0.
+                        def pos:int 0
+                        if (name == "endsWith") { pos = sLen }
+                        if ((array_length args) > 1) {
+                            def posV:EvHandle (itemAt args 1)
+                            if (false == (posV.isUndefined())) {
+                                pos = (this.toIntegerOf(posV))
+                                if scriptThrew {
+                                    return (EvValueBridge.taggedUndefined())
+                                }
+                            }
+                        }
+                        if (pos < 0) { pos = 0 }
+                        if (pos > sLen) { pos = sLen }
+                        if (name == "endsWith") {
+                            def eStart:int (pos - nLen)
+                            if (eStart < 0) {
                                 return (EvValueBridge.taggedBoolean(false))
                             }
-                            return (EvValueBridge.taggedBoolean(((substring s 0 pl) == pre)))
+                            return (EvValueBridge.taggedBoolean(((substring s eStart pos) == needle)))
                         }
-                        return (EvValueBridge.taggedBoolean(false))
-                    }
-                    if (name == "endsWith") {
-                        if ((array_length args) > 0) {
-                            def suf:string (this.toStringOf((itemAt args 0)))
-                            def sl:int (strlen suf)
-                            def L:int (strlen s)
-                            if (sl > L) {
+                        if (name == "startsWith") {
+                            if ((pos + nLen) > sLen) {
                                 return (EvValueBridge.taggedBoolean(false))
                             }
-                            return (EvValueBridge.taggedBoolean(((substring s (L - sl) L) == suf)))
+                            return (EvValueBridge.taggedBoolean(((substring s pos (pos + nLen)) == needle)))
                         }
-                        return (EvValueBridge.taggedBoolean(false))
+                        if (nLen == 0) {
+                            return (EvValueBridge.taggedBoolean(true))
+                        }
+                        return (EvValueBridge.taggedBoolean(((indexOf (substring s pos sLen) needle) >= 0)))
                     }
                     if (name == "slice") {
                         def L:int (strlen s)
@@ -19141,10 +19208,32 @@ class ComponentEngine {
                         return (EvValueBridge.taggedNumber((0.0 / 0.0)))
                     }
                     if (name == "repeat") {
-                        def n:int 0
+                        ; A NEGATIVE or INFINITE count is a RangeError, and the
+                        ; check has to happen in the double domain: ToInteger
+                        ; saturates Infinity to INT32_MAX, so `"a".repeat(Infinity)`
+                        ; became a two-billion-iteration concatenation loop --
+                        ; a hang, not an error.
+                        def cntD:double 0.0
                         if ((array_length args) > 0) {
-                            n = (this.toIntegerOf((itemAt args 0)))
+                            cntD = (this.toNumberOf((itemAt args 0)))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
                         }
+                        if (cntD != cntD) { cntD = 0.0 }
+                        def cntT:double (this.truncNum(cntD))
+                        if (cntT < 0.0) {
+                            return (this.throwSpecError("RangeError" "Invalid count value"))
+                        }
+                        if (false == (this.isFiniteNum(cntT))) {
+                            return (this.throwSpecError("RangeError" "Invalid count value"))
+                        }
+                        ; A finite count can still ask for more string than the
+                        ; host can hold; that is the same RangeError.
+                        if ((cntT * (to_double (strlen s))) > 536870888.0) {
+                            return (this.throwSpecError("RangeError" "Invalid string length"))
+                        }
+                        def n:int (to_int cntT)
                         def out:string ""
                         def r:int 0
                         while (r < n) {
@@ -22039,11 +22128,40 @@ class ComponentEngine {
         return direct
     }
 
+    ; D-SYMKEY: the property key a symbol value stands for, or "" for anything
+    ; that is not a symbol.
+    fn symbolKeyOf:string (v:EvHandle) {
+        if (false == (v.isObject())) { return "" }
+        def idV@(optional):EvHandle (v.tryOwnData("__symid__"))
+        if idV {
+            def idH:EvHandle (unwrap idV)
+            if (idH.isString()) {
+                return (idH.stringOf())
+            }
+        }
+        return ""
+    }
+
+    ; True for a symbol VALUE. `typeof` already answered "symbol" for these; the
+    ; predicate is what the operations that must reject one need.
+    fn isSymbolValue:boolean (v:EvHandle) {
+        return ((strlen (this.symbolKeyOf(v))) > 0)
+    }
+
     ; ToString: an object runs its own toString/valueOf, everything else answers
     ; for itself.
     fn toStringOf:string (v:EvHandle) {
         if (v.isString()) {
             return (v.stringOf())
+        }
+        ; A symbol renders as `Symbol(description)`. It reached the ordinary
+        ; object path and came out "[object Object]", so `String(Symbol('k'))`
+        ; and `Symbol.iterator.toString()` both lost the description.
+        if (this.isSymbolValue(v)) {
+            def dsc:EvHandle (v.getMember("__symbol__"))
+            def dstr:string ""
+            if (dsc.isString()) { dstr = (dsc.stringOf()) }
+            return ("Symbol(" + (dstr + ")"))
         }
         def p:EvHandle v
         ; Functions convert too -- a guest override of Function.prototype.toString
@@ -22268,6 +22386,14 @@ class ComponentEngine {
     fn toPropertyKey:string (v:EvHandle) {
         if (v.isString()) {
             return (v.stringOf())
+        }
+        ; D-SYMKEY: a SYMBOL is a property key in its own right. Running it
+        ; through ToString made every symbol key "[object Object]", so all of
+        ; them were the same key -- and `o[Symbol.iterator]` collided with
+        ; `o[Symbol()]`.
+        def symK:string (this.symbolKeyOf(v))
+        if ((strlen symK) > 0) {
+            return symK
         }
         def p:EvHandle v
         if (v.isObject()) { p = (this.toPrimitive(v true)) }
@@ -22994,6 +23120,20 @@ class ComponentEngine {
     ; distinct object value, so `Symbol.iterator !== Symbol.asyncIterator` and a
     ; symbol compares equal only to itself — the property tests rely on that.
     ; Symbol() as a factory is handled at the call site; this seeds the statics.
+    ; D-SYMBOL: `Symbol(desc)` mints a value equal only to itself. The
+    ; description is what it PRINTS as; the sequenced id is what makes it a
+    ; distinct property key.
+    fn mintSymbol:EvHandle (desc:string) {
+        def keysY:[string]
+        def valsY:[EvHandle]
+        def minted:EvHandle (EvValueBridge.taggedObject(keysY valsY))
+        minted.setMember("__symbol__" (EvValueBridge.taggedString(desc)))
+        symbolSeq = (symbolSeq + 1)
+        minted.setMember("__symid__" (EvValueBridge.taggedString(("@@" + (to_string symbolSeq)))))
+        minted.setMember("description" (EvValueBridge.taggedString(desc)))
+        return minted
+    }
+
     fn ensureSymbolGlobal:void () {
         def existing:EvHandle (hostScope.lookup("Symbol"))
         if (existing.isFunction()) {
@@ -23020,10 +23160,31 @@ class ComponentEngine {
             def keysS:[string]
             def valsS:[EvHandle]
             def s:EvHandle (EvValueBridge.taggedObject(keysS valsS))
-            s.setMember("__symbol__" (EvValueBridge.taggedString(nm)))
+            s.setMember("__symbol__" (EvValueBridge.taggedString(("Symbol." + nm))))
+            ; A well-known symbol's key is fixed rather than sequenced, so the
+            ; same one is reached however the realm was warmed up.
+            s.setMember("__symid__" (EvValueBridge.taggedString(("@@" + nm))))
             s.setMember("description" (EvValueBridge.taggedString(("Symbol." + nm))))
             sym.setMember(nm s)
+            sym.setAttrs(nm false false false)
             i = (i + 1)
+        }
+        ; Symbol.for / Symbol.keyFor, as ordinary static values so they are
+        ; detachable like every other built-in static.
+        def sfns:[string]
+        push sfns "for"
+        push sfns "keyFor"
+        def sj:int 0
+        while (sj < (array_length sfns)) {
+            def sfn:string (itemAt sfns sj)
+            def sv:EvHandle (EvValueBridge.taggedNativeStatic("Symbol" sfn))
+            sv.setMember("name" (EvValueBridge.taggedString(sfn)))
+            sv.setAttrs("name" false false true)
+            sv.setMember("length" (EvHandle.fromInt(1)))
+            sv.setAttrs("length" false false true)
+            sym.setMember(sfn sv)
+            sym.setAttrs(sfn true false true)
+            sj = (sj + 1)
         }
         hostScope.define("Symbol" sym)
         ; D-EVAL: eval is seeded as a real function value so `typeof eval` is
@@ -25047,6 +25208,11 @@ class ComponentEngine {
                     def ckey:string ""
                     if (indexVal.isString()) { ckey = (indexVal.stringOf()) }
                     if (indexVal.isNumber()) { ckey = (this.toPropertyKey(indexVal)) }
+                    ; D-SYMKEY: a SYMBOL index is a property key too. Only string
+                    ; and number keys were derived here, so `o[sym]` read nothing
+                    ; even though `o[sym] = v` had written under the symbol's key.
+                    def cSymKey:string (this.symbolKeyOf(indexVal))
+                    if ((strlen cSymKey) > 0) { ckey = cSymKey }
                     ; D-ARGMAP: `arguments[0]` and the first named parameter are
                     ; ONE binding in sloppy mode, so a reassignment of either is
                     ; visible through the other. The object held a snapshot taken
@@ -25137,6 +25303,14 @@ class ComponentEngine {
                             return viaMember
                         }
                         return (obj.getMember(sk))
+                    }
+                    ; D-SYMKEY: a symbol index reads under the symbol's key.
+                    if ((strlen cSymKey) > 0) {
+                        def viaSym:EvHandle (this.getPropertyValue(obj cSymKey))
+                        if (viaSym.isNull()) {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        return viaSym
                     }
                 }
             }
@@ -25264,6 +25438,14 @@ class ComponentEngine {
         if (k == "__error__") { return true }
         if (k == "__errorctor__") { return true }
         if (k == "__symbol__") { return true }
+        if (k == "__symid__") { return true }
+        if (k == "__symreg__") { return true }
+        ; D-SYMKEY: a symbol-keyed property is never listed by Object.keys,
+        ; getOwnPropertyNames or for-in. Symbol keys are minted as "@@..." so
+        ; the one prefix covers both well-known and user symbols.
+        if ((strlen k) > 2) {
+            if ((substring k 0 2) == "@@") { return true }
+        }
         if (k == "__protokind__") { return true }
         if (k == "__date__") { return true }
         if (k == "__nsbrand__") { return true }
@@ -26065,7 +26247,10 @@ class ComponentEngine {
                     if prop.right {
                         def keyNode:TSNode (unwrap prop.right)
                         def keyVal:EvHandle (this.evaluateExpr(keyNode))
-                        key = (this.toStringOf(keyVal))
+                        ; ToPropertyKey, not ToString: a SYMBOL computed key
+                        ; stands for itself, and stringifying it made
+                        ; `{[sym]: v}` an ordinary "Symbol(k)" property.
+                        key = (this.toPropertyKey(keyVal))
                     }
                 }
                 ; The parser tags an object-literal accessor on `kind`
