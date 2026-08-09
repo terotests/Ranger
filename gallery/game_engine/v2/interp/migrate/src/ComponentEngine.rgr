@@ -1114,6 +1114,20 @@ class ComponentEngine {
     def classExprSeq:int 0
     ; D-SYMKEY: mints the identity half of a symbol's property key.
     def symbolSeq:int 0
+    ; D-PROMISE: the job queue. A reaction is a (handler, derived capability,
+    ; argument) triple; the queue is drained after the script's synchronous work
+    ; finishes, which is the only observation point this realm has.
+    def jobHandler:[EvHandle]
+    def jobDerived:[EvHandle]
+    def jobValue:[EvHandle]
+    def jobIsReject:[boolean]
+    def jobHead:int 0
+    ; Reactions registered against a still-pending promise, keyed by its id.
+    def reactPid:[string]
+    def reactOnFul:[EvHandle]
+    def reactOnRej:[EvHandle]
+    def reactDerived:[EvHandle]
+    def promiseSeq:int 0
     ; Symbol.for's cross-realm registry: description -> the one symbol for it.
     def symbolRegistry:[string:EvHandle]
     ; When true (the spec default) an unresolvable identifier read is a
@@ -2440,6 +2454,10 @@ class ComponentEngine {
         this.publishGlobalVarNames(ast)
         this.hoistTopLevelVarNames(ast)
         this.runTopLevelStatements(ast)
+        ; D-PROMISE: the realm has no host event loop, so "later" is here -- the
+        ; end of the script's synchronous work. Reactions registered during the
+        ; run happen after all of it, and before control returns to the embedder.
+        this.drainJobs()
     }
 
     ; Standard JS module semantics: top-level expression statements execute at
@@ -8371,6 +8389,9 @@ class ComponentEngine {
         }
         if (name == "Array") {
             return (this.buildArrayFromValues(args))
+        }
+        if (name == "Promise") {
+            return (this.constructPromise(args))
         }
         ; D-REGEX: the constructor reached through a VALUE -- `var F =
         ; RegExp.prototype.constructor; new F()`. Without a case here it fell off
@@ -15983,6 +16004,7 @@ class ComponentEngine {
         if (name == "Set") { return true }
         if (name == "Date") { return true }
         if (name == "RegExp") { return true }
+        if (name == "Promise") { return true }
         return (this.isErrorCtorName(name))
     }
 
@@ -16538,6 +16560,83 @@ class ComponentEngine {
                 return a0
             }
         }
+        ; D-PROMISE: the four statics. Each one's `this` must be an object --
+        ; they are specified over a constructor C, and `Promise.all.call(86, [])`
+        ; is a TypeError before anything else happens.
+        if (nsName == "Promise") {
+            def pArg:EvHandle (EvValueBridge.taggedUndefined())
+            if ((array_length args) > 0) { pArg = (itemAt args 0) }
+            if (name == "reject") {
+                def rp:EvHandle (this.makePromiseValue())
+                this.settlePromise(rp 2 pArg)
+                return rp
+            }
+            if (name == "resolve") {
+                return (this.promiseResolveValue(pArg))
+            }
+            ; all and race both iterate their argument, and a non-iterable one
+            ; REJECTS rather than throwing.
+            def items:[EvHandle]
+            def gotItems:boolean true
+            if (pArg.isArrayValue()) {
+                items = (pArg.itemsOf())
+            } {
+                def savedThrewA:boolean scriptThrew
+                scriptThrew = false
+                items = (this.forOfItemList(pArg))
+                if scriptThrew {
+                    def bad:EvHandle scriptThrowValue
+                    scriptThrew = savedThrewA
+                    def errP:EvHandle (this.makePromiseValue())
+                    this.settlePromise(errP 2 bad)
+                    return errP
+                }
+                scriptThrew = savedThrewA
+            }
+            def outP:EvHandle (this.makePromiseValue())
+            if (name == "race") {
+                def ri2:int 0
+                while (ri2 < (array_length items)) {
+                    def rv:EvHandle (this.promiseResolveValue((itemAt items ri2)))
+                    ; The first to settle wins; settlePromise ignores the rest.
+                    this.registerReaction(rv (EvValueBridge.taggedUndefined()) (EvValueBridge.taggedUndefined()) outP)
+                    ri2 = (ri2 + 1)
+                }
+                return outP
+            }
+            ; all: fulfil with the values in order once every element has
+            ; settled. With no host event loop the elements are already settled
+            ; by the time the jobs run, so the values are read back then.
+            def parts:[EvHandle]
+            def ai2:int 0
+            while (ai2 < (array_length items)) {
+                push parts (this.promiseResolveValue((itemAt items ai2)))
+                ai2 = (ai2 + 1)
+            }
+            this.drainJobs()
+            def vals:[EvHandle]
+            def rejected:boolean false
+            def rejVal:EvHandle (EvValueBridge.taggedUndefined())
+            def vi:int 0
+            while (vi < (array_length parts)) {
+                def one:EvHandle (itemAt parts vi)
+                def st:int (this.toIntegerOf((one.getMember("__pstate__"))))
+                if (st == 2) {
+                    if (false == rejected) {
+                        rejected = true
+                        rejVal = (one.getMember("__pvalue__"))
+                    }
+                }
+                push vals (one.getMember("__pvalue__"))
+                vi = (vi + 1)
+            }
+            if rejected {
+                this.settlePromise(outP 2 rejVal)
+            } {
+                this.settlePromise(outP 1 (EvValueBridge.taggedArray(vals)))
+            }
+            return outP
+        }
         ; D-SYMBOL: the global symbol registry. `Symbol.for(k)` answers the ONE
         ; symbol for that key across the realm, and keyFor names it back.
         if (nsName == "Symbol") {
@@ -16860,6 +16959,7 @@ class ComponentEngine {
         ; RegExp takes (pattern, flags).
         if (nsName == "RegExp") { return 2 }
         if (nsName == "Date") { return 7 }
+        if (nsName == "Promise") { return 1 }
         if (nsName == "Map") { return 0 }
         if (nsName == "Set") { return 0 }
         return 0
@@ -16890,6 +16990,13 @@ class ComponentEngine {
         ; D-REFLECT: every Reflect method is an ordinary function on the
         ; namespace object -- there is no `Reflect.get` call-site form to fall
         ; back on, so this list IS the namespace.
+        if (nsName == "Promise") {
+            push out "all"
+            push out "race"
+            push out "reject"
+            push out "resolve"
+            return out
+        }
         if (nsName == "Reflect") {
             push out "apply"
             push out "construct"
@@ -17220,6 +17327,9 @@ class ComponentEngine {
         if (nsName == "Reflect") {
             return (this.hasBuiltinStatic(nsName name))
         }
+        if (nsName == "Promise") {
+            return (this.hasBuiltinStatic(nsName name))
+        }
         if (nsName == "Symbol") {
             if (name == "for") { return true }
             if (name == "keyFor") { return true }
@@ -17372,6 +17482,7 @@ class ComponentEngine {
         if (kind == "map") { return "Map" }
         if (kind == "set") { return "Set" }
         if (kind == "date") { return "Date" }
+        if (kind == "promise") { return "Promise" }
         return ""
     }
 
@@ -17387,6 +17498,7 @@ class ComponentEngine {
         if (nsName == "Map") { return "map" }
         if (nsName == "Set") { return "set" }
         if (nsName == "Date") { return "date" }
+        if (nsName == "Promise") { return "promise" }
         if (nsName == "Object") { return "object" }
         return ""
     }
@@ -17503,6 +17615,10 @@ class ComponentEngine {
             push out "sort"
             push out "splice"
             push out "unshift"
+        }
+        if (kind == "promise") {
+            push out "catch"
+            push out "then"
         }
         if (kind == "regexp") {
             push out "exec"
@@ -17858,6 +17974,7 @@ class ComponentEngine {
         if (v.isObject()) {
             ; D-REGEX: a RegExp dispatches to its own prototype so exec/test do
             ; not have to be looked for among the Object methods.
+            if (v.hasOwnData("__promise__")) { return "promise" }
             if (v.hasOwnData("__regex__")) { return "regexp" }
             ; D-DATE: likewise a Date, whose accessors are arithmetic on its
             ; time value rather than anything Object.prototype offers.
@@ -18050,6 +18167,14 @@ class ComponentEngine {
             if (name == "sort") { return 1 }
             if (name == "splice") { return 2 }
             if (name == "unshift") { return 1 }
+        }
+        if (kind == "promise") {
+            if (name == "then") { return 2 }
+            if (name == "catch") { return 1 }
+        }
+        if (kind == "promisecap") {
+            if (name == "resolve") { return 1 }
+            if (name == "reject") { return 1 }
         }
         if (kind == "regexp") {
             if (name == "exec") { return 1 }
@@ -20829,6 +20954,37 @@ class ComponentEngine {
                 return (this.regExpReplaceAll(recv reSubject repV))
             }
         }
+        ; ---- Promise.prototype ---------------------------------------------
+        ; D-PROMISE: the resolving functions handed to an executor. They carry
+        ; the promise as their receiver, so they stay callable after being
+        ; stored away -- `var r; new Promise(function (res) { r = res; }); r(1)`.
+        if (kind == "promisecap") {
+            def capArg:EvHandle (EvValueBridge.taggedUndefined())
+            if ((array_length args) > 0) { capArg = (itemAt args 0) }
+            if (name == "resolve") {
+                this.settlePromise(recv 1 capArg)
+            } {
+                this.settlePromise(recv 2 capArg)
+            }
+            return (EvValueBridge.taggedUndefined())
+        }
+        if (kind == "promise") {
+            if (false == (this.isPromiseValue(recv))) {
+                return (this.throwSpecError("TypeError" ("Promise.prototype." + (name + " called on a non-Promise"))))
+            }
+            def onFul:EvHandle (EvValueBridge.taggedUndefined())
+            def onRej:EvHandle (EvValueBridge.taggedUndefined())
+            if (name == "then") {
+                if ((array_length args) > 0) { onFul = (itemAt args 0) }
+                if ((array_length args) > 1) { onRej = (itemAt args 1) }
+            } {
+                ; `catch(f)` IS `then(undefined, f)`.
+                if ((array_length args) > 0) { onRej = (itemAt args 0) }
+            }
+            def derived:EvHandle (this.makePromiseValue())
+            this.registerReaction(recv onFul onRej derived)
+            return derived
+        }
         ; ---- Number.prototype ----------------------------------------------
         if (kind == "number") {
             def fprim:EvHandle (this.unwrapPrimitive(recv))
@@ -21102,6 +21258,9 @@ class ComponentEngine {
             if (v.hasOwnData("__error__")) { return "Error" }
             if (v.hasOwnData("__date__")) { return "Date" }
             if (v.hasOwnData("__regex__")) { return "RegExp" }
+            ; ES2015 brands a Promise through @@toStringTag, which lands in the
+            ; same place: `Object.prototype.toString.call(p)` is "[object Promise]".
+            if (v.hasOwnData("__promise__")) { return "Promise" }
             if (v.hasOwnData("__arguments__")) { return "Arguments" }
         }
         return "Object"
@@ -22117,6 +22276,182 @@ class ComponentEngine {
             re.setMember("lastIndex" (EvHandle.fromInt(m.end)))
         }
         return (this.regexResultArray(m subject))
+    }
+
+    ; ==========================================================================
+    ; D-PROMISE: Promise, as an object with a settled state and a reaction list.
+    ; --------------------------------------------------------------------------
+    ; The realm has no host event loop, so "later" means "after this script's
+    ; synchronous work". drainJobs is called at the end of loadScript and of each
+    ; host-entered call, which is the whole of the observable ordering here: a
+    ; reaction runs after the code that registered it and before control returns
+    ; to the embedder.
+    ; --------------------------------------------------------------------------
+    fn isPromiseValue:boolean (v:EvHandle) {
+        if (false == (v.isObject())) { return false }
+        return (v.hasOwnData("__promise__"))
+    }
+
+    fn makePromiseValue:EvHandle () {
+        def keysP:[string]
+        def valsP:[EvHandle]
+        def p:EvHandle (EvValueBridge.taggedObject(keysP valsP))
+        p.setMember("__promise__" (EvValueBridge.taggedBoolean(true)))
+        promiseSeq = (promiseSeq + 1)
+        p.setMember("__pid__" (EvValueBridge.taggedString(("p" + (to_string promiseSeq)))))
+        ; 0 pending, 1 fulfilled, 2 rejected.
+        p.setMember("__pstate__" (EvHandle.fromInt(0)))
+        p.setMember("__pvalue__" (EvValueBridge.taggedUndefined()))
+        p.setProto((this.builtinPrototype("Promise")))
+        return p
+    }
+
+    fn promiseIdOf:string (p:EvHandle) {
+        def idV:EvHandle (p.getMember("__pid__"))
+        if (idV.isString()) {
+            return (idV.stringOf())
+        }
+        return ""
+    }
+
+    ; Settle a promise and hand its registered reactions to the job queue.
+    ; Resolving WITH a thenable adopts its state, which is what makes
+    ; `resolve(otherPromise)` wait rather than fulfil with the promise itself.
+    fn settlePromise:void (p:EvHandle state:int value:EvHandle) {
+        if (false == (this.isPromiseValue(p))) { return }
+        if ((this.toIntegerOf((p.getMember("__pstate__")))) != 0) { return }
+        if (state == 1) {
+            if (this.isPromiseValue(value)) {
+                ; Adopt: when the inner promise settles, this one settles the
+                ; same way. Registered as an ordinary reaction with no handlers,
+                ; which is exactly the adoption rule.
+                this.registerReaction(value (EvValueBridge.taggedUndefined()) (EvValueBridge.taggedUndefined()) p)
+                return
+            }
+        }
+        p.setMember("__pstate__" (EvHandle.fromInt(state)))
+        p.setMember("__pvalue__" value)
+        def pid:string (this.promiseIdOf(p))
+        def i:int 0
+        while (i < (array_length reactPid)) {
+            if ((itemAt reactPid i) == pid) {
+                set reactPid i ""
+                push jobHandler (itemAt reactOnFul i)
+                if (state == 2) {
+                    set jobHandler ((array_length jobHandler) - 1) (itemAt reactOnRej i)
+                }
+                push jobDerived (itemAt reactDerived i)
+                push jobValue value
+                push jobIsReject (state == 2)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn registerReaction:void (p:EvHandle onFul:EvHandle onRej:EvHandle derived:EvHandle) {
+        def st:int (this.toIntegerOf((p.getMember("__pstate__"))))
+        if (st == 0) {
+            push reactPid (this.promiseIdOf(p))
+            push reactOnFul onFul
+            push reactOnRej onRej
+            push reactDerived derived
+            return
+        }
+        def h:EvHandle onFul
+        if (st == 2) { h = onRej }
+        push jobHandler h
+        push jobDerived derived
+        push jobValue (p.getMember("__pvalue__"))
+        push jobIsReject (st == 2)
+    }
+
+    ; Run every queued reaction. A handler that is not callable PASSES THROUGH:
+    ; a missing onFulfilled forwards the value, a missing onRejected forwards
+    ; the rejection -- which is what makes `.then(f)` on a rejected promise
+    ; reject rather than swallow.
+    fn drainJobs:void () {
+        def guard:int 0
+        while ((jobHead < (array_length jobHandler)) && (guard < 100000)) {
+            def h:EvHandle (itemAt jobHandler jobHead)
+            def d:EvHandle (itemAt jobDerived jobHead)
+            def v:EvHandle (itemAt jobValue jobHead)
+            def wasReject:boolean (itemAt jobIsReject jobHead)
+            jobHead = (jobHead + 1)
+            guard = (guard + 1)
+            if (h.isFunction()) {
+                def hArgs:[EvHandle]
+                push hArgs v
+                def savedThrew:boolean scriptThrew
+                def savedVal:EvHandle scriptThrowValue
+                scriptThrew = false
+                def outV:EvHandle (this.callFnValueWithValues(h hArgs))
+                if scriptThrew {
+                    def thrown:EvHandle scriptThrowValue
+                    scriptThrew = savedThrew
+                    scriptThrowValue = savedVal
+                    this.settlePromise(d 2 thrown)
+                } {
+                    scriptThrew = savedThrew
+                    scriptThrowValue = savedVal
+                    this.settlePromise(d 1 outV)
+                }
+            } {
+                if wasReject {
+                    this.settlePromise(d 2 v)
+                } {
+                    this.settlePromise(d 1 v)
+                }
+            }
+        }
+        ; The queue is fully consumed; reset so it does not grow without bound
+        ; across a long-lived engine.
+        if (jobHead >= (array_length jobHandler)) {
+            def freshH:[EvHandle]
+            def freshD:[EvHandle]
+            def freshV:[EvHandle]
+            def freshR:[boolean]
+            jobHandler = freshH
+            jobDerived = freshD
+            jobValue = freshV
+            jobIsReject = freshR
+            jobHead = 0
+        }
+    }
+
+    ; `new Promise(executor)`. The executor runs SYNCHRONOUSLY with the two
+    ; resolving functions, and a throw from it rejects the promise.
+    fn constructPromise:EvHandle (args:[EvHandle]) {
+        if ((array_length args) == 0) {
+            return (this.throwSpecError("TypeError" "Promise resolver undefined is not a function"))
+        }
+        def executor:EvHandle (itemAt args 0)
+        if (false == (executor.isFunction())) {
+            return (this.throwSpecError("TypeError" "Promise resolver is not a function"))
+        }
+        def p:EvHandle (this.makePromiseValue())
+        def resFn:EvHandle ((EvValueBridge.taggedNativeMethod("promisecap" "resolve")).withThisForCall(p))
+        def rejFn:EvHandle ((EvValueBridge.taggedNativeMethod("promisecap" "reject")).withThisForCall(p))
+        def exArgs:[EvHandle]
+        push exArgs resFn
+        push exArgs rejFn
+        def _r:EvHandle (this.callFnValueWithValues(executor exArgs))
+        if scriptThrew {
+            def thrown:EvHandle scriptThrowValue
+            scriptThrew = false
+            this.settlePromise(p 2 thrown)
+        }
+        return p
+    }
+
+    ; Promise.resolve: an existing promise passes through unchanged, anything
+    ; else becomes an already-fulfilled one.
+    fn promiseResolveValue:EvHandle (v:EvHandle) {
+        if (this.isPromiseValue(v)) {
+            return v
+        }
+        def p:EvHandle (this.makePromiseValue())
+        this.settlePromise(p 1 v)
+        return p
     }
 
     ; D-REGEXSYMBOL: RegExp.prototype[Symbol.replace] (21.2.5.8), written out
@@ -23988,6 +24323,7 @@ class ComponentEngine {
         if (name == "Math") { return true }
         if (name == "JSON") { return true }
         if (name == "Reflect") { return true }
+        if (name == "Promise") { return true }
         if (name == "Object") { return true }
         if (name == "Array") { return true }
         if (name == "String") { return true }
@@ -24061,6 +24397,7 @@ class ComponentEngine {
             push gnames "Math"
             push gnames "JSON"
             push gnames "Reflect"
+            push gnames "Promise"
             ; The error constructors are globals too -- getOwnPropertyNames on
             ; the global object is expected to list every one of them.
             def enames:[string] (this.errorKindNames())
@@ -25484,6 +25821,20 @@ class ComponentEngine {
         if (className == "RegExp") {
             return (this.buildRegexFromArgNodes(node.children true))
         }
+        ; D-PROMISE: `new Promise(executor)`. The executor runs synchronously,
+        ; with the two resolving functions.
+        if (className == "Promise") {
+            def prArgs:[EvHandle]
+            def pai:int 0
+            while (pai < (array_length node.children)) {
+                push prArgs (this.resolveCallbackValue((itemAt node.children pai)))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                pai = (pai + 1)
+            }
+            return (this.constructPromise(prArgs))
+        }
         ; D-TOOBJECT: `new Object(...)` had no case here at all -- it fell through
         ; to class instantiation and produced something that could not hold a
         ; property, so `var o = new Object(); o.a = 1; o.a` read undefined. Both
@@ -26163,6 +26514,10 @@ class ComponentEngine {
         if (k == "__symbol__") { return true }
         if (k == "__symid__") { return true }
         if (k == "__symreg__") { return true }
+        if (k == "__promise__") { return true }
+        if (k == "__pid__") { return true }
+        if (k == "__pstate__") { return true }
+        if (k == "__pvalue__") { return true }
         ; D-SYMKEY: a symbol-keyed property is never listed by Object.keys,
         ; getOwnPropertyNames or for-in. Symbol keys are minted as "@@..." so
         ; the one prefix covers both well-known and user symbols.
