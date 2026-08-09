@@ -197,12 +197,40 @@ allocation. `rehash_` not re-hashing is a real algorithmic win that would show
 on a large map and shows nothing here. Even `loop` and `fib`, which barely
 touch a map, regressed — that is the per-map footprint, not the probe.
 
-**What the two experiments together say.** The redundant probe was free
-(already CSE'd) and the remaining probe is not worth skipping (too small and
-too hot in cache to beat). The `std::string` keys are a real representational
-difference from QuickJS's atoms, and at the sizes this engine works at they are
-not where the time goes. Both results are recorded because two negative results
-that bound a large refactor are worth more than the refactor's estimate.
+**What the first two experiments say.** The redundant probe was free (already
+CSE'd) and the remaining probe is not worth skipping *by making the probe
+cheaper* — too small and too hot in cache to beat. Both are recorded because
+two negative results that bound a large refactor are worth more than the
+refactor's estimate.
+
+**Third attempt: actually intern, and this one shipped.** The first two tried
+to make a string probe cheaper. The win is in not doing a string probe at all.
+`EvAtomTable` interns every property name to a dense int and `EvPropertyBag` is
+keyed by it:
+
+```
+rg_ordered_map<int, r_union_EvPropertySlot>          was <std::string, …>
+```
+
+Two things had to come with it. JavaScript enumerates keys in **insertion**
+order while the ids are global — minted the first time any bag saw the name —
+so the bag also carries `slotNames` in insertion order, appended through the
+one choke point (`noteKey`) every write funnels through; that is what the
+key-order canary tests. And a caller holding an id must pay nothing, so
+`BcProgram` gained `atomIds` parallel to `atoms`, filled at bytecode-compile
+time, with the get-field opcode reading through `memberFastAtAtom` /
+`dataOrHoleAtom`. **A property read now walks a prototype chain of any depth
+without hashing a single string; before, it hashed one per level.**
+
+| object | array | method | fib | loop | geomean |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1.023x | 1.041x | 1.011x | 0.979x | 0.977x | 1.006x |
+
+2–4% on the rows that use properties and nothing on the two that cannot,
+which is what the design predicts; the geomean is flat because those two drag
+it. Smaller than the ten per cent this section first implied — the bound from
+experiment 1 was right — but positive, and it is the representational
+difference from QuickJS closed rather than papered over.
 
 > **Correction.** An earlier version of this document claimed the call-site
 > inline cache re-probes its `__fnprotocall__` marker by string on every hit,
@@ -216,10 +244,9 @@ that bound a large refactor are worth more than the refactor's estimate.
 > startup cost is already excluded from every ratio in §2.
 
 
-This is still the biggest *representational* difference, but with the
-correction above it is no longer the biggest cost: on the rows that actually
-use properties it is a few per cent, not ten. It does not explain the best row
-either — `object` at 2.8x owes as much to QuickJS being slow there in absolute
+With the correction above and the third experiment landed, this is no longer
+an open item: it was worth a few per cent, not ten, and it has been taken. It
+does not explain the best row either — `object` at 2.8x owes as much to QuickJS being slow there in absolute
 terms (3.65 ms against Node's 1.45 ms on a `for…in` over a 50-key object) as to
 anything we do well.
 
@@ -332,14 +359,14 @@ Ordered by measured payoff against cost, not by appeal:
 3. **Shrink the boxing boundary** (§3.1). The tagged-slot representation is
    already right; the cost is in `bcSlotBox` at the edges, so the win is in
    widening opcode coverage so fewer values cross.
-4. **Do not intern property names yet** (§3.2). Two experiments aimed at the
-   string-key cost — removing the redundant probe, and caching the key hash in
-   the map — both came back NEGATIVE (+1.85% instructions, and 0.975x wall
-   time). The bags are small and the keys are short, so the probe is already
-   cheap. Interning is still the right representation on paper and it is the
-   one QuickJS uses, but nothing measured here supports paying for it, and the
-   two cheaper approximations of it both lost. Revisit only with a workload
-   that has large property bags.
+4. ~~**Do not intern property names yet**~~ — **superseded and Done** (§3.2).
+   Two experiments aimed at making the string probe *cheaper* both came back
+   negative (+1.85% instructions; 0.975x wall time), and that verdict was right
+   about what it tested. It was wrong as a conclusion about interning: the win
+   is in not probing by string at all. `EvAtomTable` + an int-keyed
+   `EvPropertyBag` + `BcProgram.atomIds` gives **2-4% on property-using rows**,
+   and a prototype-chain read now hashes no strings where it used to hash one
+   per level.
 5. Leave dispatch alone (§3.6). GCC already builds the jump table, and the two
    loop guards are cheap next to everything above.
 
