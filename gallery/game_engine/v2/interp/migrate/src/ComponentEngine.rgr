@@ -59,6 +59,10 @@ class EvalContext {
     ; number written in place; every other name keeps the mint-a-replacement
     ; semantics, which is what aliases rely on.
     def slotNames:[string:boolean]
+    ; D-CONST: the names declared `const` in this scope. A const binding is
+    ; immutable, and a write to one is a TypeError -- it was an ordinary
+    ; assignment, so `const c = 1; c = 2` silently succeeded.
+    def constNames:[string:boolean]
     ; D-WITH: `with (o) { ... }` puts an OBJECT at the front of the scope chain.
     ; A name is looked up as a property of that object before the ordinary
     ; bindings, and assignment to a name the object owns writes through to it.
@@ -277,6 +281,31 @@ class EvalContext {
             return
         }
         this.define(name value)
+    }
+
+    ; D-CONST: mark a name in THIS scope as an immutable binding.
+    fn markConst:void (name:string) {
+        set constNames name true
+    }
+
+    ; True when `name` resolves to a const binding: the nearest scope that owns
+    ; the name decides, so an outer const does not freeze an inner `var` of the
+    ; same name.
+    fn isConstBinding:boolean (name:string) {
+        if (has constNames name) {
+            return true
+        }
+        if ((this.paramIdxOf(name)) >= 0) {
+            return false
+        }
+        if (has bindings name) {
+            return false
+        }
+        if parent {
+            def p:EvalContext (unwrap parent)
+            return (p.isConstBinding(name))
+        }
+        return false
     }
 
     ; Remove a binding from the nearest scope that owns it (parent chain walk).
@@ -3459,6 +3488,9 @@ class ComponentEngine {
                                 context.assign(varName value)
                             } {
                                 target.define(varName value)
+                                if (node.kind == "const") {
+                                    target.markConst(varName)
+                                }
                                 this.syncGlobalVar(varName value)
                             }
                         }
@@ -7629,6 +7661,13 @@ class ComponentEngine {
                             set implicitGlobalSet varName true
                             return rightValue
                         }
+                    }
+                    ; D-CONST: writing to a `const` binding is a TypeError, in
+                    ; sloppy mode as much as in strict -- the binding is
+                    ; immutable, not merely non-writable. It was an ordinary
+                    ; assignment and simply took.
+                    if (context.isConstBinding(varName)) {
+                        return (this.throwSpecError("TypeError" "Assignment to constant variable."))
                     }
                     ; Read and write through the scope the reference named, not
                     ; through whatever is nearest now.
@@ -26408,6 +26447,9 @@ class ComponentEngine {
         def accKeys:[string]
         def accFns:[EvHandle]
         def accKinds:[string]
+        ; D-PROTOLIT: `{__proto__: p}` names the prototype, not a property.
+        def protoFromLit:EvHandle (EvValueBridge.taggedNull())
+        def hasProtoLit:boolean false
 
         def i:int 0
         while (i < (array_length node.children)) {
@@ -26439,17 +26481,41 @@ class ComponentEngine {
                 if ((akind == "get") || (akind == "set")) {
                     if prop.left {
                         def afn:EvHandle (this.captureClosure((unwrap prop.left)))
+                        ; D-FNNAME: an accessor is named for its KIND -- the
+                        ; getter for `g` is "get g" -- and is not a constructor.
+                        afn.addSuppressed("prototype")
+                        afn.setAttrs("name" true false true)
+                        afn.setMember("name" (EvValueBridge.taggedString((akind + (" " + key)))))
+                        afn.setAttrs("name" false false true)
                         push accKeys key
                         push accFns afn
                         push accKinds akind
                     }
                 } {
+                    ; D-PROTOLIT: `{__proto__: p}` SETS the prototype rather than
+                    ; defining a property. It was an ordinary key, so the object
+                    ; inherited nothing and carried a stray own property.
+                    if ((key == "__proto__") && (false == prop.computed)) {
+                        if prop.left {
+                            protoFromLit = (this.evaluateExpr((unwrap prop.left)))
+                            hasProtoLit = true
+                        }
+                    } {
                     push keys key
                     if prop.left {
                         def valueNode:TSNode (unwrap prop.left)
-                        push values (this.evaluateExpr(valueNode))
+                        def pv:EvHandle (this.evaluateExpr(valueNode))
+                        ; D-FNNAME: a method shorthand and an anonymous function
+                        ; value both take the property's name -- `{m(){}}.m.name`
+                        ; is "m". A method is additionally not a constructor.
+                        if (prop.method) {
+                            pv.addSuppressed("prototype")
+                        }
+                        this.nameAnonymousValue(pv key)
+                        push values pv
                     } {
                         push values (EvValueBridge.taggedNull())
+                    }
                     }
                 }
             }
@@ -26479,6 +26545,13 @@ class ComponentEngine {
         ; inherit at all, so a guest override of one of them was invisible and
         ; ToPrimitive could not find the default either.
         built.setProto((this.builtinPrototype("Object")))
+        ; A `__proto__` key in the literal replaces that link. `null` means no
+        ; prototype at all; anything that is not an object is ignored outright.
+        if hasProtoLit {
+            if (protoFromLit.isObject()) {
+                built.setProto(protoFromLit)
+            }
+        }
         def ai:int 0
         while (ai < (array_length accKeys)) {
             def ak:string (itemAt accKeys ai)

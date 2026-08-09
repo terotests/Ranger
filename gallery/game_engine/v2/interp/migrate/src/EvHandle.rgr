@@ -1431,6 +1431,14 @@ class EvHandle {
             if (pt == "AssignmentPattern") {
                 return n
             }
+            ; A DEFAULTED simple parameter is a `Parameter` carrying `init`, not
+            ; an AssignmentPattern -- only a destructuring default takes that
+            ; shape. Testing the node type alone counted `function (a, b = 2)`
+            ; as arity 2, where the spec says the count stops at the first
+            ; parameter with a default.
+            if p.init {
+                return n
+            }
             n = (n + 1)
         }
         return n
