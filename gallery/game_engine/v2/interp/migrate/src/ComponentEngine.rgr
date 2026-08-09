@@ -15988,8 +15988,9 @@ class ComponentEngine {
     ; suite compares built-in methods by identity all over.
     fn sharedNativeMethod:EvHandle (kind:string name:string) {
         def key:string (kind + ("." + name))
-        if (has nativeMethodCache key) {
-            return (unwrap (get nativeMethodCache key))
+        def found@(optional):EvHandle (get nativeMethodCache key)
+        if (!null? found) {
+            return (unwrap found)
         }
         def v:EvHandle (EvValueBridge.taggedNativeMethod(kind name))
         ; A built-in reports its registered arity as `length`, like any other
@@ -16049,8 +16050,9 @@ class ComponentEngine {
     }
 
     fn builtinGlobalObject:EvHandle (nsName:string) {
-        if (has builtinGlobals nsName) {
-            return (unwrap (get builtinGlobals nsName))
+        def found@(optional):EvHandle (get builtinGlobals nsName)
+        if (!null? found) {
+            return (unwrap found)
         }
         def keysG:[string]
         def valsG:[EvHandle]
@@ -16385,8 +16387,9 @@ class ComponentEngine {
     }
 
     fn builtinPrototype:EvHandle (nsName:string) {
-        if (has builtinProtos nsName) {
-            return (unwrap (get builtinProtos nsName))
+        def found@(optional):EvHandle (get builtinProtos nsName)
+        if (!null? found) {
+            return (unwrap found)
         }
         def keysB:[string]
         def valsB:[EvHandle]
@@ -17489,10 +17492,11 @@ class ComponentEngine {
         if ((strlen cn) == 0) {
             return false
         }
-        if (false == (has builtinProtos cn)) {
+        def found@(optional):EvHandle (get builtinProtos cn)
+        if (null? found) {
             return false
         }
-        def p:EvHandle (unwrap (get builtinProtos cn))
+        def p:EvHandle (unwrap found)
         if (false == (p.hasSuppressed(name))) {
             return false
         }
@@ -17514,10 +17518,11 @@ class ComponentEngine {
         ; Do not CREATE the prototype here: a prototype that has never been
         ; touched cannot carry an override, and creating one would populate it
         ; from the registry during dispatch.
-        if (false == (has builtinProtos cn)) {
+        def found@(optional):EvHandle (get builtinProtos cn)
+        if (null? found) {
             return (EvValueBridge.taggedNull())
         }
-        def p:EvHandle (unwrap (get builtinProtos cn))
+        def p:EvHandle (unwrap found)
         if (false == (p.hasOwnData(name))) {
             return (EvValueBridge.taggedNull())
         }
@@ -21057,8 +21062,9 @@ class ComponentEngine {
         if (false == (obj.isObject())) {
             def cn:string (this.ctorNameForKind((this.receiverKind(obj))))
             if ((strlen cn) > 0) {
-                if (has builtinProtos cn) {
-                    def kp:EvHandle (unwrap (get builtinProtos cn))
+                def found@(optional):EvHandle (get builtinProtos cn)
+                if (!null? found) {
+                    def kp:EvHandle (unwrap found)
                     return (kp.findGetter(key 0))
                 }
             }
@@ -21084,8 +21090,9 @@ class ComponentEngine {
         if (false == (obj.isObject())) {
             def cn:string (this.ctorNameForKind((this.receiverKind(obj))))
             if ((strlen cn) > 0) {
-                if (has builtinProtos cn) {
-                    def kp:EvHandle (unwrap (get builtinProtos cn))
+                def found@(optional):EvHandle (get builtinProtos cn)
+                if (!null? found) {
+                    def kp:EvHandle (unwrap found)
                     return (kp.findSetter(key 0))
                 }
             }
@@ -21973,8 +21980,9 @@ class ComponentEngine {
     ; The prototype object for an error kind, created by ensureErrorCtors.
     fn errorPrototypeFor:EvHandle (kind:string) {
         this.ensureErrorCtors()
-        if (has builtinProtos kind) {
-            return (unwrap (get builtinProtos kind))
+        def found@(optional):EvHandle (get builtinProtos kind)
+        if (!null? found) {
+            return (unwrap found)
         }
         return (this.builtinPrototype("Object"))
     }
