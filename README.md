@@ -289,6 +289,19 @@ Quote the excluding-strcat number. [`QUICKJS_COMPARISON.md`](QUICKJS_COMPARISON.
 has the measurement methodology and a source-level comparison of what the two
 engines do differently.
 
+`jsengine:octane` runs the same Octane v9 suites published on
+[zoo.js.org](https://zoo.js.org/) — Richards, DeltaBlue, Crypto, RayTrace,
+EarleyBoyer, RegExp, Splay and NavierStokes — on every target that was built,
+and places the result against same-machine Node and the published amd64 V8
+column.
+
+**Read the es6 column, not the native ones.** An Octane score is derived from a
+wall clock the benchmark reads through `Date`, and the native targets use a
+relative `liveClock` so readings stay inside 32-bit `truncD`. Its resolution
+pins the C++ score to exactly 0.500 run after run — a floor, not a measurement.
+`jsengine:bench` times all targets from outside the engine and is the one to
+use for cross-target comparison.
+
 For the engine's own test coverage:
 
 ```bash
