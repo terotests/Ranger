@@ -84,22 +84,31 @@ class RangerCppClassWriter {
     return tn
   }
 
+  ; C++ trigraphs (??= -> #, …) are obsolete but clang still warns
+  ; (-Wtrigraphs) when a source literal contains them. Escape so the
+  ; compiled string bytes stay the same (? ? =) without the warning.
+  ; Used by WriteScalarValue and the sized string_view compare path.
+  fn escapeCppTrigraphs:string (s:string) {
+    def out:string s
+    out = (replace out "??=" "\\?\\?=")
+    out = (replace out "??(" "\\?\\?(")
+    out = (replace out "??/" "\\?\\?/")
+    out = (replace out "??)" "\\?\\?)")
+    out = (replace out "??'" "\\?\\?'")
+    out = (replace out "??<" "\\?\\?<")
+    out = (replace out "??!" "\\?\\?!")
+    out = (replace out "??>" "\\?\\?>")
+    out = (replace out "??-" "\\?\\?-")
+    return out
+  }
+
   fn WriteScalarValue:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     switch node.value_type {
       case RangerNodeType.Double {
         wr.out(("" + node.double_value) , false)
       }
       case RangerNodeType.String {
-        def s:string (this.EncodeString(node ctx wr))
-        s = (replace s "??=" "\\?\\?=")
-        s = (replace s "??(" "\\?\\?(")
-        s = (replace s "??/" "\\?\\?/")
-        s = (replace s "??)" "\\?\\?)")
-        s = (replace s "??'" "\\?\\?'")
-        s = (replace s "??<" "\\?\\?<")
-        s = (replace s "??!" "\\?\\?!")
-        s = (replace s "??>" "\\?\\?>")
-        s = (replace s "??-" "\\?\\?-")
+        def s:string (this.escapeCppTrigraphs((this.EncodeString(node ctx wr))))
         wr.out( "std::string(" + (("\"" + s) + "\"") + ")" , false)
       }
       case RangerNodeType.Integer {
@@ -971,7 +980,10 @@ class RangerCppClassWriter {
           ctx.setInExpr()
           this.WalkNode(svExprN ctx wr)
           ctx.unsetInExpr()
-          wr.out((((") " + cmd) + " std::string_view(\"") + (this.EncodeString(svLitN ctx wr))) false)
+          ; EncodeString alone leaves ??= intact; escape trigraphs so Apple
+          ; clang does not warn (-Wtrigraphs). Length is still svLen bytes.
+          def svEsc:string (this.escapeCppTrigraphs((this.EncodeString(svLitN ctx wr))))
+          wr.out((((") " + cmd) + " std::string_view(\"") + svEsc) false)
           wr.out((("\", " + svLen) + "))") false)
           return
         }

@@ -125,6 +125,16 @@ describe("Ranger Compiler - C++ Target", () => {
       expect(result.code).toContain('std::string("\\?\\?=")');
       expect(result.code).not.toMatch(/std::string\("[^"]*\?\?=/)
     });
+
+    it("should escape trigraphs in sized string_view compares", () => {
+      const result = getGeneratedCppCode(
+        `${FIXTURES_DIR}/cpp_trigraph_compare.rgr`
+      );
+
+      expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain('std::string_view("\\?\\?=", 3)');
+      expect(result.code).not.toMatch(/string_view\("\?\?=/)
+    });
   });
 
   describe("C++ Specific Code Generation", () => {
