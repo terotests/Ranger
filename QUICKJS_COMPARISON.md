@@ -173,8 +173,36 @@ follow, and the second is the important one:
    of the map's self time — low single digits on the property-heavy row, not
    the ten per cent this section first implied.
 
-The experiment was reverted. It is recorded because a negative result that
-bounds a large refactor is worth more than the refactor's estimate.
+The experiment was reverted.
+
+**Second attempt: cache the key's hash in the map.** The bound above says the
+remaining cost is one hash and one `memcmp` per probe, so I attacked those
+directly in `rg_ordered_map` — the compiler's own polyfill, which every C++
+Ranger program uses. A `std::vector<size_t> hashes_` parallel to `entries`,
+written once at insert, lets a probe reject an occupied slot with a `size_t`
+compare instead of a `memcmp`, and lets `rehash_` stop re-hashing every key on
+every growth (which was O(total key bytes) per resize).
+
+It is slower. Every row:
+
+| object | method | array | regex | fib | loop | geomean |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.981x | 0.982x | 0.999x | 0.940x | 0.983x | 0.969x | **0.975x** |
+
+Also reverted. The reason is size: a property bag holds tens of keys, not
+thousands, and the keys are short — `"k37"`, `"length"`, `"value"`. The index
+and the entries are already in L1, a `memcmp` on eight bytes is a couple of
+inlined instructions, and the extra vector costs a cache line per bag plus an
+allocation. `rehash_` not re-hashing is a real algorithmic win that would show
+on a large map and shows nothing here. Even `loop` and `fib`, which barely
+touch a map, regressed — that is the per-map footprint, not the probe.
+
+**What the two experiments together say.** The redundant probe was free
+(already CSE'd) and the remaining probe is not worth skipping (too small and
+too hot in cache to beat). The `std::string` keys are a real representational
+difference from QuickJS's atoms, and at the sizes this engine works at they are
+not where the time goes. Both results are recorded because two negative results
+that bound a large refactor are worth more than the refactor's estimate.
 
 > **Correction.** An earlier version of this document claimed the call-site
 > inline cache re-probes its `__fnprotocall__` marker by string on every hit,
@@ -304,12 +332,14 @@ Ordered by measured payoff against cost, not by appeal:
 3. **Shrink the boxing boundary** (§3.1). The tagged-slot representation is
    already right; the cost is in `bcSlotBox` at the edges, so the win is in
    widening opcode coverage so fewer values cross.
-4. **Intern property names to integers** (§3.2) — but read the measurement
-   there first. Collapsing the redundant double probe, which interning also
-   subsumes, moved **zero** instructions in the right direction (+1.85%,
-   because GCC had already CSE'd it). That bounds the whole idea to low single
-   digits on property-heavy rows. It remains the largest change on this list
-   and now has the weakest evidence behind it. Do it last, if at all.
+4. **Do not intern property names yet** (§3.2). Two experiments aimed at the
+   string-key cost — removing the redundant probe, and caching the key hash in
+   the map — both came back NEGATIVE (+1.85% instructions, and 0.975x wall
+   time). The bags are small and the keys are short, so the probe is already
+   cheap. Interning is still the right representation on paper and it is the
+   one QuickJS uses, but nothing measured here supports paying for it, and the
+   two cheaper approximations of it both lost. Revisit only with a workload
+   that has large property bags.
 5. Leave dispatch alone (§3.6). GCC already builds the jump table, and the two
    loop guards are cheap next to everything above.
 
