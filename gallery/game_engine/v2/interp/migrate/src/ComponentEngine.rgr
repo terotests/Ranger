@@ -16312,11 +16312,240 @@ class ComponentEngine {
                 return a0
             }
         }
+        ; D-REFLECT: the ES2015 Reflect namespace. Every one of these is the
+        ; object operation the engine already performs for `obj.k`, `k in obj`,
+        ; `delete obj.k`, `f.apply(...)` and `new f(...)` -- exposed as a
+        ; function, and answering with a boolean instead of throwing where the
+        ; spec says the operation "returns false".
+        if (nsName == "Reflect") {
+            def rTgt:EvHandle (EvValueBridge.taggedUndefined())
+            if ((array_length args) > 0) {
+                rTgt = (itemAt args 0)
+            }
+            ; Every Reflect method takes an OBJECT as its first argument and is
+            ; a TypeError otherwise -- there is no ToObject coercion here.
+            if (false == (this.isDescriptorObject(rTgt))) {
+                return (this.throwSpecError("TypeError" ("Reflect." + (name + " called on non-object"))))
+            }
+            if (name == "apply") {
+                if (false == (rTgt.isFunction())) {
+                    return (this.throwSpecError("TypeError" "Reflect.apply target is not a function"))
+                }
+                def rThis:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 1) { rThis = (itemAt args 1) }
+                def rArgs:[EvHandle]
+                if ((array_length args) > 2) {
+                    def rList:EvHandle (itemAt args 2)
+                    if (false == (this.isDescriptorObject(rList))) {
+                        return (this.throwSpecError("TypeError" "CreateListFromArrayLike called on non-object"))
+                    }
+                    def rEls:[EvHandle] (this.arrayLikeElements(rList))
+                    def rI:int 0
+                    while (rI < (array_length rEls)) {
+                        push rArgs (itemAt rEls rI)
+                        rI = (rI + 1)
+                    }
+                } {
+                    return (this.throwSpecError("TypeError" "CreateListFromArrayLike called on non-object"))
+                }
+                return (this.callFnValueWithValues((rTgt.withThisForCall(rThis)) rArgs))
+            }
+            if (name == "construct") {
+                if (false == (rTgt.isFunction())) {
+                    return (this.throwSpecError("TypeError" "Reflect.construct target is not a constructor"))
+                }
+                def cArgs:[EvHandle]
+                if ((array_length args) > 1) {
+                    def cList:EvHandle (itemAt args 1)
+                    if (false == (this.isDescriptorObject(cList))) {
+                        return (this.throwSpecError("TypeError" "CreateListFromArrayLike called on non-object"))
+                    }
+                    def cEls:[EvHandle] (this.arrayLikeElements(cList))
+                    def cI:int 0
+                    while (cI < (array_length cEls)) {
+                        push cArgs (itemAt cEls cI)
+                        cI = (cI + 1)
+                    }
+                }
+                ; The optional newTarget supplies the instance's prototype; the
+                ; target still runs the body.
+                def cNewT:EvHandle rTgt
+                if ((array_length args) > 2) {
+                    def nt:EvHandle (itemAt args 2)
+                    if (false == (nt.isFunction())) {
+                        return (this.throwSpecError("TypeError" "Reflect.construct newTarget is not a constructor"))
+                    }
+                    cNewT = nt
+                }
+                return (this.constructWithValues(rTgt cArgs cNewT))
+            }
+            def rKey:string ""
+            if ((array_length args) > 1) {
+                rKey = (this.toPropertyKey((itemAt args 1)))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+            }
+            if (name == "get") {
+                return (this.getPropertyValue(rTgt rKey))
+            }
+            if (name == "set") {
+                def sVal:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 2) { sVal = (itemAt args 2) }
+                ; [[Set]] answers false rather than throwing: a non-writable own
+                ; property refuses, and so does a new property on a
+                ; non-extensible object.
+                if (rTgt.hasOwnData(rKey)) {
+                    if (false == (rTgt.hasOwnSetter(rKey))) {
+                        if (false == (rTgt.isWritable(rKey))) {
+                            return (EvValueBridge.taggedBoolean(false))
+                        }
+                    }
+                } {
+                    if (false == (rTgt.hasOwnSetter(rKey))) {
+                        if (false == (rTgt.isExtensible())) {
+                            if (false == (this.objHasKeyUpChain(rTgt rKey))) {
+                                return (EvValueBridge.taggedBoolean(false))
+                            }
+                        }
+                    }
+                }
+                ; A getter-only own property has no setter to run.
+                if (rTgt.hasOwnGetter(rKey)) {
+                    if (false == (rTgt.hasOwnSetter(rKey))) {
+                        return (EvValueBridge.taggedBoolean(false))
+                    }
+                }
+                this.bcPutField(rTgt rKey sVal)
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                return (EvValueBridge.taggedBoolean(true))
+            }
+            if (name == "has") {
+                return (EvValueBridge.taggedBoolean((this.objHasKeyUpChain(rTgt rKey))))
+            }
+            if (name == "deleteProperty") {
+                if (this.deleteRefused(rTgt rKey)) {
+                    return (EvValueBridge.taggedBoolean(false))
+                }
+                this.unmapArgIndex(rTgt rKey)
+                rTgt.removeMember(rKey)
+                this.syncGlobalObjectDelete(rTgt rKey)
+                if (this.isBuiltinPrototypeObject(rTgt)) {
+                    rTgt.addSuppressed(rKey)
+                }
+                return (EvValueBridge.taggedBoolean(true))
+            }
+            if (name == "getOwnPropertyDescriptor") {
+                return (this.ownPropertyDescriptorOf(rTgt rKey))
+            }
+            if (name == "defineProperty") {
+                def rDesc:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 2) { rDesc = (itemAt args 2) }
+                ; ToPropertyDescriptor still THROWS on a malformed descriptor --
+                ; only the [[DefineOwnProperty]] rejection becomes false.
+                if (false == (this.isDescriptorObject(rDesc))) {
+                    return (this.throwSpecError("TypeError" "Property description must be an object"))
+                }
+                def shapeErr:string (this.descriptorError(rDesc))
+                if ((strlen shapeErr) > 0) {
+                    return (this.throwDefineError(shapeErr))
+                }
+                def defErr:string (this.definePropertyOn(rTgt rKey rDesc))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                return (EvValueBridge.taggedBoolean(((strlen defErr) == 0)))
+            }
+            if (name == "getPrototypeOf") {
+                return (this.protoOfValue(rTgt))
+            }
+            if (name == "setPrototypeOf") {
+                def rProto:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 1) { rProto = (itemAt args 1) }
+                if (false == ((rProto.isObject()) || (rProto.isNull()))) {
+                    return (this.throwSpecError("TypeError" "Object prototype may only be an Object or null"))
+                }
+                if (false == (rTgt.isExtensible())) {
+                    return (EvValueBridge.taggedBoolean(false))
+                }
+                if (rProto.isObject()) {
+                    rTgt.setProto(rProto)
+                }
+                return (EvValueBridge.taggedBoolean(true))
+            }
+            if (name == "isExtensible") {
+                return (EvValueBridge.taggedBoolean((rTgt.isExtensible())))
+            }
+            if (name == "preventExtensions") {
+                rTgt.setExtensible(false)
+                return (EvValueBridge.taggedBoolean(true))
+            }
+            if (name == "ownKeys") {
+                def okItems:[EvHandle]
+                def okKeys:[string] (this.objectKeys(rTgt))
+                def okI:int 0
+                while (okI < (array_length okKeys)) {
+                    push okItems (EvValueBridge.taggedString((itemAt okKeys okI)))
+                    okI = (okI + 1)
+                }
+                return (EvValueBridge.taggedArray(okItems))
+            }
+        }
         ; Not invocable through a captured value yet. The name still EXISTS -- it
         ; is published on the namespace object and describable -- so this is a
         ; smaller gap than the value not being there at all, and it is called
         ; out rather than silently answering undefined.
         return (EvValueBridge.taggedUndefined())
+    }
+
+    ; Construct with already-evaluated arguments, for Reflect.construct. The
+    ; AST path (constructFromFunction) evaluates argument NODES it is handed;
+    ; this one is the same operation reached from a value.
+    fn constructWithValues:EvHandle (fnV:EvHandle argVals:[EvHandle] newTarget:EvHandle) {
+        def merged:[EvHandle]
+        def mi:int 0
+        while (mi < (fnV.boundArgCount())) {
+            push merged (fnV.boundArgAt(mi))
+            mi = (mi + 1)
+        }
+        def ai:int 0
+        while (ai < (array_length argVals)) {
+            push merged (itemAt argVals ai)
+            ai = (ai + 1)
+        }
+        if (false == (fnV.hasFunctionNode())) {
+            def bctor:string (this.builtinCtorNameOf(fnV))
+            if ((strlen bctor) > 0) {
+                return (this.callBuiltinCtorValues(bctor merged true))
+            }
+            return (this.throwSpecError("TypeError" "Reflect.construct target is not a constructor"))
+        }
+        def keysN:[string]
+        def valsN:[EvHandle]
+        def inst:EvHandle (EvValueBridge.taggedObject(keysN valsN))
+        ; The prototype comes from newTarget, which is the target itself unless
+        ; a third argument said otherwise.
+        def instProto:EvHandle (newTarget.getMember("prototype"))
+        inst.setProto(instProto)
+        if (instProto.isObject()) {
+            if (false == (instProto.hasProto())) {
+                instProto.setProto((this.builtinPrototype("Object")))
+            }
+            if (false == (instProto.hasOwnData("constructor"))) {
+                instProto.setMember("constructor" newTarget)
+                instProto.setAttrs("constructor" true false true)
+            }
+        }
+        def ret:EvHandle (this.callUserFunctionValues((fnV.functionNodeOf()) merged inst))
+        if scriptThrew {
+            return (EvValueBridge.taggedUndefined())
+        }
+        if (this.isDescriptorObject(ret)) {
+            return ret
+        }
+        return inst
     }
 
     ; The declared arity of each built-in constructor.
@@ -16344,6 +16573,18 @@ class ComponentEngine {
         if (nsName == "JSON") {
             if (name == "stringify") { return 3 }
             return 2
+        }
+        if (nsName == "Reflect") {
+            if (name == "apply") { return 3 }
+            if (name == "construct") { return 2 }
+            if (name == "defineProperty") { return 3 }
+            if (name == "set") { return 3 }
+            if (name == "deleteProperty") { return 2 }
+            if (name == "get") { return 2 }
+            if (name == "getOwnPropertyDescriptor") { return 2 }
+            if (name == "has") { return 2 }
+            if (name == "setPrototypeOf") { return 2 }
+            return 1
         }
         return 1
     }
@@ -16383,6 +16624,25 @@ class ComponentEngine {
             push out "seal"
             push out "setPrototypeOf"
             push out "values"
+            return out
+        }
+        ; D-REFLECT: every Reflect method is an ordinary function on the
+        ; namespace object -- there is no `Reflect.get` call-site form to fall
+        ; back on, so this list IS the namespace.
+        if (nsName == "Reflect") {
+            push out "apply"
+            push out "construct"
+            push out "defineProperty"
+            push out "deleteProperty"
+            push out "get"
+            push out "getOwnPropertyDescriptor"
+            push out "getPrototypeOf"
+            push out "has"
+            push out "isExtensible"
+            push out "ownKeys"
+            push out "preventExtensions"
+            push out "set"
+            push out "setPrototypeOf"
             return out
         }
         if (nsName == "Math") {
@@ -16687,6 +16947,9 @@ class ComponentEngine {
         if (nsName == "Date") {
             return (this.hasBuiltinStatic(nsName name))
         }
+        if (nsName == "Reflect") {
+            return (this.hasBuiltinStatic(nsName name))
+        }
         return false
     }
 
@@ -16724,6 +16987,7 @@ class ComponentEngine {
         ; Math and JSON brand as themselves, not as Object.
         if (nsName == "Math") { g.setMember("__nsbrand__" (EvValueBridge.taggedString("Math"))) }
         if (nsName == "JSON") { g.setMember("__nsbrand__" (EvValueBridge.taggedString("JSON"))) }
+        if (nsName == "Reflect") { g.setMember("__nsbrand__" (EvValueBridge.taggedString("Reflect"))) }
         if (this.isBuiltinCtorName(nsName)) {
             g.setMember("prototype" (this.builtinPrototype(nsName)))
             g.setAttrs("prototype" false false false)
@@ -22835,6 +23099,7 @@ class ComponentEngine {
         if (name == "Symbol") { return true }
         if (name == "Math") { return true }
         if (name == "JSON") { return true }
+        if (name == "Reflect") { return true }
         if (name == "Object") { return true }
         if (name == "Array") { return true }
         if (name == "String") { return true }
@@ -22903,6 +23168,7 @@ class ComponentEngine {
             push gnames "RegExp"
             push gnames "Math"
             push gnames "JSON"
+            push gnames "Reflect"
             ; The error constructors are globals too -- getOwnPropertyNames on
             ; the global object is expected to list every one of them.
             def enames:[string] (this.errorKindNames())
