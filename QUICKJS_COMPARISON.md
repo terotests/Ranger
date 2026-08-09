@@ -455,3 +455,40 @@ benchmark table will keep reporting plausible numbers for it.
 Post-fix, from binaries built out of current source: Rust benches at 3.2x
 QuickJS (5.2x excluding `strcat`) and scores **1297/1303 with 0 crashes** on
 native conformance, identical to C++.
+
+---
+
+## 8. Where the string hashing went after interning
+
+Profiled again on `object` with the shipped binary (`-O2 -g`, `reps=20`), to
+check that §3.2's change did what it claimed. The old top entries are gone —
+no `EvPropertyBag::hasData` hashing a key, no
+`rg_ordered_map<std::string, …>`. In their place:
+
+```
+3.32%   EvAtomTable::idOf(std::string)
+          <- 2.71%  EvPropertyBag::hasData(std::string)
+          <- 2.31%  EvPropertyBag::putData(std::string)
+```
+
+**The hash moved rather than disappeared.** The bag is int-keyed now, but its
+`std::string` entry points are still live, and each one interns the key to get
+an id before doing the int lookup. A caller that arrives with a string pays the
+same hash it always did, plus an extra map probe.
+
+That is exactly the shape of the `object` workload: `o["k" + (i % 50)] = i`
+builds its key at runtime, so nothing can be interned at bytecode-compile time,
+and the store goes `setMemberFast → putData(std::string) → idOf`. It is why the
+row moved 1.023x and not more. The rows that *did* move — and the prototype
+chain walk that now hashes nothing per level — are the ones reaching the bag
+through `atomIds`, where the id is already in hand.
+
+So interning is only half-installed. The half that landed is the
+representation; the half still missing is carrying ids through the **dynamic**
+key path, so a computed key is interned once at the site rather than on every
+bag call beneath it. QuickJS pays this too (`JS_ValueToAtom` on a computed key)
+but pays it once per access, not once per bag method.
+
+Concretely, the next step is an atom-carrying variant of the store path
+(`setMemberFast`/`putData`) to match the `memberFastAtAtom`/`dataOrHoleAtom`
+pair the read path already has.
