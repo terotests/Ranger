@@ -1183,6 +1183,13 @@ class ComponentEngine {
     ; bound `this`. Enables fluent OO guest code (e.g. an animation builder).
     def classes:[string:TSNode]
 
+    ; D-CLASSIDENT: the VALUE a class name resolves to, memoised per
+    ; module-qualified name. Minting a fresh one per read made `var f = A;
+    ; f === A` false, `A.prototype.constructor === A` false, and every static
+    ; written through one reference invisible through the next -- a class was a
+    ; different object every time it was mentioned.
+    def classValues:[string:EvHandle]
+
     ; Parsed program AST kept for in-process hot reload (patchScript).
     def programAst@(optional):TSNode
     def astPatcher:TSAstPatcher (new TSAstPatcher())
@@ -15244,9 +15251,16 @@ class ComponentEngine {
                 if (lv.isFunction()) { lvObjectLike = true }
                 if (lv.isArrayValue()) { lvObjectLike = true }
                 if lvObjectLike {
+                    ; The `__class__` stamp names the class the instance was
+                    ; built from, so it answers YES immediately -- but a NO from
+                    ; it is not an answer: `class C extends B` makes
+                    ; `new C() instanceof B` true with a stamp that reads "C".
+                    ; Falling through to the prototype walk is what sees that.
                     def tag:EvHandle (lv.getMember("__class__"))
                     if (tag.isString()) {
-                        return (EvValueBridge.taggedBoolean(((tag.stringOf()) == cname)))
+                        if ((tag.stringOf()) == cname) {
+                            return (EvValueBridge.taggedBoolean(true))
+                        }
                     }
                     ; D-ERRORS: every native error inherits from Error, so
                     ; `e instanceof Error` holds for a TypeError as much as
@@ -23280,10 +23294,7 @@ class ComponentEngine {
         ; class name so it is both referenceable and dispatchable.
         def clsRef:TSNode (this.classNodeByName(name))
         if ((this.nodeKindOf(clsRef)) == 25) {
-            def cv:EvHandle (EvValueBridge.taggedNativeFunction(name))
-            cv.setMember("__classname__" (EvValueBridge.taggedString(name)))
-            cv.setMember("name" (EvValueBridge.taggedString(name)))
-            return cv
+            return (this.classValueFor(name))
         }
         if strictReferences {
             return (this.throwSpecError("ReferenceError" (name + " is not defined")))
@@ -23344,6 +23355,13 @@ class ComponentEngine {
                     return (EvValueBridge.taggedString("undefined"))
                 }
                 if (false == (this.bindingExists(name))) {
+                    ; D-CLASSREF: a class lives in the class table rather than in
+                    ; a scope, so `typeof A` read "undefined" for every class in
+                    ; the program even though `A` resolved everywhere else.
+                    def clsT:TSNode (this.classNodeByName(name))
+                    if ((this.nodeKindOf(clsT)) == 25) {
+                        return (EvValueBridge.taggedString("function"))
+                    }
                     ; D-GLOBALOBJ: a built-in global is not a scope binding, but
                     ; it exists — typeof must say so. Constructors report
                     ; "function", namespaces like Math and JSON report "object".
@@ -23765,7 +23783,111 @@ class ComponentEngine {
         }
     }
 
+    ; D-CLASSIDENT: the one value a class name resolves to. Memoised on the
+    ; module-qualified name, so two modules may each declare `Point` and still
+    ; get their own.
+    fn classValueFor:EvHandle (name:string) {
+        def ckey:string (currentModule + ("::" + name))
+        def found@(optional):EvHandle (get classValues ckey)
+        if (!null? found) {
+            return (unwrap found)
+        }
+        def cv:EvHandle (EvValueBridge.taggedNativeFunction(name))
+        ; Publish before wiring: the prototype's `constructor` points back here
+        ; and a field initialiser may mention the class by name.
+        set classValues ckey cv
+        cv.setMember("__classname__" (EvValueBridge.taggedString(name)))
+        cv.setMember("name" (EvValueBridge.taggedString(name)))
+        cv.setAttrs("name" false false true)
+        cv.setProto((this.builtinPrototype("Function")))
+        this.buildClassPrototype(name cv)
+        return cv
+    }
+
+    ; D-CLASSPROTO: a class's methods are REAL properties of a real prototype
+    ; object. They used to live only in the class-node table, so `A.prototype`
+    ; was empty, `A.prototype.m` was undefined, `A.prototype.constructor === A`
+    ; was false, and an instance's prototype was Object.prototype rather than
+    ; the class's -- every structural question about a class answered wrong even
+    ; though calling its methods worked.
+    fn buildClassPrototype:void (name:string cv:EvHandle) {
+        def keysP:[string]
+        def valsP:[EvHandle]
+        def proto:EvHandle (EvValueBridge.taggedObject(keysP valsP))
+        proto.setMember("constructor" cv)
+        proto.setAttrs("constructor" true false true)
+        cv.setMember("prototype" proto)
+        ; A class's `prototype` is non-writable, non-enumerable and
+        ; non-configurable, unlike an ordinary function's.
+        cv.setAttrs("prototype" false false false)
+        def cls:TSNode (this.classNodeByName(name))
+        if ((this.nodeKindOf(cls)) != 25) {
+            proto.setProto((this.builtinPrototype("Object")))
+            return
+        }
+        ; `class B extends A` links BOTH chains: B.prototype to A.prototype for
+        ; instance methods, and B to A for inherited statics.
+        def supName:string (this.superClassNameOf(cls))
+        def linked:boolean false
+        if ((strlen supName) > 0) {
+            def supNode:TSNode (this.classNodeByName(supName))
+            if ((this.nodeKindOf(supNode)) == 25) {
+                def supV:EvHandle (this.classValueFor(supName))
+                def supProto:EvHandle (supV.getMember("prototype"))
+                if (supProto.isObject()) {
+                    proto.setProto(supProto)
+                    cv.setProto(supV)
+                    linked = true
+                }
+            }
+        }
+        if (false == linked) {
+            proto.setProto((this.builtinPrototype("Object")))
+        }
+        if (null? cls.body) { return }
+        def body:TSNode (unwrap cls.body)
+        def i:int 0
+        while (i < (array_length body.children)) {
+            def m:TSNode (itemAt body.children i)
+            if (m.nodeType == "MethodDefinition") {
+                ; `accessor` names get/set when the parser records it there;
+                ; otherwise `kind` carries it, and `kind` also carries "static".
+                def acc:string m.accessor
+                if ((strlen acc) == 0) {
+                    if ((m.kind == "get") || (m.kind == "set")) {
+                        acc = m.kind
+                    }
+                }
+                def onStatic:boolean (m.kind == "static")
+                def home:EvHandle proto
+                if onStatic { home = cv }
+                if (m.kind != "constructor") {
+                    def mv:EvHandle (EvValueBridge.taggedFunction(m))
+                    mv.setMember("name" (EvValueBridge.taggedString(m.name)))
+                    mv.setAttrs("name" false false true)
+                    if (acc == "get") {
+                        home.defineGetter(m.name mv)
+                        home.setAttrs(m.name true false true)
+                    } {
+                        if (acc == "set") {
+                            home.defineSetter(m.name mv)
+                            home.setAttrs(m.name true false true)
+                        } {
+                            home.setMember(m.name mv)
+                            home.setAttrs(m.name true false true)
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
     fn registerClassExpression:EvHandle (node:TSNode) {
+        ; The DECLARED name, before the table key overwrites it below: `decl` is
+        ; the same node, so `decl.name = nm` renames `node` too and the
+        ; generated key leaked out as `C.name` for an anonymous class.
+        def declaredName:string node.name
         def nm:string node.name
         if ((strlen nm) == 0) {
             classExprSeq = (classExprSeq + 1)
@@ -23779,9 +23901,11 @@ class ComponentEngine {
         decl.evalKind = 0
         decl.name = nm
         set classes nm decl
-        def cv:EvHandle (EvValueBridge.taggedNativeFunction(nm))
-        cv.setMember("__classname__" (EvValueBridge.taggedString(nm)))
-        cv.setMember("name" (EvValueBridge.taggedString(node.name)))
+        def cv:EvHandle (this.classValueFor(nm))
+        ; An ANONYMOUS class expression carries the generated table key as its
+        ; identity but has no `name` of its own.
+        cv.setMember("name" (EvValueBridge.taggedString(declaredName)))
+        cv.setAttrs("name" false false true)
         return cv
     }
 
@@ -24560,6 +24684,14 @@ class ComponentEngine {
         def vals0:[EvHandle]
         def inst:EvHandle (EvValueBridge.taggedObject(keys0 vals0))
         inst.setMember("__class__" (EvValueBridge.taggedString(className)))
+        ; D-CLASSPROTO: link the instance to the class's prototype object. It had
+        ; none at all, so `Object.getPrototypeOf(new A())` answered
+        ; Object.prototype and nothing put on `A.prototype` after the class was
+        ; declared was reachable from an instance.
+        def clsProtoV:EvHandle ((this.classValueFor(className)).getMember("prototype"))
+        if (clsProtoV.isObject()) {
+            inst.setProto(clsProtoV)
+        }
         if ((strlen clsModule) > 0) {
             inst.setMember("__module__" (EvValueBridge.taggedString(clsModule)))
         }
