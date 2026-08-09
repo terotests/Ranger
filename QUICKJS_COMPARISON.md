@@ -139,9 +139,42 @@ names, not interned integers. Nothing in the pipeline turns a property name
 into a dense int that the map can compare in one instruction.
 
 On `object`, `EvPropertyBag::hasData` is **1.8%** and `putData` **1.4%** of
-instructions, with `rg_ordered_map`, `__memcmp_avx2_movbe` and the `std::string`
-copies behind them adding several more. Interning would turn all of it into
-integer compares.
+instructions, with `rg_ordered_map`, `__memcmp_avx2_movbe` (0.9%) and the
+`std::string` copies behind them adding several more. Interning would turn all
+of it into integer compares.
+
+**How much is actually recoverable — measured, and it is less than it looks.**
+Every property question in `EvPropertyBag` is written as two probes:
+
+```
+if (false == (has slots key)) { return false }
+def slot:EvPropertySlot (unwrap (get slots key))
+```
+
+Two hashes, two index walks, two string compares to answer one question. That
+reads like free money, so I collapsed `hasData` and `dataOrHole` to a single
+optional get and counted instructions with callgrind on `object`:
+
+| | total Ir | `hasData` |
+| --- | ---: | ---: |
+| two probes | 2,136,935,072 | 39,073,380 |
+| one probe | 2,176,517,965 | 12,645,580 |
+
+`hasData` fell by two thirds — and the total went **up 1.85%**. The work did not
+disappear, it moved into `r_map_get_val` (40.4M), out of line. Two readings
+follow, and the second is the important one:
+
+1. GCC had already CSE'd the pair. Both probes were inlined into `hasData` with
+   the same key, same map and no intervening write, so the second was already
+   nearly free. The source looked redundant; the object code was not.
+2. Therefore the *single* remaining hash-and-compare is what interning would
+   remove, and the redundant one it would also remove was worth nothing. That
+   bounds the payoff of atom interning to roughly the `memcmp` line plus part
+   of the map's self time — low single digits on the property-heavy row, not
+   the ten per cent this section first implied.
+
+The experiment was reverted. It is recorded because a negative result that
+bounds a large refactor is worth more than the refactor's estimate.
 
 > **Correction.** An earlier version of this document claimed the call-site
 > inline cache re-probes its `__fnprotocall__` marker by string on every hit,
@@ -271,9 +304,12 @@ Ordered by measured payoff against cost, not by appeal:
 3. **Shrink the boxing boundary** (§3.1). The tagged-slot representation is
    already right; the cost is in `bcSlotBox` at the edges, so the win is in
    widening opcode coverage so fewer values cross.
-4. **Intern property names to integers** (§3.2). The largest change here, and
-   after the correction above the payoff is a few per cent on property-using
-   rows rather than the ten I first claimed. Worth doing, but not first.
+4. **Intern property names to integers** (§3.2) — but read the measurement
+   there first. Collapsing the redundant double probe, which interning also
+   subsumes, moved **zero** instructions in the right direction (+1.85%,
+   because GCC had already CSE'd it). That bounds the whole idea to low single
+   digits on property-heavy rows. It remains the largest change on this list
+   and now has the weakest evidence behind it. Do it last, if at all.
 5. Leave dispatch alone (§3.6). GCC already builds the jump table, and the two
    loop guards are cheap next to everything above.
 
