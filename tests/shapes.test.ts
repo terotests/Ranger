@@ -434,7 +434,7 @@ describe("shapes (closed variant families)", () => {
       expect(result.success, `Compile failed: ${result.error}`).toBe(true);
       // Value_Num and Value_Text by value, Value_Items still behind a pointer
       expect(result.code).toContain(
-        "typedef mpark::variant<Value_Nothing, Value_Num, Value_Text, std::shared_ptr<Value_Items>>"
+        "typedef std::variant<Value_Nothing, Value_Num, Value_Text, std::shared_ptr<Value_Items>>"
       );
       // constructing one allocates nothing
       expect(result.code).toContain("( Value_Num(1.5))");

@@ -70,10 +70,10 @@ describe("the `is` kind test", () => {
       expect(gen.code).toMatch(/fn isNum\([^)]*\)[^{]*\{\s*matches!\(/);
     });
 
-    it("C++: holds_alternative, without the mpark::get the case form adds", () => {
+    it("C++: holds_alternative, without the std::get the case form adds", () => {
       const gen = getGeneratedCppCode(FIXTURE);
       expect(gen.success).toBe(true);
-      expect(gen.code).toContain("mpark::holds_alternative<Val_Num>(v)");
+      expect(gen.code).toContain("std::holds_alternative<Val_Num>(v)");
     });
 
     it("Kotlin: an `is` check against the case class", () => {

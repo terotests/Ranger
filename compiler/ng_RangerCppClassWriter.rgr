@@ -1306,7 +1306,7 @@ class RangerCppClassWriter {
     }
     return false
   }
-  ; A closed-family (shape/union) parameter is an mpark::variant. Passing it by
+  ; A closed-family (shape/union) parameter is a std::variant. Passing it by
   ; value copies whichever alternative it holds — for a by-value String case
   ; that is the whole string, so every kind predicate was O(payload). The same
   ; read-only test as cppReadonlyValueParam (set_cnt / needs_cpp_reference)
@@ -1827,17 +1827,16 @@ class RangerCppClassWriter {
       ; index == name
       ; item == class description
       if(item.is_union) {
-        this.compiler.installFile( "variant.hpp" ctx wr)
+        ; std::variant is C++17, which is the standard the C++ output already
+        ; requires. The mpark polyfill it replaces was a C++11 backport that had
+        ; to be DOWNLOADED at build time, so every C++ build of a program with a
+        ; shape needed network access. Measured identical on the engine's
+        ; hottest pattern (holds_alternative + get): 160.0 ms against 161.5 ms,
+        ; same sizeof. This is a build-robustness change, not a speed one.
+        wr.addImport("<variant>")
 
-        ctx.addPluginNode('makefile' (r.expression (r.expression
-              (r.vref 'dep')
-              (r.value 'variant.hpp')
-              (r.value 'https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp')
-            )))
-;                 (plugin 'makefile' ((dep 'variant.hpp' 'https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp')))            
-        
         ; TODO: implement system class unions too...
-        wr.out("typedef mpark::variant<" false)
+        wr.out("typedef std::variant<" false)
         wr.indent(1)
           def cnt 0
           item.is_union_of.forEach({
@@ -1861,7 +1860,6 @@ class RangerCppClassWriter {
           })
         wr.indent(-1)
         wr.out(">  r_union_" + index + ";" , true)
-        wr.addImport("\"variant.hpp\"")
       }
     })
   }

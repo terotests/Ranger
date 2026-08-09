@@ -23056,9 +23056,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               const root = ctx.getRoot();
               await operatorsOf_13.forEach_14(root.definedClasses, (async (item, index) => { 
                 if ( item.is_union ) {
-                  await this.compiler.installFile("variant.hpp", ctx, wr);
-                  ctx.addPluginNode("makefile", CodeNode.fromList([CodeNode.fromList([CodeNode.vref1("dep"), CodeNode.newStr("variant.hpp"), CodeNode.newStr("https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp")])]));
-                  wr.out("typedef mpark::variant<", false);
+                  wr.addImport("<variant>");
+                  wr.out("typedef std::variant<", false);
                   wr.indent(1);
                   let cnt = 0;
                   await operatorsOf.forEach_12(item.is_union_of, ((item, index) => { 
@@ -23082,7 +23081,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   }));
                   wr.indent(-1);
                   wr.out((">  r_union_" + index) + ";", true);
-                  wr.addImport("\"variant.hpp\"");
                 }
               }));
             };

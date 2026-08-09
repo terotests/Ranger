@@ -593,10 +593,7 @@ final Random rg_random = Random();
                 java7 ( "((" (typeof 2) ")" (e 1) ")" )
                 swift3 ( (e 1) " as " (typeof 2) "" )
                 swift6 ( (e 1) " as " (typeof 2) "" )
-                cpp ( "mpark::get<" (typeof 2) ">(" (e 1) ")" 
-                
-                    (plugin 'makefile' ((dep 'variant.hpp' 'https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp')))            
-                )
+                cpp ( "std::get<" (typeof 2) ">(" (e 1) ")" )
                 go ( (e 1) ".(" (typeof 2) ")" )
                 php ( (e 1) )
                 ; Python and Rust have no place to write the type: Python is
