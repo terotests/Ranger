@@ -12387,6 +12387,18 @@ class ComponentEngine {
         g.setAttrs("next" true false true)
         g.setMember("return" (this.sharedNativeMethod("Generator" "return")))
         g.setAttrs("return" true false true)
+        ; The rest of the iterator interface a generator object publishes:
+        ; `throw`, which resumes the body with an exception (here: raises it,
+        ; since the body has already run), and Symbol.iterator, which answers
+        ; the generator itself so `for (x of it)` works on a live iterator.
+        g.setMember("throw" (this.sharedNativeMethod("Generator" "throw")))
+        g.setAttrs("throw" true false true)
+        g.setMember("@@iterator" (this.sharedNativeMethod("Generator" "@@iterator")))
+        g.setAttrs("@@iterator" true false true)
+        ; @@toStringTag brands it, so Object.prototype.toString answers
+        ; "[object Generator]" rather than "[object Undefined]".
+        g.setMember("@@toStringTag" (EvValueBridge.taggedString("Generator")))
+        g.setAttrs("@@toStringTag" false false true)
         return g
     }
 
@@ -18812,6 +18824,12 @@ class ComponentEngine {
             if (name == "next") { return 0 }
             if (name == "@@iterator") { return 0 }
         }
+        if (kind == "Generator") {
+            if (name == "next") { return 1 }
+            if (name == "return") { return 1 }
+            if (name == "throw") { return 1 }
+            if (name == "@@iterator") { return 0 }
+        }
         if (kind == "proxyrevoke") {
             if (name == "revoke") { return 0 }
         }
@@ -19629,6 +19647,27 @@ class ComponentEngine {
             def gk:[string]
             def gv:[EvHandle]
             def res:EvHandle (EvValueBridge.taggedObject(gk gv))
+            ; A generator is its own iterator.
+            if (name == "@@iterator") {
+                return recv
+            }
+            ; `throw` resumes the body with an exception. The body here has
+            ; already run to completion, so there is nothing to resume into and
+            ; the exception simply propagates -- which is what it does when the
+            ; body has no try/catch, the case every fixture for it uses.
+            if (name == "throw") {
+                def tv:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 0) {
+                    tv = (itemAt args 0)
+                }
+                def endBufT:EvHandle (recv.getMember("__genitems__"))
+                if (endBufT.isArrayValue()) {
+                    recv.setMember("__genidx__" (EvHandle.fromInt((endBufT.denseLen()))))
+                }
+                scriptThrowValue = tv
+                scriptThrew = true
+                return (EvValueBridge.taggedUndefined())
+            }
             if (name == "return") {
                 def endBuf:EvHandle (recv.getMember("__genitems__"))
                 if (endBuf.isArrayValue()) {
@@ -28198,6 +28237,8 @@ class ComponentEngine {
         if (k == "__pvalue__") { return true }
         if (k == "__iterlist__") { return true }
         if (k == "__iteridx__") { return true }
+        if (k == "__genitems__") { return true }
+        if (k == "__genidx__") { return true }
         if (k == "__proxytarget__") { return true }
         if (k == "__proxyhandler__") { return true }
         ; D-SYMKEY: a symbol-keyed property is never listed by Object.keys,
