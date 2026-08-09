@@ -82,6 +82,23 @@ function timeNative(caseName, reps) {
   return { ms: best, answer };
 }
 
+/**
+ * Per-rep cost of one case on the native binary, with the process launch AND
+ * the per-rep engine construction + script parse removed.
+ *
+ * bench_main builds a fresh ComponentEngine and re-parses the source on every
+ * rep, so `(reps=N − reps=0) / N` is construct + parse + run, not run. That
+ * floor is 0.77 ms here — a third of the `strcat` reading — and the ES6 column
+ * has always had its own floor subtracted (`jsFloor`). Leaving it in on one
+ * side only made the C++ engine look slower than the ES6 engine on the short
+ * cases, which is the opposite of what run.cjs reports for the same binary.
+ */
+function nativePerRep(caseName, reps) {
+  const base = timeNative(caseName, 0);
+  const withWork = timeNative(caseName, reps);
+  return { ms: (withWork.ms - base.ms) / reps, answer: withWork.answer };
+}
+
 /** Parse `name ms/run=1.234 answer=…` from raw_bench.js. */
 function parseRaw(out) {
   const m = /(\S+)\s+ms\/run=([0-9.]+)\s+answer=(\S+)/.exec(out);
@@ -121,7 +138,14 @@ if (qjsCheck.status !== 0) {
 
 const emptySrc = wrap(EMPTY);
 const nodeFloor = timeBest(() => runNode(emptySrc), 25);
-const jsFloor = timeBest(() => runJsEngine(emptySrc), 5);
+// Warm V8 on the engine's own dispatch loop before taking the floor: best-of-3
+// on a cold engine reads ~1.7x its warm cost, which is larger than most of the
+// differences this table is trying to show.
+for (let i = 0; i < 10; i++) runJsEngine(emptySrc);
+const jsFloor = timeBest(() => runJsEngine(emptySrc), 25);
+// `__empty__` is not a declared case, so bench_main falls through to
+// `return 0;` — the native counterpart of emptySrc.
+const cppFloor = nativePerRep("__empty__", REPS).ms;
 
 const rows = [];
 let mismatches = 0;
@@ -134,9 +158,8 @@ for (const [name, body] of CASES) {
   const rawNode = runRawHost("node", name);
   const rawQjs = runRawHost("qjs", name);
 
-  const base = timeNative(name, 0);
-  const withWork = timeNative(name, REPS);
-  const cppMs = Math.max(1e-4, (withWork.ms - base.ms) / REPS);
+  const withWork = nativePerRep(name, REPS);
+  const cppMs = Math.max(1e-4, withWork.ms - cppFloor);
 
   const agree =
     wantNode === gotJs &&
@@ -154,7 +177,7 @@ for (const [name, body] of CASES) {
     gotQjs: String(rawQjs.answer),
     node: Math.max(1e-4, timeBest(() => runNode(src), 25) - nodeFloor),
     qjs: rawQjs.ms,
-    js: Math.max(1e-4, timeBest(() => runJsEngine(src), 3) - jsFloor),
+    js: Math.max(1e-4, timeBest(() => runJsEngine(src), 15) - jsFloor),
     cpp: cppMs,
   });
 }
