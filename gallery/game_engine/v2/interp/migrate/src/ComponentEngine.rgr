@@ -16913,15 +16913,33 @@ class ComponentEngine {
                 return (EvValueBridge.taggedArray(symItems))
             }
             if (name == "assign") {
+                ; ToObject on the target: null or undefined is a TypeError
+                ; before any source is read.
+                if ((a0.isNull()) || (a0.isUndefined())) {
+                    return (this.throwSpecError("TypeError" "Cannot convert undefined or null to object"))
+                }
                 def ai:int 1
                 while (ai < (array_length args)) {
                     def srcA:EvHandle (itemAt args ai)
+                    ; A STRING source contributes its indices; every other
+                    ; primitive contributes nothing, and null/undefined are
+                    ; skipped rather than throwing.
+                    if (srcA.isString()) {
+                        def strSrc:string (srcA.stringOf())
+                        def sci:int 0
+                        while (sci < (strlen strSrc)) {
+                            this.bcPutField(a0 (to_string sci) (EvValueBridge.taggedString((substring strSrc sci (sci + 1)))))
+                            sci = (sci + 1)
+                        }
+                    }
                     if (this.isDescriptorObject(srcA)) {
                         def sks:[string] (this.objectEnumerableKeys(srcA))
                         def ski:int 0
                         while (ski < (array_length sks)) {
                             def sk2:string (itemAt sks ski)
-                            if (false == (this.isHiddenInstanceKey(sk2))) {
+                            ; A SYMBOL-keyed own enumerable property is copied
+                            ; too -- only the engine's internal slots are not.
+                            if (false == (this.isInternalSlotKey(sk2))) {
                                 def sv2:EvHandle (this.getPropertyValue(srcA sk2))
                                 if scriptThrew {
                                     return (EvValueBridge.taggedUndefined())
@@ -28147,6 +28165,19 @@ class ComponentEngine {
     ; Internal bookkeeping members stamped on values by the evaluator — never
     ; enumerable guest data. __class__/__module__ tag instances with their class
     ; and its home module; __nsmodule__ tags an imported module namespace.
+    ; The engine's own slots, without the symbol keys isHiddenInstanceKey also
+    ; hides. Object.assign copies a symbol-keyed property but never a slot.
+    fn isInternalSlotKey:boolean (k:string) {
+        if ((strlen k) > 4) {
+            if ((substring k 0 2) == "__") {
+                if ((substring k ((strlen k) - 2) (strlen k)) == "__") {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     fn isHiddenInstanceKey:boolean (k:string) {
         if (k == "__class__") { return true }
         if (k == "__classname__") { return true }
