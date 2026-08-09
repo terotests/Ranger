@@ -18112,6 +18112,8 @@ class ComponentEngine {
             push out "@@iterator"
         }
         if (kind == "regexp") {
+            ; annexB B.2.5.1: compile reinitialises the pattern IN PLACE.
+            push out "compile"
             push out "exec"
             push out "test"
             ; D-REGEXSYMBOL: the ES2015 well-known-symbol methods. Their keys are
@@ -18698,6 +18700,7 @@ class ComponentEngine {
             if (name == "reject") { return 1 }
         }
         if (kind == "regexp") {
+            if (name == "compile") { return 2 }
             if (name == "exec") { return 1 }
             if (name == "test") { return 1 }
             if (name == "@@match") { return 1 }
@@ -21412,6 +21415,68 @@ class ComponentEngine {
                     return (EvValueBridge.taggedUndefined())
                 }
                 return (EvValueBridge.taggedBoolean((hit.isArrayValue())))
+            }
+            ; annexB B.2.5.1: compile REINITIALISES this regex with a new pattern
+            ; and flags, in place, and answers the same object. A RegExp first
+            ; argument supplies both, and then a second argument is a TypeError.
+            if (name == "compile") {
+                if (false == (this.isRegexValue(recv))) {
+                    return (this.throwSpecError("TypeError" "Method RegExp.prototype.compile called on incompatible receiver"))
+                }
+                def cPat:string ""
+                def cFlg:string ""
+                if ((array_length args) > 0) {
+                    def cA:EvHandle (itemAt args 0)
+                    if (this.isRegexValue(cA)) {
+                        if ((array_length args) > 1) {
+                            if (false == ((itemAt args 1).isUndefined())) {
+                                return (this.throwSpecError("TypeError" "Cannot supply flags when constructing one RegExp from another"))
+                            }
+                        }
+                        cPat = (this.regexSourceOf(cA))
+                        cFlg = (this.regexFlagsOf(cA))
+                    } {
+                        if (false == (cA.isUndefined())) {
+                            cPat = (this.toStringOf(cA))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                        }
+                        if ((array_length args) > 1) {
+                            def cF:EvHandle (itemAt args 1)
+                            if (false == (cF.isUndefined())) {
+                                cFlg = (this.toStringOf(cF))
+                                if scriptThrew {
+                                    return (EvValueBridge.taggedUndefined())
+                                }
+                            }
+                        }
+                    }
+                }
+                def cProg:RegexProgram (this.compileRegexOf((this.makeRegexValue(cPat cFlg))))
+                if (false == cProg.valid) {
+                    return (this.throwSpecError("SyntaxError" ("Invalid regular expression: " + cProg.errorMessage)))
+                }
+                recv.setAttrs("__regex__" true false true)
+                recv.setMember("__regex__" (EvValueBridge.taggedString(cPat)))
+                recv.setAttrs("__regex__" false false false)
+                recv.setAttrs("source" true false true)
+                recv.setMember("source" (EvValueBridge.taggedString(cPat)))
+                recv.setAttrs("source" false false false)
+                recv.setAttrs("flags" true false true)
+                recv.setMember("flags" (EvValueBridge.taggedString(cFlg)))
+                recv.setAttrs("flags" false false false)
+                recv.setAttrs("global" true false true)
+                recv.setMember("global" (EvValueBridge.taggedBoolean(((indexOf cFlg "g") >= 0))))
+                recv.setAttrs("global" false false false)
+                recv.setAttrs("ignoreCase" true false true)
+                recv.setMember("ignoreCase" (EvValueBridge.taggedBoolean(((indexOf cFlg "i") >= 0))))
+                recv.setAttrs("ignoreCase" false false false)
+                recv.setAttrs("multiline" true false true)
+                recv.setMember("multiline" (EvValueBridge.taggedBoolean(((indexOf cFlg "m") >= 0))))
+                recv.setAttrs("multiline" false false false)
+                recv.setMember("lastIndex" (EvHandle.fromInt(0)))
+                return recv
             }
             ; D-REGEXSYMBOL: ES2015 moved the four string operations that take a
             ; pattern onto RegExp.prototype as well-known-symbol methods, and
