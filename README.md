@@ -253,6 +253,49 @@ in [`tests/syntax_app/TARGET_REPORT.md`](tests/syntax_app/TARGET_REPORT.md) and
 what does not work at all is in
 [`tests/syntax_app/known_gaps.md`](tests/syntax_app/known_gaps.md).
 
+## The JavaScript engine, built and measured
+
+`gallery/game_engine/v2/interp` is a JavaScript interpreter written in Ranger —
+so it compiles to every target the compiler has. Four commands build it and
+measure it, and each skips any target whose toolchain is not installed.
+
+```bash
+npm run jsengine:build         # es6 module + cpp and rust binaries
+npm run jsengine:bench         # against Node, and QuickJS if `qjs` is on PATH
+npm run jsengine:conformance   # 1303 JS probes, answers checked against Node
+npm run jsengine:all           # all three in order
+```
+
+`jsengine:build` needs `g++` for the C++ target and `rustc` for the Rust one;
+without them it still writes the generated source and says which it skipped.
+`jsengine:bench` reports one table across every engine that got built:
+
+```
+case           node       qjs       es6       cpp      rust   vs node   ok
+loop          0.031     0.530     2.574     1.574     2.229    51.4x   OK
+fib           0.134     0.690     7.079     6.380     6.262    46.9x   OK
+...
+against QuickJS (lower is better, 1.0x would be parity):
+  es6    4.0x   (6.2x excluding strcat)
+  cpp    2.9x   (4.7x excluding strcat)
+  rust   3.1x   (5.0x excluding strcat)
+```
+
+Two things about that table are worth knowing before quoting it. **Every row is
+checked against Node's answer** and the command exits non-zero if any engine
+disagrees — a fast wrong answer is not a result. And **the strcat row flatters
+us**: QuickJS 2021-03-27 has no string ropes, so its `s += "ab"` is quadratic.
+Quote the excluding-strcat number. [`QUICKJS_COMPARISON.md`](QUICKJS_COMPARISON.md)
+has the measurement methodology and a source-level comparison of what the two
+engines do differently.
+
+For the engine's own test coverage:
+
+```bash
+npm run jsengine:test          # the runtime-conformance suite, in-process
+npm run jsengine:test:targets  # the engine compiled to every other target
+```
+
 ## Known issues
 
 `toString` as a method name crashes the compiler (use `getSymbol` or a similar
