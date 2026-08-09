@@ -1700,16 +1700,16 @@ const KNOWN_GAPS = new Set<string>([
   // template that evaluates its key and value twice), which costs more than the
   // one behaviour it buys. Asserted in both directions so it cannot rot.
   "json-proto-is-ordinary-key",
-  "for-of-expr-lhs",
-  // Destructuring: swap produces the wrong value.
-  "destr-swap",
-  // Generators parse but do not run.
-  "iter-generator",
-  // Array/object details.
-  "obj-computed-key",
-  // Builtins.
-  "err-optional-chain",
-  "err-nullish",
+  // The six that used to sit here -- for-of-expr-lhs, destr-swap,
+  // iter-generator, obj-computed-key, err-optional-chain, err-nullish -- now
+  // pass and have moved back into the ordinary probe set above. This assertion
+  // is what forced the move: it failed the moment they started passing, which
+  // is the whole point of listing a gap rather than deleting its probe.
+  //
+  // One carries a caveat worth keeping in view: generators are collected
+  // EAGERLY at call time (ComponentEngine.makeGeneratorValue), so `iter-generator`
+  // passing does not mean two-way next(v) or lazy consumption works. Those are
+  // named at the implementation.
 ]);
 
 /**

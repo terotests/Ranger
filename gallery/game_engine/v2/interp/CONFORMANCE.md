@@ -818,6 +818,56 @@ outer one, which is what §11.13.1 says. It is the one probe that could not be
 derived from Node, so it lives in the test262 measurement rather than in the
 runtime-conformance suite.
 
+### ES2015 (test262 `es6id` corpus)
+
+Measured for the first time with `T262_ERA=es6` over the whole `es6id`-tagged
+corpus, 2863 files after excluding intl402, Temporal, module and async flags:
+
+| | |
+|---|---|
+| **ES2015 overall** | **30.84% (883/2863)** |
+| pass | 883 |
+| fail (ran, wrong answer) | 6 |
+| crash (did not run to completion) | 1974 |
+
+**Six wrong answers against 1974 non-starters.** That ratio is the useful part:
+the engine is not getting ES2015 semantics subtly wrong, it is missing ES2015
+surface outright. The ES5 layer underneath is at 99.99%.
+
+Failures by family:
+
+| family | files | why |
+|---|---:|---|
+| `language/statements` | 354 | mostly `class` (157) and `for-of` (92) |
+| `language/expressions` | 255 | `object` (63), `yield` (40), `super` (39), template literals (24) |
+| `built-ins/RegExp` | 189 | the ES2015 prototype additions |
+| `built-ins/Proxy` | 152 | **`typeof Proxy` is undefined -- not implemented** |
+| `built-ins/String` | 140 | the ES2015 prototype additions |
+| `annexB` | 135 | legacy web compatibility |
+| `built-ins/Reflect` | 133 | **`typeof Reflect` is undefined -- not implemented** |
+| `built-ins/Promise` | 115 | **`typeof Promise` is undefined -- not implemented** |
+| `built-ins/Math` | 102 | the ES2015 additions |
+| `built-ins/GeneratorPrototype` | 45 | generators are buffered, not resumable (see ComponentEngine.makeGeneratorValue) |
+
+What DOES exist: `Symbol`, `Map`, `Set` and `class` all answer. `WeakMap`,
+`Promise`, `Proxy` and `Reflect` do not exist at all, and those four alone
+account for 400 of the 1974.
+
+### ES2016 and later: not measured, and not measurable as an era
+
+test262 tags ES5-era tests `es5id` and ES2015-era tests `es6id`. Everything from
+ES2016 onward carries only the modern `esid` with no era marker -- 42,616 files
+with no way to bucket them by edition. An ES2016+ column would have to be built
+from FEATURE tags (`features: [optional-chaining]`, …), which is a different job.
+No number is published here rather than a synthesised one.
+
+### What the 1303-probe suite is not
+
+`npm run jsengine:conformance` reports 1303/1303. That is the runtime-conformance
+corpus, whose expectations are derived by running the same source through Node.
+It is a regression net, not test262, and the two numbers must not be quoted
+side by side as if they measured the same thing.
+
 The runtime-conformance suite is at 1281 checks, every one of them derived from Node —
 1260 expression probes plus 21 script-level probes run through Node's `vm` so the
 script global is real.

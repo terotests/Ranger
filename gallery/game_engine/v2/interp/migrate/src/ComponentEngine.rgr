@@ -1059,6 +1059,15 @@ class ComponentEngine {
     ; is the global object even under a strict program, so "am I inside a call"
     ; has to be answerable separately from "am I strict".
     def callDepth:int 0
+    ; ---- Generators (see makeGeneratorValue) -------------------------------
+    ; A yield appends to this buffer while a generator body runs. genDepth > 0
+    ; means "inside a generator body", which is what makes a bare `yield`
+    ; outside one still evaluate to undefined rather than corrupting a buffer.
+    def genCollect:[EvHandle]
+    def genDepth:int 0
+    ; A generator whose body never terminates would otherwise hang the engine.
+    ; Failing loudly at a bound beats spinning forever.
+    def genLimit:int 1000000
     ; D-BUILTINPROTO: one prototype object per built-in constructor name, kept
     ; for the engine's lifetime so identity and stored properties survive reads.
     def builtinProtos:[string:EvHandle]
@@ -3476,6 +3485,120 @@ class ComponentEngine {
         }
     }
 
+    ; ---- Destructuring ASSIGNMENT (as opposed to declaration) --------------
+    ; bindPattern above defines new bindings, which is right for
+    ; `var [a,b] = ...` and wrong for `[a,b] = ...`: the latter writes to
+    ; targets that already exist, and those targets may be member expressions
+    ; rather than names. Without this, `[a,b] = [b,a]` parsed fine, evaluated
+    ; its right-hand side, and then silently discarded it -- a swap that left
+    ; both variables untouched. `for (o.k of xs)` had the same hole.
+    ;
+    ; In assignment position the parser produces ArrayExpression /
+    ; ObjectExpression (a `[a,b]` there IS an array literal until the `=`
+    ; arrives), so both those and the Pattern spellings are accepted.
+    fn assignToTarget:void (target:TSNode value:EvHandle) {
+        def tk:int (this.nodeKindOf(target))
+        def tn:string target.nodeType
+        if (tk == 1) {
+            def cur:EvHandle (context.lookup(target.name))
+            context.assign(target.name value)
+            this.syncGlobalVar(target.name value)
+            return
+        }
+        if (tk == 3) {
+            ; opKind 1 is plain `=`; assignMember does the property store,
+            ; accessors and all.
+            this.assignMember(target 1 value)
+            return
+        }
+        if (tn == "AssignmentPattern") {
+            def v:EvHandle value
+            if ((v.isNull()) || (v.isUndefined())) {
+                if target.right {
+                    v = (this.evaluateExpr((unwrap target.right)))
+                }
+            }
+            if target.left {
+                this.assignToTarget((unwrap target.left) v)
+            }
+            return
+        }
+        if ((tk == 14) || (tn == "ArrayPattern")) {
+            this.assignArrayTarget(target value)
+            return
+        }
+        if ((tk == 15) || (tn == "ObjectPattern")) {
+            this.assignObjectTarget(target value)
+            return
+        }
+    }
+
+    fn assignArrayTarget:void (target:TSNode value:EvHandle) {
+        def idx:int 0
+        def ci:int 0
+        while (ci < (array_length target.children)) {
+            def el:TSNode (itemAt target.children ci)
+            def en:string el.nodeType
+            if ((en == "Elision") || (en == "ArrayHole")) {
+                idx = (idx + 1)
+            } {
+                if ((en == "RestElement") || (en == "SpreadElement")) {
+                    def items:[EvHandle]
+                    if (value.isArrayValue()) {
+                        def k:int idx
+                        while (k < (value.denseLen())) {
+                            push items (value.arrayItemAt(k))
+                            k = (k + 1)
+                        }
+                    }
+                    if el.left {
+                        this.assignToTarget((unwrap el.left) (EvValueBridge.taggedArray(items)))
+                    }
+                } {
+                    def elemVal:EvHandle (EvValueBridge.taggedUndefined())
+                    if (value.isArrayValue()) {
+                        if (idx < (value.denseLen())) {
+                            elemVal = (value.arrayItemAt(idx))
+                        }
+                    } {
+                        elemVal = (value.getIndex(idx))
+                    }
+                    this.assignToTarget(el elemVal)
+                    idx = (idx + 1)
+                }
+            }
+            ci = (ci + 1)
+        }
+    }
+
+    fn assignObjectTarget:void (target:TSNode value:EvHandle) {
+        def ci:int 0
+        while (ci < (array_length target.children)) {
+            def prop:TSNode (itemAt target.children ci)
+            if (prop.nodeType == "Property") {
+                def srcKey:string prop.name
+                if prop.computed {
+                    if prop.right {
+                        def keyNode:TSNode (unwrap prop.right)
+                        ; Two `this.` calls nested in one expression is two
+                        ; mutable borrows of self on Rust (E0499). The engine
+                        ; is written once and compiled to every target, so the
+                        ; local is not a style choice.
+                        def keyVal:EvHandle (this.evaluateExpr(keyNode))
+                        srcKey = (this.toStringOf(keyVal))
+                    }
+                }
+                def v:EvHandle (value.getMember(srcKey))
+                ; `{a = 1} = o` -- the default lives on the VALUE slot here,
+                ; the same place a rename would.
+                if prop.left {
+                    this.assignToTarget((unwrap prop.left) v)
+                }
+            }
+            ci = (ci + 1)
+        }
+    }
+
     fn bindArrayPattern:void (pattern:TSNode value:EvHandle) {
         def idx:int 0
         def ci:int 0
@@ -4450,6 +4573,11 @@ class ComponentEngine {
         ; Loop target: a scalar name or a destructuring pattern (for [k,v] of map).
         def varName:string ""
         def varPattern@(optional):TSNode
+        ; `for (o.k of xs)` / `for ([a,b] of pairs)` -- no declaration, so the
+        ; loop writes to an EXISTING target each turn. Only the declaration
+        ; form was handled, which left the target untouched and every read of
+        ; it undefined.
+        def varTarget@(optional):TSNode
         if stmt.left {
             def leftNode:TSNode (unwrap stmt.left)
             if ((this.nodeKindOf(leftNode)) == 31) {
@@ -4460,6 +4588,8 @@ class ComponentEngine {
                         varPattern = (unwrap decl.left)
                     }
                 }
+            } {
+                varTarget = leftNode
             }
         }
         if stmt.right {
@@ -4483,6 +4613,10 @@ class ComponentEngine {
                         } {
                             if ((strlen varName) > 0) {
                                 context.define(varName item)
+                            } {
+                                if varTarget {
+                                    this.assignToTarget((unwrap varTarget) item)
+                                }
                             }
                         }
                         loopContinue = false
@@ -5107,7 +5241,19 @@ class ComponentEngine {
         if (nt == "MemberExpression") { node.evalKind = 3
             return 3
         }
+        ; `o?.x` and `o?.[i]`. The parser gives these their own node type and
+        ; sets `optional`; everything else about them is a member read, so they
+        ; share the member kind and the guard lives in evaluateMemberExpr.
+        ; Unmapped, they fell through to the default and answered undefined --
+        ; which happens to look right for `o?.x` on a null `o` and is wrong for
+        ; every other case.
+        if (nt == "OptionalMemberExpression") { node.evalKind = 3
+            return 3
+        }
         if (nt == "CallExpression") { node.evalKind = 4
+            return 4
+        }
+        if (nt == "OptionalCallExpression") { node.evalKind = 4
             return 4
         }
         if (nt == "BinaryExpression") { node.evalKind = 5
@@ -5130,6 +5276,9 @@ class ComponentEngine {
         }
         if (nt == "TemplateLiteral") { node.evalKind = 11
             return 11
+        }
+        if (nt == "YieldExpression") { node.evalKind = 26
+            return 26
         }
         if (nt == "UnaryExpression") { node.evalKind = 12
             return 12
@@ -7393,6 +7542,15 @@ class ComponentEngine {
                 }
                 if ((this.nodeKindOf(leftNode)) == 3) {
                     return (this.assignMember(leftNode opK rightValue))
+                }
+                ; Destructuring assignment: `[a,b] = [b,a]`, `({a} = o)`.
+                ; Only `=` has this form -- the parser already rejects
+                ; `[a] += b` -- so the operator does not need re-applying.
+                def lk:int (this.nodeKindOf(leftNode))
+                def ln:string leftNode.nodeType
+                if ((lk == 14) || ((lk == 15) || ((ln == "ArrayPattern") || (ln == "ObjectPattern")))) {
+                    this.assignToTarget(leftNode rightValue)
+                    return rightValue
                 }
             }
         }
@@ -11792,9 +11950,65 @@ class ComponentEngine {
     ; Normalise any iterable to a list of per-iteration values: array/Set
     ; elements as-is, Map entries as [key, value] pairs, string chars.
     ; itemsOf copies, so the list is a snapshot on every kind. Shared by
+    ; ---- Generators --------------------------------------------------------
+    ; HOW THIS WORKS, AND WHAT IT COSTS. A tree-walking interpreter has no way
+    ; to suspend a C++/Rust call frame mid-body, so a generator cannot be
+    ; resumed at the yield. Instead the body is run to completion at CALL time
+    ; and every `yield` appends to a buffer; the object handed back iterates
+    ; that buffer.
+    ;
+    ; Correct for: for-of, spread, Array.from, manual next() over a finite
+    ; generator, yield* delegation, and the value sequence in all of those.
+    ;
+    ; NOT correct for: two-way next(v) -- a yield always evaluates to undefined;
+    ; interleaving of the body's side effects with consumption -- they all
+    ; happen at the call; and early termination -- `break` in a for-of does not
+    ; stop a body that has already run. An unbounded generator hits genLimit
+    ; and throws a RangeError naming the reason rather than hanging.
+    ;
+    ; These are real limits, so they fail LOUDLY where they can and are named
+    ; here rather than discovered.
+    fn generatorItemsOf:[EvHandle] (v:EvHandle) {
+        def items:[EvHandle]
+        def cur:EvHandle (v.getMember("__genidx__"))
+        def buf:EvHandle (v.getMember("__genitems__"))
+        if (buf.isArrayValue()) {
+            def k:int (to_int (cur.numberOf()))
+            while (k < (buf.denseLen())) {
+                push items (buf.arrayItemAt(k))
+                k = (k + 1)
+            }
+        }
+        return items
+    }
+    fn isGeneratorValue:boolean (v:EvHandle) {
+        if (false == (v.isObject())) {
+            return false
+        }
+        return (v.hasOwnData("__genitems__"))
+    }
+    fn makeGeneratorValue:EvHandle (items:[EvHandle]) {
+        def keys:[string]
+        def vals:[EvHandle]
+        def g:EvHandle (EvValueBridge.taggedObject(keys vals))
+        g.setMember("__genitems__" (EvValueBridge.taggedArray(items)))
+        g.setAttrs("__genitems__" false false false)
+        g.setMember("__genidx__" (EvHandle.fromInt(0)))
+        g.setAttrs("__genidx__" true false false)
+        g.setMember("next" (this.sharedNativeMethod("Generator" "next")))
+        g.setAttrs("next" true false true)
+        g.setMember("return" (this.sharedNativeMethod("Generator" "return")))
+        g.setAttrs("return" true false true)
+        return g
+    }
+
     ; the walker and the bytecode tier.
     fn forOfItemList:[EvHandle] (src:EvHandle) {
         def items:[EvHandle]
+        ; A generator object iterates the values its body produced.
+        if (this.isGeneratorValue(src)) {
+            return (this.generatorItemsOf(src))
+        }
         if (src.isArrayValue()) {
             items = (src.itemsOf())
         } {
@@ -12324,6 +12538,16 @@ class ComponentEngine {
             }
         }
         def result:EvHandle (EvValueBridge.taggedNull())
+        ; A generator call runs the body NOW, buffering its yields, and answers
+        ; an iterator over that buffer. See makeGeneratorValue for the limits.
+        def isGenCall:boolean fnNode.generator
+        def savedGenCollect:[EvHandle] genCollect
+        def savedGenDepth:int genDepth
+        if isGenCall {
+            def freshCollect:[EvHandle]
+            genCollect = freshCollect
+            genDepth = (genDepth + 1)
+        }
         if fnNode.body {
             def body:TSNode (unwrap fnNode.body)
             if ((this.nodeKindOf(body)) == 34) {
@@ -12331,6 +12555,12 @@ class ComponentEngine {
             } {
                 result = (this.evaluateExpr(body))
             }
+        }
+        if isGenCall {
+            def produced:[EvHandle] genCollect
+            genCollect = savedGenCollect
+            genDepth = savedGenDepth
+            result = (this.makeGeneratorValue(produced))
         }
         if srcSwapped {
             currentSource = savedSrcText
@@ -13058,6 +13288,35 @@ class ComponentEngine {
             }
             return (this.lookupIdentifier(node.name))
         }
+        ; `yield x` inside a generator body: the value joins the buffer the
+        ; generator call is collecting. The expression itself evaluates to
+        ; undefined, because this implementation cannot receive a value back
+        ; from next(v) -- see makeGeneratorValue for what that costs.
+        if (exprK == 26) {
+            def yv:EvHandle (EvValueBridge.taggedUndefined())
+            if node.left {
+                yv = (this.evaluateExpr((unwrap node.left)))
+            }
+            if (genDepth > 0) {
+                if ((array_length genCollect) >= genLimit) {
+                    this.throwSpecError("RangeError" "generator produced too many values: this engine collects a generator eagerly, so an unbounded generator cannot be consumed lazily")
+                    return (EvValueBridge.taggedUndefined())
+                }
+                ; `yield* xs` delegates: the operand's items join the buffer
+                ; one at a time rather than the iterable joining as one value.
+                if node.delegate {
+                    def sub:[EvHandle] (this.forOfItemList(yv))
+                    def di:int 0
+                    while (di < (array_length sub)) {
+                        push genCollect (itemAt sub di)
+                        di = (di + 1)
+                    }
+                } {
+                    push genCollect yv
+                }
+            }
+            return (EvValueBridge.taggedUndefined())
+        }
         ; PERF: a numeric literal is held as source TEXT, so evaluating it means
         ; parsing that text -- and a loop bound is evaluated once per iteration.
         ; The parse is memoised on the node, and the case sits at the front
@@ -13712,6 +13971,17 @@ class ComponentEngine {
                                 while (stI < (srcV.denseLen())) {
                                     push frItems (srcV.arrayItemAt(stI))
                                     stI = (stI + 1)
+                                }
+                            }
+                            ; A generator (or anything else for-of walks and the
+                            ; three cases above miss) goes through the shared
+                            ; list, so Array.from and for-of cannot disagree.
+                            if (this.isGeneratorValue(srcV)) {
+                                def gi2:[EvHandle] (this.forOfItemList(srcV))
+                                def gk2:int 0
+                                while (gk2 < (array_length gi2)) {
+                                    push frItems (itemAt gi2 gk2)
+                                    gk2 = (gk2 + 1)
                                 }
                             }
                         }
@@ -17635,6 +17905,42 @@ class ComponentEngine {
     ; that already proved no override under the current dispatch epoch
     ; (the call-site ICs).
     fn invokeBuiltinDirect:EvHandle (kind:string name:string recv:EvHandle args:[EvHandle]) {
+        ; Generator iteration over the buffer built at call time. next(v) takes
+        ; no value: this implementation cannot deliver one back into the body.
+        if (kind == "Generator") {
+            def gk:[string]
+            def gv:[EvHandle]
+            def res:EvHandle (EvValueBridge.taggedObject(gk gv))
+            if (name == "return") {
+                def endBuf:EvHandle (recv.getMember("__genitems__"))
+                if (endBuf.isArrayValue()) {
+                    recv.setMember("__genidx__" (EvHandle.fromInt((endBuf.denseLen()))))
+                }
+                def rv:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 0) {
+                    rv = (itemAt args 0)
+                }
+                res.setMember("value" rv)
+                res.setMember("done" (EvValueBridge.taggedBoolean(true)))
+                return res
+            }
+            def idxV:EvHandle (recv.getMember("__genidx__"))
+            def idx:int (to_int (idxV.numberOf()))
+            def buf:EvHandle (recv.getMember("__genitems__"))
+            def n:int 0
+            if (buf.isArrayValue()) {
+                n = (buf.denseLen())
+            }
+            if (idx < n) {
+                res.setMember("value" (buf.arrayItemAt(idx)))
+                res.setMember("done" (EvValueBridge.taggedBoolean(false)))
+                recv.setMember("__genidx__" (EvHandle.fromInt((idx + 1))))
+            } {
+                res.setMember("value" (EvValueBridge.taggedUndefined()))
+                res.setMember("done" (EvValueBridge.taggedBoolean(true)))
+            }
+            return res
+        }
         ; D-THISCHECK: Number.prototype and Boolean.prototype methods require a
         ; receiver of their own type. Borrowing one --
         ;   var o = {}; o.f = Boolean.prototype.toString; o.f();
@@ -23669,6 +23975,14 @@ class ComponentEngine {
             if scriptThrew {
                 return (EvValueBridge.taggedUndefined())
             }
+            ; `o?.x` on null/undefined is undefined, not a TypeError. Guarded
+            ; after the base is evaluated so the base's own side effects still
+            ; happen exactly once, which is what the spec asks for.
+            if node.optional {
+                if ((obj.isNull()) || (obj.isUndefined())) {
+                    return (EvValueBridge.taggedUndefined())
+                }
+            }
             ; D-PROTO: reading `F.prototype` MINTS it, and the object the spec
             ; mints already carries `constructor` back to F and inherits from
             ; Object.prototype. Only `new F()` filled those in, so a program that
@@ -24045,6 +24359,16 @@ class ComponentEngine {
                     while (k < (sv.denseLen())) {
                         push items (sv.arrayItemAt(k))
                         k = (k + 1)
+                    }
+                } {
+                    ; `[...g()]`, `[..."ab"]`, `[...set]` -- anything for-of can
+                    ; walk, spread can too. Only the array case was handled, so
+                    ; spreading a generator produced an empty array.
+                    def sp:[EvHandle] (this.forOfItemList(sv))
+                    def sk:int 0
+                    while (sk < (array_length sp)) {
+                        push items (itemAt sp sk)
+                        sk = (sk + 1)
                     }
                 }
             } {
@@ -24892,6 +25216,18 @@ class ComponentEngine {
             def prop:TSNode (itemAt node.children i)
             if (prop.nodeType == "Property") {
                 def key:string prop.name
+                ; `{ [expr]: v }` -- the parser leaves `name` empty and puts the
+                ; key expression on `right`. Reading `name` regardless built the
+                ; object with an EMPTY key, so `{[k]:1}` answered `{"":1}` and
+                ; `o.x` read undefined. ToPropertyKey is ToString here, which is
+                ; what every other key path in this function already assumes.
+                if prop.computed {
+                    if prop.right {
+                        def keyNode:TSNode (unwrap prop.right)
+                        def keyVal:EvHandle (this.evaluateExpr(keyNode))
+                        key = (this.toStringOf(keyVal))
+                    }
+                }
                 ; The parser tags an object-literal accessor on `kind`
                 ; (get/set/init); `accessor` carries the same idea for a CLASS
                 ; member. Accept either so both forms are handled.
