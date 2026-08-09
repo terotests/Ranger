@@ -16649,13 +16649,21 @@ class ComponentEngine {
                 if (false == (fv.isNumber())) { return (EvValueBridge.taggedBoolean(false)) }
                 return (EvValueBridge.taggedBoolean((this.isFiniteNum(fv.numberValue))))
             }
-            if (name == "isInteger") {
+            if ((name == "isInteger") || (name == "isSafeInteger")) {
                 if ((array_length args) == 0) { return (EvValueBridge.taggedBoolean(false)) }
                 def iv:EvHandle (itemAt args 0)
                 if (false == (iv.isNumber())) { return (EvValueBridge.taggedBoolean(false)) }
                 def dn:double iv.numberValue
                 if (false == (this.isFiniteNum(dn))) { return (EvValueBridge.taggedBoolean(false)) }
-                return (EvValueBridge.taggedBoolean(((this.floorNum(dn)) == dn)))
+                if ((this.floorNum(dn)) != dn) { return (EvValueBridge.taggedBoolean(false)) }
+                ; isSafeInteger additionally bounds the magnitude at 2^53 - 1,
+                ; past which an integer is not exactly representable.
+                if (name == "isSafeInteger") {
+                    def mag:double dn
+                    if (mag < 0.0) { mag = (0.0 - mag) }
+                    return (EvValueBridge.taggedBoolean((mag <= 9007199254740991.0)))
+                }
+                return (EvValueBridge.taggedBoolean(true))
             }
         }
         ; D-DATE: the three Date statics. `now` reads the realm's clock, which is
@@ -16739,7 +16747,15 @@ class ComponentEngine {
                 }
             }
             if (this.objectStaticNeedsObject(name)) {
-                if (false == (a0.isObject())) {
+                ; `Object.create(null)` is legal -- null is the one non-object
+                ; prototype -- so create's guard is "object or null", not
+                ; "object". The value path inherited the stricter form and made
+                ; a prototype-less object a TypeError.
+                def createNullOk:boolean false
+                if (name == "create") {
+                    if (a0.isNull()) { createNullOk = true }
+                }
+                if (false == ((a0.isObject()) || createNullOk)) {
                     def okKind:boolean false
                     if (a0.isArrayValue()) { okKind = true }
                     if (a0.isFunction()) { okKind = true }
@@ -16808,6 +16824,165 @@ class ComponentEngine {
                     return (this.throwDefineError(dErr))
                 }
                 return a0
+            }
+            ; D-STATICS: the rest of the Object statics, on the VALUE path. They
+            ; existed only on the AST call-site chain, so `var f = Object.assign`
+            ; captured nothing -- and the suite captures them constantly.
+            if (name == "is") {
+                def isA:EvHandle (EvValueBridge.taggedUndefined())
+                def isB2:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 0) { isA = (itemAt args 0) }
+                if ((array_length args) > 1) { isB2 = (itemAt args 1) }
+                ; SameValue: like ===, except NaN equals itself and +0 does not
+                ; equal -0.
+                if ((isA.isNumber()) && (isB2.isNumber())) {
+                    def an2:double (isA.toNumber())
+                    def bn2:double (isB2.toNumber())
+                    if (an2 != an2) {
+                        return (EvValueBridge.taggedBoolean((bn2 != bn2)))
+                    }
+                    if (bn2 != bn2) {
+                        return (EvValueBridge.taggedBoolean(false))
+                    }
+                    if (an2 != bn2) {
+                        return (EvValueBridge.taggedBoolean(false))
+                    }
+                    if (an2 == 0.0) {
+                        return (EvValueBridge.taggedBoolean(((1.0 / an2) == (1.0 / bn2))))
+                    }
+                    return (EvValueBridge.taggedBoolean(true))
+                }
+                return (EvValueBridge.taggedBoolean((isA.equals(isB2))))
+            }
+            if (name == "getOwnPropertySymbols") {
+                ; Symbol keys are stored under an "@@" prefix, which is exactly
+                ; what getOwnPropertyNames filters out.
+                def symItems:[EvHandle]
+                return (EvValueBridge.taggedArray(symItems))
+            }
+            if (name == "assign") {
+                def ai:int 1
+                while (ai < (array_length args)) {
+                    def srcA:EvHandle (itemAt args ai)
+                    if (this.isDescriptorObject(srcA)) {
+                        def sks:[string] (this.objectEnumerableKeys(srcA))
+                        def ski:int 0
+                        while (ski < (array_length sks)) {
+                            def sk2:string (itemAt sks ski)
+                            if (false == (this.isHiddenInstanceKey(sk2))) {
+                                def sv2:EvHandle (this.getPropertyValue(srcA sk2))
+                                if scriptThrew {
+                                    return (EvValueBridge.taggedUndefined())
+                                }
+                                this.bcPutField(a0 sk2 sv2)
+                                if scriptThrew {
+                                    return (EvValueBridge.taggedUndefined())
+                                }
+                            }
+                            ski = (ski + 1)
+                        }
+                    }
+                    ai = (ai + 1)
+                }
+                return a0
+            }
+            if (name == "create") {
+                def keysC2:[string]
+                def valsC2:[EvHandle]
+                def madeC:EvHandle (EvValueBridge.taggedObject(keysC2 valsC2))
+                if (a0.isObject()) {
+                    madeC.setProto(a0)
+                } {
+                    if (false == (a0.isNull())) {
+                        return (this.throwSpecError("TypeError" "Object prototype may only be an Object or null"))
+                    }
+                }
+                if ((array_length args) > 1) {
+                    def descsC:EvHandle (itemAt args 1)
+                    if (false == (descsC.isUndefined())) {
+                        def cErr2:string (this.applyDescriptorMap(madeC descsC))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        if ((strlen cErr2) > 0) {
+                            return (this.throwDefineError(cErr2))
+                        }
+                    }
+                }
+                return madeC
+            }
+            if (name == "defineProperties") {
+                if ((array_length args) > 1) {
+                    def pErr2:string (this.applyDescriptorMap(a0 (itemAt args 1)))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    if ((strlen pErr2) > 0) {
+                        return (this.throwDefineError(pErr2))
+                    }
+                }
+                return a0
+            }
+            if (name == "setPrototypeOf") {
+                if ((array_length args) > 1) {
+                    def npV:EvHandle (itemAt args 1)
+                    if (npV.isObject()) {
+                        a0.setProto(npV)
+                    }
+                }
+                return a0
+            }
+            if (name == "freeze") {
+                if a0Obj {
+                    a0.markAllNonConfigurable(true)
+                    a0.setFrozenObj(true)
+                    a0.setSealedObj(true)
+                    a0.setExtensible(false)
+                }
+                return a0
+            }
+            if (name == "seal") {
+                if a0Obj {
+                    a0.markAllNonConfigurable(false)
+                    a0.setSealedObj(true)
+                    a0.setExtensible(false)
+                }
+                return a0
+            }
+            if (name == "preventExtensions") {
+                if a0Obj {
+                    a0.setExtensible(false)
+                }
+                return a0
+            }
+            if (name == "entries") {
+                def entItems:[EvHandle]
+                def eks:[string] (this.objectEnumerableKeys(a0))
+                def eki:int 0
+                while (eki < (array_length eks)) {
+                    def ek:string (itemAt eks eki)
+                    if (false == (this.isHiddenInstanceKey(ek))) {
+                        def pairE:[EvHandle]
+                        push pairE (EvValueBridge.taggedString(ek))
+                        push pairE (this.getPropertyValue(a0 ek))
+                        push entItems (EvValueBridge.taggedArray(pairE))
+                    }
+                    eki = (eki + 1)
+                }
+                return (EvValueBridge.taggedArray(entItems))
+            }
+            if (name == "values") {
+                def valItems:[EvHandle]
+                def vks:[string] (this.objectEnumerableKeys(a0))
+                def vki:int 0
+                while (vki < (array_length vks)) {
+                    def vk:string (itemAt vks vki)
+                    if (false == (this.isHiddenInstanceKey(vk))) {
+                        push valItems (this.getPropertyValue(a0 vk))
+                    }
+                    vki = (vki + 1)
+                }
+                return (EvValueBridge.taggedArray(valItems))
             }
         }
         ; D-PROXY: Proxy.revocable hands back the proxy and a function that
@@ -17245,6 +17420,8 @@ class ComponentEngine {
         def out:[string]
         if (nsName == "Object") {
             push out "assign"
+            push out "getOwnPropertySymbols"
+            push out "is"
             push out "create"
             push out "defineProperties"
             push out "defineProperty"
@@ -17346,6 +17523,7 @@ class ComponentEngine {
             push out "isFinite"
             push out "isInteger"
             push out "isNaN"
+            push out "isSafeInteger"
             push out "parseFloat"
             push out "parseInt"
             return out
@@ -17605,18 +17783,18 @@ class ComponentEngine {
             if (name == "isNaN") { return true }
             if (name == "isFinite") { return true }
             if (name == "isInteger") { return true }
+            if (name == "isSafeInteger") { return true }
             return false
         }
         if (nsName == "Object") {
-            if (name == "keys") { return true }
-            if (name == "getOwnPropertyNames") { return true }
-            if (name == "getOwnPropertyDescriptor") { return true }
-            if (name == "getPrototypeOf") { return true }
-            if (name == "isExtensible") { return true }
-            if (name == "isFrozen") { return true }
-            if (name == "isSealed") { return true }
-            if (name == "defineProperty") { return true }
-            return false
+            ; D-STATICS: every Object static the value path implements. They are
+            ; captured detached constantly -- `var f = Object.assign` -- and a
+            ; name missing here answered undefined rather than running.
+            return (this.hasBuiltinStatic(nsName name))
+        }
+        if (nsName == "Number") {
+            if (name == "isSafeInteger") { return true }
+            return (this.hasBuiltinStatic(nsName name))
         }
         if (nsName == "Date") {
             return (this.hasBuiltinStatic(nsName name))
