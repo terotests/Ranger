@@ -21,9 +21,8 @@ const ROOT = path.resolve(__dirname, "..");
  * the machine the file is built and run as well, and its answers are compared
  * against the ones Node gives for the same JavaScript.
  *
- * Kotlin is compiled but not built: kotlinc takes several minutes on a file
- * this size, which does not belong in a test run. It has been verified by hand
- * -- see TS_ENGINE_PERF.md.
+ * When kotlinc / java are on PATH the Kotlin jar is built and the answers are
+ * checked against Node as well.
  */
 const ENGINE = "gallery/game_engine/v2/interp/bench/native/bench_main.rgr";
 const OUT = path.join(ROOT, "tests", ".output-ts-engine");
@@ -165,6 +164,25 @@ describe("TS engine -> Go / Kotlin / Swift / Python / C# / Dart", () => {
         maxBuffer: 64 * 1024 * 1024,
       });
       expectMatchesJavaScript(bin);
+    },
+    900000
+  );
+
+  it.skipIf(!hasTool("kotlinc") || !hasTool("java"))(
+    "the Kotlin build runs and answers like JavaScript",
+    () => {
+      const { file } = compileEngine("kotlin");
+      const dir = path.dirname(file);
+      const jar = path.join(dir, "engine_bench.jar");
+      execFileSync(
+        "kotlinc",
+        [file, "-include-runtime", "-d", jar],
+        {
+          encoding: "utf8",
+          maxBuffer: 64 * 1024 * 1024,
+        }
+      );
+      expectMatchesJavaScript("java", ["-jar", jar]);
     },
     900000
   );

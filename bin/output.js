@@ -29407,7 +29407,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             wr.out(("\"" + s) + "\"", false);
                             break;
                           case 3 : 
-                            wr.out("" + node.int_value, false);
+                            if ( (node.int_value > 2147483647) || (node.int_value < (0 - 2147483648)) ) {
+                              wr.out(("(" + node.int_value) + "L).toInt()", false);
+                            } else {
+                              wr.out("" + node.int_value, false);
+                            }
                             break;
                           case 5 : 
                             if ( node.boolean_value ) {
@@ -29417,6 +29421,26 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             break;
                         };
+                      };
+                      async writeArrayLiteral (node, ctx, wr) {
+                        let elemType = node.eval_array_type;
+                        if ( (elemType.length) == 0 ) {
+                          elemType = node.array_type;
+                        }
+                        wr.out("arrayListOf<", false);
+                        if ( (elemType.length) > 0 ) {
+                          wr.out(this.getObjectTypeString(elemType, ctx), false);
+                        } else {
+                          wr.out("Any", false);
+                        }
+                        wr.out(">(", false);
+                        await operatorsOf.forEach_15(node.children, (async (item, index) => { 
+                          if ( index > 0 ) {
+                            wr.out(", ", false);
+                          }
+                          await this.WalkNode(item, ctx, wr);
+                        }));
+                        wr.out(")", false);
                       };
                       adjustType (tn) {
                         if ( tn == "this" ) {
