@@ -21750,7 +21750,10 @@ class ComponentEngine {
                                 def r:int 0
                                 def avLen:int (av.arrayLength())
                                 if (false == (av.isArrayValue())) {
-                                    avLen = (this.toIntegerOf((this.getPropertyValue(av "length"))))
+                                    ; Hoisted: nesting two `this.` calls is a
+                                    ; double borrow of self on the Rust target.
+                                    def avLenV:EvHandle (this.getPropertyValue(av "length"))
+                                    avLen = (this.toIntegerOf(avLenV))
                                 }
                                 while (r < avLen) {
                                     push items (this.arrayElemAt(av r))
