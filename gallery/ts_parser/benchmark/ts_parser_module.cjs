@@ -2062,6 +2062,8 @@ class TSNode  {
     this.numValue = 0.0;     /** note: unused */
     this.numCacheId = 0 - 1;     /** note: unused */
     this.scopeHops = 0 - 1;     /** note: unused */
+    this.lexScanned = false;     /** note: unused */
+    this.lexDeclares = false;     /** note: unused */
     this.evalKind = 0;     /** note: unused */
     this.evalOpKind = 0;     /** note: unused */
     this.hoistScanned = false;     /** note: unused */

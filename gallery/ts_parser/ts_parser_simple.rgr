@@ -80,6 +80,11 @@ class TSNode {
   ; Memo the EVALUATOR fills on first visit: nodeType as a small integer, so
   ; hot dispatch compares ints instead of strings (a memcmp per visit on the
   ; native targets, where V8 compares interned pointers). 0 = not scanned.
+  ; Memo: does this BlockStatement declare a lexical name (let/const/class)?
+  ; Only such a block needs a scope of its own, and creating one per block
+  ; regardless would put a context allocation in every loop body.
+  def lexScanned:boolean false
+  def lexDeclares:boolean false
   def evalKind:int 0
   ; Same memo for the OPERATOR string (BinaryExpression "+", "<", ...).
   def evalOpKind:int 0

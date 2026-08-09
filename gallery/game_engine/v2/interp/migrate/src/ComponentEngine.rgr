@@ -4588,10 +4588,33 @@ class ComponentEngine {
         def myLabels:[string] (this.takeStatementLabels())
         loopBreak = false
         loopContinue = false
+        ; D-LEXSCOPE: `for (let i = ...)` gives each ITERATION its own binding,
+        ; which is what makes a closure made in the body capture that turn's
+        ; value. One shared binding meant every closure read the final one.
+        def forOuter@(optional):EvalContext context
+        def perIteration:boolean false
+        def loopNames:[string]
         if stmt.init {
             def initNode:TSNode (unwrap stmt.init)
             if ((this.nodeKindOf(initNode)) == 31) {
+                if ((initNode.kind == "let") || (initNode.kind == "const")) {
+                    perIteration = true
+                    def loopCtx:EvalContext ((unwrap forOuter).createChild())
+                    loopCtx.isBlockScope = true
+                    context = loopCtx
+                    def di:int 0
+                    while (di < (array_length initNode.children)) {
+                        def dnode:TSNode (itemAt initNode.children di)
+                        if ((strlen dnode.name) > 0) {
+                            push loopNames dnode.name
+                        }
+                        di = (di + 1)
+                    }
+                }
                 this.processVariableDeclaration(initNode)
+                if perIteration {
+                    context = (this.copyLoopBindings((unwrap forOuter) loopNames))
+                }
             } {
                 ; The init clause is an ExpressionNoIn when it is not a
                 ; declaration -- `for (i = 0; i < 3; i++)`. Only the declaration
@@ -4636,6 +4659,13 @@ class ComponentEngine {
                             if (this.continueEscapes(myLabels)) {
                                 looping = false
                             } {
+                                ; The per-iteration environment is created
+                                ; BETWEEN the body and the increment, so the
+                                ; closure made in the body keeps this turn's
+                                ; value and the increment writes the next one.
+                                if perIteration {
+                                    context = (this.copyLoopBindings((unwrap forOuter) loopNames))
+                                }
                                 ; `continue` still runs the update clause.
                                 if stmt.right {
                                     this.evaluateUpdateExpr((unwrap stmt.right))
@@ -4647,10 +4677,29 @@ class ComponentEngine {
                 }
             }
         }
+        context = (unwrap forOuter)
         ; Consume break/continue at the loop boundary (do not leak to outer loop)
         ; unless it names a label further out -- see settleLoopAbrupt.
         this.settleLoopAbrupt(myLabels savedBreak savedContinue)
     }
+
+    ; A fresh loop environment holding a COPY of each per-iteration binding's
+    ; current value. Child of the loop's enclosing scope, not of the previous
+    ; iteration's, so the chain does not grow with the iteration count.
+    fn copyLoopBindings:EvalContext (outer:EvalContext names:[string]) {
+        def fresh:EvalContext (outer.createChild())
+        fresh.isBlockScope = true
+        def i:int 0
+        while (i < (array_length names)) {
+            def nm:string (itemAt names i)
+            if (context.has(nm)) {
+                fresh.define(nm (context.lookup(nm)))
+            }
+            i = (i + 1)
+        }
+        return fresh
+    }
+
     fn runForOfStatementValue:void (stmt:TSNode) {
         def savedBreak:boolean loopBreak
         def savedContinue:boolean loopContinue
@@ -4665,9 +4714,17 @@ class ComponentEngine {
         ; form was handled, which left the target untouched and every read of
         ; it undefined.
         def varTarget@(optional):TSNode
+        ; D-LEXSCOPE: `for (let v of xs)` binds v FRESH on every turn, so a
+        ; closure made in the body keeps that turn's element -- and v does not
+        ; outlive the loop.
+        def ofOuter@(optional):EvalContext context
+        def ofLexical:boolean false
         if stmt.left {
             def leftNode:TSNode (unwrap stmt.left)
             if ((this.nodeKindOf(leftNode)) == 31) {
+                if ((leftNode.kind == "let") || (leftNode.kind == "const")) {
+                    ofLexical = true
+                }
                 if ((array_length leftNode.children) > 0) {
                     def decl:TSNode (itemAt leftNode.children 0)
                     varName = decl.name
@@ -4695,6 +4752,11 @@ class ComponentEngine {
                         looping = false
                     } {
                         def item:EvHandle (itemAt items i)
+                        if ofLexical {
+                            def turnCtx:EvalContext ((unwrap ofOuter).createChild())
+                            turnCtx.isBlockScope = true
+                            context = turnCtx
+                        }
                         if varPattern {
                             this.bindPattern((unwrap varPattern) item)
                         } {
@@ -4727,6 +4789,7 @@ class ComponentEngine {
                 }
             }
         }
+        context = (unwrap ofOuter)
         this.settleLoopAbrupt(myLabels savedBreak savedContinue)
     }
     fn runWhileStatementValue:void (stmt:TSNode) {
@@ -4900,9 +4963,15 @@ class ComponentEngine {
         ; declaration -- `var k; for (k in o)`. Only the declaration form was
         ; read, so the loop ran its body with `k` never assigned.
         def declaresVar:boolean false
+        ; D-LEXSCOPE: `for (let k in o)` binds k fresh on every turn.
+        def inOuter@(optional):EvalContext context
+        def inLexical:boolean false
         if stmt.left {
             def leftNode:TSNode (unwrap stmt.left)
             if ((this.nodeKindOf(leftNode)) == 31) {
+                if ((leftNode.kind == "let") || (leftNode.kind == "const")) {
+                    inLexical = true
+                }
                 if ((array_length leftNode.children) > 0) {
                     def decl:TSNode (itemAt leftNode.children 0)
                     varName = decl.name
@@ -4948,6 +5017,11 @@ class ComponentEngine {
                         if (false == stillThere) {
                             i = (i + 1)
                         } {
+                            if inLexical {
+                                def turnCtxI:EvalContext ((unwrap inOuter).createChild())
+                                turnCtxI.isBlockScope = true
+                                context = turnCtxI
+                            }
                             if ((strlen varName) > 0) {
                                 if declaresVar {
                                     context.define(varName (EvValueBridge.taggedString(k)))
@@ -4980,6 +5054,7 @@ class ComponentEngine {
                 }
             }
         }
+        context = (unwrap inOuter)
         this.settleLoopAbrupt(myLabels savedBreak savedContinue)
     }
 
@@ -5509,8 +5584,8 @@ class ComponentEngine {
             return
         }
         if (stmtK == 34) {
-            this.clearStatementLabels()
-            this.runStatementList(stmt.children)
+            ; D-LEXSCOPE: a bare block is a scope when it declares one.
+            this.runBlockOrStatement(stmt)
             return
         }
         if (stmtK == 38) {
@@ -5735,6 +5810,33 @@ class ComponentEngine {
         }
     }
 
+    ; D-LEXSCOPE: does this block declare a LEXICAL name? Only such a block
+    ; needs a scope of its own; giving every block one would put a context
+    ; allocation in the body of every loop. Memoised on the node, since the
+    ; answer is a property of the source.
+    fn blockDeclaresLexical:boolean (blk:TSNode) {
+        if blk.lexScanned {
+            return blk.lexDeclares
+        }
+        def found:boolean false
+        def i:int 0
+        while (i < (array_length blk.children)) {
+            def st:TSNode (itemAt blk.children i)
+            def sk:int (this.nodeKindOf(st))
+            if (sk == 31) {
+                if ((st.kind == "let") || (st.kind == "const")) {
+                    found = true
+                }
+            }
+            ; A class declaration is lexically scoped too.
+            if (sk == 25) { found = true }
+            i = (i + 1)
+        }
+        blk.lexScanned = true
+        blk.lexDeclares = found
+        return found
+    }
+
     fn runBlockOrStatement:void (blk:TSNode) {
         if ((this.nodeKindOf(blk)) == 34) {
             ; D-LABELS: a label on a BLOCK belongs to the block, not to the first
@@ -5742,7 +5844,20 @@ class ComponentEngine {
             ; used to hand "blk" to the do-while, which then swallowed the break
             ; and carried on with the rest of the block.
             this.clearStatementLabels()
-            this.runStatementList(blk.children)
+            ; D-LEXSCOPE: `let` and `const` are scoped to the BLOCK. There was no
+            ; block scope at all, so `let a = 1; { let a = 2; } a` read 2 -- the
+            ; inner declaration wrote the outer binding. The scope is marked as a
+            ; block scope, which is what keeps `var` inside it function-scoped.
+            if (this.blockDeclaresLexical(blk)) {
+                def savedCtx:EvalContext context
+                def blockCtx:EvalContext (context.createChild())
+                blockCtx.isBlockScope = true
+                context = blockCtx
+                this.runStatementList(blk.children)
+                context = savedCtx
+            } {
+                this.runStatementList(blk.children)
+            }
         } {
             this.runStatementValue(blk)
         }
@@ -22336,10 +22451,14 @@ class ComponentEngine {
         while (i < (array_length reactPid)) {
             if ((itemAt reactPid i) == pid) {
                 set reactPid i ""
-                push jobHandler (itemAt reactOnFul i)
+                ; Pick the handler BEFORE pushing: reading one list while
+                ; writing another in the same expression is a borrow of `self`
+                ; twice over on the Rust target.
+                def useH:EvHandle (itemAt reactOnFul i)
                 if (state == 2) {
-                    set jobHandler ((array_length jobHandler) - 1) (itemAt reactOnRej i)
+                    useH = (itemAt reactOnRej i)
                 }
+                push jobHandler useH
                 push jobDerived (itemAt reactDerived i)
                 push jobValue value
                 push jobIsReject (state == 2)
