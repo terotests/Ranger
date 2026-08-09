@@ -122,7 +122,7 @@ for (const f of files) {
 
 console.log("binary :", opt.bin);
 console.log("corpus :", root);
-console.log("es5 tests:", selected.length, "of", files.length, "files");
+console.log(ERA + " tests:", selected.length, "of", files.length, "files");
 console.log("");
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "t262-"));
@@ -193,6 +193,13 @@ if (failures.length) {
   console.log("");
   console.log("sample failures:");
   for (const f of failures.slice(0, 25)) console.log("  " + f.rel + "  — " + f.why);
+  // The sample is 25 of possibly thousands, which is enough to eyeball and far
+  // too few to tell WHICH features are missing. T262_FAIL_FILE writes them all.
+  const outFile = process.env.T262_FAIL_FILE;
+  if (outFile) {
+    fs.writeFileSync(outFile, failures.map((f) => f.kind + "\t" + f.rel + "\t" + f.why).join("\n") + "\n");
+    console.log("full list: " + outFile);
+  }
 }
 
 fs.rmSync(dir, { recursive: true, force: true });
