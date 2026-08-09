@@ -28395,6 +28395,10 @@ class ComponentEngine {
                 if (obj.isNumber()) { primRecv = true }
                 if (obj.isString()) { primRecv = true }
                 if (obj.isBoolean()) { primRecv = true }
+                ; An ARRAY answers undefined for a property it does not have
+                ; too -- `[].index` is undefined, and the engine's null read as
+                ; the value null, which is a different thing a test can see.
+                if (obj.isArrayValue()) { primRecv = true }
                 if primRecv {
                     return (EvValueBridge.taggedUndefined())
                 }
