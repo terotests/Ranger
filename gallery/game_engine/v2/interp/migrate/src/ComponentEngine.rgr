@@ -17384,7 +17384,17 @@ class ComponentEngine {
                         return (EvValueBridge.taggedBoolean(false))
                     }
                 }
-                this.bcPutField(rTgt rKey sVal)
+                ; The optional RECEIVER is where the property lands -- the
+                ; target only decides whether the write is allowed. That is what
+                ; makes `Reflect.set(t, k, v, r)` define k on r.
+                def sTarget:EvHandle rTgt
+                if ((array_length args) > 3) {
+                    def rcv:EvHandle (itemAt args 3)
+                    if (this.isDescriptorObject(rcv)) {
+                        sTarget = rcv
+                    }
+                }
+                this.bcPutField(sTarget rKey sVal)
                 if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
                 }
