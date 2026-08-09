@@ -489,6 +489,36 @@ key path, so a computed key is interned once at the site rather than on every
 bag call beneath it. QuickJS pays this too (`JS_ValueToAtom` on a computed key)
 but pays it once per access, not once per bag method.
 
-Concretely, the next step is an atom-carrying variant of the store path
-(`setMemberFast`/`putData`) to match the `memberFastAtAtom`/`dataOrHoleAtom`
-pair the read path already has.
+**Done, and the caller was not the one I expected.** The call counts said two
+interns per loop iteration, and the second was not the store path at all:
+
+```
+EvAtomTable::idOf  <- EvPropertyBag::hasData   421,380 calls
+                        <- EvHandle::hasOwnData
+                             <- ComponentEngine::argMapName   401,000
+```
+
+`argMapName` opens with `obj.hasOwnData("__argscope__")` — a **string literal**
+probed on every member access of an object, hashing 12 characters each time to
+rediscover an id that never changes. An atom id is stable for the life of the
+table, so it is minted once into `argScopeAtom` and read through a new
+`hasOwnDataAtom` / `hasDataAtom` pair.
+
+| | before | after |
+| --- | ---: | ---: |
+| `EvAtomTable::idOf` | 72,842,745 (3.32%) | **35,551,413 (1.69%)** |
+| `object` total Ir | 2,192,232,005 | **2,099,624,343** |
+
+**Instructions on the row cut 4.2%, and the interning cost itself halved.**
+Wall clock reads 1.021x on `object`, which is at the edge of this harness's
+noise — the instruction count is the trustworthy number for a change this size,
+and it is not ambiguous.
+
+This is the shape the retracted §3.2 correction was groping for: a marker
+property probed by a string literal on a hot path. `__fnprotocall__` was not
+that; `__argscope__` is, and the profile at the right rep count found it.
+
+The store path (`setMemberFast`/`putData`) still interns per store — but the
+counts say that is genuinely once per store, not duplicated, so it is the
+irreducible price of a runtime-built key. QuickJS pays it too
+(`JS_ValueToAtom`).

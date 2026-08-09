@@ -316,6 +316,24 @@ class EvPropertyBag {
         }
     }
     ; E4c: property-bag SoT. Value payload is EvalValue (avoids EvHandle import cycle).
+    ; hasData for a caller that already holds the atom id, the write-side twin
+    ; of dataOrHoleAtom. A marker property probed by a string LITERAL on a hot
+    ; path -- `__argscope__` is the one that matters -- has a constant id after
+    ; its first mint, so hashing the name per probe is pure waste.
+    fn hasDataAtom:boolean (ka:int) {
+        if (false == (has slots ka)) {
+            return false
+        }
+        def slot:EvPropertySlot (unwrap (get slots ka))
+        case slot d:EvPropertySlot.Data {
+            def v:EvalValue (unwrap d.value)
+            if (EvalValue.isHole(v)) {
+                return false
+            }
+            return true
+        }
+        return false
+    }
     fn hasData:boolean (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
         if (false == (has slots ka)) {
