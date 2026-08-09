@@ -1114,6 +1114,11 @@ class ComponentEngine {
     def classExprSeq:int 0
     ; D-SYMKEY: mints the identity half of a symbol's property key.
     def symbolSeq:int 0
+    ; The FUNCTION-NAME form of each minted symbol, keyed by its `@@n` id: a
+    ; method under a symbol key is named "[description]", or "" when the symbol
+    ; has no description at all. The key string alone cannot answer it, which is
+    ; why the description is remembered here at mint time.
+    def symbolFnNames:[string:EvHandle]
     ; D-PROMISE: the job queue. A reaction is a (handler, derived capability,
     ; argument) triple; the queue is drained after the script's synchronous work
     ; finishes, which is the only observation point this realm has.
@@ -3420,7 +3425,7 @@ class ComponentEngine {
                 if decl.init {
                     def initNode:TSNode (unwrap decl.init)
                     def value:EvHandle (this.evaluateExpr(initNode))
-                    this.nameAnonymousValue(value varName)
+                    if (this.isAnonymousFnDefNode(initNode)) { this.nameAnonymousValue(value varName) }
                     moduleScope.define(varName value)
                     if (false == quiet) {
                         this.trace("Defined module binding: " + varName + " = " + (value.toString()))
@@ -3444,6 +3449,60 @@ class ComponentEngine {
     ; value that reached a declarator without a name of its own takes the
     ; declarator's. Every `fn-name-*` test262 file asks this directly, and
     ; `f.name` read "" for every anonymous function in the program.
+    ; Whether an initializer is SYNTACTICALLY an anonymous function definition,
+    ; which is what decides whether the target's name is borrowed. The value
+    ; alone cannot answer it: `x = (0, function(){})` produces an unnamed
+    ; function, but the initializer is a sequence, so `x.name` stays "". Only
+    ; parentheses are transparent.
+    fn isAnonymousFnDefNode:boolean (node:TSNode) {
+        def k:int (this.nodeKindOf(node))
+        if (k == 23) {
+            if node.left {
+                return (this.isAnonymousFnDefNode((unwrap node.left)))
+            }
+            return false
+        }
+        if (k == 17) { return true }
+        if ((k == 18) || (k == 24)) {
+            return ((strlen node.name) == 0)
+        }
+        return false
+    }
+
+    ; The `name` a function takes from the property key it is defined under. A
+    ; string key is its own name; a SYMBOL key is bracketed -- `[Symbol.iterator]`
+    ; for a well-known one, `[test262]` for `Symbol('test262')` -- and a symbol
+    ; with no description names the function "".
+    fn functionNameForKey:string (key:string) {
+        if ((strlen key) < 2) { return key }
+        if ((substring key 0 2) != "@@") { return key }
+        def known@(optional):EvHandle (get symbolFnNames key)
+        if known {
+            def knownH:EvHandle (unwrap known)
+            return (knownH.stringOf())
+        }
+        ; A well-known symbol's key IS its name: "@@iterator" -> Symbol.iterator.
+        return ("[Symbol." + ((substring key 2 (strlen key)) + "]"))
+    }
+
+    ; Name a function from the PROPERTY KEY it is being defined under. Unlike
+    ; nameAnonymousValue this stamps even an empty name, because "" is the
+    ; answer for a symbol with no description and the property still has to
+    ; exist with the built-in attributes.
+    fn nameFunctionFromKey:void (v:EvHandle key:string) {
+        if (false == (v.isFunction())) { return }
+        def cur:EvHandle (v.getMember("name"))
+        if (cur.isString()) {
+            if ((strlen (cur.stringOf())) > 0) { return }
+        } {
+            if ((strlen (v.fnName())) > 0) { return }
+        }
+        def kn:string (this.functionNameForKey(key))
+        v.setAttrs("name" true false true)
+        v.setMember("name" (EvValueBridge.taggedString(kn)))
+        v.setAttrs("name" false false true)
+    }
+
     fn nameAnonymousValue:void (v:EvHandle nm:string) {
         if ((strlen nm) == 0) { return }
         if (false == (v.isFunction())) { return }
@@ -3488,7 +3547,7 @@ class ComponentEngine {
                     if decl.init {
                         def initNode:TSNode (unwrap decl.init)
                         def value:EvHandle (this.evaluateExpr(initNode))
-                        this.nameAnonymousValue(value varName)
+                        if (this.isAnonymousFnDefNode(initNode)) { this.nameAnonymousValue(value varName) }
                         ; D-WITH: a `var`'s INITIALISER is an ordinary assignment
                         ; to the name, so inside a `with` block whose object owns
                         ; that name it writes the PROPERTY -- the declaration
@@ -6539,6 +6598,10 @@ class ComponentEngine {
     fn toFloat32:double (v:double) {
         if (v != v) { return v }
         if (v == 0.0) { return v }
+        ; An infinity is already representable and must leave before the
+        ; normalising loops: `inf / 2` is still inf, so `while (m >= 2)` would
+        ; never terminate.
+        if (false == (this.isFiniteNum(v))) { return v }
         def neg:boolean (v < 0.0)
         def m:double v
         if neg { m = (0.0 - v) }
@@ -7783,6 +7846,20 @@ class ComponentEngine {
                 }
                 if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
+                }
+                ; D-FNNAME: `f = function () {}` names the function `f`, the
+                ; same as a declarator does. Only a PLAIN assignment to a bare
+                ; name counts, and only when the right side is syntactically an
+                ; anonymous function -- `f = (0, function(){})` leaves it "".
+                if (op == "=") {
+                    if ((this.nodeKindOf(leftNode)) == 1) {
+                        if node.right {
+                            def rhsNode:TSNode (unwrap node.right)
+                            if (this.isAnonymousFnDefNode(rhsNode)) {
+                                this.nameAnonymousValue(rightValue leftNode.name)
+                            }
+                        }
+                    }
                 }
                 if ((this.nodeKindOf(leftNode)) == 1) {
                     def varName:string leftNode.name
@@ -15508,6 +15585,17 @@ class ComponentEngine {
                 }
             }
 
+            ; D-CLASSCALL: a class constructor may only be reached through
+            ; `new`. The name is not bound in any scope -- it lives in the class
+            ; table -- so calling one fell through to "X is not defined", which
+            ; is both the wrong error and the wrong diagnosis.
+            if ((this.nodeKindOf(callee)) == 1) {
+                def clsCallNode:TSNode (this.classNodeByName(callee.name))
+                if ((this.nodeKindOf(clsCallNode)) == 25) {
+                    return (this.throwSpecError("TypeError" ("Class constructor " + callee.name + " cannot be invoked without 'new'")))
+                }
+            }
+
             ; D-ERRORS: nothing callable was found. Per spec this is a
             ; ReferenceError when the name resolves to nothing at all, and a
             ; TypeError when it resolves to a value that is not callable.
@@ -16397,7 +16485,14 @@ class ComponentEngine {
             }
             if (name == "trunc") {
                 if (n0 < 0.0) {
-                    return (EvValueBridge.taggedNumber((0.0 - (this.floorNum((0.0 - n0))))))
+                    ; Everything strictly between -1 and 0 truncates to
+                    ; NEGATIVE zero. `0 - floor(0.9)` is `0 - 0`, which is +0,
+                    ; so the sign has to be put back by hand.
+                    def trN:double (0.0 - (this.floorNum((0.0 - n0))))
+                    if (trN == 0.0) {
+                        return (EvValueBridge.taggedNumber((this.negativeZero())))
+                    }
+                    return (EvValueBridge.taggedNumber(trN))
                 }
                 return (EvValueBridge.taggedNumber((this.floorNum(n0))))
             }
@@ -16484,6 +16579,11 @@ class ComponentEngine {
             if (name == "cbrt") {
                 if (n0 != n0) { return (EvValueBridge.taggedNumber(n0)) }
                 if (n0 == 0.0) { return (EvValueBridge.taggedNumber(n0)) }
+                ; An infinity is its own cube root. It has to leave here before
+                ; the Newton refinement below, where `(inf - inf) / inf` is NaN.
+                if (false == (this.isFiniteNum(n0))) {
+                    return (EvValueBridge.taggedNumber(n0))
+                }
                 ; exp(log(x)/3) lands within an ulp or two -- cbrt(27) came
                 ; back 3.0000000000000004. Two Newton steps on y^3 = x pull it
                 ; onto the exactly-representable answer where one exists.
@@ -16542,6 +16642,12 @@ class ComponentEngine {
             if (name == "tanh") {
                 if (n0 != n0) { return (EvValueBridge.taggedNumber(n0)) }
                 if (n0 == 0.0) { return (EvValueBridge.taggedNumber(n0)) }
+                ; tanh saturates at ±1. Left to the identity below an infinity
+                ; would come out `inf / inf`, which is NaN.
+                if (false == (this.isFiniteNum(n0))) {
+                    if (n0 < 0.0) { return (EvValueBridge.taggedNumber((0.0 - 1.0))) }
+                    return (EvValueBridge.taggedNumber(1.0))
+                }
                 def tp:double (this.expNum(n0))
                 def tm:double (this.expNum((0.0 - n0)))
                 return (EvValueBridge.taggedNumber(((tp - tm) / (tp + tm))))
@@ -16549,6 +16655,12 @@ class ComponentEngine {
             if (name == "asinh") {
                 if (n0 != n0) { return (EvValueBridge.taggedNumber(n0)) }
                 if (n0 == 0.0) { return (EvValueBridge.taggedNumber(n0)) }
+                ; asinh(±inf) is ±inf. `log(x + sqrt(x*x + 1))` gets the
+                ; positive one right by luck but reads `-inf + inf` -- NaN --
+                ; for the negative one.
+                if (false == (this.isFiniteNum(n0))) {
+                    return (EvValueBridge.taggedNumber(n0))
+                }
                 def ash:double (sqrt ((n0 * n0) + 1.0))
                 return (EvValueBridge.taggedNumber((this.logNum((n0 + ash)))))
             }
@@ -16598,10 +16710,33 @@ class ComponentEngine {
                 return (EvValueBridge.taggedNumber((this.toFloat32(n0))))
             }
             if (name == "hypot") {
+                ; An infinity ANYWHERE wins outright, even against a NaN in the
+                ; same list -- the magnitude is already infinite whatever the
+                ; other coordinates turn out to be. So the arguments are swept
+                ; once for infinities before any of them are squared.
+                ; ToNumber runs once per argument -- a valueOf hook must not see
+                ; two visits -- so the sweep keeps the coerced values.
+                def hNums:[double]
+                def hInf:boolean false
+                def hNaN:boolean false
+                def hs:int 0
+                while (hs < (array_length args)) {
+                    def sv:double (this.toNumberOf((itemAt args hs)))
+                    push hNums sv
+                    if (sv != sv) {
+                        hNaN = true
+                    } {
+                        if (false == (this.isFiniteNum(sv))) { hInf = true }
+                    }
+                    hs = (hs + 1)
+                }
+                def infH:double (1.0 / 0.0)
+                if hInf { return (EvValueBridge.taggedNumber(infH)) }
+                if hNaN { return (EvValueBridge.taggedNumber((infH - infH))) }
                 def acc:double 0.0
                 def hi:int 0
-                while (hi < (array_length args)) {
-                    def hv:double (this.toNumberOf((itemAt args hi)))
+                while (hi < (array_length hNums)) {
+                    def hv:double (itemAt hNums hi)
                     acc = (acc + (hv * hv))
                     hi = (hi + 1)
                 }
@@ -17284,6 +17419,12 @@ class ComponentEngine {
             if (false == (this.isDescriptorObject(rTgt))) {
                 return (this.throwSpecError("TypeError" ("Reflect." + (name + " called on non-object"))))
             }
+            ; A SYMBOL is carried as an object here, so the check above lets one
+            ; through. It is a primitive to the language and every Reflect
+            ; method rejects it.
+            if (this.isSymbolValue(rTgt)) {
+                return (this.throwSpecError("TypeError" ("Reflect." + (name + " called on non-object"))))
+            }
             if (name == "apply") {
                 ; A callable PROXY is a function for this purpose; the apply
                 ; trap decides what happens.
@@ -17452,6 +17593,10 @@ class ComponentEngine {
                 if (false == ((rProto.isObject()) || (rProto.isNull()))) {
                     return (this.throwSpecError("TypeError" "Object prototype may only be an Object or null"))
                 }
+                ; A symbol looks like an object here but is not one.
+                if (this.isSymbolValue(rProto)) {
+                    return (this.throwSpecError("TypeError" "Object prototype may only be an Object or null"))
+                }
                 def pxS:int (this.proxyBoolTrap(rTgt "setPrototypeOf" rProto true))
                 if (pxS >= 0) {
                     if scriptThrew {
@@ -17459,8 +17604,37 @@ class ComponentEngine {
                     }
                     return (EvValueBridge.taggedBoolean((pxS == 1)))
                 }
+                ; Setting the prototype it ALREADY has is a no-op that succeeds,
+                ; even on a non-extensible object -- nothing changes, so nothing
+                ; is refused.
+                def curProto:EvHandle (this.protoOfValue(rTgt))
+                def sameProto:boolean false
+                if (rProto.isNull()) {
+                    if (curProto.isNull()) { sameProto = true }
+                    if (curProto.isUndefined()) { sameProto = true }
+                } {
+                    if (curProto.isObject()) {
+                        if (curProto.equals(rProto)) { sameProto = true }
+                    }
+                }
+                if sameProto {
+                    return (EvValueBridge.taggedBoolean(true))
+                }
                 if (false == (rTgt.isExtensible())) {
                     return (EvValueBridge.taggedBoolean(false))
+                }
+                ; A CYCLE is refused rather than built: walking up from the
+                ; proposed prototype must not arrive back at the target.
+                def walk:EvHandle rProto
+                def walkGuard:int 0
+                while (walkGuard < 1024) {
+                    if (false == (walk.isObject())) { walkGuard = 1024 } {
+                        if (walk.equals(rTgt)) {
+                            return (EvValueBridge.taggedBoolean(false))
+                        }
+                        walk = (this.protoOfValue(walk))
+                        walkGuard = (walkGuard + 1)
+                    }
                 }
                 ; NULL is a prototype too -- `Reflect.setPrototypeOf(o, null)`
                 ; detaches the chain rather than doing nothing.
@@ -25734,7 +25908,13 @@ class ComponentEngine {
         def minted:EvHandle (EvValueBridge.taggedObject(keysY valsY))
         minted.setMember("__symbol__" (EvValueBridge.taggedString(desc)))
         symbolSeq = (symbolSeq + 1)
-        minted.setMember("__symid__" (EvValueBridge.taggedString(("@@" + (to_string symbolSeq)))))
+        def symId:string ("@@" + (to_string symbolSeq))
+        minted.setMember("__symid__" (EvValueBridge.taggedString(symId)))
+        if hasDesc {
+            set symbolFnNames symId (EvValueBridge.taggedString(("[" + (desc + "]"))))
+        } {
+            set symbolFnNames symId (EvValueBridge.taggedString(""))
+        }
         if hasDesc {
             minted.setMember("description" (EvValueBridge.taggedString(desc)))
         } {
@@ -27000,9 +27180,9 @@ class ComponentEngine {
                     mv.addSuppressed("prototype")
                     ; An accessor's name carries its kind -- the getter for `g`
                     ; is named "get g", not "g".
-                    def mName:string mKey
-                    if (acc == "get") { mName = ("get " + mKey) }
-                    if (acc == "set") { mName = ("set " + mKey) }
+                    def mName:string (this.functionNameForKey(mKey))
+                    if (acc == "get") { mName = ("get " + mName) }
+                    if (acc == "set") { mName = ("set " + mName) }
                     mv.setMember("name" (EvValueBridge.taggedString(mName)))
                     mv.setAttrs("name" false false true)
                     if (acc == "get") {
@@ -29446,7 +29626,7 @@ class ComponentEngine {
                         ; getter for `g` is "get g" -- and is not a constructor.
                         afn.addSuppressed("prototype")
                         afn.setAttrs("name" true false true)
-                        afn.setMember("name" (EvValueBridge.taggedString((akind + (" " + key)))))
+                        afn.setMember("name" (EvValueBridge.taggedString((akind + (" " + (this.functionNameForKey(key)))))))
                         afn.setAttrs("name" false false true)
                         push accKeys key
                         push accFns afn
@@ -29472,7 +29652,7 @@ class ComponentEngine {
                         if (prop.method) {
                             pv.addSuppressed("prototype")
                         }
-                        this.nameAnonymousValue(pv key)
+                        this.nameFunctionFromKey(pv key)
                         push values pv
                     } {
                         push values (EvValueBridge.taggedNull())
@@ -29690,8 +29870,11 @@ class ComponentEngine {
         def i:int 0
         
         while (i < len) {
+            ; A substitution that threw abandons the rest of the literal --
+            ; the later ones are never evaluated.
+            if scriptThrew { return result }
             def ch:string (at templateStr i)
-            
+
             ; Check for ${...} pattern
             if (ch == "$") {
                 if ((i + 1) < len) {
@@ -29906,12 +30089,18 @@ class ComponentEngine {
                 if stmt.left {
                     def exprNode:TSNode (unwrap stmt.left)
                     def value:EvHandle (this.evaluateExpr(exprNode))
-                    return (value.toString())
+                    ; A substitution is rendered by ToString, not by the
+                    ; engine's debug form: `${{}}` is "[object Object]" and an
+                    ; object's own `toString` is what decides. The debug form
+                    ; printed "{}" and never consulted the object.
+                    if scriptThrew { return "" }
+                    return (this.toStringOf(value))
                 }
             }
             ; Try direct expression evaluation
             def value:EvHandle (this.evaluateExpr(stmt))
-            return (value.toString())
+            if scriptThrew { return "" }
+            return (this.toStringOf(value))
         }
 
         ; Fallback: return the original expression
