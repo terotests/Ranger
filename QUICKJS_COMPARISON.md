@@ -52,6 +52,12 @@ Second run agrees: geomean ES6 4.2x, C++ 2.9x. Per-row spread between the two
 runs is under 20% everywhere except `object`, where raw Node moved 2x (that
 column is the noisiest; it is not part of the ratios that matter).
 
+> **Re-measured after the merge, with every target built from current source**
+> (`npm run jsengine:bench`, and note the Rust column had previously been a
+> stale binary — see §7): **C++ 3.1x, Rust 3.2x, ES6 4.1x**, or **4.9x / 5.2x /
+> 6.5x excluding `strcat`**. The table above is the original two-run reading and
+> is kept because §3's profiles were taken against it.
+
 **The headline is 2.6–2.9x — but the honest headline is worse than that**,
 because `strcat` is carrying the geomean. QuickJS 2021-03-27 has no string
 ropes; `JS_STRING_ROPE_SHORT_LEN` appears only in the later tree. Its `s += "ab"`
@@ -416,3 +422,36 @@ rather than on the 1.029x geomean — which is within that noise.
 Correctness unchanged: all seven workloads and the key-order canary answer
 identically to Node, and the native conformance suite scores **1297/1303 with
 0 crashes both before and after** — the same six failures, which predate this.
+
+---
+
+## 7. The Rust engine was not compiling
+
+`npm run jsengine:build` with the honest-failure fix in place surfaced this on
+its first full run:
+
+```
+error[E0502]: cannot borrow `*self` as mutable because it is also borrowed as immutable
+  self.int32Wrap((self.toInt32Of(current)) << ((self.toInt32Of(rightValue)) & 31))
+                 ----  ---------            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+```
+
+`int32Wrap` is `&self`, `toInt32Of` is `&mut self`, and the inner calls sit in
+the outer call's argument list. It appeared when `int32Wrap` moved into the
+double domain so Kotlin, Java and C# could compile it — their `Int` is signed
+32-bit and the old form used literals above `Int.MAX_VALUE`. That change made
+`int32Wrap` call `wrapUint32`, which put it and `toInt32Of` on opposite sides
+of `self`'s mutability.
+
+Both operands are now read into locals before the call, the same read-once
+shape the other shift arms in that function already use. **E0502: 2 → 0.**
+
+The reason this is worth a section rather than a line: **every Rust number
+measured before it was fixed came from a stale binary**, because the build
+script compiled the previous run's `.rs` and printed `built:`. That is the
+whole argument for §6 in one example — a target can stop compiling and the
+benchmark table will keep reporting plausible numbers for it.
+
+Post-fix, from binaries built out of current source: Rust benches at 3.2x
+QuickJS (5.2x excluding `strcat`) and scores **1297/1303 with 0 crashes** on
+native conformance, identical to C++.
