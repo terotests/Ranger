@@ -5439,6 +5439,9 @@ class ComponentEngine {
         if (nt == "TemplateLiteral") { node.evalKind = 11
             return 11
         }
+        if (nt == "TaggedTemplateExpression") { node.evalKind = 48
+            return 48
+        }
         if (nt == "YieldExpression") { node.evalKind = 26
             return 26
         }
@@ -13790,6 +13793,13 @@ class ComponentEngine {
             return (EvValueBridge.taggedString(node.value))
         }
         
+        ; D-TAGGED: `tag`a${x}b`` calls tag with the LITERAL parts as an array
+        ; -- carrying a `raw` of the same length -- and the substitution values
+        ; after them. The node had no case at all, so a tagged template
+        ; evaluated to nothing.
+        if (exprK == 48) {
+            return (this.evaluateTaggedTemplate(node))
+        }
         if (exprK == 11) {
             ; Template literals have TemplateElement children with the text
             ; The text may contain ${...} expressions that need to be evaluated
@@ -16441,6 +16451,52 @@ class ComponentEngine {
             }
         }
         if (nsName == "String") {
+            ; D-TAGGED: String.raw is an ordinary tag function -- it reads
+            ; `strings.raw` and interleaves the substitutions. Nothing about it
+            ; needs the template SYNTAX; it works on any object shaped like one.
+            if (name == "raw") {
+                if ((array_length args) == 0) {
+                    return (this.throwSpecError("TypeError" "Cannot convert undefined or null to object"))
+                }
+                def cooked:EvHandle (itemAt args 0)
+                if ((cooked.isNull()) || (cooked.isUndefined())) {
+                    return (this.throwSpecError("TypeError" "Cannot convert undefined or null to object"))
+                }
+                def rawArr:EvHandle (this.getPropertyValue(cooked "raw"))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                if ((rawArr.isNull()) || (rawArr.isUndefined())) {
+                    return (this.throwSpecError("TypeError" "Cannot convert undefined or null to object"))
+                }
+                def rawLen:int (this.toIntegerOf((this.getPropertyValue(rawArr "length"))))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                if (rawLen <= 0) {
+                    return (EvValueBridge.taggedString(""))
+                }
+                def acc:string ""
+                def ri:int 0
+                while (ri < rawLen) {
+                    acc = (acc + (this.toStringOf((this.getPropertyValue(rawArr (to_string ri))))))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    ; The substitution BETWEEN two segments; there is none after
+                    ; the last, which is what makes the two lists one apart.
+                    if (ri < (rawLen - 1)) {
+                        if ((ri + 1) < (array_length args)) {
+                            acc = (acc + (this.toStringOf((itemAt args (ri + 1)))))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                        }
+                    }
+                    ri = (ri + 1)
+                }
+                return (EvValueBridge.taggedString(acc))
+            }
             if (name == "fromCharCode") {
                 ; Each argument is ToUint16, not a truncated ToNumber: -5.4321
                 ; is 65531, and an object argument runs its own valueOf. The old
@@ -17174,6 +17230,7 @@ class ComponentEngine {
         if (nsName == "String") {
             push out "fromCharCode"
             push out "fromCodePoint"
+            push out "raw"
             return out
         }
         if (nsName == "Number") {
@@ -17417,6 +17474,7 @@ class ComponentEngine {
         if (nsName == "String") {
             if (name == "fromCharCode") { return true }
             if (name == "fromCodePoint") { return true }
+            if (name == "raw") { return true }
             return false
         }
         if (nsName == "Number") {
@@ -27772,6 +27830,146 @@ class ComponentEngine {
     }
     
     ; Evaluates a single template expression string like "img.gps.latitude"
+    ; D-TAGGED: split a template's text at its `${...}` boundaries. `wantParts`
+    ; asks for the LITERAL segments; otherwise the interpolation SOURCES. The
+    ; two lists are always one apart in length, which is the invariant a tag
+    ; function relies on.
+    fn splitTemplateText:[string] (text:string wantParts:boolean) {
+        def out:[string]
+        def cur:string ""
+        def n:int (strlen text)
+        def i:int 0
+        while (i < n) {
+            def ch:string (substring text i (i + 1))
+            def opened:boolean false
+            if (ch == "$") {
+                if ((i + 1) < n) {
+                    if ((substring text (i + 1) (i + 2)) == "{") {
+                        opened = true
+                    }
+                }
+            }
+            if opened {
+                if wantParts {
+                    push out cur
+                }
+                cur = ""
+                def depth:int 1
+                def j:int (i + 2)
+                def esrc:string ""
+                while ((j < n) && (depth > 0)) {
+                    def c:string (substring text j (j + 1))
+                    if (c == "{") { depth = (depth + 1) }
+                    if (c == "}") { depth = (depth - 1) }
+                    if (depth > 0) {
+                        esrc = (esrc + c)
+                        j = (j + 1)
+                    }
+                }
+                if (false == wantParts) {
+                    push out esrc
+                }
+                i = (j + 1)
+            } {
+                cur = (cur + ch)
+                i = (i + 1)
+            }
+        }
+        if wantParts {
+            push out cur
+        }
+        return out
+    }
+
+    ; The cooked and raw text of a TemplateLiteral node, as the parser left them.
+    fn templateTextOf:string (quasiNode:TSNode wantRaw:boolean) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length quasiNode.children)) {
+            def el:TSNode (itemAt quasiNode.children i)
+            if (el.nodeType == "TemplateElement") {
+                if wantRaw {
+                    out = (out + el.name)
+                } {
+                    out = (out + el.value)
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn evaluateTaggedTemplate:EvHandle (node:TSNode) {
+        if (null? node.left) { return (EvValueBridge.taggedUndefined()) }
+        if (null? node.right) { return (EvValueBridge.taggedUndefined()) }
+        def quasiNode:TSNode (unwrap node.right)
+        def cooked:string (this.templateTextOf(quasiNode false))
+        def rawSrc:string (this.templateTextOf(quasiNode true))
+        def cookedParts:[string] (this.splitTemplateText(cooked true))
+        def rawParts:[string] (this.splitTemplateText(rawSrc true))
+        def exprSrcs:[string] (this.splitTemplateText(cooked false))
+        ; The strings object: an array of the cooked parts carrying `raw`.
+        def cookedItems:[EvHandle]
+        def ci:int 0
+        while (ci < (array_length cookedParts)) {
+            push cookedItems (EvValueBridge.taggedString((itemAt cookedParts ci)))
+            ci = (ci + 1)
+        }
+        def rawItems:[EvHandle]
+        def rj:int 0
+        while (rj < (array_length rawParts)) {
+            push rawItems (EvValueBridge.taggedString((itemAt rawParts rj)))
+            rj = (rj + 1)
+        }
+        ; A raw list that came out a different length than the cooked one would
+        ; break the invariant; fall back to the cooked text, which is what an
+        ; escape-free template gives anyway.
+        if ((array_length rawItems) != (array_length cookedItems)) {
+            rawItems = cookedItems
+        }
+        def strings:EvHandle (EvValueBridge.taggedArray(cookedItems))
+        strings.setMember("raw" (EvValueBridge.taggedArray(rawItems)))
+        def callArgs:[EvHandle]
+        push callArgs strings
+        def ei:int 0
+        while (ei < (array_length exprSrcs)) {
+            push callArgs (this.evaluateTemplateExprValue((itemAt exprSrcs ei)))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            ei = (ei + 1)
+        }
+        def tagV:EvHandle (this.evaluateExpr((unwrap node.left)))
+        if scriptThrew {
+            return (EvValueBridge.taggedUndefined())
+        }
+        if (false == (tagV.isFunction())) {
+            return (this.throwSpecError("TypeError" "Tag is not a function"))
+        }
+        return (this.callFnValueWithValues(tagV callArgs))
+    }
+
+    ; The VALUE of one `${...}` source. evaluateTemplateExpression answers the
+    ; string form, which is what interpolation needs and what a tag function
+    ; must not be handed.
+    fn evaluateTemplateExprValue:EvHandle (exprStr:string) {
+        def lexerT:TSLexer (new TSLexer(exprStr))
+        def tokensT:[Token] (lexerT.tokenize())
+        def parserT:TSParserSimple (new TSParserSimple())
+        parserT.initParser(tokensT)
+        def astT:TSNode (parserT.parseProgram())
+        if ((array_length astT.children) > 0) {
+            def stmtT:TSNode (itemAt astT.children 0)
+            if ((this.nodeKindOf(stmtT)) == 30) {
+                if stmtT.left {
+                    return (this.evaluateExpr((unwrap stmtT.left)))
+                }
+            }
+            return (this.evaluateExpr(stmtT))
+        }
+        return (EvValueBridge.taggedUndefined())
+    }
+
     fn evaluateTemplateExpression:string (exprStr:string) {
         ; Tokenize and parse the expression using the TypeScript parser
         def lexer:TSLexer (new TSLexer(exprStr))

@@ -513,15 +513,20 @@ class TSLexer {
         def startCol:int col
         this.advance() ; consume opening backtick
         def value:string ""
+        ; The same text with every escape left as written; see Token.raw.
+        def rawText:string ""
         while (pos < len) {
             def ch:string (this.peek())
             if (ch == "`") {
                 this.advance()
-                return (this.makeToken("Template" value startPos startLine startCol))
+                def doneTok:Token (this.makeToken("Template" value startPos startLine startCol))
+                doneTok.raw = rawText
+                return doneTok
             }
             if (ch == "\\") {
                 this.advance()
                 def esc:string (this.advance())
+                rawText = (rawText + ("\\" + esc))
                 if (esc == "n") { 
                     value = value + "\n" 
                 } {
@@ -556,38 +561,57 @@ class TSLexer {
                 ; another template, whose backticks do not end this one.
                 if (ch == "$") {
                     if ((this.peekAt(1)) == "{") {
-                        value = value + (this.advance())
-                        value = value + (this.advance())
+                        def o1:string (this.advance())
+                        def o2:string (this.advance())
+                        value = value + o1 + o2
+                        rawText = rawText + o1 + o2
                         def braceDepth:int 1
                         while ((pos < len) && (braceDepth > 0)) {
                             def ic:string (this.peek())
                             if (ic == "\\") {
-                                value = value + (this.advance())
-                                if (pos < len) { value = value + (this.advance()) }
+                                def e1:string (this.advance())
+                                value = value + e1
+                                rawText = rawText + e1
+                                if (pos < len) {
+                                    def e2:string (this.advance())
+                                    value = value + e2
+                                    rawText = rawText + e2
+                                }
                             } {
                                 if (ic == "{") {
                                     braceDepth = (braceDepth + 1)
-                                    value = value + (this.advance())
+                                    def b1:string (this.advance())
+                                    value = value + b1
+                                    rawText = rawText + b1
                                 } {
                                     if (ic == "}") {
                                         braceDepth = (braceDepth - 1)
-                                        value = value + (this.advance())
+                                        def b2:string (this.advance())
+                                        value = value + b2
+                                        rawText = rawText + b2
                                     } {
                                         if (ic == "`") {
                                             def innerTok:Token (this.readTemplateLiteral())
                                             value = value + "`" + innerTok.value + "`"
+                                            rawText = rawText + "`" + innerTok.raw + "`"
                                         } {
-                                            value = value + (this.advance())
+                                            def c1:string (this.advance())
+                                            value = value + c1
+                                            rawText = rawText + c1
                                         }
                                     }
                                 }
                             }
                         }
                     } {
-                        value = value + (this.advance())
+                        def d1:string (this.advance())
+                        value = value + d1
+                        rawText = rawText + d1
                     }
                 } {
-                    value = value + (this.advance())
+                    def p1:string (this.advance())
+                    value = value + p1
+                    rawText = rawText + p1
                 }
             }
         }

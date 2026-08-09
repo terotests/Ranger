@@ -8,6 +8,7 @@ class Token  {
     this.end = 0;
     this.hasEscape = false;
     this.legacyOctal = false;
+    this.raw = "";
   }
 }
 class TSUnicodeId  {
@@ -688,15 +689,19 @@ class TSLexer  {
     const startCol = this.col;
     this.advance();
     let value = "";
+    let rawText = "";
     while (this.pos < this.__len) {
       const ch = this.peek();
       if ( ch == "`" ) {
         this.advance();
-        return this.makeToken("Template", value, startPos, startLine, startCol);
+        const doneTok = this.makeToken("Template", value, startPos, startLine, startCol);
+        doneTok.raw = rawText;
+        return doneTok;
       }
       if ( ch == "\\" ) {
         this.advance();
         const esc = this.advance();
+        rawText = rawText + ("\\" + esc);
         if ( esc == "n" ) {
           value = value + "\n";
         } else {
@@ -726,40 +731,57 @@ class TSLexer  {
       } else {
         if ( ch == "$" ) {
           if ( this.peekAt(1) == "{" ) {
-            value = value + this.advance();
-            value = value + this.advance();
+            const o1 = this.advance();
+            const o2 = this.advance();
+            value = (value + o1) + o2;
+            rawText = (rawText + o1) + o2;
             let braceDepth = 1;
             while ((this.pos < this.__len) && (braceDepth > 0)) {
               const ic = this.peek();
               if ( ic == "\\" ) {
-                value = value + this.advance();
+                const e1 = this.advance();
+                value = value + e1;
+                rawText = rawText + e1;
                 if ( this.pos < this.__len ) {
-                  value = value + this.advance();
+                  const e2 = this.advance();
+                  value = value + e2;
+                  rawText = rawText + e2;
                 }
               } else {
                 if ( ic == "{" ) {
                   braceDepth = braceDepth + 1;
-                  value = value + this.advance();
+                  const b1 = this.advance();
+                  value = value + b1;
+                  rawText = rawText + b1;
                 } else {
                   if ( ic == "}" ) {
                     braceDepth = braceDepth - 1;
-                    value = value + this.advance();
+                    const b2 = this.advance();
+                    value = value + b2;
+                    rawText = rawText + b2;
                   } else {
                     if ( ic == "`" ) {
                       const innerTok = this.readTemplateLiteral();
                       value = ((value + "`") + innerTok.value) + "`";
+                      rawText = ((rawText + "`") + innerTok.raw) + "`";
                     } else {
-                      value = value + this.advance();
+                      const c1 = this.advance();
+                      value = value + c1;
+                      rawText = rawText + c1;
                     }
                   }
                 }
               }
             };
           } else {
-            value = value + this.advance();
+            const d1 = this.advance();
+            value = value + d1;
+            rawText = rawText + d1;
           }
         } else {
-          value = value + this.advance();
+          const p1 = this.advance();
+          value = value + p1;
+          rawText = rawText + p1;
         }
       }
     };
@@ -7578,6 +7600,7 @@ class TSParserSimple  {
     const quasi = new TSNode();
     quasi.nodeType = "TemplateElement";
     quasi.value = tok.value;
+    quasi.name = tok.raw;
     node.children.push(quasi);
     return node;
   };

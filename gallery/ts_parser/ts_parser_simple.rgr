@@ -6962,6 +6962,9 @@ class TSParserSimple {
     def quasi (new TSNode())
     quasi.nodeType = "TemplateElement"
     quasi.value = tok.value
+    ; The uncooked text rides on `name`, which a TemplateElement does not use.
+    ; A tag function's `strings.raw` and String.raw are defined over it.
+    quasi.name = tok.raw
     push node.children quasi
     
     return node

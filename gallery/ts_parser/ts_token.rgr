@@ -33,4 +33,8 @@ class Token {
     ; octal escape ('\41'). Both are forbidden in strict code, which the lexer
     ; cannot know about, so it records the fact and the parser decides.
     def legacyOctal:boolean false
+    ; The UNCOOKED source text of a template literal, between the backticks.
+    ; `String.raw` and a tag function's `strings.raw` are defined over it, and
+    ; the cooked `value` has already lost every escape.
+    def raw:string ""
 }
