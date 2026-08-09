@@ -6517,6 +6517,9 @@ class ComponentEngine {
         if (name == "Function") { return true }
         if (name == "parseInt") { return true }
         if (name == "parseFloat") { return true }
+        ; annexB B.2.1
+        if (name == "escape") { return true }
+        if (name == "unescape") { return true }
         if (name == "Number") { return true }
         if (name == "String") { return true }
         if (name == "Boolean") { return true }
@@ -14967,6 +14970,26 @@ class ComponentEngine {
                     }
                     return (EvValueBridge.taggedNumber(0.0))
                 }
+                ; annexB B.2.1: escape/unescape. Both are ToString of their
+                ; argument first, so an object argument runs its own toString and
+                ; a throwing one escapes.
+                if ((fnName == "escape") || (fnName == "unescape")) {
+                    def esArg:string "undefined"
+                    if ((array_length node.children) > 0) {
+                        def esV:EvHandle (this.evaluateExpr((itemAt node.children 0)))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        esArg = (this.toStringOf(esV))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                    }
+                    if (fnName == "escape") {
+                        return (EvValueBridge.taggedString((this.escapeString(esArg))))
+                    }
+                    return (EvValueBridge.taggedString((this.unescapeString(esArg))))
+                }
                 ; Type-conversion globals Number()/String()/Boolean().
                 if (fnName == "Number") {
                     if ((array_length node.children) > 0) {
@@ -15242,6 +15265,8 @@ class ComponentEngine {
         if (this.isSizedTypeName(name)) { return true }
         if (name == "parseInt") { return true }
         if (name == "parseFloat") { return true }
+        if (name == "escape") { return true }
+        if (name == "unescape") { return true }
         if (name == "isNaN") { return true }
         if (name == "isFinite") { return true }
         if (name == "String") { return true }
@@ -23327,6 +23352,111 @@ class ComponentEngine {
         return minted
     }
 
+    ; annexB B.2.1.1: escape. The unreserved set is
+    ; A-Z a-z 0-9 and `@*_+-./`; everything else becomes %XX below 256 and
+    ; %uXXXX above it.
+    fn escapeString:string (s:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:int (bit_and (charAt s i) 65535)
+            def keep:boolean false
+            if ((c >= 65) && (c <= 90)) { keep = true }
+            if ((c >= 97) && (c <= 122)) { keep = true }
+            if ((c >= 48) && (c <= 57)) { keep = true }
+            if (c == 64) { keep = true }
+            if (c == 42) { keep = true }
+            if (c == 95) { keep = true }
+            if (c == 43) { keep = true }
+            if (c == 45) { keep = true }
+            if (c == 46) { keep = true }
+            if (c == 47) { keep = true }
+            if keep {
+                out = (out + (strfromcode c))
+            } {
+                if (c < 256) {
+                    out = (out + ("%" + (this.hexPad(c 2))))
+                } {
+                    out = (out + ("%u" + (this.hexPad(c 4))))
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; annexB B.2.1.2: unescape. A `%` that does not begin a well-formed escape
+    ; stands for itself -- `unescape("a%2")` is "a%2", not an error and not a
+    ; dropped character.
+    fn unescapeString:string (s:string) {
+        def out:string ""
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (bit_and (charAt s i) 65535)
+            def consumed:int 1
+            if (c == 37) {
+                if ((i + 5) < n) {
+                    if ((bit_and (charAt s (i + 1)) 65535) == 117) {
+                        def h4:int (this.hexValueOf(s (i + 2) 4))
+                        if (h4 >= 0) {
+                            out = (out + (strfromcode h4))
+                            consumed = 6
+                        }
+                    }
+                }
+                if (consumed == 1) {
+                    if ((i + 2) < n) {
+                        def h2:int (this.hexValueOf(s (i + 1) 2))
+                        if (h2 >= 0) {
+                            out = (out + (strfromcode h2))
+                            consumed = 3
+                        }
+                    }
+                }
+            }
+            if (consumed == 1) {
+                out = (out + (strfromcode c))
+            }
+            i = (i + consumed)
+        }
+        return out
+    }
+
+    ; `count` hex digits starting at `at`, or -1 when any of them is not one.
+    fn hexValueOf:int (s:string at:int count:int) {
+        def acc:int 0
+        def k:int 0
+        while (k < count) {
+            def d:int (bit_and (charAt s (at + k)) 65535)
+            def v:int (0 - 1)
+            if ((d >= 48) && (d <= 57)) { v = (d - 48) }
+            if ((d >= 65) && (d <= 70)) { v = ((d - 65) + 10) }
+            if ((d >= 97) && (d <= 102)) { v = ((d - 97) + 10) }
+            if (v < 0) {
+                return (0 - 1)
+            }
+            acc = ((acc * 16) + v)
+            k = (k + 1)
+        }
+        return acc
+    }
+
+    ; Uppercase hex, zero-padded to `width`.
+    fn hexPad:string (value:int width:int) {
+        def digits:string "0123456789ABCDEF"
+        def out:string ""
+        def v:int value
+        def k:int 0
+        while (k < width) {
+            def d:int (bit_and v 15)
+            out = ((substring digits d (d + 1)) + out)
+            v = (bit_shr v 4)
+            k = (k + 1)
+        }
+        return out
+    }
+
     fn ensureSymbolGlobal:void () {
         def existing:EvHandle (hostScope.lookup("Symbol"))
         if (existing.isFunction()) {
@@ -23537,6 +23667,10 @@ class ComponentEngine {
             push gfns "decodeURIComponent"
             push gfns "encodeURI"
             push gfns "encodeURIComponent"
+            ; annexB B.2.1: legacy, but still global function properties that
+            ; `typeof escape` and getOwnPropertyNames both have to see.
+            push gfns "escape"
+            push gfns "unescape"
             def gi:int 0
             while (gi < (array_length gfns)) {
                 def gn:string (itemAt gfns gi)
@@ -23741,6 +23875,16 @@ class ComponentEngine {
                     def clsT:TSNode (this.classNodeByName(name))
                     if ((this.nodeKindOf(clsT)) == 25) {
                         return (EvValueBridge.taggedString("function"))
+                    }
+                    ; A global FUNCTION property -- parseInt, escape, … -- is a
+                    ; property of the global object rather than a binding, and
+                    ; only the engine-global names consulted it below, so
+                    ; `typeof escape` read "undefined" for a function that works.
+                    def gObjF:EvHandle (this.theGlobalObject())
+                    if (gObjF.isObject()) {
+                        if (gObjF.hasOwnData(name)) {
+                            return (EvValueBridge.taggedString((this.typeofTag((gObjF.getOwnData(name))))))
+                        }
                     }
                     ; D-GLOBALOBJ: a built-in global is not a scope binding, but
                     ; it exists — typeof must say so. Constructors report
