@@ -33,7 +33,11 @@ const CASES = [
 ];
 const EMPTY = `return 0;`;
 const wrap = (body) => `function work() {${body}\n}\n__out__ = String(work());`;
-const REPS = Number(process.argv[2] || 3);
+// Native reps per launch. The per-rep engine floor this now subtracts is
+// ~0.77 ms, so at reps=3 the floor is measured over ~2 ms of work and its
+// noise lands straight in every row. 20 keeps the launch cost amortised and
+// the floor stable; the numbers in QUICKJS_COMPARISON.md were taken at 60.
+const REPS = Number(process.argv[2] || 20);
 
 function runNode(src) {
   const ctx = { __out__: "" };
