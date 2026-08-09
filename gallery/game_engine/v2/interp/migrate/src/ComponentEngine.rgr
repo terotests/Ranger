@@ -18558,6 +18558,9 @@ class ComponentEngine {
             push rgNames "global"
             push rgNames "ignoreCase"
             push rgNames "multiline"
+            push rgNames "sticky"
+            push rgNames "unicode"
+            push rgNames "flags"
             def rgi:int 0
             while (rgi < (array_length rgNames)) {
                 def rgn:string (itemAt rgNames rgi)
@@ -18768,6 +18771,9 @@ class ComponentEngine {
             if (name == "global") { return 0 }
             if (name == "ignoreCase") { return 0 }
             if (name == "multiline") { return 0 }
+            if (name == "sticky") { return 0 }
+            if (name == "unicode") { return 0 }
+            if (name == "flags") { return 0 }
             return (0 - 1)
         }
         ; toString exists on every kind, but with a DIFFERENT implementation per
@@ -19901,6 +19907,11 @@ class ComponentEngine {
                     if (name == "source") {
                         return (EvValueBridge.taggedString("(?:)"))
                     }
+                    ; `flags` composes from the others, so on the prototype --
+                    ; where every one of them is false -- it is the empty string.
+                    if (name == "flags") {
+                        return (EvValueBridge.taggedString(""))
+                    }
                     return (EvValueBridge.taggedBoolean(false))
                 }
                 return (this.throwSpecError("TypeError" ("RegExp.prototype." + name + " getter called on a non-RegExp")))
@@ -19914,6 +19925,23 @@ class ComponentEngine {
             }
             if (name == "ignoreCase") {
                 return (EvValueBridge.taggedBoolean(((indexOf rgFlags "i") >= 0)))
+            }
+            ; ES2015 added `sticky` and `unicode`, and made `flags` an accessor
+            ; that composes the others in a fixed order.
+            if (name == "sticky") {
+                return (EvValueBridge.taggedBoolean(((indexOf rgFlags "y") >= 0)))
+            }
+            if (name == "unicode") {
+                return (EvValueBridge.taggedBoolean(((indexOf rgFlags "u") >= 0)))
+            }
+            if (name == "flags") {
+                def fOut:string ""
+                if ((indexOf rgFlags "g") >= 0) { fOut = (fOut + "g") }
+                if ((indexOf rgFlags "i") >= 0) { fOut = (fOut + "i") }
+                if ((indexOf rgFlags "m") >= 0) { fOut = (fOut + "m") }
+                if ((indexOf rgFlags "u") >= 0) { fOut = (fOut + "u") }
+                if ((indexOf rgFlags "y") >= 0) { fOut = (fOut + "y") }
+                return (EvValueBridge.taggedString(fOut))
             }
             if (name == "multiline") {
                 return (EvValueBridge.taggedBoolean(((indexOf rgFlags "m") >= 0)))
