@@ -26325,6 +26325,31 @@ class ComponentEngine {
         cv.setMember("name" (EvValueBridge.taggedString(name)))
         cv.setAttrs("name" false false true)
         cv.setProto((this.builtinPrototype("Function")))
+        ; A class's `length` is its constructor's declared arity, and 0 when it
+        ; declares none -- the same rule an ordinary function follows.
+        def clsArity:int 0
+        def clsNode:TSNode (this.classNodeByName(name))
+        if ((this.nodeKindOf(clsNode)) == 25) {
+            def ctorNode:TSNode (this.findConstructorOnClassNode(clsNode))
+            if (ctorNode.nodeType == "MethodDefinition") {
+                def pi2:int 0
+                while (pi2 < (array_length ctorNode.params)) {
+                    def pnode:TSNode (itemAt ctorNode.params pi2)
+                    if (pnode.nodeType == "RestElement") {
+                        pi2 = (array_length ctorNode.params)
+                    } {
+                        if pnode.init {
+                            pi2 = (array_length ctorNode.params)
+                        } {
+                            clsArity = (clsArity + 1)
+                            pi2 = (pi2 + 1)
+                        }
+                    }
+                }
+            }
+        }
+        cv.setMember("length" (EvHandle.fromInt(clsArity)))
+        cv.setAttrs("length" false false true)
         this.buildClassPrototype(name cv)
         return cv
     }
@@ -27952,6 +27977,7 @@ class ComponentEngine {
     ; and its home module; __nsmodule__ tags an imported module namespace.
     fn isHiddenInstanceKey:boolean (k:string) {
         if (k == "__class__") { return true }
+        if (k == "__classname__") { return true }
         if (k == "__module__") { return true }
         if (k == "__nsmodule__") { return true }
         ; D-WRAPPER / D-ERRORS internal slots. `new String('ab')` has exactly one
