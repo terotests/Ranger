@@ -15308,6 +15308,13 @@ class ComponentEngine {
                         ; engine's debug dump, so `String({toString: …})`
                         ; answered "{toString: [Function: ]}".
                         def sArg:EvHandle (this.evaluateExpr((itemAt node.children 0)))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        ; String() is the one conversion a SYMBOL permits.
+                        if (this.isSymbolValue(sArg)) {
+                            return (EvValueBridge.taggedString((this.symbolDisplayString(sArg))))
+                        }
                         return (EvValueBridge.taggedString((this.toStringOf(sArg))))
                     }
                     return (EvValueBridge.taggedString(""))
@@ -19838,6 +19845,11 @@ class ComponentEngine {
         ; any other base needs real digit conversion, which was missing — the
         ; whole toString area scored 0.
         if (name == "toString") {
+            ; A SYMBOL renders as Symbol(description) rather than refusing, and
+            ; it is the only conversion it allows.
+            if (this.isSymbolValue(recv)) {
+                return (EvValueBridge.taggedString((this.symbolDisplayString(recv))))
+            }
             if (kind == "number") {
                 if ((array_length args) > 0) {
                     def rv:EvHandle (itemAt args 0)
@@ -24279,6 +24291,14 @@ class ComponentEngine {
         return direct
     }
 
+    ; `Symbol(description)`, the one rendering a symbol permits.
+    fn symbolDisplayString:string (v:EvHandle) {
+        def dsc:EvHandle (v.getMember("__symbol__"))
+        def dstr:string ""
+        if (dsc.isString()) { dstr = (dsc.stringOf()) }
+        return ("Symbol(" + (dstr + ")"))
+    }
+
     ; D-SYMKEY: the property key a symbol value stands for, or "" for anything
     ; that is not a symbol.
     fn symbolKeyOf:string (v:EvHandle) {
@@ -24305,14 +24325,15 @@ class ComponentEngine {
         if (v.isString()) {
             return (v.stringOf())
         }
-        ; A symbol renders as `Symbol(description)`. It reached the ordinary
-        ; object path and came out "[object Object]", so `String(Symbol('k'))`
-        ; and `Symbol.iterator.toString()` both lost the description.
+        ; D-SYMKEY: ToString of a SYMBOL is a TypeError. It is the one
+        ; conversion a symbol refuses, which is what makes `"" + sym` and
+        ; `"a".startsWith(sym)` throw -- and what a long tail of
+        ; `return-abrupt-from-*-as-symbol` fixtures check. The two callers that
+        ; may render one -- String(sym) and Symbol.prototype.toString -- go
+        ; through symbolDisplayString instead.
         if (this.isSymbolValue(v)) {
-            def dsc:EvHandle (v.getMember("__symbol__"))
-            def dstr:string ""
-            if (dsc.isString()) { dstr = (dsc.stringOf()) }
-            return ("Symbol(" + (dstr + ")"))
+            def _st:EvHandle (this.throwSpecError("TypeError" "Cannot convert a Symbol value to a string"))
+            return ""
         }
         def p:EvHandle v
         ; Functions convert too -- a guest override of Function.prototype.toString
