@@ -21761,14 +21761,13 @@ class ComponentEngine {
                     }
                     return (this.getPropertyValue(sRes "index"))
                 }
-                ; split still takes the String-shaped path; its spec algorithm
-                ; builds a species-constructed sticky RegExp, which this engine
-                ; has no constructor plumbing for yet.
                 if ((array_length args) > 1) {
                     push symArgs (itemAt args 1)
                 }
                 if (name == "@@split") {
-                    return (this.invokeBuiltin("string" "split" symSubject symArgs))
+                    def limV:EvHandle (EvValueBridge.taggedUndefined())
+                    if ((array_length args) > 1) { limV = (itemAt args 1) }
+                    return (this.regExpSplit(recv reSubject limV))
                 }
                 def repV:EvHandle (EvValueBridge.taggedUndefined())
                 if ((array_length args) > 1) { repV = (itemAt args 1) }
@@ -23592,6 +23591,85 @@ class ComponentEngine {
         def p:EvHandle (this.makePromiseValue())
         this.settlePromise(p 1 v)
         return p
+    }
+
+    ; D-REGEXSYMBOL: RegExp.prototype[Symbol.split] (21.2.5.11). The pattern is
+    ; re-made with the STICKY flag and driven by lastIndex, so the scan is a
+    ; series of anchored attempts rather than a search -- which is what makes an
+    ; empty match at a position advance by one instead of looping, and what puts
+    ; the capture groups into the result between the pieces.
+    fn regExpSplit:EvHandle (R:EvHandle S:string limitV:EvHandle) {
+        def flags:string (this.toStringOf((this.getPropertyValue(R "flags"))))
+        if scriptThrew {
+            return (EvValueBridge.taggedUndefined())
+        }
+        def newFlags:string flags
+        if ((indexOf flags "y") < 0) {
+            newFlags = (flags + "y")
+        }
+        def splitter:EvHandle (this.makeRegexValue((this.regexSourceOf(R)) newFlags))
+        def out:[EvHandle]
+        def lim:int 2147483647
+        if (false == (limitV.isUndefined())) {
+            lim = (this.toUint32Of(limitV))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+        }
+        if (lim == 0) {
+            return (EvValueBridge.taggedArray(out))
+        }
+        def size:int (strlen S)
+        if (size == 0) {
+            def z0:EvHandle (this.regExpExecAbstract(splitter S))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            if (false == (z0.isNull())) {
+                return (EvValueBridge.taggedArray(out))
+            }
+            push out (EvValueBridge.taggedString(S))
+            return (EvValueBridge.taggedArray(out))
+        }
+        def p:int 0
+        def q:int 0
+        def guard:int 0
+        while ((q < size) && (guard < maxLoopIterations)) {
+            guard = (guard + 1)
+            splitter.setMember("lastIndex" (EvHandle.fromInt(q)))
+            def z:EvHandle (this.regExpExecAbstract(splitter S))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            if (z.isNull()) {
+                q = (q + 1)
+            } {
+                def e:int (this.toIntegerOf((this.getPropertyValue(splitter "lastIndex"))))
+                if (e > size) { e = size }
+                if (e == p) {
+                    q = (q + 1)
+                } {
+                    push out (EvValueBridge.taggedString((substring S p q)))
+                    if ((array_length out) == lim) {
+                        return (EvValueBridge.taggedArray(out))
+                    }
+                    p = e
+                    def nCaps:int ((this.toIntegerOf((this.getPropertyValue(z "length")))) - 1)
+                    if (nCaps < 0) { nCaps = 0 }
+                    def ci:int 1
+                    while (ci <= nCaps) {
+                        push out (this.getPropertyValue(z (to_string ci)))
+                        if ((array_length out) == lim) {
+                            return (EvValueBridge.taggedArray(out))
+                        }
+                        ci = (ci + 1)
+                    }
+                    q = p
+                }
+            }
+        }
+        push out (EvValueBridge.taggedString((substring S p size)))
+        return (EvValueBridge.taggedArray(out))
     }
 
     ; D-REGEXSYMBOL: RegExp.prototype[Symbol.replace] (21.2.5.8), written out
