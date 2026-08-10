@@ -19816,6 +19816,45 @@ class ComponentEngine {
                     }
                     gopnI = (gopnI + 1)
                 }
+                ; D-FNPROPS: the SYNTHESISED own properties. `length` on an
+                ; array or a string, and a function's length/name/prototype, are
+                ; computed rather than stored, so the key walk could not see any
+                ; of them -- `getOwnPropertyNames([0,1,2])` was missing `length`
+                ; and the same call on a function answered nothing at all.
+                def gopnExtra:[string]
+                if (gopnSrc.isArrayValue()) {
+                    push gopnExtra "length"
+                }
+                if (gopnSrc.isString()) {
+                    push gopnExtra "length"
+                }
+                if (gopnSrc.isFunction()) {
+                    push gopnExtra "length"
+                    push gopnExtra "name"
+                    if (false == (gopnSrc.hasSuppressed("prototype"))) {
+                        push gopnExtra "prototype"
+                    }
+                    ; A sloppy function also owns the two restricted names; a
+                    ; strict or bound one reaches them through the prototype.
+                    if (false == (this.functionIsStrict(gopnSrc))) {
+                        push gopnExtra "arguments"
+                        push gopnExtra "caller"
+                    }
+                }
+                def gopnE:int 0
+                while (gopnE < (array_length gopnExtra)) {
+                    def gopnX:string (itemAt gopnExtra gopnE)
+                    def gopnDup:boolean false
+                    def gopnD:int 0
+                    while (gopnD < (array_length gopnKeys)) {
+                        if ((itemAt gopnKeys gopnD) == gopnX) { gopnDup = true }
+                        gopnD = (gopnD + 1)
+                    }
+                    if (false == gopnDup) {
+                        push gopnItems (EvValueBridge.taggedString(gopnX))
+                    }
+                    gopnE = (gopnE + 1)
+                }
                 return (EvValueBridge.taggedArray(gopnItems))
             }
             if (name == "getOwnPropertyDescriptor") {
@@ -20945,24 +20984,34 @@ class ComponentEngine {
     ; `(new Number()).toString === Number.prototype.toString` with it -- the
     ; suite compares built-in methods by identity all over.
     fn sharedNativeMethod:EvHandle (kind:string name:string) {
-        def key:string (kind + ("." + name))
+        ; annexB B.2.4.3: Date.prototype.toGMTString IS
+        ; Date.prototype.toUTCString -- the same function object, reporting the
+        ; same name, not a second one that behaves alike. Minting its own made
+        ; the identity comparison the suite checks answer false.
+        def realName:string name
+        if (kind == "date") {
+            if (name == "toGMTString") {
+                realName = "toUTCString"
+            }
+        }
+        def key:string (kind + ("." + realName))
         def found@(optional):EvHandle (get nativeMethodCache key)
         if (!null? found) {
             return (unwrap found)
         }
-        def v:EvHandle (EvValueBridge.taggedNativeMethod(kind name))
+        def v:EvHandle (EvValueBridge.taggedNativeMethod(kind realName))
         ; A built-in reports its registered arity as `length`, like any other
         ; function. Stored on the value because there is no parameter list to
         ; count -- the registry IS the parameter list.
-        def ar:int (this.builtinArity(kind name))
+        def ar:int (this.builtinArity(kind realName))
         if (ar < 0) { ar = 0 }
         v.setMember("length" (EvHandle.fromInt(ar)))
         v.setAttrs("length" false false true)
         ; A symbol-keyed method is NAMED for its symbol: the method registered
         ; under the key `@@match` reports "[Symbol.match]", which is the name
         ; the spec gives it and what the suite reads off it.
-        def dispName:string name
-        if ((strlen name) > 2) {
+        def dispName:string realName
+        if ((strlen realName) > 2) {
             if ((substring name 0 2) == "@@") {
                 dispName = ("[Symbol." + ((substring name 2 (strlen name)) + "]"))
             }
@@ -22845,6 +22894,18 @@ class ComponentEngine {
             push fields (to_double (dts.msFromTime(t)))
         }
         def first:int (this.dateSetterFirstField(name))
+        ; annexB B.2.4.2: setYear's argument is ToNumber'd whether or not it was
+        ; supplied, so `d.setYear()` is ToNumber(undefined) -- NaN -- and the
+        ; date becomes invalid. Skipping the absent argument left the year
+        ; unchanged and answered the old time.
+        if (name == "setYear") {
+            if ((array_length args) == 0) {
+                recv.setAttrs("__date__" true false false)
+                recv.setMember("__date__" (EvValueBridge.taggedNumber(nan)))
+                recv.setAttrs("__date__" false false false)
+                return (EvValueBridge.taggedNumber(nan))
+            }
+        }
         def ai:int 0
         while (ai < (array_length args)) {
             def slot:int (first + ai)
@@ -29008,6 +29069,19 @@ class ComponentEngine {
                     dmCtx.assign(dmName (this.descGet(desc "value")))
                 }
             }
+            ; §9.4.4.2: making a mapped index NON-WRITABLE breaks the mapping.
+            ; The map survived, so a later `arguments[0] = x` still wrote the
+            ; parameter through it and the refusal never happened.
+            if (this.descHas(desc "writable")) {
+                if (false == ((this.descGet(desc "writable")).toBool())) {
+                    this.unmapArgIndex(obj key)
+                }
+            }
+            ; An accessor descriptor breaks it as well: the property is no
+            ; longer a data property, so there is nothing to keep in step.
+            if ((this.descHas(desc "get")) || (this.descHas(desc "set"))) {
+                this.unmapArgIndex(obj key)
+            }
         }
         ; D-ATTRS: an attribute the descriptor does not mention KEEPS its current
         ; value on an existing property, and defaults to FALSE on a new one --
@@ -33323,6 +33397,12 @@ class ComponentEngine {
         if (k == "__genidx__") { return true }
         if (k == "__proxytarget__") { return true }
         if (k == "__proxyhandler__") { return true }
+        ; D-ARGMAP: the mapping an arguments object keeps between its indexes
+        ; and the parameter bindings. Both leaked into
+        ; `Object.getOwnPropertyNames(arguments)`.
+        if (k == "__argnames__") { return true }
+        if (k == "__argscope__") { return true }
+        if (k == "__arguments__") { return true }
         ; D-SYMKEY: a symbol-keyed property is never listed by Object.keys,
         ; getOwnPropertyNames or for-in. Symbol keys are minted as "@@..." so
         ; the one prefix covers both well-known and user symbols.

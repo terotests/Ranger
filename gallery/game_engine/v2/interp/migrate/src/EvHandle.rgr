@@ -2037,12 +2037,16 @@ class EvHandle {
             return false
         }
         def p:EvHandle (this.protoOf())
-        ; An accessor is handled by the setter path, not here.
-        if (p.hasOwnGetter(key)) {
-            return false
-        }
+        ; An accessor WITH a setter is handled by the setter path. One with a
+        ; getter and no setter refuses the write outright -- the receiver does
+        ; not get a shadowing own property, which is what `verifyNotWritable`
+        ; on an inherited getter checks. Treating every inherited accessor as
+        ; "not my problem" let the write create one.
         if (p.hasOwnSetter(key)) {
             return false
+        }
+        if (p.hasOwnGetter(key)) {
+            return true
         }
         if (p.hasOwnData(key)) {
             return (false == (p.isWritable(key)))
