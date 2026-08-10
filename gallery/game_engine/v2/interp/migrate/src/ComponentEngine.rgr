@@ -4987,6 +4987,57 @@ class ComponentEngine {
         if stmt.right {
             def rightNode:TSNode (unwrap stmt.right)
             def src:EvHandle (this.evaluateExpr(rightNode))
+            ; D-LIVEITER: an ARRAY is iterated by INDEX, re-reading the
+            ; element and the length on every turn, because that is what the
+            ; array iterator does. A snapshot taken before the first turn
+            ; cannot see `a[1] = 64` written by the body, and misses elements
+            ; the body appends.
+            if (src.isArrayValue()) {
+                def liveI:double 0.0
+                def liveOn:boolean true
+                while liveOn {
+                    if (scriptDidReturn || (scriptThrew || loopBreak)) {
+                        liveOn = false
+                    } {
+                        if (liveI >= (src.arrayLengthD())) {
+                            liveOn = false
+                        } {
+                            def elemL:EvHandle (src.getIndex((to_int liveI)))
+                            liveI = (liveI + 1.0)
+                            if ofLexical {
+                                def turnL:EvalContext ((unwrap ofOuter).createChild())
+                                turnL.isBlockScope = true
+                                context = turnL
+                            }
+                            if varPattern {
+                                this.bindPattern((unwrap varPattern) elemL)
+                            } {
+                                if ((strlen varName) > 0) {
+                                    context.define(varName elemL)
+                                } {
+                                    if varTarget {
+                                        this.assignToTarget((unwrap varTarget) elemL)
+                                    }
+                                }
+                            }
+                            loopContinue = false
+                            if stmt.body {
+                                this.runBlockOrStatement((unwrap stmt.body))
+                            }
+                            if (scriptDidReturn || (scriptThrew || loopBreak)) {
+                                liveOn = false
+                            } {
+                                if (this.continueEscapes(myLabels)) {
+                                    liveOn = false
+                                }
+                            }
+                        }
+                    }
+                }
+                context = (unwrap ofOuter)
+                this.settleLoopAbrupt(myLabels savedBreak savedContinue)
+                return
+            }
             ; D-GENRESUME: a GENERATOR is stepped, not drained -- see
             ; genCursorStep. Draining one would hang on an unbounded generator
             ; and would run the whole body before the loop's first turn.
@@ -7358,6 +7409,16 @@ class ComponentEngine {
             } {
                 def curIdx:EvHandle (obj.getIndex(numIdx))
                 result = (this.applyAssignOp(opK curIdx rightValue))
+                ; A TYPED array coerces on every write, not only at
+                ; construction: `a[0] = 300` on an Int8Array stores 44.
+                def taIdxKind:string (this.typedArrayBrandOf(obj))
+                if ((strlen taIdxKind) > 0) {
+                    def tiv:double (this.toNumberOf(result))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    result = (EvValueBridge.taggedNumber((this.typedArrayCoerce(taIdxKind tiv))))
+                }
                 obj.setIndexAt(numIdx result)
             }
         } {
@@ -7437,6 +7498,18 @@ class ComponentEngine {
             }
             def cur:EvHandle (obj.getMember(key))
             result = (this.applyAssignOp(opK cur rightValue))
+            ; A TYPED array coerces on every write, not only at construction:
+            ; `a[0] = 300` on an Int8Array stores 44.
+            def taKind:string (this.typedArrayBrandOf(obj))
+            if ((strlen taKind) > 0) {
+                if (this.isArrayIndexKey(key)) {
+                    def tcv:double (this.toNumberOf(result))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    result = (EvValueBridge.taggedNumber((this.typedArrayCoerce(taKind tcv))))
+                }
+            }
             ; D-STRICT: sloppy mode drops a refused write on the floor; strict
             ; mode reports it. This is the single most-tested strict-mode rule
             ; in the suite -- assigning to a non-writable property, to a frozen
@@ -8919,6 +8992,9 @@ class ComponentEngine {
     ; "not a function" TypeError. `asNew` picks the construct form where the two
     ; differ.
     fn callBuiltinCtorValues:EvHandle (name:string args:[EvHandle] asNew:boolean) {
+        if (this.isTypedArrayCtorName(name)) {
+            return (this.constructTypedArray(name args))
+        }
         if (this.isErrorCtorName(name)) {
             def emsg:string ""
             if ((array_length args) > 0) {
@@ -18299,6 +18375,112 @@ class ComponentEngine {
         return 0
     }
 
+    ; ---- Typed arrays ----
+    ;
+    ; A typed array is backed by the ordinary array machinery and BRANDED with
+    ; its element type, so every write goes through that type's coercion. The
+    ; brand is what makes `new Int8Array([300])[0]` be 44 rather than 300 --
+    ; without it a "typed" array would be an ordinary one wearing a name, which
+    ; is worse than not having them at all.
+    fn isTypedArrayCtorName:boolean (name:string) {
+        if (name == "Int8Array") { return true }
+        if (name == "Uint8Array") { return true }
+        if (name == "Uint8ClampedArray") { return true }
+        if (name == "Int16Array") { return true }
+        if (name == "Uint16Array") { return true }
+        if (name == "Int32Array") { return true }
+        if (name == "Uint32Array") { return true }
+        if (name == "Float32Array") { return true }
+        if (name == "Float64Array") { return true }
+        return false
+    }
+
+    fn typedArrayBrandOf:string (v:EvHandle) {
+        if (false == (v.isArrayValue())) { return "" }
+        def b:EvHandle (v.getMember("__tabrand__"))
+        if (b.isString()) { return (b.stringOf()) }
+        return ""
+    }
+
+    fn isTypedArrayValue:boolean (v:EvHandle) {
+        return ((strlen (this.typedArrayBrandOf(v))) > 0)
+    }
+
+    ; The element a typed array of this kind actually stores for a given
+    ; number: ToInteger then wrap into the type's width, with the two float
+    ; kinds and the clamped byte handled by their own rules.
+    fn typedArrayCoerce:double (kind:string n:double) {
+        if (kind == "Float64Array") { return n }
+        if (kind == "Float32Array") { return (this.toFloat32(n)) }
+        if (kind == "Uint8ClampedArray") {
+            ; §7.1.11 ToUint8Clamp: NaN is 0, out of range saturates, and an
+            ; exact .5 rounds to EVEN.
+            if (n != n) { return 0.0 }
+            if (n <= 0.0) { return 0.0 }
+            if (n >= 255.0) { return 255.0 }
+            def fl:double (this.floorNum(n))
+            def diff:double (n - fl)
+            if (diff > 0.5) { return (fl + 1.0) }
+            if (diff < 0.5) { return fl }
+            def half:double (fl / 2.0)
+            if ((half - (this.floorNum(half))) != 0.0) { return (fl + 1.0) }
+            return fl
+        }
+        ; The integer kinds all go through ToInteger and then a modulo of
+        ; their width; the signed ones fold the top half down.
+        if (n != n) { return 0.0 }
+        if (false == (this.isFiniteNum(n))) { return 0.0 }
+        def t:double (this.truncNum(n))
+        def width:double 256.0
+        def signed:boolean false
+        if (kind == "Int8Array") { signed = true }
+        if (kind == "Uint8Array") { width = 256.0 }
+        if (kind == "Int16Array") { width = 65536.0
+            signed = true }
+        if (kind == "Uint16Array") { width = 65536.0 }
+        if (kind == "Int32Array") { width = 4294967296.0
+            signed = true }
+        if (kind == "Uint32Array") { width = 4294967296.0 }
+        def m:double (t - (width * (this.floorNum((t / width)))))
+        if signed {
+            def halfW:double (width / 2.0)
+            if (m >= halfW) { m = (m - width) }
+        }
+        return m
+    }
+
+    ; `new Int8Array(n)` / `new Int8Array([...])` / `new Int8Array(typedArray)`.
+    fn constructTypedArray:EvHandle (kind:string args:[EvHandle]) {
+        def items:[EvHandle]
+        if ((array_length args) > 0) {
+            def a0:EvHandle (itemAt args 0)
+            if (a0.isNumber()) {
+                ; a LENGTH: every element starts at zero
+                def n:int (to_int (a0.toNumber()))
+                def i:int 0
+                while (i < n) {
+                    push items (EvValueBridge.taggedNumber(0.0))
+                    i = (i + 1)
+                }
+            } {
+                def src:[EvHandle] (this.forOfItemList(a0))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                def j:int 0
+                while (j < (array_length src)) {
+                    def nv:double (this.toNumberOf((itemAt src j)))
+                    push items (EvValueBridge.taggedNumber((this.typedArrayCoerce(kind nv))))
+                    j = (j + 1)
+                }
+            }
+        }
+        def ta:EvHandle (EvValueBridge.taggedArray(items))
+        ta.setMember("__tabrand__" (EvValueBridge.taggedString(kind)))
+        ta.setAttrs("__tabrand__" false false false)
+        return ta
+    }
+
     fn isBuiltinCtorName:boolean (name:string) {
         if (name == "Object") { return true }
         if (name == "Array") { return true }
@@ -18313,6 +18495,7 @@ class ComponentEngine {
         if (name == "RegExp") { return true }
         if (name == "Promise") { return true }
         if (name == "Proxy") { return true }
+        if (this.isTypedArrayCtorName(name)) { return true }
         return (this.isErrorCtorName(name))
     }
 
@@ -28279,6 +28462,7 @@ class ComponentEngine {
     ; (Math.PI, JSON.stringify, Object.keys …). Reading one of these bare must
     ; not be a ReferenceError even though no binding exists for it.
     fn isEngineGlobalName:boolean (name:string) {
+        if (this.isTypedArrayCtorName(name)) { return true }
         if (name == "Function") { return true }
         if (name == "Map") { return true }
         if (name == "Set") { return true }
@@ -29753,6 +29937,21 @@ class ComponentEngine {
         if (className == "Array") {
             return (this.buildArrayFromArgs(node.children))
         }
+        ; `new Float32Array(...)` and the eight other element types. Routed
+        ; through the value path so the call-site and value doors build the
+        ; same thing.
+        if (this.isTypedArrayCtorName(className)) {
+            def taArgs:[EvHandle]
+            def tai:int 0
+            while (tai < (array_length node.children)) {
+                push taArgs (this.evaluateExpr((itemAt node.children tai)))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                tai = (tai + 1)
+            }
+            return (this.constructTypedArray(className taArgs))
+        }
         if (className == "Function") {
             return (this.buildFunctionFromSource(node.children))
         }
@@ -30907,6 +31106,7 @@ class ComponentEngine {
         if (k == "__pstate__") { return true }
         if (k == "__pvalue__") { return true }
         if (k == "__iterlist__") { return true }
+        if (k == "__tabrand__") { return true }
         if (k == "__iteridx__") { return true }
         if (k == "__genitems__") { return true }
         if (k == "__genidx__") { return true }
