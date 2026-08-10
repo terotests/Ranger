@@ -2600,7 +2600,50 @@ class ComponentEngine {
             }
             i = i + 1
         }
+        ; An uncaught top-level exception is REPORTED. It used to stop the
+        ; program in silence, which reads exactly like a program that ran and
+        ; did nothing -- and made every failing conformance fixture look
+        ; identical to a crashing one.
+        if scriptThrew {
+            ; Printed rather than traced: `quiet` silences the engine's own
+            ; commentary, but an uncaught exception is the program's result,
+            ; not commentary about it.
+            def uncaught:string (this.errorDisplayString(scriptThrowValue))
+            print ("Uncaught exception: " + uncaught)
+            scriptThrew = false
+            scriptThrowValue = (EvValueBridge.taggedNull())
+        }
         context = saved
+    }
+
+    ; How an uncaught error prints: `TypeError: message` for an Error object,
+    ; and the value's own text for anything else a program may throw. ToString
+    ; is deliberately not used -- a thrown symbol would raise a second
+    ; exception out of the reporting itself.
+    fn errorDisplayString:string (v:EvHandle) {
+        if (this.isDescriptorObject(v)) {
+            def nm:EvHandle (v.getMember("name"))
+            def ms:EvHandle (v.getMember("message"))
+            def nmS:string ""
+            def msS:string ""
+            if (nm.isString()) { nmS = (nm.stringOf()) }
+            if (ms.isString()) { msS = (ms.stringOf()) }
+            if ((strlen nmS) > 0) {
+                if ((strlen msS) > 0) {
+                    return (nmS + (": " + msS))
+                }
+                return nmS
+            }
+            ; A guest error class -- Test262Error is one -- may carry only a
+            ; message. Printing the object's debug form there buries the one
+            ; piece of text that says what went wrong.
+            if ((strlen msS) > 0) {
+                return msS
+            }
+        }
+        if (v.isString()) { return (v.stringOf()) }
+        if (this.isSymbolValue(v)) { return (this.symbolDisplayString(v)) }
+        return (v.toString())
     }
 
     ; Statements already bound by registerComponents / processVariables before
