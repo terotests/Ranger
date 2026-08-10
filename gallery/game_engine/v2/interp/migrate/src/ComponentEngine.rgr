@@ -24863,6 +24863,14 @@ class ComponentEngine {
                     which = "values"
                     if (kind == "map") { which = "entries" }
                 }
+                ; The iterator carries the prototype of the kind it came from,
+                ; which is where its @@toStringTag lives -- "Array Iterator",
+                ; "Map Iterator" and so on are read off the PROTOTYPE, so one
+                ; shared object cannot answer for all four.
+                def iterTag:string "Array Iterator"
+                if (kind == "string") { iterTag = "String Iterator" }
+                if (kind == "map") { iterTag = "Map Iterator" }
+                if (kind == "set") { iterTag = "Set Iterator" }
                 ; A Map iterates [k, v] pairs already, and a Set's keys are its
                 ; values, so only Array and String derive index-based variants.
                 if ((kind == "map") || (kind == "set")) {
@@ -24875,9 +24883,9 @@ class ComponentEngine {
                                 push justVals ((itemAt mvItems mvi).getIndex(1))
                                 mvi = (mvi + 1)
                             }
-                            return (this.makeListIterator(justVals))
+                            return (this.makeKindIterator(justVals iterTag))
                         }
-                        return (this.makeListIterator(mvItems))
+                        return (this.makeKindIterator(mvItems iterTag))
                     }
                     if (which == "keys") {
                         if (kind == "map") {
@@ -24887,12 +24895,12 @@ class ComponentEngine {
                                 push justKeys ((itemAt mvItems mki).getIndex(0))
                                 mki = (mki + 1)
                             }
-                            return (this.makeListIterator(justKeys))
+                            return (this.makeKindIterator(justKeys iterTag))
                         }
-                        return (this.makeListIterator(mvItems))
+                        return (this.makeKindIterator(mvItems iterTag))
                     }
                     if (kind == "map") {
-                        return (this.makeListIterator(mvItems))
+                        return (this.makeKindIterator(mvItems iterTag))
                     }
                     ; A Set's entries are [v, v].
                     def setPairs:[EvHandle]
@@ -24904,9 +24912,9 @@ class ComponentEngine {
                         push setPairs (EvValueBridge.taggedArray(sp))
                         sei = (sei + 1)
                     }
-                    return (this.makeListIterator(setPairs))
+                    return (this.makeKindIterator(setPairs iterTag))
                 }
-                return (this.makeListIterator((this.iterationItemsOf(recv which))))
+                return (this.makeKindIterator((this.iterationItemsOf(recv which)) iterTag))
             }
         }
         if (kind == "proxyrevoke") {
@@ -26344,6 +26352,31 @@ class ComponentEngine {
     ; It walks a snapshot list, which is what an eagerly-materialised iteration
     ; already is here -- the point is that `[].values()` is a real object with a
     ; real `next`, reachable as a value and usable by any for-of.
+    ; The iterator prototype for one KIND of iterable. Array, Map, Set and
+    ; String each have their own -- they differ only by their @@toStringTag,
+    ; but that tag is read off the PROTOTYPE, so one shared object cannot
+    ; answer for all four.
+    fn kindIteratorPrototype:EvHandle (tag:string) {
+        def pkey:string ("@@iterproto:" + tag)
+        def foundK@(optional):EvHandle (get builtinGlobals pkey)
+        if (!null? foundK) {
+            return (unwrap foundK)
+        }
+        def keysK:[string]
+        def valsK:[EvHandle]
+        def pk:EvHandle (EvValueBridge.taggedObject(keysK valsK))
+        pk.setProto((this.builtinPrototype("Object")))
+        pk.setMember("__protokind__" (EvValueBridge.taggedString("listiterator")))
+        pk.setMember("next" (this.sharedNativeMethod("listiterator" "next")))
+        pk.setAttrs("next" true false true)
+        pk.setMember("@@iterator" (this.sharedNativeMethod("listiterator" "@@iterator")))
+        pk.setAttrs("@@iterator" true false true)
+        pk.setMember("@@toStringTag" (EvValueBridge.taggedString(tag)))
+        pk.setAttrs("@@toStringTag" false false true)
+        set builtinGlobals pkey pk
+        return (unwrap (get builtinGlobals pkey))
+    }
+
     fn listIteratorPrototype:EvHandle () {
         if listIterProto {
             return (unwrap listIterProto)
@@ -26359,6 +26392,17 @@ class ComponentEngine {
         p.setMember("@@iterator" (this.sharedNativeMethod("listiterator" "@@iterator")))
         p.setAttrs("@@iterator" true false true)
         return p
+    }
+
+    ; A list iterator branded with the kind whose prototype it should carry.
+    fn makeKindIterator:EvHandle (items:[EvHandle] tag:string) {
+        def keysL:[string]
+        def valsL:[EvHandle]
+        def it:EvHandle (EvValueBridge.taggedObject(keysL valsL))
+        it.setMember("__iterlist__" (EvValueBridge.taggedArray(items)))
+        it.setMember("__iteridx__" (EvHandle.fromInt(0)))
+        it.setProto((this.kindIteratorPrototype(tag)))
+        return it
     }
 
     fn makeListIterator:EvHandle (items:[EvHandle]) {
