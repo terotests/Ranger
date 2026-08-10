@@ -1173,6 +1173,10 @@ class ComponentEngine {
     def genStates:[GenState]
     ; The value the suspension currently being reported is yielding.
     def genYieldValue:EvHandle (EvHandle.null())
+    ; §14.4.14 step 6.a.vii: `yield*` yields the delegate's RESULT OBJECT
+    ; itself, not a fresh wrapper around its value. The flag says genYieldValue
+    ; already IS the result object.
+    def genYieldRaw:boolean false
     ; A right-hand side the generator driver already evaluated, waiting to be
     ; consumed by the next evaluateAssignValue rather than re-evaluated.
     def genAssignPrimed:boolean false
@@ -13014,22 +13018,35 @@ class ComponentEngine {
                 if node.delegate {
                     ; `yield* xs` hands out the operand's items ONE AT A
                     ; TIME, each its own suspension.
-                    ; A generator OPERAND is delegated to lazily, one element
-                    ; at a time, and the value a next(v) sends is forwarded
-                    ; into it -- draining it would run it to completion before
-                    ; the first element came out.
-                    if (this.isResumableGenerator(yv)) {
-                        set st.fFlags top 1
-                        set st.fVal top yv
-                        set st.fVal2 top (EvValueBridge.taggedUndefined())
+                    ; A built-in sequence has no guest-visible protocol to
+                    ; observe, so it keeps the list form -- one call instead of
+                    ; one guest `next` per element.
+                    def plainSeq:boolean false
+                    if (yv.isArrayValue()) { plainSeq = true }
+                    if (yv.isString()) { plainSeq = true }
+                    if (yv.isMap()) { plainSeq = true }
+                    if (yv.isSet()) { plainSeq = true }
+                    if plainSeq {
+                        set st.fFlags top 0
+                        def sub:[EvHandle] (this.forOfItemList(yv))
+                        if scriptThrew { return 0 }
+                        set st.fVal top (EvValueBridge.taggedArray(sub))
+                        set st.fIdx top 0
                         set st.fPhase top 4
                         return 0
                     }
-                    set st.fFlags top 0
-                    def sub:[EvHandle] (this.forOfItemList(yv))
+                    ; Everything else delegates through the ITERATOR PROTOCOL:
+                    ; the operand's iterator is obtained once, then stepped one
+                    ; element at a time with whatever the caller sends.
+                    def dIter:EvHandle (this.delegateIteratorOf(yv))
                     if scriptThrew { return 0 }
-                    set st.fVal top (EvValueBridge.taggedArray(sub))
-                    set st.fIdx top 0
+                    if (false == (this.isDescriptorObject(dIter))) {
+                        def _di:EvHandle (this.throwSpecError("TypeError" ((this.typeofTag(yv)) + " is not iterable")))
+                        return 0
+                    }
+                    set st.fFlags top 1
+                    set st.fVal top dIter
+                    set st.fVal2 top (EvValueBridge.taggedUndefined())
                     set st.fPhase top 4
                     return 0
                 }
@@ -13063,48 +13080,137 @@ class ComponentEngine {
             }
             ; ph 4/5: the delegation loop
             if (ph == 4) {
-                def dArr:EvHandle (itemAt st.fVal top)
-                if ((itemAt st.fFlags top) == 1) {
-                    def dRes:EvHandle (this.genResume(dArr (itemAt st.fVal2 top) 0))
-                    if scriptThrew { return 0 }
-                    if ((dRes.getMember("done")).toBool()) {
-                        ; `yield* g` evaluates to the value g RETURNED.
-                        this.genPushOp(st (dRes.getMember("value")))
+                def dIt:EvHandle (itemAt st.fVal top)
+                if ((itemAt st.fFlags top) == 0) {
+                    ; list form: hand out the elements one at a time
+                    def dI:int (itemAt st.fIdx top)
+                    if (dI >= (dIt.denseLen())) {
+                        this.genPushOp(st (EvValueBridge.taggedUndefined()))
                         this.genPopFrame(st)
                         return 0
                     }
+                    set st.fIdx top (dI + 1)
                     set st.fPhase top 5
-                    genYieldValue = (dRes.getMember("value"))
+                    genYieldValue = (dIt.arrayItemAt(dI))
                     return 1
                 }
-                def dI:int (itemAt st.fIdx top)
-                if (dI >= (dArr.denseLen())) {
-                    ; A finished delegation evaluates to undefined.
-                    this.genPushOp(st (EvValueBridge.taggedUndefined()))
+                def dNext:EvHandle (this.iteratorMethodOf(dIt "next"))
+                if scriptThrew { return 0 }
+                if (false == (dNext.isFunction())) {
+                    def _dn:EvHandle (this.throwSpecError("TypeError" "the iterator's next is not a function"))
+                    return 0
+                }
+                def dRes:EvHandle (this.iteratorInvoke(dIt dNext (itemAt st.fVal2 top)))
+                if scriptThrew { return 0 }
+                if (false == (this.isDescriptorObject(dRes))) {
+                    def _dr:EvHandle (this.throwSpecError("TypeError" "iterator result is not an object"))
+                    return 0
+                }
+                def dDone:EvHandle (dRes.getMember("done"))
+                if scriptThrew { return 0 }
+                if (dDone.toBool()) {
+                    ; `yield* it` evaluates to the value the delegate RETURNED.
+                    def dVal:EvHandle (dRes.getMember("value"))
+                    if scriptThrew { return 0 }
+                    this.genPushOp(st dVal)
                     this.genPopFrame(st)
                     return 0
                 }
-                set st.fIdx top (dI + 1)
                 set st.fPhase top 5
-                genYieldValue = (dArr.arrayItemAt(dI))
+                genYieldValue = dRes
+                genYieldRaw = true
                 return 1
             }
             def dsv:EvHandle (EvValueBridge.taggedUndefined())
             if st.sent { dsv = (unwrap st.sent) }
+            def dIt2:EvHandle (itemAt st.fVal top)
+            if ((itemAt st.fFlags top) == 0) {
+                if (st.resumeMode == 1) {
+                    scriptReturnValue = dsv
+                    scriptDidReturn = true
+                    this.genPopFrame(st)
+                    return 0
+                }
+                if (st.resumeMode == 2) {
+                    scriptThrowValue = dsv
+                    scriptThrew = true
+                    return 0
+                }
+                set st.fPhase top 4
+                return 0
+            }
             if (st.resumeMode == 1) {
+                ; A return completion is offered to the DELEGATE first: it may
+                ; have a `return` method to run its own cleanup, and what that
+                ; answers decides whether the delegation ends here.
+                def rFn:EvHandle (this.iteratorMethodOf(dIt2 "return"))
+                if scriptThrew { return 0 }
+                if (rFn.isFunction()) {
+                    def rRes:EvHandle (this.iteratorInvoke(dIt2 rFn dsv))
+                    if scriptThrew { return 0 }
+                    if (false == (this.isDescriptorObject(rRes))) {
+                        def _rr:EvHandle (this.throwSpecError("TypeError" "iterator result is not an object"))
+                        return 0
+                    }
+                    def rDone:EvHandle (rRes.getMember("done"))
+                    if scriptThrew { return 0 }
+                    def rVal:EvHandle (rRes.getMember("value"))
+                    if scriptThrew { return 0 }
+                    if (false == (rDone.toBool())) {
+                        ; the delegate is not finished: keep delegating
+                        set st.fPhase top 5
+                        genYieldValue = rRes
+                        genYieldRaw = true
+                        return 1
+                    }
+                    scriptReturnValue = rVal
+                    scriptDidReturn = true
+                    this.genPopFrame(st)
+                    return 0
+                }
                 scriptReturnValue = dsv
                 scriptDidReturn = true
                 this.genPopFrame(st)
                 return 0
             }
             if (st.resumeMode == 2) {
-                scriptThrowValue = dsv
-                scriptThrew = true
+                ; An exception is offered to the delegate's `throw`. A delegate
+                ; with none is CLOSED first and then the protocol violation is
+                ; reported -- the exception never reaches it.
+                def tFn:EvHandle (this.iteratorMethodOf(dIt2 "throw"))
+                if scriptThrew { return 0 }
+                if (tFn.isFunction()) {
+                    def tRes:EvHandle (this.iteratorInvoke(dIt2 tFn dsv))
+                    if scriptThrew { return 0 }
+                    if (false == (this.isDescriptorObject(tRes))) {
+                        def _tr:EvHandle (this.throwSpecError("TypeError" "iterator result is not an object"))
+                        return 0
+                    }
+                    def tDone:EvHandle (tRes.getMember("done"))
+                    if scriptThrew { return 0 }
+                    def tVal:EvHandle (tRes.getMember("value"))
+                    if scriptThrew { return 0 }
+                    if (tDone.toBool()) {
+                        this.genPushOp(st tVal)
+                        this.genPopFrame(st)
+                        return 0
+                    }
+                    set st.fPhase top 5
+                    genYieldValue = tRes
+                    genYieldRaw = true
+                    return 1
+                }
+                def cFn:EvHandle (this.iteratorMethodOf(dIt2 "return"))
+                if (cFn.isFunction()) {
+                    def _cc:EvHandle (this.iteratorInvoke(dIt2 cFn (EvValueBridge.taggedUndefined())))
+                    if scriptThrew { return 0 }
+                }
+                def _tv:EvHandle (this.throwSpecError("TypeError" "the iterator does not provide a throw method"))
                 return 0
             }
             ; The value the caller sent is forwarded INTO the delegate on its
-            ; next step, which is what makes `yield* inner()` transparent to
-            ; a two-way conversation.
+            ; next step, which is what makes `yield* inner()` transparent to a
+            ; two-way conversation.
             set st.fVal2 top dsv
             set st.fPhase top 4
             return 0
@@ -13858,6 +13964,50 @@ class ComponentEngine {
         return names
     }
 
+    ; ---- yield* over an arbitrary iterator ----
+    ;
+    ; §14.4.14 delegates through the ITERATOR PROTOCOL, not through a list: it
+    ; calls next/return/throw on the delegate one step at a time and forwards
+    ; whatever the caller sent. Draining the operand first would run it to
+    ; completion before the first element came out, and would never forward
+    ; anything at all.
+
+    ; GetIterator: the iterator object a value delegates to, or undefined when
+    ; it is not iterable (the caller raises the TypeError).
+    fn delegateIteratorOf:EvHandle (src:EvHandle) {
+        if (this.isResumableGenerator(src)) {
+            ; a generator is its own iterator
+            return src
+        }
+        if (false == (this.isDescriptorObject(src))) {
+            return (EvValueBridge.taggedUndefined())
+        }
+        def itFn:EvHandle (this.getPropertyValue(src "@@iterator"))
+        if scriptThrew { return (EvValueBridge.taggedUndefined()) }
+        if (false == (itFn.isFunction())) {
+            return (EvValueBridge.taggedUndefined())
+        }
+        def noArgs:[EvHandle]
+        def it:EvHandle (this.callFnValueWithValues((itFn.withThisForCall(src)) noArgs))
+        if scriptThrew { return (EvValueBridge.taggedUndefined()) }
+        return it
+    }
+
+    fn iteratorMethodOf:EvHandle (iter:EvHandle name:string) {
+        if (false == (this.isDescriptorObject(iter))) {
+            return (EvValueBridge.taggedUndefined())
+        }
+        return (this.getPropertyValue(iter name))
+    }
+
+    ; Call next/return/throw on the delegate with ONE argument, as the spec
+    ; does -- the fixtures check `arguments.length` is 1.
+    fn iteratorInvoke:EvHandle (iter:EvHandle fn:EvHandle arg:EvHandle) {
+        def args:[EvHandle]
+        push args arg
+        return (this.callFnValueWithValues((fn.withThisForCall(iter)) args))
+    }
+
     ; D-GENRESUME: a lazy source has to stay lazy on the CONSUMING side too.
     ; Draining a generator into a list before the loop starts defeats the point
     ; of suspending it -- `for (x of naturals()) { ...; break }` would never
@@ -14062,10 +14212,15 @@ class ComponentEngine {
         st.status = 1
         if (outcome == 1) {
             def yv:EvHandle genYieldValue
+            def raw:boolean genYieldRaw
+            genYieldRaw = false
             context = savedContext
             scriptDidReturn = savedDidReturn
             scriptReturnValue = savedReturnValue
             strictMode = savedStrict
+            if raw {
+                return yv
+            }
             return (this.genResultObject(yv false))
         }
         ; Completed or threw: the activation is finished either way.
