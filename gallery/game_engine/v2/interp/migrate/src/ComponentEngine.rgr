@@ -5775,6 +5775,15 @@ class ComponentEngine {
             if ((this.nodeKindOf(s)) == 25) {
                 if ((strlen s.name) > 0) {
                     set classes s.name s
+                    ; ClassDefinitionEvaluation runs AT THE DECLARATION, not on
+                    ; first use: its computed keys are evaluated, its heritage
+                    ; is read, and an error in either -- a static named
+                    ; `prototype`, a bad `extends` -- is raised here rather than
+                    ; whenever something happens to touch the class.
+                    def _cv:EvHandle (this.classValueFor(s.name))
+                    if scriptThrew {
+                        return
+                    }
                 }
             }
             i = (i + 1)
@@ -29818,6 +29827,14 @@ class ComponentEngine {
                         }
                     }
                 }
+                ; A class's own `prototype` is non-configurable, so a STATIC
+                ; that lands on it -- `static ['prototype']() {}` -- is refused.
+                if onStatic {
+                    if (mKey == "prototype") {
+                        def _sp:EvHandle (this.throwSpecError("TypeError" "Cannot redefine property: prototype"))
+                        return
+                    }
+                }
                 if ((m.kind != "constructor") && ((strlen mKey) > 0)) {
                     def mv:EvHandle (EvValueBridge.taggedFunction(m))
                     ; A class method is NOT a constructor: it has no `prototype`
@@ -30865,14 +30882,26 @@ class ComponentEngine {
             pendingDerivedCtor = (this.classIsDerived(cls))
             pendingNewTarget = (this.classValueFor(cls.name))
             hasPendingNewTarget = true
-            def _r:EvHandle (this.callUserFunctionNode(ctor node.children inst true))
+            def ctorRet:EvHandle (this.callUserFunctionNode(ctor node.children inst true))
             def calledSuper:boolean (superCallCount > 0)
             superCallCount = savedSuperN
             derivedCtorPending = savedDerivedPending
             currentHomeClass = savedHomeC
             if (false == scriptThrew) {
-                if (false == calledSuper) {
-                    if (this.classIsDerived(cls)) {
+                if (this.classIsDerived(cls)) {
+                    ; A DERIVED constructor may return an object -- which
+                    ; replaces the instance -- or nothing at all. Any other
+                    ; value is a TypeError; a base constructor simply ignores
+                    ; one.
+                    if (false == (ctorRet.isUndefined())) {
+                        if (false == (this.isDescriptorObject(ctorRet))) {
+                            return (this.throwSpecError("TypeError" "Derived constructors may only return object or undefined"))
+                        }
+                        if (this.isSymbolValue(ctorRet)) {
+                            return (this.throwSpecError("TypeError" "Derived constructors may only return object or undefined"))
+                        }
+                    }
+                    if (false == calledSuper) {
                         return (this.throwSpecError("ReferenceError" "Must call super constructor in derived class before accessing 'this' or returning from derived constructor"))
                     }
                 }
