@@ -527,32 +527,82 @@ class TSLexer {
                 this.advance()
                 def esc:string (this.advance())
                 rawText = (rawText + ("\\" + esc))
-                if (esc == "n") { 
-                    value = value + "\n" 
-                } {
-                    if (esc == "t") { 
-                        value = value + "\t" 
-                    } {
-                        if (esc == "`") { 
-                            value = value + "`" 
-                        } {
-                            if (esc == "$") { 
-                                value = value + "$" 
-                            } {
-                                ; A template literal has no legacy octal
-                                ; escapes at all, in any mode.
-                                if (this.isDigit(esc)) {
-                                    if (esc != "0") {
-                                        return (this.makeToken("Invalid" value startPos startLine startCol))
-                                    }
-                                    def afterZero:string (this.peek())
-                                    if (this.isDigit(afterZero)) {
-                                        return (this.makeToken("Invalid" value startPos startLine startCol))
-                                    }
-                                }
-                                value = value + esc
-                            }
+                ; A template's COOKED value decodes every escape a string
+                ; literal does -- only `\n`, `\t`, `` \` `` and `\$` were
+                ; handled, so `` `\x41` `` cooked to the four characters "x41".
+                ; The raw text above keeps them as written either way.
+                def handled:boolean false
+                if (esc == "n") { value = (value + "\n")
+                    handled = true }
+                if (esc == "t") { value = (value + "\t")
+                    handled = true }
+                if (esc == "r") { value = (value + "\r")
+                    handled = true }
+                if (esc == "b") { value = (value + (strfromcode 8))
+                    handled = true }
+                if (esc == "f") { value = (value + (strfromcode 12))
+                    handled = true }
+                if (esc == "v") { value = (value + (strfromcode 11))
+                    handled = true }
+                if (esc == "`") { value = (value + "`")
+                    handled = true }
+                if (esc == "$") { value = (value + "$")
+                    handled = true }
+                if (esc == "\\") { value = (value + "\\")
+                    handled = true }
+                if (esc == "'") { value = (value + "'")
+                    handled = true }
+                if (esc == "\"") { value = (value + "\"")
+                    handled = true }
+                ; A LINE CONTINUATION contributes nothing, and CRLF counts as
+                ; one terminator.
+                if (esc == "\r") {
+                    if ((this.peek()) == "\n") {
+                        this.advance()
+                    }
+                    handled = true
+                }
+                if (esc == "\n") { handled = true }
+                if (false == handled) {
+                    if (esc == "x") {
+                        ; \xHH -- exactly two hex digits.
+                        def th1:string (this.peek())
+                        def thv1:int (this.hexValue(th1))
+                        def th2:string (this.peekAt(1))
+                        def thv2:int (this.hexValue(th2))
+                        if ((thv1 < 0) || (thv2 < 0)) {
+                            return (this.makeToken("Invalid" value startPos startLine startCol))
                         }
+                        this.advance()
+                        this.advance()
+                        value = (value + (this.codeUnitString(((thv1 * 16) + thv2))))
+                        handled = true
+                    }
+                }
+                if (false == handled) {
+                    if (esc == "u") {
+                        def tuEsc:string (this.readUnicodeEscapeBody())
+                        if ((strlen tuEsc) == 0) {
+                            return (this.makeToken("Invalid" value startPos startLine startCol))
+                        }
+                        value = (value + tuEsc)
+                        handled = true
+                    }
+                }
+                if (false == handled) {
+                    ; A template literal has no legacy octal escapes at all, in
+                    ; any mode.
+                    if (this.isDigit(esc)) {
+                        if (esc != "0") {
+                            return (this.makeToken("Invalid" value startPos startLine startCol))
+                        }
+                        def afterZero:string (this.peek())
+                        if (this.isDigit(afterZero)) {
+                            return (this.makeToken("Invalid" value startPos startLine startCol))
+                        }
+                        value = (value + (strfromcode 0))
+                    } {
+                        value = (value + esc)
                     }
                 }
             } {

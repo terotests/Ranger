@@ -19518,6 +19518,15 @@ class ComponentEngine {
                 if ((a0.isNull()) || (a0.isUndefined())) {
                     return (this.throwSpecError("TypeError" "Cannot convert undefined or null to object"))
                 }
+                ; ToObject means ToObject: a PRIMITIVE target is boxed, and it
+                ; is the box that receives the sources and is returned.
+                ; `Object.assign(1, {a: 1})` answers a Number object, not 1.
+                if (false == (this.isDescriptorObject(a0))) {
+                    a0 = (this.toObjectValue(a0))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                }
                 def ai:int 1
                 while (ai < (array_length args)) {
                     def srcA:EvHandle (itemAt args ai)
