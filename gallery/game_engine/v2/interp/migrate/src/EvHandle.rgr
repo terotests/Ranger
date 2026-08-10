@@ -1172,6 +1172,15 @@ class EvHandle {
         if (this.isElement()) {
             return true ; Elements are always truthy
         }
+        ; A Map and a Set are their OWN value kinds here, not objects, so the
+        ; chain above missed them both and `!!new Map()` answered false --
+        ; every `if (map)` took the wrong branch.
+        if (this.isMap()) {
+            return true
+        }
+        if (this.isSet()) {
+            return true
+        }
         return false
     }
     

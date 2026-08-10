@@ -5014,17 +5014,43 @@ class ComponentEngine {
             ; array iterator does. A snapshot taken before the first turn
             ; cannot see `a[1] = 64` written by the body, and misses elements
             ; the body appends.
-            if (src.isArrayValue()) {
+            ; A Map and a Set are stepped by index for the same reason: their
+            ; iterators hold a cursor into the live entry list, so a `set` or a
+            ; `delete` the body performs is visible on the next turn. The
+            ; snapshot they used to take made `map.set(...)` inside the loop
+            ; invisible and kept iterating entries the body had deleted.
+            def liveKeyed:boolean (src.isMap())
+            def liveArr:boolean (src.isArrayValue())
+            def liveSet:boolean (src.isSet())
+            def liveIndexed:boolean (liveArr || (liveKeyed || liveSet))
+            if liveIndexed {
                 def liveI:double 0.0
                 def liveOn:boolean true
                 while liveOn {
                     if (scriptDidReturn || (scriptThrew || loopBreak)) {
                         liveOn = false
                     } {
-                        if (liveI >= (src.arrayLengthD())) {
+                        def liveN:double (to_double (src.denseLen()))
+                        if liveArr {
+                            liveN = (src.arrayLengthD())
+                        }
+                        if (liveI >= liveN) {
                             liveOn = false
                         } {
-                            def elemL:EvHandle (src.getIndex((to_int liveI)))
+                            def elemL:EvHandle (EvValueBridge.taggedUndefined())
+                            if liveArr {
+                                elemL = (src.getIndex((to_int liveI)))
+                            } {
+                                if liveKeyed {
+                                    ; A Map yields [key, value] per entry.
+                                    def pairL:[EvHandle]
+                                    push pairL (src.arrayItemAt((to_int liveI)))
+                                    push pairL (src.mapValAt((to_int liveI)))
+                                    elemL = (EvValueBridge.taggedArray(pairL))
+                                } {
+                                    elemL = (src.arrayItemAt((to_int liveI)))
+                                }
+                            }
                             liveI = (liveI + 1.0)
                             if ofLexical {
                                 def turnL:EvalContext ((unwrap ofOuter).createChild())
@@ -5169,18 +5195,32 @@ class ComponentEngine {
                         if scriptThrew {
                             gOn = false
                         } {
-                            if (false == (this.isDescriptorObject(gRes))) {
+                            ; A SYMBOL is not an Object, however object-like
+                            ; the value model makes it look -- an iterator that
+                            ; answers one is a TypeError like any other
+                            ; non-object result.
+                            def gResObj:boolean (this.isDescriptorObject(gRes))
+                            if (this.isSymbolValue(gRes)) {
+                                gResObj = false
+                            }
+                            if (false == gResObj) {
                                 def _gr:EvHandle (this.throwSpecError("TypeError" "iterator result is not an object"))
                                 gOn = false
                             } {
-                                def gDone:EvHandle (gRes.getMember("done"))
+                                ; getPropertyValue, not getMember: the result's `done` and `value`
+                                ; are ordinary property reads, so an accessor or
+                                ; an inherited slot has to answer. The raw data
+                                ; read saw neither -- a getter-backed `done` read
+                                ; as undefined and the loop ran a turn it should
+                                ; not have.
+                                def gDone:EvHandle (this.getPropertyValue(gRes "done"))
                                 if scriptThrew {
                                     gOn = false
                                 } {
                                     if (gDone.toBool()) {
                                         gOn = false
                                     } {
-                                        def gElem:EvHandle (gRes.getMember("value"))
+                                        def gElem:EvHandle (this.getPropertyValue(gRes "value"))
                                         if scriptThrew {
                                             gOn = false
                                         } {
