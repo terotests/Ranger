@@ -1214,6 +1214,12 @@ class ComponentEngine {
     def currentNewTarget:EvHandle (EvValueBridge.taggedUndefined())
     def pendingNewTarget:EvHandle (EvValueBridge.taggedUndefined())
     def hasPendingNewTarget:boolean false
+    ; D-STATICTHIS: the receiver a built-in STATIC was invoked with, when it
+    ; was reached through a value that carries one (`Promise.all.call(C, ...)`).
+    ; The Promise statics are specified over a constructor C -- `this` -- and
+    ; cannot answer without it.
+    def staticThisValue:EvHandle (EvValueBridge.taggedUndefined())
+    def hasStaticThis:boolean false
     ; D-SUPERCALL: true while a DERIVED constructor is running and has not yet
     ; called super(). `this` does not exist until it does, so reading one is a
     ; ReferenceError rather than a half-built object.
@@ -15060,7 +15066,16 @@ class ComponentEngine {
         ; a static passed as a callback. Checked ahead of the method path
         ; because a static carries a builtinName too.
         if (fnValue.isBuiltinStatic()) {
-            return (this.invokeBuiltinStatic((fnValue.builtinNamespaceOf()) (fnValue.builtinNameOf()) argVals))
+            ; A static reached through a value may carry a receiver -- what
+            ; `.call(C, ...)` bound. Handed over here, and consumed by the
+            ; static that needs it.
+            if (fnValue.hasBoundThis()) {
+                staticThisValue = (fnValue.boundThisOf())
+                hasStaticThis = true
+            }
+            def bsRes:EvHandle (this.invokeBuiltinStatic((fnValue.builtinNamespaceOf()) (fnValue.builtinNameOf()) argVals))
+            hasStaticThis = false
+            return bsRes
         }
         ; D-CTORVALUE: a built-in CONSTRUCTOR held as a value is callable.
         if (fnValue.isFunction()) {
@@ -19739,6 +19754,17 @@ class ComponentEngine {
         if (nsName == "Promise") {
             def pArg:EvHandle (EvValueBridge.taggedUndefined())
             if ((array_length args) > 0) { pArg = (itemAt args 0) }
+            ; §25.4.4: all four statics are specified over a CONSTRUCTOR C --
+            ; `this` -- and a non-constructor is a TypeError before anything
+            ; else happens. C is the Promise intrinsic for a plain
+            ; `Promise.all(...)` and whatever `.call` bound otherwise.
+            def pC:EvHandle (this.builtinGlobalObject("Promise"))
+            if hasStaticThis {
+                pC = staticThisValue
+            }
+            if (false == (pC.isFunction())) {
+                return (this.throwSpecError("TypeError" ("Promise." + (name + " called on a non-constructor"))))
+            }
             if (name == "reject") {
                 def rp:EvHandle (this.makePromiseValue())
                 this.settlePromise(rp 2 pArg)
