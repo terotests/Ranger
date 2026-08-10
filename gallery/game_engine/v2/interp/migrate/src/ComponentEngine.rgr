@@ -1206,6 +1206,14 @@ class ComponentEngine {
     def globalObject@(optional):EvHandle
     ; D-CLASSEXPR: counter for generated class-expression table keys.
     def classExprSeq:int 0
+    ; D-NEWTARGET: the [[NewTarget]] of the call currently executing --
+    ; undefined for an ordinary call, the constructor for a `new`. A construct
+    ; site parks its value in `pendingNewTarget` and the call path picks it up,
+    ; because the two are far apart: the site knows the constructor, the frame
+    ; is created later.
+    def currentNewTarget:EvHandle (EvValueBridge.taggedUndefined())
+    def pendingNewTarget:EvHandle (EvValueBridge.taggedUndefined())
+    def hasPendingNewTarget:boolean false
     ; D-SUPERCALL: how many `super()` calls have run inside the constructor
     ; currently executing. A DERIVED constructor that finishes without one
     ; never initialised `this`, which is a ReferenceError -- the counter is
@@ -5934,6 +5942,9 @@ class ComponentEngine {
         }
         if (nt == "TryStatement") { node.evalKind = 46
             return 46
+        }
+        if (nt == "MetaProperty") { node.evalKind = 49
+            return 49
         }
         if (nt == "SpreadElement") { node.evalKind = 47
             return 47
@@ -15066,6 +15077,16 @@ class ComponentEngine {
                 srcSwapped = true
             }
         }
+        ; D-NEWTARGET: this frame's [[NewTarget]] -- whatever a construct site
+        ; parked, or undefined for an ordinary call. Consumed here so the next
+        ; call does not inherit it.
+        def savedNewTargetV:EvHandle currentNewTarget
+        if hasPendingNewTarget {
+            currentNewTarget = pendingNewTarget
+            hasPendingNewTarget = false
+        } {
+            currentNewTarget = (EvValueBridge.taggedUndefined())
+        }
         def result:EvHandle (EvValueBridge.taggedNull())
         ; D-GENRESUME: a generator call runs NOTHING. The activation just
         ; prepared -- parameters bound, `this` in place -- becomes the
@@ -15086,6 +15107,7 @@ class ComponentEngine {
                     currentSrcId = savedSrcId
                 }
                 strictMode = savedStrict
+                currentNewTarget = savedNewTargetV
                 callDepth = (callDepth - 1)
                 context = savedContext
                 currentModule = savedModule
@@ -15122,6 +15144,7 @@ class ComponentEngine {
             currentSrcId = savedSrcId
         }
         strictMode = savedStrict
+        currentNewTarget = savedNewTargetV
         callDepth = (callDepth - 1)
         context = savedContext
         currentModule = savedModule
@@ -16013,6 +16036,10 @@ class ComponentEngine {
             return (EvValueBridge.taggedString(templateText))
         }
         
+        ; D-NEWTARGET: `new.target` is the only meta property.
+        if (exprK == 49) {
+            return currentNewTarget
+        }
         if (exprK == 9) {
             return (EvValueBridge.taggedBoolean((node.value == "true")))
         }
@@ -19921,6 +19948,8 @@ class ComponentEngine {
                 instProto.setAttrs("constructor" true false true)
             }
         }
+        pendingNewTarget = newTarget
+        hasPendingNewTarget = true
         def ret:EvHandle (this.callUserFunctionValues((fnV.functionNodeOf()) merged inst))
         if scriptThrew {
             return (EvValueBridge.taggedUndefined())
@@ -29227,6 +29256,10 @@ class ComponentEngine {
             ; register while it runs.
             def savedHomeS:string currentHomeClass
             currentHomeClass = supName
+            ; D-NEWTARGET: super() forwards the DERIVED class as new.target --
+            ; the base constructor sees who was actually newed, not itself.
+            pendingNewTarget = currentNewTarget
+            hasPendingNewTarget = true
             def _sr:EvHandle (this.callUserFunctionNode(sCtor argNodes inst true))
             currentHomeClass = savedHomeS
         } {
@@ -29741,12 +29774,17 @@ class ComponentEngine {
                 }
                 ci = (ci + 1)
             }
+            pendingNewTarget = fnV
+            hasPendingNewTarget = true
             def boundRet:EvHandle (this.callUserFunctionValues(fnNode ctorVals inst))
             if (this.isDescriptorObject(boundRet)) {
                 return boundRet
             }
             return inst
         }
+        ; D-NEWTARGET: `new F()` makes F the frame's new.target.
+        pendingNewTarget = fnV
+        hasPendingNewTarget = true
         def ret:EvHandle (this.callUserFunctionNode(fnNode argNodes inst true))
         ; A constructor that RETURNS an object yields that object, and a
         ; function, array, Map or Set is an object too -- only a primitive (or
@@ -29844,6 +29882,16 @@ class ComponentEngine {
             }
         }
         this.bindParams(fnNode argVals)
+        ; D-NEWTARGET: this frame's [[NewTarget]] -- whatever a construct site
+        ; parked, or undefined for an ordinary call. Consumed here so the next
+        ; call does not inherit it.
+        def savedNewTarget:EvHandle currentNewTarget
+        if hasPendingNewTarget {
+            currentNewTarget = pendingNewTarget
+            hasPendingNewTarget = false
+        } {
+            currentNewTarget = (EvValueBridge.taggedUndefined())
+        }
         ; D-STRICT: same rule on the node-call path.
         def savedStrict:boolean strictMode
         strictMode = (this.strictForBody(fnNode))
@@ -29881,6 +29929,7 @@ class ComponentEngine {
             result = (this.makeGeneratorValue(producedN))
         }
         strictMode = savedStrict
+        currentNewTarget = savedNewTarget
         callDepth = (callDepth - 1)
         context = savedContext
         currentModule = savedModule
@@ -30457,6 +30506,8 @@ class ComponentEngine {
             ; half-built object.
             def savedSuperN:int superCallCount
             superCallCount = 0
+            pendingNewTarget = (this.classValueFor(cls.name))
+            hasPendingNewTarget = true
             def _r:EvHandle (this.callUserFunctionNode(ctor node.children inst true))
             def calledSuper:boolean (superCallCount > 0)
             superCallCount = savedSuperN
