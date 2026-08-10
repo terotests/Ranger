@@ -21227,6 +21227,23 @@ class ComponentEngine {
                                     if (src.hasSuppressed(dk)) {
                                         return (EvValueBridge.taggedUndefined())
                                     }
+                                    ; A function that STORES its prototype still
+                                    ; has the spec's attributes on it -- writable,
+                                    ; not enumerable, NOT configurable -- unless
+                                    ; defineProperty recorded something else. It
+                                    ; fell through to the generic branch, which
+                                    ; reads the made-by-assignment defaults and
+                                    ; called it configurable.
+                                    if (false == (src.hasOwnAttrs(dk))) {
+                                        def keysQ:[string]
+                                        def valsQ:[EvHandle]
+                                        def dQ:EvHandle (EvValueBridge.taggedObject(keysQ valsQ))
+                                        dQ.setMember("value" (src.getMember("prototype")))
+                                        dQ.setMember("writable" (EvValueBridge.taggedBoolean(true)))
+                                        dQ.setMember("enumerable" (EvValueBridge.taggedBoolean(false)))
+                                        dQ.setMember("configurable" (EvValueBridge.taggedBoolean(false)))
+                                        return dQ
+                                    }
                                     if (false == (src.hasOwnData(dk))) {
                                         def keysP:[string]
                                         def valsP:[EvHandle]
@@ -23107,6 +23124,19 @@ class ComponentEngine {
         }
         if (false == (this.isDescriptorObject(obj))) {
             return false
+        }
+        ; D-FNPROPS: a function's synthesised `prototype` is non-configurable,
+        ; so `delete f.prototype` answers false and the property survives. It is
+        ; not own DATA, so the presence test below could not see it and the
+        ; delete reported success.
+        if (obj.isFunction()) {
+            if (key == "prototype") {
+                if (false == (obj.hasSuppressed(key))) {
+                    if (false == (obj.hasOwnAttrs(key))) {
+                        return true
+                    }
+                }
+            }
         }
         ; D-ARRAYDEFINE: an array ELEMENT lives in the dense store, not in own
         ; data, so none of the checks below could see it and `delete a[0]`
@@ -25027,7 +25057,11 @@ class ComponentEngine {
                         if ((array_length args) > 0) {
                             def cb:EvHandle (this.withCallbackThis((itemAt args 0) args))
                             def ii:int 0
-                            while (ii < alen) {
+                            def someN:int (this.arrayLikeIterLen(recv alen))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                            while (ii < someN) {
                                 ; D-HOLES: an ABSENT element is not visited.
                                 if ((EvValueBridge.isHole((this.arrayElemAt(recv ii))))) {
                                     ii = (ii + 1)
@@ -25053,7 +25087,11 @@ class ComponentEngine {
                         if ((array_length args) > 0) {
                             def cb:EvHandle (this.withCallbackThis((itemAt args 0) args))
                             def ii:int 0
-                            while (ii < alen) {
+                            def everyN:int (this.arrayLikeIterLen(recv alen))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                            while (ii < everyN) {
                                 ; D-HOLES: an ABSENT element is not visited.
                                 if ((EvValueBridge.isHole((this.arrayElemAt(recv ii))))) {
                                     ii = (ii + 1)
@@ -28293,6 +28331,42 @@ class ComponentEngine {
         recv.setMember("length" (EvHandle.fromInt(n)))
     }
 
+    ; D-ARRAYLIKE: how far a SHORT-CIRCUITING predicate iterates. The element
+    ; list is materialised through ToUint32, which answers 0 for a `length` of
+    ; Infinity -- so `every` on `{0: 9, length: Infinity}` visited nothing and
+    ; answered true where it must visit index 0 and answer false. ToLength is
+    ; the right conversion, clamped to the dense cap here because `every` and
+    ; `some` stop at the first decisive element and a real program never walks
+    ; further.
+    fn arrayLikeIterLen:int (recv:EvHandle materialised:int) {
+        if (recv.isArrayValue()) {
+            return materialised
+        }
+        def lv:EvHandle (this.getPropertyValue(recv "length"))
+        if scriptThrew {
+            return materialised
+        }
+        def d:double (this.toNumberOf(lv))
+        if scriptThrew {
+            return materialised
+        }
+        if (d != d) {
+            return materialised
+        }
+        def t:double (this.truncNum(d))
+        if (t <= 0.0) {
+            return 0
+        }
+        if (t > 10000000.0) {
+            return 10000000
+        }
+        def n:int (to_int t)
+        if (n < materialised) {
+            return materialised
+        }
+        return n
+    }
+
     fn arrayLikeElements:[EvHandle] (v:EvHandle) {
         def out:[EvHandle]
         if (v.isArrayValue()) {
@@ -28317,11 +28391,20 @@ class ComponentEngine {
         if (lenV.isUndefined()) {
             return out
         }
-        ; D-STRNUM: ToUint32 goes through the engine's ToNumber, which follows
-        ; the StringNumericLiteral grammar -- a `length` of "0x0002" is 2, not
-        ; NaN. Reading the value's own toNumber knew nothing of the radix
-        ; prefixes, so an array-like with a hex length iterated zero times.
-        def n:int (this.toInt32Of(lenV))
+        ; D-STRNUM: the conversion goes through the engine's ToNumber, which
+        ; follows the StringNumericLiteral grammar -- a `length` of "0x0002" is
+        ; 2, not NaN. And it is ToLENGTH, not ToUint32: a NEGATIVE length is
+        ; zero, where the uint32 wrap turned `length: -4294967294` into 2 and
+        ; made every array-like method visit elements it must not see.
+        def lenD:double (this.toNumberOf(lenV))
+        if scriptThrew {
+            return out
+        }
+        if (lenD != lenD) { lenD = 0.0 }
+        def lenT:double (this.truncNum(lenD))
+        if (lenT < 0.0) { lenT = 0.0 }
+        if (lenT > 10000000.0) { lenT = 10000000.0 }
+        def n:int (to_int lenT)
         if scriptThrew {
             return out
         }
