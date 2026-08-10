@@ -825,10 +825,17 @@ after excluding intl402, Temporal, module and async flags:
 
 | | |
 |---|---|
-| **ES2015 overall** | **70.76% (2026/2863)** |
-| pass | 2026 |
-| fail (ran, wrong answer) | 6 |
-| crash (did not run to completion) | 831 |
+| **ES2015 overall** | **79.22% (2268/2863)** |
+| pass | 2268 |
+| fail (ran, wrong answer) | 570 |
+| crash (did not run to completion) | 25 |
+
+The fail/crash split changed meaning partway through this work. An
+uncaught exception used to be swallowed in silence, so a fixture that ran
+and asserted was indistinguishable from one that died on line 1 -- almost
+everything counted as a crash. Uncaught exceptions now print, so a failed
+assertion is reported as a failure. The pass count is unaffected either
+way; only the two failure buckets moved.
 
 **Six wrong answers, and that number has not moved.** It is the useful part of
 the ratio: what stands between this engine and ES2015 is missing surface, not
@@ -863,6 +870,17 @@ How it got here, each row a measured run of the same corpus against the C++
 | generators suspend and resume on an explicit frame stack | 1980 | 69.16% |
 | a generator stays lazy on the consuming side; `%GeneratorPrototype%` | 2009 | 70.17% |
 | `yield*` delegates through the iterator protocol | 2026 | 70.76% |
+| `get`/`set`/`async` as identifiers; a derived ctor must call `super()` | 2073 | 72.41% |
+| generator methods; loop completion values; `f.length` is not writable | 2139 | 74.71% |
+| typed arrays; live array iteration; proxy trap results | 2170 | 75.79% |
+| `new.target`; `Object.create(Array.prototype)`; a trap's `this` | 2182 | 76.21% |
+| class calls on the value path; `this` before `super()` | 2188 | 76.42% |
+| the proxy `has` and `set` traps | 2202 | 76.91% |
+| `yield` in an array literal; the generator function object | 2219 | 77.51% |
+| for-of steps and closes a guest iterator | 2230 | 77.89% |
+| template escapes; `Object.assign` boxes a primitive target | 2243 | 78.34% |
+| class definition at the declaration; derived-constructor returns | 2256 | 78.80% |
+| per-kind iterator prototypes; Map/Set answer iterators | 2268 | 79.22% |
 
 The single largest step is not an ES2015 feature at all. `propertyHelper.js` --
 which 543 of these files include -- opens with
@@ -871,40 +889,38 @@ detached. Statics that existed only on the AST call-site chain answered
 undefined that way, so `verifyProperty` died on the first line and 543 files
 failed for a reason unrelated to what they were testing.
 
-Failures by family, at the end of the run above (837 files):
+Failures by family, at the end of the run above (595 files):
 
 | family | files | why |
 |---|---:|---|
-| `language/statements/class` | 103 | 55 of them subclass a BUILT-IN (`class E extends TypeError`) |
-| `built-ins/Proxy` | 70 | the invariant checks a trap result is held to, and revoked-proxy handling |
-| `built-ins/Promise` | 66 | resolve-function identity, species, and the subclassing fixtures |
-| `built-ins/RegExp` | 56 | unicode mode, and the property-descriptor shape of the flag accessors |
-| `language/statements/for-of` | 51 | completion values, and iterator close on an abrupt exit from a `try` |
-| `language/expressions/object` | 40 | `yield` as a method name, and super-property in a method |
-| `built-ins/String` | 33 | `normalize` (3), lone surrogates (12), and coercion-order fixtures |
-| `built-ins/Object` | 33 | 12 of them the descriptor shape of `Object.prototype.__proto__` |
-| `annexB` | 27 | 20 of them `RegExp.prototype.compile` |
-| `language/expressions/super` | 22 | |
-| `language/statements/for-in` | 17 | |
-| `language/expressions/yield` | 14 | `yield` in a position the resumable driver does not step yet |
-| `language/statements`/`expressions/generators` | 12 / 12 | the generator FUNCTION object: `g.prototype`, `new g()` |
-| `built-ins/GeneratorPrototype` | 11 | down from 44 |
+| `language/statements/class` | 65 | 55 of them subclass a BUILT-IN (`class E extends Array`) |
+| `built-ins/Promise` | 61 | NewPromiseCapability and the species lookups: `Promise.all` does not construct C or call each element's own `then` |
+| `built-ins/RegExp` | 45 | unicode mode, `compile`, and decimal escapes the lexer refuses |
+| `built-ins/Proxy` | 45 | the remaining trap invariants, and `with (proxy)` |
+| `built-ins/String` | 34 | lone surrogates (12), `normalize` (3), coercion order |
+| `annexB` | 26 | 20 of them `RegExp.prototype.compile` |
+| `built-ins/Object` | 23 | 12 of them the descriptor shape of `Object.prototype.__proto__` |
+| `language/statements/for-of` | 18 | IteratorClose inside a compiled function; live Map/Set iteration |
+| `language/expressions/object` | 14 | super-property in an object method |
+| `language/expressions/super` | 13 | `super()` through a plain function base |
+| `language/expressions/yield` | 12 | `yield` in a call argument or an object literal |
 
-Generators used to be the largest single block here -- around 160 files
-across `GeneratorPrototype`, `expressions/yield`, both `generators`
-directories and much of `for-of`. They now suspend and resume for real (see
-D-GENRESUME in ComponentEngine), and that block is down to roughly 60. What
-is left of it is not the suspension mechanism but the generator FUNCTION
-object -- `g.prototype`, `new g()` -- and `yield` in the few syntactic
-positions the driver does not step yet (a switch, a call argument, an array
-or object literal), which fall back to the old eager behaviour rather than
-running wrongly.
+Sixty-one of the remaining files need `$262` -- the test262 host object,
+with `createRealm` and `evalScript`. That is a harness capability rather
+than an engine one, and nothing here provides it.
 
-The largest remaining structural gap is extending a built-in (`class E extends
-Array`): it needs the instance to BE an array while still dispatching the
-subclass's own methods, which the kind-tagged value model cannot express today.
-`new.target` is a smaller one -- parsed, but never bound, because a call frame
-carries no new-target slot.
+Two structural gaps account for most of the rest. Extending a built-in
+(`class E extends Array`) needs the instance to BE an array while still
+dispatching the subclass's own methods, which the kind-tagged value model
+cannot express today. And the Promise statics need NewPromiseCapability:
+constructing C with an executor, capturing its resolve/reject, and driving
+each element through its own `then`. The receiver plumbing they depend on
+is in place; the capability protocol is not.
+
+One known defect worth naming: for-of inside a compiled function body
+still drains its source instead of stepping it, so an unbounded iterator
+hangs there. The walker's for-of steps and closes properly; the compiled
+path does not, and the two should be brought together.
 
 #### What resumable generators cost the rest of the engine
 
