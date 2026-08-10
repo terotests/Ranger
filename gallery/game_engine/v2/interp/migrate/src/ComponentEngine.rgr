@@ -5063,6 +5063,11 @@ class ComponentEngine {
                     if (scriptDidReturn || (scriptThrew || loopBreak)) {
                         lazyOn = false
                     } {
+                        ; A pending `continue` belongs to THIS loop and is
+                        ; consumed here. Left set, it travelled into the
+                        ; generator's own body on the next step and made every
+                        ; statement there bail immediately.
+                        loopContinue = false
                         def stepRes:EvHandle (this.genCursorStep(src))
                         if scriptThrew {
                             lazyOn = false
@@ -5104,6 +5109,128 @@ class ComponentEngine {
                 }
                 ; IteratorClose on an early exit runs the generator's finallys.
                 this.genCursorClose(src)
+                context = (unwrap ofOuter)
+                this.settleLoopAbrupt(myLabels savedBreak savedContinue)
+                return
+            }
+            ; D-LIVEITER: a GUEST iterable is stepped through its own iterator
+            ; rather than drained. Draining calls `next` until it says done,
+            ; which never happens for an unbounded iterator, and it robs the
+            ; iterator of its `return` -- the close a `break` owes it. The
+            ; built-in kinds below have no guest-visible protocol to observe
+            ; and keep the faster list form.
+            def guestLazy:boolean false
+            if (this.isDescriptorObject(src)) {
+                if (false == (src.isArrayValue())) {
+                    if (false == (src.isMap())) {
+                        if (false == (src.isSet())) {
+                            if (false == (src.hasOwnData("__arguments__"))) {
+                                def probeIt:EvHandle (this.getPropertyValue(src "@@iterator"))
+                                if scriptThrew {
+                                    context = (unwrap ofOuter)
+                                    this.settleLoopAbrupt(myLabels savedBreak savedContinue)
+                                    return
+                                }
+                                if (probeIt.isFunction()) { guestLazy = true }
+                            }
+                        }
+                    }
+                }
+            }
+            if guestLazy {
+                def gIter:EvHandle (this.delegateIteratorOf(src))
+                if scriptThrew {
+                    context = (unwrap ofOuter)
+                    this.settleLoopAbrupt(myLabels savedBreak savedContinue)
+                    return
+                }
+                def gNext:EvHandle (this.iteratorMethodOf(gIter "next"))
+                if (false == (gNext.isFunction())) {
+                    def _gn:EvHandle (this.throwSpecError("TypeError" "the iterator's next is not a function"))
+                    context = (unwrap ofOuter)
+                    this.settleLoopAbrupt(myLabels savedBreak savedContinue)
+                    return
+                }
+                def gOn:boolean true
+                def gClose:boolean false
+                while gOn {
+                    if (scriptDidReturn || (scriptThrew || loopBreak)) {
+                        gOn = false
+                        gClose = true
+                    } {
+                        loopContinue = false
+                        def gRes:EvHandle (this.iteratorInvoke(gIter gNext (EvValueBridge.taggedUndefined())))
+                        if scriptThrew {
+                            gOn = false
+                        } {
+                            if (false == (this.isDescriptorObject(gRes))) {
+                                def _gr:EvHandle (this.throwSpecError("TypeError" "iterator result is not an object"))
+                                gOn = false
+                            } {
+                                def gDone:EvHandle (gRes.getMember("done"))
+                                if scriptThrew {
+                                    gOn = false
+                                } {
+                                    if (gDone.toBool()) {
+                                        gOn = false
+                                    } {
+                                        def gElem:EvHandle (gRes.getMember("value"))
+                                        if scriptThrew {
+                                            gOn = false
+                                        } {
+                                            if ofLexical {
+                                                def gTurn:EvalContext ((unwrap ofOuter).createChild())
+                                                gTurn.isBlockScope = true
+                                                context = gTurn
+                                            }
+                                            if varPattern {
+                                                this.bindPattern((unwrap varPattern) gElem)
+                                            } {
+                                                if ((strlen varName) > 0) {
+                                                    context.define(varName gElem)
+                                                } {
+                                                    if varTarget {
+                                                        this.assignToTarget((unwrap varTarget) gElem)
+                                                    }
+                                                }
+                                            }
+                                            if stmt.body {
+                                                this.runBlockOrStatement((unwrap stmt.body))
+                                            }
+                                            if (scriptDidReturn || (scriptThrew || loopBreak)) {
+                                                gOn = false
+                                                gClose = true
+                                            } {
+                                                if (this.continueEscapes(myLabels)) {
+                                                    gOn = false
+                                                    gClose = true
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                ; IteratorClose: an exit that is not "the iterator said done"
+                ; gives the iterator its `return` -- that is the whole contract
+                ; a `break` has with it.
+                if gClose {
+                    def gRet:EvHandle (this.iteratorMethodOf(gIter "return"))
+                    if (gRet.isFunction()) {
+                        def savedThrewC:boolean scriptThrew
+                        def savedThrowVC:EvHandle scriptThrowValue
+                        scriptThrew = false
+                        def _gc:EvHandle (this.iteratorInvoke(gIter gRet (EvValueBridge.taggedUndefined())))
+                        ; A throw from the close is dropped when one is already
+                        ; travelling: the original completion wins.
+                        if savedThrewC {
+                            scriptThrew = true
+                            scriptThrowValue = savedThrowVC
+                        }
+                    }
+                }
                 context = (unwrap ofOuter)
                 this.settleLoopAbrupt(myLabels savedBreak savedContinue)
                 return
@@ -14105,7 +14232,10 @@ class ComponentEngine {
                 def oArr:EvHandle (itemAt st.fVal top)
                 def oElem:EvHandle (EvValueBridge.taggedUndefined())
                 if ((itemAt st.fFlags top) == 1) {
-                    ; stepped source: pull exactly one element
+                    ; stepped source: pull exactly one element. A pending
+                    ; `continue` is this loop's and is consumed before the step,
+                    ; or it travels into the generator's body.
+                    loopContinue = false
                     def stepR:EvHandle (this.genCursorStep(oArr))
                     if scriptThrew {
                         this.genEndLoop(st top)
