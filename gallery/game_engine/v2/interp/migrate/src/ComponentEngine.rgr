@@ -28455,6 +28455,10 @@ class ComponentEngine {
             def nm:string (itemAt names i)
             def c:EvHandle (EvValueBridge.taggedNativeFunction(nm))
             c.setMember("name" (EvValueBridge.taggedString(nm)))
+            ; §17: a built-in function's `name` is non-writable and
+            ; non-enumerable, like its `length` just below. It was seeded as an
+            ; ordinary writable, enumerable property.
+            c.setAttrs("name" false false true)
             ; §15.11.3: every native error constructor takes one argument.
             c.setMember("length" (EvHandle.fromInt(1)))
             c.setAttrs("length" false false true)
