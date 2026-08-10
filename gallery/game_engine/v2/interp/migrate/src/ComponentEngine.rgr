@@ -2099,6 +2099,12 @@ class ComponentEngine {
             } {
                 push args (this.evaluateExpr(argNode))
             }
+            ; D-EVALORDER: arguments are evaluated LEFT TO RIGHT and the first
+            ; exception ends the list. Carrying on let a later argument's throw
+            ; replace an earlier one's.
+            if scriptThrew {
+                return args
+            }
             i = (i + 1)
         }
         return args
@@ -18610,6 +18616,13 @@ class ComponentEngine {
             left = (this.evaluateExprTransient(lNode))
         } {
             left = (this.evaluateExpr(lNode))
+        }
+        ; D-EVALORDER: the LEFT operand is evaluated first, and an exception
+        ; from it ends the expression. Running the right one anyway let its
+        ; throw replace the left's -- `x() + y()`, both throwing, reported "y"
+        ; where every reading of the grammar says "x".
+        if scriptThrew {
+            return (EvValueBridge.taggedUndefined())
         }
         if ((this.nodeKindOf(rNode)) == 5) {
             right = (this.evaluateExprTransient(rNode))
