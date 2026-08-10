@@ -7639,12 +7639,21 @@ class ComponentEngine {
                     return (this.throwSpecError("TypeError" "Cannot convert undefined or null to object"))
                 }
                 if (this.isDescriptorObject(obj)) {
-                    if (rightValue.isObject()) {
-                        obj.setProto(rightValue)
-                    } {
-                        if (rightValue.isNull()) {
-                            obj.setProto(rightValue)
+                    ; §9.1.2 [[SetPrototypeOf]]: a NON-EXTENSIBLE object refuses
+                    ; the change. It was applied regardless, so
+                    ; `Object.preventExtensions(o).__proto__ = p` mutated a
+                    ; prototype the object had been sealed against.
+                    def protoChanging:boolean false
+                    if (rightValue.isObject()) { protoChanging = true }
+                    if (rightValue.isNull()) { protoChanging = true }
+                    if protoChanging {
+                        if (false == (obj.isExtensible())) {
+                            if strictMode {
+                                return (this.throwSpecError("TypeError" "#<Object> is not extensible"))
+                            }
+                            return rightValue
                         }
+                        obj.setProto(rightValue)
                     }
                 }
                 return rightValue
@@ -10883,6 +10892,14 @@ class ComponentEngine {
                 return false
             }
             if (mn == "arguments") {
+                return false
+            }
+            ; A function's `prototype` object is completed lazily on the walker's
+            ; member path -- that is where its `constructor` back-link and its
+            ; own prototype are filled in. The compiled get_field skips all of
+            ; it, so `f.prototype.constructor` read undefined inside a function
+            ; body and correctly inside one at top level.
+            if (mn == "prototype") {
                 return false
             }
             prog.emit(30 (prog.addAtom(mn)) 1 1)
@@ -18363,6 +18380,13 @@ class ComponentEngine {
             if node.left {
                 def leftExpr:TSNode (unwrap node.left)
                 def left:EvHandle (this.evaluateExpr(leftExpr))
+                ; D-EVALORDER: a throw from the LEFT operand ends the
+                ; expression. Its answer is undefined, which is falsy and
+                ; nullish, so the short-circuit test fell through and ran the
+                ; right operand -- whose own throw then replaced it.
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
                 if ((left.toBool()) == false) {
                     return left
                 }
@@ -18377,6 +18401,13 @@ class ComponentEngine {
             if node.left {
                 def leftExpr:TSNode (unwrap node.left)
                 def left:EvHandle (this.evaluateExpr(leftExpr))
+                ; D-EVALORDER: a throw from the LEFT operand ends the
+                ; expression. Its answer is undefined, which is falsy and
+                ; nullish, so the short-circuit test fell through and ran the
+                ; right operand -- whose own throw then replaced it.
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
                 if (left.toBool()) {
                     return left
                 }
@@ -18391,6 +18422,13 @@ class ComponentEngine {
             if node.left {
                 def leftExpr:TSNode (unwrap node.left)
                 def left:EvHandle (this.evaluateExpr(leftExpr))
+                ; D-EVALORDER: a throw from the LEFT operand ends the
+                ; expression. Its answer is undefined, which is falsy and
+                ; nullish, so the short-circuit test fell through and ran the
+                ; right operand -- whose own throw then replaced it.
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
                 ; nullish: fall through to the right only when left is null OR
                 ; undefined (a missing member now reads as undefined — rule 6).
                 if (false == ((left.isNull()) || (left.isUndefined()))) {
@@ -21133,6 +21171,13 @@ class ComponentEngine {
                                 ; -- and hardcoding writable here reported the
                                 ; opposite of what was recorded.
                                 if (dk == "prototype") {
+                                    ; A SUPPRESSED name is not there at all --
+                                    ; Function.prototype is callable but not a
+                                    ; constructor, so it carries no `prototype`
+                                    ; and the synthesis must not invent one.
+                                    if (src.hasSuppressed(dk)) {
+                                        return (EvValueBridge.taggedUndefined())
+                                    }
                                     if (false == (src.hasOwnData(dk))) {
                                         def keysP:[string]
                                         def valsP:[EvHandle]
@@ -21678,6 +21723,11 @@ class ComponentEngine {
         }
         if (nsName == "Function") {
             p = (EvValueBridge.taggedNativeFunction(""))
+            ; Function.prototype is callable but is NOT a constructor, so it has
+            ; no `prototype` property of its own -- the synthesised one made
+            ; `Object.getOwnPropertyDescriptor(Function.prototype, "prototype")`
+            ; answer a descriptor for a property that should not exist.
+            p.addSuppressed("prototype")
             ; Calling it returns undefined whatever it is handed. Marked so the
             ; call paths can tell it from an uncallable value -- it has no
             ; function node and no builtin name, which is otherwise exactly what
@@ -29314,6 +29364,31 @@ class ComponentEngine {
             this.applyDescriptorAttrs(obj key desc existedElem)
             obj.setAttrs(key false (obj.isEnumerable(key)) (obj.isConfigurable(key)))
             return ""
+        }
+        ; Turning an ACCESSOR element back into a data one drops the functions.
+        ; They were left in place, so the getter still won the read and the
+        ; element reported as an accessor after a redefinition that gave it a
+        ; value. A GENERIC descriptor -- attributes only -- leaves the kind
+        ; alone, exactly as it does for a named property.
+        def wantsDataElem:boolean false
+        if (this.descHas(desc "value")) { wantsDataElem = true }
+        if (this.descHas(desc "writable")) { wantsDataElem = true }
+        if wantsDataElem {
+            def hadAcc:boolean false
+            if (obj.hasOwnGetter(key)) { hadAcc = true }
+            if (obj.hasOwnSetter(key)) { hadAcc = true }
+            if hadAcc {
+                ; The attributes the accessor carried survive the change of
+                ; kind, and clearing the accessor drops its recorded entry --
+                ; so they are put back before the descriptor is applied over
+                ; them. Without this a redefinition inherited the
+                ; made-by-assignment defaults and turned a non-enumerable
+                ; element enumerable.
+                def keepE:boolean (obj.isEnumerable(key))
+                def keepC:boolean (obj.isConfigurable(key))
+                obj.clearAccessor(key)
+                obj.setAttrs(key false keepE keepC)
+            }
         }
         if (this.descHas(desc "value")) {
             obj.setIndexAt(idx (this.descGet(desc "value")))

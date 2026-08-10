@@ -305,6 +305,14 @@ class TSParserSimple {
     if (this.speculating > 0) {
       return
     }
+    ; Report the FIRST diagnostic only. Recovery carries on so the parse
+    ; finishes, but every token after the real error produces another message
+    ; -- one bad `function a.b()` printed fifteen -- and the later ones quote
+    ; source text that was never the problem. The first message is the one that
+    ; names the actual error.
+    if (this.errorCount > 1) {
+      return
+    }
     if (this.quiet == false) {
       print msg
     }
