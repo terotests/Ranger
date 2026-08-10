@@ -18796,6 +18796,21 @@ class ComponentEngine {
         return ta
     }
 
+    ; §21.2.5.2.2 and its callers write lastIndex with Throw=true: a
+    ; non-writable `lastIndex` makes the write a TypeError, in sloppy code as
+    ; much as in strict. The engine wrote it straight through, so a regexp
+    ; whose lastIndex had been frozen silently kept its old value and every
+    ; fixture that freezes one to observe the throw saw nothing.
+    fn setLastIndexOrThrow:void (r:EvHandle v:int) {
+        if (r.hasOwnData("lastIndex")) {
+            if (false == (r.isWritable("lastIndex"))) {
+                def _li:EvHandle (this.throwSpecError("TypeError" "Cannot assign to read only property 'lastIndex'"))
+                return
+            }
+        }
+        r.setMember("lastIndex" (EvHandle.fromInt(v)))
+    }
+
     fn isBuiltinCtorName:boolean (name:string) {
         if (name == "Object") { return true }
         if (name == "Array") { return true }
@@ -24768,7 +24783,7 @@ class ComponentEngine {
                 recv.setAttrs("multiline" true false true)
                 recv.setMember("multiline" (EvValueBridge.taggedBoolean(((indexOf cFlg "m") >= 0))))
                 recv.setAttrs("multiline" false false false)
-                recv.setMember("lastIndex" (EvHandle.fromInt(0)))
+                this.setLastIndexOrThrow(recv 0)
                 return recv
             }
             ; D-REGEXSYMBOL: ES2015 moved the four string operations that take a
@@ -24803,7 +24818,7 @@ class ComponentEngine {
                     if (false == (gFlag.toBool())) {
                         return (this.regExpExecAbstract(recv reSubject))
                     }
-                    recv.setMember("lastIndex" (EvHandle.fromInt(0)))
+                    this.setLastIndexOrThrow(recv 0)
                     def mAll:[EvHandle]
                     def mGoing:boolean true
                     def mGuard:int 0
@@ -24824,7 +24839,7 @@ class ComponentEngine {
                             ; the loop never moves.
                             if ((strlen mStr) == 0) {
                                 def li:int (this.toIntegerOf((this.getPropertyValue(recv "lastIndex"))))
-                                recv.setMember("lastIndex" (EvHandle.fromInt((li + 1))))
+                                this.setLastIndexOrThrow(recv (li + 1))
                             }
                         }
                         mGuard = (mGuard + 1)
@@ -24838,7 +24853,7 @@ class ComponentEngine {
                     ; lastIndex is saved, zeroed for the search and restored --
                     ; search does not consume position the way match does.
                     def prevLI:EvHandle (this.getPropertyValue(recv "lastIndex"))
-                    recv.setMember("lastIndex" (EvHandle.fromInt(0)))
+                    this.setLastIndexOrThrow(recv 0)
                     def sRes:EvHandle (this.regExpExecAbstract(recv reSubject))
                     recv.setMember("lastIndex" prevLI)
                     if scriptThrew {
@@ -26335,7 +26350,7 @@ class ComponentEngine {
         }
         if ((from > (strlen subject)) || (from < 0)) {
             if usesLastIndex {
-                re.setMember("lastIndex" (EvHandle.fromInt(0)))
+                this.setLastIndexOrThrow(re 0)
             }
             return (EvValueBridge.taggedNull())
         }
@@ -26352,12 +26367,12 @@ class ComponentEngine {
         }
         if (false == m.matched) {
             if usesLastIndex {
-                re.setMember("lastIndex" (EvHandle.fromInt(0)))
+                this.setLastIndexOrThrow(re 0)
             }
             return (EvValueBridge.taggedNull())
         }
         if usesLastIndex {
-            re.setMember("lastIndex" (EvHandle.fromInt(m.end)))
+            this.setLastIndexOrThrow(re m.end)
         }
         return (this.regexResultArray(m subject))
     }
@@ -26932,7 +26947,7 @@ class ComponentEngine {
         def guard:int 0
         while ((q < size) && (guard < maxLoopIterations)) {
             guard = (guard + 1)
-            splitter.setMember("lastIndex" (EvHandle.fromInt(q)))
+            this.setLastIndexOrThrow(splitter q)
             def z:EvHandle (this.regExpExecAbstract(splitter S))
             if scriptThrew {
                 return (EvValueBridge.taggedUndefined())
@@ -26987,7 +27002,7 @@ class ComponentEngine {
         }
         def isGlobal:boolean (gFlag.toBool())
         if isGlobal {
-            R.setMember("lastIndex" (EvHandle.fromInt(0)))
+            this.setLastIndexOrThrow(R 0)
         }
         def results:[EvHandle]
         def going:boolean true
@@ -27010,7 +27025,7 @@ class ComponentEngine {
                     }
                     if ((strlen mStr) == 0) {
                         def li:int (this.toIntegerOf((this.getPropertyValue(R "lastIndex"))))
-                        R.setMember("lastIndex" (EvHandle.fromInt((li + 1))))
+                        this.setLastIndexOrThrow(R (li + 1))
                     }
                 }
             }
