@@ -13014,6 +13014,18 @@ class ComponentEngine {
                 if node.delegate {
                     ; `yield* xs` hands out the operand's items ONE AT A
                     ; TIME, each its own suspension.
+                    ; A generator OPERAND is delegated to lazily, one element
+                    ; at a time, and the value a next(v) sends is forwarded
+                    ; into it -- draining it would run it to completion before
+                    ; the first element came out.
+                    if (this.isResumableGenerator(yv)) {
+                        set st.fFlags top 1
+                        set st.fVal top yv
+                        set st.fVal2 top (EvValueBridge.taggedUndefined())
+                        set st.fPhase top 4
+                        return 0
+                    }
+                    set st.fFlags top 0
                     def sub:[EvHandle] (this.forOfItemList(yv))
                     if scriptThrew { return 0 }
                     set st.fVal top (EvValueBridge.taggedArray(sub))
@@ -13052,6 +13064,19 @@ class ComponentEngine {
             ; ph 4/5: the delegation loop
             if (ph == 4) {
                 def dArr:EvHandle (itemAt st.fVal top)
+                if ((itemAt st.fFlags top) == 1) {
+                    def dRes:EvHandle (this.genResume(dArr (itemAt st.fVal2 top) 0))
+                    if scriptThrew { return 0 }
+                    if ((dRes.getMember("done")).toBool()) {
+                        ; `yield* g` evaluates to the value g RETURNED.
+                        this.genPushOp(st (dRes.getMember("value")))
+                        this.genPopFrame(st)
+                        return 0
+                    }
+                    set st.fPhase top 5
+                    genYieldValue = (dRes.getMember("value"))
+                    return 1
+                }
                 def dI:int (itemAt st.fIdx top)
                 if (dI >= (dArr.denseLen())) {
                     ; A finished delegation evaluates to undefined.
@@ -13077,6 +13102,10 @@ class ComponentEngine {
                 scriptThrew = true
                 return 0
             }
+            ; The value the caller sent is forwarded INTO the delegate on its
+            ; next step, which is what makes `yield* inner()` transparent to
+            ; a two-way conversation.
+            set st.fVal2 top dsv
             set st.fPhase top 4
             return 0
         }
@@ -13673,12 +13702,22 @@ class ComponentEngine {
                 set st.fCnt top loopContinue
                 loopBreak = false
                 loopContinue = false
-                ; The SOURCE is drained by the walker in one call -- a
-                ; generator iterating an array pays nothing per element.
                 def srcV:EvHandle (EvValueBridge.taggedUndefined())
                 if node.right { srcV = (this.evaluateExpr((unwrap node.right))) }
                 if scriptThrew {
                     this.genEndLoop(st top)
+                    return 0
+                }
+                ; A GENERATOR source is stepped one element at a time -- fFlags
+                ; 1 marks that mode and fVal holds the generator itself. Every
+                ; other source is normalised to a list in one call, which is
+                ; faster for the array/string/map/set cases that make up nearly
+                ; all of them.
+                if (this.isResumableGenerator(srcV)) {
+                    set st.fFlags top 1
+                    set st.fVal top srcV
+                    set st.fIdx top 0
+                    set st.fPhase top 1
                     return 0
                 }
                 def oItems:[EvHandle] (this.forOfItemList(srcV))
@@ -13686,6 +13725,7 @@ class ComponentEngine {
                     this.genEndLoop(st top)
                     return 0
                 }
+                set st.fFlags top 0
                 set st.fVal top (EvValueBridge.taggedArray(oItems))
                 set st.fIdx top 0
                 set st.fPhase top 1
