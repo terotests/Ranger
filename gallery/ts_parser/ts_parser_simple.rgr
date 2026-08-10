@@ -6902,6 +6902,13 @@ class TSParserSimple {
       if (tokVal == "static") { contextual = true }
       if (tokVal == "as") { contextual = true }
       if (tokVal == "from") { contextual = true }
+      ; `get`, `set` and `async` are CONTEXTUAL: they mean something only in
+      ; front of a property or method name. Everywhere else they are ordinary
+      ; identifiers, and `var set = new Set()` is a line real programs write --
+      ; it was a syntax error, so the whole file failed to parse.
+      if (tokVal == "get") { contextual = true }
+      if (tokVal == "set") { contextual = true }
+      if (tokVal == "async") { contextual = true }
       ; The STRICT-only reserved words are ordinary identifiers in sloppy code:
       ; `var public = 1` is legal JavaScript outside strict mode. They were
       ; refused everywhere, which made a whole family of directive-prologue

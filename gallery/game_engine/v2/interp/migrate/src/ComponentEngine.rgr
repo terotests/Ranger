@@ -1206,6 +1206,11 @@ class ComponentEngine {
     def globalObject@(optional):EvHandle
     ; D-CLASSEXPR: counter for generated class-expression table keys.
     def classExprSeq:int 0
+    ; D-SUPERCALL: how many `super()` calls have run inside the constructor
+    ; currently executing. A DERIVED constructor that finishes without one
+    ; never initialised `this`, which is a ReferenceError -- the counter is
+    ; what makes "did this body call super?" answerable at the return.
+    def superCallCount:int 0
     ; D-SYMKEY: mints the identity half of a symbol's property key.
     def symbolSeq:int 0
     ; The FUNCTION-NAME form of each minted symbol, keyed by its `@@n` id: a
@@ -17090,6 +17095,7 @@ class ComponentEngine {
             }
             if isSuperCall {
                 {
+                    superCallCount = (superCallCount + 1)
                     def selfV:EvHandle (context.lookup("this"))
                     if (selfV.isObject()) {
                         def ownCls:string (this.instanceClassName(selfV))
@@ -29296,6 +29302,13 @@ class ComponentEngine {
         return empty
     }
 
+    ; Does this class extend something? Only a derived constructor owes a
+    ; super() call.
+    fn classIsDerived:boolean (cls:TSNode) {
+        if (null? cls.left) { return false }
+        return true
+    }
+
     fn findConstructorOnClassNode:TSNode (cls:TSNode) {
         def empty:TSNode (new TSNode())
         if (null? cls.body) { return empty }
@@ -30116,8 +30129,23 @@ class ComponentEngine {
             ; body climbs from this class's parent.
             def savedHomeC:string currentHomeClass
             currentHomeClass = cls.name
+            ; D-SUPERCALL: a DERIVED constructor must call super() before it
+            ; finishes -- until it does, `this` does not exist, and reaching
+            ; the end without one is a ReferenceError rather than a quietly
+            ; half-built object.
+            def savedSuperN:int superCallCount
+            superCallCount = 0
             def _r:EvHandle (this.callUserFunctionNode(ctor node.children inst true))
+            def calledSuper:boolean (superCallCount > 0)
+            superCallCount = savedSuperN
             currentHomeClass = savedHomeC
+            if (false == scriptThrew) {
+                if (false == calledSuper) {
+                    if (this.classIsDerived(cls)) {
+                        return (this.throwSpecError("ReferenceError" "Must call super constructor in derived class before accessing 'this' or returning from derived constructor"))
+                    }
+                }
+            }
         } {
             ; D-CLASSBUILTIN: a derived class with NO constructor has an
             ; implicit one that forwards every argument to its base --
