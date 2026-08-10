@@ -17526,6 +17526,12 @@ class ComponentEngine {
             }
             if isSuperCall {
                 {
+                    ; §12.3.5.1: a constructor may call super() ONCE. The
+                    ; second call finds `this` already bound, which is a
+                    ; ReferenceError.
+                    if (superCallCount > 0) {
+                        return (this.throwSpecError("ReferenceError" "Super constructor may only be called once"))
+                    }
                     superCallCount = (superCallCount + 1)
                     derivedCtorPending = false
                     def selfV:EvHandle (context.lookup("this"))
@@ -31033,6 +31039,11 @@ class ComponentEngine {
             ; what identifies it.
             if (leftExpr.nodeType == "Super") {
                 if true {
+                    ; D-SUPERCALL: a super PROPERTY reads through `this`, which
+                    ; a derived constructor does not have until super() has run.
+                    if derivedCtorPending {
+                        return (this.throwSpecError("ReferenceError" "Must call super constructor in derived class before accessing 'this'"))
+                    }
                     def supSelf:EvHandle (context.lookup("this"))
                     def supKey:string propName
                     if node.computed {
