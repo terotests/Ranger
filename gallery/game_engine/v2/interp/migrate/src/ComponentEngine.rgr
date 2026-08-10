@@ -29840,6 +29840,29 @@ class ComponentEngine {
         if (false == (this.isDescriptorObject(built))) {
             return
         }
+        ; D-CLASSBUILTIN: an Array base hands over ELEMENTS, not properties. The
+        ; key walk below sees only indices that are actually present, so
+        ; `new A(3)` -- a length-3 hole array carrying no keys at all -- copied
+        ; nothing and answered length 0.
+        if (baseName == "Array") {
+            if (inst.isArrayValue()) {
+                if (built.isArrayValue()) {
+                    def elems:[EvHandle]
+                    def ei:int 0
+                    def eN:int (built.denseLen())
+                    while (ei < eN) {
+                        push elems (built.arrayItemAt(ei))
+                        ei = (ei + 1)
+                    }
+                    inst.arrSetItems(elems)
+                    def declN:int (built.arrayLength())
+                    if (declN > eN) {
+                        this.setArrayLength(inst (to_double declN))
+                    }
+                    return
+                }
+            }
+        }
         def ks:[string] (this.objectKeys(built))
         def i:int 0
         while (i < (array_length ks)) {
@@ -30983,11 +31006,17 @@ class ComponentEngine {
         def keys0:[string]
         def vals0:[EvHandle]
         def inst:EvHandle (EvValueBridge.taggedObject(keys0 vals0))
-        ; D-CLASSBUILTIN: `class A extends Array` would need the instance to BE
-        ; an array, and building one here does make Array.isArray answer -- but
-        ; the instance then dispatches by KIND, and the class's own methods
-        ; become unreachable. The plain object keeps method dispatch working,
-        ; which is the more valuable half; see builtinBaseOfClass.
+        ; D-CLASSBUILTIN: `class A extends Array` needs the instance to BE an
+        ; array -- length, index assignment, push and Array.isArray all read the
+        ; internal list, and no amount of copied properties gives a plain object
+        ; those. Building one here used to cost method dispatch, because an
+        ; array looked its methods up by KIND and never consulted its own
+        ; prototype; now that it does, the class's methods stay reachable and
+        ; there is nothing left to trade. See builtinBaseOfClass.
+        if ((this.builtinBaseOfClass(className)) == "Array") {
+            def emptyItems:[EvHandle]
+            inst = (EvValueBridge.taggedArray(emptyItems))
+        }
         inst.setMember("__class__" (EvValueBridge.taggedString(className)))
         ; D-CLASSPROTO: link the instance to the class's prototype object. It had
         ; none at all, so `Object.getPrototypeOf(new A())` answered
