@@ -825,9 +825,9 @@ after excluding intl402, Temporal, module and async flags:
 
 | | |
 |---|---|
-| **ES2015 overall** | **80.09% (2293/2863)** |
-| pass | 2293 |
-| fail (ran, wrong answer) | 550 |
+| **ES2015 overall** | **80.16% (2295/2863)** |
+| pass | 2295 |
+| fail (ran, wrong answer) | 548 |
 | crash (did not run to completion) | 20 |
 
 The fail/crash split changed meaning partway through this work. An
@@ -886,6 +886,7 @@ How it got here, each row a measured run of the same corpus against the C++
 | live Map/Set iteration; iterator results read as properties | 2282 | 79.71% |
 | for-in heads that are not plain names; `yield*` across a newline | 2289 | 79.95% |
 | `Symbol.toStringTag` on the built-ins that brand with it | 2293 | 80.09% |
+| the ES1-ES5 sweep below (JSON, bind, URI, parseInt, evaluation order) | 2295 | 80.16% |
 
 The single largest step is not an ES2015 feature at all. `propertyHelper.js` --
 which 543 of these files include -- opens with
@@ -973,9 +974,38 @@ when asking whether ES2015 work cost anything:
 |---|---:|---:|
 | merge base (`9a13ee28`) | 7149 | 88.10% |
 | after the ES2015 work | 7784 | 95.92% |
+| after the ES1-ES5 sweep | 7814 | 96.29% |
 
-The ES2015 work did not cost ES5 anything; it gained 635 files, most of them
+The ES2015 work did not cost ES5 anything; it gained 665 files, most of them
 from the same detached-statics fix.
+
+#### The ES1-ES5 sweep
+
+A separate report listed 36 failures across an ES1/ES3/ES5 suite. Working
+through it found these, each verified against node before and after:
+
+| area | what was wrong |
+|---|---|
+| `JSON.stringify` | took a value and nothing else: no `space`, neither replacer form, no `toJSON`, and a cyclic object recursed until the host stack gave out |
+| `JSON.parse` | accepted a reviver and ignored it |
+| `JSON.*` | neither static existed on the value path, so `var f = JSON.stringify; f(o)` was undefined |
+| `Function.prototype.bind` | binding an already-bound function REPLACED its `this` and partial arguments instead of wrapping them; and a second copy on the call-site chain set neither the bound flag nor the suppressed `prototype` |
+| `propertyIsEnumerable` | called every synthesised key enumerable -- a function's `length`/`name`/`prototype`, an array's `length` |
+| `Array#indexOf` / `#lastIndexOf` | read `fromIndex` and discarded it |
+| `Array#sort` | took the PRESENCE of an argument for a comparator, so `sort(undefined)` left the array untouched; a non-callable one sorted rather than throwing |
+| Array mutators | not generic: push/pop/shift/unshift/splice/reverse/sort/fill/copyWithin silently did nothing on an array-like |
+| `encodeURI` and the other three | named as globals, implemented by none of them -- every call answered null |
+| strict refused writes | a frozen or non-extensible ARRAY took element writes; a mutator moved a non-writable `length`; a write through a primitive receiver was silent |
+| compound assignment | evaluated its right-hand side BEFORE reading the target, and re-evaluated a member target's base and index afterwards |
+| `x ? (a = 1) : (b = 2)` | a parse error: the parser read the ternary's `:` as a TypeScript return-type annotation |
+| `parseInt` / `parseFloat` | ToNumber in disguise -- radix ignored, no prefix or trailing-junk handling |
+| `toFixed` / `toExponential` | `integerDigits` stripped at the dot before looking for an exponent; `toExponential()` with no argument used six digits instead of as many as the value needs |
+| annexB octal | `010` read as decimal 10; `"\101"` kept as the three characters "101" |
+| numeric object keys | `{1.0: v}` keyed under the source text rather than ToString of the value |
+
+One defect surfaced on the way that belonged to none of them: a throw
+inside a `console.log` argument printed a line assembled from the failed
+evaluation before the exception surfaced.
 
 ### ES2016 and later: not measured, and not measurable as an era
 
