@@ -825,9 +825,9 @@ after excluding intl402, Temporal, module and async flags:
 
 | | |
 |---|---|
-| **ES2015 overall** | **80.20% (2296/2863)** |
-| pass | 2296 |
-| fail (ran, wrong answer) | 547 |
+| **ES2015 overall** | **80.27% (2298/2863)** |
+| pass | 2298 |
+| fail (ran, wrong answer) | 545 |
 | crash (did not run to completion) | 20 |
 
 The fail/crash split changed meaning partway through this work. An
@@ -888,6 +888,7 @@ How it got here, each row a measured run of the same corpus against the C++
 | `Symbol.toStringTag` on the built-ins that brand with it | 2293 | 80.09% |
 | the ES1-ES5 sweep below (JSON, bind, URI, parseInt, evaluation order) | 2295 | 80.16% |
 | the ES5 attribute sweep below | 2296 | 80.20% |
+| the ES5 long tail below | 2298 | 80.27% |
 
 The single largest step is not an ES2015 feature at all. `propertyHelper.js` --
 which 543 of these files include -- opens with
@@ -977,6 +978,7 @@ when asking whether ES2015 work cost anything:
 | after the ES2015 work | 7784 | 95.92% |
 | after the ES1-ES5 sweep | 7814 | 96.29% |
 | after the ES5 attribute sweep | 8037 | 99.04% |
+| after the ES5 long tail | 8061 | 99.33% |
 
 The ES2015 work did not cost ES5 anything; it gained 665 files, most of them
 from the same detached-statics fix.
@@ -1027,10 +1029,38 @@ turned out to be right, and one defect accounted for most of it.
 | frozen array elements | freezing sets a flag rather than per-index attributes, so the descriptor read reported every element of a frozen array as writable and configurable | 4 |
 | code-unit width | `charCodeAt` masked every read to the low byte, which is right for the native builds and wrong for es6; `String.fromCharCode` truncated above 255 | 5 |
 
-What remains is a long tail of small causes: array indices defined as
-ACCESSORS, `defineProperty` on an `arguments` object, annexB RegExp
-escapes, and Unicode special-casing in `toUpperCase`/`toLowerCase` (which
-needs the casing tables, not a rule).
+#### The ES5 long tail
+
+The tail named above, worked through:
+
+| area | what was wrong |
+|---|---|
+| accessor indices | redefining an index that held an accessor back to a data property left the getter in place, so the getter still won the read; and clearing it dropped the recorded attributes, letting a non-enumerable element come back enumerable |
+| `arguments` | making a mapped index non-writable did not break its mapping, so a later `arguments[0] = x` still wrote the parameter through it; the internal index-to-parameter map also leaked into `getOwnPropertyNames` |
+| synthesised own names | `getOwnPropertyNames` walked stored keys only, so `length` on an array and a function's length/name/prototype were all missing -- on a function it answered nothing at all |
+| `ToLength` | array-likes read `length` with ToUint32, so `length: -4294967294` wrapped to 2 and generic methods visited elements they must not see; `every`/`some` derived their bound from the materialised count, which a `length` of Infinity made 0 |
+| short-circuit order | `x() \|\| y()` with both throwing reported "y": a throw makes the left answer undefined, which is both falsy and nullish, so all three operators fell through |
+| `delete f.prototype` | answered true and the property survived -- the synthesised prototype is not own data, so the refusal could not see it |
+| annexB Date | `toGMTString` was a second function rather than `toUTCString` itself; `setYear()` with no argument left the year unchanged instead of invalidating the date |
+| inherited getters | a write through an inherited getter with no setter created a shadowing own property instead of being refused |
+| non-extensible proto | `Object.preventExtensions(o).__proto__ = p` mutated the prototype |
+| parser diagnostics | every token after the first error produced another message -- one bad `function a.b()` printed fifteen, quoting source that was never the problem |
+
+Three of those were the same shape and worth naming as one: a rule the
+walker applies and the bytecode tier does not, so an expression meant one
+thing at top level and another inside a function body. `f.prototype` is
+completed lazily on the walker's member path; `caller` and `arguments` are
+poisoned there. The compiled `get_field` checked none of it and now
+declines all three names.
+
+What remains is genuinely long-tail: annexB RegExp escapes (7), Unicode
+special-casing in `toUpperCase`/`toLowerCase` (6, which needs the casing
+tables rather than a rule), `String.fromCharCode` above 255 on the
+byte-model targets (5, see the identifier gap above -- the es6 build is
+correct), and single files spread across a dozen areas. Accessor properties
+are also listed after data properties by `getOwnPropertyNames` rather than
+in insertion order, because they live in a separate map; fixing that means
+giving the property bag one order across both.
 
 ### ES2016 and later: not measured, and not measurable as an era
 
