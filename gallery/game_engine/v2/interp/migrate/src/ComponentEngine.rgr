@@ -10868,6 +10868,17 @@ class ComponentEngine {
             if (mn == "__proto__") {
                 return false
             }
+            ; D-STRICT: `caller` and `arguments` are poisoned on a strict or
+            ; bound receiver, which the compiled get_field does not check. That
+            ; is why `strictFn.caller` read undefined inside a function body
+            ; while the same expression threw at top level -- two tiers, one
+            ; rule, applied by only one of them.
+            if (mn == "caller") {
+                return false
+            }
+            if (mn == "arguments") {
+                return false
+            }
             prog.emit(30 (prog.addAtom(mn)) 1 1)
             return true
         }
@@ -19580,7 +19591,7 @@ class ComponentEngine {
                     if scriptThrew {
                         return (EvValueBridge.taggedUndefined())
                     }
-                    fcs = (fcs + (strfromcode code))
+                    fcs = (fcs + (this.codeUnitString(code)))
                     fci = (fci + 1)
                 }
                 return (EvValueBridge.taggedString(fcs))
@@ -23858,11 +23869,18 @@ class ComponentEngine {
                             idx = (this.toIntegerOf((itemAt args 0)))
                         }
                         if ((idx >= 0) && (idx < (strlen s))) {
-                            ; A code unit is UNSIGNED (0..255 for a single-byte
-                            ; store); `charAt` rides the target's char, which is
-                            ; SIGNED on C++, so byte 0xA4 came back as -92. Mask
-                            ; to the low byte to restore the unsigned code unit.
-                            return (EvHandle.fromInt((bit_and (charAt s idx) 255)))
+                            ; A code unit is UNSIGNED, and how WIDE it is
+                            ; depends on the target: the native builds store
+                            ; bytes, the es6 build stores UTF-16 code units.
+                            ; Masking to the low byte unconditionally -- which
+                            ; the signed C++ char needs -- truncated every unit
+                            ; above 255 on the es6 build, so `"\uFFFF"
+                            ; .charCodeAt(0)` answered 255 there too.
+                            def cu:int (bit_and (charAt s idx) 65535)
+                            if (this.stringUnitsAreBytes()) {
+                                cu = (bit_and cu 255)
+                            }
+                            return (EvHandle.fromInt(cu))
                         }
                         ; Out of range is NaN, not 0 -- 0 is a real code unit.
                         return (EvValueBridge.taggedNumber((0.0 / 0.0)))
@@ -26651,6 +26669,29 @@ class ComponentEngine {
         return (to_int m)
     }
 
+    ; D-CODEUNIT: a code unit as a string. `strfromcode` writes ONE unit, which
+    ; on the byte-model targets means one BYTE -- so every value above 255 was
+    ; silently truncated and `String.fromCharCode(-1)` answered U+00FF instead
+    ; of U+FFFF. The probe below asks the target which model it is in: a
+    ; char-model target round-trips 8232 through strfromcode/charAt, a byte
+    ; model does not, and there the unit is written as its UTF-8 bytes.
+    fn codeUnitString:string (code:int) {
+        if (code < 128) {
+            return (strfromcode code)
+        }
+        if ((charAt (strfromcode 8232) 0) == 8232) {
+            return (strfromcode code)
+        }
+        def lo6:int (bit_and code 63)
+        if (code < 2048) {
+            def hi5:int (to_int ((to_double code) / 64.0))
+            return ((strfromcode (192 + hi5)) + (strfromcode (128 + lo6)))
+        }
+        def mid6:int (bit_and (to_int ((to_double code) / 64.0)) 63)
+        def hi4:int (to_int ((to_double code) / 4096.0))
+        return ((strfromcode (224 + hi4)) + ((strfromcode (128 + mid6)) + (strfromcode (128 + lo6))))
+    }
+
     fn toUint16Of:int (v:EvHandle) {
         def d:double (this.toNumberOf(v))
         ; NaN and the infinities all map to +0 before the modulo, so
@@ -28286,6 +28327,22 @@ class ComponentEngine {
     ; layer's getMember knows nothing about accessors, so every generic
     ; Array.prototype method read past them.
     fn getPropertyValue:EvHandle (obj:EvHandle key:string) {
+        ; D-STRICT: `caller` and `arguments` are POISONED on a strict function
+        ; and on a bound one -- reading either is a TypeError, which is how the
+        ; spec removes the stack-walking sloppy mode allowed. The check lived
+        ; only on the AST member path, and only `arguments` reached it there:
+        ; `caller` was answered earlier and read as undefined, so
+        ; `strictFn.caller`, `strictFn["caller"]` and `boundFn.caller` all came
+        ; back undefined instead of throwing. Here it covers every reader.
+        if (obj.isFunction()) {
+            if ((key == "caller") || (key == "arguments")) {
+                if (false == (obj.hasOwnAttrs(key))) {
+                    if (this.functionIsStrict(obj)) {
+                        return (this.throwSpecError("TypeError" ("'" + key + "' may not be accessed on a strict function")))
+                    }
+                }
+            }
+        }
         ; D-PROXY: the `get` trap, ahead of every other lookup rule.
         if (this.isProxyValue(obj)) {
             def gTgt:EvHandle (this.proxyTargetOf(obj))
@@ -29054,21 +29111,27 @@ class ComponentEngine {
         if (lenU != lenNum) {
             return "@RangeError@Invalid array length"
         }
-        def newLen:int (to_int lenU)
+        ; D lane: a length runs to 2^32-1 and does NOT fit an int32. Narrowing
+        ; here first made `defineProperty(a, "length", {value: 4294967294})`
+        ; compare a wrapped-negative length against the old one, take the
+        ; shrink path, and walk four billion indexes -- the test timed out
+        ; rather than answering wrongly.
+        def oldLenD:double (obj.arrayLengthD())
         ; GROWING (or unchanged) is an ordinary define: it is refused only when
         ; length is non-writable AND the value really differs. `{value: 0}` on an
         ; already-empty array with a frozen length is legal, because it changes
         ; nothing.
-        if (newLen >= oldLen) {
+        if (lenU >= oldLenD) {
             if (oldWritable == false) {
-                if (newLen != oldLen) {
+                if (lenU != oldLenD) {
                     return "cannot change the length of an array whose length is not writable"
                 }
             }
-            this.setArrayLength(obj (to_double newLen))
+            this.setArrayLength(obj lenU)
             obj.setAttrs("length" wantWritable false false)
             return ""
         }
+        def newLen:int (to_int lenU)
         ; SHRINKING needs a writable length, and stops at the first element that
         ; cannot be deleted -- the length lands just past it and a TypeError is
         ; reported, with the writable change still applied.
@@ -29361,13 +29424,42 @@ class ComponentEngine {
             }
         }
         if (this.descHas(desc "value")) {
-            def cur:EvHandle (obj.getMember(key))
+            ; getPropertyValue, not getMember: an array ELEMENT lives in the
+            ; dense store, so the raw member read answered undefined and every
+            ; redefinition of a frozen element looked like a change.
+            def cur:EvHandle (this.getPropertyValue(obj key))
             def want:EvHandle (this.descGet(desc "value"))
-            if (false == (cur.equals(want))) {
+            if (false == (this.sameValueOf(cur want))) {
                 return "cannot change the value of a non-configurable, non-writable property"
             }
         }
         return ""
+    }
+
+    ; SameValue (§7.2.11): like ===, except NaN equals itself and +0 does not
+    ; equal -0. It is what [[DefineOwnProperty]] compares a redefinition's
+    ; value against, and strict equality gets both of those backwards --
+    ; redefining a frozen NaN element was refused and redefining a frozen -0
+    ; with +0 was allowed.
+    fn sameValueOf:boolean (a:EvHandle b:EvHandle) {
+        if ((a.isNumber()) && (b.isNumber())) {
+            def an:double (a.toNumber())
+            def bn:double (b.toNumber())
+            if (an != an) {
+                return (bn != bn)
+            }
+            if (bn != bn) {
+                return false
+            }
+            if (an != bn) {
+                return false
+            }
+            if (an == 0.0) {
+                return ((1.0 / an) == (1.0 / bn))
+            }
+            return true
+        }
+        return (a.equals(b))
     }
 
     fn objectStaticNeedsObject:boolean (name:string) {
@@ -32485,6 +32577,20 @@ class ComponentEngine {
             ; not be overwritten by the property-of-undefined TypeError.
             if scriptThrew {
                 return (EvValueBridge.taggedUndefined())
+            }
+            ; D-STRICT: the poisoned `caller`/`arguments` pair, decided as soon
+            ; as the receiver is known. The check further down was reached for
+            ; `arguments` but not for `caller`, which an earlier branch answered
+            ; as undefined -- so a strict function's `caller` read cleanly while
+            ; its `arguments` threw.
+            if (obj.isFunction()) {
+                if ((propName == "caller") || (propName == "arguments")) {
+                    if (false == (obj.hasOwnAttrs(propName))) {
+                        if (this.functionIsStrict(obj)) {
+                            return (this.throwSpecError("TypeError" ("'" + propName + "' may not be accessed on a strict function")))
+                        }
+                    }
+                }
             }
             ; `o?.x` on null/undefined is undefined, not a TypeError. Guarded
             ; after the base is evaluated so the base's own side effects still
