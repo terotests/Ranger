@@ -6108,9 +6108,15 @@ class TSParserSimple {
       if (nextVal == "]") { endsYield = true }
       if (nextVal == ":") { endsYield = true }
       if (this.isAtEnd()) { endsYield = true }
-      ; A line terminator after `yield` ends it as well.
+      ; A line terminator after `yield` ends it as well. The restriction is
+      ; `yield [no LineTerminator here] *` -- it sits between `yield` and the
+      ; star, NOT between the star and the operand. `yield *\n g()` is one
+      ; delegation spanning two lines, and treating the newline as an end made
+      ; it a parse error.
       def yieldNextTok (this.peek())
-      if (yieldNextTok.line != this.lastTokenLine) { endsYield = true }
+      if (false == yieldExpr.delegate) {
+        if (yieldNextTok.line != this.lastTokenLine) { endsYield = true }
+      }
       if (endsYield) {
         ; `yield*` always needs an operand.
         if (yieldExpr.delegate) {

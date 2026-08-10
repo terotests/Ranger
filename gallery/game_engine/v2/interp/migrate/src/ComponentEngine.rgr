@@ -5556,6 +5556,13 @@ class ComponentEngine {
         ; declaration -- `var k; for (k in o)`. Only the declaration form was
         ; read, so the loop ran its body with `k` never assigned.
         def declaresVar:boolean false
+        ; D-FORIN: the head may name something that is neither a declaration
+        ; nor a plain identifier -- `for (x.y in o)` and `for ([a,b] in o)`.
+        ; Neither was handled, so the key was computed and thrown away and the
+        ; target read undefined for the whole loop. Same two shapes for-of
+        ; already carries.
+        def inTarget@(optional):TSNode
+        def inPattern@(optional):TSNode
         ; D-LEXSCOPE: `for (let k in o)` binds k fresh on every turn.
         def inOuter@(optional):EvalContext context
         def inLexical:boolean false
@@ -5569,18 +5576,25 @@ class ComponentEngine {
                     def decl:TSNode (itemAt leftNode.children 0)
                     varName = decl.name
                     declaresVar = true
+                    if decl.left {
+                        inPattern = (unwrap decl.left)
+                    }
                 }
             } {
-                if ((this.nodeKindOf(leftNode)) == 1) {
+                def leftK:int (this.nodeKindOf(leftNode))
+                if (leftK == 1) {
                     varName = leftNode.name
                 }
-                if ((this.nodeKindOf(leftNode)) == 30) {
+                if (leftK == 30) {
                     if leftNode.left {
                         def inner:TSNode (unwrap leftNode.left)
                         if ((this.nodeKindOf(inner)) == 1) {
                             varName = inner.name
                         }
                     }
+                }
+                if ((strlen varName) == 0) {
+                    inTarget = leftNode
                 }
             }
         }
@@ -5620,14 +5634,23 @@ class ComponentEngine {
                                 turnCtxI.isBlockScope = true
                                 context = turnCtxI
                             }
-                            if ((strlen varName) > 0) {
-                                if declaresVar {
-                                    context.define(varName (EvValueBridge.taggedString(k)))
+                            def keyV:EvHandle (EvValueBridge.taggedString(k))
+                            if inPattern {
+                                this.bindPattern((unwrap inPattern) keyV)
+                            } {
+                                if ((strlen varName) > 0) {
+                                    if declaresVar {
+                                        context.define(varName keyV)
+                                    } {
+                                        ; An existing binding is ASSIGNED, not
+                                        ; shadowed -- the name outlives the loop.
+                                        context.assign(varName keyV)
+                                        this.syncGlobalVar(varName keyV)
+                                    }
                                 } {
-                                    ; An existing binding is ASSIGNED, not
-                                    ; shadowed -- the name outlives the loop.
-                                    context.assign(varName (EvValueBridge.taggedString(k)))
-                                    this.syncGlobalVar(varName (EvValueBridge.taggedString(k)))
+                                    if inTarget {
+                                        this.assignToTarget((unwrap inTarget) keyV)
+                                    }
                                 }
                             }
                             loopContinue = false
