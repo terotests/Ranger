@@ -16877,7 +16877,9 @@ class ComponentEngine {
                         def keysC:[string]
                         def valsC:[EvHandle]
                         def created:EvHandle (EvValueBridge.taggedObject(keysC valsC))
-                        if (src.isObject()) {
+                        ; An array or a function is a prototype too -- see the
+                        ; value path; `Array.prototype` is an array value.
+                        if (this.isDescriptorObject(src)) {
                             created.setProto(src)
                         }
                         ; D-ATTRS: the optional second argument is a descriptor
@@ -19287,7 +19289,11 @@ class ComponentEngine {
                 def keysC2:[string]
                 def valsC2:[EvHandle]
                 def madeC:EvHandle (EvValueBridge.taggedObject(keysC2 valsC2))
-                if (a0.isObject()) {
+                ; An ARRAY and a FUNCTION are objects too, and `Array.prototype`
+                ; is itself an array value -- testing only isObject() rejected
+                ; the single most common prototype there is, so
+                ; `Object.create(Array.prototype)` threw.
+                if (this.isDescriptorObject(a0)) {
                     madeC.setProto(a0)
                 } {
                     if (a0.isNull()) {
@@ -19336,14 +19342,17 @@ class ComponentEngine {
                 ; is undefined, which is not a prototype.
                 def npV:EvHandle (EvValueBridge.taggedUndefined())
                 if ((array_length args) > 1) { npV = (itemAt args 1) }
-                def protoOk:boolean ((npV.isObject()) || (npV.isNull()))
+                ; An ARRAY and a FUNCTION are objects too -- `Array.prototype`
+                ; is itself an array value, so testing only isObject() rejected
+                ; the single most common prototype there is.
+                def protoOk:boolean ((this.isDescriptorObject(npV)) || (npV.isNull()))
                 if (this.isSymbolValue(npV)) { protoOk = false }
                 if (false == protoOk) {
                     return (this.throwSpecError("TypeError" "Object prototype may only be an Object or null"))
                 }
                 ; A primitive O has no prototype slot to write; it comes back
                 ; unchanged rather than throwing. A symbol is one of those.
-                def oIsObj:boolean (a0.isObject())
+                def oIsObj:boolean (this.isDescriptorObject(a0))
                 if (this.isSymbolValue(a0)) { oIsObj = false }
                 if (false == oIsObj) {
                     return a0
@@ -19367,7 +19376,7 @@ class ComponentEngine {
                     if (oCur.isNull()) { oSame = true }
                     if (oCur.isUndefined()) { oSame = true }
                 } {
-                    if (oCur.isObject()) {
+                    if (this.isDescriptorObject(oCur)) {
                         if (oCur.equals(npV)) { oSame = true }
                     }
                 }
@@ -19794,7 +19803,7 @@ class ComponentEngine {
             if (name == "setPrototypeOf") {
                 def rProto:EvHandle (EvValueBridge.taggedUndefined())
                 if ((array_length args) > 1) { rProto = (itemAt args 1) }
-                if (false == ((rProto.isObject()) || (rProto.isNull()))) {
+                if (false == ((this.isDescriptorObject(rProto)) || (rProto.isNull()))) {
                     return (this.throwSpecError("TypeError" "Object prototype may only be an Object or null"))
                 }
                 ; A symbol looks like an object here but is not one.
@@ -19817,7 +19826,7 @@ class ComponentEngine {
                     if (curProto.isNull()) { sameProto = true }
                     if (curProto.isUndefined()) { sameProto = true }
                 } {
-                    if (curProto.isObject()) {
+                    if (this.isDescriptorObject(curProto)) {
                         if (curProto.equals(rProto)) { sameProto = true }
                     }
                 }
@@ -26099,7 +26108,11 @@ class ComponentEngine {
             def _e2:EvHandle (this.throwSpecError("TypeError" ("proxy handler's " + (name + " trap is not a function"))))
             return (EvValueBridge.taggedUndefined())
         }
-        return t
+        ; The trap runs with the HANDLER as its `this` -- it is a method of the
+        ; handler, and a handler written as an object literal that reaches for
+        ; `this.something` gets the handler. It was called unbound, so `this`
+        ; was undefined in every trap.
+        return (t.withThisForCall(h))
     }
 
     fn callProxyTrap:EvHandle (trap:EvHandle args:[EvHandle]) {
