@@ -19988,7 +19988,23 @@ class ComponentEngine {
                 def dArgs:[EvHandle]
                 push dArgs dTgt
                 push dArgs (EvValueBridge.taggedString(dk))
-                return (this.callProxyTrap(dTrap dArgs))
+                def dRes:EvHandle (this.callProxyTrap(dTrap dArgs))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                ; [[GetOwnProperty]] answers a descriptor OBJECT or undefined.
+                ; Anything else -- a number, a string, null -- is a TypeError
+                ; rather than something to hand onward as if it were one.
+                if (dRes.isUndefined()) {
+                    return dRes
+                }
+                if (false == (this.isDescriptorObject(dRes))) {
+                    return (this.throwSpecError("TypeError" "proxy getOwnPropertyDescriptor must return an object or undefined"))
+                }
+                if (this.isSymbolValue(dRes)) {
+                    return (this.throwSpecError("TypeError" "proxy getOwnPropertyDescriptor must return an object or undefined"))
+                }
+                return dRes
             }
             return (this.ownPropertyDescriptorOf(dTgt dk))
         }
@@ -20854,7 +20870,37 @@ class ComponentEngine {
             if (qTrap.isFunction()) {
                 def qArgs:[EvHandle]
                 push qArgs qTgt
-                return (this.callProxyTrap(qTrap qArgs))
+                def qRes:EvHandle (this.callProxyTrap(qTrap qArgs))
+                if scriptThrew {
+                    return (EvValueBridge.taggedNull())
+                }
+                ; A trap RESULT is held to the invariant, not taken on trust:
+                ; [[GetPrototypeOf]] answers an Object or null and nothing else.
+                def qOk:boolean false
+                if (qRes.isNull()) { qOk = true }
+                if (this.isDescriptorObject(qRes)) { qOk = true }
+                if (this.isSymbolValue(qRes)) { qOk = false }
+                if (false == qOk) {
+                    return (this.throwSpecError("TypeError" "proxy getPrototypeOf must return an object or null"))
+                }
+                ; A NON-EXTENSIBLE target has a fixed prototype, so the trap
+                ; may only report the one the target actually has.
+                if (false == (qTgt.isExtensible())) {
+                    def qCur:EvHandle (this.protoOfValue(qTgt))
+                    def qSame:boolean false
+                    if (qRes.isNull()) {
+                        if (qCur.isNull()) { qSame = true }
+                        if (qCur.isUndefined()) { qSame = true }
+                    } {
+                        if (qCur.isObject()) {
+                            if (qCur.equals(qRes)) { qSame = true }
+                        }
+                    }
+                    if (false == qSame) {
+                        return (this.throwSpecError("TypeError" "proxy getPrototypeOf reported a different prototype for a non-extensible target"))
+                    }
+                }
+                return qRes
             }
             return (this.protoOfValue(qTgt))
         }
