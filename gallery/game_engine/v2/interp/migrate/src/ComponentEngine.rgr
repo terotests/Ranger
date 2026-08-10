@@ -1318,6 +1318,23 @@ class ComponentEngine {
     ; D-JSON: whether the current JSON.parse hit a grammar error, and what to say.
     def jsonFailed:boolean false
     def jsonError:string ""
+    ; D-JSONOPTS: the serializer's state, per §24.3.2. `gap` is the indent unit
+    ; the `space` argument asks for and `indent` is what has accumulated at the
+    ; current depth; a replacer is either a FUNCTION consulted for every
+    ; property or an ARRAY naming the ones to keep. `jsonSeen` is the stack of
+    ; objects currently being serialised, which is what makes a cycle a
+    ; TypeError instead of a hang.
+    def jsonGap:string ""
+    def jsonIndent:string ""
+    def jsonHasReplacerFn:boolean false
+    def jsonReplacerFn@(optional):EvHandle
+    def jsonHasPropList:boolean false
+    def jsonPropList:[string]
+    def jsonSeen:[EvHandle]
+    ; Set by the serializer when a value has no JSON form at all (undefined, a
+    ; function, a symbol). An object property carrying one is omitted; an array
+    ; element becomes null.
+    def jsonOmitted:boolean false
     ; D-ARGUMENTS: the function VALUE whose call is being set up, so `arguments`
     ; can carry a `callee` that compares equal to the function by identity. A
     ; freshly minted value would have a new identity and fail that comparison,
@@ -17372,19 +17389,12 @@ class ComponentEngine {
                     }
                 }
                 if (arrStaticName == "JSON") {
-                    if (methodName == "stringify") {
-                        def jv:EvHandle (EvValueBridge.taggedNull())
-                        if ((array_length node.children) > 0) {
-                            jv = (this.evaluateExpr((itemAt node.children 0)))
+                    if ((methodName == "stringify") || (methodName == "parse")) {
+                        def jArgs:[EvHandle] (this.collectCallArgs(node))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
                         }
-                        return (EvValueBridge.taggedString((this.jsonStringify(jv))))
-                    }
-                    if (methodName == "parse") {
-                        def js:string ""
-                        if ((array_length node.children) > 0) {
-                            js = ((this.evaluateExpr((itemAt node.children 0))).toString())
-                        }
-                        return (this.jsonParse(js))
+                        return (this.invokeBuiltinStatic("JSON" methodName jArgs))
                     }
                 }
                 if (arrStaticName == "console") {
@@ -17488,24 +17498,16 @@ class ComponentEngine {
                             return (this.callFnValueWithValues(applyBound applyArgs))
                         }
                         if (methodName == "bind") {
-                            def bindThis:EvHandle (EvValueBridge.taggedUndefined())
-                            def partial:[EvHandle]
-                            def bai:int 0
-                            while (bai < (array_length node.children)) {
-                                def bv:EvHandle (this.evaluateExpr((itemAt node.children bai)))
-                                if (bai == 0) {
-                                    bindThis = bv
-                                } {
-                                    push partial bv
-                                }
-                                bai = (bai + 1)
+                            ; One implementation, reached from both doors. The
+                            ; copy that used to live here set neither the bound
+                            ; flag nor the suppressed `prototype`, so which
+                            ; spelling produced a bound function decided what it
+                            ; was -- see invokeBuiltinDirect's "bind".
+                            def bindArgs:[EvHandle] (this.collectCallArgs(node))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
                             }
-                            ; The receiver is fixed permanently; partially applied
-                            ; arguments are prepended at call time.
-                            def bound:EvHandle (obj.withThis(bindThis))
-                            bound.setBoundArgs(partial)
-                            bound.setFnName(("bound " + (obj.fnName())))
-                            return bound
+                            return (this.invokeBuiltinDirect("function" "bind" obj bindArgs))
                         }
                     }
                 }
@@ -17547,7 +17549,7 @@ class ComponentEngine {
                     if (false == (this.objHasKey(obj pk2))) {
                         return (EvValueBridge.taggedBoolean(false))
                     }
-                    return (EvValueBridge.taggedBoolean((obj.isEnumerable(pk2))))
+                    return (EvValueBridge.taggedBoolean((this.ownKeyEnumerable(obj pk2))))
                 }
                 if (methodName == "isPrototypeOf") {
                     if ((array_length node.children) > 0) {
@@ -19512,6 +19514,33 @@ class ComponentEngine {
         if (nsName == "performance") {
             if (name == "now") {
                 return (EvValueBridge.taggedNumber((this.realmNowMs())))
+            }
+        }
+        ; D-STATICS: JSON had no entry here at all, so `var f = JSON.stringify;
+        ; f(o)` -- and every other detached use -- answered undefined. Both
+        ; statics now live on the value path and the call-site chain forwards
+        ; to them, so the two doors cannot disagree about replacer or reviver.
+        if (nsName == "JSON") {
+            if (name == "stringify") {
+                def jsV:EvHandle (EvValueBridge.taggedUndefined())
+                def jsR:EvHandle (EvValueBridge.taggedUndefined())
+                def jsS:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 0) { jsV = (itemAt args 0) }
+                if ((array_length args) > 1) { jsR = (itemAt args 1) }
+                if ((array_length args) > 2) { jsS = (itemAt args 2) }
+                return (this.jsonStringifyTop(jsV jsR jsS))
+            }
+            if (name == "parse") {
+                def jpT:string ""
+                def jpR:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 0) {
+                    jpT = (this.toStringOf((itemAt args 0)))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                }
+                if ((array_length args) > 1) { jpR = (itemAt args 1) }
+                return (this.jsonParseWith(jpT jpR))
             }
         }
         if (nsName == "Object") {
@@ -23028,7 +23057,7 @@ class ComponentEngine {
             if (false == ownPk) {
                 return (EvValueBridge.taggedBoolean(false))
             }
-            return (EvValueBridge.taggedBoolean((recv.isEnumerable(pk0))))
+            return (EvValueBridge.taggedBoolean((this.ownKeyEnumerable(recv pk0))))
         }
         if (name == "isPrototypeOf") {
             if ((array_length args) == 0) {
@@ -24244,7 +24273,26 @@ class ComponentEngine {
                         if ((array_length args) > 0) {
                             target = (itemAt args 0)
                         }
+                        ; §22.1.3.12 step 5: fromIndex. It was read and
+                        ; discarded, so every search started at 0 --
+                        ; `[1,2,3,2].indexOf(2, 2)` answered 1 rather than 3,
+                        ; and a fromIndex past the end still found things. A
+                        ; NEGATIVE one counts back from the end and clamps at 0.
                         def ii:int 0
+                        if ((array_length args) > 1) {
+                            def fromD:double (this.toIntegerDoubleOf((itemAt args 1)))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                            if (fromD < 0.0) {
+                                fromD = ((to_double alen) + fromD)
+                                if (fromD < 0.0) { fromD = 0.0 }
+                            }
+                            if (fromD > (to_double alen)) {
+                                return (EvHandle.fromInt((0 - 1)))
+                            }
+                            ii = (to_int fromD)
+                        }
                         while (ii < alen) {
                             ; D-HOLES: indexOf searches only PRESENT elements, so
                             ; `[1,,3].indexOf(undefined)` is -1. includes below
@@ -24879,7 +24927,27 @@ class ComponentEngine {
                         if ((array_length args) > 0) {
                             target = (itemAt args 0)
                         }
+                        ; §22.1.3.16 step 6: fromIndex is where the BACKWARD
+                        ; search starts, and it too was discarded. A negative
+                        ; one counts back from the end; below -length nothing is
+                        ; searched at all, which is why the answer must be -1
+                        ; rather than a scan from 0.
                         def q:int ((array_length elems) - 1)
+                        if ((array_length args) > 1) {
+                            def lfD:double (this.toIntegerDoubleOf((itemAt args 1)))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                            if (lfD < 0.0) {
+                                lfD = ((to_double (array_length elems)) + lfD)
+                            }
+                            if (lfD < 0.0) {
+                                return (EvHandle.fromInt((0 - 1)))
+                            }
+                            if (lfD < (to_double q)) {
+                                q = (to_int lfD)
+                            }
+                        }
                         while (q >= 0) {
                             ; D-HOLES: only PRESENT elements are searched.
                             if (false == ((EvValueBridge.isHole((this.arrayElemAt(recv q)))))) {
@@ -25363,8 +25431,28 @@ class ComponentEngine {
                     }
                     j = (j + 1)
                 }
+                ; §19.2.3.2: binding an ALREADY-bound function does not
+                ; replace the first binding, it wraps it. The original `this`
+                ; is what the call still uses -- a second bind cannot change it
+                ; -- and the new partial arguments go AFTER the first set.
+                ; Overwriting both meant `f.bind(o, 1).bind(null, 2)` called f
+                ; with `this` null and only the later argument.
+                def allPartial:[EvHandle]
+                if (recv.boundExplicitOf()) {
+                    bindThis = (recv.boundThisOf())
+                    def bpi:int 0
+                    while (bpi < (recv.boundArgCount())) {
+                        push allPartial (recv.boundArgAt(bpi))
+                        bpi = (bpi + 1)
+                    }
+                }
+                def api:int 0
+                while (api < (array_length partial)) {
+                    push allPartial (itemAt partial api)
+                    api = (api + 1)
+                }
                 def b3:EvHandle (recv.withThis(bindThis))
-                b3.setBoundArgs(partial)
+                b3.setBoundArgs(allPartial)
                 b3.setBoundExplicit(true)
                 b3.setFnName(("bound " + (recv.fnName())))
                 ; D-STRICT: a BOUND function poisons caller and arguments the way
@@ -26041,6 +26129,24 @@ class ComponentEngine {
     ; ToInteger: ToNumber, then truncate toward zero, with NaN becoming 0. The
     ; argument-taking Number methods are specified against this, and handing
     ; `to_int` a NaN directly produced a nonsense digit count.
+    ; ToInteger without the int32 saturation: a fromIndex is compared against a
+    ; length in the double domain before it is narrowed, so saturating first
+    ; would turn `indexOf(x, 1e30)` into a search from INT_MAX rather than a
+    ; miss.
+    fn toIntegerDoubleOf:double (v:EvHandle) {
+        def d:double (this.toNumberOf(v))
+        if (d != d) {
+            return 0.0
+        }
+        if (false == (this.isFiniteNum(d))) {
+            if (d > 0.0) {
+                return (1.0 / 0.0)
+            }
+            return (0.0 - (1.0 / 0.0))
+        }
+        return (this.truncNum(d))
+    }
+
     fn toIntegerOf:int (v:EvHandle) {
         def d:double (this.toNumberOf(v))
         if (d != d) {
@@ -27903,6 +28009,30 @@ class ComponentEngine {
     ; The value of an OWN property found somewhere up the prototype chain, or
     ; the null sentinel when no link holds it. The receiver itself is skipped:
     ; its own properties are answered before this point.
+    ; D-ATTRS: `length`, `name` and `prototype` on a function -- and `length`
+    ; on an array -- are SYNTHESISED rather than stored, so no attribute record
+    ; exists for them and the "absent means made by assignment, all three true"
+    ; default called every one of them enumerable. Each is non-enumerable per
+    ; spec, which is what `propertyIsEnumerable` and a for-in over a function
+    ; both read. A RECORDED attribute still wins: defineProperty on one of
+    ; these names stores a real entry, and that entry is the answer.
+    fn ownKeyEnumerable:boolean (recv:EvHandle key:string) {
+        if (recv.hasOwnAttrs(key)) {
+            return (recv.isEnumerable(key))
+        }
+        if (recv.isFunction()) {
+            if (key == "length") { return false }
+            if (key == "name") { return false }
+            if (key == "prototype") { return false }
+            if (key == "caller") { return false }
+            if (key == "arguments") { return false }
+        }
+        if (recv.isArrayValue()) {
+            if (key == "length") { return false }
+        }
+        return (recv.isEnumerable(key))
+    }
+
     fn ownPropertyUpChain:EvHandle (obj:EvHandle key:string) {
         def walk:EvHandle (this.protoOfValue(obj))
         def steps:int 0
@@ -32253,83 +32383,326 @@ class ComponentEngine {
 
     ; Serialise a value to JSON. undefined/functions become null (JSON has no such
     ; types); the internal __class__ tag on class instances is omitted.
-    fn jsonStringify:string (v:EvHandle) {
-        if (v.isNull()) {
+    ; ---- JSON.stringify, §24.3.2 -----------------------------------------
+    ; D-JSONOPTS: the serializer used to take a value and nothing else, so
+    ; `space`, both replacer forms, `toJSON` and cycle detection were all
+    ; missing -- `JSON.stringify(o, null, 2)` answered the same compact text as
+    ; `JSON.stringify(o)`, and a cyclic object recursed until the host stack
+    ; gave out. The entry point below sets the state up and the three
+    ; serialisers read it.
+    fn jsonStringifyTop:EvHandle (v:EvHandle replacer:EvHandle space:EvHandle) {
+        def savedGap:string jsonGap
+        def savedIndent:string jsonIndent
+        def savedHasFn:boolean jsonHasReplacerFn
+        def savedHasList:boolean jsonHasPropList
+        def savedList:[string] jsonPropList
+        def savedSeen:[EvHandle] jsonSeen
+        def freshList:[string]
+        def freshSeen:[EvHandle]
+        jsonGap = ""
+        jsonIndent = ""
+        jsonHasReplacerFn = false
+        jsonHasPropList = false
+        jsonPropList = freshList
+        jsonSeen = freshSeen
+        if (replacer.isFunction()) {
+            jsonHasReplacerFn = true
+            jsonReplacerFn = replacer
+        } {
+            ; An ARRAY replacer is a property LIST: only these names survive,
+            ; in this order, and duplicates collapse. Only strings and numbers
+            ; count as names -- anything else in the array is ignored.
+            if (replacer.isArrayValue()) {
+                jsonHasPropList = true
+                def ri:int 0
+                while (ri < (replacer.denseLen())) {
+                    def rv:EvHandle (replacer.arrayItemAt(ri))
+                    def rname:string ""
+                    def rok:boolean false
+                    if (rv.isString()) {
+                        rname = (rv.stringOf())
+                        rok = true
+                    }
+                    if (rv.isNumber()) {
+                        rname = (rv.toString())
+                        rok = true
+                    }
+                    if rok {
+                        def dup:boolean false
+                        def di:int 0
+                        while (di < (array_length jsonPropList)) {
+                            if ((itemAt jsonPropList di) == rname) { dup = true }
+                            di = (di + 1)
+                        }
+                        if (false == dup) {
+                            push jsonPropList rname
+                        }
+                    }
+                    ri = (ri + 1)
+                }
+            }
+        }
+        ; `space` is a NUMBER of spaces (clamped to 10) or a string used
+        ; verbatim (its first 10 characters). A boxed one unwraps first.
+        def sp:EvHandle space
+        if (this.isDescriptorObject(sp)) {
+            def spk:string (this.receiverKind(sp))
+            if (spk == "number") { sp = (EvValueBridge.taggedNumber((this.toNumberOf(sp)))) }
+            if (spk == "string") { sp = (EvValueBridge.taggedString((this.toStringOf(sp)))) }
+        }
+        if (sp.isNumber()) {
+            def spn:int (this.toIntegerOf(sp))
+            if (spn > 10) { spn = 10 }
+            def spi:int 0
+            while (spi < spn) {
+                jsonGap = (jsonGap + " ")
+                spi = (spi + 1)
+            }
+        }
+        if (sp.isString()) {
+            def sps:string (sp.stringOf())
+            if ((strlen sps) > 10) {
+                sps = (substring sps 0 10)
+            }
+            jsonGap = sps
+        }
+        ; The value is serialised as the sole property of a synthetic wrapper,
+        ; so a top-level replacer and a top-level toJSON both see a holder.
+        def wk:[string]
+        def wv:[EvHandle]
+        def holder:EvHandle (EvValueBridge.taggedObject(wk wv))
+        holder.setMember("" v)
+        def text:string (this.jsonSerializeProp("" holder))
+        def omitted:boolean jsonOmitted
+        jsonGap = savedGap
+        jsonIndent = savedIndent
+        jsonHasReplacerFn = savedHasFn
+        jsonHasPropList = savedHasList
+        jsonPropList = savedList
+        jsonSeen = savedSeen
+        if scriptThrew {
+            return (EvValueBridge.taggedUndefined())
+        }
+        ; A value with no JSON form answers UNDEFINED, not the string "null" --
+        ; `JSON.stringify(undefined)` and `JSON.stringify(function(){})` are
+        ; both undefined.
+        if omitted {
+            return (EvValueBridge.taggedUndefined())
+        }
+        return (EvValueBridge.taggedString(text))
+    }
+
+    ; SerializeJSONProperty: read holder[key], run toJSON and the replacer over
+    ; it, then serialise whatever came back.
+    fn jsonSerializeProp:string (key:string holder:EvHandle) {
+        jsonOmitted = false
+        def value:EvHandle (this.getPropertyValue(holder key))
+        if scriptThrew { return "" }
+        if (this.isDescriptorObject(value)) {
+            def tj:EvHandle (this.getPropertyValue(value "toJSON"))
+            if scriptThrew { return "" }
+            if (tj.isFunction()) {
+                def tjArgs:[EvHandle]
+                push tjArgs (EvValueBridge.taggedString(key))
+                value = (this.callFnValueWithValues((tj.withThisForCall(value)) tjArgs))
+                if scriptThrew { return "" }
+            }
+        }
+        if jsonHasReplacerFn {
+            def rArgs:[EvHandle]
+            push rArgs (EvValueBridge.taggedString(key))
+            push rArgs value
+            def rFn:EvHandle (unwrap jsonReplacerFn)
+            value = (this.callFnValueWithValues((rFn.withThisForCall(holder)) rArgs))
+            if scriptThrew { return "" }
+        }
+        return (this.jsonSerializeValue(value))
+    }
+
+    fn jsonSerializeValue:string (valueIn:EvHandle) {
+        jsonOmitted = false
+        def value:EvHandle valueIn
+        ; A boxed Number, String or Boolean serialises as the primitive it
+        ; wraps, which is what `new Number(3)` inside a structure has to become.
+        if (this.isDescriptorObject(value)) {
+            def bk:string (this.receiverKind(value))
+            if (bk == "number") { value = (EvValueBridge.taggedNumber((this.toNumberOf(value)))) }
+            if (bk == "string") { value = (EvValueBridge.taggedString((this.toStringOf(value)))) }
+            if (bk == "boolean") { value = (EvValueBridge.taggedBoolean((value.toBool()))) }
+            if scriptThrew { return "" }
+        }
+        if (value.isNull()) {
             return "null"
         }
-        if (v.isUndefined()) {
-            return "null"
-        }
-        ; D-IEEE: JSON has no NaN or Infinity; both serialise as null. Emitting
-        ; the literal text "NaN" produces JSON that will not parse back.
-        if (v.isNumber()) {
-            def nv:double (v.toNumber())
-            if (nv != nv) {
-                return "null"
-            }
-            def infJ:double (1.0 / 0.0)
-            if (nv == infJ) {
-                return "null"
-            }
-            if (nv == (0.0 - infJ)) {
-                return "null"
-            }
-        }
-        if (v.isBoolean()) {
-            if (v.toBool()) {
-                return "true"
-            }
+        if (value.isBoolean()) {
+            if (value.toBool()) { return "true" }
             return "false"
         }
-        if (v.isNumber()) {
-            return (v.toString())
+        if (value.isString()) {
+            return (this.jsonQuote((value.stringOf())))
         }
-        if (v.isString()) {
-            return (this.jsonQuote((v.stringOf())))
+        if (value.isNumber()) {
+            def nv:double (value.toNumber())
+            ; JSON has no NaN or Infinity; both serialise as null. Emitting the
+            ; literal text produces JSON that will not parse back.
+            if (nv != nv) { return "null" }
+            def infJ:double (1.0 / 0.0)
+            if (nv == infJ) { return "null" }
+            if (nv == (0.0 - infJ)) { return "null" }
+            return (value.toString())
         }
-        if (v.isArrayValue()) {
-            def out:string "["
-            def i:int 0
-            while (i < (v.denseLen())) {
-                if (i > 0) {
-                    out = (out + ",")
-                }
-                out = (out + (this.jsonStringify((v.arrayItemAt(i)))))
-                i = (i + 1)
+        ; A SYMBOL has no JSON form, and neither does a function or undefined.
+        if (this.isSymbolValue(value)) {
+            jsonOmitted = true
+            return ""
+        }
+        if (value.isFunction()) {
+            jsonOmitted = true
+            return ""
+        }
+        if (value.isArrayValue()) {
+            return (this.jsonSerializeArray(value))
+        }
+        if (this.isDescriptorObject(value)) {
+            return (this.jsonSerializeObject(value))
+        }
+        jsonOmitted = true
+        return ""
+    }
+
+    ; True when this exact object is already on the way out -- the cycle test.
+    fn jsonSeenAlready:boolean (v:EvHandle) {
+        def i:int 0
+        while (i < (array_length jsonSeen)) {
+            if ((v.identityIdOf()) == ((itemAt jsonSeen i).identityIdOf())) {
+                return true
             }
-            return (out + "]")
+            i = (i + 1)
         }
-        if (v.isObject()) {
-            def out:string "{"
-            def ks:[string] (this.objectKeys(v))
-            def i:int 0
-            def first:boolean true
-            while (i < (array_length ks)) {
-                def k:string (itemAt ks i)
-                if (false == (this.isHiddenInstanceKey(k))) {
-                    ; A property whose value has no JSON form is OMITTED, not
-                    ; written as null -- that rule is what makes
-                    ; `JSON.stringify({a: undefined, b: 1})` be `{"b":1}`. An
-                    ; array ELEMENT is the other way round and becomes null,
-                    ; which is why this belongs here and not in the head.
-                    def mv:EvHandle (v.getMember(k))
-                    def skip:boolean false
-                    if (mv.isUndefined()) { skip = true }
-                    if (mv.isFunction()) { skip = true }
-                    if (this.isSymbolValue(mv)) { skip = true }
-                    if (false == skip) {
-                        if (first == false) {
-                            out = (out + ",")
-                        }
-                        out = (out + (this.jsonQuote(k)))
-                        out = (out + ":")
-                        out = (out + (this.jsonStringify(mv)))
-                        first = false
+        return false
+    }
+
+    fn jsonSerializeArray:string (v:EvHandle) {
+        if (this.jsonSeenAlready(v)) {
+            def _c:EvHandle (this.throwSpecError("TypeError" "Converting circular structure to JSON"))
+            return ""
+        }
+        push jsonSeen v
+        def stepback:string jsonIndent
+        jsonIndent = (jsonIndent + jsonGap)
+        def parts:[string]
+        def n:int (this.toIntegerOf((this.getPropertyValue(v "length"))))
+        def i:int 0
+        while (i < n) {
+            def piece:string (this.jsonSerializeProp((to_string i) v))
+            if scriptThrew {
+                jsonIndent = stepback
+                this.jsonPopSeen()
+                return ""
+            }
+            ; An array ELEMENT with no JSON form becomes null; only an object
+            ; property is omitted.
+            if jsonOmitted {
+                push parts "null"
+            } {
+                push parts piece
+            }
+            i = (i + 1)
+        }
+        def out:string (this.jsonJoinParts(parts "[" "]" stepback))
+        jsonIndent = stepback
+        this.jsonPopSeen()
+        jsonOmitted = false
+        return out
+    }
+
+    fn jsonSerializeObject:string (v:EvHandle) {
+        if (this.jsonSeenAlready(v)) {
+            def _c:EvHandle (this.throwSpecError("TypeError" "Converting circular structure to JSON"))
+            return ""
+        }
+        push jsonSeen v
+        def stepback:string jsonIndent
+        jsonIndent = (jsonIndent + jsonGap)
+        def ks:[string] jsonPropList
+        if (false == jsonHasPropList) {
+            ks = (this.objectKeys(v))
+        }
+        def parts:[string]
+        def i:int 0
+        while (i < (array_length ks)) {
+            def k:string (itemAt ks i)
+            def skipKey:boolean (this.isHiddenInstanceKey(k))
+            ; A symbol key never serialises: its name is the "@@" spelling this
+            ; engine gives it, which is not a property name JSON can carry.
+            if ((substring k 0 2) == "@@") { skipKey = true }
+            if (false == skipKey) {
+                def piece:string (this.jsonSerializeProp(k v))
+                if scriptThrew {
+                    jsonIndent = stepback
+                    this.jsonPopSeen()
+                    return ""
+                }
+                if (false == jsonOmitted) {
+                    def entry:string (this.jsonQuote(k))
+                    entry = (entry + ":")
+                    if ((strlen jsonGap) > 0) {
+                        entry = (entry + " ")
                     }
+                    push parts (entry + piece)
                 }
-                i = (i + 1)
             }
-            return (out + "}")
+            i = (i + 1)
+        }
+        def out:string (this.jsonJoinParts(parts "{" "}" stepback))
+        jsonIndent = stepback
+        this.jsonPopSeen()
+        jsonOmitted = false
+        return out
+    }
+
+    fn jsonPopSeen:void () {
+        def keep:[EvHandle]
+        def i:int 0
+        def n:int ((array_length jsonSeen) - 1)
+        while (i < n) {
+            push keep (itemAt jsonSeen i)
+            i = (i + 1)
+        }
+        jsonSeen = keep
+    }
+
+    ; The bracketing rule both serialisers share: compact when there is no gap,
+    ; one part per line indented by the gap when there is.
+    fn jsonJoinParts:string (parts:[string] open:string close:string stepback:string) {
+        if ((array_length parts) == 0) {
+            return (open + close)
+        }
+        def out:string open
+        def sep:string ","
+        if ((strlen jsonGap) > 0) {
+            out = (out + ("\n" + jsonIndent))
+            sep = ("," + ("\n" + jsonIndent))
+        }
+        def i:int 0
+        while (i < (array_length parts)) {
+            if (i > 0) {
+                out = (out + sep)
+            }
+            out = (out + (itemAt parts i))
+            i = (i + 1)
+        }
+        if ((strlen jsonGap) > 0) {
+            out = (out + ("\n" + stepback))
+        }
+        return (out + close)
+    }
+
+    ; Kept for the callers that only want the compact form of a plain value.
+    fn jsonStringify:string (v:EvHandle) {
+        def r:EvHandle (this.jsonStringifyTop(v (EvValueBridge.taggedUndefined()) (EvValueBridge.taggedUndefined())))
+        if (r.isString()) {
+            return (r.stringOf())
         }
         return "null"
     }
@@ -32697,6 +33070,71 @@ class ComponentEngine {
             return (this.throwSpecError("SyntaxError" jsonError))
         }
         return v
+    }
+
+    ; D-JSONOPTS: JSON.parse's second argument, §24.3.1.1. The reviver visits
+    ; every value bottom-up, and what it answers REPLACES that value --
+    ; answering undefined deletes the property outright. It was accepted and
+    ; ignored, so `JSON.parse(t, f)` was indistinguishable from `JSON.parse(t)`.
+    fn jsonReviveWalk:EvHandle (holder:EvHandle key:string reviver:EvHandle) {
+        def val:EvHandle (this.getPropertyValue(holder key))
+        if scriptThrew { return (EvValueBridge.taggedUndefined()) }
+        if (val.isArrayValue()) {
+            ; An element the reviver drops becomes a HOLE, which is what
+            ; deleting an index leaves behind -- the array does not shorten.
+            def revived:[EvHandle]
+            def ai:int 0
+            def alen:int (val.denseLen())
+            while (ai < alen) {
+                def newEl:EvHandle (this.jsonReviveWalk(val (to_string ai) reviver))
+                if scriptThrew { return (EvValueBridge.taggedUndefined()) }
+                if (newEl.isUndefined()) {
+                    push revived (EvValueBridge.taggedHole())
+                } {
+                    push revived newEl
+                }
+                ai = (ai + 1)
+            }
+            val.arrSetItems(revived)
+        } {
+            if (this.isDescriptorObject(val)) {
+                def oks:[string] (this.objectKeys(val))
+                def oi:int 0
+                while (oi < (array_length oks)) {
+                    def ok:string (itemAt oks oi)
+                    def newV:EvHandle (this.jsonReviveWalk(val ok reviver))
+                    if scriptThrew { return (EvValueBridge.taggedUndefined()) }
+                    if (newV.isUndefined()) {
+                        val.removeOwnData(ok)
+                    } {
+                        val.setMember(ok newV)
+                    }
+                    oi = (oi + 1)
+                }
+            }
+        }
+        def rArgs:[EvHandle]
+        push rArgs (EvValueBridge.taggedString(key))
+        push rArgs val
+        return (this.callFnValueWithValues((reviver.withThisForCall(holder)) rArgs))
+    }
+
+    ; JSON.parse(text, reviver) -- the whole static, so the AST call site and
+    ; the value path can share one implementation.
+    fn jsonParseWith:EvHandle (text:string reviver:EvHandle) {
+        def v:EvHandle (this.jsonParse(text))
+        if scriptThrew {
+            return (EvValueBridge.taggedUndefined())
+        }
+        if (false == (reviver.isFunction())) {
+            return v
+        }
+        def rk:[string]
+        def rv:[EvHandle]
+        def root:EvHandle (EvValueBridge.taggedObject(rk rv))
+        root.setProto((this.builtinPrototype("Object")))
+        root.setMember("" v)
+        return (this.jsonReviveWalk(root "" reviver))
     }
 
     fn evaluateObjectExpr:EvHandle (node:TSNode) {
