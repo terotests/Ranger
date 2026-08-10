@@ -13571,6 +13571,43 @@ class ComponentEngine {
             return 0
         }
 
+        ; ---------------- array literal ----------------
+        if (k == 14) {
+            if (ph == 0) {
+                set st.fPhase top 1
+                set st.fIdx top 0
+                return 0
+            }
+            def alN:int (array_length node.children)
+            def ali:int (itemAt st.fIdx top)
+            if (ali < alN) {
+                set st.fIdx top (ali + 1)
+                def alEl:TSNode (itemAt node.children ali)
+                ; A HOLE contributes undefined and evaluates nothing.
+                if ((this.nodeKindOf(alEl)) == 22) {
+                    this.genPushOp(st (EvValueBridge.taggedUndefined()))
+                } {
+                    this.genPushExpr(st alEl curCtx)
+                }
+                return 0
+            }
+            ; Every element is finished and sits on the operand stack in order.
+            def alVals:[EvHandle]
+            def alk:int 0
+            while (alk < alN) {
+                push alVals (EvValueBridge.taggedUndefined())
+                alk = (alk + 1)
+            }
+            def alr:int (alN - 1)
+            while (alr >= 0) {
+                set alVals alr (this.genPopOp(st))
+                alr = (alr - 1)
+            }
+            this.genPushOp(st (EvValueBridge.taggedArray(alVals)))
+            this.genPopFrame(st)
+            return 0
+        }
+
         ; ---------------- sequence ----------------
         if (k == 19) {
             if (ph == 0) {
@@ -14350,6 +14387,14 @@ class ComponentEngine {
     ; Build the generator object for a call that has NOT run its body: the
     ; activation stays live in the state, and the first next() starts it.
     fn makeResumableGenerator:EvHandle (fnNode:TSNode ctx:EvalContext) {
+        return (this.makeResumableGeneratorOn(fnNode ctx (EvValueBridge.taggedUndefined())))
+    }
+
+    ; `protoV` is the generator FUNCTION's own `prototype` object, which is what
+    ; the generator object inherits from -- `Object.getPrototypeOf(g())` is
+    ; `g.prototype`, not %GeneratorPrototype% directly. That object in turn
+    ; inherits from %GeneratorPrototype%, which is where next/return/throw live.
+    fn makeResumableGeneratorOn:EvHandle (fnNode:TSNode ctx:EvalContext protoV:EvHandle) {
         def st:GenState (new GenState())
         st.rootCtx = ctx
         st.fnNode = fnNode
@@ -14363,8 +14408,18 @@ class ComponentEngine {
         def g:EvHandle (EvValueBridge.taggedObject(keys vals))
         g.setMember("__genstate__" (EvHandle.fromInt(gid)))
         g.setAttrs("__genstate__" false false false)
-        ; next/return/throw are INHERITED from %GeneratorPrototype%.
-        g.setProto((this.generatorPrototype()))
+        ; next/return/throw are INHERITED from %GeneratorPrototype%, reached
+        ; through the function's own `prototype` object when it has one.
+        def gProtoUse:EvHandle (this.generatorPrototype())
+        if (this.isDescriptorObject(protoV)) {
+            if (false == (this.isSymbolValue(protoV))) {
+                ; the function's prototype object sits BETWEEN the generator and
+                ; %GeneratorPrototype%
+                protoV.setProto(gProtoUse)
+                gProtoUse = protoV
+            }
+        }
+        g.setProto(gProtoUse)
         return g
     }
 
@@ -15159,7 +15214,8 @@ class ComponentEngine {
         if isGenCall {
             if (this.genBodyResumable(fnNode)) {
                 def genCtx@(optional):EvalContext context
-                def genv:EvHandle (this.makeResumableGenerator(fnNode (unwrap genCtx)))
+                def genProtoV:EvHandle (fnValue.getMember("prototype"))
+                def genv:EvHandle (this.makeResumableGeneratorOn(fnNode (unwrap genCtx) genProtoV))
                 if srcSwapped {
                     def gst:GenState (this.genStateOf(genv))
                     gst.srcText = currentSource
@@ -29830,6 +29886,12 @@ class ComponentEngine {
                     bai = (bai + 1)
                 }
                 return (this.callBuiltinCtorValues(bctor bvals true))
+            }
+        }
+        ; A GENERATOR function is not a constructor -- `new g()` is a TypeError.
+        if hasCtorNode {
+            if ((fnV.functionNodeOf()).generator) {
+                return (this.throwSpecError("TypeError" "generator function is not a constructor"))
             }
         }
         def keys0:[string]
