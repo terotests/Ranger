@@ -20993,6 +20993,13 @@ class ComponentEngine {
         if (nsName == "Math") { g.setMember("__nsbrand__" (EvValueBridge.taggedString("Math"))) }
         if (nsName == "JSON") { g.setMember("__nsbrand__" (EvValueBridge.taggedString("JSON"))) }
         if (nsName == "Reflect") { g.setMember("__nsbrand__" (EvValueBridge.taggedString("Reflect"))) }
+        ; Math and JSON also brand through Symbol.toStringTag, which is what
+        ; `Object.prototype.toString.call(Math)` reads. The __nsbrand__ slot
+        ; above is internal and answered nothing to guest code.
+        if ((nsName == "Math") || (nsName == "JSON")) {
+            g.setMember("@@toStringTag" (EvValueBridge.taggedString(nsName)))
+            g.setAttrs("@@toStringTag" false false true)
+        }
         ; ES2015: the constructors that publish @@species. It is a get-only
         ; accessor answering the constructor itself.
         def hasSpecies:boolean false
@@ -21466,6 +21473,22 @@ class ComponentEngine {
         if (nsName == "Boolean") {
             p.setMember("__primitive__" (EvValueBridge.taggedBoolean(false)))
             p.setMember("__wrapper__" (EvValueBridge.taggedString("Boolean")))
+        }
+        ; ES2015: the prototypes that brand themselves through
+        ; Symbol.toStringTag rather than through a [[Class]] slot. Absent, both
+        ; `Promise.prototype[Symbol.toStringTag]` and the `Object.prototype
+        ; .toString` result that reads it were undefined. Non-writable and
+        ; non-enumerable, configurable -- the shape the suite verifies.
+        def tagFor:string ""
+        if (nsName == "Promise") { tagFor = "Promise" }
+        if (nsName == "Symbol") { tagFor = "Symbol" }
+        if (nsName == "Map") { tagFor = "Map" }
+        if (nsName == "Set") { tagFor = "Set" }
+        if (nsName == "WeakMap") { tagFor = "WeakMap" }
+        if (nsName == "WeakSet") { tagFor = "WeakSet" }
+        if ((strlen tagFor) > 0) {
+            p.setMember("@@toStringTag" (EvValueBridge.taggedString(tagFor)))
+            p.setAttrs("@@toStringTag" false false true)
         }
         ; ES2015 22.1.3.32: Array.prototype[@@unscopables] names the methods a
         ; `with` block must not shadow -- the ones added after ES5, which older
