@@ -921,6 +921,76 @@ class BcProgram {
     }
 }
 
+; D-GENRESUME: the suspended state of ONE generator body.
+;
+; A generator has to stop in the middle of its body and start again there, and
+; a walker that recurses on the host stack cannot do that -- the host frames are
+; gone the moment it returns. So a generator body runs on an explicit stack of
+; frames kept here instead: each frame is one AST node together with `phase`,
+; the point inside that node where execution stopped.
+;
+; The cost of an explicit interpreter is paid only where it buys something. A
+; subtree with no `yield` anywhere inside it is handed to the ORDINARY walker
+; and evaluated in one shot, exactly as it would be in a normal function; only
+; the spine of nodes leading down to a yield is decomposed into frames. So a
+; generator whose loop body is a hundred yield-free statements runs those
+; hundred statements at full walker speed and allocates one frame for the loop.
+; Nothing outside a generator body touches any of this.
+class GenState {
+    ; ---- the frame stack ----
+    ; Grow-only vectors addressed through `fTop`: a generator that suspends
+    ; inside a loop reuses the same frames on every resume rather than
+    ; allocating a fresh stack per step.
+    def fNode:[TSNode]
+    def fPhase:[int]
+    ; per-frame cursor: statement index, loop counter, argument index
+    def fIdx:[int]
+    ; per-frame scratch value: a loop's item list, a saved left operand
+    def fVal:[EvHandle]
+    ; the scope this frame runs in; a block that declares a lexical name gets
+    ; its own, and it has to survive the suspension
+    def fCtx:[EvalContext]
+    ; per-frame saved loop flags, so a loop restores them as the walker does
+    def fBrk:[boolean]
+    def fCnt:[boolean]
+    ; a try frame's SET-ASIDE completion, held across its finally block:
+    ; fVal2 is the pending return/throw value and fFlags says which
+    ; (1 returned, 2 threw, 4 break, 8 continue)
+    def fVal2:[EvHandle]
+    def fFlags:[int]
+    def fTop:int 0
+
+    ; Finished sub-expression results. Only ever a handful deep -- the operands
+    ; of the one expression currently being decomposed.
+    def opStack:[EvHandle]
+    def opTop:int 0
+
+    ; ---- the activation ----
+    ; The body's own call frame. Live for as long as the generator is.
+    def rootCtx@(optional):EvalContext
+    def fnNode@(optional):TSNode
+    def thisVal@(optional):EvHandle
+    def hasThis:boolean false
+    ; 0 suspended-at-start, 1 suspended-at-yield, 2 running, 3 completed
+    def status:int 0
+    ; What next()/return()/throw() handed in, delivered as the value of the
+    ; yield expression that suspended: 0 next, 1 return, 2 throw.
+    def resumeMode:int 0
+    def sent@(optional):EvHandle
+    ; The value the body returned, reported by the final `{done:true}` result.
+    def retVal@(optional):EvHandle
+    ; The source text this body was parsed from, swapped in on every resume the
+    ; same way an ordinary call does.
+    def srcText:string ""
+    def srcId:int 0
+    def hasSrc:boolean false
+    def strict:boolean false
+
+    fn depth:int () {
+        return fTop
+    }
+}
+
 class ComponentEngine {
     def parser:TSParserSimple
     ; When false, scripts are parsed in non-JSX mode: `<` is only comparison /
@@ -1095,8 +1165,21 @@ class ComponentEngine {
     def genCollect:[EvHandle]
     def genDepth:int 0
     ; A generator whose body never terminates would otherwise hang the engine.
-    ; Failing loudly at a bound beats spinning forever.
+    ; Failing loudly at a bound beats spinning forever. Only the EAGER fallback
+    ; path needs it: a resumable body stops at each yield by construction.
     def genLimit:int 1000000
+    ; D-GENRESUME: the suspended generator bodies, addressed by the integer the
+    ; generator object carries in `__genstate__`.
+    def genStates:[GenState]
+    ; The value the suspension currently being reported is yielding.
+    def genYieldValue:EvHandle (EvHandle.null())
+    ; A right-hand side the generator driver already evaluated, waiting to be
+    ; consumed by the next evaluateAssignValue rather than re-evaluated.
+    def genAssignPrimed:boolean false
+    ; index of the parked "already finished" state (0 = not made yet; the real
+    ; states start at 1 because this one is minted before any of them)
+    def genDead:int 0
+    def genAssignValue:EvHandle (EvHandle.null())
     ; D-BUILTINPROTO: one prototype object per built-in constructor name, kept
     ; for the engine's lifetime so identity and stored properties survive reads.
     def builtinProtos:[string:EvHandle]
@@ -3521,10 +3604,60 @@ class ComponentEngine {
         v.setAttrs("name" false false true)
     }
 
+    ; Bind ONE declared name to an already-evaluated initialiser value, with
+    ; the kind rules the declaration carries. Split out of
+    ; processVariableDeclaration so the resumable generator driver -- which has
+    ; to evaluate `var x = yield v` in two steps -- lands the value through the
+    ; same binder rather than a second copy of these rules.
+    fn bindDeclaredName:void (node:TSNode varName:string value:EvHandle) {
+        ; D-CATCHVAR: `var` is function-scoped. Inside a catch or `with` block
+        ; the binding belongs to the enclosing function scope; let/const stay in
+        ; the block.
+        def isVarKind:boolean ((node.kind == "var") || ((strlen node.kind) == 0))
+        def target:EvalContext context
+        if isVarKind {
+            target = (context.varScope())
+        }
+        ; D-WITH: a `var`'s INITIALISER is an ordinary assignment to the name,
+        ; so inside a `with` block whose object owns that name it writes the
+        ; PROPERTY -- the declaration itself is hoisted out of the block and
+        ; stays undefined. `with (o) { var value = 'x' }` sets o.value, which is
+        ; the whole of §12.10's interaction with declarations.
+        def wHost:EvHandle (this.withHostFor(varName))
+        if (wHost.isObject()) {
+            wHost.setMember(varName value)
+            if (false == (context.has(varName))) {
+                target.define(varName (EvValueBridge.taggedUndefined()))
+            }
+        } {
+            if (isVarKind && (context.blockShadowsName(varName))) {
+                ; The catch parameter shadows the function-scoped binding, so
+                ; the initialiser writes IT.
+                context.assign(varName value)
+            } {
+                target.define(varName value)
+                if (node.kind == "const") {
+                    target.markConst(varName)
+                }
+                this.syncGlobalVar(varName value)
+            }
+        }
+    }
+
     fn processVariableDeclaration:void (node:TSNode) {
         def i:int 0
         while (i < (array_length node.children)) {
-            def decl:TSNode (itemAt node.children i)
+            this.processOneDeclarator(node (itemAt node.children i))
+            i = i + 1
+        }
+    }
+
+    ; One declarator of a declaration. Split out of the loop above so the
+    ; resumable generator driver, which runs the declarators of
+    ; `var a = 1, b = yield 2` one at a time, uses the same code for the ones
+    ; it does not have to step.
+    fn processOneDeclarator:void (node:TSNode decl:TSNode) {
+        if true {
             if (decl.nodeType == "VariableDeclarator") {
                 ; Destructuring target: `const [a,b] = ..` / `const {x,y} = ..`
                 if decl.left {
@@ -3548,31 +3681,7 @@ class ComponentEngine {
                         def initNode:TSNode (unwrap decl.init)
                         def value:EvHandle (this.evaluateExpr(initNode))
                         if (this.isAnonymousFnDefNode(initNode)) { this.nameAnonymousValue(value varName) }
-                        ; D-WITH: a `var`'s INITIALISER is an ordinary assignment
-                        ; to the name, so inside a `with` block whose object owns
-                        ; that name it writes the PROPERTY -- the declaration
-                        ; itself is hoisted out of the block and stays undefined.
-                        ; `with (o) { var value = 'x' }` sets o.value, which is
-                        ; the whole of §12.10's interaction with declarations.
-                        def wHost:EvHandle (this.withHostFor(varName))
-                        if (wHost.isObject()) {
-                            wHost.setMember(varName value)
-                            if (false == (context.has(varName))) {
-                                target.define(varName (EvValueBridge.taggedUndefined()))
-                            }
-                        } {
-                            if (isVarKind && (context.blockShadowsName(varName))) {
-                                ; The catch parameter shadows the function-scoped
-                                ; binding, so the initialiser writes IT.
-                                context.assign(varName value)
-                            } {
-                                target.define(varName value)
-                                if (node.kind == "const") {
-                                    target.markConst(varName)
-                                }
-                                this.syncGlobalVar(varName value)
-                            }
-                        }
+                        this.bindDeclaredName(node varName value)
                     } {
                         ; `let x;` with no initializer still creates a binding
                         ; (JS: bound to undefined), so a later reference/assignment
@@ -3597,7 +3706,6 @@ class ComponentEngine {
                     }
                 }
             }
-            i = i + 1
         }
     }
 
@@ -7841,8 +7949,19 @@ class ComponentEngine {
                     }
                 }
                 def rightValue:EvHandle (EvValueBridge.taggedNull())
-                if node.right {
-                    rightValue = (this.evaluateExpr((unwrap node.right)))
+                ; D-GENRESUME: the resumable generator driver evaluates a
+                ; right-hand side that contains a `yield` itself, in steps, and
+                ; then hands the finished value in here. Everything downstream --
+                ; const, `with`, the global object, member targets,
+                ; destructuring -- is the same code either way, which is the
+                ; point: there is no second assignment path to keep in step.
+                if genAssignPrimed {
+                    rightValue = genAssignValue
+                    genAssignPrimed = false
+                } {
+                    if node.right {
+                        rightValue = (this.evaluateExpr((unwrap node.right)))
+                    }
                 }
                 if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
@@ -12457,6 +12576,1277 @@ class ComponentEngine {
         }
         return items
     }
+    ; D-GENRESUME: does a `yield` occur anywhere under this node? A nested
+    ; function body has its own generator-ness and is opaque here, so the walk
+    ; stops at one. Memoised on the node: the answer is syntactic and never
+    ; changes, and the resumable driver asks it about every subtree it meets.
+    fn nodeHasYield:boolean (node:TSNode) {
+        if node.yieldScanned {
+            return node.yieldInside
+        }
+        node.yieldScanned = true
+        node.yieldInside = false
+        def k:int (this.nodeKindOf(node))
+        if (k == 26) {
+            node.yieldInside = true
+            return true
+        }
+        ; A nested function/arrow/class carries its own yields, not this one's.
+        if ((k == 17) || ((k == 18) || ((k == 40) || ((k == 24) || (k == 25))))) {
+            return false
+        }
+        def found:boolean false
+        def ci:int 0
+        while (ci < (array_length node.children)) {
+            if (this.nodeHasYield((itemAt node.children ci))) { found = true }
+            ci = (ci + 1)
+        }
+        if node.left {
+            if (this.nodeHasYield((unwrap node.left))) { found = true }
+        }
+        if node.right {
+            if (this.nodeHasYield((unwrap node.right))) { found = true }
+        }
+        if node.init {
+            if (this.nodeHasYield((unwrap node.init))) { found = true }
+        }
+        if node.body {
+            if (this.nodeHasYield((unwrap node.body))) { found = true }
+        }
+        if node.test {
+            if (this.nodeHasYield((unwrap node.test))) { found = true }
+        }
+        if node.consequent {
+            if (this.nodeHasYield((unwrap node.consequent))) { found = true }
+        }
+        if node.alternate {
+            if (this.nodeHasYield((unwrap node.alternate))) { found = true }
+        }
+        node.yieldInside = found
+        return found
+    }
+
+    ; ======================================================================
+    ; D-GENRESUME: resumable generators
+    ;
+    ; The body runs on the explicit frame stack in GenState rather than on the
+    ; host stack, so it can stop at a `yield` and start again there. Only the
+    ; SPINE of nodes leading to a yield is decomposed into frames; every subtree
+    ; with no yield in it is handed straight to the ordinary walker, so the
+    ; fast path stays the fast path and a generator pays for laziness only at
+    ; the points where it is actually lazy.
+    ; ======================================================================
+
+    ; Is every node on this subtree's yield spine one the driver can step? A
+    ; subtree with no yield is trivially fine -- the walker runs it whole. This
+    ; is what lets the resumable path be adopted incrementally: a body whose
+    ; spine uses a form not listed here keeps the old eager behaviour instead of
+    ; running wrongly.
+    fn genSpineOk:boolean (node:TSNode) {
+        if (false == (this.nodeHasYield(node))) {
+            return true
+        }
+        def k:int (this.nodeKindOf(node))
+        ; --- expressions ---
+        if (k == 26) {
+            if node.left { return (this.genSpineOk((unwrap node.left))) }
+            return true
+        }
+        if (k == 23) {
+            if node.left { return (this.genSpineOk((unwrap node.left))) }
+            return true
+        }
+        if (k == 12) {
+            if node.left { return (this.genSpineOk((unwrap node.left))) }
+            return false
+        }
+        if (k == 5) {
+            def bOk:boolean true
+            if node.left {
+                if (false == (this.genSpineOk((unwrap node.left)))) { bOk = false }
+            }
+            if node.right {
+                if (false == (this.genSpineOk((unwrap node.right)))) { bOk = false }
+            }
+            return bOk
+        }
+        if (k == 6) {
+            ; The TARGET is resolved by the walker, so a yield inside it (a
+            ; computed member key) is not steppable here.
+            if node.left {
+                if (this.nodeHasYield((unwrap node.left))) { return false }
+            }
+            if node.right { return (this.genSpineOk((unwrap node.right))) }
+            return true
+        }
+        if (k == 13) {
+            def cOk:boolean true
+            if node.test {
+                if (false == (this.genSpineOk((unwrap node.test)))) { cOk = false }
+            }
+            if node.consequent {
+                if (false == (this.genSpineOk((unwrap node.consequent)))) { cOk = false }
+            }
+            if node.alternate {
+                if (false == (this.genSpineOk((unwrap node.alternate)))) { cOk = false }
+            }
+            return cOk
+        }
+        if ((k == 19) || (k == 14)) {
+            return (this.genChildrenSpineOk(node))
+        }
+        if (k == 4) {
+            ; The callee is evaluated by the walker; only the ARGUMENTS are
+            ; stepped, which is where a yield realistically appears.
+            if node.left {
+                if (this.nodeHasYield((unwrap node.left))) { return false }
+            }
+            return (this.genChildrenSpineOk(node))
+        }
+        ; --- statements ---
+        if (k == 30) {
+            if node.left { return (this.genSpineOk((unwrap node.left))) }
+            return true
+        }
+        if (k == 31) {
+            def di:int 0
+            while (di < (array_length node.children)) {
+                def d:TSNode (itemAt node.children di)
+                if (this.nodeHasYield(d)) {
+                    ; a destructuring target with a yield in its initialiser is
+                    ; not stepped: the pattern binder is a single walker call
+                    if d.left { return false }
+                    if d.init {
+                        if (false == (this.genSpineOk((unwrap d.init)))) { return false }
+                    }
+                }
+                di = (di + 1)
+            }
+            return true
+        }
+        if (k == 34) {
+            return (this.genChildrenSpineOk(node))
+        }
+        if (k == 35) {
+            if node.left { return (this.genSpineOk((unwrap node.left))) }
+            return true
+        }
+        if (k == 45) {
+            if node.left { return (this.genSpineOk((unwrap node.left))) }
+            return true
+        }
+        if (k == 32) {
+            def iOk:boolean true
+            if node.left {
+                if (false == (this.genSpineOk((unwrap node.left)))) { iOk = false }
+            }
+            if node.body {
+                if (false == (this.genSpineOk((unwrap node.body)))) { iOk = false }
+            }
+            if node.right {
+                if (false == (this.genSpineOk((unwrap node.right)))) { iOk = false }
+            }
+            return iOk
+        }
+        if ((k == 36) || (k == 43)) {
+            def wOk:boolean true
+            if node.left {
+                if (false == (this.genSpineOk((unwrap node.left)))) { wOk = false }
+            }
+            if node.body {
+                if (false == (this.genSpineOk((unwrap node.body)))) { wOk = false }
+            }
+            return wOk
+        }
+        if (k == 33) {
+            ; The init and update clauses run whole through the walker; a yield
+            ; in either is not stepped.
+            if node.init {
+                if (this.nodeHasYield((unwrap node.init))) { return false }
+            }
+            if node.right {
+                if (this.nodeHasYield((unwrap node.right))) { return false }
+            }
+            def fOk:boolean true
+            if node.left {
+                if (false == (this.genSpineOk((unwrap node.left)))) { fOk = false }
+            }
+            if node.body {
+                if (false == (this.genSpineOk((unwrap node.body)))) { fOk = false }
+            }
+            return fOk
+        }
+        if (k == 37) {
+            ; The SOURCE is drained by the walker; the body is stepped.
+            if node.right {
+                if (this.nodeHasYield((unwrap node.right))) { return false }
+            }
+            if node.body { return (this.genSpineOk((unwrap node.body))) }
+            return true
+        }
+        if (k == 46) {
+            def tOk:boolean true
+            if node.body {
+                if (false == (this.genSpineOk((unwrap node.body)))) { tOk = false }
+            }
+            if node.left {
+                def cc:TSNode (unwrap node.left)
+                if cc.body {
+                    if (false == (this.genSpineOk((unwrap cc.body)))) { tOk = false }
+                }
+            }
+            if node.right {
+                if (false == (this.genSpineOk((unwrap node.right)))) { tOk = false }
+            }
+            return tOk
+        }
+        return false
+    }
+
+    fn genChildrenSpineOk:boolean (node:TSNode) {
+        def i:int 0
+        while (i < (array_length node.children)) {
+            if (false == (this.genSpineOk((itemAt node.children i)))) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; ---- frame and operand stack primitives ----
+
+    fn genPushFrame:void (st:GenState node:TSNode ctx:EvalContext) {
+        if (st.fTop == (array_length st.fNode)) {
+            push st.fNode node
+            push st.fPhase 0
+            push st.fIdx 0
+            push st.fVal (EvValueBridge.taggedUndefined())
+            push st.fCtx ctx
+            push st.fBrk false
+            push st.fCnt false
+            push st.fVal2 (EvValueBridge.taggedUndefined())
+            push st.fFlags 0
+        } {
+            set st.fNode st.fTop node
+            set st.fPhase st.fTop 0
+            set st.fIdx st.fTop 0
+            set st.fVal st.fTop (EvValueBridge.taggedUndefined())
+            set st.fCtx st.fTop ctx
+            set st.fBrk st.fTop false
+            set st.fCnt st.fTop false
+            set st.fVal2 st.fTop (EvValueBridge.taggedUndefined())
+            set st.fFlags st.fTop 0
+        }
+        st.fTop = (st.fTop + 1)
+    }
+
+    fn genPopFrame:void (st:GenState) {
+        if (st.fTop > 0) {
+            st.fTop = (st.fTop - 1)
+        }
+    }
+
+    fn genPushOp:void (st:GenState v:EvHandle) {
+        if (st.opTop == (array_length st.opStack)) {
+            push st.opStack v
+        } {
+            set st.opStack st.opTop v
+        }
+        st.opTop = (st.opTop + 1)
+    }
+
+    fn genPopOp:EvHandle (st:GenState) {
+        if (st.opTop == 0) {
+            return (EvValueBridge.taggedUndefined())
+        }
+        st.opTop = (st.opTop - 1)
+        return (itemAt st.opStack st.opTop)
+    }
+
+    ; Push a SUB-EXPRESSION. One frame if it contains a yield, one walker call
+    ; if it does not -- the expression-level twin of genRunBranch, and the other
+    ; half of why a generator only pays for the parts of it that are lazy.
+    fn genPushExpr:void (st:GenState node:TSNode ctx:EvalContext) {
+        if (this.nodeHasYield(node)) {
+            this.genPushFrame(st node ctx)
+        } {
+            this.genPushOp(st (this.evaluateExpr(node)))
+        }
+    }
+
+    ; Run a branch or loop body: one frame if it contains a yield, one walker
+    ; call if it does not. This single line is the whole performance story --
+    ; a yield-free body is executed exactly as it would be in a plain function.
+    fn genRunBranch:void (st:GenState stmt:TSNode ctx:EvalContext) {
+        if (this.nodeHasYield(stmt)) {
+            this.genPushFrame(st stmt ctx)
+        } {
+            this.runBlockOrStatement(stmt)
+        }
+    }
+
+    ; Walk down to the nearest try frame that can take a pending exception.
+    ; Frames above it are abandoned -- which is exactly what unwinding is.
+    fn genUnwindToHandler:boolean (st:GenState) {
+        def i:int (st.fTop - 1)
+        while (i >= 0) {
+            def fnode:TSNode (itemAt st.fNode i)
+            if ((this.nodeKindOf(fnode)) == 46) {
+                def fp:int (itemAt st.fPhase i)
+                ; inside the TRY block: the catch clause takes it, or -- with no
+                ; catch clause -- only the finally is left to run
+                if ((fp == 1) || (fp == 3)) {
+                    st.fTop = (i + 1)
+                    st.opTop = 0
+                    ; The handler frame TAKES the exception: leaving it live
+                    ; would make the driver unwind past this same frame again
+                    ; on the very next step.
+                    def caught:EvHandle scriptThrowValue
+                    scriptThrew = false
+                    scriptThrowValue = (EvValueBridge.taggedNull())
+                    set st.fVal2 i caught
+                    ; A catch clause takes it -- unless the throw came from
+                    ; INSIDE that catch (fp 3), in which case only the finally
+                    ; is left and the exception carries on past it.
+                    def toCatch:boolean false
+                    if (fp == 1) {
+                        if fnode.left { toCatch = true }
+                    }
+                    if toCatch {
+                        set st.fPhase i 2
+                    } {
+                        set st.fFlags i 2
+                        set st.fPhase i 7
+                    }
+                    return true
+                }
+            }
+            i = (i - 1)
+        }
+        return false
+    }
+
+    fn genEndLoop:void (st:GenState top:int) {
+        def noLabels:[string]
+        this.settleLoopAbrupt(noLabels (itemAt st.fBrk top) (itemAt st.fCnt top))
+        this.genPopFrame(st)
+    }
+
+    fn genStepValue:int (st:GenState top:int node:TSNode ph:int k:int curCtx:EvalContext) {
+        ; ---------------- yield ----------------
+        if (k == 26) {
+            if (ph == 0) {
+                set st.fPhase top 1
+                if node.left {
+                    this.genPushExpr(st (unwrap node.left) curCtx)
+                }
+                return 0
+            }
+            if (ph == 1) {
+                def yv:EvHandle (EvValueBridge.taggedUndefined())
+                if node.left { yv = (this.genPopOp(st)) }
+                if node.delegate {
+                    ; `yield* xs` hands out the operand's items ONE AT A
+                    ; TIME, each its own suspension.
+                    def sub:[EvHandle] (this.forOfItemList(yv))
+                    if scriptThrew { return 0 }
+                    set st.fVal top (EvValueBridge.taggedArray(sub))
+                    set st.fIdx top 0
+                    set st.fPhase top 4
+                    return 0
+                }
+                set st.fPhase top 2
+                genYieldValue = yv
+                return 1
+            }
+            if (ph == 2) {
+                ; Resumed. What next()/return()/throw() sent IS this
+                ; expression's value -- or an abrupt completion of the body.
+                def sv:EvHandle (EvValueBridge.taggedUndefined())
+                if st.sent { sv = (unwrap st.sent) }
+                if (st.resumeMode == 1) {
+                    scriptReturnValue = sv
+                    scriptDidReturn = true
+                    st.fTop = 0
+                    st.opTop = 0
+                    return 0
+                }
+                if (st.resumeMode == 2) {
+                    scriptThrowValue = sv
+                    scriptThrew = true
+                    return 0
+                }
+                this.genPushOp(st sv)
+                this.genPopFrame(st)
+                return 0
+            }
+            ; ph 4/5: the delegation loop
+            if (ph == 4) {
+                def dArr:EvHandle (itemAt st.fVal top)
+                def dI:int (itemAt st.fIdx top)
+                if (dI >= (dArr.denseLen())) {
+                    ; A finished delegation evaluates to undefined.
+                    this.genPushOp(st (EvValueBridge.taggedUndefined()))
+                    this.genPopFrame(st)
+                    return 0
+                }
+                set st.fIdx top (dI + 1)
+                set st.fPhase top 5
+                genYieldValue = (dArr.arrayItemAt(dI))
+                return 1
+            }
+            def dsv:EvHandle (EvValueBridge.taggedUndefined())
+            if st.sent { dsv = (unwrap st.sent) }
+            if (st.resumeMode == 1) {
+                scriptReturnValue = dsv
+                scriptDidReturn = true
+                st.fTop = 0
+                st.opTop = 0
+                return 0
+            }
+            if (st.resumeMode == 2) {
+                scriptThrowValue = dsv
+                scriptThrew = true
+                return 0
+            }
+            set st.fPhase top 4
+            return 0
+        }
+
+        ; ---------------- parenthesised ----------------
+        if (k == 23) {
+            if (ph == 0) {
+                set st.fPhase top 1
+                if node.left {
+                    this.genPushExpr(st (unwrap node.left) curCtx)
+                } {
+                    this.genPushOp(st (EvValueBridge.taggedUndefined()))
+                }
+                return 0
+            }
+            this.genPopFrame(st)
+            return 0
+        }
+
+        ; ---------------- assignment ----------------
+        if (k == 6) {
+            if (ph == 0) {
+                set st.fPhase top 1
+                if node.right {
+                    this.genPushExpr(st (unwrap node.right) curCtx)
+                } {
+                    this.genPushOp(st (EvValueBridge.taggedUndefined()))
+                }
+                return 0
+            }
+            def av:EvHandle (this.genPopOp(st))
+            genAssignPrimed = true
+            genAssignValue = av
+            def ares:EvHandle (this.evaluateAssignValue(node))
+            genAssignPrimed = false
+            this.genPushOp(st ares)
+            this.genPopFrame(st)
+            return 0
+        }
+
+        return 9
+    }
+
+    fn genStepOper:int (st:GenState top:int node:TSNode ph:int k:int curCtx:EvalContext) {
+        ; ---------------- binary ----------------
+        if (k == 5) {
+            if (ph == 0) {
+                set st.fPhase top 1
+                if node.left {
+                    this.genPushExpr(st (unwrap node.left) curCtx)
+                } {
+                    this.genPushOp(st (EvValueBridge.taggedUndefined()))
+                }
+                return 0
+            }
+            if (ph == 1) {
+                def blv:EvHandle (this.genPopOp(st))
+                ; The short-circuit operators decide on the LEFT operand
+                ; alone, which is the whole reason they are stepped here
+                ; rather than handed to applyBinaryOp.
+                def bop:int (this.opKindOf(node))
+                def shorts:boolean false
+                if (bop == 34) {
+                    if (false == (blv.toBool())) { shorts = true }
+                }
+                if (bop == 35) {
+                    if (blv.toBool()) { shorts = true }
+                }
+                if (bop == 36) {
+                    if (false == ((blv.isNull()) || (blv.isUndefined()))) { shorts = true }
+                }
+                set st.fVal top blv
+                if shorts {
+                    this.genPushOp(st (itemAt st.fVal top))
+                    this.genPopFrame(st)
+                    return 0
+                }
+                set st.fPhase top 2
+                if node.right {
+                    this.genPushExpr(st (unwrap node.right) curCtx)
+                } {
+                    this.genPushOp(st (EvValueBridge.taggedUndefined()))
+                }
+                return 0
+            }
+            def brv:EvHandle (this.genPopOp(st))
+            def blv2:EvHandle (itemAt st.fVal top)
+            def bopK:int (this.opKindOf(node))
+            if ((bopK == 34) || ((bopK == 35) || (bopK == 36))) {
+                ; the left operand did not decide, so the right one is the
+                ; whole answer
+                this.genPushOp(st brv)
+            } {
+                this.genPushOp(st (this.applyBinaryOp(bopK blv2 brv)))
+            }
+            this.genPopFrame(st)
+            return 0
+        }
+
+        ; ---------------- conditional ----------------
+        if (k == 13) {
+            if (ph == 0) {
+                set st.fPhase top 1
+                if node.test {
+                    this.genPushExpr(st (unwrap node.test) curCtx)
+                } {
+                    this.genPushOp(st (EvValueBridge.taggedUndefined()))
+                }
+                return 0
+            }
+            if (ph == 1) {
+                def tv:EvHandle (this.genPopOp(st))
+                set st.fPhase top 2
+                if (tv.toBool()) {
+                    if node.consequent {
+                        this.genPushExpr(st (unwrap node.consequent) curCtx)
+                    } {
+                        this.genPushOp(st (EvValueBridge.taggedUndefined()))
+                    }
+                } {
+                    if node.alternate {
+                        this.genPushExpr(st (unwrap node.alternate) curCtx)
+                    } {
+                        this.genPushOp(st (EvValueBridge.taggedUndefined()))
+                    }
+                }
+                return 0
+            }
+            this.genPopFrame(st)
+            return 0
+        }
+
+        ; ---------------- sequence ----------------
+        if (k == 19) {
+            if (ph == 0) {
+                set st.fPhase top 1
+                set st.fIdx top 0
+                if ((array_length node.children) == 0) {
+                    this.genPushOp(st (EvValueBridge.taggedUndefined()))
+                    this.genPopFrame(st)
+                    return 0
+                }
+                this.genPushExpr(st (itemAt node.children 0) curCtx)
+                return 0
+            }
+            ; The sequence's value is its LAST operand; the others are
+            ; evaluated for their effects and dropped.
+            def sqv:EvHandle (this.genPopOp(st))
+            def sqi:int ((itemAt st.fIdx top) + 1)
+            if (sqi < (array_length node.children)) {
+                set st.fIdx top sqi
+                this.genPushExpr(st (itemAt node.children sqi) curCtx)
+                return 0
+            }
+            this.genPushOp(st sqv)
+            this.genPopFrame(st)
+            return 0
+        }
+
+        return 9
+    }
+
+    fn genStepStmt:int (st:GenState top:int node:TSNode ph:int k:int curCtx:EvalContext) {
+        ; ---------------- block / statement list ----------------
+        if (k == 34) {
+            if (ph == 0) {
+                set st.fPhase top 1
+                ; D-LEXSCOPE: a block is a scope only when it declares one.
+                if (this.blockDeclaresLexical(node)) {
+                    def bctx:EvalContext (curCtx.createChild())
+                    bctx.isBlockScope = true
+                    set st.fCtx top bctx
+                    context = (itemAt st.fCtx top)
+                }
+                this.hoistFunctionDeclarations(node.children)
+                return 0
+            }
+            if (scriptDidReturn || (loopBreak || loopContinue)) {
+                this.genPopFrame(st)
+                return 0
+            }
+            def bi:int (itemAt st.fIdx top)
+            if (bi >= (array_length node.children)) {
+                this.genPopFrame(st)
+                return 0
+            }
+            set st.fIdx top (bi + 1)
+            def bstmt:TSNode (itemAt node.children bi)
+            if (this.nodeHasYield(bstmt)) {
+                this.genPushFrame(st bstmt curCtx)
+            } {
+                this.runStatementValue(bstmt)
+            }
+            return 0
+        }
+
+        ; ---------------- expression statement ----------------
+        if (k == 30) {
+            if (ph == 0) {
+                set st.fPhase top 1
+                if node.left {
+                    this.genPushExpr(st (unwrap node.left) curCtx)
+                } {
+                    this.genPushOp(st (EvValueBridge.taggedUndefined()))
+                }
+                return 0
+            }
+            def _ev:EvHandle (this.genPopOp(st))
+            this.genPopFrame(st)
+            return 0
+        }
+
+        ; ---------------- variable declaration ----------------
+        if (k == 31) {
+            def vi:int (itemAt st.fIdx top)
+            if (ph == 2) {
+                ; the initialiser's value is waiting on the operand stack
+                def dv:EvHandle (this.genPopOp(st))
+                def dcl2:TSNode (itemAt node.children vi)
+                if dcl2.init {
+                    if (this.isAnonymousFnDefNode((unwrap dcl2.init))) {
+                        this.nameAnonymousValue(dv dcl2.name)
+                    }
+                }
+                this.bindDeclaredName(node dcl2.name dv)
+                set st.fIdx top (vi + 1)
+                set st.fPhase top 1
+                return 0
+            }
+            if (vi >= (array_length node.children)) {
+                this.genPopFrame(st)
+                return 0
+            }
+            def dcl:TSNode (itemAt node.children vi)
+            def stepInit:boolean false
+            if dcl.init {
+                if (this.nodeHasYield((unwrap dcl.init))) {
+                    if (null? dcl.left) { stepInit = true }
+                }
+            }
+            if stepInit {
+                set st.fPhase top 2
+                this.genPushExpr(st (unwrap dcl.init) curCtx)
+            } {
+                this.processOneDeclarator(node dcl)
+                set st.fIdx top (vi + 1)
+                set st.fPhase top 1
+            }
+            return 0
+        }
+
+        ; ---------------- return ----------------
+        if (k == 35) {
+            if (ph == 0) {
+                set st.fPhase top 1
+                if node.left {
+                    this.genPushExpr(st (unwrap node.left) curCtx)
+                }
+                return 0
+            }
+            def rv:EvHandle (EvValueBridge.taggedUndefined())
+            if node.left { rv = (this.genPopOp(st)) }
+            scriptReturnValue = rv
+            scriptDidReturn = true
+            this.genPopFrame(st)
+            return 0
+        }
+
+        ; ---------------- throw ----------------
+        if (k == 45) {
+            if (ph == 0) {
+                set st.fPhase top 1
+                if node.left {
+                    this.genPushExpr(st (unwrap node.left) curCtx)
+                }
+                return 0
+            }
+            def thv:EvHandle (EvValueBridge.taggedUndefined())
+            if node.left { thv = (this.genPopOp(st)) }
+            scriptThrowValue = thv
+            scriptThrew = true
+            this.genPopFrame(st)
+            return 0
+        }
+
+        ; ---------------- if ----------------
+        if (k == 32) {
+            if (ph == 0) {
+                set st.fPhase top 1
+                if node.left {
+                    this.genPushExpr(st (unwrap node.left) curCtx)
+                } {
+                    this.genPushOp(st (EvValueBridge.taggedUndefined()))
+                }
+                return 0
+            }
+            if (ph == 1) {
+                def cv:EvHandle (this.genPopOp(st))
+                set st.fPhase top 2
+                if (cv.toBool()) {
+                    if node.body { this.genRunBranch(st (unwrap node.body) curCtx) }
+                } {
+                    if node.right { this.genRunBranch(st (unwrap node.right) curCtx) }
+                }
+                return 0
+            }
+            this.genPopFrame(st)
+            return 0
+        }
+
+        return 9
+    }
+
+    fn genStepLoop:int (st:GenState top:int node:TSNode ph:int k:int curCtx:EvalContext) {
+        ; ---------------- try / catch / finally ----------------
+        if (k == 46) {
+            if (ph == 0) {
+                set st.fPhase top 1
+                if node.body { this.genRunBranch(st (unwrap node.body) curCtx) }
+                return 0
+            }
+            if (ph == 1) {
+                ; the try block ended without throwing
+                set st.fPhase top 4
+                return 0
+            }
+            if (ph == 2) {
+                ; an exception reached this frame's try block: the catch clause
+                ; binds it in a scope of its own, holding the PARAMETER and
+                ; nothing else (§12.14)
+                def thrown:EvHandle (itemAt st.fVal2 top)
+                set st.fPhase top 3
+                if node.left {
+                    def cc:TSNode (unwrap node.left)
+                    def catchCtx:EvalContext (curCtx.createChild())
+                    catchCtx.isBlockScope = true
+                    if ((strlen cc.name) > 0) {
+                        catchCtx.define(cc.name thrown)
+                    }
+                    context = catchCtx
+                    if cc.body { this.genRunBranch(st (unwrap cc.body) catchCtx) }
+                }
+                return 0
+            }
+            if (ph == 3) {
+                set st.fPhase top 4
+                return 0
+            }
+            if (ph == 4) {
+                if (null? node.right) {
+                    this.genPopFrame(st)
+                    return 0
+                }
+                ; D-FINALLY: the finally block runs whatever the try/catch did.
+                ; The pending completion -- a return, a break, a continue, a
+                ; live exception -- is set aside for its duration and restored
+                ; afterwards, unless the finally produces one of its own, which
+                ; per spec replaces it.
+                def fl:int 0
+                if scriptDidReturn { fl = (fl + 1) }
+                if scriptThrew { fl = (fl + 2) }
+                if loopBreak { fl = (fl + 4) }
+                if loopContinue { fl = (fl + 8) }
+                set st.fFlags top fl
+                def pendVal:EvHandle (EvValueBridge.taggedUndefined())
+                if scriptThrew {
+                    pendVal = scriptThrowValue
+                } {
+                    pendVal = scriptReturnValue
+                }
+                set st.fVal2 top pendVal
+                scriptDidReturn = false
+                scriptReturnValue = (EvValueBridge.taggedNull())
+                scriptThrew = false
+                scriptThrowValue = (EvValueBridge.taggedNull())
+                loopBreak = false
+                loopContinue = false
+                set st.fPhase top 5
+                this.genRunBranch(st (unwrap node.right) curCtx)
+                return 0
+            }
+            if (ph == 7) {
+                ; Reached with an exception already set aside in fVal2: run the
+                ; finally, then let it carry on.
+                if (null? node.right) {
+                    scriptThrowValue = (itemAt st.fVal2 top)
+                    scriptThrew = true
+                    this.genPopFrame(st)
+                    return 0
+                }
+                set st.fPhase top 5
+                this.genRunBranch(st (unwrap node.right) curCtx)
+                return 0
+            }
+            ; ph 5: the finally is done
+            def fabrupt:boolean false
+            if scriptDidReturn { fabrupt = true }
+            if scriptThrew { fabrupt = true }
+            if loopBreak { fabrupt = true }
+            if loopContinue { fabrupt = true }
+            if (false == fabrupt) {
+                def pf:int (itemAt st.fFlags top)
+                if ((bit_and pf 1) != 0) {
+                    scriptReturnValue = (itemAt st.fVal2 top)
+                    scriptDidReturn = true
+                }
+                if ((bit_and pf 2) != 0) {
+                    scriptThrowValue = (itemAt st.fVal2 top)
+                    scriptThrew = true
+                }
+                if ((bit_and pf 4) != 0) { loopBreak = true }
+                if ((bit_and pf 8) != 0) { loopContinue = true }
+            }
+            this.genPopFrame(st)
+            return 0
+        }
+
+        ; ---------------- while ----------------
+        if (k == 36) {
+            if (ph == 0) {
+                set st.fBrk top loopBreak
+                set st.fCnt top loopContinue
+                loopBreak = false
+                loopContinue = false
+                set st.fPhase top 1
+                return 0
+            }
+            if (ph == 1) {
+                set st.fPhase top 2
+                if node.left {
+                    this.genPushExpr(st (unwrap node.left) curCtx)
+                } {
+                    this.genPushOp(st (EvValueBridge.taggedBoolean(true)))
+                }
+                return 0
+            }
+            if (ph == 2) {
+                def wtv:EvHandle (this.genPopOp(st))
+                if (false == (wtv.toBool())) {
+                    this.genEndLoop(st top)
+                    return 0
+                }
+                loopContinue = false
+                set st.fPhase top 3
+                if node.body { this.genRunBranch(st (unwrap node.body) curCtx) }
+                return 0
+            }
+            if (scriptDidReturn || loopBreak) {
+                this.genEndLoop(st top)
+                return 0
+            }
+            set st.fPhase top 1
+            return 0
+        }
+
+        ; ---------------- do-while ----------------
+        if (k == 43) {
+            if (ph == 0) {
+                set st.fBrk top loopBreak
+                set st.fCnt top loopContinue
+                loopBreak = false
+                loopContinue = false
+                set st.fPhase top 1
+                return 0
+            }
+            if (ph == 1) {
+                loopContinue = false
+                set st.fPhase top 2
+                if node.body { this.genRunBranch(st (unwrap node.body) curCtx) }
+                return 0
+            }
+            if (ph == 2) {
+                if (scriptDidReturn || loopBreak) {
+                    this.genEndLoop(st top)
+                    return 0
+                }
+                set st.fPhase top 3
+                if node.left {
+                    this.genPushExpr(st (unwrap node.left) curCtx)
+                } {
+                    this.genPushOp(st (EvValueBridge.taggedBoolean(false)))
+                }
+                return 0
+            }
+            def dtv:EvHandle (this.genPopOp(st))
+            if (dtv.toBool()) {
+                set st.fPhase top 1
+            } {
+                this.genEndLoop(st top)
+            }
+            return 0
+        }
+
+        ; ---------------- for ----------------
+        if (k == 33) {
+            if (ph == 0) {
+                set st.fBrk top loopBreak
+                set st.fCnt top loopContinue
+                loopBreak = false
+                loopContinue = false
+                if node.init {
+                    def initN:TSNode (unwrap node.init)
+                    if ((this.nodeKindOf(initN)) == 31) {
+                        this.processVariableDeclaration(initN)
+                    } {
+                        def _fi:EvHandle (this.evaluateExpr(initN))
+                    }
+                }
+                set st.fPhase top 1
+                return 0
+            }
+            if (ph == 1) {
+                set st.fPhase top 2
+                if node.left {
+                    this.genPushExpr(st (unwrap node.left) curCtx)
+                } {
+                    this.genPushOp(st (EvValueBridge.taggedBoolean(true)))
+                }
+                return 0
+            }
+            if (ph == 2) {
+                def ftv:EvHandle (this.genPopOp(st))
+                if (false == (ftv.toBool())) {
+                    this.genEndLoop(st top)
+                    return 0
+                }
+                loopContinue = false
+                set st.fPhase top 3
+                if node.body { this.genRunBranch(st (unwrap node.body) curCtx) }
+                return 0
+            }
+            if (scriptDidReturn || loopBreak) {
+                this.genEndLoop(st top)
+                return 0
+            }
+            if node.right {
+                this.evaluateUpdateExpr((unwrap node.right))
+            }
+            set st.fPhase top 1
+            return 0
+        }
+
+        ; ---------------- for-of ----------------
+        if (k == 37) {
+            if (ph == 0) {
+                set st.fBrk top loopBreak
+                set st.fCnt top loopContinue
+                loopBreak = false
+                loopContinue = false
+                ; The SOURCE is drained by the walker in one call -- a
+                ; generator iterating an array pays nothing per element.
+                def srcV:EvHandle (EvValueBridge.taggedUndefined())
+                if node.right { srcV = (this.evaluateExpr((unwrap node.right))) }
+                if scriptThrew {
+                    this.genEndLoop(st top)
+                    return 0
+                }
+                def oItems:[EvHandle] (this.forOfItemList(srcV))
+                if scriptThrew {
+                    this.genEndLoop(st top)
+                    return 0
+                }
+                set st.fVal top (EvValueBridge.taggedArray(oItems))
+                set st.fIdx top 0
+                set st.fPhase top 1
+                return 0
+            }
+            if (ph == 1) {
+                def oArr:EvHandle (itemAt st.fVal top)
+                def oi:int (itemAt st.fIdx top)
+                if (oi >= (oArr.denseLen())) {
+                    this.genEndLoop(st top)
+                    return 0
+                }
+                set st.fIdx top (oi + 1)
+                this.bindForOfTarget(node (oArr.arrayItemAt(oi)))
+                if scriptThrew {
+                    this.genEndLoop(st top)
+                    return 0
+                }
+                loopContinue = false
+                set st.fPhase top 2
+                ; a `let` target just put a per-iteration scope in place;
+                ; the body belongs to THAT, not to the loop's own scope
+                def turnCtx@(optional):EvalContext context
+                if node.body { this.genRunBranch(st (unwrap node.body) (unwrap turnCtx)) }
+                return 0
+            }
+            if (scriptDidReturn || loopBreak) {
+                this.genEndLoop(st top)
+                return 0
+            }
+            set st.fPhase top 1
+            return 0
+        }
+
+        return 9
+    }
+
+    ; Step the body until it yields, returns, or runs out.
+    ;   0 = ran to completion   1 = suspended at a yield   2 = threw
+    ;
+    ; The dispatch is split across four step functions purely so no single one
+    ; is enormous; each answers 9 for a node kind that is not its own.
+    fn genRun:int (st:GenState) {
+        while (st.fTop > 0) {
+            if scriptThrew {
+                ; A `try` on the yield spine is a frame, so an exception looks
+                ; for one to land in before it ends the generator. A try WITHOUT
+                ; a yield inside it never gets here -- it runs whole in the
+                ; walker and catches there as it always did.
+                if (this.genUnwindToHandler(st)) {
+                    continue
+                }
+                st.fTop = 0
+                st.opTop = 0
+                return 2
+            }
+            def top:int (st.fTop - 1)
+            def node:TSNode (itemAt st.fNode top)
+            def ph:int (itemAt st.fPhase top)
+            context = (itemAt st.fCtx top)
+            ; a bound, non-optional handle on the current scope: child frames
+            ; are pushed against it, and a step that swaps `context` (a block
+            ; scope, a per-iteration binding) rebinds it before pushing
+            def curCtx@(optional):EvalContext context
+            def k:int (this.nodeKindOf(node))
+            def r:int (this.genStepValue(st top node ph k (unwrap curCtx)))
+            if (r == 9) {
+                r = (this.genStepOper(st top node ph k (unwrap curCtx)))
+            }
+            if (r == 9) {
+                r = (this.genStepStmt(st top node ph k (unwrap curCtx)))
+            }
+            if (r == 9) {
+                r = (this.genStepLoop(st top node ph k (unwrap curCtx)))
+            }
+            if (r == 1) {
+                return 1
+            }
+            if (r == 9) {
+                ; Nothing else reaches here: genSpineOk refused the body
+                ; otherwise.
+                this.genPopFrame(st)
+            }
+        }
+        return 0
+    }
+
+    ; Bind one turn of a for-of loop's target, creating the per-iteration scope
+    ; a `let` target needs. Split out of runForOfStatementValue so the resumable
+    ; driver, which owns the loop itself, binds by the same rules.
+    fn bindForOfTarget:void (stmt:TSNode item:EvHandle) {
+        if (null? stmt.left) { return }
+        def leftNode:TSNode (unwrap stmt.left)
+        if ((this.nodeKindOf(leftNode)) == 31) {
+            ; D-LEXSCOPE: `for (let v of xs)` binds v FRESH on every turn, so a
+            ; closure made in the body keeps that turn's element.
+            if ((leftNode.kind == "let") || (leftNode.kind == "const")) {
+                def turnCtx:EvalContext (context.createChild())
+                turnCtx.isBlockScope = true
+                context = turnCtx
+            }
+            if ((array_length leftNode.children) > 0) {
+                def decl:TSNode (itemAt leftNode.children 0)
+                if decl.left {
+                    this.bindPattern((unwrap decl.left) item)
+                } {
+                    context.define(decl.name item)
+                }
+            }
+            return
+        }
+        this.assignToTarget(leftNode item)
+    }
+
+    ; ---- the generator object, and the resume protocol ----
+
+    fn isResumableGenerator:boolean (v:EvHandle) {
+        if (false == (v.isObject())) { return false }
+        return (v.hasOwnData("__genstate__"))
+    }
+
+    ; The state a generator object stands for. A value that is not one answers
+    ; the parked state, which reports itself completed and so does nothing.
+    fn genStateOf:GenState (v:EvHandle) {
+        def idH:EvHandle (v.getOwnData("__genstate__"))
+        def idx:int (to_int (idH.toNumber()))
+        if (idx < 0) { return (this.genDeadState()) }
+        if (idx >= (array_length genStates)) { return (this.genDeadState()) }
+        return (itemAt genStates idx)
+    }
+
+    fn genDeadState:GenState () {
+        if (genDead == 0) {
+            def dead:GenState (new GenState())
+            dead.status = 3
+            push genStates dead
+            genDead = ((array_length genStates) - 1)
+        }
+        return (itemAt genStates genDead)
+    }
+
+    ; May this body run on the resumable driver? A generator whose yield spine
+    ; uses a form the driver cannot step keeps the old eager behaviour instead
+    ; of running wrongly -- which is what makes this safe to adopt one form at
+    ; a time.
+    fn genBodyResumable:boolean (fnNode:TSNode) {
+        if (null? fnNode.body) { return false }
+        def b:TSNode (unwrap fnNode.body)
+        if ((this.nodeKindOf(b)) != 34) { return false }
+        return (this.genChildrenSpineOk(b))
+    }
+
+    ; Build the generator object for a call that has NOT run its body: the
+    ; activation stays live in the state, and the first next() starts it.
+    fn makeResumableGenerator:EvHandle (fnNode:TSNode ctx:EvalContext) {
+        def st:GenState (new GenState())
+        st.rootCtx = ctx
+        st.fnNode = fnNode
+        st.status = 0
+        st.strict = strictMode
+        push genStates st
+        def gid:int ((array_length genStates) - 1)
+
+        def keys:[string]
+        def vals:[EvHandle]
+        def g:EvHandle (EvValueBridge.taggedObject(keys vals))
+        g.setMember("__genstate__" (EvHandle.fromInt(gid)))
+        g.setAttrs("__genstate__" false false false)
+        g.setMember("next" (this.sharedNativeMethod("Generator" "next")))
+        g.setAttrs("next" true false true)
+        g.setMember("return" (this.sharedNativeMethod("Generator" "return")))
+        g.setAttrs("return" true false true)
+        g.setMember("throw" (this.sharedNativeMethod("Generator" "throw")))
+        g.setAttrs("throw" true false true)
+        g.setMember("@@iterator" (this.sharedNativeMethod("Generator" "@@iterator")))
+        g.setAttrs("@@iterator" true false true)
+        g.setMember("@@toStringTag" (EvValueBridge.taggedString("Generator")))
+        g.setAttrs("@@toStringTag" false false true)
+        return g
+    }
+
+    ; `{ value: v, done: d }` -- the shape every resume answers with.
+    fn genResultObject:EvHandle (value:EvHandle done:boolean) {
+        def keys:[string]
+        def vals:[EvHandle]
+        push keys "value"
+        push vals value
+        push keys "done"
+        push vals (EvValueBridge.taggedBoolean(done))
+        def r:EvHandle (EvValueBridge.taggedObject(keys vals))
+        r.setProto((this.builtinPrototype("Object")))
+        return r
+    }
+
+    ; Resume a suspended body. `mode` is 0 next, 1 return, 2 throw.
+    fn genResume:EvHandle (gv:EvHandle sent:EvHandle mode:int) {
+        def st:GenState (this.genStateOf(gv))
+        ; A generator already finished -- or one being resumed from inside its
+        ; own body -- produces nothing.
+        if (st.status == 2) {
+            return (this.throwSpecError("TypeError" "Generator is already running"))
+        }
+        if (st.status == 3) {
+            if (mode == 2) {
+                scriptThrowValue = sent
+                scriptThrew = true
+                return (EvValueBridge.taggedUndefined())
+            }
+            def dv:EvHandle (EvValueBridge.taggedUndefined())
+            if (mode == 1) { dv = sent }
+            return (this.genResultObject(dv true))
+        }
+        ; return()/throw() on a body that has not started never runs it.
+        if (st.status == 0) {
+            if (mode == 1) {
+                st.status = 3
+                return (this.genResultObject(sent true))
+            }
+            if (mode == 2) {
+                st.status = 3
+                scriptThrowValue = sent
+                scriptThrew = true
+                return (EvValueBridge.taggedUndefined())
+            }
+        }
+
+        def savedContext:EvalContext context
+        def savedDidReturn:boolean scriptDidReturn
+        def savedReturnValue:EvHandle scriptReturnValue
+        def savedStrict:boolean strictMode
+        scriptDidReturn = false
+        scriptReturnValue = (EvValueBridge.taggedUndefined())
+        strictMode = st.strict
+        st.sent = sent
+        st.resumeMode = mode
+
+        if (st.status == 0) {
+            ; First resume: the body's frame goes on, already past its own
+            ; scope/hoist setup, so the block frame does not give it a second
+            ; scope of its own.
+            def bodyN:TSNode (unwrap st.fnNode)
+            def bodyB:TSNode (unwrap bodyN.body)
+            this.hoistVarNamesMemo(bodyB)
+            this.hoistFunctionDeclarations(bodyB.children)
+            this.genPushFrame(st bodyB (unwrap st.rootCtx))
+            set st.fPhase 0 1
+        }
+        st.status = 2
+        def outcome:int (this.genRun(st))
+        st.status = 1
+        if (outcome == 1) {
+            def yv:EvHandle genYieldValue
+            context = savedContext
+            scriptDidReturn = savedDidReturn
+            scriptReturnValue = savedReturnValue
+            strictMode = savedStrict
+            return (this.genResultObject(yv false))
+        }
+        ; Completed or threw: the activation is finished either way.
+        st.status = 3
+        st.fTop = 0
+        st.opTop = 0
+        def rv:EvHandle (EvValueBridge.taggedUndefined())
+        if scriptDidReturn { rv = scriptReturnValue }
+        def threw:boolean scriptThrew
+        context = savedContext
+        scriptDidReturn = savedDidReturn
+        scriptReturnValue = savedReturnValue
+        strictMode = savedStrict
+        if threw {
+            return (EvValueBridge.taggedUndefined())
+        }
+        return (this.genResultObject(rv true))
+    }
+
     fn isGeneratorValue:boolean (v:EvHandle) {
         if (false == (v.isObject())) {
             return false
@@ -13109,9 +14499,35 @@ class ComponentEngine {
             }
         }
         def result:EvHandle (EvValueBridge.taggedNull())
-        ; A generator call runs the body NOW, buffering its yields, and answers
-        ; an iterator over that buffer. See makeGeneratorValue for the limits.
+        ; D-GENRESUME: a generator call runs NOTHING. The activation just
+        ; prepared -- parameters bound, `this` in place -- becomes the
+        ; generator's own live scope, and the first next() starts the body on
+        ; the resumable driver. The frame is deliberately NOT returned to the
+        ; pool below: the generator outlives this call.
         def isGenCall:boolean fnNode.generator
+        if isGenCall {
+            if (this.genBodyResumable(fnNode)) {
+                def genCtx@(optional):EvalContext context
+                def genv:EvHandle (this.makeResumableGenerator(fnNode (unwrap genCtx)))
+                if srcSwapped {
+                    def gst:GenState (this.genStateOf(genv))
+                    gst.srcText = currentSource
+                    gst.srcId = currentSrcId
+                    gst.hasSrc = true
+                    currentSource = savedSrcText
+                    currentSrcId = savedSrcId
+                }
+                strictMode = savedStrict
+                callDepth = (callDepth - 1)
+                context = savedContext
+                currentModule = savedModule
+                scriptDidReturn = savedDidReturn
+                scriptReturnValue = savedReturnValue
+                return genv
+            }
+        }
+        ; The FALLBACK, for a body whose yield spine the driver cannot step:
+        ; run it now and buffer the yields. See makeGeneratorValue.
         def savedGenCollect:[EvHandle] genCollect
         def savedGenDepth:int genDepth
         if isGenCall {
@@ -20057,6 +21473,18 @@ class ComponentEngine {
             ; A generator is its own iterator.
             if (name == "@@iterator") {
                 return recv
+            }
+            ; D-GENRESUME: a RESUMABLE generator's three methods are all one
+            ; operation -- start the suspended body again, telling it how.
+            if (this.isResumableGenerator(recv)) {
+                def rMode:int 0
+                if (name == "return") { rMode = 1 }
+                if (name == "throw") { rMode = 2 }
+                def rSent:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 0) {
+                    rSent = (itemAt args 0)
+                }
+                return (this.genResume(recv rSent rMode))
             }
             ; `throw` resumes the body with an exception. The body here has
             ; already run to completion, so there is nothing to resume into and

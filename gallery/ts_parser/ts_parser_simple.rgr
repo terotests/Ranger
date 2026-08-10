@@ -85,6 +85,13 @@ class TSNode {
   ; regardless would put a context allocation in every loop body.
   def lexScanned:boolean false
   def lexDeclares:boolean false
+  ; Memo: does a `yield` occur anywhere under this node, not counting nested
+  ; function bodies (which have their own)? This is what makes a resumable
+  ; generator affordable -- a subtree with no yield in it is evaluated by the
+  ; ordinary walker in one shot, so only the SPINE leading to a yield is
+  ; decomposed into resumable steps. See ComponentEngine.nodeHasYield.
+  def yieldScanned:boolean false
+  def yieldInside:boolean false
   def evalKind:int 0
   ; Same memo for the OPERATOR string (BinaryExpression "+", "<", ...).
   def evalOpKind:int 0
