@@ -1214,6 +1214,14 @@ class ComponentEngine {
     def currentNewTarget:EvHandle (EvValueBridge.taggedUndefined())
     def pendingNewTarget:EvHandle (EvValueBridge.taggedUndefined())
     def hasPendingNewTarget:boolean false
+    ; D-SUPERCALL: true while a DERIVED constructor is running and has not yet
+    ; called super(). `this` does not exist until it does, so reading one is a
+    ; ReferenceError rather than a half-built object.
+    def derivedCtorPending:boolean false
+    ; Parked by the class-instantiation site for the constructor frame about to
+    ; be created -- the same hand-over the new target uses, and for the same
+    ; reason: the site knows, the frame does not exist yet.
+    def pendingDerivedCtor:boolean false
     ; D-SUPERCALL: how many `super()` calls have run inside the constructor
     ; currently executing. A DERIVED constructor that finishes without one
     ; never initialised `this`, which is a ReferenceError -- the counter is
@@ -15092,6 +15100,15 @@ class ComponentEngine {
         ; D-NEWTARGET: this frame's [[NewTarget]] -- whatever a construct site
         ; parked, or undefined for an ordinary call. Consumed here so the next
         ; call does not inherit it.
+        def savedDerivedPV:boolean derivedCtorPending
+        if pendingDerivedCtor {
+            derivedCtorPending = true
+            pendingDerivedCtor = false
+        } {
+            if ((this.nodeKindOf(fnNode)) != 17) {
+                derivedCtorPending = false
+            }
+        }
         def savedNewTargetV:EvHandle currentNewTarget
         if hasPendingNewTarget {
             currentNewTarget = pendingNewTarget
@@ -15120,6 +15137,7 @@ class ComponentEngine {
                 }
                 strictMode = savedStrict
                 currentNewTarget = savedNewTargetV
+                derivedCtorPending = savedDerivedPV
                 callDepth = (callDepth - 1)
                 context = savedContext
                 currentModule = savedModule
@@ -15157,6 +15175,7 @@ class ComponentEngine {
         }
         strictMode = savedStrict
         currentNewTarget = savedNewTargetV
+        derivedCtorPending = savedDerivedPV
         callDepth = (callDepth - 1)
         context = savedContext
         currentModule = savedModule
@@ -15965,6 +15984,11 @@ class ComponentEngine {
             return seqOut
         }
         if (exprK == 20) {
+            ; D-SUPERCALL: inside a derived constructor `this` does not exist
+            ; until super() has run.
+            if derivedCtorPending {
+                return (this.throwSpecError("ReferenceError" "Must call super constructor in derived class before accessing 'this'"))
+            }
             ; D-GLOBALTHIS: outside any function, `this` is the global object.
             if (false == (context.has("this"))) {
                 ; D-STRICT: a strict function called without a receiver has
@@ -17260,6 +17284,7 @@ class ComponentEngine {
             if isSuperCall {
                 {
                     superCallCount = (superCallCount + 1)
+                    derivedCtorPending = false
                     def selfV:EvHandle (context.lookup("this"))
                     if (selfV.isObject()) {
                         def ownCls:string (this.instanceClassName(selfV))
@@ -29907,6 +29932,17 @@ class ComponentEngine {
             }
         }
         this.bindParams(fnNode argVals)
+        ; D-SUPERCALL: a call that binds its OWN `this` leaves the derived
+        ; constructor's uninitialised-this state behind; an arrow shares it.
+        def savedDerivedP:boolean derivedCtorPending
+        if pendingDerivedCtor {
+            derivedCtorPending = true
+            pendingDerivedCtor = false
+        } {
+            if ((this.nodeKindOf(fnNode)) != 17) {
+                derivedCtorPending = false
+            }
+        }
         ; D-NEWTARGET: this frame's [[NewTarget]] -- whatever a construct site
         ; parked, or undefined for an ordinary call. Consumed here so the next
         ; call does not inherit it.
@@ -29955,6 +29991,7 @@ class ComponentEngine {
         }
         strictMode = savedStrict
         currentNewTarget = savedNewTarget
+        derivedCtorPending = savedDerivedP
         callDepth = (callDepth - 1)
         context = savedContext
         currentModule = savedModule
@@ -30530,12 +30567,15 @@ class ComponentEngine {
             ; the end without one is a ReferenceError rather than a quietly
             ; half-built object.
             def savedSuperN:int superCallCount
+            def savedDerivedPending:boolean derivedCtorPending
             superCallCount = 0
+            pendingDerivedCtor = (this.classIsDerived(cls))
             pendingNewTarget = (this.classValueFor(cls.name))
             hasPendingNewTarget = true
             def _r:EvHandle (this.callUserFunctionNode(ctor node.children inst true))
             def calledSuper:boolean (superCallCount > 0)
             superCallCount = savedSuperN
+            derivedCtorPending = savedDerivedPending
             currentHomeClass = savedHomeC
             if (false == scriptThrew) {
                 if (false == calledSuper) {
