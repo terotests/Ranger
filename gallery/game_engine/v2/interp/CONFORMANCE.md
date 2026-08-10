@@ -825,10 +825,10 @@ after excluding intl402, Temporal, module and async flags:
 
 | | |
 |---|---|
-| **ES2015 overall** | **79.22% (2268/2863)** |
-| pass | 2268 |
-| fail (ran, wrong answer) | 570 |
-| crash (did not run to completion) | 25 |
+| **ES2015 overall** | **80.09% (2293/2863)** |
+| pass | 2293 |
+| fail (ran, wrong answer) | 550 |
+| crash (did not run to completion) | 20 |
 
 The fail/crash split changed meaning partway through this work. An
 uncaught exception used to be swallowed in silence, so a fixture that ran
@@ -881,6 +881,11 @@ How it got here, each row a measured run of the same corpus against the C++
 | template escapes; `Object.assign` boxes a primitive target | 2243 | 78.34% |
 | class definition at the declaration; derived-constructor returns | 2256 | 78.80% |
 | per-kind iterator prototypes; Map/Set answer iterators | 2268 | 79.22% |
+| IteratorClose actually runs; for-of no longer compiles to a drain | 2272 | 79.36% |
+| `class E extends Array` produces a real array | 2274 | 79.43% |
+| live Map/Set iteration; iterator results read as properties | 2282 | 79.71% |
+| for-in heads that are not plain names; `yield*` across a newline | 2289 | 79.95% |
+| `Symbol.toStringTag` on the built-ins that brand with it | 2293 | 80.09% |
 
 The single largest step is not an ES2015 feature at all. `propertyHelper.js` --
 which 543 of these files include -- opens with
@@ -889,38 +894,52 @@ detached. Statics that existed only on the AST call-site chain answered
 undefined that way, so `verifyProperty` died on the first line and 543 files
 failed for a reason unrelated to what they were testing.
 
-Failures by family, at the end of the run above (595 files):
+Failures by family, at the end of the run above (570 files):
 
 | family | files | why |
 |---|---:|---|
-| `language/statements/class` | 65 | 55 of them subclass a BUILT-IN (`class E extends Array`) |
-| `built-ins/Promise` | 61 | NewPromiseCapability and the species lookups: `Promise.all` does not construct C or call each element's own `then` |
+| `built-ins/Promise` | 60 | NewPromiseCapability and the species lookups: `Promise.all` does not construct C or call each element's own `then` |
+| `language/statements/class` | 60 | 30 of them subclass a BUILT-IN other than Array -- ArrayBuffer, DataView, Function, GeneratorFunction |
 | `built-ins/RegExp` | 45 | unicode mode, `compile`, and decimal escapes the lexer refuses |
 | `built-ins/Proxy` | 45 | the remaining trap invariants, and `with (proxy)` |
 | `built-ins/String` | 34 | lone surrogates (12), `normalize` (3), coercion order |
 | `annexB` | 26 | 20 of them `RegExp.prototype.compile` |
 | `built-ins/Object` | 23 | 12 of them the descriptor shape of `Object.prototype.__proto__` |
-| `language/statements/for-of` | 18 | IteratorClose inside a compiled function; live Map/Set iteration |
-| `language/expressions/object` | 14 | super-property in an object method |
+| `language/global-code` | 19 | 11 need `$262.createRealm`, 7 need `$262.evalScript` |
 | `language/expressions/super` | 13 | `super()` through a plain function base |
+| `language/expressions/object` | 13 | super-property in an object method |
 | `language/expressions/yield` | 12 | `yield` in a call argument or an object literal |
+| `language/statements/for-of` | 8 | mapped `arguments`, TDZ in the loop head, astral string iteration |
 
-Sixty-one of the remaining files need `$262` -- the test262 host object,
-with `createRealm` and `evalScript`. That is a harness capability rather
-than an engine one, and nothing here provides it.
+Nineteen of the remaining files need `$262` -- the test262 host object.
+Eleven of those want `createRealm`, a second global this engine has no way
+to make; the other seven want `evalScript`. That is a harness capability
+rather than an engine one, and nothing here provides it.
 
-Two structural gaps account for most of the rest. Extending a built-in
-(`class E extends Array`) needs the instance to BE an array while still
-dispatching the subclass's own methods, which the kind-tagged value model
-cannot express today. And the Promise statics need NewPromiseCapability:
-constructing C with an executor, capturing its resolve/reject, and driving
-each element through its own `then`. The receiver plumbing they depend on
-is in place; the capability protocol is not.
+Two structural gaps account for most of the rest.
 
-One known defect worth naming: for-of inside a compiled function body
-still drains its source instead of stepping it, so an unbounded iterator
-hangs there. The walker's for-of steps and closes properly; the compiled
-path does not, and the two should be brought together.
+The Promise statics need NewPromiseCapability: constructing C with an
+executor, capturing its resolve/reject, and driving each element through
+its own `then`. Today `Promise.all` and `Promise.race` build an intrinsic
+promise directly and read each element's settled state, which is why
+`ctx-ctor`, `invoke-then` and the resolve-element-function shape fixtures
+all fail together. The receiver plumbing they depend on is in place; the
+capability protocol is not.
+
+And there is no TDZ. A `let` or `const` name is simply absent until its
+declaration runs, so a read before it happens to throw ReferenceError for
+the wrong reason inside a block -- and answers undefined at the top level,
+where the global object supplies the name. Thirteen fixtures test the
+difference directly.
+
+Subclassing a built-in works for Array (both halves: the instance IS an
+array and the class's own methods stay reachable) and for the Error
+constructors. ArrayBuffer, DataView and the function constructors remain --
+ArrayBuffer does not exist at all, which is 13 files on its own.
+
+One known engine gap in the native target only: the C++ and Rust builds
+index source by BYTE, so a non-ASCII identifier (`var а = 1`) is a parse
+error there. The es6 build, which has real string indexing, accepts it.
 
 #### What resumable generators cost the rest of the engine
 
@@ -953,9 +972,9 @@ when asking whether ES2015 work cost anything:
 | | pass | score |
 |---|---:|---:|
 | merge base (`9a13ee28`) | 7149 | 88.10% |
-| after the ES2015 work | 7755 | 95.56% |
+| after the ES2015 work | 7784 | 95.92% |
 
-The ES2015 work did not cost ES5 anything; it gained 606 files, most of them
+The ES2015 work did not cost ES5 anything; it gained 635 files, most of them
 from the same detached-statics fix.
 
 ### ES2016 and later: not measured, and not measurable as an era
@@ -966,9 +985,9 @@ with no way to bucket them by edition. An ES2016+ column would have to be built
 from FEATURE tags (`features: [optional-chaining]`, …), which is a different job.
 No number is published here rather than a synthesised one.
 
-### What the 1303-probe suite is not
+### What the 1337-probe suite is not
 
-`npm run jsengine:conformance` reports 1303/1303. That is the runtime-conformance
+`npm run jsengine:conformance` reports 1337/1337. That is the runtime-conformance
 corpus, whose expectations are derived by running the same source through Node.
 It is a regression net, not test262, and the two numbers must not be quoted
 side by side as if they measured the same thing.
