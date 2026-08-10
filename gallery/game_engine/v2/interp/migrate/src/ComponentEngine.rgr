@@ -21056,9 +21056,24 @@ class ComponentEngine {
                                                 dI.setMember("enumerable" (EvValueBridge.taggedBoolean((src.isEnumerable(dk)))))
                                                 dI.setMember("configurable" (EvValueBridge.taggedBoolean((src.isConfigurable(dk)))))
                                             } {
-                                                dI.setMember("writable" (EvValueBridge.taggedBoolean(true)))
+                                                ; FREEZING an array does not
+                                                ; record per-index attributes --
+                                                ; it sets a flag on the value --
+                                                ; so the defaults below reported
+                                                ; every element of a frozen array
+                                                ; as writable and configurable.
+                                                def elW:boolean true
+                                                def elC:boolean true
+                                                if (src.isFrozenObj()) {
+                                                    elW = false
+                                                    elC = false
+                                                }
+                                                if (src.isSealedObj()) {
+                                                    elC = false
+                                                }
+                                                dI.setMember("writable" (EvValueBridge.taggedBoolean(elW)))
                                                 dI.setMember("enumerable" (EvValueBridge.taggedBoolean(true)))
-                                                dI.setMember("configurable" (EvValueBridge.taggedBoolean(true)))
+                                                dI.setMember("configurable" (EvValueBridge.taggedBoolean(elC)))
                                             }
                                             return dI
                                         }
@@ -26453,7 +26468,10 @@ class ComponentEngine {
     fn stringToNumber:double (raw:string) {
         def nan:double (0.0 / 0.0)
         def inf:double (1.0 / 0.0)
-        def s:string (trim raw)
+        ; D-STRNUM: StrWhiteSpace is the full WhiteSpace + LineTerminator set,
+        ; not the host `trim`'s idea of it -- `Number("\u00A0 1")` is 1, and
+        ; a string of nothing but those characters is +0.
+        def s:string (this.trimJs(raw true true))
         def n:int (strlen s)
         if (n == 0) {
             return 0.0
