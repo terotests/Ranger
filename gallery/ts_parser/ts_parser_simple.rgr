@@ -25,6 +25,10 @@ class TSNode {
   ; ESTree Property flags (ES2015)
   def shorthand:boolean false ; { x } shorthand property
   def computed:boolean false  ; { [expr]: value } computed property
+  ; { 1.0: v } -- the key is a NUMERIC literal, so its property name is
+  ; ToString of its VALUE ("1"), not the source text. The parser cannot format
+  ; a double the way JS does; the engine can, and this is what tells it to.
+  def numericKey:boolean false
   def accessor:string ""      ; "get" / "set" for a class accessor member
   ; True for a node written inside parentheses. A parenthesised object or array
   ; literal is not a valid assignment target -- `({a} = b)` destructures but
@@ -7197,6 +7201,9 @@ class TSParserSimple {
             }
           }
           prop.name = keyTok.value
+          if (keyTok.tokenType == "Number") {
+            prop.numericKey = true
+          }
           this.advance()
         } {
           if (isComputed) {

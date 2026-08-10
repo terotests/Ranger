@@ -2183,6 +2183,35 @@ class ComponentEngine {
             }
             return ""
         }
+        ; An ARRAY is frozen, sealed and non-extensible the same way an object
+        ; is, and its ELEMENTS carry attributes too. Only plain objects were
+        ; consulted, so `Object.freeze([1])[0] = 9` took the write and a frozen
+        ; array was not frozen at all.
+        if (obj.isArrayValue()) {
+            if (obj.isFrozenObj()) {
+                return ("Cannot assign to read only property " + key + " of a frozen object")
+            }
+            if (obj.hasOwnAttrs(key)) {
+                if (false == (obj.isWritable(key))) {
+                    return ("Cannot assign to read only property " + key)
+                }
+                return ""
+            }
+            ; A new INDEX past the end, or a new named property, needs the
+            ; array to be extensible.
+            if (false == (obj.isExtensible())) {
+                def idxD:double (this.canonicalArrayIndexD(key))
+                if (idxD >= (obj.arrayLengthD())) {
+                    return ("Cannot add property " + key + " to a non-extensible object")
+                }
+                if (idxD < 0.0) {
+                    if (false == (obj.hasOwnData(key))) {
+                        return ("Cannot add property " + key + " to a non-extensible object")
+                    }
+                }
+            }
+            return ""
+        }
         if (false == (obj.isObject())) {
             return ""
         }
@@ -7582,6 +7611,19 @@ class ComponentEngine {
                 return (this.throwSpecError("TypeError" ("Cannot set properties of " + (baseDesc + (" (setting '" + (wname + "')"))))))
             }
         }
+        ; D-STRICT: a property write through a PRIMITIVE receiver goes to a
+        ; throwaway wrapper, so it can never be observed -- which is a refused
+        ; write, and strict mode reports one. `"ab"[0] = "z"` and `(5).x = 1`
+        ; both dropped silently in either mode.
+        if strictMode {
+            def primRecv:boolean false
+            if (obj.isString()) { primRecv = true }
+            if (obj.isNumber()) { primRecv = true }
+            if (obj.isBoolean()) { primRecv = true }
+            if primRecv {
+                return (this.throwSpecError("TypeError" ("Cannot create property '" + (leftNode.name + "' on " + ((this.typeofTag(obj)) + " value")))))
+            }
+        }
         ; annexB B.2.2.1: writing `o.__proto__` IS [[SetPrototypeOf]]. Only an
         ; object or null does anything; anything else is ignored rather than
         ; stored as a property.
@@ -7706,6 +7748,16 @@ class ComponentEngine {
             }
         }
         if numericIndexes {
+            ; A frozen or non-extensible array refuses an element write exactly
+            ; as an object refuses a property write. The check lived only on the
+            ; named-property branch below, so every index write skipped it.
+            def eErr:string (this.writeRefusalError(obj key))
+            if ((strlen eErr) > 0) {
+                if strictMode {
+                    return (this.throwSpecError("TypeError" eErr))
+                }
+                return (this.applyAssignOp(opK (obj.getIndex(numIdx)) rightValue))
+            }
             ; D-ARRAYSPARSE: the backing store is DENSE, so an index far past the
             ; end cannot be materialised -- `x[2147483648] = 1` asked the host for
             ; two billion slots and took the process down with "Invalid array
@@ -17932,19 +17984,12 @@ class ComponentEngine {
                 if (fnName == "Function") {
                     return (this.buildFunctionFromSource(node.children))
                 }
-                if (fnName == "parseInt") {
-                    if ((array_length node.children) > 0) {
-                        def pv:EvHandle (this.evaluateExpr((itemAt node.children 0)))
-                        return (EvValueBridge.taggedNumber((this.truncNum((pv.toNumber())))))
+                if ((fnName == "parseInt") || (fnName == "parseFloat")) {
+                    def piArgs:[EvHandle] (this.collectCallArgs(node))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
                     }
-                    return (EvValueBridge.taggedNumber(0.0))
-                }
-                if (fnName == "parseFloat") {
-                    if ((array_length node.children) > 0) {
-                        def pv:EvHandle (this.evaluateExpr((itemAt node.children 0)))
-                        return (EvValueBridge.taggedNumber((pv.toNumber())))
-                    }
-                    return (EvValueBridge.taggedNumber(0.0))
+                    return (this.callParseGlobal(fnName piArgs))
                 }
                 ; annexB B.2.1: escape/unescape. Both are ToString of their
                 ; argument first, so an object argument runs its own toString and
@@ -22226,6 +22271,33 @@ class ComponentEngine {
 
     ; The digits of a NON-NEGATIVE magnitude with exactly `decimals` places.
     fn fixedMagnitude:string (mag:double decimals:int) {
+        ; D-NUMFMT: when the value's own shortest decimal form already fits in
+        ; `decimals` places, that form padded with zeros IS the answer, and it
+        ; is the only way to get it right for a large `decimals`: scaling by
+        ; 10^30 or 10^100 cannot be done in a double, so `(1).toFixed(30)` came
+        ; back as 0.999999999999999900000000000000.
+        def shortForm:string (this.toStringOf((EvValueBridge.taggedNumber(mag))))
+        if ((indexOf shortForm "e") < 0) {
+            def dotAt:int (indexOf shortForm ".")
+            def whole:string shortForm
+            def frac:string ""
+            if (dotAt >= 0) {
+                whole = (substring shortForm 0 dotAt)
+                frac = (substring shortForm (dotAt + 1) (strlen shortForm))
+            }
+            if ((strlen frac) <= decimals) {
+                if (decimals == 0) {
+                    return whole
+                }
+                def padded:string frac
+                def pz:int (strlen frac)
+                while (pz < decimals) {
+                    padded = (padded + "0")
+                    pz = (pz + 1)
+                }
+                return (whole + ("." + padded))
+            }
+        }
         def multiplier:double 1.0
         def i:int 0
         while (i < decimals) {
@@ -22261,10 +22333,10 @@ class ComponentEngine {
     ; "123.0" depending on magnitude, and neither is usable as a digit string.
     fn integerDigits:string (v:double) {
         def s:string (to_string v)
-        def dot:int (indexOf s ".")
-        if (dot >= 0) {
-            s = (substring s 0 dot)
-        }
+        ; The EXPONENT is looked for first. Stripping at the dot beforehand
+        ; turned "9.9999999999999997e+29" into "9" and threw the exponent away
+        ; with it, so `(1).toFixed(30)` answered 0.000…009 -- but `(1).toFixed(50)`
+        ; was right, because that magnitude happened to print without a dot.
         def e:int (indexOf s "e")
         if (e >= 0) {
             ; Exponential form: expand it rather than returning it verbatim.
@@ -22293,11 +22365,93 @@ class ComponentEngine {
                 return out
             }
         }
+        def dot:int (indexOf s ".")
+        if (dot >= 0) {
+            s = (substring s 0 dot)
+        }
         return s
     }
 
     ; D-NUMFMT: Number.prototype.toExponential -- one digit before the point,
     ; `fractionDigits` after, then the base-10 exponent.
+    ; The fraction-digit count a no-argument toExponential needs: the shortest
+    ; round-tripping decimal form of the value carries exactly the significant
+    ; digits, and one of them sits before the point.
+    fn significantDigitsOf:int (v:double) {
+        if (v == 0.0) {
+            return 0
+        }
+        def s:string (this.toStringOf((EvValueBridge.taggedNumber(v))))
+        def digits:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((c >= 48) && (c <= 57)) {
+                digits = (digits + (substring s i (i + 1)))
+            }
+            ; The exponent's own digits are not significant digits of the
+            ; mantissa, so the scan stops where it begins.
+            if ((c == 101) || (c == 69)) {
+                i = n
+            }
+            i = (i + 1)
+        }
+        ; Leading zeros belong to the scale, not to the value: 0.00123 carries
+        ; three significant digits, not six.
+        def lead:int 0
+        while (lead < (strlen digits)) {
+            if ((charAt digits lead) != 48) {
+                lead = (strlen digits)
+            } {
+                lead = (lead + 1)
+            }
+        }
+        def firstNonZero:int 0
+        def k:int 0
+        def found:boolean false
+        while (k < (strlen digits)) {
+            if (false == found) {
+                if ((charAt digits k) != 48) {
+                    firstNonZero = k
+                    found = true
+                }
+            }
+            k = (k + 1)
+        }
+        if (false == found) {
+            return 0
+        }
+        def trimmed:string (substring digits firstNonZero (strlen digits))
+        ; Trailing zeros carry no information either.
+        def endAt:int (strlen trimmed)
+        while (endAt > 1) {
+            if ((charAt trimmed (endAt - 1)) == 48) {
+                endAt = (endAt - 1)
+            } {
+                endAt = 1
+            }
+        }
+        def keep:int (strlen trimmed)
+        def z:int (strlen trimmed)
+        while (z > 1) {
+            if ((charAt trimmed (z - 1)) == 48) {
+                keep = (z - 1)
+                z = (z - 1)
+            } {
+                z = 1
+            }
+        }
+        def out:int (keep - 1)
+        if (out < 0) {
+            return 0
+        }
+        if (out > 100) {
+            return 100
+        }
+        return out
+    }
+
     fn toExponentialString:string (numVal:double fractionDigits:int) {
         if (numVal != numVal) {
             return "NaN"
@@ -24335,6 +24489,10 @@ class ComponentEngine {
             ; mutator names; every branch that reads `elems` still gets it.
             def isArrayMutator:boolean false
             if (name == "push") { isArrayMutator = true }
+            ; A mutator that has to MOVE `length` cannot run on an array whose
+            ; length is non-writable: `Object.defineProperty(a, "length",
+            ; {writable:false}); a.push(x)` is a TypeError, and it silently
+            ; grew the array instead.
             if (name == "pop") { isArrayMutator = true }
             if (name == "shift") { isArrayMutator = true }
             if (name == "unshift") { isArrayMutator = true }
@@ -24343,6 +24501,21 @@ class ComponentEngine {
             if (name == "sort") { isArrayMutator = true }
             if (name == "fill") { isArrayMutator = true }
             if (name == "copyWithin") { isArrayMutator = true }
+            def movesLength:boolean false
+            if (name == "push") { movesLength = true }
+            if (name == "pop") { movesLength = true }
+            if (name == "shift") { movesLength = true }
+            if (name == "unshift") { movesLength = true }
+            if (name == "splice") { movesLength = true }
+            if movesLength {
+                if (recv.isArrayValue()) {
+                    if (recv.hasOwnAttrs("length")) {
+                        if (false == (recv.isWritable("length"))) {
+                            return (this.throwSpecError("TypeError" "Cannot assign to read only property 'length'"))
+                        }
+                    }
+                }
+            }
             ; D-ARRAYLIKE: the MUTATORS are generic too. They write back through
             ; the receiver's element list, which only a real array has, so
             ; `Array.prototype.push.call({length: 0}, 1)` did nothing at all and
@@ -25504,6 +25677,13 @@ class ComponentEngine {
                     if ((edigits < 0) || (edigits > 100)) {
                         return (this.throwSpecError("RangeError" "toExponential() argument must be between 0 and 100"))
                     }
+                } {
+                    ; §20.1.3.2 with no argument: as many fraction digits as it
+                    ; takes to represent the value uniquely -- not six. The flag
+                    ; was computed and never read, so `(123456).toExponential()`
+                    ; formatted six digits of a mantissa it had already lost and
+                    ; answered "0.000001e+5".
+                    edigits = (this.significantDigitsOf(fnum))
                 }
                 return (EvValueBridge.taggedString((this.toExponentialString(fnum edigits))))
             }
@@ -29483,6 +29663,220 @@ class ComponentEngine {
             return (this.uriDecode(a0 true))
         }
         return (this.uriDecode(a0 false))
+    }
+
+    ; ---- §18.2.5 parseInt / §18.2.4 parseFloat ---------------------------
+    ; D-PARSEINT: both were ToNumber in disguise. parseInt ignored its RADIX
+    ; entirely -- `parseInt("1F", 16)` answered 0 and `parseInt("10", 2)`
+    ; answered 10 -- and neither stopped at the first character it could not
+    ; use, so `parseInt("42abc")` and `parseFloat("3.14abc")` were both NaN
+    ; rather than 42 and 3.14.
+    fn parseIntOf:double (input:string radixIn:int) {
+        def n:int (strlen input)
+        def i:int 0
+        ; StrWhiteSpace: leading whitespace is skipped, and everything from the
+        ; first unusable character on is ignored.
+        def scanning:boolean true
+        while (scanning && (i < n)) {
+            def wc2:int (bit_and (charAt input i) 255)
+            def isWs2:boolean false
+            if (wc2 == 32) { isWs2 = true }
+            if (wc2 == 9) { isWs2 = true }
+            if (wc2 == 10) { isWs2 = true }
+            if (wc2 == 13) { isWs2 = true }
+            if (wc2 == 11) { isWs2 = true }
+            if (wc2 == 12) { isWs2 = true }
+            if isWs2 { i = (i + 1) } { scanning = false }
+        }
+        def sign:double 1.0
+        if (i < n) {
+            def sc:int (bit_and (charAt input i) 255)
+            if (sc == 45) {
+                sign = (0.0 - 1.0)
+                i = (i + 1)
+            } {
+                if (sc == 43) {
+                    i = (i + 1)
+                }
+            }
+        }
+        def radix:int radixIn
+        def stripPrefix:boolean false
+        if (radix == 0) {
+            radix = 10
+            stripPrefix = true
+        } {
+            if (radix == 16) {
+                stripPrefix = true
+            } {
+                ; A radix outside 2..36 -- 1 and 37 among them -- is NaN.
+                if ((radix < 2) || (radix > 36)) {
+                    return (0.0 / 0.0)
+                }
+            }
+        }
+        if stripPrefix {
+            if ((i + 1) < n) {
+                if ((bit_and (charAt input i) 255) == 48) {
+                    def xc:int (bit_and (charAt input (i + 1)) 255)
+                    if ((xc == 120) || (xc == 88)) {
+                        i = (i + 2)
+                        radix = 16
+                    }
+                }
+            }
+        }
+        def acc:double 0.0
+        def any:boolean false
+        def running:boolean true
+        while (running && (i < n)) {
+            def c:int (bit_and (charAt input i) 255)
+            def dv:int (0 - 1)
+            if ((c >= 48) && (c <= 57)) { dv = (c - 48) }
+            if ((c >= 97) && (c <= 122)) { dv = ((c - 97) + 10) }
+            if ((c >= 65) && (c <= 90)) { dv = ((c - 65) + 10) }
+            if (dv < 0) {
+                running = false
+            } {
+                if (dv >= radix) {
+                    running = false
+                } {
+                    acc = ((acc * (to_double radix)) + (to_double dv))
+                    any = true
+                    i = (i + 1)
+                }
+            }
+        }
+        if (false == any) {
+            return (0.0 / 0.0)
+        }
+        return (sign * acc)
+    }
+
+    ; parseFloat: the longest StrDecimalLiteral prefix, which is NOT the same
+    ; grammar ToNumber uses -- `parseFloat("0x10")` is 0, because the prefix it
+    ; can read is just "0".
+    fn parseFloatOf:double (input:string) {
+        def n:int (strlen input)
+        def i:int 0
+        def scanning:boolean true
+        while (scanning && (i < n)) {
+            def wc:int (bit_and (charAt input i) 255)
+            def isWs:boolean false
+            if (wc == 32) { isWs = true }
+            if (wc == 9) { isWs = true }
+            if (wc == 10) { isWs = true }
+            if (wc == 13) { isWs = true }
+            if (wc == 11) { isWs = true }
+            if (wc == 12) { isWs = true }
+            if isWs { i = (i + 1) } { scanning = false }
+        }
+        def start:int i
+        if (i < n) {
+            def sc:int (bit_and (charAt input i) 255)
+            if ((sc == 45) || (sc == 43)) {
+                i = (i + 1)
+            }
+        }
+        ; Infinity is part of the grammar, with the sign already consumed.
+        if ((i + 8) <= n) {
+            if ((substring input i (i + 8)) == "Infinity") {
+                if ((bit_and (charAt input start) 255) == 45) {
+                    return (0.0 - (1.0 / 0.0))
+                }
+                return (1.0 / 0.0)
+            }
+        }
+        def digitsBefore:int 0
+        def scanInt:boolean true
+        while (scanInt && (i < n)) {
+            def c2:int (bit_and (charAt input i) 255)
+            if ((c2 >= 48) && (c2 <= 57)) {
+                digitsBefore = (digitsBefore + 1)
+                i = (i + 1)
+            } {
+                scanInt = false
+            }
+        }
+        def digitsAfter:int 0
+        if (i < n) {
+            if ((bit_and (charAt input i) 255) == 46) {
+                def dotAt:int i
+                i = (i + 1)
+                def scanFrac:boolean true
+                while (scanFrac && (i < n)) {
+                    def c3:int (bit_and (charAt input i) 255)
+                    if ((c3 >= 48) && (c3 <= 57)) {
+                        digitsAfter = (digitsAfter + 1)
+                        i = (i + 1)
+                    } {
+                        scanFrac = false
+                    }
+                }
+                ; A lone "." with no digits on either side is not a literal.
+                if ((digitsBefore + digitsAfter) == 0) {
+                    i = dotAt
+                }
+            }
+        }
+        if ((digitsBefore + digitsAfter) == 0) {
+            return (0.0 / 0.0)
+        }
+        ; An exponent counts only when it carries at least one digit.
+        if (i < n) {
+            def ec:int (bit_and (charAt input i) 255)
+            if ((ec == 101) || (ec == 69)) {
+                def expStart:int i
+                def j:int (i + 1)
+                if (j < n) {
+                    def es:int (bit_and (charAt input j) 255)
+                    if ((es == 45) || (es == 43)) {
+                        j = (j + 1)
+                    }
+                }
+                def expDigits:int 0
+                def scanExp:boolean true
+                while (scanExp && (j < n)) {
+                    def c4:int (bit_and (charAt input j) 255)
+                    if ((c4 >= 48) && (c4 <= 57)) {
+                        expDigits = (expDigits + 1)
+                        j = (j + 1)
+                    } {
+                        scanExp = false
+                    }
+                }
+                if (expDigits > 0) {
+                    i = j
+                } {
+                    i = expStart
+                }
+            }
+        }
+        def lit:string (substring input start i)
+        return (this.stringToNumber(lit))
+    }
+
+    fn callParseGlobal:EvHandle (name:string args:[EvHandle]) {
+        def a0:string ""
+        if ((array_length args) > 0) {
+            a0 = (this.toStringOf((itemAt args 0)))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+        } {
+            a0 = "undefined"
+        }
+        if (name == "parseFloat") {
+            return (EvValueBridge.taggedNumber((this.parseFloatOf(a0))))
+        }
+        def radix:int 0
+        if ((array_length args) > 1) {
+            radix = (this.toInt32Of((itemAt args 1)))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+        }
+        return (EvValueBridge.taggedNumber((this.parseIntOf(a0 radix))))
     }
 
     fn escapeString:string (s:string) {
@@ -33668,6 +34062,13 @@ class ComponentEngine {
             def prop:TSNode (itemAt node.children i)
             if (prop.nodeType == "Property") {
                 def key:string prop.name
+                ; A NUMERIC key's property name is ToString of its VALUE, not
+                ; the source text: `{1.0: v}` is the property "1" and
+                ; `{1e21: v}` is "1e+21". The raw text was used, so both keyed
+                ; under a name no numeric lookup could ever produce.
+                if prop.numericKey {
+                    key = (this.toStringOf((EvValueBridge.taggedNumber((this.stringToNumber(key))))))
+                }
                 ; `{ [expr]: v }` -- the parser leaves `name` empty and puts the
                 ; key expression on `right`. Reading `name` regardless built the
                 ; object with an EMPTY key, so `{[k]:1}` answered `{"":1}` and

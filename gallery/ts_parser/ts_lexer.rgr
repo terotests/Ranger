@@ -434,11 +434,19 @@ class TSLexer {
                                     } {
                                         if (esc == "0") {
                                             ; \0 is NUL only when no digit follows;
-                                            ; \01 is a legacy octal escape.
+                                            ; \01 is a legacy octal escape. An 8 or
+                                            ; a 9 is not an octal digit, so `\08`
+                                            ; is NUL followed by "8".
                                             def afterZero:string (this.peek())
+                                            def zeroOctal:boolean false
                                             if (this.isDigit(afterZero)) {
+                                                if ((afterZero != "8") && (afterZero != "9")) {
+                                                    zeroOctal = true
+                                                }
+                                            }
+                                            if zeroOctal {
                                                 sawOctalEscape = true
-                                                value = value + esc
+                                                value = value + (this.readLegacyOctalEscape(esc))
                                             } {
                                                 value = value + (strfromcode 0)
                                             }
@@ -483,11 +491,18 @@ class TSLexer {
                                                                 return (this.makeToken("Invalid" value startPos startLine startCol))
                                                             }
                                                             ; \1..\7 is a legacy
-                                                            ; octal escape.
+                                                            ; octal escape, and it stands
+                                                            ; for the CHARACTER those digits
+                                                            ; name. The digits were copied
+                                                            ; through verbatim, so "\101"
+                                                            ; was the three-character "101"
+                                                            ; rather than "A".
                                                             if (this.isDigit(esc)) {
                                                                 sawOctalEscape = true
+                                                                value = value + (this.readLegacyOctalEscape(esc))
+                                                            } {
+                                                                value = value + esc
                                                             }
-                                                            value = value + esc
                                                         }
                                                     }
                                                 }
@@ -689,6 +704,28 @@ class TSLexer {
     ; Read a radix-prefixed integer literal (0x.. / 0b.. / 0o..) after the two
     ; prefix chars, converting to a decimal string so downstream numeric parsing
     ; (to_double / to_int) consumes it uniformly.
+    ; annexB B.1.2: a LegacyOctalEscapeSequence is one to three octal digits,
+    ; and at most two when the first is 4..7 -- the value never exceeds 255.
+    ; The first digit has already been consumed.
+    fn readLegacyOctalEscape:string (first:string) {
+        def v:int (this.digitVal(first))
+        def maxMore:int 2
+        if (v >= 4) { maxMore = 1 }
+        def taken:int 0
+        while (taken < maxMore) {
+            def nx:string (this.peek())
+            def d:int (this.digitVal(nx))
+            if ((d < 0) || (d > 7)) {
+                taken = maxMore
+            } {
+                v = ((v * 8) + d)
+                this.advance()
+                taken = (taken + 1)
+            }
+        }
+        return (this.codeUnitString(v))
+    }
+
     fn readRadix:Token (radix:int startPos:int startLine:int startCol:int) {
         this.advance()
         this.advance()
@@ -832,7 +869,32 @@ class TSLexer {
             }
             return (this.makeToken("Invalid" (substring source startPos pos) startPos startLine startCol))
         }
-        def numTok:Token (this.makeToken("Number" value startPos startLine startCol))
+        ; annexB B.1.1: a LegacyOctalIntegerLiteral is base 8. The digits were
+        ; kept verbatim and read as decimal downstream, so `010` was 10 and
+        ; `0777` was 777. A NonOctalDecimalIntegerLiteral (`08`, `0888`) really
+        ; is decimal and is left alone.
+        def numText:string value
+        if legacyOctal {
+            if (false == nonOctalDecimal) {
+                def oacc:int 0
+                def oi:int 0
+                def ook:boolean true
+                while (oi < (strlen numText)) {
+                    def od:int (this.digitVal((substring numText oi (oi + 1))))
+                    if ((od < 0) || (od > 7)) {
+                        ook = false
+                        oi = (strlen numText)
+                    } {
+                        oacc = ((oacc * 8) + od)
+                        oi = (oi + 1)
+                    }
+                }
+                if ook {
+                    numText = (to_string oacc)
+                }
+            }
+        }
+        def numTok:Token (this.makeToken("Number" numText startPos startLine startCol))
         numTok.legacyOctal = legacyOctal
         if nonOctalDecimal { numTok.legacyOctal = true }
         return numTok
