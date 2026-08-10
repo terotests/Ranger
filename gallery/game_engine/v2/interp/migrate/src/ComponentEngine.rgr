@@ -1158,10 +1158,14 @@ class ComponentEngine {
     ; is the global object even under a strict program, so "am I inside a call"
     ; has to be answerable separately from "am I strict".
     def callDepth:int 0
-    ; ---- Generators (see makeGeneratorValue) -------------------------------
-    ; A yield appends to this buffer while a generator body runs. genDepth > 0
-    ; means "inside a generator body", which is what makes a bare `yield`
-    ; outside one still evaluate to undefined rather than corrupting a buffer.
+    ; ---- Generators: the EAGER FALLBACK ------------------------------------
+    ; Bodies whose yield spine the resumable driver can step never come near
+    ; this (see D-GENRESUME); it is what remains for the few syntactic
+    ; positions the driver does not handle yet, where buffering the yields is
+    ; still better than running wrongly.
+    ; A yield appends to this buffer while such a body runs. genDepth > 0 means
+    ; "inside a generator body", which is what makes a bare `yield` outside one
+    ; still evaluate to undefined rather than corrupting a buffer.
     def genCollect:[EvHandle]
     def genDepth:int 0
     ; A generator whose body never terminates would otherwise hang the engine.
@@ -15668,10 +15672,11 @@ class ComponentEngine {
             }
             return (this.lookupIdentifier(node.name))
         }
-        ; `yield x` inside a generator body: the value joins the buffer the
-        ; generator call is collecting. The expression itself evaluates to
-        ; undefined, because this implementation cannot receive a value back
-        ; from next(v) -- see makeGeneratorValue for what that costs.
+        ; `yield x` reached through the EAGER FALLBACK path: the value joins
+        ; the buffer the generator call is collecting, and the expression
+        ; evaluates to undefined because there is no suspension to receive a
+        ; value back into. A body the resumable driver accepts never gets here
+        ; -- its yields are stepped by genStepValue instead.
         if (exprK == 26) {
             def yv:EvHandle (EvValueBridge.taggedUndefined())
             if node.left {
