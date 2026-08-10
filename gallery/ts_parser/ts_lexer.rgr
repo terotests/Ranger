@@ -256,7 +256,7 @@ class TSLexer {
         if (ch == "\r") { return true }
         if (ch == "\r\n") { return true }
         if ((strlen ch) == 0) { return false }
-        def code:int (charAt ch 0)
+        def code:int (this.charStringCodePoint(ch))
         if (code == 11) { return true }      ; vertical tab
         if (code == 12) { return true }      ; form feed
         if (code == 160) { return true }     ; no-break space
@@ -307,10 +307,9 @@ class TSLexer {
         if (ch == "\r") { return true }
         if (ch == "\r\n") { return true }
         if ((strlen ch) == 0) { return false }
-        def code:int (charAt ch 0)
+        def code:int (this.charStringCodePoint(ch))
         if (code == 8232) { return true }
         if (code == 8233) { return true }
-        if (this.isLsPsUtf8(ch)) { return true }
         return false
     }
 
@@ -321,13 +320,47 @@ class TSLexer {
     ; LEAD byte (-30), never 8232 -- so the separator is recognised by its
     ; three bytes E2 80 A8 / A9, masked out of the signed chars.
     fn isLsPsUtf8:boolean (ch:string) {
-        if ((strlen ch) != 3) { return false }
-        if ((bit_and (charAt ch 0) 255) != 226) { return false }
-        if ((bit_and (charAt ch 1) 255) != 128) { return false }
-        def c2:int (bit_and (charAt ch 2) 255)
-        if (c2 == 168) { return true }
-        if (c2 == 169) { return true }
+        def cp:int (this.charStringCodePoint(ch))
+        if (cp == 8232) { return true }
+        if (cp == 8233) { return true }
         return false
+    }
+
+    ; The code point a one-CHARACTER string stands for. On the char-model
+    ; targets that is just its first unit; on the byte-model target `at` hands
+    ; back a character's UTF-8 BYTES, so the sequence has to be decoded --
+    ; without which every non-ASCII whitespace character (NBSP, the Zs block,
+    ; the BOM, LS and PS) went unrecognised in the source text.
+    fn charStringCodePoint:int (ch:string) {
+        def n:int (strlen ch)
+        if (n == 0) { return -1 }
+        def b0:int (bit_and (charAt ch 0) 255)
+        if (n == 1) {
+            ; A single unit above 127 can only be a decoded character: a lone
+            ; UTF-8 lead or continuation byte never arrives on its own.
+            return (bit_and (charAt ch 0) 65535)
+        }
+        if (n == 2) {
+            if ((b0 >= 192) && (b0 <= 223)) {
+                def c1:int (bit_and (charAt ch 1) 255)
+                if ((c1 >= 128) && (c1 <= 191)) {
+                    return (((bit_and b0 31) * 64) + (bit_and c1 63))
+                }
+            }
+            return (bit_and (charAt ch 0) 65535)
+        }
+        if (n == 3) {
+            if ((b0 >= 224) && (b0 <= 239)) {
+                def d1:int (bit_and (charAt ch 1) 255)
+                def d2:int (bit_and (charAt ch 2) 255)
+                if ((d1 >= 128) && (d1 <= 191)) {
+                    if ((d2 >= 128) && (d2 <= 191)) {
+                        return ((((bit_and b0 15) * 4096) + ((bit_and d1 63) * 64)) + (bit_and d2 63))
+                    }
+                }
+            }
+        }
+        return (bit_and (charAt ch 0) 65535)
     }
 
     fn readLineComment:Token () {

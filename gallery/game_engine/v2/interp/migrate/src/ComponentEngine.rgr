@@ -24102,20 +24102,14 @@ class ComponentEngine {
                         }
                         return (EvValueBridge.taggedString(out))
                     }
+                    ; Both stripped SPACES only -- not even a tab -- so they
+                    ; disagreed with `trim` about the same string. One
+                    ; implementation now, over the full WhiteSpace set.
                     if (name == "trimStart") {
-                        def L:int (strlen s)
-                        def a:int 0
-                        while ((a < L) && ((substring s a (a + 1)) == " ")) {
-                            a = (a + 1)
-                        }
-                        return (EvValueBridge.taggedString((substring s a L)))
+                        return (EvValueBridge.taggedString((this.trimJs(s true false))))
                     }
                     if (name == "trimEnd") {
-                        def b:int (strlen s)
-                        while ((b > 0) && ((substring s (b - 1) b) == " ")) {
-                            b = (b - 1)
-                        }
-                        return (EvValueBridge.taggedString((substring s 0 b)))
+                        return (EvValueBridge.taggedString((this.trimJs(s false true))))
                     }
                     ; replace (first match) and replaceAll — string search only, done
                     ; via indexOf/substring so behaviour is backend-independent.
@@ -24265,7 +24259,13 @@ class ComponentEngine {
                     }
             if (name == "toUpperCase") { return (EvValueBridge.taggedString((to_uppercase s))) }
             if (name == "toLowerCase") { return (EvValueBridge.taggedString((to_lowercase s))) }
-            if (name == "trim") { return (EvValueBridge.taggedString((trim s))) }
+            ; D-TRIM: §21.1.3.27 strips every WhiteSpace and LineTerminator, not
+            ; just the ASCII ones. The host `trim` knows about spaces and tabs,
+            ; so NBSP, the Zs block, the BOM and LS/PS all survived at either
+            ; end -- 22 fixtures in the suite are exactly that.
+            if (name == "trim") { return (EvValueBridge.taggedString((this.trimJs(s true true)))) }
+            if (name == "trimStart") { return (EvValueBridge.taggedString((this.trimJs(s true false)))) }
+            if (name == "trimEnd") { return (EvValueBridge.taggedString((this.trimJs(s false true)))) }
             ; ---- annexB B.2.2 HTML wrappers ---------------------------------
             ; CreateHTML: wrap the string in a tag, optionally with one
             ; attribute whose value has every `"` replaced by `&quot;` -- and
@@ -29945,6 +29945,108 @@ class ComponentEngine {
         return (EvValueBridge.taggedNumber((this.parseIntOf(a0 radix))))
     }
 
+    ; D-TRIM: the JS WhiteSpace + LineTerminator set, §11.2 and §11.3.
+    ; Worked in CODE POINTS rather than in units: `strlen` and `charAt` index
+    ; BYTES on the native targets while `substring` indexes code points, so
+    ; mixing the two cuts a multi-byte character in half. `at` walks code
+    ; points on every target, which is the one view both ends agree on.
+    fn isJsSpaceChar:boolean (ch:string) {
+        def n:int (strlen ch)
+        if (n == 0) { return false }
+        def cp:int (this.charCodePointOf(ch))
+        if (cp == 9) { return true }
+        if (cp == 10) { return true }
+        if (cp == 11) { return true }
+        if (cp == 12) { return true }
+        if (cp == 13) { return true }
+        if (cp == 32) { return true }
+        if (cp == 160) { return true }      ; NO-BREAK SPACE
+        if (cp == 5760) { return true }     ; OGHAM SPACE MARK
+        if ((cp >= 8192) && (cp <= 8202)) { return true } ; EN QUAD .. HAIR SPACE
+        if (cp == 8232) { return true }     ; LINE SEPARATOR
+        if (cp == 8233) { return true }     ; PARAGRAPH SEPARATOR
+        if (cp == 8239) { return true }     ; NARROW NO-BREAK SPACE
+        if (cp == 8287) { return true }     ; MEDIUM MATHEMATICAL SPACE
+        if (cp == 12288) { return true }    ; IDEOGRAPHIC SPACE
+        if (cp == 65279) { return true }    ; ZERO WIDTH NO-BREAK SPACE
+        return false
+    }
+
+    ; The code point a one-character string stands for. On the char-model
+    ; targets that is its first unit; on the byte-model target `at` hands back
+    ; the character's UTF-8 bytes, which have to be decoded.
+    fn charCodePointOf:int (ch:string) {
+        def n:int (strlen ch)
+        if (n == 0) { return -1 }
+        def b0:int (bit_and (charAt ch 0) 255)
+        if (n == 2) {
+            if ((b0 >= 194) && (b0 <= 223)) {
+                def c1:int (bit_and (charAt ch 1) 255)
+                if ((c1 >= 128) && (c1 <= 191)) {
+                    return (((bit_and b0 31) * 64) + (bit_and c1 63))
+                }
+            }
+        }
+        if (n == 3) {
+            if ((b0 >= 224) && (b0 <= 239)) {
+                def d1:int (bit_and (charAt ch 1) 255)
+                def d2:int (bit_and (charAt ch 2) 255)
+                if ((d1 >= 128) && (d1 <= 191)) {
+                    if ((d2 >= 128) && (d2 <= 191)) {
+                        return ((((bit_and b0 15) * 4096) + ((bit_and d1 63) * 64)) + (bit_and d2 63))
+                    }
+                }
+            }
+        }
+        return (bit_and (charAt ch 0) 65535)
+    }
+
+    fn trimJs:string (s:string fromStart:boolean fromEnd:boolean) {
+        def chars:[string]
+        def i:int 0
+        def bound:int (strlen s)
+        def walking:boolean true
+        while (walking && (i < bound)) {
+            def c:string (at s i)
+            if ((strlen c) == 0) {
+                walking = false
+            } {
+                push chars c
+                i = (i + 1)
+            }
+        }
+        def n:int (array_length chars)
+        def lo:int 0
+        if fromStart {
+            def goL:boolean true
+            while (goL && (lo < n)) {
+                if (this.isJsSpaceChar((itemAt chars lo))) {
+                    lo = (lo + 1)
+                } {
+                    goL = false
+                }
+            }
+        }
+        def hi:int n
+        if fromEnd {
+            def goR:boolean true
+            while (goR && (hi > lo)) {
+                if (this.isJsSpaceChar((itemAt chars (hi - 1)))) {
+                    hi = (hi - 1)
+                } {
+                    goR = false
+                }
+            }
+        }
+        def out:string ""
+        def k:int lo
+        while (k < hi) {
+            out = (out + (itemAt chars k))
+            k = (k + 1)
+        }
+        return out
+    }
+
     fn escapeString:string (s:string) {
         def out:string ""
         def i:int 0
@@ -30033,6 +30135,20 @@ class ComponentEngine {
     }
 
     ; Uppercase hex, zero-padded to `width`.
+    fn hexPadLower:string (value:int width:int) {
+        def digits:string "0123456789abcdef"
+        def out:string ""
+        def v:int value
+        def k:int 0
+        while (k < width) {
+            def d:int (bit_and v 15)
+            out = ((substring digits d (d + 1)) + out)
+            v = (bit_shr v 4)
+            k = (k + 1)
+        }
+        return out
+    }
+
     fn hexPad:string (value:int width:int) {
         def digits:string "0123456789ABCDEF"
         def out:string ""
@@ -33343,26 +33459,55 @@ class ComponentEngine {
         def L:int (strlen s)
         while (i < L) {
             def ch:string (substring s i (i + 1))
+            def handled:boolean false
             if (ch == "\"") {
                 out = (out + "\\\"")
-            } {
+                handled = true
+            }
+            if (false == handled) {
                 if (ch == "\\") {
                     out = (out + "\\\\")
-                } {
-                    if (ch == "\n") {
-                        out = (out + "\\n")
-                    } {
-                        if (ch == "\t") {
-                            out = (out + "\\t")
-                        } {
-                            if (ch == "\r") {
-                                out = (out + "\\r")
-                            } {
-                                out = (out + ch)
-                            }
-                        }
+                    handled = true
+                }
+            }
+            ; §24.3.2.2 QuoteJSONString: the five named escapes, then EVERY
+            ; remaining C0 control as \u00XX. Only three of the five were
+            ; written and the rest went through as raw control characters, so
+            ; the text did not parse back as JSON.
+            if (false == handled) {
+                def cp:int (this.charCodePointOf(ch))
+                if (cp == 8) {
+                    out = (out + "\\b")
+                    handled = true
+                }
+                if (cp == 9) {
+                    out = (out + "\\t")
+                    handled = true
+                }
+                if (cp == 10) {
+                    out = (out + "\\n")
+                    handled = true
+                }
+                if (cp == 12) {
+                    out = (out + "\\f")
+                    handled = true
+                }
+                if (cp == 13) {
+                    out = (out + "\\r")
+                    handled = true
+                }
+                if (false == handled) {
+                    if ((cp >= 0) && (cp < 32)) {
+                        ; LOWERCASE hex: `JSON.stringify` writes \u000b, and
+                        ; hexPad is the uppercase form the escape sequences and
+                        ; the URI encoder want.
+                        out = (out + ("\\u" + (this.hexPadLower(cp 4))))
+                        handled = true
                     }
                 }
+            }
+            if (false == handled) {
+                out = (out + ch)
             }
             i = (i + 1)
         }
