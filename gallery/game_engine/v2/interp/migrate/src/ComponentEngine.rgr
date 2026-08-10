@@ -14808,6 +14808,18 @@ class ComponentEngine {
     }
 
     fn callFnValueWithValues:EvHandle (fnValue:EvHandle argVals:[EvHandle]) {
+        ; D-CLASSCALL: a class constructor may only be reached through `new`,
+        ; whatever route the value arrived by -- a bare name inside a function,
+        ; a variable holding the class, a callback. Checked on the VALUE path
+        ; so every door answers the same.
+        if (fnValue.isFunction()) {
+            if (fnValue.hasOwnData("__classname__")) {
+                def ccName:EvHandle (fnValue.getOwnData("__classname__"))
+                if (ccName.isString()) {
+                    return (this.throwSpecError("TypeError" ("Class constructor " + ((ccName.stringOf()) + " cannot be invoked without 'new'"))))
+                }
+            }
+        }
         ; D-PROXY: calling a proxy is the `apply` trap, or the target when the
         ; handler supplies none. A proxy is not a function value, so without
         ; this every call through one was "not a function".
