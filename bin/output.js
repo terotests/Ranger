@@ -21603,22 +21603,26 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
           return tn;
         };
+        escapeCppTrigraphs (s) {
+          let out = s;
+          out = out.split("??=").join("\\?\\?=");
+          out = out.split("??(").join("\\?\\?(");
+          out = out.split("??/").join("\\?\\?/");
+          out = out.split("??)").join("\\?\\?)");
+          out = out.split("??'").join("\\?\\?'");
+          out = out.split("??<").join("\\?\\?<");
+          out = out.split("??!").join("\\?\\?!");
+          out = out.split("??>").join("\\?\\?>");
+          out = out.split("??-").join("\\?\\?-");
+          return out;
+        };
         WriteScalarValue (node, ctx, wr) {
           switch (node.value_type ) { 
             case 2 : 
               wr.out("" + node.double_value, false);
               break;
             case 4 : 
-              let s = this.EncodeString(node, ctx, wr);
-              s = s.split("??=").join("\\?\\?=");
-              s = s.split("??(").join("\\?\\?(");
-              s = s.split("??/").join("\\?\\?/");
-              s = s.split("??)").join("\\?\\?)");
-              s = s.split("??'").join("\\?\\?'");
-              s = s.split("??<").join("\\?\\?<");
-              s = s.split("??!").join("\\?\\?!");
-              s = s.split("??>").join("\\?\\?>");
-              s = s.split("??-").join("\\?\\?-");
+              let s = this.escapeCppTrigraphs(this.EncodeString(node, ctx, wr));
               wr.out(("std::string(" + (("\"" + s) + "\"")) + ")", false);
               break;
             case 3 : 
@@ -22337,7 +22341,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   ctx.setInExpr();
                   await this.WalkNode(svExprN, ctx, wr);
                   ctx.unsetInExpr();
-                  wr.out(((") " + cmd) + " std::string_view(\"") + this.EncodeString(svLitN, ctx, wr), false);
+                  const svEsc = this.escapeCppTrigraphs(this.EncodeString(svLitN, ctx, wr));
+                  wr.out(((") " + cmd) + " std::string_view(\"") + svEsc, false);
                   wr.out(("\", " + svLen) + "))", false);
                   return;
                 }
@@ -23145,7 +23150,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   wr.out("// to the OS - benchmark/tool builds only).", true);
                   wr.out("#include <cstdlib>", true);
                   wr.out("#include <new>", true);
+                  wr.out("#if defined(__APPLE__)", true);
+                  wr.out("#include <malloc/malloc.h>", true);
+                  wr.out("inline size_t rg_malloc_usable_size(void* p) { return malloc_size(p); }", true);
+                  wr.out("#elif defined(__linux__) || defined(__GLIBC__)", true);
                   wr.out("#include <malloc.h>", true);
+                  wr.out("inline size_t rg_malloc_usable_size(void* p) { return malloc_usable_size(p); }", true);
+                  wr.out("#elif defined(__FreeBSD__) || defined(__DragonFly__)", true);
+                  wr.out("#include <malloc_np.h>", true);
+                  wr.out("inline size_t rg_malloc_usable_size(void* p) { return malloc_usable_size(p); }", true);
+                  wr.out("#else", true);
+                  wr.out("// Unknown host malloc: unsized delete will free instead of parking.", true);
+                  wr.out("inline size_t rg_malloc_usable_size(void* p) { (void)p; return 0; }", true);
+                  wr.out("#endif", true);
                   wr.out("namespace rgpool {", true);
                   wr.out("    const size_t NCLASS = 32;", true);
                   wr.out("    thread_local void* heads[NCLASS + 1] = {};", true);
@@ -23172,10 +23189,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   wr.out("    return p;", true);
                   wr.out("}", true);
                   wr.out("void operator delete(void* p) noexcept {", true);
-                  wr.out("    // unsized form: classify by the block's usable size (glibc) so these", true);
+                  wr.out("    // unsized form: classify by the block's usable size so these", true);
                   wr.out("    // deletions feed the pool too - take() only needs usable >= request", true);
                   wr.out("    if (p) {", true);
-                  wr.out("        size_t u = malloc_usable_size(p);", true);
+                  wr.out("        size_t u = rg_malloc_usable_size(p);", true);
                   wr.out("        size_t cls = u >> 5;", true);
                   wr.out("        if (cls >= 1 && cls <= rgpool::NCLASS) {", true);
                   wr.out("            *(void**)p = rgpool::heads[cls];", true);
@@ -23188,7 +23205,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   wr.out("void operator delete(void* p, std::size_t n) noexcept {", true);
                   wr.out("    (void)n;", true);
                   wr.out("    if (p) {", true);
-                  wr.out("        size_t u = malloc_usable_size(p);", true);
+                  wr.out("        size_t u = rg_malloc_usable_size(p);", true);
                   wr.out("        size_t cls = u >> 5;", true);
                   wr.out("        if (cls >= 1 && cls <= rgpool::NCLASS) {", true);
                   wr.out("            *(void**)p = rgpool::heads[cls];", true);

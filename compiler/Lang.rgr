@@ -1331,17 +1331,23 @@ func r_file_mtime ( path:String, name:String ) -> Int {
            }
         }
 
-        ; Wall-clock milliseconds since the Unix epoch. Used by embedders that
-        ; want Date.now() to advance (e.g. Octane); the TS engine's default
-        ; hostNowMs stays frozen for reproducible conformance.
+        ; Wall-clock milliseconds since the Unix epoch, as a DOUBLE so
+        ; sub-millisecond fractions are preserved. Used by embedders that
+        ; want Date.now() / performance.now() to advance (e.g. Octane); the
+        ; TS engine's default hostNowMs stays frozen for reproducible
+        ; conformance. Integer-ms casts (duration_cast<milliseconds>,
+        ; Date.now(), UnixMilli) floor every delta to 1 ms and pin Octane
+        ; scores to a few discrete buckets — keep the fractional form.
         wall_clock_ms       cmdWallClockMs:double () {
             templates {
-                es6 ( "Date.now()" )
+                es6 ( "((typeof performance !== \"undefined\" && performance.now) ? (Number(performance.timeOrigin || 0) + performance.now()) : Date.now())" )
                 cpp ( "r_wall_clock_ms()" (imp "<chrono>")
 (create_polyfill "
 double r_wall_clock_ms() {
     using namespace std::chrono;
-    return (double)duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+    // std::milli (from <ratio>): libc++ does not put milli in chrono's
+    // namespace for unqualified lookup the way libstdc++ often does.
+    return duration<double, std::milli>(system_clock::now().time_since_epoch()).count();
 }
 ")
                 )
@@ -1355,9 +1361,9 @@ fn r_wall_clock_ms() -> f64 {
 }
 ")
                 )
-                go ( "float64(time.Now().UnixMilli())" (imp "time") )
+                go ( "(float64(time.Now().UnixNano()) / 1.0e6)" (imp "time") )
                 python ( "(time.time() * 1000.0)" (imp "time") )
-                csharp ( "(DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalMilliseconds" )
+                csharp ( "(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds" )
                 kotlin ( "System.currentTimeMillis().toDouble()" )
                 java7 ( "((double)System.currentTimeMillis())" )
                 * ( "0.0" )

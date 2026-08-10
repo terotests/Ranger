@@ -1,0 +1,18 @@
+; string_view compare path must escape ??= the same way as std::string(...)
+class TrigraphCompare {
+  fn isNullishAssign:boolean (ov:string) {
+    if (ov == "??=") {
+      return true
+    }
+    return false
+  }
+}
+
+fn main:void () {
+  def t:TrigraphCompare (new TrigraphCompare)
+  if (t.isNullishAssign("??=")) {
+    print "yes"
+  } {
+    print "no"
+  }
+}

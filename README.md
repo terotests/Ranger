@@ -260,14 +260,30 @@ so it compiles to every target the compiler has. Four commands build it and
 measure it, and each skips any target whose toolchain is not installed.
 
 ```bash
+npm run jsengine:check         # report which C++/libstdc++ toolchain is usable
 npm run jsengine:build         # es6 module + cpp and rust binaries
 npm run jsengine:bench         # against Node, and QuickJS if `qjs` is on PATH
 npm run jsengine:conformance   # 1303 JS probes, answers checked against Node
 npm run jsengine:all           # all three in order
 ```
 
-`jsengine:build` needs `g++` for the C++ target and `rustc` for the Rust one;
-without them it still writes the generated source and says which it skipped.
+`jsengine:build` needs a C++ compiler for the cpp target and `rustc` for the
+Rust one; without them it still writes the generated source and says which it
+skipped. Run `npm run jsengine:check` first if a native build fails — it probes
+for a compiler that can use `-cpp-single-thread` (libstdc++
+`__shared_ptr` / `_S_single`).
+
+On **macOS**, Apple's Command Line Tools `g++` is clang + libc++ and **cannot**
+build that fast path. Install real GCC:
+
+```bash
+brew install gcc          # provides g++-14 / g++-15 / …
+npm run jsengine:check    # should report rg_ptr: OK
+npm run jsengine:build
+```
+
+Without Homebrew GCC the build still proceeds, but omits `-cpp-single-thread`
+(atomic `std::shared_ptr` — correct, slower). Set `CXX` to pin a compiler.
 `jsengine:bench` reports one table across every engine that got built:
 
 ```
@@ -295,12 +311,11 @@ EarleyBoyer, RegExp, Splay and NavierStokes — on every target that was built,
 and places the result against same-machine Node and the published amd64 V8
 column.
 
-**Read the es6 column, not the native ones.** An Octane score is derived from a
-wall clock the benchmark reads through `Date`, and the native targets use a
-relative `liveClock` so readings stay inside 32-bit `truncD`. Its resolution
-pins the C++ score to exactly 0.500 run after run — a floor, not a measurement.
-`jsengine:bench` times all targets from outside the engine and is the one to
-use for cross-target comparison.
+Octane’s harness times suites with `performance.now` (fractional `liveClock`
+ms). Prefer that over quoting older tables that used `new Date()` — Date is
+TimeClip’d to whole milliseconds and pinned many native scores to a few
+discrete buckets. `jsengine:bench` still times from outside the engine and is
+the one to use for cross-target microbenchmarks.
 
 For the engine's own test coverage:
 

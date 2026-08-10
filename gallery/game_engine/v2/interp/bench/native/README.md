@@ -1,6 +1,6 @@
 # The interpreter as a native binary
 
-The interpreter compiles to C++ and runs JavaScript from a `g++ -O2` binary.
+The interpreter compiles to C++ and runs JavaScript from a `g++ -O3` binary.
 This folder builds it and measures it against the two other ways the same engine
 runs: as JavaScript under Node, and against Node executing the script directly.
 
@@ -14,6 +14,12 @@ TARGET=python bash build.sh   # Ranger -> Python -> engine_bench.py
 TARGET=csharp bash build.sh   # Ranger -> C# -> engine_bench.exe
 TARGET=swift6 bash build.sh   # Ranger -> Swift (needs a Swift toolchain to build)
 ```
+
+The C++ path uses `-cpp-single-thread` (non-atomic `rg_ptr`) when the selected
+compiler is real GCC/libstdc++. On macOS, Apple's `g++` is clang/libc++ and
+fails that prelude — install Homebrew GCC (`brew install gcc`) or run
+`npm run jsengine:check` for a probe report. Without libstdc++ the build falls
+back to atomic `std::shared_ptr`.
 
 Each target after the Ranger step is skipped when its compiler is not on the
 machine; the generated source is still written, which is what
