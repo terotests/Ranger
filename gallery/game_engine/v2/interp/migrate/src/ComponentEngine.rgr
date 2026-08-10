@@ -1179,6 +1179,9 @@ class ComponentEngine {
     ; index of the parked "already finished" state (0 = not made yet; the real
     ; states start at 1 because this one is minted before any of them)
     def genDead:int 0
+    ; %GeneratorPrototype%: next/return/throw live HERE, not on each generator
+    ; object, so their descriptors and identity are what the spec says.
+    def genProto@(optional):EvHandle
     def genAssignValue:EvHandle (EvHandle.null())
     ; D-BUILTINPROTO: one prototype object per built-in constructor name, kept
     ; for the engine's lifetime so identity and stored properties survive reads.
@@ -4908,6 +4911,60 @@ class ComponentEngine {
         if stmt.right {
             def rightNode:TSNode (unwrap stmt.right)
             def src:EvHandle (this.evaluateExpr(rightNode))
+            ; D-GENRESUME: a GENERATOR is stepped, not drained -- see
+            ; genCursorStep. Draining one would hang on an unbounded generator
+            ; and would run the whole body before the loop's first turn.
+            if (this.isResumableGenerator(src)) {
+                def lazyOn:boolean true
+                while lazyOn {
+                    if (scriptDidReturn || (scriptThrew || loopBreak)) {
+                        lazyOn = false
+                    } {
+                        def stepRes:EvHandle (this.genCursorStep(src))
+                        if scriptThrew {
+                            lazyOn = false
+                        } {
+                            if ((stepRes.getMember("done")).toBool()) {
+                                lazyOn = false
+                            } {
+                                if ofLexical {
+                                    def turnC:EvalContext ((unwrap ofOuter).createChild())
+                                    turnC.isBlockScope = true
+                                    context = turnC
+                                }
+                                def elem:EvHandle (stepRes.getMember("value"))
+                                if varPattern {
+                                    this.bindPattern((unwrap varPattern) elem)
+                                } {
+                                    if ((strlen varName) > 0) {
+                                        context.define(varName elem)
+                                    } {
+                                        if varTarget {
+                                            this.assignToTarget((unwrap varTarget) elem)
+                                        }
+                                    }
+                                }
+                                loopContinue = false
+                                if stmt.body {
+                                    this.runBlockOrStatement((unwrap stmt.body))
+                                }
+                                if (scriptDidReturn || (scriptThrew || loopBreak)) {
+                                    lazyOn = false
+                                } {
+                                    if (this.continueEscapes(myLabels)) {
+                                        lazyOn = false
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                ; IteratorClose on an early exit runs the generator's finallys.
+                this.genCursorClose(src)
+                context = (unwrap ofOuter)
+                this.settleLoopAbrupt(myLabels savedBreak savedContinue)
+                return
+            }
             ; normalisation shared with the bytecode tier (forOfItemList)
             ; so the two paths cannot diverge
             def items:[EvHandle] (this.forOfItemList(src))
@@ -8977,6 +9034,14 @@ class ComponentEngine {
         }
         fnNode.bcScanned = true
         fnNode.bcProgramId = (0 - 1)
+        ; A GENERATOR call does not run its body at all -- it builds a
+        ; generator object -- so it never belongs on the compiled path. A body
+        ; with no `yield` in it compiles perfectly well and ran as an ordinary
+        ; function, which made `function* g() {}` answer undefined instead of a
+        ; generator.
+        if fnNode.generator {
+            return (0 - 1)
+        }
         if (false == (this.paramSlotsOkFor(fnNode))) {
             return (0 - 1)
         }
@@ -12966,10 +13031,13 @@ class ComponentEngine {
                 def sv:EvHandle (EvValueBridge.taggedUndefined())
                 if st.sent { sv = (unwrap st.sent) }
                 if (st.resumeMode == 1) {
+                    ; `gen.return(v)` is a RETURN COMPLETION at this yield, not
+                    ; an abandonment: the frames unwind normally so any
+                    ; enclosing `finally` still runs -- and can even yield
+                    ; again, which suspends the return.
                     scriptReturnValue = sv
                     scriptDidReturn = true
-                    st.fTop = 0
-                    st.opTop = 0
+                    this.genPopFrame(st)
                     return 0
                 }
                 if (st.resumeMode == 2) {
@@ -13001,8 +13069,7 @@ class ComponentEngine {
             if (st.resumeMode == 1) {
                 scriptReturnValue = dsv
                 scriptDidReturn = true
-                st.fTop = 0
-                st.opTop = 0
+                this.genPopFrame(st)
                 return 0
             }
             if (st.resumeMode == 2) {
@@ -13261,6 +13328,10 @@ class ComponentEngine {
             return 0
         }
 
+        return 9
+    }
+
+    fn genStepStmt2:int (st:GenState top:int node:TSNode ph:int k:int curCtx:EvalContext) {
         ; ---------------- return ----------------
         if (k == 35) {
             if (ph == 0) {
@@ -13323,7 +13394,7 @@ class ComponentEngine {
         return 9
     }
 
-    fn genStepLoop:int (st:GenState top:int node:TSNode ph:int k:int curCtx:EvalContext) {
+    fn genStepTry:int (st:GenState top:int node:TSNode ph:int k:int curCtx:EvalContext) {
         ; ---------------- try / catch / finally ----------------
         if (k == 46) {
             if (ph == 0) {
@@ -13339,7 +13410,8 @@ class ComponentEngine {
             if (ph == 2) {
                 ; an exception reached this frame's try block: the catch clause
                 ; binds it in a scope of its own, holding the PARAMETER and
-                ; nothing else (§12.14)
+                ; nothing else (§12.14). The unwind already took the exception,
+                ; so the value is waiting in fVal2.
                 def thrown:EvHandle (itemAt st.fVal2 top)
                 set st.fPhase top 3
                 if node.left {
@@ -13364,10 +13436,9 @@ class ComponentEngine {
                     return 0
                 }
                 ; D-FINALLY: the finally block runs whatever the try/catch did.
-                ; The pending completion -- a return, a break, a continue, a
-                ; live exception -- is set aside for its duration and restored
-                ; afterwards, unless the finally produces one of its own, which
-                ; per spec replaces it.
+                ; The pending completion -- a return, a break, a continue -- is
+                ; set aside for its duration and restored afterwards, unless the
+                ; finally produces one of its own, which per spec replaces it.
                 def fl:int 0
                 if scriptDidReturn { fl = (fl + 1) }
                 if scriptThrew { fl = (fl + 2) }
@@ -13393,7 +13464,7 @@ class ComponentEngine {
             }
             if (ph == 7) {
                 ; Reached with an exception already set aside in fVal2: run the
-                ; finally, then let it carry on.
+                ; finally, then let it carry on outward.
                 if (null? node.right) {
                     scriptThrowValue = (itemAt st.fVal2 top)
                     scriptThrew = true
@@ -13426,7 +13497,10 @@ class ComponentEngine {
             this.genPopFrame(st)
             return 0
         }
+        return 9
+    }
 
+    fn genStepLoop:int (st:GenState top:int node:TSNode ph:int k:int curCtx:EvalContext) {
         ; ---------------- while ----------------
         if (k == 36) {
             if (ph == 0) {
@@ -13503,6 +13577,10 @@ class ComponentEngine {
             return 0
         }
 
+        return 9
+    }
+
+    fn genStepFor:int (st:GenState top:int node:TSNode ph:int k:int curCtx:EvalContext) {
         ; ---------------- for ----------------
         if (k == 33) {
             if (ph == 0) {
@@ -13510,10 +13588,26 @@ class ComponentEngine {
                 set st.fCnt top loopContinue
                 loopBreak = false
                 loopContinue = false
+                set st.fFlags top 0
                 if node.init {
                     def initN:TSNode (unwrap node.init)
                     if ((this.nodeKindOf(initN)) == 31) {
-                        this.processVariableDeclaration(initN)
+                        ; D-LEXSCOPE: `for (let i = ...)` gives each ITERATION
+                        ; its own binding, which is what makes a closure created
+                        ; in the body keep that turn's value.
+                        def lexNames:[string] (this.forLoopLexNames(initN))
+                        if ((array_length lexNames) > 0) {
+                            set st.fFlags top 1
+                            def loopCtx:EvalContext (curCtx.createChild())
+                            loopCtx.isBlockScope = true
+                            context = loopCtx
+                            this.processVariableDeclaration(initN)
+                            def firstCtx:EvalContext (this.copyLoopBindings(curCtx lexNames))
+                            set st.fCtx top firstCtx
+                            context = (itemAt st.fCtx top)
+                        } {
+                            this.processVariableDeclaration(initN)
+                        }
                     } {
                         def _fi:EvHandle (this.evaluateExpr(initN))
                     }
@@ -13545,6 +13639,22 @@ class ComponentEngine {
                 this.genEndLoop(st top)
                 return 0
             }
+            ; The per-iteration environment is created BETWEEN the body and the
+            ; increment, so a closure made in the body keeps this turn's value
+            ; and the increment writes the next one.
+            if ((itemAt st.fFlags top) == 1) {
+                if node.init {
+                    def initL:TSNode (unwrap node.init)
+                    def lexN:[string] (this.forLoopLexNames(initL))
+                    def cur:EvalContext (itemAt st.fCtx top)
+                    if cur.parent {
+                        def outerC:EvalContext (unwrap cur.parent)
+                        def nextCtx:EvalContext (this.copyLoopBindings(outerC lexN))
+                        set st.fCtx top nextCtx
+                        context = (itemAt st.fCtx top)
+                    }
+                }
+            }
             if node.right {
                 this.evaluateUpdateExpr((unwrap node.right))
             }
@@ -13552,6 +13662,10 @@ class ComponentEngine {
             return 0
         }
 
+        return 9
+    }
+
+    fn genStepForOf:int (st:GenState top:int node:TSNode ph:int k:int curCtx:EvalContext) {
         ; ---------------- for-of ----------------
         if (k == 37) {
             if (ph == 0) {
@@ -13579,13 +13693,29 @@ class ComponentEngine {
             }
             if (ph == 1) {
                 def oArr:EvHandle (itemAt st.fVal top)
-                def oi:int (itemAt st.fIdx top)
-                if (oi >= (oArr.denseLen())) {
-                    this.genEndLoop(st top)
-                    return 0
+                def oElem:EvHandle (EvValueBridge.taggedUndefined())
+                if ((itemAt st.fFlags top) == 1) {
+                    ; stepped source: pull exactly one element
+                    def stepR:EvHandle (this.genCursorStep(oArr))
+                    if scriptThrew {
+                        this.genEndLoop(st top)
+                        return 0
+                    }
+                    if ((stepR.getMember("done")).toBool()) {
+                        this.genEndLoop(st top)
+                        return 0
+                    }
+                    oElem = (stepR.getMember("value"))
+                } {
+                    def oi:int (itemAt st.fIdx top)
+                    if (oi >= (oArr.denseLen())) {
+                        this.genEndLoop(st top)
+                        return 0
+                    }
+                    set st.fIdx top (oi + 1)
+                    oElem = (oArr.arrayItemAt(oi))
                 }
-                set st.fIdx top (oi + 1)
-                this.bindForOfTarget(node (oArr.arrayItemAt(oi)))
+                this.bindForOfTarget(node oElem)
                 if scriptThrew {
                     this.genEndLoop(st top)
                     return 0
@@ -13645,7 +13775,19 @@ class ComponentEngine {
                 r = (this.genStepStmt(st top node ph k (unwrap curCtx)))
             }
             if (r == 9) {
+                r = (this.genStepStmt2(st top node ph k (unwrap curCtx)))
+            }
+            if (r == 9) {
                 r = (this.genStepLoop(st top node ph k (unwrap curCtx)))
+            }
+            if (r == 9) {
+                r = (this.genStepFor(st top node ph k (unwrap curCtx)))
+            }
+            if (r == 9) {
+                r = (this.genStepForOf(st top node ph k (unwrap curCtx)))
+            }
+            if (r == 9) {
+                r = (this.genStepTry(st top node ph k (unwrap curCtx)))
             }
             if (r == 1) {
                 return 1
@@ -13657,6 +13799,41 @@ class ComponentEngine {
             }
         }
         return 0
+    }
+
+    ; The names a `for (let i = ...)` head declares -- the ones each iteration
+    ; gets its own copy of.
+    fn forLoopLexNames:[string] (initN:TSNode) {
+        def names:[string]
+        if ((this.nodeKindOf(initN)) != 31) { return names }
+        if ((initN.kind != "let") && (initN.kind != "const")) { return names }
+        def i:int 0
+        while (i < (array_length initN.children)) {
+            def d:TSNode (itemAt initN.children i)
+            if ((strlen d.name) > 0) {
+                push names d.name
+            }
+            i = (i + 1)
+        }
+        return names
+    }
+
+    ; D-GENRESUME: a lazy source has to stay lazy on the CONSUMING side too.
+    ; Draining a generator into a list before the loop starts defeats the point
+    ; of suspending it -- `for (x of naturals()) { ...; break }` would never
+    ; reach its own break -- so a generator source is stepped one element at a
+    ; time instead. Everything else keeps the list form, which is faster for the
+    ; array/string/map/set cases that make up nearly all of them.
+    fn genCursorStep:EvHandle (gv:EvHandle) {
+        return (this.genResume(gv (EvValueBridge.taggedUndefined()) 0))
+    }
+
+    ; IteratorClose: a loop that leaves early tells the generator so, which is
+    ; what runs its `finally` blocks.
+    fn genCursorClose:void (gv:EvHandle) {
+        def st:GenState (this.genStateOf(gv))
+        if (st.status == 3) { return }
+        def _c:EvHandle (this.genResume(gv (EvValueBridge.taggedUndefined()) 1))
     }
 
     ; Bind one turn of a for-of loop's target, creating the per-iteration scope
@@ -13724,6 +13901,35 @@ class ComponentEngine {
         return (this.genChildrenSpineOk(b))
     }
 
+    ; %GeneratorPrototype%. The three resume methods are properties of THIS
+    ; object, shared by every generator, rather than own properties minted per
+    ; generator -- which is what makes `Object.getPrototypeOf(g).next` be the
+    ; one function the suite compares identities against.
+    fn generatorPrototype:EvHandle () {
+        if genProto {
+            return (unwrap genProto)
+        }
+        def keysG:[string]
+        def valsG:[EvHandle]
+        def p:EvHandle (EvValueBridge.taggedObject(keysG valsG))
+        p.setProto((this.builtinPrototype("Object")))
+        p.setMember("next" (this.sharedNativeMethod("Generator" "next")))
+        p.setAttrs("next" true false true)
+        p.setMember("return" (this.sharedNativeMethod("Generator" "return")))
+        p.setAttrs("return" true false true)
+        p.setMember("throw" (this.sharedNativeMethod("Generator" "throw")))
+        p.setAttrs("throw" true false true)
+        p.setMember("@@iterator" (this.sharedNativeMethod("Generator" "@@iterator")))
+        p.setAttrs("@@iterator" true false true)
+        p.setMember("@@toStringTag" (EvValueBridge.taggedString("Generator")))
+        p.setAttrs("@@toStringTag" false false true)
+        ; The memo is taken only once the object is FULLY built. Stored before
+        ; the members were on it, the second generator ever made inherited an
+        ; empty prototype and had no `next` at all.
+        genProto = p
+        return (unwrap genProto)
+    }
+
     ; Build the generator object for a call that has NOT run its body: the
     ; activation stays live in the state, and the first next() starts it.
     fn makeResumableGenerator:EvHandle (fnNode:TSNode ctx:EvalContext) {
@@ -13740,16 +13946,8 @@ class ComponentEngine {
         def g:EvHandle (EvValueBridge.taggedObject(keys vals))
         g.setMember("__genstate__" (EvHandle.fromInt(gid)))
         g.setAttrs("__genstate__" false false false)
-        g.setMember("next" (this.sharedNativeMethod("Generator" "next")))
-        g.setAttrs("next" true false true)
-        g.setMember("return" (this.sharedNativeMethod("Generator" "return")))
-        g.setAttrs("return" true false true)
-        g.setMember("throw" (this.sharedNativeMethod("Generator" "throw")))
-        g.setAttrs("throw" true false true)
-        g.setMember("@@iterator" (this.sharedNativeMethod("Generator" "@@iterator")))
-        g.setAttrs("@@iterator" true false true)
-        g.setMember("@@toStringTag" (EvValueBridge.taggedString("Generator")))
-        g.setAttrs("@@toStringTag" false false true)
+        ; next/return/throw are INHERITED from %GeneratorPrototype%.
+        g.setProto((this.generatorPrototype()))
         return g
     }
 
@@ -30750,13 +30948,25 @@ class ComponentEngine {
             while (i < (array_length ks)) {
                 def k:string (itemAt ks i)
                 if (false == (this.isHiddenInstanceKey(k))) {
-                    if (first == false) {
-                        out = (out + ",")
+                    ; A property whose value has no JSON form is OMITTED, not
+                    ; written as null -- that rule is what makes
+                    ; `JSON.stringify({a: undefined, b: 1})` be `{"b":1}`. An
+                    ; array ELEMENT is the other way round and becomes null,
+                    ; which is why this belongs here and not in the head.
+                    def mv:EvHandle (v.getMember(k))
+                    def skip:boolean false
+                    if (mv.isUndefined()) { skip = true }
+                    if (mv.isFunction()) { skip = true }
+                    if (this.isSymbolValue(mv)) { skip = true }
+                    if (false == skip) {
+                        if (first == false) {
+                            out = (out + ",")
+                        }
+                        out = (out + (this.jsonQuote(k)))
+                        out = (out + ":")
+                        out = (out + (this.jsonStringify(mv)))
+                        first = false
                     }
-                    out = (out + (this.jsonQuote(k)))
-                    out = (out + ":")
-                    out = (out + (this.jsonStringify((v.getMember(k)))))
-                    first = false
                 }
                 i = (i + 1)
             }

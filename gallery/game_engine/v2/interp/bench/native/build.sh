@@ -50,7 +50,9 @@ fi
 # previous run's stale generated source and report success. That is how a
 # benchmark starts comparing a change against itself. Tee the output and fail
 # on the compiler's own verdict.
-RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l="$TARGET" \
+# The self-hosted compiler recurses over the AST; the engine source has
+# outgrown V8's default stack, so give it a bigger one.
+RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node --stack-size=8000 bin/output.js -l="$TARGET" \
   "$SRC" -d="$OUT_DIR" -o=engine_bench."$EXT" -nodecli -native-fast-alloc \
   -cpp-single-thread "${EXTRA_ARGS[@]}" 2>&1 | tee /tmp/rgr_build_$$.log
 if grep -q "Compilation FAILED" /tmp/rgr_build_$$.log; then
