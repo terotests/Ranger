@@ -16662,6 +16662,32 @@ class ComponentEngine {
                 }
                 if (obj.isMap()) { canHoldProps = (obj.hasOwnData(methodName)) }
                 if (obj.isSet()) { canHoldProps = (obj.hasOwnData(methodName)) }
+                ; D-PROTO: a NON-OBJECT receiver whose prototype link was
+                ; replaced -- which is what `class E extends Array` produces --
+                ; finds its methods on THAT chain. The own-map read below cannot
+                ; see them, and the registry below only knows the kind's own
+                ; methods, so a subclass's own methods were invisible. A plain
+                ; array carries no explicit link, so nothing ordinary changes.
+                if (false == (obj.isObject())) {
+                    if (obj.hasProto()) {
+                        if (false == (obj.hasOwnData(methodName))) {
+                            def protoM:EvHandle (this.ownPropertyUpChain(obj methodName))
+                            if (protoM.isFunction()) {
+                                if (protoM.hasFunctionNode()) {
+                                    def pmArgs:[EvHandle] (this.collectCallArgs(node))
+                                    if scriptThrew {
+                                        return (EvValueBridge.taggedUndefined())
+                                    }
+                                    def pmNode:TSNode (protoM.functionNodeOf())
+                                    if ((this.nodeKindOf(pmNode)) == 17) {
+                                        return (this.callFnValueWithValues(protoM pmArgs))
+                                    }
+                                    return (this.callFnValueWithValues((protoM.withThisForCall(obj)) pmArgs))
+                                }
+                            }
+                        }
+                    }
+                }
                 if canHoldProps {
                     def objMember:EvHandle (obj.getMember(methodName))
                     ; D-CLASSOF: a built-in stored under some other name and then
@@ -31395,6 +31421,18 @@ class ComponentEngine {
                             ownFirst = true
                         }
                         if (false == ownFirst) {
+                            ; D-PROTO: the value's OWN prototype link comes
+                            ; first. An array whose prototype was replaced --
+                            ; which is what `class E extends Array` produces --
+                            ; must find the methods on THAT chain; consulting
+                            ; only the kind's prototype skipped every one of
+                            ; them, so a subclass's own methods were invisible.
+                            if (obj.hasProto()) {
+                                def ownChain:EvHandle (this.ownPropertyUpChain(obj propName))
+                                if (false == (ownChain.isNull())) {
+                                    return ownChain
+                                }
+                            }
                             def kProto:EvHandle (this.builtinPrototype(pcName))
                             if (kProto.hasOwnData(propName)) {
                                 return (kProto.getOwnData(propName))
