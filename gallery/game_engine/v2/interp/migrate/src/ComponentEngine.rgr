@@ -7349,6 +7349,7 @@ class ComponentEngine {
         ; annexB B.2.1
         if (name == "escape") { return true }
         if (name == "unescape") { return true }
+        if (this.isUriGlobalName(name)) { return true }
         if (name == "Number") { return true }
         if (name == "String") { return true }
         if (name == "Boolean") { return true }
@@ -17404,8 +17405,18 @@ class ComponentEngine {
                         def line:string "[tsx]"
                         def ci:int 0
                         while (ci < (array_length node.children)) {
+                            def logV:EvHandle (this.evaluateExpr((itemAt node.children ci)))
+                            ; An argument that THREW prints nothing. Without
+                            ; this the line was assembled from whatever the
+                            ; failed evaluation answered and written out, so a
+                            ; throw inside a console.log argument produced a
+                            ; spurious "undefined" line before the exception
+                            ; surfaced.
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
                             line = (line + " ")
-                            line = (line + ((this.evaluateExpr((itemAt node.children ci))).toString()))
+                            line = (line + (logV.toString()))
                             ci = (ci + 1)
                         }
                         print line
@@ -17835,6 +17846,13 @@ class ComponentEngine {
                 ; annexB B.2.1: escape/unescape. Both are ToString of their
                 ; argument first, so an object argument runs its own toString and
                 ; a throwing one escapes.
+                if (this.isUriGlobalName(fnName)) {
+                    def uriArgs:[EvHandle] (this.collectCallArgs(node))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    return (this.callUriGlobal(fnName uriArgs))
+                }
                 if ((fnName == "escape") || (fnName == "unescape")) {
                     def esArg:string "undefined"
                     if ((array_length node.children) > 0) {
@@ -24222,6 +24240,47 @@ class ComponentEngine {
             if (name == "sort") { isArrayMutator = true }
             if (name == "fill") { isArrayMutator = true }
             if (name == "copyWithin") { isArrayMutator = true }
+            ; D-ARRAYLIKE: the MUTATORS are generic too. They write back through
+            ; the receiver's element list, which only a real array has, so
+            ; `Array.prototype.push.call({length: 0}, 1)` did nothing at all and
+            ; every one of them silently no-op'd on an array-like. The receiver's
+            ; elements are copied into a real array, the operation runs there,
+            ; and the result is written back as index properties plus `length`.
+            ; A result that IS the scratch array is remapped to the receiver, so
+            ; `sort`/`reverse`/`fill` still answer the object they were called on.
+            if isArrayMutator {
+                def genericLike:boolean false
+                if (false == (recv.isArrayValue())) {
+                    if (this.isDescriptorObject(recv)) {
+                        if (false == (this.isTypedArrayValue(recv))) {
+                            genericLike = true
+                        }
+                    }
+                }
+                if genericLike {
+                    def beforeLen:int (this.toInt32Of((this.getPropertyValue(recv "length"))))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    def scratchItems:[EvHandle] (this.arrayLikeElements(recv))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    def scratch:EvHandle (EvValueBridge.taggedArray(scratchItems))
+                    def genRes:EvHandle (this.invokeBuiltinDirect(kind name scratch args))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    this.writeArrayLikeBack(recv scratch beforeLen)
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    if ((genRes.identityIdOf()) == (scratch.identityIdOf())) {
+                        return recv
+                    }
+                    return genRes
+                }
+            }
             def elems:[EvHandle]
             if (false == isArrayMutator) {
                 if (recv.isArrayValue()) {
@@ -24746,15 +24805,42 @@ class ComponentEngine {
                         return recv
                     }
                     if (name == "sort") {
-                        def hasCmp:boolean ((array_length args) > 0)
-                        def cmp:EvHandle (EvValueBridge.taggedNull())
-                        if hasCmp {
+                        ; §22.1.3.25 step 1: a comparefn that is neither
+                        ; undefined nor callable is a TypeError, checked before
+                        ; anything is read. And UNDEFINED means "use the default
+                        ; comparison", not "compare with undefined": presence of
+                        ; an argument was taken for presence of a function, so
+                        ; `sort(undefined)` called undefined once per pair, got
+                        ; NaN back, and left the array exactly as it was.
+                        def cmp:EvHandle (EvValueBridge.taggedUndefined())
+                        if ((array_length args) > 0) {
                             cmp = (itemAt args 0)
                         }
+                        def hasCmp:boolean (cmp.isFunction())
+                        if (false == hasCmp) {
+                            if (false == (cmp.isUndefined())) {
+                                return (this.throwSpecError("TypeError" "The comparison function must be either a function or undefined"))
+                            }
+                        }
+                        ; Holes and undefined elements never reach the
+                        ; comparator: undefined sorts after every other value
+                        ; and holes after that, which is why they are taken out
+                        ; here and put back at the end.
                         def items:[EvHandle]
+                        def undefCount:int 0
+                        def holeCount:int 0
                         def q:int 0
                         while (q < (recv.denseLen())) {
-                            push items (recv.arrayItemAt(q))
+                            def qv:EvHandle (recv.arrayItemAt(q))
+                            if (qv.isHole()) {
+                                holeCount = (holeCount + 1)
+                            } {
+                                if (qv.isUndefined()) {
+                                    undefCount = (undefCount + 1)
+                                } {
+                                    push items qv
+                                }
+                            }
                             q = (q + 1)
                         }
                         def sn:int (array_length items)
@@ -24787,6 +24873,16 @@ class ComponentEngine {
                             }
                             set items (b + 1) keyv
                             a = (a + 1)
+                        }
+                        def ui:int 0
+                        while (ui < undefCount) {
+                            push items (EvValueBridge.taggedUndefined())
+                            ui = (ui + 1)
+                        }
+                        def hi:int 0
+                        while (hi < holeCount) {
+                            push items (EvValueBridge.taggedHole())
+                            hi = (hi + 1)
                         }
                         recv.arrSetItems(items)
                         return recv
@@ -27660,6 +27756,30 @@ class ComponentEngine {
     ; how every non-mutating Array.prototype method is specified to see its
     ; receiver, and it is what lets `arguments` and `{length: n, …}` be passed
     ; through .call().
+    ; D-ARRAYLIKE: copy a scratch array's elements back onto the array-like
+    ; receiver a generic mutator ran against. Indices at or past the new length
+    ; are DELETED -- `pop` on `{0:a, 1:b, length:2}` has to leave index 1 gone,
+    ; not merely unreachable through `length`.
+    fn writeArrayLikeBack:void (recv:EvHandle scratch:EvHandle oldLen:int) {
+        def n:int (scratch.denseLen())
+        def i:int 0
+        while (i < n) {
+            def el:EvHandle (scratch.arrayItemAt(i))
+            if (el.isHole()) {
+                recv.removeOwnData((to_string i))
+            } {
+                recv.setMember((to_string i) el)
+            }
+            i = (i + 1)
+        }
+        def d:int n
+        while (d < oldLen) {
+            recv.removeOwnData((to_string d))
+            d = (d + 1)
+        }
+        recv.setMember("length" (EvHandle.fromInt(n)))
+    }
+
     fn arrayLikeElements:[EvHandle] (v:EvHandle) {
         def out:[EvHandle]
         if (v.isArrayValue()) {
@@ -28972,6 +29092,296 @@ class ComponentEngine {
     ; annexB B.2.1.1: escape. The unreserved set is
     ; A-Z a-z 0-9 and `@*_+-./`; everything else becomes %XX below 256 and
     ; %uXXXX above it.
+    ; ---- §18.2.6: encodeURI / encodeURIComponent / decodeURI(Component) ----
+    ; D-URI: all four were named as globals and implemented by none of them, so
+    ; every call answered null. They are the only string builtins that have to
+    ; care which target is running: the native builds index a string by UTF-8
+    ; BYTE and the es6 build by UTF-16 code unit, and percent-encoding is
+    ; defined over UTF-8 bytes. One two-byte character settles which model this
+    ; is, once.
+    fn stringUnitsAreBytes:boolean () {
+        return ((strlen "é") > 1)
+    }
+
+    fn uriUnreserved:boolean (c:int) {
+        if ((c >= 65) && (c <= 90)) { return true }
+        if ((c >= 97) && (c <= 122)) { return true }
+        if ((c >= 48) && (c <= 57)) { return true }
+        ; - _ . ! ~ * ' ( )
+        if (c == 45) { return true }
+        if (c == 95) { return true }
+        if (c == 46) { return true }
+        if (c == 33) { return true }
+        if (c == 126) { return true }
+        if (c == 42) { return true }
+        if (c == 39) { return true }
+        if (c == 40) { return true }
+        if (c == 41) { return true }
+        return false
+    }
+
+    ; The reserved set encodeURI preserves and decodeURI refuses to decode:
+    ; ; / ? : @ & = + $ , #
+    fn uriReserved:boolean (c:int) {
+        if (c == 59) { return true }
+        if (c == 47) { return true }
+        if (c == 63) { return true }
+        if (c == 58) { return true }
+        if (c == 64) { return true }
+        if (c == 38) { return true }
+        if (c == 61) { return true }
+        if (c == 43) { return true }
+        if (c == 36) { return true }
+        if (c == 44) { return true }
+        if (c == 35) { return true }
+        return false
+    }
+
+    fn uriPercentByte:string (b:int) {
+        return ("%" + (this.hexPad((bit_and b 255) 2)))
+    }
+
+    ; Encode ONE code point as its UTF-8 bytes, percent-escaped.
+    fn uriEncodeCodePoint:string (cp:int) {
+        if (cp < 128) {
+            return (this.uriPercentByte(cp))
+        }
+        if (cp < 2048) {
+            def b1:int (bit_or 192 (bit_shr cp 6))
+            def b2:int (bit_or 128 (bit_and cp 63))
+            return ((this.uriPercentByte(b1)) + (this.uriPercentByte(b2)))
+        }
+        if (cp < 65536) {
+            def c1:int (bit_or 224 (bit_shr cp 12))
+            def c2:int (bit_or 128 (bit_and (bit_shr cp 6) 63))
+            def c3:int (bit_or 128 (bit_and cp 63))
+            return (((this.uriPercentByte(c1)) + (this.uriPercentByte(c2))) + (this.uriPercentByte(c3)))
+        }
+        def d1:int (bit_or 240 (bit_shr cp 18))
+        def d2:int (bit_or 128 (bit_and (bit_shr cp 12) 63))
+        def d3:int (bit_or 128 (bit_and (bit_shr cp 6) 63))
+        def d4:int (bit_or 128 (bit_and cp 63))
+        return ((((this.uriPercentByte(d1)) + (this.uriPercentByte(d2))) + (this.uriPercentByte(d3))) + (this.uriPercentByte(d4)))
+    }
+
+    fn uriEncode:EvHandle (s:string keepReserved:boolean) {
+        def bytesModel:boolean (this.stringUnitsAreBytes())
+        def out:string ""
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def raw:int (charAt s i)
+            def c:int (bit_and raw 255)
+            if (false == bytesModel) {
+                c = (bit_and raw 65535)
+            }
+            def keep:boolean (this.uriUnreserved(c))
+            if keepReserved {
+                if (this.uriReserved(c)) { keep = true }
+            }
+            if keep {
+                out = (out + (strfromcode c))
+                i = (i + 1)
+            } {
+                if bytesModel {
+                    ; The units ARE the UTF-8 bytes; each one escapes as it is.
+                    ; A lone SURROGATE is still a URIError, and in this model it
+                    ; has already been folded into bytes -- ED A0..BF is exactly
+                    ; the U+D800..U+DFFF range, so that pair is what identifies
+                    ; one here.
+                    if (c == 237) {
+                        if ((i + 1) < n) {
+                            def nb:int (bit_and (charAt s (i + 1)) 255)
+                            if ((nb >= 160) && (nb <= 191)) {
+                                return (this.throwSpecError("URIError" "URI malformed"))
+                            }
+                        }
+                    }
+                    out = (out + (this.uriPercentByte(c)))
+                    i = (i + 1)
+                } {
+                    ; A UTF-16 unit: a lone surrogate is a URIError, and a
+                    ; well-formed pair is ONE code point.
+                    def cp:int c
+                    def step:int 1
+                    if ((c >= 55296) && (c <= 56319)) {
+                        if ((i + 1) >= n) {
+                            return (this.throwSpecError("URIError" "URI malformed"))
+                        }
+                        def lo:int (bit_and (charAt s (i + 1)) 65535)
+                        if ((lo < 56320) || (lo > 57343)) {
+                            return (this.throwSpecError("URIError" "URI malformed"))
+                        }
+                        cp = ((((c - 55296) * 1024) + (lo - 56320)) + 65536)
+                        step = 2
+                    } {
+                        if ((c >= 56320) && (c <= 57343)) {
+                            return (this.throwSpecError("URIError" "URI malformed"))
+                        }
+                    }
+                    out = (out + (this.uriEncodeCodePoint(cp)))
+                    i = (i + step)
+                }
+            }
+        }
+        return (EvValueBridge.taggedString(out))
+    }
+
+    fn uriDecode:EvHandle (s:string keepReserved:boolean) {
+        def bytesModel:boolean (this.stringUnitsAreBytes())
+        def out:string ""
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (bit_and (charAt s i) 65535)
+            if bytesModel {
+                c = (bit_and (charAt s i) 255)
+            }
+            if (c != 37) {
+                out = (out + (strfromcode c))
+                i = (i + 1)
+            } {
+                if ((i + 2) >= n) {
+                    return (this.throwSpecError("URIError" "URI malformed"))
+                }
+                def b0:int (this.hexValueOf(s (i + 1) 2))
+                if (b0 < 0) {
+                    return (this.throwSpecError("URIError" "URI malformed"))
+                }
+                if (b0 < 128) {
+                    ; decodeURI leaves the RESERVED set encoded: `%2F` stays
+                    ; "%2F" so a decoded URI still parses as one.
+                    def leaveIt:boolean false
+                    if keepReserved {
+                        if (this.uriReserved(b0)) { leaveIt = true }
+                    }
+                    if leaveIt {
+                        out = (out + (substring s i (i + 3)))
+                    } {
+                        out = (out + (strfromcode b0))
+                    }
+                    i = (i + 3)
+                } {
+                    ; A multi-byte sequence: how many continuation bytes the
+                    ; lead announces, each of which must itself be a `%XX` in
+                    ; the 0x80..0xBF range.
+                    def extra:int 0
+                    if ((b0 >= 192) && (b0 <= 223)) { extra = 1 }
+                    if ((b0 >= 224) && (b0 <= 239)) { extra = 2 }
+                    if ((b0 >= 240) && (b0 <= 247)) { extra = 3 }
+                    if (extra == 0) {
+                        return (this.throwSpecError("URIError" "URI malformed"))
+                    }
+                    def cp:int 0
+                    if (extra == 1) { cp = (bit_and b0 31) }
+                    if (extra == 2) { cp = (bit_and b0 15) }
+                    if (extra == 3) { cp = (bit_and b0 7) }
+                    def seq:string (substring s i (i + 3))
+                    def k:int 0
+                    def at:int (i + 3)
+                    while (k < extra) {
+                        ; at+1 and at+2 are both READ, so the last legal start
+                        ; is n-3: an off-by-one here walked off the end of the
+                        ; string on a truncated sequence.
+                        if ((at + 2) >= n) {
+                            return (this.throwSpecError("URIError" "URI malformed"))
+                        }
+                        if ((bit_and (charAt s at) 255) != 37) {
+                            return (this.throwSpecError("URIError" "URI malformed"))
+                        }
+                        def bn:int (this.hexValueOf(s (at + 1) 2))
+                        if (bn < 0) {
+                            return (this.throwSpecError("URIError" "URI malformed"))
+                        }
+                        if ((bn < 128) || (bn > 191)) {
+                            return (this.throwSpecError("URIError" "URI malformed"))
+                        }
+                        cp = ((cp * 64) + (bit_and bn 63))
+                        seq = (seq + (substring s at (at + 3)))
+                        at = (at + 3)
+                        k = (k + 1)
+                    }
+                    ; Overlong forms, surrogates and out-of-range code points
+                    ; are all malformed.
+                    if (cp > 1114111) {
+                        return (this.throwSpecError("URIError" "URI malformed"))
+                    }
+                    if ((cp >= 55296) && (cp <= 57343)) {
+                        return (this.throwSpecError("URIError" "URI malformed"))
+                    }
+                    if (extra == 1) {
+                        if (cp < 128) {
+                            return (this.throwSpecError("URIError" "URI malformed"))
+                        }
+                    }
+                    if (extra == 2) {
+                        if (cp < 2048) {
+                            return (this.throwSpecError("URIError" "URI malformed"))
+                        }
+                    }
+                    if (extra == 3) {
+                        if (cp < 65536) {
+                            return (this.throwSpecError("URIError" "URI malformed"))
+                        }
+                    }
+                    if bytesModel {
+                        ; The result string is itself UTF-8, so the decoded
+                        ; bytes go back in exactly as they came.
+                        def bi:int 0
+                        while (bi < (strlen seq)) {
+                            def sc:int (bit_and (charAt seq bi) 255)
+                            if (sc == 37) {
+                                def hv:int (this.hexValueOf(seq (bi + 1) 2))
+                                out = (out + (strfromcode hv))
+                                bi = (bi + 3)
+                            } {
+                                bi = (bi + 1)
+                            }
+                        }
+                    } {
+                        if (cp > 65535) {
+                            def adj:int (cp - 65536)
+                            out = (out + (strfromcode (55296 + (bit_shr adj 10))))
+                            out = (out + (strfromcode (56320 + (bit_and adj 1023))))
+                        } {
+                            out = (out + (strfromcode cp))
+                        }
+                    }
+                    i = at
+                }
+            }
+        }
+        return (EvValueBridge.taggedString(out))
+    }
+
+    fn isUriGlobalName:boolean (name:string) {
+        if (name == "encodeURI") { return true }
+        if (name == "encodeURIComponent") { return true }
+        if (name == "decodeURI") { return true }
+        if (name == "decodeURIComponent") { return true }
+        return false
+    }
+
+    fn callUriGlobal:EvHandle (name:string args:[EvHandle]) {
+        def a0:string "undefined"
+        if ((array_length args) > 0) {
+            a0 = (this.toStringOf((itemAt args 0)))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+        }
+        if (name == "encodeURI") {
+            return (this.uriEncode(a0 true))
+        }
+        if (name == "encodeURIComponent") {
+            return (this.uriEncode(a0 false))
+        }
+        if (name == "decodeURI") {
+            return (this.uriDecode(a0 true))
+        }
+        return (this.uriDecode(a0 false))
+    }
+
     fn escapeString:string (s:string) {
         def out:string ""
         def i:int 0
