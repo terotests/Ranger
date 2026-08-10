@@ -7201,6 +7201,10 @@ class TSParserSimple {
           ; Parse method as function expression
           def fnNode (new TSNode())
           fnNode.nodeType = "FunctionExpression"
+          ; `{ *m() {} }` is a GENERATOR method. The star was recorded on the
+          ; property but never reached the function node the evaluator calls,
+          ; so the body simply ran and answered undefined.
+          fnNode.generator = prop.generator
           ; A method's source text starts at its KEY -- `foo() {}`, not `() {}`.
           fnNode.start = prop.start
           this.advance()

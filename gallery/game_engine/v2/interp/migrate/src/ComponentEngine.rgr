@@ -29571,8 +29571,38 @@ class ComponentEngine {
         def savedStrict:boolean strictMode
         strictMode = (this.strictForBody(fnNode))
         callDepth = (callDepth + 1)
+        ; D-GENRESUME: a generator METHOD -- `{ *m(){} }`, `class C { *g(){} }`
+        ; -- builds a generator object exactly as `function*` does. Only the
+        ; value path knew about generators, so a generator method ran its body
+        ; and answered undefined; the whole shape was missing.
+        if fnNode.generator {
+            if (this.genBodyResumable(fnNode)) {
+                def genCtxN@(optional):EvalContext context
+                def genvN:EvHandle (this.makeResumableGenerator(fnNode (unwrap genCtxN)))
+                strictMode = savedStrict
+                callDepth = (callDepth - 1)
+                context = savedContext
+                currentModule = savedModule
+                scriptDidReturn = savedDidReturn
+                scriptReturnValue = savedReturnValue
+                return genvN
+            }
+        }
+        def savedGenCollectN:[EvHandle] genCollect
+        def savedGenDepthN:int genDepth
+        if fnNode.generator {
+            def freshCollectN:[EvHandle]
+            genCollect = freshCollectN
+            genDepth = (genDepth + 1)
+        }
         def body:TSNode (this.getFunctionBody(fnNode))
         def result:EvHandle (this.callResultOf((this.evaluateFunctionBodyValue(body))))
+        if fnNode.generator {
+            def producedN:[EvHandle] genCollect
+            genCollect = savedGenCollectN
+            genDepth = savedGenDepthN
+            result = (this.makeGeneratorValue(producedN))
+        }
         strictMode = savedStrict
         callDepth = (callDepth - 1)
         context = savedContext
