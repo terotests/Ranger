@@ -4811,6 +4811,12 @@ class ComponentEngine {
     ; Void wrappers: assigning loop results to an unused local is dead-code-
     ; eliminated by clang++ (while/for become no-ops in native game_sdl).
     fn runForStatementValue:void (stmt:TSNode) {
+        ; D-COMPLETION: an iteration statement's completion value starts at
+        ; UNDEFINED, not at whatever the statement before it produced. That is
+        ; what makes `eval('1; for (x in {}) { }')` undefined rather than 1 --
+        ; a loop that runs no iterations, or whose body produces nothing,
+        ; evaluates to undefined.
+        completionValue = (EvValueBridge.taggedUndefined())
         def savedBreak:boolean loopBreak
         def savedContinue:boolean loopContinue
         def myLabels:[string] (this.takeStatementLabels())
@@ -4929,6 +4935,12 @@ class ComponentEngine {
     }
 
     fn runForOfStatementValue:void (stmt:TSNode) {
+        ; D-COMPLETION: an iteration statement's completion value starts at
+        ; UNDEFINED, not at whatever the statement before it produced. That is
+        ; what makes `eval('1; for (x in {}) { }')` undefined rather than 1 --
+        ; a loop that runs no iterations, or whose body produces nothing,
+        ; evaluates to undefined.
+        completionValue = (EvValueBridge.taggedUndefined())
         def savedBreak:boolean loopBreak
         def savedContinue:boolean loopContinue
         def myLabels:[string] (this.takeStatementLabels())
@@ -5075,6 +5087,12 @@ class ComponentEngine {
         this.settleLoopAbrupt(myLabels savedBreak savedContinue)
     }
     fn runWhileStatementValue:void (stmt:TSNode) {
+        ; D-COMPLETION: an iteration statement's completion value starts at
+        ; UNDEFINED, not at whatever the statement before it produced. That is
+        ; what makes `eval('1; for (x in {}) { }')` undefined rather than 1 --
+        ; a loop that runs no iterations, or whose body produces nothing,
+        ; evaluates to undefined.
+        completionValue = (EvValueBridge.taggedUndefined())
         def savedBreak:boolean loopBreak
         def savedContinue:boolean loopContinue
         def myLabels:[string] (this.takeStatementLabels())
@@ -5124,6 +5142,12 @@ class ComponentEngine {
     ; until a break/return/continue. `break` ends the switch (consumed here);
     ; `continue`/`return` propagate to the enclosing loop/function.
     fn runSwitchStatementValue:void (stmt:TSNode) {
+        ; D-COMPLETION: an iteration statement's completion value starts at
+        ; UNDEFINED, not at whatever the statement before it produced. That is
+        ; what makes `eval('1; for (x in {}) { }')` undefined rather than 1 --
+        ; a loop that runs no iterations, or whose body produces nothing,
+        ; evaluates to undefined.
+        completionValue = (EvValueBridge.taggedUndefined())
         def savedBreak:boolean loopBreak
         def myLabels:[string] (this.takeStatementLabels())
         loopBreak = false
@@ -5188,6 +5212,12 @@ class ComponentEngine {
 
     ; do { body } while (test) — body runs at least once.
     fn runDoWhileStatementValue:void (stmt:TSNode) {
+        ; D-COMPLETION: an iteration statement's completion value starts at
+        ; UNDEFINED, not at whatever the statement before it produced. That is
+        ; what makes `eval('1; for (x in {}) { }')` undefined rather than 1 --
+        ; a loop that runs no iterations, or whose body produces nothing,
+        ; evaluates to undefined.
+        completionValue = (EvValueBridge.taggedUndefined())
         def savedBreak:boolean loopBreak
         def savedContinue:boolean loopContinue
         def myLabels:[string] (this.takeStatementLabels())
@@ -5235,6 +5265,12 @@ class ComponentEngine {
     ; for (k in obj/array) — iterates string keys of an object, or index strings
     ; ("0","1",...) of an array, matching JS for-in.
     fn runForInStatementValue:void (stmt:TSNode) {
+        ; D-COMPLETION: an iteration statement's completion value starts at
+        ; UNDEFINED, not at whatever the statement before it produced. That is
+        ; what makes `eval('1; for (x in {}) { }')` undefined rather than 1 --
+        ; a loop that runs no iterations, or whose body produces nothing,
+        ; evaluates to undefined.
+        completionValue = (EvValueBridge.taggedUndefined())
         def savedBreak:boolean loopBreak
         def savedContinue:boolean loopContinue
         def myLabels:[string] (this.takeStatementLabels())
