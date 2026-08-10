@@ -2133,6 +2133,14 @@ class ComponentEngine {
                 if (false == (obj.isWritable(key))) {
                     return ("Cannot assign to read only property " + key)
                 }
+                return ""
+            }
+            ; `length` and `name` are answered SYNTHETICALLY -- computed from
+            ; the parameter list rather than stored -- so they are not own data
+            ; and the checks above cannot see them. Both are non-writable, and
+            ; without this a plain `f.length = 99` shadowed the real one.
+            if ((key == "length") || (key == "name")) {
+                return ("Cannot assign to read only property " + key)
             }
             return ""
         }
@@ -7432,12 +7440,15 @@ class ComponentEngine {
             ; D-STRICT: sloppy mode drops a refused write on the floor; strict
             ; mode reports it. This is the single most-tested strict-mode rule
             ; in the suite -- assigning to a non-writable property, to a frozen
-            ; object, or adding one to a non-extensible object.
-            if strictMode {
-                def wErr:string (this.writeRefusalError(obj key))
-                if ((strlen wErr) > 0) {
+            ; object, or adding one to a non-extensible object. Sloppy mode has
+            ; to consult it too: "drops on the floor" means the write does not
+            ; happen, not that it happens quietly.
+            def wErr:string (this.writeRefusalError(obj key))
+            if ((strlen wErr) > 0) {
+                if strictMode {
                     return (this.throwSpecError("TypeError" wErr))
                 }
+                return result
             }
             obj.setMember(key result)
             this.syncGlobalObjectWrite(obj key result)
