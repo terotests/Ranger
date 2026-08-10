@@ -5471,7 +5471,31 @@ class ComponentEngine {
                 def hArgs:[EvHandle]
                 push hArgs hTgt
                 push hArgs (EvValueBridge.taggedString(key))
-                return ((this.callProxyTrap(hTrap hArgs)).toBool())
+                def hRes:boolean ((this.callProxyTrap(hTrap hArgs)).toBool())
+                if scriptThrew {
+                    return false
+                }
+                ; A trap may not DENY a property the target cannot lose: one
+                ; that is own and non-configurable, or any own property of a
+                ; non-extensible target. Reporting false for either is a
+                ; TypeError, not an answer.
+                if (false == hRes) {
+                    def hOwn:boolean false
+                    if (hTgt.hasOwnData(key)) { hOwn = true }
+                    if (hTgt.hasOwnGetter(key)) { hOwn = true }
+                    if (hTgt.hasOwnSetter(key)) { hOwn = true }
+                    if hOwn {
+                        if (false == (hTgt.isConfigurable(key))) {
+                            def _h1:EvHandle (this.throwSpecError("TypeError" "proxy has trap denied a non-configurable own property"))
+                            return false
+                        }
+                        if (false == (hTgt.isExtensible())) {
+                            def _h2:EvHandle (this.throwSpecError("TypeError" "proxy has trap denied an own property of a non-extensible target"))
+                            return false
+                        }
+                    }
+                }
+                return hRes
             }
             return (this.objHasKeyUpChain(hTgt key))
         }
@@ -19743,6 +19767,35 @@ class ComponentEngine {
             if (name == "set") {
                 def sVal:EvHandle (EvValueBridge.taggedUndefined())
                 if ((array_length args) > 2) { sVal = (itemAt args 2) }
+                ; D-PROXY: a proxy target answers through its `set` trap, whose
+                ; BOOLEAN result is the answer -- Reflect.set went straight to
+                ; the own-data checks and never consulted the handler at all.
+                if (this.isProxyValue(rTgt)) {
+                    def spTgt:EvHandle (this.proxyTargetOf(rTgt))
+                    def spTrap:EvHandle (this.proxyTrap(rTgt "set"))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    if (spTrap.isFunction()) {
+                        def spRecv:EvHandle rTgt
+                        if ((array_length args) > 3) { spRecv = (itemAt args 3) }
+                        def spArgs:[EvHandle]
+                        push spArgs spTgt
+                        push spArgs (EvValueBridge.taggedString(rKey))
+                        push spArgs sVal
+                        push spArgs spRecv
+                        def spRes:EvHandle (this.callProxyTrap(spTrap spArgs))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        return (EvValueBridge.taggedBoolean((spRes.toBool())))
+                    }
+                    def spFwd:[EvHandle]
+                    push spFwd spTgt
+                    push spFwd (itemAt args 1)
+                    push spFwd sVal
+                    return (this.invokeBuiltinStatic("Reflect" "set" spFwd))
+                }
                 ; [[Set]] answers false rather than throwing: a non-writable own
                 ; property refuses, and so does a new property on a
                 ; non-extensible object.
