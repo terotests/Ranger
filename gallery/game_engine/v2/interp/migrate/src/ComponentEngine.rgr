@@ -5225,16 +5225,43 @@ class ComponentEngine {
                 if gClose {
                     def gRet:EvHandle (this.iteratorMethodOf(gIter "return"))
                     if (gRet.isFunction()) {
+                        ; The close runs as its OWN completion. The completion
+                        ; that caused it -- a break, a continue, a return, a
+                        ; throw -- is set aside first: left live, it travels
+                        ; into the close function and every statement in its
+                        ; body bails on entry, so `return` was called and did
+                        ; nothing at all.
                         def savedThrewC:boolean scriptThrew
                         def savedThrowVC:EvHandle scriptThrowValue
+                        def savedBrkC:boolean loopBreak
+                        def savedCntC:boolean loopContinue
+                        def savedRetC:boolean scriptDidReturn
+                        def savedRetVC:EvHandle scriptReturnValue
                         scriptThrew = false
-                        def _gc:EvHandle (this.iteratorInvoke(gIter gRet (EvValueBridge.taggedUndefined())))
+                        loopBreak = false
+                        loopContinue = false
+                        scriptDidReturn = false
+                        def gcRes:EvHandle (this.iteratorInvoke(gIter gRet (EvValueBridge.taggedUndefined())))
+                        ; The close's own result must be an object -- but only
+                        ; when nothing was already travelling; an exception on
+                        ; its way out is not displaced by the close's answer.
+                        if (false == savedThrewC) {
+                            if (false == scriptThrew) {
+                                if (false == (this.isDescriptorObject(gcRes))) {
+                                    def _gv:EvHandle (this.throwSpecError("TypeError" "iterator return result is not an object"))
+                                    savedThrewC = scriptThrew
+                                    savedThrowVC = scriptThrowValue
+                                }
+                            }
+                        }
                         ; A throw from the close is dropped when one is already
                         ; travelling: the original completion wins.
-                        if savedThrewC {
-                            scriptThrew = true
-                            scriptThrowValue = savedThrowVC
-                        }
+                        scriptThrew = savedThrewC
+                        scriptThrowValue = savedThrowVC
+                        loopBreak = savedBrkC
+                        loopContinue = savedCntC
+                        scriptDidReturn = savedRetC
+                        scriptReturnValue = savedRetVC
                     }
                 }
                 context = (unwrap ofOuter)
@@ -10205,9 +10232,14 @@ class ComponentEngine {
             return true
         }
         if (k == 37) {
-            ; for-of over the walker's own normalised item list; only the
-            ; declared single-name form compiles (the walker's bare-name
-            ; form has its own quirk and keeps it)
+            ; D-LIVEITER: for-of does NOT compile. The compiled form iterates a
+            ; normalised item LIST, which means draining the source before the
+            ; first turn -- that never terminates for an unbounded iterator, and
+            ; it robs the iterator of the `return` a break owes it. The walker's
+            ; for-of steps its source and closes it, and is itself index-based
+            ; for the array case, so falling back costs little and is the only
+            ; version that is correct.
+            return false
             if (null? node.left) {
                 return false
             }
@@ -14432,7 +14464,21 @@ class ComponentEngine {
     fn genCursorClose:void (gv:EvHandle) {
         def st:GenState (this.genStateOf(gv))
         if (st.status == 3) { return }
+        ; Same rule as the guest-iterator close: the completion that caused it
+        ; is set aside, or it travels into the generator's own finally blocks
+        ; and stops them on entry.
+        def savedBrkG:boolean loopBreak
+        def savedCntG:boolean loopContinue
+        def savedRetG:boolean scriptDidReturn
+        def savedRetVG:EvHandle scriptReturnValue
+        loopBreak = false
+        loopContinue = false
+        scriptDidReturn = false
         def _c:EvHandle (this.genResume(gv (EvValueBridge.taggedUndefined()) 1))
+        loopBreak = savedBrkG
+        loopContinue = savedCntG
+        scriptDidReturn = savedRetG
+        scriptReturnValue = savedRetVG
     }
 
     ; Bind one turn of a for-of loop's target, creating the per-iteration scope
