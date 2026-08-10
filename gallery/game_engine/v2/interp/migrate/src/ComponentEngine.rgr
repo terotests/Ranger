@@ -7797,6 +7797,18 @@ class ComponentEngine {
             ; untouched and every assertion about it read the old contents.
             if (obj.isArrayValue()) {
                 if (key == "length") {
+                    ; A non-writable `length` refuses the write -- silently in
+                    ; sloppy mode, as a TypeError in strict. The resize ran
+                    ; regardless, so `defineProperty(a,"length",{writable:false});
+                    ; a.length = 5` moved it anyway.
+                    if (obj.hasOwnAttrs("length")) {
+                        if (false == (obj.isWritable("length"))) {
+                            if strictMode {
+                                return (this.throwSpecError("TypeError" "Cannot assign to read only property 'length'"))
+                            }
+                            return rightValue
+                        }
+                    }
                     def lenCur:EvHandle (EvHandle.number((obj.arrayLengthD())))
                     def lenWant:EvHandle (this.applyAssignOp(opK lenCur rightValue))
                     if scriptThrew {
@@ -20988,7 +21000,15 @@ class ComponentEngine {
                                     def valsL:[EvHandle]
                                     def dL:EvHandle (EvValueBridge.taggedObject(keysL valsL))
                                     dL.setMember("value" (EvHandle.fromInt((src.denseLen()))))
-                                    dL.setMember("writable" (EvValueBridge.taggedBoolean(true)))
+                                    ; `length` is writable UNLESS defineProperty
+                                    ; has said otherwise. It was reported as
+                                    ; always writable, so a frozen length looked
+                                    ; unfrozen however it had been defined.
+                                    def lenW:boolean true
+                                    if (src.hasOwnAttrs("length")) {
+                                        lenW = (src.isWritable("length"))
+                                    }
+                                    dL.setMember("writable" (EvValueBridge.taggedBoolean(lenW)))
                                     dL.setMember("enumerable" (EvValueBridge.taggedBoolean(false)))
                                     dL.setMember("configurable" (EvValueBridge.taggedBoolean(false)))
                                     return dL
@@ -22937,6 +22957,33 @@ class ComponentEngine {
         }
         if (false == (this.isDescriptorObject(obj))) {
             return false
+        }
+        ; D-ARRAYDEFINE: an array ELEMENT lives in the dense store, not in own
+        ; data, so none of the checks below could see it and `delete a[0]`
+        ; succeeded however the element was defined -- on a frozen array, on a
+        ; sealed one, and on an index defineProperty had made non-configurable.
+        ; That is also what the suite's own `isConfigurable` helper measures:
+        ; it deletes the property and asks whether it is gone.
+        if (obj.isArrayValue()) {
+            def dIdx:double (this.canonicalArrayIndexD(key))
+            if (dIdx >= 0.0) {
+                if (dIdx >= (obj.arrayLengthD())) {
+                    return false
+                }
+                ; A HOLE is not a property at all, so deleting it is a no-op
+                ; rather than a refusal.
+                if (dIdx <= 10000000.0) {
+                    if ((obj.getIndex((to_int dIdx))).isHole()) {
+                        return false
+                    }
+                }
+                if (obj.isFrozenObj()) { return true }
+                if (obj.isSealedObj()) { return true }
+                if (obj.hasOwnAttrs(key)) {
+                    return (false == (obj.isConfigurable(key)))
+                }
+                return false
+            }
         }
         def present:boolean false
         if (obj.hasOwnData(key)) { present = true }
@@ -28886,6 +28933,25 @@ class ComponentEngine {
             obj.setAttrs(key false newE newC)
             return ""
         }
+        ; §6.2.5.6: a GENERIC descriptor -- one that mentions neither value nor
+        ; writable nor get nor set -- changes only the attributes and leaves the
+        ; property's KIND alone. Falling through to the data branch turned an
+        ; accessor into a data property holding undefined, so
+        ; `defineProperty(o, "f", {enumerable: true})` on a getter made `o.f`
+        ; read undefined and report value/writable.
+        def isDataDesc:boolean false
+        if (this.descHas(desc "value")) { isDataDesc = true }
+        if (this.descHas(desc "writable")) { isDataDesc = true }
+        def wasAccessor:boolean false
+        if (obj.hasOwnGetter(key)) { wasAccessor = true }
+        if (obj.hasOwnSetter(key)) { wasAccessor = true }
+        if (wasAccessor) {
+            if (false == isDataDesc) {
+                ; Still an accessor; an accessor has no writable attribute.
+                obj.setAttrs(key false newE newC)
+                return ""
+            }
+        }
         ; Turning an ACCESSOR into a data property drops the functions.
         if (obj.hasOwnGetter(key)) {
             obj.clearAccessor(key)
@@ -30554,6 +30620,21 @@ class ComponentEngine {
                                 if didx {
                                     def dn:int (unwrap didx)
                                     if ((dn >= 0) && (dn < (obj.denseLen()))) {
+                                        ; The element branch ran BEFORE the
+                                        ; refusal check, so an element was
+                                        ; deletable however it had been defined
+                                        ; -- on a frozen array, on a sealed one,
+                                        ; on an index defineProperty had made
+                                        ; non-configurable. The suite's own
+                                        ; isConfigurable helper measures exactly
+                                        ; this: it deletes and asks whether the
+                                        ; property is gone.
+                                        if (this.deleteRefused(obj dkey)) {
+                                            if strictMode {
+                                                return (this.throwSpecError("TypeError" ("cannot delete " + dkey)))
+                                            }
+                                            return (EvValueBridge.taggedBoolean(false))
+                                        }
                                         ; D-ACCESSORS: an index redefined as an
                                         ; accessor lives in the getter/setter
                                         ; maps, so blanking the dense slot alone
