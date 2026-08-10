@@ -7260,14 +7260,23 @@ class ComponentEngine {
         def objName:string ""
         if leftNode.left {
             def objNode:TSNode (unwrap leftNode.left)
-            if ((this.nodeKindOf(objNode)) == 1) {
-                objName = objNode.name
-                ; D-GLOBALOBJ: resolve through lookupIdentifier, not the raw
-                ; scope, so a write to a built-in global (`Math.value = 1`)
-                ; lands on the real object instead of vanishing.
-                obj = (this.lookupIdentifier(objName))
+            ; D-SUPER: `super.x = v` writes to the RECEIVER, not to the home
+            ; object's prototype -- the prototype only decides whether a setter
+            ; up there takes the write instead. So the target is `this`. It used
+            ; to evaluate `super` as a value, which is nothing, and the write
+            ; landed on null.
+            if (objNode.nodeType == "Super") {
+                obj = (context.lookup("this"))
             } {
-                obj = (this.evaluateExpr(objNode))
+                if ((this.nodeKindOf(objNode)) == 1) {
+                    objName = objNode.name
+                    ; D-GLOBALOBJ: resolve through lookupIdentifier, not the raw
+                    ; scope, so a write to a built-in global (`Math.value = 1`)
+                    ; lands on the real object instead of vanishing.
+                    obj = (this.lookupIdentifier(objName))
+                } {
+                    obj = (this.evaluateExpr(objNode))
+                }
             }
         }
         ; A throw from resolving the BASE -- an undeclared name is a
@@ -30686,8 +30695,11 @@ class ComponentEngine {
                             }
                         }
                     }
+                    ; D-SUPER: with a null home prototype there is no base to
+                    ; read from, and `super.x` is the same TypeError that
+                    ; reading a property of null always is -- not undefined.
                     if (false == (this.isDescriptorObject(supStart))) {
-                        return (EvValueBridge.taggedUndefined())
+                        return (this.throwSpecError("TypeError" ("Cannot read properties of null (reading '" + (supKey + "')"))))
                     }
                     ; An ACCESSOR up there runs with THIS instance as receiver.
                     def supGet:EvHandle (this.resolveGetterOn(supStart supKey))
