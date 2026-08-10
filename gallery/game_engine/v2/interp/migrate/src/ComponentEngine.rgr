@@ -17613,7 +17613,11 @@ class ComponentEngine {
                     superCallCount = (superCallCount + 1)
                     derivedCtorPending = false
                     def selfV:EvHandle (context.lookup("this"))
-                    if (selfV.isObject()) {
+                    ; isDescriptorObject, not isObject: an instance of a class
+                    ; extending Array IS an array, and the narrower test skipped
+                    ; its super() call entirely -- `super(42)` ran nothing, so
+                    ; the length the base was asked for never arrived.
+                    if (this.isDescriptorObject(selfV)) {
                         def ownCls:string (this.instanceClassName(selfV))
                         def ownNode:TSNode (this.classNodeByName(ownCls))
                         if ((this.nodeKindOf(ownNode)) == 25) {
@@ -29539,7 +29543,12 @@ class ComponentEngine {
     ; ---- user classes: instances, methods, `this`-bound dispatch ----------
     ; The __class__ name stamped on an instance object, or "" for non-instances.
     fn instanceClassName:string (obj:EvHandle) {
-        if (false == (obj.isObject())) { return "" }
+        ; isDescriptorObject, not isObject: an instance of a class extending
+        ; Array is an ARRAY, and the narrower test made it nameless -- so
+        ; `super(...)` in its constructor could not find the class to climb
+        ; from and did nothing. The stamp is only ever present on an instance,
+        ; so widening the test cannot name anything that was not one.
+        if (false == (this.isDescriptorObject(obj))) { return "" }
         def cv@(optional):EvHandle (obj.tryOwnData("__class__"))
         if cv {
             def c:EvHandle (unwrap cv)
