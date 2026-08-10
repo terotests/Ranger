@@ -825,9 +825,9 @@ after excluding intl402, Temporal, module and async flags:
 
 | | |
 |---|---|
-| **ES2015 overall** | **80.16% (2295/2863)** |
-| pass | 2295 |
-| fail (ran, wrong answer) | 548 |
+| **ES2015 overall** | **80.20% (2296/2863)** |
+| pass | 2296 |
+| fail (ran, wrong answer) | 547 |
 | crash (did not run to completion) | 20 |
 
 The fail/crash split changed meaning partway through this work. An
@@ -887,6 +887,7 @@ How it got here, each row a measured run of the same corpus against the C++
 | for-in heads that are not plain names; `yield*` across a newline | 2289 | 79.95% |
 | `Symbol.toStringTag` on the built-ins that brand with it | 2293 | 80.09% |
 | the ES1-ES5 sweep below (JSON, bind, URI, parseInt, evaluation order) | 2295 | 80.16% |
+| the ES5 attribute sweep below | 2296 | 80.20% |
 
 The single largest step is not an ES2015 feature at all. `propertyHelper.js` --
 which 543 of these files include -- opens with
@@ -975,6 +976,7 @@ when asking whether ES2015 work cost anything:
 | merge base (`9a13ee28`) | 7149 | 88.10% |
 | after the ES2015 work | 7784 | 95.92% |
 | after the ES1-ES5 sweep | 7814 | 96.29% |
+| after the ES5 attribute sweep | 8037 | 99.04% |
 
 The ES2015 work did not cost ES5 anything; it gained 665 files, most of them
 from the same detached-statics fix.
@@ -1006,6 +1008,29 @@ through it found these, each verified against node before and after:
 One defect surfaced on the way that belonged to none of them: a throw
 inside a `console.log` argument printed a line assembled from the failed
 evaluation before the exception surfaced.
+
+#### The ES5 attribute sweep
+
+A second report put two thirds of the remaining shared-corpus gap in one
+subsystem: array and string `[[DefineOwnProperty]]` attribute rules. That
+turned out to be right, and one defect accounted for most of it.
+
+| area | what was wrong | files |
+|---|---|---:|
+| `delete a[0]` | succeeded however the element had been defined -- frozen array, sealed array, index made non-configurable. The element branch of the delete operator ran BEFORE the refusal check, and the check could not see an element anyway: it lives in the dense store, not in own data. The suite's own `isConfigurable` helper measures exactly this -- it deletes and asks whether the property is gone | 56 |
+| non-ASCII whitespace | the lexer knew the code POINTS but read only the lead byte on the native targets, so NBSP, the Zs block, the BOM and LS/PS were not whitespace in source text; `trim` stripped what the host's trim strips, and trimStart/trimEnd stripped spaces only | 33 |
+| generic descriptors | a descriptor mentioning neither value nor writable nor get nor set must change only the attributes; it fell through to the data branch and destroyed the accessor | |
+| array `length` | reported `writable: true` whatever defineProperty had said, and a non-writable length did not refuse an assignment. The attribute was recorded correctly all along; nothing read it | 8 |
+| SameValue | redefinition compared values with strict equality, so a frozen NaN refused a redefinition to NaN and a frozen -0 accepted one to +0 | 6 |
+| evaluation order | `x() + y()` with both throwing reported "y": the right operand ran before scriptThrew was consulted, and a call's later argument displaced an earlier one's throw | 22 |
+| poisoned `caller` | only `arguments` threw on a strict or bound function; `caller` was answered earlier on the member path, and the bytecode tier checked neither -- so the same expression threw at top level and read undefined inside a function | 9 |
+| frozen array elements | freezing sets a flag rather than per-index attributes, so the descriptor read reported every element of a frozen array as writable and configurable | 4 |
+| code-unit width | `charCodeAt` masked every read to the low byte, which is right for the native builds and wrong for es6; `String.fromCharCode` truncated above 255 | 5 |
+
+What remains is a long tail of small causes: array indices defined as
+ACCESSORS, `defineProperty` on an `arguments` object, annexB RegExp
+escapes, and Unicode special-casing in `toUpperCase`/`toLowerCase` (which
+needs the casing tables, not a rule).
 
 ### ES2016 and later: not measured, and not measurable as an era
 
