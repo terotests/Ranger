@@ -165,6 +165,13 @@ class TSParserSimple {
   ; Set just before parsing a function body so the body block reuses the scope
   ; that already holds the parameters.
   def suppressBlockScope:boolean false
+  ; How many ternary CONSEQUENTS are currently open. Inside one, a `:` after a
+  ; parenthesised expression is the ternary's own colon and never a TypeScript
+  ; return-type annotation -- which is how `x ? (c = 5) : (c = 6)` used to be
+  ; misread: the annotation path consumed the `:` and handed `(c = 6)` to the
+  ; type parser, which reported "expected ')' but got '='". TypeScript resolves
+  ; the same ambiguity the same way: once `?` is open, the conditional wins.
+  def ternaryConsequentDepth:int 0
   ; Whether the code being parsed is strict. Set by a "use strict" directive
   ; prologue, and unconditionally inside a class body. Strict code reserves more
   ; words, forbids `with`, and makes duplicate parameters an error.
@@ -4275,6 +4282,11 @@ class TSParserSimple {
   ; === Block Statement ===
   
   fn parseBlock:TSNode () {
+    ; A block ENDS any ternary that was open outside it: the conditional's `:`
+    ; cannot appear inside a brace body, so a return-type annotation on an arrow
+    ; declared in there is legal again.
+    def savedTernaryDepth:int ternaryConsequentDepth
+    ternaryConsequentDepth = 0
     def block (new TSNode())
     block.nodeType = "BlockStatement"
     def startTok (this.peek())
@@ -4332,6 +4344,7 @@ class TSParserSimple {
     def closeTok (this.peek())
     block.end = closeTok.end
     this.expectValue("}")
+    ternaryConsequentDepth = savedTernaryDepth
     return block
   }
   
@@ -5645,7 +5658,9 @@ class TSParserSimple {
     
     if (this.matchValue("?")) {
       this.advance()
+      ternaryConsequentDepth = (ternaryConsequentDepth + 1)
       def consequentExpr (this.parseAssign())
+      ternaryConsequentDepth = (ternaryConsequentDepth - 1)
       
       if (this.matchValue(":")) {
         this.advance()
@@ -7416,11 +7431,15 @@ class TSParserSimple {
     
     this.advance()  ; consume )
     
-    ; Check for type annotation
+    ; Check for type annotation. Not inside a ternary consequent: there the
+    ; `:` belongs to the conditional, and consuming it as a return type turned
+    ; the alternate into a type expression.
     if (this.matchValue(":")) {
-      this.advance()
-      ; Skip the type
-      this.parseType()
+      if (ternaryConsequentDepth == 0) {
+        this.advance()
+        ; Skip the type
+        this.parseType()
+      }
     }
     
     ; Check for =>

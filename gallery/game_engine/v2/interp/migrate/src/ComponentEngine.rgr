@@ -7529,10 +7529,21 @@ class ComponentEngine {
 
     ; Apply a (compound) assignment to a member/index target (o.x, o["k"], a[i]),
     ; returning the assigned value. Read-modify-write for the compound forms.
+    ; D-EVALORDER: the plain entry point. The RESOLVED form below takes a base
+    ; and a key that have already been evaluated, which is what a compound
+    ; assignment needs: `a[i()] += f()` must evaluate the base and the index
+    ; ONCE, and before the right-hand side, not again afterwards.
     fn assignMember:EvHandle (leftNode:TSNode opK:int rightValue:EvHandle) {
+        return (this.assignMemberResolved(leftNode opK rightValue (EvValueBridge.taggedNull()) false "" false))
+    }
+
+    fn assignMemberResolved:EvHandle (leftNode:TSNode opK:int rightValue:EvHandle baseIn:EvHandle hasBase:boolean keyIn:string hasKey:boolean) {
         def obj:EvHandle (EvValueBridge.taggedNull())
         def objName:string ""
-        if leftNode.left {
+        if hasBase {
+            obj = baseIn
+        }
+        if ((false == hasBase) && leftNode.left) {
             def objNode:TSNode (unwrap leftNode.left)
             ; D-SUPER: `super.x = v` writes to the RECEIVER, not to the home
             ; object's prototype -- the prototype only decides whether a setter
@@ -7635,7 +7646,10 @@ class ComponentEngine {
         def key:string leftNode.name
         def numericIndexes:boolean false
         def numIdx:int 0
-        if leftNode.computed {
+        if hasKey {
+            key = keyIn
+        }
+        if ((false == hasKey) && leftNode.computed) {
             if leftNode.right {
                 def indexVal:EvHandle (this.evaluateExpr((unwrap leftNode.right)))
                 if scriptThrew {
@@ -8483,6 +8497,76 @@ class ComponentEngine {
                         preScopeValid = true
                     }
                 }
+                ; D-EVALORDER (§13.15.2): a COMPOUND assignment evaluates its
+                ; target reference and READS it BEFORE the right-hand side runs.
+                ; The read used to happen afterwards, so a right-hand side that
+                ; wrote to the target won: `x = 5; x += (x = 100, 1)` answered
+                ; 101 where it must answer 6. For a member target the base and
+                ; the computed key were re-evaluated after the right-hand side
+                ; too, so `a[i] += f()` stored through whatever index f() left
+                ; behind -- and evaluated the base expression twice.
+                def preBase:EvHandle (EvValueBridge.taggedNull())
+                def preKey:string ""
+                def preCurrent:EvHandle (EvValueBridge.taggedUndefined())
+                def preResolved:boolean false
+                def leftK0:int (this.nodeKindOf(leftNode))
+                if (opK != 1) {
+                    if (leftK0 == 3) {
+                        if leftNode.left {
+                            def pbNode:TSNode (unwrap leftNode.left)
+                            if (pbNode.nodeType == "Super") {
+                                preBase = (context.lookup("this"))
+                            } {
+                                if ((this.nodeKindOf(pbNode)) == 1) {
+                                    preBase = (this.lookupIdentifier(pbNode.name))
+                                } {
+                                    preBase = (this.evaluateExpr(pbNode))
+                                }
+                            }
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                            preKey = leftNode.name
+                            if leftNode.computed {
+                                if leftNode.right {
+                                    def pkV:EvHandle (this.evaluateExpr((unwrap leftNode.right)))
+                                    if scriptThrew {
+                                        return (EvValueBridge.taggedUndefined())
+                                    }
+                                    preKey = (this.toPropertyKey(pkV))
+                                    if scriptThrew {
+                                        return (EvValueBridge.taggedUndefined())
+                                    }
+                                }
+                            }
+                            preCurrent = (this.getPropertyValue(preBase preKey))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                            preResolved = true
+                        }
+                    }
+                    if (leftK0 == 1) {
+                        def pcName:string leftNode.name
+                        def pcW:EvHandle preWith
+                        if (pcW.isObject()) {
+                            preCurrent = (this.getPropertyValue(pcW pcName))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                            preResolved = true
+                        } {
+                            if (context.has(pcName)) {
+                                if preScopeValid {
+                                    preCurrent = (preScope.lookup(pcName))
+                                } {
+                                    preCurrent = (context.lookup(pcName))
+                                }
+                                preResolved = true
+                            }
+                        }
+                    }
+                }
                 def rightValue:EvHandle (EvValueBridge.taggedNull())
                 ; D-GENRESUME: the resumable generator driver evaluates a
                 ; right-hand side that contains a `yield` itself, in steps, and
@@ -8537,6 +8621,9 @@ class ComponentEngine {
                         }
                         if scriptThrew {
                             return (EvValueBridge.taggedUndefined())
+                        }
+                        if preResolved {
+                            wcur = preCurrent
                         }
                         def wres:EvHandle (this.applyAssignOp(opK wcur rightValue))
                         if scriptThrew {
@@ -8618,6 +8705,9 @@ class ComponentEngine {
                     if preScopeValid {
                         def owner:EvalContext preScope
                         def ownCur:EvHandle (owner.lookup(varName))
+                        if preResolved {
+                            ownCur = preCurrent
+                        }
                         def ownRes:EvHandle (this.applyAssignOp(opK ownCur rightValue))
                         if scriptThrew {
                             return (EvValueBridge.taggedUndefined())
@@ -8627,12 +8717,25 @@ class ComponentEngine {
                         return ownRes
                     }
                     def current:EvHandle (context.lookup(varName))
+                    if preResolved {
+                        current = preCurrent
+                    }
                     def result:EvHandle (this.applyAssignOp(opK current rightValue))
                     context.assign(varName result)
                     this.syncGlobalVar(varName result)
                     return result
                 }
-                if ((this.nodeKindOf(leftNode)) == 3) {
+                if (leftK0 == 3) {
+                    if preResolved {
+                        ; The op is applied HERE, against the value read before
+                        ; the right-hand side ran, and the store below is a plain
+                        ; one through the base and key already resolved.
+                        def memRes:EvHandle (this.applyAssignOp(opK preCurrent rightValue))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        return (this.assignMemberResolved(leftNode 1 memRes preBase true preKey true))
+                    }
                     return (this.assignMember(leftNode opK rightValue))
                 }
                 ; Destructuring assignment: `[a,b] = [b,a]`, `({a} = o)`.
