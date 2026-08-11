@@ -7966,6 +7966,11 @@ class ComponentEngine {
                     result = (EvValueBridge.taggedNumber((this.typedArrayCoerce(taIdxKind tiv))))
                 }
                 obj.setIndexAt(numIdx result)
+                ; D-VIEWS: a view over a buffer writes THROUGH to the bytes, and
+                ; every other view over that buffer sees it.
+                if (this.isBufferBackedView(obj)) {
+                    this.writeThroughView(obj numIdx (result.toNumber()))
+                }
             }
         } {
             ; D-ARRAYLEN: writing an array's `length` RESIZES it -- truncating
@@ -8082,6 +8087,13 @@ class ComponentEngine {
                 return result
             }
             obj.setMember(key result)
+            if ((strlen taKind) > 0) {
+                if (this.isArrayIndexKey(key)) {
+                    if (this.isBufferBackedView(obj)) {
+                        this.writeThroughView(obj (to_int (this.stringToNumber(key))) (result.toNumber()))
+                    }
+                }
+            }
             this.syncGlobalObjectWrite(obj key result)
         }
         if ((strlen objName) > 0) {
@@ -9708,6 +9720,11 @@ class ComponentEngine {
         if (this.isWeakCtorName(name)) {
             return (this.constructWeak(name args))
         }
+        ; §27.1.2.1: %Iterator% is abstract -- it exists to hang the helpers and
+        ; `from` on, and constructing it directly is a TypeError.
+        if (name == "Iterator") {
+            return (this.throwSpecError("TypeError" "Abstract class Iterator not directly constructable"))
+        }
         if (name == "Object") {
             def ov:EvHandle (EvValueBridge.taggedNull())
             if ((array_length args) > 0) {
@@ -9720,6 +9737,21 @@ class ComponentEngine {
         }
         if (name == "ArrayBuffer") {
             return (this.constructArrayBuffer(args))
+        }
+        ; D-SHARED: a SharedArrayBuffer is an ArrayBuffer that says it is
+        ; shared. There is one agent in this realm, so "shared with whom" has
+        ; no answer -- but the TYPE is observable (its brand, its prototype,
+        ; and the fact that Atomics refuses anything else), and that part is
+        ; real.
+        if (name == "SharedArrayBuffer") {
+            def sab:EvHandle (this.constructArrayBuffer(args))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            sab.setMember("__abshared__" (EvValueBridge.taggedBoolean(true)))
+            sab.setAttrs("__abshared__" false false false)
+            sab.setProto((this.builtinPrototype("SharedArrayBuffer")))
+            return sab
         }
         if (name == "DataView") {
             return (this.constructDataView(args))
@@ -20141,6 +20173,14 @@ class ComponentEngine {
             if (propName == "byteLength") {
                 return (EvHandle.fromInt(((this.arrayBufferBytes(v)).denseLen())))
             }
+            if (v.hasOwnData("__abshared__")) {
+                if (propName == "growable") {
+                    return (EvValueBridge.taggedBoolean(false))
+                }
+                if (propName == "maxByteLength") {
+                    return (EvHandle.fromInt(((this.arrayBufferBytes(v)).denseLen())))
+                }
+            }
         }
         if (this.isDataViewValue(v)) {
             if (propName == "byteLength") {
@@ -20162,7 +20202,18 @@ class ComponentEngine {
                 return (EvHandle.fromInt(((v.denseLen()) * (this.typedArrayWidth(taBrand)))))
             }
             if (propName == "byteOffset") {
+                if (v.hasOwnData("__taoffset__")) {
+                    return (v.getOwnData("__taoffset__"))
+                }
                 return (EvHandle.fromInt(0))
+            }
+            ; A view answers the buffer it looks at; one built from a length or
+            ; a list gets a buffer minted for it on demand, which is what the
+            ; spec says it has had all along.
+            if (propName == "buffer") {
+                if (v.hasOwnData("__tabuffer__")) {
+                    return (v.getOwnData("__tabuffer__"))
+                }
             }
         }
         return (EvValueBridge.taggedNull())
@@ -20315,8 +20366,156 @@ class ComponentEngine {
         return ta
     }
 
+    ; The DataView element name for a typed array kind: the codec is shared, so
+    ; a view over a buffer decodes with exactly the bytes DataView would read.
+    fn typedArrayElemName:string (kind:string) {
+        if (kind == "Int8Array") { return "Int8" }
+        if (kind == "Uint8Array") { return "Uint8" }
+        if (kind == "Uint8ClampedArray") { return "Uint8" }
+        if (kind == "Int16Array") { return "Int16" }
+        if (kind == "Uint16Array") { return "Uint16" }
+        if (kind == "Int32Array") { return "Int32" }
+        if (kind == "Uint32Array") { return "Uint32" }
+        if (kind == "Float32Array") { return "Float32" }
+        if (kind == "Float64Array") { return "Float64" }
+        return "Uint8"
+    }
+
+    fn isBufferBackedView:boolean (v:EvHandle) {
+        if (false == (v.isArrayValue())) { return false }
+        return (v.hasOwnData("__tabuffer__"))
+    }
+
+    ; D-VIEWS: re-read a view's elements from the bytes it looks at. A buffer
+    ; keeps the list of views over it, and a write through any one of them --
+    ; or through a DataView -- refreshes the rest. That is what makes two views
+    ; over one buffer ALIAS, which is the entire reason a view exists and the
+    ; reason Atomics has anything to operate on.
+    fn refreshView:void (view:EvHandle) {
+        if (false == (this.isBufferBackedView(view))) { return }
+        def buf:EvHandle (view.getOwnData("__tabuffer__"))
+        if (false == (this.isArrayBufferValue(buf))) { return }
+        def bytes:EvHandle (this.arrayBufferBytes(buf))
+        def kind:string (this.typedArrayBrandOf(view))
+        def elemName:string (this.typedArrayElemName(kind))
+        def width:int (this.typedArrayWidth(kind))
+        def off:int (this.toIntegerOf((view.getOwnData("__taoffset__"))))
+        def n:int (view.denseLen())
+        def i:int 0
+        while (i < n) {
+            def base:int (off + (i * width))
+            if ((base + width) <= (bytes.denseLen())) {
+                view.setIndexAt(i (this.dataViewRead(bytes base elemName true)))
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Every view over `buf` except `except` re-reads itself.
+    fn refreshBufferViews:void (buf:EvHandle except:EvHandle) {
+        if (false == (this.isArrayBufferValue(buf))) { return }
+        if (false == (buf.hasOwnData("__abviews__"))) { return }
+        def views:EvHandle (buf.getOwnData("__abviews__"))
+        if (false == (views.isArrayValue())) { return }
+        def i:int 0
+        while (i < (views.denseLen())) {
+            def v:EvHandle (views.arrayItemAt(i))
+            if (false == (v.equals(except))) {
+                this.refreshView(v)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; A write THROUGH a view: the bytes are the source of truth, so the element
+    ; goes into the buffer and every other view over it is brought up to date.
+    fn writeThroughView:void (view:EvHandle idx:int v:double) {
+        if (false == (this.isBufferBackedView(view))) { return }
+        def buf:EvHandle (view.getOwnData("__tabuffer__"))
+        if (false == (this.isArrayBufferValue(buf))) { return }
+        def bytes:EvHandle (this.arrayBufferBytes(buf))
+        def kind:string (this.typedArrayBrandOf(view))
+        def width:int (this.typedArrayWidth(kind))
+        def off:int (this.toIntegerOf((view.getOwnData("__taoffset__"))))
+        def base:int (off + (idx * width))
+        if ((base + width) > (bytes.denseLen())) { return }
+        this.dataViewWrite(bytes base (this.typedArrayElemName(kind)) true v)
+        this.refreshBufferViews(buf view)
+    }
+
     fn constructTypedArray:EvHandle (kind:string args:[EvHandle]) {
         def items:[EvHandle]
+        ; §23.2.5.1: a BUFFER first argument makes a VIEW over it -- shared
+        ; storage, not a copy. It was read as an iterable, so
+        ; `new Int32Array(new ArrayBuffer(8))` was "object is not iterable" and
+        ; there was no way to get a view over a buffer at all.
+        if ((array_length args) > 0) {
+            def b0:EvHandle (itemAt args 0)
+            if (this.isArrayBufferValue(b0)) {
+                def bBytes:EvHandle (this.arrayBufferBytes(b0))
+                def bLen:int (bBytes.denseLen())
+                def width:int (this.typedArrayWidth(kind))
+                def vOff:int 0
+                if ((array_length args) > 1) {
+                    if (false == ((itemAt args 1).isUndefined())) {
+                        vOff = (this.toIntegerOf((itemAt args 1)))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                    }
+                }
+                if (vOff < 0) {
+                    return (this.throwSpecError("RangeError" "Invalid typed array offset"))
+                }
+                ; The offset must land on an element boundary, which is the
+                ; check that catches `new Int32Array(buf, 3)`.
+                if ((vOff - (width * (this.intDiv(vOff width)))) != 0) {
+                    return (this.throwSpecError("RangeError" "start offset of typed array should be a multiple of its element size"))
+                }
+                if (vOff > bLen) {
+                    return (this.throwSpecError("RangeError" "Invalid typed array offset"))
+                }
+                def vLen:int (this.intDiv((bLen - vOff) width))
+                if ((array_length args) > 2) {
+                    if (false == ((itemAt args 2).isUndefined())) {
+                        vLen = (this.toIntegerOf((itemAt args 2)))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        if (vLen < 0) {
+                            return (this.throwSpecError("RangeError" "Invalid typed array length"))
+                        }
+                        if (((vOff + (vLen * width)) > bLen)) {
+                            return (this.throwSpecError("RangeError" "Invalid typed array length"))
+                        }
+                    }
+                }
+                def vItems:[EvHandle]
+                def vi:int 0
+                while (vi < vLen) {
+                    push vItems (EvValueBridge.taggedNumber(0.0))
+                    vi = (vi + 1)
+                }
+                def view:EvHandle (EvValueBridge.taggedArray(vItems))
+                view.setMember("__tabrand__" (EvValueBridge.taggedString(kind)))
+                view.setAttrs("__tabrand__" false false false)
+                view.setMember("__tabuffer__" b0)
+                view.setAttrs("__tabuffer__" false false false)
+                view.setMember("__taoffset__" (EvHandle.fromInt(vOff)))
+                view.setAttrs("__taoffset__" false false false)
+                this.refreshView(view)
+                ; The buffer keeps its views so a write through one reaches
+                ; the others.
+                if (false == (b0.hasOwnData("__abviews__"))) {
+                    def noViews:[EvHandle]
+                    b0.setMember("__abviews__" (EvValueBridge.taggedArray(noViews)))
+                    b0.setAttrs("__abviews__" true false false)
+                }
+                def vlist:EvHandle (b0.getOwnData("__abviews__"))
+                vlist.setIndexAt((vlist.denseLen()) view)
+                return view
+            }
+        }
         if ((array_length args) > 0) {
             def a0:EvHandle (itemAt args 0)
             if (a0.isNumber()) {
@@ -20371,11 +20570,15 @@ class ComponentEngine {
         if (name == "Symbol") { return true }
         if (name == "Map") { return true }
         if (name == "Set") { return true }
+        ; %Iterator% is a constructor -- an abstract one, so `new Iterator()` is
+        ; a TypeError -- and `typeof Iterator` is "function" because of it.
+        if (name == "Iterator") { return true }
         if (name == "Date") { return true }
         if (name == "RegExp") { return true }
         if (name == "Promise") { return true }
         if (name == "Proxy") { return true }
         if (name == "ArrayBuffer") { return true }
+        if (name == "SharedArrayBuffer") { return true }
         if (name == "DataView") { return true }
         if (this.isWeakCtorName(name)) { return true }
         if (this.isTypedArrayCtorName(name)) { return true }
@@ -21889,6 +22092,152 @@ class ComponentEngine {
             }
             return (this.capPromiseOf(aCap))
         }
+        ; D-ATOMICS. Every one of these takes an INTEGER typed array over a
+        ; buffer, an index inside it, and reads or writes one element. The
+        ; atomicity is free here -- nothing else runs between the read and the
+        ; write -- so what is implemented is the arithmetic, the coercion to the
+        ; element type, and the argument checks, which are the observable part.
+        if (nsName == "Atomics") {
+            if (name == "isLockFree") {
+                def lfN:int 0
+                if ((array_length args) > 0) {
+                    lfN = (this.toIntegerOf((itemAt args 0)))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                }
+                def lf:boolean false
+                if (lfN == 1) { lf = true }
+                if (lfN == 2) { lf = true }
+                if (lfN == 4) { lf = true }
+                if (lfN == 8) { lf = true }
+                return (EvValueBridge.taggedBoolean(lf))
+            }
+            def ta:EvHandle (EvValueBridge.taggedUndefined())
+            if ((array_length args) > 0) { ta = (itemAt args 0) }
+            def taKind2:string (this.typedArrayBrandOf(ta))
+            if ((strlen taKind2) == 0) {
+                return (this.throwSpecError("TypeError" "Atomics operations require an integer TypedArray"))
+            }
+            ; §25.4.3.1 ValidateIntegerTypedArray: the float and clamped kinds
+            ; are refused outright, which is the one check a caller is likely
+            ; to trip over.
+            def okKind:boolean false
+            if (taKind2 == "Int8Array") { okKind = true }
+            if (taKind2 == "Uint8Array") { okKind = true }
+            if (taKind2 == "Int16Array") { okKind = true }
+            if (taKind2 == "Uint16Array") { okKind = true }
+            if (taKind2 == "Int32Array") { okKind = true }
+            if (taKind2 == "Uint32Array") { okKind = true }
+            if (false == okKind) {
+                return (this.throwSpecError("TypeError" "Atomics operations are not supported on this TypedArray type"))
+            }
+            def atIdx:int 0
+            if ((array_length args) > 1) {
+                atIdx = (this.toIntegerOf((itemAt args 1)))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+            }
+            if ((atIdx < 0) || (atIdx >= (ta.denseLen()))) {
+                return (this.throwSpecError("RangeError" "Invalid atomic access index"))
+            }
+            def oldD:double ((ta.arrayItemAt(atIdx)).toNumber())
+            if (name == "load") {
+                return (EvValueBridge.taggedNumber(oldD))
+            }
+            ; wait/notify: this realm has ONE agent, so nothing can ever arrive
+            ; to change the value while a wait is in progress. A wait therefore
+            ; reports what it can prove -- "not-equal" when the value already
+            ; differs, and "timed-out" otherwise, immediately, because blocking
+            ; forever is the only alternative.
+            if ((name == "wait") || (name == "waitAsync")) {
+                def wantD:double 0.0
+                if ((array_length args) > 2) {
+                    wantD = (this.toNumberOf((itemAt args 2)))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                }
+                def verdict:string "timed-out"
+                if (oldD != (this.typedArrayCoerce(taKind2 wantD))) {
+                    verdict = "not-equal"
+                }
+                if (name == "wait") {
+                    return (EvValueBridge.taggedString(verdict))
+                }
+                def wkeys:[string]
+                def wvals:[EvHandle]
+                def wres:EvHandle (EvValueBridge.taggedObject(wkeys wvals))
+                wres.setMember("async" (EvValueBridge.taggedBoolean(false)))
+                wres.setMember("value" (EvValueBridge.taggedString(verdict)))
+                return wres
+            }
+            if (name == "notify") {
+                ; No other agent can be waiting, so none is woken.
+                return (EvHandle.fromInt(0))
+            }
+            def opnd:double 0.0
+            if (name == "compareExchange") {
+                def expD:double 0.0
+                if ((array_length args) > 2) {
+                    expD = (this.toNumberOf((itemAt args 2)))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                }
+                def replD:double 0.0
+                if ((array_length args) > 3) {
+                    replD = (this.toNumberOf((itemAt args 3)))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                }
+                if (oldD == (this.typedArrayCoerce(taKind2 expD))) {
+                    def cxV:double (this.typedArrayCoerce(taKind2 replD))
+                    ta.setIndexAt(atIdx (EvValueBridge.taggedNumber(cxV)))
+                    this.writeThroughView(ta atIdx cxV)
+                }
+                return (EvValueBridge.taggedNumber(oldD))
+            }
+            if ((array_length args) > 2) {
+                opnd = (this.toNumberOf((itemAt args 2)))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+            }
+            def newD:double opnd
+            if (name == "add") { newD = (oldD + opnd) }
+            if (name == "sub") { newD = (oldD - opnd) }
+            if (name == "and") { newD = (to_double (bit_and (to_int oldD) (to_int opnd))) }
+            if (name == "or") { newD = (to_double (bit_or (to_int oldD) (to_int opnd))) }
+            if (name == "xor") { newD = (to_double (bit_xor (to_int oldD) (to_int opnd))) }
+            def storedD:double (this.typedArrayCoerce(taKind2 newD))
+            ta.setIndexAt(atIdx (EvValueBridge.taggedNumber(storedD)))
+            this.writeThroughView(ta atIdx storedD)
+            ; Every one of them answers the value that was there BEFORE --
+            ; except store, which answers what was written.
+            if (name == "store") {
+                return (EvValueBridge.taggedNumber((this.typedArrayCoerce(taKind2 opnd))))
+            }
+            return (EvValueBridge.taggedNumber(oldD))
+        }
+        ; §27.1.2.1 Iterator.from: any iterable -- or any object with a `next` --
+        ; becomes an iterator carrying the helpers.
+        if (nsName == "Iterator") {
+            if (name == "from") {
+                def fromArg:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 0) { fromArg = (itemAt args 0) }
+                if ((fromArg.isUndefined()) || (fromArg.isNull())) {
+                    return (this.throwSpecError("TypeError" "Iterator.from called on null or undefined"))
+                }
+                def fromItems:[EvHandle] (this.forOfItemList(fromArg))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                return (this.makeListIterator(fromItems))
+            }
+        }
         ; D-SYMBOL: the global symbol registry. `Symbol.for(k)` answers the ONE
         ; symbol for that key across the realm, and keyFor names it back.
         if (nsName == "Symbol") {
@@ -22493,6 +22842,31 @@ class ComponentEngine {
             push out "revocable"
             return out
         }
+        ; %Iterator%, whose only static is `from` -- the door from any iterable
+        ; into the helper methods.
+        if (nsName == "Iterator") {
+            push out "from"
+            return out
+        }
+        ; D-ATOMICS: one agent means every one of these is already atomic --
+        ; there is nothing to interleave with. What they still owe the caller
+        ; is the RIGHT ANSWER and the right refusals, which is what is here.
+        if (nsName == "Atomics") {
+            push out "add"
+            push out "and"
+            push out "compareExchange"
+            push out "exchange"
+            push out "isLockFree"
+            push out "load"
+            push out "notify"
+            push out "or"
+            push out "store"
+            push out "sub"
+            push out "wait"
+            push out "waitAsync"
+            push out "xor"
+            return out
+        }
         if (nsName == "Promise") {
             push out "all"
             push out "allSettled"
@@ -22974,6 +23348,12 @@ class ComponentEngine {
         if (nsName == "Promise") {
             return (this.hasBuiltinStatic(nsName name))
         }
+        if (nsName == "Iterator") {
+            return (this.hasBuiltinStatic(nsName name))
+        }
+        if (nsName == "Atomics") {
+            return (this.hasBuiltinStatic(nsName name))
+        }
         if (nsName == "Proxy") {
             return (name == "revocable")
         }
@@ -23023,6 +23403,11 @@ class ComponentEngine {
         if (nsName == "Math") { g.setMember("__nsbrand__" (EvValueBridge.taggedString("Math"))) }
         if (nsName == "JSON") { g.setMember("__nsbrand__" (EvValueBridge.taggedString("JSON"))) }
         if (nsName == "Reflect") { g.setMember("__nsbrand__" (EvValueBridge.taggedString("Reflect"))) }
+        if (nsName == "Atomics") {
+            g.setMember("__nsbrand__" (EvValueBridge.taggedString("Atomics")))
+            g.setMember("@@toStringTag" (EvValueBridge.taggedString("Atomics")))
+            g.setAttrs("@@toStringTag" false false true)
+        }
         if (nsName == "Intl") { g.setMember("__nsbrand__" (EvValueBridge.taggedString("Intl"))) }
         ; Math and JSON also brand through Symbol.toStringTag, which is what
         ; `Object.prototype.toString.call(Math)` reads. The __nsbrand__ slot
@@ -23179,6 +23564,7 @@ class ComponentEngine {
         if (kind == "date") { return "Date" }
         if (kind == "promise") { return "Promise" }
         if (kind == "arraybuffer") { return "ArrayBuffer" }
+        if (kind == "sharedarraybuffer") { return "SharedArrayBuffer" }
         if (kind == "dataview") { return "DataView" }
         if (kind == "intlcollator") { return "Intl.Collator" }
         if (kind == "intlnumberformat") { return "Intl.NumberFormat" }
@@ -23339,6 +23725,10 @@ class ComponentEngine {
         if (kind == "arraybuffer") {
             push out "slice"
         }
+        if (kind == "sharedarraybuffer") {
+            push out "slice"
+            push out "grow"
+        }
         if (kind == "dataview") {
             push out "getInt8"
             push out "setInt8"
@@ -23415,10 +23805,25 @@ class ComponentEngine {
             push out "unregister"
             push out "cleanupSome"
         }
-        ; D-ITERATOR: the shared iterator object's own methods.
+        ; D-ITERATOR: the shared iterator object's own methods, plus the ES2025
+        ; iterator helpers. The helpers are eager here because every iterator in
+        ; this realm is already a materialised list -- `take` on an endless
+        ; sequence is the one thing that costs, and there are no endless
+        ; sequences to be had.
         if (kind == "listiterator") {
             push out "next"
             push out "@@iterator"
+            push out "map"
+            push out "filter"
+            push out "take"
+            push out "drop"
+            push out "flatMap"
+            push out "reduce"
+            push out "toArray"
+            push out "forEach"
+            push out "some"
+            push out "every"
+            push out "find"
         }
         if (kind == "regexp") {
             ; annexB B.2.5.1: compile reinitialises the pattern IN PLACE.
@@ -23460,6 +23865,16 @@ class ComponentEngine {
             push out "has"
             push out "keys"
             push out "values"
+            ; ES2025 set operations. Every one of them takes a SET-LIKE -- an
+            ; object with a numeric `size` and callable `has` and `keys` -- not
+            ; a Set, which is why an ordinary Set is only the common case.
+            push out "union"
+            push out "intersection"
+            push out "difference"
+            push out "symmetricDifference"
+            push out "isSubsetOf"
+            push out "isSupersetOf"
+            push out "isDisjointFrom"
         }
         ; D-DATE: local time is UTC in this realm, so each accessor and its UTC
         ; twin are the same function. Both names are registered because guests
@@ -23567,6 +23982,14 @@ class ComponentEngine {
             def emptyEls:[EvHandle]
             p = (EvValueBridge.taggedArray(emptyEls))
         }
+        ; %Iterator.prototype% is the object every iterator here already
+        ; inherits from, not a second one beside it -- otherwise
+        ; `[].values() instanceof Iterator` would be false.
+        if (nsName == "Iterator") {
+            def ip:EvHandle (this.listIteratorPrototype())
+            set builtinProtos nsName ip
+            return ip
+        }
         if (nsName == "Function") {
             p = (EvValueBridge.taggedNativeFunction(""))
             ; Function.prototype is callable but is NOT a constructor, so it has
@@ -23637,6 +24060,7 @@ class ComponentEngine {
         if (nsName == "WeakMap") { tagFor = "WeakMap" }
         if (nsName == "WeakSet") { tagFor = "WeakSet" }
         if (nsName == "WeakRef") { tagFor = "WeakRef" }
+        if (nsName == "SharedArrayBuffer") { tagFor = "SharedArrayBuffer" }
         if (nsName == "FinalizationRegistry") { tagFor = "FinalizationRegistry" }
         if ((strlen tagFor) > 0) {
             p.setMember("@@toStringTag" (EvValueBridge.taggedString(tagFor)))
@@ -23881,7 +24305,10 @@ class ComponentEngine {
             ; D-REGEX: a RegExp dispatches to its own prototype so exec/test do
             ; not have to be looked for among the Object methods.
             if (v.hasOwnData("__promise__")) { return "promise" }
-            if (v.hasOwnData("__abbytes__")) { return "arraybuffer" }
+            if (v.hasOwnData("__abbytes__")) {
+                if (v.hasOwnData("__abshared__")) { return "sharedarraybuffer" }
+                return "arraybuffer"
+            }
             ; (byteLength / byteOffset / buffer are answered as PROPERTIES by
             ;  bufferOwnProperty, before dispatch gets this far.)
             if (v.hasOwnData("__dvbuffer__")) { return "dataview" }
@@ -24103,6 +24530,13 @@ class ComponentEngine {
             if (name == "has") { return 1 }
             if (name == "keys") { return 0 }
             if (name == "values") { return 0 }
+            if (name == "union") { return 1 }
+            if (name == "intersection") { return 1 }
+            if (name == "difference") { return 1 }
+            if (name == "symmetricDifference") { return 1 }
+            if (name == "isSubsetOf") { return 1 }
+            if (name == "isSupersetOf") { return 1 }
+            if (name == "isDisjointFrom") { return 1 }
         }
         if (kind == "array") {
             if (name == "at") { return 1 }
@@ -24175,6 +24609,17 @@ class ComponentEngine {
         if (kind == "listiterator") {
             if (name == "next") { return 0 }
             if (name == "@@iterator") { return 0 }
+            if (name == "map") { return 1 }
+            if (name == "filter") { return 1 }
+            if (name == "take") { return 1 }
+            if (name == "drop") { return 1 }
+            if (name == "flatMap") { return 1 }
+            if (name == "reduce") { return 1 }
+            if (name == "toArray") { return 0 }
+            if (name == "forEach") { return 1 }
+            if (name == "some") { return 1 }
+            if (name == "every") { return 1 }
+            if (name == "find") { return 1 }
         }
         if (kind == "Generator") {
             if (name == "next") { return 1 }
@@ -24198,6 +24643,11 @@ class ComponentEngine {
         }
         if (kind == "arraybuffer") {
             if (name == "slice") { return 2 }
+            return 0
+        }
+        if (kind == "sharedarraybuffer") {
+            if (name == "slice") { return 2 }
+            if (name == "grow") { return 1 }
             return 0
         }
         if (kind == "dataview") {
@@ -26661,6 +27111,93 @@ class ComponentEngine {
                     }
         }
         if (kind == "set") {
+                    ; D-SETOPS: the ES2025 set operations. Each takes a
+                    ; SET-LIKE -- `size`, `has` and `keys` -- rather than a Set,
+                    ; so a Map or a guest object that offers those three is a
+                    ; legal argument and is read through them.
+                    def isSetOp:boolean false
+                    if (name == "union") { isSetOp = true }
+                    if (name == "intersection") { isSetOp = true }
+                    if (name == "difference") { isSetOp = true }
+                    if (name == "symmetricDifference") { isSetOp = true }
+                    if (name == "isSubsetOf") { isSetOp = true }
+                    if (name == "isSupersetOf") { isSetOp = true }
+                    if (name == "isDisjointFrom") { isSetOp = true }
+                    if isSetOp {
+                        def other:EvHandle (EvValueBridge.taggedUndefined())
+                        if ((array_length args) > 0) { other = (itemAt args 0) }
+                        def otherItems:[EvHandle] (this.setLikeItems(other))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        def mine:[EvHandle]
+                        def mi:int 0
+                        while (mi < (recv.denseLen())) {
+                            push mine (recv.arrayItemAt(mi))
+                            mi = (mi + 1)
+                        }
+                        ; The predicates first: they answer a boolean and never
+                        ; build anything.
+                        if (name == "isSubsetOf") {
+                            def si:int 0
+                            while (si < (array_length mine)) {
+                                if (false == (this.listHasValue(otherItems (itemAt mine si)))) {
+                                    return (EvValueBridge.taggedBoolean(false))
+                                }
+                                si = (si + 1)
+                            }
+                            return (EvValueBridge.taggedBoolean(true))
+                        }
+                        if (name == "isSupersetOf") {
+                            def pi:int 0
+                            while (pi < (array_length otherItems)) {
+                                if (false == (recv.setHas((itemAt otherItems pi)))) {
+                                    return (EvValueBridge.taggedBoolean(false))
+                                }
+                                pi = (pi + 1)
+                            }
+                            return (EvValueBridge.taggedBoolean(true))
+                        }
+                        if (name == "isDisjointFrom") {
+                            def di:int 0
+                            while (di < (array_length mine)) {
+                                if (this.listHasValue(otherItems (itemAt mine di))) {
+                                    return (EvValueBridge.taggedBoolean(false))
+                                }
+                                di = (di + 1)
+                            }
+                            return (EvValueBridge.taggedBoolean(true))
+                        }
+                        ; The four that build a new Set. Order is THIS set's
+                        ; order first, then the argument's -- which is what
+                        ; makes union([1,2], [2,3]) answer 1,2,3.
+                        def result:EvHandle (EvValueBridge.taggedSetEmpty())
+                        def ri:int 0
+                        while (ri < (array_length mine)) {
+                            def mv:EvHandle (itemAt mine ri)
+                            def inOther:boolean (this.listHasValue(otherItems mv))
+                            def keep:boolean false
+                            if (name == "union") { keep = true }
+                            if (name == "intersection") { keep = inOther }
+                            if (name == "difference") { keep = (false == inOther) }
+                            if (name == "symmetricDifference") { keep = (false == inOther) }
+                            if keep { result.setAdd(mv) }
+                            ri = (ri + 1)
+                        }
+                        if ((name == "union") || (name == "symmetricDifference")) {
+                            def oi:int 0
+                            while (oi < (array_length otherItems)) {
+                                def ov:EvHandle (itemAt otherItems oi)
+                                def keep2:boolean true
+                                if (name == "symmetricDifference") {
+                                    keep2 = (false == (recv.setHas(ov)))
+                                }
+                                if keep2 { result.setAdd(ov) }
+                                oi = (oi + 1)
+                            }
+                        }
+                        return result
+                    }
                     if (name == "add") {
                         if ((array_length args) > 0) {
                             recv.setAdd((itemAt args 0))
@@ -28046,12 +28583,34 @@ class ComponentEngine {
         ; the promise as their receiver, so they stay callable after being
         ; stored away -- `var r; new Promise(function (res) { r = res; }); r(1)`.
         ; ---- ArrayBuffer.prototype -----------------------------------------
-        if (kind == "arraybuffer") {
+        if ((kind == "arraybuffer") || (kind == "sharedarraybuffer")) {
             if (false == (this.isArrayBufferValue(recv))) {
                 return (this.throwSpecError("TypeError" "ArrayBuffer.prototype method called on an incompatible receiver"))
             }
             def abBytes:EvHandle (this.arrayBufferBytes(recv))
             def abLen:int (abBytes.denseLen())
+            ; §25.2.5.4 grow: a shared buffer only ever GROWS, and only up to
+            ; its maxByteLength -- which is byteLength here, since this realm
+            ; has no growable buffers to hand out. A request to shrink is a
+            ; RangeError either way.
+            if (name == "grow") {
+                def gTo:int 0
+                if ((array_length args) > 0) {
+                    gTo = (this.toIntegerOf((itemAt args 0)))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                }
+                if (gTo < abLen) {
+                    return (this.throwSpecError("RangeError" "SharedArrayBuffer.prototype.grow: cannot shrink"))
+                }
+                def gi:int abLen
+                while (gi < gTo) {
+                    abBytes.setIndexAt(gi (EvValueBridge.taggedNumber(0.0)))
+                    gi = (gi + 1)
+                }
+                return (EvValueBridge.taggedUndefined())
+            }
             if (name == "slice") {
                 def sStart:int 0
                 if ((array_length args) > 0) {
@@ -28072,6 +28631,13 @@ class ComponentEngine {
                 def outLen:int (sEnd - sStart)
                 if (outLen < 0) { outLen = 0 }
                 def nb:EvHandle (this.makeArrayBuffer(outLen))
+                ; A shared buffer's slice is itself SHARED -- the species is the
+                ; receiver's own constructor, not ArrayBuffer.
+                if (kind == "sharedarraybuffer") {
+                    nb.setMember("__abshared__" (EvValueBridge.taggedBoolean(true)))
+                    nb.setAttrs("__abshared__" false false false)
+                    nb.setProto((this.builtinPrototype("SharedArrayBuffer")))
+                }
                 def nbBytes:EvHandle (this.arrayBufferBytes(nb))
                 def ci:int 0
                 while (ci < outLen) {
@@ -28335,6 +28901,9 @@ class ComponentEngine {
                 }
             }
             this.dataViewWrite(dvBytes base elemName little wv)
+            ; A DataView write reaches the same bytes any typed-array view is
+            ; looking at, so those views are brought up to date too.
+            this.refreshBufferViews(dvBuf (EvValueBridge.taggedUndefined()))
             return (EvValueBridge.taggedUndefined())
         }
         if (kind == "typedarraystatic") {
@@ -28704,6 +29273,151 @@ class ComponentEngine {
         if (kind == "listiterator") {
             if (name == "@@iterator") {
                 return recv
+            }
+            ; D-ITERHELPERS: the ES2025 helpers. Each works on what is LEFT of
+            ; the iterator -- a partly consumed one maps only the rest -- and
+            ; each CONSUMES the receiver, so the source cannot be walked twice.
+            def isHelper:boolean false
+            if (name == "map") { isHelper = true }
+            if (name == "filter") { isHelper = true }
+            if (name == "take") { isHelper = true }
+            if (name == "drop") { isHelper = true }
+            if (name == "flatMap") { isHelper = true }
+            if (name == "reduce") { isHelper = true }
+            if (name == "toArray") { isHelper = true }
+            if (name == "forEach") { isHelper = true }
+            if (name == "some") { isHelper = true }
+            if (name == "every") { isHelper = true }
+            if (name == "find") { isHelper = true }
+            if isHelper {
+                def hSrc:EvHandle (recv.getMember("__iterlist__"))
+                def hFrom:int (this.toIntegerOf((recv.getMember("__iteridx__"))))
+                def rest:[EvHandle]
+                if (hSrc.isArrayValue()) {
+                    def hi:int hFrom
+                    while (hi < (hSrc.denseLen())) {
+                        push rest (hSrc.arrayItemAt(hi))
+                        hi = (hi + 1)
+                    }
+                }
+                ; The receiver is left EXHAUSTED, which is what makes these
+                ; single-pass: `var it = a.values(); it.map(f); it.next()` is
+                ; done, not restarted.
+                recv.setMember("__iteridx__" (EvHandle.fromInt((array_length rest) + hFrom)))
+                def hArg:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 0) { hArg = (itemAt args 0) }
+                def n:int (array_length rest)
+                if (name == "toArray") {
+                    return (EvValueBridge.taggedArray(rest))
+                }
+                ; take and drop count rather than call, and a negative or
+                ; non-numeric limit is a RangeError before anything is read.
+                if ((name == "take") || (name == "drop")) {
+                    def limD:double (this.toNumberOf(hArg))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    if (limD != limD) {
+                        return (this.throwSpecError("RangeError" "NaN is not a valid limit"))
+                    }
+                    if (limD < 0.0) {
+                        return (this.throwSpecError("RangeError" "The limit must not be negative"))
+                    }
+                    def lim:int n
+                    if (limD < (to_double n)) { lim = (to_int limD) }
+                    def cut:[EvHandle]
+                    def ci:int 0
+                    while (ci < n) {
+                        def keep:boolean (ci < lim)
+                        if (name == "drop") { keep = (ci >= lim) }
+                        if keep { push cut (itemAt rest ci) }
+                        ci = (ci + 1)
+                    }
+                    return (this.makeListIterator(cut))
+                }
+                if (name == "reduce") {
+                    def acc:EvHandle (EvValueBridge.taggedUndefined())
+                    def ri:int 0
+                    if ((array_length args) > 1) {
+                        acc = (itemAt args 1)
+                    } {
+                        if (n == 0) {
+                            return (this.throwSpecError("TypeError" "Reduce of empty iterator with no initial value"))
+                        }
+                        acc = (itemAt rest 0)
+                        ri = 1
+                    }
+                    if (false == (hArg.isFunction())) {
+                        return (this.throwSpecError("TypeError" "The reducer is not a function"))
+                    }
+                    while (ri < n) {
+                        def rArgs:[EvHandle]
+                        push rArgs acc
+                        push rArgs (itemAt rest ri)
+                        push rArgs (EvHandle.fromInt(ri))
+                        acc = (this.callFnValueWithValues(hArg rArgs))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        ri = (ri + 1)
+                    }
+                    return acc
+                }
+                if (false == (hArg.isFunction())) {
+                    return (this.throwSpecError("TypeError" "The callback is not a function"))
+                }
+                def outItems:[EvHandle]
+                def k:int 0
+                while (k < n) {
+                    def el:EvHandle (itemAt rest k)
+                    def cbArgs:[EvHandle]
+                    push cbArgs el
+                    push cbArgs (EvHandle.fromInt(k))
+                    def got:EvHandle (this.callFnValueWithValues(hArg cbArgs))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    if (name == "map") { push outItems got }
+                    if (name == "filter") {
+                        if (got.toBool()) { push outItems el }
+                    }
+                    if (name == "flatMap") {
+                        ; One level, and the result must be iterable -- a plain
+                        ; value is a TypeError here, unlike Array's flatMap.
+                        if (got.isArrayValue()) {
+                            def fi:int 0
+                            while (fi < (got.denseLen())) {
+                                push outItems (got.arrayItemAt(fi))
+                                fi = (fi + 1)
+                            }
+                        } {
+                            def sub:[EvHandle] (this.forOfItemList(got))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                            def si:int 0
+                            while (si < (array_length sub)) {
+                                push outItems (itemAt sub si)
+                                si = (si + 1)
+                            }
+                        }
+                    }
+                    if (name == "some") {
+                        if (got.toBool()) { return (EvValueBridge.taggedBoolean(true)) }
+                    }
+                    if (name == "every") {
+                        if (false == (got.toBool())) { return (EvValueBridge.taggedBoolean(false)) }
+                    }
+                    if (name == "find") {
+                        if (got.toBool()) { return el }
+                    }
+                    k = (k + 1)
+                }
+                if (name == "some") { return (EvValueBridge.taggedBoolean(false)) }
+                if (name == "every") { return (EvValueBridge.taggedBoolean(true)) }
+                if (name == "find") { return (EvValueBridge.taggedUndefined()) }
+                if (name == "forEach") { return (EvValueBridge.taggedUndefined()) }
+                return (this.makeListIterator(outItems))
             }
             def keysR:[string]
             def valsR:[EvHandle]
@@ -30414,7 +31128,11 @@ class ComponentEngine {
         def keysK:[string]
         def valsK:[EvHandle]
         def pk:EvHandle (EvValueBridge.taggedObject(keysK valsK))
-        pk.setProto((this.builtinPrototype("Object")))
+        ; %ArrayIteratorPrototype% and its siblings inherit from
+        ; %IteratorPrototype%, not from Object.prototype directly -- which is
+        ; what makes `[].values() instanceof Iterator` true and what puts the
+        ; helpers within reach of every iterator, not just a bare one.
+        pk.setProto((this.listIteratorPrototype()))
         pk.setMember("__protokind__" (EvValueBridge.taggedString("listiterator")))
         pk.setMember("next" (this.sharedNativeMethod("listiterator" "next")))
         pk.setAttrs("next" true false true)
@@ -30422,8 +31140,27 @@ class ComponentEngine {
         pk.setAttrs("@@iterator" true false true)
         pk.setMember("@@toStringTag" (EvValueBridge.taggedString(tag)))
         pk.setAttrs("@@toStringTag" false false true)
+        this.installIteratorHelpers(pk)
         set builtinGlobals pkey pk
         return (unwrap (get builtinGlobals pkey))
+    }
+
+    ; The ES2025 iterator helpers, installed from the registry rather than
+    ; listed twice -- both iterator prototypes get exactly the set the registry
+    ; knows, so a name cannot be published without an implementation behind it.
+    fn installIteratorHelpers:void (p:EvHandle) {
+        def names:[string] (this.builtinNames("listiterator"))
+        def i:int 0
+        while (i < (array_length names)) {
+            def nm:string (itemAt names i)
+            if (nm != "next") {
+                if (nm != "@@iterator") {
+                    p.setMember(nm (this.sharedNativeMethod("listiterator" nm)))
+                    p.setAttrs(nm true false true)
+                }
+            }
+            i = (i + 1)
+        }
     }
 
     fn listIteratorPrototype:EvHandle () {
@@ -30440,10 +31177,86 @@ class ComponentEngine {
         p.setAttrs("next" true false true)
         p.setMember("@@iterator" (this.sharedNativeMethod("listiterator" "@@iterator")))
         p.setAttrs("@@iterator" true false true)
+        this.installIteratorHelpers(p)
         return p
     }
 
     ; A list iterator branded with the kind whose prototype it should carry.
+    ; §24.2.1.2 GetSetRecord: the argument to a set operation is a SET-LIKE --
+    ; a `size` that is a number, and callable `has` and `keys`. A real Set is
+    ; read directly; anything else is read through its own `keys`, so a guest
+    ; object that offers the three participates.
+    fn setLikeItems:[EvHandle] (v:EvHandle) {
+        def out:[EvHandle]
+        if (v.isSet()) {
+            def i:int 0
+            while (i < (v.denseLen())) {
+                push out (v.arrayItemAt(i))
+                i = (i + 1)
+            }
+            return out
+        }
+        if (false == (this.isDescriptorObject(v))) {
+            def _e:EvHandle (this.throwSpecError("TypeError" "The argument is not an object"))
+            return out
+        }
+        def sizeV:EvHandle (this.getPropertyValue(v "size"))
+        if scriptThrew { return out }
+        def sizeN:double (this.toNumberOf(sizeV))
+        if scriptThrew { return out }
+        if (sizeN != sizeN) {
+            def _e2:EvHandle (this.throwSpecError("TypeError" "The argument has a NaN size"))
+            return out
+        }
+        ; A BUILT-IN method is not an own property of the receiver, so the
+        ; ordinary read misses it -- a Map has `has` and `keys` and is a
+        ; perfectly good set-like, but only the registry knows that.
+        def hasFn:EvHandle (this.setLikeMethod(v "has"))
+        if scriptThrew { return out }
+        if (false == (hasFn.isFunction())) {
+            def _e3:EvHandle (this.throwSpecError("TypeError" "The argument has no callable has"))
+            return out
+        }
+        def keysFn:EvHandle (this.setLikeMethod(v "keys"))
+        if scriptThrew { return out }
+        if (false == (keysFn.isFunction())) {
+            def _e4:EvHandle (this.throwSpecError("TypeError" "The argument has no callable keys"))
+            return out
+        }
+        def noArgs:[EvHandle]
+        def iter:EvHandle (this.callFnValueWithValues((keysFn.withThisForCall(v)) noArgs))
+        if scriptThrew { return out }
+        def got:[EvHandle] (this.forOfItemList(iter))
+        if scriptThrew { return out }
+        def gi:int 0
+        while (gi < (array_length got)) {
+            push out (itemAt got gi)
+            gi = (gi + 1)
+        }
+        return out
+    }
+
+    ; One of a set-like's three members, read the way a method CALL would find
+    ; it: the guest's own or inherited property first, then the registry.
+    fn setLikeMethod:EvHandle (v:EvHandle name:string) {
+        def got:EvHandle (this.getPropertyValue(v name))
+        if scriptThrew { return (EvValueBridge.taggedUndefined()) }
+        if (got.isFunction()) { return got }
+        def reg:EvHandle (this.builtinMethodValueFor(v name))
+        if (reg.isFunction()) { return reg }
+        return got
+    }
+
+    ; SameValueZero membership over a plain list.
+    fn listHasValue:boolean (list:[EvHandle] v:EvHandle) {
+        def i:int 0
+        while (i < (array_length list)) {
+            if (((itemAt list i).equals(v))) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
     fn makeKindIterator:EvHandle (items:[EvHandle] tag:string) {
         def keysL:[string]
         def valsL:[EvHandle]
@@ -36636,10 +37449,13 @@ class ComponentEngine {
     fn isEngineGlobalName:boolean (name:string) {
         if (this.isTypedArrayCtorName(name)) { return true }
         if (name == "ArrayBuffer") { return true }
+        if (name == "SharedArrayBuffer") { return true }
+        if (name == "Atomics") { return true }
         if (name == "DataView") { return true }
         if (name == "Function") { return true }
         if (name == "Map") { return true }
         if (name == "Set") { return true }
+        if (name == "Iterator") { return true }
         if (this.isWeakCtorName(name)) { return true }
         if (name == "Symbol") { return true }
         if (name == "Math") { return true }
@@ -36726,7 +37542,10 @@ class ComponentEngine {
             push gnames "Promise"
             push gnames "Proxy"
             push gnames "ArrayBuffer"
+            push gnames "SharedArrayBuffer"
+            push gnames "Atomics"
             push gnames "DataView"
+            push gnames "Iterator"
             push gnames "WeakMap"
             push gnames "WeakSet"
             push gnames "WeakRef"
@@ -38394,6 +39213,11 @@ class ComponentEngine {
                 return (this.constructIntl(ikind iArgs))
             }
         }
+        ; %Iterator% is abstract: it carries the helpers and `from`, and is not
+        ; itself constructible.
+        if (className == "Iterator") {
+            return (this.throwSpecError("TypeError" "Abstract class Iterator not directly constructable"))
+        }
         ; D-WEAK: new WeakMap / WeakSet / WeakRef / FinalizationRegistry.
         if (this.isWeakCtorName(className)) {
             def wArgs:[EvHandle] (this.collectCallArgs(node))
@@ -38711,7 +39535,7 @@ class ComponentEngine {
             return (this.constructPromise(prArgs))
         }
         ; D-ARRAYBUFFER: `new ArrayBuffer(n)` / `new DataView(buf, off, len)`.
-        if ((className == "ArrayBuffer") || (className == "DataView")) {
+        if ((className == "ArrayBuffer") || ((className == "SharedArrayBuffer") || (className == "DataView"))) {
             def abArgs:[EvHandle] (this.collectCallArgs(node))
             if scriptThrew {
                 return (EvValueBridge.taggedUndefined())
@@ -39643,6 +40467,10 @@ class ComponentEngine {
         if (k == "__pvalue__") { return true }
         if (k == "__iterlist__") { return true }
         if (k == "__tabrand__") { return true }
+        if (k == "__abshared__") { return true }
+        if (k == "__abviews__") { return true }
+        if (k == "__tabuffer__") { return true }
+        if (k == "__taoffset__") { return true }
         if (k == "__iteridx__") { return true }
         if (k == "__genitems__") { return true }
         if (k == "__genidx__") { return true }
