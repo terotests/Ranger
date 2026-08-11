@@ -50,6 +50,19 @@ class EvHandle {
     ; script can alias -- and every pooled literal, which is shared by every
     ; occurrence of that constant -- keeps false and takes the minting path.
     def slotOwned:boolean false
+    ; D-UTF8: the code-UNIT view of this handle's string, memoised. JS indexes
+    ; a string by UTF-16 code unit and this target stores UTF-8 bytes; the two
+    ; agree exactly when the text is ASCII, which is nearly always. `s.length`
+    ; is O(1) in every other engine, so rescanning per read would make
+    ; `for (i = 0; i < s.length; i++)` quadratic.
+    ;
+    ; The memo is validated by BYTE length rather than invalidated by hand: any
+    ; mutation that changes the text changes its byte count (the only in-place
+    ; one is an append), so a stale entry corrects itself on the next read
+    ; instead of depending on every writer remembering to clear it.
+    def cuBytes:int (0 - 1)
+    def cuLen:int 0
+    def cuAscii:boolean true
     ; True on a BUILT-IN prototype object (Array.prototype, …). Writes and
     ; suppressions through such a handle bump the dispatch epoch, which is
     ; what lets call-site inline caches skip the override probes.
@@ -85,6 +98,56 @@ class EvHandle {
         case body s:EvalValue.String {
             str_append s.value suffix
         }
+    }
+
+    ; ---- D-UTF8: the code-UNIT view of a string ---------------------------
+    ; Fills the memo when the byte count says it is stale (or absent). Every
+    ; reader goes through here first.
+    fn strEnsureCu:void () {
+        def sv:string (this.stringOf())
+        def n:int (strlen sv)
+        if (cuBytes == n) {
+            return
+        }
+        def i:int 0
+        def units:int 0
+        def ascii:boolean true
+        while (i < n) {
+            def b:int (bit_and (charAt sv i) 255)
+            if (b < 128) {
+                units = (units + 1)
+                i = (i + 1)
+            } {
+                ascii = false
+                ; A lead byte starts a code point; one past U+FFFF needs TWO
+                ; code units, because JS spells it as a surrogate pair.
+                if (b < 224) {
+                    units = (units + 1)
+                    i = (i + 2)
+                } {
+                    if (b < 240) {
+                        units = (units + 1)
+                        i = (i + 3)
+                    } {
+                        units = (units + 2)
+                        i = (i + 4)
+                    }
+                }
+            }
+        }
+        cuBytes = n
+        cuLen = units
+        cuAscii = ascii
+    }
+
+    fn strIsAscii:boolean () {
+        this.strEnsureCu()
+        return cuAscii
+    }
+
+    fn strCodeUnitLength:int () {
+        this.strEnsureCu()
+        return cuLen
     }
     fn numberOf:double () {
         return numberValue
@@ -1583,10 +1646,12 @@ class EvHandle {
                 return (this.getOwnData(key))
             }
         }
-        ; String length property
+        ; String length property, in CODE UNITS (D-UTF8). The byte count that
+        ; used to be answered here is what made `"aeb".length` 4 while
+        ; `"aeb".charAt(1)` answered the second character.
         if (this.isString()) {
             if (key == "length") {
-                return (EvHandle.fromInt((strlen (this.stringOf()))))
+                return (EvHandle.fromInt((this.strCodeUnitLength())))
             }
         }
         return (EvHandle.null())

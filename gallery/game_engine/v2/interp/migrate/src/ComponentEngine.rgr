@@ -1330,6 +1330,10 @@ class ComponentEngine {
     ; takes argument NODES; when this is primed it takes these instead.
     def ctorArgsPrimed:boolean false
     def ctorArgValues:[EvHandle]
+    ; D-UTF8: which string model this target uses, decided once (see
+    ; unitsAreBytes).
+    def utf8ModelKnown:boolean false
+    def utf8ModelBytes:boolean false
     def jsonGap:string ""
     def jsonIndent:string ""
     def jsonHasReplacerFn:boolean false
@@ -8330,7 +8334,8 @@ class ComponentEngine {
                 return lenHit
             }
             if (base.isString()) {
-                def slenHit@(optional):EvHandle (this.exprSlotNumber(node (to_double (strlen (base.stringOf())))))
+                ; D-UTF8: code UNITS, not bytes.
+                def slenHit@(optional):EvHandle (this.exprSlotNumber(node (to_double (base.strCodeUnitLength()))))
                 return slenHit
             }
             return none
@@ -11332,7 +11337,7 @@ class ComponentEngine {
         }
         if (name == "length") {
             if (obj.isString()) {
-                return (EvHandle.fromInt((strlen (obj.stringOf()))))
+                return (EvHandle.fromInt((obj.strCodeUnitLength())))
             }
             if (obj.isArrayValue()) {
                 ; Exact double lane: a declared length can exceed the int.
@@ -15158,10 +15163,21 @@ class ComponentEngine {
                     }
                 } {
                     if (src.isString()) {
-                        def si:int 0
-                        while (si < (strlen (src.stringOf()))) {
-                            push items (EvValueBridge.taggedString((substring (src.stringOf()) si (si + 1))))
-                            si = (si + 1)
+                        ; D-UTF8: for-of over a string yields whole CODE
+                        ; POINTS, so an astral character comes out as one
+                        ; element rather than two lone surrogates.
+                        def sfs:string (src.stringOf())
+                        def sfn:int (strlen sfs)
+                        def sfi:int 0
+                        while (sfi < sfn) {
+                            def sdec:[int] (this.cuDecodeAt(sfs sfi))
+                            def sw:int (itemAt sdec 1)
+                            if (sw == 0) {
+                                sfi = sfn
+                            } {
+                                push items (EvValueBridge.taggedString((this.byteSliceOrUnit(sfs sfi sw))))
+                                sfi = (sfi + sw)
+                            }
                         }
                     } {
                         ; D-ITERATOR: anything else iterates through the
@@ -17298,11 +17314,20 @@ class ComponentEngine {
                                 }
                             }
                             if (srcV.isString()) {
-                                def sIdx:int 0
-                                while (sIdx < (strlen (srcV.stringOf()))) {
-                                    def sEnd:int (sIdx + 1)
-                                    push frItems (EvValueBridge.taggedString((substring (srcV.stringOf()) sIdx sEnd)))
-                                    sIdx = (sIdx + 1)
+                                ; D-UTF8: Array.from over a string iterates it,
+                                ; so the elements are CODE POINTS.
+                                def fsrc:string (srcV.stringOf())
+                                def fsn:int (strlen fsrc)
+                                def fsi:int 0
+                                while (fsi < fsn) {
+                                    def fdec:[int] (this.cuDecodeAt(fsrc fsi))
+                                    def fw:int (itemAt fdec 1)
+                                    if (fw == 0) {
+                                        fsi = fsn
+                                    } {
+                                        push frItems (EvValueBridge.taggedString((this.byteSliceOrUnit(fsrc fsi fw))))
+                                        fsi = (fsi + fw)
+                                    }
                                 }
                             }
                             if (srcV.isSet()) {
@@ -21944,7 +21969,7 @@ class ComponentEngine {
                                     def keysS:[string]
                                     def valsS:[EvHandle]
                                     def dS:EvHandle (EvValueBridge.taggedObject(keysS valsS))
-                                    dS.setMember("value" (EvHandle.fromInt((strlen (src.stringOf())))))
+                                    dS.setMember("value" (EvHandle.fromInt((src.strCodeUnitLength()))))
                                     dS.setMember("writable" (EvValueBridge.taggedBoolean(false)))
                                     dS.setMember("enumerable" (EvValueBridge.taggedBoolean(false)))
                                     dS.setMember("configurable" (EvValueBridge.taggedBoolean(false)))
@@ -21953,12 +21978,12 @@ class ComponentEngine {
                                 def sIdx@(optional):int (to_int dk)
                                 if sIdx {
                                     def si2:int (unwrap sIdx)
-                                    if ((si2 >= 0) && (si2 < (strlen (src.stringOf())))) {
+                                    if ((si2 >= 0) && (si2 < (src.strCodeUnitLength()))) {
                                         def keysC:[string]
                                         def valsC2:[EvHandle]
                                         def dC:EvHandle (EvValueBridge.taggedObject(keysC valsC2))
                                         def se:int (si2 + 1)
-                                        dC.setMember("value" (EvValueBridge.taggedString((substring (src.stringOf()) si2 se))))
+                                        dC.setMember("value" (EvValueBridge.taggedString((this.cuSlice((src.stringOf()) si2 se))))) 
                                         dC.setMember("writable" (EvValueBridge.taggedBoolean(false)))
                                         dC.setMember("enumerable" (EvValueBridge.taggedBoolean(true)))
                                         dC.setMember("configurable" (EvValueBridge.taggedBoolean(false)))
@@ -24734,23 +24759,21 @@ class ComponentEngine {
                         if ((array_length args) > 0) {
                             cpi = (this.toIntegerOf((itemAt args 0)))
                         }
-                        if ((cpi < 0) || (cpi >= (strlen s))) {
+                        def cu:int (this.cuUnitAt(s cpi))
+                        if (cpi < 0) {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        if (cu < 0) {
                             return (EvValueBridge.taggedUndefined())
                         }
                         ; codePointAt differs from charCodeAt exactly here: a
-                        ; HIGH surrogate followed by a LOW one is one code point,
-                        ; not two units. Returning the raw unit made
-                        ; String.fromCodePoint(0x1F600).codePointAt(0) answer
-                        ; 55357 instead of 128512 -- the pair round-tripped
-                        ; through fromCodePoint could not be read back.
-                        def cu:int (charAt s cpi)
+                        ; HIGH surrogate followed by a LOW one is one code
+                        ; point, not two units.
                         if ((cu >= 55296) && (cu <= 56319)) {
-                            if ((cpi + 1) < (strlen s)) {
-                                def lo:int (charAt s (cpi + 1))
-                                if ((lo >= 56320) && (lo <= 57343)) {
-                                    def combined:int (65536 + ((bit_shl (cu - 55296) 10) + (lo - 56320)))
-                                    return (EvHandle.fromInt(combined))
-                                }
+                            def lo:int (this.cuUnitAt(s (cpi + 1)))
+                            if ((lo >= 56320) && (lo <= 57343)) {
+                                def combined:int (65536 + ((bit_shl (cu - 55296) 10) + (lo - 56320)))
+                                return (EvHandle.fromInt(combined))
                             }
                         }
                         return (EvHandle.fromInt(cu))
@@ -24762,11 +24785,12 @@ class ComponentEngine {
                         if ((array_length args) > 0) {
                             sbStart = (this.toIntegerOf((itemAt args 0)))
                         }
-                        def sbLen:int ((strlen s) - sbStart)
+                        def sbTotal:int (this.cuLen(s))
+                        def sbLen:int (sbTotal - sbStart)
                         if (sbStart < 0) {
-                            sbStart = ((strlen s) + sbStart)
+                            sbStart = (sbTotal + sbStart)
                             if (sbStart < 0) { sbStart = 0 }
-                            sbLen = ((strlen s) - sbStart)
+                            sbLen = (sbTotal - sbStart)
                         }
                         if ((array_length args) > 1) {
                             def lenArg:EvHandle (itemAt args 1)
@@ -24775,12 +24799,12 @@ class ComponentEngine {
                             }
                         }
                         if (sbLen < 0) { sbLen = 0 }
-                        if (sbStart >= (strlen s)) {
+                        if (sbStart >= sbTotal) {
                             return (EvValueBridge.taggedString(""))
                         }
                         def sbEnd:int (sbStart + sbLen)
-                        if (sbEnd > (strlen s)) { sbEnd = (strlen s) }
-                        return (EvValueBridge.taggedString((substring s sbStart sbEnd)))
+                        if (sbEnd > sbTotal) { sbEnd = sbTotal }
+                        return (EvValueBridge.taggedString((this.cuSlice(s sbStart sbEnd))))
                     }
                     ; (receiver already coerced to `s` above, per ToString)
                     if (name == "indexOf") {
@@ -24797,14 +24821,22 @@ class ComponentEngine {
                             from = (this.toIntegerOf((itemAt args 1)))
                             if scriptThrew { return (EvValueBridge.taggedUndefined()) }
                         }
+                        ; D-UTF8: the position and the answer are both code
+                        ; UNITS. The search itself runs over the raw text and
+                        ; its byte answer is converted back.
+                        def sUnits:int (this.cuLen(s))
                         if (from < 0) { from = 0 }
-                        if (from > (strlen s)) { from = (strlen s) }
-                        def hay:string (substring s from (strlen s))
+                        if (from > sUnits) { from = sUnits }
+                        def fromByte:int (this.cuByteOf(s from))
+                        def hay:string (this.byteSlice(s fromByte (strlen s)))
+                        if (false == (this.unitsAreBytes())) {
+                            hay = (substring s from (strlen s))
+                        }
                         def at:int (indexOf hay needle)
                         if (at < 0) {
                             return (EvHandle.fromInt((0 - 1)))
                         }
-                        return (EvHandle.fromInt((at + from)))
+                        return (EvHandle.fromInt((this.cuIndexOfByte(s (fromByte + at)))))
                     }
                     ; D-STRSEARCH: includes/startsWith/endsWith all take a
                     ; POSITION, which was ignored outright -- `"abc".includes("a", 1)`
@@ -24860,7 +24892,7 @@ class ComponentEngine {
                         return (EvValueBridge.taggedBoolean(((indexOf (substring s pos sLen) needle) >= 0)))
                     }
                     if (name == "slice") {
-                        def L:int (strlen s)
+                        def L:int (this.cuLen(s))
                         def a:int 0
                         def b:int L
                         if ((array_length args) > 0) {
@@ -24879,25 +24911,17 @@ class ComponentEngine {
                         if (a < 0) { a = 0 }
                         if (b > L) { b = L }
                         if (a >= b) { return (EvValueBridge.taggedString("")) }
-                        return (EvValueBridge.taggedString((substring s a b)))
+                        return (EvValueBridge.taggedString((this.cuSlice(s a b))))
                     }
                     if (name == "charCodeAt") {
                         def idx:int 0
                         if ((array_length args) > 0) {
                             idx = (this.toIntegerOf((itemAt args 0)))
                         }
-                        if ((idx >= 0) && (idx < (strlen s))) {
-                            ; A code unit is UNSIGNED, and how WIDE it is
-                            ; depends on the target: the native builds store
-                            ; bytes, the es6 build stores UTF-16 code units.
-                            ; Masking to the low byte unconditionally -- which
-                            ; the signed C++ char needs -- truncated every unit
-                            ; above 255 on the es6 build, so `"\uFFFF"
-                            ; .charCodeAt(0)` answered 255 there too.
-                            def cu:int (bit_and (charAt s idx) 65535)
-                            if (this.stringUnitsAreBytes()) {
-                                cu = (bit_and cu 255)
-                            }
+                        ; D-UTF8: the UTF-16 code unit at that index, whatever
+                        ; the target stores underneath.
+                        def cu:int (this.cuUnitAt(s idx))
+                        if (cu >= 0) {
                             return (EvHandle.fromInt(cu))
                         }
                         ; Out of range is NaN, not 0 -- 0 is a real code unit.
@@ -25074,6 +25098,23 @@ class ComponentEngine {
                             }
                             return (EvValueBridge.taggedArray(whole))
                         }
+                        ; D-UTF8: an EMPTY separator splits into CODE UNITS.
+                        ; The host splitter works on bytes, so a non-ASCII
+                        ; character came apart into its encoding.
+                        if ((strlen sep) == 0) {
+                            def cuParts:[EvHandle]
+                            def cuN:int (this.cuLen(s))
+                            def cuI:int 0
+                            def cuCap:int cuN
+                            if hasLimit {
+                                if (limitN < cuCap) { cuCap = limitN }
+                            }
+                            while (cuI < cuCap) {
+                                push cuParts (EvValueBridge.taggedString((this.cuSlice(s cuI (cuI + 1)))))
+                                cuI = (cuI + 1)
+                            }
+                            return (EvValueBridge.taggedArray(cuParts))
+                        }
                         def parts:[string] (strsplit s sep)
                         def cap:int (array_length parts)
                         if hasLimit {
@@ -25096,7 +25137,7 @@ class ComponentEngine {
                         ; The position is ToNUMBER, not ToInteger: NaN means
                         ; "search the whole string", which is why it is checked
                         ; before truncating.
-                        def limit:int (strlen s)
+                        def limit:int (this.cuLen(s))
                         if ((array_length args) > 1) {
                             def posV:EvHandle (itemAt args 1)
                             def posN:double (this.toNumberOf(posV))
@@ -25107,13 +25148,22 @@ class ComponentEngine {
                                 if (pi2 < limit) { limit = pi2 }
                             }
                         }
-                        def end:int (limit + (strlen needle))
-                        if (end > (strlen s)) { end = (strlen s) }
-                        def hay2:string (substring s 0 end)
-                        return (EvHandle.fromInt((lastIndexOf hay2 needle)))
+                        ; D-UTF8: the window ends `needle` units past the limit,
+                        ; measured in bytes so the raw search can use it.
+                        def endByte:int ((this.cuByteOf(s limit)) + (strlen needle))
+                        if (endByte > (strlen s)) { endByte = (strlen s) }
+                        def hay2:string (this.byteSlice(s 0 endByte))
+                        if (false == (this.unitsAreBytes())) {
+                            hay2 = (substring s 0 endByte)
+                        }
+                        def lat:int (lastIndexOf hay2 needle)
+                        if (lat < 0) {
+                            return (EvHandle.fromInt((0 - 1)))
+                        }
+                        return (EvHandle.fromInt((this.cuIndexOfByte(s lat))))
                     }
                     if (name == "at") {
-                        def L:int (strlen s)
+                        def L:int (this.cuLen(s))
                         def idx:int 0
                         if ((array_length args) > 0) {
                             idx = (this.toIntegerOf((itemAt args 0)))
@@ -25122,7 +25172,7 @@ class ComponentEngine {
                             idx = (L + idx)
                         }
                         if ((idx >= 0) && (idx < L)) {
-                            return (EvValueBridge.taggedString((substring s idx (idx + 1))))
+                            return (EvValueBridge.taggedString((this.cuSlice(s idx (idx + 1)))))
                         }
                         return (EvValueBridge.taggedUndefined())
                     }
@@ -25343,13 +25393,13 @@ class ComponentEngine {
                     ci = (this.toIntegerOf((itemAt args 0)))
                 }
                 if (ci < 0) { return (EvValueBridge.taggedString("")) }
-                if (ci >= (strlen s)) { return (EvValueBridge.taggedString("")) }
-                def ce:int (ci + 1)
-                return (EvValueBridge.taggedString((substring s ci ce)))
+                if (ci >= (this.cuLen(s))) { return (EvValueBridge.taggedString("")) }
+                return (EvValueBridge.taggedString((this.cuSlice(s ci (ci + 1)))))
             }
             if (name == "substring") {
+                def sLenU:int (this.cuLen(s))
                 def a0:int 0
-                def a1:int (strlen s)
+                def a1:int sLenU
                 if ((array_length args) > 0) {
                     a0 = (this.toIntegerOf((itemAt args 0)))
                 }
@@ -25361,15 +25411,15 @@ class ComponentEngine {
                 }
                 if (a0 < 0) { a0 = 0 }
                 if (a1 < 0) { a1 = 0 }
-                if (a0 > (strlen s)) { a0 = (strlen s) }
-                if (a1 > (strlen s)) { a1 = (strlen s) }
+                if (a0 > sLenU) { a0 = sLenU }
+                if (a1 > sLenU) { a1 = sLenU }
                 ; substring swaps its arguments when start > end.
                 if (a0 > a1) {
                     def tmp:int a0
                     a0 = a1
                     a1 = tmp
                 }
-                return (EvValueBridge.taggedString((substring s a0 a1)))
+                return (EvValueBridge.taggedString((this.cuSlice(s a0 a1))))
             }
             if (name == "padStart") {
                 return (EvValueBridge.taggedString((this.padString(s args true))))
@@ -28722,7 +28772,7 @@ class ComponentEngine {
         if idx {
             def i:int (unwrap idx)
             if ((to_string i) == key) {
-                if ((i >= 0) && (i < (strlen (sv.stringOf())))) {
+                if ((i >= 0) && (i < (sv.strCodeUnitLength()))) {
                     return true
                 }
             }
@@ -29644,9 +29694,13 @@ class ComponentEngine {
             return (v.itemsOf())
         }
         if (v.isString()) {
+            ; D-UTF8: one element per code UNIT, which is what indexing a
+            ; string yields.
+            def sstr:string (v.stringOf())
+            def slen:int (v.strCodeUnitLength())
             def si:int 0
-            while (si < (strlen (v.stringOf()))) {
-                push out (EvValueBridge.taggedString((substring (v.stringOf()) si (si + 1))))
+            while (si < slen) {
+                push out (EvValueBridge.taggedString((this.cuSlice(sstr si (si + 1)))))
                 si = (si + 1)
             }
             return out
@@ -29743,8 +29797,8 @@ class ComponentEngine {
             return (EvValueBridge.taggedHole())
         }
         if (recv.isString()) {
-            if (idx < (strlen (recv.stringOf()))) {
-                return (EvValueBridge.taggedString((substring (recv.stringOf()) idx (idx + 1))))
+            if (idx < (recv.strCodeUnitLength())) {
+                return (EvValueBridge.taggedString((this.cuSlice((recv.stringOf()) idx (idx + 1)))))
             }
             return (EvValueBridge.taggedHole())
         }
@@ -31738,6 +31792,296 @@ class ComponentEngine {
             k = (k + 1)
         }
         return out
+    }
+
+    ; ==========================================================================
+    ; D-UTF8: the code-UNIT layer.
+    ; --------------------------------------------------------------------------
+    ; A JS string is a sequence of UTF-16 code units. The es6 target stores
+    ; exactly that; the native targets store UTF-8 BYTES. Those two views used
+    ; to be mixed together on the native side: `length`, `charCodeAt`,
+    ; `indexOf` and `split("")` counted BYTES while `charAt`, `s[i]`, `slice`
+    ; and `substring` counted CODE POINTS -- so `"aeb".length` and
+    ; `"aeb".charAt(1)` disagreed about what an index meant, and
+    ; `s.charAt(s.length - 1)` answered "" for any string holding a non-ASCII
+    ; character. Every JS-visible string operation now goes through the
+    ; functions below, which answer in code units on every target.
+    ;
+    ; On a char-model target they are straight passthroughs, and on a
+    ; byte-model target the ASCII case -- almost every string -- is too.
+    ; --------------------------------------------------------------------------
+
+    ; Which model this target uses, decided once. One two-byte character
+    ; settles it: the native builds see two units, the es6 build sees one.
+    fn unitsAreBytes:boolean () {
+        if (utf8ModelKnown == false) {
+            utf8ModelBytes = ((strlen "é") > 1)
+            utf8ModelKnown = true
+        }
+        return utf8ModelBytes
+    }
+
+    ; Bytes [i, j) of a string, on a byte-model target. `substring` cannot do
+    ; this: it indexes code POINTS.
+    ; One character's worth of text starting at byte `i`, `w` units wide. On a
+    ; char-model target `w` is always 1 and this is a plain substring.
+    fn byteSliceOrUnit:string (s:string i:int w:int) {
+        if (this.unitsAreBytes()) {
+            return (this.byteSlice(s i (i + w)))
+        }
+        return (substring s i (i + w))
+    }
+
+    fn byteSlice:string (s:string i:int j:int) {
+        def out:string ""
+        def k:int i
+        def n:int (strlen s)
+        while ((k < j) && (k < n)) {
+            out = (out + (strfromcode (bit_and (charAt s k) 255)))
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; The code POINT whose encoding starts at byte `i`, and its width in bytes.
+    fn cuDecodeAt:[int] (s:string i:int) {
+        def out:[int]
+        def n:int (strlen s)
+        if (i >= n) {
+            push out (0 - 1)
+            push out 0
+            return out
+        }
+        def b0:int (bit_and (charAt s i) 255)
+        if (b0 < 128) {
+            push out b0
+            push out 1
+            return out
+        }
+        if (b0 < 224) {
+            def c1:int 0
+            if ((i + 1) < n) { c1 = (bit_and (charAt s (i + 1)) 63) }
+            push out (((bit_and b0 31) * 64) + c1)
+            push out 2
+            return out
+        }
+        if (b0 < 240) {
+            def d1:int 0
+            def d2:int 0
+            if ((i + 1) < n) { d1 = (bit_and (charAt s (i + 1)) 63) }
+            if ((i + 2) < n) { d2 = (bit_and (charAt s (i + 2)) 63) }
+            push out ((((bit_and b0 15) * 4096) + (d1 * 64)) + d2)
+            push out 3
+            return out
+        }
+        def e1:int 0
+        def e2:int 0
+        def e3:int 0
+        if ((i + 1) < n) { e1 = (bit_and (charAt s (i + 1)) 63) }
+        if ((i + 2) < n) { e2 = (bit_and (charAt s (i + 2)) 63) }
+        if ((i + 3) < n) { e3 = (bit_and (charAt s (i + 3)) 63) }
+        push out (((((bit_and b0 7) * 262144) + (e1 * 4096)) + (e2 * 64)) + e3)
+        push out 4
+        return out
+    }
+
+    ; Code units in `s`.
+    fn cuLen:int (s:string) {
+        def n:int (strlen s)
+        if (false == (this.unitsAreBytes())) {
+            return n
+        }
+        def i:int 0
+        def units:int 0
+        while (i < n) {
+            def b:int (bit_and (charAt s i) 255)
+            if (b < 128) {
+                units = (units + 1)
+                i = (i + 1)
+            } {
+                ; One past U+FFFF needs TWO code units: JS spells it as a
+                ; surrogate pair.
+                if (b < 224) {
+                    units = (units + 1)
+                    i = (i + 2)
+                } {
+                    if (b < 240) {
+                        units = (units + 1)
+                        i = (i + 3)
+                    } {
+                        units = (units + 2)
+                        i = (i + 4)
+                    }
+                }
+            }
+        }
+        return units
+    }
+
+    ; The code UNIT at index `u`: the character for anything in the BMP, and
+    ; the high or low surrogate for an astral one. -1 past the end.
+    fn cuUnitAt:int (s:string u:int) {
+        def n:int (strlen s)
+        if (u < 0) { return (0 - 1) }
+        if (false == (this.unitsAreBytes())) {
+            if (u >= n) { return (0 - 1) }
+            return (bit_and (charAt s u) 65535)
+        }
+        def i:int 0
+        def units:int 0
+        while (i < n) {
+            def dec:[int] (this.cuDecodeAt(s i))
+            def cp:int (itemAt dec 0)
+            def w:int (itemAt dec 1)
+            if (cp < 65536) {
+                if (units == u) {
+                    return cp
+                }
+                units = (units + 1)
+            } {
+                def adj:int (cp - 65536)
+                if (units == u) {
+                    return (55296 + (bit_shr adj 10))
+                }
+                if ((units + 1) == u) {
+                    return (56320 + (bit_and adj 1023))
+                }
+                units = (units + 2)
+            }
+            i = (i + w)
+        }
+        return (0 - 1)
+    }
+
+    ; The substring between two code-unit indexes. A cut that lands INSIDE a
+    ; surrogate pair yields the corresponding lone surrogate, which is what
+    ; keeps `s.slice(0, 1)` on an astral character one unit long rather than
+    ; silently the whole character.
+    fn cuSlice:string (s:string a:int b:int) {
+        def lo:int a
+        def hi:int b
+        if (lo < 0) { lo = 0 }
+        if (hi < lo) { hi = lo }
+        def n:int (strlen s)
+        if (false == (this.unitsAreBytes())) {
+            if (lo >= n) { return "" }
+            def hi2:int hi
+            if (hi2 > n) { hi2 = n }
+            return (substring s lo hi2)
+        }
+        def out:string ""
+        def i:int 0
+        def units:int 0
+        while (i < n) {
+            def dec:[int] (this.cuDecodeAt(s i))
+            def cp:int (itemAt dec 0)
+            def w:int (itemAt dec 1)
+            if (cp < 65536) {
+                if ((units >= lo) && (units < hi)) {
+                    out = (out + (this.byteSlice(s i (i + w))))
+                }
+                units = (units + 1)
+            } {
+                def adj:int (cp - 65536)
+                def takeHi:boolean ((units >= lo) && (units < hi))
+                def takeLo:boolean (((units + 1) >= lo) && ((units + 1) < hi))
+                if (takeHi && takeLo) {
+                    out = (out + (this.byteSlice(s i (i + w))))
+                } {
+                    if takeHi {
+                        out = (out + (this.encodeCodePointUtf8((55296 + (bit_shr adj 10)))))
+                    }
+                    if takeLo {
+                        out = (out + (this.encodeCodePointUtf8((56320 + (bit_and adj 1023)))))
+                    }
+                }
+                units = (units + 2)
+            }
+            i = (i + w)
+        }
+        return out
+    }
+
+    ; A code point as its UTF-8 bytes, on a byte-model target; as itself on a
+    ; char-model one. Lone surrogates encode too -- they are not characters,
+    ; but they are code units a JS string may hold.
+    fn encodeCodePointUtf8:string (cp:int) {
+        if (false == (this.unitsAreBytes())) {
+            return (strfromcode cp)
+        }
+        if (cp < 128) {
+            return (strfromcode cp)
+        }
+        if (cp < 2048) {
+            def b1:int (bit_or 192 (bit_shr cp 6))
+            def b2:int (bit_or 128 (bit_and cp 63))
+            return ((strfromcode b1) + (strfromcode b2))
+        }
+        if (cp < 65536) {
+            def c1:int (bit_or 224 (bit_shr cp 12))
+            def c2:int (bit_or 128 (bit_and (bit_shr cp 6) 63))
+            def c3:int (bit_or 128 (bit_and cp 63))
+            return (((strfromcode c1) + (strfromcode c2)) + (strfromcode c3))
+        }
+        def d1:int (bit_or 240 (bit_shr cp 18))
+        def d2:int (bit_or 128 (bit_and (bit_shr cp 12) 63))
+        def d3:int (bit_or 128 (bit_and (bit_shr cp 6) 63))
+        def d4:int (bit_or 128 (bit_and cp 63))
+        return ((((strfromcode d1) + (strfromcode d2)) + (strfromcode d3)) + (strfromcode d4))
+    }
+
+    ; Byte offset of code UNIT `u` (the byte length when u is past the end).
+    ; The low half of a surrogate pair maps to the same offset as the high one,
+    ; which only matters to cuSlice -- it is the one that splits pairs.
+    fn cuByteOf:int (s:string u:int) {
+        def n:int (strlen s)
+        if (u <= 0) { return 0 }
+        if (false == (this.unitsAreBytes())) {
+            if (u > n) { return n }
+            return u
+        }
+        def i:int 0
+        def units:int 0
+        while (i < n) {
+            if (units >= u) {
+                return i
+            }
+            def dec:[int] (this.cuDecodeAt(s i))
+            def cp:int (itemAt dec 0)
+            def w:int (itemAt dec 1)
+            if (w == 0) { return n }
+            if (cp < 65536) {
+                units = (units + 1)
+            } {
+                units = (units + 2)
+            }
+            i = (i + w)
+        }
+        return n
+    }
+
+    ; The code-unit index that corresponds to a BYTE index -- what a search
+    ; that ran over the raw bytes has to report back.
+    fn cuIndexOfByte:int (s:string byteIdx:int) {
+        if (false == (this.unitsAreBytes())) {
+            return byteIdx
+        }
+        if (byteIdx <= 0) { return byteIdx }
+        def i:int 0
+        def units:int 0
+        while (i < byteIdx) {
+            def dec:[int] (this.cuDecodeAt(s i))
+            def cp:int (itemAt dec 0)
+            def w:int (itemAt dec 1)
+            if (w == 0) { return units }
+            if (cp < 65536) {
+                units = (units + 1)
+            } {
+                units = (units + 2)
+            }
+            i = (i + w)
+        }
+        return units
     }
 
     fn escapeString:string (s:string) {
@@ -35087,8 +35431,9 @@ class ComponentEngine {
         ; A string coerces to an object whose own keys are its character
         ; indices, which is what Object.keys('abc') returns.
         if (v.isString()) {
+            def sn:int (v.strCodeUnitLength())
             def si:int 0
-            while (si < (strlen (v.stringOf()))) {
+            while (si < sn) {
                 push out (to_string si)
                 si = (si + 1)
             }
