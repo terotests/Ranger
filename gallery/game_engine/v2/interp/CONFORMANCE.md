@@ -825,10 +825,10 @@ after excluding intl402, Temporal, module and async flags:
 
 | | |
 |---|---|
-| **ES2015 overall** | **83.48% (2390/2863)** |
-| pass | 2390 |
-| fail (ran, wrong answer) | 453 |
-| crash (did not run to completion) | 20 |
+| **ES2015 overall** | **83.79% (2399/2863)** |
+| pass | 2399 |
+| fail (ran, wrong answer) | 448 |
+| crash (did not run to completion) | 16 |
 
 The fail/crash split changed meaning partway through this work. An
 uncaught exception used to be swallowed in silence, so a fixture that ran
@@ -893,6 +893,8 @@ How it got here, each row a measured run of the same corpus against the C++
 | ArrayBuffer, DataView and the %TypedArray% intrinsic | 2365 | 82.61% |
 | Proxy trap invariants, and proxy reads in the compiled tier | 2382 | 83.20% |
 | the temporal dead zone for let and const | 2390 | 83.48% |
+| one string model -- code units -- on every target | 2395 | 83.65% |
+| non-ASCII identifiers, on the byte-model targets | 2399 | 83.79% |
 
 The single largest step is not an ES2015 feature at all. `propertyHelper.js` --
 which 543 of these files include -- opens with
@@ -962,9 +964,60 @@ Subclassing a built-in works for Array (both halves: the instance IS an
 array and the class's own methods stay reachable), for the Error
 constructors and for Promise. The function constructors remain.
 
-One known engine gap in the native target only: the C++ and Rust builds
-index source by BYTE, so a non-ASCII identifier (`var а = 1`) is a parse
-error there. The es6 build, which has real string indexing, accepts it.
+#### Unicode: one string model across three targets
+
+A JS string is a sequence of UTF-16 CODE UNITS. Nothing in the host
+languages agrees with that: C++ `std::string` is bytes, Rust `String`
+iterates characters, and only JS itself speaks units. The engine used to
+let whichever model the target happened to have leak into guest semantics,
+which is not a rounding error -- it silently gave different answers for
+ordinary non-ASCII text:
+
+| on the C++ build | was | is |
+|---|---:|---:|
+| `"héllo".length` | 6 | 5 |
+| `"héllo".indexOf("l")` | 3 | 2 |
+| `"日本".length` | 6 | 2 |
+| `[..."héllo"].join("")` | truncated | `"héllo"` |
+| `var а = 1` (Cyrillic) | parse error | 1 |
+
+The fix is a code-unit layer (`cuLen`, `cuUnitAt`, `cuSlice`, `cuIndexOfByte`
+and friends) that every string builtin goes through. It is not a conversion
+pass: the strings stay in their native representation and the layer
+translates INDICES, so no allocation is added on any path. Which
+translation applies is detected once, from the target itself
+(`(strlen "é") > 1`), rather than compiled in -- the es6 build takes a
+passthrough and pays nothing.
+
+The per-string unit count is memoised on the handle, because `s.length` is
+O(1) in every other engine and rescanning per read would make
+`for (i = 0; i < s.length; i++)` quadratic. The memo is VALIDATED by byte
+length rather than invalidated by hand: any mutation that changes the text
+changes its byte count, so a stale entry corrects itself on the next read
+instead of depending on every writer remembering to clear it. An all-ASCII
+string -- nearly all of them -- settles in one model-independent scan and
+never consults the model at all, which is why the benchmark geomean did not
+move.
+
+The lexer had the same defect one level down. `at source i` walks code
+points on the byte-model target but hands back their UTF-8 BYTES, and the
+identifier classifier read only the first of them: Cyrillic `а` was queried
+against the ID tables as its lead byte 0xD0, so `var а = 1` was a parse
+error on C++ and Rust while parsing fine on es6. Decoding that string
+before the lookup fixes every category at once -- Cyrillic, accented Latin,
+CJK, Greek, runic, and supplementary-plane letters like `𝒜`, in
+identifiers, member names, object-literal keys and parameter names.
+
+Two things are still not done, and are gaps rather than bugs:
+
+- **Non-ASCII casing.** `"é".toUpperCase()` answers `"é"` unchanged. It is
+  not corrupted, it is unimplemented: correct casing needs the Unicode
+  special-casing tables, not a rule. 6 test262 files.
+- **Supplementary characters on the Rust target.** Rust's char model counts
+  `"𝒜"` as one unit where JS counts a surrogate PAIR, so `.length` answers
+  1 there. The C++ and es6 builds are correct. Closing it means teaching the
+  layer a third model that synthesises surrogates, not just a different
+  index base.
 
 #### What resumable generators cost the rest of the engine
 
@@ -1001,6 +1054,8 @@ when asking whether ES2015 work cost anything:
 | after the ES1-ES5 sweep | 7814 | 96.29% |
 | after the ES5 attribute sweep | 8037 | 99.04% |
 | after the ES5 long tail | 8061 | 99.33% |
+| after the Unicode string model | 8069 | 99.43% |
+| after non-ASCII identifiers | 8071 | 99.46% |
 
 The ES2015 work did not cost ES5 anything; it gained 665 files, most of them
 from the same detached-statics fix.
@@ -1077,9 +1132,12 @@ declines all three names.
 
 What remains is genuinely long-tail: annexB RegExp escapes (7), Unicode
 special-casing in `toUpperCase`/`toLowerCase` (6, which needs the casing
-tables rather than a rule), `String.fromCharCode` above 255 on the
-byte-model targets (5, see the identifier gap above -- the es6 build is
-correct), and single files spread across a dozen areas. Accessor properties
+tables rather than a rule -- see "Unicode: one string model" above), a
+handful of RegExp fixtures that match a non-ASCII literal (`/\xFF/.exec` --
+the code-unit layer covers the string builtins, the pattern matcher is
+still its own path), and single files spread across a dozen areas. The
+`String.fromCharCode` and code-unit-width rows above are now closed on
+every target. Accessor properties
 are also listed after data properties by `getOwnPropertyNames` rather than
 in insertion order, because they live in a separate map; fixing that means
 giving the property bag one order across both.

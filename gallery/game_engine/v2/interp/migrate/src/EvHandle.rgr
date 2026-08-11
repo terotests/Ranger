@@ -109,35 +109,68 @@ class EvHandle {
         if (cuBytes == n) {
             return
         }
+        ; Pass one is model-INDEPENDENT: a unit below 128 is one byte and one
+        ; code unit alike, so an all-ASCII string measures the same whether
+        ; `strlen`/`charAt` speak bytes or characters. Nearly every string
+        ; takes this exit.
         def i:int 0
-        def units:int 0
         def ascii:boolean true
         while (i < n) {
-            def b:int (bit_and (charAt sv i) 255)
+            def u:int (charAt sv i)
+            if (u < 0) {
+                ascii = false
+                break
+            }
+            if (u > 127) {
+                ascii = false
+                break
+            }
+            i = (i + 1)
+        }
+        if ascii {
+            cuBytes = n
+            cuLen = n
+            cuAscii = true
+            return
+        }
+        ; Past here the model matters, so pay the one-off probe. On the
+        ; char-model targets (es6, Rust) `strlen` already answers in units and
+        ; decoding the value as UTF-8 would be nonsense -- it read é (233) as
+        ; a three-byte lead and skipped two real characters, which is what
+        ; made "日本".length answer 1 on Rust.
+        if (((strlen "é") > 1) == false) {
+            cuBytes = n
+            cuLen = n
+            cuAscii = false
+            return
+        }
+        def j:int 0
+        def units:int 0
+        while (j < n) {
+            def b:int (bit_and (charAt sv j) 255)
             if (b < 128) {
                 units = (units + 1)
-                i = (i + 1)
+                j = (j + 1)
             } {
-                ascii = false
                 ; A lead byte starts a code point; one past U+FFFF needs TWO
                 ; code units, because JS spells it as a surrogate pair.
                 if (b < 224) {
                     units = (units + 1)
-                    i = (i + 2)
+                    j = (j + 2)
                 } {
                     if (b < 240) {
                         units = (units + 1)
-                        i = (i + 3)
+                        j = (j + 3)
                     } {
                         units = (units + 2)
-                        i = (i + 4)
+                        j = (j + 4)
                     }
                 }
             }
         }
         cuBytes = n
         cuLen = units
-        cuAscii = ascii
+        cuAscii = false
     }
 
     fn strIsAscii:boolean () {

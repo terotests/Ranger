@@ -136,15 +136,22 @@ class TSLexer {
         ; `at` answers "" past the last code point of a byte-counted source
         ; (multi-byte chars make the code-point count smaller than `len`).
         if ((strlen first) == 0) { return -1 }
-        def hi:int (charAt first 0)
+        ; On the byte-model target `at` walks code points but hands back their
+        ; UTF-8 BYTES, so the first unit has to be decoded: reading `charAt
+        ; first 0` saw the sign-extended lead byte (0xD0 for Cyrillic а) and
+        ; queried the ID tables with that, which is why `var а = 1` was a
+        ; parse error there while parsing fine on the char-model targets.
+        def hi:int (this.charStringCodePoint(first))
         if (hi >= 55296) {
             if (hi <= 56319) {
                 if ((idx + 1) < len) {
                     def second:string (at source (idx + 1))
-                    def lo:int (charAt second 0)
-                    if (lo >= 56320) {
-                        if (lo <= 57343) {
-                            return ((((hi - 55296) * 1024) + (lo - 56320)) + 65536)
+                    if ((strlen second) > 0) {
+                        def lo:int (this.charStringCodePoint(second))
+                        if (lo >= 56320) {
+                            if (lo <= 57343) {
+                                return ((((hi - 55296) * 1024) + (lo - 56320)) + 65536)
+                            }
                         }
                     }
                 }
@@ -153,10 +160,29 @@ class TSLexer {
         return hi
     }
 
-    ; Number of code units the code point at the current position occupies.
+    ; Number of `at` units the code point at the current position occupies.
+    ; That is NOT a function of the code point alone: on the char-model
+    ; targets a supplementary character is a surrogate PAIR (two units), while
+    ; on the byte-model target `at` already answered the whole character in
+    ; one unit. So the answer is 2 only when a pair was actually combined.
     fn codePointWidth:int () {
-        def cp:int (this.codePointAt(0))
-        if (cp > 65535) { return 2 }
+        if (pos >= len) { return 1 }
+        def first:string (at source pos)
+        if ((strlen first) == 0) { return 1 }
+        def hi:int (this.charStringCodePoint(first))
+        if (hi >= 55296) {
+            if (hi <= 56319) {
+                if ((pos + 1) < len) {
+                    def second:string (at source (pos + 1))
+                    if ((strlen second) > 0) {
+                        def lo:int (this.charStringCodePoint(second))
+                        if (lo >= 56320) {
+                            if (lo <= 57343) { return 2 }
+                        }
+                    }
+                }
+            }
+        }
         return 1
     }
 
@@ -356,6 +382,26 @@ class TSLexer {
                 if ((d1 >= 128) && (d1 <= 191)) {
                     if ((d2 >= 128) && (d2 <= 191)) {
                         return ((((bit_and b0 15) * 4096) + ((bit_and d1 63) * 64)) + (bit_and d2 63))
+                    }
+                }
+            }
+        }
+        ; Four bytes: a supplementary character (U+10000 and above). `at`
+        ; answers the whole thing as one unit on the byte-model target, so
+        ; without this an emoji or a Plane-1 letter decoded to its lead byte.
+        if (n == 4) {
+            if ((b0 >= 240) && (b0 <= 247)) {
+                def e1:int (bit_and (charAt ch 1) 255)
+                def e2:int (bit_and (charAt ch 2) 255)
+                def e3:int (bit_and (charAt ch 3) 255)
+                if ((e1 >= 128) && (e1 <= 191)) {
+                    if ((e2 >= 128) && (e2 <= 191)) {
+                        if ((e3 >= 128) && (e3 <= 191)) {
+                            def acc:int ((bit_and b0 7) * 262144)
+                            acc = (acc + ((bit_and e1 63) * 4096))
+                            acc = (acc + ((bit_and e2 63) * 64))
+                            return (acc + (bit_and e3 63))
+                        }
                     }
                 }
             }
