@@ -24674,12 +24674,16 @@ class ComponentEngine {
                     ; The locale-sensitive methods have no locale data behind
                     ; them here, so they are the plain ones -- which is exactly
                     ; what the spec permits an implementation with no locale
-                    ; support to do.
+                    ; support to do. They must still be the plain ones as this
+                    ; engine defines them: left on the host's case function
+                    ; they were the only two string methods that had not moved
+                    ; to the Unicode tables, so 'CAFÉ'.toLocaleLowerCase()
+                    ; answered 'cafÉ' where toLowerCase answered 'café'.
                     if (name == "toLocaleLowerCase") {
-                        return (EvValueBridge.taggedString((to_lowercase s)))
+                        return (EvValueBridge.taggedString((this.unicodeCaseConvert(s false))))
                     }
                     if (name == "toLocaleUpperCase") {
-                        return (EvValueBridge.taggedString((to_uppercase s)))
+                        return (EvValueBridge.taggedString((this.unicodeCaseConvert(s true))))
                     }
                     if (name == "toLocaleString") {
                         return (EvValueBridge.taggedString(s))
@@ -28065,12 +28069,15 @@ class ComponentEngine {
         if (false == (this.isFiniteNum(d))) {
             return 0
         }
-        def i:int (this.toIntegerOf(v))
-        def m:int (i % 65536)
-        if (m < 0) {
-            m = (m + 65536)
+        ; The modulo is taken in DOUBLE space. Going through toIntegerOf
+        ; first clamps at the 32-bit maximum, so String.fromCharCode(2^32 - 2)
+        ; answered 65535 -- 2147483647 mod 65536 -- instead of 65534.
+        def t:double (this.truncNum(d))
+        def m:double (this.modNum(t 65536.0))
+        if (m < 0.0) {
+            m = (m + 65536.0)
         }
-        return m
+        return (to_int m)
     }
 
     fn toNumberOf:double (v:EvHandle) {

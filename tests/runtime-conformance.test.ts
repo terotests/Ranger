@@ -1821,6 +1821,19 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["uni-coll-greek", "return ['ΟΔΟΣ', 'οδος', 'άλφα'].sort(function (a, b) { return a.localeCompare(b); }).join('|');", "unicode"],
   ["uni-coll-cyrillic", "return ['ПРИВЕТ', 'привет', 'мир'].sort(function (a, b) { return a.localeCompare(b); }).join('|');", "unicode"],
   ["uni-coll-punct-before-digit", "return ['1', '_', '.'].sort(function (a, b) { return a.localeCompare(b); }).join('|');", "unicode"],
+  // toLocaleLowerCase/UpperCase have no locale data behind them, so they are
+  // the plain ones -- but they must be the plain ones as THIS engine defines
+  // them. Left on the host's case function they were the only two string
+  // methods still answering 'cafÉ' where toLowerCase answered 'café'.
+  ["uni-locale-lower", "return 'CAFÉ SOCIÉTÉ'.toLocaleLowerCase();", "unicode"],
+  ["uni-locale-upper", "return 'Straße'.toLocaleUpperCase();", "unicode"],
+  ["uni-locale-sigma", "return 'ΟΔΟΣ'.toLocaleLowerCase();", "unicode"],
+  ["uni-locale-matches-plain", "var s = 'Grüße İstanbul ΟΔΟΣ'; return s.toLocaleUpperCase() === s.toUpperCase() && s.toLocaleLowerCase() === s.toLowerCase();", "unicode"],
+  // ToUint16 through a double: the integer path clamps at the 32-bit maximum.
+  ["uni-fromcharcode-touint16", "return String.fromCharCode(4294967294).charCodeAt(0);", "unicode"],
+  ["uni-fromcharcode-negative", "return String.fromCharCode(-5.4321).charCodeAt(0);", "unicode"],
+  ["uni-fromcharcode-big", "return String.fromCharCode(Math.pow(2, 40) + 65).charCodeAt(0);", "unicode"],
+
   ["uni-coll-total-order", "var w = ['Straße', 'Strasse', 'ǆ', 'dz']; var f = w.slice().sort(function (a, b) { return a.localeCompare(b); }).join('|'); var r = w.slice().reverse().sort(function (a, b) { return a.localeCompare(b); }).join('|'); return f === r;", "unicode"],
 ];
 
