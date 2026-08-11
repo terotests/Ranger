@@ -13,6 +13,7 @@ Import "../../../evg/EVGElement.rgr"
 Import "EvHandle.rgr"
 Import "EvValueBridge.rgr"
 Import "Regex.rgr"
+Import "UnicodeCase.rgr"
 Import "DateTime.rgr"
 Import "../../../imaging/jpeg/JPEGMetadata.rgr"
 
@@ -1314,6 +1315,11 @@ class ComponentEngine {
     ; Cursor state for the recursive-descent JSON.parse (jsonParseValue advances
     ; jsonPos over jsonSrc). Only valid during a JSON.parse call.
     def jsonSrc:string ""
+    ; The length of jsonSrc in the units `jsonPos` counts. The scanner reads
+    ; through `substring`, which walks CODE POINTS on the byte-model target,
+    ; so a raw byte length overshot the end and every parse of text holding a
+    ; non-ASCII character ended in "Unexpected non-whitespace character".
+    def jsonLen:int 0
     def jsonPos:int 0
     ; D-JSON: whether the current JSON.parse hit a grammar error, and what to say.
     def jsonFailed:boolean false
@@ -1334,6 +1340,15 @@ class ComponentEngine {
     ; unitsAreBytes).
     def utf8ModelKnown:boolean false
     def utf8ModelBytes:boolean false
+    def utf8ModelKind:int 0
+    ; D-CASE: the Unicode case-mapping tables, loaded on first non-ASCII use.
+    def caseTablesLoaded:boolean false
+    def caseUpRuns:[int]
+    def caseUpMulti:[int]
+    def caseLoRuns:[int]
+    def caseLoMulti:[int]
+    def caseCasedRanges:[int]
+    def caseIgnRanges:[int]
     def jsonGap:string ""
     def jsonIndent:string ""
     def jsonHasReplacerFn:boolean false
@@ -15166,18 +15181,19 @@ class ComponentEngine {
                         ; D-UTF8: for-of over a string yields whole CODE
                         ; POINTS, so an astral character comes out as one
                         ; element rather than two lone surrogates.
-                        def sfs:string (src.stringOf())
-                        def sfn:int (strlen sfs)
+                        ; Through codePointsOf, which knows all three string
+                        ; models. Running the UTF-8 decoder unconditionally --
+                        ; as this did -- is right only on the byte target: on
+                        ; the other two it read é (233) as a three-byte lead and
+                        ; swallowed the two characters after it, so
+                        ; `[...'héllo']` came out as h, "éll", o on both es6 and
+                        ; Rust.
+                        def sfCps:[int] (this.codePointsOf((src.stringOf())))
+                        def sfn:int (array_length sfCps)
                         def sfi:int 0
                         while (sfi < sfn) {
-                            def sdec:[int] (this.cuDecodeAt(sfs sfi))
-                            def sw:int (itemAt sdec 1)
-                            if (sw == 0) {
-                                sfi = sfn
-                            } {
-                                push items (EvValueBridge.taggedString((this.byteSliceOrUnit(sfs sfi sw))))
-                                sfi = (sfi + sw)
-                            }
+                            push items (EvValueBridge.taggedString((this.cuFromCodePoint((itemAt sfCps sfi)))))
+                            sfi = (sfi + 1)
                         }
                     } {
                         ; D-ITERATOR: anything else iterates through the
@@ -17316,18 +17332,15 @@ class ComponentEngine {
                             if (srcV.isString()) {
                                 ; D-UTF8: Array.from over a string iterates it,
                                 ; so the elements are CODE POINTS.
-                                def fsrc:string (srcV.stringOf())
-                                def fsn:int (strlen fsrc)
+                                ; Same walk as forOfItemList, for the same
+                                ; reason: Array.from over a string iterates it,
+                                ; so the elements are whole CODE POINTS.
+                                def fCps:[int] (this.codePointsOf((srcV.stringOf())))
+                                def fsn:int (array_length fCps)
                                 def fsi:int 0
                                 while (fsi < fsn) {
-                                    def fdec:[int] (this.cuDecodeAt(fsrc fsi))
-                                    def fw:int (itemAt fdec 1)
-                                    if (fw == 0) {
-                                        fsi = fsn
-                                    } {
-                                        push frItems (EvValueBridge.taggedString((this.byteSliceOrUnit(fsrc fsi fw))))
-                                        fsi = (fsi + fw)
-                                    }
+                                    push frItems (EvValueBridge.taggedString((this.cuFromCodePoint((itemAt fCps fsi)))))
+                                    fsi = (fsi + 1)
                                 }
                             }
                             if (srcV.isSet()) {
@@ -23572,18 +23585,26 @@ class ComponentEngine {
                 filler = (fv.toString())
             }
         }
-        if ((strlen filler) == 0) {
+        ; §22.1.3.16 StringPad measures in CODE UNITS. Measuring in bytes made
+        ; the filler run short by one for every non-ASCII character already in
+        ; the string, and a target smaller than the byte count skipped the
+        ; padding entirely -- '日本'.padEnd(5) came back unpadded.
+        def fillLen:int (this.cuLen(filler))
+        if (fillLen == 0) {
             return s
         }
-        if (target <= (strlen s)) {
+        def sLen:int (this.cuLen(s))
+        if (target <= sLen) {
             return s
         }
+        def need:int (target - sLen)
         def pad:string ""
-        while ((strlen pad) < (target - (strlen s))) {
+        def have:int 0
+        while (have < need) {
             pad = (pad + filler)
+            have = (have + fillLen)
         }
-        def need:int (target - (strlen s))
-        pad = (substring pad 0 need)
+        pad = (this.cuSlice(pad 0 need))
         if atStart {
             return (pad + s)
         }
@@ -24730,21 +24751,24 @@ class ComponentEngine {
                         def mitems:[EvHandle]
                         def mfrom:int 0
                         def mlooping:boolean true
+                        ; Built ONCE. setup decodes the subject into code units,
+                        ; so building a matcher per iteration made a global
+                        ; match quadratic in the length of the subject.
+                        def mm (new RegexMatcher)
+                        mm.setup(mprog s)
                         while (mlooping) {
-                            def mm (new RegexMatcher)
-                            mm.setup(mprog s)
                             def one:RegexMatch (mm.exec(mfrom))
                             if (false == one.matched) {
                                 mlooping = false
                             } {
-                                push mitems (EvValueBridge.taggedString((substring s one.start one.end)))
+                                push mitems (EvValueBridge.taggedString((this.cuSlice(s one.start one.end))))
                                 ; An empty match would spin forever otherwise.
                                 if (one.end == one.start) {
-                                    mfrom = (one.end + 1)
+                                    mfrom = (this.advanceStringIndex(s one.end mprog.unicode))
                                 } {
                                     mfrom = one.end
                                 }
-                                if (mfrom > (strlen s)) {
+                                if (mfrom > (this.cuLen(s))) {
                                     mlooping = false
                                 }
                             }
@@ -24830,7 +24854,11 @@ class ComponentEngine {
                         def fromByte:int (this.cuByteOf(s from))
                         def hay:string (this.byteSlice(s fromByte (strlen s)))
                         if (false == (this.unitsAreBytes())) {
-                            hay = (substring s from (strlen s))
+                            ; cuSlice, not substring: on the code-point target
+                            ; `from` counts UNITS and substring counts
+                            ; characters, and the two part company as soon as a
+                            ; supplementary character precedes the window.
+                            hay = (this.cuSlice(s from sUnits))
                         }
                         def at:int (indexOf hay needle)
                         if (at < 0) {
@@ -25026,12 +25054,13 @@ class ComponentEngine {
                                 }
                                 spLooping = false
                             }
+                            def sm2 (new RegexMatcher)
+                            sm2.setup(spProg s)
+                            def spSize:int (this.cuLen(s))
                             while spLooping {
-                                if (spScan > (strlen s)) {
+                                if (spScan > spSize) {
                                     spLooping = false
                                 } {
-                                    def sm2 (new RegexMatcher)
-                                    sm2.setup(spProg s)
                                     def one2:RegexMatch (sm2.exec(spScan))
                                     if (false == one2.matched) {
                                         spLooping = false
@@ -25041,13 +25070,13 @@ class ComponentEngine {
                                         if (one2.end == 0) {
                                             spScan = 1
                                         } {
-                                            if ((one2.start == (strlen s)) && (one2.end == one2.start)) {
+                                            if ((one2.start == (this.cuLen(s))) && (one2.end == one2.start)) {
                                                 spLooping = false
                                             } {
                                                 if ((one2.end == one2.start) && (one2.start == spCursor)) {
-                                                    spScan = (spScan + 1)
+                                                    spScan = (this.advanceStringIndex(s spScan spProg.unicode))
                                                 } {
-                                                    push spItems (EvValueBridge.taggedString((substring s spCursor one2.start)))
+                                                    push spItems (EvValueBridge.taggedString((this.cuSlice(s spCursor one2.start))))
                                                     def gi2:int 1
                                                     while (gi2 < (array_length one2.capStart)) {
                                                         def cs2:int (itemAt one2.capStart gi2)
@@ -25154,7 +25183,8 @@ class ComponentEngine {
                         if (endByte > (strlen s)) { endByte = (strlen s) }
                         def hay2:string (this.byteSlice(s 0 endByte))
                         if (false == (this.unitsAreBytes())) {
-                            hay2 = (substring s 0 endByte)
+                            def needUnits:int (this.cuLen(needle))
+                            hay2 = (this.cuSlice(s 0 (limit + needUnits)))
                         }
                         def lat:int (lastIndexOf hay2 needle)
                         if (lat < 0) {
@@ -25241,14 +25271,14 @@ class ComponentEngine {
                             def outR:string ""
                             def cursor:int 0
                             def rlooping:boolean true
+                            def rm (new RegexMatcher)
+                            rm.setup(rprog s)
                             while rlooping {
-                                def rm (new RegexMatcher)
-                                rm.setup(rprog s)
                                 def one:RegexMatch (rm.exec(cursor))
                                 if (false == one.matched) {
                                     rlooping = false
                                 } {
-                                    outR = (outR + (substring s cursor one.start))
+                                    outR = (outR + (this.cuSlice(s cursor one.start)))
                                     if repIsFn {
                                         def cbArgs:[EvHandle] (this.replacerArgs(one s))
                                         def cbOut:EvHandle (this.callFnValueWithValues(rrep cbArgs))
@@ -25262,10 +25292,11 @@ class ComponentEngine {
                                     if (one.end == one.start) {
                                         ; An empty match consumes one character
                                         ; so the scan cannot stall.
-                                        if (one.end < (strlen s)) {
-                                            outR = (outR + (substring s one.end (one.end + 1)))
+                                        def nextCur:int (this.advanceStringIndex(s one.end rprog.unicode))
+                                        if (one.end < (this.cuLen(s))) {
+                                            outR = (outR + (this.cuSlice(s one.end nextCur)))
                                         }
-                                        cursor = (one.end + 1)
+                                        cursor = nextCur
                                     } {
                                         cursor = one.end
                                     }
@@ -25343,8 +25374,8 @@ class ComponentEngine {
                         }
                         return (EvValueBridge.taggedString(out))
                     }
-            if (name == "toUpperCase") { return (EvValueBridge.taggedString((to_uppercase s))) }
-            if (name == "toLowerCase") { return (EvValueBridge.taggedString((to_lowercase s))) }
+            if (name == "toUpperCase") { return (EvValueBridge.taggedString((this.unicodeCaseConvert(s true)))) }
+            if (name == "toLowerCase") { return (EvValueBridge.taggedString((this.unicodeCaseConvert(s false)))) }
             ; D-TRIM: §21.1.3.27 strips every WhiteSpace and LineTerminator, not
             ; just the ASCII ones. The host `trim` knows about spaces and tabs,
             ; so NBSP, the Zs block, the BOM and LS/PS all survived at either
@@ -26609,7 +26640,8 @@ class ComponentEngine {
                             ; the loop never moves.
                             if ((strlen mStr) == 0) {
                                 def li:int (this.toIntegerOf((this.getPropertyValue(recv "lastIndex"))))
-                                this.setLastIndexOrThrow(recv (li + 1))
+                                def muni:boolean (this.regExpFullUnicode(recv))
+                                this.setLastIndexOrThrow(recv (this.advanceStringIndex(reSubject li muni)))
                             }
                         }
                         mGuard = (mGuard + 1)
@@ -27489,23 +27521,64 @@ class ComponentEngine {
     ; relational operator, and comparing via toNumber would make "10" < "9"
     ; answer the numeric question instead of the textual one.
     fn compareStrings:int (a:string b:string) {
+        ; §7.2.13 compares CODE UNITS, and this never went through the unit
+        ; layer: on the byte target it read raw `charAt`, which is a SIGNED
+        ; char, so every non-ASCII byte compared as negative and 'é' < 'z'
+        ; answered true. That is one operator, but `sort()` with no comparator
+        ; is defined in terms of it, so it reordered every index and every
+        ; sorted list of names.
         def la:int (strlen a)
         def lb:int (strlen b)
         def n:int la
         if (lb < n) {
             n = lb
         }
+        ; Both ASCII (the overwhelmingly common case): units, bytes and
+        ; characters are the same sequence, so compare in place.
+        def aAscii:boolean (this.asciiOnly(a))
+        def bAscii:boolean (this.asciiOnly(b))
+        if (aAscii && bAscii) {
+            def i:int 0
+            while (i < n) {
+                def ca:int (charAt a i)
+                def cb:int (charAt b i)
+                if (ca < cb) { return (0 - 1) }
+                if (ca > cb) { return 1 }
+                i = (i + 1)
+            }
+            if (la < lb) { return (0 - 1) }
+            if (la > lb) { return 1 }
+            return 0
+        }
+        def ua:int (this.cuLen(a))
+        def ub:int (this.cuLen(b))
+        def m:int ua
+        if (ub < m) { m = ub }
+        def j:int 0
+        while (j < m) {
+            def xa:int (this.cuUnitAt(a j))
+            def xb:int (this.cuUnitAt(b j))
+            if (xa < xb) { return (0 - 1) }
+            if (xa > xb) { return 1 }
+            j = (j + 1)
+        }
+        if (ua < ub) { return (0 - 1) }
+        if (ua > ub) { return 1 }
+        return 0
+    }
+
+    ; Whether every unit of `s` is below 128, which is the test for "the three
+    ; string models agree about this string".
+    fn asciiOnly:boolean (s:string) {
+        def n:int (strlen s)
         def i:int 0
         while (i < n) {
-            def ca:int (charAt a i)
-            def cb:int (charAt b i)
-            if (ca < cb) { return (0 - 1) }
-            if (ca > cb) { return 1 }
+            def c:int (charAt s i)
+            if (c < 0) { return false }
+            if (c > 127) { return false }
             i = (i + 1)
         }
-        if (la < lb) { return (0 - 1) }
-        if (la > lb) { return 1 }
-        return 0
+        return true
     }
 
     ; D-FNSRC: Function.prototype.toString. A function parsed from guest source
@@ -28339,7 +28412,7 @@ class ComponentEngine {
     ; not "".
     fn regexResultArray:EvHandle (m:RegexMatch subject:string) {
         def items:[EvHandle]
-        push items (EvValueBridge.taggedString((substring subject m.start m.end)))
+        push items (EvValueBridge.taggedString((this.cuSlice(subject m.start m.end))))
         def gi:int 1
         while (gi < (array_length m.capStart)) {
             def cs:int (itemAt m.capStart gi)
@@ -28347,7 +28420,7 @@ class ComponentEngine {
             if (cs < 0) {
                 push items (EvValueBridge.taggedUndefined())
             } {
-                push items (EvValueBridge.taggedString((substring subject cs ce)))
+                push items (EvValueBridge.taggedString((this.cuSlice(subject cs ce))))
             }
             gi = (gi + 1)
         }
@@ -28376,7 +28449,7 @@ class ComponentEngine {
                 return (EvValueBridge.taggedUndefined())
             }
         }
-        if ((from > (strlen subject)) || (from < 0)) {
+        if ((from > (this.cuLen(subject))) || (from < 0)) {
             if usesLastIndex {
                 this.setLastIndexOrThrow(re 0)
             }
@@ -29193,7 +29266,13 @@ class ComponentEngine {
         if (lim == 0) {
             return (EvValueBridge.taggedArray(out))
         }
-        def size:int (strlen S)
+        ; Positions here are code UNITS -- they come back as lastIndex and go
+        ; out as substring bounds -- so the bound must be measured in them too.
+        def size:int (this.cuLen(S))
+        def spUnicode:boolean (this.regExpFullUnicode(splitter))
+        if scriptThrew {
+            return (EvValueBridge.taggedUndefined())
+        }
         if (size == 0) {
             def z0:EvHandle (this.regExpExecAbstract(splitter S))
             if scriptThrew {
@@ -29215,15 +29294,18 @@ class ComponentEngine {
             if scriptThrew {
                 return (EvValueBridge.taggedUndefined())
             }
+            ; §22.2.6.14 steps 19c and 19d(iii): both advances go through
+            ; AdvanceStringIndex, so under the `u` flag the cursor steps over a
+            ; surrogate PAIR rather than landing between its halves.
             if (z.isNull()) {
-                q = (q + 1)
+                q = (this.advanceStringIndex(S q spUnicode))
             } {
                 def e:int (this.toIntegerOf((this.getPropertyValue(splitter "lastIndex"))))
                 if (e > size) { e = size }
                 if (e == p) {
-                    q = (q + 1)
+                    q = (this.advanceStringIndex(S q spUnicode))
                 } {
-                    push out (EvValueBridge.taggedString((substring S p q)))
+                    push out (EvValueBridge.taggedString((this.cuSlice(S p q))))
                     if ((array_length out) == lim) {
                         return (EvValueBridge.taggedArray(out))
                     }
@@ -29242,7 +29324,7 @@ class ComponentEngine {
                 }
             }
         }
-        push out (EvValueBridge.taggedString((substring S p size)))
+        push out (EvValueBridge.taggedString((this.cuSlice(S p size))))
         return (EvValueBridge.taggedArray(out))
     }
 
@@ -29288,7 +29370,8 @@ class ComponentEngine {
                     }
                     if ((strlen mStr) == 0) {
                         def li:int (this.toIntegerOf((this.getPropertyValue(R "lastIndex"))))
-                        this.setLastIndexOrThrow(R (li + 1))
+                        def runi:boolean (this.regExpFullUnicode(R))
+                        this.setLastIndexOrThrow(R (this.advanceStringIndex(S li runi)))
                     }
                 }
             }
@@ -29296,7 +29379,8 @@ class ComponentEngine {
         }
         def acc:string ""
         def nextPos:int 0
-        def sLen:int (strlen S)
+        ; Code UNITS: `pos` comes from the match index, which is one.
+        def sLen:int (this.cuLen(S))
         def ri:int 0
         while (ri < (array_length results)) {
             def res:EvHandle (itemAt results ri)
@@ -29363,13 +29447,13 @@ class ComponentEngine {
                 replacement = (this.expandSubstitution(matched S pos caps tmpl))
             }
             if (pos >= nextPos) {
-                acc = (acc + ((substring S nextPos pos) + replacement))
-                nextPos = (pos + (strlen matched))
+                acc = (acc + ((this.cuSlice(S nextPos pos)) + replacement))
+                nextPos = (pos + (this.cuLen(matched)))
             }
             ri = (ri + 1)
         }
         if (nextPos < sLen) {
-            acc = (acc + (substring S nextPos sLen))
+            acc = (acc + (this.cuSlice(S nextPos sLen)))
         }
         return (EvValueBridge.taggedString(acc))
     }
@@ -29528,15 +29612,16 @@ class ComponentEngine {
                         i = (i + 2)
                     } {
                         if (nx == "&") {
-                            out = (out + (substring subject m.start m.end))
+                            out = (out + (this.cuSlice(subject m.start m.end)))
                             i = (i + 2)
                         } {
                             if (nx == "`") {
-                                out = (out + (substring subject 0 m.start))
+                                out = (out + (this.cuSlice(subject 0 m.start)))
                                 i = (i + 2)
                             } {
                                 if (nx == "'") {
-                                    out = (out + (substring subject m.end (strlen subject)))
+                                    def tailUnits:int (this.cuLen(subject))
+                                    out = (out + (this.cuSlice(subject m.end tailUnits)))
                                     i = (i + 2)
                                 } {
                                     def d1:int (charAt tmpl (i + 1))
@@ -29559,7 +29644,7 @@ class ComponentEngine {
                                             def cs:int (itemAt m.capStart num)
                                             def ce:int (itemAt m.capEnd num)
                                             if (cs >= 0) {
-                                                out = (out + (substring subject cs ce))
+                                                out = (out + (this.cuSlice(subject cs ce)))
                                             }
                                             i = (i + used)
                                         } {
@@ -29590,7 +29675,7 @@ class ComponentEngine {
     ; offset and the whole subject.
     fn replacerArgs:[EvHandle] (m:RegexMatch subject:string) {
         def out:[EvHandle]
-        push out (EvValueBridge.taggedString((substring subject m.start m.end)))
+        push out (EvValueBridge.taggedString((this.cuSlice(subject m.start m.end))))
         def gi:int 1
         while (gi < (array_length m.capStart)) {
             def cs:int (itemAt m.capStart gi)
@@ -29598,7 +29683,7 @@ class ComponentEngine {
             if (cs < 0) {
                 push out (EvValueBridge.taggedUndefined())
             } {
-                push out (EvValueBridge.taggedString((substring subject cs ce)))
+                push out (EvValueBridge.taggedString((this.cuSlice(subject cs ce))))
             }
             gi = (gi + 1)
         }
@@ -31794,6 +31879,288 @@ class ComponentEngine {
         return out
     }
 
+
+
+    ; ==========================================================================
+    ; D-CASE: Unicode case conversion.
+    ; --------------------------------------------------------------------------
+    ; toUpperCase/toLowerCase used to be the host language's own case function,
+    ; and the three targets do not agree about it: es6 and Rust apply the
+    ; Unicode rules, C++ toupper is ASCII-only. So 'café'.toUpperCase() came
+    ; back 'CAFÉ' on two builds and 'CAFé' on the third -- the same guest
+    ; program meaning different things depending on where it ran, which is
+    ; worse than any single wrong answer. It is done here now, once, so all
+    ; three agree.
+    ;
+    ; Case conversion is not a rule but DATA, and the data is in UnicodeCase.rgr
+    ; (generated, see the tools/ script named at its head). Two things in it are
+    ; not one-code-point-to-one: ß uppercases to SS, and Greek capital sigma
+    ; lowercases to ς or σ depending on what surrounds it.
+    fn ensureCaseTables:void () {
+        if caseTablesLoaded { return }
+        caseUpRuns = (UnicodeCase.upperRuns())
+        caseUpMulti = (UnicodeCase.upperMulti())
+        caseLoRuns = (UnicodeCase.lowerRuns())
+        caseLoMulti = (UnicodeCase.lowerMulti())
+        caseCasedRanges = (UnicodeCase.casedRanges())
+        caseIgnRanges = (UnicodeCase.ignorableRanges())
+        caseTablesLoaded = true
+    }
+
+    ; The delta for `cp` in a run table, or 0 for "no mapping" -- a safe
+    ; sentinel, because a run only exists where the mapping differs.
+    fn caseRunDelta:int (runs:[int] cp:int) {
+        def quads:int (bit_shr (array_length runs) 2)
+        def lo:int 0
+        def hi:int (quads - 1)
+        while (lo <= hi) {
+            def mid:int (bit_shr (lo + hi) 1)
+            def base:int (mid * 4)
+            def a:int (itemAt runs base)
+            def b:int (itemAt runs (base + 1))
+            if (cp < a) {
+                hi = (mid - 1)
+            } {
+                if (cp > b) {
+                    lo = (mid + 1)
+                } {
+                    def step:int (itemAt runs (base + 2))
+                    if (step == 1) {
+                        return (itemAt runs (base + 3))
+                    }
+                    ; A step-2 run covers every OTHER code point in its span:
+                    ; the odd ones in between are the uppercase halves of the
+                    ; same pairs and must not be mapped again.
+                    if ((bit_and (cp - a) 1) == 0) {
+                        return (itemAt runs (base + 3))
+                    }
+                    return 0
+                }
+            }
+        }
+        return 0
+    }
+
+    ; Membership in a table of inclusive (start, end) pairs.
+    fn caseInRanges:boolean (ranges:[int] cp:int) {
+        def pairs:int (bit_shr (array_length ranges) 1)
+        def lo:int 0
+        def hi:int (pairs - 1)
+        while (lo <= hi) {
+            def mid:int (bit_shr (lo + hi) 1)
+            def base:int (mid * 2)
+            def a:int (itemAt ranges base)
+            def b:int (itemAt ranges (base + 1))
+            if (cp < a) {
+                hi = (mid - 1)
+            } {
+                if (cp > b) {
+                    lo = (mid + 1)
+                } {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    ; The multi-code-point mapping for `cp`, from a table laid out as
+    ; (codepoint, count, points...) end to end. Empty when there is none.
+    ; A hundred code points have one, on a path that is already the slow one,
+    ; so a linear scan is not worth indexing.
+    fn caseMultiFor:[int] (table:[int] cp:int) {
+        def out:[int]
+        def n:int (array_length table)
+        def i:int 0
+        while (i < n) {
+            def c:int (itemAt table i)
+            def cnt:int (itemAt table (i + 1))
+            if (c == cp) {
+                def k:int 0
+                while (k < cnt) {
+                    push out (itemAt table ((i + 2) + k))
+                    k = (k + 1)
+                }
+                return out
+            }
+            i = ((i + 2) + cnt)
+        }
+        return out
+    }
+
+    ; A string's code POINTS, decoded the way this target stores them. Built in
+    ; one pass rather than through cuUnitAt, which restarts its walk on every
+    ; call and would make casing quadratic in the length of the string.
+    fn codePointsOf:[int] (s:string) {
+        def out:[int]
+        def n:int (strlen s)
+        if (this.unitsArePoints()) {
+            def p:int 0
+            while (p < n) {
+                push out (charAt s p)
+                p = (p + 1)
+            }
+            return out
+        }
+        if (this.unitsAreBytes()) {
+            def i:int 0
+            while (i < n) {
+                def dec:[int] (this.cuDecodeAt(s i))
+                def w:int (itemAt dec 1)
+                if (w == 0) {
+                    i = n
+                } {
+                    def cp:int (itemAt dec 0)
+                    def step:int w
+                    ; A surrogate PAIR arrives here as two separately encoded
+                    ; halves -- that is how a string built from \uD835\uDCA2
+                    ; is stored -- and each half on its own is not a character.
+                    ; Leaving them apart made the Final_Sigma test read the
+                    ; high half as "not a cased letter" and lowercase Σ to σ
+                    ; where it should be ς.
+                    if ((cp >= 55296) && (cp <= 56319)) {
+                        def nxt:[int] (this.cuDecodeAt(s (i + w)))
+                        def lo3:int (itemAt nxt 0)
+                        if ((lo3 >= 56320) && (lo3 <= 57343)) {
+                            cp = ((65536 + ((cp - 55296) * 1024)) + (lo3 - 56320))
+                            step = (w + (itemAt nxt 1))
+                        }
+                    }
+                    push out cp
+                    i = (i + step)
+                }
+            }
+            return out
+        }
+        def u:int 0
+        while (u < n) {
+            def c:int (bit_and (charAt s u) 65535)
+            def took:int 1
+            if ((c >= 55296) && (c <= 56319)) {
+                if ((u + 1) < n) {
+                    def lo2:int (bit_and (charAt s (u + 1)) 65535)
+                    if ((lo2 >= 56320) && (lo2 <= 57343)) {
+                        push out ((65536 + ((c - 55296) * 1024)) + (lo2 - 56320))
+                        took = 2
+                    }
+                }
+            }
+            if (took == 1) {
+                push out c
+            }
+            u = (u + took)
+        }
+        return out
+    }
+
+    ; One code point as text. Unlike encodeCodePointUtf8 this is right for the
+    ; supplementary range on the UNIT model too, where the character has to be
+    ; spelled as a surrogate pair.
+    fn cuFromCodePoint:string (cp:int) {
+        if (this.unitsAreBytes()) {
+            return (this.encodeCodePointUtf8(cp))
+        }
+        if (this.unitsArePoints()) {
+            return (strfromcode cp)
+        }
+        if (cp < 65536) {
+            return (strfromcode cp)
+        }
+        def adj:int (cp - 65536)
+        return ((strfromcode (55296 + (bit_shr adj 10))) + (strfromcode (56320 + (bit_and adj 1023))))
+    }
+
+    ; The Final_Sigma condition of SpecialCasing: a Greek capital sigma
+    ; lowercases to the FINAL form ς when it ends a word -- preceded by a cased
+    ; letter and not followed by one, skipping case-ignorable characters such
+    ; as accents and quotation marks on both sides. It is the one
+    ; context-sensitive rule in the language-independent mapping, and without it
+    ; "ΟΔΟΣ".toLowerCase() answers "οδοσ", which is not a Greek word.
+    fn finalSigmaHere:boolean (cps:[int] i:int) {
+        def n:int (array_length cps)
+        def before:boolean false
+        def j:int (i - 1)
+        def scanning:boolean true
+        while (scanning && (j >= 0)) {
+            def pv:int (itemAt cps j)
+            if (this.caseInRanges(caseIgnRanges pv)) {
+                j = (j - 1)
+            } {
+                before = (this.caseInRanges(caseCasedRanges pv))
+                scanning = false
+            }
+        }
+        if (before == false) {
+            return false
+        }
+        def after:boolean false
+        def k:int (i + 1)
+        def scan2:boolean true
+        while (scan2 && (k < n)) {
+            def nv:int (itemAt cps k)
+            if (this.caseInRanges(caseIgnRanges nv)) {
+                k = (k + 1)
+            } {
+                after = (this.caseInRanges(caseCasedRanges nv))
+                scan2 = false
+            }
+        }
+        return (after == false)
+    }
+
+    ; §22.1.3.28 toLowerCase / §22.1.3.30 toUpperCase.
+    fn unicodeCaseConvert:string (s:string upper:boolean) {
+        ; ASCII is the overwhelming majority of every real workload and all
+        ; three targets already agree about it, so it never touches a table.
+        if (this.asciiOnly(s)) {
+            if upper {
+                return (to_uppercase s)
+            }
+            return (to_lowercase s)
+        }
+        this.ensureCaseTables()
+        def cps:[int] (this.codePointsOf(s))
+        def n:int (array_length cps)
+        def out:string ""
+        def i:int 0
+        while (i < n) {
+            def cp:int (itemAt cps i)
+            def handled:boolean false
+            if (upper == false) {
+                if (cp == 931) {
+                    if (this.finalSigmaHere(cps i)) {
+                        out = (out + (this.cuFromCodePoint(962)))
+                    } {
+                        out = (out + (this.cuFromCodePoint(963)))
+                    }
+                    handled = true
+                }
+            }
+            if (handled == false) {
+                def multiTable:[int] caseLoMulti
+                def runTable:[int] caseLoRuns
+                if upper {
+                    multiTable = caseUpMulti
+                    runTable = caseUpRuns
+                }
+                def multi:[int] (this.caseMultiFor(multiTable cp))
+                def mn:int (array_length multi)
+                if (mn > 0) {
+                    def m:int 0
+                    while (m < mn) {
+                        out = (out + (this.cuFromCodePoint((itemAt multi m))))
+                        m = (m + 1)
+                    }
+                } {
+                    def d:int (this.caseRunDelta(runTable cp))
+                    out = (out + (this.cuFromCodePoint((cp + d))))
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
     ; ==========================================================================
     ; D-UTF8: the code-UNIT layer.
     ; --------------------------------------------------------------------------
@@ -31811,14 +32178,54 @@ class ComponentEngine {
     ; byte-model target the ASCII case -- almost every string -- is too.
     ; --------------------------------------------------------------------------
 
-    ; Which model this target uses, decided once. One two-byte character
-    ; settles it: the native builds see two units, the es6 build sees one.
-    fn unitsAreBytes:boolean () {
+    ; Which model this target uses, decided once. There are THREE, not two,
+    ; and taking Rust for the es6 model is what made "日本".length answer 1
+    ; there: `strlen` counts characters, so it is not a byte model, but a
+    ; supplementary character is ONE character where JS counts a surrogate
+    ; PAIR, so it is not the unit model either.
+    ;
+    ;   0  UTF-16 code units   es6    strlen/charAt/substring all in units
+    ;   1  UTF-8 bytes         C++    strlen/charAt in bytes
+    ;   2  code points         Rust   strlen/charAt/substring in characters
+    ;
+    ; Two probes separate them: a two-byte character tells bytes from the rest,
+    ; and a supplementary one tells code points from units.
+    fn strModelKind:int () {
         if (utf8ModelKnown == false) {
-            utf8ModelBytes = ((strlen "é") > 1)
+            if ((strlen "é") > 1) {
+                utf8ModelKind = 1
+            } {
+                if ((strlen "😀") == 1) {
+                    utf8ModelKind = 2
+                } {
+                    utf8ModelKind = 0
+                }
+            }
+            utf8ModelBytes = (utf8ModelKind == 1)
             utf8ModelKnown = true
         }
-        return utf8ModelBytes
+        return utf8ModelKind
+    }
+
+    fn unitsAreBytes:boolean () {
+        return ((this.strModelKind()) == 1)
+    }
+
+    ; True where `strlen`/`charAt`/`substring` index whole characters, so the
+    ; only thing standing between the target and UTF-16 is that a
+    ; supplementary character has to be spelled as two units.
+    fn unitsArePoints:boolean () {
+        return ((this.strModelKind()) == 2)
+    }
+
+    ; The UTF-8 width of a code point, which is how a code-point-model target
+    ; converts its own indexes into the BYTE offsets a native string search
+    ; reports back.
+    fn utf8WidthOf:int (cp:int) {
+        if (cp < 128) { return 1 }
+        if (cp < 2048) { return 2 }
+        if (cp < 65536) { return 3 }
+        return 4
     }
 
     ; Bytes [i, j) of a string, on a byte-model target. `substring` cannot do
@@ -31888,6 +32295,15 @@ class ComponentEngine {
     ; Code units in `s`.
     fn cuLen:int (s:string) {
         def n:int (strlen s)
+        if (this.unitsArePoints()) {
+            def p:int 0
+            def cnt:int 0
+            while (p < n) {
+                if ((charAt s p) > 65535) { cnt = (cnt + 2) } { cnt = (cnt + 1) }
+                p = (p + 1)
+            }
+            return cnt
+        }
         if (false == (this.unitsAreBytes())) {
             return n
         }
@@ -31923,6 +32339,24 @@ class ComponentEngine {
     fn cuUnitAt:int (s:string u:int) {
         def n:int (strlen s)
         if (u < 0) { return (0 - 1) }
+        if (this.unitsArePoints()) {
+            def p:int 0
+            def units:int 0
+            while (p < n) {
+                def cp:int (charAt s p)
+                if (cp < 65536) {
+                    if (units == u) { return cp }
+                    units = (units + 1)
+                } {
+                    def adj:int (cp - 65536)
+                    if (units == u) { return (55296 + (bit_shr adj 10)) }
+                    if ((units + 1) == u) { return (56320 + (bit_and adj 1023)) }
+                    units = (units + 2)
+                }
+                p = (p + 1)
+            }
+            return (0 - 1)
+        }
         if (false == (this.unitsAreBytes())) {
             if (u >= n) { return (0 - 1) }
             return (bit_and (charAt s u) 65535)
@@ -31963,6 +32397,27 @@ class ComponentEngine {
         if (lo < 0) { lo = 0 }
         if (hi < lo) { hi = lo }
         def n:int (strlen s)
+        if (this.unitsArePoints()) {
+            ; A cut that lands inside a surrogate pair has no representation
+            ; here: this target's string type holds CHARACTERS, and half a
+            ; pair is not one. The half is dropped rather than faked, which
+            ; keeps the string well-formed; slicing that does not split a pair
+            ; -- everything a program normally does -- is exact.
+            def out:string ""
+            def p:int 0
+            def units:int 0
+            while (p < n) {
+                def cp:int (charAt s p)
+                def w:int 1
+                if (cp > 65535) { w = 2 }
+                if ((units >= lo) && ((units + w) <= hi)) {
+                    out = (out + (at s p))
+                }
+                units = (units + w)
+                p = (p + 1)
+            }
+            return out
+        }
         if (false == (this.unitsAreBytes())) {
             if (lo >= n) { return "" }
             def hi2:int hi
@@ -32036,6 +32491,23 @@ class ComponentEngine {
     fn cuByteOf:int (s:string u:int) {
         def n:int (strlen s)
         if (u <= 0) { return 0 }
+        ; The code-point target indexes its own strings by character, but its
+        ; native string SEARCH answers in bytes -- so this bridge is needed
+        ; there too. Reading it as a plain passthrough is what made
+        ; `'a日b'.indexOf('b')` answer 4.
+        if (this.unitsArePoints()) {
+            def p:int 0
+            def units:int 0
+            def bytes:int 0
+            while (p < n) {
+                if (units >= u) { return bytes }
+                def cp:int (charAt s p)
+                if (cp > 65535) { units = (units + 2) } { units = (units + 1) }
+                bytes = (bytes + (this.utf8WidthOf(cp)))
+                p = (p + 1)
+            }
+            return bytes
+        }
         if (false == (this.unitsAreBytes())) {
             if (u > n) { return n }
             return u
@@ -32063,6 +32535,21 @@ class ComponentEngine {
     ; The code-unit index that corresponds to a BYTE index -- what a search
     ; that ran over the raw bytes has to report back.
     fn cuIndexOfByte:int (s:string byteIdx:int) {
+        if (this.unitsArePoints()) {
+            if (byteIdx <= 0) { return byteIdx }
+            def n:int (strlen s)
+            def p:int 0
+            def units:int 0
+            def bytes:int 0
+            while (p < n) {
+                if (bytes >= byteIdx) { return units }
+                def cp:int (charAt s p)
+                if (cp > 65535) { units = (units + 2) } { units = (units + 1) }
+                bytes = (bytes + (this.utf8WidthOf(cp)))
+                p = (p + 1)
+            }
+            return units
+        }
         if (false == (this.unitsAreBytes())) {
             return byteIdx
         }
@@ -35160,32 +35647,12 @@ class ComponentEngine {
     
     ; Lexicographic compare of two strings by char code: <0, 0, >0. Used for the
     ; default (comparator-less) Array#sort, which JS defines as string order.
+    ; The default sort comparison. It was a SECOND copy of compareStrings, and
+    ; only the other copy was taught the code-unit rules -- so `a < b` and
+    ; `[a, b].sort()` disagreed about the same two strings. One implementation
+    ; now, so they cannot drift apart again.
     fn strCmp:int (a:string b:string) {
-        def la:int (strlen a)
-        def lb:int (strlen b)
-        def n:int la
-        if (lb < n) {
-            n = lb
-        }
-        def i:int 0
-        while (i < n) {
-            def ca:int (charAt a i)
-            def cb:int (charAt b i)
-            if (ca < cb) {
-                return (0 - 1)
-            }
-            if (ca > cb) {
-                return 1
-            }
-            i = (i + 1)
-        }
-        if (la < lb) {
-            return (0 - 1)
-        }
-        if (la > lb) {
-            return 1
-        }
-        return 0
+        return (this.compareStrings(a b))
     }
 
     ; Internal bookkeeping members stamped on values by the evaluator — never
@@ -35978,7 +36445,7 @@ class ComponentEngine {
         }
     }
     fn jsonPeek:string () {
-        if (jsonPos < (strlen jsonSrc)) {
+        if (jsonPos < jsonLen) {
             return (substring jsonSrc jsonPos (jsonPos + 1))
         }
         return ""
@@ -35999,7 +36466,7 @@ class ComponentEngine {
     ; A keyword must be spelled in full: `tru` and `nulll` are both errors.
     fn jsonWord:boolean (word:string) {
         def n:int (strlen word)
-        if ((jsonPos + n) > (strlen jsonSrc)) {
+        if ((jsonPos + n) > jsonLen) {
             return false
         }
         if ((substring jsonSrc jsonPos (jsonPos + n)) != word) {
@@ -36066,12 +36533,19 @@ class ComponentEngine {
             return ""
         }
         jsonPos = (jsonPos + 1)
-        def L:int (strlen jsonSrc)
+        def L:int jsonLen
         def looping:boolean true
         def closed:boolean false
         while (looping && (jsonPos < L)) {
             def ch:string (substring jsonSrc jsonPos (jsonPos + 1))
-            def code:int (charAt jsonSrc jsonPos)
+            ; The code point of the CHARACTER just read, not the byte at the
+            ; same offset. `substring` walks code points and `charAt` walks
+            ; bytes, so on the byte target these were two different positions
+            ; -- and every non-ASCII byte reads back NEGATIVE, which made the
+            ; control-character check below reject any string holding one.
+            ; JSON.parse of anything this engine itself had stringified with a
+            ; non-ASCII character in it threw SyntaxError.
+            def code:int (this.charCodePointOf(ch))
             if (ch == "\"") {
                 jsonPos = (jsonPos + 1)
                 closed = true
@@ -36117,7 +36591,10 @@ class ComponentEngine {
                             hv = ((hv * 16) + dv)
                             hi = (hi + 1)
                         }
-                        out = (out + (strfromcode hv))
+                        ; \uXXXX names a code UNIT: strfromcode emits one
+                        ; byte on the byte target, so \u00e9 arrived as a
+                        ; lone 0xE9 rather than as é.
+                        out = (out + (this.cuFromCodePoint(hv)))
                         jsonPos = (jsonPos + 4)
                     } {
                         known = false
@@ -36144,7 +36621,7 @@ class ComponentEngine {
     ; trailing dot -- all of which the previous character sweep accepted.
     fn jsonParseNumber:EvHandle () {
         def start:int jsonPos
-        def L:int (strlen jsonSrc)
+        def L:int jsonLen
         if ((this.jsonPeek()) == "-") {
             jsonPos = (jsonPos + 1)
         }
@@ -36309,8 +36786,40 @@ class ComponentEngine {
         obj.setProto((this.builtinPrototype("Object")))
         return obj
     }
+    ; §22.2.6.8 step 8a and its siblings: the `unicode` flag as the @@ methods
+    ; read it -- off the RECEIVER with a full [[Get]], because they are generic
+    ; over any object with the right shape, not only over a real RegExp.
+    fn regExpFullUnicode:boolean (R:EvHandle) {
+        def uv:EvHandle (this.getPropertyValue(R "unicode"))
+        if scriptThrew { return false }
+        return (uv.toBool())
+    }
+
+    ; §22.2.7.3 AdvanceStringIndex, for the scan loops that step past an EMPTY
+    ; match so they cannot stall. One code unit ordinarily; under the `u` flag a
+    ; surrogate pair is one position, so the cursor never lands between halves.
+    fn advanceStringIndex:int (s:string pos:int uni:boolean) {
+        if (uni == false) { return (pos + 1) }
+        def hi:int (this.cuUnitAt(s pos))
+        if ((hi < 55296) || (hi > 56319)) { return (pos + 1) }
+        def lo:int (this.cuUnitAt(s (pos + 1)))
+        if ((lo < 56320) || (lo > 57343)) { return (pos + 1) }
+        return (pos + 2)
+    }
+
+    ; How many indices `substring` recognises in `s` -- code POINTS where the
+    ; target stores bytes, and its own units otherwise. This is the measure any
+    ; scanner that steps with `substring` has to use for its end test.
+    fn substringUnitsOf:int (s:string) {
+        if (this.unitsAreBytes()) {
+            return (array_length (this.codePointsOf(s)))
+        }
+        return (strlen s)
+    }
+
     fn jsonParse:EvHandle (src:string) {
         jsonSrc = src
+        jsonLen = (this.substringUnitsOf(src))
         jsonPos = 0
         jsonFailed = false
         jsonError = ""
@@ -36320,7 +36829,7 @@ class ComponentEngine {
             ; `{} garbage` are both errors, and running off the end of the text
             ; was the parser's only previous notion of "done".
             this.jsonSkipWs()
-            if (jsonPos < (strlen jsonSrc)) {
+            if (jsonPos < jsonLen) {
                 this.jsonFail("Unexpected non-whitespace character after JSON")
             }
         }
