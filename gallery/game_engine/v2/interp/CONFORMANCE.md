@@ -825,9 +825,9 @@ after excluding intl402, Temporal, module and async flags:
 
 | | |
 |---|---|
-| **ES2015 overall** | **84.25% (2412/2863)** |
-| pass | 2412 |
-| fail (ran, wrong answer) | 435 |
+| **ES2015 overall** | **84.32% (2414/2863)** |
+| pass | 2414 |
+| fail (ran, wrong answer) | 433 |
 | crash (did not run to completion) | 16 |
 
 The fail/crash split changed meaning partway through this work. An
@@ -897,6 +897,7 @@ How it got here, each row a measured run of the same corpus against the C++
 | non-ASCII identifiers, on the byte-model targets | 2399 | 83.79% |
 | compare, pad, case and the regex engine in code units | 2410 | 84.18% |
 | normalize() and a real localeCompare | 2412 | 84.25% |
+| toLocale casing, ToUint16, and 27 collation locales | 2414 | 84.32% |
 
 The single largest step is not an ES2015 feature at all. `propertyHelper.js` --
 which 543 of these files include -- opens with
@@ -1028,8 +1029,8 @@ on which build ran it.
 | `JSON.parse` | threw SyntaxError on anything the engine had itself stringified with a non-ASCII character in it | the scanner read `substring` (code points) and `charAt` (bytes) as one index, and a negative byte read as a control character |
 
 Casing, normalization and collation are DATA, not rules, and the data lives in
-three generated files -- `UnicodeCase.rgr`, `UnicodeNorm.rgr`,
-`UnicodeCollate.rgr` -- as ordinary Ranger array literals. They are committed
+four generated files -- `UnicodeCase.rgr`, `UnicodeNorm.rgr`,
+`UnicodeCollate.rgr`, `UnicodeTailor.rgr` -- as ordinary Ranger array literals. They are committed
 source: no target needs a generator in order to build. The generators sit beside
 them in `migrate/tools/`, read the UCD files when pointed at them, and verify
 their output against all 1.1M code points before they will write anything.
@@ -1061,11 +1062,14 @@ What is still not done:
   mapping table, and they are lossy -- they fold ﬁ to fi and ² to 2. They
   answer the string unchanged rather than silently returning a canonical form,
   which would leave a program worse off than being told the form is missing.
-- **Locale tailorings in `localeCompare`.** The comparison is three-level in
-  the shape of UTS #10 and agrees with ICU on every pair the generator checks
-  (6006/6006 over Latin, Greek and Cyrillic words, digits and punctuation), but
-  it is the root order: Swedish å sorts under a rather than at the end of the
-  alphabet, because there are no per-locale tailorings.
+- **Locale tailorings beyond the 27 carried.** `localeCompare` reads its
+  `locales` argument and applies a tailoring for 27 of them, verified against
+  CLDR: the Nordic alphabets, Czech and Slovak `ch`, the Hungarian digraphs,
+  Polish, Turkish and Azerbaijani, Spanish `ñ`, the South Slavic `lj`/`nj`,
+  Baltic, Romanian, Albanian, Vietnamese, Estonian and Icelandic. Nine more
+  were checked and carry no table because their alphabet IS the root alphabet
+  (de, fr, en, it, nl, pt, ca, eu, ga). A locale outside that set falls back to
+  the root order, which is what it did for all of them before.
 - **Supplementary characters through a Rust slice.** A cut that lands INSIDE a
   surrogate pair has no representation on that target -- its string type holds
   characters, and half a pair is not one. The half is dropped rather than faked.
@@ -1109,6 +1113,7 @@ when asking whether ES2015 work cost anything:
 | after the Unicode string model | 8069 | 99.43% |
 | after non-ASCII identifiers | 8071 | 99.46% |
 | after the five text paths below | 8077 | 99.53% |
+| after toLocale casing and ToUint16 | 8080 | 99.57% |
 
 The ES2015 work did not cost ES5 anything; it gained 665 files, most of them
 from the same detached-statics fix.

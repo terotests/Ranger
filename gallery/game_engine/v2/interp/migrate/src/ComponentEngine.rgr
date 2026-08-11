@@ -16,6 +16,7 @@ Import "Regex.rgr"
 Import "UnicodeCase.rgr"
 Import "UnicodeNorm.rgr"
 Import "UnicodeCollate.rgr"
+Import "UnicodeTailor.rgr"
 Import "DateTime.rgr"
 Import "../../../imaging/jpeg/JPEGMetadata.rgr"
 
@@ -1362,6 +1363,12 @@ class ComponentEngine {
     def collExpand:[int]
     def collMarks:[int]
     def collBases:[int]
+    ; D-COLLATE: the per-locale tailorings, and the one selected right now.
+    def tailorTablesLoaded:boolean false
+    def tailorLocales:[int]
+    def tailorEntries:[int]
+    def tailorEntryOff:int 0
+    def tailorEntryCount:int 0
     def jsonGap:string ""
     def jsonIndent:string ""
     def jsonHasReplacerFn:boolean false
@@ -24735,9 +24742,33 @@ class ComponentEngine {
                                 return (EvValueBridge.taggedUndefined())
                             }
                         }
+                        ; §19.1.3.12 takes a `locales` argument: a tag, or a
+                        ; list of them. It was dropped on the floor, so a
+                        ; Swedish index asked for in Swedish came back in root
+                        ; order -- silently, which is the worst way for a
+                        ; sorted list to be wrong.
+                        def locTag:string ""
+                        if ((array_length args) > 1) {
+                            def lv:EvHandle (itemAt args 1)
+                            if (false == (lv.isUndefined())) {
+                                if (lv.isArrayValue()) {
+                                    if ((lv.denseLen()) > 0) {
+                                        locTag = (this.toStringOf((lv.arrayItemAt(0))))
+                                    }
+                                } {
+                                    locTag = (this.toStringOf(lv))
+                                }
+                                if scriptThrew {
+                                    return (EvValueBridge.taggedUndefined())
+                                }
+                            }
+                        }
                         ; D-COLLATE: a real three-level comparison, not a
                         ; code-unit one -- see collateStrings.
-                        return (EvHandle.fromInt((this.collateStrings(s other))))
+                        this.collSelectLocale(locTag)
+                        def lcRes:int (this.collateStrings(s other))
+                        this.collSelectLocale("")
+                        return (EvHandle.fromInt(lcRes))
                     }
                     ; D-REGEX: search returns the INDEX of the first match, or
                     ; -1. lastIndex plays no part, so the pattern is matched
@@ -32589,6 +32620,112 @@ class ComponentEngine {
         return out
     }
 
+
+    ; ---- D-COLLATE: per-locale tailorings ---------------------------------
+    ; localeCompare's second argument was IGNORED, so `a.localeCompare(b, 'sv')`
+    ; answered the root order. Right for English, French, German, Italian, Dutch
+    ; and Portuguese -- their alphabets ARE the root alphabet -- and silently
+    ; wrong for every language that tailors it. Swedish sorts å ä ö after z;
+    ; Czech treats ch as a letter between h and i; Hungarian cs and zs are
+    ; letters of their own; Turkish dotless ı sorts before i; Spanish ñ is a
+    ; letter after n. An index built in any of those came out misfiled with no
+    ; error anywhere, which is the worst way for this to be wrong.
+    ;
+    ; A tailoring is a list of (anchor, offset, element): the element takes the
+    ; primary weight of the anchor letter plus the offset. Root weights are
+    ; scaled by 1000 to leave room. See UnicodeTailor.rgr.
+    fn ensureTailorTables:void () {
+        if tailorTablesLoaded { return }
+        tailorLocales = (UnicodeTailor.locales())
+        tailorEntries = (UnicodeTailor.entries())
+        tailorTablesLoaded = true
+    }
+
+    ; Select the tailoring for a BCP 47 tag, or none. An exact tag wins
+    ; ("sr-latn"); otherwise the language subtag decides, so "sv-SE" and
+    ; "sv-FI" both find "sv".
+    fn collSelectLocale:void (tag:string) {
+        tailorEntryOff = 0
+        tailorEntryCount = 0
+        if ((strlen tag) == 0) { return }
+        this.ensureTailorTables()
+        def want:string (this.unicodeCaseConvert(tag false))
+        def short:string want
+        def dash:int (indexOf want "-")
+        if (dash > 0) {
+            short = (this.cuSlice(want 0 dash))
+        }
+        def pass:int 0
+        while (pass < 2) {
+            def probe:string want
+            if (pass == 1) { probe = short }
+            def probeCps:[int] (this.codePointsOf(probe))
+            def pn:int (array_length probeCps)
+            def i:int 0
+            def n:int (array_length tailorLocales)
+            while (i < n) {
+                def tlen:int (itemAt tailorLocales i)
+                def same:boolean (tlen == pn)
+                if same {
+                    def k:int 0
+                    while (k < tlen) {
+                        if ((itemAt tailorLocales ((i + 1) + k)) != (itemAt probeCps k)) {
+                            same = false
+                        }
+                        k = (k + 1)
+                    }
+                }
+                if same {
+                    tailorEntryOff = (itemAt tailorLocales ((i + 1) + tlen))
+                    tailorEntryCount = (itemAt tailorLocales ((i + 2) + tlen))
+                    return
+                }
+                i = ((i + 3) + tlen)
+            }
+            pass = (pass + 1)
+        }
+    }
+
+    ; The LONGEST tailored element starting at `i`, as (weight, length). Empty
+    ; when none matches. Longest wins so Hungarian dzs beats dz.
+    fn collTailorMatch:[int] (cps:[int] i:int) {
+        def out:[int]
+        if (tailorEntryCount == 0) { return out }
+        def n:int (array_length cps)
+        def bestLen:int 0
+        def bestW:int 0
+        def p:int tailorEntryOff
+        def k:int 0
+        while (k < tailorEntryCount) {
+            def anchor:int (itemAt tailorEntries p)
+            def off:int (itemAt tailorEntries (p + 1))
+            def elen:int (itemAt tailorEntries (p + 2))
+            if (elen > bestLen) {
+                if ((i + elen) <= n) {
+                    def ok:boolean true
+                    def q:int 0
+                    while (q < elen) {
+                        if ((itemAt cps (i + q)) != (itemAt tailorEntries ((p + 3) + q))) {
+                            ok = false
+                        }
+                        q = (q + 1)
+                    }
+                    if ok {
+                        bestLen = elen
+                        bestW = (((100000 + anchor) * 1000) + off)
+                    }
+                }
+            }
+            p = ((p + 3) + elen)
+            k = (k + 1)
+        }
+        if (bestLen > 0) {
+            push out bestW
+            push out bestLen
+        }
+        return out
+    }
+
     ; The three sort keys of a string, laid end to end as
     ; (primary count, primary..., secondary count, secondary..., tertiary...).
     ; Built in one pass over the decomposed text.
@@ -32602,6 +32739,19 @@ class ComponentEngine {
         def i:int 0
         while (i < n) {
             def cp:int (itemAt cps i)
+            ; A tailored element comes first and may cover several code points
+            ; -- Czech ch, Hungarian dzs, Swedish a-plus-ring -- so nothing
+            ; inside it reaches the mark or base handling below.
+            def tm:[int] (this.collTailorMatch(cps i))
+            if ((array_length tm) > 0) {
+                push prim (itemAt tm 0)
+                def tk:int 0
+                while (tk < (itemAt tm 1)) {
+                    push ter 0
+                    tk = (tk + 1)
+                }
+                i = ((i + (itemAt tm 1)) - 1)
+            } {
             def mr:int (this.collMarkRank(cp))
             if (mr >= 0) {
                 push sec mr
@@ -32640,14 +32790,18 @@ class ComponentEngine {
                 while (pk < (array_length points)) {
                     def bcp:int (itemAt points pk)
                     def pr:int (this.collPunctRank(bcp))
+                    ; Scaled by 1000: a tailoring places its element in the gap
+                    ; between one root letter and the next, and the gap has to
+                    ; exist before anything can be put in it.
                     if (pr >= 0) {
-                        push prim pr
+                        push prim (pr * 1000)
                     } {
-                        push prim (100000 + bcp)
+                        push prim ((100000 + bcp) * 1000)
                     }
                     push ter isUpper
                     pk = (pk + 1)
                 }
+            }
             }
             i = (i + 1)
         }

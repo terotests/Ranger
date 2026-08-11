@@ -1834,6 +1834,27 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["uni-fromcharcode-negative", "return String.fromCharCode(-5.4321).charCodeAt(0);", "unicode"],
   ["uni-fromcharcode-big", "return String.fromCharCode(Math.pow(2, 40) + 65).charCodeAt(0);", "unicode"],
 
+  // localeCompare's second argument was dropped on the floor, so a Swedish
+  // index asked for in Swedish came back in root order. The root order is
+  // right for en/fr/de/it/nl/pt -- their alphabets ARE the root alphabet -- and
+  // wrong for every language that tailors it.
+  ["uni-tailor-sv", "return ['apa', 'bok', 'zebra', 'åka', 'ängel', 'öl'].sort(function (a, b) { return a.localeCompare(b, 'sv'); }).join('|');", "unicode"],
+  ["uni-tailor-da", "return ['and', 'bo', 'zoo', 'æble', 'ø', 'års'].sort(function (a, b) { return a.localeCompare(b, 'da'); }).join('|');", "unicode"],
+  ["uni-tailor-fi", "return ['auto', 'valo', 'zebra', 'åka', 'ähtäri', 'öljy'].sort(function (a, b) { return a.localeCompare(b, 'fi'); }).join('|');", "unicode"],
+  ["uni-tailor-cs-ch", "return ['cukr', 'čaj', 'hora', 'chleba', 'ráno'].sort(function (a, b) { return a.localeCompare(b, 'cs'); }).join('|');", "unicode"],
+  ["uni-tailor-hu-digraph", "return ['cukor', 'csok', 'daru', 'dzsem', 'zab', 'zsir'].sort(function (a, b) { return a.localeCompare(b, 'hu'); }).join('|');", "unicode"],
+  ["uni-tailor-pl", "return ['akta', 'ąkra', 'łoś', 'lampa', 'zebra', 'źle', 'żaba'].sort(function (a, b) { return a.localeCompare(b, 'pl'); }).join('|');", "unicode"],
+  ["uni-tailor-tr-dotless", "return ['ışık', 'ilik', 'iyi'].sort(function (a, b) { return a.localeCompare(b, 'tr'); }).join('|');", "unicode"],
+  ["uni-tailor-es-enye", "return ['ano', 'año', 'nube', 'ñu', 'zapato'].sort(function (a, b) { return a.localeCompare(b, 'es'); }).join('|');", "unicode"],
+  ["uni-tailor-hr-lj", "return ['luk', 'ljut', 'nos', 'njiva'].sort(function (a, b) { return a.localeCompare(b, 'hr'); }).join('|');", "unicode"],
+  ["uni-tailor-is-thorn", "return ['afi', 'dagur', 'ðar', 'eldur', 'þak', 'æði', 'ös'].sort(function (a, b) { return a.localeCompare(b, 'is'); }).join('|');", "unicode"],
+  ["uni-tailor-et", "return ['saag', 'šokk', 'zoo', 'žurnaal', 'tuba', 'õun', 'äär'].sort(function (a, b) { return a.localeCompare(b, 'et'); }).join('|');", "unicode"],
+  ["uni-tailor-region-subtag", "return ['apa', 'zebra', 'åka'].sort(function (a, b) { return a.localeCompare(b, 'sv-SE'); }).join('|');", "unicode"],
+  ["uni-tailor-array-arg", "return ['apa', 'zebra', 'åka'].sort(function (a, b) { return a.localeCompare(b, ['sv']); }).join('|');", "unicode"],
+  ["uni-tailor-root-locales-unchanged", "var w = ['Apfel', 'Ärger', 'Öl', 'Zug']; return w.slice().sort(function (a, b) { return a.localeCompare(b, 'de'); }).join('|') === w.slice().sort(function (a, b) { return a.localeCompare(b); }).join('|');", "unicode"],
+  ["uni-tailor-unknown-locale-is-root", "return ['åka', 'apa', 'zebra'].sort(function (a, b) { return a.localeCompare(b, 'xx'); }).join('|');", "unicode"],
+  ["uni-tailor-does-not-leak", "var sv = 'åka'.localeCompare('apa', 'sv'); var root = 'åka'.localeCompare('apa'); return sv + ',' + root;", "unicode"],
+
   ["uni-coll-total-order", "var w = ['Straße', 'Strasse', 'ǆ', 'dz']; var f = w.slice().sort(function (a, b) { return a.localeCompare(b); }).join('|'); var r = w.slice().reverse().sort(function (a, b) { return a.localeCompare(b); }).join('|'); return f === r;", "unicode"],
 ];
 
