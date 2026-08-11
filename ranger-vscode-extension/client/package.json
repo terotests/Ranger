@@ -16,6 +16,6 @@
   },
   "overrides": {
     "minimatch": "^5.1.9",
-    "brace-expansion": "^2.1.2"
+    "brace-expansion": "^2.1.4"
   }
 }

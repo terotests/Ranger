@@ -23,6 +23,8 @@
   },
   "overrides": {
     "esbuild": "^0.25.0",
-    "rollup": "^4.59.0"
+    "rollup": "^4.59.0",
+    "postcss": "^8.5.23",
+    "nanoid": "^3.3.17"
   }
 }
