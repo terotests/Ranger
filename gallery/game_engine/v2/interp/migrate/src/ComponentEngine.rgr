@@ -20259,83 +20259,138 @@ class ComponentEngine {
             ; `this` -- and a non-constructor is a TypeError before anything
             ; else happens. C is the Promise intrinsic for a plain
             ; `Promise.all(...)` and whatever `.call` bound otherwise.
-            def pC:EvHandle (this.builtinGlobalObject("Promise"))
-            if hasStaticThis {
-                pC = staticThisValue
-            }
+            def pC:EvHandle (this.promiseStaticCtor())
             if (false == (pC.isFunction())) {
                 return (this.throwSpecError("TypeError" ("Promise." + (name + " called on a non-constructor"))))
             }
+            ; D-PROMISECAP: every one of these BUILDS ITS RESULT through C.
+            ; They used to mint an intrinsic promise and settle it by hand, so a
+            ; subclass was never constructed and its executor never ran.
             if (name == "reject") {
-                def rp:EvHandle (this.makePromiseValue())
-                this.settlePromise(rp 2 pArg)
-                return rp
+                def rCap:EvHandle (this.newPromiseCapability(pC))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                def _rj:EvHandle (this.capInvoke(rCap "__cap_reject__" pArg))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                return (this.capPromiseOf(rCap))
             }
             if (name == "resolve") {
-                return (this.promiseResolveValue(pArg))
+                ; §25.4.4.6: a promise whose `constructor` IS C passes through
+                ; unchanged; anything else goes through a fresh capability.
+                if (this.isPromiseValue(pArg)) {
+                    def xCtor:EvHandle (this.getPropertyValue(pArg "constructor"))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    if (xCtor.equals(pC)) {
+                        return pArg
+                    }
+                }
+                def sCap:EvHandle (this.newPromiseCapability(pC))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                def _rs:EvHandle (this.capInvoke(sCap "__cap_resolve__" pArg))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                return (this.capPromiseOf(sCap))
             }
-            ; all and race both iterate their argument, and a non-iterable one
-            ; REJECTS rather than throwing.
+            ; all and race: the capability comes first, because a rejection
+            ; from iterating the argument is reported THROUGH it rather than
+            ; thrown.
+            def aCap:EvHandle (this.newPromiseCapability(pC))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            ; §25.4.4.1 step 6: C.resolve is read ONCE, before the loop, and
+            ; must be callable. A guest that replaces it is what the suite
+            ; checks with, and the intrinsic path never read it at all.
+            def pResolve:EvHandle (this.getPropertyValue(pC "resolve"))
+            if scriptThrew {
+                return (this.promiseRejectWith(aCap))
+            }
+            if (false == (pResolve.isFunction())) {
+                def _pr:EvHandle (this.throwSpecError("TypeError" "Promise resolve is not a function"))
+                return (this.promiseRejectWith(aCap))
+            }
             def items:[EvHandle]
-            def gotItems:boolean true
             if (pArg.isArrayValue()) {
                 items = (pArg.itemsOf())
             } {
-                def savedThrewA:boolean scriptThrew
-                scriptThrew = false
                 items = (this.forOfItemList(pArg))
                 if scriptThrew {
-                    def bad:EvHandle scriptThrowValue
-                    scriptThrew = savedThrewA
-                    def errP:EvHandle (this.makePromiseValue())
-                    this.settlePromise(errP 2 bad)
-                    return errP
+                    return (this.promiseRejectWith(aCap))
                 }
-                scriptThrew = savedThrewA
             }
-            def outP:EvHandle (this.makePromiseValue())
+            def n:int (array_length items)
             if (name == "race") {
-                def ri2:int 0
-                while (ri2 < (array_length items)) {
-                    def rv:EvHandle (this.promiseResolveValue((itemAt items ri2)))
-                    ; The first to settle wins; settlePromise ignores the rest.
-                    this.registerReaction(rv (EvValueBridge.taggedUndefined()) (EvValueBridge.taggedUndefined()) outP)
-                    ri2 = (ri2 + 1)
-                }
-                return outP
-            }
-            ; all: fulfil with the values in order once every element has
-            ; settled. With no host event loop the elements are already settled
-            ; by the time the jobs run, so the values are read back then.
-            def parts:[EvHandle]
-            def ai2:int 0
-            while (ai2 < (array_length items)) {
-                push parts (this.promiseResolveValue((itemAt items ai2)))
-                ai2 = (ai2 + 1)
-            }
-            this.drainJobs()
-            def vals:[EvHandle]
-            def rejected:boolean false
-            def rejVal:EvHandle (EvValueBridge.taggedUndefined())
-            def vi:int 0
-            while (vi < (array_length parts)) {
-                def one:EvHandle (itemAt parts vi)
-                def st:int (this.toIntegerOf((one.getMember("__pstate__"))))
-                if (st == 2) {
-                    if (false == rejected) {
-                        rejected = true
-                        rejVal = (one.getMember("__pvalue__"))
+                def ri:int 0
+                while (ri < n) {
+                    def rNext:EvHandle (this.promiseResolveVia(pC pResolve (itemAt items ri)))
+                    if scriptThrew {
+                        return (this.promiseRejectWith(aCap))
                     }
+                    def _rt:EvHandle (this.promiseThenVia(rNext (aCap.getMember("__cap_resolve__")) (aCap.getMember("__cap_reject__"))))
+                    if scriptThrew {
+                        return (this.promiseRejectWith(aCap))
+                    }
+                    ri = (ri + 1)
                 }
-                push vals (one.getMember("__pvalue__"))
-                vi = (vi + 1)
+                return (this.capPromiseOf(aCap))
             }
-            if rejected {
-                this.settlePromise(outP 2 rejVal)
-            } {
-                this.settlePromise(outP 1 (EvValueBridge.taggedArray(vals)))
+            ; all: one resolve-element function per item, a shared values array
+            ; and a shared remaining count. The count starts at 1 so the loop
+            ; itself holds a reference -- an empty iterable resolves with [].
+            def emptyVals:[EvHandle]
+            def valuesArr:EvHandle (EvValueBridge.taggedArray(emptyVals))
+            def ckeys:[string]
+            def cvals:[EvHandle]
+            def counter:EvHandle (EvValueBridge.taggedObject(ckeys cvals))
+            counter.setMember("n" (EvHandle.fromInt(1)))
+            def ai:int 0
+            while (ai < n) {
+                valuesArr.setIndexAt(ai (EvValueBridge.taggedUndefined()))
+                def aNext:EvHandle (this.promiseResolveVia(pC pResolve (itemAt items ai)))
+                if scriptThrew {
+                    return (this.promiseRejectWith(aCap))
+                }
+                def ekeys:[string]
+                def evals:[EvHandle]
+                def elemRec:EvHandle (EvValueBridge.taggedObject(ekeys evals))
+                elemRec.setMember("__el_done__" (EvValueBridge.taggedBoolean(false)))
+                elemRec.setMember("__el_index__" (EvHandle.fromInt(ai)))
+                elemRec.setMember("__el_values__" valuesArr)
+                elemRec.setMember("__el_count__" counter)
+                elemRec.setMember("__el_cap__" aCap)
+                def elemFn:EvHandle ((EvValueBridge.taggedNativeMethod("promiseelem" "resolveElement")).withThisForCall(elemRec))
+                ; §25.4.4.1.2: the resolve-element function has length 1 and an
+                ; EMPTY name -- it is anonymous, and the suite reads both off it.
+                ; taggedNativeMethod carries neither, so it reported length 0
+                ; and the registry key as its name.
+                elemFn.setMember("length" (EvHandle.fromInt(1)))
+                elemFn.setAttrs("length" false false true)
+                elemFn.setMember("name" (EvValueBridge.taggedString("")))
+                elemFn.setAttrs("name" false false true)
+                counter.setMember("n" (EvHandle.fromInt(((this.toIntegerOf((counter.getMember("n")))) + 1))))
+                def _at:EvHandle (this.promiseThenVia(aNext elemFn (aCap.getMember("__cap_reject__"))))
+                if scriptThrew {
+                    return (this.promiseRejectWith(aCap))
+                }
+                ai = (ai + 1)
             }
-            return outP
+            def left:int ((this.toIntegerOf((counter.getMember("n")))) - 1)
+            counter.setMember("n" (EvHandle.fromInt(left)))
+            if (left == 0) {
+                def _av:EvHandle (this.capInvoke(aCap "__cap_resolve__" valuesArr))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+            }
+            return (this.capPromiseOf(aCap))
         }
         ; D-SYMBOL: the global symbol registry. `Symbol.for(k)` answers the ONE
         ; symbol for that key across the realm, and keyFor names it back.
@@ -22336,6 +22391,12 @@ class ComponentEngine {
         if (kind == "promisecap") {
             if (name == "resolve") { return 1 }
             if (name == "reject") { return 1 }
+        }
+        if (kind == "promiseexec") {
+            return 2
+        }
+        if (kind == "promiseelem") {
+            return 1
         }
         if (kind == "regexp") {
             if (name == "compile") { return 2 }
@@ -25762,6 +25823,52 @@ class ComponentEngine {
             }
             return (EvValueBridge.taggedUndefined())
         }
+        ; D-PROMISECAP: the executor a NewPromiseCapability hands to `new C`.
+        ; Its `this` is the capability record, and its two arguments are the
+        ; functions the record is there to capture. Calling it twice is a
+        ; TypeError -- a constructor may not re-arm a capability.
+        if (kind == "promiseexec") {
+            def exR:EvHandle (EvValueBridge.taggedUndefined())
+            def exJ:EvHandle (EvValueBridge.taggedUndefined())
+            if ((array_length args) > 0) { exR = (itemAt args 0) }
+            if ((array_length args) > 1) { exJ = (itemAt args 1) }
+            if (recv.hasOwnData("__cap_resolve__")) {
+                if (false == ((recv.getMember("__cap_resolve__")).isUndefined())) {
+                    return (this.throwSpecError("TypeError" "Promise executor has already been invoked with non-undefined arguments"))
+                }
+            }
+            if (recv.hasOwnData("__cap_reject__")) {
+                if (false == ((recv.getMember("__cap_reject__")).isUndefined())) {
+                    return (this.throwSpecError("TypeError" "Promise executor has already been invoked with non-undefined arguments"))
+                }
+            }
+            recv.setMember("__cap_resolve__" exR)
+            recv.setMember("__cap_reject__" exJ)
+            return (EvValueBridge.taggedUndefined())
+        }
+        ; D-PROMISECAP: `Promise.all`'s per-element resolve function. Its `this`
+        ; is a record carrying the index, the shared values array, the shared
+        ; remaining-count cell and the capability -- all the state the spec
+        ; keeps in the function's internal slots. It answers only once.
+        if (kind == "promiseelem") {
+            def elVal:EvHandle (EvValueBridge.taggedUndefined())
+            if ((array_length args) > 0) { elVal = (itemAt args 0) }
+            if ((recv.getMember("__el_done__")).toBool()) {
+                return (EvValueBridge.taggedUndefined())
+            }
+            recv.setMember("__el_done__" (EvValueBridge.taggedBoolean(true)))
+            def elVals:EvHandle (recv.getMember("__el_values__"))
+            def elIdx:int (this.toIntegerOf((recv.getMember("__el_index__"))))
+            elVals.setIndexAt(elIdx elVal)
+            def elCount:EvHandle (recv.getMember("__el_count__"))
+            def remaining:int ((this.toIntegerOf((elCount.getMember("n")))) - 1)
+            elCount.setMember("n" (EvHandle.fromInt(remaining)))
+            if (remaining == 0) {
+                def elCap:EvHandle (recv.getMember("__el_cap__"))
+                def _rr:EvHandle (this.capInvoke(elCap "__cap_resolve__" elVals))
+            }
+            return (EvValueBridge.taggedUndefined())
+        }
         ; D-ITERATOR: the iteration methods, shared across every kind that has
         ; them. `@@iterator` is `values` for everything except a Map, whose
         ; default iteration is its entries.
@@ -25878,9 +25985,35 @@ class ComponentEngine {
                 ; `catch(f)` IS `then(undefined, f)`.
                 if ((array_length args) > 0) { onRej = (itemAt args 0) }
             }
-            def derived:EvHandle (this.makePromiseValue())
-            this.registerReaction(recv onFul onRej derived)
-            return derived
+            ; §25.4.5.3: `catch` is `then` reached through the RECEIVER, so a
+            ; guest that overrode `then` is the one that runs.
+            if (name == "catch") {
+                return (this.promiseThenVia(recv onFul onRej))
+            }
+            ; §25.4.5.3 step 3: the result is built by SpeciesConstructor(this,
+            ; %Promise%) through a capability -- not minted as an intrinsic.
+            ; That is what makes `then` on a subclass answer that subclass, and
+            ; what lets a @@species override decide.
+            def thenC:EvHandle (this.promiseSpeciesCtor(recv))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            if (this.isIntrinsicPromiseCtor(thenC)) {
+                def derived:EvHandle (this.makePromiseValue())
+                this.registerReaction(recv onFul onRej derived)
+                return derived
+            }
+            def tCap:EvHandle (this.newPromiseCapability(thenC))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            ; The reactions settle an intrinsic promise, and that promise's
+            ; settlement is forwarded into the capability -- which is how a
+            ; subclass's own resolve/reject functions get to see it.
+            def bridge:EvHandle (this.makePromiseValue())
+            this.registerReaction(recv onFul onRej bridge)
+            this.registerReaction(bridge (tCap.getMember("__cap_resolve__")) (tCap.getMember("__cap_reject__")) (EvValueBridge.taggedNull()))
+            return (this.capPromiseOf(tCap))
         }
         ; ---- Number.prototype ----------------------------------------------
         if (kind == "number") {
@@ -27645,6 +27778,156 @@ class ComponentEngine {
     fn isPromiseValue:boolean (v:EvHandle) {
         if (false == (v.isObject())) { return false }
         return (v.hasOwnData("__promise__"))
+    }
+
+    ; ---- §25.4.1.5 NewPromiseCapability ---------------------------------
+    ; D-PROMISECAP: every Promise static and `then` is specified over a
+    ; CONSTRUCTOR C, and builds its result by calling `new C(executor)` and
+    ; capturing the resolve/reject functions the executor is handed. The engine
+    ; used to mint an intrinsic promise directly and settle it by hand, so a
+    ; subclass was never constructed, its executor never ran, and a `then` a
+    ; guest had overridden was never called. The capability record below is a
+    ; plain object carrying the three parts; `promiseexec` is the executor that
+    ; fills two of them in.
+    ; An error raised while `all`/`race` was setting up is reported THROUGH the
+    ; capability rather than thrown: the caller gets a rejected promise, which
+    ; is what "a non-iterable argument rejects" means.
+    fn promiseRejectWith:EvHandle (cap:EvHandle) {
+        def err:EvHandle scriptThrowValue
+        scriptThrew = false
+        def _r:EvHandle (this.capInvoke(cap "__cap_reject__" err))
+        if scriptThrew {
+            return (EvValueBridge.taggedUndefined())
+        }
+        return (this.capPromiseOf(cap))
+    }
+
+    ; §25.4.4.1 step 6.j: `C.resolve(item)`, called with C as its receiver --
+    ; through the function that was read once before the loop, so a guest that
+    ; replaced it is the one that runs.
+    fn promiseResolveVia:EvHandle (C:EvHandle resolveFn:EvHandle item:EvHandle) {
+        def a:[EvHandle]
+        push a item
+        return (this.callFnValueWithValues((resolveFn.withThisForCall(C)) a))
+    }
+
+    ; And `nextPromise.then(onFulfilled, onRejected)` -- an ordinary property
+    ; read and call, so an overridden `then` is honoured.
+    fn promiseThenVia:EvHandle (p:EvHandle onOk:EvHandle onErr:EvHandle) {
+        def thenFn:EvHandle (this.getPropertyValue(p "then"))
+        if scriptThrew {
+            return (EvValueBridge.taggedUndefined())
+        }
+        if (false == (thenFn.isFunction())) {
+            return (this.throwSpecError("TypeError" "then is not a function"))
+        }
+        def a:[EvHandle]
+        push a onOk
+        push a onErr
+        return (this.callFnValueWithValues((thenFn.withThisForCall(p)) a))
+    }
+
+    fn newPromiseCapability:EvHandle (C:EvHandle) {
+        if (false == (C.isFunction())) {
+            return (this.throwSpecError("TypeError" "Promise capability constructor is not a constructor"))
+        }
+        def keysC:[string]
+        def valsC:[EvHandle]
+        def cap:EvHandle (EvValueBridge.taggedObject(keysC valsC))
+        ; The intrinsic Promise takes the direct route: its executor would only
+        ; hand back the same two functions this makes anyway, and skipping the
+        ; round trip keeps the common path allocation-free of a guest call.
+        if (this.isIntrinsicPromiseCtor(C)) {
+            def p:EvHandle (this.makePromiseValue())
+            cap.setMember("__cap_promise__" p)
+            cap.setMember("__cap_resolve__" ((EvValueBridge.taggedNativeMethod("promisecap" "resolve")).withThisForCall(p)))
+            cap.setMember("__cap_reject__" ((EvValueBridge.taggedNativeMethod("promisecap" "reject")).withThisForCall(p)))
+            return cap
+        }
+        def executor:EvHandle ((EvValueBridge.taggedNativeMethod("promiseexec" "executor")).withThisForCall(cap))
+        def ctorArgs:[EvHandle]
+        push ctorArgs executor
+        def made:EvHandle (this.constructWithValues(C ctorArgs C))
+        if scriptThrew {
+            return (EvValueBridge.taggedUndefined())
+        }
+        ; §25.4.1.5 steps 4-5: BOTH halves must have been set to something
+        ; callable, and by the time the constructor returns.
+        def rf:EvHandle (cap.getMember("__cap_resolve__"))
+        def jf:EvHandle (cap.getMember("__cap_reject__"))
+        if (false == (rf.isFunction())) {
+            return (this.throwSpecError("TypeError" "Promise resolve function is not callable"))
+        }
+        if (false == (jf.isFunction())) {
+            return (this.throwSpecError("TypeError" "Promise reject function is not callable"))
+        }
+        cap.setMember("__cap_promise__" made)
+        return cap
+    }
+
+    fn isIntrinsicPromiseCtor:boolean (C:EvHandle) {
+        def intr:EvHandle (this.builtinGlobalObject("Promise"))
+        return (C.equals(intr))
+    }
+
+    fn capPromiseOf:EvHandle (cap:EvHandle) {
+        return (cap.getMember("__cap_promise__"))
+    }
+
+    ; Call a capability half with one argument.
+    fn capInvoke:EvHandle (cap:EvHandle which:string v:EvHandle) {
+        def f:EvHandle (cap.getMember(which))
+        if (false == (f.isFunction())) {
+            return (this.throwSpecError("TypeError" "Promise capability function is not callable"))
+        }
+        def a:[EvHandle]
+        push a v
+        return (this.callFnValueWithValues(f a))
+    }
+
+    ; §25.4.2.1: `C` for a static call. `this` when it is an object, the
+    ; intrinsic otherwise -- and a non-object `this` is a TypeError before
+    ; anything else runs.
+    fn promiseStaticCtor:EvHandle () {
+        def C:EvHandle (this.builtinGlobalObject("Promise"))
+        if hasStaticThis {
+            C = staticThisValue
+        }
+        return C
+    }
+
+    ; SpeciesConstructor(O, %Promise%) -- what `then` builds its result with.
+    fn promiseSpeciesCtor:EvHandle (O:EvHandle) {
+        def intr:EvHandle (this.builtinGlobalObject("Promise"))
+        if (false == (this.isDescriptorObject(O))) {
+            return intr
+        }
+        def ctor:EvHandle (this.getPropertyValue(O "constructor"))
+        if scriptThrew {
+            return intr
+        }
+        if (ctor.isUndefined()) {
+            return intr
+        }
+        if (false == (this.isDescriptorObject(ctor))) {
+            def _c:EvHandle (this.throwSpecError("TypeError" "Promise constructor is not an object"))
+            return intr
+        }
+        def sp:EvHandle (this.getPropertyValue(ctor "@@species"))
+        if scriptThrew {
+            return intr
+        }
+        if (sp.isUndefined()) {
+            return intr
+        }
+        if (sp.isNull()) {
+            return intr
+        }
+        if (false == (sp.isFunction())) {
+            def _s:EvHandle (this.throwSpecError("TypeError" "Promise species is not a constructor"))
+            return intr
+        }
+        return sp
     }
 
     fn makePromiseValue:EvHandle () {
