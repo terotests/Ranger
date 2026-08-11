@@ -7245,6 +7245,9 @@ class TSParserSimple {
           ; property but never reached the function node the evaluator calls,
           ; so the body simply ran and answered undefined.
           fnNode.generator = prop.generator
+          ; ... and async with it: the evaluator reads the FUNCTION node, and
+          ; the flag sat only on the property.
+          fnNode.async = prop.async
           ; A method's source text starts at its KEY -- `foo() {}`, not `() {}`.
           fnNode.start = prop.start
           this.advance()
@@ -7493,6 +7496,10 @@ class TSParserSimple {
     if (this.matchValue("async")) {
       this.advance()
       node.kind = "async"
+      ; The FLAG as well as the kind string. The evaluator asks `node.async`,
+      ; the way it does of every other function form, and an async arrow that
+      ; only set `kind` looked synchronous to it.
+      node.async = true
     }
     
     ; An arrow's parameters and its body share one scope.
@@ -7567,6 +7574,28 @@ class TSParserSimple {
       def body (this.parseExpr())
       node.body = body
       node.end = this.lastTokenEndPos
+      ; An ASYNC arrow with an expression body is given the block form it means:
+      ; `async x => e` is `async x => { return e; }`. The evaluator runs an
+      ; async body on the resumable frame machine, which steps STATEMENTS, so a
+      ; bare expression body had nowhere to suspend and the arrow fell back to
+      ; running synchronously and answering its value raw.
+      if (node.async) {
+        def retN (new TSNode())
+        retN.nodeType = "ReturnStatement"
+        retN.left = body
+        retN.start = body.start
+        retN.line = body.line
+        retN.col = body.col
+        retN.end = body.end
+        def blockN (new TSNode())
+        blockN.nodeType = "BlockStatement"
+        blockN.start = body.start
+        blockN.line = body.line
+        blockN.col = body.col
+        blockN.end = body.end
+        push blockN.children retN
+        node.body = blockN
+      }
     }
 
     this.popScope()

@@ -1895,6 +1895,26 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["intl-date-tolocalestring", "return new Date(Date.UTC(2021, 4, 7, 15, 4, 5)).toLocaleString('fr');", "unicode"],
   ["intl-unsupported-locale-falls-back", "return new Intl.NumberFormat('xx-YY').format(1234.5);", "unicode"],
 
+  // async / await. `async` and `await` parsed and were then IGNORED: an async
+  // function ran synchronously and returned its value RAW, so `f().then(...)`
+  // was "then is not a function" and `await p` evaluated to null.
+  //
+  // Only the SHAPE of the result is checked here, because this harness compares
+  // a probe's return value synchronously and no microtask has run by then --
+  // in Node either. The values an async function actually produces are checked
+  // by tests/async-conformance.test.ts, which runs whole programs to
+  // completion and compares their output.
+  ["async-returns-object", "async function f() { return 1; } return typeof f();", "async"],
+  ["async-returns-thenable", "async function f() { return 1; } return typeof f().then;", "async"],
+  ["async-ctor-is-promise", "async function f() { return 1; } return f().constructor.name;", "async"],
+  ["async-arrow-returns-thenable", "var g = async (x) => x; return typeof g(1).then;", "async"],
+  ["async-arrow-block-returns-thenable", "var g = async function (x) { return x; }; return typeof g(1).then;", "async"],
+  ["async-method-returns-thenable", "var o = { async m() { return 1; } }; return typeof o.m().then;", "async"],
+  ["async-class-method-returns-thenable", "class C { async go() { return 1; } } return typeof new C().go().then;", "async"],
+  ["async-throwing-still-returns-promise", "async function f() { throw new Error('x'); } var p = f(); p.catch(function () {}); return typeof p.then;", "async"],
+  ["async-tostring-tag", "async function f() { return 1; } return Object.prototype.toString.call(f());", "async"],
+  ["async-instanceof-promise", "async function f() { return 1; } return f() instanceof Promise;", "async"],
+
   ["uni-coll-total-order", "var w = ['Straße', 'Strasse', 'ǆ', 'dz']; var f = w.slice().sort(function (a, b) { return a.localeCompare(b); }).join('|'); var r = w.slice().reverse().sort(function (a, b) { return a.localeCompare(b); }).join('|'); return f === r;", "unicode"],
 ];
 

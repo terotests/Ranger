@@ -1057,6 +1057,56 @@ the decode entirely, and hoisting the matcher out of the three scan loops paid
 most of the rest back; built per iteration it re-decoded the whole subject every
 time.
 
+#### async / await
+
+`async` and `await` parsed and were then IGNORED. An async function ran to
+completion synchronously and returned its value RAW, so `f().then(...)` was
+"then is not a function" and `await p` evaluated to null. Every library that
+assumes an async function returns a thenable -- which is all of them -- was
+broken against this engine.
+
+An async body is a body that stops in the middle and starts again, which is the
+problem generators already solve here, so it runs on the same explicit frame
+stack with `await` as the suspension point instead of `yield`. What sits on top
+is the driver: the call returns a promise immediately, and each time the body
+suspends the driver subscribes to the awaited value through
+`Promise.resolve().then()` and resumes the body when it settles. Going through
+Promise.resolve rather than inspecting the value is what makes awaiting a
+THENABLE work and what keeps awaiting a plain value one turn behind.
+
+Working: async functions, expressions, arrows (both body forms), object and
+class methods; await of values, promises, thenables and rejections; try /
+catch / finally around await; await in loops, conditions, binary operands,
+ternaries, array literals and call arguments; `for await`; interleaving of
+several async bodies; and the ordering rule that the synchronous part of an
+async body runs before the caller continues.
+
+Four things this turned up that were not obvious:
+
+- **Five doors, not four.** Patching the walker's call paths appeared to do
+  nothing, because a body with no `await` in it compiles to bytecode and never
+  reaches any of them. Generators were already excluded from that tier for the
+  same reason; async had to be too.
+- **An async call must ALWAYS answer a promise.** The first shape made that
+  conditional on the frame machine accepting the body's spine, so whether
+  `f()` was thenable depended on what the function happened to contain. A body
+  the driver declines now runs on the walker with a blocking `await` and still
+  settles a promise -- ordering differs there, values do not.
+- **Thenable adoption was missing from Promise itself.** §25.4.1.3.2 adopts any
+  object with a callable `then`, and only real promises were, so
+  `Promise.resolve({then})` fulfilled with the OBJECT. Fixing it for `await`
+  fixed it for everyone.
+- **Three latent Rust double-borrows** in `Promise.all`, `Promise.race` and the
+  generator frame stack, all in reuse branches that nothing had exercised
+  before. One of them was the pre-existing `iter-generator` crash on that
+  target, which is now gone: native conformance is 1467/1469 on BOTH targets
+  with no crashes.
+
+Not done: top-level await (a module feature, and the module story is separate),
+and async generators produce values but are not themselves resumable -- `for
+await (x of asyncGen())` works because the generator is collected eagerly, as
+sync generators outside the driver are.
+
 #### Intl
 
 `Intl` did not exist, so `new Intl.NumberFormat('de').format(n)` was a

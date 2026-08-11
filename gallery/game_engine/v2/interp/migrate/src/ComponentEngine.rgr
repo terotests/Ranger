@@ -4217,6 +4217,21 @@ class ComponentEngine {
         def savedStrict:boolean strictMode
         strictMode = (this.strictForBody(fnNode))
         callDepth = (callDepth + 1)
+        ; D-ASYNC: and this one.
+        if fnNode.async {
+            if (false == fnNode.generator) {
+                if true {
+                    def aCtxP@(optional):EvalContext context
+                    def aResP:EvHandle (this.callAsyncBody(fnNode (unwrap aCtxP)))
+                    strictMode = savedStrict
+                    callDepth = (callDepth - 1)
+                    context = savedContext
+                    scriptDidReturn = savedDidReturn
+                    scriptReturnValue = savedReturnValue
+                    return aResP
+                }
+            }
+        }
         def body:TSNode (this.getFunctionBody(fnNode))
         def result:EvHandle (this.callResultOf((this.evaluateFunctionBodyValue(body))))
 
@@ -5168,6 +5183,15 @@ class ComponentEngine {
                                 }
                             }
                             liveI = (liveI + 1.0)
+                            ; D-ASYNC: `for await` on the walker path awaits
+                            ; each element before binding it, the same as the
+                            ; stepped path does.
+                            if stmt.await {
+                                elemL = (this.awaitBlocking(elemL))
+                                if scriptThrew {
+                                    liveOn = false
+                                }
+                            }
                             if ofLexical {
                                 def turnL:EvalContext ((unwrap ofOuter).createChild())
                                 turnL.isBlockScope = true
@@ -5229,6 +5253,11 @@ class ComponentEngine {
                                     context = turnC
                                 }
                                 def elem:EvHandle (stepRes.getMember("value"))
+                                ; D-ASYNC: and here, for a `for await` over a
+                                ; lazily stepped source.
+                                if stmt.await {
+                                    elem = (this.awaitBlocking(elem))
+                                }
                                 if varPattern {
                                     this.bindPattern((unwrap varPattern) elem)
                                 } {
@@ -5337,6 +5366,11 @@ class ComponentEngine {
                                         gOn = false
                                     } {
                                         def gElem:EvHandle (this.getPropertyValue(gRes "value"))
+                                        ; D-ASYNC: and here, for a `for await`
+                                        ; over a guest iterator.
+                                        if stmt.await {
+                                            gElem = (this.awaitBlocking(gElem))
+                                        }
                                         if scriptThrew {
                                             gOn = false
                                         } {
@@ -6229,6 +6263,11 @@ class ComponentEngine {
         }
         if (nt == "YieldExpression") { node.evalKind = 26
             return 26
+        }
+        ; D-ASYNC: `await` is a SUSPENSION POINT, exactly like yield, and is
+        ; stepped by the same frame machine.
+        if (nt == "AwaitExpression") { node.evalKind = 50
+            return 50
         }
         if (nt == "UnaryExpression") { node.evalKind = 12
             return 12
@@ -9453,6 +9492,20 @@ class ComponentEngine {
         scriptReturnValue = (EvValueBridge.taggedNull())
         context = (context.createChild())
         this.bindParams(fnNode argVals)
+        ; D-ASYNC: this door too. There are four places a user body is run and
+        ; an async function has to answer a promise from every one of them.
+        if fnNode.async {
+            if (false == fnNode.generator) {
+                if true {
+                    def aCtxV@(optional):EvalContext context
+                    def aRes:EvHandle (this.callAsyncBody(fnNode (unwrap aCtxV)))
+                    context = savedContext
+                    scriptDidReturn = savedDidReturn
+                    scriptReturnValue = savedReturnValue
+                    return aRes
+                }
+            }
+        }
         def result:EvHandle (EvValueBridge.taggedNull())
         if fnNode.body {
             def body:TSNode (unwrap fnNode.body)
@@ -9820,6 +9873,14 @@ class ComponentEngine {
         ; function, which made `function* g() {}` answer undefined instead of a
         ; generator.
         if fnNode.generator {
+            return (0 - 1)
+        }
+        ; D-ASYNC: same reasoning, and the reason four separate patches to the
+        ; walker's call paths all appeared to do nothing -- an async body with
+        ; no `await` in it compiles perfectly well and ran as an ordinary
+        ; function, so the call never reached any of them and answered the
+        ; body's value raw instead of a promise.
+        if fnNode.async {
             return (0 - 1)
         }
         if (false == (this.paramSlotsOkFor(fnNode))) {
@@ -13503,7 +13564,9 @@ class ComponentEngine {
         node.yieldScanned = true
         node.yieldInside = false
         def k:int (this.nodeKindOf(node))
-        if (k == 26) {
+        ; D-ASYNC: an `await` suspends the body the same way a `yield` does, so
+        ; the same spine has to be decomposed into frames for it.
+        if ((k == 26) || (k == 50)) {
             node.yieldInside = true
             return true
         }
@@ -13564,7 +13627,7 @@ class ComponentEngine {
         }
         def k:int (this.nodeKindOf(node))
         ; --- expressions ---
-        if (k == 26) {
+        if ((k == 26) || (k == 50)) {
             if node.left { return (this.genSpineOk((unwrap node.left))) }
             return true
         }
@@ -13733,7 +13796,10 @@ class ComponentEngine {
     ; ---- frame and operand stack primitives ----
 
     fn genPushFrame:void (st:GenState node:TSNode ctx:EvalContext) {
-        if (st.fTop == (array_length st.fNode)) {
+        ; As in genPushOp: the index is read into a local so the reuse branch
+        ; does not read and write the same cell in one expression.
+        def fslot:int st.fTop
+        if (fslot == (array_length st.fNode)) {
             push st.fNode node
             push st.fPhase 0
             push st.fIdx 0
@@ -13744,17 +13810,17 @@ class ComponentEngine {
             push st.fVal2 (EvValueBridge.taggedUndefined())
             push st.fFlags 0
         } {
-            set st.fNode st.fTop node
-            set st.fPhase st.fTop 0
-            set st.fIdx st.fTop 0
-            set st.fVal st.fTop (EvValueBridge.taggedUndefined())
-            set st.fCtx st.fTop ctx
-            set st.fBrk st.fTop false
-            set st.fCnt st.fTop false
-            set st.fVal2 st.fTop (EvValueBridge.taggedUndefined())
-            set st.fFlags st.fTop 0
+            set st.fNode fslot node
+            set st.fPhase fslot 0
+            set st.fIdx fslot 0
+            set st.fVal fslot (EvValueBridge.taggedUndefined())
+            set st.fCtx fslot ctx
+            set st.fBrk fslot false
+            set st.fCnt fslot false
+            set st.fVal2 fslot (EvValueBridge.taggedUndefined())
+            set st.fFlags fslot 0
         }
-        st.fTop = (st.fTop + 1)
+        st.fTop = (fslot + 1)
     }
 
     fn genPopFrame:void (st:GenState) {
@@ -13764,12 +13830,18 @@ class ComponentEngine {
     }
 
     fn genPushOp:void (st:GenState v:EvHandle) {
-        if (st.opTop == (array_length st.opStack)) {
+        ; The index goes into a local first: `set st.opStack st.opTop v` reads
+        ; and writes the same cell in one expression, which is a double borrow
+        ; on the Rust target. It only ever took the grow branch before, so the
+        ; reuse branch was never exercised until an async body started reusing
+        ; the operand stack across suspensions.
+        def slot:int st.opTop
+        if (slot == (array_length st.opStack)) {
             push st.opStack v
         } {
-            set st.opStack st.opTop v
+            set st.opStack slot v
         }
-        st.opTop = (st.opTop + 1)
+        st.opTop = (slot + 1)
     }
 
     fn genPopOp:EvHandle (st:GenState) {
@@ -13850,6 +13922,42 @@ class ComponentEngine {
     }
 
     fn genStepValue:int (st:GenState top:int node:TSNode ph:int k:int curCtx:EvalContext) {
+        ; ---------------- await ----------------
+        ; The same three phases as a plain yield -- evaluate the operand,
+        ; suspend, take the sent value as this expression's result -- with two
+        ; differences. There is no delegation (`await*` does not exist), and
+        ; there is no return mode: only the driver resumes an async body, and
+        ; it resumes with a value or with a throw, never with a return.
+        if (k == 50) {
+            if (ph == 0) {
+                set st.fPhase top 1
+                if node.left {
+                    this.genPushExpr(st (unwrap node.left) curCtx)
+                }
+                return 0
+            }
+            if (ph == 1) {
+                def av:EvHandle (EvValueBridge.taggedUndefined())
+                if node.left { av = (this.genPopOp(st)) }
+                set st.fPhase top 2
+                genYieldValue = av
+                genYieldRaw = true
+                return 1
+            }
+            ; Resumed by the driver: the settled value, or the rejection as a
+            ; throw at this point in the body, so an ordinary try/catch around
+            ; the await catches it.
+            def sv2:EvHandle (EvValueBridge.taggedUndefined())
+            if st.sent { sv2 = (unwrap st.sent) }
+            if (st.resumeMode == 2) {
+                scriptThrowValue = sv2
+                scriptThrew = true
+                return 0
+            }
+            this.genPushOp(st sv2)
+            this.genPopFrame(st)
+            return 0
+        }
         ; ---------------- yield ----------------
         if (k == 26) {
             if (ph == 0) {
@@ -14748,6 +14856,17 @@ class ComponentEngine {
                     set st.fIdx top (oi + 1)
                     oElem = (oArr.arrayItemAt(oi))
                 }
+                ; D-ASYNC: `for await (x of xs)` awaits every element before
+                ; binding it. Without this the loop ran but handed the body the
+                ; PROMISE, so `for await (var v of [Promise.resolve(1), 2])`
+                ; concatenated "[object Promise]2".
+                if node.await {
+                    oElem = (this.awaitBlocking(oElem))
+                    if scriptThrew {
+                        this.genEndLoop(st top)
+                        return 0
+                    }
+                }
                 this.bindForOfTarget(node oElem)
                 if scriptThrew {
                     this.genEndLoop(st top)
@@ -15157,6 +15276,181 @@ class ComponentEngine {
             return (EvValueBridge.taggedUndefined())
         }
         return (this.genResultObject(rv true))
+    }
+
+
+    ; ======================================================================
+    ; D-ASYNC: async functions
+    ;
+    ; An async function is a body that can stop in the middle and start again,
+    ; which is the same problem generators solve -- so it runs on the same
+    ; explicit frame stack, with `await` as the suspension point instead of
+    ; `yield`. What sits on top is the driver: the call returns a PROMISE
+    ; immediately, and every time the body suspends the driver subscribes to
+    ; the awaited value and resumes the body when it settles.
+    ;
+    ; Before this, `async` and `await` parsed and were then ignored: an async
+    ; function ran to completion synchronously and returned its value RAW, so
+    ; `f().then(...)` was "then is not a function" and `await p` evaluated to
+    ; null. Anything treating an async function as returning a thenable -- which
+    ; is all of them -- was broken.
+    ; ======================================================================
+
+    ; §27.7.5.1 AsyncFunctionStart. The activation is already prepared by the
+    ; ordinary call path; this turns it into a suspended body, starts it, and
+    ; hands back the promise.
+    ;
+    ; An async call ALWAYS answers a promise, including when the driver cannot
+    ; step the body's spine. Making the promise conditional on that was the
+    ; first shape of this and it was the wrong one: a body the driver declined
+    ; ran synchronously and returned its value raw, so whether `f()` was
+    ; thenable depended on what the function happened to contain.
+    fn callAsyncBody:EvHandle (fnNode:TSNode ctx:EvalContext) {
+        def cap:EvHandle (this.newPromiseCapability((this.builtinGlobalObject("Promise"))))
+        if scriptThrew {
+            return (EvValueBridge.taggedUndefined())
+        }
+        if (this.genBodyResumable(fnNode)) {
+            def gv:EvHandle (this.makeResumableGenerator(fnNode ctx))
+            this.asyncDrive(gv cap 0 (EvValueBridge.taggedUndefined()))
+            return (this.capPromiseOf(cap))
+        }
+        ; Fallback: run it here and settle the promise with the outcome. The
+        ; awaits inside take the blocking path above.
+        def savedDidR:boolean scriptDidReturn
+        def savedRetV:EvHandle scriptReturnValue
+        scriptDidReturn = false
+        scriptReturnValue = (EvValueBridge.taggedUndefined())
+        def res:EvHandle (EvValueBridge.taggedUndefined())
+        if fnNode.body {
+            def fb:TSNode (unwrap fnNode.body)
+            if ((this.nodeKindOf(fb)) == 34) {
+                res = (this.callResultOf((this.evaluateFunctionBodyValue(fb))))
+            } {
+                res = (this.evaluateExpr(fb))
+            }
+        }
+        def threw:boolean scriptThrew
+        def thrownV:EvHandle scriptThrowValue
+        scriptThrew = false
+        scriptThrowValue = (EvValueBridge.taggedUndefined())
+        scriptDidReturn = savedDidR
+        scriptReturnValue = savedRetV
+        if threw {
+            def _rjf:EvHandle (this.capInvoke(cap "__cap_reject__" thrownV))
+        } {
+            def _rsf:EvHandle (this.capInvoke(cap "__cap_resolve__" res))
+        }
+        return (this.capPromiseOf(cap))
+    }
+
+    ; Settle `v` by running the microtask queue until it has, then answer its
+    ; value -- or throw its rejection here. Only the fallback path uses this.
+    fn awaitBlocking:EvHandle (v:EvHandle) {
+        def p:EvHandle (this.promiseResolveIntrinsic(v))
+        if scriptThrew {
+            return (EvValueBridge.taggedUndefined())
+        }
+        def guard:int 0
+        while (guard < 1000000) {
+            def stv:int (this.toIntegerOf((p.getMember("__pstate__"))))
+            if (stv != 0) {
+                def pv:EvHandle (p.getMember("__pvalue__"))
+                if (stv == 2) {
+                    scriptThrowValue = pv
+                    scriptThrew = true
+                    return (EvValueBridge.taggedUndefined())
+                }
+                return pv
+            }
+            if (jobHead >= (array_length jobHandler)) {
+                ; Nothing left to run and still pending: this await can never
+                ; complete. Answering undefined would be a lie, so it is an
+                ; error the guest can see.
+                return (this.throwSpecError("TypeError" "await would never settle: the promise is pending and no jobs remain"))
+            }
+            this.drainJobs()
+            guard = (guard + 1)
+        }
+        return (EvValueBridge.taggedUndefined())
+    }
+
+    ; One step of an async body: resume it, then look at where it stopped.
+    ;
+    ;   threw      -> reject the promise
+    ;   completed  -> resolve it with the returned value
+    ;   suspended  -> subscribe to the awaited value and come back
+    ;
+    ; The subscription goes through Promise.resolve().then() rather than
+    ; inspecting the value, so awaiting a THENABLE works: a guest object with a
+    ; `then` method is adopted exactly as the spec says, and awaiting a plain
+    ; value still yields to the job queue for one turn rather than continuing
+    ; synchronously.
+    fn asyncDrive:void (gv:EvHandle cap:EvHandle mode:int sent:EvHandle) {
+        def out:EvHandle (this.genResume(gv sent mode))
+        if scriptThrew {
+            def err:EvHandle scriptThrowValue
+            scriptThrew = false
+            scriptThrowValue = (EvValueBridge.taggedUndefined())
+            def _rj:EvHandle (this.capInvoke(cap "__cap_reject__" err))
+            return
+        }
+        def st:GenState (this.genStateOf(gv))
+        if (st.status == 3) {
+            ; genResume answers {value, done} on completion.
+            def rv:EvHandle (out.getMember("value"))
+            def _rs:EvHandle (this.capInvoke(cap "__cap_resolve__" rv))
+            return
+        }
+        ; Suspended at an await. genYieldRaw made the resume answer the awaited
+        ; value itself rather than an iterator result.
+        def inner:EvHandle (this.promiseResolveIntrinsic(out))
+        if scriptThrew {
+            def err2:EvHandle scriptThrowValue
+            scriptThrew = false
+            scriptThrowValue = (EvValueBridge.taggedUndefined())
+            def _rj2:EvHandle (this.capInvoke(cap "__cap_reject__" err2))
+            return
+        }
+        def keys:[string]
+        def vals:[EvHandle]
+        def rec:EvHandle (EvValueBridge.taggedObject(keys vals))
+        rec.setMember("__async_gen__" gv)
+        rec.setMember("__async_cap__" cap)
+        def onOk:EvHandle ((EvValueBridge.taggedNativeMethod("asyncstep" "ok")).withThisForCall(rec))
+        def onErr:EvHandle ((EvValueBridge.taggedNativeMethod("asyncstep" "err")).withThisForCall(rec))
+        this.shapeAnonFn(onOk 1)
+        this.shapeAnonFn(onErr 1)
+        def _t:EvHandle (this.promiseThenVia(inner onOk onErr))
+        if scriptThrew {
+            def err3:EvHandle scriptThrowValue
+            scriptThrew = false
+            scriptThrowValue = (EvValueBridge.taggedUndefined())
+            def _rj3:EvHandle (this.capInvoke(cap "__cap_reject__" err3))
+        }
+    }
+
+    ; Promise.resolve(v) through the intrinsic: an already-intrinsic promise is
+    ; handed back as itself, everything else is wrapped.
+    fn promiseResolveIntrinsic:EvHandle (v:EvHandle) {
+        if (this.isPromiseValue(v)) {
+            def ctorV:EvHandle (this.getPropertyValue(v "constructor"))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            if (this.isIntrinsicPromiseCtor(ctorV)) {
+                return v
+            }
+        }
+        def cap2:EvHandle (this.newPromiseCapability((this.builtinGlobalObject("Promise"))))
+        if scriptThrew {
+            return (EvValueBridge.taggedUndefined())
+        }
+        def _r:EvHandle (this.capInvoke(cap2 "__cap_resolve__" v))
+        if scriptThrew {
+            return (EvValueBridge.taggedUndefined())
+        }
+        return (this.capPromiseOf(cap2))
     }
 
     fn isGeneratorValue:boolean (v:EvHandle) {
@@ -15868,6 +16162,31 @@ class ComponentEngine {
         ; generator's own live scope, and the first next() starts the body on
         ; the resumable driver. The frame is deliberately NOT returned to the
         ; pool below: the generator outlives this call.
+        ; D-ASYNC: an async call runs its body on the resumable driver and
+        ; answers a PROMISE. Like the generator case the activation just
+        ; prepared becomes the body's live scope, so the frame is not returned
+        ; to the pool -- the suspended body outlives this call.
+        def isAsyncCall:boolean false
+        if fnNode.async {
+            if (false == fnNode.generator) { isAsyncCall = true }
+        }
+        if isAsyncCall {
+            def asyncCtx@(optional):EvalContext context
+            def asyncRes:EvHandle (this.callAsyncBody(fnNode (unwrap asyncCtx)))
+            if srcSwapped {
+                currentSource = savedSrcText
+                currentSrcId = savedSrcId
+            }
+            strictMode = savedStrict
+            currentNewTarget = savedNewTargetV
+            derivedCtorPending = savedDerivedPV
+            callDepth = (callDepth - 1)
+            context = savedContext
+            currentModule = savedModule
+            scriptDidReturn = savedDidReturn
+            scriptReturnValue = savedReturnValue
+            return asyncRes
+        }
         def isGenCall:boolean fnNode.generator
         if isGenCall {
             if (this.genBodyResumable(fnNode)) {
@@ -16643,6 +16962,28 @@ class ComponentEngine {
                 }
             }
             return (this.lookupIdentifier(node.name))
+        }
+        ; D-ASYNC: `await x` reached through the EAGER FALLBACK path -- an async
+        ; body whose spine the resumable driver cannot step. The body is running
+        ; on the host stack, so it cannot suspend; instead the awaited value is
+        ; settled by DRAINING the job queue until it is, and the result becomes
+        ; this expression's value (or is thrown here, so a surrounding
+        ; try/catch still sees it).
+        ;
+        ; This differs from a stepped await in ORDERING -- the rest of the
+        ; caller does not get to run first -- but it produces the right values
+        ; and the call still answers a promise, where before it silently
+        ; answered undefined and the function returned its result raw. The
+        ; stepped path, which is the one nearly all code takes, is exact.
+        if (exprK == 50) {
+            def awV:EvHandle (EvValueBridge.taggedUndefined())
+            if node.left {
+                awV = (this.evaluateExpr((unwrap node.left)))
+            }
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            return (this.awaitBlocking(awV))
         }
         ; `yield x` reached through the EAGER FALLBACK path: the value joins
         ; the buffer the generator call is collecting, and the expression
@@ -21102,7 +21443,12 @@ class ComponentEngine {
                     if scriptThrew {
                         return (this.promiseRejectWith(aCap))
                     }
-                    def _rt:EvHandle (this.promiseThenVia(rNext (aCap.getMember("__cap_resolve__")) (aCap.getMember("__cap_reject__"))))
+                    ; Both halves into locals first: two getMember calls on
+                    ; the same record inside one call expression are two live
+                    ; borrows of it on the Rust target.
+                    def rRes:EvHandle (aCap.getMember("__cap_resolve__"))
+                    def rRej:EvHandle (aCap.getMember("__cap_reject__"))
+                    def _rt:EvHandle (this.promiseThenVia(rNext rRes rRej))
                     if scriptThrew {
                         return (this.promiseRejectWith(aCap))
                     }
@@ -21136,8 +21482,14 @@ class ComponentEngine {
                 elemRec.setMember("__el_cap__" aCap)
                 def elemFn:EvHandle ((EvValueBridge.taggedNativeMethod("promiseelem" "resolveElement")).withThisForCall(elemRec))
                 this.shapeAnonFn(elemFn 1)
-                counter.setMember("n" (EvHandle.fromInt(((this.toIntegerOf((counter.getMember("n")))) + 1))))
-                def _at:EvHandle (this.promiseThenVia(aNext elemFn (aCap.getMember("__cap_reject__"))))
+                ; Read the count into a local BEFORE writing it back: reading
+                ; one borrow while writing another in a single expression is a
+                ; double borrow of the same cell on the Rust target, which
+                ; panicked the moment Promise.all was handed an async function.
+                def nNow:int (this.toIntegerOf((counter.getMember("n"))))
+                counter.setMember("n" (EvHandle.fromInt((nNow + 1))))
+                def aRej:EvHandle (aCap.getMember("__cap_reject__"))
+                def _at:EvHandle (this.promiseThenVia(aNext elemFn aRej))
                 if scriptThrew {
                     return (this.promiseRejectWith(aCap))
                 }
@@ -27106,6 +27458,39 @@ class ComponentEngine {
         ; Its `this` is the capability record, and its two arguments are the
         ; functions the record is there to capture. Calling it twice is a
         ; TypeError -- a constructor may not re-arm a capability.
+        ; D-ASYNC: the two functions the driver subscribes with. Their `this`
+        ; is a record carrying the suspended body and the promise to settle --
+        ; the state the spec keeps in the function's internal slots.
+        ; §25.4.2.2 PromiseResolveThenableJob: hand the thenable this promise's
+        ; own resolve/reject pair and let it settle us.
+        if (kind == "thenablejob") {
+            def thObj:EvHandle (recv.getMember("__thenable__"))
+            def thFn:EvHandle (recv.getMember("__thenfn__"))
+            def thP:EvHandle (recv.getMember("__thenp__"))
+            def thRes:EvHandle ((EvValueBridge.taggedNativeMethod("promisecap" "resolve")).withThisForCall(thP))
+            def thRej:EvHandle ((EvValueBridge.taggedNativeMethod("promisecap" "reject")).withThisForCall(thP))
+            this.shapeAnonFn(thRes 1)
+            this.shapeAnonFn(thRej 1)
+            def thArgs:[EvHandle]
+            push thArgs thRes
+            push thArgs thRej
+            def _tj:EvHandle (this.callFnValueWithValues((thFn.withThisForCall(thObj)) thArgs))
+            if scriptThrew {
+                def tje:EvHandle scriptThrowValue
+                scriptThrew = false
+                scriptThrowValue = (EvValueBridge.taggedUndefined())
+                this.settlePromise(thP 2 tje)
+            }
+            return (EvValueBridge.taggedUndefined())
+        }
+        if (kind == "asyncstep") {
+            def stepV:EvHandle (EvValueBridge.taggedUndefined())
+            if ((array_length args) > 0) { stepV = (itemAt args 0) }
+            def stepMode:int 0
+            if (name == "err") { stepMode = 2 }
+            this.asyncDrive((recv.getMember("__async_gen__")) (recv.getMember("__async_cap__")) stepMode stepV)
+            return (EvValueBridge.taggedUndefined())
+        }
         if (kind == "promiseexec") {
             def exR:EvHandle (EvValueBridge.taggedUndefined())
             def exJ:EvHandle (EvValueBridge.taggedUndefined())
@@ -29414,6 +29799,35 @@ class ComponentEngine {
                 ; which is exactly the adoption rule.
                 this.registerReaction(value (EvValueBridge.taggedUndefined()) (EvValueBridge.taggedUndefined()) p)
                 return
+            }
+            ; §25.4.1.3.2 step 8: ANY object with a callable `then` is adopted,
+            ; not only a real promise. Only promises were, so
+            ; `Promise.resolve({ then: cb })` fulfilled with the OBJECT and
+            ; `await { then: cb }` answered the object instead of what the
+            ; thenable resolved to. The call is a JOB rather than immediate,
+            ; which is what keeps a thenable one turn behind a plain value.
+            if (this.isDescriptorObject(value)) {
+                def thenF:EvHandle (this.getPropertyValue(value "then"))
+                if scriptThrew {
+                    def te:EvHandle scriptThrowValue
+                    scriptThrew = false
+                    scriptThrowValue = (EvValueBridge.taggedUndefined())
+                    this.settlePromise(p 2 te)
+                    return
+                }
+                if (thenF.isFunction()) {
+                    def tkeys:[string]
+                    def tvals:[EvHandle]
+                    def trec:EvHandle (EvValueBridge.taggedObject(tkeys tvals))
+                    trec.setMember("__thenable__" value)
+                    trec.setMember("__thenfn__" thenF)
+                    trec.setMember("__thenp__" p)
+                    push jobHandler ((EvValueBridge.taggedNativeMethod("thenablejob" "run")).withThisForCall(trec))
+                    push jobDerived (EvValueBridge.taggedUndefined())
+                    push jobValue (EvValueBridge.taggedUndefined())
+                    push jobIsReject false
+                    return
+                }
             }
         }
         p.setMember("__pstate__" (EvHandle.fromInt(state)))
@@ -35978,6 +36392,27 @@ class ComponentEngine {
         ; -- builds a generator object exactly as `function*` does. Only the
         ; value path knew about generators, so a generator method ran its body
         ; and answered undefined; the whole shape was missing.
+        ; D-ASYNC: an async function or METHOD on this path too. A direct
+        ; `f()` comes through here rather than through the value path, so
+        ; teaching only the other one left plain `async function f(){}`
+        ; returning its value raw.
+        if fnNode.async {
+            if (false == fnNode.generator) {
+                if true {
+                    def asyncCtxN@(optional):EvalContext context
+                    def asyncResN:EvHandle (this.callAsyncBody(fnNode (unwrap asyncCtxN)))
+                    strictMode = savedStrict
+                    currentNewTarget = savedNewTarget
+                    derivedCtorPending = savedDerivedP
+                    callDepth = (callDepth - 1)
+                    context = savedContext
+                    currentModule = savedModule
+                    scriptDidReturn = savedDidReturn
+                    scriptReturnValue = savedReturnValue
+                    return asyncResN
+                }
+            }
+        }
         if fnNode.generator {
             if (this.genBodyResumable(fnNode)) {
                 def genCtxN@(optional):EvalContext context
