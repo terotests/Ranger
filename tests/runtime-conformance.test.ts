@@ -1855,6 +1855,46 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["uni-tailor-unknown-locale-is-root", "return ['åka', 'apa', 'zebra'].sort(function (a, b) { return a.localeCompare(b, 'xx'); }).join('|');", "unicode"],
   ["uni-tailor-does-not-leak", "var sv = 'åka'.localeCompare('apa', 'sv'); var root = 'åka'.localeCompare('apa'); return sv + ',' + root;", "unicode"],
 
+  // Intl. The engine had no `Intl` at all, so `new Intl.NumberFormat('de')`
+  // was a ReferenceError -- and Number/Date toLocaleString, which the spec
+  // defines IN TERMS of Intl, answered the non-locale forms, so a German
+  // document got English dates and English thousands separators.
+  ["intl-exists", "return typeof Intl;", "unicode"],
+  ["intl-canonical", "return Intl.getCanonicalLocales(['EN-latn-us', 'de-de']).join('|');", "unicode"],
+  ["intl-collator-sort", "var c = new Intl.Collator('sv'); return ['apa', 'bok', 'zebra', 'åka', 'ängel', 'öl'].sort(c.compare).join('|');", "unicode"],
+  ["intl-collator-detached-compare", "var c = new Intl.Collator('sv'); var f = c.compare; return f('åka', 'apa');", "unicode"],
+  ["intl-collator-base-sensitivity", "var c = new Intl.Collator('en', { sensitivity: 'base' }); return c.compare('resume', 'résumé') + ',' + c.compare('a', 'A');", "unicode"],
+  ["intl-collator-resolved", "var c = new Intl.Collator('sv'); var r = c.resolvedOptions(); return r.locale + ',' + r.usage + ',' + r.sensitivity;", "unicode"],
+  ["intl-nf-de", "return new Intl.NumberFormat('de').format(1234567.891);", "unicode"],
+  ["intl-nf-en", "return new Intl.NumberFormat('en').format(1234567.891);", "unicode"],
+  ["intl-nf-fr", "return new Intl.NumberFormat('fr').format(1234567.891);", "unicode"],
+  ["intl-nf-min-grouping", "return new Intl.NumberFormat('es').format(9876.5);", "unicode"],
+  ["intl-nf-hi-grouping", "return new Intl.NumberFormat('hi').format(1234567);", "unicode"],
+  ["intl-nf-percent", "return new Intl.NumberFormat('de', { style: 'percent' }).format(0.256);", "unicode"],
+  ["intl-nf-currency", "return new Intl.NumberFormat('de', { style: 'currency', currency: 'EUR' }).format(1234.5);", "unicode"],
+  ["intl-nf-currency-us", "return new Intl.NumberFormat('en', { style: 'currency', currency: 'USD' }).format(-99);", "unicode"],
+  ["intl-nf-currency-nl-minus", "return new Intl.NumberFormat('nl', { style: 'currency', currency: 'USD' }).format(-99);", "unicode"],
+  ["intl-nf-currency-ja-spacing", "return new Intl.NumberFormat('ja', { style: 'currency', currency: 'EUR' }).format(1234.5);", "unicode"],
+  ["intl-nf-fraction-digits", "return new Intl.NumberFormat('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(3.14159);", "unicode"],
+  ["intl-nf-no-grouping", "return new Intl.NumberFormat('en', { useGrouping: false }).format(1234567);", "unicode"],
+  ["intl-nf-resolved", "var r = new Intl.NumberFormat('de', { style: 'percent' }).resolvedOptions(); return r.locale + ',' + r.style + ',' + r.maximumFractionDigits;", "unicode"],
+  ["intl-dtf-default", "return new Intl.DateTimeFormat('en').format(new Date(Date.UTC(2021, 4, 7)));", "unicode"],
+  ["intl-dtf-gb", "return new Intl.DateTimeFormat('en-GB').format(new Date(Date.UTC(2021, 4, 7)));", "unicode"],
+  ["intl-dtf-de", "return new Intl.DateTimeFormat('de').format(new Date(Date.UTC(2021, 4, 7)));", "unicode"],
+  ["intl-dtf-ja", "return new Intl.DateTimeFormat('ja').format(new Date(Date.UTC(2021, 4, 7)));", "unicode"],
+  ["intl-dtf-hu", "return new Intl.DateTimeFormat('hu').format(new Date(Date.UTC(2021, 4, 7)));", "unicode"],
+  ["intl-dtf-long-month", "return new Intl.DateTimeFormat('de', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(Date.UTC(2021, 4, 7)));", "unicode"],
+  ["intl-dtf-inflected-month", "return new Intl.DateTimeFormat('fi', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(Date.UTC(2021, 4, 7)));", "unicode"],
+  ["intl-dtf-weekday", "return new Intl.DateTimeFormat('fr', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(Date.UTC(2021, 4, 7)));", "unicode"],
+  ["intl-dtf-korean-month", "return new Intl.DateTimeFormat('ko', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(Date.UTC(2021, 4, 7)));", "unicode"],
+  ["intl-dtf-buddhist-year", "return new Intl.DateTimeFormat('th').format(new Date(Date.UTC(2021, 4, 7)));", "unicode"],
+  ["intl-dtf-time", "return new Intl.DateTimeFormat('en', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(Date.UTC(2021, 4, 7, 15, 4, 5)));", "unicode"],
+  ["intl-number-tolocalestring", "return (1234567.891).toLocaleString('de');", "unicode"],
+  ["intl-number-tolocalestring-currency", "return (1234.5).toLocaleString('de', { style: 'currency', currency: 'EUR' });", "unicode"],
+  ["intl-date-tolocaledatestring", "return new Date(Date.UTC(2021, 4, 7)).toLocaleDateString('de');", "unicode"],
+  ["intl-date-tolocalestring", "return new Date(Date.UTC(2021, 4, 7, 15, 4, 5)).toLocaleString('fr');", "unicode"],
+  ["intl-unsupported-locale-falls-back", "return new Intl.NumberFormat('xx-YY').format(1234.5);", "unicode"],
+
   ["uni-coll-total-order", "var w = ['Straße', 'Strasse', 'ǆ', 'dz']; var f = w.slice().sort(function (a, b) { return a.localeCompare(b); }).join('|'); var r = w.slice().reverse().sort(function (a, b) { return a.localeCompare(b); }).join('|'); return f === r;", "unicode"],
 ];
 

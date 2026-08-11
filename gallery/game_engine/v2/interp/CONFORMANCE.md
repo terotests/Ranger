@@ -898,6 +898,7 @@ How it got here, each row a measured run of the same corpus against the C++
 | compare, pad, case and the regex engine in code units | 2410 | 84.18% |
 | normalize() and a real localeCompare | 2412 | 84.25% |
 | toLocale casing, ToUint16, and 27 collation locales | 2414 | 84.32% |
+| Intl.Collator, NumberFormat and DateTimeFormat | 2414 | 84.32% |
 
 The single largest step is not an ES2015 feature at all. `propertyHelper.js` --
 which 543 of these files include -- opens with
@@ -1055,6 +1056,52 @@ through an index rather than straight off the string. An all-ASCII subject skips
 the decode entirely, and hoisting the matcher out of the three scan loops paid
 most of the rest back; built per iteration it re-decoded the whole subject every
 time.
+
+#### Intl
+
+`Intl` did not exist, so `new Intl.NumberFormat('de').format(n)` was a
+ReferenceError -- and `Number.prototype.toLocaleString` and the `Date`
+toLocale family, which the spec defines IN TERMS of Intl, quietly answered the
+non-locale forms. A German document got English dates and English thousands
+separators with nothing to indicate it.
+
+Carried now: `Intl.Collator`, `Intl.NumberFormat`, `Intl.DateTimeFormat`,
+`Intl.getCanonicalLocales`, and the `toLocaleString` family delegating to them.
+`Collator`'s `compare` and the formatters' `format` are bound accessors as the
+spec requires -- `list.sort(collator.compare)` is how they are meant to be used,
+and a shared unbound method loses its object and silently sorts in the root
+order.
+
+The CLDR data is in `LocaleData.rgr` (generated) for 39 locales. A tag outside
+that set falls back to `en` AND SAYS SO through `resolvedOptions().locale`, so a
+program can tell it did not get what it asked for.
+
+What the data has to carry is the part worth recording, because almost none of
+it is derivable from a rule, and every rule attempted here was wrong for some
+locale:
+
+| | |
+|---|---|
+| affixes | recorded whole, not assembled from a sign and a symbol: German puts a space before the percent sign, Dutch puts the minus after the currency symbol |
+| currency spacing | two templates per locale, because CLDR only inserts a space where symbol and digits would run letter-into-digit -- Japanese writes `€1,234` and `US$ 1,234` from the same pattern |
+| minimum grouping | Spanish and Italian do not group a four-digit number at all, so 9876.5 is `9876,5` |
+| month and weekday names | taken from a formatted DATE, not standing alone: Finnish May is *toukokuu* alone and *toukokuuta* in a date, and Czech, Slovak, Polish and Russian inflect the same way |
+| field widths | observed per field, not assumed: Polish pads the month but not the day |
+| name vs number | flagged, not inferred from length -- Korean's long-date month is `5월`, two characters, exactly like a zero-padded number |
+| year offset | Thai defaults to the Buddhist calendar, so 2021 prints as 2564 |
+| the date-time joiner | carried as its own pattern: `, ` in English, a plain space in French, and derivable from neither half |
+
+Verified by formatting ten numbers, two percent and currency styles and six date
+and time styles in each of the 39 locales -- 273 lines -- and comparing every one
+against the host. `formatToParts` and `format` disagree in the host itself about
+the space before AM/PM, so the generator reassembles each pattern and checks it
+against `format()`, which is what real code calls.
+
+Not implemented, and not pretended: `formatToParts`, `formatRange`,
+`supportedLocalesOf` (which lives on each constructor, not on the namespace),
+`PluralRules`, `RelativeTimeFormat`, `ListFormat`, `Segmenter`, `DisplayNames`,
+and any calendar other than Gregorian and the Thai year offset. `DateTimeFormat`
+formats in UTC -- this realm has no time zone database.
 
 What is still not done:
 
