@@ -11257,6 +11257,15 @@ class ComponentEngine {
     ; ---- Bytecode tier: member/method helpers (walker-mirroring) ----------
 
     fn bcGetField:EvHandle (obj:EvHandle name:string) {
+        ; D-PROXY: a proxy read is the `get` trap, with all its post-conditions.
+        ; The compiled path had no proxy case at all, so a read inside a
+        ; function body went straight to the fused lookups below and answered
+        ; the TARGET's property -- the trap never ran, and none of its
+        ; invariants were checked. The walker's read has always gone through
+        ; getPropertyValue; now both do.
+        if (this.isProxyValue(obj)) {
+            return (this.getPropertyValue(obj name))
+        }
         ; Reading a property of null/undefined is a TypeError, same message
         ; as the walker's member read. The gate keeps `?.` on the walker, so
         ; reaching here with a nullish base always means a plain `.` / `[]`.
@@ -23863,6 +23872,12 @@ class ComponentEngine {
                 }
                 return 1
             }
+            return 0
+        }
+        ; No trap: the delete runs against the TARGET, with the target's own
+        ; rules. It removed the property unconditionally and answered true, so a
+        ; proxy over a frozen object deleted what the object itself refuses.
+        if (this.deleteRefused(dTgt key)) {
             return 0
         }
         this.unmapArgIndex(dTgt key)
