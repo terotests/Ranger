@@ -14,6 +14,8 @@ Import "EvHandle.rgr"
 Import "EvValueBridge.rgr"
 Import "Regex.rgr"
 Import "UnicodeCase.rgr"
+Import "UnicodeNorm.rgr"
+Import "UnicodeCollate.rgr"
 Import "DateTime.rgr"
 Import "../../../imaging/jpeg/JPEGMetadata.rgr"
 
@@ -1349,6 +1351,17 @@ class ComponentEngine {
     def caseLoMulti:[int]
     def caseCasedRanges:[int]
     def caseIgnRanges:[int]
+    ; D-NFC: the canonical normalization tables, loaded on first non-ASCII use.
+    def normTablesLoaded:boolean false
+    def normDecomp:[int]
+    def normCcc:[int]
+    def normCompose:[int]
+    ; D-COLLATE: the collation weights, loaded on first localeCompare.
+    def collTablesLoaded:boolean false
+    def collPunct:[int]
+    def collExpand:[int]
+    def collMarks:[int]
+    def collBases:[int]
     def jsonGap:string ""
     def jsonIndent:string ""
     def jsonHasReplacerFn:boolean false
@@ -24672,11 +24685,13 @@ class ComponentEngine {
                         return (EvValueBridge.taggedString(s))
                     }
                     if (name == "normalize") {
-                        ; This realm has no Unicode normalisation tables, so
-                        ; every form answers the string unchanged -- but the
-                        ; FORM is still validated: anything other than the four
-                        ; named ones is a RangeError, which is the part a
-                        ; program can observe without the tables.
+                        ; D-NFC. NFC and NFD are real; NFKC and NFKD answer the
+                        ; string unchanged, because the compatibility mappings
+                        ; are a separate and much larger table and they are
+                        ; LOSSY -- they fold ﬁ to fi and ² to 2. The form is
+                        ; validated either way: anything outside the four is a
+                        ; RangeError.
+                        def normForm:string "NFC"
                         if ((array_length args) > 0) {
                             def nfV:EvHandle (itemAt args 0)
                             if (false == (nfV.isUndefined())) {
@@ -24692,9 +24707,16 @@ class ComponentEngine {
                                 if (false == okForm) {
                                     return (this.throwSpecError("RangeError" "The normalization form should be one of NFC, NFD, NFKC, NFKD."))
                                 }
+                                normForm = nf
                             }
                         }
-                        return (EvValueBridge.taggedString(s))
+                        if (normForm == "NFKC") {
+                            return (EvValueBridge.taggedString(s))
+                        }
+                        if (normForm == "NFKD") {
+                            return (EvValueBridge.taggedString(s))
+                        }
+                        return (EvValueBridge.taggedString((this.normalizeString(s normForm))))
                     }
                     if (name == "localeCompare") {
                         ; The `that` argument is ToString'd, and a MISSING one is
@@ -24709,7 +24731,9 @@ class ComponentEngine {
                                 return (EvValueBridge.taggedUndefined())
                             }
                         }
-                        return (EvHandle.fromInt((this.compareStrings(s other))))
+                        ; D-COLLATE: a real three-level comparison, not a
+                        ; code-unit one -- see collateStrings.
+                        return (EvHandle.fromInt((this.collateStrings(s other))))
                     }
                     ; D-REGEX: search returns the INDEX of the first match, or
                     ; -1. lastIndex plays no part, so the pattern is matched
@@ -32159,6 +32183,532 @@ class ComponentEngine {
             i = (i + 1)
         }
         return out
+    }
+
+
+    ; ==========================================================================
+    ; D-NFC: canonical normalization.
+    ; --------------------------------------------------------------------------
+    ; `normalize()` existed as a no-op on every target, which is worse than not
+    ; existing: "café" typed with a combining accent and "café" typed with the
+    ; precomposed letter are the same word and compared unequal, and the one
+    ; call that exists to fix that quietly did nothing. Text arriving from a
+    ; file, a form or a keyboard mixes the two freely.
+    ;
+    ; §3.11 in three steps: decompose canonically, put the combining marks in
+    ; canonical order, and -- for the C forms -- compose back. The tables are in
+    ; UnicodeNorm.rgr (generated, see the tools/ script named at its head).
+    ; Hangul is not in them: its decomposition and composition are arithmetic.
+    fn ensureNormTables:void () {
+        if normTablesLoaded { return }
+        normDecomp = (UnicodeNorm.decomp())
+        normCcc = (UnicodeNorm.cccRuns())
+        normCompose = (UnicodeNorm.compose())
+        normTablesLoaded = true
+    }
+
+    ; The canonical combining class of `cp`, 0 for a starter. Binary search over
+    ; (start, end, class) triples.
+    fn cccOf:int (cp:int) {
+        def n:int (array_length normCcc)
+        def triples:int (this.intDiv(n 3))
+        def lo:int 0
+        def hi:int (triples - 1)
+        while (lo <= hi) {
+            def mid:int (bit_shr (lo + hi) 1)
+            def base:int (mid * 3)
+            def a:int (itemAt normCcc base)
+            def b:int (itemAt normCcc (base + 1))
+            if (cp < a) {
+                hi = (mid - 1)
+            } {
+                if (cp > b) {
+                    lo = (mid + 1)
+                } {
+                    return (itemAt normCcc (base + 2))
+                }
+            }
+        }
+        return 0
+    }
+
+    ; The composite of a starter and a following combining character, or -1.
+    ; The table is sorted, so this is a binary search on the pair.
+    fn composePair:int (a:int b:int) {
+        def n:int (array_length normCompose)
+        def triples:int (this.intDiv(n 3))
+        def lo:int 0
+        def hi:int (triples - 1)
+        while (lo <= hi) {
+            def mid:int (bit_shr (lo + hi) 1)
+            def base:int (mid * 3)
+            def ka:int (itemAt normCompose base)
+            def kb:int (itemAt normCompose (base + 1))
+            if (ka < a) {
+                lo = (mid + 1)
+            } {
+                if (ka > a) {
+                    hi = (mid - 1)
+                } {
+                    if (kb < b) {
+                        lo = (mid + 1)
+                    } {
+                        if (kb > b) {
+                            hi = (mid - 1)
+                        } {
+                            return (itemAt normCompose (base + 2))
+                        }
+                    }
+                }
+            }
+        }
+        return (0 - 1)
+    }
+
+    ; The canonical decomposition of `cp`, already fully expanded in the table,
+    ; appended to `out`. Empty means the character stands for itself.
+    fn decompOf:[int] (cp:int) {
+        def out:[int]
+        def n:int (array_length normDecomp)
+        def i:int 0
+        while (i < n) {
+            def c:int (itemAt normDecomp i)
+            def cnt:int (itemAt normDecomp (i + 1))
+            if (c == cp) {
+                def k:int 0
+                while (k < cnt) {
+                    push out (itemAt normDecomp ((i + 2) + k))
+                    k = (k + 1)
+                }
+                return out
+            }
+            if (c > cp) {
+                return out
+            }
+            i = ((i + 2) + cnt)
+        }
+        return out
+    }
+
+    ; §3.12: a Hangul syllable decomposes by arithmetic rather than by table --
+    ; there are 11172 of them and tabulating would triple the file for nothing.
+    fn hangulDecompose:[int] (cp:int) {
+        def out:[int]
+        def s:int (cp - 44032)
+        def n:int (this.intDiv(s 28))
+        def t:int (s - (n * 28))
+        def l:int (this.intDiv(n 21))
+        def v:int (n - (l * 21))
+        push out (4352 + l)
+        push out (4449 + v)
+        if (t > 0) {
+            push out (4519 + t)
+        }
+        return out
+    }
+
+    ; Integer division, through doubles. Ranger's `/` on two ints does not
+    ; type in every position, and these are all small non-negative values.
+    fn intDiv:int (a:int b:int) {
+        return (to_int ((to_double a) / (to_double b)))
+    }
+
+    fn isHangulSyllable:boolean (cp:int) {
+        if (cp < 44032) { return false }
+        if (cp > 55203) { return false }
+        return true
+    }
+
+    ; Step one and two: full canonical decomposition, then canonical ordering.
+    ; The ordering is a STABLE insertion sort by combining class, which is what
+    ; keeps two marks of the same class in the order they were written -- the
+    ; whole point of the rule.
+    fn nfdPoints:[int] (cps:[int]) {
+        this.ensureNormTables()
+        def out:[int]
+        def n:int (array_length cps)
+        def i:int 0
+        while (i < n) {
+            def cp:int (itemAt cps i)
+            if (this.isHangulSyllable(cp)) {
+                def hd:[int] (this.hangulDecompose(cp))
+                def hk:int 0
+                while (hk < (array_length hd)) {
+                    push out (itemAt hd hk)
+                    hk = (hk + 1)
+                }
+            } {
+                def d:[int] (this.decompOf(cp))
+                def dn:int (array_length d)
+                if (dn == 0) {
+                    push out cp
+                } {
+                    def dk:int 0
+                    while (dk < dn) {
+                        push out (itemAt d dk)
+                        dk = (dk + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        def m:int (array_length out)
+        def j:int 1
+        while (j < m) {
+            def c:int (this.cccOf((itemAt out j)))
+            if (c > 0) {
+                def k:int j
+                def moving:boolean true
+                while (moving && (k > 0)) {
+                    def prev:int (this.cccOf((itemAt out (k - 1))))
+                    if (prev > c) {
+                        def tmp:int (itemAt out k)
+                        set out k (itemAt out (k - 1))
+                        set out (k - 1) tmp
+                        k = (k - 1)
+                    } {
+                        moving = false
+                    }
+                }
+            }
+            j = (j + 1)
+        }
+        return out
+    }
+
+    ; Step three: canonical composition. A combining character composes into the
+    ; last starter unless something BETWEEN them blocks it -- another starter, or
+    ; a mark of the same or higher class.
+    fn nfcPoints:[int] (cps:[int]) {
+        def seq:[int] (this.nfdPoints(cps))
+        def n:int (array_length seq)
+        def out:[int]
+        if (n == 0) { return out }
+        push out (itemAt seq 0)
+        def starter:int 0
+        def lastClass:int (0 - 1)
+        if ((this.cccOf((itemAt seq 0))) != 0) {
+            lastClass = (this.cccOf((itemAt seq 0)))
+        }
+        def i:int 1
+        while (i < n) {
+            def cp:int (itemAt seq i)
+            def c:int (this.cccOf(cp))
+            def s:int (itemAt out starter)
+            def composite:int (0 - 1)
+            def open:boolean false
+            if ((this.cccOf(s)) == 0) {
+                if (lastClass < c) { open = true }
+                if (lastClass == (0 - 1)) { open = true }
+            }
+            if open {
+                ; Hangul composition, then the table.
+                if (((s >= 4352) && (s < 4371)) && ((cp >= 4449) && (cp < 4470))) {
+                    composite = (44032 + ((((s - 4352) * 21) + (cp - 4449)) * 28))
+                } {
+                    def isSyl:boolean (this.isHangulSyllable(s))
+                    def tOk:boolean false
+                    if isSyl {
+                        def sIdx:int (s - 44032)
+                        if ((sIdx - ((this.intDiv(sIdx 28)) * 28)) == 0) {
+                            if ((cp > 4519) && (cp < 4547)) { tOk = true }
+                        }
+                    }
+                    if tOk {
+                        composite = (s + (cp - 4519))
+                    } {
+                        composite = (this.composePair(s cp))
+                    }
+                }
+            }
+            if (composite >= 0) {
+                set out starter composite
+            } {
+                if (c == 0) {
+                    starter = (array_length out)
+                    lastClass = (0 - 1)
+                } {
+                    lastClass = c
+                }
+                push out cp
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; §22.1.3.14 String.prototype.normalize. The two compatibility forms, NFKC
+    ; and NFKD, are NOT implemented: they need a second and much larger mapping
+    ; table, and they are lossy -- they fold ﬁ to fi and ² to 2 -- so a program
+    ; that asks for one and silently gets a canonical form back would be worse
+    ; off than one told it is missing.
+    fn normalizeString:string (s:string form:string) {
+        if (this.asciiOnly(s)) {
+            return s
+        }
+        this.ensureNormTables()
+        def cps:[int] (this.codePointsOf(s))
+        def outCps:[int]
+        if (form == "NFD") {
+            outCps = (this.nfdPoints(cps))
+        } {
+            outCps = (this.nfcPoints(cps))
+        }
+        def out:string ""
+        def i:int 0
+        def n:int (array_length outCps)
+        while (i < n) {
+            out = (out + (this.cuFromCodePoint((itemAt outCps i))))
+            i = (i + 1)
+        }
+        return out
+    }
+
+
+    ; ==========================================================================
+    ; D-COLLATE: localeCompare.
+    ; --------------------------------------------------------------------------
+    ; It was a plain code-unit comparison, which is the one thing localeCompare
+    ; is specified NOT to be. Every accented word landed after every unaccented
+    ; one, so a sorted index came out with Éclair and Ångström in a clump at the
+    ; end rather than under E and A.
+    ;
+    ; Three levels, in the shape of UTS #10: base letters, then accents, then
+    ; case, then code units as a last resort. The weights are in
+    ; UnicodeCollate.rgr (generated, see the tools/ script named at its head),
+    ; which also records what this is not -- there are no locale tailorings, so
+    ; Swedish å still sorts under a rather than at the end of the alphabet.
+    fn ensureCollateTables:void () {
+        if collTablesLoaded { return }
+        collPunct = (UnicodeCollate.punctRuns())
+        collExpand = (UnicodeCollate.expansions())
+        collMarks = (UnicodeCollate.markRanks())
+        collBases = (UnicodeCollate.baseLetters())
+        collTablesLoaded = true
+    }
+
+    ; Punctuation sorts before digits and letters, in an order of its own that
+    ; is not code-point order -- ICU puts '_' ahead of the digits. -1 when the
+    ; character is not punctuation.
+    fn collPunctRank:int (cp:int) {
+        def n:int (array_length collPunct)
+        def triples:int (this.intDiv(n 3))
+        def lo:int 0
+        def hi:int (triples - 1)
+        while (lo <= hi) {
+            def mid:int (bit_shr (lo + hi) 1)
+            def base:int (mid * 3)
+            def a:int (itemAt collPunct base)
+            def b:int (itemAt collPunct (base + 1))
+            if (cp < a) {
+                hi = (mid - 1)
+            } {
+                if (cp > b) {
+                    lo = (mid + 1)
+                } {
+                    return ((itemAt collPunct (base + 2)) + (cp - a))
+                }
+            }
+        }
+        return (0 - 1)
+    }
+
+    ; A combining mark's secondary rank, or -1.
+    fn collMarkRank:int (cp:int) {
+        def n:int (array_length collMarks)
+        def pairs:int (bit_shr n 1)
+        def lo:int 0
+        def hi:int (pairs - 1)
+        while (lo <= hi) {
+            def mid:int (bit_shr (lo + hi) 1)
+            def base:int (mid * 2)
+            def a:int (itemAt collMarks base)
+            if (cp < a) {
+                hi = (mid - 1)
+            } {
+                if (cp > a) {
+                    lo = (mid + 1)
+                } {
+                    return (itemAt collMarks (base + 1))
+                }
+            }
+        }
+        return (0 - 1)
+    }
+
+    ; (secondary rank, base points...) for a letter that does not decompose but
+    ; belongs under a simpler one. Empty when there is none.
+    fn collBaseFor:[int] (cp:int) {
+        def out:[int]
+        def n:int (array_length collBases)
+        def i:int 0
+        while (i < n) {
+            def c:int (itemAt collBases i)
+            def sec:int (itemAt collBases (i + 1))
+            def cnt:int (itemAt collBases (i + 2))
+            if (c == cp) {
+                push out sec
+                def k:int 0
+                while (k < cnt) {
+                    push out (itemAt collBases ((i + 3) + k))
+                    k = (k + 1)
+                }
+                return out
+            }
+            i = ((i + 3) + cnt)
+        }
+        return out
+    }
+
+    ; The characters that compare as a SEQUENCE of others -- ß as "ss". Empty
+    ; when the character stands for itself.
+    fn collExpandFor:[int] (cp:int) {
+        def out:[int]
+        def n:int (array_length collExpand)
+        def i:int 0
+        while (i < n) {
+            def c:int (itemAt collExpand i)
+            def cnt:int (itemAt collExpand (i + 1))
+            if (c == cp) {
+                def k:int 0
+                while (k < cnt) {
+                    push out (itemAt collExpand ((i + 2) + k))
+                    k = (k + 1)
+                }
+                return out
+            }
+            i = ((i + 2) + cnt)
+        }
+        return out
+    }
+
+    ; The three sort keys of a string, laid end to end as
+    ; (primary count, primary..., secondary count, secondary..., tertiary...).
+    ; Built in one pass over the decomposed text.
+    fn collationKeys:[int] (s:string) {
+        this.ensureCollateTables()
+        def prim:[int]
+        def sec:[int]
+        def ter:[int]
+        def cps:[int] (this.nfdPoints((this.codePointsOf(s))))
+        def n:int (array_length cps)
+        def i:int 0
+        while (i < n) {
+            def cp:int (itemAt cps i)
+            def mr:int (this.collMarkRank(cp))
+            if (mr >= 0) {
+                push sec mr
+            } {
+                def lowered:string (this.unicodeCaseConvert((this.cuFromCodePoint(cp)) false))
+                def loCps:[int] (this.codePointsOf(lowered))
+                def loCp:int cp
+                if ((array_length loCps) > 0) { loCp = (itemAt loCps 0) }
+                def isUpper:int 0
+                if (loCp != cp) { isUpper = 1 }
+                def base:[int] (this.collBaseFor(cp))
+                if ((array_length base) == 0) {
+                    base = (this.collBaseFor(loCp))
+                }
+                def points:[int]
+                if ((array_length base) > 0) {
+                    push sec (itemAt base 0)
+                    def bk:int 1
+                    while (bk < (array_length base)) {
+                        push points (itemAt base bk)
+                        bk = (bk + 1)
+                    }
+                } {
+                    def ex:[int] (this.collExpandFor(cp))
+                    if ((array_length ex) > 0) {
+                        def ek:int 0
+                        while (ek < (array_length ex)) {
+                            push points (itemAt ex ek)
+                            ek = (ek + 1)
+                        }
+                    } {
+                        push points loCp
+                    }
+                }
+                def pk:int 0
+                while (pk < (array_length points)) {
+                    def bcp:int (itemAt points pk)
+                    def pr:int (this.collPunctRank(bcp))
+                    if (pr >= 0) {
+                        push prim pr
+                    } {
+                        push prim (100000 + bcp)
+                    }
+                    push ter isUpper
+                    pk = (pk + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        def out:[int]
+        def pn:int (array_length prim)
+        push out pn
+        def a:int 0
+        while (a < pn) {
+            push out (itemAt prim a)
+            a = (a + 1)
+        }
+        def sn:int (array_length sec)
+        push out sn
+        def b:int 0
+        while (b < sn) {
+            push out (itemAt sec b)
+            b = (b + 1)
+        }
+        def tn:int (array_length ter)
+        push out tn
+        def c:int 0
+        while (c < tn) {
+            push out (itemAt ter c)
+            c = (c + 1)
+        }
+        return out
+    }
+
+    ; Compare one level of two keys, given where it starts in each.
+    fn collLevelCmp:int (ka:[int] ia:int kb:[int] ib:int) {
+        def na:int (itemAt ka ia)
+        def nb:int (itemAt kb ib)
+        def m:int na
+        if (nb < m) { m = nb }
+        def i:int 0
+        while (i < m) {
+            def x:int (itemAt ka ((ia + 1) + i))
+            def y:int (itemAt kb ((ib + 1) + i))
+            if (x < y) { return (0 - 1) }
+            if (x > y) { return 1 }
+            i = (i + 1)
+        }
+        if (na < nb) { return (0 - 1) }
+        if (na > nb) { return 1 }
+        return 0
+    }
+
+    fn collateStrings:int (a:string b:string) {
+        if (a == b) { return 0 }
+        def aAscii:boolean (this.asciiOnly(a))
+        def bAscii:boolean (this.asciiOnly(b))
+        def ka:[int] (this.collationKeys(a))
+        def kb:[int] (this.collationKeys(b))
+        def ia:int 0
+        def ib:int 0
+        def lvl:int 0
+        while (lvl < 3) {
+            def c:int (this.collLevelCmp(ka ia kb ib))
+            if (c != 0) { return c }
+            ia = ((ia + 1) + (itemAt ka ia))
+            ib = ((ib + 1) + (itemAt kb ib))
+            lvl = (lvl + 1)
+        }
+        ; Equal at every level but not the same text: fall back to code units,
+        ; because localeCompare must be a strict total order -- returning 0 for
+        ; two different strings makes Array#sort behave differently depending
+        ; on the order the elements happened to be in.
+        return (this.compareStrings(a b))
     }
 
     ; ==========================================================================

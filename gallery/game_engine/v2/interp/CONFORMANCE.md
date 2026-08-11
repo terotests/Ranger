@@ -825,9 +825,9 @@ after excluding intl402, Temporal, module and async flags:
 
 | | |
 |---|---|
-| **ES2015 overall** | **83.79% (2399/2863)** |
-| pass | 2399 |
-| fail (ran, wrong answer) | 448 |
+| **ES2015 overall** | **84.25% (2412/2863)** |
+| pass | 2412 |
+| fail (ran, wrong answer) | 435 |
 | crash (did not run to completion) | 16 |
 
 The fail/crash split changed meaning partway through this work. An
@@ -895,6 +895,8 @@ How it got here, each row a measured run of the same corpus against the C++
 | the temporal dead zone for let and const | 2390 | 83.48% |
 | one string model -- code units -- on every target | 2395 | 83.65% |
 | non-ASCII identifiers, on the byte-model targets | 2399 | 83.79% |
+| compare, pad, case and the regex engine in code units | 2410 | 84.18% |
+| normalize() and a real localeCompare | 2412 | 84.25% |
 
 The single largest step is not an ES2015 feature at all. `propertyHelper.js` --
 which 543 of these files include -- opens with
@@ -1008,16 +1010,66 @@ before the lookup fixes every category at once -- Cyrillic, accented Latin,
 CJK, Greek, runic, and supplementary-plane letters like `𝒜`, in
 identifiers, member names, object-literal keys and parameter names.
 
-Two things are still not done, and are gaps rather than bugs:
+#### Five paths to the text, not one
 
-- **Non-ASCII casing.** `"é".toUpperCase()` answers `"é"` unchanged. It is
-  not corrupted, it is unimplemented: correct casing needs the Unicode
-  special-casing tables, not a rule. 6 test262 files.
-- **Supplementary characters on the Rust target.** Rust's char model counts
-  `"𝒜"` as one unit where JS counts a surrogate PAIR, so `.length` answers
-  1 there. The C++ and es6 builds are correct. Closing it means teaching the
-  layer a third model that synthesises surrogates, not just a different
-  index base.
+Writing the seventy `unicode` probes down found that the index layer was only
+one of FIVE ways the engine reached a character, and that the other four each
+had the defect in its own form. Every row below was a case where the three
+targets answered differently FROM EACH OTHER, which is the real hazard: not a
+missing feature, but the same guest program meaning different things depending
+on which build ran it.
+
+| path | what it did | why |
+|---|---|---|
+| `<` and `sort()` | `'é' < 'z'` answered true | §7.2.13 compares code units; this read raw `charAt`, a SIGNED char on the byte target, so every non-ASCII byte compared as negative. `sort()` with no comparator is defined in terms of it, so every sorted index came out scrambled. `strCmp` was a second copy and only the other one had been fixed |
+| `padStart`/`padEnd` | `'é'.padStart(4, '.')` gave two dots; `'日本'.padEnd(5)` gave none | measured in bytes, so the byte count had already passed the target width |
+| `toUpperCase` | `'café'` → `'CAFÉ'` on es6 and Rust, `'CAFé'` on C++ | each build used its host language's case function, and the hosts disagree |
+| the RegExp engine | `/\w+/` over `'naïve café'` → `['na', 'e ', 'afé']` | the matcher stepped the subject a byte at a time and `m.index` came back as a byte offset, so a character was split in half |
+| `JSON.parse` | threw SyntaxError on anything the engine had itself stringified with a non-ASCII character in it | the scanner read `substring` (code points) and `charAt` (bytes) as one index, and a negative byte read as a control character |
+
+Casing, normalization and collation are DATA, not rules, and the data lives in
+three generated files -- `UnicodeCase.rgr`, `UnicodeNorm.rgr`,
+`UnicodeCollate.rgr` -- as ordinary Ranger array literals. They are committed
+source: no target needs a generator in order to build. The generators sit beside
+them in `migrate/tools/`, read the UCD files when pointed at them, and verify
+their output against all 1.1M code points before they will write anything.
+
+Two model bugs surfaced the same way. **Rust is a third string model**, not the
+es6 one: `strlen` counts characters, so it is not a byte model, but a
+supplementary character is one character where JS counts a surrogate PAIR, so
+it is not the unit model either -- and its native string SEARCH answers in
+bytes regardless. Taking it for es6 is what made `"日本".length` answer 1 there.
+And the string ITERATOR ran the UTF-8 decoder unconditionally on all three
+targets, so `[...'héllo']` came out as `h`, `"éll"`, `o` on es6 and Rust both.
+That one had been there all along and was invisible until it was measured.
+
+The `u` flag went from ignored to implemented on the way through, because the
+old byte-stepping matcher had been passing its test262 fixtures by accident:
+AdvanceStringIndex in the matcher and in `@@match`/`@@replace`/`@@split`, and
+`.` and a character class consume a whole code point.
+
+What this cost: 6% on the QuickJS-normalized benchmark, all of it the regex row,
+and it is the price of correct positions -- the matcher reads its subject
+through an index rather than straight off the string. An all-ASCII subject skips
+the decode entirely, and hoisting the matcher out of the three scan loops paid
+most of the rest back; built per iteration it re-decoded the whole subject every
+time.
+
+What is still not done:
+
+- **NFKC and NFKD.** The compatibility forms need a second and much larger
+  mapping table, and they are lossy -- they fold ﬁ to fi and ² to 2. They
+  answer the string unchanged rather than silently returning a canonical form,
+  which would leave a program worse off than being told the form is missing.
+- **Locale tailorings in `localeCompare`.** The comparison is three-level in
+  the shape of UTS #10 and agrees with ICU on every pair the generator checks
+  (6006/6006 over Latin, Greek and Cyrillic words, digits and punctuation), but
+  it is the root order: Swedish å sorts under a rather than at the end of the
+  alphabet, because there are no per-locale tailorings.
+- **Supplementary characters through a Rust slice.** A cut that lands INSIDE a
+  surrogate pair has no representation on that target -- its string type holds
+  characters, and half a pair is not one. The half is dropped rather than faked.
+  C++ and es6 are exact.
 
 #### What resumable generators cost the rest of the engine
 
@@ -1056,6 +1108,7 @@ when asking whether ES2015 work cost anything:
 | after the ES5 long tail | 8061 | 99.33% |
 | after the Unicode string model | 8069 | 99.43% |
 | after non-ASCII identifiers | 8071 | 99.46% |
+| after the five text paths below | 8077 | 99.53% |
 
 The ES2015 work did not cost ES5 anything; it gained 665 files, most of them
 from the same detached-statics fix.
@@ -1130,14 +1183,12 @@ completed lazily on the walker's member path; `caller` and `arguments` are
 poisoned there. The compiled `get_field` checked none of it and now
 declines all three names.
 
-What remains is genuinely long-tail: annexB RegExp escapes (7), Unicode
-special-casing in `toUpperCase`/`toLowerCase` (6, which needs the casing
-tables rather than a rule -- see "Unicode: one string model" above), a
-handful of RegExp fixtures that match a non-ASCII literal (`/\xFF/.exec` --
-the code-unit layer covers the string builtins, the pattern matcher is
-still its own path), and single files spread across a dozen areas. The
-`String.fromCharCode` and code-unit-width rows above are now closed on
-every target. Accessor properties
+What remains is genuinely long-tail: annexB RegExp escapes (7) and single
+files spread across a dozen areas. The `String.fromCharCode` and
+code-unit-width rows above, the six special-casing files, and the RegExp
+fixtures that match a non-ASCII literal are all closed on every target --
+see "Unicode: one string model" and "Five paths to the text" above.
+Accessor properties
 are also listed after data properties by `getOwnPropertyNames` rather than
 in insertion order, because they live in a separate map; fixing that means
 giving the property bag one order across both.

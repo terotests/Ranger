@@ -1785,6 +1785,43 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["uni-re-capture", "var m = /(é)(l)/.exec('héllo'); return m[1] + m[2] + ':' + m.index;", "unicode"],
   ["uni-re-global-count", "return ('日a日b日'.match(/日/g) || []).length;", "unicode"],
   ["uni-re-replace-fn-offset", "return 'héllo'.replace(/l/, function (m, off) { return '[' + off + ']'; });", "unicode"],
+
+  // normalize() existed as a no-op, which is worse than not existing: "café"
+  // typed with a combining accent and "café" typed with the precomposed letter
+  // are the same word, they compared unequal, and the one call that exists to
+  // fix that quietly did nothing.
+  ["uni-nfc-composes", "return 'cafe\u0301'.normalize('NFC') === 'caf\u00e9';", "unicode"],
+  ["uni-nfd-decomposes", "return 'caf\u00e9'.normalize('NFD') === 'cafe\u0301';", "unicode"],
+  ["uni-nfd-length", "return 'caf\u00e9'.normalize('NFD').length;", "unicode"],
+  ["uni-nfc-idempotent", "return '\u00c5'.normalize('NFD').normalize('NFC') === '\u00c5';", "unicode"],
+  ["uni-nfc-angstrom", "return '\u212b'.normalize('NFC').charCodeAt(0);", "unicode"],
+  ["uni-nfd-reorders", "return 'q\u0307\u0323'.normalize('NFD') === 'q\u0323\u0307';", "unicode"],
+  ["uni-nfc-multi-accent", "return 'q\u0307\u0323'.normalize('NFC').length;", "unicode"],
+  ["uni-nfd-hangul", "return '\uac01'.normalize('NFD').length;", "unicode"],
+  ["uni-nfc-hangul", "return '\u1100\u1161\u11a8'.normalize('NFC') === '\uac01';", "unicode"],
+  ["uni-nfc-kannada", "return '\u0cc6\u0cc2\u0cd5'.normalize('NFC').charCodeAt(0);", "unicode"],
+  ["uni-nfc-exclusion", "return '\u0f76'.normalize('NFC').length;", "unicode"],
+  ["uni-nfc-ascii-untouched", "return 'abc'.normalize('NFD');", "unicode"],
+  ["uni-nfc-sharp-s", "return 'Stra\u00dfe'.normalize('NFC');", "unicode"],
+  ["uni-normalize-bad-form", "try { 'a'.normalize('NFX'); return 'no-throw'; } catch (e) { return e.name; }", "unicode"],
+
+  // localeCompare was a code-unit comparison, which is the one thing it is
+  // specified NOT to be: every accented word sorted after every unaccented
+  // one, so an index came out with Éclair and Ångström in a clump at the end
+  // rather than under E and A.
+  ["uni-coll-accent-under-letter", "return 'é'.localeCompare('z');", "unicode"],
+  ["uni-coll-case-after-lower", "return 'a'.localeCompare('B');", "unicode"],
+  ["uni-coll-accent-secondary", "return 'resume'.localeCompare('résumé');", "unicode"],
+  ["uni-coll-accent-order", "return 'é'.localeCompare('è');", "unicode"],
+  ["uni-coll-stroke-under-o", "return 'Ø'.localeCompare('z');", "unicode"],
+  ["uni-coll-expansion", "return 'Straße'.localeCompare('Strasse');", "unicode"],
+  ["uni-coll-equal", "return 'x'.localeCompare('x');", "unicode"],
+  ["uni-coll-sort-index", "return ['Zürich', 'apple', 'Éclair', 'Ångström', 'banana', 'Ostrich'].sort(function (a, b) { return a.localeCompare(b); }).join('|');", "unicode"],
+  ["uni-coll-case-tiebreak", "return ['eclair', 'ECLAIR', 'Éclair'].sort(function (a, b) { return a.localeCompare(b); }).join('|');", "unicode"],
+  ["uni-coll-greek", "return ['ΟΔΟΣ', 'οδος', 'άλφα'].sort(function (a, b) { return a.localeCompare(b); }).join('|');", "unicode"],
+  ["uni-coll-cyrillic", "return ['ПРИВЕТ', 'привет', 'мир'].sort(function (a, b) { return a.localeCompare(b); }).join('|');", "unicode"],
+  ["uni-coll-punct-before-digit", "return ['1', '_', '.'].sort(function (a, b) { return a.localeCompare(b); }).join('|');", "unicode"],
+  ["uni-coll-total-order", "var w = ['Straße', 'Strasse', 'ǆ', 'dz']; var f = w.slice().sort(function (a, b) { return a.localeCompare(b); }).join('|'); var r = w.slice().reverse().sort(function (a, b) { return a.localeCompare(b); }).join('|'); return f === r;", "unicode"],
 ];
 
 /**
