@@ -19,9 +19,9 @@
 ; into the quantifier and it tries the next count. Captures are engine state,
 ; saved and restored around every attempt that can fail.
 ;
-; What is deliberately absent: the `u` and `y` flags, named groups, lookbehind,
-; and Unicode property escapes. All are ES2015 or later; this is the ES5
-; surface the suite in front of us is written against.
+; What is deliberately absent: Unicode property escapes (\p{...}) and the `v`
+; flag. The `u`, `y`, `s` and `d` flags, named groups and lookbehind are all
+; here.
 ; =============================================================================
 
 ; Node kinds. Held as an int rather than a subclass hierarchy because Ranger has
@@ -34,6 +34,7 @@
 ;   5 ANCHOR    ^ $ \b \B
 ;   6 BACKREF   \1 .. \9
 ;   7 LOOK      (?=...) / (?!...)
+;   8 LOOKBEHIND (?<=...) / (?<!...)
 class RegexNode {
     def kind:int 0
     def ch:int 0
@@ -53,6 +54,10 @@ class RegexNode {
     def anchorKind:int 0
     ; LOOK: negative lookahead when true.
     def lookNegate:boolean false
+    ; BACKREF by NAME -- `\k<n>`. The name rather than the index, because a
+    ; named backreference may point FORWARD to a group the parser has not
+    ; reached yet; it is resolved against the program at match time.
+    def groupName:string ""
 }
 
 ; A compiled pattern: the alternatives at the top level, plus how many capture
@@ -71,6 +76,13 @@ class RegexProgram {
     ; resume between its halves -- which is what makes /\udf06/u fail to match
     ; the low half of '\ud834\udf06' rather than finding it at index 1.
     def unicode:boolean false
+    ; The `s` flag: `.` stops excluding the line terminators.
+    def dotAll:boolean false
+    ; The `d` flag: exec additionally reports where each capture ran.
+    def hasIndices:boolean false
+    ; Capture NAMES, indexed by group number -- "" for an unnamed group, and
+    ; slot 0 unused so the index is the group number itself.
+    def groupNames:[string]
     def valid:boolean true
     def errorMessage:string ""
     def source:string ""
@@ -224,6 +236,12 @@ class RegexCompiler {
     def srcLen:int 0
     def pos:int 0
     def groupCount:int 0
+    ; Capture names as they are met, indexed by group number. Grown to keep
+    ; step with groupCount so the index never has to be searched for.
+    def groupNames:[string]
+    ; The `u` flag, needed while PARSING: a Unicode-mode pattern is stricter
+    ; about what an escape may be.
+    def uMode:boolean false
     def failed:boolean false
     def failMessage:string ""
 
@@ -235,6 +253,9 @@ class RegexCompiler {
         srcLen = (array_length srcU)
         pos = 0
         groupCount = 0
+        def freshNames:[string]
+        push freshNames ""
+        groupNames = freshNames
         failed = false
         failMessage = ""
         def fi:int 0
@@ -245,6 +266,9 @@ class RegexCompiler {
             if (f == "g") { prog.global = true }
             if (f == "y") { prog.sticky = true }
             if (f == "u") { prog.unicode = true }
+            if (f == "u") { uMode = true }
+            if (f == "s") { prog.dotAll = true }
+            if (f == "d") { prog.hasIndices = true }
             fi = (fi + 1)
         }
         prog.alternatives = (this.parseAlternatives())
@@ -257,6 +281,7 @@ class RegexCompiler {
             }
         }
         prog.groupCount = groupCount
+        prog.groupNames = groupNames
         prog.valid = (false == failed)
         prog.errorMessage = failMessage
         return prog
@@ -592,26 +617,68 @@ class RegexCompiler {
                 pos = (pos + 2)
             }
             if (nx == 60) {
-                ; (?<  — lookbehind and named groups are out of scope; treat the
-                ; whole thing as non-capturing so the pattern still compiles.
-                capturing = false
-                pos = (pos + 2)
-                while (pos < srcLen) {
-                    if ((this.uStr(pos)) == ">") {
-                        pos = (pos + 1)
-                        pos = srcLen
+                ; `(?<` is three things at once: (?<= and (?<! are lookbehind,
+                ; and anything else is a NAMED capture group.
+                def nx2:int (this.peekAt(2))
+                if (nx2 == 61) {
+                    g.kind = 8
+                    g.lookNegate = false
+                    capturing = false
+                    pos = (pos + 3)
+                } {
+                    if (nx2 == 33) {
+                        g.kind = 8
+                        g.lookNegate = true
+                        capturing = false
+                        pos = (pos + 3)
                     } {
-                        pos = (pos + 1)
+                        ; (?<name> — a capture like any other, plus a name.
+                        pos = (pos + 2)
+                        def gname:string ""
+                        def naming:boolean true
+                        while (naming && (pos < srcLen)) {
+                            def nc:string (this.uStr(pos))
+                            if (nc == ">") {
+                                naming = false
+                                pos = (pos + 1)
+                            } {
+                                gname = (gname + nc)
+                                pos = (pos + 1)
+                            }
+                        }
+                        if ((strlen gname) == 0) {
+                            failed = true
+                            failMessage = "Invalid capture group name"
+                            return g
+                        }
+                        groupCount = (groupCount + 1)
+                        g.groupIndex = groupCount
+                        ; groupNames is indexed BY GROUP NUMBER, so it is padded
+                        ; up to AND INCLUDING this group before the name is
+                        ; written: `set` past the end grows a JS array and
+                        ; segfaults a native one.
+                        while ((array_length groupNames) < (groupCount + 1)) {
+                            push groupNames ""
+                        }
+                        set groupNames groupCount gname
+                        g.children = (this.parseAlternatives())
+                        if (this.peekIs(")")) {
+                            pos = (pos + 1)
+                        } {
+                            failed = true
+                            failMessage = "Unterminated group"
+                        }
+                        return g
                     }
                 }
-                failed = true
-                failMessage = "lookbehind and named groups are not supported"
-                return g
             }
         }
         if capturing {
             groupCount = (groupCount + 1)
             g.groupIndex = groupCount
+            while ((array_length groupNames) < (groupCount + 1)) {
+                push groupNames ""
+            }
         }
         g.children = (this.parseAlternatives())
         if (this.peekIs(")")) {
@@ -834,6 +901,46 @@ class RegexCompiler {
             push sc.shorthands short
             return sc
         }
+        ; \p{...} / \P{...} — Unicode property escapes. There is no general
+        ; category table here, and matching the letters `p{L}` literally would
+        ; answer a confident FALSE for a pattern the guest expects to work, so
+        ; this refuses in Unicode mode rather than misreading it. Outside
+        ; Unicode mode `\p` is an identity escape and means the letter p, which
+        ; is what the fall-through below already does.
+        if (uMode) {
+            if ((e == 112) || (e == 80)) {
+                failed = true
+                failMessage = "Unicode property escapes are not supported"
+                def pe (new RegexNode)
+                pe.kind = 0
+                return pe
+            }
+        }
+        ; `\k<name>` — a backreference by NAME. It may point forward, so the
+        ; name rather than an index is carried and resolved at match time.
+        if (e == 107) {
+            if ((this.peekAt(2)) == 60) {
+                def kp:int (pos + 3)
+                def kname:string ""
+                def reading:boolean true
+                while (reading && (kp < srcLen)) {
+                    def kc:string (this.uStr(kp))
+                    if (kc == ">") {
+                        reading = false
+                    } {
+                        kname = (kname + kc)
+                        kp = (kp + 1)
+                    }
+                }
+                if (false == reading) {
+                    pos = (kp + 1)
+                    def kb (new RegexNode)
+                    kb.kind = 6
+                    kb.groupName = kname
+                    return kb
+                }
+            }
+        }
         ; \1 .. \9 — a backreference, but only up to the number of groups the
         ; pattern actually has; beyond that it is an octal escape.
         if ((e >= 49) && (e <= 57)) {
@@ -911,6 +1018,10 @@ class RegexCont {
     ; The capture to close, and where this repetition began.
     def groupIndex:int 0
     def groupStart:int 0
+    ; A LOOKBEHIND runs its sub-pattern with a required end position: the whole
+    ; question is whether it can finish exactly where the lookbehind sits. -1
+    ; means "anywhere", which is every other use of the end continuation.
+    def mustEnd:int (0 - 1)
 }
 
 class RegexMatcher {
@@ -1066,6 +1177,13 @@ class RegexMatcher {
         return c
     }
 
+    fn endContAt:RegexCont (p:int) {
+        def c (new RegexCont)
+        c.isEnd = true
+        c.mustEnd = p
+        return c
+    }
+
     ; Match nodes[i..] starting at `pos`, then whatever `cont` says comes after.
     ; Returns the end position, or -1.
     fn matchList:int (nodes:[RegexNode] i:int pos:int cont:RegexCont) {
@@ -1075,6 +1193,11 @@ class RegexMatcher {
         }
         if (i >= (array_length nodes)) {
             if cont.isEnd {
+                if (cont.mustEnd >= 0) {
+                    if (pos != cont.mustEnd) {
+                        return (0 - 1)
+                    }
+                }
                 return pos
             }
             return (this.resumeCont(cont pos))
@@ -1230,8 +1353,11 @@ class RegexMatcher {
             ; two code units. Consuming a single unit made /./gu count an emoji
             ; twice and left the cursor between the halves of a pair.
             def c:int (this.cAt(pos))
-            if ((c == 10) || (c == 13)) { return (0 - 1) }
-            if ((c == 8232) || (c == 8233)) { return (0 - 1) }
+            ; ...unless `s` is set, which is the entire content of that flag.
+            if (false == p.dotAll) {
+                if ((c == 10) || (c == 13)) { return (0 - 1) }
+                if ((c == 8232) || (c == 8233)) { return (0 - 1) }
+            }
             return (this.advanceIndex(pos p.unicode))
         }
         if (n.kind == 2) {
@@ -1257,6 +1383,13 @@ class RegexMatcher {
             }
             return (0 - 1)
         }
+        if (n.kind == 8) {
+            def behind:boolean (this.lookbehindHolds(n pos))
+            if (behind != n.lookNegate) {
+                return pos
+            }
+            return (0 - 1)
+        }
         ; A GROUP never reaches here: it needs the rest of the pattern in order
         ; to backtrack, so matchQuantified handles it with a continuation.
         return (0 - 1)
@@ -1264,6 +1397,22 @@ class RegexMatcher {
 
     fn matchBackref:int (n:RegexNode pos:int) {
         def gi:int n.ch
+        if ((strlen n.groupName) > 0) {
+            def bp:RegexProgram (unwrap prog)
+            gi = 0
+            def gn:int 1
+            while (gn < (array_length bp.groupNames)) {
+                if ((itemAt bp.groupNames gn) == n.groupName) {
+                    gi = gn
+                    gn = (array_length bp.groupNames)
+                } {
+                    gn = (gn + 1)
+                }
+            }
+            ; A name the pattern does not define matches empty, the same way an
+            ; out-of-range numeric reference does.
+            if (gi == 0) { return pos }
+        }
         if (gi >= (array_length capStart)) {
             ; A reference to a group the pattern does not have matches empty.
             return pos
@@ -1305,6 +1454,34 @@ class RegexMatcher {
                 return true
             }
             ai = (ai + 1)
+        }
+        this.restoreCaptures(savedS savedE)
+        return false
+    }
+
+    ; A lookbehind asks whether the sub-pattern matches the text ENDING here.
+    ; It is answered by trying every start position and requiring the sub-match
+    ; to finish exactly at `pos` -- which is what the mustEnd continuation is
+    ; for, so the sub-pattern still backtracks properly rather than being
+    ; accepted on its first (possibly too long) reading.
+    fn lookbehindHolds:boolean (n:RegexNode pos:int) {
+        def savedS:[int] (this.copyInts(capStart))
+        def savedE:[int] (this.copyInts(capEnd))
+        def from:int pos
+        while (from >= 0) {
+            def ai:int 0
+            while (ai < (array_length n.children)) {
+                def alt:RegexNode (itemAt n.children ai)
+                def end:int (this.matchList(alt.children 0 from (this.endContAt(pos))))
+                if (end >= 0) {
+                    if n.lookNegate {
+                        this.restoreCaptures(savedS savedE)
+                    }
+                    return true
+                }
+                ai = (ai + 1)
+            }
+            from = (from - 1)
         }
         this.restoreCaptures(savedS savedE)
         return false

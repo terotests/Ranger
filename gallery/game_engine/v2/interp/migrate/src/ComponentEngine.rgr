@@ -6389,6 +6389,22 @@ class ComponentEngine {
         if (stmtK == 40) {
             return
         }
+        ; D-CLASSSTATIC: a CLASS declaration is already bound by hoisting too --
+        ; its value, prototype and heritage are built there so an error in the
+        ; heritage is raised early. Its static initialisers are NOT: they are
+        ; ordinary code that reads the scope around the class, and running them
+        ; during hoisting showed them every enclosing `var` as undefined. They
+        ; run here, where the declaring scope is live, and once only.
+        if (stmtK == 25) {
+            if ((strlen stmt.name) > 0) {
+                def cvS:EvHandle (this.classValueFor(stmt.name))
+                if scriptThrew {
+                    return
+                }
+                this.runClassStaticInit(stmt.name cvS)
+            }
+            return
+        }
         if (stmtK == 35) {
             if stmt.left {
                 scriptReturnValue = (this.evaluateExpr((unwrap stmt.left)))
@@ -25865,7 +25881,7 @@ class ComponentEngine {
                             if (false == maOne.matched) {
                                 maLooping = false
                             } {
-                                push maItems (this.regexResultArray(maOne s))
+                                push maItems (this.regexResultArray(maOne s maProg))
                                 if (maOne.end == maOne.start) {
                                     maFrom = (this.advanceStringIndex(s maOne.end maProg.unicode))
                                 } {
@@ -26387,7 +26403,7 @@ class ComponentEngine {
                                         }
                                         outR = (outR + (this.toStringOf(cbOut)))
                                     } {
-                                        outR = (outR + (this.expandReplacement(repText s one)))
+                                        outR = (outR + (this.expandReplacement(repText s one rprog.groupNames)))
                                     }
                                     if (one.end == one.start) {
                                         ; An empty match consumes one character
@@ -26436,7 +26452,8 @@ class ComponentEngine {
                             def lit (new RegexMatch)
                             lit.start = at
                             lit.end = (at + (strlen find))
-                            repl = (this.expandReplacement(repText s lit))
+                            def noNames:[string]
+                            repl = (this.expandReplacement(repText s lit noNames))
                         }
                         def before:string (substring s 0 at)
                         def after:string (substring s (at + (strlen find)) (strlen s))
@@ -30054,38 +30071,31 @@ class ComponentEngine {
         return (this.makeRegexValue(pattern flags))
     }
 
-    ; D-REGEX: the ES5 flag set is exactly g, i and m, each at most once.
-    ; Anything else is a SyntaxError; the flags string used to be scanned for
-    ; the three it knew and everything else silently ignored.
+    ; D-REGEX: the flag set is d, g, i, m, s, u and y, each at most once.
+    ; Anything else is a SyntaxError. The list used to be the ES5 three, so a
+    ; pattern built with `new RegExp(p, 'u')` was rejected outright even though
+    ; the compiler understood the flag -- the literal form reached the compiler
+    ; directly and the constructor form did not.
     fn regexFlagError:string (flags:string) {
-        def seenG:boolean false
-        def seenI:boolean false
-        def seenM:boolean false
+        def seen:string ""
         def i:int 0
         while (i < (strlen flags)) {
             def f:string (substring flags i (i + 1))
-            if (f == "g") {
-                if seenG {
-                    return ("Invalid flags supplied to RegExp constructor '" + (flags + "'"))
-                }
-                seenG = true
-            } {
-                if (f == "i") {
-                    if seenI {
-                        return ("Invalid flags supplied to RegExp constructor '" + (flags + "'"))
-                    }
-                    seenI = true
-                } {
-                    if (f == "m") {
-                        if seenM {
-                            return ("Invalid flags supplied to RegExp constructor '" + (flags + "'"))
-                        }
-                        seenM = true
-                    } {
-                        return ("Invalid flags supplied to RegExp constructor '" + (flags + "'"))
-                    }
-                }
+            def known:boolean false
+            if (f == "d") { known = true }
+            if (f == "g") { known = true }
+            if (f == "i") { known = true }
+            if (f == "m") { known = true }
+            if (f == "s") { known = true }
+            if (f == "u") { known = true }
+            if (f == "y") { known = true }
+            if (false == known) {
+                return ("Invalid flags supplied to RegExp constructor '" + (flags + "'"))
             }
+            if ((indexOf seen f) >= 0) {
+                return ("Invalid flags supplied to RegExp constructor '" + (flags + "'"))
+            }
+            seen = (seen + f)
             i = (i + 1)
         }
         return ""
@@ -30107,6 +30117,17 @@ class ComponentEngine {
         r.setAttrs("ignoreCase" false false false)
         r.setMember("multiline" (EvValueBridge.taggedBoolean(((indexOf flags "m") >= 0))))
         r.setAttrs("multiline" false false false)
+        ; The ES2015+ flag accessors. Each is a real property here rather than a
+        ; prototype getter, which is how global/ignoreCase/multiline are already
+        ; carried; absent, `/x/s.dotAll` was undefined.
+        r.setMember("sticky" (EvValueBridge.taggedBoolean(((indexOf flags "y") >= 0))))
+        r.setAttrs("sticky" false false false)
+        r.setMember("unicode" (EvValueBridge.taggedBoolean(((indexOf flags "u") >= 0))))
+        r.setAttrs("unicode" false false false)
+        r.setMember("dotAll" (EvValueBridge.taggedBoolean(((indexOf flags "s") >= 0))))
+        r.setAttrs("dotAll" false false false)
+        r.setMember("hasIndices" (EvValueBridge.taggedBoolean(((indexOf flags "d") >= 0))))
+        r.setAttrs("hasIndices" false false false)
         ; lastIndex is the one WRITABLE property -- exec advances it -- but it is
         ; not enumerable, so it never shows up in Object.keys or as a descriptor
         ; when a RegExp is handed to Object.defineProperties.
@@ -30214,7 +30235,7 @@ class ComponentEngine {
     ; The array `exec` returns: the whole match at index 0, then each capture,
     ; plus `index` and `input`. A capture that did not participate is undefined,
     ; not "".
-    fn regexResultArray:EvHandle (m:RegexMatch subject:string) {
+    fn regexResultArray:EvHandle (m:RegexMatch subject:string prog:RegexProgram) {
         def items:[EvHandle]
         push items (EvValueBridge.taggedString((this.cuSlice(subject m.start m.end))))
         def gi:int 1
@@ -30231,6 +30252,91 @@ class ComponentEngine {
         def arr:EvHandle (EvValueBridge.taggedArray(items))
         arr.setMember("index" (EvHandle.fromInt(m.start)))
         arr.setMember("input" (EvValueBridge.taggedString(subject)))
+        ; §22.2.7.2 step 34: `groups` is an object of the NAMED captures when
+        ; the pattern has any, and undefined when it has none -- undefined
+        ; rather than an empty object, which is what a guest tests for.
+        def named:boolean false
+        def nk:int 1
+        while (nk < (array_length prog.groupNames)) {
+            if ((strlen (itemAt prog.groupNames nk)) > 0) { named = true }
+            nk = (nk + 1)
+        }
+        def groupsV:EvHandle (EvValueBridge.taggedUndefined())
+        if named {
+            def gkeys:[string]
+            def gvals:[EvHandle]
+            def gobj:EvHandle (EvValueBridge.taggedObject(gkeys gvals))
+            gobj.setProto((EvValueBridge.taggedNull()))
+            def ng:int 1
+            while (ng < (array_length prog.groupNames)) {
+                def gname:string (itemAt prog.groupNames ng)
+                if ((strlen gname) > 0) {
+                    def gv:EvHandle (EvValueBridge.taggedUndefined())
+                    if (ng < (array_length m.capStart)) {
+                        def gcs:int (itemAt m.capStart ng)
+                        if (gcs >= 0) {
+                            gv = (EvValueBridge.taggedString((this.cuSlice(subject gcs (itemAt m.capEnd ng)))))
+                        }
+                    }
+                    gobj.setMember(gname gv)
+                }
+                ng = (ng + 1)
+            }
+            groupsV = gobj
+        }
+        arr.setMember("groups" groupsV)
+        ; §22.2.7.2 step 35: the `d` flag adds an `indices` array shaped exactly
+        ; like the result -- a [start, end] pair per capture, undefined for one
+        ; that did not participate, and its own `groups` alongside.
+        if prog.hasIndices {
+            def idxItems:[EvHandle]
+            def wholePair:[EvHandle]
+            push wholePair (EvHandle.fromInt(m.start))
+            push wholePair (EvHandle.fromInt(m.end))
+            push idxItems (EvValueBridge.taggedArray(wholePair))
+            def ii:int 1
+            while (ii < (array_length m.capStart)) {
+                def ics:int (itemAt m.capStart ii)
+                if (ics < 0) {
+                    push idxItems (EvValueBridge.taggedUndefined())
+                } {
+                    def pair:[EvHandle]
+                    push pair (EvHandle.fromInt(ics))
+                    push pair (EvHandle.fromInt((itemAt m.capEnd ii)))
+                    push idxItems (EvValueBridge.taggedArray(pair))
+                }
+                ii = (ii + 1)
+            }
+            def idxArr:EvHandle (EvValueBridge.taggedArray(idxItems))
+            def idxGroups:EvHandle (EvValueBridge.taggedUndefined())
+            if named {
+                def igk:[string]
+                def igv:[EvHandle]
+                def igobj:EvHandle (EvValueBridge.taggedObject(igk igv))
+                igobj.setProto((EvValueBridge.taggedNull()))
+                def ig:int 1
+                while (ig < (array_length prog.groupNames)) {
+                    def igname:string (itemAt prog.groupNames ig)
+                    if ((strlen igname) > 0) {
+                        def igv2:EvHandle (EvValueBridge.taggedUndefined())
+                        if (ig < (array_length m.capStart)) {
+                            def igcs:int (itemAt m.capStart ig)
+                            if (igcs >= 0) {
+                                def gpair:[EvHandle]
+                                push gpair (EvHandle.fromInt(igcs))
+                                push gpair (EvHandle.fromInt((itemAt m.capEnd ig)))
+                                igv2 = (EvValueBridge.taggedArray(gpair))
+                            }
+                        }
+                        igobj.setMember(igname igv2)
+                    }
+                    ig = (ig + 1)
+                }
+                idxGroups = igobj
+            }
+            idxArr.setMember("groups" idxGroups)
+            arr.setMember("indices" idxArr)
+        }
         return arr
     }
 
@@ -30279,7 +30385,7 @@ class ComponentEngine {
         if usesLastIndex {
             this.setLastIndexOrThrow(re m.end)
         }
-        return (this.regexResultArray(m subject))
+        return (this.regexResultArray(m subject prog))
     }
 
     ; ==========================================================================
@@ -31460,7 +31566,7 @@ class ComponentEngine {
     }
 
     ; The replacement text for one match, expanding $&, $1..$99, $` and $'.
-    fn expandReplacement:string (tmpl:string subject:string m:RegexMatch) {
+    fn expandReplacement:string (tmpl:string subject:string m:RegexMatch names:[string]) {
         def out:string ""
         def i:int 0
         def n:int (strlen tmpl)
@@ -31486,6 +31592,42 @@ class ComponentEngine {
                                     out = (out + (this.cuSlice(subject m.end tailUnits)))
                                     i = (i + 2)
                                 } {
+                                    ; `$<name>` names a CAPTURE by name, and
+                                    ; is left alone -- text and all -- when the
+                                    ; pattern has no named groups at all.
+                                    if (nx == "<") {
+                                        if ((array_length names) > 1) {
+                                            def close:int (indexOf (substring tmpl i n) ">")
+                                            if (close > 0) {
+                                                def gname:string (substring tmpl (i + 2) (i + close))
+                                                def gidx:int 0
+                                                def gk:int 1
+                                                while (gk < (array_length names)) {
+                                                    if ((itemAt names gk) == gname) {
+                                                        gidx = gk
+                                                        gk = (array_length names)
+                                                    } {
+                                                        gk = (gk + 1)
+                                                    }
+                                                }
+                                                if (gidx > 0) {
+                                                    if (gidx < (array_length m.capStart)) {
+                                                        def gcs:int (itemAt m.capStart gidx)
+                                                        if (gcs >= 0) {
+                                                            out = (out + (this.cuSlice(subject gcs (itemAt m.capEnd gidx))))
+                                                        }
+                                                    }
+                                                }
+                                                i = (i + (close + 1))
+                                            } {
+                                                out = (out + ch)
+                                                i = (i + 1)
+                                            }
+                                        } {
+                                            out = (out + ch)
+                                            i = (i + 1)
+                                        }
+                                    } {
                                     def d1:int (charAt tmpl (i + 1))
                                     if ((d1 >= 48) && (d1 <= 57)) {
                                         ; Two digits when that names a real
@@ -31516,6 +31658,7 @@ class ComponentEngine {
                                     } {
                                         out = (out + ch)
                                         i = (i + 1)
+                                    }
                                     }
                                 }
                             }
@@ -37485,6 +37628,81 @@ class ComponentEngine {
         return cv
     }
 
+    ; D-CLASSSTATIC: `static x = expr` and `static { … }` run ONCE, when the
+    ; class value is created, with `this` bound to the class. Neither ran at
+    ; all: a static field was treated as an instance field, so `C.x` was
+    ; undefined while `new C().x` answered the initialiser, and a static block
+    ; was skipped entirely.
+    ;
+    ; The class value is published before this is called, so an initialiser
+    ; that names its own class -- which is the normal way to write a static
+    ; block -- resolves rather than recursing.
+    fn runClassStaticInit:void (name:string cv:EvHandle) {
+        ; Once per class. The declaration may be reached more than once -- a
+        ; class inside a function that is called twice -- and the class value
+        ; is one object shared across all of them.
+        if (cv.hasOwnData("__staticdone__")) { return }
+        cv.setMember("__staticdone__" (EvValueBridge.taggedBoolean(true)))
+        cv.setAttrs("__staticdone__" false false false)
+        def cls:TSNode (this.classNodeByName(name))
+        if ((this.nodeKindOf(cls)) != 25) { return }
+        if (null? cls.body) { return }
+        def body:TSNode (unwrap cls.body)
+        def hasStatic:boolean false
+        def si:int 0
+        while (si < (array_length body.children)) {
+            def sm:TSNode (itemAt body.children si)
+            if (sm.nodeType == "StaticBlock") { hasStatic = true }
+            if (sm.nodeType == "PropertyDefinition") {
+                if (sm.kind == "static") { hasStatic = true }
+            }
+            si = (si + 1)
+        }
+        if (false == hasStatic) { return }
+        ; Rooted in the class's OWN module scope, like the instance-field pass:
+        ; a module class's `static reg = new Other()` must see its module.
+        def savedCtx:EvalContext context
+        def savedModule:string currentModule
+        def savedHome:string currentHomeClass
+        def parentCtx:EvalContext context
+        if ((strlen currentModule) > 0) {
+            parentCtx = (this.moduleScopeFor(currentModule))
+        }
+        context = (parentCtx.createChild())
+        context.define("this" cv)
+        currentHomeClass = name
+        def sj:int 0
+        while (sj < (array_length body.children)) {
+            def m:TSNode (itemAt body.children sj)
+            if (m.nodeType == "PropertyDefinition") {
+                if (m.kind == "static") {
+                    def sv:EvHandle (EvValueBridge.taggedUndefined())
+                    if m.init {
+                        sv = (this.evaluateExpr((unwrap m.init)))
+                    }
+                    ; A field with no initialiser is still DEFINED, as
+                    ; undefined -- `static x;` then `'x' in C` is true.
+                    if (false == scriptThrew) {
+                        cv.setMember(m.name sv)
+                    }
+                }
+            }
+            if (m.nodeType == "StaticBlock") {
+                if m.body {
+                    this.runBlockOrStatement((unwrap m.body))
+                }
+            }
+            if scriptThrew {
+                sj = (array_length body.children)
+            } {
+                sj = (sj + 1)
+            }
+        }
+        context = savedCtx
+        currentModule = savedModule
+        currentHomeClass = savedHome
+    }
+
     ; D-CLASSPROTO: a class's methods are REAL properties of a real prototype
     ; object. They used to live only in the class-node table, so `A.prototype`
     ; was empty, `A.prototype.m` was undefined, `A.prototype.constructor === A`
@@ -38667,9 +38885,14 @@ class ComponentEngine {
             while (i < (array_length body.children)) {
                 def m:TSNode (itemAt body.children i)
                 if (m.nodeType == "PropertyDefinition") {
-                    if m.init {
-                        def iv:EvHandle (this.evaluateExpr((unwrap m.init)))
-                        inst.setMember(m.name iv)
+                    ; A STATIC field belongs to the class, not to the instance.
+                    ; It ran here as well, so `static x = 5` left `C.x`
+                    ; undefined and gave every instance its own `x` instead.
+                    if (m.kind != "static") {
+                        if m.init {
+                            def iv:EvHandle (this.evaluateExpr((unwrap m.init)))
+                            inst.setMember(m.name iv)
+                        }
                     }
                 }
                 ; D-CLASSACCESSORS: `get v() {}` / `set v(x) {}` in a class body
@@ -39399,6 +39622,10 @@ class ComponentEngine {
     fn isHiddenInstanceKey:boolean (k:string) {
         if (k == "__class__") { return true }
         if (k == "__classname__") { return true }
+        if (k == "__staticdone__") { return true }
+        ; D-WEAK: the backing collection and the kind tag are internal slots.
+        if (k == "__weakkind__") { return true }
+        if (k == "__weakdata__") { return true }
         if (k == "__module__") { return true }
         if (k == "__nsmodule__") { return true }
         ; D-WRAPPER / D-ERRORS internal slots. `new String('ab')` has exactly one

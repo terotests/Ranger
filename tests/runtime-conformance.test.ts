@@ -2024,6 +2024,44 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["weakref-primitive", "try { new WeakRef(1); return 'no'; } catch (e) { return e.constructor.name; }", "es2021"],
   ["finreg-register", "var f = new FinalizationRegistry(function () {}); f.register({}, 1); return typeof f.unregister;", "es2021"],
   ["finreg-noncallable", "try { new FinalizationRegistry(1); return 'no'; } catch (e) { return e.constructor.name; }", "es2021"],
+
+  // --- class statics (ES2022) -----------------------------------------------
+  // A static field ran as an INSTANCE field, so C.x was undefined and every
+  // instance carried its own copy; a static block did not run at all.
+  ["class-static-field", "class CsA { static x = 5; } return CsA.x;", "es2022"],
+  ["class-static-field-not-on-instance", "class CsB { static x = 5; } return String(new CsB().x);", "es2022"],
+  ["class-static-field-sees-class", "class CsC { static a = 2; static b = CsC.a * 3; } return CsC.b;", "es2022"],
+  ["class-static-field-no-init", "class CsD { static n; } return String(CsD.n) + ',' + ('n' in CsD);", "es2022"],
+  ["class-static-block", "class CsE { static x = 1; static { CsE.y = CsE.x + 1; } } return CsE.y;", "es2022"],
+  ["class-static-block-this", "class CsF { static a = 1; static { this.b = this.a + 1; } } return CsF.b;", "es2022"],
+  ["class-static-private", "class CsG { static #n = 3; static get() { return CsG.#n; } } return CsG.get();", "es2022"],
+  ["class-static-order", "var L = []; class CsH { static a = L.push('a'); static { L.push('b'); } static c = L.push('c'); } return L.join('');", "es2022"],
+
+  // --- RegExp (ES2018-2022) --------------------------------------------------
+  ["re-dotall", "return /a.b/s.test('a\\nb');", "es2018"],
+  ["re-dotall-off", "return /a.b/.test('a\\nb');", "es2018"],
+  ["re-dotall-prop", "return /x/s.dotAll + ',' + /x/.dotAll;", "es2018"],
+  ["re-flag-props", "var r = /x/gimsuy; return [r.global, r.ignoreCase, r.multiline, r.dotAll, r.unicode, r.sticky].join(',');", "es2018"],
+  ["re-hasIndices-prop", "return /x/d.hasIndices + ',' + /x/.hasIndices;", "es2022"],
+  ["re-named-group", "return /(?<y>\\d{4})-(?<m>\\d{2})/.exec('2024-05').groups.y;", "es2018"],
+  ["re-named-groups-object", "var g = /(?<a>x)(?<b>y)/.exec('xy').groups; return g.a + g.b;", "es2018"],
+  ["re-groups-undefined-when-unnamed", "return String(/(x)/.exec('x').groups);", "es2018"],
+  ["re-named-optional", "var g = /(?<a>x)|(?<b>y)/.exec('y').groups; return String(g.a) + ',' + g.b;", "es2018"],
+  ["re-named-backref", "return /(?<c>a)\\k<c>/.test('aa') + ',' + /(?<c>a)\\k<c>/.test('ab');", "es2018"],
+  ["re-named-replace", "return '2024'.replace(/(?<y>\\d+)/, '[$<y>]');", "es2018"],
+  ["re-named-replace-missing", "return 'x'.replace(/(?<a>x)/, '$<zz>!');", "es2018"],
+  ["re-lookbehind", "return /(?<=a)b/.test('ab') + ',' + /(?<=a)b/.test('cb');", "es2018"],
+  ["re-lookbehind-negative", "return /(?<!a)b/.test('cb') + ',' + /(?<!a)b/.test('ab');", "es2018"],
+  ["re-lookbehind-quantified", "return /(?<=a+)b/.test('aaab');", "es2018"],
+  ["re-lookbehind-index", "var m = /(?<=\\$)\\d+/.exec('cost $42'); return m[0] + '@' + m.index;", "es2018"],
+  ["re-lookbehind-capture", "var m = /(?<=(\\w)x)y/.exec('axy'); return m[1];", "es2018"],
+  ["re-indices", "return JSON.stringify(/a(b)/d.exec('xab').indices);", "es2022"],
+  ["re-indices-groups", "return JSON.stringify(/(?<g>b)/d.exec('ab').indices.groups);", "es2022"],
+  ["re-indices-absent", "return String(/x/.exec('x').indices);", "es2022"],
+  ["re-ctor-u-flag", "return new RegExp('a', 'u').flags;", "es2015"],
+  ["re-ctor-bad-flag", "try { new RegExp('a', 'q'); return 'no'; } catch (e) { return e.constructor.name; }", "es2015"],
+  ["re-ctor-dup-flag", "try { new RegExp('a', 'gg'); return 'no'; } catch (e) { return e.constructor.name; }", "es2015"],
+  ["re-matchAll-named", "return Array.from('a1'.matchAll(/(?<L>[a-z])(?<D>\\d)/g), function (m) { return m.groups.L + m.groups.D; }).join('');", "es2020"],
 ];
 
 /**

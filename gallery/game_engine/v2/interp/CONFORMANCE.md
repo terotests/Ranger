@@ -1154,6 +1154,61 @@ Two things worth recording:
   function and every async step function; nothing had yet read one off an
   object and called it.
 
+#### Class statics (ES2022)
+
+`static x = expr` was treated as an INSTANCE field: `C.x` was undefined while
+every instance carried its own copy of the initialiser's value. `static { … }`
+did not run at all. Both run now, once, with `this` bound to the class.
+
+Where they run turned out to matter more than that they run. A class
+declaration is already evaluated during HOISTING here — the value, the
+prototype and the heritage are built there so a bad `extends` is reported
+early — and running the static initialisers there too showed them every
+enclosing `var` as undefined:
+
+```js
+function f() {
+  var L = [];
+  class C { static a = L.push("a"); }   // L is undefined during hoisting
+  return L.join("");
+}
+```
+
+Static initialisers are ordinary code that reads the scope around the class, so
+they run when the DECLARATION STATEMENT executes, guarded by a flag on the
+class value so a class inside a function called twice initialises once.
+
+#### RegExp: dotAll, named groups, lookbehind, indices
+
+Five things were missing, and the first four are now in:
+
+- **`s` (dotAll)**, plus the `dotAll`, `sticky`, `unicode` and `hasIndices`
+  property accessors, none of which existed.
+- **Named groups** `(?<name>…)`, `\k<name>`, `$<name>` in a replacement, and
+  the `groups` object on a match result — undefined rather than empty when the
+  pattern has no named groups, which is what a guest tests for.
+- **Lookbehind** `(?<=…)` and `(?<!…)`. The matcher's continuation is data, so
+  a lookbehind is answered by trying every start position with a continuation
+  that requires the sub-match to END exactly where the lookbehind sits. That
+  keeps the sub-pattern backtracking properly instead of being accepted on its
+  first, possibly too long, reading — `(?<=a+)b` needs it.
+- **`d` (hasIndices)**, which adds an `indices` array shaped like the result,
+  with its own `groups`.
+
+`(?<` used to be a hard SyntaxError covering lookbehind and named groups
+together, so a pattern using either did not compile.
+
+Two related fixes fell out. The flag validator was still the ES5 set — g, i and
+m — so `new RegExp(p, 'u')` was rejected outright even though the compiler
+understood `u`; the literal form reached the compiler directly and the
+constructor form did not. And `\p{…}` in Unicode mode now REFUSES to compile
+rather than matching the letters `p{L}` literally: there is no general category
+table here, and a confident `false` from a pattern the guest expects to work is
+worse than a SyntaxError that says so.
+
+Still absent: Unicode property escapes (`\p{…}`), the `v` flag, and
+`RegExp.escape`.
+
 #### Intl
 
 `Intl` did not exist, so `new Intl.NumberFormat('de').format(n)` was a
@@ -1373,8 +1428,8 @@ the runtime-conformance corpus, whose expectations are derived by running the
 same source through Node. It is a regression net, not test262, and the two
 numbers must not be quoted side by side as if they measured the same thing.
 
-The runtime-conformance suite is at 1586 checks, every one of them derived from
-Node — 1556 expression probes plus 21 script-level probes run through Node's
+The runtime-conformance suite is at 1618 checks, every one of them derived from
+Node — 1588 expression probes plus 21 script-level probes run through Node's
 `vm` so the script global is real, plus the module and gap assertions.
 Date is additionally validated by 209 differential cases against Node covering the
 component getters, the setter family, `Date.parse`, `Date.UTC` and both range extremes.
