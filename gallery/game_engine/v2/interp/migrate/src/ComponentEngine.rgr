@@ -9652,6 +9652,28 @@ class ComponentEngine {
             return (this.constructTypedArray(name args))
         }
         if (this.isErrorCtorName(name)) {
+            ; AggregateError reads its arguments the other way round: the
+            ; iterable of errors first, the message second.
+            if (name == "AggregateError") {
+                def aErrs:[EvHandle]
+                if ((array_length args) > 0) {
+                    aErrs = (this.forOfItemList((itemAt args 0)))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                }
+                def amsg:string ""
+                if ((array_length args) > 1) {
+                    def amv:EvHandle (itemAt args 1)
+                    if (false == (amv.isUndefined())) {
+                        amsg = (this.toStringOf(amv))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                    }
+                }
+                return (this.makeAggregateError(aErrs amsg))
+            }
             def emsg:string ""
             if ((array_length args) > 0) {
                 def ev:EvHandle (itemAt args 0)
@@ -9666,6 +9688,9 @@ class ComponentEngine {
         }
         if (name == "Function") {
             return (this.buildFunctionFromValues(args))
+        }
+        if (this.isWeakCtorName(name)) {
+            return (this.constructWeak(name args))
         }
         if (name == "Object") {
             def ov:EvHandle (EvValueBridge.taggedNull())
@@ -17274,6 +17299,63 @@ class ComponentEngine {
     ; Evaluate a call expression (function call)
     ; Returns the function's return value as EvHandle
     fn evaluateCallExpr:EvHandle (node:TSNode) {
+        ; §13.3.9 optional CALL: `f?.()` answers undefined when f is null or
+        ; undefined and calls it otherwise. It shared the ordinary call path,
+        ; which reached "f is not a function" -- the one thing the syntax exists
+        ; to avoid. The callee is evaluated ONCE here, receiver and all, because
+        ; falling through would evaluate it a second time.
+        if (node.nodeType == "OptionalCallExpression") {
+            if node.left {
+                def ocCallee:TSNode (unwrap node.left)
+                def ocIsMember:boolean ((this.nodeKindOf(ocCallee)) == 3)
+                def ocThis:EvHandle (EvValueBridge.taggedUndefined())
+                def ocFn:EvHandle (EvValueBridge.taggedUndefined())
+                if ocIsMember {
+                    if ocCallee.left {
+                        ocThis = (this.evaluateExpr((unwrap ocCallee.left)))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                    }
+                    def ocKey:string ocCallee.name
+                    if ocCallee.computed {
+                        if ocCallee.right {
+                            def ocKeyV:EvHandle (this.evaluateExpr((unwrap ocCallee.right)))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                            ocKey = (this.toPropertyKey(ocKeyV))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                        }
+                    }
+                    ; The RECEIVER is not what `?.` guards here -- `o.f?.()`
+                    ; with o undefined is still a TypeError, so the read runs
+                    ; and reports it.
+                    ocFn = (this.getPropertyValue(ocThis ocKey))
+                } {
+                    ocFn = (this.evaluateExpr(ocCallee))
+                }
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                if ((ocFn.isUndefined()) || (ocFn.isNull())) {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                def ocArgs:[EvHandle] (this.collectCallArgs(node))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                if (false == (ocFn.isFunction())) {
+                    return (this.throwSpecError("TypeError" "expression is not a function"))
+                }
+                if ocIsMember {
+                    return (this.callFnValueWithValues((ocFn.withThisForCall(ocThis)) ocArgs))
+                }
+                return (this.callFnValueWithValues(ocFn ocArgs))
+            }
+        }
         if node.left {
             def callee:TSNode (unwrap node.left)
             
@@ -18538,6 +18620,15 @@ class ComponentEngine {
                 ; same object -- `Error("x")` is `new Error("x")`. It was a
                 ; TypeError, which broke the test262 harness itself: sta.js
                 ; builds Test262Error that way.
+                ; AggregateError's arguments are (errors, message), so it goes
+                ; through the value path rather than the message-only one below.
+                if (fnName == "AggregateError") {
+                    def agArgs:[EvHandle] (this.collectCallArgs(node))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    return (this.callBuiltinCtorValues("AggregateError" agArgs true))
+                }
                 if (this.isErrorCtorName(fnName)) {
                     def emsg:string ""
                     if ((array_length node.children) > 0) {
@@ -20270,8 +20361,111 @@ class ComponentEngine {
         if (name == "Proxy") { return true }
         if (name == "ArrayBuffer") { return true }
         if (name == "DataView") { return true }
+        if (this.isWeakCtorName(name)) { return true }
         if (this.isTypedArrayCtorName(name)) { return true }
         return (this.isErrorCtorName(name))
+    }
+
+    ; D-WEAK: the four constructors whose whole point is not to keep their
+    ; contents alive. This realm has no collector to observe, so they are
+    ; implemented as ordinary strong collections -- which the spec permits: an
+    ; implementation is never REQUIRED to collect anything, and a program can
+    ; only observe the difference through memory. What it cannot observe is a
+    ; missing constructor, which is what `new WeakMap()` met before.
+    fn isWeakCtorName:boolean (name:string) {
+        if (name == "WeakMap") { return true }
+        if (name == "WeakSet") { return true }
+        if (name == "WeakRef") { return true }
+        if (name == "FinalizationRegistry") { return true }
+        return false
+    }
+
+    fn weakKindFor:string (name:string) {
+        if (name == "WeakMap") { return "weakmap" }
+        if (name == "WeakSet") { return "weakset" }
+        if (name == "WeakRef") { return "weakref" }
+        if (name == "FinalizationRegistry") { return "weakregistry" }
+        return ""
+    }
+
+    ; A WeakMap/WeakSet key and a WeakRef target must be an OBJECT (or a
+    ; non-registered symbol, which this realm carries as an object anyway), and
+    ; that check is the one thing about these that IS observable.
+    fn canBeWeakTarget:boolean (v:EvHandle) {
+        if (v.isObject()) { return true }
+        if (v.isArrayValue()) { return true }
+        if (v.isFunction()) { return true }
+        if (v.isMap()) { return true }
+        if (v.isSet()) { return true }
+        return false
+    }
+
+    fn constructWeak:EvHandle (className:string args:[EvHandle]) {
+        def wKind:string (this.weakKindFor(className))
+        def wKeys:[string]
+        def wVals:[EvHandle]
+        def w:EvHandle (EvValueBridge.taggedObject(wKeys wVals))
+        w.setMember("__weakkind__" (EvValueBridge.taggedString(wKind)))
+        w.setProto((this.builtinPrototype(className)))
+        if (wKind == "weakref") {
+            def wTgt:EvHandle (EvValueBridge.taggedUndefined())
+            if ((array_length args) > 0) { wTgt = (itemAt args 0) }
+            if (false == (this.canBeWeakTarget(wTgt))) {
+                return (this.throwSpecError("TypeError" "Invalid value used in weak ref"))
+            }
+            w.setMember("__weakdata__" wTgt)
+            return w
+        }
+        if (wKind == "weakregistry") {
+            def wCb:EvHandle (EvValueBridge.taggedUndefined())
+            if ((array_length args) > 0) { wCb = (itemAt args 0) }
+            if (false == (wCb.isFunction())) {
+                return (this.throwSpecError("TypeError" "cleanup must be callable"))
+            }
+            w.setMember("__weakdata__" wCb)
+            return w
+        }
+        def wStore:EvHandle (EvValueBridge.taggedSetEmpty())
+        if (wKind == "weakmap") {
+            wStore = (EvValueBridge.taggedMapEmpty())
+        }
+        w.setMember("__weakdata__" wStore)
+        ; The optional iterable initialiser: entries for a WeakMap, values for
+        ; a WeakSet, and each of them checked exactly as an add would be.
+        if ((array_length args) > 0) {
+            def wInit:EvHandle (itemAt args 0)
+            if (false == ((wInit.isUndefined()) || (wInit.isNull()))) {
+                def wItems:[EvHandle] (this.forOfItemList(wInit))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                def wi:int 0
+                while (wi < (array_length wItems)) {
+                    def wIt:EvHandle (itemAt wItems wi)
+                    if (wKind == "weakmap") {
+                        def wK:EvHandle (this.getPropertyValue(wIt "0"))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        def wV:EvHandle (this.getPropertyValue(wIt "1"))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        if (false == (this.canBeWeakTarget(wK))) {
+                            return (this.throwSpecError("TypeError" "Invalid value used as weak map key"))
+                        }
+                        wStore.mapSet(wK wV)
+                    } {
+                        if (false == (this.canBeWeakTarget(wIt))) {
+                            return (this.throwSpecError("TypeError" "Invalid value used in weak set"))
+                        }
+                        wStore.setAdd(wIt)
+                    }
+                    wi = (wi + 1)
+                }
+            }
+        }
+        return w
     }
 
     fn isErrorCtorName:boolean (name:string) {
@@ -20285,6 +20479,10 @@ class ComponentEngine {
         if (name == "SyntaxError") { return true }
         if (name == "EvalError") { return true }
         if (name == "URIError") { return true }
+        ; §20.5.7: AggregateError is an error constructor like the rest, with
+        ; one difference the call sites have to know about -- its arguments are
+        ; (errors, message), not (message).
+        if (name == "AggregateError") { return true }
         return false
     }
 
@@ -20958,6 +21156,148 @@ class ComponentEngine {
                 def gdKey:string (this.toPropertyKey((itemAt args 1)))
                 return (this.ownPropertyDescriptorOf(gdSrc gdKey))
             }
+            ; §20.1.2.9: every own key's descriptor at once. The plural is what
+            ; a clone written with defineProperties needs -- the singular form
+            ; loses everything about a property that is not its value.
+            if (name == "getOwnPropertyDescriptors") {
+                def gdsSrc:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 0) {
+                    gdsSrc = (itemAt args 0)
+                }
+                if ((gdsSrc.isNull()) || (gdsSrc.isUndefined())) {
+                    return (this.throwSpecError("TypeError" "Cannot convert undefined or null to object"))
+                }
+                def gdsKeys0:[string]
+                def gdsVals0:[EvHandle]
+                def gdsOut:EvHandle (EvValueBridge.taggedObject(gdsKeys0 gdsVals0))
+                def gdsKeys:[string] (this.objectKeys(gdsSrc))
+                def gdsI:int 0
+                while (gdsI < (array_length gdsKeys)) {
+                    def gdsK:string (itemAt gdsKeys gdsI)
+                    if (false == (this.isHiddenInstanceKey(gdsK))) {
+                        def gdsD:EvHandle (this.ownPropertyDescriptorOf(gdsSrc gdsK))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        ; A key whose descriptor is undefined is left out
+                        ; rather than recorded as undefined.
+                        if (false == (gdsD.isUndefined())) {
+                            gdsOut.setMember(gdsK gdsD)
+                        }
+                    }
+                    gdsI = (gdsI + 1)
+                }
+                return gdsOut
+            }
+            ; §20.1.2.13 hasOwn: `Object.prototype.hasOwnProperty` without the
+            ; prototype chain in the way -- the point of it is that it works on
+            ; an object created with a null prototype, which has no
+            ; hasOwnProperty to call.
+            if (name == "hasOwn") {
+                def hoSrc:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 0) {
+                    hoSrc = (itemAt args 0)
+                }
+                if ((hoSrc.isNull()) || (hoSrc.isUndefined())) {
+                    return (this.throwSpecError("TypeError" "Cannot convert undefined or null to object"))
+                }
+                def hoArgs:[EvHandle]
+                if ((array_length args) > 1) {
+                    push hoArgs (itemAt args 1)
+                } {
+                    push hoArgs (EvValueBridge.taggedUndefined())
+                }
+                return (this.invokeBuiltin("object" "hasOwnProperty" hoSrc hoArgs))
+            }
+            ; §20.1.2.7 fromEntries: the inverse of Object.entries, and the way
+            ; a Map becomes a plain object.
+            if (name == "fromEntries") {
+                def feSrc:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 0) {
+                    feSrc = (itemAt args 0)
+                }
+                if ((feSrc.isNull()) || (feSrc.isUndefined())) {
+                    return (this.throwSpecError("TypeError" "Cannot convert undefined or null to object"))
+                }
+                def feItems:[EvHandle] (this.forOfItemList(feSrc))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                def feKeys0:[string]
+                def feVals0:[EvHandle]
+                def feOut:EvHandle (EvValueBridge.taggedObject(feKeys0 feVals0))
+                def feI:int 0
+                while (feI < (array_length feItems)) {
+                    def fePair:EvHandle (itemAt feItems feI)
+                    ; Each entry is read with Get(0) and Get(1), so anything
+                    ; indexable works -- it need not be an array.
+                    def feK:EvHandle (this.getPropertyValue(fePair "0"))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    def feV:EvHandle (this.getPropertyValue(fePair "1"))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    def feKey:string (this.toPropertyKey(feK))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    feOut.setMember(feKey feV)
+                    feI = (feI + 1)
+                }
+                return feOut
+            }
+            ; §20.1.2.8 groupBy: the callback names a group per element and the
+            ; answer is one array per name, in first-seen order.
+            if (name == "groupBy") {
+                def gbSrc:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 0) {
+                    gbSrc = (itemAt args 0)
+                }
+                if ((gbSrc.isNull()) || (gbSrc.isUndefined())) {
+                    return (this.throwSpecError("TypeError" "Cannot convert undefined or null to object"))
+                }
+                def gbCb:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 1) {
+                    gbCb = (itemAt args 1)
+                }
+                if (false == (gbCb.isFunction())) {
+                    return (this.throwSpecError("TypeError" "The callback is not a function"))
+                }
+                def gbItems:[EvHandle] (this.forOfItemList(gbSrc))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                def gbKeys0:[string]
+                def gbVals0:[EvHandle]
+                def gbOut:EvHandle (EvValueBridge.taggedObject(gbKeys0 gbVals0))
+                ; The result has a NULL prototype, so a group called
+                ; "toString" or "__proto__" is an ordinary group.
+                gbOut.setProto((EvValueBridge.taggedNull()))
+                def gbI:int 0
+                while (gbI < (array_length gbItems)) {
+                    def gbArgs:[EvHandle]
+                    push gbArgs (itemAt gbItems gbI)
+                    push gbArgs (EvHandle.fromInt(gbI))
+                    def gbKeyV:EvHandle (this.callFnValueWithValues(gbCb gbArgs))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    def gbKey:string (this.toPropertyKey(gbKeyV))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    if (false == (gbOut.hasOwnData(gbKey))) {
+                        def gbFresh:[EvHandle]
+                        gbOut.setMember(gbKey (EvValueBridge.taggedArray(gbFresh)))
+                    }
+                    def gbArr:EvHandle (gbOut.getMember(gbKey))
+                    gbArr.setIndexAt((gbArr.denseLen()) (itemAt gbItems gbI))
+                    gbI = (gbI + 1)
+                }
+                return gbOut
+            }
             def a0:EvHandle (EvValueBridge.taggedUndefined())
             if ((array_length args) > 0) {
                 a0 = (itemAt args 0)
@@ -21386,6 +21726,22 @@ class ComponentEngine {
                 }
                 return (this.capPromiseOf(sCap))
             }
+            ; §27.2.4.8 withResolvers: the capability, handed out. It is the
+            ; same three things `new Promise(executor)` produces, without
+            ; having to write the executor to smuggle them out of the closure.
+            if (name == "withResolvers") {
+                def wCap:EvHandle (this.newPromiseCapability(pC))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                def wKeys:[string]
+                def wVals:[EvHandle]
+                def wOut:EvHandle (EvValueBridge.taggedObject(wKeys wVals))
+                wOut.setMember("promise" (this.capPromiseOf(wCap)))
+                wOut.setMember("resolve" (wCap.getMember("__cap_resolve__")))
+                wOut.setMember("reject" (wCap.getMember("__cap_reject__")))
+                return wOut
+            }
             ; all and race: the capability comes first, because a rejection
             ; from iterating the argument is reported THROUGH it rather than
             ; thrown.
@@ -21434,9 +21790,23 @@ class ComponentEngine {
                 }
                 return (this.capPromiseOf(aCap))
             }
-            ; all: one resolve-element function per item, a shared values array
-            ; and a shared remaining count. The count starts at 1 so the loop
-            ; itself holds a reference -- an empty iterable resolves with [].
+            ; all / allSettled / any: one resolve-element function per item, a
+            ; shared values array and a shared remaining count. The count starts
+            ; at 1 so the loop itself holds a reference -- an empty iterable
+            ; resolves with [] (or, for `any`, rejects with an empty
+            ; AggregateError).
+            ;
+            ; The three differ only in what an element DOES with its answer, so
+            ; they share the element function and select on a mode:
+            ;   0 all         value straight into the slot; a rejection is the
+            ;                 whole result and goes to the capability
+            ;   1 allSettled  every outcome becomes a {status, …} record and
+            ;                 nothing rejects
+            ;   2 any         the first FULFILMENT is the whole result; the
+            ;                 rejections accumulate into an AggregateError
+            def combMode:int 0
+            if (name == "allSettled") { combMode = 1 }
+            if (name == "any") { combMode = 2 }
             def emptyVals:[EvHandle]
             def valuesArr:EvHandle (EvValueBridge.taggedArray(emptyVals))
             def ckeys:[string]
@@ -21458,6 +21828,7 @@ class ComponentEngine {
                 elemRec.setMember("__el_values__" valuesArr)
                 elemRec.setMember("__el_count__" counter)
                 elemRec.setMember("__el_cap__" aCap)
+                elemRec.setMember("__el_mode__" (EvHandle.fromInt(combMode)))
                 def elemFn:EvHandle ((EvValueBridge.taggedNativeMethod("promiseelem" "resolveElement")).withThisForCall(elemRec))
                 this.shapeAnonFn(elemFn 1)
                 ; Read the count into a local BEFORE writing it back: reading
@@ -21466,7 +21837,15 @@ class ComponentEngine {
                 ; panicked the moment Promise.all was handed an async function.
                 def nNow:int (this.toIntegerOf((counter.getMember("n"))))
                 counter.setMember("n" (EvHandle.fromInt((nNow + 1))))
+                ; Only `all` sends a rejection straight to the capability. The
+                ; other two record it and keep counting, so they need a reject
+                ; element function that shares this record -- and therefore its
+                ; already-called flag, which is one flag for the PAIR.
                 def aRej:EvHandle (aCap.getMember("__cap_reject__"))
+                if (combMode > 0) {
+                    aRej = ((EvValueBridge.taggedNativeMethod("promiseelem" "rejectElement")).withThisForCall(elemRec))
+                    this.shapeAnonFn(aRej 1)
+                }
                 def _at:EvHandle (this.promiseThenVia(aNext elemFn aRej))
                 if scriptThrew {
                     return (this.promiseRejectWith(aCap))
@@ -21476,6 +21855,17 @@ class ComponentEngine {
             def left:int ((this.toIntegerOf((counter.getMember("n")))) - 1)
             counter.setMember("n" (EvHandle.fromInt(left)))
             if (left == 0) {
+                if (combMode == 2) {
+                    ; Every input rejected -- or there were none at all, which
+                    ; is the empty AggregateError `Promise.any([])` answers.
+                    def anyErrs:[EvHandle] (valuesArr.itemsOf())
+                    def anyErr:EvHandle (this.makeAggregateError(anyErrs "All promises were rejected"))
+                    def _ae:EvHandle (this.capInvoke(aCap "__cap_reject__" anyErr))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    return (this.capPromiseOf(aCap))
+                }
                 def _av:EvHandle (this.capInvoke(aCap "__cap_resolve__" valuesArr))
                 if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
@@ -21970,6 +22360,8 @@ class ComponentEngine {
             if (name == "getOwnPropertyDescriptor") { return 2 }
             if (name == "setPrototypeOf") { return 2 }
             if (name == "assign") { return 2 }
+            if (name == "hasOwn") { return 2 }
+            if (name == "groupBy") { return 2 }
             return 1
         }
         if (nsName == "Math") {
@@ -22023,6 +22415,10 @@ class ComponentEngine {
         if (nsName == "Promise") { return 1 }
         if (nsName == "Proxy") { return 2 }
         if (nsName == "Map") { return 0 }
+        if (nsName == "WeakMap") { return 0 }
+        if (nsName == "WeakSet") { return 0 }
+        if (nsName == "WeakRef") { return 1 }
+        if (nsName == "FinalizationRegistry") { return 1 }
         if (nsName == "Set") { return 0 }
         return 0
     }
@@ -22057,9 +22453,13 @@ class ComponentEngine {
             push out "defineProperty"
             push out "entries"
             push out "freeze"
+            push out "fromEntries"
             push out "getOwnPropertyDescriptor"
+            push out "getOwnPropertyDescriptors"
             push out "getOwnPropertyNames"
             push out "getPrototypeOf"
+            push out "groupBy"
+            push out "hasOwn"
             push out "isExtensible"
             push out "isFrozen"
             push out "isSealed"
@@ -22079,9 +22479,12 @@ class ComponentEngine {
         }
         if (nsName == "Promise") {
             push out "all"
+            push out "allSettled"
+            push out "any"
             push out "race"
             push out "reject"
             push out "resolve"
+            push out "withResolvers"
             return out
         }
         if (nsName == "Reflect") {
@@ -22839,6 +23242,7 @@ class ComponentEngine {
             push out "lastIndexOf"
             push out "localeCompare"
             push out "match"
+            push out "matchAll"
             push out "normalize"
             push out "padEnd"
             push out "padStart"
@@ -22891,6 +23295,13 @@ class ComponentEngine {
             push out "find"
             push out "findIndex"
             push out "flat"
+            push out "flatMap"
+            push out "findLast"
+            push out "findLastIndex"
+            push out "toReversed"
+            push out "toSorted"
+            push out "toSpliced"
+            push out "with"
             push out "forEach"
             push out "includes"
             push out "indexOf"
@@ -22963,7 +23374,30 @@ class ComponentEngine {
         }
         if (kind == "promise") {
             push out "catch"
+            push out "finally"
             push out "then"
+        }
+        ; D-WEAK: no iteration methods on any of these -- what a weak collection
+        ; refuses to do is enumerate itself, and that part is not a consequence
+        ; of collection but of the interface.
+        if (kind == "weakmap") {
+            push out "delete"
+            push out "get"
+            push out "has"
+            push out "set"
+        }
+        if (kind == "weakset") {
+            push out "add"
+            push out "delete"
+            push out "has"
+        }
+        if (kind == "weakref") {
+            push out "deref"
+        }
+        if (kind == "weakregistry") {
+            push out "register"
+            push out "unregister"
+            push out "cleanupSome"
         }
         ; D-ITERATOR: the shared iterator object's own methods.
         if (kind == "listiterator") {
@@ -23186,6 +23620,8 @@ class ComponentEngine {
         if (nsName == "Set") { tagFor = "Set" }
         if (nsName == "WeakMap") { tagFor = "WeakMap" }
         if (nsName == "WeakSet") { tagFor = "WeakSet" }
+        if (nsName == "WeakRef") { tagFor = "WeakRef" }
+        if (nsName == "FinalizationRegistry") { tagFor = "FinalizationRegistry" }
         if ((strlen tagFor) > 0) {
             p.setMember("@@toStringTag" (EvValueBridge.taggedString(tagFor)))
             p.setAttrs("@@toStringTag" false false true)
@@ -23437,6 +23873,10 @@ class ComponentEngine {
             if (v.hasOwnData("__intlkind__")) {
                 return ("intl" + ((v.getOwnData("__intlkind__")).stringOf()))
             }
+            ; D-WEAK: the slot names the kind outright.
+            if (v.hasOwnData("__weakkind__")) {
+                return ((v.getOwnData("__weakkind__")).stringOf())
+            }
             if (v.hasOwnData("__regex__")) { return "regexp" }
             ; D-DATE: likewise a Date, whose accessors are arithmetic on its
             ; time value rather than anything Object.prototype offers.
@@ -23584,6 +24024,7 @@ class ComponentEngine {
             if (name == "concat") { return 1 }
             if (name == "localeCompare") { return 1 }
             if (name == "match") { return 1 }
+            if (name == "matchAll") { return 1 }
             if (name == "normalize") { return 0 }
             if (name == "search") { return 1 }
             if (name == "substr") { return 2 }
@@ -23657,6 +24098,13 @@ class ComponentEngine {
             if (name == "find") { return 1 }
             if (name == "findIndex") { return 1 }
             if (name == "flat") { return 0 }
+            if (name == "flatMap") { return 1 }
+            if (name == "findLast") { return 1 }
+            if (name == "findLastIndex") { return 1 }
+            if (name == "toReversed") { return 0 }
+            if (name == "toSorted") { return 1 }
+            if (name == "toSpliced") { return 2 }
+            if (name == "with") { return 2 }
             if (name == "forEach") { return 1 }
             if (name == "includes") { return 1 }
             if (name == "indexOf") { return 1 }
@@ -23678,6 +24126,35 @@ class ComponentEngine {
         if (kind == "promise") {
             if (name == "then") { return 2 }
             if (name == "catch") { return 1 }
+            if (name == "finally") { return 1 }
+        }
+        if (kind == "weakmap") {
+            if (name == "delete") { return 1 }
+            if (name == "get") { return 1 }
+            if (name == "has") { return 1 }
+            if (name == "set") { return 2 }
+        }
+        if (kind == "weakset") {
+            if (name == "add") { return 1 }
+            if (name == "delete") { return 1 }
+            if (name == "has") { return 1 }
+        }
+        if (kind == "weakref") {
+            if (name == "deref") { return 0 }
+        }
+        if (kind == "weakregistry") {
+            if (name == "register") { return 2 }
+            if (name == "unregister") { return 1 }
+            if (name == "cleanupSome") { return 0 }
+        }
+        ; The two functions `finally` mints: the pair it passes to `then` takes
+        ; the settled value, and the thunk that restores it afterwards takes
+        ; nothing.
+        if (kind == "promisefin") {
+            return 1
+        }
+        if (kind == "promisefinval") {
+            return 0
         }
         if (kind == "listiterator") {
             if (name == "next") { return 0 }
@@ -25351,6 +25828,56 @@ class ComponentEngine {
                         }
                         return (EvValueBridge.taggedArray(mitems))
                     }
+                    ; §22.1.3.13 matchAll: every match WITH its captures, where
+                    ; `match` with /g answers only the matched text. The results
+                    ; arrive through an iterator, which is materialised here the
+                    ; way every other iterator in this engine is.
+                    if (name == "matchAll") {
+                        def maArg:EvHandle (EvValueBridge.taggedUndefined())
+                        if ((array_length args) > 0) {
+                            maArg = (itemAt args 0)
+                        }
+                        ; §22.1.3.13 step 2.b: a REGEXP argument must be global.
+                        ; A string argument is not -- it becomes a global
+                        ; pattern here -- so the check is on what was passed.
+                        if (this.isRegexValue(maArg)) {
+                            def maFlags:EvHandle (this.getPropertyValue(maArg "flags"))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                            def maFlagStr:string (maFlags.toString())
+                            if ((indexOf maFlagStr "g") < 0) {
+                                return (this.throwSpecError("TypeError" "String.prototype.matchAll called with a non-global RegExp argument"))
+                            }
+                        }
+                        def maRe:EvHandle (this.toRegexValue(maArg))
+                        def maProg:RegexProgram (this.compileRegexOf(maRe))
+                        if (false == maProg.valid) {
+                            return (this.throwSpecError("SyntaxError" ("Invalid regular expression: " + maProg.errorMessage)))
+                        }
+                        def maItems:[EvHandle]
+                        def maFrom:int 0
+                        def maLooping:boolean true
+                        def maM (new RegexMatcher)
+                        maM.setup(maProg s)
+                        while (maLooping) {
+                            def maOne:RegexMatch (maM.exec(maFrom))
+                            if (false == maOne.matched) {
+                                maLooping = false
+                            } {
+                                push maItems (this.regexResultArray(maOne s))
+                                if (maOne.end == maOne.start) {
+                                    maFrom = (this.advanceStringIndex(s maOne.end maProg.unicode))
+                                } {
+                                    maFrom = maOne.end
+                                }
+                                if (maFrom > (this.cuLen(s))) {
+                                    maLooping = false
+                                }
+                            }
+                        }
+                        return (this.makeKindIterator(maItems "RegExp String Iterator"))
+                    }
                     if (name == "codePointAt") {
                         def cpi:int 0
                         if ((array_length args) > 0) {
@@ -26380,14 +26907,66 @@ class ComponentEngine {
                         return (EvHandle.fromInt((0 - 1)))
                     }
                     if (name == "includes") {
-                        def target:EvHandle (EvValueBridge.taggedNull())
+                        ; §23.1.3.16 compares with SameValueZero, not strict
+                        ; equality -- which is the whole reason it exists
+                        ; alongside indexOf: `[NaN].includes(NaN)` is true where
+                        ; `indexOf` answers -1. Reference equality answered false
+                        ; because NaN != NaN.
+                        ;
+                        ; It also honours fromIndex, which was discarded, so
+                        ; `[1,2,3].includes(1, 1)` said true.
+                        def target:EvHandle (EvValueBridge.taggedUndefined())
                         if ((array_length args) > 0) {
                             target = (itemAt args 0)
                         }
                         def ii:int 0
+                        if ((array_length args) > 1) {
+                            def incFrom:double (this.toIntegerDoubleOf((itemAt args 1)))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                            if (incFrom < 0.0) {
+                                incFrom = ((to_double alen) + incFrom)
+                                if (incFrom < 0.0) { incFrom = 0.0 }
+                            }
+                            if (incFrom >= (to_double alen)) {
+                                return (EvValueBridge.taggedBoolean(false))
+                            }
+                            ii = (to_int incFrom)
+                        }
+                        def wantNaN:boolean false
+                        if (target.isNumber()) {
+                            def tnum:double (target.toNumber())
+                            if (tnum != tnum) { wantNaN = true }
+                        }
                         while (ii < alen) {
-                            if ((target.equals((this.arrayElemAt(recv ii))))) {
-                                return (EvValueBridge.taggedBoolean(true))
+                            def incEl:EvHandle (this.arrayElemAt(recv ii))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                            if wantNaN {
+                                ; A hole reads as undefined, which is not NaN.
+                                if (incEl.isNumber()) {
+                                    def incNum:double (incEl.toNumber())
+                                    if (incNum != incNum) {
+                                        return (EvValueBridge.taggedBoolean(true))
+                                    }
+                                }
+                            } {
+                                ; SameValueZero differs from === only over NaN
+                                ; and the two zeros, and `equals` already treats
+                                ; +0 and -0 as one number.
+                                def incHit:boolean (target.equals(incEl))
+                                if incHit {
+                                    return (EvValueBridge.taggedBoolean(true))
+                                }
+                                ; `[,].includes(undefined)` is true: a hole is
+                                ; READ, and reads undefined.
+                                if (target.isUndefined()) {
+                                    if (incEl.isHole()) {
+                                        return (EvValueBridge.taggedBoolean(true))
+                                    }
+                                }
                             }
                             ii = (ii + 1)
                         }
@@ -27025,6 +27604,199 @@ class ComponentEngine {
                         }
                         return (EvValueBridge.taggedArray(items))
                     }
+                    ; ES2019 flatMap: map then flatten one level, in one
+                    ; pass -- the callback's array result is spread, anything
+                    ; else is appended.
+                    if (name == "flatMap") {
+                        def fmOut:[EvHandle]
+                        if ((array_length args) > 0) {
+                            def fmCb:EvHandle (this.withCallbackThis((itemAt args 0) args))
+                            def fq:int 0
+                            while (fq < alen) {
+                                def fmArgs:[EvHandle]
+                                push fmArgs (this.arrayElemAt(recv fq))
+                                push fmArgs (EvHandle.fromInt(fq))
+                                push fmArgs recv
+                                def fmR:EvHandle (this.callFnValueWithValues(fmCb fmArgs))
+                                if scriptThrew { return (EvValueBridge.taggedUndefined()) }
+                                if (fmR.isArrayValue()) {
+                                    def fr:int 0
+                                    while (fr < (fmR.denseLen())) {
+                                        push fmOut (fmR.arrayItemAt(fr))
+                                        fr = (fr + 1)
+                                    }
+                                } {
+                                    push fmOut fmR
+                                }
+                                fq = (fq + 1)
+                            }
+                        }
+                        return (EvValueBridge.taggedArray(fmOut))
+                    }
+                    ; ES2023 findLast / findLastIndex: the same walk, from the
+                    ; END. Written out rather than reusing find with a reversed
+                    ; copy, because the callback must see the ORIGINAL indices.
+                    if ((name == "findLast") || (name == "findLastIndex")) {
+                        if ((array_length args) > 0) {
+                            def flCb:EvHandle (this.withCallbackThis((itemAt args 0) args))
+                            def fi:int (alen - 1)
+                            while (fi >= 0) {
+                                def flArgs:[EvHandle]
+                                def flEl:EvHandle (this.arrayElemAt(recv fi))
+                                push flArgs flEl
+                                push flArgs (EvHandle.fromInt(fi))
+                                push flArgs recv
+                                def flHit:boolean ((this.callFnValueWithValues(flCb flArgs)).toBool())
+                                if scriptThrew { return (EvValueBridge.taggedUndefined()) }
+                                if flHit {
+                                    if (name == "findLast") { return flEl }
+                                    return (EvHandle.fromInt(fi))
+                                }
+                                fi = (fi - 1)
+                            }
+                        }
+                        if (name == "findLast") { return (EvValueBridge.taggedUndefined()) }
+                        return (EvHandle.fromInt((0 - 1)))
+                    }
+                    ; ES2023 change-by-copy. Each answers a NEW array and
+                    ; leaves the receiver alone, which is the whole point of
+                    ; them -- the in-place versions are the ones that surprise.
+                    if (name == "toReversed") {
+                        def trOut:[EvHandle]
+                        def ti:int (alen - 1)
+                        while (ti >= 0) {
+                            push trOut (this.arrayElemAt(recv ti))
+                            ti = (ti - 1)
+                        }
+                        return (EvValueBridge.taggedArray(trOut))
+                    }
+                    if (name == "with") {
+                        def wIdx:int 0
+                        if ((array_length args) > 0) {
+                            wIdx = (this.toIntegerOf((itemAt args 0)))
+                            if scriptThrew { return (EvValueBridge.taggedUndefined()) }
+                        }
+                        if (wIdx < 0) { wIdx = (alen + wIdx) }
+                        if ((wIdx < 0) || (wIdx >= alen)) {
+                            return (this.throwSpecError("RangeError" "Invalid index"))
+                        }
+                        def wVal:EvHandle (EvValueBridge.taggedUndefined())
+                        if ((array_length args) > 1) { wVal = (itemAt args 1) }
+                        def wOut:[EvHandle]
+                        def wi:int 0
+                        while (wi < alen) {
+                            if (wi == wIdx) {
+                                push wOut wVal
+                            } {
+                                push wOut (this.arrayElemAt(recv wi))
+                            }
+                            wi = (wi + 1)
+                        }
+                        return (EvValueBridge.taggedArray(wOut))
+                    }
+                    if (name == "toSorted") {
+                        ; §23.1.3.34. The comparator check is the same one sort
+                        ; makes, and it happens BEFORE anything is read.
+                        def scmp:EvHandle (EvValueBridge.taggedUndefined())
+                        if ((array_length args) > 0) {
+                            scmp = (itemAt args 0)
+                        }
+                        def sHasCmp:boolean (scmp.isFunction())
+                        if (false == sHasCmp) {
+                            if (false == (scmp.isUndefined())) {
+                                return (this.throwSpecError("TypeError" "The comparison function must be either a function or undefined"))
+                            }
+                        }
+                        ; Unlike sort, this one READS THROUGH holes: the copy is
+                        ; a plain array of length len, so a hole arrives as
+                        ; undefined and sorts to the end with the other
+                        ; undefineds rather than after them.
+                        def sItems:[EvHandle]
+                        def sUndef:int 0
+                        def sq:int 0
+                        while (sq < alen) {
+                            def sv:EvHandle (this.arrayElemAt(recv sq))
+                            if scriptThrew { return (EvValueBridge.taggedUndefined()) }
+                            if (sv.isUndefined()) {
+                                sUndef = (sUndef + 1)
+                            } {
+                                push sItems sv
+                            }
+                            sq = (sq + 1)
+                        }
+                        def ssn:int (array_length sItems)
+                        def sa:int 1
+                        while (sa < ssn) {
+                            def sKey:EvHandle (itemAt sItems sa)
+                            def sb:int (sa - 1)
+                            def sMoving:boolean true
+                            while (sMoving && (sb >= 0)) {
+                                def sCur:EvHandle (itemAt sItems sb)
+                                def sGt:boolean false
+                                if sHasCmp {
+                                    def scargs:[EvHandle]
+                                    push scargs sCur
+                                    push scargs sKey
+                                    def sRes:EvHandle (this.callFnValueWithValues(scmp scargs))
+                                    if scriptThrew { return (EvValueBridge.taggedUndefined()) }
+                                    if ((sRes.toNumber()) > 0.0) {
+                                        sGt = true
+                                    }
+                                } {
+                                    def sLeft:string (sCur.toString())
+                                    def sRight:string (sKey.toString())
+                                    if ((this.strCmp(sLeft sRight)) > 0) {
+                                        sGt = true
+                                    }
+                                }
+                                if sGt {
+                                    set sItems (sb + 1) sCur
+                                    sb = (sb - 1)
+                                } {
+                                    sMoving = false
+                                }
+                            }
+                            set sItems (sb + 1) sKey
+                            sa = (sa + 1)
+                        }
+                        def su:int 0
+                        while (su < sUndef) {
+                            push sItems (EvValueBridge.taggedUndefined())
+                            su = (su + 1)
+                        }
+                        return (EvValueBridge.taggedArray(sItems))
+                    }
+                    if (name == "toSpliced") {
+                        def tsStart:int 0
+                        if ((array_length args) > 0) {
+                            tsStart = (this.relativeIndexOf((itemAt args 0) alen))
+                            if scriptThrew { return (EvValueBridge.taggedUndefined()) }
+                        }
+                        def tsDel:int (alen - tsStart)
+                        if ((array_length args) > 1) {
+                            tsDel = (this.toIntegerOf((itemAt args 1)))
+                            if scriptThrew { return (EvValueBridge.taggedUndefined()) }
+                            if (tsDel < 0) { tsDel = 0 }
+                            if (tsDel > (alen - tsStart)) { tsDel = (alen - tsStart) }
+                        }
+                        def tsOut:[EvHandle]
+                        def tj:int 0
+                        while (tj < tsStart) {
+                            push tsOut (this.arrayElemAt(recv tj))
+                            tj = (tj + 1)
+                        }
+                        def ta:int 2
+                        while (ta < (array_length args)) {
+                            push tsOut (itemAt args ta)
+                            ta = (ta + 1)
+                        }
+                        def tk:int (tsStart + tsDel)
+                        while (tk < alen) {
+                            push tsOut (this.arrayElemAt(recv tk))
+                            tk = (tk + 1)
+                        }
+                        return (EvValueBridge.taggedArray(tsOut))
+                    }
                     if (name == "at") {
                         def n:int (array_length elems)
                         def idx:int 0
@@ -27640,6 +28412,144 @@ class ComponentEngine {
             recv.setMember("__cap_reject__" exJ)
             return (EvValueBridge.taggedUndefined())
         }
+        ; D-WEAK: the weak collections. Each is a strong one behind the slot,
+        ; because nothing here collects; the KEY CHECK is the observable part
+        ; and is enforced.
+        if ((kind == "weakmap") || (kind == "weakset")) {
+            def wkStore:EvHandle (recv.getMember("__weakdata__"))
+            def wkArg:EvHandle (EvValueBridge.taggedUndefined())
+            if ((array_length args) > 0) { wkArg = (itemAt args 0) }
+            if ((name == "add") || (name == "set")) {
+                if (false == (this.canBeWeakTarget(wkArg))) {
+                    def wkWhat:string "weak set"
+                    if (kind == "weakmap") { wkWhat = "weak map key" }
+                    return (this.throwSpecError("TypeError" ("Invalid value used in " + wkWhat)))
+                }
+                if (kind == "weakmap") {
+                    def wkVal:EvHandle (EvValueBridge.taggedUndefined())
+                    if ((array_length args) > 1) { wkVal = (itemAt args 1) }
+                    wkStore.mapSet(wkArg wkVal)
+                } {
+                    wkStore.setAdd(wkArg)
+                }
+                return recv
+            }
+            ; get/has/delete never throw on a bad key -- they answer "not
+            ; there", because a value that cannot be a key cannot be present.
+            if (false == (this.canBeWeakTarget(wkArg))) {
+                if (name == "get") {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                return (EvValueBridge.taggedBoolean(false))
+            }
+            if (kind == "weakmap") {
+                def wkIdx:int (wkStore.mapIndexOfKey(wkArg))
+                if (name == "get") {
+                    if (wkIdx < 0) {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    return (wkStore.mapGet(wkArg))
+                }
+                if (name == "has") {
+                    return (EvValueBridge.taggedBoolean((wkIdx >= 0)))
+                }
+                if (wkIdx < 0) {
+                    return (EvValueBridge.taggedBoolean(false))
+                }
+                def _wkd:boolean (wkStore.mapDelete(wkArg))
+                ; A delete REBUILDS the collection rather than mutating it in
+                ; place, so the rebuilt one has to be written back -- the
+                ; handle read out of the slot is a wrapper, not the slot.
+                recv.setMember("__weakdata__" wkStore)
+                return (EvValueBridge.taggedBoolean(true))
+            }
+            if (name == "has") {
+                return (EvValueBridge.taggedBoolean((wkStore.setHas(wkArg))))
+            }
+            if (false == (wkStore.setHas(wkArg))) {
+                return (EvValueBridge.taggedBoolean(false))
+            }
+            def _wks:boolean (wkStore.setDelete(wkArg))
+            recv.setMember("__weakdata__" wkStore)
+            return (EvValueBridge.taggedBoolean(true))
+        }
+        if (kind == "weakref") {
+            ; Nothing is ever collected here, so deref always answers the
+            ; target -- the strongest answer the spec allows, and the one a
+            ; program cannot prove wrong.
+            return (recv.getMember("__weakdata__"))
+        }
+        if (kind == "weakregistry") {
+            def frTgt:EvHandle (EvValueBridge.taggedUndefined())
+            if ((array_length args) > 0) { frTgt = (itemAt args 0) }
+            if (name == "register") {
+                if (false == (this.canBeWeakTarget(frTgt))) {
+                    return (this.throwSpecError("TypeError" "Invalid value used as weak target"))
+                }
+                ; §26.2.3.2 step 5: the held value may not BE the target, or
+                ; the registry would keep it alive by holding it.
+                if ((array_length args) > 1) {
+                    if (((itemAt args 1).equals(frTgt))) {
+                        return (this.throwSpecError("TypeError" "Target and holdings must not be same"))
+                    }
+                }
+                return (EvValueBridge.taggedUndefined())
+            }
+            if (name == "unregister") {
+                if (false == (this.canBeWeakTarget(frTgt))) {
+                    return (this.throwSpecError("TypeError" "Invalid unregisterToken"))
+                }
+                ; Nothing was ever recorded, because nothing is ever collected.
+                return (EvValueBridge.taggedBoolean(false))
+            }
+            ; cleanupSome: there is never anything to clean up.
+            return (EvValueBridge.taggedUndefined())
+        }
+        ; §27.2.5.3.1/.2: the wrappers `finally` hands to `then`. The callback
+        ; runs FIRST and takes no arguments -- it is not told what it is
+        ; finishing -- and the settlement is then restored on the far side of
+        ; whatever the callback answered, so a callback that returns a promise
+        ; DELAYS the settlement without changing it.
+        if (kind == "promisefin") {
+            def finV:EvHandle (EvValueBridge.taggedUndefined())
+            if ((array_length args) > 0) { finV = (itemAt args 0) }
+            def finFn:EvHandle (recv.getMember("__fin_fn__"))
+            def finNo:[EvHandle]
+            def finRes:EvHandle (this.callFnValueWithValues(finFn finNo))
+            ; A throw from the callback REPLACES the settlement -- that is the
+            ; one case where finally is not transparent.
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            def finC:EvHandle (recv.getMember("__fin_ctor__"))
+            def finResFn:EvHandle (this.getPropertyValue(finC "resolve"))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            if (false == (finResFn.isFunction())) {
+                return (this.throwSpecError("TypeError" "Promise resolve is not a function"))
+            }
+            def finP:EvHandle (this.promiseResolveVia(finC finResFn finRes))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            def vkeys:[string]
+            def vvals:[EvHandle]
+            def valRec:EvHandle (EvValueBridge.taggedObject(vkeys vvals))
+            valRec.setMember("__fin_val__" finV)
+            def thunk:EvHandle ((EvValueBridge.taggedNativeMethod("promisefinval" name)).withThisForCall(valRec))
+            this.shapeAnonFn(thunk 0)
+            return (this.promiseThenVia(finP thunk (EvValueBridge.taggedUndefined())))
+        }
+        if (kind == "promisefinval") {
+            def heldV:EvHandle (recv.getMember("__fin_val__"))
+            if (name == "err") {
+                scriptThrowValue = heldV
+                scriptThrew = true
+                return (EvValueBridge.taggedUndefined())
+            }
+            return heldV
+        }
         ; D-PROMISECAP: `Promise.all`'s per-element resolve function. Its `this`
         ; is a record carrying the index, the shared values array, the shared
         ; remaining-count cell and the capability -- all the state the spec
@@ -27651,14 +28561,46 @@ class ComponentEngine {
                 return (EvValueBridge.taggedUndefined())
             }
             recv.setMember("__el_done__" (EvValueBridge.taggedBoolean(true)))
+            def elMode:int (this.toIntegerOf((recv.getMember("__el_mode__"))))
+            def elRejected:boolean (name == "rejectElement")
+            def elCap:EvHandle (recv.getMember("__el_cap__"))
+            ; `any`: the first fulfilment is the answer, and nothing else about
+            ; the run matters after it.
+            if (elMode == 2) {
+                if (false == elRejected) {
+                    def _ar:EvHandle (this.capInvoke(elCap "__cap_resolve__" elVal))
+                    return (EvValueBridge.taggedUndefined())
+                }
+            }
+            def elStore:EvHandle elVal
+            ; `allSettled`: neither outcome settles anything by itself -- both
+            ; become a record and take their slot.
+            if (elMode == 1) {
+                def skeys:[string]
+                def svals:[EvHandle]
+                def sRec:EvHandle (EvValueBridge.taggedObject(skeys svals))
+                if elRejected {
+                    sRec.setMember("status" (EvValueBridge.taggedString("rejected")))
+                    sRec.setMember("reason" elVal)
+                } {
+                    sRec.setMember("status" (EvValueBridge.taggedString("fulfilled")))
+                    sRec.setMember("value" elVal)
+                }
+                elStore = sRec
+            }
             def elVals:EvHandle (recv.getMember("__el_values__"))
             def elIdx:int (this.toIntegerOf((recv.getMember("__el_index__"))))
-            elVals.setIndexAt(elIdx elVal)
+            elVals.setIndexAt(elIdx elStore)
             def elCount:EvHandle (recv.getMember("__el_count__"))
             def remaining:int ((this.toIntegerOf((elCount.getMember("n")))) - 1)
             elCount.setMember("n" (EvHandle.fromInt(remaining)))
             if (remaining == 0) {
-                def elCap:EvHandle (recv.getMember("__el_cap__"))
+                if (elMode == 2) {
+                    def aggList:[EvHandle] (elVals.itemsOf())
+                    def aggErr:EvHandle (this.makeAggregateError(aggList "All promises were rejected"))
+                    def _rj:EvHandle (this.capInvoke(elCap "__cap_reject__" aggErr))
+                    return (EvValueBridge.taggedUndefined())
+                }
                 def _rr:EvHandle (this.capInvoke(elCap "__cap_resolve__" elVals))
             }
             return (EvValueBridge.taggedUndefined())
@@ -27774,6 +28716,35 @@ class ComponentEngine {
                 if (false == (this.isPromiseValue(recv))) {
                     return (this.throwSpecError("TypeError" "Promise.prototype.then called on a non-Promise"))
                 }
+            }
+            ; §27.2.5.3 `finally` is generic too -- it is `then` with a pair of
+            ; wrappers that run the callback and then RESTORE the settlement:
+            ; the value passes through, the reason is rethrown, and neither is
+            ; replaced by whatever the callback answered. What the callback
+            ; answers is only WAITED for, if it is thenable.
+            if (name == "finally") {
+                def finFn:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 0) { finFn = (itemAt args 0) }
+                ; A non-callable argument is not an error: `then(f, f)` with a
+                ; non-function on both sides is the identity pair, which is
+                ; exactly the pass-through this is supposed to be.
+                if (false == (finFn.isFunction())) {
+                    return (this.promiseThenVia(recv finFn finFn))
+                }
+                def finC:EvHandle (this.promiseSpeciesCtor(recv))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                def fkeys:[string]
+                def fvals:[EvHandle]
+                def finRec:EvHandle (EvValueBridge.taggedObject(fkeys fvals))
+                finRec.setMember("__fin_fn__" finFn)
+                finRec.setMember("__fin_ctor__" finC)
+                def finOk:EvHandle ((EvValueBridge.taggedNativeMethod("promisefin" "ok")).withThisForCall(finRec))
+                def finErr:EvHandle ((EvValueBridge.taggedNativeMethod("promisefin" "err")).withThisForCall(finRec))
+                this.shapeAnonFn(finOk 1)
+                this.shapeAnonFn(finErr 1)
+                return (this.promiseThenVia(recv finOk finErr))
             }
             def onFul:EvHandle (EvValueBridge.taggedUndefined())
             def onRej:EvHandle (EvValueBridge.taggedUndefined())
@@ -29784,6 +30755,13 @@ class ComponentEngine {
         f.setAttrs("length" false false true)
         f.setMember("name" (EvValueBridge.taggedString("")))
         f.setAttrs("name" false false true)
+        ; Every one of these closes over its state through a bound `this`, and
+        ; that binding is not a receiver the caller may replace: a method call
+        ; rebinds a built-in method's `this` to the object it was read from, so
+        ; `Promise.withResolvers().resolve(v)` settled the RESULT OBJECT instead
+        ; of the promise and the promise never settled at all. Marking the
+        ; binding explicit is what tells the call path to leave it alone.
+        f.setBoundExplicit(true)
     }
 
     fn newPromiseCapability:EvHandle (C:EvHandle) {
@@ -32117,6 +33095,7 @@ class ComponentEngine {
         push out "SyntaxError"
         push out "EvalError"
         push out "URIError"
+        push out "AggregateError"
         return out
     }
 
@@ -35490,6 +36469,16 @@ class ComponentEngine {
         return e
     }
 
+    ; §20.5.7.1: AggregateError carries the errors it aggregates as an own
+    ; `errors` property -- writable, non-enumerable, configurable, and a COPY,
+    ; so mutating the array afterwards does not reach into the error.
+    fn makeAggregateError:EvHandle (errs:[EvHandle] message:string) {
+        def e:EvHandle (this.makeError("AggregateError" message))
+        e.setMember("errors" (EvValueBridge.taggedArray(errs)))
+        e.setAttrs("errors" true false true)
+        return e
+    }
+
     ; Raise a spec error. Sets the same unwind flags a guest `throw` sets, so a
     ; try/catch around the offending code catches it exactly like any other throw.
     fn throwSpecError:EvHandle (kind:string message:string) {
@@ -35508,6 +36497,7 @@ class ComponentEngine {
         if (name == "Function") { return true }
         if (name == "Map") { return true }
         if (name == "Set") { return true }
+        if (this.isWeakCtorName(name)) { return true }
         if (name == "Symbol") { return true }
         if (name == "Math") { return true }
         if (name == "JSON") { return true }
@@ -35594,6 +36584,10 @@ class ComponentEngine {
             push gnames "Proxy"
             push gnames "ArrayBuffer"
             push gnames "DataView"
+            push gnames "WeakMap"
+            push gnames "WeakSet"
+            push gnames "WeakRef"
+            push gnames "FinalizationRegistry"
             push gnames "performance"
             ; The error constructors are globals too -- getOwnPropertyNames on
             ; the global object is expected to list every one of them.
@@ -37182,6 +38176,14 @@ class ComponentEngine {
                 return (this.constructIntl(ikind iArgs))
             }
         }
+        ; D-WEAK: new WeakMap / WeakSet / WeakRef / FinalizationRegistry.
+        if (this.isWeakCtorName(className)) {
+            def wArgs:[EvHandle] (this.collectCallArgs(node))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            return (this.constructWeak(className wArgs))
+        }
         ; Built-in collections: new Map([[k,v]...]) / new Set([v...]).
         if (className == "Map") {
             def m:EvHandle (EvValueBridge.taggedMapEmpty())
@@ -37221,6 +38223,15 @@ class ComponentEngine {
             def ctorV:EvHandle (this.errorCtorFor(className))
             if (ctorV.isFunction()) {
                 def kindV:EvHandle (ctorV.getMember("__errorctor__"))
+                ; AggregateError reads (errors, message) rather than (message),
+                ; so it takes the value path that knows the difference.
+                if (className == "AggregateError") {
+                    def agN:[EvHandle] (this.collectCallArgs(node))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    return (this.callBuiltinCtorValues("AggregateError" agN true))
+                }
                 if (kindV.isString()) {
                     def msg:string ""
                     if ((array_length node.children) > 0) {

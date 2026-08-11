@@ -159,6 +159,69 @@ const CASES: Array<[name: string, src: string]> = [
   ["await-ternary",
     `async function f() { return (await Promise.resolve(1)) ? "a" : "b"; }
      f().then(function (v) { console.log(v); });`],
+  // The combinators that settle from more than one input. Like async bodies,
+  // none of these has produced anything by the time the script's synchronous
+  // part ends, so only a whole program can see what they answer.
+  ["allSettled-mixed",
+    `Promise.allSettled([Promise.resolve(1), Promise.reject("bad"), 3])
+       .then(function (r) { console.log(JSON.stringify(r)); });`],
+  ["allSettled-empty",
+    `Promise.allSettled([]).then(function (r) { console.log("len:" + r.length); });`],
+  ["allSettled-never-rejects",
+    `Promise.allSettled([Promise.reject("x")])
+       .then(function (r) { console.log("ok:" + r[0].status + ":" + r[0].reason); },
+             function () { console.log("REJECTED"); });`],
+  ["any-first-fulfilled",
+    `Promise.any([Promise.reject("a"), Promise.resolve("ok")])
+       .then(function (v) { console.log("v:" + v); });`],
+  ["any-all-rejected",
+    `Promise.any([Promise.reject("a"), Promise.reject("b")])
+       .catch(function (e) { console.log(e.name + ":" + JSON.stringify(e.errors)); });`],
+  ["any-empty",
+    `Promise.any([]).catch(function (e) { console.log(e.name + ":" + e.errors.length); });`],
+  ["any-ignores-later-rejection",
+    `async function slowFail() { await 0; throw "late"; }
+     Promise.any([Promise.resolve("first"), slowFail()])
+       .then(function (v) { console.log("v:" + v); });`],
+  ["withResolvers-resolve",
+    `var w = Promise.withResolvers();
+     w.promise.then(function (v) { console.log("v:" + v); });
+     w.resolve(42);`],
+  ["withResolvers-reject",
+    `var w = Promise.withResolvers();
+     w.promise.catch(function (e) { console.log("e:" + e); });
+     w.reject("nope");`],
+  ["withResolvers-async",
+    `async function f() { var w = Promise.withResolvers(); w.resolve(5); return (await w.promise) + 1; }
+     f().then(function (v) { console.log("v:" + v); });`],
+  // finally is TRANSPARENT: it sees neither the value nor the reason, cannot
+  // change either, and only a throw from the callback replaces the settlement.
+  ["finally-passthrough",
+    `Promise.resolve(5).finally(function () { console.log("ran"); })
+       .then(function (v) { console.log("v:" + v); });`],
+  ["finally-rethrows",
+    `Promise.reject("nope").finally(function () { console.log("ran"); })
+       .catch(function (e) { console.log("e:" + e); });`],
+  ["finally-no-args",
+    `Promise.resolve(5).finally(function () { console.log("args:" + arguments.length); })
+       .then(function () {});`],
+  ["finally-return-ignored",
+    `Promise.resolve(5).finally(function () { return 99; })
+       .then(function (v) { console.log("v:" + v); });`],
+  ["finally-throw-replaces",
+    `Promise.resolve(5).finally(function () { throw "boom"; })
+       .catch(function (e) { console.log("e:" + e); });`],
+  ["finally-awaits-thenable",
+    `var L = [];
+     Promise.resolve("v").finally(function () {
+       return new Promise(function (r) { L.push("wait"); r(); });
+     }).then(function (v) { L.push("then:" + v); console.log(L.join(",")); });`],
+  ["finally-in-async",
+    `async function f() { try { return await Promise.reject("e"); } catch (x) { return "c:" + x; } }
+     f().finally(function () { console.log("fin"); }).then(function (v) { console.log(v); });`],
+  ["aggregate-error-thrown",
+    `try { throw new AggregateError([1, 2], "m"); }
+     catch (e) { console.log(e.name + "|" + e.message + "|" + e.errors.join(",") + "|" + (e instanceof Error)); }`],
 ];
 
 function nodeOutput(dir: string, src: string): string {

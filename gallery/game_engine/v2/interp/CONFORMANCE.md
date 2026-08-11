@@ -1107,6 +1107,53 @@ and async generators produce values but are not themselves resumable -- `for
 await (x of asyncGen())` works because the generator is collected eagerly, as
 sync generators outside the driver are.
 
+#### The ES2016-2024 library: arrays, promise combinators, Object statics, weak collections
+
+None of the following existed, and every one of them is the kind of thing a
+real program reaches for in its first hundred lines rather than an edge case:
+
+- **Arrays.** `flatMap`, `findLast`, `findLastIndex`, and the four
+  change-by-copy methods `toReversed` / `toSorted` / `toSpliced` / `with`.
+  `includes` existed but compared with reference equality and discarded its
+  `fromIndex`, so `[NaN].includes(NaN)` was false -- SameValueZero is the whole
+  reason `includes` exists next to `indexOf` -- and `[1,2,3].includes(1, 1)`
+  was true.
+- **Promise combinators.** `allSettled`, `any` (with `AggregateError`),
+  `withResolvers`, and `Promise.prototype.finally`. The three combinators
+  differ only in what an element does with its answer, so they share
+  `Promise.all`'s element function and select on a mode; `finally` is `then`
+  with a pair of wrappers that RESTORE the settlement, which is what makes it
+  transparent to both a value and a reason.
+- **Object statics.** `fromEntries`, `hasOwn`, `getOwnPropertyDescriptors`,
+  `groupBy`.
+- **`String.prototype.matchAll`**, which is `match` with /g except that it
+  keeps the captures and the index of each match.
+- **Optional call `f?.()`.** The parser produced an `OptionalCallExpression`
+  and the evaluator treated it as an ordinary call, so it reported "f is not a
+  function" -- the one thing the syntax exists to avoid.
+- **The weak collections.** `WeakMap` and `WeakSet` were missing entirely, and
+  `WeakRef` and `FinalizationRegistry` with them.
+
+Two things worth recording:
+
+- **A weak collection with no collector is a legal weak collection.** Nothing
+  in this realm is ever collected, so a `WeakMap` here is a `Map` that keeps
+  its keys alive. The spec never REQUIRES collection, and a program cannot
+  observe the difference except through memory. What it can observe -- the key
+  must be an object, `get`/`has`/`delete` answer "not there" for a primitive
+  rather than throwing, there is no iteration, and `deref` answers the target
+  -- is implemented rather than approximated.
+- **A bound `this` on a built-in is not a receiver.** `Promise.withResolvers()`
+  returned the right three things and the promise never settled: reading
+  `w.resolve` off the result object and calling it rebound the function's
+  `this` to that object, so the capability settled the RESULT instead of the
+  promise. Every function the promise machinery mints closes over its state
+  through a bound `this`, and `shapeAnonFn` -- which already gave them their
+  arity and empty name -- now marks that binding explicit so the method-call
+  path leaves it alone. The same bug was latent in every `Promise.all` element
+  function and every async step function; nothing had yet read one off an
+  object and called it.
+
 #### Intl
 
 `Intl` did not exist, so `new Intl.NumberFormat('de').format(n)` was a
@@ -1319,18 +1366,22 @@ with no way to bucket them by edition. An ES2016+ column would have to be built
 from FEATURE tags (`features: [optional-chaining]`, …), which is a different job.
 No number is published here rather than a synthesised one.
 
-### What the 1337-probe suite is not
+### What the probe suite is not
 
-`npm run jsengine:conformance` reports 1337/1337. That is the runtime-conformance
-corpus, whose expectations are derived by running the same source through Node.
-It is a regression net, not test262, and the two numbers must not be quoted
-side by side as if they measured the same thing.
+`npm run jsengine:conformance` reports 1551/1553 on each native target. That is
+the runtime-conformance corpus, whose expectations are derived by running the
+same source through Node. It is a regression net, not test262, and the two
+numbers must not be quoted side by side as if they measured the same thing.
 
-The runtime-conformance suite is at 1281 checks, every one of them derived from Node —
-1260 expression probes plus 21 script-level probes run through Node's `vm` so the
-script global is real.
+The runtime-conformance suite is at 1586 checks, every one of them derived from
+Node — 1556 expression probes plus 21 script-level probes run through Node's
+`vm` so the script global is real, plus the module and gap assertions.
 Date is additionally validated by 209 differential cases against Node covering the
 component getters, the setter family, `Date.parse`, `Date.UTC` and both range extremes.
+The 47 whole-program cases in `tests/async-conformance.test.ts` cover what a
+returned value cannot show: what an async body, a promise combinator or
+`finally` actually PRODUCES once the queue drains, compared against Node
+running the same program.
 
 ---
 

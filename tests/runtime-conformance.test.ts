@@ -1945,6 +1945,85 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["intl-list-single", "return new Intl.ListFormat('en').format(['only']);", "unicode"],
 
   ["uni-coll-total-order", "var w = ['Straße', 'Strasse', 'ǆ', 'dz']; var f = w.slice().sort(function (a, b) { return a.localeCompare(b); }).join('|'); var r = w.slice().reverse().sort(function (a, b) { return a.localeCompare(b); }).join('|'); return f === r;", "unicode"],
+
+  // --- ES2019-2024 library ---------------------------------------------------
+  // The change-by-copy quartet: each answers a NEW array and the receiver is
+  // untouched, which is the only reason to prefer them over the in-place forms.
+  ["arr-toSorted", "return [3, 1, 2].toSorted().join(',');", "es2023"],
+  ["arr-toSorted-cmp", "return [3, 1, 2].toSorted(function (a, b) { return b - a; }).join(',');", "es2023"],
+  ["arr-toSorted-pure", "var a = [3, 1, 2]; a.toSorted(); return a.join(',');", "es2023"],
+  ["arr-toSorted-undefined-last", "return JSON.stringify([3, undefined, 1].toSorted());", "es2023"],
+  ["arr-toSorted-holes", "var a = [3, , 1]; return JSON.stringify(a.toSorted());", "es2023"],
+  ["arr-toSorted-badcmp", "try { [1, 2].toSorted(5); return 'no'; } catch (e) { return e.constructor.name; }", "es2023"],
+  ["arr-toReversed", "return [1, 2, 3].toReversed().join(',');", "es2023"],
+  ["arr-toReversed-pure", "var a = [1, 2, 3]; a.toReversed(); return a.join(',');", "es2023"],
+  ["arr-toSpliced", "return JSON.stringify([1, 2, 3, 4].toSpliced(1, 2, 'a', 'b', 'c'));", "es2023"],
+  ["arr-toSpliced-neg", "return JSON.stringify([1, 2, 3, 4].toSpliced(-2, 1));", "es2023"],
+  ["arr-with", "return JSON.stringify([1, 2, 3].with(1, 'x'));", "es2023"],
+  ["arr-with-neg", "return JSON.stringify([1, 2, 3].with(-1, 'z'));", "es2023"],
+  ["arr-with-range", "try { [1, 2].with(9, 0); return 'no'; } catch (e) { return e.constructor.name; }", "es2023"],
+  ["arr-findLast", "return [1, 2, 3, 4].findLast(function (x) { return x % 2 === 1; });", "es2023"],
+  ["arr-findLastIndex", "return [1, 2, 3, 4].findLastIndex(function (x) { return x % 2 === 1; });", "es2023"],
+  ["arr-findLast-miss", "return String([1, 2].findLast(function () { return false; })) + ',' + [1, 2].findLastIndex(function () { return false; });", "es2023"],
+  ["arr-flatMap", "return JSON.stringify([1, 2, 3].flatMap(function (x) { return [x, x * 2]; }));", "es2019"],
+  ["arr-flatMap-flat-once", "return JSON.stringify([1, 2].flatMap(function (x) { return [[x]]; }));", "es2019"],
+  // includes compares with SameValueZero, which is the whole reason it exists
+  // next to indexOf.
+  ["arr-includes-nan", "return [NaN].includes(NaN);", "es2016"],
+  ["arr-includes-indexOf-nan", "return [NaN].indexOf(NaN);", "es2016"],
+  ["arr-includes-from", "return [1, 2, 3].includes(1, 1);", "es2016"],
+  ["arr-includes-negfrom", "return [1, 2, 3].includes(3, -1);", "es2016"],
+  ["arr-includes-hole", "return [, ].includes(undefined);", "es2016"],
+  ["arr-includes-zero", "return [-0].includes(0);", "es2016"],
+
+  // Promise combinators and finally.
+  ["promise-allSettled-shape", "var p = Promise.allSettled([Promise.resolve(1)]); return typeof p.then;", "es2020"],
+  ["promise-any-shape", "var p = Promise.any([Promise.resolve(1)]); p.catch(function () {}); return typeof p.then;", "es2021"],
+  ["promise-withResolvers", "var w = Promise.withResolvers(); w.resolve(1); return typeof w.promise.then + ',' + typeof w.resolve + ',' + typeof w.reject;", "es2024"],
+  ["promise-finally-exists", "return typeof Promise.prototype.finally + ',' + Promise.prototype.finally.length;", "es2018"],
+  ["aggregate-error", "var e = new AggregateError([1, 2], 'm'); return e.name + ',' + e.message + ',' + e.errors.join('-') + ',' + (e instanceof Error);", "es2021"],
+  ["aggregate-error-no-msg", "var e = new AggregateError([]); return e.message + '|' + e.errors.length;", "es2021"],
+  ["aggregate-error-errors-hidden", "var e = new AggregateError([1]); return Object.keys(e).indexOf('errors');", "es2021"],
+
+  // Object statics.
+  ["object-fromEntries", "return JSON.stringify(Object.fromEntries([['a', 1], ['b', 2]]));", "es2019"],
+  ["object-fromEntries-map", "return JSON.stringify(Object.fromEntries(new Map([['x', 9]])));", "es2019"],
+  ["object-hasOwn", "return Object.hasOwn({ a: 1 }, 'a') + ',' + Object.hasOwn({ a: 1 }, 'b');", "es2022"],
+  ["object-hasOwn-inherited", "return Object.hasOwn({}, 'toString');", "es2022"],
+  ["object-gopds", "return JSON.stringify(Object.getOwnPropertyDescriptors({ a: 1 }));", "es2017"],
+  ["object-gopds-accessor", "var o = {}; Object.defineProperty(o, 'g', { get: function () { return 1; }, configurable: true }); var d = Object.getOwnPropertyDescriptors(o); return typeof d.g.get + ',' + d.g.configurable;", "es2017"],
+  ["object-groupBy", "return JSON.stringify(Object.groupBy([1, 2, 3], function (x) { return x % 2 ? 'odd' : 'even'; }));", "es2024"],
+  // The result has a null prototype, so a group called "toString" is a group
+  // and not a collision. Compared inside the guest: a returned null and a
+  // returned undefined are the same value once bridged out.
+  ["object-groupBy-nullproto", "return Object.getPrototypeOf(Object.groupBy([1], function () { return 'k'; })) === null;", "es2024"],
+  ["object-groupBy-toString-key", "var g = Object.groupBy([1], function () { return 'toString'; }); return g.toString.length;", "es2024"],
+
+  // String.matchAll: every match WITH its captures, unlike match with /g.
+  ["string-matchAll", "return JSON.stringify(Array.from('a1b2'.matchAll(/[a-z](\\d)/g), function (m) { return m[0] + ':' + m[1] + '@' + m.index; }));", "es2020"],
+  ["string-matchAll-empty", "return Array.from('abc'.matchAll(/x/g)).length;", "es2020"],
+  ["string-matchAll-nonglobal", "try { 'ab'.matchAll(/a/); return 'no'; } catch (e) { return e.constructor.name; }", "es2020"],
+
+  // Optional call.
+  ["optional-call-absent", "var o = {}; return String(o.f?.());", "es2020"],
+  ["optional-call-present", "var o = { f: function () { return 5; } }; return o.f?.();", "es2020"],
+  ["optional-call-this", "var o = { v: 3, f: function () { return this.v; } }; return o.f?.();", "es2020"],
+  ["optional-call-null-binding", "var f = null; return String(f?.());", "es2020"],
+  ["optional-call-args-not-evaluated", "var n = 0; var o = {}; o.f?.(n++); return n;", "es2020"],
+
+  // The weak collections. Nothing here is ever collected, which the spec
+  // permits; what IS observable is the key check and the interface.
+  ["weakmap-roundtrip", "var k = {}; var m = new WeakMap(); m.set(k, 1); return m.get(k) + ',' + m.has(k) + ',' + m.delete(k) + ',' + m.has(k);", "es2015"],
+  ["weakmap-init", "var k = {}; return new WeakMap([[k, 7]]).get(k);", "es2015"],
+  ["weakmap-primitive-key", "try { new WeakMap().set(1, 2); return 'no'; } catch (e) { return e.constructor.name; }", "es2015"],
+  ["weakmap-get-primitive", "return String(new WeakMap().get(1)) + ',' + new WeakMap().has(1);", "es2015"],
+  ["weakmap-tag", "return Object.prototype.toString.call(new WeakMap());", "es2015"],
+  ["weakmap-no-iteration", "return typeof new WeakMap().forEach;", "es2015"],
+  ["weakset-roundtrip", "var k = {}; var s = new WeakSet(); s.add(k); return s.has(k) + ',' + s.has({}) + ',' + s.delete(k) + ',' + s.has(k);", "es2015"],
+  ["weakref-deref", "var o = { x: 1 }; return new WeakRef(o).deref().x;", "es2021"],
+  ["weakref-primitive", "try { new WeakRef(1); return 'no'; } catch (e) { return e.constructor.name; }", "es2021"],
+  ["finreg-register", "var f = new FinalizationRegistry(function () {}); f.register({}, 1); return typeof f.unregister;", "es2021"],
+  ["finreg-noncallable", "try { new FinalizationRegistry(1); return 'no'; } catch (e) { return e.constructor.name; }", "es2021"],
 ];
 
 /**
