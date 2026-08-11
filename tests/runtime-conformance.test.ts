@@ -1915,6 +1915,18 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["async-tostring-tag", "async function f() { return 1; } return Object.prototype.toString.call(f());", "async"],
   ["async-instanceof-promise", "async function f() { return 1; } return f() instanceof Promise;", "async"],
 
+  // formatToParts / formatRange / supportedLocalesOf.
+  ["intl-nf-parts", "return new Intl.NumberFormat('de').formatToParts(-1234567.89).map(function (p) { return p.type + '=' + p.value; }).join(' ');", "unicode"],
+  ["intl-nf-parts-currency", "return new Intl.NumberFormat('en', { style: 'currency', currency: 'USD' }).formatToParts(-99.5).map(function (p) { return p.type; }).join(',');", "unicode"],
+  ["intl-nf-parts-percent", "return new Intl.NumberFormat('de', { style: 'percent' }).formatToParts(0.256).map(function (p) { return p.type + '=' + p.value; }).join(' ');", "unicode"],
+  ["intl-nf-parts-rejoin", "var f = new Intl.NumberFormat('de'); return f.formatToParts(-1234567.89).map(function (p) { return p.value; }).join('') === f.format(-1234567.89);", "unicode"],
+  ["intl-dtf-parts", "return new Intl.DateTimeFormat('en').formatToParts(new Date(Date.UTC(2021, 4, 7))).map(function (p) { return p.type + '=' + p.value; }).join(' ');", "unicode"],
+  ["intl-dtf-parts-long", "return new Intl.DateTimeFormat('de', { year: 'numeric', month: 'long', day: 'numeric' }).formatToParts(new Date(Date.UTC(2021, 4, 7))).map(function (p) { return p.type; }).join(',');", "unicode"],
+  ["intl-dtf-parts-rejoin", "var f = new Intl.DateTimeFormat('hu'); var d = new Date(Date.UTC(2021, 4, 7)); return f.formatToParts(d).map(function (p) { return p.value; }).join('') === f.format(d);", "unicode"],
+  ["intl-nf-supported", "return Intl.NumberFormat.supportedLocalesOf(['de', 'xx', 'sv-SE']).join('|');", "unicode"],
+  ["intl-collator-supported", "return Intl.Collator.supportedLocalesOf(['fr', 'zz']).join('|');", "unicode"],
+  ["intl-dtf-supported", "return Intl.DateTimeFormat.supportedLocalesOf(['ja']).join('|');", "unicode"],
+
   ["uni-coll-total-order", "var w = ['Straße', 'Strasse', 'ǆ', 'dz']; var f = w.slice().sort(function (a, b) { return a.localeCompare(b); }).join('|'); var r = w.slice().reverse().sort(function (a, b) { return a.localeCompare(b); }).join('|'); return f === r;", "unicode"],
 ];
 

@@ -20304,49 +20304,17 @@ class ComponentEngine {
         ; may be called WITHOUT new and still construct -- §10.1.2 -- so both
         ; doors lead here.
         if (nsName == "Intl") {
+            ; D-INTL: `Intl.Collator.supportedLocalesOf(...)` and the other two.
+            ; The spec puts this on each CONSTRUCTOR, so it arrives here with
+            ; the constructor's own name prefixed.
+            if ((name == "Collator.supportedLocalesOf") || ((name == "NumberFormat.supportedLocalesOf") || (name == "DateTimeFormat.supportedLocalesOf"))) {
+                return (this.intlSupportedLocales(args))
+            }
             if (name == "Collator") { return (this.constructIntl("collator" args)) }
             if (name == "NumberFormat") { return (this.constructIntl("numberformat" args)) }
             if (name == "DateTimeFormat") { return (this.constructIntl("datetimeformat" args)) }
-            if ((name == "getCanonicalLocales") || (name == "supportedLocalesOf")) {
-                def inV:EvHandle (EvValueBridge.taggedUndefined())
-                if ((array_length args) > 0) { inV = (itemAt args 0) }
-                def tags:[EvHandle] (this.intlRequestedTag(inV))
-                def outT:[EvHandle]
-                def ti:int 0
-                while (ti < (array_length tags)) {
-                    def raw:string (this.toStringOf((itemAt tags ti)))
-                    if scriptThrew { return (EvValueBridge.taggedUndefined()) }
-                    def canon:string (this.canonicalizeLocaleTag(raw))
-                    ; supportedLocalesOf answers only the ones there is data
-                    ; for, which is how a program discovers the fallback.
-                    def keep:boolean true
-                    if (name == "supportedLocalesOf") {
-                        this.ensureLocaleTables()
-                        def want:string (this.unicodeCaseConvert(canon false))
-                        keep = false
-                        def li:int 0
-                        while (li < (array_length localeTags)) {
-                            if ((itemAt localeTags li) == want) { keep = true }
-                            li = (li + 1)
-                        }
-                        if (keep == false) {
-                            def dash:int (indexOf want "-")
-                            if (dash > 0) {
-                                def sh:string (this.cuSlice(want 0 dash))
-                                def lj:int 0
-                                while (lj < (array_length localeTags)) {
-                                    if ((itemAt localeTags lj) == sh) { keep = true }
-                                    lj = (lj + 1)
-                                }
-                            }
-                        }
-                    }
-                    if keep {
-                        push outT (EvValueBridge.taggedString(canon))
-                    }
-                    ti = (ti + 1)
-                }
-                return (EvValueBridge.taggedArray(outT))
+            if (name == "getCanonicalLocales") {
+                return (this.intlLocaleList(args false))
             }
             return (EvValueBridge.taggedUndefined())
         }
@@ -22569,6 +22537,7 @@ class ComponentEngine {
             return (this.hasBuiltinStatic(nsName name))
         }
         if (nsName == "Intl") {
+            if ((this.cuIndexOfByte(name (indexOf name "."))) > 0) { return true }
             return (this.hasBuiltinStatic(nsName name))
         }
         if (nsName == "Promise") {
@@ -22719,6 +22688,21 @@ class ComponentEngine {
             stv.setAttrs("length" false false true)
             stv.setMember("name" (EvValueBridge.taggedString(sn)))
             stv.setAttrs("name" false false true)
+            ; D-INTL: supportedLocalesOf is a static ON EACH CONSTRUCTOR, not
+            ; on the namespace, so it is hung here rather than published as an
+            ; Intl static. The name carries its owner so the one handler can
+            ; tell which constructor was asked.
+            if (nsName == "Intl") {
+                if (this.intlIsCtorName(sn)) {
+                    def slo:EvHandle (EvValueBridge.taggedNativeStatic("Intl" (sn + ".supportedLocalesOf")))
+                    slo.setMember("length" (EvHandle.fromInt(1)))
+                    slo.setAttrs("length" false false true)
+                    slo.setMember("name" (EvValueBridge.taggedString("supportedLocalesOf")))
+                    slo.setAttrs("name" false false true)
+                    stv.setMember("supportedLocalesOf" slo)
+                    stv.setAttrs("supportedLocalesOf" true false true)
+                }
+            }
             g.setMember(sn stv)
             ; Writable and configurable but not enumerable, like every built-in.
             g.setAttrs(sn true false true)
@@ -22938,10 +22922,16 @@ class ComponentEngine {
         }
         if (kind == "intlnumberformat") {
             push out "format"
+            push out "formatToParts"
+            push out "formatRange"
+            push out "formatRangeToParts"
             push out "resolvedOptions"
         }
         if (kind == "intldatetimeformat") {
             push out "format"
+            push out "formatToParts"
+            push out "formatRange"
+            push out "formatRangeToParts"
             push out "resolvedOptions"
         }
         if (kind == "typedarraystatic") {
@@ -23450,10 +23440,16 @@ class ComponentEngine {
         }
         if (kind == "intlnumberformat") {
             if (name == "format") { return 1 }
+            if (name == "formatToParts") { return 1 }
+            if (name == "formatRange") { return 2 }
+            if (name == "formatRangeToParts") { return 2 }
             if (name == "resolvedOptions") { return 0 }
         }
         if (kind == "intldatetimeformat") {
             if (name == "format") { return 1 }
+            if (name == "formatToParts") { return 1 }
+            if (name == "formatRange") { return 2 }
+            if (name == "formatRangeToParts") { return 2 }
             if (name == "resolvedOptions") { return 0 }
         }
         ; D-REGEXACCESSOR: the GETTER halves of RegExp.prototype's source, global,
@@ -27308,7 +27304,35 @@ class ComponentEngine {
                 def maxF:int (this.toIntegerOf((recv.getOwnData("__intlmaxf__"))))
                 def minI:int (this.toIntegerOf((recv.getOwnData("__intlmini__"))))
                 def grp:boolean ((recv.getOwnData("__intlgroup__")).toBool())
-                return (EvValueBridge.taggedString((this.intlFormatNumber(nloc nv style cur minF maxF grp minI))))
+                return (EvValueBridge.taggedString((this.intlJoinParts((this.intlNumberParts(nloc nv style cur minF maxF grp minI))))))
+            }
+            if ((name == "formatToParts") || ((name == "formatRange") || (name == "formatRangeToParts"))) {
+                def style2:string ((recv.getOwnData("__intlstyle__")).stringOf())
+                def cur2:string ((recv.getOwnData("__intlcur__")).stringOf())
+                def minF2:int (this.toIntegerOf((recv.getOwnData("__intlminf__"))))
+                def maxF2:int (this.toIntegerOf((recv.getOwnData("__intlmaxf__"))))
+                def minI2:int (this.toIntegerOf((recv.getOwnData("__intlmini__"))))
+                def grp2:boolean ((recv.getOwnData("__intlgroup__")).toBool())
+                def n1:double 0.0
+                if ((array_length args) > 0) {
+                    n1 = (this.toNumberOf((itemAt args 0)))
+                    if scriptThrew { return (EvValueBridge.taggedUndefined()) }
+                }
+                def p1:[EvHandle] (this.intlNumberParts(nloc n1 style2 cur2 minF2 maxF2 grp2 minI2))
+                if (name == "formatToParts") {
+                    return (EvValueBridge.taggedArray(p1))
+                }
+                def n2:double 0.0
+                if ((array_length args) > 1) {
+                    n2 = (this.toNumberOf((itemAt args 1)))
+                    if scriptThrew { return (EvValueBridge.taggedUndefined()) }
+                }
+                def p2:[EvHandle] (this.intlNumberParts(nloc n2 style2 cur2 minF2 maxF2 grp2 minI2))
+                def rp:[EvHandle] (this.intlRangeParts(p1 p2))
+                if (name == "formatRangeToParts") {
+                    return (EvValueBridge.taggedArray(rp))
+                }
+                return (EvValueBridge.taggedString((this.intlJoinParts(rp))))
             }
             if (name == "resolvedOptions") {
                 def rk2:[string]
@@ -27356,7 +27380,25 @@ class ComponentEngine {
                 }
                 def which:int (this.toIntegerOf((recv.getOwnData("__intlwhich__"))))
                 def hourW2:int (this.toIntegerOf((recv.getOwnData("__intlhourw__"))))
-                return (EvValueBridge.taggedString((this.intlFormatDateW(dloc which tv hourW2))))
+                return (EvValueBridge.taggedString((this.intlJoinParts((this.intlDateParts(dloc which tv hourW2))))))
+            }
+            if ((name == "formatToParts") || ((name == "formatRange") || (name == "formatRangeToParts"))) {
+                def which3:int (this.toIntegerOf((recv.getOwnData("__intlwhich__"))))
+                def hourW3:int (this.toIntegerOf((recv.getOwnData("__intlhourw__"))))
+                def t1:double (this.intlTimeArg(args 0))
+                if scriptThrew { return (EvValueBridge.taggedUndefined()) }
+                def dp1:[EvHandle] (this.intlDateParts(dloc which3 t1 hourW3))
+                if (name == "formatToParts") {
+                    return (EvValueBridge.taggedArray(dp1))
+                }
+                def t2:double (this.intlTimeArg(args 1))
+                if scriptThrew { return (EvValueBridge.taggedUndefined()) }
+                def dp2:[EvHandle] (this.intlDateParts(dloc which3 t2 hourW3))
+                def drp:[EvHandle] (this.intlRangeParts(dp1 dp2))
+                if (name == "formatRangeToParts") {
+                    return (EvValueBridge.taggedArray(drp))
+                }
+                return (EvValueBridge.taggedString((this.intlJoinParts(drp))))
             }
             if (name == "resolvedOptions") {
                 def rk3:[string]
@@ -33973,6 +34015,347 @@ class ComponentEngine {
         this.ensureLocaleTables()
         def idx:int (this.toIntegerOf((recv.getOwnData("__intllocale__"))))
         return (EvValueBridge.taggedString((this.canonicalizeLocaleTag((itemAt localeTags idx)))))
+    }
+
+
+    ; ---- formatToParts ------------------------------------------------------
+    ; The same formatting, reported as the (type, value) pieces it is built
+    ; from. A document generator wants these: they are how you style the
+    ; currency symbol differently from the digits, or right-align on the decimal
+    ; separator, without parsing the formatted string back apart.
+    ;
+    ; Built by SPLITTING the affixes and the grouped digits, so the parts and
+    ; the string can never disagree -- format() is the parts joined.
+    fn intlNumberParts:[EvHandle] (loc:int value:double style:string currency:string minFrac:int maxFrac:int useGroup:boolean minInt:int) {
+        this.ensureLocaleTables()
+        def out:[EvHandle]
+        def dec:string (itemAt localeNumStr ((loc * 22) + 0))
+        def grp:string (itemAt localeNumStr ((loc * 22) + 1))
+        def minus:string (itemAt localeNumStr ((loc * 22) + 2))
+        def pct:string (itemAt localeNumStr ((loc * 22) + 3))
+        def v:double value
+        if (style == "percent") { v = (v * 100.0) }
+        if (v != v) {
+            push out (this.intlPart("nan" "NaN"))
+            return out
+        }
+        def neg:boolean false
+        if (v < 0.0) {
+            neg = true
+            v = (0.0 - v)
+        }
+        def aff:[string] (this.intlAffix(loc style neg currency))
+        def sym:string (this.intlCurrencySymbol(loc currency))
+        this.intlPushAffix(out (itemAt aff 0) minus sym style pct)
+        if (false == (this.isFiniteNum(v))) {
+            push out (this.intlPart("infinity" "∞"))
+            this.intlPushAffix(out (itemAt aff 1) minus sym style pct)
+            return out
+        }
+        def body:string (this.toFixedString(v maxFrac))
+        def dot:int (indexOf body ".")
+        def intPart:string body
+        def fracPart:string ""
+        if (dot >= 0) {
+            def bodyLen:int (this.cuLen(body))
+            intPart = (this.cuSlice(body 0 dot))
+            fracPart = (this.cuSlice(body (dot + 1) bodyLen))
+        }
+        def fl:int (this.cuLen(fracPart))
+        def trimming:boolean true
+        while (trimming && (fl > minFrac)) {
+            if ((this.cuUnitAt(fracPart (fl - 1))) == 48) {
+                fl = (fl - 1)
+            } {
+                trimming = false
+            }
+        }
+        fracPart = (this.cuSlice(fracPart 0 fl))
+        while ((this.cuLen(intPart)) < minInt) {
+            intPart = ("0" + intPart)
+        }
+        ; The grouped integer, split back into `integer` and `group` pieces --
+        ; which is exactly what the host reports.
+        def grouped:string (this.intlGroupInteger(intPart loc useGroup))
+        if ((this.cuLen(grp)) == 0) {
+            push out (this.intlPart("integer" grouped))
+        } {
+            def rest:string grouped
+            def going:boolean true
+            while going {
+                def at:int (indexOf rest grp)
+                if (at < 0) {
+                    going = false
+                } {
+                    def cuAt:int (this.cuIndexOfByte(rest at))
+                    def restLen:int (this.cuLen(rest))
+                    def head:string (this.cuSlice(rest 0 cuAt))
+                    push out (this.intlPart("integer" head))
+                    push out (this.intlPart("group" grp))
+                    def grpLen:int (this.cuLen(grp))
+                    rest = (this.cuSlice(rest (cuAt + grpLen) restLen))
+                }
+            }
+            push out (this.intlPart("integer" rest))
+        }
+        if ((this.cuLen(fracPart)) > 0) {
+            push out (this.intlPart("decimal" dec))
+            push out (this.intlPart("fraction" fracPart))
+        }
+        this.intlPushAffix(out (itemAt aff 1) minus sym style pct)
+        return out
+    }
+
+    ; §6.2.3 CanonicalizeLocaleList, optionally keeping only the tags there is
+    ; data for -- which is how supportedLocalesOf lets a program discover the
+    ; fallback before it formats anything.
+    fn intlLocaleList:EvHandle (args:[EvHandle] onlySupported:boolean) {
+        def inV:EvHandle (EvValueBridge.taggedUndefined())
+        if ((array_length args) > 0) { inV = (itemAt args 0) }
+        def tags:[EvHandle] (this.intlRequestedTag(inV))
+        def outT:[EvHandle]
+        def ti:int 0
+        while (ti < (array_length tags)) {
+            def raw:string (this.toStringOf((itemAt tags ti)))
+            if scriptThrew { return (EvValueBridge.taggedUndefined()) }
+            def canon:string (this.canonicalizeLocaleTag(raw))
+            def keep:boolean true
+            if onlySupported {
+                this.ensureLocaleTables()
+                def want:string (this.unicodeCaseConvert(canon false))
+                keep = false
+                def li:int 0
+                while (li < (array_length localeTags)) {
+                    if ((itemAt localeTags li) == want) { keep = true }
+                    li = (li + 1)
+                }
+                if (keep == false) {
+                    def dash:int (indexOf want "-")
+                    if (dash > 0) {
+                        def sh:string (this.cuSlice(want 0 dash))
+                        def lj:int 0
+                        while (lj < (array_length localeTags)) {
+                            if ((itemAt localeTags lj) == sh) { keep = true }
+                            lj = (lj + 1)
+                        }
+                    }
+                }
+            }
+            if keep {
+                push outT (EvValueBridge.taggedString(canon))
+            }
+            ti = (ti + 1)
+        }
+        return (EvValueBridge.taggedArray(outT))
+    }
+
+    fn intlSupportedLocales:EvHandle (args:[EvHandle]) {
+        return (this.intlLocaleList(args true))
+    }
+
+    ; A time value from a call argument: a Date, a number, or `now` when the
+    ; argument is missing.
+    fn intlTimeArg:double (args:[EvHandle] i:int) {
+        if (i >= (array_length args)) { return hostNowMs }
+        def av:EvHandle (itemAt args i)
+        if (av.isUndefined()) { return hostNowMs }
+        if (av.isObject()) {
+            if (av.hasOwnData("__date__")) {
+                return ((av.getOwnData("__date__")).toNumber())
+            }
+        }
+        return (this.toNumberOf(av))
+    }
+
+    fn intlPart:EvHandle (t:string v:string) {
+        def keys:[string]
+        def vals:[EvHandle]
+        def o:EvHandle (EvValueBridge.taggedObject(keys vals))
+        o.setMember("type" (EvValueBridge.taggedString(t)))
+        o.setMember("value" (EvValueBridge.taggedString(v)))
+        o.setProto((this.builtinPrototype("Object")))
+        return o
+    }
+
+    ; An affix is a run of literal text that may contain the minus sign, the
+    ; percent sign or the currency symbol. Split it into those pieces so each
+    ; is reported under its own type rather than lumped into one literal.
+    fn intlPushAffix:void (out:[EvHandle] affix:string minus:string sym:string style:string pct:string) {
+        if ((this.cuLen(affix)) == 0) { return }
+        def marks:[string]
+        def types:[string]
+        push marks minus
+        push types "minusSign"
+        if (style == "percent") {
+            push marks pct
+            push types "percentSign"
+        }
+        if (style == "currency") {
+            push marks sym
+            push types "currency"
+        }
+        def rest:string affix
+        def guard:boolean true
+        while guard {
+            def bestAt:int (0 - 1)
+            def bestI:int (0 - 1)
+            def mi:int 0
+            while (mi < (array_length types)) {
+                def m:string (itemAt marks mi)
+                if ((this.cuLen(m)) > 0) {
+                    def at:int (indexOf rest m)
+                    if (at >= 0) {
+                        def cuAt:int (this.cuIndexOfByte(rest at))
+                        if (bestAt < 0) {
+                            bestAt = cuAt
+                            bestI = mi
+                        } {
+                            if (cuAt < bestAt) {
+                                bestAt = cuAt
+                                bestI = mi
+                            }
+                        }
+                    }
+                }
+                mi = (mi + 1)
+            }
+            if (bestI < 0) {
+                guard = false
+            } {
+                def m2:string (itemAt marks bestI)
+                def restLen:int (this.cuLen(rest))
+                if (bestAt > 0) {
+                    def litHead:string (this.cuSlice(rest 0 bestAt))
+                    push out (this.intlPart("literal" litHead))
+                }
+                def mType:string (itemAt types bestI)
+                push out (this.intlPart(mType m2))
+                def m2Len:int (this.cuLen(m2))
+                rest = (this.cuSlice(rest (bestAt + m2Len) restLen))
+            }
+        }
+        if ((this.cuLen(rest)) > 0) {
+            push out (this.intlPart("literal" rest))
+        }
+    }
+
+
+    ; The pieces of a formatted date, as (type, value).
+    fn intlDateParts:[EvHandle] (loc:int which:int t:double hourWidth:int) {
+        this.ensureLocaleTables()
+        def out:[EvHandle]
+        def dtl (new DateTime)
+        def year:int ((dtl.yearFromTime(t)) + (itemAt localeNumInt ((loc * 5) + 4)))
+        def month:int (dtl.monthFromTime(t))
+        def day:int (dtl.dateFromTime(t))
+        def wday:int (dtl.weekDay(t))
+        def hour:int (dtl.hourFromTime(t))
+        def minute:int (dtl.minFromTime(t))
+        def second:int (dtl.secFromTime(t))
+        def hour12:boolean ((itemAt localeNumInt ((loc * 5) + 3)) == 1)
+        def p:int (this.intlPatternOffset(loc which))
+        def cnt:int (itemAt localePatInt p)
+        def i:int 0
+        while (i < cnt) {
+            def field:int (itemAt localePatInt ((p + 1) + (i * 3)))
+            def litIdx:int (itemAt localePatInt ((p + 2) + (i * 3)))
+            def width:int (itemAt localePatInt ((p + 3) + (i * 3)))
+            if (field == 0) {
+                def litS:string (itemAt localePatStr litIdx)
+                push out (this.intlPart("literal" litS))
+            }
+            if (field == 1) {
+                def yS:string (to_string year)
+                push out (this.intlPart("year" yS))
+            }
+            if (field == 2) {
+                if (width == 0) {
+                    def mName:string (itemAt localeNames (((loc * 38) + month)))
+                    push out (this.intlPart("month" mName))
+                } {
+                    def mNum:string (this.intlPadNum((month + 1) width))
+                    push out (this.intlPart("month" mNum))
+                }
+            }
+            if (field == 3) {
+                def dNum:string (this.intlPadNum(day width))
+                push out (this.intlPart("day" dNum))
+            }
+            if (field == 4) {
+                def wName:string (itemAt localeNames ((((loc * 38) + 24) + wday)))
+                push out (this.intlPart("weekday" wName))
+            }
+            if (field == 5) {
+                def h:int hour
+                if hour12 {
+                    h = (h - (12 * (this.intDiv(h 12))))
+                    if (h == 0) { h = 12 }
+                }
+                def hw:int width
+                if (hourWidth > 0) { hw = hourWidth }
+                def hNum:string (this.intlPadNum(h hw))
+                push out (this.intlPart("hour" hNum))
+            }
+            if (field == 6) {
+                def miNum:string (this.intlPadNum(minute width))
+                push out (this.intlPart("minute" miNum))
+            }
+            if (field == 7) {
+                def seNum:string (this.intlPadNum(second width))
+                push out (this.intlPart("second" seNum))
+            }
+            if (field == 8) {
+                def dpOff:int ((loc * 22) + 20)
+                def dpS:string (itemAt localeNumStr dpOff)
+                if (hour < 12) { } { dpS = (itemAt localeNumStr (dpOff + 1)) }
+                push out (this.intlPart("dayPeriod" dpS))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Parts joined back into the string, so format() and formatToParts() are one
+    ; implementation and cannot drift apart.
+    fn intlJoinParts:string (parts:[EvHandle]) {
+        def s:string ""
+        def i:int 0
+        while (i < (array_length parts)) {
+            def pv:EvHandle ((itemAt parts i).getMember("value"))
+            s = (s + (pv.stringOf()))
+            i = (i + 1)
+        }
+        return s
+    }
+
+    ; formatRange: the two ends formatted and joined by the locale's range
+    ; separator. When both ends format identically the spec answers the single
+    ; value with an `approximatelySign`; this answers the single value, which is
+    ; the part a caller uses.
+    fn intlRangeParts:[EvHandle] (a:[EvHandle] b:[EvHandle]) {
+        def out:[EvHandle]
+        def sa:string (this.intlJoinParts(a))
+        def sb:string (this.intlJoinParts(b))
+        if (sa == sb) {
+            def i0:int 0
+            while (i0 < (array_length a)) {
+                push out (itemAt a i0)
+                i0 = (i0 + 1)
+            }
+            return out
+        }
+        def i:int 0
+        while (i < (array_length a)) {
+            push out (itemAt a i)
+            i = (i + 1)
+        }
+        push out (this.intlPart("literal" "–"))
+        def j:int 0
+        while (j < (array_length b)) {
+            push out (itemAt b j)
+            j = (j + 1)
+        }
+        return out
     }
 
     ; ---- the Intl objects ---------------------------------------------------
