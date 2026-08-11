@@ -9511,6 +9511,12 @@ class ComponentEngine {
         if (name == "Array") {
             return (this.buildArrayFromValues(args))
         }
+        if (name == "ArrayBuffer") {
+            return (this.constructArrayBuffer(args))
+        }
+        if (name == "DataView") {
+            return (this.constructDataView(args))
+        }
         if (name == "Promise") {
             return (this.constructPromise(args))
         }
@@ -17142,6 +17148,16 @@ class ComponentEngine {
                 ; a plain absence rather than a wrong answer, but the call
                 ; returned undefined instead of throwing, so a test using one to
                 ; BUILD its fixture failed later at an unrelated assertion.
+                ; D-ARRAYBUFFER: the one ArrayBuffer static.
+                if (arrStaticName == "ArrayBuffer") {
+                    if (methodName == "isView") {
+                        def ivArgs:[EvHandle] (this.collectCallArgs(node))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        return (this.invokeBuiltinStatic("ArrayBuffer" "isView" ivArgs))
+                    }
+                }
                 if (arrStaticName == "String") {
                     if (methodName == "fromCharCode") {
                         def fcArgs:[EvHandle] (this.collectCallArgs(node))
@@ -19158,6 +19174,521 @@ class ComponentEngine {
     }
 
     ; `new Int8Array(n)` / `new Int8Array([...])` / `new Int8Array(typedArray)`.
+    ; ---- §24.1 ArrayBuffer, §24.2 DataView --------------------------------
+    ; D-ARRAYBUFFER: neither existed at all, so every fixture that mentions one
+    ; -- including the whole %TypedArray% harness, which loads
+    ; `ArrayBuffer.prototype.resize` before it does anything else -- died on
+    ; "ArrayBuffer is not defined" for a reason unrelated to what it tested.
+    ; The bytes live in an ordinary array of numbers under `__abbytes__`; this
+    ; realm has no linear memory to model, and every operation the spec defines
+    ; over the block is expressible as element reads and writes.
+    ; Floating-point remainder in the double domain. Ranger's `%` is integer.
+    fn modNum:double (a:double b:double) {
+        if (b == 0.0) { return (0.0 / 0.0) }
+        def q:double (this.truncNum((a / b)))
+        return (a - (q * b))
+    }
+
+    ; ---- IEEE 754 by arithmetic ------------------------------------------
+    ; D-ARRAYBUFFER: DataView's float accessors need the BITS of a double, and
+    ; nothing in this realm hands them over -- so they are computed. The
+    ; exponent is found by scaling into [1, 2), the mantissa by the fractional
+    ; part that leaves; the reverse builds the value back the same way. Written
+    ; once for both widths, parameterised on the exponent size and bias.
+    ; D-ARRAYBUFFER: a float's BYTES, computed rather than reinterpreted --
+    ; nothing in this realm hands over the bit pattern of a double. Done byte by
+    ; byte on purpose: a float64 pattern is 64 bits, which does NOT fit exactly
+    ; in a double, so assembling it as one integer loses the low bits (a
+    ; round-tripped 3.14159 came back as 3.1415900000001784). The mantissa
+    ; stays under 2^52 throughout, where every value is exact.
+    fn floatParts:[double] (v:double expBits:int mantBits:int) {
+        def halfSpan:int (this.toIntPow2((expBits - 1)))
+        def bias:int (halfSpan - 1)
+        def maxBiased:int ((bias * 2) + 1)
+        def mantScale:double (this.powNum(2.0 mantBits))
+        def out:[double]
+        def sign:double 0.0
+        def a:double v
+        if (v != v) {
+            ; The canonical quiet NaN: exponent all ones, top mantissa bit set.
+            push out 0.0
+            push out (to_double maxBiased)
+            push out (mantScale / 2.0)
+            return out
+        }
+        if (v < 0.0) {
+            sign = 1.0
+            a = (0.0 - v)
+        }
+        if (v == 0.0) {
+            if ((1.0 / v) < 0.0) { sign = 1.0 }
+            push out sign
+            push out 0.0
+            push out 0.0
+            return out
+        }
+        if (false == (this.isFiniteNum(a))) {
+            push out sign
+            push out (to_double maxBiased)
+            push out 0.0
+            return out
+        }
+        def e:int 0
+        while (a >= 2.0) {
+            a = (a / 2.0)
+            e = (e + 1)
+        }
+        while (a < 1.0) {
+            a = (a * 2.0)
+            e = (e - 1)
+        }
+        def biased:int (e + bias)
+        def mant:double 0.0
+        if (biased <= 0) {
+            def shift:int (1 - biased)
+            def sub:double a
+            def si:int 0
+            while (si < shift) {
+                sub = (sub / 2.0)
+                si = (si + 1)
+            }
+            biased = 0
+            mant = (this.roundHalfEven((sub * mantScale)))
+        } {
+            if (biased >= maxBiased) {
+                biased = maxBiased
+                mant = 0.0
+            } {
+                mant = (this.roundHalfEven(((a - 1.0) * mantScale)))
+                ; Rounding the mantissa can carry it past the field.
+                if (mant >= mantScale) {
+                    mant = 0.0
+                    biased = (biased + 1)
+                }
+            }
+        }
+        push out sign
+        push out (to_double biased)
+        push out mant
+        return out
+    }
+
+    fn roundHalfEven:double (x:double) {
+        def f:double (this.floorNum(x))
+        def r:double (x - f)
+        if (r > 0.5) { return (f + 1.0) }
+        if (r < 0.5) { return f }
+        ; Exactly halfway: to even.
+        if ((this.modNum(f 2.0)) == 0.0) { return f }
+        return (f + 1.0)
+    }
+
+    fn valueFromParts:double (sign:double biased:double mant:double expBits:int mantBits:int) {
+        def halfSpan:int (this.toIntPow2((expBits - 1)))
+        def bias:int (halfSpan - 1)
+        def maxBiased:int ((bias * 2) + 1)
+        def mantScale:double (this.powNum(2.0 mantBits))
+        def s:double 1.0
+        if (sign != 0.0) { s = (0.0 - 1.0) }
+        def b:int (to_int biased)
+        if (b == maxBiased) {
+            if (mant == 0.0) {
+                return (s * (1.0 / 0.0))
+            }
+            return (0.0 / 0.0)
+        }
+        if (b == 0) {
+            if (mant == 0.0) {
+                return (s * 0.0)
+            }
+            return (s * ((mant / mantScale) * (this.powNum2(2.0 (1 - bias)))))
+        }
+        def m:double (1.0 + (mant / mantScale))
+        return (s * (m * (this.powNum2(2.0 (b - bias)))))
+    }
+
+    ; 2^n for a possibly NEGATIVE n; powNum takes a non-negative exponent.
+    fn powNum2:double (base:double expn:int) {
+        if (expn >= 0) {
+            return (this.powNum(base expn))
+        }
+        return (1.0 / (this.powNum(base (0 - expn))))
+    }
+
+    fn toIntPow2:int (n:int) {
+        def out:int 1
+        def i:int 0
+        while (i < n) {
+            out = (out * 2)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; How many bytes one DataView element occupies.
+    fn dataViewWidth:int (elemName:string) {
+        if (elemName == "Int8") { return 1 }
+        if (elemName == "Uint8") { return 1 }
+        if (elemName == "Int16") { return 2 }
+        if (elemName == "Uint16") { return 2 }
+        if (elemName == "Int32") { return 4 }
+        if (elemName == "Uint32") { return 4 }
+        if (elemName == "Float32") { return 4 }
+        if (elemName == "Float64") { return 8 }
+        return 1
+    }
+
+    ; The unsigned integer the `width` bytes at `base` spell, in the requested
+    ; byte order. Assembled in the DOUBLE domain: a Uint32 runs past the int.
+    fn dataViewRawBits:double (bytes:EvHandle base:int width:int little:boolean) {
+        def acc:double 0.0
+        def i:int 0
+        while (i < width) {
+            def pos:int (base + i)
+            if little {
+                pos = ((base + width) - (1 + i))
+            }
+            def b:int (bit_and (this.toIntegerOf((bytes.arrayItemAt(pos)))) 255)
+            acc = ((acc * 256.0) + (to_double b))
+            i = (i + 1)
+        }
+        return acc
+    }
+
+    fn dataViewPutBits:void (bytes:EvHandle base:int width:int little:boolean bits:double) {
+        def rest:double bits
+        def i:int (width - 1)
+        while (i >= 0) {
+            def b:double (this.modNum(rest 256.0))
+            rest = (this.floorNum((rest / 256.0)))
+            def pos:int (base + i)
+            if little {
+                pos = ((base + width) - (1 + i))
+            }
+            bytes.setIndexAt(pos (EvValueBridge.taggedNumber(b)))
+            i = (i - 1)
+        }
+    }
+
+    ; A float's bytes, big-endian, laid out field by field so no intermediate
+    ; ever exceeds the exact-integer range of a double.
+    fn floatBytes:[double] (v:double width:int) {
+        def out:[double]
+        def expBits:int 11
+        def mantBits:int 52
+        if (width == 4) {
+            expBits = 8
+            mantBits = 23
+        }
+        def parts:[double] (this.floatParts(v expBits mantBits))
+        def sign:double (itemAt parts 0)
+        def biased:double (itemAt parts 1)
+        def mant:double (itemAt parts 2)
+        def i:int 0
+        def lowBytes:int 6
+        if (width == 4) { lowBytes = 2 }
+        def rest:double mant
+        def low:[double]
+        while (i < lowBytes) {
+            push low (this.modNum(rest 256.0))
+            rest = (this.floorNum((rest / 256.0)))
+            i = (i + 1)
+        }
+        ; `rest` now holds the mantissa bits that share a byte with the exponent.
+        def b0:double 0.0
+        def b1:double 0.0
+        if (width == 8) {
+            b0 = ((sign * 128.0) + (this.floorNum((biased / 16.0))))
+            b1 = (((this.modNum(biased 16.0)) * 16.0) + rest)
+        } {
+            b0 = ((sign * 128.0) + (this.floorNum((biased / 2.0))))
+            b1 = (((this.modNum(biased 2.0)) * 128.0) + rest)
+        }
+        push out b0
+        push out b1
+        def k:int (lowBytes - 1)
+        while (k >= 0) {
+            push out (itemAt low k)
+            k = (k - 1)
+        }
+        return out
+    }
+
+    fn floatFromBytes:double (bytes:EvHandle base:int width:int little:boolean) {
+        def expBits:int 11
+        def mantBits:int 52
+        def lowBytes:int 6
+        if (width == 4) {
+            expBits = 8
+            mantBits = 23
+            lowBytes = 2
+        }
+        def ordered:[double]
+        def i:int 0
+        while (i < width) {
+            def pos:int (base + i)
+            if little {
+                pos = ((base + width) - (1 + i))
+            }
+            push ordered (to_double (bit_and (this.toIntegerOf((bytes.arrayItemAt(pos)))) 255))
+            i = (i + 1)
+        }
+        def b0:double (itemAt ordered 0)
+        def b1:double (itemAt ordered 1)
+        def sign:double 0.0
+        if (b0 >= 128.0) {
+            sign = 1.0
+            b0 = (b0 - 128.0)
+        }
+        def biased:double 0.0
+        def topMant:double 0.0
+        if (width == 8) {
+            biased = ((b0 * 16.0) + (this.floorNum((b1 / 16.0))))
+            topMant = (this.modNum(b1 16.0))
+        } {
+            biased = ((b0 * 2.0) + (this.floorNum((b1 / 128.0))))
+            topMant = (this.modNum(b1 128.0))
+        }
+        def mant:double topMant
+        def j:int 0
+        while (j < lowBytes) {
+            mant = ((mant * 256.0) + (itemAt ordered (2 + j)))
+            j = (j + 1)
+        }
+        return (this.valueFromParts(sign biased mant expBits mantBits))
+    }
+
+    fn dataViewRead:EvHandle (bytes:EvHandle base:int elemName:string little:boolean) {
+        def width:int (this.dataViewWidth(elemName))
+        if (elemName == "Float32") {
+            return (EvValueBridge.taggedNumber((this.floatFromBytes(bytes base 4 little))))
+        }
+        if (elemName == "Float64") {
+            return (EvValueBridge.taggedNumber((this.floatFromBytes(bytes base 8 little))))
+        }
+        def raw:double (this.dataViewRawBits(bytes base width little))
+        ; A SIGNED element wraps around half its range.
+        def signed:boolean false
+        if ((substring elemName 0 3) == "Int") { signed = true }
+        if signed {
+            def span:double (this.powNum(2.0 (width * 8)))
+            def half:double (span / 2.0)
+            if (raw >= half) {
+                return (EvValueBridge.taggedNumber((raw - span)))
+            }
+        }
+        return (EvValueBridge.taggedNumber(raw))
+    }
+
+    fn dataViewWrite:void (bytes:EvHandle base:int elemName:string little:boolean v:double) {
+        def width:int (this.dataViewWidth(elemName))
+        def isFloat:boolean false
+        if (elemName == "Float32") { isFloat = true }
+        if (elemName == "Float64") { isFloat = true }
+        if isFloat {
+            def fb:[double] (this.floatBytes(v width))
+            def i:int 0
+            while (i < width) {
+                def pos:int (base + i)
+                if little {
+                    pos = ((base + width) - (1 + i))
+                }
+                bytes.setIndexAt(pos (EvValueBridge.taggedNumber((itemAt fb i))))
+                i = (i + 1)
+            }
+            return
+        }
+        def span:double (this.powNum(2.0 (width * 8)))
+        def t:double (this.truncNum(v))
+        if (v != v) { t = 0.0 }
+        if (false == (this.isFiniteNum(v))) { t = 0.0 }
+        def m:double (this.modNum(t span))
+        if (m < 0.0) { m = (m + span) }
+        this.dataViewPutBits(bytes base width little m)
+    }
+
+    ; The computed properties of an ArrayBuffer, a DataView or a typed array.
+    ; Answers a NULL handle when the name is not one of them, which is what the
+    ; caller falls through on.
+    fn bufferOwnProperty:EvHandle (v:EvHandle propName:string) {
+        if (this.isArrayBufferValue(v)) {
+            if (propName == "byteLength") {
+                return (EvHandle.fromInt(((this.arrayBufferBytes(v)).denseLen())))
+            }
+        }
+        if (this.isDataViewValue(v)) {
+            if (propName == "byteLength") {
+                return (v.getOwnData("__dvlength__"))
+            }
+            if (propName == "byteOffset") {
+                return (v.getOwnData("__dvoffset__"))
+            }
+            if (propName == "buffer") {
+                return (v.getOwnData("__dvbuffer__"))
+            }
+        }
+        def taBrand:string (this.typedArrayBrandOf(v))
+        if ((strlen taBrand) > 0) {
+            if (propName == "BYTES_PER_ELEMENT") {
+                return (EvHandle.fromInt((this.typedArrayWidth(taBrand))))
+            }
+            if (propName == "byteLength") {
+                return (EvHandle.fromInt(((v.denseLen()) * (this.typedArrayWidth(taBrand)))))
+            }
+            if (propName == "byteOffset") {
+                return (EvHandle.fromInt(0))
+            }
+        }
+        return (EvValueBridge.taggedNull())
+    }
+
+    fn typedArrayWidth:int (kind:string) {
+        if (kind == "Int8Array") { return 1 }
+        if (kind == "Uint8Array") { return 1 }
+        if (kind == "Uint8ClampedArray") { return 1 }
+        if (kind == "Int16Array") { return 2 }
+        if (kind == "Uint16Array") { return 2 }
+        if (kind == "Int32Array") { return 4 }
+        if (kind == "Uint32Array") { return 4 }
+        if (kind == "Float32Array") { return 4 }
+        if (kind == "Float64Array") { return 8 }
+        return 1
+    }
+
+    fn makeArrayBuffer:EvHandle (byteLen:int) {
+        def keysB:[string]
+        def valsB:[EvHandle]
+        def b:EvHandle (EvValueBridge.taggedObject(keysB valsB))
+        def bytes:[EvHandle]
+        def i:int 0
+        while (i < byteLen) {
+            push bytes (EvValueBridge.taggedNumber(0.0))
+            i = (i + 1)
+        }
+        b.setMember("__abbytes__" (EvValueBridge.taggedArray(bytes)))
+        b.setAttrs("__abbytes__" true false false)
+        b.setProto((this.builtinPrototype("ArrayBuffer")))
+        return b
+    }
+
+    fn isArrayBufferValue:boolean (v:EvHandle) {
+        if (false == (this.isDescriptorObject(v))) { return false }
+        return (v.hasOwnData("__abbytes__"))
+    }
+
+    fn arrayBufferBytes:EvHandle (v:EvHandle) {
+        return (v.getOwnData("__abbytes__"))
+    }
+
+    fn constructArrayBuffer:EvHandle (args:[EvHandle]) {
+        def n:int 0
+        if ((array_length args) > 0) {
+            def lv:EvHandle (itemAt args 0)
+            if (false == (lv.isUndefined())) {
+                def d:double (this.toNumberOf(lv))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                def t:double (this.truncNum(d))
+                if (d != d) { t = 0.0 }
+                if (t < 0.0) {
+                    return (this.throwSpecError("RangeError" "Invalid array buffer length"))
+                }
+                if (t > 10000000.0) {
+                    return (this.throwSpecError("RangeError" "Invalid array buffer length"))
+                }
+                n = (to_int t)
+            }
+        }
+        return (this.makeArrayBuffer(n))
+    }
+
+    ; §24.2 DataView over a buffer, with the byte offset and length the
+    ; constructor was given. The element accessors below read and write the
+    ; buffer's bytes directly.
+    fn constructDataView:EvHandle (args:[EvHandle]) {
+        if ((array_length args) == 0) {
+            return (this.throwSpecError("TypeError" "First argument to DataView constructor must be an ArrayBuffer"))
+        }
+        def buf:EvHandle (itemAt args 0)
+        if (false == (this.isArrayBufferValue(buf))) {
+            return (this.throwSpecError("TypeError" "First argument to DataView constructor must be an ArrayBuffer"))
+        }
+        def total:int ((this.arrayBufferBytes(buf)).denseLen())
+        def off:int 0
+        if ((array_length args) > 1) {
+            def ov:EvHandle (itemAt args 1)
+            if (false == (ov.isUndefined())) {
+                off = (this.toIntegerOf(ov))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+            }
+        }
+        if ((off < 0) || (off > total)) {
+            return (this.throwSpecError("RangeError" "Start offset is outside the bounds of the buffer"))
+        }
+        def len:int (total - off)
+        if ((array_length args) > 2) {
+            def lv2:EvHandle (itemAt args 2)
+            if (false == (lv2.isUndefined())) {
+                len = (this.toIntegerOf(lv2))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                if (len < 0) {
+                    return (this.throwSpecError("RangeError" "Invalid DataView length"))
+                }
+                if ((off + len) > total) {
+                    return (this.throwSpecError("RangeError" "Invalid DataView length"))
+                }
+            }
+        }
+        def keysD:[string]
+        def valsD:[EvHandle]
+        def dv:EvHandle (EvValueBridge.taggedObject(keysD valsD))
+        dv.setMember("__dvbuffer__" buf)
+        dv.setAttrs("__dvbuffer__" true false false)
+        dv.setMember("__dvoffset__" (EvHandle.fromInt(off)))
+        dv.setAttrs("__dvoffset__" true false false)
+        dv.setMember("__dvlength__" (EvHandle.fromInt(len)))
+        dv.setAttrs("__dvlength__" true false false)
+        dv.setProto((this.builtinPrototype("DataView")))
+        return dv
+    }
+
+    fn isDataViewValue:boolean (v:EvHandle) {
+        if (false == (this.isDescriptorObject(v))) { return false }
+        return (v.hasOwnData("__dvbuffer__"))
+    }
+
+    ; The %TypedArray% intrinsic: the abstract constructor every concrete typed
+    ; array inherits from. `Object.getPrototypeOf(Int8Array)` IS this, which is
+    ; the only way a guest can name it -- and how the suite's own harness does.
+    fn typedArrayIntrinsic:EvHandle () {
+        def found@(optional):EvHandle (get builtinGlobals "%TypedArray%")
+        if (!null? found) {
+            return (unwrap found)
+        }
+        def ta:EvHandle (EvValueBridge.taggedNativeFunction("TypedArray"))
+        set builtinGlobals "%TypedArray%" ta
+        ta.setMember("name" (EvValueBridge.taggedString("TypedArray")))
+        ta.setAttrs("name" false false true)
+        ta.setMember("length" (EvHandle.fromInt(0)))
+        ta.setAttrs("length" false false true)
+        ta.setProto((this.builtinPrototype("Function")))
+        ; `of` and `from` live here, not on each concrete constructor.
+        ta.setMember("of" (this.sharedNativeMethod("typedarraystatic" "of")))
+        ta.setAttrs("of" true false true)
+        ta.setMember("from" (this.sharedNativeMethod("typedarraystatic" "from")))
+        ta.setAttrs("from" true false true)
+        ta.defineGetter("@@species" (this.sharedNativeMethod("speciesget" "get")))
+        ta.setAttrs("@@species" false false true)
+        ta.setMember("prototype" (this.builtinPrototype("TypedArray")))
+        ta.setAttrs("prototype" false false false)
+        return ta
+    }
+
     fn constructTypedArray:EvHandle (kind:string args:[EvHandle]) {
         def items:[EvHandle]
         if ((array_length args) > 0) {
@@ -19218,6 +19749,8 @@ class ComponentEngine {
         if (name == "RegExp") { return true }
         if (name == "Promise") { return true }
         if (name == "Proxy") { return true }
+        if (name == "ArrayBuffer") { return true }
+        if (name == "DataView") { return true }
         if (this.isTypedArrayCtorName(name)) { return true }
         return (this.isErrorCtorName(name))
     }
@@ -19766,6 +20299,15 @@ class ComponentEngine {
         ; f(o)` -- and every other detached use -- answered undefined. Both
         ; statics now live on the value path and the call-site chain forwards
         ; to them, so the two doors cannot disagree about replacer or reviver.
+        if (nsName == "ArrayBuffer") {
+            if (name == "isView") {
+                def ivV:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 0) { ivV = (itemAt args 0) }
+                def isTA:boolean ((strlen (this.typedArrayBrandOf(ivV))) > 0)
+                if (this.isDataViewValue(ivV)) { isTA = true }
+                return (EvValueBridge.taggedBoolean(isTA))
+            }
+        }
         if (nsName == "JSON") {
             if (name == "stringify") {
                 def jsV:EvHandle (EvValueBridge.taggedUndefined())
@@ -20889,6 +21431,10 @@ class ComponentEngine {
             if (name == "min") { return 2 }
             return 1
         }
+        if (nsName == "ArrayBuffer") {
+            if (name == "isView") { return 1 }
+            return 0
+        }
         if (nsName == "JSON") {
             if (name == "stringify") { return 3 }
             return 2
@@ -20913,6 +21459,8 @@ class ComponentEngine {
     }
 
     fn builtinCtorArity:int (nsName:string) {
+        if (nsName == "ArrayBuffer") { return 1 }
+        if (nsName == "DataView") { return 1 }
         if (nsName == "Object") { return 1 }
         if (nsName == "Array") { return 1 }
         if (nsName == "String") { return 1 }
@@ -20931,6 +21479,10 @@ class ComponentEngine {
 
     fn builtinStaticNames:[string] (nsName:string) {
         def out:[string]
+        if (nsName == "ArrayBuffer") {
+            push out "isView"
+            return out
+        }
         if (nsName == "Object") {
             push out "assign"
             push out "getOwnPropertySymbols"
@@ -21044,6 +21596,10 @@ class ComponentEngine {
         if (nsName == "JSON") {
             push out "parse"
             push out "stringify"
+            return out
+        }
+        if (nsName == "ArrayBuffer") {
+            push out "isView"
             return out
         }
         if (nsName == "Date") {
@@ -21470,7 +22026,16 @@ class ComponentEngine {
             ; Every built-in constructor inherits from Function.prototype, and
             ; declares its own arity. Both are properties the suite reads.
             if (nsName != "Function") {
-                g.setProto((this.builtinPrototype("Function")))
+                ; D-ARRAYBUFFER: a CONCRETE typed-array constructor inherits
+                ; from the %TypedArray% intrinsic, not straight from
+                ; Function.prototype. `Object.getPrototypeOf(Int8Array)` is the
+                ; only way a guest can name that intrinsic, and it is how the
+                ; suite's own typed-array harness reaches `of` and `from`.
+                if (this.isTypedArrayCtorName(nsName)) {
+                    g.setProto((this.typedArrayIntrinsic()))
+                } {
+                    g.setProto((this.builtinPrototype("Function")))
+                }
             }
             g.setMember("length" (EvHandle.fromInt((this.builtinCtorArity(nsName)))))
             g.setAttrs("length" false false true)
@@ -21574,6 +22139,8 @@ class ComponentEngine {
         if (kind == "set") { return "Set" }
         if (kind == "date") { return "Date" }
         if (kind == "promise") { return "Promise" }
+        if (kind == "arraybuffer") { return "ArrayBuffer" }
+        if (kind == "dataview") { return "DataView" }
         return ""
     }
 
@@ -21716,6 +22283,31 @@ class ComponentEngine {
             push out "sort"
             push out "splice"
             push out "unshift"
+        }
+        if (kind == "arraybuffer") {
+            push out "slice"
+        }
+        if (kind == "dataview") {
+            push out "getInt8"
+            push out "setInt8"
+            push out "getUint8"
+            push out "setUint8"
+            push out "getInt16"
+            push out "setInt16"
+            push out "getUint16"
+            push out "setUint16"
+            push out "getInt32"
+            push out "setInt32"
+            push out "getUint32"
+            push out "setUint32"
+            push out "getFloat32"
+            push out "setFloat32"
+            push out "getFloat64"
+            push out "setFloat64"
+        }
+        if (kind == "typedarraystatic") {
+            push out "of"
+            push out "from"
         }
         if (kind == "promise") {
             push out "catch"
@@ -22185,6 +22777,10 @@ class ComponentEngine {
             ; D-REGEX: a RegExp dispatches to its own prototype so exec/test do
             ; not have to be looked for among the Object methods.
             if (v.hasOwnData("__promise__")) { return "promise" }
+            if (v.hasOwnData("__abbytes__")) { return "arraybuffer" }
+            ; (byteLength / byteOffset / buffer are answered as PROPERTIES by
+            ;  bufferOwnProperty, before dispatch gets this far.)
+            if (v.hasOwnData("__dvbuffer__")) { return "dataview" }
             if (v.hasOwnData("__regex__")) { return "regexp" }
             ; D-DATE: likewise a Date, whose accessors are arithmetic on its
             ; time value rather than anything Object.prototype offers.
@@ -22422,6 +23018,19 @@ class ComponentEngine {
         if (kind == "promisecap") {
             if (name == "resolve") { return 1 }
             if (name == "reject") { return 1 }
+        }
+        if (kind == "arraybuffer") {
+            if (name == "slice") { return 2 }
+            return 0
+        }
+        if (kind == "dataview") {
+            if ((substring name 0 3) == "get") { return 1 }
+            return 2
+        }
+        if (kind == "typedarraystatic") {
+            if (name == "of") { return 0 }
+            if (name == "from") { return 1 }
+            return 0
         }
         if (kind == "promiseexec") {
             return 2
@@ -25844,6 +26453,116 @@ class ComponentEngine {
         ; D-PROMISE: the resolving functions handed to an executor. They carry
         ; the promise as their receiver, so they stay callable after being
         ; stored away -- `var r; new Promise(function (res) { r = res; }); r(1)`.
+        ; ---- ArrayBuffer.prototype -----------------------------------------
+        if (kind == "arraybuffer") {
+            if (false == (this.isArrayBufferValue(recv))) {
+                return (this.throwSpecError("TypeError" "ArrayBuffer.prototype method called on an incompatible receiver"))
+            }
+            def abBytes:EvHandle (this.arrayBufferBytes(recv))
+            def abLen:int (abBytes.denseLen())
+            if (name == "slice") {
+                def sStart:int 0
+                if ((array_length args) > 0) {
+                    sStart = (this.relativeIndexOf((itemAt args 0) abLen))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                }
+                def sEnd:int abLen
+                if ((array_length args) > 1) {
+                    if (false == ((itemAt args 1).isUndefined())) {
+                        sEnd = (this.relativeIndexOf((itemAt args 1) abLen))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                    }
+                }
+                def outLen:int (sEnd - sStart)
+                if (outLen < 0) { outLen = 0 }
+                def nb:EvHandle (this.makeArrayBuffer(outLen))
+                def nbBytes:EvHandle (this.arrayBufferBytes(nb))
+                def ci:int 0
+                while (ci < outLen) {
+                    nbBytes.setIndexAt(ci (abBytes.arrayItemAt((sStart + ci))))
+                    ci = (ci + 1)
+                }
+                return nb
+            }
+            return (EvValueBridge.taggedUndefined())
+        }
+        ; ---- DataView.prototype ---------------------------------------------
+        if (kind == "dataview") {
+            if (false == (this.isDataViewValue(recv))) {
+                return (this.throwSpecError("TypeError" "DataView.prototype method called on an incompatible receiver"))
+            }
+            def dvBuf:EvHandle (recv.getOwnData("__dvbuffer__"))
+            def dvBytes:EvHandle (this.arrayBufferBytes(dvBuf))
+            def dvOff:int (this.toIntegerOf((recv.getOwnData("__dvoffset__"))))
+            def dvLen:int (this.toIntegerOf((recv.getOwnData("__dvlength__"))))
+            def isGet:boolean ((substring name 0 3) == "get")
+            def elemName:string (substring name 3 (strlen name))
+            def width:int (this.dataViewWidth(elemName))
+            def at:int 0
+            if ((array_length args) > 0) {
+                at = (this.toIntegerOf((itemAt args 0)))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+            }
+            if (at < 0) {
+                return (this.throwSpecError("RangeError" "Offset is outside the bounds of the DataView"))
+            }
+            if ((at + width) > dvLen) {
+                return (this.throwSpecError("RangeError" "Offset is outside the bounds of the DataView"))
+            }
+            ; Big-endian unless the call says otherwise, which is the one place
+            ; DataView differs from a typed array.
+            def little:boolean false
+            def flagPos:int 1
+            if (false == isGet) { flagPos = 2 }
+            if ((array_length args) > flagPos) {
+                little = ((itemAt args flagPos).toBool())
+            }
+            def base:int (dvOff + at)
+            if isGet {
+                return (this.dataViewRead(dvBytes base elemName little))
+            }
+            def wv:double 0.0
+            if ((array_length args) > 1) {
+                wv = (this.toNumberOf((itemAt args 1)))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+            }
+            this.dataViewWrite(dvBytes base elemName little wv)
+            return (EvValueBridge.taggedUndefined())
+        }
+        if (kind == "typedarraystatic") {
+            ; %TypedArray%.of / .from build a typed array of the receiver's
+            ; kind. Called on the abstract intrinsic itself there is no kind, so
+            ; the spec's "this is not a constructor" applies.
+            def taKind:string (this.builtinCtorNameOf(recv))
+            if ((strlen taKind) == 0) {
+                return (this.throwSpecError("TypeError" "%TypedArray%.of called on a non-constructor"))
+            }
+            if (false == (this.isTypedArrayCtorName(taKind))) {
+                return (this.throwSpecError("TypeError" "%TypedArray%.of called on a non-constructor"))
+            }
+            def srcItems:[EvHandle]
+            if (name == "of") {
+                srcItems = args
+            } {
+                if ((array_length args) > 0) {
+                    srcItems = (this.forOfItemList((itemAt args 0)))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                }
+            }
+            def taArgs:[EvHandle]
+            push taArgs (EvValueBridge.taggedArray(srcItems))
+            return (this.constructTypedArray(taKind taArgs))
+        }
         if (kind == "promisecap") {
             def capArg:EvHandle (EvValueBridge.taggedUndefined())
             if ((array_length args) > 0) { capArg = (itemAt args 0) }
@@ -31020,6 +31739,8 @@ class ComponentEngine {
     ; not be a ReferenceError even though no binding exists for it.
     fn isEngineGlobalName:boolean (name:string) {
         if (this.isTypedArrayCtorName(name)) { return true }
+        if (name == "ArrayBuffer") { return true }
+        if (name == "DataView") { return true }
         if (name == "Function") { return true }
         if (name == "Map") { return true }
         if (name == "Set") { return true }
@@ -31105,6 +31826,8 @@ class ComponentEngine {
             push gnames "Reflect"
             push gnames "Promise"
             push gnames "Proxy"
+            push gnames "ArrayBuffer"
+            push gnames "DataView"
             push gnames "performance"
             ; The error constructors are globals too -- getOwnPropertyNames on
             ; the global object is expected to list every one of them.
@@ -32935,6 +33658,14 @@ class ComponentEngine {
             }
             return (this.constructPromise(prArgs))
         }
+        ; D-ARRAYBUFFER: `new ArrayBuffer(n)` / `new DataView(buf, off, len)`.
+        if ((className == "ArrayBuffer") || (className == "DataView")) {
+            def abArgs:[EvHandle] (this.collectCallArgs(node))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            return (this.callBuiltinCtorValues(className abArgs true))
+        }
         ; D-PROXY: `new Proxy(target, handler)`.
         if (className == "Proxy") {
             def pxArgs:[EvHandle]
@@ -33336,6 +34067,13 @@ class ComponentEngine {
                     }
                 }
                 return (this.getPropertyValue(obj pxKey))
+            }
+            ; D-ARRAYBUFFER: `byteLength`, `byteOffset` and `buffer` are
+            ; accessors on the two prototypes, computed from the internal
+            ; slots. Reading them as ordinary properties answered undefined.
+            def abProp:EvHandle (this.bufferOwnProperty(obj propName))
+            if (false == (abProp.isNull())) {
+                return abProp
             }
             ; D-PROTO: reading `F.prototype` MINTS it, and the object the spec
             ; mints already carries `constructor` back to F and inherits from
