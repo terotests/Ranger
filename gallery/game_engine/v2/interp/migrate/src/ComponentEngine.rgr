@@ -2661,6 +2661,14 @@ class ComponentEngine {
     fn runTopLevelStatements:void (ast:TSNode) {
         def saved:EvalContext context
         context = moduleScope
+        ; D-TDZ: a script's own let/const/class names are bound uninitialised
+        ; before anything runs, so `x; let x;` is a ReferenceError. Without the
+        ; hoist the name simply did not exist yet and the read fell through to
+        ; the global object, which answered undefined.
+        def topLex:boolean (this.blockDeclaresLexical(ast))
+        if topLex {
+            this.hoistLexicalTdz(ast.lexNames)
+        }
         def i:int 0
         while (i < (array_length ast.children)) {
             def stmt:TSNode (itemAt ast.children i)
@@ -6547,11 +6555,32 @@ class ComponentEngine {
     ; needs a scope of its own; giving every block one would put a context
     ; allocation in the body of every loop. Memoised on the node, since the
     ; answer is a property of the source.
+    ; D-TDZ: bind each lexical name UNINITIALISED. A hole is the marker: it is
+    ; a value the guest can never produce or observe, so the check costs one
+    ; predicate on a value the reader already holds -- no second map probe on
+    ; the hot path. The declaration replaces it when it runs.
+    ; Binds into the CURRENT context, which both callers have already switched
+    ; to -- Ranger's optionality rules make an EvalContext parameter awkward
+    ; here and the field is what every other binder in this file uses anyway.
+    fn hoistLexicalTdz:void (names:[string]) {
+        def i:int 0
+        while (i < (array_length names)) {
+            context.define((itemAt names i) (EvValueBridge.taggedHole()))
+            i = (i + 1)
+        }
+    }
+
+    ; The read barrier. `name` is only for the message.
+    fn tdzError:EvHandle (name:string) {
+        return (this.throwSpecError("ReferenceError" ("Cannot access '" + (name + "' before initialization"))))
+    }
+
     fn blockDeclaresLexical:boolean (blk:TSNode) {
         if blk.lexScanned {
             return blk.lexDeclares
         }
         def found:boolean false
+        def names:[string]
         def i:int 0
         while (i < (array_length blk.children)) {
             def st:TSNode (itemAt blk.children i)
@@ -6559,14 +6588,28 @@ class ComponentEngine {
             if (sk == 31) {
                 if ((st.kind == "let") || (st.kind == "const")) {
                     found = true
+                    def di:int 0
+                    while (di < (array_length st.children)) {
+                        def dn:TSNode (itemAt st.children di)
+                        if ((strlen dn.name) > 0) {
+                            push names dn.name
+                        }
+                        di = (di + 1)
+                    }
                 }
             }
-            ; A class declaration is lexically scoped too.
+            ; A class declaration is lexically scoped too -- but it is NOT
+            ; TDZ-hoisted here. Classes are registered eagerly by
+            ; registerComponents, and the declaration statement itself does not
+            ; re-bind at run time, so a hole put in its place would never be
+            ; replaced: every later `new C()` in the same block would report a
+            ; TDZ error for a class that had in fact been declared.
             if (sk == 25) { found = true }
             i = (i + 1)
         }
         blk.lexScanned = true
         blk.lexDeclares = found
+        blk.lexNames = names
         return found
     }
 
@@ -6586,6 +6629,7 @@ class ComponentEngine {
                 def blockCtx:EvalContext (context.createChild())
                 blockCtx.isBlockScope = true
                 context = blockCtx
+                this.hoistLexicalTdz(blk.lexNames)
                 this.runStatementList(blk.children)
                 context = savedCtx
             } {
@@ -8790,6 +8834,10 @@ class ComponentEngine {
                     if preScopeValid {
                         def owner:EvalContext preScope
                         def ownCur:EvHandle (owner.lookup(varName))
+                        ; D-TDZ: the binding exists but is not initialised yet.
+                        if (ownCur.isHole()) {
+                            return (this.tdzError(varName))
+                        }
                         if preResolved {
                             ownCur = preCurrent
                         }
@@ -8802,6 +8850,12 @@ class ComponentEngine {
                         return ownRes
                     }
                     def current:EvHandle (context.lookup(varName))
+                    ; D-TDZ: a WRITE before the declaration runs is the same
+                    ; ReferenceError a read is -- the binding exists but cannot
+                    ; be touched yet.
+                    if (current.isHole()) {
+                        return (this.tdzError(varName))
+                    }
                     if preResolved {
                         current = preCurrent
                     }
@@ -12226,7 +12280,29 @@ class ComponentEngine {
                 def nm10:string (itemAt prog.atoms a)
                 def hit10@(optional):EvHandle (outer.tryLookup(nm10))
                 if hit10 {
-                    this.bcSlotPut(sp (unwrap hit10))
+                    def hv10:EvHandle (unwrap hit10)
+                    ; D-TDZ: an UNINITIALISED lexical binding is a hole, and
+                    ; reading one is a ReferenceError. The compiled load took
+                    ; the fast path straight past it, so the same read threw at
+                    ; top level and answered a hole inside a function body.
+                    if (hv10.isHole()) {
+                        def _tz:EvHandle (this.tdzError(nm10))
+                        ; Unwound exactly the way the miss path below unwinds a
+                        ; throw from the walker: the handler is entered with the
+                        ; stack restored and the throw left standing, because
+                        ; the catch clause is what consumes it.
+                        if (bcTryTop > tryBase) {
+                            bcTryTop = (bcTryTop - 1)
+                            pc = (itemAt bcTryPcs bcTryTop)
+                            sp = (itemAt bcTrySps bcTryTop)
+                            scriptThrew = false
+                            continue
+                        }
+                        bcTryTop = tryBase
+                        bcRetTag = 3
+                        return
+                    }
+                    this.bcSlotPut(sp hv10)
                     sp = (sp + 1)
                     continue
                 }
@@ -32103,7 +32179,12 @@ class ComponentEngine {
         }
         def ctxHit@(optional):EvHandle (context.tryLookup(name))
         if ctxHit {
-            return (unwrap ctxHit)
+            def ctxVal:EvHandle (unwrap ctxHit)
+            ; D-TDZ: the binding exists but has not been initialised yet.
+            if (ctxVal.isHole()) {
+                return (this.tdzError(name))
+            }
+            return ctxVal
         }
         this.ensureErrorCtors()
         def hostHit@(optional):EvHandle (hostScope.tryLookup(name))
@@ -33994,6 +34075,7 @@ class ComponentEngine {
         if ((this.nodeKindOf(cls)) != 25) {
             return (EvValueBridge.taggedNull())
         }
+
         def keys0:[string]
         def vals0:[EvHandle]
         def inst:EvHandle (EvValueBridge.taggedObject(keys0 vals0))

@@ -89,6 +89,10 @@ class TSNode {
   ; regardless would put a context allocation in every loop body.
   def lexScanned:boolean false
   def lexDeclares:boolean false
+  ; D-TDZ: the let/const/class names this block declares, collected once. They
+  ; are bound UNINITIALISED on entry so a read before the declaration runs is a
+  ; ReferenceError rather than a lookup that walks out to an outer scope.
+  def lexNames:[string]
   ; Memo: does a `yield` occur anywhere under this node, not counting nested
   ; function bodies (which have their own)? This is what makes a resumable
   ; generator affordable -- a subtree with no yield in it is evaluated by the
