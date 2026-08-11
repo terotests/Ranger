@@ -11363,7 +11363,16 @@ class ComponentEngine {
                 push sArgs (EvValueBridge.taggedString(name))
                 push sArgs v
                 push sArgs obj
-                def _sv:EvHandle (this.callProxyTrap(sTrap sArgs))
+                def sv:EvHandle (this.callProxyTrap(sTrap sArgs))
+                if scriptThrew {
+                    return
+                }
+                if (sv.toBool()) {
+                    def sErr:string (this.proxySetInvariant(sTgt name v))
+                    if ((strlen sErr) > 0) {
+                        def _se:EvHandle (this.throwSpecError("TypeError" sErr))
+                    }
+                }
                 return
             }
             this.bcPutField(sTgt name v)
@@ -21688,7 +21697,25 @@ class ComponentEngine {
                 ; [[GetOwnProperty]] answers a descriptor OBJECT or undefined.
                 ; Anything else -- a number, a string, null -- is a TypeError
                 ; rather than something to hand onward as if it were one.
+                ; D-PROXYINV: the post-conditions. What the target holds
+                ; constrains what the trap may report about it.
+                def tDesc:EvHandle (this.ownPropertyDescriptorOf(dTgt dk))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                def tHas:boolean (this.isDescriptorObject(tDesc))
                 if (dRes.isUndefined()) {
+                    ; A property the target holds NON-CONFIGURABLY cannot be
+                    ; reported absent, and neither can any property of a
+                    ; non-extensible target.
+                    if tHas {
+                        if (false == ((this.descGet(tDesc "configurable")).toBool())) {
+                            return (this.throwSpecError("TypeError" "proxy getOwnPropertyDescriptor reported a non-configurable property as absent"))
+                        }
+                        if (false == (dTgt.isExtensible())) {
+                            return (this.throwSpecError("TypeError" "proxy getOwnPropertyDescriptor reported a property of a non-extensible target as absent"))
+                        }
+                    }
                     return dRes
                 }
                 if (false == (this.isDescriptorObject(dRes))) {
@@ -21696,6 +21723,23 @@ class ComponentEngine {
                 }
                 if (this.isSymbolValue(dRes)) {
                     return (this.throwSpecError("TypeError" "proxy getOwnPropertyDescriptor must return an object or undefined"))
+                }
+                ; The reported descriptor must itself be well formed, and a
+                ; NON-CONFIGURABLE claim needs a non-configurable property on
+                ; the target to stand on.
+                def dvErr:string (this.descriptorError(dRes))
+                if ((strlen dvErr) > 0) {
+                    return (this.throwSpecError("TypeError" dvErr))
+                }
+                if (this.descHas(dRes "configurable")) {
+                    if (false == ((this.descGet(dRes "configurable")).toBool())) {
+                        if (false == tHas) {
+                            return (this.throwSpecError("TypeError" "proxy getOwnPropertyDescriptor reported a non-configurable descriptor for a property the target does not have"))
+                        }
+                        if ((this.descGet(tDesc "configurable")).toBool()) {
+                            return (this.throwSpecError("TypeError" "proxy getOwnPropertyDescriptor reported a non-configurable descriptor for a configurable target property"))
+                        }
+                    }
                 }
                 return dRes
             }
@@ -23804,6 +23848,19 @@ class ComponentEngine {
                 return 0
             }
             if (dRes.toBool()) {
+                ; D-PROXYINV: a NON-CONFIGURABLE target property cannot be
+                ; deleted, so a trap that says it was is contradicting its own
+                ; target.
+                def dd:EvHandle (this.ownPropertyDescriptorOf(dTgt key))
+                if scriptThrew {
+                    return 0
+                }
+                if (this.isDescriptorObject(dd)) {
+                    if (false == ((this.descGet(dd "configurable")).toBool())) {
+                        def _de:EvHandle (this.throwSpecError("TypeError" "proxy deleteProperty reported success for a non-configurable property"))
+                        return 0
+                    }
+                }
                 return 1
             }
             return 0
@@ -28329,6 +28386,36 @@ class ComponentEngine {
     ; one -- in which case the operation runs against the target directly. A
     ; REVOKED proxy has no handler at all and every operation on it is a
     ; TypeError.
+    ; D-PROXYINV: the shared post-condition on a `set` or `defineProperty`
+    ; trap that reported success. What the target holds NON-CONFIGURABLY
+    ; constrains what may be claimed about it: a frozen data property may only
+    ; be "set" to the value it already has, and an accessor with no setter may
+    ; not be set at all. Returns a message, or "" when the claim is allowed.
+    fn proxySetInvariant:string (target:EvHandle key:string v:EvHandle) {
+        def d:EvHandle (this.ownPropertyDescriptorOf(target key))
+        if scriptThrew {
+            return ""
+        }
+        if (false == (this.isDescriptorObject(d))) {
+            return ""
+        }
+        if ((this.descGet(d "configurable")).toBool()) {
+            return ""
+        }
+        if (this.descHas(d "value")) {
+            if (false == ((this.descGet(d "writable")).toBool())) {
+                if (false == (this.sameValueOf(v (this.descGet(d "value"))))) {
+                    return "proxy set reported success for a non-writable, non-configurable property"
+                }
+            }
+            return ""
+        }
+        if ((this.descGet(d "set")).isUndefined()) {
+            return "proxy set reported success for a non-configurable accessor with no setter"
+        }
+        return ""
+    }
+
     fn proxyTrap:EvHandle (v:EvHandle name:string) {
         def h:EvHandle (v.getOwnData("__proxyhandler__"))
         if (false == (this.isDescriptorObject(h))) {
@@ -28367,10 +28454,16 @@ class ComponentEngine {
         def ph:EvHandle (EvValueBridge.taggedUndefined())
         if ((array_length args) > 0) { pt = (itemAt args 0) }
         if ((array_length args) > 1) { ph = (itemAt args 1) }
-        if (false == (this.isDescriptorObject(pt))) {
+        ; A SYMBOL is object-like in this value model and is NOT an object to
+        ; the spec, so it was accepted as a target or a handler.
+        def ptOk:boolean (this.isDescriptorObject(pt))
+        if (this.isSymbolValue(pt)) { ptOk = false }
+        def phOk:boolean (this.isDescriptorObject(ph))
+        if (this.isSymbolValue(ph)) { phOk = false }
+        if (false == ptOk) {
             return (this.throwSpecError("TypeError" "Cannot create proxy with a non-object as target or handler"))
         }
-        if (false == (this.isDescriptorObject(ph))) {
+        if (false == phOk) {
             return (this.throwSpecError("TypeError" "Cannot create proxy with a non-object as target or handler"))
         }
         return (this.makeProxyValue(pt ph))
@@ -28398,7 +28491,38 @@ class ComponentEngine {
             if scriptThrew {
                 return 0
             }
-            if (bRes.toBool()) { return 1 }
+            def bBool:boolean (bRes.toBool())
+            ; D-PROXYINV: the post-conditions. A trap may lie about what it did;
+            ; the spec checks its answer against the target and reports a
+            ; TypeError when the two disagree. None of them were checked, so a
+            ; handler could report an extensible object as sealed and a
+            ; prototype change that never happened as done.
+            if (name == "isExtensible") {
+                if (bBool != (bTgt.isExtensible())) {
+                    def _ie:EvHandle (this.throwSpecError("TypeError" "proxy isExtensible reported a different value from the target"))
+                    return 0
+                }
+            }
+            if (name == "preventExtensions") {
+                if bBool {
+                    if (bTgt.isExtensible()) {
+                        def _pe:EvHandle (this.throwSpecError("TypeError" "proxy preventExtensions returned true for an extensible target"))
+                        return 0
+                    }
+                }
+            }
+            if (name == "setPrototypeOf") {
+                if bBool {
+                    if (false == (bTgt.isExtensible())) {
+                        def cur:EvHandle (this.protoOfValue(bTgt))
+                        if (false == (this.sameValueOf(cur extra))) {
+                            def _sp:EvHandle (this.throwSpecError("TypeError" "proxy setPrototypeOf reported a different prototype for a non-extensible target"))
+                            return 0
+                        }
+                    }
+                }
+            }
+            if bBool { return 1 }
             return 0
         }
         ; No trap: the operation runs against the target.
@@ -29636,7 +29760,37 @@ class ComponentEngine {
                 push gArgs gTgt
                 push gArgs (EvValueBridge.taggedString(key))
                 push gArgs obj
-                return (this.callProxyTrap(gTrap gArgs))
+                def gOut:EvHandle (this.callProxyTrap(gTrap gArgs))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                ; D-PROXYINV: what the target holds NON-CONFIGURABLY constrains
+                ; what the trap may answer. A frozen data property must come
+                ; back unchanged, and a getter-less accessor must come back
+                ; undefined; neither was checked, so a handler could contradict
+                ; its own target.
+                def gDesc:EvHandle (this.ownPropertyDescriptorOf(gTgt key))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                if (this.isDescriptorObject(gDesc)) {
+                    if (false == ((this.descGet(gDesc "configurable")).toBool())) {
+                        if (this.descHas(gDesc "value")) {
+                            if (false == ((this.descGet(gDesc "writable")).toBool())) {
+                                if (false == (this.sameValueOf(gOut (this.descGet(gDesc "value"))))) {
+                                    return (this.throwSpecError("TypeError" "proxy get reported a different value for a non-writable, non-configurable property"))
+                                }
+                            }
+                        } {
+                            if ((this.descGet(gDesc "get")).isUndefined()) {
+                                if (false == (gOut.isUndefined())) {
+                                    return (this.throwSpecError("TypeError" "proxy get reported a value for a non-configurable accessor with no getter"))
+                                }
+                            }
+                        }
+                    }
+                }
+                return gOut
             }
             return (this.getPropertyValue(gTgt key))
         }
@@ -30148,6 +30302,43 @@ class ComponentEngine {
                     return ""
                 }
                 if (pRes.toBool()) {
+                    ; D-PROXYINV: a define the trap CLAIMS to have made must be
+                    ; one the target could actually accept. A new property needs
+                    ; an extensible target; a non-configurable claim needs a
+                    ; non-configurable property already there; and a
+                    ; redefinition the target itself would refuse cannot be
+                    ; reported as done.
+                    def pTd:EvHandle (this.ownPropertyDescriptorOf(pTgt key))
+                    if scriptThrew {
+                        return ""
+                    }
+                    def pHas:boolean (this.isDescriptorObject(pTd))
+                    def wantNonConf:boolean false
+                    if (this.descHas(desc "configurable")) {
+                        if (false == ((this.descGet(desc "configurable")).toBool())) {
+                            wantNonConf = true
+                        }
+                    }
+                    if (false == pHas) {
+                        if (false == (pTgt.isExtensible())) {
+                            return "proxy defineProperty added a property to a non-extensible target"
+                        }
+                        if wantNonConf {
+                            return "proxy defineProperty reported a non-configurable define for a property the target does not have"
+                        }
+                        return ""
+                    }
+                    if wantNonConf {
+                        if ((this.descGet(pTd "configurable")).toBool()) {
+                            return "proxy defineProperty reported a non-configurable define for a configurable target property"
+                        }
+                    }
+                    ; The redefinition itself has to be legal against what is
+                    ; there -- the same rule an ordinary define obeys.
+                    def pRe:string (this.redefineError(pTgt key desc))
+                    if ((strlen pRe) > 0) {
+                        return ("proxy defineProperty reported an incompatible descriptor: " + pRe)
+                    }
                     return ""
                 }
                 return "proxy defineProperty trap returned falsish"
