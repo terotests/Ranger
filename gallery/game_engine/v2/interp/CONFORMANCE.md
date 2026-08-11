@@ -825,9 +825,9 @@ after excluding intl402, Temporal, module and async flags:
 
 | | |
 |---|---|
-| **ES2015 overall** | **80.27% (2298/2863)** |
-| pass | 2298 |
-| fail (ran, wrong answer) | 545 |
+| **ES2015 overall** | **83.48% (2390/2863)** |
+| pass | 2390 |
+| fail (ran, wrong answer) | 453 |
 | crash (did not run to completion) | 20 |
 
 The fail/crash split changed meaning partway through this work. An
@@ -889,6 +889,10 @@ How it got here, each row a measured run of the same corpus against the C++
 | the ES1-ES5 sweep below (JSON, bind, URI, parseInt, evaluation order) | 2295 | 80.16% |
 | the ES5 attribute sweep below | 2296 | 80.20% |
 | the ES5 long tail below | 2298 | 80.27% |
+| Promise built through NewPromiseCapability | 2354 | 82.22% |
+| ArrayBuffer, DataView and the %TypedArray% intrinsic | 2365 | 82.61% |
+| Proxy trap invariants, and proxy reads in the compiled tier | 2382 | 83.20% |
+| the temporal dead zone for let and const | 2390 | 83.48% |
 
 The single largest step is not an ES2015 feature at all. `propertyHelper.js` --
 which 543 of these files include -- opens with
@@ -919,26 +923,44 @@ Eleven of those want `createRealm`, a second global this engine has no way
 to make; the other seven want `evalScript`. That is a harness capability
 rather than an engine one, and nothing here provides it.
 
-Two structural gaps account for most of the rest.
+#### The four subsystems, done
 
-The Promise statics need NewPromiseCapability: constructing C with an
-executor, capturing its resolve/reject, and driving each element through
-its own `then`. Today `Promise.all` and `Promise.race` build an intrinsic
-promise directly and read each element's settled state, which is why
-`ctx-ctor`, `invoke-then` and the resolve-element-function shape fixtures
-all fail together. The receiver plumbing they depend on is in place; the
-capability protocol is not.
+The gaps this section used to name as structural have been closed.
 
-And there is no TDZ. A `let` or `const` name is simply absent until its
-declaration runs, so a read before it happens to throw ReferenceError for
-the wrong reason inside a block -- and answers undefined at the top level,
-where the global object supplies the name. Thirteen fixtures test the
-difference directly.
+**Promise** builds every result through NewPromiseCapability: `new
+C(executor)`, capturing the resolve/reject pair the executor is handed. It
+used to mint an intrinsic promise and settle it by hand, so a subclass was
+never constructed and an overridden `then` or `resolve` never ran. On top
+of it: `all`/`race` read `C.resolve` once and drive each element through it
+and through the element's own `then`; `then` builds its result with
+SpeciesConstructor; the minted functions are anonymous with the right
+arity, which is what a guest `then` override asserts on before it does
+anything else. 60 failures -> 4.
+
+**ArrayBuffer, DataView and %TypedArray%** now exist. The bytes live in an
+ordinary array of numbers: this realm has no linear memory to model. The
+float accessors compute IEEE 754 by arithmetic, byte by byte, because a
+float64 pattern is 64 bits and does not fit exactly in a double -- assembled
+as one integer, a round-tripped 3.14159 came back as 3.1415900000001784.
+13 "ArrayBuffer is not defined" failures -> 0.
+
+**Proxy** checks its trap post-conditions: a trap may lie about what it did,
+and the spec compares its answer against the target. None were checked, so
+a handler could report a frozen property as holding a different value or
+announce a prototype change that never happened. Separately, the compiled
+tier had no proxy case in its field read at all, so a read inside a function
+body answered the TARGET's property and the trap never ran. 45 -> 28.
+
+**TDZ** for `let` and `const`: the binding is created uninitialised at the
+top of its block, marked with a hole -- a value the guest can never produce
+-- so the check costs one predicate on a value the reader already holds.
+Class declarations are deliberately excluded: they are registered eagerly
+and their declaration statement does not re-bind, so a hole there would
+never be replaced. That is the one half of the class case still missing.
 
 Subclassing a built-in works for Array (both halves: the instance IS an
-array and the class's own methods stay reachable) and for the Error
-constructors. ArrayBuffer, DataView and the function constructors remain --
-ArrayBuffer does not exist at all, which is 13 files on its own.
+array and the class's own methods stay reachable), for the Error
+constructors and for Promise. The function constructors remain.
 
 One known engine gap in the native target only: the C++ and Rust builds
 index source by BYTE, so a non-ASCII identifier (`var а = 1`) is a parse
