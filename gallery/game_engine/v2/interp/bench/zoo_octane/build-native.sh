@@ -63,7 +63,7 @@ for T in $TARGETS; do
   # single-threaded (cpp-only flag, ignored elsewhere). See bench/native.
   # See bench/native/build.sh: the compiler exits 0 on failure, so without this
   # the native step rebuilds the previous run's stale source and says "built".
-  RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l="$T" \
+  RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node --stack-size=8000 bin/output.js -l="$T" \
     "$SRC" -d="$OUT_DIR" -o=octane_runner."$EXT" -nodecli -native-fast-alloc \
     "${CPP_ST_FLAGS[@]}" $TARGET_FLAG $EXTRA_RANGER_FLAGS 2>&1 | tee /tmp/rgr_oct_$$.log
   if grep -q "Compilation FAILED" /tmp/rgr_oct_$$.log; then

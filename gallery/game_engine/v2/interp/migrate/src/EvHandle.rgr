@@ -50,6 +50,19 @@ class EvHandle {
     ; script can alias -- and every pooled literal, which is shared by every
     ; occurrence of that constant -- keeps false and takes the minting path.
     def slotOwned:boolean false
+    ; D-UTF8: the code-UNIT view of this handle's string, memoised. JS indexes
+    ; a string by UTF-16 code unit and this target stores UTF-8 bytes; the two
+    ; agree exactly when the text is ASCII, which is nearly always. `s.length`
+    ; is O(1) in every other engine, so rescanning per read would make
+    ; `for (i = 0; i < s.length; i++)` quadratic.
+    ;
+    ; The memo is validated by BYTE length rather than invalidated by hand: any
+    ; mutation that changes the text changes its byte count (the only in-place
+    ; one is an append), so a stale entry corrects itself on the next read
+    ; instead of depending on every writer remembering to clear it.
+    def cuBytes:int (0 - 1)
+    def cuLen:int 0
+    def cuAscii:boolean true
     ; True on a BUILT-IN prototype object (Array.prototype, …). Writes and
     ; suppressions through such a handle bump the dispatch epoch, which is
     ; what lets call-site inline caches skip the override probes.
@@ -85,6 +98,100 @@ class EvHandle {
         case body s:EvalValue.String {
             str_append s.value suffix
         }
+    }
+
+    ; ---- D-UTF8: the code-UNIT view of a string ---------------------------
+    ; Fills the memo when the byte count says it is stale (or absent). Every
+    ; reader goes through here first.
+    fn strEnsureCu:void () {
+        def sv:string (this.stringOf())
+        def n:int (strlen sv)
+        if (cuBytes == n) {
+            return
+        }
+        ; Pass one is model-INDEPENDENT: a unit below 128 is one byte and one
+        ; code unit alike, so an all-ASCII string measures the same whether
+        ; `strlen`/`charAt` speak bytes or characters. Nearly every string
+        ; takes this exit.
+        def i:int 0
+        def ascii:boolean true
+        while (i < n) {
+            def u:int (charAt sv i)
+            if (u < 0) {
+                ascii = false
+                break
+            }
+            if (u > 127) {
+                ascii = false
+                break
+            }
+            i = (i + 1)
+        }
+        if ascii {
+            cuBytes = n
+            cuLen = n
+            cuAscii = true
+            return
+        }
+        ; Past here the model matters, so pay the one-off probe. On the
+        ; char-model targets (es6, Rust) `strlen` already answers in units and
+        ; decoding the value as UTF-8 would be nonsense -- it read é (233) as
+        ; a three-byte lead and skipped two real characters, which is what
+        ; made "日本".length answer 1 on Rust.
+        if (((strlen "é") > 1) == false) {
+            ; Character model. That is code UNITS on es6 and code POINTS on
+            ; Rust, and the two differ exactly on the supplementary range,
+            ; where JS spells one character as a surrogate PAIR. Counting a
+            ; character that reads back above U+FFFF as two covers both: es6
+            ; never produces one, because there each half is its own unit.
+            def units:int 0
+            def k:int 0
+            while (k < n) {
+                if ((charAt sv k) > 65535) { units = (units + 2) } { units = (units + 1) }
+                k = (k + 1)
+            }
+            cuBytes = n
+            cuLen = units
+            cuAscii = false
+            return
+        }
+        def j:int 0
+        def units:int 0
+        while (j < n) {
+            def b:int (bit_and (charAt sv j) 255)
+            if (b < 128) {
+                units = (units + 1)
+                j = (j + 1)
+            } {
+                ; A lead byte starts a code point; one past U+FFFF needs TWO
+                ; code units, because JS spells it as a surrogate pair.
+                if (b < 224) {
+                    units = (units + 1)
+                    j = (j + 2)
+                } {
+                    if (b < 240) {
+                        units = (units + 1)
+                        j = (j + 3)
+                    } {
+                        units = (units + 2)
+                        j = (j + 4)
+                    }
+                }
+            }
+        }
+        cuBytes = n
+        cuLen = units
+        cuAscii = false
+    }
+
+    fn strIsAscii:boolean () {
+        this.strEnsureCu()
+        return cuAscii
+    }
+
+    fn strCodeUnitLength:int () {
+        this.strEnsureCu()
+        return cuLen
     }
     fn numberOf:double () {
         return numberValue
@@ -1172,6 +1279,15 @@ class EvHandle {
         if (this.isElement()) {
             return true ; Elements are always truthy
         }
+        ; A Map and a Set are their OWN value kinds here, not objects, so the
+        ; chain above missed them both and `!!new Map()` answered false --
+        ; every `if (map)` took the wrong branch.
+        if (this.isMap()) {
+            return true
+        }
+        if (this.isSet()) {
+            return true
+        }
         return false
     }
     
@@ -1431,6 +1547,14 @@ class EvHandle {
             if (pt == "AssignmentPattern") {
                 return n
             }
+            ; A DEFAULTED simple parameter is a `Parameter` carrying `init`, not
+            ; an AssignmentPattern -- only a destructuring default takes that
+            ; shape. Testing the node type alone counted `function (a, b = 2)`
+            ; as arity 2, where the spec says the count stops at the first
+            ; parameter with a default.
+            if p.init {
+                return n
+            }
             n = (n + 1)
         }
         return n
@@ -1566,10 +1690,12 @@ class EvHandle {
                 return (this.getOwnData(key))
             }
         }
-        ; String length property
+        ; String length property, in CODE UNITS (D-UTF8). The byte count that
+        ; used to be answered here is what made `"aeb".length` 4 while
+        ; `"aeb".charAt(1)` answered the second character.
         if (this.isString()) {
             if (key == "length") {
-                return (EvHandle.fromInt((strlen (this.stringOf()))))
+                return (EvHandle.fromInt((this.strCodeUnitLength())))
             }
         }
         return (EvHandle.null())
@@ -2020,12 +2146,16 @@ class EvHandle {
             return false
         }
         def p:EvHandle (this.protoOf())
-        ; An accessor is handled by the setter path, not here.
-        if (p.hasOwnGetter(key)) {
-            return false
-        }
+        ; An accessor WITH a setter is handled by the setter path. One with a
+        ; getter and no setter refuses the write outright -- the receiver does
+        ; not get a shadowing own property, which is what `verifyNotWritable`
+        ; on an inherited getter checks. Treating every inherited accessor as
+        ; "not my problem" let the write create one.
         if (p.hasOwnSetter(key)) {
             return false
+        }
+        if (p.hasOwnGetter(key)) {
+            return true
         }
         if (p.hasOwnData(key)) {
             return (false == (p.isWritable(key)))

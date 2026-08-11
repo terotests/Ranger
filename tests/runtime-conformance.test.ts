@@ -1687,6 +1687,141 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["vmfin-throw-replaces", "function f() { var r = ''; try { try { throw 'orig'; } finally { r += 'f'; throw 'repl'; } } catch (e) { return r + '|' + e; } } return f();", "vmfinally"],
   ["vmfin-loop-inside-try", "function f() { var r = ''; try { for (var i = 0; i < 3; i++) { if (i == 1) continue; r += i; } } finally { r += 'f'; } return r; } return f();", "vmfinally"],
   ["vmfin-cross-function", "function inner7() { var r = ''; try { throw 'deep'; } finally { r += 'fin'; } } function f() { try { return inner7(); } catch (e) { return 'caught:' + e; } } return f();", "vmfinally"],
+
+  // --- Unicode strings ------------------------------------------------------
+  // A JS string is a sequence of UTF-16 CODE UNITS, and none of the three host
+  // languages agrees with that: C++ std::string is bytes, Rust String iterates
+  // characters, and only JS itself speaks units. Every probe here is one the
+  // targets used to answer differently FROM EACH OTHER, which is the real
+  // hazard -- not a missing feature but the same program meaning different
+  // things depending on where it runs.
+  //
+  // The groups map one-to-one onto the paths that reach a character: the index
+  // translation, the relational operator, the padding pair, the casing tables
+  // and the regular-expression engine. Each was its own way of reaching the
+  // text, and each had to be routed separately.
+  ["uni-len-latin1", "return 'héllo'.length;", "unicode"],
+  ["uni-len-cjk", "return '日本語'.length;", "unicode"],
+  ["uni-len-astral", "return '𝒜'.length;", "unicode"],
+  ["uni-len-emoji", "return '😀'.length;", "unicode"],
+  ["uni-len-mixed", "return '第1章 — 𝒜 is a set 😀'.length;", "unicode"],
+  ["uni-indexof", "return 'héllo wörld'.indexOf('l');", "unicode"],
+  ["uni-indexof-cjk", "return 'a日b'.indexOf('b');", "unicode"],
+  ["uni-lastindexof", "return 'héllo'.lastIndexOf('l');", "unicode"],
+  ["uni-slice", "return 'héllo wörld'.slice(0, 5);", "unicode"],
+  ["uni-slice-negative", "return 'héllo'.slice(-3);", "unicode"],
+  ["uni-substring", "return 'héllo'.substring(1, 3);", "unicode"],
+  ["uni-charat", "return 'héllo'.charAt(1);", "unicode"],
+  ["uni-charcodeat", "return 'héllo'.charCodeAt(1);", "unicode"],
+  ["uni-codepointat-astral", "return '𝒜b'.codePointAt(0);", "unicode"],
+  ["uni-at-negative", "return 'héllo wörld'.at(-1);", "unicode"],
+  ["uni-split-empty", "return 'héllo'.split('').join('-');", "unicode"],
+  ["uni-spread", "return [...'héllo'].length;", "unicode"],
+  ["uni-spread-astral", "return [...'a𝒜b'].length;", "unicode"],
+  ["uni-for-of", "var s = ''; for (var c of 'é日') { s += c + '.'; } return s;", "unicode"],
+  ["uni-reverse", "return 'héllo'.split('').reverse().join('');", "unicode"],
+  ["uni-fromcharcode", "return String.fromCharCode(233, 0x65E5);", "unicode"],
+  ["uni-fromcodepoint-len", "return String.fromCodePoint(0x1D49C).length;", "unicode"],
+  ["uni-concat-len", "return ('é' + '日').length;", "unicode"],
+  ["uni-repeat-len", "return 'é'.repeat(3).length;", "unicode"],
+  ["uni-trim-len", "return '  é  '.trim().length;", "unicode"],
+  ["uni-json-roundtrip", "return JSON.parse(JSON.stringify({ 'clé': 'café — 日本' })).clé;", "unicode"],
+  ["uni-encodeuri", "return encodeURIComponent('café/日本');", "unicode"],
+
+  // Relational comparison is its own path: it never went through the index
+  // layer, so on the byte target it compared SIGNED bytes and 'é' < 'z' came
+  // out true. That is what scrambled a sorted index.
+  ["uni-lt-latin1", "return 'é' < 'z';", "unicode"],
+  ["uni-gt-ascii", "return 'Z' < 'é';", "unicode"],
+  ["uni-lt-cjk", "return 'a' < '日';", "unicode"],
+  ["uni-lt-astral", "return '\\uFFFD' < '𝒜';", "unicode"],
+  ["uni-sort-default", "return ['é', 'z', 'a', '日'].sort().join('|');", "unicode"],
+  ["uni-sort-index", "return ['Zürich', 'apple', 'Éclair', 'Ångström', 'banana', 'Ostrich'].sort().join('|');", "unicode"],
+  ["uni-cmp-prefix", "return 'café' < 'cafés';", "unicode"],
+  ["uni-cmp-equal", "return ('é' < 'é') + ',' + ('é' > 'é');", "unicode"],
+  ["uni-cmp-ge", "return ('日' >= '日') + ',' + ('日' <= '日');", "unicode"],
+
+  // padStart / padEnd count units, not bytes: on the byte target 'é' already
+  // measured 2 toward the width, so the column never lined up.
+  ["uni-padstart", "return 'é'.padStart(4, '.');", "unicode"],
+  ["uni-padend", "return '日本'.padEnd(5, '·');", "unicode"],
+  ["uni-padstart-multi-unit-filler", "return 'x'.padStart(5, 'é');", "unicode"],
+  ["uni-padend-len", "return '日本'.padEnd(5, '·').length;", "unicode"],
+  ["uni-padstart-noop", "return 'héllo'.padStart(3, '.');", "unicode"],
+
+  // Casing needs the Unicode tables, not a rule: ß uppercases to two letters
+  // and Turkish İ lowercases to two units.
+  ["uni-upper-latin1", "return 'café société'.toUpperCase();", "unicode"],
+  ["uni-lower-latin1", "return 'CAFÉ SOCIÉTÉ'.toLowerCase();", "unicode"],
+  ["uni-upper-sharp-s", "return 'Straße'.toUpperCase();", "unicode"],
+  ["uni-upper-oslash", "return 'Ærø'.toUpperCase();", "unicode"],
+  ["uni-lower-dotless", "return 'IŞIK'.toLowerCase();", "unicode"],
+  ["uni-upper-greek", "return 'αβγδ'.toUpperCase();", "unicode"],
+  ["uni-lower-cyrillic", "return 'ПРИВЕТ'.toLowerCase();", "unicode"],
+  ["uni-upper-extended-a", "return 'ąćęłńóśźż'.toUpperCase();", "unicode"],
+  ["uni-case-roundtrip", "return 'Grüße'.toUpperCase().toLowerCase();", "unicode"],
+  ["uni-upper-cjk-noop", "return '日本'.toUpperCase();", "unicode"],
+  ["uni-upper-len", "return 'Straße'.toUpperCase().length;", "unicode"],
+  ["uni-case-insensitive-dedup", "var seen = {}; var out = []; var idx = ['Éclair', 'eclair', 'ÉCLAIR', 'Zebra']; for (var i = 0; i < idx.length; i++) { var k = idx[i].toLowerCase(); if (!seen[k]) { seen[k] = 1; out.push(idx[i]); } } return out.join('|');", "unicode"],
+
+  // The regular-expression engine reaches the text by its own path too, so a
+  // byte-indexed matcher split characters in half: /\w+/ over 'naïve' answered
+  // ['na', 've'] with the ï's two bytes counted as a word boundary and a
+  // stray character.
+  ["uni-re-word", "return 'naïve café'.match(/\\w+/g).join(',');", "unicode"],
+  ["uni-re-dot-count", "return 'é日x'.match(/./g).length;", "unicode"],
+  ["uni-re-literal", "return /ï/.test('naïve');", "unicode"],
+  ["uni-re-replace", "return 'naïve'.replace(/ï/, 'i');", "unicode"],
+  ["uni-re-anchor", "return /^é+$/.test('éé');", "unicode"],
+  ["uni-re-search", "return 'héllo wörld'.search(/ö/);", "unicode"],
+  ["uni-re-split", "return 'a—b—c'.split(/—/).join('|');", "unicode"],
+  ["uni-re-class", "return 'aébé'.replace(/[é]/g, 'E');", "unicode"],
+  ["uni-re-class-negated", "return 'aébé'.replace(/[^é]/g, '.');", "unicode"],
+  ["uni-re-index", "var m = /ö/.exec('héllo wörld'); return m.index;", "unicode"],
+  ["uni-re-lastindex", "var r = /l/g; r.exec('héllo'); return r.lastIndex;", "unicode"],
+  ["uni-re-escape-match", "return /\\u00FF/.exec('\\u00FF')[0].charCodeAt(0);", "unicode"],
+  ["uni-re-quantifier", "return 'ééé'.replace(/é{2}/, 'X');", "unicode"],
+  ["uni-re-alternation", "return '日本'.replace(/日|本/g, '.');", "unicode"],
+  ["uni-re-capture", "var m = /(é)(l)/.exec('héllo'); return m[1] + m[2] + ':' + m.index;", "unicode"],
+  ["uni-re-global-count", "return ('日a日b日'.match(/日/g) || []).length;", "unicode"],
+  ["uni-re-replace-fn-offset", "return 'héllo'.replace(/l/, function (m, off) { return '[' + off + ']'; });", "unicode"],
+
+  // normalize() existed as a no-op, which is worse than not existing: "café"
+  // typed with a combining accent and "café" typed with the precomposed letter
+  // are the same word, they compared unequal, and the one call that exists to
+  // fix that quietly did nothing.
+  ["uni-nfc-composes", "return 'cafe\u0301'.normalize('NFC') === 'caf\u00e9';", "unicode"],
+  ["uni-nfd-decomposes", "return 'caf\u00e9'.normalize('NFD') === 'cafe\u0301';", "unicode"],
+  ["uni-nfd-length", "return 'caf\u00e9'.normalize('NFD').length;", "unicode"],
+  ["uni-nfc-idempotent", "return '\u00c5'.normalize('NFD').normalize('NFC') === '\u00c5';", "unicode"],
+  ["uni-nfc-angstrom", "return '\u212b'.normalize('NFC').charCodeAt(0);", "unicode"],
+  ["uni-nfd-reorders", "return 'q\u0307\u0323'.normalize('NFD') === 'q\u0323\u0307';", "unicode"],
+  ["uni-nfc-multi-accent", "return 'q\u0307\u0323'.normalize('NFC').length;", "unicode"],
+  ["uni-nfd-hangul", "return '\uac01'.normalize('NFD').length;", "unicode"],
+  ["uni-nfc-hangul", "return '\u1100\u1161\u11a8'.normalize('NFC') === '\uac01';", "unicode"],
+  ["uni-nfc-kannada", "return '\u0cc6\u0cc2\u0cd5'.normalize('NFC').charCodeAt(0);", "unicode"],
+  ["uni-nfc-exclusion", "return '\u0f76'.normalize('NFC').length;", "unicode"],
+  ["uni-nfc-ascii-untouched", "return 'abc'.normalize('NFD');", "unicode"],
+  ["uni-nfc-sharp-s", "return 'Stra\u00dfe'.normalize('NFC');", "unicode"],
+  ["uni-normalize-bad-form", "try { 'a'.normalize('NFX'); return 'no-throw'; } catch (e) { return e.name; }", "unicode"],
+
+  // localeCompare was a code-unit comparison, which is the one thing it is
+  // specified NOT to be: every accented word sorted after every unaccented
+  // one, so an index came out with Éclair and Ångström in a clump at the end
+  // rather than under E and A.
+  ["uni-coll-accent-under-letter", "return 'é'.localeCompare('z');", "unicode"],
+  ["uni-coll-case-after-lower", "return 'a'.localeCompare('B');", "unicode"],
+  ["uni-coll-accent-secondary", "return 'resume'.localeCompare('résumé');", "unicode"],
+  ["uni-coll-accent-order", "return 'é'.localeCompare('è');", "unicode"],
+  ["uni-coll-stroke-under-o", "return 'Ø'.localeCompare('z');", "unicode"],
+  ["uni-coll-expansion", "return 'Straße'.localeCompare('Strasse');", "unicode"],
+  ["uni-coll-equal", "return 'x'.localeCompare('x');", "unicode"],
+  ["uni-coll-sort-index", "return ['Zürich', 'apple', 'Éclair', 'Ångström', 'banana', 'Ostrich'].sort(function (a, b) { return a.localeCompare(b); }).join('|');", "unicode"],
+  ["uni-coll-case-tiebreak", "return ['eclair', 'ECLAIR', 'Éclair'].sort(function (a, b) { return a.localeCompare(b); }).join('|');", "unicode"],
+  ["uni-coll-greek", "return ['ΟΔΟΣ', 'οδος', 'άλφα'].sort(function (a, b) { return a.localeCompare(b); }).join('|');", "unicode"],
+  ["uni-coll-cyrillic", "return ['ПРИВЕТ', 'привет', 'мир'].sort(function (a, b) { return a.localeCompare(b); }).join('|');", "unicode"],
+  ["uni-coll-punct-before-digit", "return ['1', '_', '.'].sort(function (a, b) { return a.localeCompare(b); }).join('|');", "unicode"],
+  ["uni-coll-total-order", "var w = ['Straße', 'Strasse', 'ǆ', 'dz']; var f = w.slice().sort(function (a, b) { return a.localeCompare(b); }).join('|'); var r = w.slice().reverse().sort(function (a, b) { return a.localeCompare(b); }).join('|'); return f === r;", "unicode"],
 ];
 
 /**

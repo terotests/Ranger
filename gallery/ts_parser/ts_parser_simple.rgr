@@ -25,6 +25,10 @@ class TSNode {
   ; ESTree Property flags (ES2015)
   def shorthand:boolean false ; { x } shorthand property
   def computed:boolean false  ; { [expr]: value } computed property
+  ; { 1.0: v } -- the key is a NUMERIC literal, so its property name is
+  ; ToString of its VALUE ("1"), not the source text. The parser cannot format
+  ; a double the way JS does; the engine can, and this is what tells it to.
+  def numericKey:boolean false
   def accessor:string ""      ; "get" / "set" for a class accessor member
   ; True for a node written inside parentheses. A parenthesised object or array
   ; literal is not a valid assignment target -- `({a} = b)` destructures but
@@ -80,6 +84,22 @@ class TSNode {
   ; Memo the EVALUATOR fills on first visit: nodeType as a small integer, so
   ; hot dispatch compares ints instead of strings (a memcmp per visit on the
   ; native targets, where V8 compares interned pointers). 0 = not scanned.
+  ; Memo: does this BlockStatement declare a lexical name (let/const/class)?
+  ; Only such a block needs a scope of its own, and creating one per block
+  ; regardless would put a context allocation in every loop body.
+  def lexScanned:boolean false
+  def lexDeclares:boolean false
+  ; D-TDZ: the let/const/class names this block declares, collected once. They
+  ; are bound UNINITIALISED on entry so a read before the declaration runs is a
+  ; ReferenceError rather than a lookup that walks out to an outer scope.
+  def lexNames:[string]
+  ; Memo: does a `yield` occur anywhere under this node, not counting nested
+  ; function bodies (which have their own)? This is what makes a resumable
+  ; generator affordable -- a subtree with no yield in it is evaluated by the
+  ; ordinary walker in one shot, so only the SPINE leading to a yield is
+  ; decomposed into resumable steps. See ComponentEngine.nodeHasYield.
+  def yieldScanned:boolean false
+  def yieldInside:boolean false
   def evalKind:int 0
   ; Same memo for the OPERATOR string (BinaryExpression "+", "<", ...).
   def evalOpKind:int 0
@@ -153,6 +173,13 @@ class TSParserSimple {
   ; Set just before parsing a function body so the body block reuses the scope
   ; that already holds the parameters.
   def suppressBlockScope:boolean false
+  ; How many ternary CONSEQUENTS are currently open. Inside one, a `:` after a
+  ; parenthesised expression is the ternary's own colon and never a TypeScript
+  ; return-type annotation -- which is how `x ? (c = 5) : (c = 6)` used to be
+  ; misread: the annotation path consumed the `:` and handed `(c = 6)` to the
+  ; type parser, which reported "expected ')' but got '='". TypeScript resolves
+  ; the same ambiguity the same way: once `?` is open, the conditional wins.
+  def ternaryConsequentDepth:int 0
   ; Whether the code being parsed is strict. Set by a "use strict" directive
   ; prologue, and unconditionally inside a class body. Strict code reserves more
   ; words, forbids `with`, and makes duplicate parameters an error.
@@ -230,6 +257,11 @@ class TSParserSimple {
   ; enclosing one (so `function* yield(){}` at top level is fine but
   ; `function *g(){ function yield(){} }` is not).
   def parsingFunctionExpression:boolean false
+  ; Same, for a class EXPRESSION. A named class expression binds its own name
+  ; in a scope holding nothing but the class body -- not in the enclosing
+  ; scope -- so `var C = class C {}` is legal. Declaring it outside made the
+  ; two `C`s a redeclaration and the whole script failed to parse.
+  def parsingClassExpression:boolean false
   ; Local names an `export { ... }` clause referred to without a `from`. They
   ; must resolve to a declaration somewhere in the module, which can only be
   ; checked once the whole module has been read.
@@ -275,6 +307,14 @@ class TSParserSimple {
   fn syntaxError:void (msg:string) {
     this.errorCount = (this.errorCount + 1)
     if (this.speculating > 0) {
+      return
+    }
+    ; Report the FIRST diagnostic only. Recovery carries on so the parse
+    ; finishes, but every token after the real error produces another message
+    ; -- one bad `function a.b()` printed fifteen -- and the later ones quote
+    ; source text that was never the problem. The first message is the one that
+    ; names the actual error.
+    if (this.errorCount > 1) {
       return
     }
     if (this.quiet == false) {
@@ -2224,6 +2264,10 @@ class TSParserSimple {
   fn parseClass:TSNode () {
     def node (new TSNode())
     node.nodeType = "ClassDeclaration"
+    ; Claimed at entry and cleared, so a class DECLARATION nested in this
+    ; class's body still declares its name normally.
+    def asClassExpr:boolean this.parsingClassExpression
+    this.parsingClassExpression = false
     def startTok (this.peek())
     node.start = startTok.start
     node.line = startTok.line
@@ -2251,7 +2295,9 @@ class TSParserSimple {
       def nameTok (this.expectBindingName())
       this.strictMode = savedNameStrict
       node.name = nameTok.value
-      this.declareBinding("l" nameTok.value)
+      if (false == asClassExpr) {
+        this.declareBinding("l" nameTok.value)
+      }
     }
 
     ; Parse generic type parameters <T, U>
@@ -4252,6 +4298,11 @@ class TSParserSimple {
   ; === Block Statement ===
   
   fn parseBlock:TSNode () {
+    ; A block ENDS any ternary that was open outside it: the conditional's `:`
+    ; cannot appear inside a brace body, so a return-type annotation on an arrow
+    ; declared in there is legal again.
+    def savedTernaryDepth:int ternaryConsequentDepth
+    ternaryConsequentDepth = 0
     def block (new TSNode())
     block.nodeType = "BlockStatement"
     def startTok (this.peek())
@@ -4309,6 +4360,7 @@ class TSParserSimple {
     def closeTok (this.peek())
     block.end = closeTok.end
     this.expectValue("}")
+    ternaryConsequentDepth = savedTernaryDepth
     return block
   }
   
@@ -5622,7 +5674,9 @@ class TSParserSimple {
     
     if (this.matchValue("?")) {
       this.advance()
+      ternaryConsequentDepth = (ternaryConsequentDepth + 1)
       def consequentExpr (this.parseAssign())
+      ternaryConsequentDepth = (ternaryConsequentDepth - 1)
       
       if (this.matchValue(":")) {
         this.advance()
@@ -6085,9 +6139,15 @@ class TSParserSimple {
       if (nextVal == "]") { endsYield = true }
       if (nextVal == ":") { endsYield = true }
       if (this.isAtEnd()) { endsYield = true }
-      ; A line terminator after `yield` ends it as well.
+      ; A line terminator after `yield` ends it as well. The restriction is
+      ; `yield [no LineTerminator here] *` -- it sits between `yield` and the
+      ; star, NOT between the star and the operand. `yield *\n g()` is one
+      ; delegation spanning two lines, and treating the newline as an end made
+      ; it a parse error.
       def yieldNextTok (this.peek())
-      if (yieldNextTok.line != this.lastTokenLine) { endsYield = true }
+      if (false == yieldExpr.delegate) {
+        if (yieldNextTok.line != this.lastTokenLine) { endsYield = true }
+      }
       if (endsYield) {
         ; `yield*` always needs an operand.
         if (yieldExpr.delegate) {
@@ -6786,6 +6846,7 @@ class TSParserSimple {
 
     ; Class expression: class {} / class Name extends B {}
     if (tokVal == "class") {
+      this.parsingClassExpression = true
       def clsExpr (this.parseClass())
       clsExpr.nodeType = "ClassExpression"
       return clsExpr
@@ -6878,6 +6939,13 @@ class TSParserSimple {
       if (tokVal == "static") { contextual = true }
       if (tokVal == "as") { contextual = true }
       if (tokVal == "from") { contextual = true }
+      ; `get`, `set` and `async` are CONTEXTUAL: they mean something only in
+      ; front of a property or method name. Everywhere else they are ordinary
+      ; identifiers, and `var set = new Set()` is a line real programs write --
+      ; it was a syntax error, so the whole file failed to parse.
+      if (tokVal == "get") { contextual = true }
+      if (tokVal == "set") { contextual = true }
+      if (tokVal == "async") { contextual = true }
       ; The STRICT-only reserved words are ordinary identifiers in sloppy code:
       ; `var public = 1` is legal JavaScript outside strict mode. They were
       ; refused everywhere, which made a whole family of directive-prologue
@@ -6945,6 +7013,9 @@ class TSParserSimple {
     def quasi (new TSNode())
     quasi.nodeType = "TemplateElement"
     quasi.value = tok.value
+    ; The uncooked text rides on `name`, which a TemplateElement does not use.
+    ; A tag function's `strings.raw` and String.raw are defined over it.
+    quasi.name = tok.raw
     push node.children quasi
     
     return node
@@ -7142,6 +7213,9 @@ class TSParserSimple {
             }
           }
           prop.name = keyTok.value
+          if (keyTok.tokenType == "Number") {
+            prop.numericKey = true
+          }
           this.advance()
         } {
           if (isComputed) {
@@ -7167,6 +7241,10 @@ class TSParserSimple {
           ; Parse method as function expression
           def fnNode (new TSNode())
           fnNode.nodeType = "FunctionExpression"
+          ; `{ *m() {} }` is a GENERATOR method. The star was recorded on the
+          ; property but never reached the function node the evaluator calls,
+          ; so the body simply ran and answered undefined.
+          fnNode.generator = prop.generator
           ; A method's source text starts at its KEY -- `foo() {}`, not `() {}`.
           fnNode.start = prop.start
           this.advance()
@@ -7372,11 +7450,15 @@ class TSParserSimple {
     
     this.advance()  ; consume )
     
-    ; Check for type annotation
+    ; Check for type annotation. Not inside a ternary consequent: there the
+    ; `:` belongs to the conditional, and consuming it as a return type turned
+    ; the alternate into a type expression.
     if (this.matchValue(":")) {
-      this.advance()
-      ; Skip the type
-      this.parseType()
+      if (ternaryConsequentDepth == 0) {
+        this.advance()
+        ; Skip the type
+        this.parseType()
+      }
     }
     
     ; Check for =>

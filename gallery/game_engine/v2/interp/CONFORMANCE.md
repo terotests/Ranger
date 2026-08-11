@@ -820,38 +820,378 @@ runtime-conformance suite.
 
 ### ES2015 (test262 `es6id` corpus)
 
-Measured for the first time with `T262_ERA=es6` over the whole `es6id`-tagged
-corpus, 2863 files after excluding intl402, Temporal, module and async flags:
+Measured with `T262_ERA=es6` over the whole `es6id`-tagged corpus, 2863 files
+after excluding intl402, Temporal, module and async flags:
 
 | | |
 |---|---|
-| **ES2015 overall** | **30.84% (883/2863)** |
-| pass | 883 |
-| fail (ran, wrong answer) | 6 |
-| crash (did not run to completion) | 1974 |
+| **ES2015 overall** | **84.25% (2412/2863)** |
+| pass | 2412 |
+| fail (ran, wrong answer) | 435 |
+| crash (did not run to completion) | 16 |
 
-**Six wrong answers against 1974 non-starters.** That ratio is the useful part:
-the engine is not getting ES2015 semantics subtly wrong, it is missing ES2015
-surface outright. The ES5 layer underneath is at 99.99%.
+The fail/crash split changed meaning partway through this work. An
+uncaught exception used to be swallowed in silence, so a fixture that ran
+and asserted was indistinguishable from one that died on line 1 -- almost
+everything counted as a crash. Uncaught exceptions now print, so a failed
+assertion is reported as a failure. The pass count is unaffected either
+way; only the two failure buckets moved.
 
-Failures by family:
+**Six wrong answers, and that number has not moved.** It is the useful part of
+the ratio: what stands between this engine and ES2015 is missing surface, not
+semantics it gets subtly wrong. Every gain below is a non-starter that started.
+
+How it got here, each row a measured run of the same corpus against the C++
+`octane_runner`:
+
+| step | pass | score |
+|---|---:|---:|
+| start of the ES2015 work | 883 | 30.84% |
+| the ES2015 `Math` additions, `String.fromCodePoint`, the annexB HTML wrappers | 930 | 32.48% |
+| `Object.getOwnPropertyNames` / `getOwnPropertyDescriptor` callable from a value | 1187 | 41.46% |
+| `Reflect` | 1278 | 44.64% |
+| a class is one value, with a real prototype | 1317 | 46.00% |
+| class expressions parse; anonymous functions take their name | 1329 | 46.42% |
+| the String search trio takes a position; symbols are real property keys | 1372 | 47.92% |
+| the iterator protocol, and computed class members | 1393 | 48.66% |
+| RegExp's four well-known-symbol methods | 1452 | 50.72% |
+| object-literal names and `__proto__`, `const`, defaulted-parameter arity | 1455 | 50.82% |
+| annexB `escape`/`unescape`, and `typeof` for the global function properties | 1471 | 51.38% |
+| `Array.from` over an iterable, an array-like, and a map function | 1474 | 51.48% |
+| tagged templates carry cooked and raw parts; `Promise` and its job queue | 1604 | 56.02% |
+| a block is a scope, and `for (let i…)` binds per iteration | 1637 | 57.18% |
+| `Proxy` and its traps, wired into every property operation | 1744 | 60.92% |
+| RegExp sticky flag, `RegExpExec` delegation, `@@replace`/`@@split` | 1802 | 62.94% |
+| `Symbol.species`, `@@unscopables`, `@@isConcatSpreadable` | 1847 | 64.51% |
+| a class's methods, accessors and statics land on a real prototype | 1876 | 65.53% |
+| a string's own properties; `Reflect.set` honours its receiver | 1881 | 65.70% |
+| `Math` special values, template ToString, function `name` inference | 1928 | 67.34% |
+| `Reflect` receivers, `Object.setPrototypeOf` rules, `@@hasInstance` | 1943 | 67.87% |
+| generators suspend and resume on an explicit frame stack | 1980 | 69.16% |
+| a generator stays lazy on the consuming side; `%GeneratorPrototype%` | 2009 | 70.17% |
+| `yield*` delegates through the iterator protocol | 2026 | 70.76% |
+| `get`/`set`/`async` as identifiers; a derived ctor must call `super()` | 2073 | 72.41% |
+| generator methods; loop completion values; `f.length` is not writable | 2139 | 74.71% |
+| typed arrays; live array iteration; proxy trap results | 2170 | 75.79% |
+| `new.target`; `Object.create(Array.prototype)`; a trap's `this` | 2182 | 76.21% |
+| class calls on the value path; `this` before `super()` | 2188 | 76.42% |
+| the proxy `has` and `set` traps | 2202 | 76.91% |
+| `yield` in an array literal; the generator function object | 2219 | 77.51% |
+| for-of steps and closes a guest iterator | 2230 | 77.89% |
+| template escapes; `Object.assign` boxes a primitive target | 2243 | 78.34% |
+| class definition at the declaration; derived-constructor returns | 2256 | 78.80% |
+| per-kind iterator prototypes; Map/Set answer iterators | 2268 | 79.22% |
+| IteratorClose actually runs; for-of no longer compiles to a drain | 2272 | 79.36% |
+| `class E extends Array` produces a real array | 2274 | 79.43% |
+| live Map/Set iteration; iterator results read as properties | 2282 | 79.71% |
+| for-in heads that are not plain names; `yield*` across a newline | 2289 | 79.95% |
+| `Symbol.toStringTag` on the built-ins that brand with it | 2293 | 80.09% |
+| the ES1-ES5 sweep below (JSON, bind, URI, parseInt, evaluation order) | 2295 | 80.16% |
+| the ES5 attribute sweep below | 2296 | 80.20% |
+| the ES5 long tail below | 2298 | 80.27% |
+| Promise built through NewPromiseCapability | 2354 | 82.22% |
+| ArrayBuffer, DataView and the %TypedArray% intrinsic | 2365 | 82.61% |
+| Proxy trap invariants, and proxy reads in the compiled tier | 2382 | 83.20% |
+| the temporal dead zone for let and const | 2390 | 83.48% |
+| one string model -- code units -- on every target | 2395 | 83.65% |
+| non-ASCII identifiers, on the byte-model targets | 2399 | 83.79% |
+| compare, pad, case and the regex engine in code units | 2410 | 84.18% |
+| normalize() and a real localeCompare | 2412 | 84.25% |
+
+The single largest step is not an ES2015 feature at all. `propertyHelper.js` --
+which 543 of these files include -- opens with
+`var __getOwnPropertyNames = Object.getOwnPropertyNames;` and then calls it
+detached. Statics that existed only on the AST call-site chain answered
+undefined that way, so `verifyProperty` died on the first line and 543 files
+failed for a reason unrelated to what they were testing.
+
+Failures by family, at the end of the run above (570 files):
 
 | family | files | why |
 |---|---:|---|
-| `language/statements` | 354 | mostly `class` (157) and `for-of` (92) |
-| `language/expressions` | 255 | `object` (63), `yield` (40), `super` (39), template literals (24) |
-| `built-ins/RegExp` | 189 | the ES2015 prototype additions |
-| `built-ins/Proxy` | 152 | **`typeof Proxy` is undefined -- not implemented** |
-| `built-ins/String` | 140 | the ES2015 prototype additions |
-| `annexB` | 135 | legacy web compatibility |
-| `built-ins/Reflect` | 133 | **`typeof Reflect` is undefined -- not implemented** |
-| `built-ins/Promise` | 115 | **`typeof Promise` is undefined -- not implemented** |
-| `built-ins/Math` | 102 | the ES2015 additions |
-| `built-ins/GeneratorPrototype` | 45 | generators are buffered, not resumable (see ComponentEngine.makeGeneratorValue) |
+| `built-ins/Promise` | 60 | NewPromiseCapability and the species lookups: `Promise.all` does not construct C or call each element's own `then` |
+| `language/statements/class` | 60 | 30 of them subclass a BUILT-IN other than Array -- ArrayBuffer, DataView, Function, GeneratorFunction |
+| `built-ins/RegExp` | 45 | unicode mode, `compile`, and decimal escapes the lexer refuses |
+| `built-ins/Proxy` | 45 | the remaining trap invariants, and `with (proxy)` |
+| `built-ins/String` | 34 | lone surrogates (12), `normalize` (3), coercion order |
+| `annexB` | 26 | 20 of them `RegExp.prototype.compile` |
+| `built-ins/Object` | 23 | 12 of them the descriptor shape of `Object.prototype.__proto__` |
+| `language/global-code` | 19 | 11 need `$262.createRealm`, 7 need `$262.evalScript` |
+| `language/expressions/super` | 13 | `super()` through a plain function base |
+| `language/expressions/object` | 13 | super-property in an object method |
+| `language/expressions/yield` | 12 | `yield` in a call argument or an object literal |
+| `language/statements/for-of` | 8 | mapped `arguments`, TDZ in the loop head, astral string iteration |
 
-What DOES exist: `Symbol`, `Map`, `Set` and `class` all answer. `WeakMap`,
-`Promise`, `Proxy` and `Reflect` do not exist at all, and those four alone
-account for 400 of the 1974.
+Nineteen of the remaining files need `$262` -- the test262 host object.
+Eleven of those want `createRealm`, a second global this engine has no way
+to make; the other seven want `evalScript`. That is a harness capability
+rather than an engine one, and nothing here provides it.
+
+#### The four subsystems, done
+
+The gaps this section used to name as structural have been closed.
+
+**Promise** builds every result through NewPromiseCapability: `new
+C(executor)`, capturing the resolve/reject pair the executor is handed. It
+used to mint an intrinsic promise and settle it by hand, so a subclass was
+never constructed and an overridden `then` or `resolve` never ran. On top
+of it: `all`/`race` read `C.resolve` once and drive each element through it
+and through the element's own `then`; `then` builds its result with
+SpeciesConstructor; the minted functions are anonymous with the right
+arity, which is what a guest `then` override asserts on before it does
+anything else. 60 failures -> 4.
+
+**ArrayBuffer, DataView and %TypedArray%** now exist. The bytes live in an
+ordinary array of numbers: this realm has no linear memory to model. The
+float accessors compute IEEE 754 by arithmetic, byte by byte, because a
+float64 pattern is 64 bits and does not fit exactly in a double -- assembled
+as one integer, a round-tripped 3.14159 came back as 3.1415900000001784.
+13 "ArrayBuffer is not defined" failures -> 0.
+
+**Proxy** checks its trap post-conditions: a trap may lie about what it did,
+and the spec compares its answer against the target. None were checked, so
+a handler could report a frozen property as holding a different value or
+announce a prototype change that never happened. Separately, the compiled
+tier had no proxy case in its field read at all, so a read inside a function
+body answered the TARGET's property and the trap never ran. 45 -> 28.
+
+**TDZ** for `let` and `const`: the binding is created uninitialised at the
+top of its block, marked with a hole -- a value the guest can never produce
+-- so the check costs one predicate on a value the reader already holds.
+Class declarations are deliberately excluded: they are registered eagerly
+and their declaration statement does not re-bind, so a hole there would
+never be replaced. That is the one half of the class case still missing.
+
+Subclassing a built-in works for Array (both halves: the instance IS an
+array and the class's own methods stay reachable), for the Error
+constructors and for Promise. The function constructors remain.
+
+#### Unicode: one string model across three targets
+
+A JS string is a sequence of UTF-16 CODE UNITS. Nothing in the host
+languages agrees with that: C++ `std::string` is bytes, Rust `String`
+iterates characters, and only JS itself speaks units. The engine used to
+let whichever model the target happened to have leak into guest semantics,
+which is not a rounding error -- it silently gave different answers for
+ordinary non-ASCII text:
+
+| on the C++ build | was | is |
+|---|---:|---:|
+| `"héllo".length` | 6 | 5 |
+| `"héllo".indexOf("l")` | 3 | 2 |
+| `"日本".length` | 6 | 2 |
+| `[..."héllo"].join("")` | truncated | `"héllo"` |
+| `var а = 1` (Cyrillic) | parse error | 1 |
+
+The fix is a code-unit layer (`cuLen`, `cuUnitAt`, `cuSlice`, `cuIndexOfByte`
+and friends) that every string builtin goes through. It is not a conversion
+pass: the strings stay in their native representation and the layer
+translates INDICES, so no allocation is added on any path. Which
+translation applies is detected once, from the target itself
+(`(strlen "é") > 1`), rather than compiled in -- the es6 build takes a
+passthrough and pays nothing.
+
+The per-string unit count is memoised on the handle, because `s.length` is
+O(1) in every other engine and rescanning per read would make
+`for (i = 0; i < s.length; i++)` quadratic. The memo is VALIDATED by byte
+length rather than invalidated by hand: any mutation that changes the text
+changes its byte count, so a stale entry corrects itself on the next read
+instead of depending on every writer remembering to clear it. An all-ASCII
+string -- nearly all of them -- settles in one model-independent scan and
+never consults the model at all, which is why the benchmark geomean did not
+move.
+
+The lexer had the same defect one level down. `at source i` walks code
+points on the byte-model target but hands back their UTF-8 BYTES, and the
+identifier classifier read only the first of them: Cyrillic `а` was queried
+against the ID tables as its lead byte 0xD0, so `var а = 1` was a parse
+error on C++ and Rust while parsing fine on es6. Decoding that string
+before the lookup fixes every category at once -- Cyrillic, accented Latin,
+CJK, Greek, runic, and supplementary-plane letters like `𝒜`, in
+identifiers, member names, object-literal keys and parameter names.
+
+#### Five paths to the text, not one
+
+Writing the seventy `unicode` probes down found that the index layer was only
+one of FIVE ways the engine reached a character, and that the other four each
+had the defect in its own form. Every row below was a case where the three
+targets answered differently FROM EACH OTHER, which is the real hazard: not a
+missing feature, but the same guest program meaning different things depending
+on which build ran it.
+
+| path | what it did | why |
+|---|---|---|
+| `<` and `sort()` | `'é' < 'z'` answered true | §7.2.13 compares code units; this read raw `charAt`, a SIGNED char on the byte target, so every non-ASCII byte compared as negative. `sort()` with no comparator is defined in terms of it, so every sorted index came out scrambled. `strCmp` was a second copy and only the other one had been fixed |
+| `padStart`/`padEnd` | `'é'.padStart(4, '.')` gave two dots; `'日本'.padEnd(5)` gave none | measured in bytes, so the byte count had already passed the target width |
+| `toUpperCase` | `'café'` → `'CAFÉ'` on es6 and Rust, `'CAFé'` on C++ | each build used its host language's case function, and the hosts disagree |
+| the RegExp engine | `/\w+/` over `'naïve café'` → `['na', 'e ', 'afé']` | the matcher stepped the subject a byte at a time and `m.index` came back as a byte offset, so a character was split in half |
+| `JSON.parse` | threw SyntaxError on anything the engine had itself stringified with a non-ASCII character in it | the scanner read `substring` (code points) and `charAt` (bytes) as one index, and a negative byte read as a control character |
+
+Casing, normalization and collation are DATA, not rules, and the data lives in
+three generated files -- `UnicodeCase.rgr`, `UnicodeNorm.rgr`,
+`UnicodeCollate.rgr` -- as ordinary Ranger array literals. They are committed
+source: no target needs a generator in order to build. The generators sit beside
+them in `migrate/tools/`, read the UCD files when pointed at them, and verify
+their output against all 1.1M code points before they will write anything.
+
+Two model bugs surfaced the same way. **Rust is a third string model**, not the
+es6 one: `strlen` counts characters, so it is not a byte model, but a
+supplementary character is one character where JS counts a surrogate PAIR, so
+it is not the unit model either -- and its native string SEARCH answers in
+bytes regardless. Taking it for es6 is what made `"日本".length` answer 1 there.
+And the string ITERATOR ran the UTF-8 decoder unconditionally on all three
+targets, so `[...'héllo']` came out as `h`, `"éll"`, `o` on es6 and Rust both.
+That one had been there all along and was invisible until it was measured.
+
+The `u` flag went from ignored to implemented on the way through, because the
+old byte-stepping matcher had been passing its test262 fixtures by accident:
+AdvanceStringIndex in the matcher and in `@@match`/`@@replace`/`@@split`, and
+`.` and a character class consume a whole code point.
+
+What this cost: 6% on the QuickJS-normalized benchmark, all of it the regex row,
+and it is the price of correct positions -- the matcher reads its subject
+through an index rather than straight off the string. An all-ASCII subject skips
+the decode entirely, and hoisting the matcher out of the three scan loops paid
+most of the rest back; built per iteration it re-decoded the whole subject every
+time.
+
+What is still not done:
+
+- **NFKC and NFKD.** The compatibility forms need a second and much larger
+  mapping table, and they are lossy -- they fold ﬁ to fi and ² to 2. They
+  answer the string unchanged rather than silently returning a canonical form,
+  which would leave a program worse off than being told the form is missing.
+- **Locale tailorings in `localeCompare`.** The comparison is three-level in
+  the shape of UTS #10 and agrees with ICU on every pair the generator checks
+  (6006/6006 over Latin, Greek and Cyrillic words, digits and punctuation), but
+  it is the root order: Swedish å sorts under a rather than at the end of the
+  alphabet, because there are no per-locale tailorings.
+- **Supplementary characters through a Rust slice.** A cut that lands INSIDE a
+  surrogate pair has no representation on that target -- its string type holds
+  characters, and half a pair is not one. The half is dropped rather than faked.
+  C++ and es6 are exact.
+
+#### What resumable generators cost the rest of the engine
+
+Nothing measurable. A generator body runs on an explicit frame stack rather
+than the host stack, but only the SPINE of nodes leading down to a `yield`
+becomes frames -- every subtree with no yield in it is handed to the ordinary
+walker and evaluated in one shot (`genPushExpr`, `genRunBranch`). Non-generator
+code never enters the driver at all.
+
+Measured over three benchmark runs each, cpp geomean, on one machine:
+
+| | run 1 | run 2 | run 3 | mean |
+|---|---:|---:|---:|---:|
+| before generators | 8.638 | 8.983 | 8.865 | 8.83 |
+| after | 8.862 | 9.276 | 8.689 | 8.94 |
+
+The 1.2% difference in means is inside the run-to-run spread of either set
+(±3%); Node's own reading moved 3% across the same runs. Generator throughput
+itself is in line with the engine's general speed rather than carrying a
+penalty of its own: 200,000 lazy yields consumed through a `for-of` take 0.64s,
+about 3.2µs per suspend/resume.
+
+#### The ES5 layer, on the same corpus
+
+The ES5 figures in §4 above are measured over a narrower selection (6839 files,
+no annexB). Running the SAME command as the ES2015 measurement -- `T262_ERA=es5`
+over the whole tree -- gives 8115 files, and it is the number to compare against
+when asking whether ES2015 work cost anything:
+
+| | pass | score |
+|---|---:|---:|
+| merge base (`9a13ee28`) | 7149 | 88.10% |
+| after the ES2015 work | 7784 | 95.92% |
+| after the ES1-ES5 sweep | 7814 | 96.29% |
+| after the ES5 attribute sweep | 8037 | 99.04% |
+| after the ES5 long tail | 8061 | 99.33% |
+| after the Unicode string model | 8069 | 99.43% |
+| after non-ASCII identifiers | 8071 | 99.46% |
+| after the five text paths below | 8077 | 99.53% |
+
+The ES2015 work did not cost ES5 anything; it gained 665 files, most of them
+from the same detached-statics fix.
+
+#### The ES1-ES5 sweep
+
+A separate report listed 36 failures across an ES1/ES3/ES5 suite. Working
+through it found these, each verified against node before and after:
+
+| area | what was wrong |
+|---|---|
+| `JSON.stringify` | took a value and nothing else: no `space`, neither replacer form, no `toJSON`, and a cyclic object recursed until the host stack gave out |
+| `JSON.parse` | accepted a reviver and ignored it |
+| `JSON.*` | neither static existed on the value path, so `var f = JSON.stringify; f(o)` was undefined |
+| `Function.prototype.bind` | binding an already-bound function REPLACED its `this` and partial arguments instead of wrapping them; and a second copy on the call-site chain set neither the bound flag nor the suppressed `prototype` |
+| `propertyIsEnumerable` | called every synthesised key enumerable -- a function's `length`/`name`/`prototype`, an array's `length` |
+| `Array#indexOf` / `#lastIndexOf` | read `fromIndex` and discarded it |
+| `Array#sort` | took the PRESENCE of an argument for a comparator, so `sort(undefined)` left the array untouched; a non-callable one sorted rather than throwing |
+| Array mutators | not generic: push/pop/shift/unshift/splice/reverse/sort/fill/copyWithin silently did nothing on an array-like |
+| `encodeURI` and the other three | named as globals, implemented by none of them -- every call answered null |
+| strict refused writes | a frozen or non-extensible ARRAY took element writes; a mutator moved a non-writable `length`; a write through a primitive receiver was silent |
+| compound assignment | evaluated its right-hand side BEFORE reading the target, and re-evaluated a member target's base and index afterwards |
+| `x ? (a = 1) : (b = 2)` | a parse error: the parser read the ternary's `:` as a TypeScript return-type annotation |
+| `parseInt` / `parseFloat` | ToNumber in disguise -- radix ignored, no prefix or trailing-junk handling |
+| `toFixed` / `toExponential` | `integerDigits` stripped at the dot before looking for an exponent; `toExponential()` with no argument used six digits instead of as many as the value needs |
+| annexB octal | `010` read as decimal 10; `"\101"` kept as the three characters "101" |
+| numeric object keys | `{1.0: v}` keyed under the source text rather than ToString of the value |
+
+One defect surfaced on the way that belonged to none of them: a throw
+inside a `console.log` argument printed a line assembled from the failed
+evaluation before the exception surfaced.
+
+#### The ES5 attribute sweep
+
+A second report put two thirds of the remaining shared-corpus gap in one
+subsystem: array and string `[[DefineOwnProperty]]` attribute rules. That
+turned out to be right, and one defect accounted for most of it.
+
+| area | what was wrong | files |
+|---|---|---:|
+| `delete a[0]` | succeeded however the element had been defined -- frozen array, sealed array, index made non-configurable. The element branch of the delete operator ran BEFORE the refusal check, and the check could not see an element anyway: it lives in the dense store, not in own data. The suite's own `isConfigurable` helper measures exactly this -- it deletes and asks whether the property is gone | 56 |
+| non-ASCII whitespace | the lexer knew the code POINTS but read only the lead byte on the native targets, so NBSP, the Zs block, the BOM and LS/PS were not whitespace in source text; `trim` stripped what the host's trim strips, and trimStart/trimEnd stripped spaces only | 33 |
+| generic descriptors | a descriptor mentioning neither value nor writable nor get nor set must change only the attributes; it fell through to the data branch and destroyed the accessor | |
+| array `length` | reported `writable: true` whatever defineProperty had said, and a non-writable length did not refuse an assignment. The attribute was recorded correctly all along; nothing read it | 8 |
+| SameValue | redefinition compared values with strict equality, so a frozen NaN refused a redefinition to NaN and a frozen -0 accepted one to +0 | 6 |
+| evaluation order | `x() + y()` with both throwing reported "y": the right operand ran before scriptThrew was consulted, and a call's later argument displaced an earlier one's throw | 22 |
+| poisoned `caller` | only `arguments` threw on a strict or bound function; `caller` was answered earlier on the member path, and the bytecode tier checked neither -- so the same expression threw at top level and read undefined inside a function | 9 |
+| frozen array elements | freezing sets a flag rather than per-index attributes, so the descriptor read reported every element of a frozen array as writable and configurable | 4 |
+| code-unit width | `charCodeAt` masked every read to the low byte, which is right for the native builds and wrong for es6; `String.fromCharCode` truncated above 255 | 5 |
+
+#### The ES5 long tail
+
+The tail named above, worked through:
+
+| area | what was wrong |
+|---|---|
+| accessor indices | redefining an index that held an accessor back to a data property left the getter in place, so the getter still won the read; and clearing it dropped the recorded attributes, letting a non-enumerable element come back enumerable |
+| `arguments` | making a mapped index non-writable did not break its mapping, so a later `arguments[0] = x` still wrote the parameter through it; the internal index-to-parameter map also leaked into `getOwnPropertyNames` |
+| synthesised own names | `getOwnPropertyNames` walked stored keys only, so `length` on an array and a function's length/name/prototype were all missing -- on a function it answered nothing at all |
+| `ToLength` | array-likes read `length` with ToUint32, so `length: -4294967294` wrapped to 2 and generic methods visited elements they must not see; `every`/`some` derived their bound from the materialised count, which a `length` of Infinity made 0 |
+| short-circuit order | `x() \|\| y()` with both throwing reported "y": a throw makes the left answer undefined, which is both falsy and nullish, so all three operators fell through |
+| `delete f.prototype` | answered true and the property survived -- the synthesised prototype is not own data, so the refusal could not see it |
+| annexB Date | `toGMTString` was a second function rather than `toUTCString` itself; `setYear()` with no argument left the year unchanged instead of invalidating the date |
+| inherited getters | a write through an inherited getter with no setter created a shadowing own property instead of being refused |
+| non-extensible proto | `Object.preventExtensions(o).__proto__ = p` mutated the prototype |
+| parser diagnostics | every token after the first error produced another message -- one bad `function a.b()` printed fifteen, quoting source that was never the problem |
+
+Three of those were the same shape and worth naming as one: a rule the
+walker applies and the bytecode tier does not, so an expression meant one
+thing at top level and another inside a function body. `f.prototype` is
+completed lazily on the walker's member path; `caller` and `arguments` are
+poisoned there. The compiled `get_field` checked none of it and now
+declines all three names.
+
+What remains is genuinely long-tail: annexB RegExp escapes (7) and single
+files spread across a dozen areas. The `String.fromCharCode` and
+code-unit-width rows above, the six special-casing files, and the RegExp
+fixtures that match a non-ASCII literal are all closed on every target --
+see "Unicode: one string model" and "Five paths to the text" above.
+Accessor properties
+are also listed after data properties by `getOwnPropertyNames` rather than
+in insertion order, because they live in a separate map; fixing that means
+giving the property bag one order across both.
 
 ### ES2016 and later: not measured, and not measurable as an era
 
@@ -861,9 +1201,9 @@ with no way to bucket them by edition. An ES2016+ column would have to be built
 from FEATURE tags (`features: [optional-chaining]`, …), which is a different job.
 No number is published here rather than a synthesised one.
 
-### What the 1303-probe suite is not
+### What the 1337-probe suite is not
 
-`npm run jsengine:conformance` reports 1303/1303. That is the runtime-conformance
+`npm run jsengine:conformance` reports 1337/1337. That is the runtime-conformance
 corpus, whose expectations are derived by running the same source through Node.
 It is a regression net, not test262, and the two numbers must not be quoted
 side by side as if they measured the same thing.

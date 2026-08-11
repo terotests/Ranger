@@ -9,7 +9,7 @@ mkdir -p "$OUT_DIR"
 # The compiler exits 0 even when compilation fails, so `set -e` does not catch
 # it and the previous run's engine_module.cjs survives -- every test and
 # benchmark downstream then measures the OLD engine and reports success.
-RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule \
+RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node --stack-size=8000 bin/output.js -es6 -nodemodule \
   ./gallery/game_engine/v2/interp/tools/engine_module.rgr \
   -d="$OUT_DIR" -o=engine_module.cjs 2>&1 | tee /tmp/rgr_mod_$$.log
 if grep -q "Compilation FAILED" /tmp/rgr_mod_$$.log; then
