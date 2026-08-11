@@ -1927,6 +1927,23 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["intl-collator-supported", "return Intl.Collator.supportedLocalesOf(['fr', 'zz']).join('|');", "unicode"],
   ["intl-dtf-supported", "return Intl.DateTimeFormat.supportedLocalesOf(['ja']).join('|');", "unicode"],
 
+  // PluralRules and ListFormat.
+  ["intl-plural-en", "var p = new Intl.PluralRules('en'); return [0, 1, 2, 1.5].map(function (n) { return p.select(n); }).join(',');", "unicode"],
+  ["intl-plural-pl", "var p = new Intl.PluralRules('pl'); return [1, 2, 5, 22, 25, 1.5].map(function (n) { return p.select(n); }).join(',');", "unicode"],
+  ["intl-plural-ru", "var p = new Intl.PluralRules('ru'); return [1, 2, 5, 11, 21, 101].map(function (n) { return p.select(n); }).join(',');", "unicode"],
+  ["intl-plural-cs", "var p = new Intl.PluralRules('cs'); return [1, 2, 5, 1.5].map(function (n) { return p.select(n); }).join(',');", "unicode"],
+  ["intl-plural-fr-million", "return new Intl.PluralRules('fr').select(1000000);", "unicode"],
+  ["intl-plural-ar-fallback", "return new Intl.PluralRules('ja').select(5);", "unicode"],
+  ["intl-plural-ordinal-en", "var p = new Intl.PluralRules('en', { type: 'ordinal' }); return [1, 2, 3, 4, 11, 21].map(function (n) { return p.select(n); }).join(',');", "unicode"],
+  ["intl-plural-ordinal-it", "var p = new Intl.PluralRules('it', { type: 'ordinal' }); return [8, 11, 80, 800, 5].map(function (n) { return p.select(n); }).join(',');", "unicode"],
+  ["intl-plural-resolved", "var r = new Intl.PluralRules('pl').resolvedOptions(); return r.locale + ',' + r.type;", "unicode"],
+  ["intl-list-en", "return new Intl.ListFormat('en').format(['a', 'b', 'c']);", "unicode"],
+  ["intl-list-en-two", "return new Intl.ListFormat('en').format(['a', 'b']);", "unicode"],
+  ["intl-list-de", "return new Intl.ListFormat('de').format(['a', 'b', 'c']);", "unicode"],
+  ["intl-list-disjunction", "return new Intl.ListFormat('en', { type: 'disjunction' }).format(['a', 'b', 'c']);", "unicode"],
+  ["intl-list-parts", "return new Intl.ListFormat('en').formatToParts(['a', 'b', 'c']).map(function (p) { return p.type + '=' + p.value; }).join(' ');", "unicode"],
+  ["intl-list-single", "return new Intl.ListFormat('en').format(['only']);", "unicode"],
+
   ["uni-coll-total-order", "var w = ['Straße', 'Strasse', 'ǆ', 'dz']; var f = w.slice().sort(function (a, b) { return a.localeCompare(b); }).join('|'); var r = w.slice().reverse().sort(function (a, b) { return a.localeCompare(b); }).join('|'); return f === r;", "unicode"],
 ];
 

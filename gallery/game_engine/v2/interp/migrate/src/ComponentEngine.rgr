@@ -18,6 +18,7 @@ Import "UnicodeNorm.rgr"
 Import "UnicodeCollate.rgr"
 Import "UnicodeTailor.rgr"
 Import "LocaleData.rgr"
+Import "LocalePlural.rgr"
 Import "DateTime.rgr"
 Import "../../../imaging/jpeg/JPEGMetadata.rgr"
 
@@ -1380,6 +1381,13 @@ class ComponentEngine {
     def localePatStr:[string]
     def localeCurStr:[string]
     def localeCurInt:[int]
+    ; D-INTL: plural categories and list separators.
+    def pluralTablesLoaded:boolean false
+    def pluralTags:[string]
+    def pluralKeys:[string]
+    def pluralEntries:[int]
+    def pluralPairs:[int]
+    def listSeps:[string]
     def jsonGap:string ""
     def jsonIndent:string ""
     def jsonHasReplacerFn:boolean false
@@ -20307,12 +20315,14 @@ class ComponentEngine {
             ; D-INTL: `Intl.Collator.supportedLocalesOf(...)` and the other two.
             ; The spec puts this on each CONSTRUCTOR, so it arrives here with
             ; the constructor's own name prefixed.
-            if ((name == "Collator.supportedLocalesOf") || ((name == "NumberFormat.supportedLocalesOf") || (name == "DateTimeFormat.supportedLocalesOf"))) {
+            if ((this.cuIndexOfByte(name (indexOf name "."))) > 0) {
                 return (this.intlSupportedLocales(args))
             }
             if (name == "Collator") { return (this.constructIntl("collator" args)) }
             if (name == "NumberFormat") { return (this.constructIntl("numberformat" args)) }
             if (name == "DateTimeFormat") { return (this.constructIntl("datetimeformat" args)) }
+            if (name == "PluralRules") { return (this.constructIntl("pluralrules" args)) }
+            if (name == "ListFormat") { return (this.constructIntl("listformat" args)) }
             if (name == "getCanonicalLocales") {
                 return (this.intlLocaleList(args false))
             }
@@ -22029,7 +22039,9 @@ class ComponentEngine {
         if (nsName == "Intl") {
             push out "Collator"
             push out "DateTimeFormat"
+            push out "ListFormat"
             push out "NumberFormat"
+            push out "PluralRules"
             ; supportedLocalesOf is NOT here: the spec puts it on each
             ; constructor (Intl.Collator.supportedLocalesOf), not on the
             ; namespace, and publishing it here would be inventing an API.
@@ -22752,6 +22764,8 @@ class ComponentEngine {
         if (kind == "intlcollator") { return "Intl.Collator" }
         if (kind == "intlnumberformat") { return "Intl.NumberFormat" }
         if (kind == "intldatetimeformat") { return "Intl.DateTimeFormat" }
+        if (kind == "intlpluralrules") { return "Intl.PluralRules" }
+        if (kind == "intllistformat") { return "Intl.ListFormat" }
         return ""
     }
 
@@ -22932,6 +22946,15 @@ class ComponentEngine {
             push out "formatToParts"
             push out "formatRange"
             push out "formatRangeToParts"
+            push out "resolvedOptions"
+        }
+        if (kind == "intlpluralrules") {
+            push out "select"
+            push out "resolvedOptions"
+        }
+        if (kind == "intllistformat") {
+            push out "format"
+            push out "formatToParts"
             push out "resolvedOptions"
         }
         if (kind == "typedarraystatic") {
@@ -23450,6 +23473,15 @@ class ComponentEngine {
             if (name == "formatToParts") { return 1 }
             if (name == "formatRange") { return 2 }
             if (name == "formatRangeToParts") { return 2 }
+            if (name == "resolvedOptions") { return 0 }
+        }
+        if (kind == "intlpluralrules") {
+            if (name == "select") { return 1 }
+            if (name == "resolvedOptions") { return 0 }
+        }
+        if (kind == "intllistformat") {
+            if (name == "format") { return 1 }
+            if (name == "formatToParts") { return 1 }
             if (name == "resolvedOptions") { return 0 }
         }
         ; D-REGEXACCESSOR: the GETTER halves of RegExp.prototype's source, global,
@@ -27410,6 +27442,62 @@ class ComponentEngine {
                 ro3.setMember("timeZone" (EvValueBridge.taggedString("UTC")))
                 ro3.setProto((this.builtinPrototype("Object")))
                 return ro3
+            }
+            return (EvValueBridge.taggedUndefined())
+        }
+        if (kind == "intlpluralrules") {
+            def ploc:int (this.toIntegerOf((recv.getOwnData("__intlploc__"))))
+            def isOrd:boolean (((recv.getOwnData("__intlptype__")).stringOf()) == "ordinal")
+            if (name == "select") {
+                def sv:double 0.0
+                if ((array_length args) > 0) {
+                    sv = (this.toNumberOf((itemAt args 0)))
+                    if scriptThrew { return (EvValueBridge.taggedUndefined()) }
+                }
+                def cid:int (this.pluralCategoryId(ploc isOrd sv))
+                return (EvValueBridge.taggedString((this.pluralCategoryName(cid))))
+            }
+            if (name == "resolvedOptions") {
+                def pk:[string]
+                def pv:[EvHandle]
+                def po:EvHandle (EvValueBridge.taggedObject(pk pv))
+                po.setMember("locale" (this.intlResolvedLocale(recv)))
+                po.setMember("type" (recv.getOwnData("__intlptype__")))
+                po.setProto((this.builtinPrototype("Object")))
+                return po
+            }
+            return (EvValueBridge.taggedUndefined())
+        }
+        if (kind == "intllistformat") {
+            def lloc:int (this.toIntegerOf((recv.getOwnData("__intlploc__"))))
+            def isDis:boolean (((recv.getOwnData("__intlltype__")).stringOf()) == "disjunction")
+            if ((name == "format") || (name == "formatToParts")) {
+                def items:[EvHandle]
+                if ((array_length args) > 0) {
+                    def lv:EvHandle (itemAt args 0)
+                    if (lv.isArrayValue()) {
+                        def li2:int 0
+                        while (li2 < (lv.denseLen())) {
+                            push items (lv.arrayItemAt(li2))
+                            li2 = (li2 + 1)
+                        }
+                    }
+                }
+                def lp:[EvHandle] (this.intlFormatList(lloc isDis items))
+                if (name == "formatToParts") {
+                    return (EvValueBridge.taggedArray(lp))
+                }
+                return (EvValueBridge.taggedString((this.intlJoinParts(lp))))
+            }
+            if (name == "resolvedOptions") {
+                def lk:[string]
+                def lv2:[EvHandle]
+                def lo:EvHandle (EvValueBridge.taggedObject(lk lv2))
+                lo.setMember("locale" (this.intlResolvedLocale(recv)))
+                lo.setMember("type" (recv.getOwnData("__intlltype__")))
+                lo.setMember("style" (EvValueBridge.taggedString("long")))
+                lo.setProto((this.builtinPrototype("Object")))
+                return lo
             }
             return (EvValueBridge.taggedUndefined())
         }
@@ -34358,6 +34446,154 @@ class ComponentEngine {
         return out
     }
 
+
+    ; ---- Intl.PluralRules / Intl.ListFormat ---------------------------------
+    ; The plural CATEGORY of a number, as CLDR defines it for this locale. The
+    ; rules themselves are expressions over the operands n, i, v, f and t;
+    ; what is carried is the answer, keyed on enough of the operands to
+    ; determine it. See LocalePlural.rgr.
+    fn ensurePluralTables:void () {
+        if pluralTablesLoaded { return }
+        pluralTags = (LocalePlural.tags())
+        pluralKeys = (LocalePlural.keyList())
+        pluralEntries = (LocalePlural.entries())
+        pluralPairs = (LocalePlural.pairs())
+        listSeps = (LocalePlural.listSeparators())
+        pluralTablesLoaded = true
+    }
+
+    fn pluralLocaleIndexOf:int (tag:string) {
+        this.ensurePluralTables()
+        if ((strlen tag) == 0) { return 0 }
+        def want:string (this.unicodeCaseConvert(tag false))
+        def n:int (array_length pluralTags)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt pluralTags i) == want) { return i }
+            i = (i + 1)
+        }
+        def dash:int (indexOf want "-")
+        if (dash > 0) {
+            def short:string (this.cuSlice(want 0 dash))
+            def j:int 0
+            while (j < n) {
+                if ((itemAt pluralTags j) == short) { return j }
+                j = (j + 1)
+            }
+        }
+        return 0
+    }
+
+    ; The lookup key for a number, in the shape the table was built with.
+    fn pluralKeyOf:string (v:double) {
+        def a:double v
+        if (a < 0.0) { a = (0.0 - a) }
+        def txt:string (this.toStringOf((EvValueBridge.taggedNumber(a))))
+        def dot:int (indexOf txt ".")
+        def intTxt:string txt
+        def fracTxt:string ""
+        if (dot >= 0) {
+            def tl:int (this.cuLen(txt))
+            intTxt = (this.cuSlice(txt 0 dot))
+            fracTxt = (this.cuSlice(txt (dot + 1) tl))
+        }
+        ; An exponent form has no CLDR operands to speak of; treat it as a
+        ; large integer, which is what every rule does with it.
+        if ((indexOf txt "e") >= 0) {
+            return "b|0|0|0"
+        }
+        def iv:int 0
+        def ok@(optional):int (to_int intTxt)
+        if ok { iv = (unwrap ok) }
+        def vlen:int (this.cuLen(fracTxt))
+        if (vlen == 0) {
+            if (iv < 1001) {
+                return ("s" + (to_string iv))
+            }
+            def big:int 0
+            if (iv > 0) {
+                if ((iv - ((this.intDiv(iv 1000000)) * 1000000)) == 0) { big = 1 }
+            }
+            def m100:int (iv - ((this.intDiv(iv 100)) * 100))
+            def m10:int (iv - ((this.intDiv(iv 10)) * 10))
+            return ((((("b|" + (to_string m100)) + "|") + (to_string m10)) + "|") + (to_string big))
+        }
+        def fv:int 0
+        def fok@(optional):int (to_int fracTxt)
+        if fok { fv = (unwrap fok) }
+        def ic:int iv
+        if (ic > 3) { ic = 3 }
+        def vc:int vlen
+        if (vc > 3) { vc = 3 }
+        def fc:int fv
+        if (fc > 3) { fc = 3 }
+        return ((((("d|" + (to_string ic)) + "|") + (to_string vc)) + "|") + (to_string fc))
+    }
+
+    ; 0 zero, 1 one, 2 two, 3 few, 4 many, 5 other.
+    fn pluralCategoryId:int (loc:int ordinal:boolean v:double) {
+        this.ensurePluralTables()
+        def slot:int (loc * 2)
+        if ordinal { slot = (slot + 1) }
+        def base:int (slot * 3)
+        def off:int (itemAt pluralEntries base)
+        def cnt:int (itemAt pluralEntries (base + 1))
+        def fb:int (itemAt pluralEntries (base + 2))
+        def key:string (this.pluralKeyOf(v))
+        def j:int 0
+        while (j < cnt) {
+            def kid:int (itemAt pluralPairs ((off + j) * 2))
+            if ((itemAt pluralKeys kid) == key) {
+                return (itemAt pluralPairs (((off + j) * 2) + 1))
+            }
+            j = (j + 1)
+        }
+        return fb
+    }
+
+    fn pluralCategoryName:string (id:int) {
+        if (id == 0) { return "zero" }
+        if (id == 1) { return "one" }
+        if (id == 2) { return "two" }
+        if (id == 3) { return "few" }
+        if (id == 4) { return "many" }
+        return "other"
+    }
+
+    ; §13.4.3 ListFormat.format: two items take the PAIR separator, three or
+    ; more take the middle one between the first items and the end one before
+    ; the last. English joins two with " and " and three with ", " and ", and ".
+    fn intlFormatList:[EvHandle] (loc:int disjunction:boolean items:[EvHandle]) {
+        this.ensurePluralTables()
+        def out:[EvHandle]
+        def n:int (array_length items)
+        def base:int ((loc * 6))
+        if disjunction { base = (base + 3) }
+        def pairSep:string (itemAt listSeps base)
+        def midSep:string (itemAt listSeps (base + 1))
+        def endSep:string (itemAt listSeps (base + 2))
+        def i:int 0
+        while (i < n) {
+            if (i > 0) {
+                def useEnd:boolean false
+                if (i == (n - 1)) {
+                    if (n > 2) { useEnd = true }
+                }
+                def sep:string ""
+                if (n == 2) {
+                    sep = (pairSep + "")
+                } {
+                    if useEnd { sep = (endSep + "") } { sep = (midSep + "") }
+                }
+                push out (this.intlPart("literal" sep))
+            }
+            def sv:string (this.toStringOf((itemAt items i)))
+            push out (this.intlPart("element" sv))
+            i = (i + 1)
+        }
+        return out
+    }
+
     ; ---- the Intl objects ---------------------------------------------------
     ; Each instance is an ordinary object carrying its resolved settings in
     ; hidden slots; __intlkind__ is what makes builtinKindOf dispatch its
@@ -34366,6 +34602,8 @@ class ComponentEngine {
         if (name == "Collator") { return true }
         if (name == "NumberFormat") { return true }
         if (name == "DateTimeFormat") { return true }
+        if (name == "PluralRules") { return true }
+        if (name == "ListFormat") { return true }
         return false
     }
 
@@ -34445,6 +34683,18 @@ class ComponentEngine {
             o.setMember("__intlmaxf__" (EvHandle.fromInt(maxF)))
             o.setMember("__intlmini__" (EvHandle.fromInt((this.intlIntOption(optV "minimumIntegerDigits" 1)))))
             o.setMember("__intlgroup__" (EvValueBridge.taggedBoolean((this.intlBoolOption(optV "useGrouping" true)))))
+        }
+        if (kind == "pluralrules") {
+            def ptype:string (this.intlStringOption(optV "type"))
+            if ((strlen ptype) == 0) { ptype = "cardinal" }
+            o.setMember("__intlptype__" (EvValueBridge.taggedString(ptype)))
+            o.setMember("__intlploc__" (EvHandle.fromInt((this.pluralLocaleIndexOf(tag)))))
+        }
+        if (kind == "listformat") {
+            def ltype:string (this.intlStringOption(optV "type"))
+            if ((strlen ltype) == 0) { ltype = "conjunction" }
+            o.setMember("__intlltype__" (EvValueBridge.taggedString(ltype)))
+            o.setMember("__intlploc__" (EvHandle.fromInt((this.pluralLocaleIndexOf(tag)))))
         }
         if (kind == "datetimeformat") {
             ; The five carried patterns, chosen by what the options ask for.
@@ -36927,6 +37177,8 @@ class ComponentEngine {
                 def ikind:string "collator"
                 if (className == "NumberFormat") { ikind = "numberformat" }
                 if (className == "DateTimeFormat") { ikind = "datetimeformat" }
+                if (className == "PluralRules") { ikind = "pluralrules" }
+                if (className == "ListFormat") { ikind = "listformat" }
                 return (this.constructIntl(ikind iArgs))
             }
         }

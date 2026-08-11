@@ -1147,11 +1147,27 @@ against the host. `formatToParts` and `format` disagree in the host itself about
 the space before AM/PM, so the generator reassembles each pattern and checks it
 against `format()`, which is what real code calls.
 
-Not implemented, and not pretended: `formatToParts`, `formatRange`,
-`supportedLocalesOf` (which lives on each constructor, not on the namespace),
-`PluralRules`, `RelativeTimeFormat`, `ListFormat`, `Segmenter`, `DisplayNames`,
-and any calendar other than Gregorian and the Thai year offset. `DateTimeFormat`
-formats in UTC -- this realm has no time zone database.
+`formatToParts` came next, on both formatters, and `formatRange` /
+`formatRangeToParts` with it. Both formatters produce PARTS and `format()` is
+the parts joined, so the two cannot disagree -- a formatToParts that has drifted
+from its own format() is the one bug that shape makes impossible.
+`supportedLocalesOf` sits on each CONSTRUCTOR, which is where the spec puts it;
+publishing it as an `Intl` static, as the first pass did, was inventing an API.
+
+`Intl.PluralRules` and `Intl.ListFormat` followed. CLDR states plural rules as
+expressions over the operands n, i, v, f and t -- "one" when i is 1 and v is 0,
+"few" when i mod 10 is 2..4 and i mod 100 is not 12..14. Porting those would
+mean writing a little rule language and an evaluator for it; what is carried
+instead is the ANSWER, keyed on just enough of the operands to determine it. The
+key being SUFFICIENT is checked rather than assumed, and the check earned its
+keep twice: Italian's ordinal rules name 8, 11, 80 and 800 individually, which
+collided 800 with 200 under the first key; and a sweep that stopped at 50000
+never created the multiple-of-a-million keys the French "many" rule needs, nor
+noticed they were missing.
+
+Not implemented, and not pretended: `RelativeTimeFormat`, `Segmenter`,
+`DisplayNames`, and any calendar other than Gregorian and the Thai year offset.
+`DateTimeFormat` formats in UTC -- this realm has no time zone database.
 
 What is still not done:
 
