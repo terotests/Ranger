@@ -1943,6 +1943,26 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["async-linebreak-before-arrow", "var async = function (x) { return 'called'; }; var r = async\n(1);\nreturn r;", "async"],
   // The parameters of an async function are not part of its body.
   ["async-params-no-await", "try { eval('async function f(x = await 1) {}'); return 'ACCEPTED'; } catch (e) { return e.constructor.name; }", "async"],
+  // Subclassing the keyed collections. `extends Array`, `extends Error`,
+  // `extends RegExp` and `extends Function` already worked; Map and Set did
+  // not, and failed in a way that LOOKED like it worked -- the instance had
+  // the right prototype and reported the right brand, but its `set` stored
+  // nothing and `size` was undefined, because a Map keeps its entries in an
+  // internal list that a plain object does not have.
+  ["sub-map-basic", "class SubM extends Map {} var m = new SubM(); m.set('a', 1); return m.get('a') + ',' + m.size;", "class"],
+  ["sub-map-instanceof", "class SubM2 extends Map {} var m = new SubM2(); return (m instanceof SubM2) + ',' + (m instanceof Map);", "class"],
+  ["sub-map-from-entries", "class SubM3 extends Map {} var m = new SubM3([['a', 1], ['b', 2]]); return m.size + ',' + m.get('b');", "class"],
+  ["sub-set-basic", "class SubS extends Set {} var s = new SubS(); s.add(1); return s.size + ',' + s.has(1);", "class"],
+  ["sub-set-from-iterable", "class SubS2 extends Set {} var s = new SubS2([1, 2, 2]); return s.size + ',' + s.has(2);", "class"],
+  ["sub-set-instanceof", "class SubS3 extends Set {} var s = new SubS3(); return (s instanceof SubS3) + ',' + (s instanceof Set);", "class"],
+  ["sub-map-explicit-super", "class SubM4 extends Map { constructor(x) { super(x); } } return new SubM4([['k', 9]]).get('k');", "class"],
+  ["sub-map-own-method", "class SubM5 extends Map { twice() { return this.size * 2; } } var m = new SubM5(); m.set('a', 1); return m.twice();", "class"],
+  // A Map and a Set are their own value kinds here, so neither reached the
+  // object branch of the brand: even a PLAIN `new Map()` was "[object Object]".
+  ["brand-map", "return Object.prototype.toString.call(new Map());", "class"],
+  ["brand-set", "return Object.prototype.toString.call(new Set());", "class"],
+  ["brand-subclassed-map", "class SubM6 extends Map {} return Object.prototype.toString.call(new SubM6());", "class"],
+
   // RegExp: General_Category LONG names, which are as legal as the two-letter
   // spelling. The generated table holds the short names -- the ranges are
   // identical, so storing both would double it to say the same thing twice --

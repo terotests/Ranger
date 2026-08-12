@@ -10245,6 +10245,15 @@ class ComponentEngine {
         if (name == "Function") {
             return (this.buildFunctionFromValues(args))
         }
+        ; Map and Set were reachable only through the NEW-EXPRESSION path, which
+        ; reads AST argument nodes. A class base has already-evaluated values, so
+        ; `class M extends Map {}` found nothing here, initFromBuiltinBase saw a
+        ; non-object and gave up, and `new M([["a", 1]])` copied nothing.
+        if ((name == "Map") || (name == "Set")) {
+            def collInit:EvHandle (EvValueBridge.taggedUndefined())
+            if ((array_length args) > 0) { collInit = (itemAt args 0) }
+            return (this.constructCollectionValue(name collInit))
+        }
         ; %AsyncFunction% compiles the same source, with `async` in front of it.
         if (name == "AsyncFunction") {
             return (this.buildAsyncFunctionFromValues(args))
@@ -16219,6 +16228,38 @@ class ComponentEngine {
         return (this.capPromiseOf(agCap))
     }
 
+    ; `new Map(iterable)` / `new Set(iterable)` from an already-evaluated
+    ; initialiser. Any iterable is accepted, not only an array literal, because
+    ; forOfItemList is what the spec's "iterate it" means here.
+    fn constructCollectionValue:EvHandle (name:string init:EvHandle) {
+        def isMapKind:boolean (name == "Map")
+        def coll:EvHandle (EvValueBridge.taggedSetEmpty())
+        if isMapKind {
+            coll = (EvValueBridge.taggedMapEmpty())
+        }
+        if (init.isUndefined()) { return coll }
+        if (init.isNull()) { return coll }
+        def entries:[EvHandle] (this.forOfItemList(init))
+        if scriptThrew {
+            return coll
+        }
+        def ci:int 0
+        while (ci < (array_length entries)) {
+            def entry:EvHandle (itemAt entries ci)
+            if isMapKind {
+                ; Each entry is a [key, value] pair; anything else contributes
+                ; nothing rather than half an entry.
+                if (entry.isArrayValue()) {
+                    coll.mapSet((entry.getIndex(0)) (entry.getIndex(1)))
+                }
+            } {
+                coll.setAdd(entry)
+            }
+            ci = (ci + 1)
+        }
+        return coll
+    }
+
     fn isAsyncGeneratorValue:boolean (v:EvHandle) {
         if (false == (v.isObject())) {
             return false
@@ -19967,6 +20008,12 @@ class ComponentEngine {
                 def lvObjectLike:boolean (lv.isObject())
                 if (lv.isFunction()) { lvObjectLike = true }
                 if (lv.isArrayValue()) { lvObjectLike = true }
+                ; A Map and a Set are object-like too, and were not listed here,
+                ; so neither reached the prototype walk below: `new M()
+                ; instanceof M` was false for `class M extends Map` even with
+                ; the instance's prototype correctly set to M.prototype.
+                if (lv.isMap()) { lvObjectLike = true }
+                if (lv.isSet()) { lvObjectLike = true }
                 if lvObjectLike {
                     ; The `__class__` stamp names the class the instance was
                     ; built from, so it answers YES immediately -- but a NO from
@@ -31644,6 +31691,12 @@ class ComponentEngine {
         if (v.isString()) { return "String" }
         if (v.isNumber()) { return "Number" }
         if (v.isBoolean()) { return "Boolean" }
+        ; A Map and a Set are their own value kinds here, so the object branch
+        ; below never saw them and `Object.prototype.toString.call(new Map())`
+        ; answered "[object Object]" -- for a PLAIN Map, not only a subclassed
+        ; one. Their prototypes carry the tag; the value does not reach it.
+        if (v.isMap()) { return "Map" }
+        if (v.isSet()) { return "Set" }
         if (v.isObject()) {
             if (v.hasOwnData("__nsbrand__")) {
                 return ((v.getOwnData("__nsbrand__")).toString())
@@ -40347,6 +40400,37 @@ class ComponentEngine {
                 }
             }
         }
+        ; A Map or Set base hands over ENTRIES, which live in the internal
+        ; list and are invisible to the key walk below -- `new M([["a", 1]])`
+        ; copied nothing.
+        if (baseName == "Map") {
+            if (inst.isMap()) {
+                if (built.isMap()) {
+                    ; A Map entry is (key at index, value at index) -- the same
+                    ; pairing the for-of path reads.
+                    def mN:int (built.mapValsLen())
+                    def mi:int 0
+                    while (mi < mN) {
+                        inst.mapSet((built.arrayItemAt(mi)) (built.mapValAt(mi)))
+                        mi = (mi + 1)
+                    }
+                    return
+                }
+            }
+        }
+        if (baseName == "Set") {
+            if (inst.isSet()) {
+                if (built.isSet()) {
+                    def sIt:[EvHandle] (built.itemsOf())
+                    def sI:int 0
+                    while (sI < (array_length sIt)) {
+                        inst.setAdd((itemAt sIt sI))
+                        sI = (sI + 1)
+                    }
+                    return
+                }
+            }
+        }
         def ks:[string] (this.objectKeys(built))
         def i:int 0
         while (i < (array_length ks)) {
@@ -41762,9 +41846,21 @@ class ComponentEngine {
         ; array looked its methods up by KIND and never consulted its own
         ; prototype; now that it does, the class's methods stay reachable and
         ; there is nothing left to trade. See builtinBaseOfClass.
-        if ((this.builtinBaseOfClass(className)) == "Array") {
+        def instBuiltinBase:string (this.builtinBaseOfClass(className))
+        if (instBuiltinBase == "Array") {
             def emptyItems:[EvHandle]
             inst = (EvValueBridge.taggedArray(emptyItems))
+        }
+        ; The same rule for the keyed collections, and for the same reason: a
+        ; Map keeps its entries in an internal list, so `class M extends Map`
+        ; over a plain object gave an instance whose `set` stored nothing and
+        ; whose `size` was undefined -- while still reporting the right
+        ; prototype and brand, which made it look like it had worked.
+        if (instBuiltinBase == "Map") {
+            inst = (EvValueBridge.taggedMapEmpty())
+        }
+        if (instBuiltinBase == "Set") {
+            inst = (EvValueBridge.taggedSetEmpty())
         }
         inst.setMember("__class__" (EvValueBridge.taggedString(className)))
         ; D-CLASSPROTO: link the instance to the class's prototype object. It had
