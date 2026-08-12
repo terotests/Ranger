@@ -21622,7 +21622,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               wr.out("" + node.double_value, false);
               break;
             case 4 : 
-              let s = this.escapeCppTrigraphs(this.EncodeString(node, ctx, wr));
+              const s = this.escapeCppTrigraphs(this.EncodeString(node, ctx, wr));
               wr.out(("std::string(" + (("\"" + s) + "\"")) + ")", false);
               break;
             case 3 : 
@@ -24675,18 +24675,39 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   } };
                   return false;
                 };
+                rustArgNeedsUnionWrap (targetTypeName, nVal, ctx) {
+                  if ( (targetTypeName.length) == 0 ) {
+                    return false;
+                  }
+                  const tcOpt = ctx.findClass(targetTypeName);
+                  if ( typeof(tcOpt) === "undefined" ) {
+                    return false;
+                  }
+                  const target = tcOpt;
+                  if ( this.unionIsSealable(target, ctx) == false ) {
+                    return false;
+                  }
+                  return this.rustUnionHasMember(target, this.rustDeclaredClassOf(nVal));
+                };
                 async rustWriteUnionArg (arg, nVal, ctx, wr) {
                   const argNN = arg.nameNode;
                   if ( typeof(argNN) === "undefined" ) {
-                    return false;
-                  }
-                  if ( arg.rust_borrow_type != 0 ) {
                     return false;
                   }
                   if ( arg.needs_cpp_reference ) {
                     return false;
                   }
                   const argNameNode = argNN;
+                  if ( arg.rust_borrow_type == 1 ) {
+                    if ( this.rustArgNeedsUnionWrap(argNameNode.type_name, nVal, ctx) == false ) {
+                      return false;
+                    }
+                    wr.out("&", false);
+                    return await this.rustWriteUnionValue(argNameNode.type_name, nVal, ctx, wr);
+                  }
+                  if ( arg.rust_borrow_type != 0 ) {
+                    return false;
+                  }
                   return await this.rustWriteUnionValue(argNameNode.type_name, nVal, ctx, wr);
                 };
                 rustClassIsShared (typeName, ctx) {

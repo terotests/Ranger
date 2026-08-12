@@ -1389,19 +1389,55 @@ class RangerRustClassWriter {
     return false
   }
 
+  ; Would rustWriteUnionValue have to WRAP this value in an enum variant to
+  ; put it into a slot of `targetTypeName`? True only for a member of a
+  ; sealable union; a value already of the family needs no wrap, and neither
+  ; does anything else. Asked ahead of writing, so a caller can commit to a
+  ; prefix (`&`) knowing the wrap will follow.
+  fn rustArgNeedsUnionWrap:boolean (targetTypeName:string nVal:CodeNode ctx:RangerAppWriterContext) {
+    if ((strlen targetTypeName) == 0) {
+      return false
+    }
+    def tcOpt@(optional):RangerAppClassDesc (ctx.findClass(targetTypeName))
+    if (null? tcOpt) {
+      return false
+    }
+    def target:RangerAppClassDesc (unwrap tcOpt)
+    if ((this.unionIsSealable(target ctx)) == false) {
+      return false
+    }
+    return (this.rustUnionHasMember(target (this.rustDeclaredClassOf(nVal))))
+  }
+
   fn rustWriteUnionArg:boolean (arg:RangerAppParamDesc nVal:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def argNN@(optional):CodeNode arg.nameNode
     if (null? argNN) {
-      return false
-    }
-    ; a borrowed parameter keeps its own & / &mut handling
-    if (arg.rust_borrow_type != 0) {
       return false
     }
     if arg.needs_cpp_reference {
       return false
     }
     def argNameNode:CodeNode (unwrap argNN)
+    ; D-UNION: a BORROWED union parameter (`fn add(v : &union_Value)`) still
+    ; needs the member wrapped in its variant -- `p.add(&n)` where n is a case
+    ; passes `&Value_Num` where `&union_Value` is expected, which is a type
+    ; error. Only a member needs this: a value already of the family borrows
+    ; directly, the way it does today, and cloning it to make a temporary to
+    ; borrow would be a pointless copy. The wrap produces a temporary, which
+    ; lives to the end of the enclosing statement, so the reference is sound.
+    if (arg.rust_borrow_type == 1) {
+      if ((this.rustArgNeedsUnionWrap(argNameNode.type_name nVal ctx)) == false) {
+        return false
+      }
+      wr.out("&" false)
+      return (this.rustWriteUnionValue(argNameNode.type_name nVal ctx wr))
+    }
+    ; a &mut parameter keeps its own handling: a wrapped temporary could not
+    ; carry a mutation back to the caller, so quietly widening there would
+    ; lose writes rather than report them
+    if (arg.rust_borrow_type != 0) {
+      return false
+    }
     return (this.rustWriteUnionValue(argNameNode.type_name nVal ctx wr))
   }
 
