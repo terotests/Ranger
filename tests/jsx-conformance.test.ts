@@ -222,6 +222,91 @@ const CASES: Array<[name: string, src: string, props: Record<string, unknown>, e
     ["<View>", `  <Label text t="v">`, `  <Label text t="v">`].join("\n"),
   ],
 
+  // ---- what a `{...}` child position accepts ----
+  ["string-child", `function hud(p) { return <View>{"str"}</View>; }`, {}, ["<View>", `  <(none) text t="str">`].join("\n")],
+  ["number-child", `function hud(p) { return <View>{7}</View>; }`, {}, ["<View>", `  <(none) text t="7">`].join("\n")],
+  // null/false/undefined contribute nothing, as they do in React.
+  ["null-child", `function hud(p) { return <View>{null}</View>; }`, {}, "<View>"],
+  ["false-child", `function hud(p) { return <View>{false}</View>; }`, {}, "<View>"],
+  [
+    "ternary-false-branch",
+    `function hud(p) { return <View>{p.on ? <Label>a</Label> : <Label>b</Label>}</View>; }`,
+    { on: false },
+    ["<View>", `  <Label text t="b">`].join("\n"),
+  ],
+  [
+    "and-child-true",
+    `function hud(p) { return <View>{p.on && <Label>a</Label>}</View>; }`,
+    { on: true },
+    ["<View>", `  <Label text t="a">`].join("\n"),
+  ],
+  ["and-child-false", `function hud(p) { return <View>{p.on && <Label>a</Label>}</View>; }`, { on: false }, "<View>"],
+  [
+    "or-child",
+    `function hud(p) { return <View>{p.on || <Label>o</Label>}</View>; }`,
+    { on: false },
+    ["<View>", `  <Label text t="o">`].join("\n"),
+  ],
+  [
+    "call-returning-element",
+    `function mk() { return <Label>c</Label>; }
+     function hud(p) { return <View>{mk()}</View>; }`,
+    {},
+    ["<View>", `  <Label text t="c">`].join("\n"),
+  ],
+  [
+    "call-returning-array",
+    `function mk() { return [<Label>c</Label>, <Label>d</Label>]; }
+     function hud(p) { return <View>{mk()}</View>; }`,
+    {},
+    ["<View>", `  <Label text t="c">`, `  <Label text t="d">`].join("\n"),
+  ],
+
+  // ---- fixed by evaluating the child expression instead of walking it ----
+  // These six were all the same shape: an element that had to be COMPUTED
+  // rather than written as a literal. Each of the four hand-rolled walkers
+  // could only see a literal, so each dropped its case. Running the expression
+  // covers all of them, and there is nothing case-specific left to get right.
+  [
+    "function-callback-keeps-tag",
+    `function hud(p) { return <View>{[1, 2].map(function (n) { return <Label>x</Label>; })}</View>; }`,
+    {},
+    ["<View>", `  <Label text t="x">`, `  <Label text t="x">`].join("\n"),
+  ],
+  [
+    "function-callback-keeps-attrs",
+    `function hud(p) { return <View>{[1, 2].map(function (n) { return <View id={"i" + n} />; })}</View>; }`,
+    {},
+    ["<View>", "  <View id=i1>", "  <View id=i2>"].join("\n"),
+  ],
+  [
+    "function-callback-single-item",
+    `function hud(p) { return <View>{[1].map(function (n) { return <Label>a</Label>; })}</View>; }`,
+    {},
+    ["<View>", `  <Label text t="a">`].join("\n"),
+  ],
+  [
+    "block-return-in-component",
+    `function Row(p) { if (p.x) { return <Label>t</Label>; } return <Label>f</Label>; }
+     function hud(p) { return <View>{[1].map(function (n) { return <Row x={true} />; })}</View>; }`,
+    {},
+    ["<View>", `  <Label text t="t">`].join("\n"),
+  ],
+  [
+    "ternary-with-a-computed-branch",
+    `function mk() { return <Label>m</Label>; }
+     function hud(p) { return <View>{p.on ? <Label>a</Label> : mk()}</View>; }`,
+    { on: false },
+    ["<View>", `  <Label text t="m">`].join("\n"),
+  ],
+  [
+    // Flattened to any depth now, as React does.
+    "nested-array-child",
+    `function hud(p) { return <View>{[[<Label>n</Label>]]}</View>; }`,
+    {},
+    ["<View>", `  <Label text t="n">`].join("\n"),
+  ],
+
   // ---- fragments ----
   [
     // A fragment is its own KIND now. It used to be materialised as a literal
@@ -256,35 +341,32 @@ const CASES: Array<[name: string, src: string, props: Record<string, unknown>, e
  * case rather than extending it: an array of element values in a child
  * position is already handled a few lines below.
  */
+/**
+ * Cases that do NOT hold, asserted in both directions so neither a fix nor a
+ * regression can land silently.
+ *
+ * The six map/ternary/nested-array entries that used to live here are fixed and
+ * have moved up into CASES. What is left is a DIFFERENT defect, and one the
+ * child-expression work did not touch: a function declared INSIDE another
+ * function and returning JSX answers nothing. The same declaration at top level
+ * works, and so does a nested one returning anything that is not JSX, which
+ * puts it in how a nested declaration's body reports its result rather than in
+ * JSX evaluation.
+ */
 const KNOWN_WRONG: Array<[name: string, src: string, props: Record<string, unknown>, wrong: string, shouldBe: string]> = [
   [
-    "function-callback-keeps-tag",
-    `function hud(p) { return <View>{[1, 2].map(function (n) { return <Label>x</Label>; })}</View>; }`,
+    "nested-fn-returning-jsx",
+    `function hud(p) { function mk() { return <Label>m</Label>; } return <View>{mk()}</View>; }`,
     {},
     "<View>",
-    ["<View>", `  <Label text t="x">`, `  <Label text t="x">`].join("\n"),
+    ["<View>", `  <Label text t="m">`].join("\n"),
   ],
   [
-    "function-callback-keeps-attrs",
-    `function hud(p) { return <View>{[1, 2].map(function (n) { return <View id={"i" + n} />; })}</View>; }`,
-    {},
+    "nested-fn-in-ternary-branch",
+    `function hud(p) { function mk() { return <Label>m</Label>; } return <View>{p.on ? <Label>a</Label> : mk()}</View>; }`,
+    { on: false },
     "<View>",
-    ["<View>", "  <View id=i1>", "  <View id=i2>"].join("\n"),
-  ],
-  [
-    "function-callback-single-item",
-    `function hud(p) { return <View>{[1].map(function (n) { return <Label>a</Label>; })}</View>; }`,
-    {},
-    "<View>",
-    ["<View>", `  <Label text t="a">`].join("\n"),
-  ],
-  [
-    "block-return-in-component",
-    `function Row(p) { if (p.x) { return <Label>t</Label>; } return <Label>f</Label>; }
-     function hud(p) { return <View>{[1].map(function (n) { return <Row x={true} />; })}</View>; }`,
-    {},
-    "<View>",
-    ["<View>", `  <Label text t="t">`].join("\n"),
+    ["<View>", `  <Label text t="m">`].join("\n"),
   ],
 ];
 

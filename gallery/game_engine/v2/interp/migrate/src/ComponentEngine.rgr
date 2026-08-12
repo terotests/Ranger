@@ -17191,268 +17191,75 @@ class ComponentEngine {
         }
     }
     
+    ; A `{ ... }` child position. The expression is EVALUATED, and whatever it
+    ; produced becomes children.
+    ;
+    ; This used to be four hand-rolled walkers -- one that pattern-matched
+    ; `.map` and re-implemented calling the callback, one for `?:`, one for
+    ; `&&`, and a fallback -- each inspecting the AST instead of running it.
+    ; Every one of them could only see a JSX LITERAL where an element was
+    ; wanted, so anything that COMPUTED its element was silently dropped: a
+    ; `function (x)` map callback (the hand-rolled binder only knew arrows), a
+    ; ternary branch that called a helper, an array of arrays. They also could
+    ; not be fixed one at a time, because each was a separate partial copy of
+    ; the evaluator.
+    ;
+    ; Running the expression is all four cases at once, and it is only possible
+    ; because an element is now an ordinary value: `xs.map(f)` answers an array
+    ; of them, `c ? a : b` answers one, `c && a` answers one or `false`.
     fn evaluateExpressionChild:void (element:EvElement exprContainer:TSNode) {
         if exprContainer.left {
             def exprNode:TSNode (unwrap exprContainer.left)
-            
-            ; Handle CallExpression - both array.map() and regular function calls
-            if ((this.nodeKindOf(exprNode)) == 4) {
-                ; Check if it's a method call like array.map()
-                if exprNode.left {
-                    def calleeNode:TSNode (unwrap exprNode.left)
-                    if ((this.nodeKindOf(calleeNode)) == 3) {
-                        ; Method call - check for .map()
-                        def methodName:string calleeNode.name
-                        if (methodName == "map") {
-                            this.evaluateArrayMapChild(element exprNode)
-                            return
-                        }
-                    }
-                }
-                ; Regular function call like buildColorBoxes()
-                ; Evaluate using evaluateExpr which handles CallExpression
-                def callResult:EvHandle (this.evaluateExpr(exprNode))
-                
-                ; Handle array result (array of elements from function)
-                if (callResult.isArrayValue()) {
-                    def ai:int 0
-                    while (ai < (callResult.denseLen())) {
-                        def arrItem:EvHandle (callResult.arrayItemAt(ai))
-                        if (arrItem.isElement()) {
-                            if (arrItem.hasElement()) {
-                                def arrChildEl:EvElement (arrItem.elementOf())
-                                if ((strlen arrChildEl.tagName) > 0) {
-                                    element.addChild(arrChildEl)
-                                }
-                            }
-                        }
-                        ai = ai + 1
-                    }
-                    return
-                }
-                
-                ; Handle single element result
-                if (callResult.isElement()) {
-                    if (callResult.hasElement()) {
-                        def childEl:EvElement (callResult.elementOf())
-                        if ((strlen childEl.tagName) > 0) {
-                            element.addChild(childEl)
-                        }
-                    }
-                    return
-                }
-                
-                ; Handle string/number result as text
-                def isStr:boolean (callResult.isString())
-                def isNum:boolean (callResult.isNumber())
-                if (isStr || isNum) {
-                    def textEl (new EvElement())
-                    textEl.tagName = "text"
-                    textEl.textContent = (callResult.toString())
-                    element.addChild(textEl)
-                }
-                return
-            }
-            
-            ; Handle ternary conditionals
-            if ((this.nodeKindOf(exprNode)) == 13) {
-                this.evaluateTernaryChild(element exprNode)
-                return
-            }
-            
-            ; Handle && conditionals
-            if ((this.nodeKindOf(exprNode)) == 5) {
-                if (exprNode.value == "&&") {
-                    this.evaluateAndChild(element exprNode)
-                    return
-                }
-            }
-            
-            ; For literals, add as text
             def value:EvHandle (this.evaluateExpr(exprNode))
-            
-            ; Handle EvElement values (e.g., {children} prop containing JSX)
-            if (value.isElement()) {
-                if (value.hasElement()) {
-                    def childEl:EvElement (value.elementOf())
-                    if ((strlen childEl.tagName) > 0) {
-                        element.addChild(childEl)
-                    }
-                }
+            if scriptThrew {
                 return
             }
-            
-            ; Handle arrays of EvElements (e.g., {children} containing multiple elements)
-            if (value.isArrayValue()) {
-                def ai:int 0
-                while (ai < (value.denseLen())) {
-                    def arrItem:EvHandle (value.arrayItemAt(ai))
-                    if (arrItem.isElement()) {
-                        if (arrItem.hasElement()) {
-                            def arrChildEl:EvElement (arrItem.elementOf())
-                            if ((strlen arrChildEl.tagName) > 0) {
-                                element.addChild(arrChildEl)
-                            }
-                        }
-                    }
-                    ai = ai + 1
-                }
-                return
-            }
-            
-            def isStr:boolean (value.isString())
-            def isNum:boolean (value.isNumber())
-            if (isStr || isNum) {
-                def textEl (new EvElement())
-                textEl.tagName = "text"
-                textEl.textContent = (value.toString())
-                element.addChild(textEl)
-            }
+            this.appendChildValue(element value)
         }
     }
-    
-    fn evaluateArrayMapChild:void (element:EvElement callNode:TSNode) {
-        ; Get the array being mapped
-        if callNode.left {
-            def calleeNode:TSNode (unwrap callNode.left)
-            if ((this.nodeKindOf(calleeNode)) == 3) {
-                def methodName:string calleeNode.name
-                if (methodName == "map") {
-                    ; Get the array
-                    if calleeNode.left {
-                        def arrayExpr:TSNode (unwrap calleeNode.left)
-                        def arrayValue:EvHandle (this.evaluateExpr(arrayExpr))
-                        
-                        if (arrayValue.isArrayValue()) {
-                            ; Get the callback function
-                            if ((array_length callNode.children) > 0) {
-                                def callback:TSNode (itemAt callNode.children 0)
-                                
-                                ; Map over array
-                                def i:int 0
-                                while (i < (arrayValue.denseLen())) {
-                                    def item:EvHandle (arrayValue.arrayItemAt(i))
-                                    
-                                    ; Create child context with map variable
-                                    def savedContext:EvalContext context
-                                    context = (context.createChild())
-                                    
-                                    ; Bind the callback parameter
-                                    this.bindMapCallback(callback item i)
-                                    
-                                    ; Evaluate callback body
-                                    def resultEl:EvElement (this.evaluateMapCallbackBody(callback))
-                                    if ((strlen resultEl.tagName) > 0) {
-                                        element.addChild(resultEl)
-                                    }
-                                    
-                                    context = savedContext
-                                    i = i + 1
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    fn bindMapCallback:void (callback:TSNode item:EvHandle index:int) {
-        if ((this.nodeKindOf(callback)) == 17) {
-            ; Get parameter name
-            if ((array_length callback.params) > 0) {
-                def param:TSNode (itemAt callback.params 0)
-                def paramName:string param.name
-                context.define(paramName item)
-            }
-            ; Bind index if second param exists
-            if ((array_length callback.params) > 1) {
-                def indexParam:TSNode (itemAt callback.params 1)
-                context.define(indexParam.name (EvHandle.fromInt(index)))
-            }
-        }
-    }
-    
-    fn evaluateMapCallbackBody:EvElement (callback:TSNode) {
-        def empty (new EvElement())
-        
-        if ((this.nodeKindOf(callback)) == 17) {
-            ; Arrow function body
-            if callback.body {
-                def body:TSNode (unwrap callback.body)
-                if ((body.nodeType == "JSXElement") || (body.nodeType == "JSXFragment")) {
-                    return (this.evaluateJSX(body))
-                }
-                if ((this.nodeKindOf(body)) == 34) {
-                    return (this.evaluateFunctionBody(body))
-                }
-                ; generic expression body — e.g. (e, i) => buildTile(e, i) — is
-                ; evaluated like any expression; an element result is the child.
-                def v:EvHandle (this.evaluateExpr(body))
-                if (v.isElement()) {
-                    if (v.hasElement()) {
-                        return (v.elementOf())
-                    }
-                }
-            }
-        }
 
-        return empty
-    }
-    
-    fn evaluateTernaryChild:void (element:EvElement node:TSNode) {
-        ; Evaluate condition
-        if node.test {
-            def testExpr:TSNode (unwrap node.test)
-            def testValue:EvHandle (this.evaluateExpr(testExpr))
-            
-            if (testValue.toBool()) {
-                ; True branch
-                if node.consequent {
-                    def conseqNode:TSNode (unwrap node.consequent)
-                    if ((conseqNode.nodeType == "JSXElement") || (conseqNode.nodeType == "JSXFragment")) {
-                        def childEl:EvElement (this.evaluateJSX(conseqNode))
-                        if ((strlen childEl.tagName) > 0) {
-                            element.addChild(childEl)
-                        }
-                    }
-                }
-            } {
-                ; False branch
-                if node.alternate {
-                    def altNode:TSNode (unwrap node.alternate)
-                    if ((altNode.nodeType == "JSXElement") || (altNode.nodeType == "JSXFragment")) {
-                        def childEl:EvElement (this.evaluateJSX(altNode))
-                        if ((strlen childEl.tagName) > 0) {
-                            element.addChild(childEl)
-                        }
-                    }
+    ; Append what a child expression produced. An element becomes a child, an
+    ; array contributes each of its items (to any depth -- a nested list is
+    ; still a list), a string or number becomes a text node, and everything
+    ; else -- null, undefined, false, an object -- contributes nothing, which
+    ; is what makes `{cond && <X/>}` read as "or nothing".
+    fn appendChildValue:void (element:EvElement value:EvHandle) {
+        if (value.isElement()) {
+            if (value.hasElement()) {
+                def childEl:EvElement (value.elementOf())
+                if (this.isRenderableElement(childEl)) {
+                    element.addChild(childEl)
                 }
             }
+            return
         }
-    }
-    
-    fn evaluateAndChild:void (element:EvElement node:TSNode) {
-        ; Evaluate left side
-        if node.left {
-            def leftExpr:TSNode (unwrap node.left)
-            def leftValue:EvHandle (this.evaluateExpr(leftExpr))
-            
-            if (leftValue.toBool()) {
-                ; Render right side (the JSX element)
-                if node.right {
-                    def rightNode:TSNode (unwrap node.right)
-                    if ((rightNode.nodeType == "JSXElement") || (rightNode.nodeType == "JSXFragment")) {
-                        def childEl:EvElement (this.evaluateJSX(rightNode))
-                        if ((strlen childEl.tagName) > 0) {
-                            element.addChild(childEl)
-                        }
-                    }
-                }
+        if (value.isArrayValue()) {
+            def ai:int 0
+            while (ai < (value.denseLen())) {
+                this.appendChildValue(element (value.arrayItemAt(ai)))
+                ai = (ai + 1)
             }
+            return
+        }
+        if ((value.isString()) || (value.isNumber())) {
+            def textEl (new EvElement())
+            textEl.isText = true
+            textEl.textContent = (value.toString())
+            element.addChild(textEl)
         }
     }
-    
+
+    ; A blank element -- no tag, no text, not a fragment -- is what a failed
+    ; evaluation leaves behind, and appending it puts a phantom child in the
+    ; tree. A FRAGMENT legitimately has no tag, so it cannot be tested for by
+    ; tag alone.
+    fn isRenderableElement:boolean (el:EvElement) {
+        if ((strlen el.tagName) > 0) { return true }
+        if el.isFragment { return true }
+        if el.isText { return true }
+        return false
+    }
+
     ; ==========================================================================
     ; Expression Evaluation
     ; ==========================================================================
