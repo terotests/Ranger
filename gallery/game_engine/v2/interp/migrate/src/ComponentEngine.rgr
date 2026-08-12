@@ -17082,6 +17082,23 @@ class ComponentEngine {
             }
             return (this.callProxyApply(fnValue pxThis pxArgs))
         }
+        ; D-BRIDGE: a host native reached as a VALUE -- what lookupIdentifier
+        ; hands back for a name the bridge owns. Checked before the registry so
+        ; a host name always wins over a same-named built-in, which is what a
+        ; host that installed it expects.
+        if (fnValue.isFunction()) {
+            if (false == (fnValue.hasFunctionNode())) {
+                if nativeBridge {
+                    def nbCall:EvalNativeBridge (unwrap nativeBridge)
+                    def nbName:string (fnValue.fnName())
+                    if ((strlen nbName) > 0) {
+                        if (nbCall.has(nbName)) {
+                            return (nbCall.invoke(nbName argVals))
+                        }
+                    }
+                }
+            }
+        }
         ; D-REGISTRY: a built-in extracted as a value (`var f = arr.slice`, or
         ; `Array.prototype.slice`) is invoked through the same dispatcher the
         ; direct call uses, so the two paths cannot diverge. Its receiver is
@@ -19949,6 +19966,25 @@ class ComponentEngine {
                         return (EvValueBridge.taggedUndefined())
                     }
                     return (this.callFnValueWithValues(fnValue pxArgs))
+                }
+                ; D-BRIDGE: a host native held under ANOTHER name --
+                ; `var f = hostRead; f(p)`. The bridge test above asks about
+                ; the name at the call site, which is `f`; the VALUE is what
+                ; carries the host name, so it is the value path that has to
+                ; answer.
+                if (fnValue.isFunction()) {
+                    if (false == (fnValue.hasFunctionNode())) {
+                        if nativeBridge {
+                            def nbVal:EvalNativeBridge (unwrap nativeBridge)
+                            if (nbVal.has((fnValue.fnName()))) {
+                                def nbvArgs:[EvHandle] (this.collectCallArgs(node))
+                                if scriptThrew {
+                                    return (EvValueBridge.taggedUndefined())
+                                }
+                                return (this.callFnValueWithValues(fnValue nbvArgs))
+                            }
+                        }
+                    }
                 }
                 ; D-REGISTRY: a built-in held in a variable is callable like any
                 ; other function value. It has no functionNode, so the paths
@@ -40152,6 +40188,19 @@ class ComponentEngine {
         def clsRef:TSNode (this.classNodeByName(name))
         if ((this.nodeKindOf(clsRef)) == 25) {
             return (this.classValueFor(name))
+        }
+        ; D-BRIDGE: a host-provided native name resolves to a VALUE, so it is
+        ; reachable from every tier and every call shape. The bridge used to be
+        ; consulted at one place only -- the walker's bare-name call -- so a
+        ; host function called from a COMPILED body, or held in a variable, or
+        ; passed as a callback, died on "not defined" before anything could ask
+        ; the bridge about it. The value carries the name; callFnValueWithValues
+        ; hands it back to the bridge when it is invoked.
+        if nativeBridge {
+            def nbLookup:EvalNativeBridge (unwrap nativeBridge)
+            if (nbLookup.has(name)) {
+                return (EvHandle.nativeFunction(name))
+            }
         }
         if strictReferences {
             return (this.throwSpecError("ReferenceError" (name + " is not defined")))

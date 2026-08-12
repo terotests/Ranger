@@ -49,6 +49,7 @@ const BUILD_SCRIPT = path.join(ROOT_DIR, "scripts", "build-engine-module.sh");
 
 let ComponentEngine: any;
 let EvalValue: any;
+let EngineModule: any;
 
 /** Probes, each the body of a zero-argument function returning a value. */
 const PROBES: Array<[name: string, body: string, group: string]> = [
@@ -3015,6 +3016,7 @@ describe("runtime conformance (interp realm)", () => {
     const mod = require(ENGINE_MODULE);
     ComponentEngine = mod.ComponentEngine;
     EvalValue = mod.EvHandle;
+    EngineModule = mod;
 
     // Derive every expectation from Node before touching the engine.
     for (const [name, body] of PROBES) {
@@ -3148,6 +3150,57 @@ describe("runtime conformance (interp realm)", () => {
           console.log = original;
         }
         expect(actual).toEqual(expected);
+      });
+    }
+  });
+
+  // A host installs native functions with setNativeBridge. The bridge used to
+  // be consulted at ONE place — the walker's bare-name call — so the same
+  // function was missing from every other shape: called out of a compiled
+  // body it was "not defined", and held in a variable it answered undefined.
+  // Found by running the Ranger compiler itself on the engine, where the
+  // host's `fs` shim is reached from compiled code.
+  describe("host natives are reachable from every call shape", () => {
+    const bridgeEngine = () => {
+      const e: any = new ComponentEngine();
+      e.quiet = true;
+      class B extends EngineModule.EvalNativeBridge {
+        has(n: string) { return n === "hostAdd" || n === "hostName"; }
+        invoke(n: string, a: any[]) {
+          if (n === "hostAdd") {
+            return EngineModule.EvValueBridge.taggedNumber(a[0].toNumber() + a[1].toNumber());
+          }
+          return EngineModule.EvValueBridge.taggedString("HOST");
+        }
+      }
+      e.setNativeBridge(new B());
+      const original = console.log;
+      console.log = () => {};
+      try {
+        e.loadScript(`
+          function walker() { return hostAdd(2, 3); }
+          function compiled() { var s = 0; for (var i = 0; i < 3; i++) { s = hostAdd(s, 1); } return s; }
+          function asValue() { var f = hostAdd; return f(4, 5); }
+          function asCallback() { return [1, 2].map(function (x) { return hostAdd(x, 10); }).join(','); }
+          function inMethod() { var o = { m: function () { return hostName(); } }; return o.m(); }
+          function nested() { function inner() { return hostAdd(7, 1); } return inner(); }
+        `);
+      } finally {
+        console.log = original;
+      }
+      return e;
+    };
+    const cases: Array<[string, unknown]> = [
+      ["walker", 5],
+      ["compiled", 3],
+      ["asValue", 9],
+      ["asCallback", "11,12"],
+      ["inMethod", "HOST"],
+      ["nested", 8],
+    ];
+    for (const [fn, expected] of cases) {
+      it(fn, () => {
+        expect(engineValue(bridgeEngine(), fn)).toEqual(expected);
       });
     }
   });
