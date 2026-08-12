@@ -307,6 +307,24 @@ const CASES: Array<[name: string, src: string, props: Record<string, unknown>, e
     ["<View>", `  <Label text t="n">`].join("\n"),
   ],
 
+  // ---- a declaration nested inside the rendering function ----
+  // evaluateFunctionBody walks statements itself and did not hoist, so a
+  // `function` declared in the same body was never bound and calling it
+  // answered nothing -- silently, since a missing binding reads as an absent
+  // element rather than an error.
+  [
+    "nested-fn-returning-jsx",
+    `function hud(p) { function mk() { return <Label>m</Label>; } return <View>{mk()}</View>; }`,
+    {},
+    ["<View>", `  <Label text t="m">`].join("\n"),
+  ],
+  [
+    "nested-fn-in-ternary-branch",
+    `function hud(p) { function mk() { return <Label>m</Label>; } return <View>{p.on ? <Label>a</Label> : mk()}</View>; }`,
+    { on: false },
+    ["<View>", `  <Label text t="m">`].join("\n"),
+  ],
+
   // ---- fragments ----
   [
     // A fragment is its own KIND now. It used to be materialised as a literal
@@ -345,30 +363,13 @@ const CASES: Array<[name: string, src: string, props: Record<string, unknown>, e
  * Cases that do NOT hold, asserted in both directions so neither a fix nor a
  * regression can land silently.
  *
- * The six map/ternary/nested-array entries that used to live here are fixed and
- * have moved up into CASES. What is left is a DIFFERENT defect, and one the
- * child-expression work did not touch: a function declared INSIDE another
- * function and returning JSX answers nothing. The same declaration at top level
- * works, and so does a nested one returning anything that is not JSX, which
- * puts it in how a nested declaration's body reports its result rather than in
- * JSX evaluation.
+ * Empty. Everything that was recorded here has been fixed: the map/ternary/
+ * nested-array entries by evaluating child expressions instead of walking
+ * them, and the nested-declaration entries by hoisting in evaluateFunctionBody.
+ * Kept as a list rather than deleted, because the next defect wants somewhere
+ * to be written down before it is fixed.
  */
-const KNOWN_WRONG: Array<[name: string, src: string, props: Record<string, unknown>, wrong: string, shouldBe: string]> = [
-  [
-    "nested-fn-returning-jsx",
-    `function hud(p) { function mk() { return <Label>m</Label>; } return <View>{mk()}</View>; }`,
-    {},
-    "<View>",
-    ["<View>", `  <Label text t="m">`].join("\n"),
-  ],
-  [
-    "nested-fn-in-ternary-branch",
-    `function hud(p) { function mk() { return <Label>m</Label>; } return <View>{p.on ? <Label>a</Label> : mk()}</View>; }`,
-    { on: false },
-    "<View>",
-    ["<View>", `  <Label text t="m">`].join("\n"),
-  ],
-];
+const KNOWN_WRONG: Array<[name: string, src: string, props: Record<string, unknown>, wrong: string, shouldBe: string]> = [];
 
 describe("jsx conformance", () => {
   beforeAll(() => {

@@ -4610,7 +4610,15 @@ class ComponentEngine {
     
     fn evaluateFunctionBody:EvElement (body:TSNode) {
         def empty (new EvElement())
-        
+
+        ; HOIST first, the way the ordinary statement runner does. Without it a
+        ; `function` declared inside this body was never bound, so calling it
+        ; from the same body answered nothing -- and said nothing, because a
+        ; missing binding reads as an absent element rather than an error. Only
+        ; visible through the JSX channel: the same declaration reached through
+        ; the value path has always been hoisted.
+        this.hoistFunctionDeclarations(body.children)
+
         ; Process statements
         def i:int 0
         while (i < (array_length body.children)) {
