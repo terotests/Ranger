@@ -24,12 +24,16 @@ npm run jsengine:marked -- --json=/tmp/marked-smoke.json
 npm run jsengine:marked -- --fail-on-diff   # exit 1 on HTML mismatch
 npm run jsengine:marked -- --quick            # tiny cases only
 
-# vitest — fast hard gates (load + API only)
+# vitest — load/API smoke + full fixture Node-parity unit tests
 npm run jsengine:marked:test
 
-# vitest — also run tiny parse / parity probes
+# vitest — tiny parse probes only (MARKED_SMOKE_PARSE=1)
 npm run jsengine:marked:parse
+
+# marked fixtures + lodash complex pipelines together
+npm run jsengine:libs:test
 ```
+
 
 The harness loads the UMD once, then calls `__marked_parse__(md)` per case via
 `EvalValue.string` (fixtures stay on disk; not embedded into the script).
