@@ -1206,8 +1206,23 @@ rather than matching the letters `p{L}` literally: there is no general category
 table here, and a confident `false` from a pattern the guest expects to work is
 worse than a SyntaxError that says so.
 
-Still absent: Unicode property escapes (`\p{…}`), the `v` flag, and
-`RegExp.escape`.
+**Unicode property escapes** are here now: `\p{L}`, `\p{Lu}`,
+`\p{Script=Greek}`, `\p{Alphabetic}`, `\P{…}`, and the same inside a
+character class — 91 properties in all, derived into `UnicodeProps.rgr` as
+sorted ranges and looked up by binary search. Two things came out of it that
+were not about the table:
+
+- **A class in Unicode mode is tested against the CODE POINT.** It was handed a
+  code unit, so `\p{L}` against an astral letter saw only the high surrogate,
+  which belongs to no property at all.
+- **The lexer's `u`-mode validator rejected every closing brace.** A bare `}`
+  is indeed a SyntaxError under `u`, but the closing brace of `a{2}` is not
+  one, and neither is the one that ends `\p{L}` — so `/a{2}/u` had never
+  worked either. Both now skip past their own brace.
+
+Still absent: the `v` flag's set notation, `RegExp.escape`, and pattern
+modifiers `(?i:…)` — which this Node does not implement either, so there is no
+derived expectation to check one against here.
 
 #### BigInt
 
@@ -1289,6 +1304,39 @@ implemented is the arithmetic, the element coercion and the refusals — a float
 or clamped array is a TypeError, an out-of-range index is a RangeError. `wait`
 answers "not-equal" or "timed-out" immediately, because no other agent can ever
 arrive to change the value, and `notify` wakes nobody.
+
+#### Optional chaining, private fields, annex-B accessors, ArrayBuffer transfer
+
+Five things, of which the first is a correctness bug rather than a gap:
+
+- **An optional chain short-circuits as a WHOLE.** Each link was guarded on its
+  own, so `o?.a.b` short-circuited the first link and then threw reading `b` of
+  undefined — precisely what the syntax exists to avoid. A raised flag now
+  travels up through the enclosing links and is cleared once, where the chain's
+  value is consumed. Getting that clearing point wrong is the subtle part: a
+  chain evaluated for its side effects (`o?.[i++];` as a statement) has no
+  consumer, and leaving the flag raised there poisoned every member read after
+  it.
+- **A private field is now actually private.** `#x` was stripped to an ordinary
+  property called `x`: enumerable, serialised by `JSON.stringify`, readable
+  from outside the class. The `#` is kept in the key instead — no ordinary
+  property name may contain one, so carrying it IS the privacy — and a read of
+  a private name the receiver does not have is a TypeError, which is what makes
+  `#x in obj` and a brand check work.
+- **A computed field name was lost.** The parser stored it in the same slot the
+  field's initialiser overwrites, so `class C { [k] = 7 }` defined a property
+  called `""`.
+- **A derived class installs its fields when super() RETURNS** (§15.7.14), not
+  before its constructor. Running them up front showed them to the base
+  constructor, which is the one case a field initialiser is written to avoid.
+- The annex-B accessor helpers (`__defineGetter__` and its three siblings),
+  `Map.groupBy`, and ArrayBuffer `transfer` / `transferToFixedLength` /
+  `resize` with the `detached`, `resizable` and `maxByteLength` accessors —
+  which had been registered as methods, so `b.detached` answered a function.
+
+`for await` over an object offering only `Symbol.asyncIterator` iterated zero
+times: the protocol walk looked for `Symbol.iterator` and nothing else, so a
+hand-written async iterable ran its loop body never.
 
 #### Intl
 
@@ -1509,8 +1557,8 @@ the runtime-conformance corpus, whose expectations are derived by running the
 same source through Node. It is a regression net, not test262, and the two
 numbers must not be quoted side by side as if they measured the same thing.
 
-The runtime-conformance suite is at 1740 checks, every one of them derived from
-Node — 1710 expression probes plus 21 script-level probes run through Node's
+The runtime-conformance suite is at 1816 checks, every one of them derived from
+Node — 1786 expression probes plus 21 script-level probes run through Node's
 `vm` so the script global is real, plus the module and gap assertions.
 Date is additionally validated by 209 differential cases against Node covering the
 component getters, the setter family, `Date.parse`, `Date.UTC` and both range extremes.

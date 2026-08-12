@@ -285,15 +285,17 @@ class TSLexer  {
     if ( (first.length) == 0 ) {
       return -1;
     }
-    const hi = first.charCodeAt(0 );
+    const hi = this.charStringCodePoint(first);
     if ( hi >= 55296 ) {
       if ( hi <= 56319 ) {
         if ( (idx + 1) < this.__len ) {
           const second = this.source[(idx + 1)];
-          const lo = second.charCodeAt(0 );
-          if ( lo >= 56320 ) {
-            if ( lo <= 57343 ) {
-              return (((hi - 55296) * 1024) + (lo - 56320)) + 65536;
+          if ( (second.length) > 0 ) {
+            const lo = this.charStringCodePoint(second);
+            if ( lo >= 56320 ) {
+              if ( lo <= 57343 ) {
+                return (((hi - 55296) * 1024) + (lo - 56320)) + 65536;
+              }
             }
           }
         }
@@ -302,9 +304,28 @@ class TSLexer  {
     return hi;
   };
   codePointWidth () {
-    const cp = this.codePointAt(0);
-    if ( cp > 65535 ) {
-      return 2;
+    if ( this.pos >= this.__len ) {
+      return 1;
+    }
+    const first = this.source[this.pos];
+    if ( (first.length) == 0 ) {
+      return 1;
+    }
+    const hi = this.charStringCodePoint(first);
+    if ( hi >= 55296 ) {
+      if ( hi <= 56319 ) {
+        if ( (this.pos + 1) < this.__len ) {
+          const second = this.source[(this.pos + 1)];
+          if ( (second.length) > 0 ) {
+            const lo = this.charStringCodePoint(second);
+            if ( lo >= 56320 ) {
+              if ( lo <= 57343 ) {
+                return 2;
+              }
+            }
+          }
+        }
+      }
     }
     return 1;
   };
@@ -421,7 +442,7 @@ class TSLexer  {
     if ( (ch.length) == 0 ) {
       return false;
     }
-    const code = ch.charCodeAt(0 );
+    const code = this.charStringCodePoint(ch);
     if ( code == 11 ) {
       return true;
     }
@@ -495,36 +516,72 @@ class TSLexer  {
     if ( (ch.length) == 0 ) {
       return false;
     }
-    const code = ch.charCodeAt(0 );
+    const code = this.charStringCodePoint(ch);
     if ( code == 8232 ) {
       return true;
     }
     if ( code == 8233 ) {
       return true;
     }
-    if ( this.isLsPsUtf8(ch) ) {
+    return false;
+  };
+  isLsPsUtf8 (ch) {
+    const cp = this.charStringCodePoint(ch);
+    if ( cp == 8232 ) {
+      return true;
+    }
+    if ( cp == 8233 ) {
       return true;
     }
     return false;
   };
-  isLsPsUtf8 (ch) {
-    if ( (ch.length) != 3 ) {
-      return false;
+  charStringCodePoint (ch) {
+    const n = ch.length;
+    if ( n == 0 ) {
+      return -1;
     }
-    if ( (((ch.charCodeAt(0 )) & 255)) != 226 ) {
-      return false;
+    const b0 = ((ch.charCodeAt(0 )) & 255);
+    if ( n == 1 ) {
+      return ((ch.charCodeAt(0 )) & 65535);
     }
-    if ( (((ch.charCodeAt(1 )) & 255)) != 128 ) {
-      return false;
+    if ( n == 2 ) {
+      if ( (b0 >= 192) && (b0 <= 223) ) {
+        const c1 = ((ch.charCodeAt(1 )) & 255);
+        if ( (c1 >= 128) && (c1 <= 191) ) {
+          return (((b0 & 31)) * 64) + ((c1 & 63));
+        }
+      }
+      return ((ch.charCodeAt(0 )) & 65535);
     }
-    const c2 = ((ch.charCodeAt(2 )) & 255);
-    if ( c2 == 168 ) {
-      return true;
+    if ( n == 3 ) {
+      if ( (b0 >= 224) && (b0 <= 239) ) {
+        const d1 = ((ch.charCodeAt(1 )) & 255);
+        const d2 = ((ch.charCodeAt(2 )) & 255);
+        if ( (d1 >= 128) && (d1 <= 191) ) {
+          if ( (d2 >= 128) && (d2 <= 191) ) {
+            return ((((b0 & 15)) * 4096) + (((d1 & 63)) * 64)) + ((d2 & 63));
+          }
+        }
+      }
     }
-    if ( c2 == 169 ) {
-      return true;
+    if ( n == 4 ) {
+      if ( (b0 >= 240) && (b0 <= 247) ) {
+        const e1 = ((ch.charCodeAt(1 )) & 255);
+        const e2 = ((ch.charCodeAt(2 )) & 255);
+        const e3 = ((ch.charCodeAt(3 )) & 255);
+        if ( (e1 >= 128) && (e1 <= 191) ) {
+          if ( (e2 >= 128) && (e2 <= 191) ) {
+            if ( (e3 >= 128) && (e3 <= 191) ) {
+              let acc = ((b0 & 7)) * 262144;
+              acc = acc + (((e1 & 63)) * 4096);
+              acc = acc + (((e2 & 63)) * 64);
+              return acc + ((e3 & 63));
+            }
+          }
+        }
+      }
     }
-    return false;
+    return ((ch.charCodeAt(0 )) & 65535);
   };
   readLineComment () {
     const startPos = this.pos;
@@ -623,9 +680,15 @@ class TSLexer  {
                   } else {
                     if ( esc == "0" ) {
                       const afterZero = this.peek();
+                      let zeroOctal = false;
                       if ( this.isDigit(afterZero) ) {
+                        if ( (afterZero != "8") && (afterZero != "9") ) {
+                          zeroOctal = true;
+                        }
+                      }
+                      if ( zeroOctal ) {
                         sawOctalEscape = true;
-                        value = value + esc;
+                        value = value + this.readLegacyOctalEscape(esc);
                       } else {
                         value = value + (String.fromCharCode(0));
                       }
@@ -664,8 +727,10 @@ class TSLexer  {
                               }
                               if ( this.isDigit(esc) ) {
                                 sawOctalEscape = true;
+                                value = value + this.readLegacyOctalEscape(esc);
+                              } else {
+                                value = value + esc;
                               }
-                              value = value + esc;
                             }
                           }
                         }
@@ -702,30 +767,97 @@ class TSLexer  {
         this.advance();
         const esc = this.advance();
         rawText = rawText + ("\\" + esc);
+        let handled = false;
         if ( esc == "n" ) {
           value = value + "\n";
-        } else {
-          if ( esc == "t" ) {
-            value = value + "\t";
-          } else {
-            if ( esc == "`" ) {
-              value = value + "`";
-            } else {
-              if ( esc == "$" ) {
-                value = value + "$";
-              } else {
-                if ( this.isDigit(esc) ) {
-                  if ( esc != "0" ) {
-                    return this.makeToken("Invalid", value, startPos, startLine, startCol);
-                  }
-                  const afterZero = this.peek();
-                  if ( this.isDigit(afterZero) ) {
-                    return this.makeToken("Invalid", value, startPos, startLine, startCol);
-                  }
-                }
-                value = value + esc;
-              }
+          handled = true;
+        }
+        if ( esc == "t" ) {
+          value = value + "\t";
+          handled = true;
+        }
+        if ( esc == "r" ) {
+          value = value + "\r";
+          handled = true;
+        }
+        if ( esc == "b" ) {
+          value = value + (String.fromCharCode(8));
+          handled = true;
+        }
+        if ( esc == "f" ) {
+          value = value + (String.fromCharCode(12));
+          handled = true;
+        }
+        if ( esc == "v" ) {
+          value = value + (String.fromCharCode(11));
+          handled = true;
+        }
+        if ( esc == "`" ) {
+          value = value + "`";
+          handled = true;
+        }
+        if ( esc == "$" ) {
+          value = value + "$";
+          handled = true;
+        }
+        if ( esc == "\\" ) {
+          value = value + "\\";
+          handled = true;
+        }
+        if ( esc == "'" ) {
+          value = value + "'";
+          handled = true;
+        }
+        if ( esc == "\"" ) {
+          value = value + "\"";
+          handled = true;
+        }
+        if ( esc == "\r" ) {
+          if ( this.peek() == "\n" ) {
+            this.advance();
+          }
+          handled = true;
+        }
+        if ( esc == "\n" ) {
+          handled = true;
+        }
+        if ( false == handled ) {
+          if ( esc == "x" ) {
+            const th1 = this.peek();
+            const thv1 = this.hexValue(th1);
+            const th2 = this.peekAt(1);
+            const thv2 = this.hexValue(th2);
+            if ( (thv1 < 0) || (thv2 < 0) ) {
+              return this.makeToken("Invalid", value, startPos, startLine, startCol);
             }
+            this.advance();
+            this.advance();
+            value = value + this.codeUnitString(((thv1 * 16) + thv2));
+            handled = true;
+          }
+        }
+        if ( false == handled ) {
+          if ( esc == "u" ) {
+            const tuEsc = this.readUnicodeEscapeBody();
+            if ( (tuEsc.length) == 0 ) {
+              return this.makeToken("Invalid", value, startPos, startLine, startCol);
+            }
+            value = value + tuEsc;
+            handled = true;
+          }
+        }
+        if ( false == handled ) {
+          if ( this.isDigit(esc) ) {
+            if ( esc != "0" ) {
+              return this.makeToken("Invalid", value, startPos, startLine, startCol);
+            }
+            const afterZero = this.peek();
+            if ( this.isDigit(afterZero) ) {
+              return this.makeToken("Invalid", value, startPos, startLine, startCol);
+            }
+            value = value + (String.fromCharCode(0));
+          } else {
+            value = value + esc;
           }
         }
       } else {
@@ -808,6 +940,26 @@ class TSLexer  {
       }
     }
     return 0 - 1;
+  };
+  readLegacyOctalEscape (first) {
+    let v = this.digitVal(first);
+    let maxMore = 2;
+    if ( v >= 4 ) {
+      maxMore = 1;
+    }
+    let taken = 0;
+    while (taken < maxMore) {
+      const nx = this.peek();
+      const d = this.digitVal(nx);
+      if ( (d < 0) || (d > 7) ) {
+        taken = maxMore;
+      } else {
+        v = (v * 8) + d;
+        this.advance();
+        taken = taken + 1;
+      }
+    };
+    return this.codeUnitString(v);
   };
   readRadix (radix, startPos, startLine, startCol) {
     this.advance();
@@ -949,7 +1101,28 @@ class TSLexer  {
       };
       return this.makeToken("Invalid", (this.source.substring(startPos, this.pos )), startPos, startLine, startCol);
     }
-    const numTok = this.makeToken("Number", value, startPos, startLine, startCol);
+    let numText = value;
+    if ( legacyOctal ) {
+      if ( false == nonOctalDecimal ) {
+        let oacc = 0;
+        let oi = 0;
+        let ook = true;
+        while (oi < (numText.length)) {
+          const od = this.digitVal((numText.substring(oi, (oi + 1) )));
+          if ( (od < 0) || (od > 7) ) {
+            ook = false;
+            oi = numText.length;
+          } else {
+            oacc = (oacc * 8) + od;
+            oi = oi + 1;
+          }
+        };
+        if ( ook ) {
+          numText = (oacc.toString());
+        }
+      }
+    }
+    const numTok = this.makeToken("Number", numText, startPos, startLine, startCol);
     numTok.legacyOctal = legacyOctal;
     if ( nonOctalDecimal ) {
       numTok.legacyOctal = true;
@@ -1044,6 +1217,11 @@ class TSLexer  {
       };
     }
     if ( code > 65535 ) {
+      if ( ("😀".length) == 1 ) {
+        if ( ("é".length) == 1 ) {
+          return String.fromCharCode(code);
+        }
+      }
       const rest = code - 65536;
       const restD = rest;
       const high = Math.floor((restD / 1024.0));
@@ -1782,12 +1960,35 @@ class TSLexer  {
             }
           }
         } else {
-          const escCode = esc.charCodeAt(0 );
-          if ( escCode >= 49 ) {
-            if ( escCode <= 57 ) {
-              const refNum = escCode - 48;
-              if ( refNum > maxBackRef ) {
-                maxBackRef = refNum;
+          let isPropEsc = false;
+          if ( unicodeMode ) {
+            if ( (esc == "p") || (esc == "P") ) {
+              if ( (body.substring((i + 2), (i + 3) )) == "{" ) {
+                isPropEsc = true;
+              }
+            }
+          }
+          if ( isPropEsc ) {
+            let pj = i + 3;
+            while (pj < n) {
+              if ( (body.substring(pj, (pj + 1) )) == "}" ) {
+                break;
+              }
+              pj = pj + 1;
+            };
+            if ( (body.substring(pj, (pj + 1) )) == "}" ) {
+              skipTo = pj + 1;
+            } else {
+              return false;
+            }
+          } else {
+            const escCode = esc.charCodeAt(0 );
+            if ( escCode >= 49 ) {
+              if ( escCode <= 57 ) {
+                const refNum = escCode - 48;
+                if ( refNum > maxBackRef ) {
+                  maxBackRef = refNum;
+                }
               }
             }
           }
@@ -1841,6 +2042,23 @@ class TSLexer  {
                     }
                   };
                   if ( numDigits == 0 ) {
+                    return false;
+                  }
+                  let bk = k;
+                  if ( (body.substring(bk, (bk + 1) )) == "," ) {
+                    bk = bk + 1;
+                    while (bk < n) {
+                      const d2 = body.substring(bk, (bk + 1) );
+                      if ( this.isDigit(d2) ) {
+                        bk = bk + 1;
+                      } else {
+                        break;
+                      }
+                    };
+                  }
+                  if ( (body.substring(bk, (bk + 1) )) == "}" ) {
+                    i = bk;
+                  } else {
                     return false;
                   }
                 }
@@ -2068,6 +2286,7 @@ class TSNode  {
     this.prefix = false;
     this.shorthand = false;
     this.computed = false;
+    this.numericKey = false;
     this.accessor = "";
     this.parenthesized = false;
     this.hasEscape = false;
@@ -2086,6 +2305,9 @@ class TSNode  {
     this.scopeHops = 0 - 1;     /** note: unused */
     this.lexScanned = false;     /** note: unused */
     this.lexDeclares = false;     /** note: unused */
+    this.lexNames = [];     /** note: unused */
+    this.yieldScanned = false;     /** note: unused */
+    this.yieldInside = false;     /** note: unused */
     this.evalKind = 0;     /** note: unused */
     this.evalOpKind = 0;     /** note: unused */
     this.hoistScanned = false;     /** note: unused */
@@ -2117,6 +2339,7 @@ class TSParserSimple  {
     this.scopeStart = [];
     this.scopeIsFn = [];
     this.suppressBlockScope = false;
+    this.ternaryConsequentDepth = 0;
     this.strictMode = false;
     this.declaringKind = "";
     this.allowSuperCall = false;
@@ -2164,6 +2387,9 @@ class TSParserSimple  {
   syntaxError (msg) {
     this.errorCount = this.errorCount + 1;
     if ( this.speculating > 0 ) {
+      return;
+    }
+    if ( this.errorCount > 1 ) {
       return;
     }
     if ( this.quiet == false ) {
@@ -2885,6 +3111,18 @@ class TSParserSimple  {
   parseMemberName () {
     if ( this.matchPunct("#") ) {
       this.advance();
+      if ( this.isNameToken() ) {
+        const ptok = this.peek();
+        this.advance();
+        const hashed = new Token();
+        hashed.tokenType = ptok.tokenType;
+        hashed.value = "#" + ptok.value;
+        hashed.start = ptok.start;
+        hashed.end = ptok.end;
+        hashed.line = ptok.line;
+        hashed.col = ptok.col;
+        return hashed;
+      }
     }
     if ( this.isNameToken() ) {
       const tok = this.peek();
@@ -4143,6 +4381,7 @@ class TSParserSimple  {
       this.expectValue("]");
       member.computed = true;
       member.init = keyExpr;
+      member.right = keyExpr;
     } else {
       let nameTok = this.peek();
       if ( this.isMemberKeyToken() ) {
@@ -4150,7 +4389,11 @@ class TSParserSimple  {
       } else {
         nameTok = this.expect("Identifier");
       }
-      member.name = nameTok.value;
+      if ( member.value == "#" ) {
+        member.name = "#" + nameTok.value;
+      } else {
+        member.name = nameTok.value;
+      }
     }
     if ( accessibility != "" ) {
       member.kind = accessibility;
@@ -5475,6 +5718,8 @@ class TSParserSimple  {
     return param;
   };
   parseBlock () {
+    const savedTernaryDepth = this.ternaryConsequentDepth;
+    this.ternaryConsequentDepth = 0;
     const block = new TSNode();
     block.nodeType = "BlockStatement";
     const startTok = this.peek();
@@ -5519,6 +5764,7 @@ class TSParserSimple  {
     const closeTok = this.peek();
     block.end = closeTok.end;
     this.expectValue("}");
+    this.ternaryConsequentDepth = savedTernaryDepth;
     return block;
   };
   parseExprStmt () {
@@ -6512,7 +6758,9 @@ class TSParserSimple  {
     const testExpr = this.parseLogicalOr();
     if ( this.matchValue("?") ) {
       this.advance();
+      this.ternaryConsequentDepth = this.ternaryConsequentDepth + 1;
       const consequentExpr = this.parseAssign();
+      this.ternaryConsequentDepth = this.ternaryConsequentDepth - 1;
       if ( this.matchValue(":") ) {
         this.advance();
         const alternateExpr = this.parseAssign();
@@ -6897,8 +7145,10 @@ class TSParserSimple  {
         endsYield = true;
       }
       const yieldNextTok = this.peek();
-      if ( yieldNextTok.line != this.lastTokenLine ) {
-        endsYield = true;
+      if ( false == yieldExpr.delegate ) {
+        if ( yieldNextTok.line != this.lastTokenLine ) {
+          endsYield = true;
+        }
       }
       if ( endsYield ) {
         if ( yieldExpr.delegate ) {
@@ -7249,6 +7499,23 @@ class TSParserSimple  {
       num.col = tok.col;
       return num;
     }
+    if ( this.matchPunct("#") ) {
+      const hashTok = this.peek();
+      const afterHash = this.peekNextValue();
+      if ( (afterHash.length) > 0 ) {
+        this.advance();
+        const privTok = this.peek();
+        this.advance();
+        const priv = new TSNode();
+        priv.nodeType = "StringLiteral";
+        priv.value = "#" + privTok.value;
+        priv.start = hashTok.start;
+        priv.end = privTok.end;
+        priv.line = hashTok.line;
+        priv.col = hashTok.col;
+        return priv;
+      }
+    }
     if ( tokType == "BigInt" ) {
       this.advance();
       const bigint = new TSNode();
@@ -7537,6 +7804,15 @@ class TSParserSimple  {
       if ( tokVal == "from" ) {
         contextual = true;
       }
+      if ( tokVal == "get" ) {
+        contextual = true;
+      }
+      if ( tokVal == "set" ) {
+        contextual = true;
+      }
+      if ( tokVal == "async" ) {
+        contextual = true;
+      }
       if ( tokVal == "implements" ) {
         contextual = true;
       }
@@ -7766,6 +8042,9 @@ class TSParserSimple  {
             }
           }
           prop.name = keyTok.value;
+          if ( keyTok.tokenType == "Number" ) {
+            prop.numericKey = true;
+          }
           this.advance();
         } else {
           if ( isComputed ) {
@@ -7784,6 +8063,8 @@ class TSParserSimple  {
           prop.method = true;
           const fnNode = new TSNode();
           fnNode.nodeType = "FunctionExpression";
+          fnNode.generator = prop.generator;
+          fnNode.async = prop.async;
           fnNode.start = prop.start;
           this.advance();
           this.pushScope(true);
@@ -7949,8 +8230,10 @@ class TSParserSimple  {
     }
     this.advance();
     if ( this.matchValue(":") ) {
-      this.advance();
-      this.parseType();
+      if ( this.ternaryConsequentDepth == 0 ) {
+        this.advance();
+        this.parseType();
+      }
     }
     if ( this.matchValue("=>") ) {
       this.pos = savedPos;
@@ -7975,6 +8258,7 @@ class TSParserSimple  {
     if ( this.matchValue("async") ) {
       this.advance();
       node.kind = "async";
+      node.async = true;
     }
     this.pushScope(true);
     this.functionDepth = this.functionDepth + 1;
@@ -8036,6 +8320,23 @@ class TSParserSimple  {
       const body_1 = this.parseExpr();
       node.body = body_1;
       node.end = this.lastTokenEndPos;
+      if ( node.async ) {
+        const retN = new TSNode();
+        retN.nodeType = "ReturnStatement";
+        retN.left = body_1;
+        retN.start = body_1.start;
+        retN.line = body_1.line;
+        retN.col = body_1.col;
+        retN.end = body_1.end;
+        const blockN = new TSNode();
+        blockN.nodeType = "BlockStatement";
+        blockN.start = body_1.start;
+        blockN.line = body_1.line;
+        blockN.col = body_1.col;
+        blockN.end = body_1.end;
+        blockN.children.push(retN);
+        node.body = blockN;
+      }
     }
     this.popScope();
     this.iterationDepth = savedArrowIter;

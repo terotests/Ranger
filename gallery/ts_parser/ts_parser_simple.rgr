@@ -1022,10 +1022,22 @@ class TSParserSimple {
   ; token without an error; fall back to expect() for genuinely invalid syntax
   ; (which still advances, so callers keep making progress).
   fn parseMemberName:Token () {
-    ; Private name access: `this.#p`. The `#` is a separate token, so consume
-    ; it and let the name that follows carry the member.
+    ; Private name access: `this.#p`. The `#` is a separate token; it is kept
+    ; on the name so the read and the declaration agree about the key.
     if (this.matchPunct("#")) {
       this.advance()
+      if (this.isNameToken()) {
+        def ptok (this.peek())
+        this.advance()
+        def hashed (new Token())
+        hashed.tokenType = ptok.tokenType
+        hashed.value = ("#" + ptok.value)
+        hashed.start = ptok.start
+        hashed.end = ptok.end
+        hashed.line = ptok.line
+        hashed.col = ptok.col
+        return hashed
+      }
     }
     if (this.isNameToken()) {
       def tok (this.peek())
@@ -2627,6 +2639,10 @@ class TSParserSimple {
       this.expectValue("]")
       member.computed = true
       member.init = keyExpr
+      ; ...and on `right` as well. A class FIELD's `= value` overwrites `init`
+      ; a few lines below, so a computed field name kept only there was lost
+      ; and `class C { [k] = 7 }` defined a property called "".
+      member.right = keyExpr
     } {
       ; Member name — reserved words are legal here (methods named `set`, `get`,
       ; `delete`, fields named `default`, etc.), and so are literals.
@@ -2636,7 +2652,15 @@ class TSParserSimple {
       } {
         nameTok = (this.expect("Identifier"))
       }
-      member.name = nameTok.value
+      ; A PRIVATE name keeps its `#`. Stripping it made #x an ordinary property
+      ; called x: enumerable, serialised by JSON.stringify, and readable from
+      ; outside the class. The `#` is not a legal character in an ordinary
+      ; property name, so carrying it IS the privacy.
+      if (member.value == "#") {
+        member.name = ("#" + nameTok.value)
+      } {
+        member.name = nameTok.value
+      }
     }
 
     ; Apply modifiers
@@ -6595,6 +6619,28 @@ class TSParserSimple {
       return num
     }
     
+    ; A PRIVATE NAME in expression position, which is legal in exactly one
+    ; place: `#x in obj`, the brand check. Private names are keyed with their
+    ; `#` in this engine, so the check is an ordinary `in` against that key and
+    ; the name evaluates to it.
+    if (this.matchPunct("#")) {
+      def hashTok (this.peek())
+      def afterHash (this.peekNextValue())
+      if ((strlen afterHash) > 0) {
+        this.advance()
+        def privTok (this.peek())
+        this.advance()
+        def priv (new TSNode())
+        priv.nodeType = "StringLiteral"
+        priv.value = ("#" + privTok.value)
+        priv.start = hashTok.start
+        priv.end = privTok.end
+        priv.line = hashTok.line
+        priv.col = hashTok.col
+        return priv
+      }
+    }
+
     ; BigInt literal
     if (tokType == "BigInt") {
       this.advance()

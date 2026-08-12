@@ -12,6 +12,7 @@ Import "../../../../../ts_parser/ts_ast_patch.rgr"
 Import "../../../evg/EVGElement.rgr"
 Import "EvHandle.rgr"
 Import "EvValueBridge.rgr"
+Import "UnicodeProps.rgr"
 Import "Regex.rgr"
 Import "BigIntNum.rgr"
 Import "UnicodeCase.rgr"
@@ -1416,6 +1417,19 @@ class ComponentEngine {
     ; whether one owns the name -- a full chain walk, on the hottest path there
     ; is. Almost no program uses `with`; this makes the question free for those.
     def anyWithScope:boolean false
+    ; D-OPTCHAIN: §13.3 an optional chain SHORT-CIRCUITS as a whole. When
+    ; `o?.a` finds o nullish, the rest of the chain -- `.b.c`, a call, an index
+    ; -- is not evaluated either and the whole thing is undefined. Each link was
+    ; guarded on its own, so `o?.a.b` short-circuited the first link and then
+    ; threw reading `b` of undefined, which is precisely what the syntax exists
+    ; to avoid.
+    ;
+    ; `optChainAborted` is raised at the short-circuit and travels up through
+    ; the enclosing links; `optChainDepth` counts how many of those links are
+    ; still below the chain's root, so the flag is cleared exactly once, where
+    ; the chain's value is finally consumed.
+    def optChainAborted:boolean false
+    def optChainDepth:int 0
 
     ; When true, suppress verbose evaluation trace (game scripts, tests).
     def quiet:boolean false
@@ -6950,6 +6964,11 @@ class ComponentEngine {
     fn evaluateExprForSideEffect:void (node:TSNode) {
         def seK:int (this.nodeKindOf(node))
         def handledSE:boolean false
+        ; D-OPTCHAIN: a chain evaluated for its SIDE EFFECTS is still a chain
+        ; that ends here. Leaving the flag raised made the next member read
+        ; anywhere in the program short-circuit for no reason -- the statement
+        ; `o?.[i++];` on a nullish o poisoned everything after it.
+        optChainAborted = false
         ; Handle CallExpression (method calls like arr.push(x))
         if (seK == 4) {
             completionValue = (this.evaluateExpr(node))
@@ -7043,6 +7062,9 @@ class ComponentEngine {
         ; accident rather than by design, so `new F();` in statement position
         ; ran NOTHING -- neither the constructor's effects nor an error raised
         ; inside it, which simply vanished instead of being thrown.
+        ; The flag belongs to the chain that just finished; nothing outside it
+        ; may observe it.
+        optChainAborted = false
         if (false == handledSE) {
             completionValue = (this.evaluateExpr(node))
         }
@@ -11647,6 +11669,16 @@ class ComponentEngine {
             }
             return (this.throwSpecError("TypeError" ("Cannot read properties of " + (rDesc + (" (reading '" + (name + "')"))))))
         }
+        ; D-PRIVATE: the brand check, on the compiled path too. A method body
+        ; compiles to bytecode, and `o.#x` inside one is where a brand check is
+        ; actually written.
+        if ((strlen name) > 0) {
+            if ((substring name 0 1) == "#") {
+                if (false == (this.objHasKeyUpChain(obj name))) {
+                    return (this.throwSpecError("TypeError" ("Cannot read private member " + (name + " from an object whose class did not declare it"))))
+                }
+            }
+        }
         if (name == "length") {
             if (obj.isString()) {
                 return (EvHandle.fromInt((obj.strCodeUnitLength())))
@@ -15770,6 +15802,47 @@ class ComponentEngine {
             return out
         }
         def itFn:EvHandle (this.getPropertyValue(src "@@iterator"))
+        ; D-ASYNCITER: `for await (x of o)` reaches here too, and an object may
+        ; offer ONLY `Symbol.asyncIterator` -- a hand-written async iterable has
+        ; no `Symbol.iterator` at all, so it iterated zero times and the loop
+        ; body never ran. Its `next()` answers a promise; the values are awaited
+        ; on the way out, which for-await does with each element anyway.
+        if (false == (itFn.isFunction())) {
+            def aitFn:EvHandle (this.getPropertyValue(src "@@asyncIterator"))
+            if scriptThrew { return out }
+            if (aitFn.isFunction()) {
+                def aNoArgs:[EvHandle]
+                def aIter:EvHandle (this.callFnValueWithValues((aitFn.withThisForCall(src)) aNoArgs))
+                if scriptThrew { return out }
+                def aNext:EvHandle (this.getPropertyValue(aIter "next"))
+                if scriptThrew { return out }
+                if (false == (aNext.isFunction())) {
+                    def _ae:EvHandle (this.throwSpecError("TypeError" "The iterator's next is not a function"))
+                    return out
+                }
+                def aGuard:int 0
+                while (aGuard < 100000) {
+                    def aArgs:[EvHandle]
+                    def aStep:EvHandle (this.callFnValueWithValues((aNext.withThisForCall(aIter)) aArgs))
+                    if scriptThrew { return out }
+                    ; Each step may be a promise; settle it before reading the
+                    ; result object, which is what makes this an ASYNC iterator.
+                    def aSettled:EvHandle (this.awaitBlocking(aStep))
+                    if scriptThrew { return out }
+                    def aDone:EvHandle (this.getPropertyValue(aSettled "done"))
+                    if scriptThrew { return out }
+                    if (aDone.toBool()) {
+                        return out
+                    }
+                    def aVal:EvHandle (this.getPropertyValue(aSettled "value"))
+                    if scriptThrew { return out }
+                    push out (this.awaitBlocking(aVal))
+                    if scriptThrew { return out }
+                    aGuard = (aGuard + 1)
+                }
+                return out
+            }
+        }
         if (false == (itFn.isFunction())) {
             ; An ARGUMENTS object is iterable: its Symbol.iterator is
             ; Array.prototype.values. It carries no prototype link to reach it
@@ -17262,11 +17335,28 @@ class ComponentEngine {
             node.numCacheId = (numPool.addLiteral(litVal))
             return litVal
         }
+        ; D-OPTCHAIN: the chain's ROOT. Below it every link passes the
+        ; short-circuit upward; here the value is consumed, so the flag is
+        ; cleared and the whole chain answers undefined.
         if (exprK == 3) {
-            return (this.evaluateMemberExpr(node))
+            def mOut:EvHandle (this.evaluateMemberExpr(node))
+            if optChainAborted {
+                if (optChainDepth == 0) {
+                    optChainAborted = false
+                }
+                return (EvValueBridge.taggedUndefined())
+            }
+            return mOut
         }
         if (exprK == 4) {
-            return (this.evaluateCallExpr(node))
+            def cOut:EvHandle (this.evaluateCallExpr(node))
+            if optChainAborted {
+                if (optChainDepth == 0) {
+                    optChainAborted = false
+                }
+                return (EvValueBridge.taggedUndefined())
+            }
+            return cOut
         }
         if (exprK == 16) {
             return (this.evaluateNewExpr(node))
@@ -17418,7 +17508,14 @@ class ComponentEngine {
         
         ; Member expression
         if (exprK == 3) {
-            return (this.evaluateMemberExpr(node))
+            def mOut2:EvHandle (this.evaluateMemberExpr(node))
+            if optChainAborted {
+                if (optChainDepth == 0) {
+                    optChainAborted = false
+                }
+                return (EvValueBridge.taggedUndefined())
+            }
+            return mOut2
         }
         
         ; Array expression
@@ -17503,8 +17600,13 @@ class ComponentEngine {
                 def ocFn:EvHandle (EvValueBridge.taggedUndefined())
                 if ocIsMember {
                     if ocCallee.left {
+                        optChainDepth = (optChainDepth + 1)
                         ocThis = (this.evaluateExpr((unwrap ocCallee.left)))
+                        optChainDepth = (optChainDepth - 1)
                         if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        if optChainAborted {
                             return (EvValueBridge.taggedUndefined())
                         }
                     }
@@ -17526,12 +17628,20 @@ class ComponentEngine {
                     ; and reports it.
                     ocFn = (this.getPropertyValue(ocThis ocKey))
                 } {
+                    optChainDepth = (optChainDepth + 1)
                     ocFn = (this.evaluateExpr(ocCallee))
+                    optChainDepth = (optChainDepth - 1)
                 }
                 if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
                 }
+                if optChainAborted {
+                    return (EvValueBridge.taggedUndefined())
+                }
                 if ((ocFn.isUndefined()) || (ocFn.isNull())) {
+                    ; `f?.()` short-circuits the REST of the chain too, so
+                    ; `o.f?.().x` is undefined rather than a read of undefined.
+                    optChainAborted = true
                     return (EvValueBridge.taggedUndefined())
                 }
                 def ocArgs:[EvHandle] (this.collectCallArgs(node))
@@ -17570,7 +17680,20 @@ class ComponentEngine {
                 ; Get the object (left side of the member expression)
                 if callee.left {
                     def objNode:TSNode (unwrap callee.left)
+                    optChainDepth = (optChainDepth + 1)
                     obj = (this.evaluateExpr(objNode))
+                    optChainDepth = (optChainDepth - 1)
+                    if optChainAborted {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    ; `o?.m()` -- the callee is an OPTIONAL member, so a nullish
+                    ; receiver ends the chain instead of being called on.
+                    if callee.optional {
+                        if ((obj.isNull()) || (obj.isUndefined())) {
+                            optChainAborted = true
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                    }
                     ; A throw while evaluating the RECEIVER is the exception that
                     ; propagates. Carrying on called a method on the undefined
                     ; the aborted expression left behind, and the resulting
@@ -18713,6 +18836,15 @@ class ComponentEngine {
                         def ownNode:TSNode (this.classNodeByName(ownCls))
                         if ((this.nodeKindOf(ownNode)) == 25) {
                             this.runSuperConstructor(ownNode selfV node.children 0)
+                        }
+                        ; §15.7.14 step 8: the derived class's own fields are
+                        ; installed HERE, once super() has returned -- which is
+                        ; why the base constructor cannot see them.
+                        def fieldCls:TSNode (this.classNodeByName(currentHomeClass))
+                        if ((this.nodeKindOf(fieldCls)) == 25) {
+                            if (false == scriptThrew) {
+                                this.runInstanceFields(fieldCls selfV currentModule)
+                            }
                         }
                     }
                     return (EvValueBridge.taggedUndefined())
@@ -20597,15 +20729,34 @@ class ComponentEngine {
     ; caller falls through on.
     fn bufferOwnProperty:EvHandle (v:EvHandle propName:string) {
         if (this.isArrayBufferValue(v)) {
+            def abDetached:boolean (v.hasOwnData("__abdetached__"))
             if (propName == "byteLength") {
+                ; A DETACHED buffer has no bytes at all, which is what makes
+                ; `b.byteLength` zero after a transfer rather than unchanged.
+                if abDetached {
+                    return (EvHandle.fromInt(0))
+                }
+                return (EvHandle.fromInt(((this.arrayBufferBytes(v)).denseLen())))
+            }
+            if (propName == "detached") {
+                return (EvValueBridge.taggedBoolean(abDetached))
+            }
+            if (propName == "maxByteLength") {
+                if (v.hasOwnData("__abmax__")) {
+                    return (v.getOwnData("__abmax__"))
+                }
+                if abDetached {
+                    return (EvHandle.fromInt(0))
+                }
                 return (EvHandle.fromInt(((this.arrayBufferBytes(v)).denseLen())))
             }
             if (v.hasOwnData("__abshared__")) {
                 if (propName == "growable") {
-                    return (EvValueBridge.taggedBoolean(false))
+                    return (EvValueBridge.taggedBoolean((v.hasOwnData("__abmax__"))))
                 }
-                if (propName == "maxByteLength") {
-                    return (EvHandle.fromInt(((this.arrayBufferBytes(v)).denseLen())))
+            } {
+                if (propName == "resizable") {
+                    return (EvValueBridge.taggedBoolean((v.hasOwnData("__abmax__"))))
                 }
             }
         }
@@ -20706,7 +20857,31 @@ class ComponentEngine {
                 n = (to_int t)
             }
         }
-        return (this.makeArrayBuffer(n))
+        def madeAb:EvHandle (this.makeArrayBuffer(n))
+        ; ES2024: `new ArrayBuffer(n, {maxByteLength: m})` is RESIZABLE, and the
+        ; option is the only thing that makes it so -- `resizable` is false for
+        ; every buffer created without it.
+        if ((array_length args) > 1) {
+            def abOpts:EvHandle (itemAt args 1)
+            if (this.isDescriptorObject(abOpts)) {
+                def maxV:EvHandle (this.getPropertyValue(abOpts "maxByteLength"))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                if (false == (maxV.isUndefined())) {
+                    def maxI:int (this.toIntegerOf(maxV))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    if (maxI < n) {
+                        return (this.throwSpecError("RangeError" "Invalid array buffer max length"))
+                    }
+                    madeAb.setMember("__abmax__" (EvHandle.fromInt(maxI)))
+                    madeAb.setAttrs("__abmax__" false false false)
+                }
+            }
+        }
+        return madeAb
     }
 
     ; §24.2 DataView over a buffer, with the byte offset and length the
@@ -20862,6 +21037,11 @@ class ComponentEngine {
             def base:int (off + (i * width))
             if ((base + width) <= (bytes.denseLen())) {
                 view.setIndexAt(i (this.dataViewRead(bytes base elemName true)))
+            } {
+                ; Past the end of the buffer -- which is where every element of
+                ; a view over a DETACHED or shrunk buffer now is. A read there
+                ; is undefined, not the value that used to be there.
+                view.setIndexAt(i (EvValueBridge.taggedUndefined()))
             }
             i = (i + 1)
         }
@@ -22714,6 +22894,50 @@ class ComponentEngine {
             }
             return (EvValueBridge.taggedNumber(oldD))
         }
+        ; §24.1.2.1 Map.groupBy. Same walk as Object.groupBy, except the key is
+        ; the callback's RESULT rather than a string made out of it, so an
+        ; object or a NaN groups by identity instead of by "[object Object]".
+        if (nsName == "Map") {
+            if (name == "groupBy") {
+                def mgSrc:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 0) { mgSrc = (itemAt args 0) }
+                if ((mgSrc.isNull()) || (mgSrc.isUndefined())) {
+                    return (this.throwSpecError("TypeError" "Cannot convert undefined or null to object"))
+                }
+                def mgCb:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 1) { mgCb = (itemAt args 1) }
+                if (false == (mgCb.isFunction())) {
+                    return (this.throwSpecError("TypeError" "The callback is not a function"))
+                }
+                def mgItems:[EvHandle] (this.forOfItemList(mgSrc))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                def mgOut:EvHandle (EvValueBridge.taggedMapEmpty())
+                def mgI:int 0
+                while (mgI < (array_length mgItems)) {
+                    def mgEl:EvHandle (itemAt mgItems mgI)
+                    def mgArgs:[EvHandle]
+                    push mgArgs mgEl
+                    push mgArgs (EvHandle.fromInt(mgI))
+                    def mgKey:EvHandle (this.callFnValueWithValues(mgCb mgArgs))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    def mgIdx:int (mgOut.mapIndexOfKey(mgKey))
+                    if (mgIdx < 0) {
+                        def mgFresh:[EvHandle]
+                        push mgFresh mgEl
+                        mgOut.mapSet(mgKey (EvValueBridge.taggedArray(mgFresh)))
+                    } {
+                        def mgArr:EvHandle (mgOut.mapGet(mgKey))
+                        mgArr.setIndexAt((mgArr.denseLen()) mgEl)
+                    }
+                    mgI = (mgI + 1)
+                }
+                return mgOut
+            }
+        }
         ; §21.2.2: asIntN and asUintN wrap a BigInt into a fixed width, which is
         ; how a BigInt is used as a machine word -- the only place a BigInt has
         ; a size at all.
@@ -23372,6 +23596,12 @@ class ComponentEngine {
             push out "asUintN"
             return out
         }
+        ; §24.1.2.1 Map.groupBy: Object.groupBy's twin, and the one to reach for
+        ; when the key is not a string -- a Map key is the value itself.
+        if (nsName == "Map") {
+            push out "groupBy"
+            return out
+        }
         ; D-ATOMICS: one agent means every one of these is already atomic --
         ; there is nothing to interleave with. What they still owe the caller
         ; is the RIGHT ANSWER and the right refusals, which is what is here.
@@ -23878,6 +24108,9 @@ class ComponentEngine {
         if (nsName == "BigInt") {
             return (this.hasBuiltinStatic(nsName name))
         }
+        if (nsName == "Map") {
+            return (this.hasBuiltinStatic(nsName name))
+        }
         if (nsName == "Atomics") {
             return (this.hasBuiltinStatic(nsName name))
         }
@@ -24262,6 +24495,11 @@ class ComponentEngine {
         }
         if (kind == "arraybuffer") {
             push out "slice"
+            ; ES2024: transfer moves the bytes to a new buffer and DETACHES this
+            ; one; resize needs a buffer that was created resizable.
+            push out "transfer"
+            push out "transferToFixedLength"
+            push out "resize"
         }
         if (kind == "sharedarraybuffer") {
             push out "slice"
@@ -24482,6 +24720,14 @@ class ComponentEngine {
         push out "isPrototypeOf"
         push out "propertyIsEnumerable"
         push out "toLocaleString"
+        ; annexB B.2.2.2-5: the four accessor helpers. They predate
+        ; Object.defineProperty and are still what a lot of older code reaches
+        ; for -- and `__lookupGetter__` walks the PROTOTYPE CHAIN, which is the
+        ; one thing about them that is not obvious.
+        push out "__defineGetter__"
+        push out "__defineSetter__"
+        push out "__lookupGetter__"
+        push out "__lookupSetter__"
         return out
     }
 
@@ -24959,6 +25205,10 @@ class ComponentEngine {
         if (name == "isPrototypeOf") { return 1 }
         if (name == "propertyIsEnumerable") { return 1 }
         if (name == "toLocaleString") { return 0 }
+        if (name == "__defineGetter__") { return 2 }
+        if (name == "__defineSetter__") { return 2 }
+        if (name == "__lookupGetter__") { return 1 }
+        if (name == "__lookupSetter__") { return 1 }
         ; String methods belong to strings ONLY. Registering them per-kind is
         ; what makes `[1,2].charAt(0)` a TypeError instead of returning "[" —
         ; the old unguarded branch stringified the array and indexed its debug
@@ -25197,6 +25447,9 @@ class ComponentEngine {
         }
         if (kind == "arraybuffer") {
             if (name == "slice") { return 2 }
+            if (name == "transfer") { return 0 }
+            if (name == "transferToFixedLength") { return 0 }
+            if (name == "resize") { return 1 }
             return 0
         }
         if (kind == "sharedarraybuffer") {
@@ -26455,6 +26708,74 @@ class ComponentEngine {
                 return (EvValueBridge.taggedBoolean(true))
             }
             return (EvValueBridge.taggedBoolean((this.objHasKey(recv hk0))))
+        }
+        ; annexB B.2.2.2-5. defineGetter/defineSetter install an accessor that is
+        ; ENUMERABLE and configurable -- unlike defineProperty's default, which
+        ; is neither -- and both require a callable.
+        if ((name == "__defineGetter__") || (name == "__defineSetter__")) {
+            if ((recv.isNull()) || (recv.isUndefined())) {
+                return (this.throwSpecError("TypeError" "Cannot convert undefined or null to object"))
+            }
+            def agKey:string ""
+            if ((array_length args) > 0) {
+                agKey = (this.toPropertyKey((itemAt args 0)))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+            }
+            def agFn:EvHandle (EvValueBridge.taggedUndefined())
+            if ((array_length args) > 1) { agFn = (itemAt args 1) }
+            if (false == (agFn.isFunction())) {
+                return (this.throwSpecError("TypeError" "Object.prototype.__defineGetter__: Expecting function"))
+            }
+            if (name == "__defineGetter__") {
+                recv.defineGetter(agKey agFn)
+            } {
+                recv.defineSetter(agKey agFn)
+            }
+            recv.setAttrs(agKey true true true)
+            return (EvValueBridge.taggedUndefined())
+        }
+        if ((name == "__lookupGetter__") || (name == "__lookupSetter__")) {
+            if ((recv.isNull()) || (recv.isUndefined())) {
+                return (this.throwSpecError("TypeError" "Cannot convert undefined or null to object"))
+            }
+            def alKey:string ""
+            if ((array_length args) > 0) {
+                alKey = (this.toPropertyKey((itemAt args 0)))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+            }
+            def wantGet:boolean (name == "__lookupGetter__")
+            ; Up the prototype chain, stopping at the first object that has the
+            ; property at all -- an own DATA property shadows an inherited
+            ; accessor and the answer is then undefined.
+            def alCur:EvHandle recv
+            def guard:int 0
+            while (guard < 64) {
+                if (false == (this.isDescriptorObject(alCur))) {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                if wantGet {
+                    if (alCur.hasOwnGetter(alKey)) {
+                        return (alCur.findGetter(alKey 0))
+                    }
+                } {
+                    if (alCur.hasOwnSetter(alKey)) {
+                        return (alCur.findSetter(alKey 0))
+                    }
+                }
+                if (alCur.hasOwnData(alKey)) {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                if (false == (alCur.hasProto())) {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                alCur = (alCur.protoOf())
+                guard = (guard + 1)
+            }
+            return (EvValueBridge.taggedUndefined())
         }
         if (name == "propertyIsEnumerable") {
             def pk0:string ""
@@ -29185,6 +29506,78 @@ class ComponentEngine {
                     abBytes.setIndexAt(gi (EvValueBridge.taggedNumber(0.0)))
                     gi = (gi + 1)
                 }
+                return (EvValueBridge.taggedUndefined())
+            }
+            ; ES2024 transfer / transferToFixedLength: the bytes MOVE. The old
+            ; buffer is detached rather than emptied, which is observable
+            ; through `detached` and through every view over it going to zero.
+            if ((name == "transfer") || (name == "transferToFixedLength")) {
+                if (recv.hasOwnData("__abdetached__")) {
+                    return (this.throwSpecError("TypeError" "Cannot perform ArrayBuffer.prototype.transfer on a detached ArrayBuffer"))
+                }
+                def tLen:int abLen
+                if ((array_length args) > 0) {
+                    if (false == ((itemAt args 0).isUndefined())) {
+                        tLen = (this.toIntegerOf((itemAt args 0)))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        if (tLen < 0) {
+                            return (this.throwSpecError("RangeError" "Invalid array buffer length"))
+                        }
+                    }
+                }
+                def moved:EvHandle (this.makeArrayBuffer(tLen))
+                def movedBytes:EvHandle (this.arrayBufferBytes(moved))
+                def ti:int 0
+                while (ti < tLen) {
+                    if (ti < abLen) {
+                        movedBytes.setIndexAt(ti (abBytes.arrayItemAt(ti)))
+                    }
+                    ti = (ti + 1)
+                }
+                ; A resizable buffer's transfer stays resizable unless the
+                ; fixed-length form was asked for.
+                if (name == "transfer") {
+                    if (recv.hasOwnData("__abmax__")) {
+                        moved.setMember("__abmax__" (recv.getOwnData("__abmax__")))
+                        moved.setAttrs("__abmax__" false false false)
+                    }
+                }
+                def emptied:[EvHandle]
+                recv.setMember("__abbytes__" (EvValueBridge.taggedArray(emptied)))
+                recv.setMember("__abdetached__" (EvValueBridge.taggedBoolean(true)))
+                recv.setAttrs("__abdetached__" false false false)
+                this.refreshBufferViews(recv (EvValueBridge.taggedUndefined()))
+                return moved
+            }
+            if (name == "resize") {
+                if (false == (recv.hasOwnData("__abmax__"))) {
+                    return (this.throwSpecError("TypeError" "ArrayBuffer.prototype.resize: Called on non-resizable ArrayBuffer"))
+                }
+                def rMax:int (this.toIntegerOf((recv.getOwnData("__abmax__"))))
+                def rTo:int 0
+                if ((array_length args) > 0) {
+                    rTo = (this.toIntegerOf((itemAt args 0)))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                }
+                if ((rTo < 0) || (rTo > rMax)) {
+                    return (this.throwSpecError("RangeError" "ArrayBuffer.prototype.resize: Invalid length parameter"))
+                }
+                def resized:[EvHandle]
+                def ri2:int 0
+                while (ri2 < rTo) {
+                    if (ri2 < abLen) {
+                        push resized (abBytes.arrayItemAt(ri2))
+                    } {
+                        push resized (EvValueBridge.taggedNumber(0.0))
+                    }
+                    ri2 = (ri2 + 1)
+                }
+                recv.setMember("__abbytes__" (EvValueBridge.taggedArray(resized)))
+                this.refreshBufferViews(recv (EvValueBridge.taggedUndefined()))
                 return (EvValueBridge.taggedUndefined())
             }
             if (name == "slice") {
@@ -39139,6 +39532,83 @@ class ComponentEngine {
     ; D-CLASSIDENT: the one value a class name resolves to. Memoised on the
     ; module-qualified name, so two modules may each declare `Point` and still
     ; get their own.
+    ; D-CLASSFIELDS: the instance field initialisers, as their own pass so the
+    ; ORDER can differ between a base and a derived class. §15.7.14: a base
+    ; class installs its fields before its constructor body runs; a DERIVED
+    ; class installs them the moment super() returns, so the base constructor
+    ; never sees them. Running them up front made
+    ; `class B extends A { x = 5 }` show x to A's constructor, which is the one
+    ; case a field initialiser is written to avoid.
+    fn runInstanceFields:void (cls:TSNode inst:EvHandle clsModule:string) {
+        ; Rooted in the class's home module scope (a module class's `field = new Other()`
+        ; must see ITS module, not the construction site).
+        if cls.body {
+            def body:TSNode (unwrap cls.body)
+            def savedCtx:EvalContext context
+            def savedModule:string currentModule
+            def fieldParent:EvalContext context
+            if ((strlen clsModule) > 0) {
+                fieldParent = (this.moduleScopeFor(clsModule))
+                currentModule = clsModule
+            }
+            context = (fieldParent.createChild())
+            context.define("this" inst)
+            def i 0
+            while (i < (array_length body.children)) {
+                def m:TSNode (itemAt body.children i)
+                if (m.nodeType == "PropertyDefinition") {
+                    ; A STATIC field belongs to the class, not to the instance.
+                    ; It ran here as well, so `static x = 5` left `C.x`
+                    ; undefined and gave every instance its own `x` instead.
+                    if (m.kind != "static") {
+                        if m.init {
+                            ; A COMPUTED field name is an expression, evaluated
+                            ; here -- `class C { [k] = 7 }`. The parser keeps it
+                            ; on `right` because `init` is the field's value.
+                            def fKey:string m.name
+                            if m.computed {
+                                if m.right {
+                                    def fKeyV:EvHandle (this.evaluateExpr((unwrap m.right)))
+                                    if scriptThrew {
+                                        return
+                                    }
+                                    fKey = (this.toPropertyKey(fKeyV))
+                                    if scriptThrew {
+                                        return
+                                    }
+                                }
+                            }
+                            def iv:EvHandle (this.evaluateExpr((unwrap m.init)))
+                            inst.setMember(fKey iv)
+                        }
+                    }
+                }
+                ; D-CLASSACCESSORS: `get v() {}` / `set v(x) {}` in a class body
+                ; install as real accessors on the instance. Without this the
+                ; member read returned the accessor FUNCTION instead of calling
+                ; it, which type-checks as a function and silently misbehaves.
+                if (m.nodeType == "MethodDefinition") {
+                    def mk:string m.accessor
+                    if ((strlen mk) == 0) {
+                        mk = m.kind
+                    }
+                    if ((mk == "get") || (mk == "set")) {
+                        def accFn:EvHandle (EvValueBridge.taggedBoundMethod(m inst))
+                        this.stampSrcOn(accFn)
+                        if (mk == "get") {
+                            inst.defineGetter(m.name accFn)
+                        } {
+                            inst.defineSetter(m.name accFn)
+                        }
+                    }
+                }
+                i = (i + 1)
+            }
+            context = savedCtx
+            currentModule = savedModule
+        }
+    }
+
     fn classValueFor:EvHandle (name:string) {
         def ckey:string (currentModule + ("::" + name))
         def found@(optional):EvHandle (get classValues ckey)
@@ -39230,6 +39700,17 @@ class ComponentEngine {
             def m:TSNode (itemAt body.children sj)
             if (m.nodeType == "PropertyDefinition") {
                 if (m.kind == "static") {
+                    def sKey:string m.name
+                    if m.computed {
+                        if m.right {
+                            def sKeyV:EvHandle (this.evaluateExpr((unwrap m.right)))
+                            if scriptThrew {
+                                sj = (array_length body.children)
+                            } {
+                                sKey = (this.toPropertyKey(sKeyV))
+                            }
+                        }
+                    }
                     def sv:EvHandle (EvValueBridge.taggedUndefined())
                     if m.init {
                         sv = (this.evaluateExpr((unwrap m.init)))
@@ -39237,7 +39718,7 @@ class ComponentEngine {
                     ; A field with no initialiser is still DEFINED, as
                     ; undefined -- `static x;` then `'x' in C` is true.
                     if (false == scriptThrew) {
-                        cv.setMember(m.name sv)
+                        cv.setMember(sKey sv)
                     }
                 }
             }
@@ -40430,57 +40911,12 @@ class ComponentEngine {
         if ((strlen clsModule) > 0) {
             inst.setMember("__module__" (EvValueBridge.taggedString(clsModule)))
         }
-        ; field initialisers (PropertyDefinition) run with this=inst, rooted in
-        ; the class's home module scope (a module class's `field = new Other()`
-        ; must see ITS module, not the construction site).
-        if cls.body {
-            def body:TSNode (unwrap cls.body)
-            def savedCtx:EvalContext context
-            def savedModule:string currentModule
-            def fieldParent:EvalContext context
-            if ((strlen clsModule) > 0) {
-                fieldParent = (this.moduleScopeFor(clsModule))
-                currentModule = clsModule
+        ; A BASE class installs its fields now; a derived one waits for super().
+        if (false == (this.classIsDerived(cls))) {
+            this.runInstanceFields(cls inst clsModule)
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
             }
-            context = (fieldParent.createChild())
-            context.define("this" inst)
-            def i 0
-            while (i < (array_length body.children)) {
-                def m:TSNode (itemAt body.children i)
-                if (m.nodeType == "PropertyDefinition") {
-                    ; A STATIC field belongs to the class, not to the instance.
-                    ; It ran here as well, so `static x = 5` left `C.x`
-                    ; undefined and gave every instance its own `x` instead.
-                    if (m.kind != "static") {
-                        if m.init {
-                            def iv:EvHandle (this.evaluateExpr((unwrap m.init)))
-                            inst.setMember(m.name iv)
-                        }
-                    }
-                }
-                ; D-CLASSACCESSORS: `get v() {}` / `set v(x) {}` in a class body
-                ; install as real accessors on the instance. Without this the
-                ; member read returned the accessor FUNCTION instead of calling
-                ; it, which type-checks as a function and silently misbehaves.
-                if (m.nodeType == "MethodDefinition") {
-                    def mk:string m.accessor
-                    if ((strlen mk) == 0) {
-                        mk = m.kind
-                    }
-                    if ((mk == "get") || (mk == "set")) {
-                        def accFn:EvHandle (EvValueBridge.taggedBoundMethod(m inst))
-                        this.stampSrcOn(accFn)
-                        if (mk == "get") {
-                            inst.defineGetter(m.name accFn)
-                        } {
-                            inst.defineSetter(m.name accFn)
-                        }
-                    }
-                }
-                i = (i + 1)
-            }
-            context = savedCtx
-            currentModule = savedModule
         }
         ; Constructor args evaluate at the construction site (caller context/
         ; module); the body roots at the instance's home module via the tag.
@@ -40538,6 +40974,14 @@ class ComponentEngine {
             } {
                 this.runSuperConstructor(cls inst node.children 0)
             }
+            ; The implicit constructor IS `super(...args)`, so a derived class's
+            ; fields go in once it has returned -- the same point an explicit
+            ; super() call installs them.
+            if (this.classIsDerived(cls)) {
+                if (false == scriptThrew) {
+                    this.runInstanceFields(cls inst clsModule)
+                }
+            }
         }
         return inst
     }
@@ -40566,10 +41010,17 @@ class ComponentEngine {
                 }
             }
 
+            optChainDepth = (optChainDepth + 1)
             def obj:EvHandle (this.evaluateExpr(leftExpr))
+            optChainDepth = (optChainDepth - 1)
             ; Same here: an unresolvable base is a ReferenceError, and it must
             ; not be overwritten by the property-of-undefined TypeError.
             if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            ; A short-circuit further down the chain ends this link too, without
+            ; reading anything.
+            if optChainAborted {
                 return (EvValueBridge.taggedUndefined())
             }
             ; D-STRICT: the poisoned `caller`/`arguments` pair, decided as soon
@@ -40591,7 +41042,21 @@ class ComponentEngine {
             ; happen exactly once, which is what the spec asks for.
             if node.optional {
                 if ((obj.isNull()) || (obj.isUndefined())) {
+                    optChainAborted = true
                     return (EvValueBridge.taggedUndefined())
+                }
+            }
+            ; D-PRIVATE: §13.3.2 a private name is not an ordinary property
+            ; read. If the receiver does not carry it the answer is a
+            ; TypeError, not undefined -- which is how `#x in o` is written
+            ; today and how a brand check reads.
+            if (false == node.computed) {
+                if ((strlen propName) > 0) {
+                    if ((substring propName 0 1) == "#") {
+                        if (false == (this.objHasKeyUpChain(obj propName))) {
+                            return (this.throwSpecError("TypeError" ("Cannot read private member " + (propName + " from an object whose class did not declare it"))))
+                        }
+                    }
                 }
             }
             ; annexB B.2.2.1: `o.__proto__` IS [[GetPrototypeOf]]. The accessor
@@ -41183,6 +41648,13 @@ class ComponentEngine {
     }
 
     fn isHiddenInstanceKey:boolean (k:string) {
+        ; D-PRIVATE: a private field's key literally begins with `#`, which no
+        ; ordinary property name may contain. That is what makes it private:
+        ; it is skipped by every enumeration, by JSON, and by the descriptor
+        ; walks -- the three ways a plain property would have leaked out.
+        if ((strlen k) > 0) {
+            if ((substring k 0 1) == "#") { return true }
+        }
         if (k == "__class__") { return true }
         if (k == "__classname__") { return true }
         if (k == "__staticdone__") { return true }
@@ -41208,6 +41680,8 @@ class ComponentEngine {
         if (k == "__tabrand__") { return true }
         if (k == "__abshared__") { return true }
         if (k == "__abviews__") { return true }
+        if (k == "__abmax__") { return true }
+        if (k == "__abdetached__") { return true }
         if (k == "__tabuffer__") { return true }
         if (k == "__biglimbs__") { return true }
         if (k == "__bigneg__") { return true }

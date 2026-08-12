@@ -222,6 +222,36 @@ const CASES: Array<[name: string, src: string]> = [
   ["aggregate-error-thrown",
     `try { throw new AggregateError([1, 2], "m"); }
      catch (e) { console.log(e.name + "|" + e.message + "|" + e.errors.join(",") + "|" + (e instanceof Error)); }`],
+  // An object may offer ONLY Symbol.asyncIterator -- a hand-written async
+  // iterable has no Symbol.iterator at all, and looking for one found nothing.
+  ["for-await-custom-async-iterable",
+    `var obj = { [Symbol.asyncIterator]() {
+       var i = 0;
+       return { next() { i++; return Promise.resolve({ value: i, done: i > 2 }); } };
+     } };
+     (async function () {
+       var out = [];
+       for await (var z of obj) { out.push(z); }
+       console.log("custom:" + out.join(","));
+     })();`],
+  ["for-await-async-generator-return",
+    `async function* g() { try { yield 1; yield 2; } finally { console.log("fin"); } }
+     (async function () {
+       for await (var w of g()) { break; }
+       console.log("done");
+     })();`],
+  ["async-generator-manual",
+    `async function* g() { yield 1; yield 2; yield 3; }
+     (async function () {
+       var it = g();
+       console.log("m:" + (await it.next()).value + "," + (await it.next()).value);
+       console.log("r:" + JSON.stringify(await it.return(9)));
+     })();`],
+  ["for-await-rejection",
+    `(async function () {
+       try { for await (var q of [Promise.resolve(1), Promise.reject(new Error("bad"))]) {} }
+       catch (e) { console.log("caught:" + e.message); }
+     })();`],
 ];
 
 function nodeOutput(dir: string, src: string): string {

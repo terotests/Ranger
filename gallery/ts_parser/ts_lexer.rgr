@@ -1050,6 +1050,20 @@ class TSLexer {
         ; point has to be written as its surrogate pair — otherwise \u{E01D5}
         ; truncated to U+01D5 and collided with an unrelated identifier.
         if (code > 65535) {
+            ; ...but only where a code unit IS the unit of storage. On the
+            ; code-POINT target (Rust) a lone surrogate is not a character at
+            ; all, so writing the pair produced two unrepresentable halves and
+            ; `"\u{10400}".charCodeAt(0)` answered 0. There, the code point is
+            ; written whole.
+            ; The same probe the regex engine's text layer uses: a supplementary
+            ; character is ONE unit only on the code-point model. strfromcode
+            ; cannot be probed with -- it truncates its argument on two of the
+            ; three targets, which is the very thing being worked around.
+            if ((strlen "😀") == 1) {
+                if ((strlen "é") == 1) {
+                    return (strfromcode code)
+                }
+            }
             def rest:int (code - 65536)
             def restD:double (to_double rest)
             def high:int (floor (restD / 1024.0))
@@ -1705,11 +1719,34 @@ class TSLexer {
                         }
                     }
                 } {
-                    def escCode:int (charAt esc 0)
-                    if (escCode >= 49) {
-                        if (escCode <= 57) {
-                            def refNum:int (escCode - 48)
-                            if (refNum > maxBackRef) { maxBackRef = refNum }
+                    ; `\p{...}` / `\P{...}`: a Unicode property escape, whose
+                    ; braces belong to the escape. Without skipping them the
+                    ; closing `}` read as a stray one and every property escape
+                    ; was rejected as an invalid pattern.
+                    def isPropEsc:boolean false
+                    if (unicodeMode) {
+                        if ((esc == "p") || (esc == "P")) {
+                            if ((substring body (i + 2) (i + 3)) == "{") { isPropEsc = true }
+                        }
+                    }
+                    if isPropEsc {
+                        def pj:int (i + 3)
+                        while (pj < n) {
+                            if ((substring body pj (pj + 1)) == "}") { break }
+                            pj = (pj + 1)
+                        }
+                        if ((substring body pj (pj + 1)) == "}") {
+                            skipTo = (pj + 1)
+                        } {
+                            return false
+                        }
+                    } {
+                        def escCode:int (charAt esc 0)
+                        if (escCode >= 49) {
+                            if (escCode <= 57) {
+                                def refNum:int (escCode - 48)
+                                if (refNum > maxBackRef) { maxBackRef = refNum }
+                            }
                         }
                     }
                 }
@@ -1760,6 +1797,27 @@ class TSLexer {
                                         }
                                     }
                                     if (numDigits == 0) { return false }
+                                    ; A well-formed bound's CLOSING brace belongs
+                                    ; to the quantifier. Leaving it to the next
+                                    ; iteration made `/a{2}/u` invalid, because
+                                    ; a bare `}` is rejected just above.
+                                    def bk:int k
+                                    if ((substring body bk (bk + 1)) == ",") {
+                                        bk = (bk + 1)
+                                        while (bk < n) {
+                                            def d2:string (substring body bk (bk + 1))
+                                            if (this.isDigit(d2)) {
+                                                bk = (bk + 1)
+                                            } {
+                                                break
+                                            }
+                                        }
+                                    }
+                                    if ((substring body bk (bk + 1)) == "}") {
+                                        i = bk
+                                    } {
+                                        return false
+                                    }
                                 }
                             }
                             i = (i + 1)

@@ -19,9 +19,9 @@
 ; into the quantifier and it tries the next count. Captures are engine state,
 ; saved and restored around every attempt that can fail.
 ;
-; What is deliberately absent: Unicode property escapes (\p{...}) and the `v`
-; flag. The `u`, `y`, `s` and `d` flags, named groups and lookbehind are all
-; here.
+; What is deliberately absent: the `v` flag's set notation. The `u`, `y`, `s`
+; and `d` flags, named groups, lookbehind and the \p{...} property escapes are
+; all here.
 ; =============================================================================
 
 ; Node kinds. Held as an int rather than a subclass hierarchy because Ranger has
@@ -54,6 +54,11 @@ class RegexNode {
     def anchorKind:int 0
     ; LOOK: negative lookahead when true.
     def lookNegate:boolean false
+    ; CLASS: the \p{...} properties this class matches, each encoded as
+    ; (index * 2) plus 1 for the NEGATED \P{...} form. Held apart from
+    ; `shorthands` because a property is a table lookup rather than one of the
+    ; six built-in classes.
+    def props:[int]
     ; BACKREF by NAME -- `\k<n>`. The name rather than the index, because a
     ; named backreference may point FORWARD to a group the parser has not
     ; reached yet; it is resolved against the program at match time.
@@ -222,6 +227,95 @@ class RegexText {
             if ((c >= 55296) && (c <= 57343)) { return "" }
         }
         return (strfromcode c)
+    }
+}
+
+; =============================================================================
+; Unicode properties
+; =============================================================================
+; D-PROPS: `\p{L}` and its kin, answered from the generated range table. The
+; ranges are sorted and disjoint, so membership is a binary search -- which
+; matters, because \p{L} alone is several hundred runs and a class is tested
+; once per character of the subject.
+;
+; The table is loaded ONCE per process: it is three static array literals, and
+; rebuilding them per match would cost more than the matching.
+class RegexProps @singleton(true) {
+    def loaded:boolean false
+    def names:[string]
+    def offsets:[int]
+    def counts:[int]
+    def ranges:[int]
+
+    fn ensure:void () {
+        if loaded { return }
+        loaded = true
+        names = (UnicodeProps.names())
+        offsets = (UnicodeProps.offsets())
+        counts = (UnicodeProps.counts())
+        ranges = (UnicodeProps.ranges())
+    }
+
+    static sfn lowerAscii:string (s:string) {
+        def upper:string "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        def lower:string "abcdefghijklmnopqrstuvwxyz"
+        def out:string ""
+        def i:int 0
+        while (i < (strlen s)) {
+            def ch:string (substring s i (i + 1))
+            def at:int (indexOf upper ch)
+            if (at >= 0) {
+                out = (out + (substring lower at (at + 1)))
+            } {
+                out = (out + ch)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    static sfn hasPrefix:boolean (s:string prefix:string) {
+        if ((strlen prefix) > (strlen s)) { return false }
+        return ((substring s 0 (strlen prefix)) == prefix)
+    }
+
+    static sfn indexOfName:int (name:string) {
+        def self:RegexProps (RegexProps.__singleton())
+        self.ensure()
+        def i:int 0
+        while (i < (array_length self.names)) {
+            if ((itemAt self.names i) == name) { return i }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; Whether code point `cp` is in property `idx`, by binary search over that
+    ; property's runs.
+    static sfn holds:boolean (idx:int cp:int) {
+        def self:RegexProps (RegexProps.__singleton())
+        self.ensure()
+        if (idx < 0) { return false }
+        if (idx >= (array_length self.offsets)) { return false }
+        def off:int (itemAt self.offsets idx)
+        def cnt:int (itemAt self.counts idx)
+        def lo:int 0
+        def hi:int (cnt - 1)
+        while (lo <= hi) {
+            def mid:int (lo + (bit_shr (hi - lo) 1))
+            def a:int (itemAt self.ranges ((off + mid) * 2))
+            def b:int (itemAt self.ranges (((off + mid) * 2) + 1))
+            if (cp < a) {
+                hi = (mid - 1)
+            } {
+                if (cp > b) {
+                    lo = (mid + 1)
+                } {
+                    return true
+                }
+            }
+        }
+        return false
     }
 }
 
@@ -761,6 +855,17 @@ class RegexCompiler {
             def e:int (this.peekAt(1))
             ; The shorthands cannot take part in a range, so they are recorded
             ; separately and the caller is told there is no code unit.
+            ; A property escape INSIDE a class contributes its whole set, and
+            ; like a shorthand it cannot be one end of a range.
+            if (uMode) {
+                if ((e == 112) || (e == 80)) {
+                    def cpid:int (this.readPropertyEscape((e == 80)))
+                    if (cpid >= 0) {
+                        push cls.props cpid
+                    }
+                    return (0 - 1)
+                }
+            }
             if (e == 100) {
                 pos = (pos + 2)
                 push cls.shorthands 1
@@ -827,6 +932,40 @@ class RegexCompiler {
             return 120
         }
         if (e == 117) {
+            ; `\u{...}` -- the Unicode-mode form, which is the only way to write
+            ; a code point past U+FFFF in a pattern. Without it the braces were
+            ; read as literal characters and `[\u{10400}]` matched the letter u.
+            if (uMode) {
+                if ((this.uAt(pos)) == 123) {
+                    def bp:int (pos + 1)
+                    def cp:int 0
+                    def digits:int 0
+                    def scanning:boolean true
+                    while (scanning && (bp < srcLen)) {
+                        def hc:int (this.uAt(bp))
+                        def hv:int (0 - 1)
+                        if ((hc >= 48) && (hc <= 57)) { hv = (hc - 48) }
+                        if ((hc >= 97) && (hc <= 102)) { hv = ((hc - 97) + 10) }
+                        if ((hc >= 65) && (hc <= 70)) { hv = ((hc - 65) + 10) }
+                        if (hv < 0) {
+                            ; Stop AT the non-digit -- the closing brace is
+                            ; checked next, and moving the cursor to the end
+                            ; instead lost it.
+                            scanning = false
+                        } {
+                            cp = ((cp * 16) + hv)
+                            digits = (digits + 1)
+                            bp = (bp + 1)
+                        }
+                    }
+                    if (digits > 0) {
+                        if ((this.uAt(bp)) == 125) {
+                            pos = (bp + 1)
+                            return cp
+                        }
+                    }
+                }
+            }
             def v2:int (this.readHex(4))
             if (v2 >= 0) { return v2 }
             return 117
@@ -869,6 +1008,69 @@ class RegexCompiler {
         return v
     }
 
+    ; `\p{Name}` / `\p{Key=Value}`, positioned at the backslash. Answers the
+    ; encoded property id, or -1 having marked the pattern as failed.
+    fn readPropertyEscape:int (negated:boolean) {
+        if ((this.peekAt(2)) != 123) {
+            failed = true
+            failMessage = "Invalid property name"
+            pos = (pos + 2)
+            return (0 - 1)
+        }
+        def p:int (pos + 3)
+        def raw:string ""
+        def reading:boolean true
+        while (reading && (p < srcLen)) {
+            def c:string (this.uStr(p))
+            if (c == "}") {
+                reading = false
+            } {
+                raw = (raw + c)
+                p = (p + 1)
+            }
+        }
+        if reading {
+            failed = true
+            failMessage = "Invalid property name"
+            pos = srcLen
+            return (0 - 1)
+        }
+        pos = (p + 1)
+        ; Canonicalised the way the table stores it: lowercase, and the two
+        ; spellings of a general category -- `\p{Lu}` and
+        ; `\p{General_Category=Lu}` -- name the same set.
+        def name:string (RegexProps.lowerAscii(raw))
+        def isGcLong:boolean (RegexProps.hasPrefix(name "general_category="))
+        if isGcLong {
+            name = (substring name 17 (strlen name))
+        }
+        def isGcShort:boolean (RegexProps.hasPrefix(name "gc="))
+        if isGcShort {
+            name = (substring name 3 (strlen name))
+        }
+        def isScShort:boolean (RegexProps.hasPrefix(name "sc="))
+        if isScShort {
+            name = ("script=" + (substring name 3 (strlen name)))
+        }
+        def isScxLong:boolean (RegexProps.hasPrefix(name "script_extensions="))
+        if isScxLong {
+            name = ("script=" + (substring name 18 (strlen name)))
+        }
+        def isScxShort:boolean (RegexProps.hasPrefix(name "scx="))
+        if isScxShort {
+            name = ("script=" + (substring name 4 (strlen name)))
+        }
+        def idx:int (RegexProps.indexOfName(name))
+        if (idx < 0) {
+            failed = true
+            failMessage = ("Invalid property name: " + raw)
+            return (0 - 1)
+        }
+        def encoded:int (idx * 2)
+        if negated { encoded = (encoded + 1) }
+        return encoded
+    }
+
     fn parseEscape:RegexNode () {
         def e:int (this.peekAt(1))
         ; Word-boundary assertions.
@@ -901,18 +1103,18 @@ class RegexCompiler {
             push sc.shorthands short
             return sc
         }
-        ; \p{...} / \P{...} — Unicode property escapes. There is no general
-        ; category table here, and matching the letters `p{L}` literally would
-        ; answer a confident FALSE for a pattern the guest expects to work, so
-        ; this refuses in Unicode mode rather than misreading it. Outside
-        ; Unicode mode `\p` is an identity escape and means the letter p, which
-        ; is what the fall-through below already does.
+        ; \p{...} / \P{...} — a Unicode property escape, which is a one-member
+        ; CLASS whose members come from a table. Outside Unicode mode `\p` is an
+        ; identity escape meaning the letter p, which the fall-through below
+        ; already handles: the escape only has this meaning under `u`.
         if (uMode) {
             if ((e == 112) || (e == 80)) {
-                failed = true
-                failMessage = "Unicode property escapes are not supported"
+                def pid:int (this.readPropertyEscape((e == 80)))
                 def pe (new RegexNode)
-                pe.kind = 0
+                pe.kind = 2
+                if (pid >= 0) {
+                    push pe.props pid
+                }
                 return pe
             }
         }
@@ -1341,6 +1543,28 @@ class RegexMatcher {
         def p:RegexProgram (unwrap prog)
         if (n.kind == 0) {
             if (pos >= inLen) { return (0 - 1) }
+            ; A literal past U+FFFF -- written `\u{1F600}` -- is one CODE POINT
+            ; and two code units, so it is compared as a code point and consumes
+            ; both. Comparing the unit alone could only ever match a surrogate
+            ; half, which no pattern means.
+            if (n.ch > 65535) {
+                if p.unicode {
+                    if ((pos + 1) < inLen) {
+                        def hiU:int (this.cAt(pos))
+                        def loU:int (this.cAt((pos + 1)))
+                        if ((hiU >= 55296) && (hiU <= 56319)) {
+                            if ((loU >= 56320) && (loU <= 57343)) {
+                                def cpHere:int ((65536 + ((hiU - 55296) * 1024)) + (loU - 56320))
+                                if (cpHere == n.ch) {
+                                    return (pos + 2)
+                                }
+                            }
+                        }
+                    }
+                    ; The code-POINT string model stores it as one unit, so the
+                    ; direct comparison below still has to run.
+                }
+            }
             if (this.sameChar((this.cAt(pos)) n.ch)) {
                 return (pos + 1)
             }
@@ -1362,7 +1586,21 @@ class RegexMatcher {
         }
         if (n.kind == 2) {
             if (pos >= inLen) { return (0 - 1) }
-            if (this.classMatches(n (this.cAt(pos)))) {
+            ; In Unicode mode a class is tested against the CODE POINT, not the
+            ; code unit: a `\p{L}` against an astral letter saw only the high
+            ; surrogate, which belongs to no property at all.
+            def cc:int (this.cAt(pos))
+            if p.unicode {
+                if ((cc >= 55296) && (cc <= 56319)) {
+                    if ((pos + 1) < inLen) {
+                        def lowU:int (this.cAt((pos + 1)))
+                        if ((lowU >= 56320) && (lowU <= 57343)) {
+                            cc = ((65536 + ((cc - 55296) * 1024)) + (lowU - 56320))
+                        }
+                    }
+                }
+            }
+            if (this.classMatches(n cc)) {
                 return (this.advanceIndex(pos p.unicode))
             }
             return (0 - 1)
@@ -1569,6 +1807,18 @@ class RegexMatcher {
             if (sh == 5) { if (this.isSpaceChar(c)) { hit = true } }
             if (sh == 6) { if (false == (this.isSpaceChar(c))) { hit = true } }
             si = (si + 1)
+        }
+        ; D-PROPS: the \p{...} members. `c` is a code point here -- the matcher
+        ; hands whole characters to a class in Unicode mode -- so the table is
+        ; consulted directly.
+        def pi:int 0
+        while (pi < (array_length n.props)) {
+            def enc:int (itemAt n.props pi)
+            def pIdx:int (bit_shr enc 1)
+            def pNeg:boolean ((bit_and enc 1) == 1)
+            def inSet:boolean (RegexProps.holds(pIdx c))
+            if (inSet != pNeg) { hit = true }
+            pi = (pi + 1)
         }
         if n.negate {
             return (false == hit)

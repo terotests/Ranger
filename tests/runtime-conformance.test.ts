@@ -2200,6 +2200,113 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["bigint64array-over-buffer", "var b = new ArrayBuffer(8); var a = new BigInt64Array(b); var d = new DataView(b); a[0] = 258n; return d.getUint8(0) + ',' + d.getUint8(1);", "es2020"],
   ["dataview-bigint-roundtrip", "var d = new DataView(new ArrayBuffer(8)); d.setBigInt64(0, -2n); return String(d.getBigInt64(0)) + ',' + String(d.getBigUint64(0));", "es2020"],
   ["dataview-bigint-refuses-number", "try { new DataView(new ArrayBuffer(8)).setBigInt64(0, 5); return 'no'; } catch (e) { return e.constructor.name; }", "es2020"],
+
+  // --- optional chaining: the WHOLE chain short-circuits ---------------------
+  ["optchain-whole-chain", "var o = null; return String(o?.a.b.c);", "es2020"],
+  ["optchain-call-in-chain", "var o = null; return String(o?.a());", "es2020"],
+  ["optchain-index-in-chain", "var o = null; return String(o?.[0][1]);", "es2020"],
+  ["optchain-deep-undefined", "var o = { a: undefined }; return String(o.a?.b.c.d);", "es2020"],
+  ["optchain-fn-then-prop", "var o = {}; return String(o.f?.().x);", "es2020"],
+  ["optchain-call-then-call", "var o = null; return String(o?.a().b());", "es2020"],
+  ["optchain-after-call", "var o = { f: function () { return null; } }; return String(o.f()?.a.b);", "es2020"],
+  ["optchain-rest-not-evaluated", "var n = 0; var o = null; var x = o?.a[n++].b; return n + ',' + String(x);", "es2020"],
+  ["optchain-side-effect-once", "var n = 0; function g() { n++; return null; } var x = g()?.a.b; return n + ',' + String(x);", "es2020"],
+  ["optchain-does-not-leak", "var n = 0; var o = null; o?.[n++]; return n;", "es2020"],
+  ["optchain-arg-isolated", "function f(x) { return '[' + x + ']'; } var o = null; return f(o?.a.b) + '|ok';", "es2020"],
+  ["optchain-not-nullish", "var o = { a: { b: { c: 7 } } }; return o?.a.b.c;", "es2020"],
+  ["optchain-in-template", "var o = null; return `${o?.a.b}`;", "es2020"],
+
+  // --- annexB accessor helpers ----------------------------------------------
+  ["defineGetter", "var o = {}; o.__defineGetter__('x', function () { return 5; }); return o.x;", "annexB"],
+  ["defineSetter", "var o = {}; var v; o.__defineSetter__('y', function (a) { v = a; }); o.y = 3; return v;", "annexB"],
+  ["defineGetter-enumerable", "var o = {}; o.__defineGetter__('x', function () { return 1; }); return Object.keys(o).join(',');", "annexB"],
+  ["defineGetter-noncallable", "try { ({}).__defineGetter__('x', 1); return 'no'; } catch (e) { return e.constructor.name; }", "annexB"],
+  ["lookupGetter", "var o = { get x() { return 1; } }; return typeof o.__lookupGetter__('x');", "annexB"],
+  ["lookupSetter", "var o = { set x(v) {} }; return typeof o.__lookupSetter__('x');", "annexB"],
+  ["lookupGetter-up-chain", "var p = { get x() { return 1; } }; var o = Object.create(p); return typeof o.__lookupGetter__('x');", "annexB"],
+  ["lookupGetter-shadowed", "var p = { get x() { return 1; } }; var o = Object.create(p); o.x = 2; return String(o.__lookupGetter__('x'));", "annexB"],
+  ["lookupGetter-absent", "return String(({}).__lookupGetter__('nope'));", "annexB"],
+
+  // --- ArrayBuffer transfer / resize (ES2024) --------------------------------
+  ["ab-detached-false", "return new ArrayBuffer(8).detached;", "es2024"],
+  ["ab-transfer", "var b = new ArrayBuffer(8); var c = b.transfer(); return c.byteLength + ',' + b.byteLength + ',' + b.detached;", "es2024"],
+  ["ab-transfer-size", "return new ArrayBuffer(8).transfer(16).byteLength;", "es2024"],
+  ["ab-transfer-twice", "var b = new ArrayBuffer(8); b.transfer(); try { b.transfer(); return 'no'; } catch (e) { return e.constructor.name; }", "es2024"],
+  ["ab-transfer-keeps-bytes", "var b = new ArrayBuffer(4); new Uint8Array(b)[0] = 9; return new Uint8Array(b.transfer())[0];", "es2024"],
+  ["ab-transfer-empties-view", "var b = new ArrayBuffer(4); var v = new Uint8Array(b); v[0] = 9; b.transfer(); return v[0];", "es2024"],
+  ["ab-resizable", "var b = new ArrayBuffer(8, { maxByteLength: 16 }); return b.resizable + ',' + b.maxByteLength;", "es2024"],
+  ["ab-not-resizable", "var b = new ArrayBuffer(8); return b.resizable + ',' + b.maxByteLength;", "es2024"],
+  ["ab-resize", "var b = new ArrayBuffer(8, { maxByteLength: 16 }); b.resize(12); return b.byteLength;", "es2024"],
+  ["ab-resize-too-big", "var b = new ArrayBuffer(8, { maxByteLength: 16 }); try { b.resize(20); return 'no'; } catch (e) { return e.constructor.name; }", "es2024"],
+  ["ab-resize-fixed", "try { new ArrayBuffer(8).resize(4); return 'no'; } catch (e) { return e.constructor.name; }", "es2024"],
+
+  // --- Map.groupBy -----------------------------------------------------------
+  ["map-groupBy", "var m = Map.groupBy([1, 2, 3], function (x) { return x % 2 ? 'odd' : 'even'; }); return m.get('odd').join(',') + '|' + m.get('even').join(',');", "es2024"],
+  ["map-groupBy-object-key", "var k = {}; var m = Map.groupBy([1, 2], function () { return k; }); return m.get(k).join(',');", "es2024"],
+  ["map-groupBy-size", "return Map.groupBy([1, 2, 3, 4], function (x) { return x % 2; }).size;", "es2024"],
+  ["map-groupBy-noncallable", "try { Map.groupBy([1], 5); return 'no'; } catch (e) { return e.constructor.name; }", "es2024"],
+
+  // --- class fields: computed names, privacy, and derived ordering -----------
+  ["class-field-computed", "var k = 'q'; class FcA { [k] = 7; } return new FcA().q;", "es2022"],
+  ["class-static-field-computed", "var k = 's'; class FcB { static [k] = 8; } return FcB.s;", "es2022"],
+  // A private field is not a property: no enumeration, no JSON, no read from
+  // outside the class.
+  ["class-private-not-enumerable", "class FcC { #a = 1; b = 2; } return Object.keys(new FcC()).join(',');", "es2022"],
+  ["class-private-not-in-json", "class FcD { #a = 1; b = 2; } return JSON.stringify(new FcD());", "es2022"],
+  ["class-private-not-in-gopn", "class FcE { #a = 1; b = 2; } return Object.getOwnPropertyNames(new FcE()).join(',');", "es2022"],
+  ["class-private-not-in-forin", "class FcF { #a = 1; b = 2; } var out = []; for (var k in new FcF()) { out.push(k); } return out.join(',');", "es2022"],
+  ["class-private-not-spread", "class FcG { #a = 1; b = 2; } return JSON.stringify(Object.assign({}, new FcG()));", "es2022"],
+  ["class-private-brand-throws", "class FcH { #a = 1; static read(o) { return o.#a; } } try { FcH.read({}); return 'no'; } catch (e) { return e.constructor.name; }", "es2022"],
+  ["class-private-brand-ok", "class FcI { #a = 7; static read(o) { return o.#a; } } return FcI.read(new FcI());", "es2022"],
+  ["class-private-in", "class FcJ { #a = 1; static has(o) { return #a in o; } } return FcJ.has(new FcJ()) + ',' + FcJ.has({});", "es2022"],
+  ["class-private-accessor", "class FcK { #v = 1; get v() { return this.#v; } set v(x) { this.#v = x; } } var c = new FcK(); c.v = 9; return c.v;", "es2022"],
+  ["class-private-method", "class FcL { #m() { return 3; } run() { return this.#m(); } } return new FcL().run();", "es2022"],
+  // §15.7.14: a derived class installs its fields when super() RETURNS, so the
+  // base constructor cannot see them.
+  ["class-derived-field-order", "class FcM { constructor() { this.init(); } init() {} } class FcN extends FcM { x = 5; init() { this.seen = this.x; } } var b = new FcN(); return String(b.seen) + ',' + b.x;", "es2022"],
+  ["class-base-field-order", "class FcO { x = 5; constructor() { this.seen = this.x; } } return new FcO().seen;", "es2022"],
+  ["class-derived-explicit-ctor", "class FcP { constructor() { this.init(); } init() {} } class FcQ extends FcP { x = 5; constructor() { super(); this.after = this.x; } init() { this.seen = this.x; } } var b = new FcQ(); return String(b.seen) + ',' + b.after;", "es2022"],
+
+  // --- Unicode property escapes (ES2018) -------------------------------------
+  ["re-prop-L", "return /\\p{L}/u.test('é') + ',' + /\\p{L}/u.test('1');", "es2018"],
+  ["re-prop-Lu", "return /\\p{Lu}/u.test('A') + ',' + /\\p{Lu}/u.test('a');", "es2018"],
+  ["re-prop-Ll", "return /^\\p{Ll}+$/u.test('abc');", "es2018"],
+  ["re-prop-N", "return /\\p{N}/u.test('٣');", "es2018"],
+  ["re-prop-Nd", "return /^\\p{Nd}+$/u.test('123');", "es2018"],
+  ["re-prop-negated", "return /\\P{L}/u.test('1') + ',' + /\\P{L}/u.test('a');", "es2018"],
+  ["re-prop-script-greek", "return /\\p{Script=Greek}/u.test('α') + ',' + /\\p{Script=Greek}/u.test('a');", "es2018"],
+  ["re-prop-script-han", "return /\\p{Script=Han}/u.test('漢');", "es2018"],
+  ["re-prop-sc-short", "return /\\p{sc=Latin}/u.test('a');", "es2018"],
+  ["re-prop-gc-long", "return /\\p{General_Category=Lu}/u.test('Q');", "es2018"],
+  ["re-prop-white-space", "return /\\p{White_Space}/u.test('\\u00a0');", "es2018"],
+  ["re-prop-alphabetic", "return /\\p{Alphabetic}/u.test('ñ');", "es2018"],
+  ["re-prop-ascii", "return /^\\p{ASCII}+$/u.test('hi') + ',' + /^\\p{ASCII}+$/u.test('hí');", "es2018"],
+  ["re-prop-in-class", "return /^[\\p{L}\\p{Nd}]+$/u.test('ab12é');", "es2018"],
+  ["re-prop-in-negated-class", "return /^[^\\p{L}]+$/u.test('123');", "es2018"],
+  // An astral letter is one CODE POINT; a class that saw only the high
+  // surrogate matched nothing.
+  ["re-prop-astral", "return /\\p{L}/u.test('\\u{10400}');", "es2018"],
+  ["re-prop-emoji", "return /\\p{Emoji}/u.test('😀');", "es2018"],
+  ["re-prop-quantified", "return /\\p{L}+/u.exec('héllo world')[0];", "es2018"],
+  ["re-prop-replace", "return 'a1b2'.replace(/\\p{Nd}/gu, '#');", "es2018"],
+  ["re-prop-M", "return /\\p{M}/u.test('\\u0301');", "es2018"],
+  ["re-prop-P", "return /\\p{P}/u.test('!');", "es2018"],
+  ["re-prop-S", "return /\\p{S}/u.test('+');", "es2018"],
+  ["re-prop-unknown-name", "try { new RegExp('\\\\p{Nope}', 'u'); return 'no'; } catch (e) { return e.constructor.name; }", "es2018"],
+  // Without `u`, \p is an identity escape and means the letter p.
+  ["re-prop-no-u-flag", "return /\\p{L}/.test('p{L}');", "es2018"],
+
+  // Unicode-mode literals: a braced quantifier, a braced code point, and an
+  // astral character, none of which the u-mode validator used to accept.
+  ["re-u-braced-quantifier", "return /a{2}/u.test('aa') + ',' + /a{2,}/u.test('aaa') + ',' + /a{2,4}/u.test('aaa');", "es2015"],
+  ["re-u-codepoint-escape", "return /\\u{41}/u.test('A');", "es2015"],
+  ["re-u-astral-escape", "return /\\u{10400}/u.test('\\u{10400}');", "es2015"],
+  ["re-u-astral-in-class", "return /[\\u{10400}]/u.test('\\u{10400}');", "es2015"],
+  ["re-u-astral-dot", "return /./u.exec('\\u{10400}')[0].length;", "es2015"],
+  ["string-astral-escape", "var s = '\\u{10400}'; return s.length + ',' + s.charCodeAt(0) + ',' + s.codePointAt(0);", "es2015"],
+
+  // --- async iteration -------------------------------------------------------
+  ["async-iterator-symbol-exists", "return typeof Symbol.asyncIterator;", "es2018"],
 ];
 
 /**
