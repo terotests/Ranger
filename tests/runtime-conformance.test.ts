@@ -1943,6 +1943,24 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["async-linebreak-before-arrow", "var async = function (x) { return 'called'; }; var r = async\n(1);\nreturn r;", "async"],
   // The parameters of an async function are not part of its body.
   ["async-params-no-await", "try { eval('async function f(x = await 1) {}'); return 'ACCEPTED'; } catch (e) { return e.constructor.name; }", "async"],
+  // Private-field edges. Eleven of these already held; `o?.#x` did not --
+  // parseMemberName reads a private name fine, but the `?.` branch gated on
+  // isNameToken() and `#` is a punctuator, so the branch never fired and the
+  // postfix loop left the OBJECT as the result: `o?.#x` evaluated to `o`.
+  ["priv-in-operator", "class PrivIn { #x = 1; static has(o) { return #x in o; } } return PrivIn.has(new PrivIn()) + ',' + PrivIn.has({});", "class"],
+  ["priv-optional-chain", "class PrivOC { #x = 5; get(o) { return o?.#x; } } return String(new PrivOC().get(new PrivOC()));", "class"],
+  ["priv-optional-chain-null", "class PrivOCN { #x = 5; get(o) { return o?.#x; } } return String(new PrivOCN().get(null));", "class"],
+  ["priv-optional-chain-method", "class PrivOCM { #f() { return 6; } go(o) { return o?.#f(); } } return String(new PrivOCM().go(new PrivOCM()));", "class"],
+  ["priv-static-field", "class PrivSF { static #n = 7; static get() { return PrivSF.#n; } } return PrivSF.get();", "class"],
+  ["priv-static-method", "class PrivSM { static #f() { return 3; } static go() { return PrivSM.#f(); } } return PrivSM.go();", "class"],
+  ["priv-method", "class PrivM { #f() { return 4; } go() { return this.#f(); } } return new PrivM().go();", "class"],
+  ["priv-getter-setter", "class PrivGS { #v = 1; get x() { return this.#v; } set x(n) { this.#v = n; } } var c = new PrivGS(); c.x = 9; return c.x;", "class"],
+  ["priv-brand-check-throws", "class PrivBC { #x = 1; static read(o) { return o.#x; } } try { PrivBC.read({}); return 'NO-THROW'; } catch (e) { return e.constructor.name; }", "class"],
+  ["priv-not-in-keys", "class PrivNK { #x = 1; y = 2; } return Object.keys(new PrivNK()).join(',');", "class"],
+  ["priv-static-block", "class PrivSB { static #n; static { PrivSB.#n = 11; } static get() { return PrivSB.#n; } } return PrivSB.get();", "class"],
+  ["priv-inherited-not-shared", "class A { #x = 1; static hasA(o) { return #x in o; } } class B extends A {} return String(A.hasA(new B()));", "class"],
+  ["priv-name-collision", "class A { #x = 1; ax() { return this.#x; } } class B { #x = 2; bx() { return this.#x; } } return new A().ax() + ',' + new B().bx();", "class"],
+
   ["async-inner-arrow-params-ok", "async function f() { var g = (x = 1) => x; return g(); } return typeof f().then;", "async"],
   // Listed in KNOWN_GAPS: the async-generator OBJECT is still a sync one.
   ["async-gen-obj-tostring-tag", "async function* f() {} return Object.prototype.toString.call(f());", "async"],

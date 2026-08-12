@@ -3222,6 +3222,42 @@ class ComponentEngine {
         return (this.evaluateFunctionWithProps(fnNode props))
     }
 
+    ; callRender for a host that has data rather than engine values. Building
+    ; the props by hand -- taggedObject, then setMember per key, wrapping every
+    ; value in the right tagged* constructor -- is a lot of ceremony for
+    ; `{ score: 7 }`, and every embedder was writing the same conversion loop.
+    ;
+    ; JSON is the interchange format every host already has, and this engine
+    ; parses it natively, so the props arrive as ordinary engine values with
+    ; their TYPES intact: numbers stay numbers, nested objects and arrays come
+    ; through whole. `engine.callRenderJson("hud", JSON.stringify(props))`.
+    ;
+    ; What JSON cannot carry, it cannot carry here either: a handler prop
+    ; (`onClick`) has no JSON form. A host that needs one builds that prop
+    ; itself and uses callRender.
+    fn callRenderJson:EvElement (name:string propsJson:string) {
+        def props:EvHandle (this.propsFromJson(propsJson))
+        if scriptThrew {
+            scriptThrew = false
+            ; Bound to a local before returning: a shared class is returned by
+            ; handle, and the codegen wraps a `new` only where it is bound.
+            def bad (new EvElement())
+            return bad
+        }
+        return (this.callRender(name props))
+    }
+
+    ; A props object from JSON text. Empty text is an empty object rather than
+    ; an error: "no props" is a normal thing for a host to mean.
+    fn propsFromJson:EvHandle (propsJson:string) {
+        if ((strlen propsJson) == 0) {
+            def ks:[string]
+            def vs:[EvHandle]
+            return (EvValueBridge.taggedObject(ks vs))
+        }
+        return (this.jsonParse(propsJson))
+    }
+
     ; ==========================================================================
     ; Component Registration
     ; ==========================================================================
@@ -17065,6 +17101,49 @@ class ComponentEngine {
             }
         }
         
+        ; Not in the registry. The registry only ever held TOP-LEVEL function
+        ; declarations, so every other way of writing a component was invisible
+        ; to it: `const Hi = () => …`, `const Hi = function () {…}`, `let Hi =
+        ; …`, and a `function Inner()` nested inside the render function. All
+        ; four rendered as an empty <div> with a warning nothing reads.
+        ;
+        ; A component is not a special kind of declaration -- it is a FUNCTION,
+        ; and the scope already knows every function by name. Looking the tag up
+        ; as an ordinary value covers all four forms at once, and it goes
+        ; through the normal call machinery, so a closure keeps the scope it
+        ; captured (which is the whole point of `const Hi = () => …` inside
+        ; another function).
+        ;
+        ; The registry is still consulted FIRST, above: it carries the helper
+        ; functions an imported module brings with it, which a bare scope lookup
+        ; has no way to know about.
+        def asValue:EvHandle (context.lookup(name))
+        if (asValue.isFunction()) {
+            def vProps:EvHandle (this.evaluateProps(jsxNode))
+            if scriptThrew {
+                def threw1 (new EvElement())
+                return threw1
+            }
+            def vArgs:[EvHandle]
+            push vArgs vProps
+            def vRes:EvHandle (this.callFnValueWithValues(asValue vArgs))
+            if scriptThrew {
+                def threw2 (new EvElement())
+                return threw2
+            }
+            if (vRes.hasElement()) {
+                return (vRes.elementOf())
+            }
+            ; A component that answers something other than an element -- null
+            ; or false, the two conventional "render nothing" values -- becomes
+            ; an empty FRAGMENT, which a host splices away rather than drawing.
+            if ((vRes.isNull()) || ((vRes.isUndefined()) || (vRes.isBoolean()))) {
+                def blank (new EvElement())
+                blank.isFragment = true
+                return blank
+            }
+        }
+
         ; Not found - return empty element
         print ("Warning: Unknown component: " + name)
         def empty (new EvElement())
@@ -17286,10 +17365,7 @@ class ComponentEngine {
             }
             
             if (child.nodeType == "JSXElement") {
-                def childEl:EvElement (this.evaluateJSXElement(child))
-                if ((strlen childEl.tagName) > 0) {
-                    element.addChild(childEl)
-                }
+                this.addChildElement(element (this.evaluateJSXElement(child)))
             }
             
             if (child.nodeType == "JSXExpressionContainer") {
@@ -17352,10 +17428,7 @@ class ComponentEngine {
     fn appendChildValue:void (element:EvElement value:EvHandle) {
         if (value.isElement()) {
             if (value.hasElement()) {
-                def childEl:EvElement (value.elementOf())
-                if (this.isRenderableElement(childEl)) {
-                    element.addChild(childEl)
-                }
+                this.addChildElement(element (value.elementOf()))
             }
             return
         }
@@ -17384,6 +17457,27 @@ class ComponentEngine {
         if el.isFragment { return true }
         if el.isText { return true }
         return false
+    }
+
+    ; Append one element as a child of another. A FRAGMENT contributes its
+    ; CHILDREN rather than itself -- `<><A/><B/></>` inside a parent means two
+    ; children OF that parent, which is the entire reason the syntax exists.
+    ; Appending the fragment itself would leave a phantom node that every host
+    ; would then have to know to skip, and dropping it (what the tag-length
+    ; test below used to do, since a fragment has no tag) lost the children
+    ; altogether. Recursive, so nested fragments flatten in one pass.
+    fn addChildElement:void (element:EvElement childEl:EvElement) {
+        if childEl.isFragment {
+            def fi:int 0
+            while (fi < (array_length childEl.children)) {
+                this.addChildElement(element (itemAt childEl.children fi))
+                fi = (fi + 1)
+            }
+            return
+        }
+        if (this.isRenderableElement(childEl)) {
+            element.addChild(childEl)
+        }
     }
 
     ; ==========================================================================
@@ -17778,13 +17872,13 @@ class ComponentEngine {
             return (EvValueBridge.taggedElement(el))
         }
         
-        ; JSX Fragment as expression
+        ; JSX Fragment as expression. The SAME evaluation as the JSX path, not
+        ; a second one beside it: this branch used to mint a `div` container of
+        ; its own, so `<>…</>` was a fragment when it was the whole body and a
+        ; renderer's box when it was an expression -- which is what a component
+        ; written `const Hi = () => <>…</>` hit.
         if (node.nodeType == "JSXFragment") {
-            ; Create a container div for the fragment
-            def el (new EvElement())
-            el.tagName = "div"
-            this.evaluateChildren(el node)
-            return (EvValueBridge.taggedElement(el))
+            return (EvValueBridge.taggedElement((this.evaluateJSX(node))))
         }
         
         ; Call Expression (function calls)

@@ -352,6 +352,93 @@ const CASES: Array<[name: string, src: string, props: Record<string, unknown>, e
     {},
     ["<(none) frag>", `  <Label text t="f">`].join("\n"),
   ],
+
+  // ---- how a component is WRITTEN ----
+  // The component registry only ever held top-level function declarations, so
+  // every other form rendered as an empty <div> with a warning nothing reads.
+  // A component is not a special kind of declaration -- it is a function, and
+  // the scope already knows every function by name.
+  [
+    "arrow-component",
+    `const Hi = () => <Label>hi</Label>;
+     function hud(p) { return <View><Hi /></View>; }`,
+    {},
+    ["<View>", `  <Label text t="hi">`].join("\n"),
+  ],
+  [
+    "arrow-component-takes-props",
+    `const Hi = (q) => <Label>{q.who}</Label>;
+     function hud(p) { return <View><Hi who="w" /></View>; }`,
+    {},
+    ["<View>", `  <Label text t="w">`].join("\n"),
+  ],
+  [
+    "const-function-expression-component",
+    `const Hi = function () { return <Label>cf</Label>; };
+     function hud(p) { return <View><Hi /></View>; }`,
+    {},
+    ["<View>", `  <Label text t="cf">`].join("\n"),
+  ],
+  [
+    "let-arrow-component",
+    `let Hi = () => <Label>l</Label>;
+     function hud(p) { return <View><Hi /></View>; }`,
+    {},
+    ["<View>", `  <Label text t="l">`].join("\n"),
+  ],
+  [
+    "nested-function-component",
+    `function hud(p) {
+       function Inner() { return <Label>in</Label>; }
+       return <View><Inner /></View>;
+     }`,
+    {},
+    ["<View>", `  <Label text t="in">`].join("\n"),
+  ],
+  [
+    // A closure keeps the scope it captured -- the reason to write one.
+    "arrow-component-closes-over-scope",
+    `function hud(p) {
+       var n = 9;
+       const Hi = () => <Label>{n}</Label>;
+       return <View><Hi /></View>;
+     }`,
+    {},
+    ["<View>", `  <Label text t="9">`].join("\n"),
+  ],
+  [
+    // `return null` is how a component says "draw nothing", and nothing is
+    // what it contributes -- siblings are untouched.
+    "component-returning-null-draws-nothing",
+    `const Hi = () => null;
+     function hud(p) { return <View><Hi /><Label>after</Label></View>; }`,
+    {},
+    ["<View>", `  <Label text t="after">`].join("\n"),
+  ],
+  [
+    // A fragment in a CHILD position contributes its children, not itself.
+    // Appending it would leave a phantom node every host has to skip; the tag
+    // test that used to guard this dropped it (a fragment has no tag) and lost
+    // the children with it.
+    "component-returning-a-fragment-splices",
+    `const Hi = () => <><Label>a</Label><Label>b</Label></>;
+     function hud(p) { return <View><Hi /></View>; }`,
+    {},
+    ["<View>", `  <Label text t="a">`, `  <Label text t="b">`].join("\n"),
+  ],
+  [
+    "inline-fragment-child-splices",
+    `function hud(p) { return <View><><Label>a</Label><Label>b</Label></><Label>c</Label></View>; }`,
+    {},
+    ["<View>", `  <Label text t="a">`, `  <Label text t="b">`, `  <Label text t="c">`].join("\n"),
+  ],
+  [
+    "nested-fragments-flatten",
+    `const Hi = () => <><><Label>a</Label></><Label>b</Label></>;
+     function hud(p) { return <View><Hi /></View>; }`,
+    {},
+    ["<View>", `  <Label text t="a">`, `  <Label text t="b">`].join("\n"),
+  ],
 ];
 
 /**
@@ -389,6 +476,29 @@ const CASES: Array<[name: string, src: string, props: Record<string, unknown>, e
  */
 const KNOWN_WRONG: Array<[name: string, src: string, props: Record<string, unknown>, wrong: string, shouldBe: string]> = [];
 
+/**
+ * callRenderJson: props as JSON rather than hand-built engine values. Every
+ * embedder was writing the same taggedObject/setMember conversion loop for
+ * what is, on the host side, a plain object. JSON is the interchange format
+ * hosts already have and this engine parses natively, so types survive --
+ * numbers stay numbers, nested objects and arrays come through whole.
+ */
+const JSON_PROP_CASES: Array<[name: string, src: string, json: string, expected: string]> = [
+  ["json-string-prop", `function hud(p) { return <View id={p.id} />; }`, '{"id":"root"}', "<View id=root>"],
+  ["json-number-keeps-its-type", `function hud(p) { return <View n={p.n} />; }`, '{"n":3}', "<View n=3>"],
+  ["json-boolean-keeps-its-type", `function hud(p) { return <View b={p.b} />; }`, '{"b":true}', "<View b=true>"],
+  ["json-nested-object", `function hud(p) { return <Label>{p.score.pts}</Label>; }`, '{"score":{"pts":42}}', `<Label text t="42">`],
+  [
+    "json-array-maps",
+    `function hud(p) { return <View>{p.items.map((x) => <Label>{x}</Label>)}</View>; }`,
+    '{"items":["a","b"]}',
+    ["<View>", `  <Label text t="a">`, `  <Label text t="b">`].join("\n"),
+  ],
+  // "No props" is a normal thing for a host to mean, not an error.
+  ["json-empty-text-is-no-props", `function hud(p) { return <View />; }`, "", "<View>"],
+  ["json-empty-object", `function hud(p) { return <View />; }`, "{}", "<View>"],
+];
+
 describe("jsx conformance", () => {
   beforeAll(() => {
     if (!fs.existsSync(MODULE_PATH)) {
@@ -413,6 +523,25 @@ describe("jsx conformance", () => {
       const got = render(src, props);
       expect(got, `"${name}" should NOT equal the correct tree yet`).not.toBe(shouldBe);
       expect(got, `"${name}" produced something other than the recorded wrong tree`).toBe(wrong);
+    });
+  }
+
+  for (const [name, src, json, expected] of JSON_PROP_CASES) {
+    it(`${name} renders from JSON props`, () => {
+      const engine = new ComponentEngine();
+      engine.quiet = true;
+      const original = console.log;
+      console.log = () => {};
+      let got: string;
+      try {
+        engine.loadScript(src);
+        got = renderToText(engine.callRenderJson("hud", json), 0);
+      } catch (e: any) {
+        got = "<threw " + (e && e.message) + ">";
+      } finally {
+        console.log = original;
+      }
+      expect(got).toBe(expected);
     });
   }
 

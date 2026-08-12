@@ -6585,7 +6585,15 @@ class TSParserSimple {
         }
         
         ; Optional member access ?.property
-        if (this.isNameToken()) {
+        ; `o?.#x`. parseMemberName already reads a private name -- the `#` is
+        ; its own token and it keeps it on the name, which is how the read and
+        ; the declaration agree about the key. Only this gate was missing it:
+        ; `#` is a punctuator, not a name token, so the branch never fired, the
+        ; postfix loop left `expr` as the OBJECT, and `o?.#x` quietly evaluated
+        ; to `o` itself.
+        def optIsPrivate:boolean false
+        if (nextTokVal == "#") { optIsPrivate = true }
+        if ((this.isNameToken()) || optIsPrivate) {
           def propTok (this.parseMemberName())
           def optMember (new TSNode())
           optMember.nodeType = "OptionalMemberExpression"
@@ -8100,9 +8108,18 @@ class TSParserSimple {
           ; This is a closing tag
           break
         }
-        ; Nested JSX element
-        def child (this.parseJSXElement())
-        push node.children child
+        ; A nested FRAGMENT: `<View><>…</></View>`. `<` followed by `>` names
+        ; no element, so parseJSXElement read the `>` as the end of an opening
+        ; tag it never had and the whole file failed to parse. A fragment in a
+        ; child position is ordinary React -- it groups siblings without adding
+        ; a node -- and it only worked when wrapped in an expression container.
+        if (nextVal == ">") {
+          push node.children (this.parseJSXFragment())
+        } {
+          ; Nested JSX element
+          def child (this.parseJSXElement())
+          push node.children child
+        }
       } {
         ; Text or expression
         if (v == "{") {
@@ -8368,8 +8385,13 @@ class TSParserSimple {
           ; Check if it's closing fragment
           break
         }
-        def child (this.parseJSXElement())
-        push node.children child
+        ; Same rule inside a fragment, so fragments nest.
+        if (nextVal == ">") {
+          push node.children (this.parseJSXFragment())
+        } {
+          def child (this.parseJSXElement())
+          push node.children child
+        }
       } {
         if (v == "{") {
           def exprChild (this.parseJSXExpressionContainer())

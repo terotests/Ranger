@@ -7514,7 +7514,11 @@ class TSParserSimple  {
           optIndex.col = expr.col;
           expr = optIndex;
         }
-        if ( this.isNameToken() ) {
+        let optIsPrivate = false;
+        if ( nextTokVal == "#" ) {
+          optIsPrivate = true;
+        }
+        if ( this.isNameToken() || optIsPrivate ) {
           const propTok_1 = this.parseMemberName();
           const optMember = new TSNode();
           optMember.nodeType = "OptionalMemberExpression";
@@ -8748,8 +8752,12 @@ class TSParserSimple  {
         if ( nextVal == "/" ) {
           break;
         }
-        const child = this.parseJSXElement();
-        node.children.push(child);
+        if ( nextVal == ">" ) {
+          node.children.push(this.parseJSXFragment());
+        } else {
+          const child = this.parseJSXElement();
+          node.children.push(child);
+        }
       } else {
         if ( v == "{" ) {
           const exprChild = this.parseJSXExpressionContainer();
@@ -8947,8 +8955,12 @@ class TSParserSimple  {
         if ( nextVal == "/" ) {
           break;
         }
-        const child = this.parseJSXElement();
-        node.children.push(child);
+        if ( nextVal == ">" ) {
+          node.children.push(this.parseJSXFragment());
+        } else {
+          const child = this.parseJSXElement();
+          node.children.push(child);
+        }
       } else {
         if ( v == "{" ) {
           const exprChild = this.parseJSXExpressionContainer();
