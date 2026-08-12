@@ -21,7 +21,6 @@ Import "UnicodeTailor.rgr"
 Import "LocaleData.rgr"
 Import "LocalePlural.rgr"
 Import "DateTime.rgr"
-Import "../../../imaging/jpeg/JPEGMetadata.rgr"
 
 ; =============================================================================
 ; ImportedSymbol - Represents an imported component or function
@@ -769,6 +768,121 @@ class EvalNativeBridge {
 }
 
 ; =============================================================================
+; EvalModuleHost — where module SOURCE comes from.
+; =============================================================================
+; The engine used to read files itself: `file_exists` and `buffer_read_file`
+; scattered through the import path, with `basePath`/`assetPaths` as the search
+; policy. That put one environment's answer to "where does source live" inside
+; the evaluator, and it is the wrong place for it — a browser has no
+; filesystem, a bundler has a manifest, a test wants a map in memory, and an
+; embedder that ships assets in a pack file has neither.
+;
+; ONE CONCRETE CLASS rather than a base with subclasses, because the Rust
+; target will not accept a subclass where the base type is declared — not as a
+; field initialiser and not as an argument. A host configures this one instead:
+; `addModule` hands over source directly, and `setFilesystemEnabled(false)`
+; turns off the disk for a build that has none. A target that DOES support
+; inheritance can still subclass it; the methods are ordinary.
+;
+; Virtual `ranger:*` modules do not come through here at all — they are
+; registered with registerVirtualModule and are why the module gates run with
+; no host at all.
+; -----------------------------------------------------------------------------
+class EvalModuleHost {
+    ; Modules supplied directly, as parallel arrays of "dir + name" and source.
+    ; Consulted BEFORE the filesystem, so a host can override a file on disk.
+    def memPaths:[string]
+    def memSources:[string]
+    ; Bumped whenever a module's source is replaced, so a cached parse of the
+    ; old text is seen as stale.
+    def memStamps:[int]
+    ; Whether to fall back to reading files. A standalone build turns this off
+    ; and supplies everything through addModule.
+    def filesystemEnabled:boolean true
+
+    fn addModule:void (dirPath:string fileName:string src:string) {
+        def key:string (dirPath + fileName)
+        def i:int 0
+        while (i < (array_length memPaths)) {
+            if ((itemAt memPaths i) == key) {
+                def owned:string src
+                set memSources i owned
+                def bumped:int ((itemAt memStamps i) + 1)
+                set memStamps i bumped
+                return
+            }
+            i = (i + 1)
+        }
+        push memPaths key
+        push memSources src
+        push memStamps 1
+    }
+
+    fn setFilesystemEnabled:void (on:boolean) {
+        filesystemEnabled = on
+    }
+
+    fn memIndex:int (dirPath:string fileName:string) {
+        def key:string (dirPath + fileName)
+        def i:int 0
+        while (i < (array_length memPaths)) {
+            if ((itemAt memPaths i) == key) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; Is there a module at `fileName` under `dirPath`?
+    fn exists:boolean (dirPath:string fileName:string) {
+        if ((this.memIndex(dirPath fileName)) > (0 - 1)) {
+            return true
+        }
+        if filesystemEnabled {
+            return (file_exists dirPath fileName)
+        }
+        return false
+    }
+
+    ; A version stamp for the module at this location, used to decide whether
+    ; a cached parse is still good. Any value that CHANGES when the source
+    ; does will do; the filesystem answers with the modification time, and an
+    ; in-memory module is stamped by how many times it has been replaced.
+    ; 0 means "no opinion", which reads as always-stale and simply re-parses.
+    fn stamp:int (dirPath:string fileName:string) {
+        def at:int (this.memIndex(dirPath fileName))
+        if (at > (0 - 1)) {
+            return ((itemAt memStamps at) + 1)
+        }
+        if (false == filesystemEnabled) {
+            return 0
+        }
+        if (false == (file_exists dirPath fileName)) {
+            return 0
+        }
+        return (file_mtime dirPath fileName)
+    }
+
+    ; Its source, or "" when there is none. "" is also the answer for a file
+    ; that exists but is empty -- an empty file is not a module.
+    fn readSource:string (dirPath:string fileName:string) {
+        def at:int (this.memIndex(dirPath fileName))
+        if (at > (0 - 1)) {
+            return (itemAt memSources at)
+        }
+        if (false == filesystemEnabled) {
+            return ""
+        }
+        if (false == (file_exists dirPath fileName)) {
+            return ""
+        }
+        def content:buffer (buffer_read_file dirPath fileName)
+        return (buffer_to_string content)
+    }
+}
+
+; =============================================================================
 ; ComponentEngine - Main engine for JSX processing with components
 ; =============================================================================
 
@@ -1124,6 +1238,9 @@ class ComponentEngine {
     def moduleScope:EvalContext
     ; Optional bridge for host-native script calls (game engine navigation, I/O).
     def nativeBridge@(optional):EvalNativeBridge
+    ; Where module source comes from. Reads the filesystem by default, which
+    ; is what the engine always did; a host configures or replaces it.
+    def moduleHost:EvalModuleHost (new EvalModuleHost())
     
     ; Tag names that are NOT components -- a lowercase tag is host markup by
     ; JSX convention, and these are the capitalised ones a host has claimed.
@@ -1840,8 +1957,7 @@ class ComponentEngine {
         def mainFilePath:string (basePath + fileName)
         push loadedFiles mainFilePath
         
-        def fileContent:buffer (buffer_read_file dirPath fileName)
-        def src:string (buffer_to_string fileContent)
+        def src:string (moduleHost.readSource(dirPath fileName))
         return (this.parse(src))
     }
 
@@ -1912,6 +2028,13 @@ class ComponentEngine {
 
     fn setNativeBridge:void (bridge:EvalNativeBridge) {
         nativeBridge = bridge
+    }
+
+    ; Install the host that answers where module source lives. A host that
+    ; keeps its modules in memory, in a bundle or behind a network fetch
+    ; replaces the filesystem default here.
+    fn setModuleHost:void (host:EvalModuleHost) {
+        moduleHost = host
     }
 
     ; ---- virtual modules (D-MODULES, interpreter profile) -------------------
@@ -3274,7 +3397,7 @@ class ComponentEngine {
         ; dirPath is the module directory after resolving relative segments and
         ; is not a valid file_mtime prefix when fullPath still contains "../".
         def cacheKey:string ((this.normalizeDirPath(foundDir)) + fullPath)
-        def fileMtime:int (file_mtime foundDir fullPath)
+        def fileMtime:int (moduleHost.stamp(foundDir fullPath))
         def cacheIdx:int (this.findCachedImportIndex(cacheKey fileMtime))
         def cacheHit:boolean (cacheIdx >= 0)
         def importAstNode:TSNode (new TSNode())
@@ -3451,24 +3574,21 @@ class ComponentEngine {
 
     ; Read an import file from basePath, falling back to assetPaths.
     fn readImportSource:string (dirPath:string fullPath:string) {
-        if (file_exists dirPath fullPath) {
-            def content:buffer (buffer_read_file dirPath fullPath)
-            def src:string (buffer_to_string content)
-            if ((strlen src) > 0) {
-                resolvedImportDir = dirPath
-                return src
-            }
+        ; The SEARCH ORDER stays here -- importer's directory first, then each
+        ; registered asset path -- because it is the language's resolution
+        ; policy. Where each candidate is READ from is the host's business.
+        def src:string (moduleHost.readSource(dirPath fullPath))
+        if ((strlen src) > 0) {
+            resolvedImportDir = dirPath
+            return src
         }
         def i:int 0
         while (i < (array_length assetPaths)) {
             def assetDir:string (itemAt assetPaths i)
-            if (file_exists assetDir fullPath) {
-                def tryBuf:buffer (buffer_read_file assetDir fullPath)
-                def trySrc:string (buffer_to_string tryBuf)
-                if ((strlen trySrc) > 0) {
-                    resolvedImportDir = assetDir
-                    return trySrc
-                }
+            def trySrc:string (moduleHost.readSource(assetDir fullPath))
+            if ((strlen trySrc) > 0) {
+                resolvedImportDir = assetDir
+                return trySrc
             }
             i = i + 1
         }
@@ -7743,8 +7863,6 @@ class ComponentEngine {
         if (name == "Boolean") { return true }
         if (name == "isNaN") { return true }
         if (name == "isFinite") { return true }
-        if (name == "usePrintSettings") { return true }
-        if (name == "useImage") { return true }
         return false
     }
 
@@ -19181,24 +19299,6 @@ class ComponentEngine {
                 ; ============================================================
                 ; Handle built-in hooks
                 ; ============================================================
-                if (fnName == "usePrintSettings") {
-                    return (this.evaluateUsePrintSettings())
-                }
-                if (fnName == "useImage") {
-                    ; Get the src argument from node.children
-                    def srcArg:string ""
-                    if ((array_length node.children) > 0) {
-                        def argNode:TSNode (itemAt node.children 0)
-                        this.trace("useImage arg nodeType: " + argNode.nodeType)
-                        def argValue:EvHandle (this.evaluateExpr(argNode))
-                        if (false == quiet) {
-                            this.trace("useImage arg value: " + (argValue.toString()) + " type=" + (argValue.kindName()))
-                        }
-                        srcArg = (argValue.stringOf())
-                        this.trace("useImage srcArg: " + srcArg)
-                    }
-                    return (this.evaluateUseImage(srcArg))
-                }
 
                 }
                 if (nativeBridge) {
@@ -43769,641 +43869,6 @@ class ComponentEngine {
 
         ; Fallback: return the original expression
         return ("${" + exprStr + "}")
-    }
-    
-    ; ==========================================================================
-    ; Hooks Implementation
-    ; ==========================================================================
-    
-    ; usePrintSettings() - returns print settings as an object EvHandle
-    fn evaluateUsePrintSettings:EvHandle () {
-        print "Hook: usePrintSettings() called"
-        
-        ; Create property names and values arrays
-        def propNames:[string]
-        def propValues:[EvHandle]
-        
-        ; format
-        push propNames "format"
-        def formatVal:EvHandle (EvValueBridge.taggedString(printFormat))
-        push propValues formatVal
-        
-        ; width
-        push propNames "width"
-        def widthVal:EvHandle (EvValueBridge.taggedNumber(pageWidth))
-        push propValues widthVal
-        
-        ; height
-        push propNames "height"
-        def heightVal:EvHandle (EvValueBridge.taggedNumber(pageHeight))
-        push propValues heightVal
-        
-        ; orientation
-        push propNames "orientation"
-        def orientVal:EvHandle (EvValueBridge.taggedString(printOrientation))
-        push propValues orientVal
-        
-        ; pageCount
-        push propNames "pageCount"
-        def pageCountVal:EvHandle (EvValueBridge.taggedNumber((to_double printPageCount)))
-        push propValues pageCountVal
-        
-        ; margins object
-        push propNames "margins"
-        def marginNames:[string]
-        def marginValues:[EvHandle]
-        push marginNames "top"
-        push marginValues (EvValueBridge.taggedNumber(printMarginTop))
-        push marginNames "right"
-        push marginValues (EvValueBridge.taggedNumber(printMarginRight))
-        push marginNames "bottom"
-        push marginValues (EvValueBridge.taggedNumber(printMarginBottom))
-        push marginNames "left"
-        push marginValues (EvValueBridge.taggedNumber(printMarginLeft))
-        def marginsVal:EvHandle (EvValueBridge.taggedObject(marginNames marginValues))
-        push propValues marginsVal
-        
-        return (EvValueBridge.taggedObject(propNames propValues))
-    }
-    
-    ; Parse GPS coordinate string like "43° 28' 1.49"" into components
-    ; Returns an object with direction, degrees, minutes, seconds, originalValue
-    fn parseGPSCoordinate:EvHandle (direction:string coordStr:string originalValue:string) {
-        def names:[string]
-        def values:[EvHandle]
-        
-        ; direction (N, S, E, W)
-        push names "direction"
-        push values (EvValueBridge.taggedString(direction))
-        
-        ; Parse the coordinate string format: "43° 28' 1.49""
-        ; Or it might be decimal format: "43.4670833"
-        def degrees:double 0.0
-        def minutes:double 0.0
-        def seconds:double 0.0
-        
-        ; Debug: print the coordinate string being parsed
-        print "parseGPSCoordinate: coordStr = '" + coordStr + "'"
-        
-        ; Check if contains degree symbol or space-separated DMS
-        def hasDegreeSym:boolean ((indexOf coordStr "°") >= 0)
-        if hasDegreeSym {
-            ; Parse DMS format: "43° 28' 1.49""
-            ; Extract numeric parts by filtering out non-numeric characters
-            
-            def degEnd:int (indexOf coordStr "°")
-            print "parseGPSCoordinate: degEnd = " + (to_string degEnd)
-            if (degEnd > 0) {
-                def degStr:string (substring coordStr 0 degEnd)
-                def cleanDegStr:string (this.extractNumber(degStr))
-                print "parseGPSCoordinate: degStr = '" + degStr + "' -> clean: '" + cleanDegStr + "'"
-                def degVal@(optional):double (to_double cleanDegStr)
-                if degVal {
-                    degrees = (unwrap degVal)
-                }
-            }
-            
-            ; Find minutes between ° and '
-            def minEnd:int (indexOf coordStr "'")
-            print "parseGPSCoordinate: minEnd = " + (to_string minEnd)
-            if (minEnd > degEnd) {
-                ; Extract text between degree symbol and minute marker
-                ; Account for multi-byte degree symbol by starting a bit further
-                def minStr:string (substring coordStr (degEnd + 1) minEnd)
-                def cleanMinStr:string (this.extractNumber(minStr))
-                print "parseGPSCoordinate: minStr = '" + minStr + "' -> clean: '" + cleanMinStr + "'"
-                def minVal@(optional):double (to_double cleanMinStr)
-                if minVal {
-                    minutes = (unwrap minVal)
-                }
-            }
-            
-            ; Find seconds between ' and " (or end)
-            def secEnd:int (indexOf coordStr "\"")
-            print "parseGPSCoordinate: secEnd = " + (to_string secEnd)
-            if (secEnd < 0) {
-                secEnd = (strlen coordStr)
-            }
-            if (secEnd > minEnd) {
-                def secStr:string (substring coordStr (minEnd + 1) secEnd)
-                def cleanSecStr:string (this.extractNumber(secStr))
-                print "parseGPSCoordinate: secStr = '" + secStr + "' -> clean: '" + cleanSecStr + "'"
-                def secVal@(optional):double (to_double cleanSecStr)
-                if secVal {
-                    seconds = (unwrap secVal)
-                }
-            }
-        } {
-            ; Assume decimal degrees format, convert to DMS
-            def decVal@(optional):double (to_double (trim coordStr))
-            if decVal {
-                def decimalDeg:double (unwrap decVal)
-                def degreesInt:int (floor decimalDeg)
-                degrees = (to_double degreesInt)
-                def minFloat:double ((decimalDeg - degrees) * 60.0)
-                def minutesInt:int (floor minFloat)
-                minutes = (to_double minutesInt)
-                seconds = ((minFloat - minutes) * 60.0)
-            }
-        }
-        
-        print "parseGPSCoordinate: degrees=" + (to_string degrees) + " minutes=" + (to_string minutes) + " seconds=" + (to_string seconds)
-        
-        ; degrees
-        push names "degrees"
-        push values (EvValueBridge.taggedNumber(degrees))
-        
-        ; minutes
-        push names "minutes"
-        push values (EvValueBridge.taggedNumber(minutes))
-        
-        ; seconds
-        push names "seconds"
-        push values (EvValueBridge.taggedNumber(seconds))
-        
-        ; originalValue
-        push names "originalValue"
-        push values (EvValueBridge.taggedString(originalValue))
-        
-        return (EvValueBridge.taggedObject(names values))
-    }
-    
-    ; Helper: Extract numeric characters (digits, decimal point, minus) from a string
-    fn extractNumber:string (str:string) {
-        def result:string ""
-        def i:int 0
-        def len:int (strlen str)
-        while (i < len) {
-            def chCode:int (charAt str i)
-            ; Check if character is digit (48-57), decimal point (46), or minus sign (45)
-            ; ASCII: '0'=48, '9'=57, '.'=46, '-'=45
-            if (((chCode >= 48) && (chCode <= 57)) || (chCode == 46) || (chCode == 45)) {
-                def chStr:string (substring str i (i + 1))
-                result = result + chStr
-            }
-            i = i + 1
-        }
-        return result
-    }
-    
-    ; Parse EXIF date string like "2025:07:17 19:22:41" into components
-    ; Returns an object with year, month, day, hour, minute, second, monthName, weekday, timeOfDay, formatted
-    fn parseDateInfo:EvHandle (dateStr:string) {
-        def names:[string]
-        def values:[EvHandle]
-        
-        ; Return null object if no date string
-        if ((strlen dateStr) < 10) {
-            return (EvValueBridge.taggedNull())
-        }
-        
-        ; Parse EXIF format: "YYYY:MM:DD HH:MM:SS"
-        ; Example: "2025:07:17 19:22:41"
-        def year:int 0
-        def month:int 0
-        def day:int 0
-        def hour:int 0
-        def minute:int 0
-        def second:int 0
-        
-        ; Extract year (chars 0-3)
-        if ((strlen dateStr) >= 4) {
-            def yearStr:string (substring dateStr 0 4)
-            def yearOpt@(optional):double (to_double yearStr)
-            if yearOpt {
-                year = (to_int (unwrap yearOpt))
-            }
-        }
-        
-        ; Extract month (chars 5-6)
-        if ((strlen dateStr) >= 7) {
-            def monthStr:string (substring dateStr 5 7)
-            def monthOpt@(optional):double (to_double monthStr)
-            if monthOpt {
-                month = (to_int (unwrap monthOpt))
-            }
-        }
-        
-        ; Extract day (chars 8-9)
-        if ((strlen dateStr) >= 10) {
-            def dayStr:string (substring dateStr 8 10)
-            def dayOpt@(optional):double (to_double dayStr)
-            if dayOpt {
-                day = (to_int (unwrap dayOpt))
-            }
-        }
-        
-        ; Extract hour (chars 11-12)
-        if ((strlen dateStr) >= 13) {
-            def hourStr:string (substring dateStr 11 13)
-            def hourOpt@(optional):double (to_double hourStr)
-            if hourOpt {
-                hour = (to_int (unwrap hourOpt))
-            }
-        }
-        
-        ; Extract minute (chars 14-15)
-        if ((strlen dateStr) >= 16) {
-            def minuteStr:string (substring dateStr 14 16)
-            def minuteOpt@(optional):double (to_double minuteStr)
-            if minuteOpt {
-                minute = (to_int (unwrap minuteOpt))
-            }
-        }
-        
-        ; Extract second (chars 17-18)
-        if ((strlen dateStr) >= 19) {
-            def secondStr:string (substring dateStr 17 19)
-            def secondOpt@(optional):double (to_double secondStr)
-            if secondOpt {
-                second = (to_int (unwrap secondOpt))
-            }
-        }
-        
-        ; Store numeric values
-        push names "year"
-        push values (EvValueBridge.taggedNumber((to_double year)))
-        
-        push names "month"
-        push values (EvValueBridge.taggedNumber((to_double month)))
-        
-        push names "day"
-        push values (EvValueBridge.taggedNumber((to_double day)))
-        
-        push names "hour"
-        push values (EvValueBridge.taggedNumber((to_double hour)))
-        
-        push names "minute"
-        push values (EvValueBridge.taggedNumber((to_double minute)))
-        
-        push names "second"
-        push values (EvValueBridge.taggedNumber((to_double second)))
-        
-        ; Month name
-        push names "monthName"
-        def monthName:string "Unknown"
-        if (month == 1) { monthName = "January" }
-        if (month == 2) { monthName = "February" }
-        if (month == 3) { monthName = "March" }
-        if (month == 4) { monthName = "April" }
-        if (month == 5) { monthName = "May" }
-        if (month == 6) { monthName = "June" }
-        if (month == 7) { monthName = "July" }
-        if (month == 8) { monthName = "August" }
-        if (month == 9) { monthName = "September" }
-        if (month == 10) { monthName = "October" }
-        if (month == 11) { monthName = "November" }
-        if (month == 12) { monthName = "December" }
-        push values (EvValueBridge.taggedString(monthName))
-        
-        ; Short month name
-        push names "monthShort"
-        def monthShort:string "Unk"
-        if (month == 1) { monthShort = "Jan" }
-        if (month == 2) { monthShort = "Feb" }
-        if (month == 3) { monthShort = "Mar" }
-        if (month == 4) { monthShort = "Apr" }
-        if (month == 5) { monthShort = "May" }
-        if (month == 6) { monthShort = "Jun" }
-        if (month == 7) { monthShort = "Jul" }
-        if (month == 8) { monthShort = "Aug" }
-        if (month == 9) { monthShort = "Sep" }
-        if (month == 10) { monthShort = "Oct" }
-        if (month == 11) { monthShort = "Nov" }
-        if (month == 12) { monthShort = "Dec" }
-        push values (EvValueBridge.taggedString(monthShort))
-        
-        ; Calculate weekday using Zeller's formula (simplified)
-        ; This gives 0=Saturday, 1=Sunday, ... 6=Friday
-        ; We adjust to 0=Sunday, 1=Monday, ... 6=Saturday
-        push names "weekday"
-        def weekdayName:string "Unknown"
-        def weekdayNum:int 0
-        
-        ; Adjust month and year for Zeller (Jan and Feb are months 13, 14 of previous year)
-        def adjustedMonth:int month
-        def adjustedYear:int year
-        if (month < 3) {
-            adjustedMonth = month + 12
-            adjustedYear = year - 1
-        }
-        
-        ; Zeller's congruence - use to_int for integer division
-        def k:int (adjustedYear % 100)
-        def j:int (to_int ((to_double adjustedYear) / 100.0))
-        def monthTerm:int (to_int ((to_double (13 * (adjustedMonth + 1))) / 5.0))
-        def kDiv4:int (to_int ((to_double k) / 4.0))
-        def jDiv4:int (to_int ((to_double j) / 4.0))
-        def h:int ((day + monthTerm + k + kDiv4 + jDiv4 - (2 * j)) % 7)
-        
-        ; Handle negative modulo result
-        if (h < 0) {
-            h = h + 7
-        }
-        
-        ; Convert from Zeller (0=Sat) to standard (0=Sun)
-        weekdayNum = ((h + 6) % 7)
-        
-        if (weekdayNum == 0) { weekdayName = "Sunday" }
-        if (weekdayNum == 1) { weekdayName = "Monday" }
-        if (weekdayNum == 2) { weekdayName = "Tuesday" }
-        if (weekdayNum == 3) { weekdayName = "Wednesday" }
-        if (weekdayNum == 4) { weekdayName = "Thursday" }
-        if (weekdayNum == 5) { weekdayName = "Friday" }
-        if (weekdayNum == 6) { weekdayName = "Saturday" }
-        push values (EvValueBridge.taggedString(weekdayName))
-        
-        ; Short weekday name
-        push names "weekdayShort"
-        def weekdayShort:string "Unk"
-        if (weekdayNum == 0) { weekdayShort = "Sun" }
-        if (weekdayNum == 1) { weekdayShort = "Mon" }
-        if (weekdayNum == 2) { weekdayShort = "Tue" }
-        if (weekdayNum == 3) { weekdayShort = "Wed" }
-        if (weekdayNum == 4) { weekdayShort = "Thu" }
-        if (weekdayNum == 5) { weekdayShort = "Fri" }
-        if (weekdayNum == 6) { weekdayShort = "Sat" }
-        push values (EvValueBridge.taggedString(weekdayShort))
-        
-        ; Weekday number (0 = Sunday)
-        push names "weekdayNumber"
-        push values (EvValueBridge.taggedNumber((to_double weekdayNum)))
-        
-        ; Time of day (verbal description based on hour)
-        push names "timeOfDay"
-        def timeOfDay:string "night"
-        if ((hour >= 5) && (hour < 12)) {
-            timeOfDay = "morning"
-        }
-        if ((hour >= 12) && (hour < 14)) {
-            timeOfDay = "noon"
-        }
-        if ((hour >= 14) && (hour < 17)) {
-            timeOfDay = "afternoon"
-        }
-        if ((hour >= 17) && (hour < 21)) {
-            timeOfDay = "evening"
-        }
-        if ((hour >= 21) || (hour < 5)) {
-            timeOfDay = "night"
-        }
-        push values (EvValueBridge.taggedString(timeOfDay))
-        
-        ; Is it AM or PM
-        push names "ampm"
-        if (hour < 12) {
-            push values (EvValueBridge.taggedString("AM"))
-        } {
-            push values (EvValueBridge.taggedString("PM"))
-        }
-        
-        ; Hour in 12-hour format
-        push names "hour12"
-        def hour12:int hour
-        if (hour == 0) {
-            hour12 = 12
-        } {
-            if (hour > 12) {
-                hour12 = hour - 12
-            }
-        }
-        push values (EvValueBridge.taggedNumber((to_double hour12)))
-        
-        ; Formatted strings for convenience
-        ; ISO format: 2025-07-17
-        push names "isoDate"
-        def monthPad:string (to_string month)
-        if (month < 10) { monthPad = "0" + monthPad }
-        def dayPad:string (to_string day)
-        if (day < 10) { dayPad = "0" + dayPad }
-        push values (EvValueBridge.taggedString((to_string year) + "-" + monthPad + "-" + dayPad))
-        
-        ; Time: 19:22:41
-        push names "time"
-        def hourPad:string (to_string hour)
-        if (hour < 10) { hourPad = "0" + hourPad }
-        def minPad:string (to_string minute)
-        if (minute < 10) { minPad = "0" + minPad }
-        def secPad:string (to_string second)
-        if (second < 10) { secPad = "0" + secPad }
-        push values (EvValueBridge.taggedString(hourPad + ":" + minPad + ":" + secPad))
-        
-        ; Full formatted: "Thursday, July 17, 2025"
-        push names "formatted"
-        push values (EvValueBridge.taggedString(weekdayName + ", " + monthName + " " + (to_string day) + ", " + (to_string year)))
-        
-        ; Short formatted: "Jul 17, 2025"
-        push names "shortFormatted"
-        push values (EvValueBridge.taggedString(monthShort + " " + (to_string day) + ", " + (to_string year)))
-        
-        ; Original value
-        push names "originalValue"
-        push values (EvValueBridge.taggedString(dateStr))
-        
-        return (EvValueBridge.taggedObject(names values))
-    }
-
-    ; useImage(src) - returns image metadata as an object EvHandle
-    fn evaluateUseImage:EvHandle (src:string) {
-        ; Resolve the image path relative to the current TSX file's directory
-        def resolvedPath:string src
-        if ((strlen src) > 0) {
-            ; Check if it's a relative path (not starting with /)
-            def firstChar:string (substring src 0 1)
-            if (firstChar != "/") {
-                ; Check if src starts with "./" - if basePath is "./" avoid double "./"
-                def startsWithDotSlash:boolean false
-                if ((strlen src) >= 2) {
-                    if ((substring src 0 2) == "./") {
-                        startsWithDotSlash = true
-                    }
-                }
-                
-                if startsWithDotSlash {
-                    ; src already starts with "./" - check if basePath is just "./"
-                    if (basePath == "./") {
-                        resolvedPath = src
-                    } {
-                        ; basePath is something else, prepend it but remove the "./" from src
-                        resolvedPath = basePath + (substring src 2 (strlen src))
-                    }
-                } {
-                    resolvedPath = basePath + src
-                }
-            }
-        }
-        print "Hook: useImage() called with src: " + src + " -> resolved: " + resolvedPath
-        
-        ; Parse the JPEG file to get actual metadata
-        ; Split resolvedPath into directory and filename
-        def lastSlash:int (lastIndexOf resolvedPath "/")
-        def dirPath:string ""
-        def fileName:string resolvedPath
-        if (lastSlash >= 0) {
-            dirPath = (substring resolvedPath 0 (lastSlash + 1))
-            fileName = (substring resolvedPath (lastSlash + 1) (strlen resolvedPath))
-        }
-        
-        print "Hook: parsing JPEG - dir: " + dirPath + " file: " + fileName
-        
-        ; Parse the JPEG metadata
-        def parser (new JPEGMetadataParser())
-        def metadata:JPEGMetadataInfo (parser.parseMetadata(dirPath fileName))
-        
-        ; If file not found or invalid, try with ./assets/ prefix (same as ResourceLoader)
-        if (metadata.isValid == false) {
-            def altDirPath:string ""
-            if ((indexOf dirPath "./") == 0) {
-                ; ./images/ -> ./assets/images/
-                altDirPath = "./assets/" + (substring dirPath 2 (strlen dirPath))
-            } {
-                altDirPath = "./assets/" + dirPath
-            }
-            print "Hook: useImage() trying alternative path: " + altDirPath + fileName
-            metadata = (parser.parseMetadata(altDirPath fileName))
-            
-            ; Update resolvedPath if alternative worked
-            if metadata.isValid {
-                resolvedPath = altDirPath + fileName
-            }
-        }
-        
-        ; Create property names and values arrays
-        def propNames:[string]
-        def propValues:[EvHandle]
-        
-        ; Store the resolved path so ResourceLoader can use it
-        push propNames "resolvedPath"
-        push propValues (EvValueBridge.taggedString(resolvedPath))
-        
-        ; Get actual values from metadata
-        ; width
-        push propNames "width"
-        push propValues (EvValueBridge.taggedNumber((to_double metadata.width)))
-        
-        ; height
-        push propNames "height"
-        push propValues (EvValueBridge.taggedNumber((to_double metadata.height)))
-        
-        ; createdAt - use dateTimeOriginal if available
-        push propNames "createdAt"
-        if ((strlen metadata.dateTimeOriginal) > 0) {
-            push propValues (EvValueBridge.taggedString(metadata.dateTimeOriginal))
-        } {
-            if ((strlen metadata.dateTime) > 0) {
-                push propValues (EvValueBridge.taggedString(metadata.dateTime))
-            } {
-                push propValues (EvValueBridge.taggedNull())
-            }
-        }
-        
-        ; camera - combine make and model
-        push propNames "camera"
-        if ((strlen metadata.cameraModel) > 0) {
-            def cameraStr:string ""
-            if ((strlen metadata.cameraMake) > 0) {
-                cameraStr = metadata.cameraMake + " " + metadata.cameraModel
-            } {
-                cameraStr = metadata.cameraModel
-            }
-            push propValues (EvValueBridge.taggedString(cameraStr))
-        } {
-            push propValues (EvValueBridge.taggedNull())
-        }
-        
-        ; orientation
-        push propNames "orientation"
-        push propValues (EvValueBridge.taggedNumber((to_double metadata.orientation)))
-        
-        ; gps - create nested object with parsed components if available
-        push propNames "gps"
-        if metadata.hasGPS {
-            def gpsNames:[string]
-            def gpsValues:[EvHandle]
-            
-            ; Parse latitude into components
-            def latRaw:string (metadata.gpsLatitudeRef + " " + metadata.gpsLatitude)
-            push gpsNames "latitude"
-            push gpsValues (this.parseGPSCoordinate(metadata.gpsLatitudeRef metadata.gpsLatitude latRaw))
-            
-            ; Parse longitude into components
-            def lonRaw:string (metadata.gpsLongitudeRef + " " + metadata.gpsLongitude)
-            push gpsNames "longitude"
-            push gpsValues (this.parseGPSCoordinate(metadata.gpsLongitudeRef metadata.gpsLongitude lonRaw))
-            
-            if ((strlen metadata.gpsAltitude) > 0) {
-                push gpsNames "altitude"
-                push gpsValues (EvValueBridge.taggedString(metadata.gpsAltitude))
-            }
-            push propValues (EvValueBridge.taggedObject(gpsNames gpsValues))
-        } {
-            push propValues (EvValueBridge.taggedNull())
-        }
-        
-        ; colorSpace - based on color components
-        push propNames "colorSpace"
-        if (metadata.colorComponents == 1) {
-            push propValues (EvValueBridge.taggedString("Grayscale"))
-        } {
-            if (metadata.colorComponents == 3) {
-                push propValues (EvValueBridge.taggedString("RGB"))
-            } {
-                if (metadata.colorComponents == 4) {
-                    push propValues (EvValueBridge.taggedString("CMYK"))
-                } {
-                    push propValues (EvValueBridge.taggedString("Unknown"))
-                }
-            }
-        }
-        
-        ; bitsPerComponent
-        push propNames "bitsPerComponent"
-        push propValues (EvValueBridge.taggedNumber((to_double metadata.bitsPerComponent)))
-        
-        ; features - flags indicating what EXIF data is available
-        push propNames "features"
-        def featNames:[string]
-        def featValues:[EvHandle]
-        
-        ; hasExif - true if we have any EXIF data
-        push featNames "hasExif"
-        def hasExif:boolean (((strlen metadata.dateTimeOriginal) > 0) || ((strlen metadata.cameraModel) > 0) || metadata.hasGPS || (metadata.orientation > 1))
-        push featValues (EvValueBridge.taggedBoolean(hasExif))
-        
-        ; hasGps
-        push featNames "hasGps"
-        push featValues (EvValueBridge.taggedBoolean(metadata.hasGPS))
-        
-        ; hasDateTime
-        push featNames "hasDateTime"
-        def hasDateTime:boolean (((strlen metadata.dateTimeOriginal) > 0) || ((strlen metadata.dateTime) > 0))
-        push featValues (EvValueBridge.taggedBoolean(hasDateTime))
-        
-        ; hasCamera
-        push featNames "hasCamera"
-        def hasCamera:boolean ((strlen metadata.cameraModel) > 0)
-        push featValues (EvValueBridge.taggedBoolean(hasCamera))
-        
-        ; hasOrientation
-        push featNames "hasOrientation"
-        def hasOrientation:boolean (metadata.orientation > 1)
-        push featValues (EvValueBridge.taggedBoolean(hasOrientation))
-        
-        push propValues (EvValueBridge.taggedObject(featNames featValues))
-        
-        ; dateInfo - parsed date components if available
-        push propNames "dateInfo"
-        if ((strlen metadata.dateTimeOriginal) > 0) {
-            push propValues (this.parseDateInfo(metadata.dateTimeOriginal))
-        } {
-            if ((strlen metadata.dateTime) > 0) {
-                push propValues (this.parseDateInfo(metadata.dateTime))
-            } {
-                push propValues (EvValueBridge.taggedNull())
-            }
-        }
-        
-        return (EvValueBridge.taggedObject(propNames propValues))
     }
     
     ; Set print settings from Print element props
