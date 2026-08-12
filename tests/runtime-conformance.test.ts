@@ -2826,6 +2826,21 @@ const SCRIPT_PROBES: Array<[name: string, src: string]> = [
   // "Assignment to constant variable". It depended on call order and on the
   // pool being warm, so it only ever appeared in long runs — the Ranger
   // compiler's own Lisp parser hit it in skip_space/getOperator/parse.
+  // `return ";"` and `return "}"` were read as ARGUMENT-LESS returns: the
+  // parser tests the next token's value against the statement terminators
+  // without checking it is a punctuator, and a string literal's value is its
+  // text. Any writer that emits a statement terminator hits this — it is what
+  // made the Ranger compiler, running on the engine, lose `lineEnding()` and
+  // then fail codegen on `undefined.charCodeAt`.
+  ["script-return-semicolon-string", "function f() { return \";\"; }\n__out__ = JSON.stringify(f());"],
+  ["script-return-brace-string", "function f() { return \"}\"; }\n__out__ = JSON.stringify(f());"],
+  ["script-return-semicolon-concat", "function f() { return \";\" + \"\"; }\n__out__ = JSON.stringify(f());"],
+  ["script-return-single-quoted-semicolon", "function f() { return ';'; }\n__out__ = JSON.stringify(f());"],
+  ["script-override-returns-terminator", "function B() {}\nB.prototype.lineEnding = function () { return \"\"; };\nfunction J() {}\nJ.prototype = Object.create(B.prototype);\nJ.prototype.lineEnding = function () { return \";\"; };\nfunction H(w) { this.w = w; }\nH.prototype.get = function () { return this.w.lineEnding(); };\n__out__ = JSON.stringify(new H(new J()).get());"],
+  ["script-throw-semicolon-string", "try { throw \";\"; } catch (e) { __out__ = 'caught:' + e; }"],
+  ["script-throw-brace-string", "try { throw \"}\"; } catch (e) { __out__ = 'caught:' + e; }"],
+  ["script-return-nothing-still-undefined", "function f() { return; }\n__out__ = String(f());"],
+  ["script-return-asi-still-applies", "function f() { return\n  5; }\n__out__ = String(f());"],
   ["script-pooled-frame-clears-const", "function withConst() { const c = 1; return c; }\nfunction withLet() { let c = 0; c = c + 5; return c; }\nvar last = '';\nfor (var i = 0; i < 40; i++) { withConst(); last = String(withLet()); }\n__out__ = last;"],
   ["script-pooled-frame-const-still-const", "function withConst() { const c = 1; return c; }\nfor (var i = 0; i < 40; i++) { withConst(); }\nfunction reassign() { const z = 1; try { z = 2; return 'no-throw'; } catch (e) { return e.name; } }\n__out__ = reassign();"],
   ["script-type-in-function", "function f() { var type = 1; type = 2; return type; }\n__out__ = String(f());"],

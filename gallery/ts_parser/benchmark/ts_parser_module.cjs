@@ -3615,7 +3615,16 @@ class TSParserSimple  {
     if ( argTok.line != startTok.line ) {
       argOnSameLine = false;
     }
-    if ( argOnSameLine && ((v != ";") && ((v != "}") && (this.isAtEnd() == false))) ) {
+    let endsHere = this.isAtEnd();
+    if ( this.peekType() == "Punctuator" ) {
+      if ( v == ";" ) {
+        endsHere = true;
+      }
+      if ( v == "}" ) {
+        endsHere = true;
+      }
+    }
+    if ( argOnSameLine && (false == endsHere) ) {
       const arg = this.parseExprSeq();
       node.left = arg;
     }
@@ -4899,7 +4908,16 @@ class TSParserSimple  {
     if ( throwArgTok.line != this.lastTokenLine ) {
       this.syntaxError("Parse error: no line terminator is allowed after 'throw'");
     }
-    if ( (this.isAtEnd() || (throwArgTok.value == ";")) || (throwArgTok.value == "}") ) {
+    let throwEnds = this.isAtEnd();
+    if ( this.peekType() == "Punctuator" ) {
+      if ( throwArgTok.value == ";" ) {
+        throwEnds = true;
+      }
+      if ( throwArgTok.value == "}" ) {
+        throwEnds = true;
+      }
+    }
+    if ( throwEnds ) {
       this.syntaxError("Parse error: 'throw' requires an argument");
     }
     const arg = this.parseExprSeq();
