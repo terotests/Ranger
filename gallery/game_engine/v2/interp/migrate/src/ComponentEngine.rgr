@@ -19645,7 +19645,35 @@ class ComponentEngine {
                         node.notGlobalBuiltin = true
                     }
                 }
+                ; D-SHADOW: a guest binding of a built-in global's NAME wins
+                ; over the built-in. The chain below matches on the NAME alone,
+                ; so a program that declares its own `escape` -- marked does,
+                ; at module scope, and calls it unqualified -- reached annex-B's
+                ; escape instead, and HTML escaping silently became URL
+                ; escaping. Every name in the chain is exposed the same way:
+                ; `Object`, `String`, `Date`, `parseInt` are all ordinary
+                ; identifiers a program may rebind.
+                ;
+                ; Only a guest FUNCTION WITH A BODY counts. The engine mirrors
+                ; its own globals into scope as native function values, and
+                ; those have no function node -- testing for a binding alone
+                ; would send every built-in call down the slow path. Asked per
+                ; call rather than memoised on the node, because the answer is
+                ; a scope question, not a spelling one; the memo above has
+                ; already excluded every name that cannot match, so this costs
+                ; nothing on an ordinary call.
+                def builtinShadowed:boolean false
                 if (false == node.notGlobalBuiltin) {
+                    if (context.has(fnName)) {
+                        def shadowV:EvHandle (context.lookup(fnName))
+                        if (shadowV.isFunction()) {
+                            if (shadowV.hasFunctionNode()) {
+                                builtinShadowed = true
+                            }
+                        }
+                    }
+                }
+                if ((false == node.notGlobalBuiltin) && (false == builtinShadowed)) {
                 ; ============================================================
                 ; Global numeric functions
                 ; ============================================================

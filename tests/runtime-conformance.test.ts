@@ -129,6 +129,26 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["arr-reduce", "var a = [1, 2, 3]; return a.reduce(function (s, x) { return s + x; }, 0);", "objects"],
   ["arr-sort-cmp", "var a = [3, 1, 2]; a.sort(function (x, y) { return x - y; }); return a.join(',');", "objects"],
   ["arr-splice", "var a = [1, 2, 3]; var r = a.splice(1, 1); return r[0] + ':' + a.join(',');", "objects"],
+  // A mutator built on arrSetItems used to swap the BODY of the handle it was
+  // called on. A handle is not the array: reading `o.q` mints a fresh one over
+  // the same store, so the mutation was visible only to that temporary and
+  // `o.q.shift()` returned the element while leaving o.q untouched. push/pop
+  // were unaffected — they mutate the item list itself — so the split showed
+  // up only through a property read. `while (q = o.q.shift())` never
+  // terminated, which is how marked's inline-token queue drain hung.
+  ["arr-shift-through-member", "var o = { q: [1, 2, 3] }; var r = o.q.shift(); return r + '|' + o.q.join(',') + '|' + o.q.length;", "objects"],
+  ["arr-unshift-through-member", "var o = { q: [1, 2] }; var r = o.q.unshift(0); return r + '|' + o.q.join(',');", "objects"],
+  ["arr-splice-through-member", "var o = { q: [1, 2, 3] }; var r = o.q.splice(1, 1); return r.join(',') + '|' + o.q.join(',');", "objects"],
+  ["arr-sort-through-member", "var o = { q: [3, 1, 2] }; o.q.sort(); return o.q.join(',');", "objects"],
+  ["arr-reverse-through-member", "var o = { q: [1, 2, 3] }; o.q.reverse(); return o.q.join(',');", "objects"],
+  ["arr-fill-through-member", "var o = { q: [1, 2, 3] }; o.q.fill(0); return o.q.join(',');", "objects"],
+  ["arr-copywithin-through-member", "var o = { q: [1, 2, 3, 4] }; o.q.copyWithin(0, 2); return o.q.join(',');", "objects"],
+  ["arr-shift-through-this", "function C() { this.q = [1, 2, 3]; } C.prototype.m = function () { var r = this.q.shift(); return r + '|' + this.q.join(','); }; return new C().m();", "objects"],
+  ["arr-shift-through-nested-member", "var o = { a: { q: [1, 2, 3] } }; var r = o.a.q.shift(); return r + '|' + o.a.q.join(',');", "objects"],
+  ["arr-shift-through-index", "var o = [[1, 2, 3]]; var r = o[0].shift(); return r + '|' + o[0].join(',');", "objects"],
+  ["arr-shift-through-alias", "var o = { q: [1, 2, 3] }; var a = o.q; var r = a.shift(); return r + '|' + o.q.join(',');", "objects"],
+  ["arr-shift-drain-loop", "var o = { q: [1, 2, 3] }; var n = 0, next; while (next = o.q.shift()) { n++; if (n > 20) break; } return n + '|' + o.q.length;", "objects"],
+  ["arr-shift-keeps-own-prop", "var o = { q: [1, 2] }; o.q.foo = 'k'; o.q.shift(); return o.q.foo + '|' + o.q.join(',');", "objects"],
   ["arr-length-write", "var a = [1, 2, 3]; a.length = 1; return a.length;", "objects"],
 
   // --- coercion and numbers -------------------------------------------------
@@ -762,6 +782,19 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["ctor-array-call-items", "return Array(1, 2).length;", "globals"],
   ["ctor-object-call-empty", "return typeof Object();", "globals"],
   ["ctor-function-body", "var f = new Function('return 1;'); return f();", "globals"],
+  // A guest binding of a built-in global's NAME wins. The engine's global
+  // chain matched on the name alone, so a program declaring its own `escape`
+  // — marked does, at module scope, and calls it unqualified — reached
+  // annex-B's escape instead, and HTML escaping silently became URL escaping.
+  ["shadow-escape", "function escape(s) { return 'MINE:' + s; } return escape('a b');", "globals"],
+  ["shadow-unescape", "function unescape(s) { return 'MYUN:' + s; } return unescape('a b');", "globals"],
+  ["shadow-parseint", "function parseInt(s) { return 'PI:' + s; } return parseInt('12');", "globals"],
+  ["shadow-isnan", "function isNaN(v) { return 'MY:' + v; } return isNaN(1);", "globals"],
+  ["shadow-string-ctor", "function String(v) { return 'S:' + v; } return String(1);", "globals"],
+  ["shadow-nested-scope", "function outer() { function escape(s) { return 'IN:' + s; } return escape('a b'); } return outer() + '|' + escape('a b');", "globals"],
+  ["shadow-var-function", "var escape = function (s) { return 'V:' + s; }; return escape('a b');", "globals"],
+  ["builtin-escape-still-there", "return escape('a b') + '|' + unescape('a%20b') + '|' + parseInt('12px');", "globals"],
+  ["builtin-globals-still-there", "return [typeof Object({}), typeof String(1), typeof Number('3'), typeof Array(2), typeof Symbol('s'), typeof Date].join(',');", "globals"],
   ["ctor-function-params", "var f = new Function('a', 'b', 'return a+b;'); return f(2, 3);", "globals"],
   ["ctor-function-no-new", "var f = Function('return 7;'); return f();", "globals"],
   ["ctor-function-typeof", "return typeof new Function('return 1;');", "globals"],

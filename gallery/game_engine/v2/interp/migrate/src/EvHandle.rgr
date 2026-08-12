@@ -2610,10 +2610,23 @@ class EvHandle {
         def _kind:EvalValue body
         if (EvalValue.isArrayValue(_kind)) {
             case _kind a:EvalValue.Array {
-                ; Rebuild around the SAME property bag — going through
-                ; EvalValue.arrayAt minted a fresh bag, so `a.foo = 1` was
-                ; silently dropped by pop/shift/reverse/sort.
-                body = (new EvalValue.Array(a.identityId a.properties stored (to_double (array_length stored))))
+                ; Refill the SAME items list, the way arrPush and arrPop do.
+                ; Rebuilding around the same property bag still assigned a NEW
+                ; body to THIS handle, and a handle is not the array -- reading
+                ; `o.q` mints a fresh handle over the same store, so every
+                ; mutator built on this one (shift, unshift, splice, reverse,
+                ; sort, fill, copyWithin) wrote into a body only that temporary
+                ; could see. `o.q.shift()` returned the element and left o.q
+                ; untouched; push and pop were unaffected because they mutate
+                ; the list itself. That is what made `while (q = o.q.shift())`
+                ; -- marked's inline-token queue drain -- never terminate.
+                clear a.items
+                def si:int 0
+                while (si < (array_length stored)) {
+                    push a.items (itemAt stored si)
+                    si = (si + 1)
+                }
+                a.declaredLength = (to_double (array_length a.items))
             }
             return
         }
