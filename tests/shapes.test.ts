@@ -103,7 +103,10 @@ describe("shapes (closed variant families)", () => {
       const result = getGeneratedRustCode(SHAPE);
 
       expect(result.success, `Compile failed: ${result.error}`).toBe(true);
-      expect(result.code).toContain("fn identityOf(&self, mut r : union_Value_Ref)");
+      // identityOf only READS r, so it takes it by reference — the borrowed
+      // union parameter of bb2fffe2, not the by-value `mut r` this pinned
+      // when the group enum was introduced two days earlier.
+      expect(result.code).toContain("fn identityOf(&self, r : &union_Value_Ref)");
       expect(result.code).toContain("pub enum union_Value_Ref");
       // the group is a type, never a data struct of its own (ops class is ok)
       expect(result.code).not.toMatch(/struct Value_Ref\s*\{/);
@@ -432,9 +435,13 @@ describe("shapes (closed variant families)", () => {
       const result = getGeneratedCppCode(`${FIXTURES_DIR}/shape_match.rgr`);
 
       expect(result.success, `Compile failed: ${result.error}`).toBe(true);
-      // Value_Num and Value_Text by value, Value_Items still behind a pointer
+      // A case whose fields are all machine scalars rides in the variant by
+      // value; one carrying a payload goes behind a pointer, so copying the
+      // variant never copies that payload. Value_Text joined the pointer side
+      // in bb2fffe2 — a by-value String variant made every copy duplicate the
+      // whole string, which is what dominated the engine's copy cost.
       expect(result.code).toContain(
-        "typedef std::variant<Value_Nothing, Value_Num, Value_Text, std::shared_ptr<Value_Items>>"
+        "typedef std::variant<Value_Nothing, Value_Num, std::shared_ptr<Value_Text>, std::shared_ptr<Value_Items>>"
       );
       // constructing one allocates nothing
       expect(result.code).toContain("( Value_Num(1.5))");
@@ -1016,8 +1023,10 @@ describe("shapes (closed variant families)", () => {
 
       expect(result.success, `Compile failed: ${result.error}`).toBe(true);
       expect(result.code).toContain("impl Value__ops");
-      // the receiver is a parameter of the family, never a Rust `self`
-      expect(result.code).toMatch(/fn describe\(mut __self : union_Value/);
+      // the receiver is a parameter of the family, never a Rust `self` — and
+      // a read-only one, so it borrows (bb2fffe2) rather than taking the
+      // by-value `mut __self` this pinned when shape methods first landed
+      expect(result.code).toMatch(/fn describe\(__self : &union_Value/);
       // and a case value returned from a function of the family is wrapped
       expect(result.code).toMatch(/fn zero\(\) -> union_Value/);
       expect(result.code).toContain("union_Value::Value_Num(");

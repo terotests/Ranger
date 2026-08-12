@@ -129,6 +129,26 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["arr-reduce", "var a = [1, 2, 3]; return a.reduce(function (s, x) { return s + x; }, 0);", "objects"],
   ["arr-sort-cmp", "var a = [3, 1, 2]; a.sort(function (x, y) { return x - y; }); return a.join(',');", "objects"],
   ["arr-splice", "var a = [1, 2, 3]; var r = a.splice(1, 1); return r[0] + ':' + a.join(',');", "objects"],
+  // A mutator built on arrSetItems used to swap the BODY of the handle it was
+  // called on. A handle is not the array: reading `o.q` mints a fresh one over
+  // the same store, so the mutation was visible only to that temporary and
+  // `o.q.shift()` returned the element while leaving o.q untouched. push/pop
+  // were unaffected — they mutate the item list itself — so the split showed
+  // up only through a property read. `while (q = o.q.shift())` never
+  // terminated, which is how marked's inline-token queue drain hung.
+  ["arr-shift-through-member", "var o = { q: [1, 2, 3] }; var r = o.q.shift(); return r + '|' + o.q.join(',') + '|' + o.q.length;", "objects"],
+  ["arr-unshift-through-member", "var o = { q: [1, 2] }; var r = o.q.unshift(0); return r + '|' + o.q.join(',');", "objects"],
+  ["arr-splice-through-member", "var o = { q: [1, 2, 3] }; var r = o.q.splice(1, 1); return r.join(',') + '|' + o.q.join(',');", "objects"],
+  ["arr-sort-through-member", "var o = { q: [3, 1, 2] }; o.q.sort(); return o.q.join(',');", "objects"],
+  ["arr-reverse-through-member", "var o = { q: [1, 2, 3] }; o.q.reverse(); return o.q.join(',');", "objects"],
+  ["arr-fill-through-member", "var o = { q: [1, 2, 3] }; o.q.fill(0); return o.q.join(',');", "objects"],
+  ["arr-copywithin-through-member", "var o = { q: [1, 2, 3, 4] }; o.q.copyWithin(0, 2); return o.q.join(',');", "objects"],
+  ["arr-shift-through-this", "function C() { this.q = [1, 2, 3]; } C.prototype.m = function () { var r = this.q.shift(); return r + '|' + this.q.join(','); }; return new C().m();", "objects"],
+  ["arr-shift-through-nested-member", "var o = { a: { q: [1, 2, 3] } }; var r = o.a.q.shift(); return r + '|' + o.a.q.join(',');", "objects"],
+  ["arr-shift-through-index", "var o = [[1, 2, 3]]; var r = o[0].shift(); return r + '|' + o[0].join(',');", "objects"],
+  ["arr-shift-through-alias", "var o = { q: [1, 2, 3] }; var a = o.q; var r = a.shift(); return r + '|' + o.q.join(',');", "objects"],
+  ["arr-shift-drain-loop", "var o = { q: [1, 2, 3] }; var n = 0, next; while (next = o.q.shift()) { n++; if (n > 20) break; } return n + '|' + o.q.length;", "objects"],
+  ["arr-shift-keeps-own-prop", "var o = { q: [1, 2] }; o.q.foo = 'k'; o.q.shift(); return o.q.foo + '|' + o.q.join(',');", "objects"],
   ["arr-length-write", "var a = [1, 2, 3]; a.length = 1; return a.length;", "objects"],
 
   // --- coercion and numbers -------------------------------------------------
@@ -762,6 +782,19 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["ctor-array-call-items", "return Array(1, 2).length;", "globals"],
   ["ctor-object-call-empty", "return typeof Object();", "globals"],
   ["ctor-function-body", "var f = new Function('return 1;'); return f();", "globals"],
+  // A guest binding of a built-in global's NAME wins. The engine's global
+  // chain matched on the name alone, so a program declaring its own `escape`
+  // — marked does, at module scope, and calls it unqualified — reached
+  // annex-B's escape instead, and HTML escaping silently became URL escaping.
+  ["shadow-escape", "function escape(s) { return 'MINE:' + s; } return escape('a b');", "globals"],
+  ["shadow-unescape", "function unescape(s) { return 'MYUN:' + s; } return unescape('a b');", "globals"],
+  ["shadow-parseint", "function parseInt(s) { return 'PI:' + s; } return parseInt('12');", "globals"],
+  ["shadow-isnan", "function isNaN(v) { return 'MY:' + v; } return isNaN(1);", "globals"],
+  ["shadow-string-ctor", "function String(v) { return 'S:' + v; } return String(1);", "globals"],
+  ["shadow-nested-scope", "function outer() { function escape(s) { return 'IN:' + s; } return escape('a b'); } return outer() + '|' + escape('a b');", "globals"],
+  ["shadow-var-function", "var escape = function (s) { return 'V:' + s; }; return escape('a b');", "globals"],
+  ["builtin-escape-still-there", "return escape('a b') + '|' + unescape('a%20b') + '|' + parseInt('12px');", "globals"],
+  ["builtin-globals-still-there", "return [typeof Object({}), typeof String(1), typeof Number('3'), typeof Array(2), typeof Symbol('s'), typeof Date].join(',');", "globals"],
   ["ctor-function-params", "var f = new Function('a', 'b', 'return a+b;'); return f(2, 3);", "globals"],
   ["ctor-function-no-new", "var f = Function('return 7;'); return f();", "globals"],
   ["ctor-function-typeof", "return typeof new Function('return 1;');", "globals"],
@@ -810,6 +843,19 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["attr-freeze-blocks-write", "var o = { a: 1 }; Object.freeze(o); o.a = 2; return o.a;", "attrs"],
   ["attr-freeze-blocks-add", "var o = { a: 1 }; Object.freeze(o); o.b = 2; return o.b === undefined;", "attrs"],
   ["attr-freeze-blocks-delete", "var o = { a: 1 }; Object.freeze(o); delete o.a; return o.a;", "attrs"],
+  // The COMPILED element store wrote into the dense items without consulting
+  // any of these rules, so a frozen array took writes from inside a sloppy
+  // function while the identical line at top level was correctly ignored.
+  ["attr-freeze-array-blocks-elem", "var a = Object.freeze(['a', 'b']); a[0] = 'Z'; return a[0];", "attrs"],
+  ["attr-freeze-array-blocks-elem-in-fn", "var a = Object.freeze(['a', 'b']); function w() { a[0] = 'Z'; return a[0]; } return w() + ',' + a[0];", "attrs"],
+  ["attr-freeze-array-blocks-elem-param", "function w(x) { x[0] = 'Z'; return x[0]; } return w(Object.freeze(['a', 'b']));", "attrs"],
+  ["attr-freeze-array-blocks-elem-closure", "function o() { var c = Object.freeze(['a', 'b']); function i() { c[0] = 'Z'; return c[0]; } return i(); } return o();", "attrs"],
+  ["attr-freeze-array-blocks-named-in-fn", "var a = Object.freeze(['a']); function w() { a.foo = 1; return a.foo === undefined; } return w();", "attrs"],
+  ["attr-freeze-array-blocks-push-in-fn", "var a = Object.freeze(['a']); function w() { a[1] = 'b'; return a.length; } return w();", "attrs"],
+  ["attr-nonext-array-blocks-append-in-fn", "var a = Object.preventExtensions(['a']); function w() { a[1] = 'Z'; return a.length; } return w();", "attrs"],
+  ["attr-seal-array-allows-write-in-fn", "var a = Object.seal(['a', 'b']); function w() { a[0] = 'Z'; return a[0]; } return w();", "attrs"],
+  ["attr-nonwritable-elem-in-fn", "var a = ['a', 'b']; Object.defineProperty(a, '0', { writable: false }); function w() { a[0] = 'Z'; return a[0]; } return w();", "attrs"],
+  ["attr-plain-array-write-in-fn", "var a = ['a', 'b']; function w() { a[0] = 'Z'; a[2] = 'c'; return a.join('|'); } return w();", "attrs"],
   ["attr-is-frozen-true", "var o = { a: 1 }; Object.freeze(o); return Object.isFrozen(o);", "attrs"],
   ["attr-is-frozen-false", "var o = { a: 1 }; return Object.isFrozen(o);", "attrs"],
   ["attr-seal-blocks-add", "var o = { a: 1 }; Object.seal(o); o.b = 2; return o.b === undefined;", "attrs"],
@@ -1821,7 +1867,861 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["uni-coll-greek", "return ['ΟΔΟΣ', 'οδος', 'άλφα'].sort(function (a, b) { return a.localeCompare(b); }).join('|');", "unicode"],
   ["uni-coll-cyrillic", "return ['ПРИВЕТ', 'привет', 'мир'].sort(function (a, b) { return a.localeCompare(b); }).join('|');", "unicode"],
   ["uni-coll-punct-before-digit", "return ['1', '_', '.'].sort(function (a, b) { return a.localeCompare(b); }).join('|');", "unicode"],
+  // toLocaleLowerCase/UpperCase have no locale data behind them, so they are
+  // the plain ones -- but they must be the plain ones as THIS engine defines
+  // them. Left on the host's case function they were the only two string
+  // methods still answering 'cafÉ' where toLowerCase answered 'café'.
+  ["uni-locale-lower", "return 'CAFÉ SOCIÉTÉ'.toLocaleLowerCase();", "unicode"],
+  ["uni-locale-upper", "return 'Straße'.toLocaleUpperCase();", "unicode"],
+  ["uni-locale-sigma", "return 'ΟΔΟΣ'.toLocaleLowerCase();", "unicode"],
+  ["uni-locale-matches-plain", "var s = 'Grüße İstanbul ΟΔΟΣ'; return s.toLocaleUpperCase() === s.toUpperCase() && s.toLocaleLowerCase() === s.toLowerCase();", "unicode"],
+  // ToUint16 through a double: the integer path clamps at the 32-bit maximum.
+  ["uni-fromcharcode-touint16", "return String.fromCharCode(4294967294).charCodeAt(0);", "unicode"],
+  ["uni-fromcharcode-negative", "return String.fromCharCode(-5.4321).charCodeAt(0);", "unicode"],
+  ["uni-fromcharcode-big", "return String.fromCharCode(Math.pow(2, 40) + 65).charCodeAt(0);", "unicode"],
+
+  // localeCompare's second argument was dropped on the floor, so a Swedish
+  // index asked for in Swedish came back in root order. The root order is
+  // right for en/fr/de/it/nl/pt -- their alphabets ARE the root alphabet -- and
+  // wrong for every language that tailors it.
+  ["uni-tailor-sv", "return ['apa', 'bok', 'zebra', 'åka', 'ängel', 'öl'].sort(function (a, b) { return a.localeCompare(b, 'sv'); }).join('|');", "unicode"],
+  ["uni-tailor-da", "return ['and', 'bo', 'zoo', 'æble', 'ø', 'års'].sort(function (a, b) { return a.localeCompare(b, 'da'); }).join('|');", "unicode"],
+  ["uni-tailor-fi", "return ['auto', 'valo', 'zebra', 'åka', 'ähtäri', 'öljy'].sort(function (a, b) { return a.localeCompare(b, 'fi'); }).join('|');", "unicode"],
+  ["uni-tailor-cs-ch", "return ['cukr', 'čaj', 'hora', 'chleba', 'ráno'].sort(function (a, b) { return a.localeCompare(b, 'cs'); }).join('|');", "unicode"],
+  ["uni-tailor-hu-digraph", "return ['cukor', 'csok', 'daru', 'dzsem', 'zab', 'zsir'].sort(function (a, b) { return a.localeCompare(b, 'hu'); }).join('|');", "unicode"],
+  ["uni-tailor-pl", "return ['akta', 'ąkra', 'łoś', 'lampa', 'zebra', 'źle', 'żaba'].sort(function (a, b) { return a.localeCompare(b, 'pl'); }).join('|');", "unicode"],
+  ["uni-tailor-tr-dotless", "return ['ışık', 'ilik', 'iyi'].sort(function (a, b) { return a.localeCompare(b, 'tr'); }).join('|');", "unicode"],
+  ["uni-tailor-es-enye", "return ['ano', 'año', 'nube', 'ñu', 'zapato'].sort(function (a, b) { return a.localeCompare(b, 'es'); }).join('|');", "unicode"],
+  ["uni-tailor-hr-lj", "return ['luk', 'ljut', 'nos', 'njiva'].sort(function (a, b) { return a.localeCompare(b, 'hr'); }).join('|');", "unicode"],
+  ["uni-tailor-is-thorn", "return ['afi', 'dagur', 'ðar', 'eldur', 'þak', 'æði', 'ös'].sort(function (a, b) { return a.localeCompare(b, 'is'); }).join('|');", "unicode"],
+  ["uni-tailor-et", "return ['saag', 'šokk', 'zoo', 'žurnaal', 'tuba', 'õun', 'äär'].sort(function (a, b) { return a.localeCompare(b, 'et'); }).join('|');", "unicode"],
+  ["uni-tailor-region-subtag", "return ['apa', 'zebra', 'åka'].sort(function (a, b) { return a.localeCompare(b, 'sv-SE'); }).join('|');", "unicode"],
+  ["uni-tailor-array-arg", "return ['apa', 'zebra', 'åka'].sort(function (a, b) { return a.localeCompare(b, ['sv']); }).join('|');", "unicode"],
+  ["uni-tailor-root-locales-unchanged", "var w = ['Apfel', 'Ärger', 'Öl', 'Zug']; return w.slice().sort(function (a, b) { return a.localeCompare(b, 'de'); }).join('|') === w.slice().sort(function (a, b) { return a.localeCompare(b); }).join('|');", "unicode"],
+  ["uni-tailor-unknown-locale-is-root", "return ['åka', 'apa', 'zebra'].sort(function (a, b) { return a.localeCompare(b, 'xx'); }).join('|');", "unicode"],
+  ["uni-tailor-does-not-leak", "var sv = 'åka'.localeCompare('apa', 'sv'); var root = 'åka'.localeCompare('apa'); return sv + ',' + root;", "unicode"],
+
+  // Intl. The engine had no `Intl` at all, so `new Intl.NumberFormat('de')`
+  // was a ReferenceError -- and Number/Date toLocaleString, which the spec
+  // defines IN TERMS of Intl, answered the non-locale forms, so a German
+  // document got English dates and English thousands separators.
+  ["intl-exists", "return typeof Intl;", "unicode"],
+  ["intl-canonical", "return Intl.getCanonicalLocales(['EN-latn-us', 'de-de']).join('|');", "unicode"],
+  ["intl-collator-sort", "var c = new Intl.Collator('sv'); return ['apa', 'bok', 'zebra', 'åka', 'ängel', 'öl'].sort(c.compare).join('|');", "unicode"],
+  ["intl-collator-detached-compare", "var c = new Intl.Collator('sv'); var f = c.compare; return f('åka', 'apa');", "unicode"],
+  ["intl-collator-base-sensitivity", "var c = new Intl.Collator('en', { sensitivity: 'base' }); return c.compare('resume', 'résumé') + ',' + c.compare('a', 'A');", "unicode"],
+  ["intl-collator-resolved", "var c = new Intl.Collator('sv'); var r = c.resolvedOptions(); return r.locale + ',' + r.usage + ',' + r.sensitivity;", "unicode"],
+  ["intl-nf-de", "return new Intl.NumberFormat('de').format(1234567.891);", "unicode"],
+  ["intl-nf-en", "return new Intl.NumberFormat('en').format(1234567.891);", "unicode"],
+  ["intl-nf-fr", "return new Intl.NumberFormat('fr').format(1234567.891);", "unicode"],
+  ["intl-nf-min-grouping", "return new Intl.NumberFormat('es').format(9876.5);", "unicode"],
+  ["intl-nf-hi-grouping", "return new Intl.NumberFormat('hi').format(1234567);", "unicode"],
+  ["intl-nf-percent", "return new Intl.NumberFormat('de', { style: 'percent' }).format(0.256);", "unicode"],
+  ["intl-nf-currency", "return new Intl.NumberFormat('de', { style: 'currency', currency: 'EUR' }).format(1234.5);", "unicode"],
+  ["intl-nf-currency-us", "return new Intl.NumberFormat('en', { style: 'currency', currency: 'USD' }).format(-99);", "unicode"],
+  ["intl-nf-currency-nl-minus", "return new Intl.NumberFormat('nl', { style: 'currency', currency: 'USD' }).format(-99);", "unicode"],
+  ["intl-nf-currency-ja-spacing", "return new Intl.NumberFormat('ja', { style: 'currency', currency: 'EUR' }).format(1234.5);", "unicode"],
+  ["intl-nf-fraction-digits", "return new Intl.NumberFormat('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(3.14159);", "unicode"],
+  ["intl-nf-no-grouping", "return new Intl.NumberFormat('en', { useGrouping: false }).format(1234567);", "unicode"],
+  ["intl-nf-resolved", "var r = new Intl.NumberFormat('de', { style: 'percent' }).resolvedOptions(); return r.locale + ',' + r.style + ',' + r.maximumFractionDigits;", "unicode"],
+  ["intl-dtf-default", "return new Intl.DateTimeFormat('en').format(new Date(Date.UTC(2021, 4, 7)));", "unicode"],
+  ["intl-dtf-gb", "return new Intl.DateTimeFormat('en-GB').format(new Date(Date.UTC(2021, 4, 7)));", "unicode"],
+  ["intl-dtf-de", "return new Intl.DateTimeFormat('de').format(new Date(Date.UTC(2021, 4, 7)));", "unicode"],
+  ["intl-dtf-ja", "return new Intl.DateTimeFormat('ja').format(new Date(Date.UTC(2021, 4, 7)));", "unicode"],
+  ["intl-dtf-hu", "return new Intl.DateTimeFormat('hu').format(new Date(Date.UTC(2021, 4, 7)));", "unicode"],
+  ["intl-dtf-long-month", "return new Intl.DateTimeFormat('de', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(Date.UTC(2021, 4, 7)));", "unicode"],
+  ["intl-dtf-inflected-month", "return new Intl.DateTimeFormat('fi', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(Date.UTC(2021, 4, 7)));", "unicode"],
+  ["intl-dtf-weekday", "return new Intl.DateTimeFormat('fr', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(Date.UTC(2021, 4, 7)));", "unicode"],
+  ["intl-dtf-korean-month", "return new Intl.DateTimeFormat('ko', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(Date.UTC(2021, 4, 7)));", "unicode"],
+  ["intl-dtf-buddhist-year", "return new Intl.DateTimeFormat('th').format(new Date(Date.UTC(2021, 4, 7)));", "unicode"],
+  ["intl-dtf-time", "return new Intl.DateTimeFormat('en', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(Date.UTC(2021, 4, 7, 15, 4, 5)));", "unicode"],
+  ["intl-number-tolocalestring", "return (1234567.891).toLocaleString('de');", "unicode"],
+  ["intl-number-tolocalestring-currency", "return (1234.5).toLocaleString('de', { style: 'currency', currency: 'EUR' });", "unicode"],
+  ["intl-date-tolocaledatestring", "return new Date(Date.UTC(2021, 4, 7)).toLocaleDateString('de');", "unicode"],
+  ["intl-date-tolocalestring", "return new Date(Date.UTC(2021, 4, 7, 15, 4, 5)).toLocaleString('fr');", "unicode"],
+  ["intl-unsupported-locale-falls-back", "return new Intl.NumberFormat('xx-YY').format(1234.5);", "unicode"],
+
+  // async / await. `async` and `await` parsed and were then IGNORED: an async
+  // function ran synchronously and returned its value RAW, so `f().then(...)`
+  // was "then is not a function" and `await p` evaluated to null.
+  //
+  // Only the SHAPE of the result is checked here, because this harness compares
+  // a probe's return value synchronously and no microtask has run by then --
+  // in Node either. The values an async function actually produces are checked
+  // by tests/async-conformance.test.ts, which runs whole programs to
+  // completion and compares their output.
+  ["async-returns-object", "async function f() { return 1; } return typeof f();", "async"],
+  ["async-returns-thenable", "async function f() { return 1; } return typeof f().then;", "async"],
+  ["async-ctor-is-promise", "async function f() { return 1; } return f().constructor.name;", "async"],
+  ["async-arrow-returns-thenable", "var g = async (x) => x; return typeof g(1).then;", "async"],
+  ["async-arrow-block-returns-thenable", "var g = async function (x) { return x; }; return typeof g(1).then;", "async"],
+  ["async-method-returns-thenable", "var o = { async m() { return 1; } }; return typeof o.m().then;", "async"],
+  ["async-class-method-returns-thenable", "class C { async go() { return 1; } } return typeof new C().go().then;", "async"],
+  ["async-throwing-still-returns-promise", "async function f() { throw new Error('x'); } var p = f(); p.catch(function () {}); return typeof p.then;", "async"],
+  ["async-tostring-tag", "async function f() { return 1; } return Object.prototype.toString.call(f());", "async"],
+  ["async-instanceof-promise", "async function f() { return 1; } return f() instanceof Promise;", "async"],
+
+  // What an async function IS, rather than what it returns. `async` and
+  // `await` are CONTEXTUAL keywords, and treating them as reserved everywhere
+  // broke ordinary script code: `async(1)` was read as a malformed arrow and
+  // `function f() { var await = 3; return await; }` did not parse at all.
+  ["async-fn-proto-ctor-name", "async function f() {} return Object.getPrototypeOf(f).constructor.name;", "async"],
+  ["async-fn-proto-tag", "async function f() {} return Object.getPrototypeOf(f)[Symbol.toStringTag];", "async"],
+  ["async-fn-proto-is-fn-proto", "async function f() {} return Object.getPrototypeOf(Object.getPrototypeOf(f)) === Function.prototype;", "async"],
+  ["async-fn-tostring-tag", "async function f() {} return Object.prototype.toString.call(f);", "async"],
+  ["async-gen-fn-tostring-tag", "async function* f() {} return Object.prototype.toString.call(f);", "async"],
+  ["async-fn-not-a-ctor", "async function f() {} try { new f(); return 'CONSTRUCTED'; } catch (e) { return e.constructor.name; }", "async"],
+  ["async-fn-no-prototype", "async function f() {} return typeof f.prototype;", "async"],
+  ["async-arrow-not-a-ctor", "var g = async () => 1; try { new g(); return 'CONSTRUCTED'; } catch (e) { return e.constructor.name; }", "async"],
+  ["async-method-no-prototype", "var o = { async m() {} }; return typeof o.m.prototype;", "async"],
+  ["async-fn-length", "async function f(a, b) {} return f.length;", "async"],
+  ["async-fn-name", "async function f() {} return f.name;", "async"],
+  ["async-fn-tostring-keeps-async", "async function f() {} return f.toString().slice(0, 5);", "async"],
+  ["async-ctor-via-proto", "async function f() {} var AF = Object.getPrototypeOf(f).constructor; var h = new AF('x', 'return x * 2;'); return typeof h(3).then;", "async"],
+  ["async-ctor-not-global", "return typeof AsyncFunction === 'undefined' ? 'unbound' : 'BOUND';", "async"],
+  // `async` and `await` as ordinary identifiers.
+  ["async-as-fn-name", "function async(x) { return x + 1; } return async(1);", "async"],
+  ["async-as-call-target", "var async = function (x) { return x * 3; }; return async(4);", "async"],
+  ["async-prop-shorthand", "var async = 7; var o = { async }; return o.async;", "async"],
+  ["await-as-name-in-sync-fn", "function f() { var await = 3; return await; } return f();", "async"],
+  ["await-as-name-in-nested-fn", "async function f() { function g() { var await = 2; return await; } return g(); } return typeof f().then;", "async"],
+  ["async-linebreak-is-identifier", "var async = 5; var r = async\nfunction f() { return 1; }\nreturn r === undefined ? 'stmt' : String(r);", "async"],
+  ["async-linebreak-before-arrow", "var async = function (x) { return 'called'; }; var r = async\n(1);\nreturn r;", "async"],
+  // The parameters of an async function are not part of its body.
+  ["async-params-no-await", "try { eval('async function f(x = await 1) {}'); return 'ACCEPTED'; } catch (e) { return e.constructor.name; }", "async"],
+  // Static inheritance from a builtin base. Object.getPrototypeOf(L) was
+  // already Array, and Map.groupBy / Promise.resolve / Array.isArray all
+  // resolved through it -- but Array.from and Array.of lived inline in the
+  // identifier-call path, reading AST argument nodes, so they were reachable
+  // only by writing the literal name `Array`. One implementation, both doors.
+  ["array-from-still-works", "return Array.from([1, 2]).join(',');", "class"],
+  ["array-from-string-iterates", "return Array.from('ab').join(',');", "class"],
+  ["array-from-maps", "return Array.from([1, 2], function (x) { return x * 2; }).join(',');", "class"],
+  ["array-from-array-like", "return Array.from({ length: 2, 0: 'a', 1: 'b' }).join(',');", "class"],
+  ["array-from-set", "return Array.from(new Set([1, 2, 2])).join(',');", "class"],
+  ["array-of-still-works", "return Array.of(1, 2, 3).join(',');", "class"],
+  ["subclass-inherits-from", "class SubL extends Array {} return typeof SubL.from;", "class"],
+  ["subclass-inherits-of", "class SubL2 extends Array {} return typeof SubL2.of;", "class"],
+  ["subclass-from-produces-elements", "class SubL3 extends Array {} return SubL3.from([1, 2]).join(',');", "class"],
+  ["subclass-inherits-isarray", "class SubL4 extends Array {} return typeof SubL4.isArray;", "class"],
+  ["subclass-proto-is-base", "class SubL5 extends Array {} return Object.getPrototypeOf(SubL5) === Array;", "class"],
+
+  // §23.1.2.1: Array.from constructs through `this` when `this` is a
+  // constructor, so `L.from(xs)` is an L rather than a plain array. The
+  // receiver had nowhere to travel -- invokeBuiltinStatic takes a namespace
+  // and a name, not a value -- so it is parked the way pendingNewTarget is.
+  ["subclass-from-constructs-subclass", "class SpL extends Array {} return SpL.from([1, 2]) instanceof SpL;", "class"],
+  ["subclass-from-keeps-elements", "class SpL2 extends Array {} var l = SpL2.from([1, 2]); return l.length + ':' + l.join(',');", "class"],
+  ["subclass-of-constructs-subclass", "class SpL3 extends Array {} return SpL3.of(1, 2) instanceof SpL3;", "class"],
+  ["array-from-is-still-a-plain-array", "class SpL4 extends Array {} var a = Array.from([1, 2]); return (a instanceof Array) + ',' + (a instanceof SpL4);", "class"],
+  ["array-of-is-still-a-plain-array", "return Array.of(1, 2) instanceof Array;", "class"],
+
+  // Listed in KNOWN_GAPS above: the statics lose the subclass.
+  ["promise-subclass-resolve-brand", "class PSub extends Promise {} return PSub.resolve(1) instanceof PSub;", "class"],
+  // ...but these hold, and are what says the constructor path is sound.
+  ["promise-subclass-new-is-subclass", "class PSub2 extends Promise {} return new PSub2(function (r) { r(1); }) instanceof PSub2;", "class"],
+  ["promise-subclass-resolve-is-a-promise", "class PSub3 extends Promise {} return PSub3.resolve(1) instanceof Promise;", "class"],
+  ["promise-subclass-resolve-is-thenable", "class PSub4 extends Promise {} return typeof PSub4.resolve(1).then;", "class"],
+
+  // §23.1.3.4 ArraySpeciesCreate: an array method that BUILDS a new array
+  // builds it through the receiver's species. The species is read from the
+  // `__class__` stamp the instance carries, NOT from `constructor`: reading a
+  // property by name off an array value dispatches by KIND first, so
+  // `constructor` answers the Array global internally even though guest code
+  // sees `l.constructor === L`. That is what made the first attempt at this
+  // silently do nothing.
+  ["species-map", "class SpM extends Array {} return SpM.from([1, 2]).map(function (x) { return x; }) instanceof SpM;", "class"],
+  ["species-filter", "class SpF extends Array {} return SpF.from([1, 2]).filter(function () { return true; }) instanceof SpF;", "class"],
+  ["species-slice", "class SpS extends Array {} return SpS.from([1, 2, 3]).slice(0, 2) instanceof SpS;", "class"],
+  ["species-concat", "class SpC extends Array {} return SpC.from([1]).concat([2]) instanceof SpC;", "class"],
+  ["species-splice", "class SpP extends Array {} return SpP.from([1, 2, 3]).splice(0, 1) instanceof SpP;", "class"],
+  ["species-map-values", "class SpV extends Array {} return SpV.from([1, 2]).map(function (x) { return x * 2; }).join(',');", "class"],
+  // Symbol.species is how a subclass opts BACK to plain arrays.
+  ["species-override-to-array", "class SpO extends Array { static get [Symbol.species]() { return Array; } } var r = SpO.from([1, 2]).map(function (x) { return x; }); return (r instanceof Array) + ',' + (r instanceof SpO);", "class"],
+  // A plain array carries no stamp and takes the ordinary path.
+  ["species-plain-map-unchanged", "return [1, 2].map(function (x) { return x; }) instanceof Array;", "class"],
+  ["species-plain-slice-unchanged", "return [1, 2, 3].slice(1).join(',');", "class"],
+  ["species-plain-concat-unchanged", "return [1].concat([2, 3]).join(',');", "class"],
+  ["species-plain-splice-unchanged", "var a = [1, 2, 3]; var r = a.splice(1, 1); return r.join(',') + '|' + a.join(',');", "class"],
+
+  // Proxy: the traps are consulted by the OPERATIONS that need them. These
+  // were all the same defect -- the key list came through the ownKeys trap and
+  // then the VALUE was read straight off the map, so the `get` trap never ran.
+  ["proxy-spread", "var p = new Proxy({}, { ownKeys: function () { return ['a']; }, getOwnPropertyDescriptor: function () { return { value: 3, enumerable: true, configurable: true }; }, get: function () { return 3; } }); return JSON.stringify({ ...p });", "proxy"],
+  ["proxy-destructuring", "var p = new Proxy({}, { get: function (t, k) { return k === 'a' ? 11 : undefined; } }); var { a } = p; return a;", "proxy"],
+  ["proxy-destructuring-rest", "var p = new Proxy({}, { ownKeys: function () { return ['a', 'b']; }, getOwnPropertyDescriptor: function () { return { value: 1, enumerable: true, configurable: true }; }, get: function (t, k) { return k === 'a' ? 1 : 2; } }); var { a, ...rest } = p; return a + ',' + JSON.stringify(rest);", "proxy"],
+  ["proxy-object-assign", "var p = new Proxy({}, { ownKeys: function () { return ['a']; }, getOwnPropertyDescriptor: function () { return { value: 9, enumerable: true, configurable: true }; }, get: function () { return 9; } }); return JSON.stringify(Object.assign({}, p));", "proxy"],
+  ["proxy-json-stringify", "var p = new Proxy({}, { ownKeys: function () { return ['a']; }, getOwnPropertyDescriptor: function () { return { value: 4, enumerable: true, configurable: true }; }, get: function () { return 4; } }); return JSON.stringify(p);", "proxy"],
+  // Object.keys filters by the DESCRIPTOR trap's enumerable, not the target's.
+  ["proxy-keys-filters-enumerable", "var p = new Proxy({}, { ownKeys: function () { return ['a', 'b']; }, getOwnPropertyDescriptor: function (t, k) { return { value: 1, enumerable: k === 'a', configurable: true }; } }); return Object.keys(p).join(',');", "proxy"],
+  ["proxy-getownpropertynames-does-not-filter", "var p = new Proxy({}, { ownKeys: function () { return ['a', 'b']; }, getOwnPropertyDescriptor: function () { return { value: 1, enumerable: false, configurable: true }; } }); return Object.getOwnPropertyNames(p).join(',');", "proxy"],
+  // §10.5.11 invariants on the ownKeys trap.
+  ["proxy-ownkeys-must-be-a-list", "var p = new Proxy({}, { ownKeys: function () { return 1; } }); try { Object.keys(p); return 'ACCEPTED'; } catch (e) { return e.constructor.name; }", "proxy"],
+  ["proxy-ownkeys-cannot-hide-nonconfigurable", "var t = {}; Object.defineProperty(t, 'a', { value: 1, configurable: false }); var p = new Proxy(t, { ownKeys: function () { return []; } }); try { Object.getOwnPropertyNames(p); return 'ACCEPTED'; } catch (e) { return e.constructor.name; }", "proxy"],
+  ["proxy-ownkeys-may-hide-configurable", "var t = { a: 1 }; var p = new Proxy(t, { ownKeys: function () { return []; }, getOwnPropertyDescriptor: function () { return undefined; } }); return Object.getOwnPropertyNames(p).length;", "proxy"],
+
+  // Symbol: the conversions a symbol REFUSES, and reflection over symbol keys.
+  ["symbol-implicit-string-throws", "try { return '' + Symbol(); } catch (e) { return e.constructor.name; }", "symbol"],
+  ["symbol-template-throws", "try { return `${Symbol()}`; } catch (e) { return e.constructor.name; }", "symbol"],
+  ["symbol-explicit-string-ok", "return String(Symbol('s'));", "symbol"],
+  ["symbol-new-throws", "try { new Symbol(); return 'ACCEPTED'; } catch (e) { return e.constructor.name; }", "symbol"],
+  ["symbol-call-mints", "return typeof Symbol('d');", "symbol"],
+  ["symbol-getownpropertysymbols", "var s = Symbol('q'); var o = {}; o[s] = 1; return Object.getOwnPropertySymbols(o).length;", "symbol"],
+  ["symbol-getownpropertysymbols-identity", "var s = Symbol('q'); var o = {}; o[s] = 1; return Object.getOwnPropertySymbols(o)[0] === s;", "symbol"],
+  ["symbol-getownpropertysymbols-literal", "var s = Symbol('lit'); var t = { [s]: 2 }; return Object.getOwnPropertySymbols(t).length;", "symbol"],
+  ["symbol-getownpropertysymbols-wellknown", "return Object.getOwnPropertySymbols({ [Symbol.iterator]: 1 }).length;", "symbol"],
+  ["symbol-getownpropertysymbols-empty", "return Object.getOwnPropertySymbols({ a: 1 }).length;", "symbol"],
+  ["symbol-still-not-in-keys", "var s = Symbol(); var o = { a: 1 }; o[s] = 2; return Object.keys(o).join(',');", "symbol"],
+  // Template literals: `\$` is an escaped dollar, so what follows is TEXT.
+  // The lexer used to decode it, which made `\${x}` indistinguishable from a
+  // substitution -- the engine evaluated x and the literal was lost.
+  ["template-escaped-dollar-brace", "return `\\${x}`;", "template"],
+  ["template-escaped-dollar-inline", "return `a\\${b}c`;", "template"],
+  ["template-escaped-dollar-alone", "return `\\$`;", "template"],
+  ["template-bare-dollar", "return `$` + `$x`;", "template"],
+  ["template-substitution-still-works", "var x = 5; return `a${x}b`;", "template"],
+  ["template-raw-keeps-escape", "function t(s) { return s.raw[0]; } return t`a\\$b`;", "template"],
+  // The strings object of a tagged template is FROZEN and cached per call
+  // site: the same literal evaluated twice hands back the identical object,
+  // which is what template-caching libraries key on. Two different literals
+  // never share one, and the substitutions still vary per call.
+  ["template-strings-same-site-identity", "function t(s) { return s; } function f() { return t`a${1}b`; } return f() === f();", "template"],
+  ["template-strings-different-site", "function t(s) { return s; } function f() { return t`a${1}b`; } function g() { return t`a${1}b`; } return f() === g();", "template"],
+  ["template-strings-frozen", "function t(s) { return s; } var x = t`a${1}b`; return Object.isFrozen(x) + ',' + Object.isFrozen(x.raw);", "template"],
+  ["template-strings-write-ignored", "function t(s) { return s; } var x = t`a${1}b`; x[0] = 'Z'; return x[0];", "template"],
+  ["template-strings-write-ignored-in-fn", "function t(s) { return s; } var x = t`a${1}b`; function w() { x[0] = 'Z'; return x[0]; } return w();", "template"],
+  ["template-strings-values-intact", "function t(s) { return s; } var x = t`a${1}b`; return x.join('|') + ' raw:' + x.raw.join('|');", "template"],
+  ["template-substitutions-still-vary", "function t(s, v) { return v; } function h(n) { return t`v${n}`; } return h(1) + ',' + h(2);", "template"],
+
+  // Proxy: calling one, and its place in a prototype chain.
+  ["proxy-dot-call", "var p = new Proxy(function () { return this.v; }, {}); return p.call({ v: 7 });", "proxy"],
+  ["proxy-dot-apply", "var p = new Proxy(function () { return this.v; }, {}); return p.apply({ v: 8 });", "proxy"],
+  // call/apply/bind on a callable proxy: all three are Function.prototype's,
+  // and the branch that owns them gates on isFunction() -- a proxy is an
+  // object, so every one of them reached "call is not a function".
+  ["proxy-dot-call-args", "var p = new Proxy(function (a, b) { return this.v + a + b; }, {}); return p.call({ v: 'v' }, 'a', 'b');", "proxy"],
+  ["proxy-dot-apply-args", "var p = new Proxy(function (a, b) { return this.v + a + b; }, {}); return p.apply({ v: 'v' }, ['a', 'b']);", "proxy"],
+  ["proxy-dot-apply-no-args", "var p = new Proxy(function () { return this.v; }, {}); return p.apply({ v: 6 });", "proxy"],
+  ["proxy-dot-bind", "var p = new Proxy(function () { return this.v; }, {}); return p.bind({ v: 9 })();", "proxy"],
+  ["proxy-dot-bind-partial", "var p = new Proxy(function (a, b) { return a + b; }, {}); return p.bind(null, 'x')('y');", "proxy"],
+  ["proxy-dot-bind-twice", "var p = new Proxy(function (a, b) { return this.v + a + b; }, {}); return p.bind({ v: 1 }, 'a').bind({ v: 2 }, 'b')();", "proxy"],
+  ["proxy-dot-bind-is-function", "var p = new Proxy(function () {}, {}); var b = p.bind({}); return typeof b + ',' + (b !== p);", "proxy"],
+  ["proxy-dot-call-through-trap", "var p = new Proxy(function () {}, { apply: function (t, th, a) { return 'trap:' + th.v + ':' + a.join(','); } }); return p.call({ v: 7 }, 1, 2);", "proxy"],
+  ["proxy-dot-apply-through-trap", "var p = new Proxy(function () {}, { apply: function (t, th, a) { return 'trap:' + th.v + ':' + a.length; } }); return p.apply({ v: 8 }, [1, 2, 3]);", "proxy"],
+  ["proxy-dot-bind-through-trap", "var p = new Proxy(function () {}, { apply: function (t, th, a) { return 'trap:' + th.v + ':' + a.join(','); } }); return p.bind({ v: 9 }, 'q')('r');", "proxy"],
+  ["proxy-bound-called-bare", "var p = new Proxy(function (a) { return this.v + a; }, {}); var b = p.bind({ v: 'v' }); return b('a');", "proxy"],
+  ["proxy-call-extracted-non-function", "try { var c = Function.prototype.call; c.call(5); return 'no-throw'; } catch (e) { return e.constructor.name; }", "proxy"],
+  ["proxy-apply-trap", "var p = new Proxy(function () {}, { apply: function (t, th, a) { return a[0] + 1; } }); return p(41);", "proxy"],
+  ["proxy-apply-no-trap", "var p = new Proxy(function (x) { return x * 2; }, {}); return p(21);", "proxy"],
+  ["proxy-apply-this", "var p = new Proxy(function () { return this.v; }, {}); var o = { v: 5, m: p }; return o.m();", "proxy"],
+  ["proxy-as-method-keeps-receiver", "var p = new Proxy(function () { return this.v; }, {}); var o = { v: 5, m: p }; return o.m();", "proxy"],
+  ["proxy-as-method-through-trap", "var q = new Proxy(function () { return 1; }, { apply: function (t, th, a) { return th ? th.v : 'no-this'; } }); var o = { v: 3, m: q }; return o.m();", "proxy"],
+  ["proxy-reflect-apply-receiver", "var p = new Proxy(function () { return this.v; }, {}); return Reflect.apply(p, { v: 9 }, []);", "proxy"],
+  ["proxy-instanceof", "function PF() {} var p = new Proxy(new PF(), {}); return p instanceof PF;", "proxy"],
+  ["proxy-instanceof-negative", "function PF2() {} function PG2() {} var p = new Proxy(new PF2(), {}); return p instanceof PG2;", "proxy"],
+  ["proxy-getproto-trap-drives-instanceof", "function PF3() {} var p = new Proxy({}, { getPrototypeOf: function () { return PF3.prototype; } }); return p instanceof PF3;", "proxy"],
+  // new.target through the IMPLICIT constructor of a derived class.
+  ["newtarget-through-implicit-ctor", "class NTA { constructor() { this.n = new.target.name; } } class NTB extends NTA {} return new NTB().n;", "class"],
+  ["newtarget-base-direct", "class NTC { constructor() { this.n = new.target.name; } } return new NTC().n;", "class"],
+  ["newtarget-explicit-ctor", "class NTD { constructor() { this.n = new.target.name; } } class NTE extends NTD { constructor() { super(); } } return new NTE().n;", "class"],
+
+  // Subclassing the keyed collections. `extends Array`, `extends Error`,
+  // `extends RegExp` and `extends Function` already worked; Map and Set did
+  // not, and failed in a way that LOOKED like it worked -- the instance had
+  // the right prototype and reported the right brand, but its `set` stored
+  // nothing and `size` was undefined, because a Map keeps its entries in an
+  // internal list that a plain object does not have.
+  ["sub-map-basic", "class SubM extends Map {} var m = new SubM(); m.set('a', 1); return m.get('a') + ',' + m.size;", "class"],
+  ["sub-map-instanceof", "class SubM2 extends Map {} var m = new SubM2(); return (m instanceof SubM2) + ',' + (m instanceof Map);", "class"],
+  ["sub-map-from-entries", "class SubM3 extends Map {} var m = new SubM3([['a', 1], ['b', 2]]); return m.size + ',' + m.get('b');", "class"],
+  ["sub-set-basic", "class SubS extends Set {} var s = new SubS(); s.add(1); return s.size + ',' + s.has(1);", "class"],
+  ["sub-set-from-iterable", "class SubS2 extends Set {} var s = new SubS2([1, 2, 2]); return s.size + ',' + s.has(2);", "class"],
+  ["sub-set-instanceof", "class SubS3 extends Set {} var s = new SubS3(); return (s instanceof SubS3) + ',' + (s instanceof Set);", "class"],
+  ["sub-map-explicit-super", "class SubM4 extends Map { constructor(x) { super(x); } } return new SubM4([['k', 9]]).get('k');", "class"],
+  ["sub-map-own-method", "class SubM5 extends Map { twice() { return this.size * 2; } } var m = new SubM5(); m.set('a', 1); return m.twice();", "class"],
+  // A Map and a Set are their own value kinds here, so neither reached the
+  // object branch of the brand: even a PLAIN `new Map()` was "[object Object]".
+  ["brand-map", "return Object.prototype.toString.call(new Map());", "class"],
+  ["brand-set", "return Object.prototype.toString.call(new Set());", "class"],
+  ["brand-subclassed-map", "class SubM6 extends Map {} return Object.prototype.toString.call(new SubM6());", "class"],
+
+  // RegExp: General_Category LONG names, which are as legal as the two-letter
+  // spelling. The generated table holds the short names -- the ranges are
+  // identical, so storing both would double it to say the same thing twice --
+  // and the long spelling folds onto the short one at lookup.
+  ["prop-letter-long", "return /\\p{Letter}/u.test('a');", "unicode"],
+  ["prop-letter-long-negative", "return /\\p{Letter}/u.test('1');", "unicode"],
+  ["prop-uppercase-letter-long", "return /\\p{Uppercase_Letter}/u.test('A') + ',' + /\\p{Uppercase_Letter}/u.test('a');", "unicode"],
+  ["prop-decimal-number-long", "return /\\p{Decimal_Number}/u.test('7');", "unicode"],
+  ["prop-space-separator-long", "return /\\p{Space_Separator}/u.test(' ');", "unicode"],
+  ["prop-long-and-short-agree", "return /\\p{Letter}/u.test('x') === /\\p{L}/u.test('x');", "unicode"],
+  ["prop-v-intersection-long-name", "return /[\\p{ASCII}&&\\p{Letter}]/v.test('a') + ',' + /[\\p{ASCII}&&\\p{Letter}]/v.test('1');", "unicode"],
+  ["prop-unknown-still-throws", "try { new RegExp('\\\\p{Nope}', 'u'); return 'ACCEPTED'; } catch (e) { return e.constructor.name; }", "unicode"],
+  // annexB B.2.2.12/13: the pre-rename spellings of trimStart/trimEnd.
+  ["annexb-trimleft", "return '  a '.trimLeft() + '|';", "unicode"],
+  ["annexb-trimright", "return '| ' + ' a  '.trimRight();", "unicode"],
+  ["annexb-trimleft-matches-trimstart", "return '  a '.trimLeft() === '  a '.trimStart();", "unicode"],
+
+  // Typed arrays and their backing buffer.
+  ["ta-buffer-is-minted", "var a = new Int32Array(4); return Object.prototype.toString.call(a.buffer);", "typedarray"],
+  ["ta-buffer-bytelength", "var a = new Int32Array(4); return a.buffer.byteLength;", "typedarray"],
+  ["ta-minted-buffer-aliases", "var p = new Int32Array(1); p[0] = 258; var u = new Uint8Array(p.buffer); return u[0] + ',' + u[1];", "typedarray"],
+  ["ta-minted-buffer-writes-back", "var p = new Int32Array(1); p[0] = 258; var u = new Uint8Array(p.buffer); u[0] = 1; return p[0];", "typedarray"],
+  ["ta-buffer-identity-stable", "var a = new Int32Array(2); return a.buffer === a.buffer;", "typedarray"],
+  ["ta-buffer-from-list", "var q = new Int32Array([7]); return new Uint8Array(q.buffer)[0] + ',' + q.buffer.byteLength;", "typedarray"],
+  // Brands. Even `new ArrayBuffer(8)` answered "[object Object]".
+  ["brand-arraybuffer", "return Object.prototype.toString.call(new ArrayBuffer(8));", "typedarray"],
+  ["brand-dataview", "return Object.prototype.toString.call(new DataView(new ArrayBuffer(8)));", "typedarray"],
+  ["brand-int32array", "return Object.prototype.toString.call(new Int32Array(2));", "typedarray"],
+  ["brand-uint8array", "return Object.prototype.toString.call(new Uint8Array(2));", "typedarray"],
+  ["brand-plain-array-still-array", "return Object.prototype.toString.call([1, 2]);", "typedarray"],
+  // set / subarray -- the two typed-array methods with no Array counterpart,
+  // both of which were "not a function".
+  ["ta-set-from-typed", "var b = new ArrayBuffer(8); var x = new Uint8Array(b); x.set(new Uint8Array([9, 8]), 2); return x[2] + ',' + x[3];", "typedarray"],
+  ["ta-set-from-plain-array", "var x = new Int32Array(4); x.set([1, 2], 1); return x.join(',');", "typedarray"],
+  ["ta-set-coerces", "var x = new Int8Array(2); x.set([300, -1]); return x[0] + ',' + x[1];", "typedarray"],
+  ["ta-set-out-of-range-throws", "var x = new Int8Array(2); try { x.set([1, 2, 3]); return 'ACCEPTED'; } catch (e) { return e.constructor.name; }", "typedarray"],
+  ["ta-subarray-shares", "var a = new Int32Array([1,2,3,4]); var s = a.subarray(1,3); s[0] = 99; return a[1] + ',' + s.length + ',' + (s.buffer === a.buffer);", "typedarray"],
+  ["ta-subarray-negative", "var a = new Int32Array([1,2,3,4]); return a.subarray(-2).join(',');", "typedarray"],
+  ["ta-slice-still-copies", "var a = new Int32Array([1,2,3]); var s = a.slice(0,2); s[0] = 99; return a[0] + ',' + s.length;", "typedarray"],
+  // A view onto a detached buffer has no elements.
+  ["ta-detached-length", "var b = new ArrayBuffer(8); var a = new Uint8Array(b); b.transfer(); return a.length;", "typedarray"],
+  ["ta-detached-bytelength", "var b = new ArrayBuffer(8); var a = new Uint8Array(b); b.transfer(); return a.byteLength;", "typedarray"],
+
+  // Radix-prefixed BigInt literals. The `n` suffix was read only on the
+  // DECIMAL path, so `0xffn` reached the malformed-literal check, which sees
+  // `n` as an identifier character and rejected the whole literal. Everything
+  // downstream was already right: BigNum.parse reads the radix prefixes
+  // itself, and DataView.setBigInt64/BigInt.asUintN/BigInt64Array all handled
+  // the full 64-bit range once a literal could reach them.
+  ["bigint-hex", "return (0x1fn).toString();", "bigint"],
+  ["bigint-hex-64bit", "return (0xFFFFFFFFFFFFFFFFn).toString();", "bigint"],
+  ["bigint-octal", "return (0o17n).toString();", "bigint"],
+  ["bigint-binary", "return (0b1011n).toString();", "bigint"],
+  ["bigint-hex-separators", "return (0xff_ffn).toString();", "bigint"],
+  ["bigint-hex-typeof", "return typeof 0x1fn;", "bigint"],
+  ["bigint64array-from-hex", "var a = new BigInt64Array(1); a[0] = 0x7fffffffffffffffn; return a[0].toString();", "bigint"],
+  ["bigint64array-hex-wraps", "var a = new BigInt64Array(1); a[0] = 0x8000000000000000n; return a[0].toString();", "bigint"],
+  ["biguint64array-from-hex", "var a = new BigUint64Array(1); a[0] = 0xffffffffffffffffn; return a[0].toString();", "bigint"],
+  ["dataview-bigint64-hex", "var d = new DataView(new ArrayBuffer(8)); d.setBigInt64(0, 0x1234n); return d.getBigInt64(0).toString();", "bigint"],
+  ["dataview-biguint64-hex", "var d = new DataView(new ArrayBuffer(8)); d.setBigUint64(0, 0xffffffffffffffffn); return d.getBigUint64(0).toString();", "bigint"],
+  ["bigint-asuintn-hex", "return BigInt.asUintN(8, 0x1ffn).toString();", "bigint"],
+  ["bigint-asintn-hex", "return BigInt.asIntN(8, 0xffn).toString();", "bigint"],
+  // Still malformed, and still reported as such: the suffix must follow digits.
+  ["bigint-hex-no-digits-is-an-error", "try { eval('0xn'); return 'ACCEPTED'; } catch (e) { return e.constructor.name; }", "bigint"],
+  ["bigint-hex-bad-digit-is-an-error", "try { eval('0b12n'); return 'ACCEPTED'; } catch (e) { return e.constructor.name; }", "bigint"],
+
+  // Private-field edges. Eleven of these already held; `o?.#x` did not --
+  // parseMemberName reads a private name fine, but the `?.` branch gated on
+  // isNameToken() and `#` is a punctuator, so the branch never fired and the
+  // postfix loop left the OBJECT as the result: `o?.#x` evaluated to `o`.
+  ["priv-in-operator", "class PrivIn { #x = 1; static has(o) { return #x in o; } } return PrivIn.has(new PrivIn()) + ',' + PrivIn.has({});", "class"],
+  ["priv-optional-chain", "class PrivOC { #x = 5; get(o) { return o?.#x; } } return String(new PrivOC().get(new PrivOC()));", "class"],
+  ["priv-optional-chain-null", "class PrivOCN { #x = 5; get(o) { return o?.#x; } } return String(new PrivOCN().get(null));", "class"],
+  ["priv-optional-chain-method", "class PrivOCM { #f() { return 6; } go(o) { return o?.#f(); } } return String(new PrivOCM().go(new PrivOCM()));", "class"],
+  ["priv-static-field", "class PrivSF { static #n = 7; static get() { return PrivSF.#n; } } return PrivSF.get();", "class"],
+  ["priv-static-method", "class PrivSM { static #f() { return 3; } static go() { return PrivSM.#f(); } } return PrivSM.go();", "class"],
+  ["priv-method", "class PrivM { #f() { return 4; } go() { return this.#f(); } } return new PrivM().go();", "class"],
+  ["priv-getter-setter", "class PrivGS { #v = 1; get x() { return this.#v; } set x(n) { this.#v = n; } } var c = new PrivGS(); c.x = 9; return c.x;", "class"],
+  ["priv-brand-check-throws", "class PrivBC { #x = 1; static read(o) { return o.#x; } } try { PrivBC.read({}); return 'NO-THROW'; } catch (e) { return e.constructor.name; }", "class"],
+  ["priv-not-in-keys", "class PrivNK { #x = 1; y = 2; } return Object.keys(new PrivNK()).join(',');", "class"],
+  ["priv-static-block", "class PrivSB { static #n; static { PrivSB.#n = 11; } static get() { return PrivSB.#n; } } return PrivSB.get();", "class"],
+  ["priv-inherited-not-shared", "class A { #x = 1; static hasA(o) { return #x in o; } } class B extends A {} return String(A.hasA(new B()));", "class"],
+  ["priv-name-collision", "class A { #x = 1; ax() { return this.#x; } } class B { #x = 2; bx() { return this.#x; } } return new A().ax() + ',' + new B().bx();", "class"],
+
+  ["async-inner-arrow-params-ok", "async function f() { var g = (x = 1) => x; return g(); } return typeof f().then;", "async"],
+  // The async-generator OBJECT is an async iterator now: next() answers a
+  // promise for an iteration result, it brands through
+  // %AsyncGeneratorPrototype%, and it publishes Symbol.asyncIterator (and
+  // deliberately NOT Symbol.iterator -- `for (x of asyncGen())` is a TypeError).
+  ["async-gen-obj-tostring-tag", "async function* f() {} return Object.prototype.toString.call(f());", "async"],
+  ["async-gen-next-is-a-promise", "async function* f() { yield 1; } return typeof f().next().then;", "async"],
+  ["async-gen-has-async-iterator", "async function* f() { yield 1; } return typeof f()[Symbol.asyncIterator];", "async"],
+  ["async-gen-async-iterator-is-self", "async function* f() { yield 1; } var it = f(); return it[Symbol.asyncIterator]() === it;", "async"],
+  ["async-gen-no-sync-iterator", "async function* f() { yield 1; } return typeof f()[Symbol.iterator];", "async"],
+  ["async-gen-proto-differs-from-gen", "async function* a() {} function* b() {} return Object.getPrototypeOf(Object.getPrototypeOf(a())) === Object.getPrototypeOf(Object.getPrototypeOf(b()));", "async"],
+  ["async-gen-object-literal-method", "var o = { async *m() { yield 1; } }; return Object.prototype.toString.call(o.m());", "async"],
+  ["async-gen-class-method", "class AGCls { async *m() { yield 1; } } return Object.prototype.toString.call(new AGCls().m());", "async"],
+
+  // formatToParts / formatRange / supportedLocalesOf.
+  ["intl-nf-parts", "return new Intl.NumberFormat('de').formatToParts(-1234567.89).map(function (p) { return p.type + '=' + p.value; }).join(' ');", "unicode"],
+  ["intl-nf-parts-currency", "return new Intl.NumberFormat('en', { style: 'currency', currency: 'USD' }).formatToParts(-99.5).map(function (p) { return p.type; }).join(',');", "unicode"],
+  ["intl-nf-parts-percent", "return new Intl.NumberFormat('de', { style: 'percent' }).formatToParts(0.256).map(function (p) { return p.type + '=' + p.value; }).join(' ');", "unicode"],
+  ["intl-nf-parts-rejoin", "var f = new Intl.NumberFormat('de'); return f.formatToParts(-1234567.89).map(function (p) { return p.value; }).join('') === f.format(-1234567.89);", "unicode"],
+  ["intl-dtf-parts", "return new Intl.DateTimeFormat('en').formatToParts(new Date(Date.UTC(2021, 4, 7))).map(function (p) { return p.type + '=' + p.value; }).join(' ');", "unicode"],
+  ["intl-dtf-parts-long", "return new Intl.DateTimeFormat('de', { year: 'numeric', month: 'long', day: 'numeric' }).formatToParts(new Date(Date.UTC(2021, 4, 7))).map(function (p) { return p.type; }).join(',');", "unicode"],
+  ["intl-dtf-parts-rejoin", "var f = new Intl.DateTimeFormat('hu'); var d = new Date(Date.UTC(2021, 4, 7)); return f.formatToParts(d).map(function (p) { return p.value; }).join('') === f.format(d);", "unicode"],
+  ["intl-nf-supported", "return Intl.NumberFormat.supportedLocalesOf(['de', 'xx', 'sv-SE']).join('|');", "unicode"],
+  ["intl-collator-supported", "return Intl.Collator.supportedLocalesOf(['fr', 'zz']).join('|');", "unicode"],
+  ["intl-dtf-supported", "return Intl.DateTimeFormat.supportedLocalesOf(['ja']).join('|');", "unicode"],
+
+  // PluralRules and ListFormat.
+  ["intl-plural-en", "var p = new Intl.PluralRules('en'); return [0, 1, 2, 1.5].map(function (n) { return p.select(n); }).join(',');", "unicode"],
+  ["intl-plural-pl", "var p = new Intl.PluralRules('pl'); return [1, 2, 5, 22, 25, 1.5].map(function (n) { return p.select(n); }).join(',');", "unicode"],
+  ["intl-plural-ru", "var p = new Intl.PluralRules('ru'); return [1, 2, 5, 11, 21, 101].map(function (n) { return p.select(n); }).join(',');", "unicode"],
+  ["intl-plural-cs", "var p = new Intl.PluralRules('cs'); return [1, 2, 5, 1.5].map(function (n) { return p.select(n); }).join(',');", "unicode"],
+  ["intl-plural-fr-million", "return new Intl.PluralRules('fr').select(1000000);", "unicode"],
+  ["intl-plural-ar-fallback", "return new Intl.PluralRules('ja').select(5);", "unicode"],
+  ["intl-plural-ordinal-en", "var p = new Intl.PluralRules('en', { type: 'ordinal' }); return [1, 2, 3, 4, 11, 21].map(function (n) { return p.select(n); }).join(',');", "unicode"],
+  ["intl-plural-ordinal-it", "var p = new Intl.PluralRules('it', { type: 'ordinal' }); return [8, 11, 80, 800, 5].map(function (n) { return p.select(n); }).join(',');", "unicode"],
+  ["intl-plural-resolved", "var r = new Intl.PluralRules('pl').resolvedOptions(); return r.locale + ',' + r.type;", "unicode"],
+  ["intl-list-en", "return new Intl.ListFormat('en').format(['a', 'b', 'c']);", "unicode"],
+  ["intl-list-en-two", "return new Intl.ListFormat('en').format(['a', 'b']);", "unicode"],
+  ["intl-list-de", "return new Intl.ListFormat('de').format(['a', 'b', 'c']);", "unicode"],
+  ["intl-list-disjunction", "return new Intl.ListFormat('en', { type: 'disjunction' }).format(['a', 'b', 'c']);", "unicode"],
+  ["intl-list-parts", "return new Intl.ListFormat('en').formatToParts(['a', 'b', 'c']).map(function (p) { return p.type + '=' + p.value; }).join(' ');", "unicode"],
+  ["intl-list-single", "return new Intl.ListFormat('en').format(['only']);", "unicode"],
+
   ["uni-coll-total-order", "var w = ['Straße', 'Strasse', 'ǆ', 'dz']; var f = w.slice().sort(function (a, b) { return a.localeCompare(b); }).join('|'); var r = w.slice().reverse().sort(function (a, b) { return a.localeCompare(b); }).join('|'); return f === r;", "unicode"],
+
+  // --- ES2019-2024 library ---------------------------------------------------
+  // The change-by-copy quartet: each answers a NEW array and the receiver is
+  // untouched, which is the only reason to prefer them over the in-place forms.
+  ["arr-toSorted", "return [3, 1, 2].toSorted().join(',');", "es2023"],
+  ["arr-toSorted-cmp", "return [3, 1, 2].toSorted(function (a, b) { return b - a; }).join(',');", "es2023"],
+  ["arr-toSorted-pure", "var a = [3, 1, 2]; a.toSorted(); return a.join(',');", "es2023"],
+  ["arr-toSorted-undefined-last", "return JSON.stringify([3, undefined, 1].toSorted());", "es2023"],
+  ["arr-toSorted-holes", "var a = [3, , 1]; return JSON.stringify(a.toSorted());", "es2023"],
+  ["arr-toSorted-badcmp", "try { [1, 2].toSorted(5); return 'no'; } catch (e) { return e.constructor.name; }", "es2023"],
+  ["arr-toReversed", "return [1, 2, 3].toReversed().join(',');", "es2023"],
+  ["arr-toReversed-pure", "var a = [1, 2, 3]; a.toReversed(); return a.join(',');", "es2023"],
+  ["arr-toSpliced", "return JSON.stringify([1, 2, 3, 4].toSpliced(1, 2, 'a', 'b', 'c'));", "es2023"],
+  ["arr-toSpliced-neg", "return JSON.stringify([1, 2, 3, 4].toSpliced(-2, 1));", "es2023"],
+  ["arr-with", "return JSON.stringify([1, 2, 3].with(1, 'x'));", "es2023"],
+  ["arr-with-neg", "return JSON.stringify([1, 2, 3].with(-1, 'z'));", "es2023"],
+  ["arr-with-range", "try { [1, 2].with(9, 0); return 'no'; } catch (e) { return e.constructor.name; }", "es2023"],
+  ["arr-findLast", "return [1, 2, 3, 4].findLast(function (x) { return x % 2 === 1; });", "es2023"],
+  ["arr-findLastIndex", "return [1, 2, 3, 4].findLastIndex(function (x) { return x % 2 === 1; });", "es2023"],
+  ["arr-findLast-miss", "return String([1, 2].findLast(function () { return false; })) + ',' + [1, 2].findLastIndex(function () { return false; });", "es2023"],
+  ["arr-flatMap", "return JSON.stringify([1, 2, 3].flatMap(function (x) { return [x, x * 2]; }));", "es2019"],
+  ["arr-flatMap-flat-once", "return JSON.stringify([1, 2].flatMap(function (x) { return [[x]]; }));", "es2019"],
+  // includes compares with SameValueZero, which is the whole reason it exists
+  // next to indexOf.
+  ["arr-includes-nan", "return [NaN].includes(NaN);", "es2016"],
+  ["arr-includes-indexOf-nan", "return [NaN].indexOf(NaN);", "es2016"],
+  ["arr-includes-from", "return [1, 2, 3].includes(1, 1);", "es2016"],
+  ["arr-includes-negfrom", "return [1, 2, 3].includes(3, -1);", "es2016"],
+  ["arr-includes-hole", "return [, ].includes(undefined);", "es2016"],
+  ["arr-includes-zero", "return [-0].includes(0);", "es2016"],
+
+  // Promise combinators and finally.
+  ["promise-allSettled-shape", "var p = Promise.allSettled([Promise.resolve(1)]); return typeof p.then;", "es2020"],
+  ["promise-any-shape", "var p = Promise.any([Promise.resolve(1)]); p.catch(function () {}); return typeof p.then;", "es2021"],
+  ["promise-withResolvers", "var w = Promise.withResolvers(); w.resolve(1); return typeof w.promise.then + ',' + typeof w.resolve + ',' + typeof w.reject;", "es2024"],
+  ["promise-finally-exists", "return typeof Promise.prototype.finally + ',' + Promise.prototype.finally.length;", "es2018"],
+  ["aggregate-error", "var e = new AggregateError([1, 2], 'm'); return e.name + ',' + e.message + ',' + e.errors.join('-') + ',' + (e instanceof Error);", "es2021"],
+  ["aggregate-error-no-msg", "var e = new AggregateError([]); return e.message + '|' + e.errors.length;", "es2021"],
+  ["aggregate-error-errors-hidden", "var e = new AggregateError([1]); return Object.keys(e).indexOf('errors');", "es2021"],
+
+  // Object statics.
+  ["object-fromEntries", "return JSON.stringify(Object.fromEntries([['a', 1], ['b', 2]]));", "es2019"],
+  ["object-fromEntries-map", "return JSON.stringify(Object.fromEntries(new Map([['x', 9]])));", "es2019"],
+  ["object-hasOwn", "return Object.hasOwn({ a: 1 }, 'a') + ',' + Object.hasOwn({ a: 1 }, 'b');", "es2022"],
+  ["object-hasOwn-inherited", "return Object.hasOwn({}, 'toString');", "es2022"],
+  ["object-gopds", "return JSON.stringify(Object.getOwnPropertyDescriptors({ a: 1 }));", "es2017"],
+  ["object-gopds-accessor", "var o = {}; Object.defineProperty(o, 'g', { get: function () { return 1; }, configurable: true }); var d = Object.getOwnPropertyDescriptors(o); return typeof d.g.get + ',' + d.g.configurable;", "es2017"],
+  ["object-groupBy", "return JSON.stringify(Object.groupBy([1, 2, 3], function (x) { return x % 2 ? 'odd' : 'even'; }));", "es2024"],
+  // The result has a null prototype, so a group called "toString" is a group
+  // and not a collision. Compared inside the guest: a returned null and a
+  // returned undefined are the same value once bridged out.
+  ["object-groupBy-nullproto", "return Object.getPrototypeOf(Object.groupBy([1], function () { return 'k'; })) === null;", "es2024"],
+  ["object-groupBy-toString-key", "var g = Object.groupBy([1], function () { return 'toString'; }); return g.toString.length;", "es2024"],
+
+  // String.matchAll: every match WITH its captures, unlike match with /g.
+  ["string-matchAll", "return JSON.stringify(Array.from('a1b2'.matchAll(/[a-z](\\d)/g), function (m) { return m[0] + ':' + m[1] + '@' + m.index; }));", "es2020"],
+  ["string-matchAll-empty", "return Array.from('abc'.matchAll(/x/g)).length;", "es2020"],
+  ["string-matchAll-nonglobal", "try { 'ab'.matchAll(/a/); return 'no'; } catch (e) { return e.constructor.name; }", "es2020"],
+
+  // Optional call.
+  ["optional-call-absent", "var o = {}; return String(o.f?.());", "es2020"],
+  ["optional-call-present", "var o = { f: function () { return 5; } }; return o.f?.();", "es2020"],
+  ["optional-call-this", "var o = { v: 3, f: function () { return this.v; } }; return o.f?.();", "es2020"],
+  ["optional-call-null-binding", "var f = null; return String(f?.());", "es2020"],
+  ["optional-call-args-not-evaluated", "var n = 0; var o = {}; o.f?.(n++); return n;", "es2020"],
+
+  // The weak collections. Nothing here is ever collected, which the spec
+  // permits; what IS observable is the key check and the interface.
+  ["weakmap-roundtrip", "var k = {}; var m = new WeakMap(); m.set(k, 1); return m.get(k) + ',' + m.has(k) + ',' + m.delete(k) + ',' + m.has(k);", "es2015"],
+  ["weakmap-init", "var k = {}; return new WeakMap([[k, 7]]).get(k);", "es2015"],
+  ["weakmap-primitive-key", "try { new WeakMap().set(1, 2); return 'no'; } catch (e) { return e.constructor.name; }", "es2015"],
+  ["weakmap-get-primitive", "return String(new WeakMap().get(1)) + ',' + new WeakMap().has(1);", "es2015"],
+  ["weakmap-tag", "return Object.prototype.toString.call(new WeakMap());", "es2015"],
+  ["weakmap-no-iteration", "return typeof new WeakMap().forEach;", "es2015"],
+  ["weakset-roundtrip", "var k = {}; var s = new WeakSet(); s.add(k); return s.has(k) + ',' + s.has({}) + ',' + s.delete(k) + ',' + s.has(k);", "es2015"],
+  ["weakref-deref", "var o = { x: 1 }; return new WeakRef(o).deref().x;", "es2021"],
+  ["weakref-primitive", "try { new WeakRef(1); return 'no'; } catch (e) { return e.constructor.name; }", "es2021"],
+  ["finreg-register", "var f = new FinalizationRegistry(function () {}); f.register({}, 1); return typeof f.unregister;", "es2021"],
+  ["finreg-noncallable", "try { new FinalizationRegistry(1); return 'no'; } catch (e) { return e.constructor.name; }", "es2021"],
+
+  // --- class statics (ES2022) -----------------------------------------------
+  // A static field ran as an INSTANCE field, so C.x was undefined and every
+  // instance carried its own copy; a static block did not run at all.
+  ["class-static-field", "class CsA { static x = 5; } return CsA.x;", "es2022"],
+  ["class-static-field-not-on-instance", "class CsB { static x = 5; } return String(new CsB().x);", "es2022"],
+  ["class-static-field-sees-class", "class CsC { static a = 2; static b = CsC.a * 3; } return CsC.b;", "es2022"],
+  ["class-static-field-no-init", "class CsD { static n; } return String(CsD.n) + ',' + ('n' in CsD);", "es2022"],
+  ["class-static-block", "class CsE { static x = 1; static { CsE.y = CsE.x + 1; } } return CsE.y;", "es2022"],
+  ["class-static-block-this", "class CsF { static a = 1; static { this.b = this.a + 1; } } return CsF.b;", "es2022"],
+  ["class-static-private", "class CsG { static #n = 3; static get() { return CsG.#n; } } return CsG.get();", "es2022"],
+  ["class-static-order", "var L = []; class CsH { static a = L.push('a'); static { L.push('b'); } static c = L.push('c'); } return L.join('');", "es2022"],
+
+  // --- RegExp (ES2018-2022) --------------------------------------------------
+  ["re-dotall", "return /a.b/s.test('a\\nb');", "es2018"],
+  ["re-dotall-off", "return /a.b/.test('a\\nb');", "es2018"],
+  ["re-dotall-prop", "return /x/s.dotAll + ',' + /x/.dotAll;", "es2018"],
+  ["re-flag-props", "var r = /x/gimsuy; return [r.global, r.ignoreCase, r.multiline, r.dotAll, r.unicode, r.sticky].join(',');", "es2018"],
+  ["re-hasIndices-prop", "return /x/d.hasIndices + ',' + /x/.hasIndices;", "es2022"],
+  ["re-named-group", "return /(?<y>\\d{4})-(?<m>\\d{2})/.exec('2024-05').groups.y;", "es2018"],
+  ["re-named-groups-object", "var g = /(?<a>x)(?<b>y)/.exec('xy').groups; return g.a + g.b;", "es2018"],
+  ["re-groups-undefined-when-unnamed", "return String(/(x)/.exec('x').groups);", "es2018"],
+  ["re-named-optional", "var g = /(?<a>x)|(?<b>y)/.exec('y').groups; return String(g.a) + ',' + g.b;", "es2018"],
+  ["re-named-backref", "return /(?<c>a)\\k<c>/.test('aa') + ',' + /(?<c>a)\\k<c>/.test('ab');", "es2018"],
+  ["re-named-replace", "return '2024'.replace(/(?<y>\\d+)/, '[$<y>]');", "es2018"],
+  ["re-named-replace-missing", "return 'x'.replace(/(?<a>x)/, '$<zz>!');", "es2018"],
+  ["re-lookbehind", "return /(?<=a)b/.test('ab') + ',' + /(?<=a)b/.test('cb');", "es2018"],
+  ["re-lookbehind-negative", "return /(?<!a)b/.test('cb') + ',' + /(?<!a)b/.test('ab');", "es2018"],
+  ["re-lookbehind-quantified", "return /(?<=a+)b/.test('aaab');", "es2018"],
+  ["re-lookbehind-index", "var m = /(?<=\\$)\\d+/.exec('cost $42'); return m[0] + '@' + m.index;", "es2018"],
+  ["re-lookbehind-capture", "var m = /(?<=(\\w)x)y/.exec('axy'); return m[1];", "es2018"],
+  ["re-indices", "return JSON.stringify(/a(b)/d.exec('xab').indices);", "es2022"],
+  ["re-indices-groups", "return JSON.stringify(/(?<g>b)/d.exec('ab').indices.groups);", "es2022"],
+  ["re-indices-absent", "return String(/x/.exec('x').indices);", "es2022"],
+  ["re-ctor-u-flag", "return new RegExp('a', 'u').flags;", "es2015"],
+  ["re-ctor-bad-flag", "try { new RegExp('a', 'q'); return 'no'; } catch (e) { return e.constructor.name; }", "es2015"],
+  ["re-ctor-dup-flag", "try { new RegExp('a', 'gg'); return 'no'; } catch (e) { return e.constructor.name; }", "es2015"],
+  ["re-matchAll-named", "return Array.from('a1'.matchAll(/(?<L>[a-z])(?<D>\\d)/g), function (m) { return m.groups.L + m.groups.D; }).join('');", "es2020"],
+
+  // --- Set operations and iterator helpers (ES2025) --------------------------
+  ["set-union", "return Array.from(new Set([1, 2]).union(new Set([2, 3]))).join(',');", "es2025"],
+  ["set-intersection", "return Array.from(new Set([1, 2, 3]).intersection(new Set([2, 3, 4]))).join(',');", "es2025"],
+  ["set-difference", "return Array.from(new Set([1, 2, 3]).difference(new Set([2]))).join(',');", "es2025"],
+  ["set-symmetricDifference", "return Array.from(new Set([1, 2]).symmetricDifference(new Set([2, 3]))).join(',');", "es2025"],
+  ["set-isSubsetOf", "return new Set([1]).isSubsetOf(new Set([1, 2])) + ',' + new Set([3]).isSubsetOf(new Set([1, 2]));", "es2025"],
+  ["set-isSupersetOf", "return new Set([1, 2]).isSupersetOf(new Set([1])) + ',' + new Set([1]).isSupersetOf(new Set([1, 2]));", "es2025"],
+  ["set-isDisjointFrom", "return new Set([1]).isDisjointFrom(new Set([2])) + ',' + new Set([1]).isDisjointFrom(new Set([1]));", "es2025"],
+  // The argument is a SET-LIKE, not a Set: a Map has size, has and keys.
+  ["set-op-setlike-map", "return Array.from(new Set([1, 2]).union(new Map([[3, 'x']]))).join(',');", "es2025"],
+  ["set-op-subset-of-map", "return new Set([1, 2]).isSubsetOf(new Map([[1, 0], [2, 0], [3, 0]]));", "es2025"],
+  ["set-op-non-object", "try { new Set([1]).union(5); return 'no'; } catch (e) { return e.constructor.name; }", "es2025"],
+  ["set-op-order", "return Array.from(new Set([3, 1]).union(new Set([2, 3]))).join(',');", "es2025"],
+
+  ["iter-map", "return [1, 2, 3].values().map(function (x) { return x * 2; }).toArray().join(',');", "es2025"],
+  ["iter-filter", "return [1, 2, 3, 4].values().filter(function (x) { return x % 2 === 0; }).toArray().join(',');", "es2025"],
+  ["iter-take", "return [1, 2, 3, 4].values().take(2).toArray().join(',');", "es2025"],
+  ["iter-drop", "return [1, 2, 3, 4].values().drop(2).toArray().join(',');", "es2025"],
+  ["iter-flatMap", "return [1, 2].values().flatMap(function (x) { return [x, x]; }).toArray().join(',');", "es2025"],
+  ["iter-reduce", "return [1, 2, 3].values().reduce(function (a, b) { return a + b; }, 0);", "es2025"],
+  ["iter-reduce-no-init", "return [1, 2, 3].values().reduce(function (a, b) { return a + b; });", "es2025"],
+  ["iter-reduce-empty", "try { [].values().reduce(function (a, b) { return a + b; }); return 'no'; } catch (e) { return e.constructor.name; }", "es2025"],
+  ["iter-toArray", "return [1, 2].values().toArray().join(',');", "es2025"],
+  ["iter-forEach", "var s = 0; [1, 2].values().forEach(function (x) { s += x; }); return s;", "es2025"],
+  ["iter-some", "return [1, 2].values().some(function (x) { return x === 2; }) + ',' + [1].values().some(function () { return false; });", "es2025"],
+  ["iter-every", "return [1, 2].values().every(function (x) { return x > 0; }) + ',' + [1, 0].values().every(function (x) { return x > 0; });", "es2025"],
+  ["iter-find", "return [1, 2, 3].values().find(function (x) { return x > 1; }) + ',' + String([1].values().find(function () { return false; }));", "es2025"],
+  // A helper works on what is LEFT of a partly consumed iterator.
+  ["iter-partial", "var it = [1, 2, 3].values(); it.next(); return it.map(function (x) { return x * 10; }).toArray().join(',');", "es2025"],
+  ["iter-chain", "return [1, 2, 3, 4, 5].values().filter(function (x) { return x % 2; }).map(function (x) { return x * x; }).take(2).toArray().join(',');", "es2025"],
+  ["iter-take-negative", "try { [1].values().take(-1); return 'no'; } catch (e) { return e.constructor.name; }", "es2025"],
+  ["iter-on-set", "return new Set([1, 2, 3]).values().map(function (x) { return x + 1; }).toArray().join(',');", "es2025"],
+  ["iter-on-map", "return new Map([[1, 'a']]).entries().map(function (e) { return e[0] + e[1]; }).toArray().join(',');", "es2025"],
+  ["iter-on-string", "return 'ab'[Symbol.iterator]().map(function (c) { return c.toUpperCase(); }).toArray().join('');", "es2025"],
+  ["Iterator-typeof", "return typeof Iterator;", "es2025"],
+  ["Iterator-abstract", "try { new Iterator(); return 'no'; } catch (e) { return e.constructor.name; }", "es2025"],
+  ["Iterator-instanceof", "return [].values() instanceof Iterator;", "es2025"],
+  ["Iterator-from", "return Iterator.from([1, 2]).toArray().join(',');", "es2025"],
+  ["Iterator-from-set", "return Iterator.from(new Set(['a'])).toArray().join(',');", "es2025"],
+
+  // --- SharedArrayBuffer, buffer views and Atomics ---------------------------
+  // A typed array over a buffer is a VIEW, which is what makes any of this
+  // mean anything: two views over one buffer see one another's writes.
+  ["view-over-buffer", "var b = new ArrayBuffer(8); var v = new Int32Array(b); return v.length + ',' + v.byteLength;", "es2015"],
+  ["view-aliases", "var b = new ArrayBuffer(8); var a = new Int32Array(b); var c = new Int32Array(b); a[0] = 42; return c[0];", "es2015"],
+  ["view-aliases-bytes", "var b = new ArrayBuffer(4); var i = new Int32Array(b); var u = new Uint8Array(b); i[0] = 1; return u.join(',');", "es2015"],
+  ["view-dataview-alias", "var b = new ArrayBuffer(4); var i = new Int32Array(b); var d = new DataView(b); d.setInt32(0, 7, true); return i[0];", "es2015"],
+  ["view-offset", "var b = new ArrayBuffer(16); var v = new Int32Array(b, 4, 2); return v.length + ',' + v.byteOffset + ',' + v.byteLength;", "es2015"],
+  ["view-bad-offset", "try { new Int32Array(new ArrayBuffer(8), 3); return 'no'; } catch (e) { return e.constructor.name; }", "es2015"],
+  ["view-too-long", "try { new Int32Array(new ArrayBuffer(8), 0, 9); return 'no'; } catch (e) { return e.constructor.name; }", "es2015"],
+  ["view-buffer-identity", "var b = new ArrayBuffer(8); return new Int32Array(b).buffer === b;", "es2015"],
+
+  ["sab-typeof", "return typeof SharedArrayBuffer;", "es2017"],
+  ["sab-byteLength", "return new SharedArrayBuffer(8).byteLength;", "es2017"],
+  ["sab-tag", "return Object.prototype.toString.call(new SharedArrayBuffer(8));", "es2017"],
+  ["sab-instanceof", "return (new SharedArrayBuffer(8)) instanceof SharedArrayBuffer;", "es2017"],
+  ["sab-slice-is-shared", "var q = new SharedArrayBuffer(8).slice(0, 4); return q.byteLength + ',' + (q instanceof SharedArrayBuffer);", "es2017"],
+  ["sab-view", "var v = new Int32Array(new SharedArrayBuffer(8)); v[0] = 7; return v[0];", "es2017"],
+  ["sab-growable", "return typeof new SharedArrayBuffer(8).grow + ',' + new SharedArrayBuffer(8).growable;", "es2024"],
+
+  ["atomics-tag", "return Object.prototype.toString.call(Atomics);", "es2017"],
+  ["atomics-add", "var v = new Int32Array(new SharedArrayBuffer(8)); Atomics.store(v, 0, 5); return Atomics.add(v, 0, 3) + ',' + Atomics.load(v, 0);", "es2017"],
+  ["atomics-sub", "var v = new Int32Array(new SharedArrayBuffer(8)); Atomics.store(v, 0, 10); return Atomics.sub(v, 0, 4) + ',' + Atomics.load(v, 0);", "es2017"],
+  ["atomics-and", "var v = new Int32Array(new SharedArrayBuffer(8)); Atomics.store(v, 0, 6); return Atomics.and(v, 0, 3) + ',' + v[0];", "es2017"],
+  ["atomics-or", "var v = new Int32Array(new SharedArrayBuffer(8)); Atomics.store(v, 0, 5); return Atomics.or(v, 0, 2) + ',' + v[0];", "es2017"],
+  ["atomics-xor", "var v = new Int32Array(new SharedArrayBuffer(8)); Atomics.store(v, 0, 5); return Atomics.xor(v, 0, 3) + ',' + v[0];", "es2017"],
+  ["atomics-exchange", "var v = new Int32Array(new SharedArrayBuffer(8)); Atomics.store(v, 0, 1); return Atomics.exchange(v, 0, 9) + ',' + v[0];", "es2017"],
+  ["atomics-compareExchange", "var v = new Int32Array(new SharedArrayBuffer(8)); Atomics.store(v, 0, 1); return Atomics.compareExchange(v, 0, 1, 9) + ',' + v[0];", "es2017"],
+  ["atomics-compareExchange-miss", "var v = new Int32Array(new SharedArrayBuffer(8)); Atomics.store(v, 0, 1); return Atomics.compareExchange(v, 0, 5, 9) + ',' + v[0];", "es2017"],
+  ["atomics-wraps", "var v = new Int8Array(new SharedArrayBuffer(4)); Atomics.store(v, 0, 127); return Atomics.add(v, 0, 1) + ',' + v[0];", "es2017"],
+  ["atomics-through-buffer", "var b = new SharedArrayBuffer(8); var a = new Int32Array(b); var c = new Int32Array(b); Atomics.store(a, 0, 33); return c[0];", "es2017"],
+  ["atomics-float-refused", "try { Atomics.load(new Float64Array(2), 0); return 'no'; } catch (e) { return e.constructor.name; }", "es2017"],
+  ["atomics-non-typedarray", "try { Atomics.load([1, 2], 0); return 'no'; } catch (e) { return e.constructor.name; }", "es2017"],
+  ["atomics-out-of-range", "try { Atomics.load(new Int32Array(2), 5); return 'no'; } catch (e) { return e.constructor.name; }", "es2017"],
+  ["atomics-isLockFree", "return [1, 2, 4, 8, 3].map(function (n) { return Atomics.isLockFree(n); }).join(',');", "es2017"],
+  ["atomics-notify", "var v = new Int32Array(new SharedArrayBuffer(8)); return Atomics.notify(v, 0, 1);", "es2017"],
+  ["atomics-wait-not-equal", "var v = new Int32Array(new SharedArrayBuffer(8)); return Atomics.wait(v, 0, 7, 0);", "es2017"],
+  ["atomics-wait-timed-out", "var v = new Int32Array(new SharedArrayBuffer(8)); return Atomics.wait(v, 0, 0, 0);", "es2017"],
+
+  // --- BigInt (ES2020) -------------------------------------------------------
+  // The whole point is the values a double cannot hold, so most of these are
+  // written to fail if the arithmetic ever goes through one.
+  ["bigint-typeof", "return typeof 10n;", "es2020"],
+  ["bigint-literal", "return String(123n);", "es2020"],
+  ["bigint-exact-above-2-53", "return String(9007199254740993n);", "es2020"],
+  ["bigint-add", "return String(2n + 3n);", "es2020"],
+  ["bigint-sub", "return String(5n - 8n);", "es2020"],
+  ["bigint-mul-huge", "return String(123456789012345678901234567890n * 987654321098765432109876543210n);", "es2020"],
+  ["bigint-factorial", "var f = 1n; for (var i = 1n; i <= 30n; i++) { f *= i; } return String(f);", "es2020"],
+  ["bigint-div-truncates", "return String(7n / 2n) + ',' + String(-7n / 2n) + ',' + String(7n / -2n);", "es2020"],
+  ["bigint-rem-sign", "return String(-7n % 3n) + ',' + String(7n % -3n);", "es2020"],
+  ["bigint-pow", "return String(3n ** 40n);", "es2020"],
+  ["bigint-pow-negative-exponent", "try { return String(2n ** -1n); } catch (e) { return e.constructor.name; }", "es2020"],
+  ["bigint-div-zero", "try { return String(1n / 0n); } catch (e) { return e.constructor.name; }", "es2020"],
+  ["bigint-shift-left", "return String(1n << 100n);", "es2020"],
+  ["bigint-shift-right", "return String((1n << 100n) >> 50n);", "es2020"],
+  ["bigint-shift-right-floors", "return String(-1n >> 1n) + ',' + String(-8n >> 2n) + ',' + String(-1n >> 100n);", "es2020"],
+  ["bigint-and", "return String(12n & 10n) + ',' + String(-12n & 10n) + ',' + String(-12n & -10n);", "es2020"],
+  ["bigint-or", "return String(12n | 10n) + ',' + String(-12n | 10n);", "es2020"],
+  ["bigint-xor", "return String(12n ^ 10n) + ',' + String(-12n ^ 10n);", "es2020"],
+  ["bigint-not", "return String(~5n) + ',' + String(~-5n) + ',' + String(~0n);", "es2020"],
+  ["bigint-no-ushr", "try { return String(8n >>> 1n); } catch (e) { return e.constructor.name; }", "es2020"],
+  ["bigint-increment", "var i = 1n; i++; ++i; return String(i);", "es2020"],
+  ["bigint-decrement", "var i = 5n; i--; --i; return String(i);", "es2020"],
+  ["bigint-compound", "var f = 2n; f *= 3n; f += 1n; f -= 2n; return String(f);", "es2020"],
+  // Mixing with Number is a TypeError in arithmetic and legal in comparison.
+  ["bigint-mix-add", "try { return String(1n + 1); } catch (e) { return e.constructor.name; }", "es2020"],
+  ["bigint-mix-mul", "try { return String(1n * 2); } catch (e) { return e.constructor.name; }", "es2020"],
+  ["bigint-unary-plus", "try { return String(+1n); } catch (e) { return e.constructor.name; }", "es2020"],
+  ["bigint-unary-minus", "return String(-(5n));", "es2020"],
+  ["bigint-compare-mixed", "return (1n < 2) + ',' + (2n > 1.5) + ',' + (1n < 1.5) + ',' + (2n <= 2) + ',' + (1n < NaN);", "es2020"],
+  ["bigint-equality", "return (1n == 1) + ',' + (1n === 1) + ',' + (1n == '1') + ',' + (1n == 1.5) + ',' + (1n === 1n);", "es2020"],
+  ["bigint-falsy", "return (0n ? 't' : 'f') + ',' + (1n ? 't' : 'f') + ',' + (!0n);", "es2020"],
+  ["bigint-string-concat", "return 'x' + 1n + 'y';", "es2020"],
+  ["bigint-template", "return `v=${42n}`;", "es2020"],
+  ["bigint-ctor-number", "return String(BigInt(42));", "es2020"],
+  ["bigint-ctor-string", "return String(BigInt('123456789012345678901234567890'));", "es2020"],
+  ["bigint-ctor-radix-strings", "return String(BigInt('0xff')) + ',' + String(BigInt('0b101')) + ',' + String(BigInt('0o17'));", "es2020"],
+  ["bigint-ctor-bad-string", "try { BigInt('12x'); return 'no'; } catch (e) { return e.constructor.name; }", "es2020"],
+  ["bigint-ctor-fraction", "try { BigInt(1.5); return 'no'; } catch (e) { return e.constructor.name; }", "es2020"],
+  ["bigint-ctor-nan", "try { BigInt(NaN); return 'no'; } catch (e) { return e.constructor.name; }", "es2020"],
+  ["bigint-ctor-boolean", "return String(BigInt(true)) + ',' + String(BigInt(false));", "es2020"],
+  ["bigint-not-a-constructor", "try { new BigInt(1); return 'no'; } catch (e) { return e.constructor.name; }", "es2020"],
+  ["bigint-typeof-ctor", "return typeof BigInt;", "es2020"],
+  ["bigint-toString-radix", "return (255n).toString(16) + ',' + (255n).toString(2) + ',' + (-255n).toString(36);", "es2020"],
+  ["bigint-toString-bad-radix", "try { (1n).toString(99); return 'no'; } catch (e) { return e.constructor.name; }", "es2020"],
+  ["bigint-asIntN", "return String(BigInt.asIntN(8, 255n)) + ',' + String(BigInt.asIntN(8, 128n)) + ',' + String(BigInt.asIntN(64, 2n ** 63n));", "es2020"],
+  ["bigint-asUintN", "return String(BigInt.asUintN(8, -1n)) + ',' + String(BigInt.asUintN(64, -1n));", "es2020"],
+  ["bigint-Number-of", "return Number(10n) + ',' + Number(2n ** 60n);", "es2020"],
+  ["bigint-json-refused", "try { JSON.stringify({ a: 1n }); return 'no'; } catch (e) { return e.constructor.name; }", "es2020"],
+  ["bigint-sort", "return [3n, 1n, 2n].sort(function (a, b) { return a < b ? -1 : a > b ? 1 : 0; }).join(',');", "es2020"],
+  ["bigint64array", "var a = new BigInt64Array(2); a[0] = -1n; return String(a[0]) + ',' + a.length + ',' + a.BYTES_PER_ELEMENT;", "es2020"],
+  ["biguint64array-wraps", "var a = new BigUint64Array(1); a[0] = -1n; return String(a[0]);", "es2020"],
+  ["bigint64array-refuses-number", "try { var a = new BigInt64Array(1); a[0] = 5; return 'no'; } catch (e) { return e.constructor.name; }", "es2020"],
+  ["bigint64array-over-buffer", "var b = new ArrayBuffer(8); var a = new BigInt64Array(b); var d = new DataView(b); a[0] = 258n; return d.getUint8(0) + ',' + d.getUint8(1);", "es2020"],
+  ["dataview-bigint-roundtrip", "var d = new DataView(new ArrayBuffer(8)); d.setBigInt64(0, -2n); return String(d.getBigInt64(0)) + ',' + String(d.getBigUint64(0));", "es2020"],
+  ["dataview-bigint-refuses-number", "try { new DataView(new ArrayBuffer(8)).setBigInt64(0, 5); return 'no'; } catch (e) { return e.constructor.name; }", "es2020"],
+
+  // --- optional chaining: the WHOLE chain short-circuits ---------------------
+  ["optchain-whole-chain", "var o = null; return String(o?.a.b.c);", "es2020"],
+  ["optchain-call-in-chain", "var o = null; return String(o?.a());", "es2020"],
+  ["optchain-index-in-chain", "var o = null; return String(o?.[0][1]);", "es2020"],
+  ["optchain-deep-undefined", "var o = { a: undefined }; return String(o.a?.b.c.d);", "es2020"],
+  ["optchain-fn-then-prop", "var o = {}; return String(o.f?.().x);", "es2020"],
+  ["optchain-call-then-call", "var o = null; return String(o?.a().b());", "es2020"],
+  ["optchain-after-call", "var o = { f: function () { return null; } }; return String(o.f()?.a.b);", "es2020"],
+  ["optchain-rest-not-evaluated", "var n = 0; var o = null; var x = o?.a[n++].b; return n + ',' + String(x);", "es2020"],
+  ["optchain-side-effect-once", "var n = 0; function g() { n++; return null; } var x = g()?.a.b; return n + ',' + String(x);", "es2020"],
+  ["optchain-does-not-leak", "var n = 0; var o = null; o?.[n++]; return n;", "es2020"],
+  ["optchain-arg-isolated", "function f(x) { return '[' + x + ']'; } var o = null; return f(o?.a.b) + '|ok';", "es2020"],
+  ["optchain-not-nullish", "var o = { a: { b: { c: 7 } } }; return o?.a.b.c;", "es2020"],
+  ["optchain-in-template", "var o = null; return `${o?.a.b}`;", "es2020"],
+
+  // --- annexB accessor helpers ----------------------------------------------
+  ["defineGetter", "var o = {}; o.__defineGetter__('x', function () { return 5; }); return o.x;", "annexB"],
+  ["defineSetter", "var o = {}; var v; o.__defineSetter__('y', function (a) { v = a; }); o.y = 3; return v;", "annexB"],
+  ["defineGetter-enumerable", "var o = {}; o.__defineGetter__('x', function () { return 1; }); return Object.keys(o).join(',');", "annexB"],
+  ["defineGetter-noncallable", "try { ({}).__defineGetter__('x', 1); return 'no'; } catch (e) { return e.constructor.name; }", "annexB"],
+  ["lookupGetter", "var o = { get x() { return 1; } }; return typeof o.__lookupGetter__('x');", "annexB"],
+  ["lookupSetter", "var o = { set x(v) {} }; return typeof o.__lookupSetter__('x');", "annexB"],
+  ["lookupGetter-up-chain", "var p = { get x() { return 1; } }; var o = Object.create(p); return typeof o.__lookupGetter__('x');", "annexB"],
+  ["lookupGetter-shadowed", "var p = { get x() { return 1; } }; var o = Object.create(p); o.x = 2; return String(o.__lookupGetter__('x'));", "annexB"],
+  ["lookupGetter-absent", "return String(({}).__lookupGetter__('nope'));", "annexB"],
+
+  // --- ArrayBuffer transfer / resize (ES2024) --------------------------------
+  ["ab-detached-false", "return new ArrayBuffer(8).detached;", "es2024"],
+  ["ab-transfer", "var b = new ArrayBuffer(8); var c = b.transfer(); return c.byteLength + ',' + b.byteLength + ',' + b.detached;", "es2024"],
+  ["ab-transfer-size", "return new ArrayBuffer(8).transfer(16).byteLength;", "es2024"],
+  ["ab-transfer-twice", "var b = new ArrayBuffer(8); b.transfer(); try { b.transfer(); return 'no'; } catch (e) { return e.constructor.name; }", "es2024"],
+  ["ab-transfer-keeps-bytes", "var b = new ArrayBuffer(4); new Uint8Array(b)[0] = 9; return new Uint8Array(b.transfer())[0];", "es2024"],
+  ["ab-transfer-empties-view", "var b = new ArrayBuffer(4); var v = new Uint8Array(b); v[0] = 9; b.transfer(); return v[0];", "es2024"],
+  ["ab-resizable", "var b = new ArrayBuffer(8, { maxByteLength: 16 }); return b.resizable + ',' + b.maxByteLength;", "es2024"],
+  ["ab-not-resizable", "var b = new ArrayBuffer(8); return b.resizable + ',' + b.maxByteLength;", "es2024"],
+  ["ab-resize", "var b = new ArrayBuffer(8, { maxByteLength: 16 }); b.resize(12); return b.byteLength;", "es2024"],
+  ["ab-resize-too-big", "var b = new ArrayBuffer(8, { maxByteLength: 16 }); try { b.resize(20); return 'no'; } catch (e) { return e.constructor.name; }", "es2024"],
+  ["ab-resize-fixed", "try { new ArrayBuffer(8).resize(4); return 'no'; } catch (e) { return e.constructor.name; }", "es2024"],
+
+  // --- Map.groupBy -----------------------------------------------------------
+  ["map-groupBy", "var m = Map.groupBy([1, 2, 3], function (x) { return x % 2 ? 'odd' : 'even'; }); return m.get('odd').join(',') + '|' + m.get('even').join(',');", "es2024"],
+  ["map-groupBy-object-key", "var k = {}; var m = Map.groupBy([1, 2], function () { return k; }); return m.get(k).join(',');", "es2024"],
+  ["map-groupBy-size", "return Map.groupBy([1, 2, 3, 4], function (x) { return x % 2; }).size;", "es2024"],
+  ["map-groupBy-noncallable", "try { Map.groupBy([1], 5); return 'no'; } catch (e) { return e.constructor.name; }", "es2024"],
+
+  // --- class fields: computed names, privacy, and derived ordering -----------
+  ["class-field-computed", "var k = 'q'; class FcA { [k] = 7; } return new FcA().q;", "es2022"],
+  ["class-static-field-computed", "var k = 's'; class FcB { static [k] = 8; } return FcB.s;", "es2022"],
+  // A private field is not a property: no enumeration, no JSON, no read from
+  // outside the class.
+  ["class-private-not-enumerable", "class FcC { #a = 1; b = 2; } return Object.keys(new FcC()).join(',');", "es2022"],
+  ["class-private-not-in-json", "class FcD { #a = 1; b = 2; } return JSON.stringify(new FcD());", "es2022"],
+  ["class-private-not-in-gopn", "class FcE { #a = 1; b = 2; } return Object.getOwnPropertyNames(new FcE()).join(',');", "es2022"],
+  ["class-private-not-in-forin", "class FcF { #a = 1; b = 2; } var out = []; for (var k in new FcF()) { out.push(k); } return out.join(',');", "es2022"],
+  ["class-private-not-spread", "class FcG { #a = 1; b = 2; } return JSON.stringify(Object.assign({}, new FcG()));", "es2022"],
+  ["class-private-brand-throws", "class FcH { #a = 1; static read(o) { return o.#a; } } try { FcH.read({}); return 'no'; } catch (e) { return e.constructor.name; }", "es2022"],
+  ["class-private-brand-ok", "class FcI { #a = 7; static read(o) { return o.#a; } } return FcI.read(new FcI());", "es2022"],
+  ["class-private-in", "class FcJ { #a = 1; static has(o) { return #a in o; } } return FcJ.has(new FcJ()) + ',' + FcJ.has({});", "es2022"],
+  ["class-private-accessor", "class FcK { #v = 1; get v() { return this.#v; } set v(x) { this.#v = x; } } var c = new FcK(); c.v = 9; return c.v;", "es2022"],
+  ["class-private-method", "class FcL { #m() { return 3; } run() { return this.#m(); } } return new FcL().run();", "es2022"],
+  // §15.7.14: a derived class installs its fields when super() RETURNS, so the
+  // base constructor cannot see them.
+  ["class-derived-field-order", "class FcM { constructor() { this.init(); } init() {} } class FcN extends FcM { x = 5; init() { this.seen = this.x; } } var b = new FcN(); return String(b.seen) + ',' + b.x;", "es2022"],
+  ["class-base-field-order", "class FcO { x = 5; constructor() { this.seen = this.x; } } return new FcO().seen;", "es2022"],
+  ["class-derived-explicit-ctor", "class FcP { constructor() { this.init(); } init() {} } class FcQ extends FcP { x = 5; constructor() { super(); this.after = this.x; } init() { this.seen = this.x; } } var b = new FcQ(); return String(b.seen) + ',' + b.after;", "es2022"],
+
+  // --- Unicode property escapes (ES2018) -------------------------------------
+  ["re-prop-L", "return /\\p{L}/u.test('é') + ',' + /\\p{L}/u.test('1');", "es2018"],
+  ["re-prop-Lu", "return /\\p{Lu}/u.test('A') + ',' + /\\p{Lu}/u.test('a');", "es2018"],
+  ["re-prop-Ll", "return /^\\p{Ll}+$/u.test('abc');", "es2018"],
+  ["re-prop-N", "return /\\p{N}/u.test('٣');", "es2018"],
+  ["re-prop-Nd", "return /^\\p{Nd}+$/u.test('123');", "es2018"],
+  ["re-prop-negated", "return /\\P{L}/u.test('1') + ',' + /\\P{L}/u.test('a');", "es2018"],
+  ["re-prop-script-greek", "return /\\p{Script=Greek}/u.test('α') + ',' + /\\p{Script=Greek}/u.test('a');", "es2018"],
+  ["re-prop-script-han", "return /\\p{Script=Han}/u.test('漢');", "es2018"],
+  ["re-prop-sc-short", "return /\\p{sc=Latin}/u.test('a');", "es2018"],
+  ["re-prop-gc-long", "return /\\p{General_Category=Lu}/u.test('Q');", "es2018"],
+  ["re-prop-white-space", "return /\\p{White_Space}/u.test('\\u00a0');", "es2018"],
+  ["re-prop-alphabetic", "return /\\p{Alphabetic}/u.test('ñ');", "es2018"],
+  ["re-prop-ascii", "return /^\\p{ASCII}+$/u.test('hi') + ',' + /^\\p{ASCII}+$/u.test('hí');", "es2018"],
+  ["re-prop-in-class", "return /^[\\p{L}\\p{Nd}]+$/u.test('ab12é');", "es2018"],
+  ["re-prop-in-negated-class", "return /^[^\\p{L}]+$/u.test('123');", "es2018"],
+  // An astral letter is one CODE POINT; a class that saw only the high
+  // surrogate matched nothing.
+  ["re-prop-astral", "return /\\p{L}/u.test('\\u{10400}');", "es2018"],
+  ["re-prop-emoji", "return /\\p{Emoji}/u.test('😀');", "es2018"],
+  ["re-prop-quantified", "return /\\p{L}+/u.exec('héllo world')[0];", "es2018"],
+  ["re-prop-replace", "return 'a1b2'.replace(/\\p{Nd}/gu, '#');", "es2018"],
+  ["re-prop-M", "return /\\p{M}/u.test('\\u0301');", "es2018"],
+  ["re-prop-P", "return /\\p{P}/u.test('!');", "es2018"],
+  ["re-prop-S", "return /\\p{S}/u.test('+');", "es2018"],
+  ["re-prop-unknown-name", "try { new RegExp('\\\\p{Nope}', 'u'); return 'no'; } catch (e) { return e.constructor.name; }", "es2018"],
+  // Without `u`, \p is an identity escape and means the letter p.
+  ["re-prop-no-u-flag", "return /\\p{L}/.test('p{L}');", "es2018"],
+
+  // Unicode-mode literals: a braced quantifier, a braced code point, and an
+  // astral character, none of which the u-mode validator used to accept.
+  ["re-u-braced-quantifier", "return /a{2}/u.test('aa') + ',' + /a{2,}/u.test('aaa') + ',' + /a{2,4}/u.test('aaa');", "es2015"],
+  ["re-u-codepoint-escape", "return /\\u{41}/u.test('A');", "es2015"],
+  ["re-u-astral-escape", "return /\\u{10400}/u.test('\\u{10400}');", "es2015"],
+  ["re-u-astral-in-class", "return /[\\u{10400}]/u.test('\\u{10400}');", "es2015"],
+  ["re-u-astral-dot", "return /./u.exec('\\u{10400}')[0].length;", "es2015"],
+  ["string-astral-escape", "var s = '\\u{10400}'; return s.length + ',' + s.charCodeAt(0) + ',' + s.codePointAt(0);", "es2015"],
+
+  // --- async iteration -------------------------------------------------------
+  ["async-iterator-symbol-exists", "return typeof Symbol.asyncIterator;", "es2018"],
+
+  // --- the `v` flag: a class is a SET EXPRESSION (ES2024) --------------------
+  ["re-v-flags", "return /a/v.flags + ',' + /a/v.unicodeSets + ',' + /a/u.unicodeSets;", "es2024"],
+  ["re-v-basic", "return /^[a-z]+$/v.test('abc');", "es2024"],
+  ["re-v-difference", "return /[\\p{ASCII}--[a-z]]/v.test('A') + ',' + /[\\p{ASCII}--[a-z]]/v.test('a');", "es2024"],
+  ["re-v-difference-literal", "var r = /^[[a-z]--[aeiou]]+$/v; return r.test('bcd') + ',' + r.test('abc');", "es2024"],
+  ["re-v-intersection", "return /[\\p{L}&&\\p{Ll}]/v.test('a') + ',' + /[\\p{L}&&\\p{Ll}]/v.test('A');", "es2024"],
+  ["re-v-intersection-literal", "var r = /^[[a-m]&&[g-z]]+$/v; return r.test('gh') + ',' + r.test('ab');", "es2024"],
+  ["re-v-nested-union", "var r = /^[[a-c][0-9]]+$/v; return r.test('a1c') + ',' + r.test('z');", "es2024"],
+  ["re-v-three-way", "var r = /^[[\\p{L}--[a-z]]--[A-Z]]+$/v; return r.test('é') + ',' + r.test('A');", "es2024"],
+  // \q{...} is the one construct that puts multi-character STRINGS in a class.
+  ["re-v-strings", "var r = /^[\\q{abc|d}]$/v; return r.test('abc') + ',' + r.test('d') + ',' + r.test('x');", "es2024"],
+  ["re-v-strings-longest-wins", "return /^[\\q{abc|a}]$/v.test('abc');", "es2024"],
+  ["re-v-strings-mixed-with-chars", "return /^[\\q{ab}c]+$/v.test('abc');", "es2024"],
+  ["re-v-negated", "var r = /^[^a-z]+$/v; return r.test('ABC') + ',' + r.test('abc');", "es2024"],
+  ["re-v-properties", "return /^\\p{L}+$/v.test('héllo');", "es2024"],
+  ["re-v-astral", "return /^[\\p{L}]+$/v.test('\\u{10400}');", "es2024"],
+  ["re-v-replace", "return 'a1b2'.replace(/[\\p{Nd}]/gv, '#');", "es2024"],
+  // `u` and `v` are alternatives, not companions.
+  ["re-v-u-conflict", "try { new RegExp('a', 'uv'); return 'no'; } catch (e) { return e.constructor.name; }", "es2024"],
+
+  // --- surrogate pairs written as two escapes --------------------------------
+  // A high escape followed by a low one is ONE character. On the code-point
+  // target the halves are not representable individually, so they are combined
+  // as they are read; on the byte target the pair is one four-byte sequence,
+  // not two encoded halves, or the same character written two ways compares
+  // unequal.
+  ["string-surrogate-pair-escape", "var s = '\\ud801\\udc00'; return s.length + ',' + s.charCodeAt(0) + ',' + s.charCodeAt(1) + ',' + s.codePointAt(0);", "es2015"],
+  ["string-pair-equals-codepoint", "return '\\ud801\\udc00' === '\\u{10400}';", "es2015"],
+  ["string-pair-equals-literal", "return '\\u{1F600}' === '😀';", "es2015"],
+  ["string-pair-in-middle", "var s = 'a\\ud801\\udc00b'; return s.length + ',' + s.codePointAt(1);", "es2015"],
+  ["string-two-pairs", "var s = '\\ud83d\\ude00\\ud83d\\ude01'; return s.length + ',' + s.codePointAt(0) + ',' + s.codePointAt(2);", "es2015"],
+  ["string-pair-then-text", "var s = '\\ud801\\udc00z'; return s.length + ',' + s.charCodeAt(2);", "es2015"],
+  ["re-pair-escape-property", "return /\\p{L}/u.test('\\ud801\\udc00');", "es2018"],
+
+  // --- trailing commas (ES2017) ---------------------------------------------
+  ["trailing-comma-fn-decl", "function f(a, b,) { return a + b; } return f(1, 2,);", "es2017"],
+  ["trailing-comma-arrow", "var f = (a, b,) => a + b; return f(1, 2);", "es2017"],
+  ["trailing-comma-method", "class TcA { m(a,) { return a; } } return new TcA().m(3,);", "es2017"],
+  ["trailing-comma-obj-method", "var o = { m(a, b,) { return a * b; } }; return o.m(2, 3,);", "es2017"],
+  ["trailing-comma-fn-expr", "var f = function (a,) { return a; }; return f(9,);", "es2017"],
+  ["trailing-comma-nested-call", "function g(x) { return x; } return g(g(1,),);", "es2017"],
+  ["trailing-comma-new", "function C(a,) { this.a = a; } return new C(4,).a;", "es2017"],
+  ["trailing-comma-defaults", "function f(a = 1, b = 2,) { return a + b; } return f();", "es2017"],
+  ["trailing-comma-after-spread", "function f(a, b) { return a + b; } return f(...[1, 2],);", "es2017"],
+  ["trailing-comma-destructure", "var [a, b,] = [1, 2]; var { c, d, } = { c: 3, d: 4 }; return a + b + c + d;", "es2017"],
+  // ...but a rest parameter may NOT be followed by one.
+  ["trailing-comma-after-rest-is-error", "try { eval('function q(...x,){}'); return 'accepted'; } catch (e) { return e.constructor.name; }", "es2017"],
+
+  // --- optional chaining: the remaining forms --------------------------------
+  ["optchain-computed", "var o = { a: [1, 2] }; return o?.a?.[1];", "es2020"],
+  ["optchain-computed-nullish", "var o = null; return String(o?.['k']);", "es2020"],
+  ["optchain-computed-call", "var o = { f: function () { return 7; } }; var k = 'f'; return o?.[k]();", "es2020"],
+  ["optchain-computed-call-nullish", "var o = null; var k = 'f'; return String(o?.[k]());", "es2020"],
+  ["optchain-call-spread", "var o = { f: function (a, b) { return a + b; } }; return o.f?.(...[1, 2]);", "es2020"],
+  ["optchain-call-spread-nullish", "var o = null; return String(o?.f(...[1]));", "es2020"],
+  ["optchain-method-spread", "var o = { f: function () { return arguments.length; } }; return o?.f(...[1, 2, 3]);", "es2020"],
+  ["optchain-across-lines", "var o = { a: { b: 2 } }; return o\n  ?.a\n  ?.b;", "es2020"],
+  ["optchain-delete", "var o = { a: { b: 1 } }; delete o?.a?.b; return JSON.stringify(o);", "es2020"],
+
+  // --- logical assignment: the WRITE is skipped, not just the value ----------
+  ["logical-or-assign", "var a = 0; a ||= 5; return a;", "es2021"],
+  ["logical-and-assign", "var a = 1; a &&= 5; return a;", "es2021"],
+  ["logical-nullish-assign", "var a = null; a ??= 5; return a;", "es2021"],
+  // §13.15.2: a short-circuited form does not call the setter at all.
+  ["logical-or-skips-setter", "var n = 0; var o = { get v() { return 1; }, set v(x) { n++; } }; o.v ||= 2; return n;", "es2021"],
+  ["logical-or-calls-setter", "var n = 0; var o = { get v() { return 0; }, set v(x) { n++; } }; o.v ||= 2; return n;", "es2021"],
+  ["logical-and-skips-setter", "var n = 0; var o = { get v() { return 0; }, set v(x) { n++; } }; o.v &&= 2; return n;", "es2021"],
+  ["logical-nullish-skips-setter", "var n = 0; var o = { get v() { return 1; }, set v(x) { n++; } }; o.v ??= 2; return n;", "es2021"],
+  ["logical-rhs-not-evaluated", "var n = 0; function rhs() { n++; return 9; } var a = 1; a ||= rhs(); return n;", "es2021"],
+  ["logical-nullish-rhs-not-evaluated", "var n = 0; function rhs() { n++; return 9; } var a = 0; a ??= rhs(); return n + ',' + a;", "es2021"],
+
+  // --- Error.cause (ES2022) --------------------------------------------------
+  ["error-cause", "return new Error('x', { cause: 'why' }).cause;", "es2022"],
+  ["error-cause-object", "var inner = new Error('inner'); return new Error('outer', { cause: inner }).cause.message;", "es2022"],
+  ["error-cause-absent", "return ('cause' in new Error('x'));", "es2022"],
+  ["error-cause-empty-options", "return ('cause' in new Error('x', {}));", "es2022"],
+  ["error-cause-undefined-value", "var e = new Error('x', { cause: undefined }); return ('cause' in e) + ',' + String(e.cause);", "es2022"],
+  ["error-cause-not-enumerable", "var e = new Error('x', { cause: 1 }); return Object.keys(e).join(',');", "es2022"],
+  ["error-cause-subclass", "return new TypeError('t', { cause: 2 }).cause + ',' + new RangeError('r', { cause: 3 }).cause;", "es2022"],
+  ["error-cause-without-new", "return Error('x', { cause: 4 }).cause;", "es2022"],
+  ["error-cause-aggregate", "return new AggregateError([1], 'm', { cause: 5 }).cause;", "es2022"],
+  ["error-cause-chain", "var a = new Error('a'); var b = new Error('b', { cause: a }); var c = new Error('c', { cause: b }); return c.cause.cause.message;", "es2022"],
+  // An error's own name and message are NOT enumerable, so it serialises as {}.
+  ["error-not-enumerable", "return Object.keys(new Error('x')).join(',');", "es5"],
+  ["error-json", "return JSON.stringify(new Error('x'));", "es5"],
+  ["error-message-descriptor", "return JSON.stringify(Object.getOwnPropertyDescriptor(new Error('x'), 'message'));", "es5"],
 ];
 
 /**
@@ -1839,6 +2739,19 @@ const KNOWN_GAPS = new Set<string>([
   // template that evaluates its key and value twice), which costs more than the
   // one behaviour it buys. Asserted in both directions so it cannot rot.
   "json-proto-is-ordinary-key",
+  // `class P extends Promise {}`: P.resolve(v) answers a plain Promise, so
+  // `P.resolve(1) instanceof P` is false. `new P(...)` DOES produce a P -- the
+  // constructor path is fine; it is only the statics that lose the subclass.
+  //
+  // promiseStaticCtor already models the spec's C and picks it up from an
+  // explicit `.call` binding, so routing the static-call receiver into it is a
+  // five-line change. I tried exactly that: instanceof became correct and
+  // P.resolve, P.reject and P.all then NEVER SETTLED -- newPromiseCapability
+  // over a class constructor does not wire the resolve/reject pair the way it
+  // does over the intrinsic. A promise that never fires is far worse than one
+  // whose brand is wrong, so it is reverted and pinned here. The capability
+  // path is where the real fix lives.
+  "promise-subclass-resolve-brand",
   // The six that used to sit here -- for-of-expr-lhs, destr-swap,
   // iter-generator, obj-computed-key, err-optional-chain, err-nullish -- now
   // pass and have moved back into the ordinary probe set above. This assertion
@@ -1863,6 +2776,64 @@ const KNOWN_GAPS = new Set<string>([
  */
 const SCRIPT_PROBES: Array<[name: string, src: string]> = [
   ["script-this-is-globalthis", "__out__ = String(this === globalThis);"],
+  // `type` is a CONTEXTUAL keyword: it opens a TS type alias only when an
+  // alias name follows. The parser took the branch on the word alone, so a
+  // plain assignment to a variable named `type` reached the alias parser,
+  // which wanted an Identifier and found `=`. Whole-program probes because
+  // the failure is at PARSE time, top level included.
+  ["script-type-as-binding", "var type = 1;\ntype = 2;\n__out__ = String(type);"],
+  // The comma operator is legal wherever the grammar says `Expression`. The
+  // four heads whose parentheses are STATEMENT syntax read like parenthesised
+  // expressions but are not — nothing re-enters the sequence parser for them —
+  // so each stopped at AssignmentExpression and `if (a, b)` failed with
+  // "expected ')' but got ','". Common in minified bundles.
+  ["script-comma-in-if", "var a = 0, b = 1;\n__out__ = (a, b) ? 'yes' : 'no';\nif (a, b) { __out__ = 'if-yes'; }"],
+  ["script-comma-in-if-side-effect", "var n = 0;\nif (n = 5, n > 1) { __out__ = 't' + n; } else { __out__ = 'f'; }"],
+  ["script-comma-in-while", "var i = 0, k = 0;\nwhile (k++, i < 3) { i++; }\n__out__ = i + '|' + k;"],
+  ["script-comma-in-do-while", "var i = 0;\ndo { i++; } while (0, i < 3);\n__out__ = String(i);"],
+  ["script-comma-in-switch", "switch (0, 2) { case 2: __out__ = 'two'; break; default: __out__ = 'no'; }"],
+  ["script-comma-in-case", "switch (2) { case (1, 2): __out__ = 'hit'; break; default: __out__ = 'miss'; }"],
+  ["script-comma-in-throw", "var log = '';\ntry { throw (log = 'L', new Error('boom')); } catch (e) { __out__ = log + ':' + e.message; }"],
+  ["script-comma-in-forin", "var o = { a: 1 };\nvar s = '';\nfor (var k in 0, o) { s += k; }\n__out__ = s;"],
+  ["script-comma-in-forin-bare-lhs", "var o = { a: 1 };\nvar s = '';\nvar k;\nfor (k in 0, o) { s += k; }\n__out__ = s;"],
+  ["script-comma-nested-heads", "var a = 1, b = 2, c = 3;\nif (a, b, c) { __out__ = 'abc'; } else { __out__ = 'no'; }"],
+  // A parenthesised `case` test: the `:` that ends the clause was read as a
+  // TypeScript return-type annotation by the arrow lookahead, so the clause
+  // body went to the type parser. Comma or not, any `case (x):` died.
+  ["script-paren-case-test", "switch (2) { case (2): __out__ = 'hit'; break; default: __out__ = 'miss'; }"],
+  // Comma must stay a SEPARATOR where the grammar says AssignmentExpression.
+  ["script-comma-still-separates", "function f(a, b, c) { return a + ',' + b + ',' + c; }\nvar x = 1, y = 2;\n__out__ = f(1, 2, 3) + '|' + [4, 5].join('-') + '|' + (x + y);"],
+  // A STRING literal's value is its text, so one that spells a keyword was
+  // dispatched as that keyword: `"function";` opened a function declaration,
+  // `"class";` a class, `"return";` returned. Minified UMD starts with exactly
+  // this — `"function"==typeof exports` as an expression statement.
+  ["script-keyword-string-stmt", '"function";\n__out__ = "ok";'],
+  ["script-keyword-string-typeof", 'var e = {};\n"function" == typeof e;\n__out__ = String("function" == typeof function () {});'],
+  ["script-keyword-string-class", '"class";\n"var";\n"if";\n"return";\n"new";\n__out__ = "ok";'],
+  ["script-keyword-string-umd", 'var out = "";\nif ("function" == typeof Object) { out = "fn"; }\n__out__ = out;'],
+  ["script-use-strict-still-a-directive", '"use strict";\ntry { undeclared_name_xyz = 1; __out__ = "no-throw"; } catch (e) { __out__ = e.name; }'],
+  // Two function declarations in one BLOCK are legal in sloppy code (annex B:
+  // the second wins) and an error only in strict code. Rejecting both ways
+  // failed every regenerator-built bundle, which emits a helper twice in one
+  // block.
+  ["script-dup-fn-in-block", "{ function d() { return 1; } function d() { return 2; } }\n__out__ = 'ok';"],
+  ["script-dup-fn-in-if-body", "if (1) { function d() { return 1; } function d() { return 2; } }\n__out__ = 'ok';"],
+  ["script-dup-fn-in-fn-body", "function f() { function d() { return 1; } function d() { return 2; } return d(); }\n__out__ = String(f());"],
+  ["script-dup-fn-separate-blocks", "{ function d() { return 1; } }\n{ function d() { return 2; } }\n__out__ = 'ok';"],
+  // A pooled call frame carried its const MARKS into the next call that reused
+  // it, so one function's `const c` made an unrelated `let c = …; c = …` throw
+  // "Assignment to constant variable". It depended on call order and on the
+  // pool being warm, so it only ever appeared in long runs — the Ranger
+  // compiler's own Lisp parser hit it in skip_space/getOperator/parse.
+  ["script-pooled-frame-clears-const", "function withConst() { const c = 1; return c; }\nfunction withLet() { let c = 0; c = c + 5; return c; }\nvar last = '';\nfor (var i = 0; i < 40; i++) { withConst(); last = String(withLet()); }\n__out__ = last;"],
+  ["script-pooled-frame-const-still-const", "function withConst() { const c = 1; return c; }\nfor (var i = 0; i < 40; i++) { withConst(); }\nfunction reassign() { const z = 1; try { z = 2; return 'no-throw'; } catch (e) { return e.name; } }\n__out__ = reassign();"],
+  ["script-type-in-function", "function f() { var type = 1; type = 2; return type; }\n__out__ = String(f());"],
+  ["script-type-as-param", "function f(type) { type = type + 1; return type; }\n__out__ = String(f(4));"],
+  ["script-type-compound-assign", "var type = 5;\ntype += 2;\ntype++;\n__out__ = String(type);"],
+  ["script-type-call-and-member", "var type = function (x) { return 'T' + x; };\nvar o = { type: 9 };\n__out__ = type(1) + '|' + o.type;"],
+  ["script-type-keyword-operator", "var type = [];\n__out__ = String(type instanceof Array) + '|' + typeof type;"],
+  // acorn's pp.readWord verbatim: the shape that first surfaced this.
+  ["script-type-acorn-readword", "var types = { name: 'name' };\nvar keywords = { 'if': 'kw-if' };\nfunction L(w) { this.w = w; }\nL.prototype.read = function () { var type = types.name; if (keywords[this.w]) { type = keywords[this.w]; } return type + ':' + this.w; };\n__out__ = new L('foo').read() + '|' + new L('if').read();"],
   ["script-var-is-global-property", "var q = 3;\n__out__ = String(this.q);"],
   ["script-fndecl-is-global-property", "function f() { return 1; }\n__out__ = typeof this.f;"],
   ["script-var-in-block-is-global-property", "if (true) { var w = 4; }\n__out__ = String(this.w);"],
@@ -1918,6 +2889,30 @@ const MODULE_ENTRY = [
   // Negative: these were never exported and must not be reachable.
   "function reachUnexportedConst() { const v = NS.notShown; if (v === undefined) { return 'blocked'; } return 'REACHABLE'; }",
   "function reachUnexportedFn() { if (NS.notExportedFn === undefined) { return 'blocked'; } return 'REACHABLE'; }",
+
+  // Dynamic import(). It answers a promise, so what each probe reports is
+  // whatever the settled callbacks wrote into these bindings -- loadScript
+  // drains the microtask queue before it returns, the same as a module job
+  // finishing before the host runs anything else.
+  "var dynNs = null;",
+  "var dynMissingErr = 'never-settled';",
+  "var dynAwaited = 'never-settled';",
+  "var dynSameObject = 'never-settled';",
+  "var dynTag = 'never-settled';",
+  "import('ranger:probe').then(function (ns) { dynNs = ns; });",
+  "import('ranger:notregistered').then(function () { dynMissingErr = 'RESOLVED'; }, function (e) { dynMissingErr = e.constructor.name; });",
+  "(async function () { var ns = await import('ranger:probe'); dynAwaited = ns.twice(16); })();",
+  "Promise.all([import('ranger:probe'), import('ranger:probe')]).then(function (rs) { dynSameObject = (rs[0] === rs[1]) ? 'same' : 'different'; dynTag = Object.prototype.toString.call(rs[0]); });",
+  "function dynIsThenable() { return typeof import('ranger:probe').then; }",
+  "function dynExpressionSpecifier() { var s = 'ranger:' + 'probe'; return typeof import(s).then; }",
+  "function dynReadExport() { if (dynNs === null) { return '<never-settled>'; } return dynNs.exported; }",
+  "function dynCallExport() { if (dynNs === null) { return -1; } return dynNs.twice(11); }",
+  "function dynUnexportedStillReachable() { if (dynNs === null) { return '<never-settled>'; } if (dynNs.notShown === undefined) { return 'blocked'; } return 'REACHABLE'; }",
+  "function dynMissingRejects() { return dynMissingErr; }",
+  "function dynAwaitedValue() { return dynAwaited; }",
+  "function dynIdentity() { return dynSameObject; }",
+  "function dynToStringTag() { return dynTag; }",
+  "function dynMatchesStaticNamespace() { if (dynNs === null) { return '<never-settled>'; } return (dynNs === NS) ? 'same' : 'different'; }",
 ].join("\n");
 
 /** Cross-module checks that already hold. */
@@ -1927,6 +2922,20 @@ const MODULE_EXPECTATIONS: Array<[fn: string, expected: unknown, what: string]> 
   ["readViaNamespace", 20, "namespace access to an exported const"],
   ["callViaNamespace", 40, "a namespace call to an exported function"],
   ["entryOnlyBinding", "undefined", "a binding the module never declared"],
+
+  // Dynamic import(). These expectations are hand-written rather than derived
+  // from Node, because `ranger:probe` is a specifier only this engine resolves.
+  // Every one of them is a plain spec rule -- import() answers a promise, a
+  // specifier that resolves to nothing rejects, and a module has ONE namespace.
+  ["dynIsThenable", "function", "import() answers a promise"],
+  ["dynExpressionSpecifier", "function", "a computed specifier expression"],
+  ["dynReadExport", 20, "an exported const through a dynamic namespace"],
+  ["dynCallExport", 22, "an exported function through a dynamic namespace"],
+  ["dynMissingRejects", "TypeError", "an unresolvable specifier rejects"],
+  ["dynAwaitedValue", 32, "await import(...) inside an async function"],
+  ["dynIdentity", "same", "two import() calls answer the same namespace"],
+  ["dynMatchesStaticNamespace", "same", "import() and `import * as` share one namespace"],
+  ["dynToStringTag", "[object Module]", "a namespace is branded Module, not Object"],
 ];
 
 /**
@@ -1937,6 +2946,7 @@ const MODULE_EXPECTATIONS: Array<[fn: string, expected: unknown, what: string]> 
 const MODULE_KNOWN_GAPS: Array<[fn: string, what: string]> = [
   ["reachUnexportedConst", "an unexported const is reachable through the namespace"],
   ["reachUnexportedFn", "an unexported function is reachable through the namespace"],
+  ["dynUnexportedStillReachable", "an unexported binding is reachable through a dynamic namespace"],
 ];
 
 function buildEngineModuleIfNeeded(): void {
@@ -2083,6 +3093,104 @@ describe("runtime conformance (interp realm)", () => {
         expect(actual).toEqual(expected);
       });
     }
+  });
+
+  // TypeScript-only syntax has no Node oracle — `type Foo = number;` is a
+  // SyntaxError there — so these carry their expectation directly. They exist
+  // to prove the contextual-`type` fix did not cost the alias form it used to
+  // over-apply: a real alias, a generic one, and both meanings in one file.
+  describe("`type` stays a type alias when an alias name follows", () => {
+    const TS_CASES: Array<[name: string, src: string, expected: string]> = [
+      ["alias-simple", "type Foo = number;\n__out__ = String(3);", "3"],
+      [
+        "alias-annotates-a-local",
+        "type Foo = number;\nfunction f() { var x: Foo = 3; return x; }\n__out__ = String(f());",
+        "3",
+      ],
+      [
+        "alias-generic",
+        "type Box<T> = { v: T };\nfunction f() { var b: Box<number> = { v: 5 }; return b.v; }\n__out__ = String(f());",
+        "5",
+      ],
+      [
+        "alias-union",
+        'type S = "a" | "b";\nfunction f() { var s: S = "a"; return s; }\n__out__ = f();',
+        "a",
+      ],
+      [
+        "alias-function-type",
+        "type Cb = (n: number) => string;\nfunction f() { return 1; }\n__out__ = String(f());",
+        "1",
+      ],
+      [
+        "alias-then-binding-of-the-same-word",
+        "type Foo = number;\nvar type = 9;\ntype = 10;\n__out__ = String(type);",
+        "10",
+      ],
+      [
+        "binding-then-alias",
+        "var type = 9;\ntype Foo = number;\n__out__ = String(type);",
+        "9",
+      ],
+    ];
+    for (const [name, src, expected] of TS_CASES) {
+      it(name, () => {
+        const wrapped = "var __out__ = '<unset>';\n" + src + "\n";
+        const e = new ComponentEngine();
+        e.quiet = true;
+        const original = console.log;
+        console.log = () => {};
+        let actual: string;
+        try {
+          e.loadScript(wrapped + "function __read__() { return __out__; }\n");
+          actual = String(engineValue(e, "__read__"));
+        } finally {
+          console.log = original;
+        }
+        expect(actual).toEqual(expected);
+      });
+    }
+  });
+
+  // loadScript cannot raise to the host — there is no throw from engine source
+  // — so a bundle that failed to parse looked exactly like one that loaded.
+  describe("a parse failure is visible to the host", () => {
+    it("reports the first diagnostic, and clears on a clean load", () => {
+      const e: any = new ComponentEngine();
+      e.quiet = true;
+      const original = console.log;
+      console.log = () => {};
+      let badMsg: string;
+      let afterMsg: string;
+      let value: unknown;
+      try {
+        e.loadScript("function go() { var a = ; }");
+        badMsg = e.lastSyntaxError;
+        // The parser instance is REUSED, and its error count used to survive:
+        // one bad bundle refused every later script on the same engine.
+        e.loadScript("function go() { return 41 + 1; }");
+        afterMsg = e.lastSyntaxError;
+        value = engineValue(e, "go");
+      } finally {
+        console.log = original;
+      }
+      expect(badMsg).toContain("Unexpected token");
+      expect(afterMsg).toEqual("");
+      expect(value).toEqual(42);
+    });
+
+    it("stays empty for a script that parses", () => {
+      const e: any = new ComponentEngine();
+      e.quiet = true;
+      const original = console.log;
+      console.log = () => {};
+      try {
+        e.loadScript("function go() { return 1; }");
+      } finally {
+        console.log = original;
+      }
+      expect(e.lastSyntaxError).toEqual("");
+    });
   });
 
   it("script-level known gaps still fail (remove one when it is fixed)", () => {

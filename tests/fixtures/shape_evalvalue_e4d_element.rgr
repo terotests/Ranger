@@ -1,13 +1,15 @@
 ; E4d1: Element.element on body is SoT (no EvalPayload.ElemBox).
+; The element type is EvElement, the engine's own -- JSX stopped evaluating
+; into a renderer's layout object, so this fixture no longer reaches for one.
 Import "../../gallery/game_engine/v2/interp/migrate/src/EvValueBridge.rgr"
 
 class Main {
     sfn main:void () {
-        def el:EVGElement (new EVGElement())
+        def el:EvElement (new EvElement())
         el.tagName = "div"
         def v:EvHandle (EvValueBridge.taggedElement(el))
         if (v.hasElement()) {
-            def got:EVGElement (v.elementOf())
+            def got:EvElement (v.elementOf())
             if (got.tagName == "div") {
                 print "el"
             } {
@@ -20,7 +22,7 @@ class Main {
         def shaped:EvalValue (EvValueBridge.fromTagged(v))
         if (EvalValue.isElement(shaped)) {
             case shaped ee:EvalValue.Element {
-                def se:EVGElement (unwrap ee.element)
+                def se:EvElement (unwrap ee.element)
                 if (se.tagName == "div") {
                     print "sot"
                 } {

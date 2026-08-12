@@ -640,7 +640,162 @@ them aside cannot quietly flatter the remaining number.
   could already see an outer `x` bound nothing at all. It now consults the own binding
   of the scope the `var` belongs to, which is the only thing the rule was ever about.
 
+- **Dynamic `import()` resolves.** It parsed and then answered nothing usable. It
+  now runs through the same resolution path a static `import` does — one synthetic
+  `ImportDeclaration`, so there is no second path to drift — and answers a promise
+  for the module's namespace. A specifier that resolves to nothing REJECTS with a
+  TypeError rather than logging and continuing: `import(p).catch(...)` is written
+  precisely for the module that is not there, and the static form's "report and
+  carry on" is the wrong answer to it.
+
+- **A module has ONE namespace object.** `import * as A` and two separate
+  `import(spec)` calls used to hand out three different snapshots, so `nsA === nsB`
+  was false and code that caches by identity saw three strangers. Namespaces are
+  now cached per specifier, and the cache is consulted BEFORE the declaration is
+  re-run — a file module loads once, so the second run adds no bindings and the
+  "nothing arrived" test would have read that as a resolution failure. A namespace
+  also brands as `[object Module]`, which is the only way `Object.prototype
+  .toString` can tell one from an ordinary object.
+
+- **`async` and `await` are contextual keywords again.** Treating them as reserved
+  everywhere broke ordinary script code: `async(1)` was read as a malformed arrow
+  (a call to a function named `async` is told apart from `async (x) => x` only by
+  what follows the closing paren), and `function f() { var await = 3; return
+  await; }` did not parse at all — the operator branch fired outside any async
+  function and ate the token. `await` is now the operator only inside an async
+  function or at the top level of a module, and an early error in the PARAMETERS
+  of an async function, where it never belongs. The `async [no LineTerminator
+  here]` restriction is enforced for both the declaration and the expression form.
+
+- **`f(await p)` no longer answers undefined.** The resumable driver's spine
+  check listed a CALL as steppable — "only the arguments are stepped, which is
+  where a yield realistically appears" — and no step function for a call ever
+  existed. So the frame was popped without pushing a result, and every
+  `console.log(await f())` in an async body silently produced `undefined`. It
+  now refuses the shape, which is what the driver's own incremental-adoption
+  rule says to do with a form it cannot step: the body runs eagerly instead.
+  That gets the value right and the interleaving wrong — an eager body does not
+  actually suspend, so it finishes ahead of microtasks queued before it. A
+  wrong ORDER is a real cost and is recorded as one in 2.4; a wrong VALUE with
+  nothing to say so was worse. `await` in every other position — an operand, a
+  member base, a ternary, an array element, a condition, a loop body, a
+  `return` — is stepped and matches Node.
+
+- **An async function is not a constructor.** It had a `prototype` and `new f()`
+  produced an object. It now has neither, like an arrow. Alongside it, the four
+  callable forms brand apart — `[object AsyncFunction]`, `[object
+  AsyncGeneratorFunction]`, `[object GeneratorFunction]`, `[object Function]` —
+  and `Object.getPrototypeOf(async function () {})` is a real
+  %AsyncFunction.prototype%: it inherits from `Function.prototype`, carries
+  `Symbol.toStringTag`, and its `constructor` is a working %AsyncFunction% that
+  compiles `new AF("x", "return x * 2")` as async source. That constructor has no
+  global binding, so a bare `AsyncFunction` is still a ReferenceError — the
+  `Object.getPrototypeOf(...).constructor` route is the only one, which is exactly
+  the route feature detection takes. `f.toString()` also starts at `async` now,
+  which is the other thing that detection reads.
+
+- **The interpreter no longer knows what a tag MEANS.** JSX used to evaluate
+  straight into `EVGElement`, the layout object of one particular renderer, and
+  the cost was not the stray dependency. The engine had to know a fixed
+  vocabulary (`View` → `div`, `Label` → `text`, `Image` → `image`) before a
+  document could name a tag; `elementType` was a renderer classifying its own
+  vocabulary; `<Print>` resolved a book format and wrote page geometry back
+  into engine state; `<>…</>` materialised a `div` the source never asked for.
+  JSX now evaluates to `EvElement` — a tag exactly as written, its props, its
+  children, and nothing about what any of that means. `evg/EvElementToEVG.rgr`
+  holds the meaning, and the dependency points the other way: a renderer knows
+  about the engine, the engine knows about no renderer, and a second renderer
+  costs a second adapter rather than a second engine.
+
+  One piece of vocabulary had to stay. Whether a tag's content reads as TEXT or
+  as child elements is not something the JSX grammar answers, so
+  `<Label>x</Label>` needs someone to decide; it is a question (`tagHoldsText` /
+  `addTextTag`) rather than three names compiled in.
+
+- **Props keep their values.** Every attribute went through `toString()` on the
+  way in, so `onClick={fn}` arrived as text and `width={12}` arrived as `"12"`
+  — neither recoverable. A prop is now stored as the `EvalValue` it evaluated
+  to, which is what makes event handlers and tree diffing possible at all.
+  `key` is lifted into its own field, because a differ reads it before it looks
+  at anything else.
+
+- **Three defects, one cause: a partial re-implementation of the evaluator.**
+  A `{ … }` child position was handled by four hand-rolled walkers — one
+  pattern-matching `.map` and re-implementing callback invocation, one for `?:`,
+  one for `&&`, one fallback — each INSPECTING the AST rather than running it.
+  Every one could only recognise a JSX literal where an element was wanted, so
+  anything COMPUTED was dropped in silence: a `function (x)` map callback (the
+  hand-rolled binder only knew arrows), a ternary branch that called a helper,
+  an array of arrays. `evaluateFunctionBody` was a fifth such walker and never
+  hoisted, so a `function` declared in a rendering body was never bound and
+  calling it answered nothing. 262 lines became 55, and every case closed at
+  once — possible only because an element is now an ordinary value that
+  `evaluateExpr` can produce. *The lesson is the shape, not the cases: a
+  partial copy of the evaluator is wrong in whatever it did not think of, and
+  it fails quietly because a walker has no way to say "I did not understand
+  that".*
+
+- **Module source comes from a host.** `file_exists`, `buffer_read_file` and
+  `file_mtime` were scattered through the import path, putting one
+  environment's answer to "where does source live" inside the evaluator. They
+  are behind `EvalModuleHost` now. The SEARCH ORDER stays in the engine —
+  importer-directory-then-asset-paths is the language's resolution policy —
+  while where each candidate is read from is the host's. `file_mtime` is the
+  part that would have been missed: the import AST cache stamps a parse with a
+  file's modification time, and a host with no files has no mtimes, so `stamp`
+  asks for any value that changes when the source does.
+
+  ONE CONCRETE CLASS, not a base with subclasses: the Rust target accepts a
+  subclass neither as a field initialiser nor as an argument where the base
+  type is declared. Worth knowing before designing any other seam this way —
+  `EvalNativeBridge`'s subclasses only compile because they live in es6-only
+  trees.
+
+- **`useImage` and `usePrintSettings` are gone**, and with them the
+  `imaging/jpeg` import: 635 lines of EXIF parsing, GPS conversion and
+  `./assets/` path convention reachable as global functions from any evaluated
+  script. Nothing in v2 used them, so they were dead weight holding a
+  dependency. A host that wants them registers them through
+  `EvalNativeBridge`.
+
+- **Hyphenated JSX names parse.** `<my-widget>` arrived as three tokens and
+  became `<my>` with attributes `-` and `widget`; `data-id` and `aria-label`
+  the same. Joined in the JSX name parser rather than the lexer, because
+  outside a JSX name `-` really is subtraction — and only when the tokens
+  actually TOUCH in the source, which is what leaves `{a-b}` as arithmetic.
+
 ### 2.4 Known-wrong, pinned rather than hidden
+
+- **An async body containing `f(await p)` does not suspend.** A call is not a
+  form the resumable driver can step, so a body with one falls back to running
+  eagerly. The values are right; the ordering is not — the body runs straight
+  through to its end instead of yielding to the microtask queue at each
+  `await`, so work queued before it can finish after it. Every other await
+  position IS stepped and interleaves correctly, which is what makes this
+  narrow rather than general. The fix is a driver step for calls, which needs
+  the callee resolution the walker owns (receiver binding, built-in dispatch by
+  name, optional-call short-circuit) — that is why it is a pinned gap and not a
+  patch.
+
+- **An async generator's OBJECT is a synchronous one.** `async function*` parses,
+  its function value brands correctly as `[object AsyncGeneratorFunction]`, and
+  `for await (... of g())` produces the right values — that path awaits whatever
+  it is handed, so a non-promise works by accident. Driving one by hand does not
+  match: `g().next()` answers an iteration result directly rather than a promise
+  for one, and the object still brands as `[object Generator]`. The brand is
+  deliberately left wrong rather than fixed on its own — code that brand-detects
+  an AsyncGenerator goes on to `await` its `next()` and to read `Symbol
+  .asyncIterator`, so a correct brand over a synchronous object is worse than the
+  honest mismatch. The two move together or not at all. Both are asserted in
+  `KNOWN_GAPS` so closing either forces this entry to be updated.
+
+- **File-based module imports depend on the embedder.** `import`/`export` and
+  dynamic `import()` are wired against the module resolver, which asks the host
+  for a base path and an asset loader. Virtual `ranger:*` modules need neither and
+  work everywhere, which is what the module gates use. The `octane_runner` bench
+  harness sets no base path, so a file specifier resolves to nothing there and
+  both the static and the dynamic form reject — correctly, but it means file
+  modules are only exercised through embedders that do set it.
 
 - **A loop exits after 100000 iterations, silently.** Every loop runner carries a
   `maxIterations` guard against a runaway program hanging the host, and reaching it
@@ -825,9 +980,9 @@ after excluding intl402, Temporal, module and async flags:
 
 | | |
 |---|---|
-| **ES2015 overall** | **84.25% (2412/2863)** |
-| pass | 2412 |
-| fail (ran, wrong answer) | 435 |
+| **ES2015 overall** | **84.32% (2414/2863)** |
+| pass | 2414 |
+| fail (ran, wrong answer) | 433 |
 | crash (did not run to completion) | 16 |
 
 The fail/crash split changed meaning partway through this work. An
@@ -897,6 +1052,8 @@ How it got here, each row a measured run of the same corpus against the C++
 | non-ASCII identifiers, on the byte-model targets | 2399 | 83.79% |
 | compare, pad, case and the regex engine in code units | 2410 | 84.18% |
 | normalize() and a real localeCompare | 2412 | 84.25% |
+| toLocale casing, ToUint16, and 27 collation locales | 2414 | 84.32% |
+| Intl.Collator, NumberFormat and DateTimeFormat | 2414 | 84.32% |
 
 The single largest step is not an ES2015 feature at all. `propertyHelper.js` --
 which 543 of these files include -- opens with
@@ -1028,8 +1185,8 @@ on which build ran it.
 | `JSON.parse` | threw SyntaxError on anything the engine had itself stringified with a non-ASCII character in it | the scanner read `substring` (code points) and `charAt` (bytes) as one index, and a negative byte read as a control character |
 
 Casing, normalization and collation are DATA, not rules, and the data lives in
-three generated files -- `UnicodeCase.rgr`, `UnicodeNorm.rgr`,
-`UnicodeCollate.rgr` -- as ordinary Ranger array literals. They are committed
+four generated files -- `UnicodeCase.rgr`, `UnicodeNorm.rgr`,
+`UnicodeCollate.rgr`, `UnicodeTailor.rgr` -- as ordinary Ranger array literals. They are committed
 source: no target needs a generator in order to build. The generators sit beside
 them in `migrate/tools/`, read the UCD files when pointed at them, and verify
 their output against all 1.1M code points before they will write anything.
@@ -1055,17 +1212,400 @@ the decode entirely, and hoisting the matcher out of the three scan loops paid
 most of the rest back; built per iteration it re-decoded the whole subject every
 time.
 
+#### async / await
+
+`async` and `await` parsed and were then IGNORED. An async function ran to
+completion synchronously and returned its value RAW, so `f().then(...)` was
+"then is not a function" and `await p` evaluated to null. Every library that
+assumes an async function returns a thenable -- which is all of them -- was
+broken against this engine.
+
+An async body is a body that stops in the middle and starts again, which is the
+problem generators already solve here, so it runs on the same explicit frame
+stack with `await` as the suspension point instead of `yield`. What sits on top
+is the driver: the call returns a promise immediately, and each time the body
+suspends the driver subscribes to the awaited value through
+`Promise.resolve().then()` and resumes the body when it settles. Going through
+Promise.resolve rather than inspecting the value is what makes awaiting a
+THENABLE work and what keeps awaiting a plain value one turn behind.
+
+Working: async functions, expressions, arrows (both body forms), object and
+class methods; await of values, promises, thenables and rejections; try /
+catch / finally around await; await in loops, conditions, binary operands,
+ternaries, array literals and call arguments; `for await`; interleaving of
+several async bodies; and the ordering rule that the synchronous part of an
+async body runs before the caller continues.
+
+Four things this turned up that were not obvious:
+
+- **Five doors, not four.** Patching the walker's call paths appeared to do
+  nothing, because a body with no `await` in it compiles to bytecode and never
+  reaches any of them. Generators were already excluded from that tier for the
+  same reason; async had to be too.
+- **An async call must ALWAYS answer a promise.** The first shape made that
+  conditional on the frame machine accepting the body's spine, so whether
+  `f()` was thenable depended on what the function happened to contain. A body
+  the driver declines now runs on the walker with a blocking `await` and still
+  settles a promise -- ordering differs there, values do not.
+- **Thenable adoption was missing from Promise itself.** §25.4.1.3.2 adopts any
+  object with a callable `then`, and only real promises were, so
+  `Promise.resolve({then})` fulfilled with the OBJECT. Fixing it for `await`
+  fixed it for everyone.
+- **Three latent Rust double-borrows** in `Promise.all`, `Promise.race` and the
+  generator frame stack, all in reuse branches that nothing had exercised
+  before. One of them was the pre-existing `iter-generator` crash on that
+  target, which is now gone: native conformance is 1467/1469 on BOTH targets
+  with no crashes.
+
+Not done: top-level await (a module feature, and the module story is separate),
+and async generators produce values but are not themselves resumable -- `for
+await (x of asyncGen())` works because the generator is collected eagerly, as
+sync generators outside the driver are.
+
+#### The ES2016-2024 library: arrays, promise combinators, Object statics, weak collections
+
+None of the following existed, and every one of them is the kind of thing a
+real program reaches for in its first hundred lines rather than an edge case:
+
+- **Arrays.** `flatMap`, `findLast`, `findLastIndex`, and the four
+  change-by-copy methods `toReversed` / `toSorted` / `toSpliced` / `with`.
+  `includes` existed but compared with reference equality and discarded its
+  `fromIndex`, so `[NaN].includes(NaN)` was false -- SameValueZero is the whole
+  reason `includes` exists next to `indexOf` -- and `[1,2,3].includes(1, 1)`
+  was true.
+- **Promise combinators.** `allSettled`, `any` (with `AggregateError`),
+  `withResolvers`, and `Promise.prototype.finally`. The three combinators
+  differ only in what an element does with its answer, so they share
+  `Promise.all`'s element function and select on a mode; `finally` is `then`
+  with a pair of wrappers that RESTORE the settlement, which is what makes it
+  transparent to both a value and a reason.
+- **Object statics.** `fromEntries`, `hasOwn`, `getOwnPropertyDescriptors`,
+  `groupBy`.
+- **`String.prototype.matchAll`**, which is `match` with /g except that it
+  keeps the captures and the index of each match.
+- **Optional call `f?.()`.** The parser produced an `OptionalCallExpression`
+  and the evaluator treated it as an ordinary call, so it reported "f is not a
+  function" -- the one thing the syntax exists to avoid.
+- **The weak collections.** `WeakMap` and `WeakSet` were missing entirely, and
+  `WeakRef` and `FinalizationRegistry` with them.
+
+Two things worth recording:
+
+- **A weak collection with no collector is a legal weak collection.** Nothing
+  in this realm is ever collected, so a `WeakMap` here is a `Map` that keeps
+  its keys alive. The spec never REQUIRES collection, and a program cannot
+  observe the difference except through memory. What it can observe -- the key
+  must be an object, `get`/`has`/`delete` answer "not there" for a primitive
+  rather than throwing, there is no iteration, and `deref` answers the target
+  -- is implemented rather than approximated.
+- **A bound `this` on a built-in is not a receiver.** `Promise.withResolvers()`
+  returned the right three things and the promise never settled: reading
+  `w.resolve` off the result object and calling it rebound the function's
+  `this` to that object, so the capability settled the RESULT instead of the
+  promise. Every function the promise machinery mints closes over its state
+  through a bound `this`, and `shapeAnonFn` -- which already gave them their
+  arity and empty name -- now marks that binding explicit so the method-call
+  path leaves it alone. The same bug was latent in every `Promise.all` element
+  function and every async step function; nothing had yet read one off an
+  object and called it.
+
+#### Class statics (ES2022)
+
+`static x = expr` was treated as an INSTANCE field: `C.x` was undefined while
+every instance carried its own copy of the initialiser's value. `static { … }`
+did not run at all. Both run now, once, with `this` bound to the class.
+
+Where they run turned out to matter more than that they run. A class
+declaration is already evaluated during HOISTING here — the value, the
+prototype and the heritage are built there so a bad `extends` is reported
+early — and running the static initialisers there too showed them every
+enclosing `var` as undefined:
+
+```js
+function f() {
+  var L = [];
+  class C { static a = L.push("a"); }   // L is undefined during hoisting
+  return L.join("");
+}
+```
+
+Static initialisers are ordinary code that reads the scope around the class, so
+they run when the DECLARATION STATEMENT executes, guarded by a flag on the
+class value so a class inside a function called twice initialises once.
+
+#### RegExp: dotAll, named groups, lookbehind, indices
+
+Five things were missing, and the first four are now in:
+
+- **`s` (dotAll)**, plus the `dotAll`, `sticky`, `unicode` and `hasIndices`
+  property accessors, none of which existed.
+- **Named groups** `(?<name>…)`, `\k<name>`, `$<name>` in a replacement, and
+  the `groups` object on a match result — undefined rather than empty when the
+  pattern has no named groups, which is what a guest tests for.
+- **Lookbehind** `(?<=…)` and `(?<!…)`. The matcher's continuation is data, so
+  a lookbehind is answered by trying every start position with a continuation
+  that requires the sub-match to END exactly where the lookbehind sits. That
+  keeps the sub-pattern backtracking properly instead of being accepted on its
+  first, possibly too long, reading — `(?<=a+)b` needs it.
+- **`d` (hasIndices)**, which adds an `indices` array shaped like the result,
+  with its own `groups`.
+
+`(?<` used to be a hard SyntaxError covering lookbehind and named groups
+together, so a pattern using either did not compile.
+
+Two related fixes fell out. The flag validator was still the ES5 set — g, i and
+m — so `new RegExp(p, 'u')` was rejected outright even though the compiler
+understood `u`; the literal form reached the compiler directly and the
+constructor form did not. And `\p{…}` in Unicode mode now REFUSES to compile
+rather than matching the letters `p{L}` literally: there is no general category
+table here, and a confident `false` from a pattern the guest expects to work is
+worse than a SyntaxError that says so.
+
+**Unicode property escapes** are here now: `\p{L}`, `\p{Lu}`,
+`\p{Script=Greek}`, `\p{Alphabetic}`, `\P{…}`, and the same inside a
+character class — 91 properties in all, derived into `UnicodeProps.rgr` as
+sorted ranges and looked up by binary search. Two things came out of it that
+were not about the table:
+
+- **A class in Unicode mode is tested against the CODE POINT.** It was handed a
+  code unit, so `\p{L}` against an astral letter saw only the high surrogate,
+  which belongs to no property at all.
+- **The lexer's `u`-mode validator rejected every closing brace.** A bare `}`
+  is indeed a SyntaxError under `u`, but the closing brace of `a{2}` is not
+  one, and neither is the one that ends `\p{L}` — so `/a{2}/u` had never
+  worked either. Both now skip past their own brace.
+
+**The `v` flag** is here as well. Under `v` a character class is a SET
+EXPRESSION rather than a list: operands joined by union (juxtaposition),
+intersection (`&&`) or difference (`--`), where an operand may itself be a
+nested class — `[[\p{L}--[a-z]]--[A-Z]]` is one class with three of them. A
+class is a TREE under `v`, so it is parsed and matched as one. `\q{ab|c}` puts
+whole STRINGS in a class, which is the only construct that lets a class consume
+more than one character; the longest alternative wins. `u` and `v` are
+alternatives rather than companions, so asking for both is a SyntaxError.
+
+**`RegExp.escape` and pattern modifiers `(?i:…)`** are implemented, and are the
+only two features in this engine whose tests are not derived from Node: no Node
+in this container implements either (checked across 20, 21 and 22 — `(?i:a)` is
+a SyntaxError in all three and `RegExp.escape` is undefined in all three). Their
+probes therefore live in `tests/regexp-es2025.test.ts`, whose header says out
+loud that its expectations come from the specification rather than from a
+running implementation, so a reader can tell which guarantee each suite carries.
+Writing one of those by hand immediately proved the point: the `modifier-nested`
+expectation was wrong on the first pass and the engine was right.
+
+A modifier is SCOPED where a flag is global, and that is the whole feature. The
+matcher's control flow is a continuation chain with no single point at which a
+group is "left", so the flags are resolved down the node tree once after
+parsing instead of being tracked while matching: every node knows the
+case-sensitivity, multiline and dotAll in force where it sits.
+
+#### BigInt
+
+The one primitive type whose values do not fit in anything this realm already
+carried. A double loses integers above 2^53 — which is the entire reason BigInt
+exists — so the value is built out of limbs and the arithmetic written by hand
+in `BigIntNum.rgr`: add, subtract, multiply, divide, remainder, power, the
+shifts, the bitwise operators over an infinite two's-complement reading,
+`asIntN` / `asUintN`, parsing and rendering in any radix from 2 to 36.
+
+Three decisions worth recording.
+
+**The base is 2^15**, and both reasons are about the targets rather than about
+elegance: a product of two limbs is at most 2^30, which is inside a 32-bit int
+on every target this compiles to, and a power-of-two base makes the bitwise
+operators and the shifts limb operations rather than conversions.
+
+**The magnitude arithmetic works on LIMB ARRAYS, not on BigNum objects**, and
+that is a Rust constraint rather than a preference. A method that reaches
+another BigNum borrows its cell, and three shapes then panic at runtime: a
+method receiving `this` as an argument (`back.cmpMag(this)`), an object
+squaring itself (`base = base.mul(base)`), and a field write whose value comes
+from a call on the same object (`rem.mag = rem.subMag(o)`). All three are
+invisible on the es6 and C++ targets and every one of them crashed the Rust
+binary. Passing limbs instead removes the whole class.
+
+**A BigInt is carried as an OBJECT**, the way a symbol already is. The
+alternative — a new case in the tagged value — reaches into every match in
+`EvHandle` on three targets, where this reaches into `typeof`, the operators
+and the conversions, which is where the behaviour differs anyway. The limbs are
+stored rather than a decimal string: rebuilding from limbs is a copy,
+rebuilding from decimal is a parse with a multiply per digit, and every
+operator rebuilds both operands.
+
+**A BigInt is a primitive that happens to be an object**, and forgetting that
+once is what made `2n + 3n` produce `"23"`: ToPrimitive converted the operand
+through its own `toString` and handed back the digits as a string, so `+`
+concatenated. Symbols are exempt from ToPrimitive for exactly the same reason;
+BigInt is now exempt beside them.
+
+What the type is FOR is refusing implicit conversion, so most of the work is in
+the refusals: `1n + 1` is a TypeError, `+1n` is a TypeError, `8n >>> 1n` is a
+TypeError (a BigInt has no width for the sign bit to leave), `JSON.stringify`
+refuses one, an element of a `BigInt64Array` must be a BigInt and not a Number,
+and `Number(1n)` is allowed because it is written down. Comparison DOES mix,
+because comparing is lossless — including against a fraction, where `1n < 1.5`
+and `2n > 1.5` both hold and the tie is broken by the fractional part.
+
+`BigInt64Array`, `BigUint64Array` and the four `DataView` big accessors are
+here too, assembling and taking apart 64-bit values a byte at a time through
+the limbs rather than through a double, which could not hold them.
+
+#### Set operations, iterator helpers, SharedArrayBuffer and Atomics
+
+The seven ES2025 set operations and the eleven iterator helpers. Two things
+about them are not obvious:
+
+- **A set operation's argument is a SET-LIKE**, not a Set — an object with a
+  numeric `size` and callable `has` and `keys` — so a Map is a legal argument.
+  Reading `has` off one needs the registry and not just the property chain,
+  because a built-in method is not an own property of its receiver.
+- **Every kind's iterator prototype inherits from %IteratorPrototype%.** It
+  used to inherit from Object.prototype directly, which would have left the
+  helpers reachable from a bare iterator and from nothing else — an array,
+  string, Map and Set iterator would all have missed them, and
+  `[].values() instanceof Iterator` would have been false.
+
+Under SharedArrayBuffer and Atomics sat a gap neither of them could work
+around: **a typed array was never a VIEW over a buffer**.
+`new Int32Array(new ArrayBuffer(8))` read the buffer as an iterable and failed
+with "object is not iterable", so there was no way to get a view over a buffer
+at all — and therefore nothing for Atomics to operate on. A buffer now keeps
+the list of views over it, and a write through any view, or through a
+DataView, writes the bytes and refreshes the others, so two views over one
+buffer alias the way they must.
+
+Atomics is atomic for free here: one agent, nothing to interleave with. What is
+implemented is the arithmetic, the element coercion and the refusals — a float
+or clamped array is a TypeError, an out-of-range index is a RangeError. `wait`
+answers "not-equal" or "timed-out" immediately, because no other agent can ever
+arrive to change the value, and `notify` wakes nobody.
+
+#### Surrogate pairs written as two escapes
+
+`"\ud801\udc00"` is one character written as its two halves, and it decoded
+differently on all three targets. On the code-POINT target (Rust) a lone
+surrogate is not a character at all, so the halves came out as two
+unrepresentable values and `charCodeAt` answered 0; the pair is now combined as
+it is read, which costs nothing on the other two targets since they re-split it
+immediately. On the BYTE target a supplementary code point was written as two
+encoded surrogates — CESU-8 — which is not what a literal character in the
+source decodes to, so `"\u{10400}" === "𐐀"` was false: the same character
+written two ways comparing unequal. It is one four-byte sequence now.
+
+A LONE surrogate — `"\ud801"` with no low half after it — is still
+unrepresentable on the code-point target. That is inherent to the string model
+rather than a decoding bug, and is the one item in this area left open.
+
+#### Optional chaining, private fields, annex-B accessors, ArrayBuffer transfer
+
+Five things, of which the first is a correctness bug rather than a gap:
+
+- **An optional chain short-circuits as a WHOLE.** Each link was guarded on its
+  own, so `o?.a.b` short-circuited the first link and then threw reading `b` of
+  undefined — precisely what the syntax exists to avoid. A raised flag now
+  travels up through the enclosing links and is cleared once, where the chain's
+  value is consumed. Getting that clearing point wrong is the subtle part: a
+  chain evaluated for its side effects (`o?.[i++];` as a statement) has no
+  consumer, and leaving the flag raised there poisoned every member read after
+  it.
+- **A private field is now actually private.** `#x` was stripped to an ordinary
+  property called `x`: enumerable, serialised by `JSON.stringify`, readable
+  from outside the class. The `#` is kept in the key instead — no ordinary
+  property name may contain one, so carrying it IS the privacy — and a read of
+  a private name the receiver does not have is a TypeError, which is what makes
+  `#x in obj` and a brand check work.
+- **A computed field name was lost.** The parser stored it in the same slot the
+  field's initialiser overwrites, so `class C { [k] = 7 }` defined a property
+  called `""`.
+- **A derived class installs its fields when super() RETURNS** (§15.7.14), not
+  before its constructor. Running them up front showed them to the base
+  constructor, which is the one case a field initialiser is written to avoid.
+- The annex-B accessor helpers (`__defineGetter__` and its three siblings),
+  `Map.groupBy`, and ArrayBuffer `transfer` / `transferToFixedLength` /
+  `resize` with the `detached`, `resizable` and `maxByteLength` accessors —
+  which had been registered as methods, so `b.detached` answered a function.
+
+`for await` over an object offering only `Symbol.asyncIterator` iterated zero
+times: the protocol walk looked for `Symbol.iterator` and nothing else, so a
+hand-written async iterable ran its loop body never.
+
+#### Intl
+
+`Intl` did not exist, so `new Intl.NumberFormat('de').format(n)` was a
+ReferenceError -- and `Number.prototype.toLocaleString` and the `Date`
+toLocale family, which the spec defines IN TERMS of Intl, quietly answered the
+non-locale forms. A German document got English dates and English thousands
+separators with nothing to indicate it.
+
+Carried now: `Intl.Collator`, `Intl.NumberFormat`, `Intl.DateTimeFormat`,
+`Intl.getCanonicalLocales`, and the `toLocaleString` family delegating to them.
+`Collator`'s `compare` and the formatters' `format` are bound accessors as the
+spec requires -- `list.sort(collator.compare)` is how they are meant to be used,
+and a shared unbound method loses its object and silently sorts in the root
+order.
+
+The CLDR data is in `LocaleData.rgr` (generated) for 39 locales. A tag outside
+that set falls back to `en` AND SAYS SO through `resolvedOptions().locale`, so a
+program can tell it did not get what it asked for.
+
+What the data has to carry is the part worth recording, because almost none of
+it is derivable from a rule, and every rule attempted here was wrong for some
+locale:
+
+| | |
+|---|---|
+| affixes | recorded whole, not assembled from a sign and a symbol: German puts a space before the percent sign, Dutch puts the minus after the currency symbol |
+| currency spacing | two templates per locale, because CLDR only inserts a space where symbol and digits would run letter-into-digit -- Japanese writes `€1,234` and `US$ 1,234` from the same pattern |
+| minimum grouping | Spanish and Italian do not group a four-digit number at all, so 9876.5 is `9876,5` |
+| month and weekday names | taken from a formatted DATE, not standing alone: Finnish May is *toukokuu* alone and *toukokuuta* in a date, and Czech, Slovak, Polish and Russian inflect the same way |
+| field widths | observed per field, not assumed: Polish pads the month but not the day |
+| name vs number | flagged, not inferred from length -- Korean's long-date month is `5월`, two characters, exactly like a zero-padded number |
+| year offset | Thai defaults to the Buddhist calendar, so 2021 prints as 2564 |
+| the date-time joiner | carried as its own pattern: `, ` in English, a plain space in French, and derivable from neither half |
+
+Verified by formatting ten numbers, two percent and currency styles and six date
+and time styles in each of the 39 locales -- 273 lines -- and comparing every one
+against the host. `formatToParts` and `format` disagree in the host itself about
+the space before AM/PM, so the generator reassembles each pattern and checks it
+against `format()`, which is what real code calls.
+
+`formatToParts` came next, on both formatters, and `formatRange` /
+`formatRangeToParts` with it. Both formatters produce PARTS and `format()` is
+the parts joined, so the two cannot disagree -- a formatToParts that has drifted
+from its own format() is the one bug that shape makes impossible.
+`supportedLocalesOf` sits on each CONSTRUCTOR, which is where the spec puts it;
+publishing it as an `Intl` static, as the first pass did, was inventing an API.
+
+`Intl.PluralRules` and `Intl.ListFormat` followed. CLDR states plural rules as
+expressions over the operands n, i, v, f and t -- "one" when i is 1 and v is 0,
+"few" when i mod 10 is 2..4 and i mod 100 is not 12..14. Porting those would
+mean writing a little rule language and an evaluator for it; what is carried
+instead is the ANSWER, keyed on just enough of the operands to determine it. The
+key being SUFFICIENT is checked rather than assumed, and the check earned its
+keep twice: Italian's ordinal rules name 8, 11, 80 and 800 individually, which
+collided 800 with 200 under the first key; and a sweep that stopped at 50000
+never created the multiple-of-a-million keys the French "many" rule needs, nor
+noticed they were missing.
+
+Not implemented, and not pretended: `RelativeTimeFormat`, `Segmenter`,
+`DisplayNames`, and any calendar other than Gregorian and the Thai year offset.
+`DateTimeFormat` formats in UTC -- this realm has no time zone database.
+
 What is still not done:
 
 - **NFKC and NFKD.** The compatibility forms need a second and much larger
   mapping table, and they are lossy -- they fold ﬁ to fi and ² to 2. They
   answer the string unchanged rather than silently returning a canonical form,
   which would leave a program worse off than being told the form is missing.
-- **Locale tailorings in `localeCompare`.** The comparison is three-level in
-  the shape of UTS #10 and agrees with ICU on every pair the generator checks
-  (6006/6006 over Latin, Greek and Cyrillic words, digits and punctuation), but
-  it is the root order: Swedish å sorts under a rather than at the end of the
-  alphabet, because there are no per-locale tailorings.
+- **Locale tailorings beyond the 27 carried.** `localeCompare` reads its
+  `locales` argument and applies a tailoring for 27 of them, verified against
+  CLDR: the Nordic alphabets, Czech and Slovak `ch`, the Hungarian digraphs,
+  Polish, Turkish and Azerbaijani, Spanish `ñ`, the South Slavic `lj`/`nj`,
+  Baltic, Romanian, Albanian, Vietnamese, Estonian and Icelandic. Nine more
+  were checked and carry no table because their alphabet IS the root alphabet
+  (de, fr, en, it, nl, pt, ca, eu, ga). A locale outside that set falls back to
+  the root order, which is what it did for all of them before.
 - **Supplementary characters through a Rust slice.** A cut that lands INSIDE a
   surrogate pair has no representation on that target -- its string type holds
   characters, and half a pair is not one. The half is dropped rather than faked.
@@ -1109,6 +1649,7 @@ when asking whether ES2015 work cost anything:
 | after the Unicode string model | 8069 | 99.43% |
 | after non-ASCII identifiers | 8071 | 99.46% |
 | after the five text paths below | 8077 | 99.53% |
+| after toLocale casing and ToUint16 | 8080 | 99.57% |
 
 The ES2015 work did not cost ES5 anything; it gained 665 files, most of them
 from the same detached-statics fix.
@@ -1201,18 +1742,45 @@ with no way to bucket them by edition. An ES2016+ column would have to be built
 from FEATURE tags (`features: [optional-chaining]`, …), which is a different job.
 No number is published here rather than a synthesised one.
 
-### What the 1337-probe suite is not
+### What the probe suite is not
 
-`npm run jsengine:conformance` reports 1337/1337. That is the runtime-conformance
-corpus, whose expectations are derived by running the same source through Node.
-It is a regression net, not test262, and the two numbers must not be quoted
-side by side as if they measured the same thing.
+`npm run jsengine:conformance` reports its own count on each native target. That
+is the runtime-conformance corpus, whose expectations are derived by running the
+same source through Node. It is a regression net, not test262, and the two
+numbers must not be quoted side by side as if they measured the same thing.
 
-The runtime-conformance suite is at 1281 checks, every one of them derived from Node —
-1260 expression probes plus 21 script-level probes run through Node's `vm` so the
-script global is real.
+The runtime-conformance suite is at 1920 checks, every one of them derived from
+Node — the expression probes, plus script-level probes run through Node's `vm`
+so the script global is real, plus the module and gap assertions. A further 31
+live in `tests/spec-derived.test.ts` and are SPEC-derived rather than
+Node-derived, for the features no Node here implements; that file is separate
+precisely so the difference is visible.
 Date is additionally validated by 209 differential cases against Node covering the
 component getters, the setter family, `Date.parse`, `Date.UTC` and both range extremes.
+The 55 whole-program cases in `tests/async-conformance.test.ts` cover what a
+returned value cannot show: what an async body, a promise combinator or
+`finally` actually PRODUCES once the queue drains, compared against Node
+running the same program — and, since they run on every built target, that the
+three agree about it.
+
+Three suites cover what is NOT ECMAScript and therefore has no Node oracle at
+all. `tests/jsx-conformance.test.ts` (56) records what JSX evaluation produces,
+written down from what the engine does rather than derived — several first
+guesses were wrong, which is the point of recording them. Its KNOWN_WRONG list
+is currently empty and kept as an empty list, because the next defect wants
+somewhere to be written down before it is fixed.
+`tests/evg-host-adapter.test.ts` (23) drives source → EvElement → EVGElement and
+asserts the trees the engine produced BEFORE it stopped knowing about
+renderers: if the adapter reproduces them, the meaning moved without being
+lost. `tests/engine-imports.test.ts` (11) holds the dependency surface, and
+exercises rather than greps — an engine with the filesystem switched off
+imports a host-supplied module and computes with it, because an absent import
+does not prove a host can supply what it used to.
+
+The module checks are the one place expectations are hand-written rather than
+derived, because `ranger:probe` is a specifier only this engine resolves. Each
+is a plain spec rule stated as such: `import()` answers a promise, an
+unresolvable specifier rejects, a module has one namespace.
 
 ---
 

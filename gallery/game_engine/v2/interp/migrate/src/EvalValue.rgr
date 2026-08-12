@@ -12,8 +12,133 @@
 ;   PropertyCarrier — objects that own a property bag
 ;   Callable        — values that can be invoked (required capability)
 
-Import "../../../evg/EVGElement.rgr"
 Import "../../../../../ts_parser/ts_parser_simple.rgr"
+
+; =============================================================================
+; EvElement — the engine's own element value.
+; =============================================================================
+; JSX used to evaluate straight into EVGElement, the layout object of one
+; particular renderer. That cost more than a stray dependency:
+;
+;   * the interpreter had to know a fixed vocabulary of tags (`View`, `Label`,
+;     `Print`, …) before a document could name one;
+;   * EVGElement grew `hasReturn`/`hasBreak`/`hasContinue` — interpreter
+;     control-flow state bolted onto a renderer's layout object — because the
+;     JSX walkers returned it and had nowhere else to put a completion;
+;   * that made JSX a SECOND return channel beside `scriptReturnValue`, and the
+;     two only agreed by accident: JSX returned from a callback was silently
+;     lost, so `xs.map(function (x) { return <Label>{x}</Label>; })` produced
+;     empty containers;
+;   * and a rendered tree could not be DIFFED, because an EVGElement is a live
+;     layout object — parent pointers, resolved units — rather than a
+;     description of one.
+;
+; An EvElement is inert: a tag, its props and its children, and nothing about
+; what any of that MEANS. A host decides what a tag renders as, so a document
+; can name any tag at all without the engine changing, two trees can be
+; compared to produce a patch, and JSX is an ordinary value that travels the
+; ordinary return channel.
+;
+; Declared here, in the same compilation unit as the shape, because the two
+; refer to each other: `EvalValue.Element` holds an EvElement and an
+; EvElement's prop values are EvalValues. Split across files that is an import
+; cycle; together it is one mutually recursive definition.
+
+; -----------------------------------------------------------------------------
+class EvElement {
+    ; The tag exactly as it was written. `View`, `div`, `my-widget` — the
+    ; engine attaches no meaning to any of them.
+    def tagName:string ""
+    ; A TEXT node: `textContent` is the whole of it and it has no children.
+    def isText:boolean false
+    ; A FRAGMENT: children with no tag of their own. Kept as a distinct kind
+    ; rather than a magic tag name so a host can splice it into the parent
+    ; instead of materialising a wrapper.
+    def isFragment:boolean false
+    def textContent:string ""
+    ; Reconciliation identity, lifted out of the props because a differ reads
+    ; it before it looks at anything else. "" means "no key given".
+    def key:string ""
+    ; Props as parallel arrays, holding the VALUE rather than its text. The old
+    ; path called toString() on every attribute as it was applied, which threw
+    ; away function props (`onClick`), numbers and objects before any host
+    ; could see them.
+    def propNames:[string]
+    def propValues:[EvalValue]
+    def children:[EvElement]
+
+    ; Interpreter control-flow completion, carried while the JSX walkers still
+    ; return an element. These are what makes JSX a second return channel; they
+    ; go away when the walkers return an ordinary value.
+    def hasReturn:boolean false
+    def hasBreak:boolean false
+    def hasContinue:boolean false
+
+    fn propIndex:int (name:string) {
+        def i:int 0
+        while (i < (array_length propNames)) {
+            if ((itemAt propNames i) == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    fn hasProp:boolean (name:string) {
+        return ((this.propIndex(name)) > (0 - 1))
+    }
+
+    ; Last write wins, as it does for a repeated JSX attribute.
+    fn setProp:void (name:string value:EvalValue) {
+        if (name == "key") {
+            ; `key` is reconciliation metadata, not a prop a host renders, so
+            ; it is lifted out and a differ does not have to know the name.
+            ; Only a string or a number can BE a key; anything else has no
+            ; stable text, and inventing one would make two unrelated elements
+            ; look like the same one across a diff.
+            case value ks:EvalValue.String {
+                key = ks.value
+                return
+            }
+            case value kn:EvalValue.Number {
+                key = (to_string kn.value)
+                return
+            }
+            return
+        }
+        def at:int (this.propIndex(name))
+        if (at > (0 - 1)) {
+            set propValues at value
+            return
+        }
+        push propNames name
+        push propValues value
+    }
+
+    ; The value as stored. Deliberately NOT stringified: turning props into text
+    ; here is what threw away handler and object props before, and it is the
+    ; host that knows which of its attributes want text.
+    fn getProp:EvalValue (name:string) {
+        def at:int (this.propIndex(name))
+        if (at > (0 - 1)) {
+            return (itemAt propValues at)
+        }
+        return (new EvalValue.Undefined())
+    }
+
+    fn addChild:void (child:EvElement) {
+        push children child
+    }
+
+    fn childCount:int () {
+        return (array_length children)
+    }
+
+    fn propCount:int () {
+        return (array_length propNames)
+    }
+}
 
 shape EvalValue {
     group Primitive @(value)
@@ -70,7 +195,7 @@ shape EvalValue {
         def items:[EvalValue]
     }
     case Element does Reference {
-        def element:EVGElement
+        def element:EvElement
     }
 
     fn toBool:boolean () {
@@ -120,10 +245,10 @@ shape EvalValue {
     ; ---- E3 reference / carrier factories (fixture + bridge kind arms) ----
     ; Case ctors take Reference.identityId then PropertyCarrier.properties
     ; (when applicable) before the case's own fields — see E1 fixture.
-    sfn element:EvalValue (el:EVGElement) {
+    sfn element:EvalValue (el:EvElement) {
         return (EvalValue.elementAt(0 el))
     }
-    sfn elementAt:EvalValue (id:int el:EVGElement) {
+    sfn elementAt:EvalValue (id:int el:EvElement) {
         return (new EvalValue.Element(id el))
     }
     sfn array:EvalValue (items:[EvalValue]) {

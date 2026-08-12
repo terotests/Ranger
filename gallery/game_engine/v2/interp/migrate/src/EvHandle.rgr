@@ -2,7 +2,7 @@
 ; EvHandle - Runtime value type for expression evaluation
 ; =============================================================================
 ; Represents values that can be evaluated: numbers, strings, booleans, 
-; null, arrays, objects, functions, and EVG elements.
+; null, arrays, objects, functions, and elements.
 ;
 ; Migration (PLAN_SHAPES.md §7.5 E4e): thin engine handle around `body:EvalValue`.
 ; Collection / property / Function / Element / string / bool live on the shape.
@@ -10,7 +10,6 @@
 ; (also on Reference). Number `@(value)` blocks slotOwned on
 ; the shape.
 
-Import "../../../evg/EVGElement.rgr"
 Import "../../../../../ts_parser/ts_parser_simple.rgr"
 Import "EvalValue.rgr"
 
@@ -486,7 +485,7 @@ class EvHandle {
         def b:EvalValue body
         return (EvalValue.isElement(b))
     }
-    fn elementOf:EVGElement () {
+    fn elementOf:EvElement () {
         def _evBody:EvalValue body
         case _evBody el:EvalValue.Element {
             return (unwrap el.element)
@@ -494,7 +493,7 @@ class EvHandle {
         def pool:EvalConstPool (EvalConstPool.__singleton())
         return pool.blankElement
     }
-    fn setElement:void (el:EVGElement) {
+    fn setElement:void (el:EvElement) {
         ; Rewrite the Element case; keep Reference identity.
         def id:int (this.identityIdOf())
         if (id <= 0) {
@@ -938,7 +937,7 @@ class EvHandle {
         return v
     }
 
-    sfn element:EvHandle (el:EVGElement) {
+    sfn element:EvHandle (el:EvElement) {
         def v:EvHandle (new EvHandle())
         def id:int ((EvalIdentityMinter.__singleton()).mint())
         v.body = (EvalValue.elementAt(id el))
@@ -1234,10 +1233,10 @@ class EvHandle {
         }
         if (this.isElement()) {
             if (this.hasElement()) {
-                def el:EVGElement (this.elementOf())
-                return "[EVGElement: " + el.tagName + "]"
+                def el:EvElement (this.elementOf())
+                return "[EvElement: " + el.tagName + "]"
             }
-            return "[EVGElement: null]"
+            return "[EvElement: null]"
         }
         return "undefined"
     }
@@ -1245,6 +1244,14 @@ class EvHandle {
     fn toBool:boolean () {
         if (this.isNull()) {
             return false
+        }
+        ; D-BIGINT: 0n is FALSY, and a BigInt is an object here, so without this
+        ; every BigInt -- zero included -- was truthy.
+        if (this.isObject()) {
+            if (this.hasOwnData("__biglimbs__")) {
+                def limbs:EvHandle (this.getOwnData("__biglimbs__"))
+                return ((limbs.denseLen()) > 0)
+            }
         }
         if (this.isHole()) {
             return false
@@ -2337,6 +2344,18 @@ class EvHandle {
         }
         return false
     }
+    ; True once any own property EVER carried attributes — monotone, like
+    ; ownAccessorsEver. A false answer proves no element can be non-writable,
+    ; which is what the compiled element store needs before it may write
+    ; straight into the dense items without minting the key string.
+    fn ownAttrsEver:boolean () {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return props.everHadAttrs
+        }
+        return false
+    }
 
     fn arrayItemAt:EvHandle (i:int) {
         def _k:EvalValue body
@@ -2591,10 +2610,23 @@ class EvHandle {
         def _kind:EvalValue body
         if (EvalValue.isArrayValue(_kind)) {
             case _kind a:EvalValue.Array {
-                ; Rebuild around the SAME property bag — going through
-                ; EvalValue.arrayAt minted a fresh bag, so `a.foo = 1` was
-                ; silently dropped by pop/shift/reverse/sort.
-                body = (new EvalValue.Array(a.identityId a.properties stored (to_double (array_length stored))))
+                ; Refill the SAME items list, the way arrPush and arrPop do.
+                ; Rebuilding around the same property bag still assigned a NEW
+                ; body to THIS handle, and a handle is not the array -- reading
+                ; `o.q` mints a fresh handle over the same store, so every
+                ; mutator built on this one (shift, unshift, splice, reverse,
+                ; sort, fill, copyWithin) wrote into a body only that temporary
+                ; could see. `o.q.shift()` returned the element and left o.q
+                ; untouched; push and pop were unaffected because they mutate
+                ; the list itself. That is what made `while (q = o.q.shift())`
+                ; -- marked's inline-token queue drain -- never terminate.
+                clear a.items
+                def si:int 0
+                while (si < (array_length stored)) {
+                    push a.items (itemAt stored si)
+                    si = (si + 1)
+                }
+                a.declaredLength = (to_double (array_length a.items))
             }
             return
         }
@@ -2879,7 +2911,7 @@ class EvalConstPool @singleton(true) {
     ; A stand-in for elementOf on a non-Element value. The read accessor has
     ; to answer something, and one shared blank costs nothing -- every caller
     ; tests hasElement() first, so nothing ever reads it.
-    def blankElement:EVGElement (new EVGElement())
+    def blankElement:EvElement (new EvElement())
     def nullValue:EvHandle (EvHandle.rawNull())
     def undefinedValue:EvHandle (EvHandle.rawUndefined())
     def trueValue:EvHandle (EvHandle.rawBoolean(true))

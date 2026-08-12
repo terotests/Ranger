@@ -640,7 +640,14 @@ class TSLexer {
                     handled = true }
                 if (esc == "`") { value = (value + "`")
                     handled = true }
-                if (esc == "$") { value = (value + "$")
+                ; `\$` stays ESCAPED in the cooked text. The token's value keeps
+                ; `${...}` as literal text for the engine to re-split, so
+                ; decoding the escape here would make `\${x}` indistinguishable
+                ; from a real substitution -- and it was: the engine evaluated
+                ; `x` and the literal `${x}` the source asked for was lost. The
+                ; engine decodes it when it splits, where the two are still
+                ; distinguishable.
+                if (esc == "$") { value = (value + "\\$")
                     handled = true }
                 if (esc == "\\") { value = (value + "\\")
                     handled = true }
@@ -806,9 +813,16 @@ class TSLexer {
     }
 
     fn readRadix:Token (radix:int startPos:int startLine:int startCol:int) {
+        ; The two prefix characters, kept so a BigInt token can carry the radix
+        ; the way BigNum.parse expects to read it.
+        def prefix:string ((this.peek()) + (this.peekAt(1)))
         this.advance()
         this.advance()
         def acc:int 0
+        ; The digits WITHOUT separators, for the BigInt case: `acc` is an int
+        ; and has already overflowed for anything a BigInt literal is written
+        ; for, and BigNum.parse stops at a literal `_`.
+        def digits:string ""
         def looping:boolean true
         while ((pos < len) && looping) {
             def ch:string (this.peek())
@@ -819,6 +833,7 @@ class TSLexer {
                 if (d >= 0) {
                     if (d < radix) {
                         acc = ((acc * radix) + d)
+                        digits = (digits + ch)
                         this.advance()
                     } {
                         looping = false
@@ -826,6 +841,23 @@ class TSLexer {
                 } {
                     looping = false
                 }
+            }
+        }
+        ; A radix-prefixed BIGINT: `0x1fn`, `0o17n`, `0b1011n`. The suffix was
+        ; only ever read on the decimal path, so `0xffn` reached the `runsOn`
+        ; test below, which sees `n` as an identifier character and called the
+        ; whole literal malformed.
+        ;
+        ; The RAW TEXT is the token value, prefix and suffix included, exactly
+        ; as the decimal path keeps `255n`. Two reasons not to hand over the
+        ; accumulated `acc`: it is an int, so it has already overflowed for
+        ; anything past 32 bits -- and a BigInt literal is written precisely
+        ; when the value does not fit -- and BigNum.parse reads the radix
+        ; prefixes itself, so the text is what it wants anyway.
+        if ((this.peek()) == "n") {
+            if ((strlen digits) > 0) {
+                this.advance()
+                return (this.makeToken("BigInt" (prefix + (digits + "n")) startPos startLine startCol))
             }
         }
         ; `0x` with no digits, or digits immediately followed by an identifier
@@ -1045,11 +1077,72 @@ class TSLexer {
                 this.advance()
                 i = (i + 1)
             }
+            ; A HIGH surrogate escape followed immediately by a LOW one is a
+            ; single character written as its two halves -- `"\ud801\udc00"`.
+            ; Emitting the halves separately is fine where a code unit is the
+            ; unit of storage, and impossible on the code-POINT target, where a
+            ; lone surrogate is not a character at all: the pair came out as two
+            ; unrepresentable values and charCodeAt answered 0. Combining here
+            ; costs nothing on the other two targets, which re-split it below.
+            if ((code >= 55296) && (code <= 56319)) {
+                if ((this.peek()) == "\\") {
+                    if ((this.peekAt(1)) == "u") {
+                        def lowVal:int 0
+                        def lj:int 0
+                        def lowOk:boolean true
+                        while (lj < 4) {
+                            def lc:string (this.peekAt((2 + lj)))
+                            def lv:int (this.hexValue(lc))
+                            if (lv < 0) { lowOk = false
+                                lj = 4 } {
+                                lowVal = ((lowVal * 16) + lv)
+                                lj = (lj + 1)
+                            }
+                        }
+                        if lowOk {
+                            if ((lowVal >= 56320) && (lowVal <= 57343)) {
+                                def lk:int 0
+                                while (lk < 6) {
+                                    this.advance()
+                                    lk = (lk + 1)
+                                }
+                                code = ((65536 + ((code - 55296) * 1024)) + (lowVal - 56320))
+                            }
+                        }
+                    }
+                }
+            }
         }
         ; strfromcode is a code-UNIT constructor, so a supplementary-plane code
         ; point has to be written as its surrogate pair — otherwise \u{E01D5}
         ; truncated to U+01D5 and collided with an unrelated identifier.
         if (code > 65535) {
+            ; ...but only where a code unit IS the unit of storage. On the
+            ; code-POINT target (Rust) a lone surrogate is not a character at
+            ; all, so writing the pair produced two unrepresentable halves and
+            ; `"\u{10400}".charCodeAt(0)` answered 0. There, the code point is
+            ; written whole.
+            ; The same probe the regex engine's text layer uses: a supplementary
+            ; character is ONE unit only on the code-point model. strfromcode
+            ; cannot be probed with -- it truncates its argument on two of the
+            ; three targets, which is the very thing being worked around.
+            if ((strlen "😀") == 1) {
+                if ((strlen "é") == 1) {
+                    return (strfromcode code)
+                }
+            }
+            ; On the BYTE model a supplementary code point is one four-byte
+            ; UTF-8 sequence. Writing it as two encoded surrogate halves is
+            ; CESU-8, which is not what a literal character in the source
+            ; decodes to -- so `"\u{10400}" === "𐐀"` was false, the same
+            ; character written two ways comparing unequal.
+            if ((strlen "é") > 1) {
+                def b0:int (240 + (to_int ((to_double code) / 262144.0)))
+                def b1:int (128 + (bit_and (to_int ((to_double code) / 4096.0)) 63))
+                def b2:int (128 + (bit_and (to_int ((to_double code) / 64.0)) 63))
+                def b3:int (128 + (bit_and code 63))
+                return ((strfromcode b0) + ((strfromcode b1) + ((strfromcode b2) + (strfromcode b3))))
+            }
             def rest:int (code - 65536)
             def restD:double (to_double rest)
             def high:int (floor (restD / 1024.0))
@@ -1705,11 +1798,34 @@ class TSLexer {
                         }
                     }
                 } {
-                    def escCode:int (charAt esc 0)
-                    if (escCode >= 49) {
-                        if (escCode <= 57) {
-                            def refNum:int (escCode - 48)
-                            if (refNum > maxBackRef) { maxBackRef = refNum }
+                    ; `\p{...}` / `\P{...}`: a Unicode property escape, whose
+                    ; braces belong to the escape. Without skipping them the
+                    ; closing `}` read as a stray one and every property escape
+                    ; was rejected as an invalid pattern.
+                    def isPropEsc:boolean false
+                    if (unicodeMode) {
+                        if ((esc == "p") || (esc == "P")) {
+                            if ((substring body (i + 2) (i + 3)) == "{") { isPropEsc = true }
+                        }
+                    }
+                    if isPropEsc {
+                        def pj:int (i + 3)
+                        while (pj < n) {
+                            if ((substring body pj (pj + 1)) == "}") { break }
+                            pj = (pj + 1)
+                        }
+                        if ((substring body pj (pj + 1)) == "}") {
+                            skipTo = (pj + 1)
+                        } {
+                            return false
+                        }
+                    } {
+                        def escCode:int (charAt esc 0)
+                        if (escCode >= 49) {
+                            if (escCode <= 57) {
+                                def refNum:int (escCode - 48)
+                                if (refNum > maxBackRef) { maxBackRef = refNum }
+                            }
                         }
                     }
                 }
@@ -1760,6 +1876,27 @@ class TSLexer {
                                         }
                                     }
                                     if (numDigits == 0) { return false }
+                                    ; A well-formed bound's CLOSING brace belongs
+                                    ; to the quantifier. Leaving it to the next
+                                    ; iteration made `/a{2}/u` invalid, because
+                                    ; a bare `}` is rejected just above.
+                                    def bk:int k
+                                    if ((substring body bk (bk + 1)) == ",") {
+                                        bk = (bk + 1)
+                                        while (bk < n) {
+                                            def d2:string (substring body bk (bk + 1))
+                                            if (this.isDigit(d2)) {
+                                                bk = (bk + 1)
+                                            } {
+                                                break
+                                            }
+                                        }
+                                    }
+                                    if ((substring body bk (bk + 1)) == "}") {
+                                        i = bk
+                                    } {
+                                        return false
+                                    }
                                 }
                             }
                             i = (i + 1)

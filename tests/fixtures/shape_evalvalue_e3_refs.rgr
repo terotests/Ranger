@@ -2,7 +2,6 @@
 ; Note: bridge Array check is isArrayValue — a global `isArray` operator blocks
 ; Class.isArray static methods (same poison as JSON.rgr's isArray op).
 Import "../../gallery/game_engine/v2/interp/migrate/src/EvValueBridge.rgr"
-Import "../../gallery/game_engine/v2/evg/EVGElement.rgr"
 
 class Main {
     sfn main:void () {
@@ -57,7 +56,8 @@ class Main {
         }
 
         ; Element
-        def el:EVGElement (EVGElement.createDiv())
+        def el:EvElement (new EvElement())
+        el.tagName = "div"
         def ev:EvHandle (EvValueBridge.taggedElement(el))
         if (EvValueBridge.isElement(ev)) {
             def es:EvalValue (EvValueBridge.fromTagged(ev))

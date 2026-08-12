@@ -1,0 +1,180 @@
+; =============================================================================
+; EvElementToEVG — the EVG renderer's host adapter.
+; =============================================================================
+; The interpreter evaluates JSX into EvElement: a tag exactly as written, its
+; props as VALUES, and its children. It attaches no meaning to any of that. The
+; meaning lives here, where a renderer can have opinions:
+;
+;   * `View` is a `div`, `Label` is `text`, `Image` is an `image` — the tag
+;     vocabulary this renderer accepts, and the reason a document written for a
+;     DIFFERENT renderer no longer needs the engine changed to run;
+;   * elementType, the renderer's own classification of those tags;
+;   * `id`, `className` and `src` as fields rather than attributes;
+;   * everything else through EVGElement.setAttribute, which parses units,
+;     colours, gradients and the rest;
+;   * `Print`, which resolves a book format into page geometry.
+;
+; All of it used to be inside the evaluator. Note which way the dependency
+; points now: evg imports interp, not the other way round. That is the whole
+; move — a renderer knows about the engine, the engine knows nothing about any
+; renderer, and a second renderer costs a second adapter rather than a second
+; engine.
+;
+; A prop reaches setAttribute as TEXT because that is what EVG's parser takes.
+; The VALUE is still there on the EvElement for a host that wants it — a
+; function prop is a function here, not "[object Object]", which is what makes
+; event handlers possible for a renderer that wants them.
+; =============================================================================
+
+Import "EVGElement.rgr"
+Import "../interp/migrate/src/EvalValue.rgr"
+
+class EvElementToEVG {
+    ; Tags this renderer knows, mapped to its own element names. An unknown tag
+    ; becomes a container rather than an error: a document may carry markup
+    ; meant for someone else, and dropping it loses the children with it.
+    fn mapTagName:string (jsxTag:string) {
+        if (jsxTag == "Print") { return "print" }
+        if (jsxTag == "Section") { return "section" }
+        if (jsxTag == "Page") { return "page" }
+        if (jsxTag == "View") { return "div" }
+        if (jsxTag == "Layer") { return "layer" }
+        if (jsxTag == "Label") { return "text" }
+        if (jsxTag == "Image") { return "image" }
+        if (jsxTag == "Path") { return "path" }
+        if (jsxTag == "Spacer") { return "spacer" }
+        if (jsxTag == "Divider") { return "divider" }
+        if (jsxTag == "div") { return "div" }
+        if (jsxTag == "span") { return "text" }
+        if (jsxTag == "img") { return "image" }
+        if (jsxTag == "path") { return "path" }
+        if (jsxTag == "layer") { return "layer" }
+        return "div"
+    }
+
+    ; 0 container, 1 text, 2 image, 3 path — this renderer's classification of
+    ; its own vocabulary, which is why it is keyed off the MAPPED name rather
+    ; than the source tag.
+    fn elementTypeFor:int (evgTag:string) {
+        if (evgTag == "text") { return 1 }
+        if (evgTag == "image") { return 2 }
+        if (evgTag == "path") { return 3 }
+        return 0
+    }
+
+    ; The prop as text, which is what setAttribute takes. Only primitives have
+    ; text worth giving it; a function or object prop is left for a host that
+    ; wants the value itself.
+    fn valueText:string (v:EvalValue) {
+        case v s:EvalValue.String { return s.value }
+        case v n:EvalValue.Number {
+            ; A whole number reads as an integer: EVG's unit parser takes
+            ; "100", not "100.0".
+            def d:double n.value
+            def asInt:int (to_int d)
+            if (d == (to_double asInt)) {
+                return (to_string asInt)
+            }
+            return (to_string d)
+        }
+        case v b:EvalValue.Boolean {
+            if b.value { return "true" }
+            return "false"
+        }
+        return ""
+    }
+
+    ; Matched by CASE rather than by asking the value what it is: a shape's
+    ; predicates are not reachable as methods from another compilation unit.
+    fn valueIsText:boolean (v:EvalValue) {
+        case v _s:EvalValue.String { return true }
+        case v _n:EvalValue.Number { return true }
+        case v _b:EvalValue.Boolean { return true }
+        return false
+    }
+
+    ; An EvElement tree as an EVG tree.
+    fn convert:EVGElement (src:EvElement) {
+        def out (new EVGElement())
+
+        ; A TEXT node carries its content and nothing else.
+        if src.isText {
+            if ((strlen src.tagName) == 0) {
+                out.tagName = "text"
+                out.elementType = 1
+                out.textContent = src.textContent
+                return out
+            }
+        }
+
+        ; A FRAGMENT has no tag of its own. This renderer materialises a
+        ; container for it, because EVG's tree has no notion of a node that is
+        ; only its children; a renderer whose layout can splice would do that
+        ; here instead.
+        if src.isFragment {
+            out.tagName = "div"
+            out.elementType = 0
+            this.convertChildren(out src)
+            return out
+        }
+
+        def evgTag:string (this.mapTagName(src.tagName))
+        out.tagName = evgTag
+        out.elementType = (this.elementTypeFor(evgTag))
+        this.applyProps(out src)
+        if src.isText {
+            out.textContent = src.textContent
+        }
+        this.convertChildren(out src)
+
+        ; `Print` resolves a book format into page geometry. Renderer policy,
+        ; and applied after the props because it reads them.
+        if (src.tagName == "Print") {
+            out.resolveBookFormat()
+        }
+        return out
+    }
+
+    fn convertChildren:void (out:EVGElement src:EvElement) {
+        def i:int 0
+        while (i < (array_length src.children)) {
+            def kid:EvElement (itemAt src.children i)
+            out.addChild((this.convert(kid)))
+            i = (i + 1)
+        }
+    }
+
+    fn applyProps:void (out:EVGElement src:EvElement) {
+        def i:int 0
+        while (i < (array_length src.propNames)) {
+            def name:string (itemAt src.propNames i)
+            def value:EvalValue (itemAt src.propValues i)
+            if (this.valueIsText(value)) {
+                def text:string (this.valueText(value))
+                if (name == "id") {
+                    out.id = text
+                } {
+                    if (name == "className") {
+                        out.className = text
+                    } {
+                        if (name == "src") {
+                            out.src = text
+                        } {
+                            ; setAttribute owns the parsing: units, colours,
+                            ; gradients, the box model.
+                            out.setAttribute(name text)
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        ; `key` is reconciliation identity, not a rendered attribute, so it is
+        ; carried as the element id only when nothing else claimed one.
+        if ((strlen src.key) > 0) {
+            if ((strlen out.id) == 0) {
+                out.id = src.key
+            }
+        }
+    }
+}

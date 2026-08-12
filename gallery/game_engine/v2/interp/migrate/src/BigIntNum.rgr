@@ -1,0 +1,805 @@
+; =============================================================================
+; BigIntNum.rgr — arbitrary-precision integers
+; =============================================================================
+; D-BIGINT: BigInt is the one primitive type in the language whose values do not
+; fit in anything this realm already carries. A double loses integers above 2^53
+; -- which is the entire reason BigInt exists -- so the value has to be built out
+; of limbs and the arithmetic written by hand.
+;
+; The base is 2^15. Two reasons, and they are both about the TARGETS rather than
+; about elegance: a product of two limbs is at most 2^30, which is inside a
+; 32-bit int on every target this compiles to, and a power-of-two base makes the
+; bitwise operators and the shifts limb operations instead of conversions.
+;
+; A value is a SIGN and a magnitude, not two's complement -- multiplication and
+; division want a magnitude. The bitwise operators are the exception: they are
+; defined over an infinite two's-complement representation, so each one converts
+; in, works limbwise, and converts back. That conversion is the only fiddly part
+; of the file and it is written once, in `twosLimb` and `fromTwos`.
+;
+; Zero is the empty magnitude with neg = false. There is exactly one zero: no
+; operation may produce a negative zero, which is why every constructor that
+; could trims first and clears the sign after.
+; =============================================================================
+
+class BigNum {
+    ; true when the value is below zero. Never true for zero.
+    def neg:boolean false
+    ; Limbs, least significant first, each in [0, 32767]. No trailing zeros.
+    def mag:[int]
+
+    ; ---- construction ------------------------------------------------------
+
+    static sfn zero:BigNum () {
+        def z (new BigNum)
+        return z
+    }
+
+    static sfn fromInt:BigNum (v:int) {
+        def r (new BigNum)
+        def n:int v
+        if (n < 0) {
+            r.neg = true
+            n = (0 - n)
+        }
+        while (n > 0) {
+            push r.mag (bit_and n 32767)
+            n = (bit_shr n 15)
+        }
+        return r
+    }
+
+    ; A double that is already an integer. Used by BigInt(number), which refuses
+    ; anything with a fractional part before it gets here.
+    static sfn fromDouble:BigNum (d:double) {
+        def r (new BigNum)
+        def x:double d
+        if (x < 0.0) {
+            r.neg = true
+            x = (0.0 - x)
+        }
+        while (x >= 1.0) {
+            def q:double (x / 32768.0)
+            def qf:double (to_double (to_int q))
+            ; to_int truncates toward zero, and x is non-negative here, so qf is
+            ; the floor and the remainder is exact for every value a double can
+            ; hold as an integer.
+            def rem:double (x - (qf * 32768.0))
+            push r.mag (to_int rem)
+            x = qf
+        }
+        r.trim()
+        return r
+    }
+
+    fn copy:BigNum () {
+        def c (new BigNum)
+        c.neg = neg
+        def i:int 0
+        while (i < (array_length mag)) {
+            push c.mag (itemAt mag i)
+            i = (i + 1)
+        }
+        return c
+    }
+
+    ; ---- shape -------------------------------------------------------------
+
+    fn trim:void () {
+        def n:int (array_length mag)
+        while (n > 0) {
+            if ((itemAt mag (n - 1)) == 0) {
+                removeLast mag
+                n = (n - 1)
+            } {
+                n = 0
+            }
+        }
+        if ((array_length mag) == 0) {
+            neg = false
+        }
+    }
+
+    fn isZero:boolean () {
+        return ((array_length mag) == 0)
+    }
+
+    fn limbAt:int (i:int) {
+        if (i < 0) { return 0 }
+        if (i >= (array_length mag)) { return 0 }
+        return (itemAt mag i)
+    }
+
+    ; ---- comparison --------------------------------------------------------
+
+    ; Magnitudes only: -1, 0 or 1.
+    fn cmpMag:int (o:BigNum) {
+        def bLimbs:[int] o.mag
+        return (BigNum.cmpLimbs(mag bLimbs))
+    }
+
+    fn cmp:int (o:BigNum) {
+        if (neg != o.neg) {
+            if neg { return (0 - 1) }
+            return 1
+        }
+        def m:int (this.cmpMag(o))
+        if neg { return (0 - m) }
+        return m
+    }
+
+    ; ---- magnitude arithmetic ---------------------------------------------
+    ; Over plain LIMB ARRAYS rather than over BigNum objects. Two BigNums in one
+    ; expression are two live borrows of the same kind of cell on the Rust
+    ; target, and passing `this` as an argument to another object's method is
+    ; the same cell twice whenever the two happen to be one object. Arrays have
+    ; no such problem, and the arithmetic never wanted the sign anyway.
+
+    static sfn limbOf:int (a:[int] i:int) {
+        if (i < 0) { return 0 }
+        if (i >= (array_length a)) { return 0 }
+        return (itemAt a i)
+    }
+
+    static sfn addLimbs:[int] (a:[int] b:[int]) {
+        def out:[int]
+        def carry:int 0
+        def n:int (array_length a)
+        if ((array_length b) > n) { n = (array_length b) }
+        def i:int 0
+        while (i < n) {
+            def s:int ((BigNum.limbOf(a i)) + ((BigNum.limbOf(b i)) + carry))
+            push out (bit_and s 32767)
+            carry = (bit_shr s 15)
+            i = (i + 1)
+        }
+        if (carry > 0) {
+            push out carry
+        }
+        return out
+    }
+
+    ; |a| - |b|, which the caller has established is not negative.
+    static sfn subLimbs:[int] (a:[int] b:[int]) {
+        def out:[int]
+        def borrow:int 0
+        def n:int (array_length a)
+        def i:int 0
+        while (i < n) {
+            def d:int (((BigNum.limbOf(a i)) - (BigNum.limbOf(b i))) - borrow)
+            if (d < 0) {
+                d = (d + 32768)
+                borrow = 1
+            } {
+                borrow = 0
+            }
+            push out d
+            i = (i + 1)
+        }
+        return out
+    }
+
+    static sfn cmpLimbs:int (a:[int] b:[int]) {
+        def an:int (array_length a)
+        def bn:int (array_length b)
+        if (an != bn) {
+            if (an < bn) { return (0 - 1) }
+            return 1
+        }
+        def i:int (an - 1)
+        while (i >= 0) {
+            def x:int (itemAt a i)
+            def y:int (itemAt b i)
+            if (x != y) {
+                if (x < y) { return (0 - 1) }
+                return 1
+            }
+            i = (i - 1)
+        }
+        return 0
+    }
+
+    ; ---- signed arithmetic -------------------------------------------------
+
+    fn add:BigNum (o:BigNum) {
+        def r (new BigNum)
+        def bLimbs:[int] o.mag
+        def bNeg:boolean o.neg
+        if (neg == bNeg) {
+            r.mag = (BigNum.addLimbs(mag bLimbs))
+            r.neg = neg
+        } {
+            def c:int (BigNum.cmpLimbs(mag bLimbs))
+            if (c == 0) {
+                return r
+            }
+            if (c > 0) {
+                r.mag = (BigNum.subLimbs(mag bLimbs))
+                r.neg = neg
+            } {
+                r.mag = (BigNum.subLimbs(bLimbs mag))
+                r.neg = bNeg
+            }
+        }
+        r.trim()
+        return r
+    }
+
+    fn negate:BigNum () {
+        def r:BigNum (this.copy())
+        if (false == (r.isZero())) {
+            r.neg = (false == r.neg)
+        }
+        return r
+    }
+
+    fn sub:BigNum (o:BigNum) {
+        ; Hoisted: a method call nested inside another's ARGUMENTS keeps the
+        ; inner receiver mutably borrowed for the whole statement on the Rust
+        ; target, and `add` then borrows the same cell.
+        def negated:BigNum (o.negate())
+        return (this.add(negated))
+    }
+
+    fn mul:BigNum (o:BigNum) {
+        def r (new BigNum)
+        def an:int (array_length mag)
+        def bn:int (array_length o.mag)
+        if ((an == 0) || (bn == 0)) {
+            return r
+        }
+        def acc:[int]
+        def k:int 0
+        while (k < (an + bn)) {
+            push acc 0
+            k = (k + 1)
+        }
+        def i:int 0
+        while (i < an) {
+            def carry:int 0
+            def ai:int (itemAt mag i)
+            def j:int 0
+            while (j < bn) {
+                ; ai and o.mag[j] are both below 2^15, so the product is below
+                ; 2^30 and the two addends cannot push it past a 32-bit int.
+                def cur:int (itemAt acc (i + j))
+                def t:int ((ai * (itemAt o.mag j)) + (cur + carry))
+                set acc (i + j) (bit_and t 32767)
+                carry = (bit_shr t 15)
+                j = (j + 1)
+            }
+            def at:int (i + bn)
+            while (carry > 0) {
+                def cur2:int (itemAt acc at)
+                def t2:int (cur2 + carry)
+                set acc at (bit_and t2 32767)
+                carry = (bit_shr t2 15)
+                at = (at + 1)
+            }
+            i = (i + 1)
+        }
+        r.mag = acc
+        r.neg = (neg != o.neg)
+        r.trim()
+        return r
+    }
+
+    ; The number of significant bits in the magnitude.
+    fn bitLength:int () {
+        def n:int (array_length mag)
+        if (n == 0) { return 0 }
+        def top:int (itemAt mag (n - 1))
+        def bits:int 0
+        while (top > 0) {
+            bits = (bits + 1)
+            top = (bit_shr top 1)
+        }
+        return (((n - 1) * 15) + bits)
+    }
+
+    fn bitAt:int (i:int) {
+        def li:int (this.divFloor(i 15))
+        def limb:int (this.limbAt(li))
+        return (bit_and (bit_shr limb (i - (15 * li))) 1)
+    }
+
+    ; Integer division for non-negative operands. Ranger's `/` on ints is not
+    ; dependable across targets, so this goes through doubles the way the rest
+    ; of the engine does.
+    fn divFloor:int (a:int b:int) {
+        return (to_int ((to_double a) / (to_double b)))
+    }
+
+    ; ---- division ----------------------------------------------------------
+    ; Binary long division: one bit of the quotient per bit of the dividend.
+    ; Schoolbook base-2^15 division would be faster and much easier to get
+    ; subtly wrong; at the sizes a guest program actually uses, this is fast
+    ; enough and is obviously right.
+    ; The caller has checked that `o` is not zero. Quotient TRUNCATES toward
+    ; zero and the remainder takes the sign of the dividend, which is what the
+    ; spec says BigInt division does -- not floor division.
+
+    fn divMag:BigNum (o:BigNum) {
+        def q (new BigNum)
+        def rem (new BigNum)
+        def oLimbs:[int] o.mag
+        if ((this.cmpMag(o)) < 0) {
+            return q
+        }
+        def qlimbs:[int]
+        def n:int (array_length mag)
+        def z:int 0
+        while (z < n) {
+            push qlimbs 0
+            z = (z + 1)
+        }
+        def i:int ((this.bitLength()) - 1)
+        while (i >= 0) {
+            rem.shiftUpOneBit()
+            if ((this.bitAt(i)) == 1) {
+                rem.setLowBit()
+            }
+            if ((rem.cmpMag(o)) >= 0) {
+                ; Into a local first: writing a field of `rem` while the same
+                ; cell is the receiver of the call that produces the value
+                ; borrows it twice on the Rust target.
+                def remCur:[int] rem.mag
+                def remLimbs:[int] (BigNum.subLimbs(remCur oLimbs))
+                rem.mag = remLimbs
+                rem.trim()
+                def li:int (this.divFloor(i 15))
+                def bi:int (i - (15 * li))
+                set qlimbs li (bit_or (itemAt qlimbs li) (bit_shl 1 bi))
+            }
+            i = (i - 1)
+        }
+        q.mag = qlimbs
+        q.trim()
+        return q
+    }
+
+    fn remMag:BigNum (o:BigNum) {
+        def rem (new BigNum)
+        def oLimbs2:[int] o.mag
+        if ((this.cmpMag(o)) < 0) {
+            def c:BigNum (this.copy())
+            c.neg = false
+            return c
+        }
+        def i:int ((this.bitLength()) - 1)
+        while (i >= 0) {
+            rem.shiftUpOneBit()
+            if ((this.bitAt(i)) == 1) {
+                rem.setLowBit()
+            }
+            if ((rem.cmpMag(o)) >= 0) {
+                def remCur2:[int] rem.mag
+                def remLimbs2:[int] (BigNum.subLimbs(remCur2 oLimbs2))
+                rem.mag = remLimbs2
+                rem.trim()
+            }
+            i = (i - 1)
+        }
+        return rem
+    }
+
+    fn shiftUpOneBit:void () {
+        def carry:int 0
+        def i:int 0
+        while (i < (array_length mag)) {
+            def t:int ((bit_shl (itemAt mag i) 1) + carry)
+            set mag i (bit_and t 32767)
+            carry = (bit_shr t 15)
+            i = (i + 1)
+        }
+        if (carry > 0) {
+            push mag carry
+        }
+    }
+
+    fn setLowBit:void () {
+        if ((array_length mag) == 0) {
+            push mag 1
+        } {
+            set mag 0 (bit_or (itemAt mag 0) 1)
+        }
+    }
+
+    fn div:BigNum (o:BigNum) {
+        def q:BigNum (this.divMag(o))
+        q.neg = (neg != o.neg)
+        q.trim()
+        return q
+    }
+
+    fn rem:BigNum (o:BigNum) {
+        def r:BigNum (this.remMag(o))
+        r.neg = neg
+        r.trim()
+        return r
+    }
+
+    ; ---- shifts ------------------------------------------------------------
+
+    fn shiftLeft:BigNum (k:int) {
+        def r (new BigNum)
+        if (this.isZero()) { return r }
+        def limbShift:int (this.divFloor(k 15))
+        def bitShift:int (k - (15 * limbShift))
+        def out:[int]
+        def z:int 0
+        while (z < limbShift) {
+            push out 0
+            z = (z + 1)
+        }
+        def carry:int 0
+        def i:int 0
+        while (i < (array_length mag)) {
+            def t:int ((bit_shl (itemAt mag i) bitShift) + carry)
+            push out (bit_and t 32767)
+            carry = (bit_shr t 15)
+            i = (i + 1)
+        }
+        while (carry > 0) {
+            push out (bit_and carry 32767)
+            carry = (bit_shr carry 15)
+        }
+        r.mag = out
+        r.neg = neg
+        r.trim()
+        return r
+    }
+
+    ; An arithmetic right shift FLOORS, so a negative value that loses any set
+    ; bit off the bottom rounds away from zero -- `-1n >> 1n` is -1n, not 0n.
+    fn shiftRight:BigNum (k:int) {
+        def limbShift:int (this.divFloor(k 15))
+        def bitShift:int (k - (15 * limbShift))
+        def out:[int]
+        def i:int limbShift
+        while (i < (array_length mag)) {
+            def lo:int (bit_shr (itemAt mag i) bitShift)
+            def hi:int 0
+            if (bitShift > 0) {
+                hi = (bit_and (bit_shl (this.limbAt((i + 1))) (15 - bitShift)) 32767)
+            }
+            push out (bit_or lo hi)
+            i = (i + 1)
+        }
+        def r (new BigNum)
+        r.mag = out
+        r.neg = neg
+        r.trim()
+        if neg {
+            ; Anything shifted off the bottom means the true value was below
+            ; the truncated one, so floor is one lower.
+            def back:BigNum (r.shiftLeft(k))
+            ; Compared through the LIMBS: handing `this` to another object's
+            ; method borrows this cell a second time on the Rust target, and it
+            ; is already borrowed for the duration of this call.
+            def backLimbs:[int] back.mag
+            def cmpBack:int (BigNum.cmpLimbs(backLimbs mag))
+            if (cmpBack != 0) {
+                def one:BigNum (BigNum.fromInt(1))
+                def lower:BigNum (r.sub(one))
+                return lower
+            }
+        }
+        return r
+    }
+
+    ; ---- two's complement bitwise -----------------------------------------
+    ; A negative value's limbs in two's complement are ~(|v| - 1), taken limb by
+    ; limb. Both directions are written out rather than materialising the whole
+    ; complement, so a short operand against a long one costs nothing extra.
+
+    fn twosLimb:int (i:int borrowState:[int]) {
+        if (false == neg) {
+            return (this.limbAt(i))
+        }
+        ; |v| - 1, then complement. The subtraction's borrow is carried in the
+        ; single-element array so successive limbs stay consistent.
+        def v:int (this.limbAt(i))
+        def d:int (v - (itemAt borrowState 0))
+        if (d < 0) {
+            d = (d + 32768)
+            set borrowState 0 1
+        } {
+            set borrowState 0 0
+        }
+        return (bit_and (bit_not d) 32767)
+    }
+
+    static sfn fromTwos:BigNum (limbs:[int] negative:boolean) {
+        def r (new BigNum)
+        if (false == negative) {
+            r.mag = limbs
+            r.trim()
+            return r
+        }
+        ; ~limbs + 1, which is the magnitude of the negative value.
+        def out:[int]
+        def carry:int 1
+        def i:int 0
+        while (i < (array_length limbs)) {
+            def t:int ((bit_and (bit_not (itemAt limbs i)) 32767) + carry)
+            push out (bit_and t 32767)
+            carry = (bit_shr t 15)
+            i = (i + 1)
+        }
+        r.mag = out
+        r.neg = true
+        r.trim()
+        return r
+    }
+
+    ; op: 0 and, 1 or, 2 xor
+    fn bitwise:BigNum (o:BigNum op:int) {
+        def n:int (array_length mag)
+        if ((array_length o.mag) > n) { n = (array_length o.mag) }
+        n = (n + 1)
+        def aBorrow:[int]
+        push aBorrow 1
+        def bBorrow:[int]
+        push bBorrow 1
+        def out:[int]
+        def i:int 0
+        while (i < n) {
+            def x:int (this.twosLimb(i aBorrow))
+            def y:int (o.twosLimb(i bBorrow))
+            def v:int 0
+            if (op == 0) { v = (bit_and x y) }
+            if (op == 1) { v = (bit_or x y) }
+            if (op == 2) { v = (bit_xor x y) }
+            push out (bit_and v 32767)
+            i = (i + 1)
+        }
+        def rn:boolean false
+        if (op == 0) { rn = (neg && o.neg) }
+        if (op == 1) { rn = (neg || o.neg) }
+        if (op == 2) { rn = (neg != o.neg) }
+        return (BigNum.fromTwos(out rn))
+    }
+
+    ; ~v is -(v + 1), which needs no limb work at all.
+    fn bitNot:BigNum () {
+        def one:BigNum (BigNum.fromInt(1))
+        def s:BigNum (this.add(one))
+        return (s.negate())
+    }
+
+    ; ---- powers ------------------------------------------------------------
+
+    fn pow:BigNum (e:BigNum) {
+        def result:BigNum (BigNum.fromInt(1))
+        def base:BigNum (this.copy())
+        def exp:BigNum (e.copy())
+        def two:BigNum (BigNum.fromInt(2))
+        def zero:BigNum (BigNum.zero())
+        while (false == (exp.isZero())) {
+            def r2:BigNum (exp.remMag(two))
+            if (false == (r2.isZero())) {
+                result = (result.mul(base))
+            }
+            exp = (exp.divMag(two))
+            if (false == (exp.isZero())) {
+                ; SQUARING aliases the receiver with the argument, and a method
+                ; that reads both through the same cell cannot borrow it twice
+                ; on the Rust target. The copy is the whole fix.
+                def squared:BigNum (base.copy())
+                base = (base.mul(squared))
+            }
+        }
+        return result
+    }
+
+    ; ---- text --------------------------------------------------------------
+
+    ; Short division by a small positive divisor; the remainder comes back in
+    ; the caller's one-element array.
+    fn divSmall:BigNum (d:int remOut:[int]) {
+        def out:[int]
+        def z:int 0
+        while (z < (array_length mag)) {
+            push out 0
+            z = (z + 1)
+        }
+        def i:int ((array_length mag) - 1)
+        def carry:int 0
+        while (i >= 0) {
+            ; carry is below d, and d is at most 10000 here, so the numerator
+            ; stays well inside a 32-bit int.
+            def cur:int ((carry * 32768) + (itemAt mag i))
+            def q:int (this.divFloor(cur d))
+            carry = (cur - (q * d))
+            set out i q
+            i = (i - 1)
+        }
+        def r (new BigNum)
+        r.mag = out
+        r.trim()
+        set remOut 0 carry
+        return r
+    }
+
+    fn toDecimal:string () {
+        if (this.isZero()) { return "0" }
+        def digits:string ""
+        def cur:BigNum (this.copy())
+        cur.neg = false
+        def remOut:[int]
+        push remOut 0
+        while (false == (cur.isZero())) {
+            def nx:BigNum (cur.divSmall(10000 remOut))
+            def chunk:int (itemAt remOut 0)
+            cur = nx
+            if (cur.isZero()) {
+                digits = ((to_string chunk) + digits)
+            } {
+                ; A middle chunk keeps its leading zeros -- 1000005 is not 105.
+                def cs:string (to_string chunk)
+                while ((strlen cs) < 4) {
+                    cs = ("0" + cs)
+                }
+                digits = (cs + digits)
+            }
+        }
+        if neg {
+            return ("-" + digits)
+        }
+        return digits
+    }
+
+    fn toRadix:string (radix:int) {
+        if (radix == 10) { return (this.toDecimal()) }
+        if (this.isZero()) { return "0" }
+        def alphabet:string "0123456789abcdefghijklmnopqrstuvwxyz"
+        def digits:string ""
+        def cur:BigNum (this.copy())
+        cur.neg = false
+        def remOut:[int]
+        push remOut 0
+        while (false == (cur.isZero())) {
+            def nx:BigNum (cur.divSmall(radix remOut))
+            digits = ((substring alphabet (itemAt remOut 0) ((itemAt remOut 0) + 1)) + digits)
+            cur = nx
+        }
+        if neg {
+            return ("-" + digits)
+        }
+        return digits
+    }
+
+    ; A double, which loses precision above 2^53 exactly as Number(bigint) does.
+    fn toDouble:double () {
+        def acc:double 0.0
+        def i:int ((array_length mag) - 1)
+        while (i >= 0) {
+            acc = ((acc * 32768.0) + (to_double (itemAt mag i)))
+            i = (i - 1)
+        }
+        if neg { return (0.0 - acc) }
+        return acc
+    }
+
+    ; ---- parsing -----------------------------------------------------------
+    ; Answers null-ish by leaving `ok` false: the caller decides whether a bad
+    ; string is a SyntaxError (BigInt("x")) or something else.
+
+    static sfn parse:BigNum (text:string ok:[boolean]) {
+        set ok 0 false
+        def s:string text
+        ; Trim ASCII whitespace, which is all a numeric literal may carry.
+        def start:int 0
+        def end:int (strlen s)
+        def trimming:boolean true
+        while (trimming && (start < end)) {
+            def c:int (charAt s start)
+            if ((c == 32) || ((c == 9) || ((c == 10) || (c == 13)))) {
+                start = (start + 1)
+            } {
+                trimming = false
+            }
+        }
+        trimming = true
+        while (trimming && (end > start)) {
+            def c2:int (charAt s (end - 1))
+            if ((c2 == 32) || ((c2 == 9) || ((c2 == 10) || (c2 == 13)))) {
+                end = (end - 1)
+            } {
+                trimming = false
+            }
+        }
+        s = (substring s start end)
+        ; The empty string is zero, which is what Number("") answers too.
+        if ((strlen s) == 0) {
+            set ok 0 true
+            return (BigNum.zero())
+        }
+        def negative:boolean false
+        def i:int 0
+        def radix:int 10
+        def c0:int (charAt s 0)
+        if (c0 == 45) {
+            negative = true
+            i = 1
+        } {
+            if (c0 == 43) { i = 1 }
+        }
+        ; 0x / 0o / 0b, which a sign may not precede.
+        if ((strlen s) > (i + 1)) {
+            if ((charAt s i) == 48) {
+                def c1:int (charAt s (i + 1))
+                if ((c1 == 120) || (c1 == 88)) { radix = 16
+                    i = (i + 2) }
+                if ((c1 == 111) || (c1 == 79)) { radix = 8
+                    i = (i + 2) }
+                if ((c1 == 98) || (c1 == 66)) { radix = 2
+                    i = (i + 2) }
+            }
+        }
+        if (radix != 10) {
+            if negative {
+                return (BigNum.zero())
+            }
+        }
+        if (i >= (strlen s)) {
+            return (BigNum.zero())
+        }
+        def acc:BigNum (BigNum.zero())
+        def radixBig:BigNum (BigNum.fromInt(radix))
+        while (i < (strlen s)) {
+            def ch:int (charAt s i)
+            def d:int (0 - 1)
+            if ((ch >= 48) && (ch <= 57)) { d = (ch - 48) }
+            if ((ch >= 97) && (ch <= 122)) { d = ((ch - 97) + 10) }
+            if ((ch >= 65) && (ch <= 90)) { d = ((ch - 65) + 10) }
+            if (d < 0) {
+                return (BigNum.zero())
+            }
+            if (d >= radix) {
+                return (BigNum.zero())
+            }
+            def scaled:BigNum (acc.mul(radixBig))
+            def digitBig:BigNum (BigNum.fromInt(d))
+            acc = (scaled.add(digitBig))
+            i = (i + 1)
+        }
+        if negative {
+            acc = (acc.negate())
+        }
+        set ok 0 true
+        return acc
+    }
+
+    ; ---- asIntN / asUintN --------------------------------------------------
+    ; The value modulo 2^bits, then folded into the signed range if asked.
+
+    fn asUintN:BigNum (bits:int) {
+        if (bits <= 0) { return (BigNum.zero()) }
+        def oneU:BigNum (BigNum.fromInt(1))
+        def modulus:BigNum (oneU.shiftLeft(bits))
+        def r:BigNum (this.remMag(modulus))
+        if neg {
+            if (false == (r.isZero())) {
+                r = (modulus.sub(r))
+            }
+        }
+        r.neg = false
+        r.trim()
+        return r
+    }
+
+    fn asIntN:BigNum (bits:int) {
+        if (bits <= 0) { return (BigNum.zero()) }
+        def u:BigNum (this.asUintN(bits))
+        def oneH:BigNum (BigNum.fromInt(1))
+        def half:BigNum (oneH.shiftLeft((bits - 1)))
+        if ((u.cmpMag(half)) >= 0) {
+            def oneI:BigNum (BigNum.fromInt(1))
+            def modulusI:BigNum (oneI.shiftLeft(bits))
+            return (u.sub(modulusI))
+        }
+        return u
+    }
+}
