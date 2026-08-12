@@ -4,12 +4,14 @@
 /**
  * marked markdown library smoke on ComponentEngine.
  *
- * Vendors marked@4.3.0 UMD (classic CommonJS build) — newer marked releases
- * use syntax the engine cannot parse yet (e.g. typeof x<"u").
+ * Vendors marked@4.3.0 UMD. Fixtures under fixtures/ come from marked's own
+ * v4.3.0 test/specs (original / new / gfm). Node oracle = vendored marked.cjs.
  *
  * Usage:
- *   node marked-smoke.cjs
- *   node marked-smoke.cjs --json=/tmp/marked-smoke.json
+ *   node marked-smoke.cjs                  # tiny + fixtures + gfm json
+ *   node marked-smoke.cjs --quick          # tiny cases only
+ *   node marked-smoke.cjs --json=/tmp/out.json
+ *   node marked-smoke.cjs --fail-on-diff   # exit 1 on Node HTML mismatch
  */
 
 const fs = require('fs');
@@ -21,20 +23,27 @@ const ENGINE_MODULE = path.join(ROOT, 'gallery/game_engine/v2/interp/bin/engine_
 const VENDOR_UMD = path.join(HERE, 'vendor/marked.umd.js');
 const VENDOR_CJS = path.join(HERE, 'vendor/marked.cjs');
 const PREPARED_UMD = path.join(HERE, '.cache/marked.umd.prepared.js');
+const FIXTURES_DIR = path.join(HERE, 'fixtures');
 
-const CASES = [
-  { name: 'heading', md: '# Hello' },
-  { name: 'paragraph', md: 'Hello **world**' },
-  { name: 'link', md: '[Ranger](https://example.com)' },
-  { name: 'list', md: '- one\n- two' },
-  { name: 'blockquote', md: '> quoted' },
-  { name: 'mixed', md: '# Title\n\nA *short* paragraph with `code`.\n' },
+/** Tiny always-on smoke cases. */
+const TINY_CASES = [
+  { name: 'tiny/heading', md: '# Hello', suite: 'tiny' },
+  { name: 'tiny/paragraph', md: 'Hello **world**', suite: 'tiny' },
+  { name: 'tiny/link', md: '[Ranger](https://example.com)', suite: 'tiny' },
+  { name: 'tiny/list', md: '- one\n- two', suite: 'tiny' },
+  { name: 'tiny/blockquote', md: '> quoted', suite: 'tiny' },
+  { name: 'tiny/mixed', md: '# Title\n\nA *short* paragraph with `code`.\n', suite: 'tiny' },
 ];
 
+// Back-compat export name.
+const CASES = TINY_CASES;
+
 function parseArgs(argv) {
-  const out = { json: null };
+  const out = { json: null, quick: false, failOnDiff: false };
   for (const a of argv.slice(2)) {
     if (a.startsWith('--json=')) out.json = a.slice('--json='.length);
+    else if (a === '--quick') out.quick = true;
+    else if (a === '--fail-on-diff') out.failOnDiff = true;
   }
   return out;
 }
@@ -59,10 +68,15 @@ function prepareMarkedUmdFile() {
 }
 
 function loadNodeMarked() {
-  if (fs.existsSync(VENDOR_CJS)) {
-    return require(VENDOR_CJS);
+  const marked = fs.existsSync(VENDOR_CJS)
+    ? require(VENDOR_CJS)
+    : require(prepareMarkedUmdFile());
+  // marked@4 mangles mailto: entities with Math.random — disable for stable
+  // engine↔Node HTML compare (otherwise autolink/email cases flake as DIFF).
+  if (typeof marked.setOptions === 'function') {
+    marked.setOptions({ mangle: false });
   }
-  return require(prepareMarkedUmdFile());
+  return marked;
 }
 
 function loadEngineModule() {
@@ -85,12 +99,52 @@ function toHost(r) {
   return { ok: false, error: `kind ${kind}` };
 }
 
-function fnNameFor(caseName) {
-  return `__parse_${String(caseName).replace(/[^a-zA-Z0-9_]/g, '_')}__`;
+function walkMdFiles(dir, suite, out) {
+  if (!fs.existsSync(dir)) return;
+  for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+    const abs = path.join(dir, ent.name);
+    if (ent.isDirectory()) {
+      walkMdFiles(abs, suite, out);
+      continue;
+    }
+    if (!ent.name.endsWith('.md') || ent.name === 'ATTRIBUTION.md') continue;
+    const rel = path.relative(FIXTURES_DIR, abs).replace(/\\/g, '/');
+    out.push({
+      name: rel.replace(/\.md$/i, ''),
+      md: fs.readFileSync(abs, 'utf8'),
+      suite,
+    });
+  }
 }
 
-/** Load UMD once; run every case helper on the same engine. */
-function runAllOnEngine(cases) {
+function loadGfmJsonCases() {
+  const p = path.join(FIXTURES_DIR, 'gfm', 'gfm.0.29.json');
+  if (!fs.existsSync(p)) return [];
+  const rows = JSON.parse(fs.readFileSync(p, 'utf8'));
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row, i) => ({
+    name: `gfm/${row.section || 'ex'}-${row.number != null ? row.number : i}`,
+    md: String(row.markdown ?? row.md ?? ''),
+    suite: 'gfm',
+    // Prefer Node oracle; keep marked expected html for reference only.
+    markedExpectedHtml: row.html != null ? String(row.html) : null,
+  }));
+}
+
+function collectCases({ quick }) {
+  const cases = TINY_CASES.slice();
+  if (quick) return cases;
+  walkMdFiles(path.join(FIXTURES_DIR, 'original'), 'original', cases);
+  walkMdFiles(path.join(FIXTURES_DIR, 'new'), 'new', cases);
+  cases.push(...loadGfmJsonCases());
+  return cases;
+}
+
+/**
+ * Load UMD once; parse each case via __marked_parse__(md) + EvalValue.string.
+ * Avoids embedding large fixture bodies into the loaded script.
+ */
+function createEngineSession() {
   const { ComponentEngine, EvHandle: EvalValue } = loadEngineModule();
   const eng = new ComponentEngine();
   eng.quiet = true;
@@ -102,26 +156,32 @@ function runAllOnEngine(cases) {
     '  if (typeof g.marked.parse !== "function") return "no-parse";',
     '  return "ok";',
     '}',
-  ];
-  for (const c of cases) {
-    helpers.push(
-      `function ${fnNameFor(c.name)}() { return globalThis.marked.parse(${JSON.stringify(c.md)}); }`,
-    );
-  }
+    'function __marked_boot__() {',
+    '  // Match Node oracle: no random mailto entity mangling.',
+    '  if (typeof globalThis.marked.setOptions === "function") {',
+    '    globalThis.marked.setOptions({ mangle: false });',
+    '  }',
+    '  return "ok";',
+    '}',
+    'function __marked_parse__(md) {',
+    '  return globalThis.marked.parse(md);',
+    '}',
+  ].join('\n');
 
   const origLog = console.log;
   console.log = function () {};
   try {
-    eng.loadScript(umd + '\n' + helpers.join('\n'));
+    eng.loadScript(umd + '\n' + helpers);
   } catch (err) {
     console.log = origLog;
-    const error = String(err && err.message ? err.message : err);
-    return cases.map((c) => ({
-      name: c.name,
+    return {
       ok: false,
       stage: 'load',
-      error,
-    }));
+      error: String(err && err.message ? err.message : err),
+      parse() {
+        return { ok: false, stage: 'load', error: this.error };
+      },
+    };
   } finally {
     console.log = origLog;
   }
@@ -130,40 +190,93 @@ function runAllOnEngine(cases) {
   try {
     apiHost = toHost(eng.callFunction('__marked_api__', EvalValue.null()));
   } catch (err) {
-    const error = String(err && err.message ? err.message : err);
-    return cases.map((c) => ({ name: c.name, ok: false, stage: 'api', error }));
+    return {
+      ok: false,
+      stage: 'api',
+      error: String(err && err.message ? err.message : err),
+      parse() {
+        return { ok: false, stage: 'api', error: this.error };
+      },
+    };
   }
   if (!apiHost.ok || apiHost.value !== 'ok') {
     const error = apiHost.ok ? String(apiHost.value) : apiHost.error;
-    return cases.map((c) => ({ name: c.name, ok: false, stage: 'api', error }));
+    return {
+      ok: false,
+      stage: 'api',
+      error,
+      parse() {
+        return { ok: false, stage: 'api', error };
+      },
+    };
   }
 
-  return cases.map((c) => {
-    try {
-      const parsed = toHost(eng.callFunction(fnNameFor(c.name), EvalValue.null()));
-      if (!parsed.ok || typeof parsed.value !== 'string') {
-        return {
-          name: c.name,
-          ok: false,
-          stage: 'parse',
-          error: parsed.ok ? `non-string ${typeof parsed.value}` : parsed.error,
-        };
-      }
+  try {
+    const boot = toHost(eng.callFunction('__marked_boot__', EvalValue.null()));
+    if (!boot.ok || boot.value !== 'ok') {
+      const error = boot.ok ? String(boot.value) : boot.error;
       return {
-        name: c.name,
-        ok: true,
-        html: parsed.value,
-        htmlType: 'string',
-      };
-    } catch (err) {
-      return {
-        name: c.name,
         ok: false,
-        stage: 'parse',
-        error: String(err && err.message ? err.message : err),
+        stage: 'boot',
+        error,
+        parse() {
+          return { ok: false, stage: 'boot', error };
+        },
       };
     }
+  } catch (err) {
+    const error = String(err && err.message ? err.message : err);
+    return {
+      ok: false,
+      stage: 'boot',
+      error,
+      parse() {
+        return { ok: false, stage: 'boot', error };
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    parse(md) {
+      try {
+        const parsed = toHost(eng.callFunction('__marked_parse__', EvalValue.string(md)));
+        if (!parsed.ok || typeof parsed.value !== 'string') {
+          return {
+            ok: false,
+            stage: 'parse',
+            error: parsed.ok ? `non-string ${typeof parsed.value}` : parsed.error,
+          };
+        }
+        return { ok: true, html: parsed.value, htmlType: 'string' };
+      } catch (err) {
+        return {
+          ok: false,
+          stage: 'parse',
+          error: String(err && err.message ? err.message : err),
+        };
+      }
+    },
+  };
+}
+
+/** @deprecated use createEngineSession — kept for module.exports callers */
+function runAllOnEngine(cases) {
+  const session = createEngineSession();
+  return cases.map((c) => {
+    if (!session.ok) {
+      return { name: c.name, ok: false, stage: session.stage, error: session.error };
+    }
+    const r = session.parse(c.md);
+    return { name: c.name, ...r };
   });
+}
+
+function truncate(s, n) {
+  if (s == null) return s;
+  const str = String(s);
+  if (str.length <= n) return str;
+  return `${str.slice(0, n)}…[+${str.length - n}]`;
 }
 
 function main() {
@@ -174,19 +287,23 @@ function main() {
     throw new Error('Node marked.parse missing after vendor load');
   }
 
-  const engineRows = runAllOnEngine(CASES);
-  const byName = new Map(engineRows.map((r) => [r.name, r]));
+  const cases = collectCases({ quick: args.quick });
+  const session = createEngineSession();
   const results = [];
   let hardFail = false;
+  let diffFail = false;
+  const bySuite = Object.create(null);
 
-  for (const c of CASES) {
-    const nodeHtml = nodeMarked.parse(c.md);
-    const eng = byName.get(c.name) || { ok: false, stage: 'unknown', error: 'missing' };
+  for (const c of cases) {
+    const nodeHtml = String(nodeMarked.parse(c.md));
+    const eng = session.ok
+      ? session.parse(c.md)
+      : { ok: false, stage: session.stage, error: session.error };
 
     const row = {
       name: c.name,
-      md: c.md,
-      nodeHtml: String(nodeHtml),
+      suite: c.suite || 'other',
+      mdBytes: Buffer.byteLength(c.md, 'utf8'),
       engineOk: !!eng.ok,
       engineStage: eng.stage || (eng.ok ? 'parse' : 'unknown'),
       engineError: eng.error || null,
@@ -194,11 +311,17 @@ function main() {
       engineHtmlType: eng.htmlType || null,
       matchNode: eng.ok && eng.html === nodeHtml,
       engineLen: eng.ok && typeof eng.html === 'string' ? eng.html.length : null,
-      nodeLen: String(nodeHtml).length,
+      nodeLen: nodeHtml.length,
     };
 
     if (!eng.ok || typeof eng.html !== 'string') hardFail = true;
+    if (!row.matchNode) diffFail = true;
     results.push(row);
+
+    const bucket = bySuite[row.suite] || (bySuite[row.suite] = { total: 0, match: 0, parseOk: 0 });
+    bucket.total++;
+    if (row.engineOk) bucket.parseOk++;
+    if (row.matchNode) bucket.match++;
 
     const status = !eng.ok
       ? `FAIL(${eng.stage})`
@@ -212,7 +335,7 @@ function main() {
           : JSON.stringify(eng.html)
         : eng.error;
     console.log(
-      `${status.padEnd(12)} ${c.name.padEnd(12)} node=${row.nodeLen} eng=${row.engineLen ?? '-'}  ${preview}`,
+      `${status.padEnd(12)} ${c.name.padEnd(42)} node=${String(row.nodeLen).padStart(5)} eng=${String(row.engineLen ?? '-').padStart(5)}  ${preview}`,
     );
   }
 
@@ -220,28 +343,40 @@ function main() {
   const summary = {
     library: 'marked',
     version: '4.3.0',
+    tipNote: 'fixtures from marked@4.3.0 test/specs; oracle = Node marked.cjs parse',
     vendor: 'vendor/marked.umd.js',
     prepare: 'typeof x<"u" → typeof x !== "undefined"',
+    quick: args.quick,
     cases: results.length,
     loadAndParseOk: results.filter((r) => r.engineOk && r.engineHtmlType === 'string').length,
     matchNode: matched,
     hardFail,
-    note:
-      'Parity with Node is NOT a hard gate yet — marked@4 output on the engine is often corrupted. ' +
-      'Hard gate = UMD loads, marked.parse is callable, and returns a string.',
+    bySuite,
     results: results.map((r) => ({
-      ...r,
-      engineHtml:
-        r.engineHtml && r.engineHtml.length > 500
-          ? `${r.engineHtml.slice(0, 200)}…[+${r.engineHtml.length - 200}]`
-          : r.engineHtml,
+      name: r.name,
+      suite: r.suite,
+      mdBytes: r.mdBytes,
+      engineOk: r.engineOk,
+      engineStage: r.engineStage,
+      engineError: r.engineError,
+      matchNode: r.matchNode,
+      engineLen: r.engineLen,
+      nodeLen: r.nodeLen,
+      engineHtmlPreview: truncate(r.engineHtml, 160),
     })),
   };
 
   console.log('');
+  for (const [suite, b] of Object.entries(bySuite)) {
+    console.log(
+      `  suite ${suite.padEnd(10)} parseOk ${b.parseOk}/${b.total}  match ${b.match}/${b.total}`,
+    );
+  }
+  console.log('');
   console.log(
     `marked smoke: load+parse string ${summary.loadAndParseOk}/${summary.cases}, Node match ${matched}/${summary.cases}` +
-      (hardFail ? '  [HARD FAIL]' : '  [hard gates ok]'),
+      (hardFail ? '  [HARD FAIL]' : '  [hard gates ok]') +
+      (args.failOnDiff && diffFail ? '  [DIFF FAIL]' : ''),
   );
 
   if (args.json) {
@@ -251,7 +386,7 @@ function main() {
     console.log(`wrote ${abs}`);
   }
 
-  process.exitCode = hardFail ? 1 : 0;
+  process.exitCode = hardFail || (args.failOnDiff && diffFail) ? 1 : 0;
 }
 
 if (require.main === module) {
@@ -265,10 +400,14 @@ if (require.main === module) {
 
 module.exports = {
   CASES,
+  TINY_CASES,
   prepareMarkedUmdSource,
   prepareMarkedUmdFile,
+  collectCases,
+  createEngineSession,
   PREPARED_UMD,
   VENDOR_UMD,
   VENDOR_CJS,
+  FIXTURES_DIR,
   runAllOnEngine,
 };

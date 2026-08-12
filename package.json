@@ -60,6 +60,7 @@
     "jsengine:test:targets": "npm run test:tsengine",
     "jsengine:octane": "node gallery/game_engine/v2/interp/bench/zoo_octane/run.cjs",
     "jsengine:marked": "node gallery/game_engine/v2/interp/bench/marked_smoke/marked-smoke.cjs",
+    "jsengine:marked:fixtures": "node gallery/game_engine/v2/interp/bench/marked_smoke/marked-smoke.cjs --fail-on-diff",
     "jsengine:marked:test": "vitest run --config tests/vitest.config.ts marked-engine-smoke.test.ts",
     "jsengine:marked:parse": "cross-env MARKED_SMOKE_PARSE=1 vitest run --config tests/vitest.config.ts marked-engine-smoke.test.ts",
     "jsengine:all": "npm run jsengine:build && npm run jsengine:bench && npm run jsengine:octane && npm run jsengine:conformance",

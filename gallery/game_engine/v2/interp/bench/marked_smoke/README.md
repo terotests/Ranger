@@ -18,19 +18,33 @@ Node running the same library.
 # from repo root
 bash scripts/build-engine-module.sh   # if bin/engine_module.cjs is missing
 
-# CLI — load + parse all cases vs Node (slow while output is corrupted ~minutes)
+# CLI — tiny cases + marked@4.3.0 fixtures (original / new / gfm) vs Node
 npm run jsengine:marked
 npm run jsengine:marked -- --json=/tmp/marked-smoke.json
+npm run jsengine:marked -- --fail-on-diff   # exit 1 on HTML mismatch
+npm run jsengine:marked -- --quick            # tiny cases only
 
 # vitest — fast hard gates (load + API only)
 npm run jsengine:marked:test
 
-# vitest — also run parse / known-wrong parity probes
+# vitest — also run tiny parse / parity probes
 npm run jsengine:marked:parse
 ```
 
-The harness loads the UMD once, then calls a helper per case (reloading the
-bundle per parse is too slow when output is corrupted).
+The harness loads the UMD once, then calls `__marked_parse__(md)` per case via
+`EvalValue.string` (fixtures stay on disk; not embedded into the script).
+
+## Fixtures
+
+Under `fixtures/` (from marked v4.3.0 `test/specs`):
+
+- `original/` — Markdown.pl / docs suites (incl. `markdown_documentation_syntax`)
+- `new/` — marked-specific edges (tables, nested emphasis, lists, images, …)
+- `gfm/gfm.0.29.json` — GFM extension examples
+
+Oracle is always Node `marked.cjs` `parse`, not the checked-in `.html` files.
+Both sides run with `mangle: false` so randomized mailto entity encoding does
+not show up as false DIFF.
 
 ## What “success” means today
 
