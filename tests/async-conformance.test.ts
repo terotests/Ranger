@@ -40,6 +40,31 @@ const CASES: Array<[name: string, src: string]> = [
   ["await-promise",
     `async function f() { return (await Promise.resolve(9)) * 2; }
      f().then(function (v) { console.log("v:" + v); });`],
+  // The awaited value reaching a BINDING, not just a return position. These
+  // shapes are how the Ranger compiler's own output awaits — `const c = await
+  // ops.readFile(p)` inside a prototype method, and an async `run` resolving
+  // to a results object. Every one of them answered undefined (or null in a
+  // loop) before the resumption carried the value.
+  ["await-into-const",
+    `async function f() { const c = await Promise.resolve("C"); console.log("v:" + c); }
+     f();`],
+  ["await-into-const-method",
+    `function Ops() {}
+     Ops.prototype.read = function (p) { return Promise.resolve("TEXT:" + p); };
+     function Comp() {}
+     Comp.prototype.run = async function (ops) { const c = await ops.read("a.rgr"); return c; };
+     new Comp().run(new Ops()).then(function (v) { console.log("v:" + v); });`],
+  ["await-in-loop-accumulates",
+    `async function f() { var s = ""; for (var i = 0; i < 3; i++) { s += await Promise.resolve(i); } return s; }
+     f().then(function (v) { console.log("v:" + v); });`],
+  ["await-async-result-object",
+    `function Results() { this.logs = []; this.writes = []; }
+     function VC() {}
+     VC.prototype.run = async function () { var r = new Results(); r.logs.push("l"); r.writes.push("w"); return r; };
+     new VC().run().then(function (r) { console.log("v:" + r.logs.length + "|" + r.writes.length); });`],
+  ["await-into-let-in-try",
+    `async function f() { try { let c = await Promise.resolve("T"); return c; } catch (e) { return "E"; } }
+     f().then(function (v) { console.log("v:" + v); });`],
   ["await-thenable",
     `async function f() { return await { then: function (r) { r(4); } }; }
      f().then(function (v) { console.log("v:" + v); });`],

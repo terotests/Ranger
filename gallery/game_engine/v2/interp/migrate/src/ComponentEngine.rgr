@@ -738,6 +738,12 @@ class EvalContext {
     fn resetForPool:void () {
         map_clear bindings
         map_clear slotNames
+        ; The const MARKS are frame state too. Leaving them behind let a pooled
+        ; frame carry one function's `const c` into the next call that reused
+        ; it, so an unrelated `let c = …; c = …` threw "Assignment to constant
+        ; variable" -- a failure that depended on call ORDER and on the pool
+        ; being warm, which is why it only ever showed up in long runs.
+        map_clear constNames
         while ((array_length paramNames) > 0) {
             removeLast paramNames
             removeLast paramVals

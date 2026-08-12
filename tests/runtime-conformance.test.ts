@@ -2820,6 +2820,13 @@ const SCRIPT_PROBES: Array<[name: string, src: string]> = [
   ["script-dup-fn-in-if-body", "if (1) { function d() { return 1; } function d() { return 2; } }\n__out__ = 'ok';"],
   ["script-dup-fn-in-fn-body", "function f() { function d() { return 1; } function d() { return 2; } return d(); }\n__out__ = String(f());"],
   ["script-dup-fn-separate-blocks", "{ function d() { return 1; } }\n{ function d() { return 2; } }\n__out__ = 'ok';"],
+  // A pooled call frame carried its const MARKS into the next call that reused
+  // it, so one function's `const c` made an unrelated `let c = …; c = …` throw
+  // "Assignment to constant variable". It depended on call order and on the
+  // pool being warm, so it only ever appeared in long runs — the Ranger
+  // compiler's own Lisp parser hit it in skip_space/getOperator/parse.
+  ["script-pooled-frame-clears-const", "function withConst() { const c = 1; return c; }\nfunction withLet() { let c = 0; c = c + 5; return c; }\nvar last = '';\nfor (var i = 0; i < 40; i++) { withConst(); last = String(withLet()); }\n__out__ = last;"],
+  ["script-pooled-frame-const-still-const", "function withConst() { const c = 1; return c; }\nfor (var i = 0; i < 40; i++) { withConst(); }\nfunction reassign() { const z = 1; try { z = 2; return 'no-throw'; } catch (e) { return e.name; } }\n__out__ = reassign();"],
   ["script-type-in-function", "function f() { var type = 1; type = 2; return type; }\n__out__ = String(f());"],
   ["script-type-as-param", "function f(type) { type = type + 1; return type; }\n__out__ = String(f(4));"],
   ["script-type-compound-assign", "var type = 5;\ntype += 2;\ntype++;\n__out__ = String(type);"],
