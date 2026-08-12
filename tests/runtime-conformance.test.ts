@@ -1943,6 +1943,23 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["async-linebreak-before-arrow", "var async = function (x) { return 'called'; }; var r = async\n(1);\nreturn r;", "async"],
   // The parameters of an async function are not part of its body.
   ["async-params-no-await", "try { eval('async function f(x = await 1) {}'); return 'ACCEPTED'; } catch (e) { return e.constructor.name; }", "async"],
+  // Static inheritance from a builtin base. Object.getPrototypeOf(L) was
+  // already Array, and Map.groupBy / Promise.resolve / Array.isArray all
+  // resolved through it -- but Array.from and Array.of lived inline in the
+  // identifier-call path, reading AST argument nodes, so they were reachable
+  // only by writing the literal name `Array`. One implementation, both doors.
+  ["array-from-still-works", "return Array.from([1, 2]).join(',');", "class"],
+  ["array-from-string-iterates", "return Array.from('ab').join(',');", "class"],
+  ["array-from-maps", "return Array.from([1, 2], function (x) { return x * 2; }).join(',');", "class"],
+  ["array-from-array-like", "return Array.from({ length: 2, 0: 'a', 1: 'b' }).join(',');", "class"],
+  ["array-from-set", "return Array.from(new Set([1, 2, 2])).join(',');", "class"],
+  ["array-of-still-works", "return Array.of(1, 2, 3).join(',');", "class"],
+  ["subclass-inherits-from", "class SubL extends Array {} return typeof SubL.from;", "class"],
+  ["subclass-inherits-of", "class SubL2 extends Array {} return typeof SubL2.of;", "class"],
+  ["subclass-from-produces-elements", "class SubL3 extends Array {} return SubL3.from([1, 2]).join(',');", "class"],
+  ["subclass-inherits-isarray", "class SubL4 extends Array {} return typeof SubL4.isArray;", "class"],
+  ["subclass-proto-is-base", "class SubL5 extends Array {} return Object.getPrototypeOf(SubL5) === Array;", "class"],
+
   // Proxy: calling one, and its place in a prototype chain.
   ["proxy-apply-trap", "var p = new Proxy(function () {}, { apply: function (t, th, a) { return a[0] + 1; } }); return p(41);", "proxy"],
   ["proxy-apply-no-trap", "var p = new Proxy(function (x) { return x * 2; }, {}); return p(21);", "proxy"],

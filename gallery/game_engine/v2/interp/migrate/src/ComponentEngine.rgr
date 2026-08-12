@@ -16260,6 +16260,93 @@ class ComponentEngine {
         return coll
     }
 
+    ; §23.1.2.1 Array.from, over already-evaluated values. It used to live
+    ; inline in the identifier-call path, reading AST argument nodes -- so it
+    ; was reachable only by writing the literal name `Array`, and
+    ; `class L extends Array {}` had no `L.from` at all even though
+    ; Object.getPrototypeOf(L) is Array. One implementation, both doors.
+    fn arrayFromValues:EvHandle (srcV:EvHandle mapFn:EvHandle) {
+        def frItems:[EvHandle]
+        if (srcV.isArrayValue()) {
+            def fi:int 0
+            while (fi < (srcV.denseLen())) {
+                push frItems (srcV.arrayItemAt(fi))
+                fi = (fi + 1)
+            }
+        }
+        if (srcV.isString()) {
+            ; D-UTF8: Array.from over a string ITERATES it, so the elements are
+            ; whole code points -- the same walk forOfItemList does.
+            def fCps:[int] (this.codePointsOf((srcV.stringOf())))
+            def fsn:int (array_length fCps)
+            def fsi:int 0
+            while (fsi < fsn) {
+                push frItems (EvValueBridge.taggedString((this.cuFromCodePoint((itemAt fCps fsi)))))
+                fsi = (fsi + 1)
+            }
+        }
+        if (srcV.isSet()) {
+            def stI:int 0
+            while (stI < (srcV.denseLen())) {
+                push frItems (srcV.arrayItemAt(stI))
+                stI = (stI + 1)
+            }
+        }
+        ; A generator (or anything else for-of walks and the three cases above
+        ; miss) goes through the shared list, so Array.from and for-of cannot
+        ; disagree.
+        if (this.isGeneratorValue(srcV)) {
+            def gi2:[EvHandle] (this.forOfItemList(srcV))
+            def gk2:int 0
+            while (gk2 < (array_length gi2)) {
+                push frItems (itemAt gi2 gk2)
+                gk2 = (gk2 + 1)
+            }
+        } {
+            ; D-ITERATOR: everything else is ITERABLE first and ARRAY-LIKE
+            ; second. Both used to answer an empty array.
+            if (false == (srcV.isArrayValue())) {
+                if (false == (srcV.isString())) {
+                    if (false == (srcV.isSet())) {
+                        if (this.isDescriptorObject(srcV)) {
+                            def itF:EvHandle (this.getPropertyValue(srcV "@@iterator"))
+                            def frSrc:[EvHandle] (this.arrayLikeElements(srcV))
+                            if (itF.isFunction()) {
+                                frSrc = (this.iteratorProtocolItems(srcV))
+                            }
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                            def fk3:int 0
+                            while (fk3 < (array_length frSrc)) {
+                                push frItems (itemAt frSrc fk3)
+                                fk3 = (fk3 + 1)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        ; The optional map function runs over each element with its index,
+        ; which is what `Array.from(xs, f)` means.
+        if (mapFn.isFunction()) {
+            def mapped:[EvHandle]
+            def mi3:int 0
+            while (mi3 < (array_length frItems)) {
+                def mArgs:[EvHandle]
+                push mArgs (itemAt frItems mi3)
+                push mArgs (EvHandle.fromInt(mi3))
+                push mapped (this.callFnValueWithValues(mapFn mArgs))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                mi3 = (mi3 + 1)
+            }
+            return (EvValueBridge.taggedArray(mapped))
+        }
+        return (EvValueBridge.taggedArray(frItems))
+    }
+
     fn isAsyncGeneratorValue:boolean (v:EvHandle) {
         if (false == (v.isObject())) {
             return false
@@ -18607,97 +18694,21 @@ class ComponentEngine {
                         return (EvValueBridge.taggedArray(ofItems))
                     }
                     if (methodName == "from") {
-                        def frItems:[EvHandle]
+                        def afSrc:EvHandle (EvValueBridge.taggedUndefined())
                         if ((array_length node.children) > 0) {
-                            def srcV:EvHandle (this.evaluateExpr((itemAt node.children 0)))
-                            if (srcV.isArrayValue()) {
-                                def fi:int 0
-                                while (fi < (srcV.denseLen())) {
-                                    push frItems (srcV.arrayItemAt(fi))
-                                    fi = (fi + 1)
-                                }
-                            }
-                            if (srcV.isString()) {
-                                ; D-UTF8: Array.from over a string iterates it,
-                                ; so the elements are CODE POINTS.
-                                ; Same walk as forOfItemList, for the same
-                                ; reason: Array.from over a string iterates it,
-                                ; so the elements are whole CODE POINTS.
-                                def fCps:[int] (this.codePointsOf((srcV.stringOf())))
-                                def fsn:int (array_length fCps)
-                                def fsi:int 0
-                                while (fsi < fsn) {
-                                    push frItems (EvValueBridge.taggedString((this.cuFromCodePoint((itemAt fCps fsi)))))
-                                    fsi = (fsi + 1)
-                                }
-                            }
-                            if (srcV.isSet()) {
-                                def stI:int 0
-                                while (stI < (srcV.denseLen())) {
-                                    push frItems (srcV.arrayItemAt(stI))
-                                    stI = (stI + 1)
-                                }
-                            }
-                            ; A generator (or anything else for-of walks and the
-                            ; three cases above miss) goes through the shared
-                            ; list, so Array.from and for-of cannot disagree.
-                            if (this.isGeneratorValue(srcV)) {
-                                def gi2:[EvHandle] (this.forOfItemList(srcV))
-                                def gk2:int 0
-                                while (gk2 < (array_length gi2)) {
-                                    push frItems (itemAt gi2 gk2)
-                                    gk2 = (gk2 + 1)
-                                }
-                            } {
-                                ; D-ITERATOR: everything else is ITERABLE first
-                                ; and ARRAY-LIKE second. Both answered an empty
-                                ; array -- `Array.from({length: 2, 0: "a"})` and
-                                ; `Array.from(myIterable)` alike -- because the
-                                ; four cases above are the only ones there were.
-                                if (false == (srcV.isArrayValue())) {
-                                    if (false == (srcV.isString())) {
-                                        if (false == (srcV.isSet())) {
-                                            if (this.isDescriptorObject(srcV)) {
-                                                def itF:EvHandle (this.getPropertyValue(srcV "@@iterator"))
-                                                def frSrc:[EvHandle] (this.arrayLikeElements(srcV))
-                                                if (itF.isFunction()) {
-                                                    frSrc = (this.iteratorProtocolItems(srcV))
-                                                }
-                                                if scriptThrew {
-                                                    return (EvValueBridge.taggedUndefined())
-                                                }
-                                                def fk3:int 0
-                                                while (fk3 < (array_length frSrc)) {
-                                                    push frItems (itemAt frSrc fk3)
-                                                    fk3 = (fk3 + 1)
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                            afSrc = (this.evaluateExpr((itemAt node.children 0)))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
                             }
                         }
-                        ; The optional map function runs over each element with
-                        ; its index, which is what `Array.from(xs, f)` means.
+                        def afMap:EvHandle (EvValueBridge.taggedUndefined())
                         if ((array_length node.children) > 1) {
-                            def mapFn:EvHandle (this.evaluateExpr((itemAt node.children 1)))
-                            if (mapFn.isFunction()) {
-                                def mapped:[EvHandle]
-                                def mi3:int 0
-                                while (mi3 < (array_length frItems)) {
-                                    def mArgs:[EvHandle]
-                                    push mArgs (itemAt frItems mi3)
-                                    push mArgs (EvHandle.fromInt(mi3))
-                                    push mapped (this.callFnValueWithValues(mapFn mArgs))
-                                    if scriptThrew {
-                                        return (EvValueBridge.taggedUndefined())
-                                    }
-                                    mi3 = (mi3 + 1)
-                                }
-                                return (EvValueBridge.taggedArray(mapped))
+                            afMap = (this.evaluateExpr((itemAt node.children 1)))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
                             }
                         }
-                        return (EvValueBridge.taggedArray(frItems))
+                        return (this.arrayFromValues(afSrc afMap))
                     }
                     if (methodName == "isArray") {
                         def tv:EvHandle (EvValueBridge.taggedNull())
@@ -22452,6 +22463,22 @@ class ComponentEngine {
             }
         }
         if (nsName == "Array") {
+            if (name == "from") {
+                def afsV:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 0) { afsV = (itemAt args 0) }
+                def afmV:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 1) { afmV = (itemAt args 1) }
+                return (this.arrayFromValues(afsV afmV))
+            }
+            if (name == "of") {
+                def ofVals:[EvHandle]
+                def ofK:int 0
+                while (ofK < (array_length args)) {
+                    push ofVals (itemAt args ofK)
+                    ofK = (ofK + 1)
+                }
+                return (EvValueBridge.taggedArray(ofVals))
+            }
             if (name == "isArray") {
                 if ((array_length args) == 0) {
                     return (EvValueBridge.taggedBoolean(false))
@@ -24405,6 +24432,8 @@ class ComponentEngine {
         }
         if (nsName == "Array") {
             push out "isArray"
+            push out "from"
+            push out "of"
             return out
         }
         if (nsName == "String") {
@@ -24781,7 +24810,13 @@ class ComponentEngine {
             return (this.hasBuiltinStatic(nsName name))
         }
         if (nsName == "Array") {
-            return (name == "isArray")
+            if (name == "isArray") { return true }
+            ; `from` and `of` are statics like any other. Listing only isArray
+            ; is what made `class L extends Array {}` have no `L.from`: the
+            ; other two were reachable only by writing the literal name.
+            if (name == "from") { return true }
+            if (name == "of") { return true }
+            return false
         }
         if (nsName == "String") {
             if (name == "fromCharCode") { return true }
