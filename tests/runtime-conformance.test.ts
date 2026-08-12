@@ -1943,6 +1943,72 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["async-linebreak-before-arrow", "var async = function (x) { return 'called'; }; var r = async\n(1);\nreturn r;", "async"],
   // The parameters of an async function are not part of its body.
   ["async-params-no-await", "try { eval('async function f(x = await 1) {}'); return 'ACCEPTED'; } catch (e) { return e.constructor.name; }", "async"],
+  // RegExp: General_Category LONG names, which are as legal as the two-letter
+  // spelling. The generated table holds the short names -- the ranges are
+  // identical, so storing both would double it to say the same thing twice --
+  // and the long spelling folds onto the short one at lookup.
+  ["prop-letter-long", "return /\\p{Letter}/u.test('a');", "unicode"],
+  ["prop-letter-long-negative", "return /\\p{Letter}/u.test('1');", "unicode"],
+  ["prop-uppercase-letter-long", "return /\\p{Uppercase_Letter}/u.test('A') + ',' + /\\p{Uppercase_Letter}/u.test('a');", "unicode"],
+  ["prop-decimal-number-long", "return /\\p{Decimal_Number}/u.test('7');", "unicode"],
+  ["prop-space-separator-long", "return /\\p{Space_Separator}/u.test(' ');", "unicode"],
+  ["prop-long-and-short-agree", "return /\\p{Letter}/u.test('x') === /\\p{L}/u.test('x');", "unicode"],
+  ["prop-v-intersection-long-name", "return /[\\p{ASCII}&&\\p{Letter}]/v.test('a') + ',' + /[\\p{ASCII}&&\\p{Letter}]/v.test('1');", "unicode"],
+  ["prop-unknown-still-throws", "try { new RegExp('\\\\p{Nope}', 'u'); return 'ACCEPTED'; } catch (e) { return e.constructor.name; }", "unicode"],
+  // annexB B.2.2.12/13: the pre-rename spellings of trimStart/trimEnd.
+  ["annexb-trimleft", "return '  a '.trimLeft() + '|';", "unicode"],
+  ["annexb-trimright", "return '| ' + ' a  '.trimRight();", "unicode"],
+  ["annexb-trimleft-matches-trimstart", "return '  a '.trimLeft() === '  a '.trimStart();", "unicode"],
+
+  // Typed arrays and their backing buffer.
+  ["ta-buffer-is-minted", "var a = new Int32Array(4); return Object.prototype.toString.call(a.buffer);", "typedarray"],
+  ["ta-buffer-bytelength", "var a = new Int32Array(4); return a.buffer.byteLength;", "typedarray"],
+  ["ta-minted-buffer-aliases", "var p = new Int32Array(1); p[0] = 258; var u = new Uint8Array(p.buffer); return u[0] + ',' + u[1];", "typedarray"],
+  ["ta-minted-buffer-writes-back", "var p = new Int32Array(1); p[0] = 258; var u = new Uint8Array(p.buffer); u[0] = 1; return p[0];", "typedarray"],
+  ["ta-buffer-identity-stable", "var a = new Int32Array(2); return a.buffer === a.buffer;", "typedarray"],
+  ["ta-buffer-from-list", "var q = new Int32Array([7]); return new Uint8Array(q.buffer)[0] + ',' + q.buffer.byteLength;", "typedarray"],
+  // Brands. Even `new ArrayBuffer(8)` answered "[object Object]".
+  ["brand-arraybuffer", "return Object.prototype.toString.call(new ArrayBuffer(8));", "typedarray"],
+  ["brand-dataview", "return Object.prototype.toString.call(new DataView(new ArrayBuffer(8)));", "typedarray"],
+  ["brand-int32array", "return Object.prototype.toString.call(new Int32Array(2));", "typedarray"],
+  ["brand-uint8array", "return Object.prototype.toString.call(new Uint8Array(2));", "typedarray"],
+  ["brand-plain-array-still-array", "return Object.prototype.toString.call([1, 2]);", "typedarray"],
+  // set / subarray -- the two typed-array methods with no Array counterpart,
+  // both of which were "not a function".
+  ["ta-set-from-typed", "var b = new ArrayBuffer(8); var x = new Uint8Array(b); x.set(new Uint8Array([9, 8]), 2); return x[2] + ',' + x[3];", "typedarray"],
+  ["ta-set-from-plain-array", "var x = new Int32Array(4); x.set([1, 2], 1); return x.join(',');", "typedarray"],
+  ["ta-set-coerces", "var x = new Int8Array(2); x.set([300, -1]); return x[0] + ',' + x[1];", "typedarray"],
+  ["ta-set-out-of-range-throws", "var x = new Int8Array(2); try { x.set([1, 2, 3]); return 'ACCEPTED'; } catch (e) { return e.constructor.name; }", "typedarray"],
+  ["ta-subarray-shares", "var a = new Int32Array([1,2,3,4]); var s = a.subarray(1,3); s[0] = 99; return a[1] + ',' + s.length + ',' + (s.buffer === a.buffer);", "typedarray"],
+  ["ta-subarray-negative", "var a = new Int32Array([1,2,3,4]); return a.subarray(-2).join(',');", "typedarray"],
+  ["ta-slice-still-copies", "var a = new Int32Array([1,2,3]); var s = a.slice(0,2); s[0] = 99; return a[0] + ',' + s.length;", "typedarray"],
+  // A view onto a detached buffer has no elements.
+  ["ta-detached-length", "var b = new ArrayBuffer(8); var a = new Uint8Array(b); b.transfer(); return a.length;", "typedarray"],
+  ["ta-detached-bytelength", "var b = new ArrayBuffer(8); var a = new Uint8Array(b); b.transfer(); return a.byteLength;", "typedarray"],
+
+  // Radix-prefixed BigInt literals. The `n` suffix was read only on the
+  // DECIMAL path, so `0xffn` reached the malformed-literal check, which sees
+  // `n` as an identifier character and rejected the whole literal. Everything
+  // downstream was already right: BigNum.parse reads the radix prefixes
+  // itself, and DataView.setBigInt64/BigInt.asUintN/BigInt64Array all handled
+  // the full 64-bit range once a literal could reach them.
+  ["bigint-hex", "return (0x1fn).toString();", "bigint"],
+  ["bigint-hex-64bit", "return (0xFFFFFFFFFFFFFFFFn).toString();", "bigint"],
+  ["bigint-octal", "return (0o17n).toString();", "bigint"],
+  ["bigint-binary", "return (0b1011n).toString();", "bigint"],
+  ["bigint-hex-separators", "return (0xff_ffn).toString();", "bigint"],
+  ["bigint-hex-typeof", "return typeof 0x1fn;", "bigint"],
+  ["bigint64array-from-hex", "var a = new BigInt64Array(1); a[0] = 0x7fffffffffffffffn; return a[0].toString();", "bigint"],
+  ["bigint64array-hex-wraps", "var a = new BigInt64Array(1); a[0] = 0x8000000000000000n; return a[0].toString();", "bigint"],
+  ["biguint64array-from-hex", "var a = new BigUint64Array(1); a[0] = 0xffffffffffffffffn; return a[0].toString();", "bigint"],
+  ["dataview-bigint64-hex", "var d = new DataView(new ArrayBuffer(8)); d.setBigInt64(0, 0x1234n); return d.getBigInt64(0).toString();", "bigint"],
+  ["dataview-biguint64-hex", "var d = new DataView(new ArrayBuffer(8)); d.setBigUint64(0, 0xffffffffffffffffn); return d.getBigUint64(0).toString();", "bigint"],
+  ["bigint-asuintn-hex", "return BigInt.asUintN(8, 0x1ffn).toString();", "bigint"],
+  ["bigint-asintn-hex", "return BigInt.asIntN(8, 0xffn).toString();", "bigint"],
+  // Still malformed, and still reported as such: the suffix must follow digits.
+  ["bigint-hex-no-digits-is-an-error", "try { eval('0xn'); return 'ACCEPTED'; } catch (e) { return e.constructor.name; }", "bigint"],
+  ["bigint-hex-bad-digit-is-an-error", "try { eval('0b12n'); return 'ACCEPTED'; } catch (e) { return e.constructor.name; }", "bigint"],
+
   // Private-field edges. Eleven of these already held; `o?.#x` did not --
   // parseMemberName reads a private name fine, but the `?.` branch gated on
   // isNameToken() and `#` is a punctuator, so the branch never fired and the
@@ -1962,9 +2028,18 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["priv-name-collision", "class A { #x = 1; ax() { return this.#x; } } class B { #x = 2; bx() { return this.#x; } } return new A().ax() + ',' + new B().bx();", "class"],
 
   ["async-inner-arrow-params-ok", "async function f() { var g = (x = 1) => x; return g(); } return typeof f().then;", "async"],
-  // Listed in KNOWN_GAPS: the async-generator OBJECT is still a sync one.
+  // The async-generator OBJECT is an async iterator now: next() answers a
+  // promise for an iteration result, it brands through
+  // %AsyncGeneratorPrototype%, and it publishes Symbol.asyncIterator (and
+  // deliberately NOT Symbol.iterator -- `for (x of asyncGen())` is a TypeError).
   ["async-gen-obj-tostring-tag", "async function* f() {} return Object.prototype.toString.call(f());", "async"],
   ["async-gen-next-is-a-promise", "async function* f() { yield 1; } return typeof f().next().then;", "async"],
+  ["async-gen-has-async-iterator", "async function* f() { yield 1; } return typeof f()[Symbol.asyncIterator];", "async"],
+  ["async-gen-async-iterator-is-self", "async function* f() { yield 1; } var it = f(); return it[Symbol.asyncIterator]() === it;", "async"],
+  ["async-gen-no-sync-iterator", "async function* f() { yield 1; } return typeof f()[Symbol.iterator];", "async"],
+  ["async-gen-proto-differs-from-gen", "async function* a() {} function* b() {} return Object.getPrototypeOf(Object.getPrototypeOf(a())) === Object.getPrototypeOf(Object.getPrototypeOf(b()));", "async"],
+  ["async-gen-object-literal-method", "var o = { async *m() { yield 1; } }; return Object.prototype.toString.call(o.m());", "async"],
+  ["async-gen-class-method", "class AGCls { async *m() { yield 1; } } return Object.prototype.toString.call(new AGCls().m());", "async"],
 
   // formatToParts / formatRange / supportedLocalesOf.
   ["intl-nf-parts", "return new Intl.NumberFormat('de').formatToParts(-1234567.89).map(function (p) { return p.type + '=' + p.value; }).join(' ');", "unicode"],
@@ -2462,15 +2537,6 @@ const KNOWN_GAPS = new Set<string>([
   // template that evaluates its key and value twice), which costs more than the
   // one behaviour it buys. Asserted in both directions so it cannot rot.
   "json-proto-is-ordinary-key",
-  // An async generator's OBJECT still brands as "[object Generator]" and its
-  // next() answers an iteration result directly rather than a promise for one.
-  // `for await (... of asyncGen())` produces the right values -- that path
-  // awaits whatever it is handed -- but driving one by hand does not match.
-  // The brand is deliberately left wrong rather than fixed alone: code that
-  // brand-detects an AsyncGenerator goes on to await next(), which would then
-  // be worse off than it is today. The two move together or not at all.
-  "async-gen-obj-tostring-tag",
-  "async-gen-next-is-a-promise",
   // The six that used to sit here -- for-of-expr-lhs, destr-swap,
   // iter-generator, obj-computed-key, err-optional-chain, err-nullish -- now
   // pass and have moved back into the ordinary probe set above. This assertion

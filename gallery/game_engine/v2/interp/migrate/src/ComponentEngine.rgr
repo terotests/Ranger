@@ -1317,6 +1317,9 @@ class ComponentEngine {
     ; itself, not a fresh wrapper around its value. The flag says genYieldValue
     ; already IS the result object.
     def genYieldRaw:boolean false
+    ; What the LAST suspension was: true = an await, false = a yield. Read by
+    ; the async-generator driver, which continues on one and stops on the other.
+    def genLastSuspendRaw:boolean false
     ; A right-hand side the generator driver already evaluated, waiting to be
     ; consumed by the next evaluateAssignValue rather than re-evaluated.
     def genAssignPrimed:boolean false
@@ -1326,6 +1329,8 @@ class ComponentEngine {
     ; %GeneratorPrototype%: next/return/throw live HERE, not on each generator
     ; object, so their descriptors and identity are what the spec says.
     def genProto@(optional):EvHandle
+    ; %AsyncGeneratorPrototype%, kept apart from the sync one (D-ASYNCGEN).
+    def asyncGenProto@(optional):EvHandle
     def genAssignValue:EvHandle (EvHandle.null())
     ; D-BUILTINPROTO: one prototype object per built-in constructor name, kept
     ; for the engine's lifetime so identity and stored properties survive reads.
@@ -15665,6 +15670,22 @@ class ComponentEngine {
     ; time instead. Everything else keeps the list form, which is faster for the
     ; array/string/map/set cases that make up nearly all of them.
     fn genCursorStep:EvHandle (gv:EvHandle) {
+        ; D-ASYNCGEN: an ASYNC generator has to be driven past every `await` in
+        ; its body before it reaches the yield this step is asking for. Resuming
+        ; it raw answers the awaited VALUE instead of an iteration result, so
+        ; the loop read `.done` off a number (undefined, so falsy) and `.value`
+        ; off it too (undefined) -- `for await (v of h())` over a body
+        ; containing `yield await 5` produced empty elements and a phantom turn.
+        if (this.isAsyncGeneratorValue(gv)) {
+            def agP:EvHandle (this.asyncGenStep(gv 0 (EvValueBridge.taggedUndefined())))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            ; Settled here rather than suspended: this is the same trade the
+            ; element-await two frames up already makes -- the values are right,
+            ; the interleaving against unrelated microtasks is not guaranteed.
+            return (this.awaitBlocking(agP))
+        }
         return (this.genResume(gv (EvValueBridge.taggedUndefined()) 0))
     }
 
@@ -15784,6 +15805,38 @@ class ComponentEngine {
         return (unwrap genProto)
     }
 
+    ; D-ASYNCGEN: %AsyncGeneratorPrototype%, which is a DIFFERENT object from
+    ; %GeneratorPrototype% rather than the same one wearing a second name. The
+    ; brand lives here, not on the instance -- `Object.getOwnPropertyDescriptor
+    ; (g(), Symbol.toStringTag)` is undefined in a real engine too -- and so
+    ; does Symbol.asyncIterator, which is what `for await` looks for and what
+    ; tells a consumer to await each result.
+    fn asyncGeneratorPrototype:EvHandle () {
+        if asyncGenProto {
+            return (unwrap asyncGenProto)
+        }
+        def keysA:[string]
+        def valsA:[EvHandle]
+        def ap:EvHandle (EvValueBridge.taggedObject(keysA valsA))
+        ap.setProto((this.builtinPrototype("Object")))
+        ap.setMember("next" (this.sharedNativeMethod("Generator" "next")))
+        ap.setAttrs("next" true false true)
+        ap.setMember("return" (this.sharedNativeMethod("Generator" "return")))
+        ap.setAttrs("return" true false true)
+        ap.setMember("throw" (this.sharedNativeMethod("Generator" "throw")))
+        ap.setAttrs("throw" true false true)
+        ; An async generator is its own ASYNC iterator. It is deliberately NOT
+        ; a sync one: `for (x of asyncGen())` is a TypeError in a real engine,
+        ; and publishing Symbol.iterator here would make it silently iterate
+        ; promises instead.
+        ap.setMember("@@asyncIterator" (this.sharedNativeMethod("Generator" "@@asyncIterator")))
+        ap.setAttrs("@@asyncIterator" true false true)
+        ap.setMember("@@toStringTag" (EvValueBridge.taggedString("AsyncGenerator")))
+        ap.setAttrs("@@toStringTag" false false true)
+        asyncGenProto = ap
+        return (unwrap asyncGenProto)
+    }
+
     ; Build the generator object for a call that has NOT run its body: the
     ; activation stays live in the state, and the first next() starts it.
     fn makeResumableGenerator:EvHandle (fnNode:TSNode ctx:EvalContext) {
@@ -15811,6 +15864,9 @@ class ComponentEngine {
         ; next/return/throw are INHERITED from %GeneratorPrototype%, reached
         ; through the function's own `prototype` object when it has one.
         def gProtoUse:EvHandle (this.generatorPrototype())
+        if fnNode.async {
+            gProtoUse = (this.asyncGeneratorPrototype())
+        }
         if (this.isDescriptorObject(protoV)) {
             if (false == (this.isSymbolValue(protoV))) {
                 ; the function's prototype object sits BETWEEN the generator and
@@ -15820,6 +15876,15 @@ class ComponentEngine {
             }
         }
         g.setProto(gProtoUse)
+        ; D-ASYNCGEN: an async generator's OBJECT is an async iterator, not a
+        ; sync one. The marker is what makes next/return/throw answer promises
+        ; and what brands it; both move together, because branding it
+        ; AsyncGenerator while next() answered a plain result would send
+        ; detecting code down a path that does not work.
+        if fnNode.async {
+            g.setMember("__asyncgen__" (EvValueBridge.taggedBoolean(true)))
+            g.setAttrs("__asyncgen__" false false false)
+        }
         return g
     }
 
@@ -15895,6 +15960,11 @@ class ComponentEngine {
         if (outcome == 1) {
             def yv:EvHandle genYieldValue
             def raw:boolean genYieldRaw
+            ; Which suspension this was, kept for the caller. An async
+            ; generator's driver has to tell an `await` (keep going -- the body
+            ; has not produced anything yet) from a `yield` (stop -- that IS
+            ; what next() answers), and the flag is cleared here.
+            genLastSuspendRaw = raw
             genYieldRaw = false
             context = savedContext
             scriptDidReturn = savedDidReturn
@@ -16072,6 +16142,88 @@ class ComponentEngine {
             scriptThrowValue = (EvValueBridge.taggedUndefined())
             def _rj3:EvHandle (this.capInvoke(cap "__cap_reject__" err3))
         }
+    }
+
+    ; ======================================================================
+    ; D-ASYNCGEN: async generators
+    ;
+    ; `async function*` is both of the suspension mechanisms at once, and the
+    ; engine already had each separately: the frame stack stops at a `yield`
+    ; for a generator, and the async driver resolves what a body stopped on at
+    ; an `await`. What was missing is the composition, so an async generator ran
+    ; on the plain generator path and every `await` in its body corrupted the
+    ; output -- `yield await 5` produced an empty value and a phantom element.
+    ;
+    ; next() is a PROMISE for an iteration result. Driving it means resuming
+    ; until the body reaches a yield: an await-suspension subscribes and
+    ; resumes again, a yield-suspension IS the answer, and completion answers
+    ; `{value, done: true}`. That is the only difference from asyncDrive, which
+    ; runs to completion because a plain async body has nothing to stop at.
+    ; ======================================================================
+    fn asyncGenDrive:void (gv:EvHandle cap:EvHandle mode:int sent:EvHandle) {
+        def out:EvHandle (this.genResume(gv sent mode))
+        if scriptThrew {
+            def agErr:EvHandle scriptThrowValue
+            scriptThrew = false
+            scriptThrowValue = (EvValueBridge.taggedUndefined())
+            def _agrj:EvHandle (this.capInvoke(cap "__cap_reject__" agErr))
+            return
+        }
+        def st:GenState (this.genStateOf(gv))
+        if (st.status == 3) {
+            ; Finished. genResume already shaped the completion as an iteration
+            ; result, so it is the answer as it stands.
+            def _agrs:EvHandle (this.capInvoke(cap "__cap_resolve__" out))
+            return
+        }
+        if (false == genLastSuspendRaw) {
+            ; Suspended at a YIELD -- this is what next() was asked for.
+            def _agry:EvHandle (this.capInvoke(cap "__cap_resolve__" out))
+            return
+        }
+        ; Suspended at an AWAIT. Nothing has been produced yet: settle what the
+        ; body is waiting on and carry on driving toward a yield.
+        def agInner:EvHandle (this.promiseResolveIntrinsic(out))
+        if scriptThrew {
+            def agErr2:EvHandle scriptThrowValue
+            scriptThrew = false
+            scriptThrowValue = (EvValueBridge.taggedUndefined())
+            def _agrj2:EvHandle (this.capInvoke(cap "__cap_reject__" agErr2))
+            return
+        }
+        def agKeys:[string]
+        def agVals:[EvHandle]
+        def agRec:EvHandle (EvValueBridge.taggedObject(agKeys agVals))
+        agRec.setMember("__agen__" gv)
+        agRec.setMember("__agen_cap__" cap)
+        def agOk:EvHandle ((EvValueBridge.taggedNativeMethod("asyncgenstep" "ok")).withThisForCall(agRec))
+        def agErrF:EvHandle ((EvValueBridge.taggedNativeMethod("asyncgenstep" "err")).withThisForCall(agRec))
+        this.shapeAnonFn(agOk 1)
+        this.shapeAnonFn(agErrF 1)
+        def _agt:EvHandle (this.promiseThenVia(agInner agOk agErrF))
+        if scriptThrew {
+            def agErr3:EvHandle scriptThrowValue
+            scriptThrew = false
+            scriptThrowValue = (EvValueBridge.taggedUndefined())
+            def _agrj3:EvHandle (this.capInvoke(cap "__cap_reject__" agErr3))
+        }
+    }
+
+    ; next()/return()/throw() on an async generator: a promise, driven as above.
+    fn asyncGenStep:EvHandle (gv:EvHandle mode:int sent:EvHandle) {
+        def agCap:EvHandle (this.newPromiseCapability((this.builtinGlobalObject("Promise"))))
+        if scriptThrew {
+            return (EvValueBridge.taggedUndefined())
+        }
+        this.asyncGenDrive(gv agCap mode sent)
+        return (this.capPromiseOf(agCap))
+    }
+
+    fn isAsyncGeneratorValue:boolean (v:EvHandle) {
+        if (false == (v.isObject())) {
+            return false
+        }
+        return (v.hasOwnData("__asyncgen__"))
     }
 
     ; Promise.resolve(v) through the intrinsic: an already-intrinsic promise is
@@ -21071,6 +21223,21 @@ class ComponentEngine {
         }
         def taBrand:string (this.typedArrayBrandOf(v))
         if ((strlen taBrand) > 0) {
+            ; A view onto a DETACHED buffer has no elements: `a.length` is 0
+            ; and `a.byteLength` is 0, however many the array held before the
+            ; transfer. Reading an element already answered undefined; the
+            ; length did not follow, so a loop over one still ran its old
+            ; number of turns and read undefined every time.
+            if (this.isBufferBackedView(v)) {
+                def dvBuf:EvHandle (v.getOwnData("__tabuffer__"))
+                if (this.isArrayBufferValue(dvBuf)) {
+                    if (dvBuf.hasOwnData("__abdetached__")) {
+                        if (propName == "length") { return (EvHandle.fromInt(0)) }
+                        if (propName == "byteLength") { return (EvHandle.fromInt(0)) }
+                        if (propName == "byteOffset") { return (EvHandle.fromInt(0)) }
+                    }
+                }
+            }
             if (propName == "BYTES_PER_ELEMENT") {
                 return (EvHandle.fromInt((this.typedArrayWidth(taBrand))))
             }
@@ -21090,9 +21257,54 @@ class ComponentEngine {
                 if (v.hasOwnData("__tabuffer__")) {
                     return (v.getOwnData("__tabuffer__"))
                 }
+                ; ...and one built from a LENGTH or a list has had a buffer all
+                ; along, per the spec -- `new Int32Array(4).buffer` is an
+                ; ArrayBuffer of 16 bytes, not undefined. The comment above used
+                ; to claim this was minted on demand; nothing did it, and the
+                ; property answered null.
+                ;
+                ; Minting it also makes the array a REGISTERED VIEW of it, which
+                ; it has to be: handing back a detached copy would let `a[0] = 1`
+                ; and `new Uint8Array(a.buffer)[0]` disagree, and the whole point
+                ; of reaching for .buffer is to alias the same bytes.
+                return (this.materializeTypedArrayBuffer(v taBrand))
             }
         }
         return (EvValueBridge.taggedNull())
+    }
+
+    ; Give a standalone typed array the ArrayBuffer it is specified to have,
+    ; seeded from its current elements, and leave it a view onto that buffer so
+    ; the two stay in step from then on.
+    fn materializeTypedArrayBuffer:EvHandle (v:EvHandle kind:string) {
+        def width:int (this.typedArrayWidth(kind))
+        def count:int (v.denseLen())
+        def buf:EvHandle (this.makeArrayBuffer((count * width)))
+        v.setMember("__tabuffer__" buf)
+        v.setAttrs("__tabuffer__" false false false)
+        v.setMember("__taoffset__" (EvHandle.fromInt(0)))
+        v.setAttrs("__taoffset__" false false false)
+        ; The elements are already in the array; writing them THROUGH puts the
+        ; same values in the buffer's bytes, which is what makes the two agree
+        ; from this point rather than only from the next write.
+        def wi:int 0
+        while (wi < count) {
+            def ev:EvHandle (v.arrayItemAt(wi))
+            if (this.isBigTypedArrayKind(kind)) {
+                this.writeThroughViewBig(v wi (this.bigNumOf(ev)))
+            } {
+                this.writeThroughView(v wi (this.toNumberOf(ev)))
+            }
+            wi = (wi + 1)
+        }
+        if (false == (buf.hasOwnData("__abviews__"))) {
+            def noViews:[EvHandle]
+            buf.setMember("__abviews__" (EvValueBridge.taggedArray(noViews)))
+            buf.setAttrs("__abviews__" true false false)
+        }
+        def vlist:EvHandle (buf.getOwnData("__abviews__"))
+        vlist.setIndexAt((vlist.denseLen()) v)
+        return buf
     }
 
     fn typedArrayWidth:int (kind:string) {
@@ -24871,6 +25083,8 @@ class ComponentEngine {
             push out "trim"
             push out "trimEnd"
             push out "trimStart"
+            push out "trimLeft"
+            push out "trimRight"
         }
         if (kind == "array") {
             ; D-ITERATOR: the ES2015 iteration methods, plus the well-known
@@ -25283,6 +25497,14 @@ class ComponentEngine {
         if (nsName == "WeakSet") { tagFor = "WeakSet" }
         if (nsName == "WeakRef") { tagFor = "WeakRef" }
         if (nsName == "SharedArrayBuffer") { tagFor = "SharedArrayBuffer" }
+        ; ArrayBuffer and DataView brand the same way, and did not: even
+        ; `Object.prototype.toString.call(new ArrayBuffer(8))` answered
+        ; "[object Object]". SharedArrayBuffer was already here, which is what
+        ; made the omission of its sibling visible.
+        if (nsName == "ArrayBuffer") { tagFor = "ArrayBuffer" }
+        if (nsName == "DataView") { tagFor = "DataView" }
+        ; A CONCRETE typed array brands as its own constructor name.
+        if (this.isTypedArrayCtorName(nsName)) { tagFor = nsName }
         if (nsName == "FinalizationRegistry") { tagFor = "FinalizationRegistry" }
         if ((strlen tagFor) > 0) {
             p.setMember("@@toStringTag" (EvValueBridge.taggedString(tagFor)))
@@ -25730,6 +25952,8 @@ class ComponentEngine {
             if (name == "startsWith") { return 1 }
             if (name == "trimEnd") { return 0 }
             if (name == "trimStart") { return 0 }
+            if (name == "trimLeft") { return 0 }
+            if (name == "trimRight") { return 0 }
             if (name == "charAt") { return 1 }
             if (name == "toUpperCase") { return 0 }
             if (name == "toLowerCase") { return 0 }
@@ -25816,6 +26040,10 @@ class ComponentEngine {
             if (name == "sort") { return 1 }
             if (name == "splice") { return 2 }
             if (name == "unshift") { return 1 }
+            ; Typed-array only; harmless on a plain array, which never reaches
+            ; the implementation.
+            if (name == "set") { return 1 }
+            if (name == "subarray") { return 2 }
         }
         if (kind == "promise") {
             if (name == "then") { return 2 }
@@ -25875,6 +26103,7 @@ class ComponentEngine {
             if (name == "return") { return 1 }
             if (name == "throw") { return 1 }
             if (name == "@@iterator") { return 0 }
+            if (name == "@@asyncIterator") { return 0 }
         }
         if (kind == "proxyrevoke") {
             if (name == "revoke") { return 0 }
@@ -26920,8 +27149,11 @@ class ComponentEngine {
             def gk:[string]
             def gv:[EvHandle]
             def res:EvHandle (EvValueBridge.taggedObject(gk gv))
-            ; A generator is its own iterator.
+            ; A generator is its own iterator -- sync or async.
             if (name == "@@iterator") {
+                return recv
+            }
+            if (name == "@@asyncIterator") {
                 return recv
             }
             ; D-GENRESUME: a RESUMABLE generator's three methods are all one
@@ -26933,6 +27165,12 @@ class ComponentEngine {
                 def rSent:EvHandle (EvValueBridge.taggedUndefined())
                 if ((array_length args) > 0) {
                     rSent = (itemAt args 0)
+                }
+                ; D-ASYNCGEN: an async generator answers a PROMISE for the
+                ; iteration result, and gets there by resuming past every
+                ; `await` in the body until it reaches a yield.
+                if (this.isAsyncGeneratorValue(recv)) {
+                    return (this.asyncGenStep(recv rMode rSent))
                 }
                 return (this.genResume(recv rSent rMode))
             }
@@ -28129,10 +28367,13 @@ class ComponentEngine {
                     ; Both stripped SPACES only -- not even a tab -- so they
                     ; disagreed with `trim` about the same string. One
                     ; implementation now, over the full WhiteSpace set.
-                    if (name == "trimStart") {
+                    ; annexB B.2.2.12/13: trimLeft and trimRight are the SAME
+                    ; function objects as trimStart/trimEnd, kept for code
+                    ; written before the rename.
+                    if ((name == "trimStart") || (name == "trimLeft")) {
                         return (EvValueBridge.taggedString((this.trimJs(s true false))))
                     }
-                    if (name == "trimEnd") {
+                    if ((name == "trimEnd") || (name == "trimRight")) {
                         return (EvValueBridge.taggedString((this.trimJs(s false true))))
                     }
                     ; replace (first match) and replaceAll — string search only, done
@@ -28896,6 +29137,91 @@ class ComponentEngine {
                             ii = (ii + 1)
                         }
                         return (EvValueBridge.taggedString(out))
+                    }
+                    ; §23.2.3.26 %TypedArray%.prototype.set and §23.2.3.27
+                    ; .subarray -- the two typed-array methods with no Array
+                    ; counterpart, and both were simply absent: `a.set(b)` and
+                    ; `a.subarray(1, 3)` were "not a function".
+                    def taM:string (this.typedArrayBrandOf(recv))
+                    if ((strlen taM) > 0) {
+                        if (name == "set") {
+                            def srcV:EvHandle (EvValueBridge.taggedUndefined())
+                            if ((array_length args) > 0) { srcV = (itemAt args 0) }
+                            def setOff:int 0
+                            if ((array_length args) > 1) {
+                                setOff = (to_int (this.toNumberOf((itemAt args 1))))
+                                if scriptThrew {
+                                    return (EvValueBridge.taggedUndefined())
+                                }
+                            }
+                            if (setOff < 0) {
+                                return (this.throwSpecError("RangeError" "offset is out of bounds"))
+                            }
+                            def srcItems:[EvHandle] (this.forOfItemList(srcV))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                            if (((array_length srcItems) + setOff) > alen) {
+                                return (this.throwSpecError("RangeError" "offset is out of bounds"))
+                            }
+                            def si:int 0
+                            while (si < (array_length srcItems)) {
+                                def dstI:int (setOff + si)
+                                if (this.isBigTypedArrayKind(taM)) {
+                                    def bEl:EvHandle (this.bigElementFor(taM (itemAt srcItems si)))
+                                    if scriptThrew {
+                                        return (EvValueBridge.taggedUndefined())
+                                    }
+                                    recv.setIndexAt(dstI bEl)
+                                    this.writeThroughViewBig(recv dstI (this.bigNumOf(bEl)))
+                                } {
+                                    def nEl:double (this.toNumberOf((itemAt srcItems si)))
+                                    if scriptThrew {
+                                        return (EvValueBridge.taggedUndefined())
+                                    }
+                                    def cEl:double (this.typedArrayCoerce(taM nEl))
+                                    recv.setIndexAt(dstI (EvValueBridge.taggedNumber(cEl)))
+                                    this.writeThroughView(recv dstI cEl)
+                                }
+                                si = (si + 1)
+                            }
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        if (name == "subarray") {
+                            def subBegin:int 0
+                            if ((array_length args) > 0) {
+                                subBegin = (this.relativeIndexOf((itemAt args 0) alen))
+                                if scriptThrew {
+                                    return (EvValueBridge.taggedUndefined())
+                                }
+                            }
+                            def subEnd:int alen
+                            if ((array_length args) > 1) {
+                                if (false == ((itemAt args 1).isUndefined())) {
+                                    subEnd = (this.relativeIndexOf((itemAt args 1) alen))
+                                    if scriptThrew {
+                                        return (EvValueBridge.taggedUndefined())
+                                    }
+                                }
+                            }
+                            def subCount:int (subEnd - subBegin)
+                            if (subCount < 0) { subCount = 0 }
+                            ; A subarray SHARES the bytes -- that is the whole
+                            ; difference from slice, which copies. Reading the
+                            ; buffer property mints one for a standalone array,
+                            ; so both end up views of the same store.
+                            def subBuf:EvHandle (this.bufferOwnProperty(recv "buffer"))
+                            def subWidth:int (this.typedArrayWidth(taM))
+                            def subBase:int 0
+                            if (recv.hasOwnData("__taoffset__")) {
+                                subBase = (to_int ((recv.getOwnData("__taoffset__")).toNumber()))
+                            }
+                            def subArgs:[EvHandle]
+                            push subArgs subBuf
+                            push subArgs (EvHandle.fromInt((subBase + (subBegin * subWidth))))
+                            push subArgs (EvHandle.fromInt(subCount))
+                            return (this.constructTypedArray(taM subArgs))
+                        }
                     }
                     if (name == "slice") {
                         def a:int 0
@@ -30406,6 +30732,16 @@ class ComponentEngine {
             this.asyncDrive((recv.getMember("__async_gen__")) (recv.getMember("__async_cap__")) stepMode stepV)
             return (EvValueBridge.taggedUndefined())
         }
+        ; D-ASYNCGEN: the same continuation for an async generator, which keeps
+        ; driving toward a yield rather than toward completion.
+        if (kind == "asyncgenstep") {
+            def agStepV:EvHandle (EvValueBridge.taggedUndefined())
+            if ((array_length args) > 0) { agStepV = (itemAt args 0) }
+            def agStepMode:int 0
+            if (name == "err") { agStepMode = 2 }
+            this.asyncGenDrive((recv.getMember("__agen__")) (recv.getMember("__agen_cap__")) agStepMode agStepV)
+            return (EvValueBridge.taggedUndefined())
+        }
         if (kind == "promiseexec") {
             def exR:EvHandle (EvValueBridge.taggedUndefined())
             def exJ:EvHandle (EvValueBridge.taggedUndefined())
@@ -31279,7 +31615,16 @@ class ComponentEngine {
     fn objectClassOf:string (v:EvHandle) {
         if (v.isUndefined()) { return "Undefined" }
         if (v.isNull()) { return "Null" }
-        if (v.isArrayValue()) { return "Array" }
+        if (v.isArrayValue()) {
+            ; A TYPED array is an array value here -- that is how it gets the
+            ; element machinery -- but it brands as its own constructor, which
+            ; is the only way `Object.prototype.toString` can tell an Int32Array
+            ; from an Array. Checked before the plain-array answer, because it
+            ; would otherwise win by position.
+            def taTag:string (this.typedArrayBrandOf(v))
+            if ((strlen taTag) > 0) { return taTag }
+            return "Array"
+        }
         if (v.isFunction()) {
             ; A callable's builtin tag is Function, but an async or generator
             ; function inherits a @@toStringTag from its own intrinsic

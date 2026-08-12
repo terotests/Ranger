@@ -806,9 +806,16 @@ class TSLexer {
     }
 
     fn readRadix:Token (radix:int startPos:int startLine:int startCol:int) {
+        ; The two prefix characters, kept so a BigInt token can carry the radix
+        ; the way BigNum.parse expects to read it.
+        def prefix:string ((this.peek()) + (this.peekAt(1)))
         this.advance()
         this.advance()
         def acc:int 0
+        ; The digits WITHOUT separators, for the BigInt case: `acc` is an int
+        ; and has already overflowed for anything a BigInt literal is written
+        ; for, and BigNum.parse stops at a literal `_`.
+        def digits:string ""
         def looping:boolean true
         while ((pos < len) && looping) {
             def ch:string (this.peek())
@@ -819,6 +826,7 @@ class TSLexer {
                 if (d >= 0) {
                     if (d < radix) {
                         acc = ((acc * radix) + d)
+                        digits = (digits + ch)
                         this.advance()
                     } {
                         looping = false
@@ -826,6 +834,23 @@ class TSLexer {
                 } {
                     looping = false
                 }
+            }
+        }
+        ; A radix-prefixed BIGINT: `0x1fn`, `0o17n`, `0b1011n`. The suffix was
+        ; only ever read on the decimal path, so `0xffn` reached the `runsOn`
+        ; test below, which sees `n` as an identifier character and called the
+        ; whole literal malformed.
+        ;
+        ; The RAW TEXT is the token value, prefix and suffix included, exactly
+        ; as the decimal path keeps `255n`. Two reasons not to hand over the
+        ; accumulated `acc`: it is an int, so it has already overflowed for
+        ; anything past 32 bits -- and a BigInt literal is written precisely
+        ; when the value does not fit -- and BigNum.parse reads the radix
+        ; prefixes itself, so the text is what it wants anyway.
+        if ((this.peek()) == "n") {
+            if ((strlen digits) > 0) {
+                this.advance()
+                return (this.makeToken("BigInt" (prefix + (digits + "n")) startPos startLine startCol))
             }
         }
         ; `0x` with no digits, or digits immediately followed by an identifier

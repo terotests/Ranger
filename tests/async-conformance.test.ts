@@ -286,6 +286,51 @@ const CASES: Array<[name: string, src: string]> = [
        console.log([await Promise.resolve(3), await Promise.resolve(4)].join("-"));
        console.log(Math.max(await Promise.resolve(5), 2));
      })();`],
+  // Async generators, whole-program so all three targets have to agree. Every
+  // `await` in an async generator body used to corrupt the output: `for await`
+  // stepped the body RAW, so it read `.done` and `.value` off the awaited value
+  // itself and produced empty elements plus a phantom turn.
+  ["async-generator-await-in-body",
+    `async function* h() { yield await Promise.resolve(5); yield 6; }
+     (async function () {
+       var out = [];
+       for await (var v of h()) { out.push(v); }
+       console.log("for-await:" + out.join(","));
+       var it = h();
+       var manual = [];
+       var r = await it.next();
+       while (!r.done) { manual.push(r.value); r = await it.next(); }
+       console.log("manual:" + manual.join(","));
+     })();`],
+  ["async-generator-identity",
+    `async function* g() { yield 1; }
+     console.log(Object.prototype.toString.call(g()));
+     console.log(typeof g().next().then);
+     console.log(typeof g()[Symbol.asyncIterator]);
+     console.log(typeof g()[Symbol.iterator]);
+     var it = g();
+     console.log(String(it[Symbol.asyncIterator]() === it));`],
+  ["async-generator-forms",
+    `var o = { async *m() { yield 1; yield 2; } };
+     class K { async *m() { yield 3; } }
+     (async function () {
+       var a = [];
+       for await (var v of o.m()) { a.push(v); }
+       for await (var w of new K().m()) { a.push(w); }
+       console.log(a.join(","));
+     })();`],
+  ["async-generator-loop-and-return",
+    `async function* h() { for (var i = 0; i < 3; i++) { yield await Promise.resolve(i); } }
+     (async function () {
+       var out = [];
+       for await (var v of h()) { out.push(v); }
+       console.log("loop:" + out.join(","));
+       var it = h();
+       await it.next();
+       var r = await it.return(9);
+       console.log("return:" + r.value + ":" + r.done);
+     })();`],
+
   ["async-await-as-identifiers",
     `function async(x) { return x + 1; }
      console.log(async(1));

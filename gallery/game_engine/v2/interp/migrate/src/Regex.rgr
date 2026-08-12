@@ -1308,6 +1308,12 @@ class RegexCompiler {
         if isScxShort {
             name = ("script=" + (substring name 4 (strlen name)))
         }
+        ; A general category has a LONG name as well as its two-letter one, and
+        ; both are legal: `\p{Letter}` is `\p{L}`. The table is generated from
+        ; the short names -- the ranges are identical, so storing both would
+        ; double it to say the same thing twice -- and the long spelling is
+        ; folded onto the short one here instead.
+        name = (this.canonicalGeneralCategory(name))
         def idx:int (RegexProps.indexOfName(name))
         if (idx < 0) {
             failed = true
@@ -1317,6 +1323,54 @@ class RegexCompiler {
         def encoded:int (idx * 2)
         if negated { encoded = (encoded + 1) }
         return encoded
+    }
+
+    ; The two-letter general category a long name spells out, or the name
+    ; unchanged when it is not one. Lowercased already by the caller.
+    fn canonicalGeneralCategory:string (name:string) {
+        if (name == "letter") { return "l" }
+        if (name == "uppercase_letter") { return "lu" }
+        if (name == "lowercase_letter") { return "ll" }
+        if (name == "titlecase_letter") { return "lt" }
+        if (name == "modifier_letter") { return "lm" }
+        if (name == "other_letter") { return "lo" }
+        if (name == "cased_letter") { return "lc" }
+        if (name == "mark") { return "m" }
+        if (name == "combining_mark") { return "m" }
+        if (name == "nonspacing_mark") { return "mn" }
+        if (name == "spacing_mark") { return "mc" }
+        if (name == "enclosing_mark") { return "me" }
+        if (name == "number") { return "n" }
+        if (name == "decimal_number") { return "nd" }
+        if (name == "digit") { return "nd" }
+        if (name == "letter_number") { return "nl" }
+        if (name == "other_number") { return "no" }
+        if (name == "punctuation") { return "p" }
+        if (name == "punct") { return "p" }
+        if (name == "connector_punctuation") { return "pc" }
+        if (name == "dash_punctuation") { return "pd" }
+        if (name == "open_punctuation") { return "ps" }
+        if (name == "close_punctuation") { return "pe" }
+        if (name == "initial_punctuation") { return "pi" }
+        if (name == "final_punctuation") { return "pf" }
+        if (name == "other_punctuation") { return "po" }
+        if (name == "symbol") { return "s" }
+        if (name == "math_symbol") { return "sm" }
+        if (name == "currency_symbol") { return "sc" }
+        if (name == "modifier_symbol") { return "sk" }
+        if (name == "other_symbol") { return "so" }
+        if (name == "separator") { return "z" }
+        if (name == "space_separator") { return "zs" }
+        if (name == "line_separator") { return "zl" }
+        if (name == "paragraph_separator") { return "zp" }
+        if (name == "other") { return "c" }
+        if (name == "control") { return "cc" }
+        if (name == "cntrl") { return "cc" }
+        if (name == "format") { return "cf" }
+        if (name == "private_use") { return "co" }
+        if (name == "surrogate") { return "cs" }
+        if (name == "unassigned") { return "cn" }
+        return name
     }
 
     fn parseEscape:RegexNode () {

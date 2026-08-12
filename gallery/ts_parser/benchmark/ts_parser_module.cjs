@@ -962,9 +962,11 @@ class TSLexer  {
     return this.codeUnitString(v);
   };
   readRadix (radix, startPos, startLine, startCol) {
+    const prefix = this.peek() + this.peekAt(1);
     this.advance();
     this.advance();
     let acc = 0;
+    let digits = "";
     let looping = true;
     while ((this.pos < this.__len) && looping) {
       const ch = this.peek();
@@ -975,6 +977,7 @@ class TSLexer  {
         if ( d >= 0 ) {
           if ( d < radix ) {
             acc = (acc * radix) + d;
+            digits = digits + ch;
             this.advance();
           } else {
             looping = false;
@@ -984,6 +987,12 @@ class TSLexer  {
         }
       }
     };
+    if ( this.peek() == "n" ) {
+      if ( (digits.length) > 0 ) {
+        this.advance();
+        return this.makeToken("BigInt", (prefix + (digits + "n")), startPos, startLine, startCol);
+      }
+    }
     const digitsRead = this.pos > (startPos + 2);
     const tail = this.peek();
     let runsOn = false;
@@ -8126,7 +8135,7 @@ class TSParserSimple  {
         let nextType = this.peekNextType();
         let nextVal = this.peekNextValue();
         if ( currVal == "async" ) {
-          if ( ((nextType == "Identifier") || (nextVal == "[")) || (nextVal == "(") ) {
+          if ( (nextType == "Identifier") || ((nextVal == "[") || ((nextVal == "(") || (nextVal == "*"))) ) {
             this.advance();
             prop.async = true;
             currVal = this.peekValue();

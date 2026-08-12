@@ -7328,7 +7328,12 @@ class TSParserSimple {
         def nextVal (this.peekNextValue())
         
         if (currVal == "async") {
-          if ((nextType == "Identifier") || (nextVal == "[") || (nextVal == "(")) {
+          ; `*` belongs in this lookahead too: `{ async *m() {} }` is an async
+          ; GENERATOR method, and the generator branch below already says it
+          ; handles one. Without `*` here the `async` was never consumed, so
+          ; that branch saw `async` rather than `*` and the object literal
+          ; failed to parse at all.
+          if ((nextType == "Identifier") || ((nextVal == "[") || ((nextVal == "(") || (nextVal == "*")))) {
             this.advance()
             prop.async = true
             ; Re-fetch current values after consuming async
