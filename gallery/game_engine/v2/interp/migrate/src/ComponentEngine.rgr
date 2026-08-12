@@ -4471,13 +4471,19 @@ class ComponentEngine {
                 def rkeys:[string]
                 def rvals:[EvHandle]
                 if (value.isObject()) {
-                    def ks:[string] (value.ownDataKeys())
+                    ; D-PROXY: the key list and every value come through the
+                    ; property paths, so a rest pattern over a proxy asks
+                    ; ownKeys and then `get` -- the raw map read saw neither.
+                    def ks:[string] (this.objectKeys(value))
                     def ki:int 0
                     while (ki < (array_length ks)) {
                         def kk:string (itemAt ks ki)
                         if ((this.isInList(kk usedKeys)) == false) {
                             push rkeys kk
-                            push rvals (value.getMember(kk))
+                            push rvals (this.getPropertyValue(value kk))
+                            if scriptThrew {
+                                return
+                            }
                         }
                         ki = (ki + 1)
                     }
@@ -4486,7 +4492,13 @@ class ComponentEngine {
             } {
                 def srcKey:string prop.name
                 push usedKeys srcKey
-                def v:EvHandle (value.getMember(srcKey))
+                ; D-PROXY: `var {a} = p` is a GET of `a`, so it goes through the
+                ; property path and reaches the trap. Reading the map directly
+                ; answered undefined for every proxy.
+                def v:EvHandle (this.getPropertyValue(value srcKey))
+                if scriptThrew {
+                    return
+                }
                 if ((v.isNull()) || (v.isUndefined())) {
                     if prop.init {
                         v = (this.evaluateExpr((unwrap prop.init)))
@@ -43056,11 +43068,35 @@ class ComponentEngine {
                 if scriptThrew {
                     return outK
                 }
+                ; §10.5.11 step 6: the trap's result must be a LIST. Anything
+                ; else is a TypeError, not an empty enumeration -- which is what
+                ; arrayLikeElements quietly turned a number into.
+                if (false == (kRes.isArrayValue())) {
+                    def _kt:EvHandle (this.throwSpecError("TypeError" "proxy ownKeys trap did not return an object"))
+                    return outK
+                }
                 def kEls:[EvHandle] (this.arrayLikeElements(kRes))
                 def ki2:int 0
                 while (ki2 < (array_length kEls)) {
                     push outK (this.toPropertyKey((itemAt kEls ki2)))
                     ki2 = (ki2 + 1)
+                }
+                ; §10.5.11 steps 17-20: every NON-CONFIGURABLE own key of the
+                ; target must appear. A handler may hide a configurable
+                ; property, but not one the target has promised is permanent --
+                ; that is the invariant reflection relies on.
+                def tgtKeys:[string] (kTgt.ownDataKeys())
+                def tki:int 0
+                while (tki < (array_length tgtKeys)) {
+                    def tk2:string (itemAt tgtKeys tki)
+                    if (false == (kTgt.isConfigurable(tk2))) {
+                        if (false == (this.isInList(tk2 outK))) {
+                            def _ki:EvHandle (this.throwSpecError("TypeError" ("proxy ownKeys trap omitted the non-configurable property '" + (tk2 + "'"))))
+                            def emptyI:[string]
+                            return emptyI
+                        }
+                    }
+                    tki = (tki + 1)
                 }
                 return outK
             }
@@ -43192,6 +43228,31 @@ class ComponentEngine {
 
     fn objectEnumerableKeysRaw:[string] (v:EvHandle) {
         def out:[string]
+        ; D-PROXY: which of a proxy's keys are ENUMERABLE is the
+        ; getOwnPropertyDescriptor trap's answer, not the target's. Without
+        ; asking, Object.keys listed everything ownKeys returned -- including
+        ; the properties the handler had just described as non-enumerable.
+        if (this.isProxyValue(v)) {
+            def pAll:[string] (this.objectKeys(v))
+            if scriptThrew {
+                return out
+            }
+            def pi:int 0
+            while (pi < (array_length pAll)) {
+                def pk:string (itemAt pAll pi)
+                def pd:EvHandle (this.ownPropertyDescriptorOf(v pk))
+                if scriptThrew {
+                    return out
+                }
+                if (this.isDescriptorObject(pd)) {
+                    if ((this.getPropertyValue(pd "enumerable")).toBool()) {
+                        push out pk
+                    }
+                }
+                pi = (pi + 1)
+            }
+            return out
+        }
         if (v.isArrayValue()) {
             ; An index is enumerable UNLESS defineProperty recorded otherwise --
             ; `Object.defineProperties(a, {"0": {value: 1}})` creates a
@@ -44252,7 +44313,15 @@ class ComponentEngine {
                     while (si < (array_length sks)) {
                         def sk:string (itemAt sks si)
                         push keys sk
-                        push values (sv.getMember(sk))
+                        ; D-PROXY: the value is read through the property path,
+                        ; not off the map. objectKeys above already asks the
+                        ; ownKeys trap, but the raw member read skipped `get`
+                        ; entirely -- so `{...p}` over a proxy listed the right
+                        ; keys and copied nothing for them.
+                        push values (this.getPropertyValue(sv sk))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
                         si = (si + 1)
                     }
                 }

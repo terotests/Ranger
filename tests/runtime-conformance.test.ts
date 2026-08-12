@@ -1998,6 +1998,22 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["species-plain-concat-unchanged", "return [1].concat([2, 3]).join(',');", "class"],
   ["species-plain-splice-unchanged", "var a = [1, 2, 3]; var r = a.splice(1, 1); return r.join(',') + '|' + a.join(',');", "class"],
 
+  // Proxy: the traps are consulted by the OPERATIONS that need them. These
+  // were all the same defect -- the key list came through the ownKeys trap and
+  // then the VALUE was read straight off the map, so the `get` trap never ran.
+  ["proxy-spread", "var p = new Proxy({}, { ownKeys: function () { return ['a']; }, getOwnPropertyDescriptor: function () { return { value: 3, enumerable: true, configurable: true }; }, get: function () { return 3; } }); return JSON.stringify({ ...p });", "proxy"],
+  ["proxy-destructuring", "var p = new Proxy({}, { get: function (t, k) { return k === 'a' ? 11 : undefined; } }); var { a } = p; return a;", "proxy"],
+  ["proxy-destructuring-rest", "var p = new Proxy({}, { ownKeys: function () { return ['a', 'b']; }, getOwnPropertyDescriptor: function () { return { value: 1, enumerable: true, configurable: true }; }, get: function (t, k) { return k === 'a' ? 1 : 2; } }); var { a, ...rest } = p; return a + ',' + JSON.stringify(rest);", "proxy"],
+  ["proxy-object-assign", "var p = new Proxy({}, { ownKeys: function () { return ['a']; }, getOwnPropertyDescriptor: function () { return { value: 9, enumerable: true, configurable: true }; }, get: function () { return 9; } }); return JSON.stringify(Object.assign({}, p));", "proxy"],
+  ["proxy-json-stringify", "var p = new Proxy({}, { ownKeys: function () { return ['a']; }, getOwnPropertyDescriptor: function () { return { value: 4, enumerable: true, configurable: true }; }, get: function () { return 4; } }); return JSON.stringify(p);", "proxy"],
+  // Object.keys filters by the DESCRIPTOR trap's enumerable, not the target's.
+  ["proxy-keys-filters-enumerable", "var p = new Proxy({}, { ownKeys: function () { return ['a', 'b']; }, getOwnPropertyDescriptor: function (t, k) { return { value: 1, enumerable: k === 'a', configurable: true }; } }); return Object.keys(p).join(',');", "proxy"],
+  ["proxy-getownpropertynames-does-not-filter", "var p = new Proxy({}, { ownKeys: function () { return ['a', 'b']; }, getOwnPropertyDescriptor: function () { return { value: 1, enumerable: false, configurable: true }; } }); return Object.getOwnPropertyNames(p).join(',');", "proxy"],
+  // §10.5.11 invariants on the ownKeys trap.
+  ["proxy-ownkeys-must-be-a-list", "var p = new Proxy({}, { ownKeys: function () { return 1; } }); try { Object.keys(p); return 'ACCEPTED'; } catch (e) { return e.constructor.name; }", "proxy"],
+  ["proxy-ownkeys-cannot-hide-nonconfigurable", "var t = {}; Object.defineProperty(t, 'a', { value: 1, configurable: false }); var p = new Proxy(t, { ownKeys: function () { return []; } }); try { Object.getOwnPropertyNames(p); return 'ACCEPTED'; } catch (e) { return e.constructor.name; }", "proxy"],
+  ["proxy-ownkeys-may-hide-configurable", "var t = { a: 1 }; var p = new Proxy(t, { ownKeys: function () { return []; }, getOwnPropertyDescriptor: function () { return undefined; } }); return Object.getOwnPropertyNames(p).length;", "proxy"],
+
   // Symbol: the conversions a symbol REFUSES, and reflection over symbol keys.
   ["symbol-implicit-string-throws", "try { return '' + Symbol(); } catch (e) { return e.constructor.name; }", "symbol"],
   ["symbol-template-throws", "try { return `${Symbol()}`; } catch (e) { return e.constructor.name; }", "symbol"],
