@@ -3299,7 +3299,9 @@ class TSParserSimple  {
       return this.parseInterface();
     }
     if ( tokVal == "type" ) {
-      return this.parseTypeAlias();
+      if ( this.peekNextType() == "Identifier" ) {
+        return this.parseTypeAlias();
+      }
     }
     if ( tokVal == "class" ) {
       if ( this.inSingleStatementBody ) {

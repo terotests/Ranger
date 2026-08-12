@@ -2776,6 +2776,19 @@ const KNOWN_GAPS = new Set<string>([
  */
 const SCRIPT_PROBES: Array<[name: string, src: string]> = [
   ["script-this-is-globalthis", "__out__ = String(this === globalThis);"],
+  // `type` is a CONTEXTUAL keyword: it opens a TS type alias only when an
+  // alias name follows. The parser took the branch on the word alone, so a
+  // plain assignment to a variable named `type` reached the alias parser,
+  // which wanted an Identifier and found `=`. Whole-program probes because
+  // the failure is at PARSE time, top level included.
+  ["script-type-as-binding", "var type = 1;\ntype = 2;\n__out__ = String(type);"],
+  ["script-type-in-function", "function f() { var type = 1; type = 2; return type; }\n__out__ = String(f());"],
+  ["script-type-as-param", "function f(type) { type = type + 1; return type; }\n__out__ = String(f(4));"],
+  ["script-type-compound-assign", "var type = 5;\ntype += 2;\ntype++;\n__out__ = String(type);"],
+  ["script-type-call-and-member", "var type = function (x) { return 'T' + x; };\nvar o = { type: 9 };\n__out__ = type(1) + '|' + o.type;"],
+  ["script-type-keyword-operator", "var type = [];\n__out__ = String(type instanceof Array) + '|' + typeof type;"],
+  // acorn's pp.readWord verbatim: the shape that first surfaced this.
+  ["script-type-acorn-readword", "var types = { name: 'name' };\nvar keywords = { 'if': 'kw-if' };\nfunction L(w) { this.w = w; }\nL.prototype.read = function () { var type = types.name; if (keywords[this.w]) { type = keywords[this.w]; } return type + ':' + this.w; };\n__out__ = new L('foo').read() + '|' + new L('if').read();"],
   ["script-var-is-global-property", "var q = 3;\n__out__ = String(this.q);"],
   ["script-fndecl-is-global-property", "function f() { return 1; }\n__out__ = typeof this.f;"],
   ["script-var-in-block-is-global-property", "if (true) { var w = 4; }\n__out__ = String(this.w);"],
@@ -3032,6 +3045,63 @@ describe("runtime conformance (interp realm)", () => {
       if (SCRIPT_KNOWN_GAPS.has(name)) continue;
       it(name, () => {
         const { expected, actual } = scriptOutcome(src);
+        expect(actual).toEqual(expected);
+      });
+    }
+  });
+
+  // TypeScript-only syntax has no Node oracle — `type Foo = number;` is a
+  // SyntaxError there — so these carry their expectation directly. They exist
+  // to prove the contextual-`type` fix did not cost the alias form it used to
+  // over-apply: a real alias, a generic one, and both meanings in one file.
+  describe("`type` stays a type alias when an alias name follows", () => {
+    const TS_CASES: Array<[name: string, src: string, expected: string]> = [
+      ["alias-simple", "type Foo = number;\n__out__ = String(3);", "3"],
+      [
+        "alias-annotates-a-local",
+        "type Foo = number;\nfunction f() { var x: Foo = 3; return x; }\n__out__ = String(f());",
+        "3",
+      ],
+      [
+        "alias-generic",
+        "type Box<T> = { v: T };\nfunction f() { var b: Box<number> = { v: 5 }; return b.v; }\n__out__ = String(f());",
+        "5",
+      ],
+      [
+        "alias-union",
+        'type S = "a" | "b";\nfunction f() { var s: S = "a"; return s; }\n__out__ = f();',
+        "a",
+      ],
+      [
+        "alias-function-type",
+        "type Cb = (n: number) => string;\nfunction f() { return 1; }\n__out__ = String(f());",
+        "1",
+      ],
+      [
+        "alias-then-binding-of-the-same-word",
+        "type Foo = number;\nvar type = 9;\ntype = 10;\n__out__ = String(type);",
+        "10",
+      ],
+      [
+        "binding-then-alias",
+        "var type = 9;\ntype Foo = number;\n__out__ = String(type);",
+        "9",
+      ],
+    ];
+    for (const [name, src, expected] of TS_CASES) {
+      it(name, () => {
+        const wrapped = "var __out__ = '<unset>';\n" + src + "\n";
+        const e = new ComponentEngine();
+        e.quiet = true;
+        const original = console.log;
+        console.log = () => {};
+        let actual: string;
+        try {
+          e.loadScript(wrapped + "function __read__() { return __out__; }\n");
+          actual = String(engineValue(e, "__read__"));
+        } finally {
+          console.log = original;
+        }
         expect(actual).toEqual(expected);
       });
     }

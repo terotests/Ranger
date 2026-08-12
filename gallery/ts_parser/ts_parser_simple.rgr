@@ -1216,8 +1216,19 @@ class TSParserSimple {
       return (this.parseInterface()))
     }
     
+    ; `type` is CONTEXTUAL: it opens a type alias only when an alias NAME
+    ; follows it. Taking the branch on the word alone made `type` unusable as
+    ; an ordinary binding -- `var type = 1; type = 2;` reached parseTypeAlias,
+    ; which wanted an Identifier and found `=`, so plain JavaScript failed to
+    ; parse with "expected Identifier but got Punctuator". Every other
+    ; position already worked (`o.type`, `{type: 1}`, the declaration itself),
+    ; which is what made the gap look like a lexer problem rather than this.
+    ; Anything that is not an identifier -- `=`, `(`, `.`, `;`, `++`, or a
+    ; keyword operator like `instanceof` -- is `type` used as a value.
     if (tokVal == "type") {
-      return (this.parseTypeAlias()))
+      if ((this.peekNextType()) == "Identifier") {
+        return (this.parseTypeAlias()))
+      }
     }
     
     if (tokVal == "class") {
