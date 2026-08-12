@@ -1246,6 +1246,14 @@ class EvHandle {
         if (this.isNull()) {
             return false
         }
+        ; D-BIGINT: 0n is FALSY, and a BigInt is an object here, so without this
+        ; every BigInt -- zero included -- was truthy.
+        if (this.isObject()) {
+            if (this.hasOwnData("__biglimbs__")) {
+                def limbs:EvHandle (this.getOwnData("__biglimbs__"))
+                return ((limbs.denseLen()) > 0)
+            }
+        }
         if (this.isHole()) {
             return false
         }

@@ -1209,6 +1209,87 @@ worse than a SyntaxError that says so.
 Still absent: Unicode property escapes (`\p{…}`), the `v` flag, and
 `RegExp.escape`.
 
+#### BigInt
+
+The one primitive type whose values do not fit in anything this realm already
+carried. A double loses integers above 2^53 — which is the entire reason BigInt
+exists — so the value is built out of limbs and the arithmetic written by hand
+in `BigIntNum.rgr`: add, subtract, multiply, divide, remainder, power, the
+shifts, the bitwise operators over an infinite two's-complement reading,
+`asIntN` / `asUintN`, parsing and rendering in any radix from 2 to 36.
+
+Three decisions worth recording.
+
+**The base is 2^15**, and both reasons are about the targets rather than about
+elegance: a product of two limbs is at most 2^30, which is inside a 32-bit int
+on every target this compiles to, and a power-of-two base makes the bitwise
+operators and the shifts limb operations rather than conversions.
+
+**The magnitude arithmetic works on LIMB ARRAYS, not on BigNum objects**, and
+that is a Rust constraint rather than a preference. A method that reaches
+another BigNum borrows its cell, and three shapes then panic at runtime: a
+method receiving `this` as an argument (`back.cmpMag(this)`), an object
+squaring itself (`base = base.mul(base)`), and a field write whose value comes
+from a call on the same object (`rem.mag = rem.subMag(o)`). All three are
+invisible on the es6 and C++ targets and every one of them crashed the Rust
+binary. Passing limbs instead removes the whole class.
+
+**A BigInt is carried as an OBJECT**, the way a symbol already is. The
+alternative — a new case in the tagged value — reaches into every match in
+`EvHandle` on three targets, where this reaches into `typeof`, the operators
+and the conversions, which is where the behaviour differs anyway. The limbs are
+stored rather than a decimal string: rebuilding from limbs is a copy,
+rebuilding from decimal is a parse with a multiply per digit, and every
+operator rebuilds both operands.
+
+**A BigInt is a primitive that happens to be an object**, and forgetting that
+once is what made `2n + 3n` produce `"23"`: ToPrimitive converted the operand
+through its own `toString` and handed back the digits as a string, so `+`
+concatenated. Symbols are exempt from ToPrimitive for exactly the same reason;
+BigInt is now exempt beside them.
+
+What the type is FOR is refusing implicit conversion, so most of the work is in
+the refusals: `1n + 1` is a TypeError, `+1n` is a TypeError, `8n >>> 1n` is a
+TypeError (a BigInt has no width for the sign bit to leave), `JSON.stringify`
+refuses one, an element of a `BigInt64Array` must be a BigInt and not a Number,
+and `Number(1n)` is allowed because it is written down. Comparison DOES mix,
+because comparing is lossless — including against a fraction, where `1n < 1.5`
+and `2n > 1.5` both hold and the tie is broken by the fractional part.
+
+`BigInt64Array`, `BigUint64Array` and the four `DataView` big accessors are
+here too, assembling and taking apart 64-bit values a byte at a time through
+the limbs rather than through a double, which could not hold them.
+
+#### Set operations, iterator helpers, SharedArrayBuffer and Atomics
+
+The seven ES2025 set operations and the eleven iterator helpers. Two things
+about them are not obvious:
+
+- **A set operation's argument is a SET-LIKE**, not a Set — an object with a
+  numeric `size` and callable `has` and `keys` — so a Map is a legal argument.
+  Reading `has` off one needs the registry and not just the property chain,
+  because a built-in method is not an own property of its receiver.
+- **Every kind's iterator prototype inherits from %IteratorPrototype%.** It
+  used to inherit from Object.prototype directly, which would have left the
+  helpers reachable from a bare iterator and from nothing else — an array,
+  string, Map and Set iterator would all have missed them, and
+  `[].values() instanceof Iterator` would have been false.
+
+Under SharedArrayBuffer and Atomics sat a gap neither of them could work
+around: **a typed array was never a VIEW over a buffer**.
+`new Int32Array(new ArrayBuffer(8))` read the buffer as an iterable and failed
+with "object is not iterable", so there was no way to get a view over a buffer
+at all — and therefore nothing for Atomics to operate on. A buffer now keeps
+the list of views over it, and a write through any view, or through a
+DataView, writes the bytes and refreshes the others, so two views over one
+buffer alias the way they must.
+
+Atomics is atomic for free here: one agent, nothing to interleave with. What is
+implemented is the arithmetic, the element coercion and the refusals — a float
+or clamped array is a TypeError, an out-of-range index is a RangeError. `wait`
+answers "not-equal" or "timed-out" immediately, because no other agent can ever
+arrive to change the value, and `notify` wakes nobody.
+
 #### Intl
 
 `Intl` did not exist, so `new Intl.NumberFormat('de').format(n)` was a
@@ -1423,13 +1504,13 @@ No number is published here rather than a synthesised one.
 
 ### What the probe suite is not
 
-`npm run jsengine:conformance` reports 1551/1553 on each native target. That is
+`npm run jsengine:conformance` reports 1705/1707 on each native target. That is
 the runtime-conformance corpus, whose expectations are derived by running the
 same source through Node. It is a regression net, not test262, and the two
 numbers must not be quoted side by side as if they measured the same thing.
 
-The runtime-conformance suite is at 1618 checks, every one of them derived from
-Node — 1588 expression probes plus 21 script-level probes run through Node's
+The runtime-conformance suite is at 1740 checks, every one of them derived from
+Node — 1710 expression probes plus 21 script-level probes run through Node's
 `vm` so the script global is real, plus the module and gap assertions.
 Date is additionally validated by 209 differential cases against Node covering the
 component getters, the setter family, `Date.parse`, `Date.UTC` and both range extremes.

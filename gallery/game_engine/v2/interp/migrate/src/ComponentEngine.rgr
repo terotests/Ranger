@@ -13,6 +13,7 @@ Import "../../../evg/EVGElement.rgr"
 Import "EvHandle.rgr"
 Import "EvValueBridge.rgr"
 Import "Regex.rgr"
+Import "BigIntNum.rgr"
 Import "UnicodeCase.rgr"
 Import "UnicodeNorm.rgr"
 Import "UnicodeCollate.rgr"
@@ -6224,6 +6225,9 @@ class ComponentEngine {
         if (nt == "Identifier") { node.evalKind = 1
             return 1
         }
+        if (nt == "BigIntLiteral") { node.evalKind = 62
+            return 62
+        }
         if (nt == "NumericLiteral") { node.evalKind = 2
             return 2
         }
@@ -7626,6 +7630,36 @@ class ComponentEngine {
         if (opK == 1) {
             return rightValue
         }
+        ; D-BIGINT: a compound assignment is its operator, so `f *= i` on two
+        ; BigInts must multiply them rather than convert to numbers. The
+        ; assignment op codes are their own numbering, so they are mapped onto
+        ; the binary ones and the same implementation runs.
+        if ((current.isObject()) || (rightValue.isObject())) {
+            if ((this.isBigIntValue(current)) || (this.isBigIntValue(rightValue))) {
+                def binK:int 0
+                if (opK == 2) { binK = 20 }
+                if (opK == 3) { binK = 21 }
+                if (opK == 4) { binK = 22 }
+                if (opK == 5) { binK = 23 }
+                if (opK == 6) { binK = 24 }
+                if (opK == 7) { binK = 25 }
+                if (opK == 11) { binK = 37 }
+                if (opK == 12) { binK = 38 }
+                if (opK == 13) { binK = 39 }
+                if (opK == 8) { binK = 40 }
+                if (opK == 9) { binK = 41 }
+                if (opK == 10) { binK = 42 }
+                if (binK > 0) {
+                    def bigOut:EvHandle (this.bigIntBinaryOp(binK current rightValue))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    if (false == (bigOut.isNull())) {
+                        return bigOut
+                    }
+                }
+            }
+        }
         if (opK == 2) {
             ; PERF fast path, mirroring `+`: plain strings and plain numbers
             ; skip the conversion dance (each toStringOf copies on natives).
@@ -7958,18 +7992,32 @@ class ComponentEngine {
                 ; A TYPED array coerces on every write, not only at
                 ; construction: `a[0] = 300` on an Int8Array stores 44.
                 def taIdxKind:string (this.typedArrayBrandOf(obj))
+                def taIdxBig:boolean false
                 if ((strlen taIdxKind) > 0) {
-                    def tiv:double (this.toNumberOf(result))
-                    if scriptThrew {
-                        return (EvValueBridge.taggedUndefined())
+                    if (this.isBigTypedArrayKind(taIdxKind)) {
+                        taIdxBig = true
+                        result = (this.bigElementFor(taIdxKind result))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                    } {
+                        def tiv:double (this.toNumberOf(result))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        result = (EvValueBridge.taggedNumber((this.typedArrayCoerce(taIdxKind tiv))))
                     }
-                    result = (EvValueBridge.taggedNumber((this.typedArrayCoerce(taIdxKind tiv))))
                 }
                 obj.setIndexAt(numIdx result)
                 ; D-VIEWS: a view over a buffer writes THROUGH to the bytes, and
                 ; every other view over that buffer sees it.
                 if (this.isBufferBackedView(obj)) {
-                    this.writeThroughView(obj numIdx (result.toNumber()))
+                    if taIdxBig {
+                        def bigWv:BigNum (this.bigNumOf(result))
+                        this.writeThroughViewBig(obj numIdx bigWv)
+                    } {
+                        this.writeThroughView(obj numIdx (result.toNumber()))
+                    }
                 }
             }
         } {
@@ -8066,11 +8114,18 @@ class ComponentEngine {
             def taKind:string (this.typedArrayBrandOf(obj))
             if ((strlen taKind) > 0) {
                 if (this.isArrayIndexKey(key)) {
-                    def tcv:double (this.toNumberOf(result))
-                    if scriptThrew {
-                        return (EvValueBridge.taggedUndefined())
+                    if (this.isBigTypedArrayKind(taKind)) {
+                        result = (this.bigElementFor(taKind result))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                    } {
+                        def tcv:double (this.toNumberOf(result))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        result = (EvValueBridge.taggedNumber((this.typedArrayCoerce(taKind tcv))))
                     }
-                    result = (EvValueBridge.taggedNumber((this.typedArrayCoerce(taKind tcv))))
                 }
             }
             ; D-STRICT: sloppy mode drops a refused write on the floor; strict
@@ -8090,7 +8145,13 @@ class ComponentEngine {
             if ((strlen taKind) > 0) {
                 if (this.isArrayIndexKey(key)) {
                     if (this.isBufferBackedView(obj)) {
-                        this.writeThroughView(obj (to_int (this.stringToNumber(key))) (result.toNumber()))
+                        if (this.isBigTypedArrayKind(taKind)) {
+                            def bigKi:int (to_int (this.stringToNumber(key)))
+                            def bigWv2:BigNum (this.bigNumOf(result))
+                            this.writeThroughViewBig(obj bigKi bigWv2)
+                        } {
+                            this.writeThroughView(obj (to_int (this.stringToNumber(key))) (result.toNumber()))
+                        }
                     }
                 }
             }
@@ -8228,7 +8289,34 @@ class ComponentEngine {
                 ; ToNumber, so an object operand runs its own valueOf. The value
                 ; comes through the same resolver a plain read uses, so a
                 ; global-object property is found the same way.
-                def oldNum:double (this.toNumberOf((this.lookupIdentifier(varName))))
+                ; D-BIGINT: `i++` on a BigInt stays a BigInt. Going through
+                ; ToNumber made it a TypeError, so a `for (var i = 0n; ...; i++)`
+                ; loop could not run at all.
+                def curU:EvHandle (this.lookupIdentifier(varName))
+                if (this.isBigIntValue(curU)) {
+                    def stepU:BigNum (BigNum.fromInt(1))
+                    def curBig:BigNum (this.bigNumOf(curU))
+                    def nextBig:BigNum (curBig.add(stepU))
+                    if (opK == 18) {
+                        nextBig = (curBig.sub(stepU))
+                    }
+                    def nextU:EvHandle (this.makeBigIntValue(nextBig))
+                    if (context.has(varName)) {
+                        context.assign(varName nextU)
+                        this.syncGlobalVar(varName nextU)
+                    } {
+                        if onGlobalU {
+                            gObjU.setMember(varName nextU)
+                        } {
+                            context.assign(varName nextU)
+                        }
+                    }
+                    if node.prefix {
+                        return nextU
+                    }
+                    return curU
+                }
+                def oldNum:double (this.toNumberOf(curU))
                 if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
                 }
@@ -8255,6 +8343,23 @@ class ComponentEngine {
                 def oldV:EvHandle (this.readMemberValue(leftNode))
                 if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
+                }
+                if (this.isBigIntValue(oldV)) {
+                    def stepM:BigNum (BigNum.fromInt(1))
+                    def curM:BigNum (this.bigNumOf(oldV))
+                    def nextM:BigNum (curM.add(stepM))
+                    if (opK == 18) {
+                        nextM = (curM.sub(stepM))
+                    }
+                    def nextMv:EvHandle (this.makeBigIntValue(nextM))
+                    def wroteM:EvHandle (this.assignMember(leftNode 1 nextMv))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    if node.prefix {
+                        return wroteM
+                    }
+                    return oldV
                 }
                 def oldNumM:double (this.toNumberOf(oldV))
                 if scriptThrew {
@@ -9720,6 +9825,17 @@ class ComponentEngine {
         if (this.isWeakCtorName(name)) {
             return (this.constructWeak(name args))
         }
+        ; §21.2.1 BigInt(v): the explicit conversion, and the only way to get a
+        ; BigInt out of a Number. It is NOT a constructor -- `new BigInt(1)` is
+        ; a TypeError, which the construct paths report.
+        if (name == "BigInt") {
+            def bArg:EvHandle (EvValueBridge.taggedUndefined())
+            if ((array_length args) > 0) { bArg = (itemAt args 0) }
+            if (asNew) {
+                return (this.throwSpecError("TypeError" "BigInt is not a constructor"))
+            }
+            return (this.toBigIntOf(bArg))
+        }
         ; §27.1.2.1: %Iterator% is abstract -- it exists to hang the helpers and
         ; `from` on, and constructing it directly is a TypeError.
         if (name == "Iterator") {
@@ -9793,6 +9909,14 @@ class ComponentEngine {
             if (name == "Number") {
                 if (prim.isNull()) {
                     return (EvValueBridge.taggedNumber(0.0))
+                }
+                ; §21.1.1.1: Number(bigint) is the EXPLICIT conversion, and is
+                ; allowed where every implicit one is refused. It rounds to the
+                ; nearest double, losing precision above 2^53 -- which is the
+                ; caller's decision to make and the reason it must be written.
+                if (this.isBigIntValue(prim)) {
+                    def numBig:BigNum (this.bigNumOf(prim))
+                    return (EvValueBridge.taggedNumber((numBig.toDouble())))
                 }
                 return (EvValueBridge.taggedNumber((this.toNumberOf(prim))))
             }
@@ -17100,6 +17224,25 @@ class ComponentEngine {
         ; parsing that text -- and a loop bound is evaluated once per iteration.
         ; The parse is memoised on the node, and the case sits at the front
         ; rather than fifteen string comparisons down the chain.
+        ; D-BIGINT: `123n`. The lexer keeps the suffix, so it is trimmed here and
+        ; the digits parsed exactly -- which is the point: the value is the one
+        ; the source wrote, not the nearest double to it.
+        if (exprK == 62) {
+            def bigText:string node.value
+            def bl:int (strlen bigText)
+            if (bl > 0) {
+                if ((substring bigText (bl - 1) bl) == "n") {
+                    bigText = (substring bigText 0 (bl - 1))
+                }
+            }
+            def blOk:[boolean]
+            push blOk false
+            def parsedBig:BigNum (BigNum.parse(bigText blOk))
+            if (false == (itemAt blOk 0)) {
+                return (this.throwSpecError("SyntaxError" "Invalid BigInt literal"))
+            }
+            return (this.makeBigIntValue(parsedBig))
+        }
         if (exprK == 2) {
             if (false == node.numScanned) {
                 node.numScanned = true
@@ -18749,7 +18892,17 @@ class ComponentEngine {
                     if ((array_length node.children) > 0) {
                         ; ToNumber proper: an object runs valueOf/toString and a
                         ; string goes through the StringNumericLiteral grammar.
-                        return (EvValueBridge.taggedNumber((this.toNumberOf((this.evaluateExpr((itemAt node.children 0)))))))
+                        def nArg:EvHandle (this.evaluateExpr((itemAt node.children 0)))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        ; D-BIGINT: Number(bigint) is the EXPLICIT conversion and
+                        ; is allowed, where every implicit one is refused.
+                        if (this.isBigIntValue(nArg)) {
+                            def numBig2:BigNum (this.bigNumOf(nArg))
+                            return (EvValueBridge.taggedNumber((numBig2.toDouble())))
+                        }
+                        return (EvValueBridge.taggedNumber((this.toNumberOf(nArg))))
                     }
                     return (EvValueBridge.taggedNumber(0.0))
                 }
@@ -19437,7 +19590,226 @@ class ComponentEngine {
         return (EvValueBridge.taggedNumber((this.floorNum((u / div)))))
     }
 
+    ; D-BIGINT: every operator that either operand being a BigInt changes.
+    ; Answers null when neither side is one, which is what lets the ordinary
+    ; paths below stay exactly as they were.
+    ;
+    ; The rule the whole thing turns on: BigInt does NOT mix with Number in
+    ; arithmetic. `1n + 1` is a TypeError, deliberately -- an implicit
+    ; conversion either loses precision or loses the fraction, and the language
+    ; refuses to pick. Comparison DOES mix, because comparing is lossless.
+    fn bigIntBinaryOp:EvHandle (opK:int left:EvHandle right:EvHandle) {
+        def lBig:boolean (this.isBigIntValue(left))
+        def rBig:boolean (this.isBigIntValue(right))
+        if ((false == lBig) && (false == rBig)) {
+            return (EvValueBridge.taggedNull())
+        }
+        ; `+` with a string on either side is CONCATENATION, and reaches here
+        ; only so the BigInt renders as its digits.
+        if (opK == 20) {
+            def lp0:EvHandle (this.toPrimitiveDefault(left))
+            def rp0:EvHandle (this.toPrimitiveDefault(right))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            if ((lp0.isString()) || (rp0.isString())) {
+                return (EvValueBridge.taggedString((this.toStringOf(lp0)) + (this.toStringOf(rp0))))
+            }
+        }
+        ; Equality and relational comparison mix with Number; everything else
+        ; requires both sides to be BigInt.
+        def isCompare:boolean false
+        if ((opK == 26) || ((opK == 27) || ((opK == 28) || (opK == 29)))) { isCompare = true }
+        def isEquality:boolean false
+        if ((opK == 30) || ((opK == 31) || ((opK == 32) || (opK == 33)))) { isEquality = true }
+        if (isEquality) {
+            ; `===` is only ever true between two BigInts; `==` compares across
+            ; to a Number or a String by VALUE.
+            def strict:boolean ((opK == 32) || (opK == 33))
+            def same:boolean false
+            if (lBig && rBig) {
+                def eqL:BigNum (this.bigNumOf(left))
+                def eqR:BigNum (this.bigNumOf(right))
+                same = ((eqL.cmp(eqR)) == 0)
+            } {
+                if (false == strict) {
+                    def otherV:EvHandle right
+                    def bigV:EvHandle left
+                    if (false == lBig) {
+                        otherV = left
+                        bigV = right
+                    }
+                    def op:EvHandle (this.toPrimitiveDefault(otherV))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    if (op.isString()) {
+                        def sOk:[boolean]
+                        push sOk false
+                        def sBig:BigNum (BigNum.parse((op.stringOf()) sOk))
+                        if (itemAt sOk 0) {
+                            def eqB:BigNum (this.bigNumOf(bigV))
+                            same = ((eqB.cmp(sBig)) == 0)
+                        }
+                    } {
+                        if ((op.isNumber()) || (op.isBoolean())) {
+                            def d:double (this.toNumberOf(op))
+                            ; A non-integer or a NaN is equal to no BigInt at
+                            ; all, which is why the comparison is on the value
+                            ; and not on a rounded one.
+                            if (d == d) {
+                                if (this.isFiniteNum(d)) {
+                                    if (d == (this.truncNum(d))) {
+                                        def eqB2:BigNum (this.bigNumOf(bigV))
+                                        def eqD:BigNum (BigNum.fromDouble(d))
+                                        same = ((eqB2.cmp(eqD)) == 0)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if ((opK == 31) || (opK == 33)) {
+                return (EvValueBridge.taggedBoolean((false == same)))
+            }
+            return (EvValueBridge.taggedBoolean(same))
+        }
+        if (isCompare) {
+            def cmpR:int 0
+            def known:boolean false
+            if (lBig && rBig) {
+                def cmpL:BigNum (this.bigNumOf(left))
+                def cmpRr:BigNum (this.bigNumOf(right))
+                cmpR = (cmpL.cmp(cmpRr))
+                known = true
+            } {
+                ; Mixed: compare against the number as a real value. An integer
+                ; number compares exactly; a fractional one decides the tie by
+                ; its fraction, which is what comparing the truncations then the
+                ; remainder amounts to.
+                def numSide:EvHandle right
+                def bigSide:EvHandle left
+                if (false == lBig) {
+                    numSide = left
+                    bigSide = right
+                }
+                def op2:EvHandle (this.toPrimitive(numSide false))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                def dv:double (this.toNumberOf(op2))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                if (dv != dv) {
+                    ; Any NaN makes every relational comparison false.
+                    return (EvValueBridge.taggedBoolean(false))
+                }
+                def bigCmp:int 0
+                if (false == (this.isFiniteNum(dv))) {
+                    if (dv > 0.0) { bigCmp = (0 - 1) } { bigCmp = 1 }
+                } {
+                    def trunc:double (this.truncNum(dv))
+                    def cmpB:BigNum (this.bigNumOf(bigSide))
+                    def cmpD:BigNum (BigNum.fromDouble(trunc))
+                    bigCmp = (cmpB.cmp(cmpD))
+                    if (bigCmp == 0) {
+                        ; Equal against the truncation: the fraction breaks the
+                        ; tie, so 1n < 1.5 and 2n > 1.5.
+                        if (dv > trunc) { bigCmp = (0 - 1) }
+                        if (dv < trunc) { bigCmp = 1 }
+                    }
+                }
+                cmpR = bigCmp
+                if (false == lBig) { cmpR = (0 - cmpR) }
+                known = true
+            }
+            if known {
+                if (opK == 26) { return (EvValueBridge.taggedBoolean((cmpR < 0))) }
+                if (opK == 27) { return (EvValueBridge.taggedBoolean((cmpR > 0))) }
+                if (opK == 28) { return (EvValueBridge.taggedBoolean((cmpR <= 0))) }
+                return (EvValueBridge.taggedBoolean((cmpR >= 0)))
+            }
+        }
+        ; §6.1.6.2: everything else needs two BigInts.
+        if ((false == lBig) || (false == rBig)) {
+            return (this.throwSpecError("TypeError" "Cannot mix BigInt and other types, use explicit conversions"))
+        }
+        def a:BigNum (this.bigNumOf(left))
+        def b:BigNum (this.bigNumOf(right))
+        if (opK == 20) { return (this.makeBigIntValue((a.add(b)))) }
+        if (opK == 21) { return (this.makeBigIntValue((a.sub(b)))) }
+        if (opK == 22) { return (this.makeBigIntValue((a.mul(b)))) }
+        if (opK == 23) {
+            if (b.isZero()) {
+                return (this.throwSpecError("RangeError" "Division by zero"))
+            }
+            return (this.makeBigIntValue((a.div(b))))
+        }
+        if (opK == 24) {
+            if (b.isZero()) {
+                return (this.throwSpecError("RangeError" "Division by zero"))
+            }
+            return (this.makeBigIntValue((a.rem(b))))
+        }
+        if (opK == 25) {
+            if (b.neg) {
+                return (this.throwSpecError("RangeError" "Exponent must be non-negative"))
+            }
+            return (this.makeBigIntValue((a.pow(b))))
+        }
+        if (opK == 37) { return (this.makeBigIntValue((a.bitwise(b 0)))) }
+        if (opK == 38) { return (this.makeBigIntValue((a.bitwise(b 1)))) }
+        if (opK == 39) { return (this.makeBigIntValue((a.bitwise(b 2)))) }
+        if ((opK == 40) || (opK == 41)) {
+            ; A shift by a huge count is not something to allocate for: past a
+            ; few thousand bits the answer is 0 or -1 either way.
+            def shiftBy:BigNum b
+            def leftShift:boolean (opK == 40)
+            if (shiftBy.neg) {
+                leftShift = (false == leftShift)
+                shiftBy = (shiftBy.negate())
+            }
+            if ((shiftBy.bitLength()) > 24) {
+                if leftShift {
+                    return (this.throwSpecError("RangeError" "BigInt is too large"))
+                }
+                if (a.neg) { return (this.bigFromIntValue((0 - 1))) }
+                return (this.bigFromIntValue(0))
+            }
+            def k:int (to_int (shiftBy.toDouble()))
+            if leftShift {
+                return (this.makeBigIntValue((a.shiftLeft(k))))
+            }
+            return (this.makeBigIntValue((a.shiftRight(k))))
+        }
+        if (opK == 42) {
+            ; §6.1.6.2.11: there is no unsigned right shift for BigInt -- a
+            ; BigInt has no width for the sign bit to move out of.
+            return (this.throwSpecError("TypeError" "BigInts have no unsigned right shift, use >> instead"))
+        }
+        return (EvValueBridge.taggedNull())
+    }
+
     fn applyBinaryOp:EvHandle (opK:int left:EvHandle right:EvHandle) {
+        ; D-BIGINT: a BigInt on either side changes what almost every operator
+        ; means, so it is decided first. The check is two slot probes on values
+        ; that are already objects, and every fast path below is untouched.
+        if (left.isObject()) {
+            def bigL:EvHandle (this.bigIntBinaryOp(opK left right))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            if (false == (bigL.isNull())) { return bigL }
+        }
+        if (right.isObject()) {
+            def bigR:EvHandle (this.bigIntBinaryOp(opK left right))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            if (false == (bigR.isNull())) { return bigR }
+        }
         ; Arithmetic
         if (opK == 20) {
             ; PERF fast path: two plain strings concatenate directly. The
@@ -19774,6 +20146,8 @@ class ComponentEngine {
         if (name == "Uint32Array") { return true }
         if (name == "Float32Array") { return true }
         if (name == "Float64Array") { return true }
+        if (name == "BigInt64Array") { return true }
+        if (name == "BigUint64Array") { return true }
         return false
     }
 
@@ -19985,6 +20359,8 @@ class ComponentEngine {
 
     ; How many bytes one DataView element occupies.
     fn dataViewWidth:int (elemName:string) {
+        if (elemName == "BigInt64") { return 8 }
+        if (elemName == "BigUint64") { return 8 }
         if (elemName == "Int8") { return 1 }
         if (elemName == "Uint8") { return 1 }
         if (elemName == "Int16") { return 2 }
@@ -20116,8 +20492,59 @@ class ComponentEngine {
         return (this.valueFromParts(sign biased mant expBits mantBits))
     }
 
+    ; D-BIGINT: the 64-bit element kinds. A double cannot hold a 64-bit integer,
+    ; which is the whole reason these exist, so they are assembled and taken
+    ; apart a byte at a time through BigNum rather than through a number.
+    fn bigFromBytes:BigNum (bytes:EvHandle base:int little:boolean signed:boolean) {
+        def acc:BigNum (BigNum.zero())
+        def i:int 7
+        while (i >= 0) {
+            def at:int (base + i)
+            if little {
+                at = (base + i)
+            } {
+                at = (base + (7 - i))
+            }
+            def byteV:int 0
+            if (at < (bytes.denseLen())) {
+                byteV = (to_int ((bytes.arrayItemAt(at)).toNumber()))
+            }
+            acc = ((acc.shiftLeft(8)).add((BigNum.fromInt((bit_and byteV 255)))))
+            i = (i - 1)
+        }
+        if signed {
+            return (acc.asIntN(64))
+        }
+        return acc
+    }
+
+    fn bigToBytes:void (b:BigNum bytes:EvHandle base:int little:boolean) {
+        def u:BigNum (b.asUintN(64))
+        def i:int 0
+        while (i < 8) {
+            def shifted:BigNum (u.shiftRight((i * 8)))
+            def byteV:int (to_int ((shifted.asUintN(8)).toDouble()))
+            def at:int (base + i)
+            if (false == little) {
+                at = (base + (7 - i))
+            }
+            if (at < (bytes.denseLen())) {
+                bytes.setIndexAt(at (EvValueBridge.taggedNumber((to_double byteV))))
+            }
+            i = (i + 1)
+        }
+    }
+
     fn dataViewRead:EvHandle (bytes:EvHandle base:int elemName:string little:boolean) {
         def width:int (this.dataViewWidth(elemName))
+        if (elemName == "BigInt64") {
+            def sBig:BigNum (this.bigFromBytes(bytes base little true))
+            return (this.makeBigIntValue(sBig))
+        }
+        if (elemName == "BigUint64") {
+            def uBig:BigNum (this.bigFromBytes(bytes base little false))
+            return (this.makeBigIntValue(uBig))
+        }
         if (elemName == "Float32") {
             return (EvValueBridge.taggedNumber((this.floatFromBytes(bytes base 4 little))))
         }
@@ -20229,6 +20656,8 @@ class ComponentEngine {
         if (kind == "Uint32Array") { return 4 }
         if (kind == "Float32Array") { return 4 }
         if (kind == "Float64Array") { return 8 }
+        if (kind == "BigInt64Array") { return 8 }
+        if (kind == "BigUint64Array") { return 8 }
         return 1
     }
 
@@ -20368,7 +20797,34 @@ class ComponentEngine {
 
     ; The DataView element name for a typed array kind: the codec is shared, so
     ; a view over a buffer decodes with exactly the bytes DataView would read.
+    ; §23.2.5.16: an element of a BigInt array must BE a BigInt. A Number is a
+    ; TypeError rather than a conversion -- the same refusal the operators make.
+    fn bigElementFor:EvHandle (kind:string v:EvHandle) {
+        if (false == (this.isBigIntValue(v))) {
+            if (v.isNumber()) {
+                return (this.throwSpecError("TypeError" "Cannot convert a Number to a BigInt"))
+            }
+        }
+        def bv:EvHandle (this.toBigIntOf(v))
+        if scriptThrew {
+            return (EvValueBridge.taggedUndefined())
+        }
+        def b:BigNum (this.bigNumOf(bv))
+        if (kind == "BigUint64Array") {
+            return (this.makeBigIntValue((b.asUintN(64))))
+        }
+        return (this.makeBigIntValue((b.asIntN(64))))
+    }
+
+    fn isBigTypedArrayKind:boolean (kind:string) {
+        if (kind == "BigInt64Array") { return true }
+        if (kind == "BigUint64Array") { return true }
+        return false
+    }
+
     fn typedArrayElemName:string (kind:string) {
+        if (kind == "BigInt64Array") { return "BigInt64" }
+        if (kind == "BigUint64Array") { return "BigUint64" }
         if (kind == "Int8Array") { return "Int8" }
         if (kind == "Uint8Array") { return "Uint8" }
         if (kind == "Uint8ClampedArray") { return "Uint8" }
@@ -20409,6 +20865,20 @@ class ComponentEngine {
             }
             i = (i + 1)
         }
+    }
+
+    ; The BigInt element kinds write through with the BigInt codec: the value
+    ; does not survive a trip through a double.
+    fn writeThroughViewBig:void (view:EvHandle idx:int b:BigNum) {
+        if (false == (this.isBufferBackedView(view))) { return }
+        def buf:EvHandle (view.getOwnData("__tabuffer__"))
+        if (false == (this.isArrayBufferValue(buf))) { return }
+        def bytes:EvHandle (this.arrayBufferBytes(buf))
+        def off:int (this.toIntegerOf((view.getOwnData("__taoffset__"))))
+        def base:int (off + (idx * 8))
+        if ((base + 8) > (bytes.denseLen())) { return }
+        this.bigToBytes(b bytes base true)
+        this.refreshBufferViews(buf view)
     }
 
     ; Every view over `buf` except `except` re-reads itself.
@@ -20493,7 +20963,11 @@ class ComponentEngine {
                 def vItems:[EvHandle]
                 def vi:int 0
                 while (vi < vLen) {
-                    push vItems (EvValueBridge.taggedNumber(0.0))
+                    if (this.isBigTypedArrayKind(kind)) {
+                        push vItems (this.bigFromIntValue(0))
+                    } {
+                        push vItems (EvValueBridge.taggedNumber(0.0))
+                    }
                     vi = (vi + 1)
                 }
                 def view:EvHandle (EvValueBridge.taggedArray(vItems))
@@ -20523,7 +20997,11 @@ class ComponentEngine {
                 def n:int (to_int (a0.toNumber()))
                 def i:int 0
                 while (i < n) {
-                    push items (EvValueBridge.taggedNumber(0.0))
+                    if (this.isBigTypedArrayKind(kind)) {
+                        push items (this.bigFromIntValue(0))
+                    } {
+                        push items (EvValueBridge.taggedNumber(0.0))
+                    }
                     i = (i + 1)
                 }
             } {
@@ -20533,8 +21011,18 @@ class ComponentEngine {
                 }
                 def j:int 0
                 while (j < (array_length src)) {
-                    def nv:double (this.toNumberOf((itemAt src j)))
-                    push items (EvValueBridge.taggedNumber((this.typedArrayCoerce(kind nv))))
+                    if (this.isBigTypedArrayKind(kind)) {
+                        push items (this.bigElementFor(kind (itemAt src j)))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                    } {
+                        def nv:double (this.toNumberOf((itemAt src j)))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        push items (EvValueBridge.taggedNumber((this.typedArrayCoerce(kind nv))))
+                    }
                     j = (j + 1)
                 }
             }
@@ -20570,6 +21058,10 @@ class ComponentEngine {
         if (name == "Symbol") { return true }
         if (name == "Map") { return true }
         if (name == "Set") { return true }
+        ; BigInt is a function but NOT a constructor; it is listed here so that
+        ; `typeof BigInt` is "function" and it carries a prototype, and the
+        ; construct paths refuse it by name.
+        if (name == "BigInt") { return true }
         ; %Iterator% is a constructor -- an abstract one, so `new Iterator()` is
         ; a TypeError -- and `typeof Iterator` is "function" because of it.
         if (name == "Iterator") { return true }
@@ -22222,6 +22714,33 @@ class ComponentEngine {
             }
             return (EvValueBridge.taggedNumber(oldD))
         }
+        ; §21.2.2: asIntN and asUintN wrap a BigInt into a fixed width, which is
+        ; how a BigInt is used as a machine word -- the only place a BigInt has
+        ; a size at all.
+        if (nsName == "BigInt") {
+            def bits:int 0
+            if ((array_length args) > 0) {
+                def bitsD:double (this.toNumberOf((itemAt args 0)))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                if (bitsD < 0.0) {
+                    return (this.throwSpecError("RangeError" "Invalid value: not (convertible to) a safe integer"))
+                }
+                bits = (to_int bitsD)
+            }
+            def bv:EvHandle (EvValueBridge.taggedUndefined())
+            if ((array_length args) > 1) { bv = (itemAt args 1) }
+            def bBig:EvHandle (this.toBigIntOf(bv))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            def bn:BigNum (this.bigNumOf(bBig))
+            if (name == "asIntN") {
+                return (this.makeBigIntValue((bn.asIntN(bits))))
+            }
+            return (this.makeBigIntValue((bn.asUintN(bits))))
+        }
         ; §27.1.2.1 Iterator.from: any iterable -- or any object with a `next` --
         ; becomes an iterator carrying the helpers.
         if (nsName == "Iterator") {
@@ -22848,6 +23367,11 @@ class ComponentEngine {
             push out "from"
             return out
         }
+        if (nsName == "BigInt") {
+            push out "asIntN"
+            push out "asUintN"
+            return out
+        }
         ; D-ATOMICS: one agent means every one of these is already atomic --
         ; there is nothing to interleave with. What they still owe the caller
         ; is the RIGHT ANSWER and the right refusals, which is what is here.
@@ -23351,6 +23875,9 @@ class ComponentEngine {
         if (nsName == "Iterator") {
             return (this.hasBuiltinStatic(nsName name))
         }
+        if (nsName == "BigInt") {
+            return (this.hasBuiltinStatic(nsName name))
+        }
         if (nsName == "Atomics") {
             return (this.hasBuiltinStatic(nsName name))
         }
@@ -23563,6 +24090,7 @@ class ComponentEngine {
         if (kind == "set") { return "Set" }
         if (kind == "date") { return "Date" }
         if (kind == "promise") { return "Promise" }
+        if (kind == "bigint") { return "BigInt" }
         if (kind == "arraybuffer") { return "ArrayBuffer" }
         if (kind == "sharedarraybuffer") { return "SharedArrayBuffer" }
         if (kind == "dataview") { return "DataView" }
@@ -23587,6 +24115,16 @@ class ComponentEngine {
         if (nsName == "Set") { return "set" }
         if (nsName == "Date") { return "date" }
         if (nsName == "Promise") { return "promise" }
+        ; D-BIGINT / D-WEAK / D-SHARED: without these the prototype published no
+        ; methods and every read fell through to Object.prototype, so
+        ; `(255n).toString(16)` answered "[object Object]".
+        if (nsName == "BigInt") { return "bigint" }
+        if (nsName == "WeakMap") { return "weakmap" }
+        if (nsName == "WeakSet") { return "weakset" }
+        if (nsName == "WeakRef") { return "weakref" }
+        if (nsName == "FinalizationRegistry") { return "weakregistry" }
+        if (nsName == "SharedArrayBuffer") { return "sharedarraybuffer" }
+        if (nsName == "ArrayBuffer") { return "arraybuffer" }
         if (nsName == "Object") { return "object" }
         return ""
     }
@@ -23730,6 +24268,10 @@ class ComponentEngine {
             push out "grow"
         }
         if (kind == "dataview") {
+            push out "getBigInt64"
+            push out "setBigInt64"
+            push out "getBigUint64"
+            push out "setBigUint64"
             push out "getInt8"
             push out "setInt8"
             push out "getUint8"
@@ -23799,6 +24341,11 @@ class ComponentEngine {
         }
         if (kind == "weakref") {
             push out "deref"
+        }
+        if (kind == "bigint") {
+            push out "toString"
+            push out "toLocaleString"
+            push out "valueOf"
         }
         if (kind == "weakregistry") {
             push out "register"
@@ -24316,6 +24863,8 @@ class ComponentEngine {
             if (v.hasOwnData("__intlkind__")) {
                 return ("intl" + ((v.getOwnData("__intlkind__")).stringOf()))
             }
+            ; D-BIGINT: a BigInt dispatches to BigInt.prototype.
+            if (v.hasOwnData("__biglimbs__")) { return "bigint" }
             ; D-WEAK: the slot names the kind outright.
             if (v.hasOwnData("__weakkind__")) {
                 return ((v.getOwnData("__weakkind__")).stringOf())
@@ -24591,6 +25140,11 @@ class ComponentEngine {
         }
         if (kind == "weakref") {
             if (name == "deref") { return 0 }
+        }
+        if (kind == "bigint") {
+            if (name == "toString") { return 0 }
+            if (name == "toLocaleString") { return 0 }
+            if (name == "valueOf") { return 0 }
         }
         if (kind == "weakregistry") {
             if (name == "register") { return 2 }
@@ -25976,6 +26530,28 @@ class ComponentEngine {
         ; non-Date is a TypeError, as it is for Number and Boolean.
         if (kind == "date") {
             return (this.invokeDateMethod(name recv args))
+        }
+        if (kind == "bigint") {
+            if (name == "valueOf") {
+                return recv
+            }
+            def bnum:BigNum (this.bigNumOf(recv))
+            if (name == "toString") {
+                def bRadix:int 10
+                if ((array_length args) > 0) {
+                    if (false == ((itemAt args 0).isUndefined())) {
+                        bRadix = (this.toIntegerOf((itemAt args 0)))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        if ((bRadix < 2) || (bRadix > 36)) {
+                            return (this.throwSpecError("RangeError" "toString() radix must be between 2 and 36"))
+                        }
+                    }
+                }
+                return (EvValueBridge.taggedString((bnum.toRadix(bRadix))))
+            }
+            return (EvValueBridge.taggedString((bnum.toDecimal())))
         }
         ; ---- toString / valueOf, per receiver kind --------------------------
         ; D-RADIX: Number.prototype.toString(radix). Base 10 is the default;
@@ -28893,6 +29469,19 @@ class ComponentEngine {
             if isGet {
                 return (this.dataViewRead(dvBytes base elemName little))
             }
+            ; The 64-bit accessors take a BIGINT, not a number -- passing a
+            ; number is a TypeError, which is what ToBigInt reports.
+            if ((elemName == "BigInt64") || (elemName == "BigUint64")) {
+                def bwv:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 1) { bwv = (itemAt args 1) }
+                if (false == (this.isBigIntValue(bwv))) {
+                    return (this.throwSpecError("TypeError" "Cannot convert a Number to a BigInt"))
+                }
+                def dvBig:BigNum (this.bigNumOf(bwv))
+                this.bigToBytes(dvBig dvBytes base little)
+                this.refreshBufferViews(dvBuf (EvValueBridge.taggedUndefined()))
+                return (EvValueBridge.taggedUndefined())
+            }
             def wv:double 0.0
             if ((array_length args) > 1) {
                 wv = (this.toNumberOf((itemAt args 1)))
@@ -30220,6 +30809,11 @@ class ComponentEngine {
         if (v.isArrayValue()) { objLike = true }
         if (v.isObject()) { objLike = true }
         if (v.isFunction()) { objLike = true }
+        ; D-BIGINT: a BigInt IS a primitive -- it is only carried as an object.
+        ; Converting one here reached its `toString` and handed back the digits
+        ; as a STRING, so `2n + 3n` concatenated to "23" instead of adding.
+        ; Symbols are already exempt for exactly the same reason.
+        if (this.isBigIntValue(v)) { objLike = false }
         if (objLike == false) {
             return v
         }
@@ -30590,6 +31184,13 @@ class ComponentEngine {
         ; every arithmetic compare.
         if (v.isNumber()) {
             return v.numberValue
+        }
+        ; §7.1.4: ToNumber of a BigInt is a TypeError. `Number(1n)` is the
+        ; explicit conversion and goes a different way; an implicit one is
+        ; exactly what the type is meant to prevent.
+        if (this.isBigIntValue(v)) {
+            def _bn:EvHandle (this.throwSpecError("TypeError" "Cannot convert a BigInt value to a number"))
+            return (0.0 / 0.0)
         }
         def p:EvHandle (this.toPrimitive(v false))
         if (p.isString()) {
@@ -32924,6 +33525,12 @@ class ComponentEngine {
         if (this.isSymbolValue(v)) {
             def _st:EvHandle (this.throwSpecError("TypeError" "Cannot convert a Symbol value to a string"))
             return ""
+        }
+        ; D-BIGINT: a BigInt renders as its digits with no `n` -- the suffix is
+        ; literal syntax, not part of the value.
+        if (this.isBigIntValue(v)) {
+            def strBig:BigNum (this.bigNumOf(v))
+            return (strBig.toDecimal())
         }
         def p:EvHandle v
         ; Functions convert too -- a guest override of Function.prototype.toString
@@ -37425,6 +38032,104 @@ class ComponentEngine {
         return e
     }
 
+    ; ==========================================================================
+    ; D-BIGINT: the value, and the two conversions either side of it.
+    ; --------------------------------------------------------------------------
+    ; A BigInt is an OBJECT with its limbs and its sign in own slots, which is
+    ; how symbols are carried too. The alternative -- a new case in the tagged
+    ; value -- reaches into every match in EvHandle on three targets; this
+    ; reaches into `typeof`, the operators and the conversions, which is where
+    ; the behaviour actually differs anyway.
+    ;
+    ; The limbs are stored rather than a decimal string: rebuilding from limbs
+    ; is a copy, rebuilding from decimal is a parse with a multiply per digit,
+    ; and every operator rebuilds both operands.
+    ; ==========================================================================
+    fn makeBigIntValue:EvHandle (b:BigNum) {
+        def keysB:[string]
+        def valsB:[EvHandle]
+        def v:EvHandle (EvValueBridge.taggedObject(keysB valsB))
+        def limbs:[EvHandle]
+        def i:int 0
+        while (i < (array_length b.mag)) {
+            push limbs (EvHandle.fromInt((itemAt b.mag i)))
+            i = (i + 1)
+        }
+        v.setMember("__biglimbs__" (EvValueBridge.taggedArray(limbs)))
+        v.setAttrs("__biglimbs__" false false false)
+        v.setMember("__bigneg__" (EvValueBridge.taggedBoolean(b.neg)))
+        v.setAttrs("__bigneg__" false false false)
+        v.setProto((this.builtinPrototype("BigInt")))
+        return v
+    }
+
+    fn isBigIntValue:boolean (v:EvHandle) {
+        if (false == (v.isObject())) { return false }
+        return (v.hasOwnData("__biglimbs__"))
+    }
+
+    fn bigNumOf:BigNum (v:EvHandle) {
+        def b (new BigNum)
+        if (false == (this.isBigIntValue(v))) { return b }
+        def limbs:EvHandle (v.getOwnData("__biglimbs__"))
+        def i:int 0
+        while (i < (limbs.denseLen())) {
+            push b.mag (this.toIntegerOf((limbs.arrayItemAt(i))))
+            i = (i + 1)
+        }
+        b.neg = ((v.getOwnData("__bigneg__")).toBool())
+        return b
+    }
+
+    fn bigFromIntValue:EvHandle (n:int) {
+        return (this.makeBigIntValue((BigNum.fromInt(n))))
+    }
+
+    ; §7.1.13 ToBigInt. A number must be an INTEGER -- 1.5 is a RangeError, not
+    ; a truncation -- and a string parses as a BigInt literal, where a bad one
+    ; is a SyntaxError rather than NaN.
+    fn toBigIntOf:EvHandle (v:EvHandle) {
+        if (this.isBigIntValue(v)) { return v }
+        if (v.isBoolean()) {
+            if (v.toBool()) { return (this.bigFromIntValue(1)) }
+            return (this.bigFromIntValue(0))
+        }
+        if (v.isNumber()) {
+            def d:double (v.toNumber())
+            if (d != d) {
+                return (this.throwSpecError("RangeError" "The number NaN cannot be converted to a BigInt because it is not an integer"))
+            }
+            if (false == (this.isFiniteNum(d))) {
+                return (this.throwSpecError("RangeError" "The number Infinity cannot be converted to a BigInt because it is not an integer"))
+            }
+            if (d != (this.truncNum(d))) {
+                return (this.throwSpecError("RangeError" "The number is not a safe integer and cannot be converted to a BigInt"))
+            }
+            return (this.makeBigIntValue((BigNum.fromDouble(d))))
+        }
+        if (v.isString()) {
+            def okBox:[boolean]
+            push okBox false
+            def parsed:BigNum (BigNum.parse((v.stringOf()) okBox))
+            if (false == (itemAt okBox 0)) {
+                return (this.throwSpecError("SyntaxError" "Cannot convert string to a BigInt"))
+            }
+            return (this.makeBigIntValue(parsed))
+        }
+        if ((v.isUndefined()) || (v.isNull())) {
+            return (this.throwSpecError("TypeError" "Cannot convert undefined or null to a BigInt"))
+        }
+        if (this.isDescriptorObject(v)) {
+            def prim:EvHandle (this.toPrimitive(v false))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            if (this.isBigIntValue(prim)) { return prim }
+            return (this.toBigIntOf(prim))
+        }
+        return (this.throwSpecError("TypeError" "Cannot convert this value to a BigInt"))
+    }
+
     ; §20.5.7.1: AggregateError carries the errors it aggregates as an own
     ; `errors` property -- writable, non-enumerable, configurable, and a COPY,
     ; so mutating the array afterwards does not reach into the error.
@@ -37456,6 +38161,7 @@ class ComponentEngine {
         if (name == "Map") { return true }
         if (name == "Set") { return true }
         if (name == "Iterator") { return true }
+        if (name == "BigInt") { return true }
         if (this.isWeakCtorName(name)) { return true }
         if (name == "Symbol") { return true }
         if (name == "Math") { return true }
@@ -37546,6 +38252,7 @@ class ComponentEngine {
             push gnames "Atomics"
             push gnames "DataView"
             push gnames "Iterator"
+            push gnames "BigInt"
             push gnames "WeakMap"
             push gnames "WeakSet"
             push gnames "WeakRef"
@@ -37709,6 +38416,14 @@ class ComponentEngine {
             def symTag@(optional):EvHandle (val.tryOwnData("__symbol__"))
             if symTag {
                 return "symbol"
+            }
+            ; D-BIGINT: a BigInt is carried as an object here for the same
+            ; reason a symbol is -- there is no room for one in a tagged value
+            ; -- and `typeof` has to say so, or every guard written as
+            ; `typeof x === "bigint"` reads "object" and takes the wrong path.
+            def bigTag@(optional):EvHandle (val.tryOwnData("__biglimbs__"))
+            if bigTag {
+                return "bigint"
             }
             return "object"
         }
@@ -37955,6 +38670,26 @@ class ComponentEngine {
             
             if (opK == 49) {
                 return (EvValueBridge.taggedBoolean(((arg.toBool()) == false)))
+            }
+            ; D-BIGINT: unary minus and `~` answer BigInts; unary PLUS is a
+            ; TypeError, alone among them, because +x is defined as ToNumber
+            ; and a BigInt refuses that conversion.
+            if (this.isBigIntValue(arg)) {
+                ; Hoisted into locals: two `this` methods inside one call
+                ; expression are two live borrows of it on the Rust target.
+                if (opK == 21) {
+                    def negSrc:BigNum (this.bigNumOf(arg))
+                    def negOut:BigNum (negSrc.negate())
+                    return (this.makeBigIntValue(negOut))
+                }
+                if (opK == 50) {
+                    def notSrc:BigNum (this.bigNumOf(arg))
+                    def notOut:BigNum (notSrc.bitNot())
+                    return (this.makeBigIntValue(notOut))
+                }
+                if (opK == 20) {
+                    return (this.throwSpecError("TypeError" "Cannot convert a BigInt value to a number"))
+                }
             }
             if (opK == 21) {
                 ; D-IEEE: negate by MULTIPLYING by -1, not by subtracting from
@@ -39213,6 +39948,10 @@ class ComponentEngine {
                 return (this.constructIntl(ikind iArgs))
             }
         }
+        ; BigInt is a function, not a constructor.
+        if (className == "BigInt") {
+            return (this.throwSpecError("TypeError" "BigInt is not a constructor"))
+        }
         ; %Iterator% is abstract: it carries the helpers and `from`, and is not
         ; itself constructible.
         if (className == "Iterator") {
@@ -40470,6 +41209,8 @@ class ComponentEngine {
         if (k == "__abshared__") { return true }
         if (k == "__abviews__") { return true }
         if (k == "__tabuffer__") { return true }
+        if (k == "__biglimbs__") { return true }
+        if (k == "__bigneg__") { return true }
         if (k == "__taoffset__") { return true }
         if (k == "__iteridx__") { return true }
         if (k == "__genitems__") { return true }
@@ -41035,6 +41776,13 @@ class ComponentEngine {
             if (bk == "string") { value = (EvValueBridge.taggedString((this.toStringOf(value)))) }
             if (bk == "boolean") { value = (EvValueBridge.taggedBoolean((value.toBool()))) }
             if scriptThrew { return "" }
+        }
+        ; §25.5.2: a BigInt has no JSON representation and JSON.stringify
+        ; refuses it rather than inventing one. Serialising it as an object
+        ; produced `{}`, which round-trips to something that is not the value.
+        if (this.isBigIntValue(value)) {
+            def _bj:EvHandle (this.throwSpecError("TypeError" "Do not know how to serialize a BigInt"))
+            return ""
         }
         if (value.isNull()) {
             return "null"
