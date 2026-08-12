@@ -16,10 +16,10 @@ npm run jsengine:acorn:test
 The vendored UMD is rewritten before `loadScript`:
 
 1. Unwrap UMD into `var acorn = {}; (function (exports) { … })(acorn)`
-2. Rename value-position `type` → `tokType` (engine TS treats `type =` as a type-alias)
-3. Rewrite `new this(` → `new Parser(` (engine rejects `new this`)
+2. Rewrite `new this(` → `new Parser(` (engine rejects `new this`)
 
-Node uses `vendor/acorn.js` unchanged.
+Node uses `vendor/acorn.js` unchanged. The old `type`→`tokType` rename is no
+longer needed after `ba3e5fdd` (`type` opens a type alias only when a name follows).
 
 ## Cases
 

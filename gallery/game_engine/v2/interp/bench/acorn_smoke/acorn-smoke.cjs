@@ -6,10 +6,11 @@
  *
  * Prepare step (engine only):
  *   1. Unwrap UMD → `var acorn={}; (function(exports){…})(acorn)`
- *   2. Rename value-position Identifier `type` → `tokType`
- *      (engine TS parser treats bare `type = …` as a type-alias)
- *   3. Rewrite `new this(` → `new Parser(`
+ *   2. Rewrite `new this(` → `new Parser(`
  *      (engine throws "expression is not a constructor" for `new this`)
+ *
+ * (Former `type`→`tokType` rename dropped after ba3e5fdd: `type` opens a
+ * type alias only when an alias name follows it.)
  *
  * Usage:
  *   node acorn-smoke.cjs
@@ -167,41 +168,9 @@ function rewriteUmdToGlobal(src) {
   ].join('\n');
 }
 
-function renameTypeIdents(code, acorn) {
-  const ast = acorn.parse(code, { ecmaVersion: 2020, ranges: true, sourceType: 'script' });
-  const renames = [];
-  function isPropKey(node, parent) {
-    if (!parent) return false;
-    if (parent.type === 'MemberExpression' && parent.property === node && !parent.computed) return true;
-    if (parent.type === 'Property' && parent.key === node && !parent.computed) return true;
-    if (parent.type === 'MethodDefinition' && parent.key === node && !parent.computed) return true;
-    if (parent.type === 'LabeledStatement' && parent.label === node) return true;
-    return false;
-  }
-  function walk(node, parent) {
-    if (!node || typeof node !== 'object') return;
-    if (node.type === 'Identifier' && node.name === 'type' && !isPropKey(node, parent)) {
-      renames.push({ start: node.start, end: node.end });
-    }
-    for (const key of Object.keys(node)) {
-      if (key === 'start' || key === 'end' || key === 'loc' || key === 'range') continue;
-      const v = node[key];
-      if (Array.isArray(v)) v.forEach((c) => walk(c, node));
-      else if (v && typeof v.type === 'string') walk(v, node);
-    }
-  }
-  walk(ast, null);
-  renames.sort((a, b) => b.start - a.start);
-  let out = code;
-  for (const r of renames) out = out.slice(0, r.start) + 'tokType' + out.slice(r.end);
-  return out;
-}
-
 function prepareAcornForEngine() {
   if (!fs.existsSync(VENDOR)) throw new Error(`missing ${VENDOR}`);
-  const nodeAcorn = loadNodeAcorn();
   let code = rewriteUmdToGlobal(fs.readFileSync(VENDOR, 'utf8'));
-  code = renameTypeIdents(code, nodeAcorn);
   // Engine cannot construct with `new this(...)` (acorn Parser.parse).
   code = code.replace(/new this\s*\(/g, 'new Parser(');
   fs.mkdirSync(path.dirname(PREPARED), { recursive: true });
@@ -384,7 +353,7 @@ function main() {
         {
           library: 'acorn',
           version: acorn.version,
-          prepare: ['unwrap-umd', 'rename-type-idents', 'new-this→new-Parser'],
+          prepare: ['unwrap-umd', 'new-this→new-Parser'],
           cases: results.length,
           matchNode: matched,
           hardFail,
