@@ -239,14 +239,14 @@ engine and diffs every emitted file against the same compile run natively.
 | hello (5 lines) | ~35 s | ~0.9 s | byte-identical |
 | `chain_fluent_builder.rgr` | ~70 s | ~1 s | byte-identical (534 B) |
 | `process_nesting.rgr` (process/actor feature) | ~93 s | ~1 s | byte-identical (42,639 B) |
-| the compiler itself (76 files, 5 MB) | see below | ~9 s | not established |
+| the compiler itself (76 files, 5 MB) | OOM | ~9 s | **does not fit in memory** |
 
-The compiler compiling **itself** on the engine is not established here. Two
-attempts exhausted the heap — OOM at a 12 GB cap after ~6 minutes and again at
-13.6 GB on a 15 GB machine, with V8 spending ~96 % of its time in GC. A third
-attempt with the parser fix in place ran past 35 minutes without dying and had
-not finished at the time of writing, so the question is open rather than
-answered either way.
+The compiler compiling **itself** on the engine does not complete. Three
+attempts exhausted the heap on a 15 GB machine: a 12 GB cap died after ~6
+minutes, 13.6 GB after ~10, and 13 GB with the `return ";"` fix in place ran
+~45 minutes before dying the same way. V8 spends ~96 % of its time in GC
+before the end. The parser fix let the run go seven times further without
+changing the outcome.
 
 What *is* established: the engine runs the compiler correctly and compiles real
 programs to byte-identical output. Whether the compiler's own 5 MB working set
