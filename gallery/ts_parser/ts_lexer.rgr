@@ -640,7 +640,14 @@ class TSLexer {
                     handled = true }
                 if (esc == "`") { value = (value + "`")
                     handled = true }
-                if (esc == "$") { value = (value + "$")
+                ; `\$` stays ESCAPED in the cooked text. The token's value keeps
+                ; `${...}` as literal text for the engine to re-split, so
+                ; decoding the escape here would make `\${x}` indistinguishable
+                ; from a real substitution -- and it was: the engine evaluated
+                ; `x` and the literal `${x}` the source asked for was lost. The
+                ; engine decodes it when it splits, where the two are still
+                ; distinguishable.
+                if (esc == "$") { value = (value + "\\$")
                     handled = true }
                 if (esc == "\\") { value = (value + "\\")
                     handled = true }

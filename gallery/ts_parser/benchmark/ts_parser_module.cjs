@@ -797,7 +797,7 @@ class TSLexer  {
           handled = true;
         }
         if ( esc == "$" ) {
-          value = value + "$";
+          value = value + "\\$";
           handled = true;
         }
         if ( esc == "\\" ) {

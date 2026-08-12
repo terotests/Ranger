@@ -1388,6 +1388,12 @@ class ComponentEngine {
     ; has no description at all. The key string alone cannot answer it, which is
     ; why the description is remembered here at mint time.
     def symbolFnNames:[string:EvHandle]
+    ; symId -> the symbol VALUE it identifies. A symbol key is stored as its id
+    ; ("@@3", "@@iterator"), which is enough to look a property up but not to
+    ; hand the symbol back -- which is exactly what getOwnPropertySymbols has
+    ; to do. Registered wherever a symbol is minted, so there is one place to
+    ; keep in step.
+    def symbolById:[string:EvHandle]
     ; D-PROMISE: the job queue. A reaction is a (handler, derived capability,
     ; argument) triple; the queue is drained after the script's synchronous work
     ; finishes, which is the only observation point this realm has.
@@ -10267,6 +10273,29 @@ class ComponentEngine {
         }
         if (this.isWeakCtorName(name)) {
             return (this.constructWeak(name args))
+        }
+        ; §20.4.1: Symbol is not a constructor either -- `new Symbol()` is a
+        ; TypeError. It reached the ordinary builtin-ctor path, which had no
+        ; branch for it, so `new Symbol()` quietly produced something rather
+        ; than refusing. The CALL form mints, as `Symbol(desc)` does through
+        ; the identifier path.
+        if (name == "Symbol") {
+            if asNew {
+                return (this.throwSpecError("TypeError" "Symbol is not a constructor"))
+            }
+            def symDesc:string ""
+            def symHas:boolean false
+            if ((array_length args) > 0) {
+                def sdv2:EvHandle (itemAt args 0)
+                if (false == (sdv2.isUndefined())) {
+                    symDesc = (this.toStringOf(sdv2))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    symHas = true
+                }
+            }
+            return (this.mintSymbolDesc(symDesc symHas))
         }
         ; §21.2.1 BigInt(v): the explicit conversion, and the only way to get a
         ; BigInt out of a Number. It is NOT a constructor -- `new BigInt(1)` is
@@ -23082,8 +23111,26 @@ class ComponentEngine {
             }
             if (name == "getOwnPropertySymbols") {
                 ; Symbol keys are stored under an "@@" prefix, which is exactly
-                ; what getOwnPropertyNames filters out.
+                ; what getOwnPropertyNames filters out -- so the symbols were
+                ; there all along and this answered an empty array regardless,
+                ; making every symbol-keyed property invisible to reflection.
+                ; The id is enough to find the property; symbolById is what
+                ; turns it back into the SYMBOL the caller asked for.
                 def symItems:[EvHandle]
+                if (this.isDescriptorObject(a0)) {
+                    def symKeys:[string] (a0.ownDataKeys())
+                    def syi:int 0
+                    while (syi < (array_length symKeys)) {
+                        def symK:string (itemAt symKeys syi)
+                        if ((indexOf symK "@@") == 0) {
+                            def symV@(optional):EvHandle (get symbolById symK)
+                            if symV {
+                                push symItems (unwrap symV)
+                            }
+                        }
+                        syi = (syi + 1)
+                    }
+                }
                 return (EvValueBridge.taggedArray(symItems))
             }
             if (name == "assign") {
@@ -32274,6 +32321,11 @@ class ComponentEngine {
         ; as a STRING, so `2n + 3n` concatenated to "23" instead of adding.
         ; Symbols are already exempt for exactly the same reason.
         if (this.isBigIntValue(v)) { objLike = false }
+        ; ...and a SYMBOL is not object-like either, for the same reason: it is
+        ; a primitive wearing an object's representation here. Left in, it ran
+        ; its own toString and `"" + sym` produced "[object Object]" instead of
+        ; the TypeError that is the whole point of a symbol refusing ToString.
+        if (this.isSymbolValue(v)) { objLike = false }
         if (objLike == false) {
             return v
         }
@@ -36154,6 +36206,7 @@ class ComponentEngine {
         symbolSeq = (symbolSeq + 1)
         def symId:string ("@@" + (to_string symbolSeq))
         minted.setMember("__symid__" (EvValueBridge.taggedString(symId)))
+        set symbolById symId minted
         if hasDesc {
             set symbolFnNames symId (EvValueBridge.taggedString(("[" + (desc + "]"))))
         } {
@@ -39398,6 +39451,7 @@ class ComponentEngine {
             ; A well-known symbol's key is fixed rather than sequenced, so the
             ; same one is reached however the realm was warmed up.
             s.setMember("__symid__" (EvValueBridge.taggedString(("@@" + nm))))
+            set symbolById ("@@" + nm) s
             s.setMember("description" (EvValueBridge.taggedString(("Symbol." + nm))))
             sym.setMember(nm s)
             sym.setAttrs(nm false false false)
@@ -44381,6 +44435,21 @@ class ComponentEngine {
             ; the later ones are never evaluated.
             if scriptThrew { return result }
             def ch:string (at templateStr i)
+
+            ; `\$` is an ESCAPED dollar: it contributes a literal `$` and the
+            ; `{` after it is ordinary text, not the start of a substitution.
+            ; The lexer leaves this one escape undecoded precisely so the two
+            ; are still distinguishable here -- decoded earlier, `\${x}` read
+            ; as a substitution and evaluated x.
+            if (ch == "\\") {
+                if ((i + 1) < len) {
+                    if ((at templateStr (i + 1)) == "$") {
+                        result = (result + "$")
+                        i = (i + 2)
+                        continue
+                    }
+                }
+            }
 
             ; Check for ${...} pattern
             if (ch == "$") {

@@ -1998,6 +1998,28 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["species-plain-concat-unchanged", "return [1].concat([2, 3]).join(',');", "class"],
   ["species-plain-splice-unchanged", "var a = [1, 2, 3]; var r = a.splice(1, 1); return r.join(',') + '|' + a.join(',');", "class"],
 
+  // Symbol: the conversions a symbol REFUSES, and reflection over symbol keys.
+  ["symbol-implicit-string-throws", "try { return '' + Symbol(); } catch (e) { return e.constructor.name; }", "symbol"],
+  ["symbol-template-throws", "try { return `${Symbol()}`; } catch (e) { return e.constructor.name; }", "symbol"],
+  ["symbol-explicit-string-ok", "return String(Symbol('s'));", "symbol"],
+  ["symbol-new-throws", "try { new Symbol(); return 'ACCEPTED'; } catch (e) { return e.constructor.name; }", "symbol"],
+  ["symbol-call-mints", "return typeof Symbol('d');", "symbol"],
+  ["symbol-getownpropertysymbols", "var s = Symbol('q'); var o = {}; o[s] = 1; return Object.getOwnPropertySymbols(o).length;", "symbol"],
+  ["symbol-getownpropertysymbols-identity", "var s = Symbol('q'); var o = {}; o[s] = 1; return Object.getOwnPropertySymbols(o)[0] === s;", "symbol"],
+  ["symbol-getownpropertysymbols-literal", "var s = Symbol('lit'); var t = { [s]: 2 }; return Object.getOwnPropertySymbols(t).length;", "symbol"],
+  ["symbol-getownpropertysymbols-wellknown", "return Object.getOwnPropertySymbols({ [Symbol.iterator]: 1 }).length;", "symbol"],
+  ["symbol-getownpropertysymbols-empty", "return Object.getOwnPropertySymbols({ a: 1 }).length;", "symbol"],
+  ["symbol-still-not-in-keys", "var s = Symbol(); var o = { a: 1 }; o[s] = 2; return Object.keys(o).join(',');", "symbol"],
+  // Template literals: `\$` is an escaped dollar, so what follows is TEXT.
+  // The lexer used to decode it, which made `\${x}` indistinguishable from a
+  // substitution -- the engine evaluated x and the literal was lost.
+  ["template-escaped-dollar-brace", "return `\\${x}`;", "template"],
+  ["template-escaped-dollar-inline", "return `a\\${b}c`;", "template"],
+  ["template-escaped-dollar-alone", "return `\\$`;", "template"],
+  ["template-bare-dollar", "return `$` + `$x`;", "template"],
+  ["template-substitution-still-works", "var x = 5; return `a${x}b`;", "template"],
+  ["template-raw-keeps-escape", "function t(s) { return s.raw[0]; } return t`a\\$b`;", "template"],
+
   // Proxy: calling one, and its place in a prototype chain.
   ["proxy-dot-call", "var p = new Proxy(function () { return this.v; }, {}); return p.call({ v: 7 });", "proxy"],
   ["proxy-dot-apply", "var p = new Proxy(function () { return this.v; }, {}); return p.apply({ v: 8 });", "proxy"],
