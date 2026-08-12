@@ -1999,9 +1999,14 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["species-plain-splice-unchanged", "var a = [1, 2, 3]; var r = a.splice(1, 1); return r.join(',') + '|' + a.join(',');", "class"],
 
   // Proxy: calling one, and its place in a prototype chain.
+  ["proxy-dot-call", "var p = new Proxy(function () { return this.v; }, {}); return p.call({ v: 7 });", "proxy"],
+  ["proxy-dot-apply", "var p = new Proxy(function () { return this.v; }, {}); return p.apply({ v: 8 });", "proxy"],
   ["proxy-apply-trap", "var p = new Proxy(function () {}, { apply: function (t, th, a) { return a[0] + 1; } }); return p(41);", "proxy"],
   ["proxy-apply-no-trap", "var p = new Proxy(function (x) { return x * 2; }, {}); return p(21);", "proxy"],
   ["proxy-apply-this", "var p = new Proxy(function () { return this.v; }, {}); var o = { v: 5, m: p }; return o.m();", "proxy"],
+  ["proxy-as-method-keeps-receiver", "var p = new Proxy(function () { return this.v; }, {}); var o = { v: 5, m: p }; return o.m();", "proxy"],
+  ["proxy-as-method-through-trap", "var q = new Proxy(function () { return 1; }, { apply: function (t, th, a) { return th ? th.v : 'no-this'; } }); var o = { v: 3, m: q }; return o.m();", "proxy"],
+  ["proxy-reflect-apply-receiver", "var p = new Proxy(function () { return this.v; }, {}); return Reflect.apply(p, { v: 9 }, []);", "proxy"],
   ["proxy-instanceof", "function PF() {} var p = new Proxy(new PF(), {}); return p instanceof PF;", "proxy"],
   ["proxy-instanceof-negative", "function PF2() {} function PG2() {} var p = new Proxy(new PF2(), {}); return p instanceof PG2;", "proxy"],
   ["proxy-getproto-trap-drives-instanceof", "function PF3() {} var p = new Proxy({}, { getPrototypeOf: function () { return PF3.prototype; } }); return p instanceof PF3;", "proxy"],
@@ -2624,15 +2629,14 @@ const KNOWN_GAPS = new Set<string>([
   // template that evaluates its key and value twice), which costs more than the
   // one behaviour it buys. Asserted in both directions so it cannot rot.
   "json-proto-is-ordinary-key",
-  // A proxy called as a METHOD loses its receiver: `o.m()` where m is a proxy
-  // over `function () { return this.v; }` answers undefined rather than o.v.
-  // Calling one through a bare name and through Reflect.apply both pass the
-  // receiver correctly; the member-call path dispatches by NAME through a
-  // different route that never reaches callFnValueWithValues, so the fix is
-  // not the one-line receiver forward it looks like. Pinned rather than
-  // rushed, and asserted in both directions so closing it forces this entry
-  // to move.
-  "proxy-apply-this",
+  // `p.call(...)` / `p.apply(...)` where p is a proxy over a function: reading
+  // `call` off the proxy has to reach Function.prototype through the target,
+  // and answers "call is not a function" instead. Calling the proxy itself --
+  // bare, as a method, or through Reflect.apply -- all work; this is the
+  // property READ on a callable proxy, which is a different path from the
+  // call. Found while fixing the method-call case below.
+  "proxy-dot-call",
+  "proxy-dot-apply",
   // `class P extends Promise {}`: P.resolve(v) answers a plain Promise, so
   // `P.resolve(1) instanceof P` is false. `new P(...)` DOES produce a P -- the
   // constructor path is fine; it is only the statics that lose the subclass.

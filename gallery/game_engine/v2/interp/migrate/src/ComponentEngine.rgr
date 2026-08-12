@@ -12409,6 +12409,15 @@ class ComponentEngine {
                     return (this.callFnValueWithValues((m.withThisForCall(obj)) argVals))
                 }
             }
+            ; D-PROXY: a proxy over a function held as a METHOD. `typeof` says
+            ; "function" and the bare-name and Reflect.apply paths both call it,
+            ; but here the value is an OBJECT, so it matched no branch and the
+            ; call reached "m is not a function" at the end. The RECEIVER is the
+            ; object it was read off, which is what the apply trap is handed and
+            ; what `this` is when there is no trap.
+            if (this.isProxyValue(m)) {
+                return (this.callProxyApply(m obj argVals))
+            }
         }
         ; class-instance methods live on the class NODE, not the instance
         def clsName:string (this.instanceClassName(obj))
@@ -18643,6 +18652,20 @@ class ComponentEngine {
                             def bound:EvHandle (objMember.withThisForCall(obj))
                             return (this.callFnValueWithValues(bound objCargs))
                         }
+                    }
+                    ; D-PROXY: a proxy over a function held as a METHOD.
+                    ; `typeof` says "function" and both the bare-name path and
+                    ; Reflect.apply call it, but here the value is an OBJECT, so
+                    ; it matched no branch above and the call fell through to
+                    ; "m is not a function". The RECEIVER is the object it was
+                    ; read off -- what the apply trap is handed as its second
+                    ; argument, and what `this` is when there is no trap.
+                    if (this.isProxyValue(objMember)) {
+                        def pxCargs:[EvHandle] (this.collectCallArgs(node))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        return (this.callProxyApply(objMember obj pxCargs))
                     }
                 }
 
