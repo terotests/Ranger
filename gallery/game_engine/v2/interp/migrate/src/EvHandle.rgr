@@ -2,7 +2,7 @@
 ; EvHandle - Runtime value type for expression evaluation
 ; =============================================================================
 ; Represents values that can be evaluated: numbers, strings, booleans, 
-; null, arrays, objects, functions, and EVG elements.
+; null, arrays, objects, functions, and elements.
 ;
 ; Migration (PLAN_SHAPES.md §7.5 E4e): thin engine handle around `body:EvalValue`.
 ; Collection / property / Function / Element / string / bool live on the shape.
@@ -10,9 +10,9 @@
 ; (also on Reference). Number `@(value)` blocks slotOwned on
 ; the shape.
 
-Import "../../../evg/EVGElement.rgr"
 Import "../../../../../ts_parser/ts_parser_simple.rgr"
 Import "EvalValue.rgr"
+Import "../../../evg/EVGElement.rgr"
 
 ; Kind discriminant: `body` (shape EvalValue). Legacy int tags are gone.
 ; Map SoT: body.Map.entries. Set SoT: body.Set.items.

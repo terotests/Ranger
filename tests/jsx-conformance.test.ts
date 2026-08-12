@@ -168,6 +168,41 @@ const CASES: Array<[name: string, src: string, props: Record<string, unknown>, e
     ["<div>", `  <text t1 text="a">`].join("\n"),
   ],
 
+  // ---- list rendering with an arrow callback ----
+  // These work. They are recorded because the fix for the `function (x)` form
+  // below deletes the hand-rolled map path, and deleting it must not cost the
+  // form that already worked.
+  [
+    "arrow-map-children",
+    `function hud(p) { return <View>{[1, 2].map((n) => <Label>x</Label>)}</View>; }`,
+    {},
+    ["<div>", `  <text t1 text="x">`, `  <text t1 text="x">`].join("\n"),
+  ],
+  [
+    "arrow-map-computed-attr",
+    `function hud(p) { return <View>{[1, 2].map((n) => <View id={"i" + n} />)}</View>; }`,
+    {},
+    ["<div>", "  <div id=i1>", "  <div id=i2>"].join("\n"),
+  ],
+  [
+    "arrow-map-block-body",
+    `function hud(p) { return <View>{[1, 2].map((n) => { return <Label>y</Label>; })}</View>; }`,
+    {},
+    ["<div>", `  <text t1 text="y">`, `  <text t1 text="y">`].join("\n"),
+  ],
+  [
+    "chained-filter-map",
+    `function hud(p) { return <View>{[1, 2].filter((n) => n > 1).map((n) => <Label>f</Label>)}</View>; }`,
+    {},
+    ["<div>", `  <text t1 text="f">`].join("\n"),
+  ],
+  [
+    "map-over-a-variable",
+    `function hud(p) { var xs = [1, 2]; return <View>{xs.map((n) => <Label>v</Label>)}</View>; }`,
+    {},
+    ["<div>", `  <text t1 text="v">`, `  <text t1 text="v">`].join("\n"),
+  ],
+
   // ---- fragments ----
   [
     // A fragment is materialised as a container, not spliced into the parent.
@@ -184,32 +219,40 @@ const CASES: Array<[name: string, src: string, props: Record<string, unknown>, e
  * what comes out, so closing one of these fails here and forces the entry to
  * move up into CASES.
  *
- * All four are the same defect. `evaluateStatementBlock` and its siblings are
- * typed `:EVGElement` and carry control flow as a `hasReturn` flag stapled onto
- * the element, which is a SECOND return channel beside `scriptReturnValue`. A
- * callback invoked through the ordinary value path reads the value channel, so
- * JSX built in a block-return never reaches it and a blank element comes back.
- * An array LITERAL of elements works, which is why this went unnoticed: only
- * the callback form is affected -- and the callback form is `.map`, which is
- * how lists are written.
+ * All four are one defect, and it is narrower than "map is broken" -- the arrow
+ * cases above prove `.map` works. `{xs.map(cb)}` is not evaluated as an
+ * expression at all: `evaluateArrayMapChild` pattern-matches the call in the
+ * JSX child position and re-implements the callback invocation by hand. Both
+ * halves of that hand-rolled path -- `bindMapCallback`, which binds the
+ * parameters, and `evaluateMapCallbackBody`, which runs the body -- guard on
+ * node kind 17, ArrowFunctionExpression. A `function (x) { ... }` callback is
+ * kind 18, so it matches neither: nothing is bound, the body never runs, and a
+ * BLANK element is returned and appended as a child.
+ *
+ * Nothing reports it. The element is well-formed, just empty, so a list of
+ * items renders as the right NUMBER of empty containers.
+ *
+ * Evaluating the expression normally is the fix, and it deletes this special
+ * case rather than extending it: an array of element values in a child
+ * position is already handled a few lines below.
  */
 const KNOWN_WRONG: Array<[name: string, src: string, props: Record<string, unknown>, wrong: string, shouldBe: string]> = [
   [
-    "map-callback-keeps-tag",
+    "function-callback-keeps-tag",
     `function hud(p) { return <View>{[1, 2].map(function (n) { return <Label>x</Label>; })}</View>; }`,
     {},
     ["<div>", "  <div>", "  <div>"].join("\n"),
     ["<div>", `  <text t1 text="x">`, `  <text t1 text="x">`].join("\n"),
   ],
   [
-    "map-callback-keeps-attrs",
+    "function-callback-keeps-attrs",
     `function hud(p) { return <View>{[1, 2].map(function (n) { return <View id={"i" + n} />; })}</View>; }`,
     {},
     ["<div>", "  <div>", "  <div>"].join("\n"),
     ["<div>", "  <div id=i1>", "  <div id=i2>"].join("\n"),
   ],
   [
-    "map-arrow-callback",
+    "function-callback-single-item",
     `function hud(p) { return <View>{[1].map(function (n) { return <Label>a</Label>; })}</View>; }`,
     {},
     ["<div>", "  <div>"].join("\n"),
