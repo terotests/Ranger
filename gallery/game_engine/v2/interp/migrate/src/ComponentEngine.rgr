@@ -1354,6 +1354,13 @@ class ComponentEngine {
     ; is created later.
     def currentNewTarget:EvHandle (EvValueBridge.taggedUndefined())
     def pendingNewTarget:EvHandle (EvValueBridge.taggedUndefined())
+    ; D-SPECIES: the RECEIVER a builtin static was reached through. `L.from(xs)`
+    ; for `class L extends Array` has to build an L, and the static's own
+    ; implementation is the only place that can know -- but invokeBuiltinStatic
+    ; takes a namespace and a name, not a value. Parked here by the call site,
+    ; the same way pendingNewTarget is, rather than widening a signature used
+    ; from four places.
+    def staticCallReceiver:EvHandle (EvValueBridge.taggedUndefined())
     def hasPendingNewTarget:boolean false
     ; D-STATICTHIS: the receiver a built-in STATIC was invoked with, when it
     ; was reached through a value that carries one (`Promise.all.call(C, ...)`).
@@ -12375,7 +12382,11 @@ class ComponentEngine {
             def m:EvHandle (obj.getMember(methodName))
             if (m.isBuiltinStatic()) {
                 if (this.hasInvocableStatic((m.builtinNamespaceOf()) (m.builtinNameOf()))) {
-                    return (this.invokeBuiltinStatic((m.builtinNamespaceOf()) (m.builtinNameOf()) argVals))
+                    def savedSR:EvHandle staticCallReceiver
+                    staticCallReceiver = obj
+                    def srRes:EvHandle (this.invokeBuiltinStatic((m.builtinNamespaceOf()) (m.builtinNameOf()) argVals))
+                    staticCallReceiver = savedSR
+                    return srRes
                 }
             } {
                 if (m.isBuiltinMethod()) {
@@ -13967,6 +13978,7 @@ class ComponentEngine {
                     push sArgsD (this.bcSlotBox(((mFnPos + 1) + si)))
                     si = (si + 1)
                 }
+                staticCallReceiver = obj
                 ; bcSp stays raised until the op-32 caller restores it
                 bcSp = needTop
                 def sRes:EvHandle (this.invokeBuiltinStatic((m.builtinNamespaceOf()) (m.builtinNameOf()) sArgsD))
@@ -16342,9 +16354,42 @@ class ComponentEngine {
                 }
                 mi3 = (mi3 + 1)
             }
-            return (EvValueBridge.taggedArray(mapped))
+            return (this.arrayResultThroughReceiver(mapped))
         }
-        return (EvValueBridge.taggedArray(frItems))
+        return (this.arrayResultThroughReceiver(frItems))
+    }
+
+    ; The array a static answers, built through the RECEIVER it was reached
+    ; through when that is a subclass constructor. §23.1.2.1 says Array.from
+    ; constructs through `this` when `this` is a constructor, which is what
+    ; makes `L.from(xs)` an L and, in turn, what makes `.map()` on the result
+    ; an L as well. Reached through Array itself -- or through anything that is
+    ; not a constructor -- it is an ordinary array.
+    fn arrayResultThroughReceiver:EvHandle (items:[EvHandle]) {
+        def recvV:EvHandle staticCallReceiver
+        if (false == (recvV.isFunction())) {
+            return (EvValueBridge.taggedArray(items))
+        }
+        def recvClass:EvHandle (recvV.getMember("__classname__"))
+        if (false == (recvClass.isString())) {
+            return (EvValueBridge.taggedArray(items))
+        }
+        ; Constructed with NO arguments: `new L(n)` would mean a length, and
+        ; the elements are installed below in one go. §23.1.2.1 passes the
+        ; count, but a subclass constructor that ignores it -- which is every
+        ; one that does not declare its own -- ends up in the same place, and
+        ; a subclass that DOES take arguments must not be handed the items as
+        ; if they were its parameters.
+        def ctorArgs:[EvHandle]
+        def built:EvHandle (this.constructWithValues(recvV ctorArgs recvV))
+        if scriptThrew {
+            return (EvValueBridge.taggedArray(items))
+        }
+        if (false == (built.isArrayValue())) {
+            return (EvValueBridge.taggedArray(items))
+        }
+        built.arrSetItems(items)
+        return built
     }
 
     fn isAsyncGeneratorValue:boolean (v:EvHandle) {
@@ -18501,7 +18546,16 @@ class ComponentEngine {
                         ; here would answer undefined for a static that works.
                         if (this.hasInvocableStatic((objMember.builtinNamespaceOf()) (objMember.builtinNameOf()))) {
                             def stArgs:[EvHandle] (this.collectCallArgs(node))
-                            return (this.invokeBuiltinStatic((objMember.builtinNamespaceOf()) (objMember.builtinNameOf()) stArgs))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                            ; D-SPECIES: the receiver travels, so `L.from(xs)`
+                            ; can build an L.
+                            def savedSR2:EvHandle staticCallReceiver
+                            staticCallReceiver = obj
+                            def stRes:EvHandle (this.invokeBuiltinStatic((objMember.builtinNamespaceOf()) (objMember.builtinNameOf()) stArgs))
+                            staticCallReceiver = savedSR2
+                            return stRes
                         }
                     } {
                     if (objMember.isBuiltinMethod()) {
@@ -22477,7 +22531,7 @@ class ComponentEngine {
                     push ofVals (itemAt args ofK)
                     ofK = (ofK + 1)
                 }
-                return (EvValueBridge.taggedArray(ofVals))
+                return (this.arrayResultThroughReceiver(ofVals))
             }
             if (name == "isArray") {
                 if ((array_length args) == 0) {

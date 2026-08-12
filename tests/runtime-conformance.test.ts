@@ -1960,6 +1960,16 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["subclass-inherits-isarray", "class SubL4 extends Array {} return typeof SubL4.isArray;", "class"],
   ["subclass-proto-is-base", "class SubL5 extends Array {} return Object.getPrototypeOf(SubL5) === Array;", "class"],
 
+  // §23.1.2.1: Array.from constructs through `this` when `this` is a
+  // constructor, so `L.from(xs)` is an L rather than a plain array. The
+  // receiver had nowhere to travel -- invokeBuiltinStatic takes a namespace
+  // and a name, not a value -- so it is parked the way pendingNewTarget is.
+  ["subclass-from-constructs-subclass", "class SpL extends Array {} return SpL.from([1, 2]) instanceof SpL;", "class"],
+  ["subclass-from-keeps-elements", "class SpL2 extends Array {} var l = SpL2.from([1, 2]); return l.length + ':' + l.join(',');", "class"],
+  ["subclass-of-constructs-subclass", "class SpL3 extends Array {} return SpL3.of(1, 2) instanceof SpL3;", "class"],
+  ["array-from-is-still-a-plain-array", "class SpL4 extends Array {} var a = Array.from([1, 2]); return (a instanceof Array) + ',' + (a instanceof SpL4);", "class"],
+  ["array-of-is-still-a-plain-array", "return Array.of(1, 2) instanceof Array;", "class"],
+
   // Proxy: calling one, and its place in a prototype chain.
   ["proxy-apply-trap", "var p = new Proxy(function () {}, { apply: function (t, th, a) { return a[0] + 1; } }); return p(41);", "proxy"],
   ["proxy-apply-no-trap", "var p = new Proxy(function (x) { return x * 2; }, {}); return p(21);", "proxy"],
