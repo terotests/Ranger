@@ -109,10 +109,7 @@ class EvElement {
         }
         def at:int (this.propIndex(name))
         if (at > (0 - 1)) {
-            ; Bound to a local first: on the Rust target the parameter is
-            ; borrowed, and a borrow cannot be stored into a cell.
-            def owned:EvalValue value
-            set propValues at owned
+            set propValues at value
             return
         }
         push propNames name
