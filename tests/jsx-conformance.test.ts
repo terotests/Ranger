@@ -36,20 +36,35 @@ let ComponentEngine: any;
 let EvValueBridge: any;
 
 /**
- * A rendered tree, flattened to one line per node. Only the fields a caller can
- * actually observe are printed -- the tag, the element kind, the identity/class
- * attributes and the text -- because those are what a host renders from.
+ * A rendered tree, flattened to one line per node: the tag AS WRITTEN, the
+ * element kind, the reconciliation key, every prop with its value, and the
+ * text. All of it is what a host reads to render from.
+ *
+ * A prop prints as `name=value` for a primitive and `name=<Kind>` otherwise, so
+ * a function or object prop is visible as one without the test depending on how
+ * it renders. Before EvElement every prop was run through toString() on the way
+ * in, so there was nothing but text to print.
  */
+function propToText(v: any): string {
+  if (v === null || v === undefined) return "?";
+  if (v.value !== undefined) return String(v.value);
+  const kind = (v.constructor && v.constructor.name) || "value";
+  return "<" + kind.replace(/^EvalValue_/, "") + ">";
+}
+
 function renderToText(el: any, depth = 0): string {
   if (!el) return "(null)";
   const pad = "  ".repeat(depth);
-  const bits: string[] = [el.tagName || "?"];
-  if (el.elementType !== undefined && el.elementType !== 0) {
-    bits.push("t" + el.elementType);
+  const bits: string[] = [el.tagName || "(none)"];
+  if (el.isText) bits.push("text");
+  if (el.isFragment) bits.push("frag");
+  if (el.key) bits.push("key=" + el.key);
+  const names = el.propNames || [];
+  const values = el.propValues || [];
+  for (let i = 0; i < names.length; i++) {
+    bits.push(names[i] + "=" + propToText(values[i]));
   }
-  if (el.id) bits.push("id=" + el.id);
-  if (el.className) bits.push("class=" + el.className);
-  if (el.textContent) bits.push("text=" + JSON.stringify(el.textContent));
+  if (el.textContent) bits.push("t=" + JSON.stringify(el.textContent));
   let out = pad + "<" + bits.join(" ") + ">";
   for (const kid of el.children || []) out += "\n" + renderToText(kid, depth + 1);
   return out;
@@ -86,43 +101,47 @@ function toEngineValue(v: unknown): any {
 /** Cases that hold. `expected` is the flattened tree, exactly. */
 const CASES: Array<[name: string, src: string, props: Record<string, unknown>, expected: string]> = [
   // ---- primitive tags and the tag mapping ----
-  ["view-is-div", `function hud(p) { return <View />; }`, {}, "<div>"],
-  ["label-is-text", `function hud(p) { return <Label>hi</Label>; }`, {}, `<text t1 text="hi">`],
+  ["view-tag-is-kept", `function hud(p) { return <View />; }`, {}, "<View>"],
+  ["label-is-text", `function hud(p) { return <Label>hi</Label>; }`, {}, `<Label text t="hi">`],
   ["html-div-passes-through", `function hud(p) { return <div />; }`, {}, "<div>"],
-  ["span-is-text", `function hud(p) { return <span>s</span>; }`, {}, `<text t1 text="s">`],
-  ["image-is-img-kind", `function hud(p) { return <Image src="a.png" />; }`, {}, "<image t2>"],
-  ["path-kind", `function hud(p) { return <Path />; }`, {}, "<path t3>"],
+  ["span-is-text", `function hud(p) { return <span>s</span>; }`, {}, `<span text t="s">`],
+  ["image-tag-and-src", `function hud(p) { return <Image src="a.png" />; }`, {}, "<Image src=a.png>"],
+  ["path-tag", `function hud(p) { return <Path />; }`, {}, "<Path>"],
 
   // ---- attributes ----
-  ["static-attr", `function hud(p) { return <View id="a" />; }`, {}, "<div id=a>"],
-  ["computed-attr", `function hud(p) { return <View id={"a" + 1} />; }`, {}, "<div id=a1>"],
-  ["prop-attr", `function hud(p) { return <View id={p.name} />; }`, { name: "N" }, "<div id=N>"],
-  ["class-attr", `function hud(p) { return <View className="c" />; }`, {}, "<div class=c>"],
-  ["numeric-attr-stringified", `function hud(p) { return <View id={7} />; }`, {}, "<div id=7>"],
+  ["static-attr", `function hud(p) { return <View id="a" />; }`, {}, "<View id=a>"],
+  ["computed-attr", `function hud(p) { return <View id={"a" + 1} />; }`, {}, "<View id=a1>"],
+  ["prop-attr", `function hud(p) { return <View id={p.name} />; }`, { name: "N" }, "<View id=N>"],
+  ["class-attr", `function hud(p) { return <View className="c" />; }`, {}, "<View className=c>"],
+  // Props keep their TYPE now. These four used to arrive as text.
+  ["number-prop-stays-a-number", `function hud(p) { return <View n={7} />; }`, {}, "<View n=7>"],
+  ["boolean-prop-stays-a-boolean", `function hud(p) { return <View b={true} />; }`, {}, "<View b=true>"],
+  ["function-prop-survives", `function hud(p) { return <View onClick={function () { return 1; }} />; }`, {}, "<View onClick=<Function>>"],
+  ["key-is-lifted-out-of-props", `function hud(p) { return <View key="k1" id="a" />; }`, {}, "<View key=k1 id=a>"],
 
   // ---- children ----
   [
     "two-children",
     `function hud(p) { return <View><Label>x</Label><Label>y</Label></View>; }`,
     {},
-    ["<div>", `  <text t1 text="x">`, `  <text t1 text="y">`].join("\n"),
+    ["<View>", `  <Label text t="x">`, `  <Label text t="y">`].join("\n"),
   ],
   [
     "nested-containers",
     `function hud(p) { return <View id="o"><View id="i"><Label>d</Label></View></View>; }`,
     {},
-    ["<div id=o>", "  <div id=i>", `    <text t1 text="d">`].join("\n"),
+    ["<View id=o>", "  <View id=i>", `    <Label text t="d">`].join("\n"),
   ],
   [
     "array-literal-children",
     `function hud(p) { return <View>{[<Label>x</Label>]}</View>; }`,
     {},
-    ["<div>", `  <text t1 text="x">`].join("\n"),
+    ["<View>", `  <Label text t="x">`].join("\n"),
   ],
 
   // ---- text content ----
-  ["interpolated-text", `function hud(p) { return <Label>Score: {p.n}</Label>; }`, { n: 7 }, `<text t1 text="Score: 7">`],
-  ["text-only-expression", `function hud(p) { return <Label>{p.s}</Label>; }`, { s: "abc" }, `<text t1 text="abc">`],
+  ["interpolated-text", `function hud(p) { return <Label>Score: {p.n}</Label>; }`, { n: 7 }, `<Label text t="Score: 7">`],
+  ["text-only-expression", `function hud(p) { return <Label>{p.s}</Label>; }`, { s: "abc" }, `<Label text t="abc">`],
 
   // ---- components ----
   [
@@ -130,14 +149,14 @@ const CASES: Array<[name: string, src: string, props: Record<string, unknown>, e
     `function Badge(p) { return <Label className="b">z</Label>; }
      function hud(p) { return <View><Badge /></View>; }`,
     {},
-    ["<div>", `  <text t1 class=b text="z">`].join("\n"),
+    ["<View>", `  <Label text className=b t="z">`].join("\n"),
   ],
   [
     "component-props",
     `function Badge(p) { return <Label>{p.label}</Label>; }
      function hud(p) { return <Badge label="L" />; }`,
     {},
-    `<text t1 text="L">`,
+    `<Label text t="L">`,
   ],
   [
     "component-nested-in-component",
@@ -145,7 +164,7 @@ const CASES: Array<[name: string, src: string, props: Record<string, unknown>, e
      function Outer(p) { return <View id="o"><Inner /></View>; }
      function hud(p) { return <Outer />; }`,
     {},
-    ["<div id=o>", `  <text t1 text="i">`].join("\n"),
+    ["<View id=o>", `  <Label text t="i">`].join("\n"),
   ],
 
   // ---- conditionals ----
@@ -153,19 +172,19 @@ const CASES: Array<[name: string, src: string, props: Record<string, unknown>, e
     "conditional-true-branch",
     `function hud(p) { if (p.on) { return <View id="y" />; } return <View id="n" />; }`,
     { on: true },
-    "<div id=y>",
+    "<View id=y>",
   ],
   [
     "conditional-false-branch",
     `function hud(p) { if (p.on) { return <View id="y" />; } return <View id="n" />; }`,
     { on: false },
-    "<div id=n>",
+    "<View id=n>",
   ],
   [
     "ternary-child",
     `function hud(p) { return <View>{p.on ? <Label>a</Label> : <Label>b</Label>}</View>; }`,
     { on: true },
-    ["<div>", `  <text t1 text="a">`].join("\n"),
+    ["<View>", `  <Label text t="a">`].join("\n"),
   ],
 
   // ---- list rendering with an arrow callback ----
@@ -176,40 +195,41 @@ const CASES: Array<[name: string, src: string, props: Record<string, unknown>, e
     "arrow-map-children",
     `function hud(p) { return <View>{[1, 2].map((n) => <Label>x</Label>)}</View>; }`,
     {},
-    ["<div>", `  <text t1 text="x">`, `  <text t1 text="x">`].join("\n"),
+    ["<View>", `  <Label text t="x">`, `  <Label text t="x">`].join("\n"),
   ],
   [
     "arrow-map-computed-attr",
     `function hud(p) { return <View>{[1, 2].map((n) => <View id={"i" + n} />)}</View>; }`,
     {},
-    ["<div>", "  <div id=i1>", "  <div id=i2>"].join("\n"),
+    ["<View>", "  <View id=i1>", "  <View id=i2>"].join("\n"),
   ],
   [
     "arrow-map-block-body",
     `function hud(p) { return <View>{[1, 2].map((n) => { return <Label>y</Label>; })}</View>; }`,
     {},
-    ["<div>", `  <text t1 text="y">`, `  <text t1 text="y">`].join("\n"),
+    ["<View>", `  <Label text t="y">`, `  <Label text t="y">`].join("\n"),
   ],
   [
     "chained-filter-map",
     `function hud(p) { return <View>{[1, 2].filter((n) => n > 1).map((n) => <Label>f</Label>)}</View>; }`,
     {},
-    ["<div>", `  <text t1 text="f">`].join("\n"),
+    ["<View>", `  <Label text t="f">`].join("\n"),
   ],
   [
     "map-over-a-variable",
     `function hud(p) { var xs = [1, 2]; return <View>{xs.map((n) => <Label>v</Label>)}</View>; }`,
     {},
-    ["<div>", `  <text t1 text="v">`, `  <text t1 text="v">`].join("\n"),
+    ["<View>", `  <Label text t="v">`, `  <Label text t="v">`].join("\n"),
   ],
 
   // ---- fragments ----
   [
-    // A fragment is materialised as a container, not spliced into the parent.
+    // A fragment is its own KIND now. It used to be materialised as a literal
+    // `div`, a container the source never asked for; a host can splice it.
     "fragment-single-child",
     `function hud(p) { return <><Label>f</Label></>; }`,
     {},
-    ["<div>", `  <text t1 text="f">`].join("\n"),
+    ["<(none) frag>", `  <Label text t="f">`].join("\n"),
   ],
 ];
 
@@ -241,30 +261,30 @@ const KNOWN_WRONG: Array<[name: string, src: string, props: Record<string, unkno
     "function-callback-keeps-tag",
     `function hud(p) { return <View>{[1, 2].map(function (n) { return <Label>x</Label>; })}</View>; }`,
     {},
-    ["<div>", "  <div>", "  <div>"].join("\n"),
-    ["<div>", `  <text t1 text="x">`, `  <text t1 text="x">`].join("\n"),
+    "<View>",
+    ["<View>", `  <Label text t="x">`, `  <Label text t="x">`].join("\n"),
   ],
   [
     "function-callback-keeps-attrs",
     `function hud(p) { return <View>{[1, 2].map(function (n) { return <View id={"i" + n} />; })}</View>; }`,
     {},
-    ["<div>", "  <div>", "  <div>"].join("\n"),
-    ["<div>", "  <div id=i1>", "  <div id=i2>"].join("\n"),
+    "<View>",
+    ["<View>", "  <View id=i1>", "  <View id=i2>"].join("\n"),
   ],
   [
     "function-callback-single-item",
     `function hud(p) { return <View>{[1].map(function (n) { return <Label>a</Label>; })}</View>; }`,
     {},
-    ["<div>", "  <div>"].join("\n"),
-    ["<div>", `  <text t1 text="a">`].join("\n"),
+    "<View>",
+    ["<View>", `  <Label text t="a">`].join("\n"),
   ],
   [
     "block-return-in-component",
     `function Row(p) { if (p.x) { return <Label>t</Label>; } return <Label>f</Label>; }
      function hud(p) { return <View>{[1].map(function (n) { return <Row x={true} />; })}</View>; }`,
     {},
-    ["<div>", "  <div>"].join("\n"),
-    ["<div>", `  <text t1 text="t">`].join("\n"),
+    "<View>",
+    ["<View>", `  <Label text t="t">`].join("\n"),
   ],
 ];
 

@@ -64,7 +64,7 @@ class EvValueBridge {
     }
 
     ; ---- Element ----------------------------------------------------------
-    sfn taggedElement:EvHandle (el:EVGElement) {
+    sfn taggedElement:EvHandle (el:EvElement) {
         return (EvValueBridge.toTagged((EvalValue.element(el))))
     }
     sfn isElement:boolean (v:EvHandle) {

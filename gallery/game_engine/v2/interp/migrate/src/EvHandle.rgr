@@ -12,7 +12,6 @@
 
 Import "../../../../../ts_parser/ts_parser_simple.rgr"
 Import "EvalValue.rgr"
-Import "../../../evg/EVGElement.rgr"
 
 ; Kind discriminant: `body` (shape EvalValue). Legacy int tags are gone.
 ; Map SoT: body.Map.entries. Set SoT: body.Set.items.
@@ -486,7 +485,7 @@ class EvHandle {
         def b:EvalValue body
         return (EvalValue.isElement(b))
     }
-    fn elementOf:EVGElement () {
+    fn elementOf:EvElement () {
         def _evBody:EvalValue body
         case _evBody el:EvalValue.Element {
             return (unwrap el.element)
@@ -494,7 +493,7 @@ class EvHandle {
         def pool:EvalConstPool (EvalConstPool.__singleton())
         return pool.blankElement
     }
-    fn setElement:void (el:EVGElement) {
+    fn setElement:void (el:EvElement) {
         ; Rewrite the Element case; keep Reference identity.
         def id:int (this.identityIdOf())
         if (id <= 0) {
@@ -938,7 +937,7 @@ class EvHandle {
         return v
     }
 
-    sfn element:EvHandle (el:EVGElement) {
+    sfn element:EvHandle (el:EvElement) {
         def v:EvHandle (new EvHandle())
         def id:int ((EvalIdentityMinter.__singleton()).mint())
         v.body = (EvalValue.elementAt(id el))
@@ -1234,10 +1233,10 @@ class EvHandle {
         }
         if (this.isElement()) {
             if (this.hasElement()) {
-                def el:EVGElement (this.elementOf())
-                return "[EVGElement: " + el.tagName + "]"
+                def el:EvElement (this.elementOf())
+                return "[EvElement: " + el.tagName + "]"
             }
-            return "[EVGElement: null]"
+            return "[EvElement: null]"
         }
         return "undefined"
     }
@@ -2887,7 +2886,7 @@ class EvalConstPool @singleton(true) {
     ; A stand-in for elementOf on a non-Element value. The read accessor has
     ; to answer something, and one shared blank costs nothing -- every caller
     ; tests hasElement() first, so nothing ever reads it.
-    def blankElement:EVGElement (new EVGElement())
+    def blankElement:EvElement (new EvElement())
     def nullValue:EvHandle (EvHandle.rawNull())
     def undefinedValue:EvHandle (EvHandle.rawUndefined())
     def trueValue:EvHandle (EvHandle.rawBoolean(true))

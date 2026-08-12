@@ -9,7 +9,6 @@
 Import "../../../../../ts_parser/ts_parser_simple.rgr"
 Import "../../../../../ts_parser/ts_lexer.rgr"
 Import "../../../../../ts_parser/ts_ast_patch.rgr"
-Import "../../../evg/EVGElement.rgr"
 Import "EvHandle.rgr"
 Import "EvValueBridge.rgr"
 Import "UnicodeProps.rgr"
@@ -1126,8 +1125,11 @@ class ComponentEngine {
     ; Optional bridge for host-native script calls (game engine navigation, I/O).
     def nativeBridge@(optional):EvalNativeBridge
     
-    ; Primitive EVG elements (not components)
+    ; Tag names that are NOT components -- a lowercase tag is host markup by
+    ; JSX convention, and these are the capitalised ones a host has claimed.
     def primitives:[string]
+    ; Tags whose content is TEXT rather than child elements. See tagHoldsText.
+    def textTags:[string]
 
     ; Value-returning control flow: set when a `return` executes while running a
     ; statement list, so returns inside if/else and nested blocks propagate the
@@ -1535,8 +1537,14 @@ class ComponentEngine {
         context = mod
         def prim:[string]
         primitives = prim
+        def tt:[string]
+        textTags = tt
         def ap:[string]
         assetPaths = ap
+        ; The tags whose content this engine has always read as text.
+        push textTags "Label"
+        push textTags "span"
+        push textTags "text"
         
         ; Register primitive element names
         push primitives "View"
@@ -1824,7 +1832,7 @@ class ComponentEngine {
     ; Main Entry Points
     ; ==========================================================================
     
-    fn parseFile:EVGElement (dirPath:string fileName:string) {
+    fn parseFile:EvElement (dirPath:string fileName:string) {
         this.resetParseState()
         this.setBasePath(dirPath)
         
@@ -1850,7 +1858,7 @@ class ComponentEngine {
         }
     }
     
-    fn parse:EVGElement (src:string) {
+    fn parse:EvElement (src:string) {
         this.resetParseState()
         source = src
         this.setCurrentSource(src)
@@ -1875,7 +1883,7 @@ class ComponentEngine {
         def renderFn:TSNode (this.findRenderFunction(ast))
         if (renderFn.nodeType == "") {
             print "Error: No render() function found"
-            def empty (new EVGElement())
+            def empty (new EvElement())
             return empty
         }
         
@@ -3077,14 +3085,14 @@ class ComponentEngine {
 
     ; Call a script function by name and evaluate its returned JSX into an EVG
     ; element tree (for screen render functions).
-    fn callRender:EVGElement (name:string props:EvHandle) {
+    fn callRender:EvElement (name:string props:EvHandle) {
         def fnValue:EvHandle (context.lookup(name))
         if (false == (fnValue.isFunction())) {
-            def empty (new EVGElement())
+            def empty (new EvElement())
             return empty
         }
         if (false == (fnValue.hasFunctionNode())) {
-            def empty2 (new EVGElement())
+            def empty2 (new EvElement())
             return empty2
         }
         def fnNode:TSNode (fnValue.functionNodeOf())
@@ -4335,14 +4343,14 @@ class ComponentEngine {
     ; Function/Component Evaluation
     ; ==========================================================================
     
-    fn evaluateFunction:EVGElement (fnNode:TSNode) {
+    fn evaluateFunction:EvElement (fnNode:TSNode) {
         ; Create new context for function scope
         def savedContext:EvalContext context
         context = (context.createChild())
         
         ; Process function body
         def body:TSNode (this.getFunctionBody(fnNode))
-        def result:EVGElement (this.evaluateFunctionBody(body))
+        def result:EvElement (this.evaluateFunctionBody(body))
         
         ; Restore context
         context = savedContext
@@ -4350,7 +4358,7 @@ class ComponentEngine {
         return result
     }
     
-    fn evaluateFunctionWithProps:EVGElement (fnNode:TSNode props:EvHandle) {
+    fn evaluateFunctionWithProps:EvElement (fnNode:TSNode props:EvHandle) {
         ; Create new context for function scope
         def savedContext:EvalContext context
         context = (context.createChild())
@@ -4360,7 +4368,7 @@ class ComponentEngine {
         
         ; Process function body
         def body:TSNode (this.getFunctionBody(fnNode))
-        def result:EVGElement (this.evaluateFunctionBody(body))
+        def result:EvElement (this.evaluateFunctionBody(body))
         
         ; Restore context
         context = savedContext
@@ -4480,8 +4488,8 @@ class ComponentEngine {
         return empty
     }
     
-    fn evaluateFunctionBody:EVGElement (body:TSNode) {
-        def empty (new EVGElement())
+    fn evaluateFunctionBody:EvElement (body:TSNode) {
+        def empty (new EvElement())
         
         ; Process statements
         def i:int 0
@@ -4495,7 +4503,7 @@ class ComponentEngine {
             
             ; Process if statement
             if ((this.nodeKindOf(stmt)) == 32) {
-                def ifResult:EVGElement (this.evaluateIfStatement(stmt))
+                def ifResult:EvElement (this.evaluateIfStatement(stmt))
                 if ifResult.hasReturn {
                     return ifResult
                 }
@@ -4503,7 +4511,7 @@ class ComponentEngine {
             
             ; Process for loop
             if ((this.nodeKindOf(stmt)) == 33) {
-                def forResult:EVGElement (this.evaluateForStatement(stmt))
+                def forResult:EvElement (this.evaluateForStatement(stmt))
                 if forResult.hasReturn {
                     return forResult
                 }
@@ -4511,7 +4519,7 @@ class ComponentEngine {
             
             ; Process for...of loop
             if ((this.nodeKindOf(stmt)) == 37) {
-                def forOfResult:EVGElement (this.evaluateForOfStatement(stmt))
+                def forOfResult:EvElement (this.evaluateForOfStatement(stmt))
                 if forOfResult.hasReturn {
                     return forOfResult
                 }
@@ -4519,7 +4527,7 @@ class ComponentEngine {
             
             ; Process while loop
             if ((this.nodeKindOf(stmt)) == 36) {
-                def whileResult:EVGElement (this.evaluateWhileStatement(stmt))
+                def whileResult:EvElement (this.evaluateWhileStatement(stmt))
                 if whileResult.hasReturn {
                     return whileResult
                 }
@@ -4539,7 +4547,7 @@ class ComponentEngine {
                     def returnExpr:TSNode (unwrap stmt.left)
                     return (this.evaluateJSX(returnExpr))
                 } {
-                    def bareReturn (new EVGElement())
+                    def bareReturn (new EvElement())
                     bareReturn.hasReturn = true
                     return bareReturn
                 }
@@ -4556,7 +4564,7 @@ class ComponentEngine {
         return empty
     }
     
-    ; Evaluate function body and return result as EvHandle (not EVGElement)
+    ; Evaluate function body and return result as EvHandle (not EvElement)
     ; This allows functions to return arrays, primitives, etc.
     ; D-HOIST: pre-declare every `var` name reachable from these statements
     ; without descending into nested functions -- those have their own scope.
@@ -5085,7 +5093,7 @@ class ComponentEngine {
             
             ; Process if statement
             if ((this.nodeKindOf(stmt)) == 32) {
-                def ifResult:EVGElement (this.evaluateIfStatement(stmt))
+                def ifResult:EvElement (this.evaluateIfStatement(stmt))
                 if ifResult.hasReturn {
                     ; If returned from if statement, need to get the value
                     ; For now, just continue - we'll handle this properly later
@@ -5129,7 +5137,7 @@ class ComponentEngine {
         
         ; Arrow function with expression body
         if ((body.nodeType == "JSXElement") || (body.nodeType == "JSXFragment")) {
-            def el:EVGElement (this.evaluateJSX(body))
+            def el:EvElement (this.evaluateJSX(body))
             return (EvValueBridge.taggedElement(el))
         }
         
@@ -6928,9 +6936,9 @@ class ComponentEngine {
     }
 
     ; Evaluates an if statement
-    ; Returns EVGElement with hasReturn flag set if a return was executed
-    fn evaluateIfStatement:EVGElement (node:TSNode) {
-        def result (new EVGElement())
+    ; Returns EvElement with hasReturn flag set if a return was executed
+    fn evaluateIfStatement:EvElement (node:TSNode) {
+        def result (new EvElement())
         result.hasReturn = false
         
         ; Evaluate the condition (node.left)
@@ -6942,7 +6950,7 @@ class ComponentEngine {
                 ; Execute then-block (node.body)
                 if node.body {
                     def thenBlock:TSNode (unwrap node.body)
-                    def blockResult:EVGElement (this.evaluateStatementBlock(thenBlock))
+                    def blockResult:EvElement (this.evaluateStatementBlock(thenBlock))
                     if blockResult.hasReturn {
                         return blockResult
                     }
@@ -6959,7 +6967,7 @@ class ComponentEngine {
                     def elseBlock:TSNode (unwrap node.right)
                     ; Could be another IfStatement (else if) or BlockStatement (else)
                     if ((this.nodeKindOf(elseBlock)) == 32) {
-                        def elseIfResult:EVGElement (this.evaluateIfStatement(elseBlock))
+                        def elseIfResult:EvElement (this.evaluateIfStatement(elseBlock))
                         if elseIfResult.hasReturn {
                             return elseIfResult
                         }
@@ -6970,7 +6978,7 @@ class ComponentEngine {
                             return elseIfResult
                         }
                     } {
-                        def blockResult:EVGElement (this.evaluateStatementBlock(elseBlock))
+                        def blockResult:EvElement (this.evaluateStatementBlock(elseBlock))
                         if blockResult.hasReturn {
                             return blockResult
                         }
@@ -6989,9 +6997,9 @@ class ComponentEngine {
     }
     
     ; Evaluates a block of statements (BlockStatement)
-    ; Returns EVGElement with hasReturn flag set if a return was executed
-    fn evaluateStatementBlock:EVGElement (block:TSNode) {
-        def result (new EVGElement())
+    ; Returns EvElement with hasReturn flag set if a return was executed
+    fn evaluateStatementBlock:EvElement (block:TSNode) {
+        def result (new EvElement())
         result.hasReturn = false
         
         ; Handle single statement (not wrapped in BlockStatement)
@@ -7006,7 +7014,7 @@ class ComponentEngine {
         if ((this.nodeKindOf(block)) == 35) {
             if block.left {
                 def returnExpr:TSNode (unwrap block.left)
-                def returnedEl:EVGElement (this.evaluateJSX(returnExpr))
+                def returnedEl:EvElement (this.evaluateJSX(returnExpr))
                 returnedEl.hasReturn = true
                 return returnedEl
             } {
@@ -7026,7 +7034,7 @@ class ComponentEngine {
                 }
                 
                 if ((this.nodeKindOf(stmt)) == 32) {
-                    def ifResult:EVGElement (this.evaluateIfStatement(stmt))
+                    def ifResult:EvElement (this.evaluateIfStatement(stmt))
                     if ifResult.hasReturn {
                         return ifResult
                     }
@@ -7039,7 +7047,7 @@ class ComponentEngine {
                 }
                 
                 if ((this.nodeKindOf(stmt)) == 33) {
-                    def forResult:EVGElement (this.evaluateForStatement(stmt))
+                    def forResult:EvElement (this.evaluateForStatement(stmt))
                     if forResult.hasReturn {
                         return forResult
                     }
@@ -7052,7 +7060,7 @@ class ComponentEngine {
                 }
                 
                 if ((this.nodeKindOf(stmt)) == 37) {
-                    def forOfResult:EVGElement (this.evaluateForOfStatement(stmt))
+                    def forOfResult:EvElement (this.evaluateForOfStatement(stmt))
                     if forOfResult.hasReturn {
                         return forOfResult
                     }
@@ -7065,7 +7073,7 @@ class ComponentEngine {
                 }
                 
                 if ((this.nodeKindOf(stmt)) == 36) {
-                    def whileResult:EVGElement (this.evaluateWhileStatement(stmt))
+                    def whileResult:EvElement (this.evaluateWhileStatement(stmt))
                     if whileResult.hasReturn {
                         return whileResult
                     }
@@ -7087,7 +7095,7 @@ class ComponentEngine {
                 if ((this.nodeKindOf(stmt)) == 35) {
                     if stmt.left {
                         def returnExpr:TSNode (unwrap stmt.left)
-                        def returnedEl:EVGElement (this.evaluateJSX(returnExpr))
+                        def returnedEl:EvElement (this.evaluateJSX(returnExpr))
                         returnedEl.hasReturn = true
                         return returnedEl
                     } {
@@ -7267,9 +7275,9 @@ class ComponentEngine {
     ; ==========================================================================
     
     ; Evaluates a for statement: for (init; test; update) body
-    ; Returns EVGElement with hasReturn flag set if a return was executed
-    fn evaluateForStatement:EVGElement (node:TSNode) {
-        def result (new EVGElement())
+    ; Returns EvElement with hasReturn flag set if a return was executed
+    fn evaluateForStatement:EvElement (node:TSNode) {
+        def result (new EvElement())
         result.hasReturn = false
         
         this.trace("evaluateForStatement called")
@@ -7303,7 +7311,7 @@ class ComponentEngine {
             ; Execute body
             if node.body {
                 def bodyNode:TSNode (unwrap node.body)
-                def bodyResult:EVGElement (this.evaluateStatementBlock(bodyNode))
+                def bodyResult:EvElement (this.evaluateStatementBlock(bodyNode))
                 if bodyResult.hasReturn {
                     return bodyResult
                 }
@@ -7334,9 +7342,9 @@ class ComponentEngine {
     }
     
     ; Evaluates a for...of statement: for (const x of array) body
-    ; Returns EVGElement with hasReturn flag set if a return was executed
-    fn evaluateForOfStatement:EVGElement (node:TSNode) {
-        def result (new EVGElement())
+    ; Returns EvElement with hasReturn flag set if a return was executed
+    fn evaluateForOfStatement:EvElement (node:TSNode) {
+        def result (new EvElement())
         result.hasReturn = false
         
         ; Get variable name from node.left (VariableDeclaration)
@@ -7367,7 +7375,7 @@ class ComponentEngine {
                     ; Execute body
                     if node.body {
                         def bodyNode:TSNode (unwrap node.body)
-                        def bodyResult:EVGElement (this.evaluateStatementBlock(bodyNode))
+                        def bodyResult:EvElement (this.evaluateStatementBlock(bodyNode))
                         if bodyResult.hasReturn {
                             return bodyResult
                         }
@@ -7390,9 +7398,9 @@ class ComponentEngine {
     }
     
     ; Evaluates a while statement: while (test) body
-    ; Returns EVGElement with hasReturn flag set if a return was executed
-    fn evaluateWhileStatement:EVGElement (node:TSNode) {
-        def result (new EVGElement())
+    ; Returns EvElement with hasReturn flag set if a return was executed
+    fn evaluateWhileStatement:EvElement (node:TSNode) {
+        def result (new EvElement())
         result.hasReturn = false
         
         def maxIterations:int maxLoopIterations  ; Safety limit
@@ -7411,7 +7419,7 @@ class ComponentEngine {
             
             if node.body {
                 def bodyNode:TSNode (unwrap node.body)
-                def bodyResult:EVGElement (this.evaluateStatementBlock(bodyNode))
+                def bodyResult:EvElement (this.evaluateStatementBlock(bodyNode))
                 if bodyResult.hasReturn {
                     return bodyResult
                 }
@@ -16772,15 +16780,19 @@ class ComponentEngine {
     ; JSX Evaluation
     ; ==========================================================================
     
-    fn evaluateJSX:EVGElement (node:TSNode) {
-        def element (new EVGElement())
+    fn evaluateJSX:EvElement (node:TSNode) {
+        def element (new EvElement())
         
         if (node.nodeType == "JSXElement") {
             return (this.evaluateJSXElement(node))
         }
         
         if (node.nodeType == "JSXFragment") {
-            element.tagName = "div"
+            ; A fragment is its own KIND, not a `div`. Naming one renderer's
+            ; container tag here is what made `<>...</>` render as a box that
+            ; the source never asked for; a host that wants a wrapper can make
+            ; one, and a host that wants the children spliced now can.
+            element.isFragment = true
             this.evaluateChildren(element node)
             return element
         }
@@ -16804,7 +16816,7 @@ class ComponentEngine {
         return element
     }
     
-    fn evaluateJSXElement:EVGElement (jsxNode:TSNode) {
+    fn evaluateJSXElement:EvElement (jsxNode:TSNode) {
         ; Get tag name from opening element
         def tagName:string ""
         if jsxNode.left {
@@ -16817,52 +16829,59 @@ class ComponentEngine {
             return (this.expandComponent(tagName jsxNode))
         }
         
-        ; Primitive element - create EVG element
-        def element (new EVGElement())
-        element.tagName = (this.mapTagName(tagName))
-        
-        ; Set elementType based on tag
-        if ((tagName == "Label") || (tagName == "span") || (tagName == "text")) {
-            element.elementType = 1  ; Text
-        }
-        if ((tagName == "Image") || (tagName == "img") || (tagName == "image")) {
-            element.elementType = 2  ; Image
-        }
-        if ((tagName == "Path") || (tagName == "path")) {
-            element.elementType = 3  ; Path
-        }
-        
+        ; A host element. The TAG IS KEPT AS WRITTEN -- `View` stays `View`,
+        ; not `div`. What a tag renders as, whether it is a text/image/path
+        ; kind, and what a `Print` tag does to page geometry are all a
+        ; renderer's business, and doing any of it here is what made the
+        ; interpreter know one renderer's vocabulary before a document could
+        ; name a tag.
+        def element (new EvElement())
+        element.tagName = tagName
+
         ; Parse attributes
         if jsxNode.left {
             def openingEl:TSNode (unwrap jsxNode.left)
             this.evaluateAttributes(element openingEl)
         }
-        
-        ; Handle Print element - resolve book format and update engine dimensions
-        if (tagName == "Print") {
-            element.resolveBookFormat()
-            ; Update engine's page dimensions for children
-            if (element.pageWidth > 0.0) {
-                pageWidth = element.pageWidth
-            }
-            if (element.pageHeight > 0.0) {
-                pageHeight = element.pageHeight
-            }
-            ; Update print settings for hooks
-            printFormat = element.format
-            printOrientation = element.orientation
-            print "Print settings: format=" + printFormat + " orientation=" + printOrientation + " " + (to_string pageWidth) + "x" + (to_string pageHeight)
-        }
-        
-        ; Handle text content for Label/text elements
-        if ((tagName == "Label") || (tagName == "span") || (tagName == "text")) {
+
+        ; A TEXT tag's children are its text rather than elements. Which tags
+        ; those are is the one piece of vocabulary that has to stay -- the JSX
+        ; grammar itself does not say whether `<Label>x</Label>` means a child
+        ; or a string -- so it is asked as a question a host can answer instead
+        ; of being a hardcoded list of three names.
+        if (this.tagHoldsText(tagName)) {
+            element.isText = true
             element.textContent = (this.evaluateTextContent(jsxNode))
         } {
             ; Evaluate children
             this.evaluateChildren(element jsxNode)
         }
-        
+
         return element
+    }
+
+    ; Does this tag's content read as TEXT rather than as child elements?
+    ; Overridable by a host that names its text tags differently; the default
+    ; answers for the tags this engine has always treated that way, so a host
+    ; that says nothing keeps the old behaviour.
+    fn tagHoldsText:boolean (tagName:string) {
+        def i:int 0
+        while (i < (array_length textTags)) {
+            if ((itemAt textTags i) == tagName) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Name a tag whose content is text. Additive: a host adds its own without
+    ; losing the defaults.
+    fn addTextTag:void (tagName:string) {
+        if (this.tagHoldsText(tagName)) {
+            return
+        }
+        push textTags tagName
     }
     
     fn isComponent:boolean (name:string) {
@@ -16888,7 +16907,7 @@ class ComponentEngine {
         return false
     }
     
-    fn expandComponent:EVGElement (name:string jsxNode:TSNode) {
+    fn expandComponent:EvElement (name:string jsxNode:TSNode) {
         ; Use the last registered match (hot reload upserts may leave older entries).
         def foundIdx:int -1
         def i:int 0
@@ -16922,7 +16941,7 @@ class ComponentEngine {
         
         ; Not found - return empty element
         print ("Warning: Unknown component: " + name)
-        def empty (new EVGElement())
+        def empty (new EvElement())
         empty.tagName = "div"
         return empty
     }
@@ -16987,7 +17006,7 @@ class ComponentEngine {
             def child:TSNode (itemAt jsxNode.children i)
             
             if (child.nodeType == "JSXElement") {
-                def el:EVGElement (this.evaluateJSXElement(child))
+                def el:EvElement (this.evaluateJSXElement(child))
                 if ((strlen el.tagName) > 0) {
                     push results (EvValueBridge.taggedElement(el))
                 }
@@ -16998,7 +17017,7 @@ class ComponentEngine {
                 def text:string (this.trimText(child.value))
                 if ((strlen text) > 0) {
                     ; Create a text element
-                    def textEl (new EVGElement())
+                    def textEl (new EvElement())
                     textEl.tagName = "text"
                     textEl.textContent = text
                     push results (EvValueBridge.taggedElement(textEl))
@@ -17055,7 +17074,7 @@ class ComponentEngine {
         return (EvValueBridge.taggedBoolean(true))
     }
     
-    fn evaluateAttributes:void (element:EVGElement openingNode:TSNode) {
+    fn evaluateAttributes:void (element:EvElement openingNode:TSNode) {
         def i:int 0
         while (i < (array_length openingNode.children)) {
             def attr:TSNode (itemAt openingNode.children i)
@@ -17063,33 +17082,16 @@ class ComponentEngine {
             if (attr.nodeType == "JSXAttribute") {
                 def rawAttrName:string attr.name
                 def attrValue:EvHandle (this.evaluateAttributeValue(attr))
-                def strValue:string (attrValue.toString())
-                
-                ; Apply attribute to element
-                this.applyAttribute(element rawAttrName strValue)
+                ; The VALUE, not its text. Every attribute used to go through
+                ; toString() on the way in, so `onClick={fn}` arrived as
+                ; "[Function: fn]" and a number arrived as a string -- the host
+                ; could not recover either. A host that wants text asks for it;
+                ; one that wants the function can now have it.
+                element.setProp(rawAttrName attrValue.body)
             }
-            
+
             i = i + 1
         }
-    }
-    
-    fn applyAttribute:void (element:EVGElement rawName:string strValue:string) {
-        ; Handle special attributes
-        if (rawName == "id") {
-            element.id = strValue
-            return
-        }
-        if (rawName == "className") {
-            element.className = strValue
-            return
-        }
-        if (rawName == "src") {
-            element.src = strValue
-            return
-        }
-        
-        ; For everything else, use setAttribute which handles all the parsing
-        element.setAttribute(rawName strValue)
     }
     
     fn evaluateTextContent:string (jsxNode:TSNode) {
@@ -17130,7 +17132,7 @@ class ComponentEngine {
         return trimmedText
     }
     
-    fn evaluateChildren:void (element:EVGElement jsxNode:TSNode) {
+    fn evaluateChildren:void (element:EvElement jsxNode:TSNode) {
         def i:int 0
         def accumulatedText:string ""
         
@@ -17149,7 +17151,7 @@ class ComponentEngine {
                 def normalizedText:string (this.normalizeWhitespace(accumulatedText))
                 def text:string (this.trimText(normalizedText))
                 if ((strlen text) > 0) {
-                    def textEl (new EVGElement())
+                    def textEl (new EvElement())
                     textEl.tagName = "text"
                     textEl.textContent = text
                     element.addChild(textEl)
@@ -17158,7 +17160,7 @@ class ComponentEngine {
             }
             
             if (child.nodeType == "JSXElement") {
-                def childEl:EVGElement (this.evaluateJSXElement(child))
+                def childEl:EvElement (this.evaluateJSXElement(child))
                 if ((strlen childEl.tagName) > 0) {
                     element.addChild(childEl)
                 }
@@ -17181,7 +17183,7 @@ class ComponentEngine {
             def normalizedText:string (this.normalizeWhitespace(accumulatedText))
             def text:string (this.trimText(normalizedText))
             if ((strlen text) > 0) {
-                def textEl (new EVGElement())
+                def textEl (new EvElement())
                 textEl.tagName = "text"
                 textEl.textContent = text
                 element.addChild(textEl)
@@ -17189,7 +17191,7 @@ class ComponentEngine {
         }
     }
     
-    fn evaluateExpressionChild:void (element:EVGElement exprContainer:TSNode) {
+    fn evaluateExpressionChild:void (element:EvElement exprContainer:TSNode) {
         if exprContainer.left {
             def exprNode:TSNode (unwrap exprContainer.left)
             
@@ -17218,7 +17220,7 @@ class ComponentEngine {
                         def arrItem:EvHandle (callResult.arrayItemAt(ai))
                         if (arrItem.isElement()) {
                             if (arrItem.hasElement()) {
-                                def arrChildEl:EVGElement (arrItem.elementOf())
+                                def arrChildEl:EvElement (arrItem.elementOf())
                                 if ((strlen arrChildEl.tagName) > 0) {
                                     element.addChild(arrChildEl)
                                 }
@@ -17232,7 +17234,7 @@ class ComponentEngine {
                 ; Handle single element result
                 if (callResult.isElement()) {
                     if (callResult.hasElement()) {
-                        def childEl:EVGElement (callResult.elementOf())
+                        def childEl:EvElement (callResult.elementOf())
                         if ((strlen childEl.tagName) > 0) {
                             element.addChild(childEl)
                         }
@@ -17244,7 +17246,7 @@ class ComponentEngine {
                 def isStr:boolean (callResult.isString())
                 def isNum:boolean (callResult.isNumber())
                 if (isStr || isNum) {
-                    def textEl (new EVGElement())
+                    def textEl (new EvElement())
                     textEl.tagName = "text"
                     textEl.textContent = (callResult.toString())
                     element.addChild(textEl)
@@ -17269,10 +17271,10 @@ class ComponentEngine {
             ; For literals, add as text
             def value:EvHandle (this.evaluateExpr(exprNode))
             
-            ; Handle EVGElement values (e.g., {children} prop containing JSX)
+            ; Handle EvElement values (e.g., {children} prop containing JSX)
             if (value.isElement()) {
                 if (value.hasElement()) {
-                    def childEl:EVGElement (value.elementOf())
+                    def childEl:EvElement (value.elementOf())
                     if ((strlen childEl.tagName) > 0) {
                         element.addChild(childEl)
                     }
@@ -17280,14 +17282,14 @@ class ComponentEngine {
                 return
             }
             
-            ; Handle arrays of EVGElements (e.g., {children} containing multiple elements)
+            ; Handle arrays of EvElements (e.g., {children} containing multiple elements)
             if (value.isArrayValue()) {
                 def ai:int 0
                 while (ai < (value.denseLen())) {
                     def arrItem:EvHandle (value.arrayItemAt(ai))
                     if (arrItem.isElement()) {
                         if (arrItem.hasElement()) {
-                            def arrChildEl:EVGElement (arrItem.elementOf())
+                            def arrChildEl:EvElement (arrItem.elementOf())
                             if ((strlen arrChildEl.tagName) > 0) {
                                 element.addChild(arrChildEl)
                             }
@@ -17301,7 +17303,7 @@ class ComponentEngine {
             def isStr:boolean (value.isString())
             def isNum:boolean (value.isNumber())
             if (isStr || isNum) {
-                def textEl (new EVGElement())
+                def textEl (new EvElement())
                 textEl.tagName = "text"
                 textEl.textContent = (value.toString())
                 element.addChild(textEl)
@@ -17309,7 +17311,7 @@ class ComponentEngine {
         }
     }
     
-    fn evaluateArrayMapChild:void (element:EVGElement callNode:TSNode) {
+    fn evaluateArrayMapChild:void (element:EvElement callNode:TSNode) {
         ; Get the array being mapped
         if callNode.left {
             def calleeNode:TSNode (unwrap callNode.left)
@@ -17339,7 +17341,7 @@ class ComponentEngine {
                                     this.bindMapCallback(callback item i)
                                     
                                     ; Evaluate callback body
-                                    def resultEl:EVGElement (this.evaluateMapCallbackBody(callback))
+                                    def resultEl:EvElement (this.evaluateMapCallbackBody(callback))
                                     if ((strlen resultEl.tagName) > 0) {
                                         element.addChild(resultEl)
                                     }
@@ -17371,8 +17373,8 @@ class ComponentEngine {
         }
     }
     
-    fn evaluateMapCallbackBody:EVGElement (callback:TSNode) {
-        def empty (new EVGElement())
+    fn evaluateMapCallbackBody:EvElement (callback:TSNode) {
+        def empty (new EvElement())
         
         if ((this.nodeKindOf(callback)) == 17) {
             ; Arrow function body
@@ -17398,7 +17400,7 @@ class ComponentEngine {
         return empty
     }
     
-    fn evaluateTernaryChild:void (element:EVGElement node:TSNode) {
+    fn evaluateTernaryChild:void (element:EvElement node:TSNode) {
         ; Evaluate condition
         if node.test {
             def testExpr:TSNode (unwrap node.test)
@@ -17409,7 +17411,7 @@ class ComponentEngine {
                 if node.consequent {
                     def conseqNode:TSNode (unwrap node.consequent)
                     if ((conseqNode.nodeType == "JSXElement") || (conseqNode.nodeType == "JSXFragment")) {
-                        def childEl:EVGElement (this.evaluateJSX(conseqNode))
+                        def childEl:EvElement (this.evaluateJSX(conseqNode))
                         if ((strlen childEl.tagName) > 0) {
                             element.addChild(childEl)
                         }
@@ -17420,7 +17422,7 @@ class ComponentEngine {
                 if node.alternate {
                     def altNode:TSNode (unwrap node.alternate)
                     if ((altNode.nodeType == "JSXElement") || (altNode.nodeType == "JSXFragment")) {
-                        def childEl:EVGElement (this.evaluateJSX(altNode))
+                        def childEl:EvElement (this.evaluateJSX(altNode))
                         if ((strlen childEl.tagName) > 0) {
                             element.addChild(childEl)
                         }
@@ -17430,7 +17432,7 @@ class ComponentEngine {
         }
     }
     
-    fn evaluateAndChild:void (element:EVGElement node:TSNode) {
+    fn evaluateAndChild:void (element:EvElement node:TSNode) {
         ; Evaluate left side
         if node.left {
             def leftExpr:TSNode (unwrap node.left)
@@ -17441,7 +17443,7 @@ class ComponentEngine {
                 if node.right {
                     def rightNode:TSNode (unwrap node.right)
                     if ((rightNode.nodeType == "JSXElement") || (rightNode.nodeType == "JSXFragment")) {
-                        def childEl:EVGElement (this.evaluateJSX(rightNode))
+                        def childEl:EvElement (this.evaluateJSX(rightNode))
                         if ((strlen childEl.tagName) > 0) {
                             element.addChild(childEl)
                         }
@@ -17839,14 +17841,14 @@ class ComponentEngine {
         
         ; JSX Element as expression (for props like children={<View/>})
         if (node.nodeType == "JSXElement") {
-            def el:EVGElement (this.evaluateJSXElement(node))
+            def el:EvElement (this.evaluateJSXElement(node))
             return (EvValueBridge.taggedElement(el))
         }
         
         ; JSX Fragment as expression
         if (node.nodeType == "JSXFragment") {
             ; Create a container div for the fragment
-            def el (new EVGElement())
+            def el (new EvElement())
             el.tagName = "div"
             this.evaluateChildren(el node)
             return (EvValueBridge.taggedElement(el))

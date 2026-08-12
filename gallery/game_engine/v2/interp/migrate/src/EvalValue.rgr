@@ -13,7 +13,6 @@
 ;   Callable        — values that can be invoked (required capability)
 
 Import "../../../../../ts_parser/ts_parser_simple.rgr"
-Import "../../../evg/EVGElement.rgr"
 
 ; =============================================================================
 ; EvElement — the engine's own element value.
@@ -44,11 +43,7 @@ Import "../../../evg/EVGElement.rgr"
 ; refer to each other: `EvalValue.Element` holds an EvElement and an
 ; EvElement's prop values are EvalValues. Split across files that is an import
 ; cycle; together it is one mutually recursive definition.
-;
-; NOT YET WIRED. `EvalValue.Element` still holds an EVGElement: switching the
-; slot retypes ~89 sites in ComponentEngine.rgr in the same breath, and a
-; half-retyped tree does not compile. The type lands first, on its own, so the
-; change that moves the slot is a diff about the JSX walkers and nothing else.
+
 ; -----------------------------------------------------------------------------
 class EvElement {
     ; The tag exactly as it was written. `View`, `div`, `my-widget` — the
@@ -114,7 +109,10 @@ class EvElement {
         }
         def at:int (this.propIndex(name))
         if (at > (0 - 1)) {
-            set propValues at value
+            ; Bound to a local first: on the Rust target the parameter is
+            ; borrowed, and a borrow cannot be stored into a cell.
+            def owned:EvalValue value
+            set propValues at owned
             return
         }
         push propNames name
@@ -200,7 +198,7 @@ shape EvalValue {
         def items:[EvalValue]
     }
     case Element does Reference {
-        def element:EVGElement
+        def element:EvElement
     }
 
     fn toBool:boolean () {
@@ -250,10 +248,10 @@ shape EvalValue {
     ; ---- E3 reference / carrier factories (fixture + bridge kind arms) ----
     ; Case ctors take Reference.identityId then PropertyCarrier.properties
     ; (when applicable) before the case's own fields — see E1 fixture.
-    sfn element:EvalValue (el:EVGElement) {
+    sfn element:EvalValue (el:EvElement) {
         return (EvalValue.elementAt(0 el))
     }
-    sfn elementAt:EvalValue (id:int el:EVGElement) {
+    sfn elementAt:EvalValue (id:int el:EvElement) {
         return (new EvalValue.Element(id el))
     }
     sfn array:EvalValue (items:[EvalValue]) {
