@@ -1970,6 +1970,34 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["array-from-is-still-a-plain-array", "class SpL4 extends Array {} var a = Array.from([1, 2]); return (a instanceof Array) + ',' + (a instanceof SpL4);", "class"],
   ["array-of-is-still-a-plain-array", "return Array.of(1, 2) instanceof Array;", "class"],
 
+  // Listed in KNOWN_GAPS above: the statics lose the subclass.
+  ["promise-subclass-resolve-brand", "class PSub extends Promise {} return PSub.resolve(1) instanceof PSub;", "class"],
+  // ...but these hold, and are what says the constructor path is sound.
+  ["promise-subclass-new-is-subclass", "class PSub2 extends Promise {} return new PSub2(function (r) { r(1); }) instanceof PSub2;", "class"],
+  ["promise-subclass-resolve-is-a-promise", "class PSub3 extends Promise {} return PSub3.resolve(1) instanceof Promise;", "class"],
+  ["promise-subclass-resolve-is-thenable", "class PSub4 extends Promise {} return typeof PSub4.resolve(1).then;", "class"],
+
+  // §23.1.3.4 ArraySpeciesCreate: an array method that BUILDS a new array
+  // builds it through the receiver's species. The species is read from the
+  // `__class__` stamp the instance carries, NOT from `constructor`: reading a
+  // property by name off an array value dispatches by KIND first, so
+  // `constructor` answers the Array global internally even though guest code
+  // sees `l.constructor === L`. That is what made the first attempt at this
+  // silently do nothing.
+  ["species-map", "class SpM extends Array {} return SpM.from([1, 2]).map(function (x) { return x; }) instanceof SpM;", "class"],
+  ["species-filter", "class SpF extends Array {} return SpF.from([1, 2]).filter(function () { return true; }) instanceof SpF;", "class"],
+  ["species-slice", "class SpS extends Array {} return SpS.from([1, 2, 3]).slice(0, 2) instanceof SpS;", "class"],
+  ["species-concat", "class SpC extends Array {} return SpC.from([1]).concat([2]) instanceof SpC;", "class"],
+  ["species-splice", "class SpP extends Array {} return SpP.from([1, 2, 3]).splice(0, 1) instanceof SpP;", "class"],
+  ["species-map-values", "class SpV extends Array {} return SpV.from([1, 2]).map(function (x) { return x * 2; }).join(',');", "class"],
+  // Symbol.species is how a subclass opts BACK to plain arrays.
+  ["species-override-to-array", "class SpO extends Array { static get [Symbol.species]() { return Array; } } var r = SpO.from([1, 2]).map(function (x) { return x; }); return (r instanceof Array) + ',' + (r instanceof SpO);", "class"],
+  // A plain array carries no stamp and takes the ordinary path.
+  ["species-plain-map-unchanged", "return [1, 2].map(function (x) { return x; }) instanceof Array;", "class"],
+  ["species-plain-slice-unchanged", "return [1, 2, 3].slice(1).join(',');", "class"],
+  ["species-plain-concat-unchanged", "return [1].concat([2, 3]).join(',');", "class"],
+  ["species-plain-splice-unchanged", "var a = [1, 2, 3]; var r = a.splice(1, 1); return r.join(',') + '|' + a.join(',');", "class"],
+
   // Proxy: calling one, and its place in a prototype chain.
   ["proxy-apply-trap", "var p = new Proxy(function () {}, { apply: function (t, th, a) { return a[0] + 1; } }); return p(41);", "proxy"],
   ["proxy-apply-no-trap", "var p = new Proxy(function (x) { return x * 2; }, {}); return p(21);", "proxy"],
@@ -2605,6 +2633,19 @@ const KNOWN_GAPS = new Set<string>([
   // rushed, and asserted in both directions so closing it forces this entry
   // to move.
   "proxy-apply-this",
+  // `class P extends Promise {}`: P.resolve(v) answers a plain Promise, so
+  // `P.resolve(1) instanceof P` is false. `new P(...)` DOES produce a P -- the
+  // constructor path is fine; it is only the statics that lose the subclass.
+  //
+  // promiseStaticCtor already models the spec's C and picks it up from an
+  // explicit `.call` binding, so routing the static-call receiver into it is a
+  // five-line change. I tried exactly that: instanceof became correct and
+  // P.resolve, P.reject and P.all then NEVER SETTLED -- newPromiseCapability
+  // over a class constructor does not wire the resolve/reject pair the way it
+  // does over the intrinsic. A promise that never fires is far worse than one
+  // whose brand is wrong, so it is reverted and pinned here. The capability
+  // path is where the real fix lives.
+  "promise-subclass-resolve-brand",
   // The six that used to sit here -- for-of-expr-lhs, destr-swap,
   // iter-generator, obj-computed-key, err-optional-chain, err-nullish -- now
   // pass and have moved back into the ordinary probe set above. This assertion
