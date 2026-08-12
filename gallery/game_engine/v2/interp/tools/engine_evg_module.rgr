@@ -1,0 +1,23 @@
+; =============================================================================
+; engine_evg_module — Node module entry for the interpreter PLUS the EVG host.
+; =============================================================================
+; engine_module.rgr exposes the interpreter alone, which is the point of it: it
+; proves the engine builds and runs with no renderer. This one adds the EVG
+; adapter beside it so a test can drive the whole path in one process —
+; source -> EvElement -> EVGElement — and check that a host really can render
+; what the engine now hands out.
+;
+; Two entries rather than one on purpose. If the adapter were folded into
+; engine_module the standalone claim would stop being tested.
+;
+; Build with: bash scripts/build-engine-evg-module.sh
+; =============================================================================
+
+Import "../migrate/src/ComponentEngine.rgr"
+Import "../../evg/EvElementToEVG.rgr"
+
+class EngineEvgModule {
+    sfn m@(main):void () {
+        print "engine+evg module loaded"
+    }
+}

@@ -43476,25 +43476,6 @@ class ComponentEngine {
     ; Utility Functions
     ; ==========================================================================
     
-    fn mapTagName:string (jsxTag:string) {
-        if (jsxTag == "Print") { return "print" }
-        if (jsxTag == "Section") { return "section" }
-        if (jsxTag == "Page") { return "page" }
-        if (jsxTag == "View") { return "div" }
-        if (jsxTag == "Layer") { return "layer" }
-        if (jsxTag == "Label") { return "text" }
-        if (jsxTag == "Image") { return "image" }
-        if (jsxTag == "Path") { return "path" }
-        if (jsxTag == "Spacer") { return "spacer" }
-        if (jsxTag == "Divider") { return "divider" }
-        if (jsxTag == "div") { return "div" }
-        if (jsxTag == "span") { return "text" }
-        if (jsxTag == "img") { return "image" }
-        if (jsxTag == "path") { return "path" }
-        if (jsxTag == "layer") { return "layer" }
-        return "div"
-    }
-    
     fn trimText:string (text:string) {
         ; Simple trim - remove leading/trailing whitespace
         def result:string ""
