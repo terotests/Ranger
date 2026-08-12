@@ -16741,7 +16741,14 @@ class ComponentEngine {
         ; handler supplies none. A proxy is not a function value, so without
         ; this every call through one was "not a function".
         if (this.isProxyValue(fnValue)) {
-            return (this.callProxyApply(fnValue (EvValueBridge.taggedUndefined()) argVals))
+            ; The RECEIVER travels on the value, the way it does for every other
+            ; callable here -- `o.m()` where m is a proxy has `this` of o, and
+            ; passing undefined unconditionally threw that away.
+            def pxThis:EvHandle (EvValueBridge.taggedUndefined())
+            if (fnValue.hasBoundThis()) {
+                pxThis = (fnValue.boundThisOf())
+            }
+            return (this.callProxyApply(fnValue pxThis argVals))
         }
         ; D-REGISTRY: a built-in extracted as a value (`var f = arr.slice`, or
         ; `Array.prototype.slice`) is invoked through the same dispatcher the
@@ -19609,6 +19616,19 @@ class ComponentEngine {
                 if (false == quiet) {
                     this.trace("Lookup function '" + fnName + "' -> type=" + (fnValue.kindName()) + " isFunction=" + (to_string (fnValue.isFunction())))
                 }
+                ; D-PROXY: a proxy over a function is CALLABLE -- `typeof p` is
+                ; already "function" -- but the value is an object, so every
+                ; check below skipped it and `p(41)` answered undefined without
+                ; ever consulting the `apply` trap. callProxyApply has existed
+                ; all along; only Reflect.apply and the value-call path reached
+                ; it, never a bare `p(...)`.
+                if (this.isProxyValue(fnValue)) {
+                    def pxArgs:[EvHandle] (this.collectCallArgs(node))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    return (this.callProxyApply(fnValue (EvValueBridge.taggedUndefined()) pxArgs))
+                }
                 ; D-REGISTRY: a built-in held in a variable is callable like any
                 ; other function value. It has no functionNode, so the paths
                 ; below skip it and it would silently do nothing.
@@ -20014,6 +20034,11 @@ class ComponentEngine {
                 ; the instance's prototype correctly set to M.prototype.
                 if (lv.isMap()) { lvObjectLike = true }
                 if (lv.isSet()) { lvObjectLike = true }
+                ; D-PROXY: `p instanceof F` walks the PROXY's prototype chain,
+                ; which means the getPrototypeOf trap (or the target's chain
+                ; when the handler supplies none). protoOfValue already does
+                ; that; the walk below just has to be allowed to start.
+                if (this.isProxyValue(lv)) { lvObjectLike = true }
                 if lvObjectLike {
                     ; The `__class__` stamp names the class the instance was
                     ; built from, so it answers YES immediately -- but a NO from
@@ -20055,6 +20080,21 @@ class ComponentEngine {
                                 return (this.throwSpecError("TypeError" "Function has non-object prototype in instanceof"))
                             }
                             def walkV:EvHandle lv
+                            ; D-PROXY: a proxy carries no proto link of its own
+                            ; -- its chain is what the getPrototypeOf trap says,
+                            ; or the target's when there is no trap. The raw
+                            ; hasProto() below is false for one, so the walk
+                            ; ended before it began. protoOfValue knows both
+                            ; cases; from its answer the ordinary chain follows.
+                            if (this.isProxyValue(lv)) {
+                                walkV = (this.protoOfValue(lv))
+                                if scriptThrew {
+                                    return (EvValueBridge.taggedUndefined())
+                                }
+                                if (walkV.equals(protoF)) {
+                                    return (EvValueBridge.taggedBoolean(true))
+                                }
+                            }
                             def steps:int 0
                             while (steps < 32) {
                                 if (false == (walkV.hasProto())) {
@@ -41932,11 +41972,21 @@ class ComponentEngine {
             ; D-CLASSBUILTIN: a derived class with NO constructor has an
             ; implicit one that forwards every argument to its base --
             ; `class E extends Error {}; new E("y")` has to reach Error("y").
+            ;
+            ; It forwards new.target as well. Only the EXPLICIT-constructor
+            ; branch above set it, so `class B extends A {}` with no
+            ; constructor of its own left the base's `new.target` undefined --
+            ; `new B()` reported none where it should report B. The implicit
+            ; constructor is still a constructor; what it forwards is this
+            ; class, not its parent.
+            def savedNTImplicit:EvHandle currentNewTarget
+            currentNewTarget = (this.classValueFor(className))
             if ctorArgsPrimed {
                 this.runSuperConstructorValues(cls inst ctorArgValues 0)
             } {
                 this.runSuperConstructor(cls inst node.children 0)
             }
+            currentNewTarget = savedNTImplicit
             ; The implicit constructor IS `super(...args)`, so a derived class's
             ; fields go in once it has returned -- the same point an explicit
             ; super() call installs them.

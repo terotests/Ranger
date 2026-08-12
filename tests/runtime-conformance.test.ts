@@ -1943,6 +1943,18 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["async-linebreak-before-arrow", "var async = function (x) { return 'called'; }; var r = async\n(1);\nreturn r;", "async"],
   // The parameters of an async function are not part of its body.
   ["async-params-no-await", "try { eval('async function f(x = await 1) {}'); return 'ACCEPTED'; } catch (e) { return e.constructor.name; }", "async"],
+  // Proxy: calling one, and its place in a prototype chain.
+  ["proxy-apply-trap", "var p = new Proxy(function () {}, { apply: function (t, th, a) { return a[0] + 1; } }); return p(41);", "proxy"],
+  ["proxy-apply-no-trap", "var p = new Proxy(function (x) { return x * 2; }, {}); return p(21);", "proxy"],
+  ["proxy-apply-this", "var p = new Proxy(function () { return this.v; }, {}); var o = { v: 5, m: p }; return o.m();", "proxy"],
+  ["proxy-instanceof", "function PF() {} var p = new Proxy(new PF(), {}); return p instanceof PF;", "proxy"],
+  ["proxy-instanceof-negative", "function PF2() {} function PG2() {} var p = new Proxy(new PF2(), {}); return p instanceof PG2;", "proxy"],
+  ["proxy-getproto-trap-drives-instanceof", "function PF3() {} var p = new Proxy({}, { getPrototypeOf: function () { return PF3.prototype; } }); return p instanceof PF3;", "proxy"],
+  // new.target through the IMPLICIT constructor of a derived class.
+  ["newtarget-through-implicit-ctor", "class NTA { constructor() { this.n = new.target.name; } } class NTB extends NTA {} return new NTB().n;", "class"],
+  ["newtarget-base-direct", "class NTC { constructor() { this.n = new.target.name; } } return new NTC().n;", "class"],
+  ["newtarget-explicit-ctor", "class NTD { constructor() { this.n = new.target.name; } } class NTE extends NTD { constructor() { super(); } } return new NTE().n;", "class"],
+
   // Subclassing the keyed collections. `extends Array`, `extends Error`,
   // `extends RegExp` and `extends Function` already worked; Map and Set did
   // not, and failed in a way that LOOKED like it worked -- the instance had
@@ -2557,6 +2569,15 @@ const KNOWN_GAPS = new Set<string>([
   // template that evaluates its key and value twice), which costs more than the
   // one behaviour it buys. Asserted in both directions so it cannot rot.
   "json-proto-is-ordinary-key",
+  // A proxy called as a METHOD loses its receiver: `o.m()` where m is a proxy
+  // over `function () { return this.v; }` answers undefined rather than o.v.
+  // Calling one through a bare name and through Reflect.apply both pass the
+  // receiver correctly; the member-call path dispatches by NAME through a
+  // different route that never reaches callFnValueWithValues, so the fix is
+  // not the one-line receiver forward it looks like. Pinned rather than
+  // rushed, and asserted in both directions so closing it forces this entry
+  // to move.
+  "proxy-apply-this",
   // The six that used to sit here -- for-of-expr-lhs, destr-swap,
   // iter-generator, obj-computed-key, err-optional-chain, err-nullish -- now
   // pass and have moved back into the ordinary probe set above. This assertion
