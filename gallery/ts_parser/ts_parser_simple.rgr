@@ -209,6 +209,15 @@ class TSParserSimple {
   ; Whether the enclosing function is a generator. Inside one, `yield` is an
   ; operator and may not name a binding.
   def inGenerator:boolean false
+  ; Whether the enclosing function is async. `await` is the operator ONLY there
+  ; (and at the top level of a module); everywhere else it is an ordinary
+  ; identifier, so `function f() { var await = 3; return await; }` is legal
+  ; script code. Treating it as an operator unconditionally ate the token.
+  def inAsync:boolean false
+  ; Set while the PARAMETER list of an async function is being parsed. `await`
+  ; is the operator in the body but an early error in the parameters:
+  ; `async function f(x = await 1) {}` does not parse at all.
+  def inAsyncParams:boolean false
   ; Depth of enclosing function bodies. `return` outside one is an early error.
   def functionDepth:int 0
   ; Whether a rest element has already been seen in the parameter list being
@@ -1294,8 +1303,21 @@ class TSParserSimple {
     if (tokVal == "async") {
       def nextVal:string (this.peekNextValue())
       if (nextVal == "function") {
-        this.advance()  ; consume async
-        return (this.parseFuncDecl(true))
+        def asyncTok (this.peek())
+        ; `async [no LineTerminator here] function`. With a line break between
+        ; them this is the identifier `async` as an expression statement,
+        ; followed by an ordinary function declaration.
+        def fnTok:Token (itemAt this.tokens (this.pos + 1))
+        if (asyncTok.line == fnTok.line) {
+          this.advance()  ; consume async
+          def asyncDecl (this.parseFuncDecl(true))
+          ; The source text of an async function STARTS at `async` -- code that
+          ; feature-detects by reading f.toString() looks for exactly that.
+          asyncDecl.start = asyncTok.start
+          asyncDecl.line = asyncTok.line
+          asyncDecl.col = asyncTok.col
+          return asyncDecl
+        }
       }
     }
     
@@ -2060,6 +2082,7 @@ class TSParserSimple {
     while (((this.matchValue(">")) == false) && ((this.isAtEnd()) == false)) {
       if ((array_length params) > 0) {
         this.expectValue(",")
+          if (this.matchValue(">")) { break }
       }
       
       def param (new TSNode())
@@ -2167,6 +2190,17 @@ class TSParserSimple {
     while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
       if ((array_length sig.children) > 0) {
         this.expectValue(",")
+          if (this.matchValue(")")) {
+            ; ...but NOT after a rest parameter: `function f(...x,)` is a
+            ; SyntaxError, the one place the allowance does not reach.
+            if ((array_length sig.children) > 0) {
+              def lastP:TSNode (itemAt sig.children ((array_length sig.children) - 1))
+              if (lastP.nodeType == "RestElement") {
+                this.syntaxError("Parse error: a rest parameter may not be followed by a comma")
+              }
+            }
+            break
+          }
       }
       def param (this.parseParam())
       push sig.children param
@@ -2204,6 +2238,17 @@ class TSParserSimple {
     while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
       if ((array_length sig.children) > 0) {
         this.expectValue(",")
+          if (this.matchValue(")")) {
+            ; ...but NOT after a rest parameter: `function f(...x,)` is a
+            ; SyntaxError, the one place the allowance does not reach.
+            if ((array_length sig.children) > 0) {
+              def lastP:TSNode (itemAt sig.children ((array_length sig.children) - 1))
+              if (lastP.nodeType == "RestElement") {
+                this.syntaxError("Parse error: a rest parameter may not be followed by a comma")
+              }
+            }
+            break
+          }
       }
       def param (this.parseParam())
       push sig.children param
@@ -2571,6 +2616,7 @@ class TSParserSimple {
       while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
         if ((array_length member.params) > 0) {
           this.expectValue(",")
+            if (this.matchValue(")")) { break }
         }
         def param (this.parseConstructorParam())
         if ((strlen param.name) > 0) {
@@ -2709,6 +2755,8 @@ class TSParserSimple {
       this.sawRestParam = false
       def savedMethodGenerator:boolean this.inGenerator
       this.inGenerator = member.generator
+      def savedMethodAsync:boolean this.inAsync
+      this.inAsync = member.async
       def savedMethodSuperCall:boolean this.allowSuperCall
       def savedMethodSuperProp:boolean this.allowSuperProperty
       ; A function is a break/continue boundary: labels do not cross it.
@@ -2742,6 +2790,17 @@ class TSParserSimple {
       while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
         if ((array_length member.params) > 0) {
           this.expectValue(",")
+            if (this.matchValue(")")) {
+              ; ...but NOT after a rest parameter: `function f(...x,)` is a
+              ; SyntaxError, the one place the allowance does not reach.
+              if ((array_length member.params) > 0) {
+                def lastP:TSNode (itemAt member.params ((array_length member.params) - 1))
+                if (lastP.nodeType == "RestElement") {
+                  this.syntaxError("Parse error: a rest parameter may not be followed by a comma")
+                }
+              }
+              break
+            }
         }
         def param (this.parseParam())
         if ((strlen param.name) > 0) {
@@ -2788,6 +2847,7 @@ class TSParserSimple {
       this.allowSuperCall = savedMethodSuperCall
       this.allowSuperProperty = savedMethodSuperProp
       this.inGenerator = savedMethodGenerator
+      this.inAsync = savedMethodAsync
       this.sawRestParam = savedMethodRest
       this.functionDepth = (this.functionDepth - 1)
       this.iterationDepth = savedmethIter
@@ -4056,11 +4116,13 @@ class TSParserSimple {
     }
 
     def savedGenerator:boolean this.inGenerator
+    def savedAsync:boolean this.inAsync
     def isFnExpression:boolean this.parsingFunctionExpression
     this.parsingFunctionExpression = false
     if isFnExpression {
       ; An expression's name is read in its own context.
       this.inGenerator = node.generator
+      this.inAsync = node.async
     }
     
     ; Name is optional: `function () {}` is legal both as an expression and as
@@ -4075,6 +4137,7 @@ class TSParserSimple {
     ; Whatever the name's context was, the parameters and body use this
     ; function's own.
     this.inGenerator = node.generator
+    this.inAsync = node.async
 
     ; The parameters and the body's top level share one scope, so
     ; `function f(a) { let a; }` is a redeclaration.
@@ -4110,17 +4173,38 @@ class TSParserSimple {
     }
     
     ; Parameters
+    def savedAsyncParams:boolean this.inAsyncParams
+    this.inAsyncParams = node.async
     this.expectValue("(")
     while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
       if ((array_length node.params) > 0) {
         this.expectValue(",")
+        ; ES2017 allows a TRAILING comma in a parameter list and an argument
+        ; list -- `function f(a, b,)`, `f(1, 2,)`. Formatter-normalised and
+        ; bundled code is full of them, and without this the comma was followed
+        ; by an attempt to parse the closing paren as a parameter, which failed
+        ; the whole file. Every comma-separated list here gained the same rule.
+        if (this.matchValue(")")) {
+          ; ...but NOT after a rest parameter: `function f(...x,)` is a
+          ; SyntaxError, the one place the allowance does not reach.
+          if ((array_length node.params) > 0) {
+            def lastP:TSNode (itemAt node.params ((array_length node.params) - 1))
+            if (lastP.nodeType == "RestElement") {
+              this.syntaxError("Parse error: a rest parameter may not be followed by a comma")
+            }
+          }
+          break
+        }
       }
       def param (this.parseParam())
       this.declareParam(param)
       push node.params param
     }
     this.expectValue(")")
-    
+    ; The BODY is not the parameter list -- and neither is a nested function's,
+    ; which is why this clears rather than restoring the saved value here.
+    this.inAsyncParams = false
+
     ; Return type
     if (this.matchValue(":")) {
       def returnType (this.parseTypeAnnotation())
@@ -4164,6 +4248,8 @@ class TSParserSimple {
     this.allowSuperCall = savedSuperCall
     this.allowSuperProperty = savedSuperProp
     this.inGenerator = savedGenerator
+    this.inAsync = savedAsync
+    this.inAsyncParams = savedAsyncParams
     this.sawRestParam = savedRest
     this.functionDepth = (this.functionDepth - 1)
     this.iterationDepth = savedfnIter
@@ -4914,6 +5000,7 @@ class TSParserSimple {
       while (((this.matchValue(">")) == false) && ((this.isAtEnd()) == false)) {
         if ((array_length ref.params) > 0) {
           this.expectValue(",")
+            if (this.matchValue(">")) { break }
         }
         def typeArg (this.parseType())
         push ref.params typeArg
@@ -4940,6 +5027,7 @@ class TSParserSimple {
     while (((this.matchValue("]")) == false) && ((this.isAtEnd()) == false)) {
       if ((array_length tuple.children) > 0) {
         this.expectValue(",")
+          if (this.matchValue("]")) { break }
       }
       
       ; Check for rest element ...type or ...name: type
@@ -5160,6 +5248,7 @@ class TSParserSimple {
     while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
       if ((array_length funcType.params) > 0) {
         this.expectValue(",")
+          if (this.matchValue(")")) { break }
       }
       
       def param (new TSNode())
@@ -5221,6 +5310,17 @@ class TSParserSimple {
     while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
       if ((array_length ctorType.params) > 0) {
         this.expectValue(",")
+          if (this.matchValue(")")) {
+            ; ...but NOT after a rest parameter: `function f(...x,)` is a
+            ; SyntaxError, the one place the allowance does not reach.
+            if ((array_length ctorType.params) > 0) {
+              def lastP:TSNode (itemAt ctorType.params ((array_length ctorType.params) - 1))
+              if (lastP.nodeType == "RestElement") {
+                this.syntaxError("Parse error: a rest parameter may not be followed by a comma")
+              }
+            }
+            break
+          }
       }
       def param (this.parseParam())
       push ctorType.params param
@@ -5267,6 +5367,7 @@ class TSParserSimple {
         while (((this.matchValue(">")) == false) && ((this.isAtEnd()) == false)) {
           if ((array_length importType.params) > 0) {
             this.expectValue(",")
+              if (this.matchValue(">")) { break }
           }
           def typeArg (this.parseType())
           push importType.params typeArg
@@ -5491,6 +5592,17 @@ class TSParserSimple {
     while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
       if ((array_length method.params) > 0) {
         this.expectValue(",")
+          if (this.matchValue(")")) {
+            ; ...but NOT after a rest parameter: `function f(...x,)` is a
+            ; SyntaxError, the one place the allowance does not reach.
+            if ((array_length method.params) > 0) {
+              def lastP:TSNode (itemAt method.params ((array_length method.params) - 1))
+              if (lastP.nodeType == "RestElement") {
+                this.syntaxError("Parse error: a rest parameter may not be followed by a comma")
+              }
+            }
+            break
+          }
       }
       def param (this.parseParam())
       push method.params param
@@ -6189,7 +6301,17 @@ class TSParserSimple {
     ; alone swallowed it -- `var x = 'await';` did not parse, and neither did the
     ; reserved-words tests that name every keyword as both a key and a value.
     ; Same trap the `<` guard below documents.
-    if ((tokVal == "await") && ((this.peekType()) != "String")) {
+    ; ...and it is only the operator inside an async function, or at the top
+    ; level of a module. In plain script code `await` is an ordinary identifier:
+    ; `function f() { var await = 3; return await; }` returns 3.
+    def awaitIsOperator:boolean this.inAsync
+    if (this.moduleMode) {
+      if ((this.functionDepth) == 0) { awaitIsOperator = true }
+    }
+    if ((tokVal == "await") && (awaitIsOperator && ((this.peekType()) != "String"))) {
+      if (this.inAsyncParams) {
+        this.syntaxError("Parse error: 'await' cannot appear in the parameters of an async function")
+      }
       def awaitTok (this.peek())
       this.advance()
       def arg (this.parseUnary())
@@ -6312,6 +6434,7 @@ class TSParserSimple {
           while (((this.matchValue(">")) == false) && ((this.isAtEnd()) == false)) {
             if ((array_length call.params) > 0) {
               this.expectValue(",")
+                if (this.matchValue(">")) { break }
             }
             def typeArg (this.parseType())
             push call.params typeArg
@@ -6325,6 +6448,7 @@ class TSParserSimple {
             while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
               if ((array_length call.children) > 0) {
                 this.expectValue(",")
+                  if (this.matchValue(")")) { break }
               }
               if (this.matchValue("...")) {
                 this.advance()
@@ -6366,6 +6490,7 @@ class TSParserSimple {
         while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
           if ((array_length call.children) > 0) {
             this.expectValue(",")
+              if (this.matchValue(")")) { break }
           }
           ; Check for spread argument ...arg
           if (this.matchValue("...")) {
@@ -6417,9 +6542,23 @@ class TSParserSimple {
           while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
             if ((array_length optCall.children) > 0) {
               this.expectValue(",")
+                if (this.matchValue(")")) { break }
             }
-            def arg (this.parseExpr())
-            push optCall.children arg
+            ; An optional call takes the same argument list an ordinary one
+            ; does, spread included -- `o.f?.(...args)`. Reading only plain
+            ; expressions here made the `...` an unexpected token, so a file
+            ; containing one did not parse at all.
+            if (this.matchValue("...")) {
+              this.advance()
+              def optSpreadArg (this.parseExpr())
+              def optSpread (new TSNode())
+              optSpread.nodeType = "SpreadElement"
+              optSpread.left = optSpreadArg
+              push optCall.children optSpread
+            } {
+              def arg (this.parseExpr())
+              push optCall.children arg
+            }
           }
           this.expectValue(")")
           expr = optCall
@@ -6433,6 +6572,10 @@ class TSParserSimple {
           def optIndex (new TSNode())
           optIndex.nodeType = "OptionalMemberExpression"
           optIndex.optional = true
+          ; `?.[expr]` is a COMPUTED member, and saying so is what makes the
+          ; evaluator evaluate the index rather than read a property named
+          ; after the index's source text.
+          optIndex.computed = true
           optIndex.left = expr
           optIndex.right = indexExpr
           optIndex.start = expr.start
@@ -6811,9 +6954,7 @@ class TSParserSimple {
     
     ; async arrow function
     if (tokVal == "async") {
-      def nextVal (this.peekNextValue())
-      def nextType (this.peekNextType())
-      if ((nextVal == "(") || (nextType == "Identifier")) {
+      if (this.asyncArrowAhead()) {
         return (this.parseArrowFunction())
       }
     }
@@ -6882,11 +7023,21 @@ class TSParserSimple {
     }
     if (tokVal == "async") {
       if ((this.peekNextValue()) == "function") {
-        this.advance()  ; consume async
-        this.parsingFunctionExpression = true
-      def asyncFnExpr (this.parseFuncDecl(true))
-        asyncFnExpr.nodeType = "FunctionExpression"
-        return asyncFnExpr
+        def asyncExprTok (this.peek())
+        def fnExprTok:Token (itemAt this.tokens (this.pos + 1))
+        ; Same [no LineTerminator here] rule as the declaration form: with a
+        ; break, `async` is just an identifier and the `function` starts a new
+        ; statement after ASI.
+        if (asyncExprTok.line == fnExprTok.line) {
+          this.advance()  ; consume async
+          this.parsingFunctionExpression = true
+          def asyncFnExpr (this.parseFuncDecl(true))
+          asyncFnExpr.nodeType = "FunctionExpression"
+          asyncFnExpr.start = asyncExprTok.start
+          asyncFnExpr.line = asyncExprTok.line
+          asyncFnExpr.col = asyncExprTok.col
+          return asyncFnExpr
+        }
       }
     }
 
@@ -7305,6 +7456,8 @@ class TSParserSimple {
           this.sawRestParam = false
           def savedObjGenerator:boolean this.inGenerator
           this.inGenerator = prop.generator
+          def savedObjAsync:boolean this.inAsync
+          this.inAsync = prop.async
           def savedObjSuperCall:boolean this.allowSuperCall
           def savedObjSuperProp:boolean this.allowSuperProperty
           ; A function is a break/continue boundary: labels do not cross it.
@@ -7324,6 +7477,17 @@ class TSParserSimple {
           while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
             if ((array_length fnNode.params) > 0) {
               this.expectValue(",")
+                if (this.matchValue(")")) {
+                  ; ...but NOT after a rest parameter: `function f(...x,)` is a
+                  ; SyntaxError, the one place the allowance does not reach.
+                  if ((array_length fnNode.params) > 0) {
+                    def lastP:TSNode (itemAt fnNode.params ((array_length fnNode.params) - 1))
+                    if (lastP.nodeType == "RestElement") {
+                      this.syntaxError("Parse error: a rest parameter may not be followed by a comma")
+                    }
+                  }
+                  break
+                }
             }
             def mParam (this.parseParam())
             if ((strlen mParam.name) > 0) {
@@ -7366,6 +7530,7 @@ class TSParserSimple {
           this.allowSuperCall = savedObjSuperCall
           this.allowSuperProperty = savedObjSuperProp
           this.inGenerator = savedObjGenerator
+          this.inAsync = savedObjAsync
           this.sawRestParam = savedObjRest
           this.functionDepth = (this.functionDepth - 1)
           this.iterationDepth = savedobjIter
@@ -7463,6 +7628,51 @@ class TSParserSimple {
   
   ; === Paren or Arrow Function ===
   
+  ; Is the `async` under the cursor the head of an async arrow, or just a
+  ; function called `async`? `async` is a contextual keyword: `async (x) => x`
+  ; is an arrow and `async(1)` is a CALL, and the two are told apart only by
+  ; what follows the closing paren. Assuming "arrow" turned every `async(...)`
+  ; call into a malformed arrow.
+  fn asyncArrowAhead:boolean () {
+    if ((this.pos + 1) >= (array_length this.tokens)) {
+      return false
+    }
+    ; `async [no LineTerminator here] ArrowParameters`: a break makes `async`
+    ; an ordinary identifier and whatever follows a separate expression.
+    def asyncTok0:Token (itemAt this.tokens this.pos)
+    def nextTok0:Token (itemAt this.tokens (this.pos + 1))
+    if (asyncTok0.line != nextTok0.line) {
+      return false
+    }
+    def afterVal:string (this.peekAheadValue(1))
+    if (afterVal == "(") {
+      def depth:int 1
+      def k:int 2
+      while ((depth > 0) && (k < (array_length this.tokens))) {
+        def v:string (this.peekAheadValue(k))
+        if (v == "(") { depth = (depth + 1) }
+        if (v == ")") { depth = (depth - 1) }
+        k = (k + 1)
+      }
+      if (depth > 0) {
+        return false
+      }
+      def tail:string (this.peekAheadValue(k))
+      ; `:` is a TS return annotation -- `async (x): T => x`. Nothing else can
+      ; follow a call's arguments with a `:`, so it is safe to read as an arrow.
+      if (tail == "=>") { return true }
+      if (tail == ":") { return true }
+      return false
+    }
+    ; `async x => x`: a single unparenthesized parameter.
+    if ((this.peekNextType()) == "Identifier") {
+      if ((this.peekAheadValue(2)) == "=>") {
+        return true
+      }
+    }
+    return false
+  }
+
   fn parseParenOrArrow:TSNode () {
     def startTok (this.peek())
     
@@ -7555,6 +7765,11 @@ class TSParserSimple {
     def savedArrowRest:boolean this.sawRestParam
     this.sawRestParam = false
     def savedArrowGenerator:boolean this.inGenerator
+    def savedArrowAsync:boolean this.inAsync
+    this.inAsync = node.async
+    ; An arrow nested in an async function's parameter list is its own context.
+    def savedArrowAsyncParams:boolean this.inAsyncParams
+    this.inAsyncParams = false
     def savedArrowIter:int this.iterationDepth
     def savedArrowSwitch:int this.switchDepth
     def savedArrowLabels:[string] this.activeLabels
@@ -7572,6 +7787,17 @@ class TSParserSimple {
       while (((this.matchValue(")")) == false) && ((this.isAtEnd()) == false)) {
         if ((array_length node.params) > 0) {
           this.expectValue(",")
+            if (this.matchValue(")")) {
+              ; ...but NOT after a rest parameter: `function f(...x,)` is a
+              ; SyntaxError, the one place the allowance does not reach.
+              if ((array_length node.params) > 0) {
+                def lastP:TSNode (itemAt node.params ((array_length node.params) - 1))
+                if (lastP.nodeType == "RestElement") {
+                  this.syntaxError("Parse error: a rest parameter may not be followed by a comma")
+                }
+              }
+              break
+            }
         }
         def param (this.parseParam())
         ; Duplicate arrow parameters are always an error, unlike a sloppy
@@ -7650,6 +7876,8 @@ class TSParserSimple {
     this.activeLabels = savedArrowLabels
     this.iterationLabels = savedArrowIterLabels
     this.inGenerator = savedArrowGenerator
+    this.inAsync = savedArrowAsync
+    this.inAsyncParams = savedArrowAsyncParams
     this.sawRestParam = savedArrowRest
     this.functionDepth = (this.functionDepth - 1)
 

@@ -640,7 +640,92 @@ them aside cannot quietly flatter the remaining number.
   could already see an outer `x` bound nothing at all. It now consults the own binding
   of the scope the `var` belongs to, which is the only thing the rule was ever about.
 
+- **Dynamic `import()` resolves.** It parsed and then answered nothing usable. It
+  now runs through the same resolution path a static `import` does — one synthetic
+  `ImportDeclaration`, so there is no second path to drift — and answers a promise
+  for the module's namespace. A specifier that resolves to nothing REJECTS with a
+  TypeError rather than logging and continuing: `import(p).catch(...)` is written
+  precisely for the module that is not there, and the static form's "report and
+  carry on" is the wrong answer to it.
+
+- **A module has ONE namespace object.** `import * as A` and two separate
+  `import(spec)` calls used to hand out three different snapshots, so `nsA === nsB`
+  was false and code that caches by identity saw three strangers. Namespaces are
+  now cached per specifier, and the cache is consulted BEFORE the declaration is
+  re-run — a file module loads once, so the second run adds no bindings and the
+  "nothing arrived" test would have read that as a resolution failure. A namespace
+  also brands as `[object Module]`, which is the only way `Object.prototype
+  .toString` can tell one from an ordinary object.
+
+- **`async` and `await` are contextual keywords again.** Treating them as reserved
+  everywhere broke ordinary script code: `async(1)` was read as a malformed arrow
+  (a call to a function named `async` is told apart from `async (x) => x` only by
+  what follows the closing paren), and `function f() { var await = 3; return
+  await; }` did not parse at all — the operator branch fired outside any async
+  function and ate the token. `await` is now the operator only inside an async
+  function or at the top level of a module, and an early error in the PARAMETERS
+  of an async function, where it never belongs. The `async [no LineTerminator
+  here]` restriction is enforced for both the declaration and the expression form.
+
+- **`f(await p)` no longer answers undefined.** The resumable driver's spine
+  check listed a CALL as steppable — "only the arguments are stepped, which is
+  where a yield realistically appears" — and no step function for a call ever
+  existed. So the frame was popped without pushing a result, and every
+  `console.log(await f())` in an async body silently produced `undefined`. It
+  now refuses the shape, which is what the driver's own incremental-adoption
+  rule says to do with a form it cannot step: the body runs eagerly instead.
+  That gets the value right and the interleaving wrong — an eager body does not
+  actually suspend, so it finishes ahead of microtasks queued before it. A
+  wrong ORDER is a real cost and is recorded as one in 2.4; a wrong VALUE with
+  nothing to say so was worse. `await` in every other position — an operand, a
+  member base, a ternary, an array element, a condition, a loop body, a
+  `return` — is stepped and matches Node.
+
+- **An async function is not a constructor.** It had a `prototype` and `new f()`
+  produced an object. It now has neither, like an arrow. Alongside it, the four
+  callable forms brand apart — `[object AsyncFunction]`, `[object
+  AsyncGeneratorFunction]`, `[object GeneratorFunction]`, `[object Function]` —
+  and `Object.getPrototypeOf(async function () {})` is a real
+  %AsyncFunction.prototype%: it inherits from `Function.prototype`, carries
+  `Symbol.toStringTag`, and its `constructor` is a working %AsyncFunction% that
+  compiles `new AF("x", "return x * 2")` as async source. That constructor has no
+  global binding, so a bare `AsyncFunction` is still a ReferenceError — the
+  `Object.getPrototypeOf(...).constructor` route is the only one, which is exactly
+  the route feature detection takes. `f.toString()` also starts at `async` now,
+  which is the other thing that detection reads.
+
 ### 2.4 Known-wrong, pinned rather than hidden
+
+- **An async body containing `f(await p)` does not suspend.** A call is not a
+  form the resumable driver can step, so a body with one falls back to running
+  eagerly. The values are right; the ordering is not — the body runs straight
+  through to its end instead of yielding to the microtask queue at each
+  `await`, so work queued before it can finish after it. Every other await
+  position IS stepped and interleaves correctly, which is what makes this
+  narrow rather than general. The fix is a driver step for calls, which needs
+  the callee resolution the walker owns (receiver binding, built-in dispatch by
+  name, optional-call short-circuit) — that is why it is a pinned gap and not a
+  patch.
+
+- **An async generator's OBJECT is a synchronous one.** `async function*` parses,
+  its function value brands correctly as `[object AsyncGeneratorFunction]`, and
+  `for await (... of g())` produces the right values — that path awaits whatever
+  it is handed, so a non-promise works by accident. Driving one by hand does not
+  match: `g().next()` answers an iteration result directly rather than a promise
+  for one, and the object still brands as `[object Generator]`. The brand is
+  deliberately left wrong rather than fixed on its own — code that brand-detects
+  an AsyncGenerator goes on to `await` its `next()` and to read `Symbol
+  .asyncIterator`, so a correct brand over a synchronous object is worse than the
+  honest mismatch. The two move together or not at all. Both are asserted in
+  `KNOWN_GAPS` so closing either forces this entry to be updated.
+
+- **File-based module imports depend on the embedder.** `import`/`export` and
+  dynamic `import()` are wired against the module resolver, which asks the host
+  for a base path and an asset loader. Virtual `ranger:*` modules need neither and
+  work everywhere, which is what the module gates use. The `octane_runner` bench
+  harness sets no base path, so a file specifier resolves to nothing there and
+  both the static and the dynamic form reject — correctly, but it means file
+  modules are only exercised through embedders that do set it.
 
 - **A loop exits after 100000 iterations, silently.** Every loop runner carries a
   `maxIterations` guard against a runaway program hanging the host, and reaching it
@@ -1589,23 +1674,29 @@ No number is published here rather than a synthesised one.
 
 ### What the probe suite is not
 
-`npm run jsengine:conformance` reports 1705/1707 on each native target. That is
-the runtime-conformance corpus, whose expectations are derived by running the
+`npm run jsengine:conformance` reports its own count on each native target. That
+is the runtime-conformance corpus, whose expectations are derived by running the
 same source through Node. It is a regression net, not test262, and the two
 numbers must not be quoted side by side as if they measured the same thing.
 
-The runtime-conformance suite is at 1846 checks, every one of them derived from
-Node — 1816 expression probes plus 21 script-level probes run through Node's
-`vm` so the script global is real, plus the module and gap assertions. A further
-25 live in `tests/regexp-es2025.test.ts` and are SPEC-derived rather than
-Node-derived, for the two features no Node here implements; that file is
-separate precisely so the difference is visible.
+The runtime-conformance suite is at 1920 checks, every one of them derived from
+Node — the expression probes, plus script-level probes run through Node's `vm`
+so the script global is real, plus the module and gap assertions. A further 31
+live in `tests/spec-derived.test.ts` and are SPEC-derived rather than
+Node-derived, for the features no Node here implements; that file is separate
+precisely so the difference is visible.
 Date is additionally validated by 209 differential cases against Node covering the
 component getters, the setter family, `Date.parse`, `Date.UTC` and both range extremes.
-The 47 whole-program cases in `tests/async-conformance.test.ts` cover what a
+The 55 whole-program cases in `tests/async-conformance.test.ts` cover what a
 returned value cannot show: what an async body, a promise combinator or
 `finally` actually PRODUCES once the queue drains, compared against Node
-running the same program.
+running the same program — and, since they run on every built target, that the
+three agree about it.
+
+The module checks are the one place expectations are hand-written rather than
+derived, because `ranger:probe` is a specifier only this engine resolves. Each
+is a plain spec rule stated as such: `import()` answers a promise, an
+unresolvable specifier rejects, a module has one namespace.
 
 ---
 

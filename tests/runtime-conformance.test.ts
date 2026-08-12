@@ -1915,6 +1915,39 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["async-tostring-tag", "async function f() { return 1; } return Object.prototype.toString.call(f());", "async"],
   ["async-instanceof-promise", "async function f() { return 1; } return f() instanceof Promise;", "async"],
 
+  // What an async function IS, rather than what it returns. `async` and
+  // `await` are CONTEXTUAL keywords, and treating them as reserved everywhere
+  // broke ordinary script code: `async(1)` was read as a malformed arrow and
+  // `function f() { var await = 3; return await; }` did not parse at all.
+  ["async-fn-proto-ctor-name", "async function f() {} return Object.getPrototypeOf(f).constructor.name;", "async"],
+  ["async-fn-proto-tag", "async function f() {} return Object.getPrototypeOf(f)[Symbol.toStringTag];", "async"],
+  ["async-fn-proto-is-fn-proto", "async function f() {} return Object.getPrototypeOf(Object.getPrototypeOf(f)) === Function.prototype;", "async"],
+  ["async-fn-tostring-tag", "async function f() {} return Object.prototype.toString.call(f);", "async"],
+  ["async-gen-fn-tostring-tag", "async function* f() {} return Object.prototype.toString.call(f);", "async"],
+  ["async-fn-not-a-ctor", "async function f() {} try { new f(); return 'CONSTRUCTED'; } catch (e) { return e.constructor.name; }", "async"],
+  ["async-fn-no-prototype", "async function f() {} return typeof f.prototype;", "async"],
+  ["async-arrow-not-a-ctor", "var g = async () => 1; try { new g(); return 'CONSTRUCTED'; } catch (e) { return e.constructor.name; }", "async"],
+  ["async-method-no-prototype", "var o = { async m() {} }; return typeof o.m.prototype;", "async"],
+  ["async-fn-length", "async function f(a, b) {} return f.length;", "async"],
+  ["async-fn-name", "async function f() {} return f.name;", "async"],
+  ["async-fn-tostring-keeps-async", "async function f() {} return f.toString().slice(0, 5);", "async"],
+  ["async-ctor-via-proto", "async function f() {} var AF = Object.getPrototypeOf(f).constructor; var h = new AF('x', 'return x * 2;'); return typeof h(3).then;", "async"],
+  ["async-ctor-not-global", "return typeof AsyncFunction === 'undefined' ? 'unbound' : 'BOUND';", "async"],
+  // `async` and `await` as ordinary identifiers.
+  ["async-as-fn-name", "function async(x) { return x + 1; } return async(1);", "async"],
+  ["async-as-call-target", "var async = function (x) { return x * 3; }; return async(4);", "async"],
+  ["async-prop-shorthand", "var async = 7; var o = { async }; return o.async;", "async"],
+  ["await-as-name-in-sync-fn", "function f() { var await = 3; return await; } return f();", "async"],
+  ["await-as-name-in-nested-fn", "async function f() { function g() { var await = 2; return await; } return g(); } return typeof f().then;", "async"],
+  ["async-linebreak-is-identifier", "var async = 5; var r = async\nfunction f() { return 1; }\nreturn r === undefined ? 'stmt' : String(r);", "async"],
+  ["async-linebreak-before-arrow", "var async = function (x) { return 'called'; }; var r = async\n(1);\nreturn r;", "async"],
+  // The parameters of an async function are not part of its body.
+  ["async-params-no-await", "try { eval('async function f(x = await 1) {}'); return 'ACCEPTED'; } catch (e) { return e.constructor.name; }", "async"],
+  ["async-inner-arrow-params-ok", "async function f() { var g = (x = 1) => x; return g(); } return typeof f().then;", "async"],
+  // Listed in KNOWN_GAPS: the async-generator OBJECT is still a sync one.
+  ["async-gen-obj-tostring-tag", "async function* f() {} return Object.prototype.toString.call(f());", "async"],
+  ["async-gen-next-is-a-promise", "async function* f() { yield 1; } return typeof f().next().then;", "async"],
+
   // formatToParts / formatRange / supportedLocalesOf.
   ["intl-nf-parts", "return new Intl.NumberFormat('de').formatToParts(-1234567.89).map(function (p) { return p.type + '=' + p.value; }).join(' ');", "unicode"],
   ["intl-nf-parts-currency", "return new Intl.NumberFormat('en', { style: 'currency', currency: 'USD' }).formatToParts(-99.5).map(function (p) { return p.type; }).join(',');", "unicode"],
@@ -2341,6 +2374,59 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["string-two-pairs", "var s = '\\ud83d\\ude00\\ud83d\\ude01'; return s.length + ',' + s.codePointAt(0) + ',' + s.codePointAt(2);", "es2015"],
   ["string-pair-then-text", "var s = '\\ud801\\udc00z'; return s.length + ',' + s.charCodeAt(2);", "es2015"],
   ["re-pair-escape-property", "return /\\p{L}/u.test('\\ud801\\udc00');", "es2018"],
+
+  // --- trailing commas (ES2017) ---------------------------------------------
+  ["trailing-comma-fn-decl", "function f(a, b,) { return a + b; } return f(1, 2,);", "es2017"],
+  ["trailing-comma-arrow", "var f = (a, b,) => a + b; return f(1, 2);", "es2017"],
+  ["trailing-comma-method", "class TcA { m(a,) { return a; } } return new TcA().m(3,);", "es2017"],
+  ["trailing-comma-obj-method", "var o = { m(a, b,) { return a * b; } }; return o.m(2, 3,);", "es2017"],
+  ["trailing-comma-fn-expr", "var f = function (a,) { return a; }; return f(9,);", "es2017"],
+  ["trailing-comma-nested-call", "function g(x) { return x; } return g(g(1,),);", "es2017"],
+  ["trailing-comma-new", "function C(a,) { this.a = a; } return new C(4,).a;", "es2017"],
+  ["trailing-comma-defaults", "function f(a = 1, b = 2,) { return a + b; } return f();", "es2017"],
+  ["trailing-comma-after-spread", "function f(a, b) { return a + b; } return f(...[1, 2],);", "es2017"],
+  ["trailing-comma-destructure", "var [a, b,] = [1, 2]; var { c, d, } = { c: 3, d: 4 }; return a + b + c + d;", "es2017"],
+  // ...but a rest parameter may NOT be followed by one.
+  ["trailing-comma-after-rest-is-error", "try { eval('function q(...x,){}'); return 'accepted'; } catch (e) { return e.constructor.name; }", "es2017"],
+
+  // --- optional chaining: the remaining forms --------------------------------
+  ["optchain-computed", "var o = { a: [1, 2] }; return o?.a?.[1];", "es2020"],
+  ["optchain-computed-nullish", "var o = null; return String(o?.['k']);", "es2020"],
+  ["optchain-computed-call", "var o = { f: function () { return 7; } }; var k = 'f'; return o?.[k]();", "es2020"],
+  ["optchain-computed-call-nullish", "var o = null; var k = 'f'; return String(o?.[k]());", "es2020"],
+  ["optchain-call-spread", "var o = { f: function (a, b) { return a + b; } }; return o.f?.(...[1, 2]);", "es2020"],
+  ["optchain-call-spread-nullish", "var o = null; return String(o?.f(...[1]));", "es2020"],
+  ["optchain-method-spread", "var o = { f: function () { return arguments.length; } }; return o?.f(...[1, 2, 3]);", "es2020"],
+  ["optchain-across-lines", "var o = { a: { b: 2 } }; return o\n  ?.a\n  ?.b;", "es2020"],
+  ["optchain-delete", "var o = { a: { b: 1 } }; delete o?.a?.b; return JSON.stringify(o);", "es2020"],
+
+  // --- logical assignment: the WRITE is skipped, not just the value ----------
+  ["logical-or-assign", "var a = 0; a ||= 5; return a;", "es2021"],
+  ["logical-and-assign", "var a = 1; a &&= 5; return a;", "es2021"],
+  ["logical-nullish-assign", "var a = null; a ??= 5; return a;", "es2021"],
+  // §13.15.2: a short-circuited form does not call the setter at all.
+  ["logical-or-skips-setter", "var n = 0; var o = { get v() { return 1; }, set v(x) { n++; } }; o.v ||= 2; return n;", "es2021"],
+  ["logical-or-calls-setter", "var n = 0; var o = { get v() { return 0; }, set v(x) { n++; } }; o.v ||= 2; return n;", "es2021"],
+  ["logical-and-skips-setter", "var n = 0; var o = { get v() { return 0; }, set v(x) { n++; } }; o.v &&= 2; return n;", "es2021"],
+  ["logical-nullish-skips-setter", "var n = 0; var o = { get v() { return 1; }, set v(x) { n++; } }; o.v ??= 2; return n;", "es2021"],
+  ["logical-rhs-not-evaluated", "var n = 0; function rhs() { n++; return 9; } var a = 1; a ||= rhs(); return n;", "es2021"],
+  ["logical-nullish-rhs-not-evaluated", "var n = 0; function rhs() { n++; return 9; } var a = 0; a ??= rhs(); return n + ',' + a;", "es2021"],
+
+  // --- Error.cause (ES2022) --------------------------------------------------
+  ["error-cause", "return new Error('x', { cause: 'why' }).cause;", "es2022"],
+  ["error-cause-object", "var inner = new Error('inner'); return new Error('outer', { cause: inner }).cause.message;", "es2022"],
+  ["error-cause-absent", "return ('cause' in new Error('x'));", "es2022"],
+  ["error-cause-empty-options", "return ('cause' in new Error('x', {}));", "es2022"],
+  ["error-cause-undefined-value", "var e = new Error('x', { cause: undefined }); return ('cause' in e) + ',' + String(e.cause);", "es2022"],
+  ["error-cause-not-enumerable", "var e = new Error('x', { cause: 1 }); return Object.keys(e).join(',');", "es2022"],
+  ["error-cause-subclass", "return new TypeError('t', { cause: 2 }).cause + ',' + new RangeError('r', { cause: 3 }).cause;", "es2022"],
+  ["error-cause-without-new", "return Error('x', { cause: 4 }).cause;", "es2022"],
+  ["error-cause-aggregate", "return new AggregateError([1], 'm', { cause: 5 }).cause;", "es2022"],
+  ["error-cause-chain", "var a = new Error('a'); var b = new Error('b', { cause: a }); var c = new Error('c', { cause: b }); return c.cause.cause.message;", "es2022"],
+  // An error's own name and message are NOT enumerable, so it serialises as {}.
+  ["error-not-enumerable", "return Object.keys(new Error('x')).join(',');", "es5"],
+  ["error-json", "return JSON.stringify(new Error('x'));", "es5"],
+  ["error-message-descriptor", "return JSON.stringify(Object.getOwnPropertyDescriptor(new Error('x'), 'message'));", "es5"],
 ];
 
 /**
@@ -2358,6 +2444,15 @@ const KNOWN_GAPS = new Set<string>([
   // template that evaluates its key and value twice), which costs more than the
   // one behaviour it buys. Asserted in both directions so it cannot rot.
   "json-proto-is-ordinary-key",
+  // An async generator's OBJECT still brands as "[object Generator]" and its
+  // next() answers an iteration result directly rather than a promise for one.
+  // `for await (... of asyncGen())` produces the right values -- that path
+  // awaits whatever it is handed -- but driving one by hand does not match.
+  // The brand is deliberately left wrong rather than fixed alone: code that
+  // brand-detects an AsyncGenerator goes on to await next(), which would then
+  // be worse off than it is today. The two move together or not at all.
+  "async-gen-obj-tostring-tag",
+  "async-gen-next-is-a-promise",
   // The six that used to sit here -- for-of-expr-lhs, destr-swap,
   // iter-generator, obj-computed-key, err-optional-chain, err-nullish -- now
   // pass and have moved back into the ordinary probe set above. This assertion
@@ -2437,6 +2532,30 @@ const MODULE_ENTRY = [
   // Negative: these were never exported and must not be reachable.
   "function reachUnexportedConst() { const v = NS.notShown; if (v === undefined) { return 'blocked'; } return 'REACHABLE'; }",
   "function reachUnexportedFn() { if (NS.notExportedFn === undefined) { return 'blocked'; } return 'REACHABLE'; }",
+
+  // Dynamic import(). It answers a promise, so what each probe reports is
+  // whatever the settled callbacks wrote into these bindings -- loadScript
+  // drains the microtask queue before it returns, the same as a module job
+  // finishing before the host runs anything else.
+  "var dynNs = null;",
+  "var dynMissingErr = 'never-settled';",
+  "var dynAwaited = 'never-settled';",
+  "var dynSameObject = 'never-settled';",
+  "var dynTag = 'never-settled';",
+  "import('ranger:probe').then(function (ns) { dynNs = ns; });",
+  "import('ranger:notregistered').then(function () { dynMissingErr = 'RESOLVED'; }, function (e) { dynMissingErr = e.constructor.name; });",
+  "(async function () { var ns = await import('ranger:probe'); dynAwaited = ns.twice(16); })();",
+  "Promise.all([import('ranger:probe'), import('ranger:probe')]).then(function (rs) { dynSameObject = (rs[0] === rs[1]) ? 'same' : 'different'; dynTag = Object.prototype.toString.call(rs[0]); });",
+  "function dynIsThenable() { return typeof import('ranger:probe').then; }",
+  "function dynExpressionSpecifier() { var s = 'ranger:' + 'probe'; return typeof import(s).then; }",
+  "function dynReadExport() { if (dynNs === null) { return '<never-settled>'; } return dynNs.exported; }",
+  "function dynCallExport() { if (dynNs === null) { return -1; } return dynNs.twice(11); }",
+  "function dynUnexportedStillReachable() { if (dynNs === null) { return '<never-settled>'; } if (dynNs.notShown === undefined) { return 'blocked'; } return 'REACHABLE'; }",
+  "function dynMissingRejects() { return dynMissingErr; }",
+  "function dynAwaitedValue() { return dynAwaited; }",
+  "function dynIdentity() { return dynSameObject; }",
+  "function dynToStringTag() { return dynTag; }",
+  "function dynMatchesStaticNamespace() { if (dynNs === null) { return '<never-settled>'; } return (dynNs === NS) ? 'same' : 'different'; }",
 ].join("\n");
 
 /** Cross-module checks that already hold. */
@@ -2446,6 +2565,20 @@ const MODULE_EXPECTATIONS: Array<[fn: string, expected: unknown, what: string]> 
   ["readViaNamespace", 20, "namespace access to an exported const"],
   ["callViaNamespace", 40, "a namespace call to an exported function"],
   ["entryOnlyBinding", "undefined", "a binding the module never declared"],
+
+  // Dynamic import(). These expectations are hand-written rather than derived
+  // from Node, because `ranger:probe` is a specifier only this engine resolves.
+  // Every one of them is a plain spec rule -- import() answers a promise, a
+  // specifier that resolves to nothing rejects, and a module has ONE namespace.
+  ["dynIsThenable", "function", "import() answers a promise"],
+  ["dynExpressionSpecifier", "function", "a computed specifier expression"],
+  ["dynReadExport", 20, "an exported const through a dynamic namespace"],
+  ["dynCallExport", 22, "an exported function through a dynamic namespace"],
+  ["dynMissingRejects", "TypeError", "an unresolvable specifier rejects"],
+  ["dynAwaitedValue", 32, "await import(...) inside an async function"],
+  ["dynIdentity", "same", "two import() calls answer the same namespace"],
+  ["dynMatchesStaticNamespace", "same", "import() and `import * as` share one namespace"],
+  ["dynToStringTag", "[object Module]", "a namespace is branded Module, not Object"],
 ];
 
 /**
@@ -2456,6 +2589,7 @@ const MODULE_EXPECTATIONS: Array<[fn: string, expected: unknown, what: string]> 
 const MODULE_KNOWN_GAPS: Array<[fn: string, what: string]> = [
   ["reachUnexportedConst", "an unexported const is reachable through the namespace"],
   ["reachUnexportedFn", "an unexported function is reachable through the namespace"],
+  ["dynUnexportedStillReachable", "an unexported binding is reachable through a dynamic namespace"],
 ];
 
 function buildEngineModuleIfNeeded(): void {

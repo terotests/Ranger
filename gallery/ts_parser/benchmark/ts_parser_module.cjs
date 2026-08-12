@@ -2388,6 +2388,7 @@ class TSParserSimple  {
     this.iterationLabels = [];
     this.pendingLabel = "";     /** note: unused */
     this.inGenerator = false;
+    this.inAsync = false;
     this.functionDepth = 0;
     this.sawRestParam = false;
     this.lastBlockEnabledStrict = false;
@@ -3365,8 +3366,16 @@ class TSParserSimple  {
     if ( tokVal == "async" ) {
       const nextVal_2 = this.peekNextValue();
       if ( nextVal_2 == "function" ) {
-        this.advance();
-        return this.parseFuncDecl(true);
+        const asyncTok = this.peek();
+        const fnTok = this.tokens[(this.pos + 1)];
+        if ( asyncTok.line == fnTok.line ) {
+          this.advance();
+          const asyncDecl = this.parseFuncDecl(true);
+          asyncDecl.start = asyncTok.start;
+          asyncDecl.line = asyncTok.line;
+          asyncDecl.col = asyncTok.col;
+          return asyncDecl;
+        }
       }
     }
     if ( tokVal == "return" ) {
@@ -3968,6 +3977,9 @@ class TSParserSimple  {
     while ((this.matchValue(">") == false) && (this.isAtEnd() == false)) {
       if ( (params.length) > 0 ) {
         this.expectValue(",");
+        if ( this.matchValue(">") ) {
+          break;
+        }
       }
       const param = new TSNode();
       param.nodeType = "TSTypeParameter";
@@ -4044,6 +4056,15 @@ class TSParserSimple  {
     while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
       if ( (sig.children.length) > 0 ) {
         this.expectValue(",");
+        if ( this.matchValue(")") ) {
+          if ( (sig.children.length) > 0 ) {
+            const lastP = sig.children[((sig.children.length) - 1)];
+            if ( lastP.nodeType == "RestElement" ) {
+              this.syntaxError("Parse error: a rest parameter may not be followed by a comma");
+            }
+          }
+          break;
+        }
       }
       const param = this.parseParam();
       sig.children.push(param);
@@ -4070,6 +4091,15 @@ class TSParserSimple  {
     while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
       if ( (sig.children.length) > 0 ) {
         this.expectValue(",");
+        if ( this.matchValue(")") ) {
+          if ( (sig.children.length) > 0 ) {
+            const lastP = sig.children[((sig.children.length) - 1)];
+            if ( lastP.nodeType == "RestElement" ) {
+              this.syntaxError("Parse error: a rest parameter may not be followed by a comma");
+            }
+          }
+          break;
+        }
       }
       const param = this.parseParam();
       sig.children.push(param);
@@ -4359,6 +4389,9 @@ class TSParserSimple  {
       while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
         if ( (member.params.length) > 0 ) {
           this.expectValue(",");
+          if ( this.matchValue(")") ) {
+            break;
+          }
         }
         const param = this.parseConstructorParam();
         if ( (param.name.length) > 0 ) {
@@ -4467,6 +4500,8 @@ class TSParserSimple  {
       this.sawRestParam = false;
       const savedMethodGenerator = this.inGenerator;
       this.inGenerator = member.generator;
+      const savedMethodAsync = this.inAsync;
+      this.inAsync = member.async;
       const savedMethodSuperCall = this.allowSuperCall;
       const savedMethodSuperProp = this.allowSuperProperty;
       const savedmethIter = this.iterationDepth;
@@ -4498,6 +4533,15 @@ class TSParserSimple  {
       while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
         if ( (member.params.length) > 0 ) {
           this.expectValue(",");
+          if ( this.matchValue(")") ) {
+            if ( (member.params.length) > 0 ) {
+              const lastP = member.params[((member.params.length) - 1)];
+              if ( lastP.nodeType == "RestElement" ) {
+                this.syntaxError("Parse error: a rest parameter may not be followed by a comma");
+              }
+            }
+            break;
+          }
         }
         const param_1 = this.parseParam();
         if ( (param_1.name.length) > 0 ) {
@@ -4538,6 +4582,7 @@ class TSParserSimple  {
       this.allowSuperCall = savedMethodSuperCall;
       this.allowSuperProperty = savedMethodSuperProp;
       this.inGenerator = savedMethodGenerator;
+      this.inAsync = savedMethodAsync;
       this.sawRestParam = savedMethodRest;
       this.functionDepth = this.functionDepth - 1;
       this.iterationDepth = savedmethIter;
@@ -5547,16 +5592,19 @@ class TSParserSimple  {
       node.generator = true;
     }
     const savedGenerator = this.inGenerator;
+    const savedAsync = this.inAsync;
     const isFnExpression = this.parsingFunctionExpression;
     this.parsingFunctionExpression = false;
     if ( isFnExpression ) {
       this.inGenerator = node.generator;
+      this.inAsync = node.async;
     }
     if ( this.matchValue("(") == false ) {
       const nameTok = this.expectBindingName();
       node.name = nameTok.value;
     }
     this.inGenerator = node.generator;
+    this.inAsync = node.async;
     this.pushScope(true);
     this.functionDepth = this.functionDepth + 1;
     const savedRest = this.sawRestParam;
@@ -5586,6 +5634,15 @@ class TSParserSimple  {
     while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
       if ( (node.params.length) > 0 ) {
         this.expectValue(",");
+        if ( this.matchValue(")") ) {
+          if ( (node.params.length) > 0 ) {
+            const lastP = node.params[((node.params.length) - 1)];
+            if ( lastP.nodeType == "RestElement" ) {
+              this.syntaxError("Parse error: a rest parameter may not be followed by a comma");
+            }
+          }
+          break;
+        }
       }
       const param = this.parseParam();
       this.declareParam(param);
@@ -5625,6 +5682,7 @@ class TSParserSimple  {
     this.allowSuperCall = savedSuperCall;
     this.allowSuperProperty = savedSuperProp;
     this.inGenerator = savedGenerator;
+    this.inAsync = savedAsync;
     this.sawRestParam = savedRest;
     this.functionDepth = this.functionDepth - 1;
     this.iterationDepth = savedfnIter;
@@ -6207,6 +6265,9 @@ class TSParserSimple  {
       while ((this.matchValue(">") == false) && (this.isAtEnd() == false)) {
         if ( (ref.params.length) > 0 ) {
           this.expectValue(",");
+          if ( this.matchValue(">") ) {
+            break;
+          }
         }
         const typeArg = this.parseType();
         ref.params.push(typeArg);
@@ -6226,6 +6287,9 @@ class TSParserSimple  {
     while ((this.matchValue("]") == false) && (this.isAtEnd() == false)) {
       if ( (tuple.children.length) > 0 ) {
         this.expectValue(",");
+        if ( this.matchValue("]") ) {
+          break;
+        }
       }
       if ( this.matchValue("...") ) {
         const restTok = this.peek();
@@ -6395,6 +6459,9 @@ class TSParserSimple  {
     while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
       if ( (funcType.params.length) > 0 ) {
         this.expectValue(",");
+        if ( this.matchValue(")") ) {
+          break;
+        }
       }
       const param = new TSNode();
       param.nodeType = "Parameter";
@@ -6437,6 +6504,15 @@ class TSParserSimple  {
     while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
       if ( (ctorType.params.length) > 0 ) {
         this.expectValue(",");
+        if ( this.matchValue(")") ) {
+          if ( (ctorType.params.length) > 0 ) {
+            const lastP = ctorType.params[((ctorType.params.length) - 1)];
+            if ( lastP.nodeType == "RestElement" ) {
+              this.syntaxError("Parse error: a rest parameter may not be followed by a comma");
+            }
+          }
+          break;
+        }
       }
       const param = this.parseParam();
       ctorType.params.push(param);
@@ -6470,6 +6546,9 @@ class TSParserSimple  {
         while ((this.matchValue(">") == false) && (this.isAtEnd() == false)) {
           if ( (importType.params.length) > 0 ) {
             this.expectValue(",");
+            if ( this.matchValue(">") ) {
+              break;
+            }
           }
           const typeArg = this.parseType();
           importType.params.push(typeArg);
@@ -6627,6 +6706,15 @@ class TSParserSimple  {
     while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
       if ( (method.params.length) > 0 ) {
         this.expectValue(",");
+        if ( this.matchValue(")") ) {
+          if ( (method.params.length) > 0 ) {
+            const lastP = method.params[((method.params.length) - 1)];
+            if ( lastP.nodeType == "RestElement" ) {
+              this.syntaxError("Parse error: a rest parameter may not be followed by a comma");
+            }
+          }
+          break;
+        }
       }
       const param = this.parseParam();
       method.params.push(param);
@@ -7196,7 +7284,13 @@ class TSParserSimple  {
       }
       return yieldExpr;
     }
-    if ( (tokVal == "await") && (this.peekType() != "String") ) {
+    let awaitIsOperator = this.inAsync;
+    if ( this.moduleMode ) {
+      if ( this.functionDepth == 0 ) {
+        awaitIsOperator = true;
+      }
+    }
+    if ( (tokVal == "await") && (awaitIsOperator && (this.peekType() != "String")) ) {
       const awaitTok = this.peek();
       this.advance();
       const arg_4 = this.parseUnary();
@@ -7281,6 +7375,9 @@ class TSParserSimple  {
           while ((this.matchValue(">") == false) && (this.isAtEnd() == false)) {
             if ( (call.params.length) > 0 ) {
               this.expectValue(",");
+              if ( this.matchValue(">") ) {
+                break;
+              }
             }
             const typeArg = this.parseType();
             call.params.push(typeArg);
@@ -7291,6 +7388,9 @@ class TSParserSimple  {
             while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
               if ( (call.children.length) > 0 ) {
                 this.expectValue(",");
+                if ( this.matchValue(")") ) {
+                  break;
+                }
               }
               if ( this.matchValue("...") ) {
                 this.advance();
@@ -7326,6 +7426,9 @@ class TSParserSimple  {
         while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
           if ( (call_1.children.length) > 0 ) {
             this.expectValue(",");
+            if ( this.matchValue(")") ) {
+              break;
+            }
           }
           if ( this.matchValue("...") ) {
             this.advance();
@@ -7369,9 +7472,21 @@ class TSParserSimple  {
           while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
             if ( (optCall.children.length) > 0 ) {
               this.expectValue(",");
+              if ( this.matchValue(")") ) {
+                break;
+              }
             }
-            const arg_2 = this.parseExpr();
-            optCall.children.push(arg_2);
+            if ( this.matchValue("...") ) {
+              this.advance();
+              const optSpreadArg = this.parseExpr();
+              const optSpread = new TSNode();
+              optSpread.nodeType = "SpreadElement";
+              optSpread.left = optSpreadArg;
+              optCall.children.push(optSpread);
+            } else {
+              const arg_2 = this.parseExpr();
+              optCall.children.push(arg_2);
+            }
           };
           this.expectValue(")");
           expr = optCall;
@@ -7383,6 +7498,7 @@ class TSParserSimple  {
           const optIndex = new TSNode();
           optIndex.nodeType = "OptionalMemberExpression";
           optIndex.optional = true;
+          optIndex.computed = true;
           optIndex.left = expr;
           optIndex.right = indexExpr;
           optIndex.start = expr.start;
@@ -7687,9 +7803,7 @@ class TSParserSimple  {
       return this.parseParenOrArrow();
     }
     if ( tokVal == "async" ) {
-      const nextVal_1 = this.peekNextValue();
-      const nextType_1 = this.peekNextType();
-      if ( (nextVal_1 == "(") || (nextType_1 == "Identifier") ) {
+      if ( this.asyncArrowAhead() ) {
         return this.parseArrowFunction();
       }
     }
@@ -7745,11 +7859,18 @@ class TSParserSimple  {
     }
     if ( tokVal == "async" ) {
       if ( this.peekNextValue() == "function" ) {
-        this.advance();
-        this.parsingFunctionExpression = true;
-        const asyncFnExpr = this.parseFuncDecl(true);
-        asyncFnExpr.nodeType = "FunctionExpression";
-        return asyncFnExpr;
+        const asyncExprTok = this.peek();
+        const fnExprTok = this.tokens[(this.pos + 1)];
+        if ( asyncExprTok.line == fnExprTok.line ) {
+          this.advance();
+          this.parsingFunctionExpression = true;
+          const asyncFnExpr = this.parseFuncDecl(true);
+          asyncFnExpr.nodeType = "FunctionExpression";
+          asyncFnExpr.start = asyncExprTok.start;
+          asyncFnExpr.line = asyncExprTok.line;
+          asyncFnExpr.col = asyncExprTok.col;
+          return asyncFnExpr;
+        }
       }
     }
     if ( tokVal == "class" ) {
@@ -8110,6 +8231,8 @@ class TSParserSimple  {
           this.sawRestParam = false;
           const savedObjGenerator = this.inGenerator;
           this.inGenerator = prop.generator;
+          const savedObjAsync = this.inAsync;
+          this.inAsync = prop.async;
           const savedObjSuperCall = this.allowSuperCall;
           const savedObjSuperProp = this.allowSuperProperty;
           const savedobjIter = this.iterationDepth;
@@ -8127,6 +8250,15 @@ class TSParserSimple  {
           while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
             if ( (fnNode.params.length) > 0 ) {
               this.expectValue(",");
+              if ( this.matchValue(")") ) {
+                if ( (fnNode.params.length) > 0 ) {
+                  const lastP = fnNode.params[((fnNode.params.length) - 1)];
+                  if ( lastP.nodeType == "RestElement" ) {
+                    this.syntaxError("Parse error: a rest parameter may not be followed by a comma");
+                  }
+                }
+                break;
+              }
             }
             const mParam = this.parseParam();
             if ( (mParam.name.length) > 0 ) {
@@ -8167,6 +8299,7 @@ class TSParserSimple  {
           this.allowSuperCall = savedObjSuperCall;
           this.allowSuperProperty = savedObjSuperProp;
           this.inGenerator = savedObjGenerator;
+          this.inAsync = savedObjAsync;
           this.sawRestParam = savedObjRest;
           this.functionDepth = this.functionDepth - 1;
           this.iterationDepth = savedobjIter;
@@ -8240,6 +8373,48 @@ class TSParserSimple  {
     this.expectValue("}");
     return node;
   };
+  asyncArrowAhead () {
+    if ( (this.pos + 1) >= (this.tokens.length) ) {
+      return false;
+    }
+    const asyncTok0 = this.tokens[this.pos];
+    const nextTok0 = this.tokens[(this.pos + 1)];
+    if ( asyncTok0.line != nextTok0.line ) {
+      return false;
+    }
+    const afterVal = this.peekAheadValue(1);
+    if ( afterVal == "(" ) {
+      let depth = 1;
+      let k = 2;
+      while ((depth > 0) && (k < (this.tokens.length))) {
+        const v = this.peekAheadValue(k);
+        if ( v == "(" ) {
+          depth = depth + 1;
+        }
+        if ( v == ")" ) {
+          depth = depth - 1;
+        }
+        k = k + 1;
+      };
+      if ( depth > 0 ) {
+        return false;
+      }
+      const tail = this.peekAheadValue(k);
+      if ( tail == "=>" ) {
+        return true;
+      }
+      if ( tail == ":" ) {
+        return true;
+      }
+      return false;
+    }
+    if ( this.peekNextType() == "Identifier" ) {
+      if ( this.peekAheadValue(2) == "=>" ) {
+        return true;
+      }
+    }
+    return false;
+  };
   parseParenOrArrow () {
     const startTok = this.peek();
     const savedPos = this.pos;
@@ -8302,6 +8477,8 @@ class TSParserSimple  {
     const savedArrowRest = this.sawRestParam;
     this.sawRestParam = false;
     const savedArrowGenerator = this.inGenerator;
+    const savedArrowAsync = this.inAsync;
+    this.inAsync = node.async;
     const savedArrowIter = this.iterationDepth;
     const savedArrowSwitch = this.switchDepth;
     const savedArrowLabels = this.activeLabels;
@@ -8317,6 +8494,15 @@ class TSParserSimple  {
       while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
         if ( (node.params.length) > 0 ) {
           this.expectValue(",");
+          if ( this.matchValue(")") ) {
+            if ( (node.params.length) > 0 ) {
+              const lastP = node.params[((node.params.length) - 1)];
+              if ( lastP.nodeType == "RestElement" ) {
+                this.syntaxError("Parse error: a rest parameter may not be followed by a comma");
+              }
+            }
+            break;
+          }
         }
         const param = this.parseParam();
         if ( (param.name.length) > 0 ) {
@@ -8381,6 +8567,7 @@ class TSParserSimple  {
     this.activeLabels = savedArrowLabels;
     this.iterationLabels = savedArrowIterLabels;
     this.inGenerator = savedArrowGenerator;
+    this.inAsync = savedArrowAsync;
     this.sawRestParam = savedArrowRest;
     this.functionDepth = this.functionDepth - 1;
     return node;

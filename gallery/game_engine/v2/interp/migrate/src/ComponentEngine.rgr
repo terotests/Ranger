@@ -1083,6 +1083,15 @@ class ComponentEngine {
     def virtualModuleNames:[string]
     def virtualModuleSrcs:[string]
     def virtualModulesLoaded:[string]
+    ; One namespace object per module specifier. A module namespace is a single
+    ; object in the spec, so `import * as A` and two separate `import(spec)`
+    ; calls all have to answer the SAME object -- code branches on
+    ; `nsA === nsB` and would see two strangers otherwise.
+    def nsCacheKeys:[string]
+    def nsCacheVals:[EvHandle]
+    ; Set while a dynamic `import()` is resolving, so the loader reports a miss
+    ; by rejecting rather than by printing.
+    def dynamicImportInFlight:boolean false
     ; Per-module isolation state (D-MODULES). Each loaded virtual module owns an
     ; EvalContext parented on hostScope ONLY — module bindings never land in the
     ; entry script's scope and the entry scope is invisible to module code. The
@@ -1762,6 +1771,7 @@ class ComponentEngine {
         this.upsertLocalComponent(sym)
         def __fnv:EvHandle (EvValueBridge.taggedFunction(fnNode))
         __fnv.setStrictFn((this.strictForBody(fnNode)))
+        this.shapeFunctionValue(__fnv fnNode)
         this.stampSrcOn(__fnv)
         this.defineModuleBinding(localName __fnv)
         this.trace("Imported: " + localName + " (" + exportName + ") from " + sourcePath)
@@ -1964,7 +1974,14 @@ class ComponentEngine {
         }
         def src:string (this.virtualModuleSource(name))
         if ((strlen src) == 0) {
-            print ("ERROR: virtual module not registered: " + name)
+            ; A DYNAMIC import reports the miss by rejecting its promise, which
+            ; is the whole point of `import(p).catch(...)`; printing as well
+            ; would put an ERROR line in the output of a program that handled
+            ; the failure correctly. A static import has no such channel, so it
+            ; still says so out loud.
+            if (false == dynamicImportInFlight) {
+                print ("ERROR: virtual module not registered: " + name)
+            }
             return
         }
         push virtualModulesLoaded name
@@ -2116,10 +2133,23 @@ class ComponentEngine {
     ; module's top-level value bindings plus a hidden home-module tag that
     ; member-new (`new NS.Class()`) resolves the module's class table through.
     fn buildNamespaceValue:EvHandle (name:string) {
+        def ci:int 0
+        while (ci < (array_length nsCacheKeys)) {
+            if ((itemAt nsCacheKeys ci) == name) {
+                return (itemAt nsCacheVals ci)
+            }
+            ci = (ci + 1)
+        }
         def ks:[string]
         def vs:[EvHandle]
         def ns:EvHandle (EvValueBridge.taggedObject(ks vs))
         ns.setMember("__nsmodule__" (EvValueBridge.taggedString(name)))
+        ; A namespace is branded `Module`, not `Object` -- that is the only way
+        ; Object.prototype.toString can tell one from an ordinary object.
+        ns.setMember("@@toStringTag" (EvValueBridge.taggedString("Module")))
+        ns.setAttrs("@@toStringTag" false false false)
+        push nsCacheKeys name
+        push nsCacheVals ns
         def sc:EvalContext (this.moduleScopeFor(name))
         def bnames:[string] (keys sc.bindings)
         def i:int 0
@@ -2129,6 +2159,83 @@ class ComponentEngine {
             ns.setMember(bn bv)
             i = (i + 1)
         }
+        return ns
+    }
+
+    ; D-DYNIMPORT: load `spec` the way a static import does and answer its
+    ; namespace object. A synthetic ImportDeclaration is built for it so there
+    ; is ONE resolution path -- the alternative is a second one that drifts.
+    fn importModuleNamespace:EvHandle (spec:string) {
+        ; Already imported once: answer the same namespace. Re-running the
+        ; declaration would be wrong twice over -- a file module is loaded once,
+        ; so the second run adds no bindings and the "nothing arrived" test
+        ; below would read that as a resolution failure.
+        def ci:int 0
+        while (ci < (array_length nsCacheKeys)) {
+            if ((itemAt nsCacheKeys ci) == spec) {
+                return (itemAt nsCacheVals ci)
+            }
+            ci = (ci + 1)
+        }
+        def decl:TSNode (new TSNode())
+        decl.nodeType = "ImportDeclaration"
+        def src:TSNode (new TSNode())
+        src.nodeType = "StringLiteral"
+        ; processImportDeclaration unquotes what it finds, so the quotes go back
+        ; on rather than the unquoting being special-cased.
+        src.value = ("\"" + (spec + "\""))
+        decl.left = src
+        def before:[string] (keys moduleScope.bindings)
+        def savedDynFlag:boolean dynamicImportInFlight
+        dynamicImportInFlight = true
+        this.processImportDeclaration(decl)
+        dynamicImportInFlight = savedDynFlag
+        if scriptThrew {
+            return (EvValueBridge.taggedUndefined())
+        }
+        ; A virtual module has a scope of its own to read; a file module's
+        ; bindings land in the importer's module scope, so the namespace is
+        ; what the load ADDED there.
+        if ((indexOf spec "ranger:") == 0) {
+            ; A specifier that resolves to nothing REJECTS. loadVirtualModule
+            ; reports the miss and carries on -- which is right for a static
+            ; import, where the script cannot continue meaningfully anyway, and
+            ; wrong here: `import(p).catch(...)` is written precisely to handle
+            ; a module that is not there.
+            if (false == (this.isInStringList(spec virtualModulesLoaded))) {
+                return (this.throwSpecError("TypeError" ("Failed to resolve module specifier '" + (spec + "'"))))
+            }
+            return (this.buildNamespaceValue(spec))
+        }
+        ; A FILE module that failed to load adds no bindings, which is the same
+        ; signal: nothing arrived, so the import did not succeed.
+        if ((array_length (keys moduleScope.bindings)) == (array_length before)) {
+            return (this.throwSpecError("TypeError" ("Failed to resolve module specifier '" + (spec + "'"))))
+        }
+        def fi:int 0
+        while (fi < (array_length nsCacheKeys)) {
+            if ((itemAt nsCacheKeys fi) == spec) {
+                return (itemAt nsCacheVals fi)
+            }
+            fi = (fi + 1)
+        }
+        def ks:[string]
+        def vs:[EvHandle]
+        def ns:EvHandle (EvValueBridge.taggedObject(ks vs))
+        ns.setMember("__nsmodule__" (EvValueBridge.taggedString(spec)))
+        ns.setMember("@@toStringTag" (EvValueBridge.taggedString("Module")))
+        ns.setAttrs("@@toStringTag" false false false)
+        def after:[string] (keys moduleScope.bindings)
+        def i:int 0
+        while (i < (array_length after)) {
+            def bn:string (itemAt after i)
+            if (false == (this.isInStringList(bn before))) {
+                ns.setMember(bn (moduleScope.lookup(bn)))
+            }
+            i = (i + 1)
+        }
+        push nsCacheKeys spec
+        push nsCacheVals ns
         return ns
     }
 
@@ -2470,6 +2577,16 @@ class ComponentEngine {
     }
 
     fn buildFunctionFromValues:EvHandle (argVals:[EvHandle]) {
+        return (this.buildFunctionFromValuesPrefixed(argVals ""))
+    }
+
+    ; %AsyncFunction%("x", "return x * 2") -- the same compilation with `async`
+    ; in front of it, so the result answers a promise.
+    fn buildAsyncFunctionFromValues:EvHandle (argVals:[EvHandle]) {
+        return (this.buildFunctionFromValuesPrefixed(argVals "async "))
+    }
+
+    fn buildFunctionFromValuesPrefixed:EvHandle (argVals:[EvHandle] prefix:string) {
         def n:int (array_length argVals)
         def params:string ""
         def body:string ""
@@ -2496,7 +2613,7 @@ class ComponentEngine {
         }
         ; The assembled text IS the function's source text, and the spec names
         ; the result "anonymous" -- both are observable through toString.
-        def src:string ("function anonymous(" + params + "\n) {\n" + body + "\n}")
+        def src:string (prefix + ("function anonymous(" + params + "\n) {\n" + body + "\n}"))
         def lx (new TSLexer(src))
         def toks:[Token] (lx.tokenize())
         def p (new TSParserSimple())
@@ -2894,6 +3011,7 @@ class ComponentEngine {
                             this.updateLocalComponentNode(ch.name fnNode)
                             def __fnv:EvHandle (EvValueBridge.taggedFunction(fnNode))
                             __fnv.setStrictFn((this.strictForBody(fnNode)))
+                            this.shapeFunctionValue(__fnv fnNode)
                             this.stampSrcOn(__fnv)
                             moduleScope.define(ch.name __fnv)
                             this.trace("Patched function: " + ch.name)
@@ -3248,6 +3366,7 @@ class ComponentEngine {
             if (node.name != "render") {
                 def __fnv:EvHandle (EvValueBridge.taggedFunction(node))
                 __fnv.setStrictFn((this.strictForBody(node)))
+                this.shapeFunctionValue(__fnv node)
                 this.stampSrcOn(__fnv)
                 this.defineModuleBinding(node.name __fnv)
             }
@@ -3377,6 +3496,17 @@ class ComponentEngine {
                 return path
             }
         }
+        if (n >= 4) {
+            ; A JavaScript module names its own extension. Appending `.tsx` to
+            ; `./lib.js` looked for `./lib.js.tsx`, so an ordinary ES module
+            ; could not be imported at all -- statically or dynamically.
+            if ((substring path (n - 4) n) == ".mjs") {
+                return path
+            }
+            if ((substring path (n - 4) n) == ".cjs") {
+                return path
+            }
+        }
         if (n >= 3) {
             if ((substring path (n - 3) n) == ".ts") {
                 return path
@@ -3384,9 +3514,31 @@ class ComponentEngine {
             if ((substring path (n - 3) n) == ".as") {
                 return path
             }
+            if ((substring path (n - 3) n) == ".js") {
+                return path
+            }
         }
         if (jsxParsing == false) {
             return (path + ".as")
+        }
+        ; A JavaScript module names its own extension. Appending `.tsx` to
+        ; `./lib.js` looked for `./lib.js.tsx`, so an ordinary ES module could
+        ; not be imported at all -- statically or through `import()`.
+        if (n >= 3) {
+            if ((substring path (n - 3) n) == ".js") {
+                return path
+            }
+        }
+        if (n >= 4) {
+            if ((substring path (n - 4) n) == ".mjs") {
+                return path
+            }
+            if ((substring path (n - 4) n) == ".cjs") {
+                return path
+            }
+            if ((substring path (n - 4) n) == ".jsx") {
+                return path
+            }
         }
         return (path + ".tsx")
     }
@@ -3447,6 +3599,7 @@ class ComponentEngine {
         this.upsertLocalComponent(sym)
         def __fnv:EvHandle (EvValueBridge.taggedFunction(node))
         __fnv.setStrictFn((this.strictForBody(node)))
+        this.shapeFunctionValue(__fnv node)
         this.stampSrcOn(__fnv)
         this.defineModuleBinding(node.name __fnv)
         this.trace("Registered local component: " + node.name)
@@ -6239,6 +6392,9 @@ class ComponentEngine {
         if (nt == "Identifier") { node.evalKind = 1
             return 1
         }
+        if (nt == "ImportExpression") { node.evalKind = 63
+            return 63
+        }
         if (nt == "BigIntLiteral") { node.evalKind = 62
             return 62
         }
@@ -8949,6 +9105,35 @@ class ComponentEngine {
                         }
                     }
                 }
+                ; D-LOGICALASSIGN: §13.15.2 the three short-circuiting forms
+                ; are not compound assignments. `a ||= b` reads a, and if it is
+                ; already truthy it answers a AND STOPS: the right-hand side is
+                ; never evaluated and NO WRITE HAPPENS. Treating them as
+                ; ordinary compounds ran the right side for its side effects
+                ; and called the target's setter with the value it already had
+                ; -- which a state-update idiom like `state.x ||= compute()`
+                ; notices immediately.
+                if ((opK == 14) || ((opK == 15) || (opK == 16))) {
+                    if preResolved {
+                        def shortCircuit:boolean false
+                        ; 14 is `&&=`, 15 is `||=` -- the two read the same way
+                        ; round as the operators they are named for.
+                        if (opK == 14) {
+                            if (false == (preCurrent.toBool())) { shortCircuit = true }
+                        }
+                        if (opK == 15) {
+                            if (preCurrent.toBool()) { shortCircuit = true }
+                        }
+                        if (opK == 16) {
+                            if (false == ((preCurrent.isNull()) || (preCurrent.isUndefined()))) {
+                                shortCircuit = true
+                            }
+                        }
+                        if shortCircuit {
+                            return preCurrent
+                        }
+                    }
+                }
                 def rightValue:EvHandle (EvValueBridge.taggedNull())
                 ; D-GENRESUME: the resumable generator driver evaluates a
                 ; right-hand side that contains a `yield` itself, in steps, and
@@ -9704,6 +9889,29 @@ class ComponentEngine {
         return empty
     }
 
+    ; What a function value's SHAPE is, given the node it came from. Applied
+    ; wherever a function value is minted, not just in captureClosure -- a
+    ; top-level declaration is registered by a different path, which is why
+    ; `typeof f.prototype` was right inside a function and wrong at top level.
+    ;
+    ; D-ARROW: an arrow function is not a constructor -- it has no `prototype`
+    ; at all, and `new (() => {})` is a TypeError. Minting a prototype on demand
+    ; made both answer as if it were an ordinary function. An ASYNC function is
+    ; the same: no [[Construct]], no `prototype`. (An async GENERATOR does have
+    ; one -- it is what its iterator results inherit from -- so only the plain
+    ; async form is suppressed.)
+    fn shapeFunctionValue:void (fv:EvHandle fnNode:TSNode) {
+        if ((this.nodeKindOf(fnNode)) == 17) {
+            fv.addSuppressed("prototype")
+            return
+        }
+        if fnNode.async {
+            if (false == fnNode.generator) {
+                fv.addSuppressed("prototype")
+            }
+        }
+    }
+
     ; --- Lexical closures ---
     ; Wrap a function/arrow node as a value that captures the CURRENT scope, so it
     ; resolves free variables against where it was defined, not where it is called.
@@ -9732,9 +9940,7 @@ class ComponentEngine {
         ; `prototype` at all, and `new (() => {})` is a TypeError. Minting a
         ; prototype on demand made both answer as if it were an ordinary
         ; function.
-        if ((this.nodeKindOf(fnNode)) == 17) {
-            fv.addSuppressed("prototype")
-        }
+        this.shapeFunctionValue(fv fnNode)
         cell.ctx = capturedCtx
         push closureScopes cell
         fv.setClosureId(id)
@@ -9827,7 +10033,16 @@ class ComponentEngine {
                         }
                     }
                 }
-                return (this.makeAggregateError(aErrs amsg))
+                def aggErr2:EvHandle (this.makeAggregateError(aErrs amsg))
+                ; AggregateError takes its options THIRD, after the errors and
+                ; the message.
+                if ((array_length args) > 2) {
+                    this.installErrorCause(aggErr2 (itemAt args 2))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                }
+                return aggErr2
             }
             def emsg:string ""
             if ((array_length args) > 0) {
@@ -9839,10 +10054,25 @@ class ComponentEngine {
                     }
                 }
             }
-            return (this.makeError(name emsg))
+            def madeErr:EvHandle (this.makeError(name emsg))
+            ; §20.5.8.1 InstallErrorCause: `new Error(msg, { cause })`. The
+            ; property is installed only when the options object HAS a `cause`
+            ; -- `new Error(m, {})` leaves the error without one, which is what
+            ; `'cause' in e` is written to distinguish.
+            if ((array_length args) > 1) {
+                this.installErrorCause(madeErr (itemAt args 1))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+            }
+            return madeErr
         }
         if (name == "Function") {
             return (this.buildFunctionFromValues(args))
+        }
+        ; %AsyncFunction% compiles the same source, with `async` in front of it.
+        if (name == "AsyncFunction") {
+            return (this.buildAsyncFunctionFromValues(args))
         }
         if (this.isWeakCtorName(name)) {
             return (this.constructWeak(name args))
@@ -13912,12 +14142,19 @@ class ComponentEngine {
             return (this.genChildrenSpineOk(node))
         }
         if (k == 4) {
-            ; The callee is evaluated by the walker; only the ARGUMENTS are
-            ; stepped, which is where a yield realistically appears.
-            if node.left {
-                if (this.nodeHasYield((unwrap node.left))) { return false }
-            }
-            return (this.genChildrenSpineOk(node))
+            ; A CALL is not stepped at all. The comment here used to say the
+            ; arguments were -- they never were: no step function handles kind
+            ; 4, so the frame was popped without pushing a result and
+            ; `console.log(await f())` answered undefined. Silently.
+            ;
+            ; Refusing it puts the body back on the eager path, which gets the
+            ; VALUE right (`c8`/`ca` probes) but runs straight through instead
+            ; of suspending, so the interleaving against other microtasks is
+            ; wrong. That is the trade this file's incremental-adoption rule
+            ; already makes everywhere else, and it beats a wrong answer.
+            ; Stepping the call properly is the fix; it needs the callee
+            ; resolution the walker owns, which is why it is not done here.
+            return false
         }
         ; --- statements ---
         if (k == 30) {
@@ -17300,6 +17537,45 @@ class ComponentEngine {
         ; D-BIGINT: `123n`. The lexer keeps the suffix, so it is trimmed here and
         ; the digits parsed exactly -- which is the point: the value is the one
         ; the source wrote, not the nearest double to it.
+        ; D-DYNIMPORT: `import(spec)`. It answers a PROMISE for the module's
+        ; namespace, and the promise is the whole point -- a caller writes
+        ; `import(p).then(...)` or awaits it, and a failure to resolve has to
+        ; arrive as a REJECTION rather than as a thrown exception out of an
+        ; expression. There was no case for the node at all, so `import(p)`
+        ; evaluated to null and `.then` of null was a TypeError.
+        ;
+        ; The module is loaded through the same door a static import uses, so
+        ; the two cannot disagree about resolution, caching or cycles.
+        if (exprK == 63) {
+            def impCap:EvHandle (this.newPromiseCapability((this.builtinGlobalObject("Promise"))))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            def impSpec:string ""
+            if node.left {
+                def specV:EvHandle (this.evaluateExpr((unwrap node.left)))
+                if scriptThrew {
+                    return (this.promiseRejectWith(impCap))
+                }
+                impSpec = (this.toStringOf(specV))
+                if scriptThrew {
+                    return (this.promiseRejectWith(impCap))
+                }
+            }
+            if ((strlen impSpec) == 0) {
+                def _ie:EvHandle (this.throwSpecError("TypeError" "import() requires a module specifier"))
+                return (this.promiseRejectWith(impCap))
+            }
+            def nsValue:EvHandle (this.importModuleNamespace(impSpec))
+            if scriptThrew {
+                return (this.promiseRejectWith(impCap))
+            }
+            def _ir:EvHandle (this.capInvoke(impCap "__cap_resolve__" nsValue))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            return (this.capPromiseOf(impCap))
+        }
         if (exprK == 62) {
             def bigText:string node.value
             def bl:int (strlen bigText)
@@ -18970,7 +19246,18 @@ class ComponentEngine {
                             }
                         }
                     }
-                    return (this.makeError(fnName emsg))
+                    def astErr:EvHandle (this.makeError(fnName emsg))
+                    if ((array_length node.children) > 1) {
+                        def optV:EvHandle (this.evaluateExpr((itemAt node.children 1)))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        this.installErrorCause(astErr optV)
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                    }
+                    return astErr
                 }
                 if (fnName == "Object") {
                     def ov:EvHandle (EvValueBridge.taggedNull())
@@ -21235,6 +21522,12 @@ class ComponentEngine {
         if (name == "Number") { return true }
         if (name == "Boolean") { return true }
         if (name == "Function") { return true }
+        ; %AsyncFunction% is a constructor with no global BINDING: the only way
+        ; a guest can name it is `Object.getPrototypeOf(async function () {})
+        ; .constructor`, which is exactly what feature detection does. Listed
+        ; here so it carries a prototype and an arity like any other; left out
+        ; of isEngineGlobalName so a bare `AsyncFunction` stays a ReferenceError.
+        if (name == "AsyncFunction") { return true }
         if (name == "Symbol") { return true }
         if (name == "Map") { return true }
         if (name == "Set") { return true }
@@ -22617,6 +22910,33 @@ class ComponentEngine {
                 }
                 return (this.capPromiseOf(sCap))
             }
+            ; §27.2.4.6 Promise.try(f, ...args): f runs synchronously, and its
+            ; completion -- value or throw -- settles the promise.
+            if (name == "try") {
+                def tCap:EvHandle (this.newPromiseCapability(pC))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                if (false == (pArg.isFunction())) {
+                    def _tf:EvHandle (this.throwSpecError("TypeError" "Promise.try requires a function"))
+                    return (this.promiseRejectWith(tCap))
+                }
+                def tArgs:[EvHandle]
+                def tAi:int 1
+                while (tAi < (array_length args)) {
+                    push tArgs (itemAt args tAi)
+                    tAi = (tAi + 1)
+                }
+                def tOut:EvHandle (this.callFnValueWithValues(pArg tArgs))
+                if scriptThrew {
+                    return (this.promiseRejectWith(tCap))
+                }
+                def _tr:EvHandle (this.capInvoke(tCap "__cap_resolve__" tOut))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                return (this.capPromiseOf(tCap))
+            }
             ; §27.2.4.8 withResolvers: the capability, handed out. It is the
             ; same three things `new Promise(executor)` produces, without
             ; having to write the executor to smuggle them out of the closure.
@@ -23590,6 +23910,7 @@ class ComponentEngine {
         if (nsName == "Number") { return 1 }
         if (nsName == "Boolean") { return 1 }
         if (nsName == "Function") { return 1 }
+        if (nsName == "AsyncFunction") { return 1 }
         ; RegExp takes (pattern, flags).
         if (nsName == "RegExp") { return 2 }
         if (nsName == "Date") { return 7 }
@@ -23704,6 +24025,12 @@ class ComponentEngine {
         if (nsName == "Promise") {
             push out "all"
             push out "allSettled"
+            ; §27.2.4.6 Promise.try: run f NOW, and let whatever it does --
+            ; return, throw, or answer a thenable -- come back as a promise.
+            ; The point is that a synchronous throw becomes a rejection instead
+            ; of escaping, which is what makes a mixed sync/async callback safe
+            ; to call.
+            push out "try"
             push out "any"
             push out "race"
             push out "reject"
@@ -24895,6 +25222,14 @@ class ComponentEngine {
         if (nsName != "Object") {
             p.setProto((this.builtinPrototype("Object")))
         }
+        ; %AsyncFunction.prototype% sits BELOW Function.prototype, not beside
+        ; it: an async function is a function, so everything on Function
+        ; .prototype still reaches it.
+        if (nsName == "AsyncFunction") {
+            p.setProto((this.builtinPrototype("Function")))
+            p.setMember("@@toStringTag" (EvValueBridge.taggedString("AsyncFunction")))
+            p.setAttrs("@@toStringTag" false false true)
+        }
         ; D-PROTOCTOR: every prototype carries `constructor` back to its global.
         ; Safe against the cycle (global sets prototype, prototype sets
         ; constructor) because both cache their object BEFORE populating it.
@@ -25122,6 +25457,22 @@ class ComponentEngine {
         def objProto:EvHandle (this.builtinPrototype("Object"))
         if (v.equals(objProto)) {
             return (EvValueBridge.taggedNull())
+        }
+        ; An async function inherits from %AsyncFunction.prototype%, which is
+        ; what `Object.getPrototypeOf(async function () {}).constructor.name`
+        ; reads to tell async functions apart from plain ones.
+        if (v.isFunction()) {
+            if (v.hasFunctionNode()) {
+                def pfN:TSNode (v.functionNodeOf())
+                if pfN.async {
+                    if (false == pfN.generator) {
+                        def afp:EvHandle (this.builtinPrototype("AsyncFunction"))
+                        if (false == (v.equals(afp))) {
+                            return afp
+                        }
+                    }
+                }
+            }
         }
         def cn:string (this.ctorNameForKind((this.receiverKind(v))))
         if ((strlen cn) > 0) {
@@ -30918,7 +31269,22 @@ class ComponentEngine {
         if (v.isUndefined()) { return "Undefined" }
         if (v.isNull()) { return "Null" }
         if (v.isArrayValue()) { return "Array" }
-        if (v.isFunction()) { return "Function" }
+        if (v.isFunction()) {
+            ; A callable's builtin tag is Function, but an async or generator
+            ; function inherits a @@toStringTag from its own intrinsic
+            ; prototype, so the four forms brand apart. Feature detection in
+            ; the wild reads exactly this to tell an async function from a
+            ; plain one.
+            if (v.hasFunctionNode()) {
+                def fnN:TSNode (v.functionNodeOf())
+                if fnN.async {
+                    if fnN.generator { return "AsyncGeneratorFunction" }
+                    return "AsyncFunction"
+                }
+                if fnN.generator { return "GeneratorFunction" }
+            }
+            return "Function"
+        }
         if (v.isString()) { return "String" }
         if (v.isNumber()) { return "Number" }
         if (v.isBoolean()) { return "Boolean" }
@@ -38527,10 +38893,17 @@ class ComponentEngine {
         def e:EvHandle (EvValueBridge.taggedObject(keys0 vals0))
         e.setMember("name" (EvValueBridge.taggedString(kind)))
         e.setMember("message" (EvValueBridge.taggedString(message)))
+        ; §20.5.8.1: `message` and `name` are writable and configurable but NOT
+        ; enumerable. Left enumerable, `Object.keys(err)` listed them and
+        ; `JSON.stringify(err)` produced a populated object where every engine
+        ; answers `{}` -- which application logging notices at once.
+        e.setAttrs("name" true false true)
+        e.setAttrs("message" true false true)
         e.setMember("__error__" (EvValueBridge.taggedString(kind)))
         def ctor:EvHandle (this.errorCtorFor(kind))
         if (ctor.isFunction()) {
             e.setMember("constructor" ctor)
+            e.setAttrs("constructor" true false true)
         }
         e.setProto((this.errorPrototypeFor(kind)))
         return e
@@ -38632,6 +39005,18 @@ class ComponentEngine {
             return (this.toBigIntOf(prim))
         }
         return (this.throwSpecError("TypeError" "Cannot convert this value to a BigInt"))
+    }
+
+    ; §20.5.8.1 InstallErrorCause. Non-enumerable, writable and configurable --
+    ; the same shape `message` has, so an error with a cause still serialises
+    ; and enumerates like one without.
+    fn installErrorCause:void (err:EvHandle options:EvHandle) {
+        if (false == (this.isDescriptorObject(options))) { return }
+        if (false == (this.objHasKeyUpChain(options "cause"))) { return }
+        def causeV:EvHandle (this.getPropertyValue(options "cause"))
+        if scriptThrew { return }
+        err.setMember("cause" causeV)
+        err.setAttrs("cause" true false true)
     }
 
     ; §20.5.7.1: AggregateError carries the errors it aggregates as an own
@@ -40187,6 +40572,10 @@ class ComponentEngine {
             if ((fnV.functionNodeOf()).generator) {
                 return (this.throwSpecError("TypeError" "generator function is not a constructor"))
             }
+            ; Nor is an async function: it has no [[Construct]] at all.
+            if ((fnV.functionNodeOf()).async) {
+                return (this.throwSpecError("TypeError" "async function is not a constructor"))
+            }
         }
         def keys0:[string]
         def vals0:[EvHandle]
@@ -40619,7 +41008,18 @@ class ComponentEngine {
                             }
                         }
                     }
-                    return (this.makeError((kindV.stringOf()) msg))
+                    def newErr:EvHandle (this.makeError((kindV.stringOf()) msg))
+                    if ((array_length node.children) > 1) {
+                        def newOpt:EvHandle (this.evaluateExpr((itemAt node.children 1)))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        this.installErrorCause(newErr newOpt)
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                    }
+                    return newErr
                 }
             }
         }
@@ -42474,6 +42874,16 @@ class ComponentEngine {
             ; A symbol key never serialises: its name is the "@@" spelling this
             ; engine gives it, which is not a property name JSON can carry.
             if ((substring k 0 2) == "@@") { skipKey = true }
+            ; §25.5.2.2 SerializeJSONObject walks EnumerableOwnPropertyNames, so
+            ; a non-enumerable own property is not serialised. The walk was over
+            ; every own key, which is why `JSON.stringify(new Error('x'))`
+            ; produced the name and message rather than the `{}` every other
+            ; engine answers.
+            if (false == jsonHasPropList) {
+                if (v.hasOwnAttrs(k)) {
+                    if (false == (v.isEnumerable(k))) { skipKey = true }
+                }
+            }
             if (false == skipKey) {
                 def piece:string (this.jsonSerializeProp(k v))
                 if scriptThrew {

@@ -1,20 +1,21 @@
 // ============================================================================
-// regexp-es2025.test.ts — the two RegExp features Node cannot be the oracle for.
+// spec-derived.test.ts — the features Node cannot be the oracle for.
 // ============================================================================
 //
 // Every other suite here DERIVES its expectations: Node runs the probe, and the
 // engine is compared against what Node produced. That rule is what keeps a
 // probe that misunderstands JavaScript from encoding the misunderstanding.
 //
-// Two features cannot be checked that way in this repository, because no Node
+// A few features cannot be checked that way in this repository, because no Node
 // available here implements them:
 //
 //   RegExp.escape        ES2025, landed in V8 behind a flag after Node 22
 //   pattern modifiers    `(?i:…)` / `(?-i:…)`, ES2025, same story
+//   Promise.try          ES2025, same story
 //
-// (Checked, not assumed: the container has Node 20, 21 and 22, and
-//  `new RegExp("(?i:a)")` is a SyntaxError in all three, `RegExp.escape` is
-//  undefined in all three.)
+// (Checked, not assumed: the container has Node 20, 21 and 22; in all three
+//  `new RegExp("(?i:a)")` is a SyntaxError, and `RegExp.escape` and
+//  `Promise.try` are undefined.)
 //
 // So these expectations are SPEC-derived rather than Node-derived, and that is
 // the whole reason this file is separate from runtime-conformance.test.ts —
@@ -107,9 +108,27 @@ const CASES: Array<[name: string, body: string, want: unknown]> = [
   ["modifier-rejects-unknown-letter",
     "try { new RegExp('(?q:a)'); return 'no'; } catch (e) { return e.constructor.name; }",
     "SyntaxError"],
+
+  // §27.2.4.6 Promise.try. Only the SYNCHRONOUS half is observable from a
+  // probe that returns a value -- which is the interesting half anyway: the
+  // callback runs immediately, and a throw from it becomes a rejection rather
+  // than escaping the call.
+  ["promise-try-is-a-function", "return typeof Promise.try;", "function"],
+  ["promise-try-runs-synchronously", "var x = 0; Promise.try(function () { x = 1; }); return x;", 1],
+  ["promise-try-answers-a-promise",
+    "var p = Promise.try(function () { return 1; }); return (typeof p.then) + ',' + (p instanceof Promise);",
+    "function,true"],
+  ["promise-try-passes-arguments",
+    "var seen = 0; Promise.try(function (a, b) { seen = a + b; }, 2, 3); return seen;", 5],
+  ["promise-try-catches-a-throw",
+    "var escaped = false; try { Promise.try(function () { throw new Error('x'); }).catch(function () {}); } catch (e) { escaped = true; } return escaped;",
+    false],
+  ["promise-try-rejects-non-callable",
+    "var kind = 'none'; Promise.try(5).catch(function (e) { kind = e.constructor.name; }); return typeof Promise.try(5).catch;",
+    "function"],
 ];
 
-describe("RegExp ES2025: escape and pattern modifiers", () => {
+describe("ES2025 features with no Node oracle here", () => {
   let engine: any;
   const results = new Map<string, unknown>();
 

@@ -252,6 +252,53 @@ const CASES: Array<[name: string, src: string]> = [
        try { for await (var q of [Promise.resolve(1), Promise.reject(new Error("bad"))]) {} }
        catch (e) { console.log("caught:" + e.message); }
      })();`],
+
+  // What an async function IS. Whole-program rather than a single expression
+  // so all three targets have to agree about the intrinsic chain, not just the
+  // es6 one the runtime suite exercises.
+  ["async-function-identity",
+    `async function f(a, b) { return a + b; }
+     console.log(Object.prototype.toString.call(f));
+     console.log(Object.getPrototypeOf(f).constructor.name);
+     console.log(Object.getPrototypeOf(f)[Symbol.toStringTag]);
+     console.log(String(Object.getPrototypeOf(Object.getPrototypeOf(f)) === Function.prototype));
+     console.log(typeof f.prototype);
+     console.log(f.length + ":" + f.name);
+     console.log(f.toString().slice(0, 14));
+     try { new f(); console.log("CONSTRUCTED"); } catch (e) { console.log(e.constructor.name); }`],
+  ["async-function-ctor",
+    `console.log(typeof globalThis.AsyncFunction);
+     async function seed() {}
+     var AF = Object.getPrototypeOf(seed).constructor;
+     console.log(AF.name + ":" + AF.length);
+     var h = new AF("x", "return x * 2;");
+     console.log(Object.prototype.toString.call(h));
+     h(21).then(function (v) { console.log("v:" + v); });`],
+  // `await` as a CALL ARGUMENT. The driver listed a call as steppable without
+  // any step existing for it, so the frame was popped without a result and
+  // `f(await p)` answered undefined -- silently, which is the worst shape a
+  // gap can have. The call now runs on the eager path instead.
+  ["await-in-call-argument",
+    `function show(v) { return "got:" + v; }
+     (async function () {
+       console.log(show(await Promise.resolve(1)));
+       console.log(String(await Promise.resolve(2)));
+       console.log([await Promise.resolve(3), await Promise.resolve(4)].join("-"));
+       console.log(Math.max(await Promise.resolve(5), 2));
+     })();`],
+  ["async-await-as-identifiers",
+    `function async(x) { return x + 1; }
+     console.log(async(1));
+     function sync() { var await = 3; return await; }
+     console.log(sync());
+     var o = { async: 7 };
+     console.log(o.async);
+     (async function () {
+       function inner() { var await = 5; return await; }
+       console.log("inner:" + inner());
+       var v = await Promise.resolve(9);
+       console.log("awaited:" + v);
+     })();`],
 ];
 
 function nodeOutput(dir: string, src: string): string {
