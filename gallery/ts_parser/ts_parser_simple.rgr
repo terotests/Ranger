@@ -167,6 +167,8 @@ class TSParserSimple {
   ; this parse cleanly?" — previously the only signal was text on stdout, so
   ; nothing downstream could tell a good parse from a recovered one.
   def errorCount:int 0
+  ; The first diagnostic this parse produced, readable by the host.
+  def firstErrorText:string ""
   def scopeNames:[string]
   def scopeStart:[int]
   def scopeIsFn:[int]
@@ -180,6 +182,12 @@ class TSParserSimple {
   ; type parser, which reported "expected ')' but got '='". TypeScript resolves
   ; the same ambiguity the same way: once `?` is open, the conditional wins.
   def ternaryConsequentDepth:int 0
+  ; The same ambiguity for a `case` test, which the conditional's counter does
+  ; not cover: the `:` that ends `case (2):` belongs to the CLAUSE. The arrow
+  ; lookahead read it as a return-type annotation and handed the clause body to
+  ; the type parser, so `case (2): return "hit";` died on "Unknown type:
+  ; return" -- any parenthesised case test at all, comma or not.
+  def caseTestDepth:int 0
   ; Whether the code being parsed is strict. Set by a "use strict" directive
   ; prologue, and unconditionally inside a class body. Strict code reserves more
   ; words, forbids `with`, and makes duplicate parameters an error.
@@ -304,6 +312,12 @@ class TSParserSimple {
     this.tokens = toks
     this.pos = 0
     this.quiet = false
+    ; Per-parse state, and the parser instance is REUSED across loadScript
+    ; calls: without this the count from a failed parse survived, so every
+    ; later script on that engine was refused as malformed however well it
+    ; parsed -- one bad bundle poisoned the realm.
+    this.errorCount = 0
+    this.firstErrorText = ""
     if ((array_length toks) > 0) {
       this.currentToken = (itemAt toks 0)
       ; Skip initial comments/whitespace
@@ -326,9 +340,19 @@ class TSParserSimple {
     if (this.errorCount > 1) {
       return
     }
+    ; Kept as well as printed. A host that loads a script cannot see a printed
+    ; line, and loadScript has no way to raise -- so without this the only
+    ; signal that a bundle failed to parse was a message on stdout, which a
+    ; harness reads as a successful load.
+    this.firstErrorText = msg
     if (this.quiet == false) {
       print msg
     }
+  }
+
+  ; The first diagnostic of the last parse, or "" when it parsed cleanly.
+  fn firstError:string () {
+    return this.firstErrorText
   }
 
   fn setQuiet:void (q:boolean) {
@@ -543,11 +567,20 @@ class TSParserSimple {
             }
           }
         }
-        ; Two function declarations in the same plain block.
+        ; Two function declarations in the same plain block -- an error only in
+        ; STRICT code, where a block function is lexical like `let`. Sloppy
+        ; code keeps annex-B's web semantics: the second declaration simply
+        ; wins, exactly as two in a FUNCTION BODY already do here. Reporting it
+        ; either way rejected regenerator's output, which emits the same helper
+        ; twice inside one block -- the whole of date-fns and ajv failed to
+        ; parse on it. `function d` against a `let d` in the same block is a
+        ; separate rule above and stays an error in both modes.
         if (kind == "f") {
           if (entryKind == "f") {
             if (i >= ownStart) {
-              if ((itemAt this.scopeIsFn scopeIdx) == 0) { clash = true }
+              if (this.strictMode) {
+                if ((itemAt this.scopeIsFn scopeIdx) == 0) { clash = true }
+              }
             }
           }
         }
@@ -1164,7 +1197,22 @@ class TSParserSimple {
   
   fn parseStatement:TSNode () {
     def tokVal (this.peekValue())
-    
+
+    ; A STRING literal's VALUE is its text, so a string that happens to spell a
+    ; keyword matched every test below and was parsed as that keyword:
+    ; `"function";` opened a function declaration, `"class";` a class,
+    ; `"if";` demanded a `(`, `"return";` returned. Minified UMD begins with
+    ; exactly this shape -- `"function"==typeof exports` as an expression
+    ; statement -- so a whole bundle failed on its first line. Only a keyword
+    ; TOKEN can start a keyword statement; a literal always begins an
+    ; expression. Directives are unaffected: `"use strict"` reaches
+    ; parseExprStmt here exactly as it did before, and the prologue is
+    ; recognised from the parsed node.
+    def tokType (this.peekType())
+    if ((tokType == "String") || ((tokType == "Number") || ((tokType == "Template") || ((tokType == "BigInt") || (tokType == "Regex"))))) {
+      return (this.parseExprStmt())
+    }
+
     ; Decorators - collect them before class
     if (tokVal == "@") {
       def decorators:[TSNode]
@@ -3127,7 +3175,10 @@ class TSParserSimple {
     
     this.expectValue("if")
     this.expectValue("(")
-    def test (this.parseExpr())
+    ; `if ( Expression )` -- a full Expression, so the comma operator is legal
+    ; here. parseExpr stops at AssignmentExpression, so `if (a, b)` hit the
+    ; comma with `)` expected and failed to parse.
+    def test (this.parseExprSeq())
     node.left = test
     this.expectValue(")")
     
@@ -3169,10 +3220,11 @@ class TSParserSimple {
     
     this.expectValue("while")
     this.expectValue("(")
-    def test (this.parseExpr())
+    ; `while ( Expression )` -- comma operator legal, as in `while (k++, i < n)`
+    def test (this.parseExprSeq())
     node.left = test
     this.expectValue(")")
-    
+
     def savedBodyFlag0:boolean this.inSingleStatementBody
     this.inSingleStatementBody = true
     this.atModuleTopLevel = false
@@ -3208,10 +3260,11 @@ class TSParserSimple {
     
     this.expectValue("while")
     this.expectValue("(")
-    def test (this.parseExpr())
+    ; `do Statement while ( Expression ) ;` -- comma operator legal
+    def test (this.parseExprSeq())
     node.left = test
     this.expectValue(")")
-    
+
     if (this.matchValue(";")) {
       this.advance()
     }
@@ -3241,13 +3294,15 @@ class TSParserSimple {
       this.syntaxError("Parse error: 'throw' requires an argument")
     }
     
-    def arg (this.parseExpr())
+    ; `throw [no LineTerminator here] Expression ;` -- a full Expression, so
+    ; `throw (cleanup(), err)` is legal.
+    def arg (this.parseExprSeq())
     node.left = arg
-    
+
     if (this.matchValue(";")) {
       this.advance()
     }
-    
+
     return node
   }
   
@@ -3397,10 +3452,14 @@ class TSParserSimple {
         push left.children declarator
         node.left = left
         
-        def right (this.parseExpr())
+        ; `for ( ForBinding in Expression )` -- a full Expression, so the comma
+        ; operator is legal: `for (k in 0, o)` iterates o. for-OF is different
+        ; and stays on parseExpr: its right side is an AssignmentExpression, so
+        ; an unparenthesised comma there is a SyntaxError in JS too.
+        def right (this.parseExprSeq())
         node.right = right
         this.expectValue(")")
-        
+
         def savedBodyFlag3:boolean this.inSingleStatementBody
         this.inSingleStatementBody = true
         this.atModuleTopLevel = false
@@ -3511,6 +3570,30 @@ class TSParserSimple {
         ; than threading a [no-In] flag through the whole expression grammar.
         if (initExpr.nodeType == "BinaryExpression") {
           if (initExpr.value == "in") {
+            ; That RHS is a full `Expression`, so `for (k in 0, o)` binds as
+            ; `k in (0, o)` and iterates o. parseExpr stopped at the comma,
+            ; leaving `k in 0` with the rest of the sequence still ahead;
+            ; absorb it into the RHS. `in` is banned in an ordinary
+            ; for-initialiser, so a top-level `in` followed by a comma can only
+            ; be this head. The `)` test below still decides: anything else
+            ; falls through to that ban, which is where `for (a in b, c; ;)`
+            ; belongs.
+            if (this.matchValue(",")) {
+              if (initExpr.parenthesized == false) {
+                def inSeq (new TSNode())
+                inSeq.nodeType = "SequenceExpression"
+                def inFirst:TSNode (unwrap initExpr.right)
+                inSeq.start = inFirst.start
+                inSeq.line = inFirst.line
+                inSeq.col = inFirst.col
+                push inSeq.children inFirst
+                while (this.matchValue(",")) {
+                  this.advance()
+                  push inSeq.children (this.parseExpr())
+                }
+                initExpr.right = inSeq
+              }
+            }
             if (this.matchValue(")")) {
               node.nodeType = "ForInStatement"
               ; `for ((i in {}));` — the whole head was parenthesised, which is
@@ -3605,7 +3688,8 @@ class TSParserSimple {
     
     this.expectValue("switch")
     this.expectValue("(")
-    def discriminant (this.parseExpr())
+    ; `switch ( Expression )` -- comma operator legal
+    def discriminant (this.parseExprSeq())
     node.left = discriminant
     this.expectValue(")")
     
@@ -3626,7 +3710,12 @@ class TSParserSimple {
       if (this.matchValue("case")) {
         caseNode.nodeType = "SwitchCase"
         this.advance()
-        def test (this.parseExpr())
+        ; `case Expression :` -- a full Expression here too; the `:` ends it,
+        ; so a comma cannot be mistaken for a clause separator. The depth marks
+        ; that `:` as the clause's, not a return-type annotation's.
+        caseTestDepth = (caseTestDepth + 1)
+        def test (this.parseExprSeq())
+        caseTestDepth = (caseTestDepth - 1)
         caseNode.left = test
         this.expectValue(":")
       }
@@ -4424,6 +4513,11 @@ class TSParserSimple {
     ; declared in there is legal again.
     def savedTernaryDepth:int ternaryConsequentDepth
     ternaryConsequentDepth = 0
+    ; A block ends an open case test for the same reason: the clause's `:`
+    ; cannot appear inside a brace body, so an arrow declared in there may
+    ; carry a return-type annotation again.
+    def savedCaseDepth:int caseTestDepth
+    caseTestDepth = 0
     def block (new TSNode())
     block.nodeType = "BlockStatement"
     def startTok (this.peek())
@@ -4482,6 +4576,7 @@ class TSParserSimple {
     block.end = closeTok.end
     this.expectValue("}")
     ternaryConsequentDepth = savedTernaryDepth
+    caseTestDepth = savedCaseDepth
     return block
   }
   
@@ -5636,9 +5731,15 @@ class TSParserSimple {
   }
 
   ; Full `Expression` — an AssignmentExpression, or a comma-separated sequence of
-  ; them. Only valid where the grammar allows a comma operator: expression
-  ; statements, parenthesised expressions, `return`, and the `for` header. Every
-  ; other site (call arguments, array elements, declarators) must keep using
+  ; them. Every site whose grammar says `Expression` belongs here: expression
+  ; statements, parenthesised expressions, `return`, `throw`, computed member
+  ; access, the `for` header, `with`, and the four heads whose parentheses are
+  ; STATEMENT syntax rather than an expression's own — `if`, `while`,
+  ; `do…while`, `switch` — plus `case`. Those five read as parenthesised
+  ; expressions but are not: nothing re-enters this function for them, so they
+  ; used parseExpr and `if (a, b)` failed with `expected ')' but got ','`.
+  ; Every OTHER site (call arguments, array elements, declarators, computed
+  ; property names, `yield`) takes an AssignmentExpression and must keep using
   ; parseExpr, where a comma is a separator rather than an operator.
   fn parseExprSeq:TSNode () {
     def first (this.parseExpr())
@@ -7737,7 +7838,7 @@ class TSParserSimple {
     ; `:` belongs to the conditional, and consuming it as a return type turned
     ; the alternate into a type expression.
     if (this.matchValue(":")) {
-      if (ternaryConsequentDepth == 0) {
+      if ((ternaryConsequentDepth == 0) && (caseTestDepth == 0)) {
         this.advance()
         ; Skip the type
         this.parseType()

@@ -2381,11 +2381,13 @@ class TSParserSimple  {
     this.pos = 0;
     this.quiet = false;
     this.errorCount = 0;
+    this.firstErrorText = "";
     this.scopeNames = [];
     this.scopeStart = [];
     this.scopeIsFn = [];
     this.suppressBlockScope = false;
     this.ternaryConsequentDepth = 0;
+    this.caseTestDepth = 0;
     this.strictMode = false;
     this.declaringKind = "";
     this.allowSuperCall = false;
@@ -2427,6 +2429,8 @@ class TSParserSimple  {
     this.tokens = toks;
     this.pos = 0;
     this.quiet = false;
+    this.errorCount = 0;
+    this.firstErrorText = "";
     if ( (toks.length) > 0 ) {
       this.currentToken = toks[0];
       this.skipIgnoredTokens();
@@ -2440,9 +2444,13 @@ class TSParserSimple  {
     if ( this.errorCount > 1 ) {
       return;
     }
+    this.firstErrorText = msg;
     if ( this.quiet == false ) {
       console.log(msg);
     }
+  };
+  firstError () {
+    return this.firstErrorText;
   };
   setQuiet (q) {
     this.quiet = q;
@@ -2633,8 +2641,10 @@ class TSParserSimple  {
         if ( kind == "f" ) {
           if ( entryKind == "f" ) {
             if ( i >= ownStart ) {
-              if ( (this.scopeIsFn[scopeIdx]) == 0 ) {
-                clash = true;
+              if ( this.strictMode ) {
+                if ( (this.scopeIsFn[scopeIdx]) == 0 ) {
+                  clash = true;
+                }
               }
             }
           }
@@ -3260,6 +3270,10 @@ class TSParserSimple  {
   };
   parseStatement () {
     const tokVal = this.peekValue();
+    const tokType = this.peekType();
+    if ( (tokType == "String") || ((tokType == "Number") || ((tokType == "Template") || ((tokType == "BigInt") || (tokType == "Regex")))) ) {
+      return this.parseExprStmt();
+    }
     if ( tokVal == "@" ) {
       let decorators = [];
       while (this.matchValue("@")) {
@@ -3465,8 +3479,8 @@ class TSParserSimple  {
       empty.nodeType = "EmptyStatement";
       return empty;
     }
-    const tokType = this.peekType();
-    if ( tokType == "Identifier" ) {
+    const tokType_2 = this.peekType();
+    if ( tokType_2 == "Identifier" ) {
       const nextVal_3 = this.peekNextValue();
       if ( nextVal_3 == ":" ) {
         return this.parseLabeledStatement();
@@ -4798,7 +4812,7 @@ class TSParserSimple  {
     node.col = startTok.col;
     this.expectValue("if");
     this.expectValue("(");
-    const test = this.parseExpr();
+    const test = this.parseExprSeq();
     node.left = test;
     this.expectValue(")");
     const savedConsBody = this.inSingleStatementBody;
@@ -4834,7 +4848,7 @@ class TSParserSimple  {
     node.col = startTok.col;
     this.expectValue("while");
     this.expectValue("(");
-    const test = this.parseExpr();
+    const test = this.parseExprSeq();
     node.left = test;
     this.expectValue(")");
     const savedBodyFlag0 = this.inSingleStatementBody;
@@ -4865,7 +4879,7 @@ class TSParserSimple  {
     node.body = body;
     this.expectValue("while");
     this.expectValue("(");
-    const test = this.parseExpr();
+    const test = this.parseExprSeq();
     node.left = test;
     this.expectValue(")");
     if ( this.matchValue(";") ) {
@@ -4888,7 +4902,7 @@ class TSParserSimple  {
     if ( (this.isAtEnd() || (throwArgTok.value == ";")) || (throwArgTok.value == "}") ) {
       this.syntaxError("Parse error: 'throw' requires an argument");
     }
-    const arg = this.parseExpr();
+    const arg = this.parseExprSeq();
     node.left = arg;
     if ( this.matchValue(";") ) {
       this.advance();
@@ -5024,7 +5038,7 @@ class TSParserSimple  {
         }
         left_1.children.push(declarator_1);
         node.left = left_1;
-        const right_1 = this.parseExpr();
+        const right_1 = this.parseExprSeq();
         node.right = right_1;
         this.expectValue(")");
         const savedBodyFlag3 = this.inSingleStatementBody;
@@ -5121,6 +5135,22 @@ class TSParserSimple  {
         }
         if ( initExpr.nodeType == "BinaryExpression" ) {
           if ( initExpr.value == "in" ) {
+            if ( this.matchValue(",") ) {
+              if ( initExpr.parenthesized == false ) {
+                const inSeq = new TSNode();
+                inSeq.nodeType = "SequenceExpression";
+                const inFirst = initExpr.right;
+                inSeq.start = inFirst.start;
+                inSeq.line = inFirst.line;
+                inSeq.col = inFirst.col;
+                inSeq.children.push(inFirst);
+                while (this.matchValue(",")) {
+                  this.advance();
+                  inSeq.children.push(this.parseExpr());
+                };
+                initExpr.right = inSeq;
+              }
+            }
             if ( this.matchValue(")") ) {
               node.nodeType = "ForInStatement";
               if ( initExpr.parenthesized ) {
@@ -5196,7 +5226,7 @@ class TSParserSimple  {
     node.col = startTok.col;
     this.expectValue("switch");
     this.expectValue("(");
-    const discriminant = this.parseExpr();
+    const discriminant = this.parseExprSeq();
     node.left = discriminant;
     this.expectValue(")");
     this.expectValue("{");
@@ -5213,7 +5243,9 @@ class TSParserSimple  {
       if ( this.matchValue("case") ) {
         caseNode.nodeType = "SwitchCase";
         this.advance();
-        const test = this.parseExpr();
+        this.caseTestDepth = this.caseTestDepth + 1;
+        const test = this.parseExprSeq();
+        this.caseTestDepth = this.caseTestDepth - 1;
         caseNode.left = test;
         this.expectValue(":");
       }
@@ -5831,6 +5863,8 @@ class TSParserSimple  {
   parseBlock () {
     const savedTernaryDepth = this.ternaryConsequentDepth;
     this.ternaryConsequentDepth = 0;
+    const savedCaseDepth = this.caseTestDepth;
+    this.caseTestDepth = 0;
     const block = new TSNode();
     block.nodeType = "BlockStatement";
     const startTok = this.peek();
@@ -5876,6 +5910,7 @@ class TSParserSimple  {
     block.end = closeTok.end;
     this.expectValue("}");
     this.ternaryConsequentDepth = savedTernaryDepth;
+    this.caseTestDepth = savedCaseDepth;
     return block;
   };
   parseExprStmt () {
@@ -8465,7 +8500,7 @@ class TSParserSimple  {
     }
     this.advance();
     if ( this.matchValue(":") ) {
-      if ( this.ternaryConsequentDepth == 0 ) {
+      if ( (this.ternaryConsequentDepth == 0) && (this.caseTestDepth == 0) ) {
         this.advance();
         this.parseType();
       }

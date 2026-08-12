@@ -1271,6 +1271,11 @@ class ComponentEngine {
     ; clears it. Kept separate from scriptDidReturn so a catch can resume.
     def scriptThrew:boolean false
     def scriptThrowValue:EvHandle (EvValueBridge.taggedNull())
+    ; The first parse diagnostic of the last loadScript, or "" when it parsed.
+    ; loadScript cannot RAISE -- there is no throw to the host from here -- so a
+    ; script that failed to parse otherwise looked exactly like one that
+    ; loaded, and a harness had only a printed line to go on.
+    def lastSyntaxError:string ""
     ; D-ERRORS: the engine-provided error constructors are seeded lazily, once,
     ; so that `thrown.constructor === TypeError` holds by reference.
     def errorCtorsReady:boolean false
@@ -2955,6 +2960,7 @@ class ComponentEngine {
         ; not trigger the seed, so it answered "undefined" for a global that
         ; existed the moment anything else touched it.
         this.ensureErrorCtors()
+        lastSyntaxError = ""
         source = src
         this.setCurrentSource(src)
         def ast:TSNode (this.parseProgramFromSrc(src))
@@ -2966,6 +2972,10 @@ class ComponentEngine {
         ; earley-boyer source) reached the evaluator and, on the value-vector
         ; targets, allocated without bound where a clean early error was owed.
         if (parser.errorCount > 0) {
+            lastSyntaxError = (parser.firstError())
+            if ((strlen lastSyntaxError) == 0) {
+                lastSyntaxError = "script contains syntax errors"
+            }
             this.throwSpecError("SyntaxError" "script contains syntax errors")
             return
         }

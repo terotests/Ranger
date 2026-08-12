@@ -2782,6 +2782,44 @@ const SCRIPT_PROBES: Array<[name: string, src: string]> = [
   // which wanted an Identifier and found `=`. Whole-program probes because
   // the failure is at PARSE time, top level included.
   ["script-type-as-binding", "var type = 1;\ntype = 2;\n__out__ = String(type);"],
+  // The comma operator is legal wherever the grammar says `Expression`. The
+  // four heads whose parentheses are STATEMENT syntax read like parenthesised
+  // expressions but are not — nothing re-enters the sequence parser for them —
+  // so each stopped at AssignmentExpression and `if (a, b)` failed with
+  // "expected ')' but got ','". Common in minified bundles.
+  ["script-comma-in-if", "var a = 0, b = 1;\n__out__ = (a, b) ? 'yes' : 'no';\nif (a, b) { __out__ = 'if-yes'; }"],
+  ["script-comma-in-if-side-effect", "var n = 0;\nif (n = 5, n > 1) { __out__ = 't' + n; } else { __out__ = 'f'; }"],
+  ["script-comma-in-while", "var i = 0, k = 0;\nwhile (k++, i < 3) { i++; }\n__out__ = i + '|' + k;"],
+  ["script-comma-in-do-while", "var i = 0;\ndo { i++; } while (0, i < 3);\n__out__ = String(i);"],
+  ["script-comma-in-switch", "switch (0, 2) { case 2: __out__ = 'two'; break; default: __out__ = 'no'; }"],
+  ["script-comma-in-case", "switch (2) { case (1, 2): __out__ = 'hit'; break; default: __out__ = 'miss'; }"],
+  ["script-comma-in-throw", "var log = '';\ntry { throw (log = 'L', new Error('boom')); } catch (e) { __out__ = log + ':' + e.message; }"],
+  ["script-comma-in-forin", "var o = { a: 1 };\nvar s = '';\nfor (var k in 0, o) { s += k; }\n__out__ = s;"],
+  ["script-comma-in-forin-bare-lhs", "var o = { a: 1 };\nvar s = '';\nvar k;\nfor (k in 0, o) { s += k; }\n__out__ = s;"],
+  ["script-comma-nested-heads", "var a = 1, b = 2, c = 3;\nif (a, b, c) { __out__ = 'abc'; } else { __out__ = 'no'; }"],
+  // A parenthesised `case` test: the `:` that ends the clause was read as a
+  // TypeScript return-type annotation by the arrow lookahead, so the clause
+  // body went to the type parser. Comma or not, any `case (x):` died.
+  ["script-paren-case-test", "switch (2) { case (2): __out__ = 'hit'; break; default: __out__ = 'miss'; }"],
+  // Comma must stay a SEPARATOR where the grammar says AssignmentExpression.
+  ["script-comma-still-separates", "function f(a, b, c) { return a + ',' + b + ',' + c; }\nvar x = 1, y = 2;\n__out__ = f(1, 2, 3) + '|' + [4, 5].join('-') + '|' + (x + y);"],
+  // A STRING literal's value is its text, so one that spells a keyword was
+  // dispatched as that keyword: `"function";` opened a function declaration,
+  // `"class";` a class, `"return";` returned. Minified UMD starts with exactly
+  // this — `"function"==typeof exports` as an expression statement.
+  ["script-keyword-string-stmt", '"function";\n__out__ = "ok";'],
+  ["script-keyword-string-typeof", 'var e = {};\n"function" == typeof e;\n__out__ = String("function" == typeof function () {});'],
+  ["script-keyword-string-class", '"class";\n"var";\n"if";\n"return";\n"new";\n__out__ = "ok";'],
+  ["script-keyword-string-umd", 'var out = "";\nif ("function" == typeof Object) { out = "fn"; }\n__out__ = out;'],
+  ["script-use-strict-still-a-directive", '"use strict";\ntry { undeclared_name_xyz = 1; __out__ = "no-throw"; } catch (e) { __out__ = e.name; }'],
+  // Two function declarations in one BLOCK are legal in sloppy code (annex B:
+  // the second wins) and an error only in strict code. Rejecting both ways
+  // failed every regenerator-built bundle, which emits a helper twice in one
+  // block.
+  ["script-dup-fn-in-block", "{ function d() { return 1; } function d() { return 2; } }\n__out__ = 'ok';"],
+  ["script-dup-fn-in-if-body", "if (1) { function d() { return 1; } function d() { return 2; } }\n__out__ = 'ok';"],
+  ["script-dup-fn-in-fn-body", "function f() { function d() { return 1; } function d() { return 2; } return d(); }\n__out__ = String(f());"],
+  ["script-dup-fn-separate-blocks", "{ function d() { return 1; } }\n{ function d() { return 2; } }\n__out__ = 'ok';"],
   ["script-type-in-function", "function f() { var type = 1; type = 2; return type; }\n__out__ = String(f());"],
   ["script-type-as-param", "function f(type) { type = type + 1; return type; }\n__out__ = String(f(4));"],
   ["script-type-compound-assign", "var type = 5;\ntype += 2;\ntype++;\n__out__ = String(type);"],
@@ -3105,6 +3143,47 @@ describe("runtime conformance (interp realm)", () => {
         expect(actual).toEqual(expected);
       });
     }
+  });
+
+  // loadScript cannot raise to the host — there is no throw from engine source
+  // — so a bundle that failed to parse looked exactly like one that loaded.
+  describe("a parse failure is visible to the host", () => {
+    it("reports the first diagnostic, and clears on a clean load", () => {
+      const e: any = new ComponentEngine();
+      e.quiet = true;
+      const original = console.log;
+      console.log = () => {};
+      let badMsg: string;
+      let afterMsg: string;
+      let value: unknown;
+      try {
+        e.loadScript("function go() { var a = ; }");
+        badMsg = e.lastSyntaxError;
+        // The parser instance is REUSED, and its error count used to survive:
+        // one bad bundle refused every later script on the same engine.
+        e.loadScript("function go() { return 41 + 1; }");
+        afterMsg = e.lastSyntaxError;
+        value = engineValue(e, "go");
+      } finally {
+        console.log = original;
+      }
+      expect(badMsg).toContain("Unexpected token");
+      expect(afterMsg).toEqual("");
+      expect(value).toEqual(42);
+    });
+
+    it("stays empty for a script that parses", () => {
+      const e: any = new ComponentEngine();
+      e.quiet = true;
+      const original = console.log;
+      console.log = () => {};
+      try {
+        e.loadScript("function go() { return 1; }");
+      } finally {
+        console.log = original;
+      }
+      expect(e.lastSyntaxError).toEqual("");
+    });
   });
 
   it("script-level known gaps still fail (remove one when it is fixed)", () => {
