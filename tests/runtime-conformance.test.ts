@@ -2063,6 +2063,21 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   // Proxy: calling one, and its place in a prototype chain.
   ["proxy-dot-call", "var p = new Proxy(function () { return this.v; }, {}); return p.call({ v: 7 });", "proxy"],
   ["proxy-dot-apply", "var p = new Proxy(function () { return this.v; }, {}); return p.apply({ v: 8 });", "proxy"],
+  // call/apply/bind on a callable proxy: all three are Function.prototype's,
+  // and the branch that owns them gates on isFunction() -- a proxy is an
+  // object, so every one of them reached "call is not a function".
+  ["proxy-dot-call-args", "var p = new Proxy(function (a, b) { return this.v + a + b; }, {}); return p.call({ v: 'v' }, 'a', 'b');", "proxy"],
+  ["proxy-dot-apply-args", "var p = new Proxy(function (a, b) { return this.v + a + b; }, {}); return p.apply({ v: 'v' }, ['a', 'b']);", "proxy"],
+  ["proxy-dot-apply-no-args", "var p = new Proxy(function () { return this.v; }, {}); return p.apply({ v: 6 });", "proxy"],
+  ["proxy-dot-bind", "var p = new Proxy(function () { return this.v; }, {}); return p.bind({ v: 9 })();", "proxy"],
+  ["proxy-dot-bind-partial", "var p = new Proxy(function (a, b) { return a + b; }, {}); return p.bind(null, 'x')('y');", "proxy"],
+  ["proxy-dot-bind-twice", "var p = new Proxy(function (a, b) { return this.v + a + b; }, {}); return p.bind({ v: 1 }, 'a').bind({ v: 2 }, 'b')();", "proxy"],
+  ["proxy-dot-bind-is-function", "var p = new Proxy(function () {}, {}); var b = p.bind({}); return typeof b + ',' + (b !== p);", "proxy"],
+  ["proxy-dot-call-through-trap", "var p = new Proxy(function () {}, { apply: function (t, th, a) { return 'trap:' + th.v + ':' + a.join(','); } }); return p.call({ v: 7 }, 1, 2);", "proxy"],
+  ["proxy-dot-apply-through-trap", "var p = new Proxy(function () {}, { apply: function (t, th, a) { return 'trap:' + th.v + ':' + a.length; } }); return p.apply({ v: 8 }, [1, 2, 3]);", "proxy"],
+  ["proxy-dot-bind-through-trap", "var p = new Proxy(function () {}, { apply: function (t, th, a) { return 'trap:' + th.v + ':' + a.join(','); } }); return p.bind({ v: 9 }, 'q')('r');", "proxy"],
+  ["proxy-bound-called-bare", "var p = new Proxy(function (a) { return this.v + a; }, {}); var b = p.bind({ v: 'v' }); return b('a');", "proxy"],
+  ["proxy-call-extracted-non-function", "try { var c = Function.prototype.call; c.call(5); return 'no-throw'; } catch (e) { return e.constructor.name; }", "proxy"],
   ["proxy-apply-trap", "var p = new Proxy(function () {}, { apply: function (t, th, a) { return a[0] + 1; } }); return p(41);", "proxy"],
   ["proxy-apply-no-trap", "var p = new Proxy(function (x) { return x * 2; }, {}); return p(21);", "proxy"],
   ["proxy-apply-this", "var p = new Proxy(function () { return this.v; }, {}); var o = { v: 5, m: p }; return o.m();", "proxy"],
@@ -2691,14 +2706,6 @@ const KNOWN_GAPS = new Set<string>([
   // template that evaluates its key and value twice), which costs more than the
   // one behaviour it buys. Asserted in both directions so it cannot rot.
   "json-proto-is-ordinary-key",
-  // `p.call(...)` / `p.apply(...)` where p is a proxy over a function: reading
-  // `call` off the proxy has to reach Function.prototype through the target,
-  // and answers "call is not a function" instead. Calling the proxy itself --
-  // bare, as a method, or through Reflect.apply -- all work; this is the
-  // property READ on a callable proxy, which is a different path from the
-  // call. Found while fixing the method-call case below.
-  "proxy-dot-call",
-  "proxy-dot-apply",
   // `class P extends Promise {}`: P.resolve(v) answers a plain Promise, so
   // `P.resolve(1) instanceof P` is false. `new P(...)` DOES produce a P -- the
   // constructor path is fine; it is only the statics that lose the subclass.

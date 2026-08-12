@@ -12505,6 +12505,13 @@ class ComponentEngine {
                 return (this.callProxyApply(m obj argVals))
             }
         }
+        ; D-PROXY: `call`/`apply`/`bind` on a callable proxy -- the receiver is
+        ; the proxy here, which is the case the branch above does not cover.
+        if (this.isProxyValue(obj)) {
+            if (this.isProxyFnMethodName(methodName)) {
+                return (this.callProxyFnMethod(obj methodName argVals))
+            }
+        }
         ; class-instance methods live on the class NODE, not the instance
         def clsName:string (this.instanceClassName(obj))
         if ((strlen clsName) > 0) {
@@ -13011,6 +13018,14 @@ class ComponentEngine {
                 }
                 if (false == callable20) {
                     if (this.isEvalFunctionValue(fnv)) { callable20 = true }
+                }
+                ; D-PROXY, walker parity: a callable proxy answers "function"
+                ; to typeof and the walker calls it, but here it is an object
+                ; and matched none of the tests above -- so `p(x)` inside a
+                ; compiled body raised "p is not a function". A BOUND proxy is
+                ; a function stub carrying the marker, hence proxy-BACKED.
+                if (false == callable20) {
+                    if (this.isProxyBackedValue(fnv)) { callable20 = true }
                 }
                 if (false == callable20) {
                     if strictReferences {
@@ -17026,7 +17041,11 @@ class ComponentEngine {
         ; D-PROXY: calling a proxy is the `apply` trap, or the target when the
         ; handler supplies none. A proxy is not a function value, so without
         ; this every call through one was "not a function".
-        if (this.isProxyValue(fnValue)) {
+        ; Proxy-BACKED rather than isProxyValue: a bound proxy carries the
+        ; marker on a function stub, and gating on the object kind sent
+        ; `p.bind(o)()` down the ordinary function path, where a stub with no
+        ; body answered undefined.
+        if (this.isProxyBackedValue(fnValue)) {
             ; The RECEIVER travels on the value, the way it does for every other
             ; callable here -- `o.m()` where m is a proxy has `this` of o, and
             ; passing undefined unconditionally threw that away.
@@ -17034,7 +17053,18 @@ class ComponentEngine {
             if (fnValue.hasBoundThis()) {
                 pxThis = (fnValue.boundThisOf())
             }
-            return (this.callProxyApply(fnValue pxThis argVals))
+            def pxArgs:[EvHandle]
+            def pxb:int 0
+            while (pxb < (fnValue.boundArgCount())) {
+                push pxArgs (fnValue.boundArgAt(pxb))
+                pxb = (pxb + 1)
+            }
+            def pxa:int 0
+            while (pxa < (array_length argVals)) {
+                push pxArgs (itemAt argVals pxa)
+                pxa = (pxa + 1)
+            }
+            return (this.callProxyApply(fnValue pxThis pxArgs))
         }
         ; D-REGISTRY: a built-in extracted as a value (`var f = arr.slice`, or
         ; `Array.prototype.slice`) is invoked through the same dispatcher the
@@ -19398,6 +19428,16 @@ class ComponentEngine {
                         }
                     }
                 }
+                ; The same three on a CALLABLE proxy -- see callProxyFnMethod.
+                if (this.isProxyValue(obj)) {
+                    if (this.isProxyFnMethodName(methodName)) {
+                        def pfmArgs:[EvHandle] (this.collectCallArgs(node))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        return (this.callProxyFnMethod(obj methodName pfmArgs))
+                    }
+                }
 
                 ; D-OBJPROTO: the Object.prototype methods every object carries.
                 ; Surfaced by the TypeError above: hasOwnProperty was the single
@@ -19855,12 +19895,16 @@ class ComponentEngine {
                 ; ever consulting the `apply` trap. callProxyApply has existed
                 ; all along; only Reflect.apply and the value-call path reached
                 ; it, never a bare `p(...)`.
-                if (this.isProxyValue(fnValue)) {
+                ; Proxy-BACKED, so `var b = p.bind(o); b()` arrives here too:
+                ; bind copies the marker onto a function stub, which has no
+                ; function node and so matched nothing below. The value path
+                ; merges the bound receiver and arguments.
+                if (this.isProxyBackedValue(fnValue)) {
                     def pxArgs:[EvHandle] (this.collectCallArgs(node))
                     if scriptThrew {
                         return (EvValueBridge.taggedUndefined())
                     }
-                    return (this.callProxyApply(fnValue (EvValueBridge.taggedUndefined()) pxArgs))
+                    return (this.callFnValueWithValues(fnValue pxArgs))
                 }
                 ; D-REGISTRY: a built-in held in a variable is callable like any
                 ; other function value. It has no functionNode, so the paths
@@ -19914,6 +19958,15 @@ class ComponentEngine {
             ; function expressions capture the current scope; anything else is
             ; evaluated. MemberExpression/Identifier callees are handled above.
             def calleeFn:EvHandle (this.resolveCallbackValue(callee))
+            ; Same for a proxy (or a bound one) reached through an expression
+            ; callee -- `p.bind(o)()`, `(cond ? p : q)(...)`.
+            if (this.isProxyBackedValue(calleeFn)) {
+                def pxArgs1:[EvHandle] (this.collectCallArgs(node))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                return (this.callFnValueWithValues(calleeFn pxArgs1))
+            }
             ; D-REGISTRY: same for a built-in reached through an expression
             ; callee, e.g. `(cond ? a.slice : b.slice)(...)`.
             if (calleeFn.isBuiltinMethod()) {
@@ -31761,8 +31814,12 @@ class ComponentEngine {
             ; call/apply/bind operate ON a function. Reaching them with a
             ; non-callable receiver — `var c = f.call; c(x)` — is a TypeError,
             ; which is exactly what an unbound extraction must produce.
+            ; A callable PROXY is callable, so it is not the non-function this
+            ; guard is for -- `p.bind(o)` used to be refused outright.
             if (false == (recv.isFunction())) {
-                return (this.throwSpecError("TypeError" (name + " called on a non-function")))
+                if (false == (this.isProxyValue(recv))) {
+                    return (this.throwSpecError("TypeError" (name + " called on a non-function")))
+                }
             }
             if (name == "call") {
                 def callThis:EvHandle (EvValueBridge.taggedUndefined())
@@ -33502,6 +33559,15 @@ class ComponentEngine {
         return (v.getOwnData("__proxytarget__"))
     }
 
+    ; Proxy-backed WITHOUT the object test. `p.bind(o)` copies the marker onto
+    ; a function stub -- that is what carries the bound receiver -- so the
+    ; result is still the proxy's [[Call]] even though its kind is no longer
+    ; object. isProxyValue keeps the object test because every other operation
+    ; that consults it is an OBJECT operation.
+    fn isProxyBackedValue:boolean (v:EvHandle) {
+        return (v.hasOwnData("__proxytarget__"))
+    }
+
     ; The trap named `name`, or a non-function when the handler does not supply
     ; one -- in which case the operation runs against the target directly. A
     ; REVOKED proxy has no handler at all and every operation on it is a
@@ -33666,6 +33732,53 @@ class ComponentEngine {
     ; D-PROXY: calling a proxy is the `apply` trap, or the target when the
     ; handler supplies none. A proxy is not a function value, so the receiver
     ; cannot ride on it -- it is passed in.
+    ; D-PROXY: `call`, `apply` and `bind` are Function.prototype's, and the
+    ; branch that owns them gates on isFunction(). A proxy is an OBJECT, so a
+    ; callable one fell through every door and reached "call is not a
+    ; function" -- even though `typeof p` answers "function" and `p.call`
+    ; reads back a function. These two split that name test from the work so
+    ; the walker and the compiled call path share one implementation.
+    fn isProxyFnMethodName:boolean (methodName:string) {
+        if (methodName == "call") { return true }
+        if (methodName == "apply") { return true }
+        if (methodName == "bind") { return true }
+        return false
+    }
+
+    ; Each one goes through the proxy's own [[Call]], so an apply trap still
+    ; fires and an untrapped proxy reaches its target with the chosen receiver.
+    fn callProxyFnMethod:EvHandle (p:EvHandle methodName:string argVals:[EvHandle]) {
+        if (methodName == "bind") {
+            return (this.invokeBuiltinDirect("function" "bind" p argVals))
+        }
+        def pfThis:EvHandle (EvValueBridge.taggedUndefined())
+        if ((array_length argVals) > 0) {
+            pfThis = (itemAt argVals 0)
+        }
+        def pfArgs:[EvHandle]
+        if (methodName == "apply") {
+            ; `apply` takes ONE array-like; anything else contributes nothing,
+            ; which is how the function branch reads it too.
+            if ((array_length argVals) > 1) {
+                def pfSpread:EvHandle (itemAt argVals 1)
+                if (pfSpread.isArrayValue()) {
+                    def pfs:int 0
+                    while (pfs < (pfSpread.denseLen())) {
+                        push pfArgs (pfSpread.arrayItemAt(pfs))
+                        pfs = (pfs + 1)
+                    }
+                }
+            }
+        } {
+            def pfc:int 1
+            while (pfc < (array_length argVals)) {
+                push pfArgs (itemAt argVals pfc)
+                pfc = (pfc + 1)
+            }
+        }
+        return (this.callProxyApply(p pfThis pfArgs))
+    }
+
     fn callProxyApply:EvHandle (p:EvHandle thisArg:EvHandle argVals:[EvHandle]) {
         def aTgt:EvHandle (this.proxyTargetOf(p))
         def aTrap:EvHandle (this.proxyTrap(p "apply"))
