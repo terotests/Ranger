@@ -2543,45 +2543,78 @@ class CodeNode  {
   };
   tryDesugarNewMethodChain () {
     const chlen = this.children.length;
-    if (chlen < 4) return false;
-    if (this.getFirst().vref !== "new") return false;
-    let first_dot = -1;
-    for (let di = 0; di < chlen; di++) {
+    if ( chlen < 4 ) {
+      return false;
+    }
+    const firstCh = this.getFirst();
+    if ( firstCh.vref != "new" ) {
+      return false;
+    }
+    let first_dot = 0 - 1;
+    let di = 0;
+    while (di < chlen) {
       const item = this.children[di];
-      const dotName = item.children.length > 0 ? item.getFirst().vref : item.vref;
-      if (dotName.length > 0 && dotName.charCodeAt(0) === ".".charCodeAt(0)) {
-        first_dot = di;
-        break;
-      }
-    }
-    if (first_dot < 2) return false;
-    const recv = this.copy();
-    while (recv.children.length > first_dot) {
-      recv.children.pop();
-    }
-    let innerNode = recv;
-    for (let i = first_dot; i < chlen - 1; i += 2) {
-      const item = this.children[i];
-      const dotName2 = item.children.length > 0 ? item.getFirst().vref : item.vref;
-      if (dotName2.length === 0 || dotName2.charCodeAt(0) !== ".".charCodeAt(0)) return false;
-      const method_name = dotName2.substring(1);
-      let mArgs = this.newExpressionNode();
-      if (item.children.length > 1) {
-        mArgs = item.getSecond();
+      let dotName = "";
+      if ( (item.children.length) > 0 ) {
+        const fc = item.getFirst();
+        dotName = fc.vref;
       } else {
-        mArgs = this.children[i + 1];
+        dotName = item.vref;
+      }
+      if ( ((dotName.length) > 0) && ((dotName.charCodeAt(0 )) == (".".charCodeAt(0))) ) {
+        if ( first_dot < 0 ) {
+          first_dot = di;
+        }
+      }
+      di = di + 1;
+    };
+    if ( first_dot < 2 ) {
+      return false;
+    }
+    const recv = this.copy();
+    while ((recv.children.length) > first_dot) {
+      recv.children.pop();
+    };
+    let innerNode = recv;
+    let i = first_dot;
+    while (i < (chlen - 1)) {
+      const item2 = this.children[i];
+      let dotName2 = "";
+      let mArgs;
+      if ( (item2.children.length) > 0 ) {
+        const fc2 = item2.getFirst();
+        dotName2 = fc2.vref;
+        if ( (item2.children.length) > 1 ) {
+          mArgs = item2.getSecond();
+        }
+      } else {
+        dotName2 = item2.vref;
+      }
+      if ( ((dotName2.length) == 0) || ((dotName2.charCodeAt(0 )) != (".".charCodeAt(0))) ) {
+        return false;
+      }
+      const method_name = dotName2.substring(1, (dotName2.length) );
+      let callArgs = this.newExpressionNode();
+      if ( (typeof(mArgs) !== "undefined" && mArgs != null )  ) {
+        const theArgs = mArgs;
+        callArgs = theArgs.copy();
+      } else {
+        const flatArg = this.children[(i + 1)];
+        callArgs = flatArg.copy();
       }
       const newNode = this.newExpressionNode();
       newNode.add(this.newVRefNode("call"));
       newNode.add(innerNode.copy());
       newNode.add(this.newVRefNode(method_name));
-      newNode.add(mArgs.copy());
+      newNode.add(callArgs);
       innerNode = newNode;
-      item.is_part_of_chain = true;
-      if (item.children.length <= 1) {
-        this.children[i + 1].is_part_of_chain = true;
+      item2.is_part_of_chain = true;
+      if ( (item2.children.length) <= 1 ) {
+        const flatArg2 = this.children[(i + 1)];
+        flatArg2.is_part_of_chain = true;
       }
-    }
+      i = i + 2;
+    };
     this.getChildrenFrom(innerNode);
     this.finalizeAsCallChainRoot();
     return true;
