@@ -2344,6 +2344,18 @@ class EvHandle {
         }
         return false
     }
+    ; True once any own property EVER carried attributes — monotone, like
+    ; ownAccessorsEver. A false answer proves no element can be non-writable,
+    ; which is what the compiled element store needs before it may write
+    ; straight into the dense items without minting the key string.
+    fn ownAttrsEver:boolean () {
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            return props.everHadAttrs
+        }
+        return false
+    }
 
     fn arrayItemAt:EvHandle (i:int) {
         def _k:EvalValue body

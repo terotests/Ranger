@@ -810,6 +810,19 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["attr-freeze-blocks-write", "var o = { a: 1 }; Object.freeze(o); o.a = 2; return o.a;", "attrs"],
   ["attr-freeze-blocks-add", "var o = { a: 1 }; Object.freeze(o); o.b = 2; return o.b === undefined;", "attrs"],
   ["attr-freeze-blocks-delete", "var o = { a: 1 }; Object.freeze(o); delete o.a; return o.a;", "attrs"],
+  // The COMPILED element store wrote into the dense items without consulting
+  // any of these rules, so a frozen array took writes from inside a sloppy
+  // function while the identical line at top level was correctly ignored.
+  ["attr-freeze-array-blocks-elem", "var a = Object.freeze(['a', 'b']); a[0] = 'Z'; return a[0];", "attrs"],
+  ["attr-freeze-array-blocks-elem-in-fn", "var a = Object.freeze(['a', 'b']); function w() { a[0] = 'Z'; return a[0]; } return w() + ',' + a[0];", "attrs"],
+  ["attr-freeze-array-blocks-elem-param", "function w(x) { x[0] = 'Z'; return x[0]; } return w(Object.freeze(['a', 'b']));", "attrs"],
+  ["attr-freeze-array-blocks-elem-closure", "function o() { var c = Object.freeze(['a', 'b']); function i() { c[0] = 'Z'; return c[0]; } return i(); } return o();", "attrs"],
+  ["attr-freeze-array-blocks-named-in-fn", "var a = Object.freeze(['a']); function w() { a.foo = 1; return a.foo === undefined; } return w();", "attrs"],
+  ["attr-freeze-array-blocks-push-in-fn", "var a = Object.freeze(['a']); function w() { a[1] = 'b'; return a.length; } return w();", "attrs"],
+  ["attr-nonext-array-blocks-append-in-fn", "var a = Object.preventExtensions(['a']); function w() { a[1] = 'Z'; return a.length; } return w();", "attrs"],
+  ["attr-seal-array-allows-write-in-fn", "var a = Object.seal(['a', 'b']); function w() { a[0] = 'Z'; return a[0]; } return w();", "attrs"],
+  ["attr-nonwritable-elem-in-fn", "var a = ['a', 'b']; Object.defineProperty(a, '0', { writable: false }); function w() { a[0] = 'Z'; return a[0]; } return w();", "attrs"],
+  ["attr-plain-array-write-in-fn", "var a = ['a', 'b']; function w() { a[0] = 'Z'; a[2] = 'c'; return a.join('|'); } return w();", "attrs"],
   ["attr-is-frozen-true", "var o = { a: 1 }; Object.freeze(o); return Object.isFrozen(o);", "attrs"],
   ["attr-is-frozen-false", "var o = { a: 1 }; return Object.isFrozen(o);", "attrs"],
   ["attr-seal-blocks-add", "var o = { a: 1 }; Object.seal(o); o.b = 2; return o.b === undefined;", "attrs"],
@@ -2035,6 +2048,17 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["template-bare-dollar", "return `$` + `$x`;", "template"],
   ["template-substitution-still-works", "var x = 5; return `a${x}b`;", "template"],
   ["template-raw-keeps-escape", "function t(s) { return s.raw[0]; } return t`a\\$b`;", "template"],
+  // The strings object of a tagged template is FROZEN and cached per call
+  // site: the same literal evaluated twice hands back the identical object,
+  // which is what template-caching libraries key on. Two different literals
+  // never share one, and the substitutions still vary per call.
+  ["template-strings-same-site-identity", "function t(s) { return s; } function f() { return t`a${1}b`; } return f() === f();", "template"],
+  ["template-strings-different-site", "function t(s) { return s; } function f() { return t`a${1}b`; } function g() { return t`a${1}b`; } return f() === g();", "template"],
+  ["template-strings-frozen", "function t(s) { return s; } var x = t`a${1}b`; return Object.isFrozen(x) + ',' + Object.isFrozen(x.raw);", "template"],
+  ["template-strings-write-ignored", "function t(s) { return s; } var x = t`a${1}b`; x[0] = 'Z'; return x[0];", "template"],
+  ["template-strings-write-ignored-in-fn", "function t(s) { return s; } var x = t`a${1}b`; function w() { x[0] = 'Z'; return x[0]; } return w();", "template"],
+  ["template-strings-values-intact", "function t(s) { return s; } var x = t`a${1}b`; return x.join('|') + ' raw:' + x.raw.join('|');", "template"],
+  ["template-substitutions-still-vary", "function t(s, v) { return v; } function h(n) { return t`v${n}`; } return h(1) + ',' + h(2);", "template"],
 
   // Proxy: calling one, and its place in a prototype chain.
   ["proxy-dot-call", "var p = new Proxy(function () { return this.v; }, {}); return p.call({ v: 7 });", "proxy"],

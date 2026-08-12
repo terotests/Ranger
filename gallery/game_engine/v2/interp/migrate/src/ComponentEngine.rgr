@@ -1394,6 +1394,12 @@ class ComponentEngine {
     ; to do. Registered wherever a symbol is minted, so there is one place to
     ; keep in step.
     def symbolById:[string:EvHandle]
+    ; D-TEMPLATEOBJ: the template STRINGS object, per call site. §13.2.8.4 keys
+    ; a realm-wide registry by the parse node, so the same `` t`a` `` answers
+    ; the SAME object on every evaluation -- which is what template-caching
+    ; libraries use as their identity. Keyed by source id and offset, which is
+    ; what identifies a parse node here.
+    def templateObjCache:[string:EvHandle]
     ; D-PROMISE: the job queue. A reaction is a (handler, derived capability,
     ; argument) triple; the queue is drained after the script's synchronous work
     ; finishes, which is the only observation point this realm has.
@@ -12271,6 +12277,17 @@ class ComponentEngine {
                 return
             }
         }
+        ; setMember applies the D-ATTRS refusal rules for objects and
+        ; functions, but stores unconditionally on an ARRAY -- so a named write
+        ; to a frozen array (`Object.freeze(a).foo = 1`, `a.length = 0`) went
+        ; through here where the walker refused it. Sloppy-only: strict bodies
+        ; never compile, so the TypeError stays the walker's to raise.
+        if (obj.isArrayValue()) {
+            def afErr:string (this.writeRefusalError(obj name))
+            if ((strlen afErr) > 0) {
+                return
+            }
+        }
         if (obj.chainAccessorFreeAt()) {
             obj.setMember(name v)
             return
@@ -12326,6 +12343,21 @@ class ComponentEngine {
         return (this.bcGetField(obj pk))
     }
 
+    ; The O(1) proof that no write-refusal rule CAN apply to an element store,
+    ; so the compiled path may write into the dense items without minting the
+    ; key string to ask. Frozen refuses outright; a non-extensible array
+    ; refuses the append at ki == denseLen; and any element that ever carried
+    ; attributes may be non-writable. All three are single flag reads.
+    fn bcElemStoreFree:boolean (obj:EvHandle) {
+        if (obj.isFrozenObj()) {
+            return false
+        }
+        if (obj.ownAttrsEver()) {
+            return false
+        }
+        return (obj.isExtensible())
+    }
+
     fn bcPutElem:void (obj:EvHandle key:EvHandle v:EvHandle) {
         if (obj.isArrayValue()) {
             if (key.isNumber()) {
@@ -12335,12 +12367,14 @@ class ComponentEngine {
                 if ((to_double ki) == kd) {
                     if ((ki >= 0) && (ki <= (obj.denseLen()))) {
                         if ((false == (obj.hasProto())) && (false == (obj.ownAccessorsEver()))) {
-                            if (ki == (obj.denseLen())) {
-                                def _pi:int (obj.arrPush(v))
+                            if (this.bcElemStoreFree(obj)) {
+                                if (ki == (obj.denseLen())) {
+                                    def _pi:int (obj.arrPush(v))
+                                    return
+                                }
+                                obj.setIndexAt(ki v)
                                 return
                             }
-                            obj.setIndexAt(ki v)
-                            return
                         }
                     }
                 }
@@ -12361,6 +12395,17 @@ class ComponentEngine {
                 obj.setMember(pk v)
                 return
             }
+        }
+        ; Walker parity: a frozen, non-writable or non-extensible target
+        ; REFUSES the write. Compiled bodies are only ever sloppy (the compile
+        ; gate keeps strict ones on the walker, which owns the TypeError), so
+        ; refusing here means dropping the write -- not throwing. Without this
+        ; the compiled store went straight into the dense items and
+        ; `Object.freeze(a)[0] = 'Z'` took, while the same line at top level
+        ; was correctly ignored.
+        def peErr:string (this.writeRefusalError(obj pk))
+        if ((strlen peErr) > 0) {
+            return
         }
         if (obj.isArrayValue()) {
             ; the walker's element-vs-property routing, decided by the KEY
@@ -16949,12 +16994,14 @@ class ComponentEngine {
                 if ((to_double ki) == kd) {
                     if ((ki >= 0) && (ki <= (obj.denseLen()))) {
                         if ((false == (obj.hasProto())) && (false == (obj.ownAccessorsEver()))) {
-                            if (ki == (obj.denseLen())) {
-                                def _pi:int (obj.arrPush(v))
+                            if (this.bcElemStoreFree(obj)) {
+                                if (ki == (obj.denseLen())) {
+                                    def _pi:int (obj.arrPush(v))
+                                    return
+                                }
+                                obj.setIndexAt(ki v)
                                 return
                             }
-                            obj.setIndexAt(ki v)
-                            return
                         }
                     }
                 }
@@ -44652,6 +44699,12 @@ class ComponentEngine {
         if (null? node.left) { return (EvValueBridge.taggedUndefined()) }
         if (null? node.right) { return (EvValueBridge.taggedUndefined()) }
         def quasiNode:TSNode (unwrap node.right)
+        ; §13.2.8.4 GetTemplateObject: one object per call SITE, reused on every
+        ; evaluation. A fresh one each time is observably different -- a tag
+        ; that memoises on `strings` (which is why the object is specified to be
+        ; stable) re-parsed its template on every call and never hit its cache.
+        def tplKey:string ((to_string currentSrcId) + (":" + (to_string quasiNode.start)))
+        def cachedTpl@(optional):EvHandle (get templateObjCache tplKey)
         def cooked:string (this.templateTextOf(quasiNode false))
         def rawSrc:string (this.templateTextOf(quasiNode true))
         def cookedParts:[string] (this.splitTemplateText(cooked true))
@@ -44677,7 +44730,25 @@ class ComponentEngine {
             rawItems = cookedItems
         }
         def strings:EvHandle (EvValueBridge.taggedArray(cookedItems))
-        strings.setMember("raw" (EvValueBridge.taggedArray(rawItems)))
+        def rawArr:EvHandle (EvValueBridge.taggedArray(rawItems))
+        ; Both halves are FROZEN: the strings object is handed to guest code,
+        ; and the spec makes it immutable so one tag cannot corrupt what the
+        ; next call at the same site sees -- which matters precisely because
+        ; the object is now shared across calls.
+        rawArr.markAllNonConfigurable(true)
+        rawArr.setFrozenObj(true)
+        rawArr.setSealedObj(true)
+        rawArr.setExtensible(false)
+        strings.setMember("raw" rawArr)
+        strings.markAllNonConfigurable(true)
+        strings.setFrozenObj(true)
+        strings.setSealedObj(true)
+        strings.setExtensible(false)
+        if cachedTpl {
+            strings = (unwrap cachedTpl)
+        } {
+            set templateObjCache tplKey strings
+        }
         def callArgs:[EvHandle]
         push callArgs strings
         def ei:int 0
