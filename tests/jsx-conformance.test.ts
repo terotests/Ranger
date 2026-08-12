@@ -325,6 +325,24 @@ const CASES: Array<[name: string, src: string, props: Record<string, unknown>, e
     ["<View>", `  <Label text t="m">`].join("\n"),
   ],
 
+  // ---- hyphenated names: custom elements and data-/aria- attributes ----
+  // The lexer has no reason to treat `-` as anything but an operator, so
+  // `<my-widget>` arrived as three tokens and became `<my>` with attributes
+  // `-` and `widget`. Joined in the JSX name parser, and only when the tokens
+  // actually TOUCH -- which is what keeps subtraction subtraction.
+  ["custom-element-tag", `function hud(p) { return <my-widget foo="bar" />; }`, {}, "<my-widget foo=bar>"],
+  [
+    "custom-element-with-children",
+    `function hud(p) { return <my-widget><Label>in</Label></my-widget>; }`,
+    {},
+    ["<my-widget>", `  <Label text t="in">`].join("\n"),
+  ],
+  ["data-and-aria-attrs", `function hud(p) { return <View data-id="7" aria-label="x" />; }`, {}, "<View data-id=7 aria-label=x>"],
+  ["multiply-hyphenated-tag", `function hud(p) { return <a-b-c />; }`, {}, "<a-b-c>"],
+  // Adjacency is the whole guard: both of these are subtraction, spaced or not.
+  ["spaced-subtraction-in-a-prop", `function hud(p) { var a = 5; var b = 2; return <View id={a - b} />; }`, {}, "<View id=3>"],
+  ["tight-subtraction-in-a-prop", `function hud(p) { var a = 5; var b = 2; return <View id={a-b} />; }`, {}, "<View id=3>"],
+
   // ---- fragments ----
   [
     // A fragment is its own KIND now. It used to be materialised as a literal

@@ -8185,6 +8185,44 @@ class TSParserSimple {
     return node
   }
   
+  ; A hyphenated JSX name -- `<my-widget>`, `data-id`, `aria-label`. The lexer
+  ; has no reason to treat `-` as anything but an operator, so a custom-element
+  ; tag arrived as three tokens and became `<my>` with attributes `-` and
+  ; `widget`. Joined here rather than in the lexer, because outside a JSX name
+  ; `-` really is subtraction.
+  ;
+  ; ADJACENCY is what makes that safe: the parts are joined only when the
+  ; tokens actually touch in the source, so `a - b` inside an expression is
+  ; untouched while `a-b` in a tag position is one name.
+  fn joinHyphenatedName:string (firstPart:string) {
+    def name:string firstPart
+    while (this.matchValue("-")) {
+      def prevEnd:int 0
+      if ((this.pos) > 0) {
+        def prevTok:Token (itemAt this.tokens (this.pos - 1))
+        prevEnd = prevTok.end
+      }
+      def hyphenTok:Token (itemAt this.tokens this.pos)
+      if (hyphenTok.start != prevEnd) {
+        return name
+      }
+      if ((this.pos + 1) >= (array_length this.tokens)) {
+        return name
+      }
+      def afterTok:Token (itemAt this.tokens (this.pos + 1))
+      if (afterTok.start != hyphenTok.end) {
+        return name
+      }
+      if ((afterTok.tokenType != "Identifier") && (afterTok.tokenType != "Keyword")) {
+        return name
+      }
+      this.advance()
+      name = (name + ("-" + afterTok.value))
+      this.advance()
+    }
+    return name
+  }
+
   fn parseJSXElementName:TSNode () {
     def node (new TSNode())
     node.nodeType = "JSXIdentifier"
@@ -8194,8 +8232,9 @@ class TSParserSimple {
     node.col = tok.col
     
     ; First part of name
-    def namePart tok.value
+    def namePart:string tok.value
     this.advance()
+    namePart = (this.joinHyphenatedName(namePart))
     
     ; Check for member expression (Foo.Bar)
     while (this.matchValue(".")) {
@@ -8233,10 +8272,11 @@ class TSParserSimple {
       ; But handle it gracefully
     }
     
-    ; Parse attribute name
-    def attrName tok.value
-    node.name = attrName
+    ; Parse attribute name. Hyphenated too -- `data-id`, `aria-label`.
+    def attrName:string tok.value
     this.advance()
+    attrName = (this.joinHyphenatedName(attrName))
+    node.name = attrName
     
     ; Check for = and value
     if (this.matchValue("=")) {

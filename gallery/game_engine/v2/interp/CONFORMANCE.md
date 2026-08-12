@@ -694,6 +694,76 @@ them aside cannot quietly flatter the remaining number.
   the route feature detection takes. `f.toString()` also starts at `async` now,
   which is the other thing that detection reads.
 
+- **The interpreter no longer knows what a tag MEANS.** JSX used to evaluate
+  straight into `EVGElement`, the layout object of one particular renderer, and
+  the cost was not the stray dependency. The engine had to know a fixed
+  vocabulary (`View` → `div`, `Label` → `text`, `Image` → `image`) before a
+  document could name a tag; `elementType` was a renderer classifying its own
+  vocabulary; `<Print>` resolved a book format and wrote page geometry back
+  into engine state; `<>…</>` materialised a `div` the source never asked for.
+  JSX now evaluates to `EvElement` — a tag exactly as written, its props, its
+  children, and nothing about what any of that means. `evg/EvElementToEVG.rgr`
+  holds the meaning, and the dependency points the other way: a renderer knows
+  about the engine, the engine knows about no renderer, and a second renderer
+  costs a second adapter rather than a second engine.
+
+  One piece of vocabulary had to stay. Whether a tag's content reads as TEXT or
+  as child elements is not something the JSX grammar answers, so
+  `<Label>x</Label>` needs someone to decide; it is a question (`tagHoldsText` /
+  `addTextTag`) rather than three names compiled in.
+
+- **Props keep their values.** Every attribute went through `toString()` on the
+  way in, so `onClick={fn}` arrived as text and `width={12}` arrived as `"12"`
+  — neither recoverable. A prop is now stored as the `EvalValue` it evaluated
+  to, which is what makes event handlers and tree diffing possible at all.
+  `key` is lifted into its own field, because a differ reads it before it looks
+  at anything else.
+
+- **Three defects, one cause: a partial re-implementation of the evaluator.**
+  A `{ … }` child position was handled by four hand-rolled walkers — one
+  pattern-matching `.map` and re-implementing callback invocation, one for `?:`,
+  one for `&&`, one fallback — each INSPECTING the AST rather than running it.
+  Every one could only recognise a JSX literal where an element was wanted, so
+  anything COMPUTED was dropped in silence: a `function (x)` map callback (the
+  hand-rolled binder only knew arrows), a ternary branch that called a helper,
+  an array of arrays. `evaluateFunctionBody` was a fifth such walker and never
+  hoisted, so a `function` declared in a rendering body was never bound and
+  calling it answered nothing. 262 lines became 55, and every case closed at
+  once — possible only because an element is now an ordinary value that
+  `evaluateExpr` can produce. *The lesson is the shape, not the cases: a
+  partial copy of the evaluator is wrong in whatever it did not think of, and
+  it fails quietly because a walker has no way to say "I did not understand
+  that".*
+
+- **Module source comes from a host.** `file_exists`, `buffer_read_file` and
+  `file_mtime` were scattered through the import path, putting one
+  environment's answer to "where does source live" inside the evaluator. They
+  are behind `EvalModuleHost` now. The SEARCH ORDER stays in the engine —
+  importer-directory-then-asset-paths is the language's resolution policy —
+  while where each candidate is read from is the host's. `file_mtime` is the
+  part that would have been missed: the import AST cache stamps a parse with a
+  file's modification time, and a host with no files has no mtimes, so `stamp`
+  asks for any value that changes when the source does.
+
+  ONE CONCRETE CLASS, not a base with subclasses: the Rust target accepts a
+  subclass neither as a field initialiser nor as an argument where the base
+  type is declared. Worth knowing before designing any other seam this way —
+  `EvalNativeBridge`'s subclasses only compile because they live in es6-only
+  trees.
+
+- **`useImage` and `usePrintSettings` are gone**, and with them the
+  `imaging/jpeg` import: 635 lines of EXIF parsing, GPS conversion and
+  `./assets/` path convention reachable as global functions from any evaluated
+  script. Nothing in v2 used them, so they were dead weight holding a
+  dependency. A host that wants them registers them through
+  `EvalNativeBridge`.
+
+- **Hyphenated JSX names parse.** `<my-widget>` arrived as three tokens and
+  became `<my>` with attributes `-` and `widget`; `data-id` and `aria-label`
+  the same. Joined in the JSX name parser rather than the lexer, because
+  outside a JSX name `-` really is subtraction — and only when the tokens
+  actually TOUCH in the source, which is what leaves `{a-b}` as arithmetic.
+
 ### 2.4 Known-wrong, pinned rather than hidden
 
 - **An async body containing `f(await p)` does not suspend.** A call is not a
@@ -1692,6 +1762,20 @@ returned value cannot show: what an async body, a promise combinator or
 `finally` actually PRODUCES once the queue drains, compared against Node
 running the same program — and, since they run on every built target, that the
 three agree about it.
+
+Three suites cover what is NOT ECMAScript and therefore has no Node oracle at
+all. `tests/jsx-conformance.test.ts` (56) records what JSX evaluation produces,
+written down from what the engine does rather than derived — several first
+guesses were wrong, which is the point of recording them. Its KNOWN_WRONG list
+is currently empty and kept as an empty list, because the next defect wants
+somewhere to be written down before it is fixed.
+`tests/evg-host-adapter.test.ts` (23) drives source → EvElement → EVGElement and
+asserts the trees the engine produced BEFORE it stopped knowing about
+renderers: if the adapter reproduces them, the meaning moved without being
+lost. `tests/engine-imports.test.ts` (11) holds the dependency surface, and
+exercises rather than greps — an engine with the filesystem switched off
+imports a host-supplied module and computes with it, because an absent import
+does not prove a host can supply what it used to.
 
 The module checks are the one place expectations are hand-written rather than
 derived, because `ranger:probe` is a specifier only this engine resolves. Each

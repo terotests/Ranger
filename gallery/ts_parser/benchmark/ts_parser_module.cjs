@@ -2389,6 +2389,7 @@ class TSParserSimple  {
     this.pendingLabel = "";     /** note: unused */
     this.inGenerator = false;
     this.inAsync = false;
+    this.inAsyncParams = false;
     this.functionDepth = 0;
     this.sawRestParam = false;
     this.lastBlockEnabledStrict = false;
@@ -5630,6 +5631,8 @@ class TSParserSimple  {
         node.children.push(tp);
       };
     }
+    const savedAsyncParams = this.inAsyncParams;
+    this.inAsyncParams = node.async;
     this.expectValue("(");
     while ((this.matchValue(")") == false) && (this.isAtEnd() == false)) {
       if ( (node.params.length) > 0 ) {
@@ -5649,6 +5652,7 @@ class TSParserSimple  {
       node.params.push(param);
     };
     this.expectValue(")");
+    this.inAsyncParams = false;
     if ( this.matchValue(":") ) {
       const returnType = this.parseTypeAnnotation();
       node.typeAnnotation = returnType;
@@ -5683,6 +5687,7 @@ class TSParserSimple  {
     this.allowSuperProperty = savedSuperProp;
     this.inGenerator = savedGenerator;
     this.inAsync = savedAsync;
+    this.inAsyncParams = savedAsyncParams;
     this.sawRestParam = savedRest;
     this.functionDepth = this.functionDepth - 1;
     this.iterationDepth = savedfnIter;
@@ -7291,6 +7296,9 @@ class TSParserSimple  {
       }
     }
     if ( (tokVal == "await") && (awaitIsOperator && (this.peekType() != "String")) ) {
+      if ( this.inAsyncParams ) {
+        this.syntaxError("Parse error: 'await' cannot appear in the parameters of an async function");
+      }
       const awaitTok = this.peek();
       this.advance();
       const arg_4 = this.parseUnary();
@@ -8479,6 +8487,8 @@ class TSParserSimple  {
     const savedArrowGenerator = this.inGenerator;
     const savedArrowAsync = this.inAsync;
     this.inAsync = node.async;
+    const savedArrowAsyncParams = this.inAsyncParams;
+    this.inAsyncParams = false;
     const savedArrowIter = this.iterationDepth;
     const savedArrowSwitch = this.switchDepth;
     const savedArrowLabels = this.activeLabels;
@@ -8568,6 +8578,7 @@ class TSParserSimple  {
     this.iterationLabels = savedArrowIterLabels;
     this.inGenerator = savedArrowGenerator;
     this.inAsync = savedArrowAsync;
+    this.inAsyncParams = savedArrowAsyncParams;
     this.sawRestParam = savedArrowRest;
     this.functionDepth = this.functionDepth - 1;
     return node;
@@ -8799,6 +8810,34 @@ class TSParserSimple  {
     this.expectValue(">");
     return node;
   };
+  joinHyphenatedName (firstPart) {
+    let name = firstPart;
+    while (this.matchValue("-")) {
+      let prevEnd = 0;
+      if ( this.pos > 0 ) {
+        const prevTok = this.tokens[(this.pos - 1)];
+        prevEnd = prevTok.end;
+      }
+      const hyphenTok = this.tokens[this.pos];
+      if ( hyphenTok.start != prevEnd ) {
+        return name;
+      }
+      if ( (this.pos + 1) >= (this.tokens.length) ) {
+        return name;
+      }
+      const afterTok = this.tokens[(this.pos + 1)];
+      if ( afterTok.start != hyphenTok.end ) {
+        return name;
+      }
+      if ( (afterTok.tokenType != "Identifier") && (afterTok.tokenType != "Keyword") ) {
+        return name;
+      }
+      this.advance();
+      name = name + ("-" + afterTok.value);
+      this.advance();
+    };
+    return name;
+  };
   parseJSXElementName () {
     const node = new TSNode();
     node.nodeType = "JSXIdentifier";
@@ -8808,6 +8847,7 @@ class TSParserSimple  {
     node.col = tok.col;
     let namePart = tok.value;
     this.advance();
+    namePart = this.joinHyphenatedName(namePart);
     while (this.matchValue(".")) {
       this.advance();
       const nextTok = this.peek();
@@ -8836,9 +8876,10 @@ class TSParserSimple  {
         return node;
       }
     }
-    const attrName = tok.value;
-    node.name = attrName;
+    let attrName = tok.value;
     this.advance();
+    attrName = this.joinHyphenatedName(attrName);
+    node.name = attrName;
     if ( this.matchValue("=") ) {
       this.advance();
       const valTok = this.peekValue();
