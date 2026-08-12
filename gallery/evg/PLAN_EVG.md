@@ -4,6 +4,9 @@
 **Date:** December 2024  
 **Language:** Ranger
 
+Related sketch (CSS-closer flex/grid, themes, font-correct layout):
+[`PLAN_CSS_LAYOUT_AND_FONTS.md`](./PLAN_CSS_LAYOUT_AND_FONTS.md)
+
 ## 1. Overview
 
 EVG (Extended Vector Graphics) is a declarative layout engine that calculates element positions and dimensions. It separates layout computation from rendering, allowing multiple output targets (PDF, Canvas, SVG, HTML).
