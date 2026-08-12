@@ -54,6 +54,27 @@ class RegexNode {
     def anchorKind:int 0
     ; LOOK: negative lookahead when true.
     def lookNegate:boolean false
+    ; The flags in force for THIS node, resolved once after parsing: a modifier
+    ; applies to a lexical subtree, so it is pushed down the tree rather than
+    ; tracked while matching -- the matcher's control flow is a continuation
+    ; chain, and there is no single point at which a group is "left".
+    def effIc:boolean false
+    def effMl:boolean false
+    def effDot:boolean false
+    ; GROUP with a MODIFIER -- `(?i:…)`, `(?-i:…)`, `(?ims-x:…)`. Each is -1
+    ; for "unchanged", 0 for off and 1 for on, applying to this group's whole
+    ; subtree. A modifier is scoped, unlike a flag.
+    def modIgnoreCase:int (0 - 1)
+    def modMultiline:int (0 - 1)
+    def modDotAll:int (0 - 1)
+    ; CLASS under the `v` flag: the operand classes of a set expression, and
+    ; which operation joins them -- 0 union, 1 intersection, 2 difference.
+    ; A `v` class is a TREE, because `[[\p{ASCII}--[a-z]]&&\w]` is one.
+    def subClasses:[RegexNode]
+    def setOp:int 0
+    ; CLASS: the multi-character strings a `\q{ab|cd}` contributes. A class that
+    ; has any can match more than one character, which no other class can.
+    def strings:[string]
     ; CLASS: the \p{...} properties this class matches, each encoded as
     ; (index * 2) plus 1 for the NEGATED \P{...} form. Held apart from
     ; `shorthands` because a property is a table lookup rather than one of the
@@ -81,6 +102,8 @@ class RegexProgram {
     ; resume between its halves -- which is what makes /\udf06/u fail to match
     ; the low half of '\ud834\udf06' rather than finding it at index 1.
     def unicode:boolean false
+    ; The `v` flag: `u` plus set notation inside a character class.
+    def unicodeSets:boolean false
     ; The `s` flag: `.` stops excluding the line terminators.
     def dotAll:boolean false
     ; The `d` flag: exec additionally reports where each capture ran.
@@ -336,6 +359,8 @@ class RegexCompiler {
     ; The `u` flag, needed while PARSING: a Unicode-mode pattern is stricter
     ; about what an escape may be.
     def uMode:boolean false
+    ; The `v` flag, which replaces the class grammar entirely.
+    def vMode:boolean false
     def failed:boolean false
     def failMessage:string ""
 
@@ -347,6 +372,8 @@ class RegexCompiler {
         srcLen = (array_length srcU)
         pos = 0
         groupCount = 0
+        uMode = false
+        vMode = false
         def freshNames:[string]
         push freshNames ""
         groupNames = freshNames
@@ -361,11 +388,23 @@ class RegexCompiler {
             if (f == "y") { prog.sticky = true }
             if (f == "u") { prog.unicode = true }
             if (f == "u") { uMode = true }
+            ; `v` is `u` with set notation: everything Unicode mode does, plus
+            ; the class grammar below.
+            if (f == "v") {
+                prog.unicode = true
+                prog.unicodeSets = true
+                uMode = true
+                vMode = true
+            }
             if (f == "s") { prog.dotAll = true }
             if (f == "d") { prog.hasIndices = true }
             fi = (fi + 1)
         }
         prog.alternatives = (this.parseAlternatives())
+        ; D-MODIFIERS: push the effective flags down the tree. Every node then
+        ; knows the case-sensitivity, multiline and dotAll in force where it
+        ; sits, whether that came from the flags or from an enclosing `(?i:…)`.
+        this.resolveModifiers(prog.alternatives prog.ignoreCase prog.multiline prog.dotAll)
         if (pos < srcLen) {
             ; A ")" with no opening group, or anything else the parser refused
             ; to consume, means the pattern is malformed.
@@ -379,6 +418,25 @@ class RegexCompiler {
         prog.valid = (false == failed)
         prog.errorMessage = failMessage
         return prog
+    }
+
+    fn resolveModifiers:void (nodes:[RegexNode] ic:boolean ml:boolean dot:boolean) {
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:RegexNode (itemAt nodes i)
+            def nIc:boolean ic
+            def nMl:boolean ml
+            def nDot:boolean dot
+            if (n.modIgnoreCase >= 0) { nIc = (n.modIgnoreCase == 1) }
+            if (n.modMultiline >= 0) { nMl = (n.modMultiline == 1) }
+            if (n.modDotAll >= 0) { nDot = (n.modDotAll == 1) }
+            n.effIc = nIc
+            n.effMl = nMl
+            n.effDot = nDot
+            this.resolveModifiers(n.children nIc nMl nDot)
+            this.resolveModifiers(n.subClasses nIc nMl nDot)
+            i = (i + 1)
+        }
     }
 
     ; The code unit at `p`, or -1 past the end.
@@ -710,6 +768,67 @@ class RegexCompiler {
                 capturing = false
                 pos = (pos + 2)
             }
+            ; D-MODIFIERS: `(?flags:…)` and `(?flags-flags:…)`. The letters may
+            ; be i, m or s, and the group is non-capturing.
+            if ((nx == 105) || ((nx == 109) || ((nx == 115) || (nx == 45)))) {
+                def scan:int (pos + 1)
+                def onI:int (0 - 1)
+                def onM:int (0 - 1)
+                def onS:int (0 - 1)
+                def turningOff:boolean false
+                def modOk:boolean true
+                def sawAny:boolean false
+                def scanning:boolean true
+                while (scanning && (scan < srcLen)) {
+                    def mc:int (this.uAt(scan))
+                    if (mc == 58) {
+                        scanning = false
+                    } {
+                        def val:int 1
+                        if turningOff { val = 0 }
+                        if (mc == 45) {
+                            if turningOff { modOk = false }
+                            turningOff = true
+                            scan = (scan + 1)
+                        } {
+                            if (mc == 105) { onI = val
+                                sawAny = true
+                                scan = (scan + 1) } {
+                                if (mc == 109) { onM = val
+                                    sawAny = true
+                                    scan = (scan + 1) } {
+                                    if (mc == 115) { onS = val
+                                        sawAny = true
+                                        scan = (scan + 1) } {
+                                        modOk = false
+                                        scanning = false
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (scan >= srcLen) { modOk = false }
+                if (false == sawAny) { modOk = false }
+                if modOk {
+                    g.modIgnoreCase = onI
+                    g.modMultiline = onM
+                    g.modDotAll = onS
+                    capturing = false
+                    pos = (scan + 1)
+                    g.children = (this.parseAlternatives())
+                    if (this.peekIs(")")) {
+                        pos = (pos + 1)
+                    } {
+                        failed = true
+                        failMessage = "Unterminated group"
+                    }
+                    return g
+                }
+                failed = true
+                failMessage = "Invalid group"
+                return g
+            }
             if (nx == 60) {
                 ; `(?<` is three things at once: (?<= and (?<! are lookbehind,
                 ; and anything else is a NAMED capture group.
@@ -784,7 +903,136 @@ class RegexCompiler {
         return g
     }
 
+    ; D-VFLAG: the `v` class grammar. A class is a SET EXPRESSION -- operands
+    ; joined by union (juxtaposition), intersection (`&&`) or difference
+    ; (`--`), where an operand may itself be a nested class. Only one operator
+    ; kind may appear at a level, which is what keeps `a--b&&c` from needing a
+    ; precedence rule.
+    fn parseClassV:RegexNode () {
+        pos = (pos + 1)
+        def cls (new RegexNode)
+        cls.kind = 2
+        if (this.peekIs("^")) {
+            cls.negate = true
+            pos = (pos + 1)
+        }
+        def closed:boolean false
+        while ((pos < srcLen) && (false == closed)) {
+            if (this.peekIs("]")) {
+                pos = (pos + 1)
+                closed = true
+            } {
+                def isDiff:boolean false
+                def isInter:boolean false
+                if (this.peekIs("-")) {
+                    if ((this.peekAt(1)) == 45) { isDiff = true }
+                }
+                if (this.peekIs("&")) {
+                    if ((this.peekAt(1)) == 38) { isInter = true }
+                }
+                if isDiff {
+                    cls.setOp = 2
+                    pos = (pos + 2)
+                } {
+                    if isInter {
+                        cls.setOp = 1
+                        pos = (pos + 2)
+                    } {
+                        def operand:RegexNode (this.parseClassVOperand())
+                        push cls.subClasses operand
+                        if failed { closed = true }
+                    }
+                }
+            }
+        }
+        if (false == closed) {
+            failed = true
+            failMessage = "Unterminated character class"
+        }
+        return cls
+    }
+
+    ; One operand of a `v` set expression: a nested class, a `\q{…}` string
+    ; set, or an ordinary atom (possibly the low end of a range).
+    fn parseClassVOperand:RegexNode () {
+        def part (new RegexNode)
+        part.kind = 2
+        if (this.peekIs("[")) {
+            return (this.parseClassV())
+        }
+        ; `\q{a|bc}` -- the one construct that puts multi-character STRINGS in
+        ; a class, and the reason a `v` class can consume more than one
+        ; character.
+        if (this.peekIs("\\")) {
+            if ((this.peekAt(1)) == 113) {
+                if ((this.peekAt(2)) == 123) {
+                    pos = (pos + 3)
+                    def cur:string ""
+                    def reading:boolean true
+                    while (reading && (pos < srcLen)) {
+                        def c:string (this.uStr(pos))
+                        if (c == "}") {
+                            reading = false
+                            pos = (pos + 1)
+                        } {
+                            if (c == "|") {
+                                push part.strings cur
+                                cur = ""
+                                pos = (pos + 1)
+                            } {
+                                cur = (cur + c)
+                                pos = (pos + 1)
+                            }
+                        }
+                    }
+                    push part.strings cur
+                    if reading {
+                        failed = true
+                        failMessage = "Unterminated \\q"
+                    }
+                    return part
+                }
+            }
+        }
+        def lo:int (this.readClassAtom(part))
+        if (lo >= 0) {
+            def isRange:boolean false
+            if (this.peekIs("-")) {
+                ; `--` is the difference OPERATOR, not a range.
+                if ((this.peekAt(1)) != 45) {
+                    if ((this.peekAt(1)) != 93) {
+                        if ((this.peekAt(1)) >= 0) { isRange = true }
+                    }
+                }
+            }
+            if isRange {
+                pos = (pos + 1)
+                def hi:int (this.readClassAtom(part))
+                if (hi >= 0) {
+                    if (lo > hi) {
+                        failed = true
+                        failMessage = "Range out of order in character class"
+                    }
+                    push part.ranges lo
+                    push part.ranges hi
+                } {
+                    push part.ranges lo
+                    push part.ranges lo
+                    push part.ranges 45
+                    push part.ranges 45
+                }
+            } {
+                push part.ranges lo
+                push part.ranges lo
+            }
+        }
+        return part
+    }
+
     fn parseClass:RegexNode () {
+        if vMode {
+            return (this.parseClassV())
+        }
         pos = (pos + 1)
         def cls (new RegexNode)
         cls.kind = 2
@@ -1241,6 +1489,13 @@ class RegexMatcher {
     def inAscii:boolean true
     def capStart:[int]
     def capEnd:[int]
+    ; D-MODIFIERS: the flags in force for the node being matched. Set from the
+    ; node at the top of matchOnce, which is the only place any of the three is
+    ; consulted -- so a `(?i:…)` group is case-insensitive and its surroundings
+    ; are not.
+    def effIc:boolean false
+    def effMl:boolean false
+    def effDot:boolean false
     ; Guards against a pathological pattern taking the process down with it.
     def steps:int 0
     def stepLimit:int 400000
@@ -1541,6 +1796,9 @@ class RegexMatcher {
     ; is handled here only for the simple case and by matchGroupThen otherwise.
     fn matchOnce:int (n:RegexNode pos:int) {
         def p:RegexProgram (unwrap prog)
+        effIc = n.effIc
+        effMl = n.effMl
+        effDot = n.effDot
         if (n.kind == 0) {
             if (pos >= inLen) { return (0 - 1) }
             ; A literal past U+FFFF -- written `\u{1F600}` -- is one CODE POINT
@@ -1578,13 +1836,20 @@ class RegexMatcher {
             ; twice and left the cursor between the halves of a pair.
             def c:int (this.cAt(pos))
             ; ...unless `s` is set, which is the entire content of that flag.
-            if (false == p.dotAll) {
+            if (false == effDot) {
                 if ((c == 10) || (c == 13)) { return (0 - 1) }
                 if ((c == 8232) || (c == 8233)) { return (0 - 1) }
             }
             return (this.advanceIndex(pos p.unicode))
         }
         if (n.kind == 2) {
+            ; D-VFLAG: `\q{ab|c}` puts whole STRINGS in a class, so the class
+            ; may consume more than one character. The longest alternative wins,
+            ; which is what makes `[\q{abc|a}]` match "abc" rather than "a".
+            def strHit:int (this.classStringMatch(n pos))
+            if (strHit >= 0) {
+                return strHit
+            }
             if (pos >= inLen) { return (0 - 1) }
             ; In Unicode mode a class is tested against the CODE POINT, not the
             ; code unit: a `\p{L}` against an astral letter saw only the high
@@ -1729,7 +1994,7 @@ class RegexMatcher {
         def p:RegexProgram (unwrap prog)
         if (n.anchorKind == 0) {
             if (pos == 0) { return true }
-            if p.multiline {
+            if effMl {
                 def prev:int (this.cAt((pos - 1)))
                 if ((prev == 10) || (prev == 13)) { return true }
             }
@@ -1737,7 +2002,7 @@ class RegexMatcher {
         }
         if (n.anchorKind == 1) {
             if (pos == inLen) { return true }
-            if p.multiline {
+            if effMl {
                 def here:int (this.cAt(pos))
                 if ((here == 10) || (here == 13)) { return true }
             }
@@ -1776,7 +2041,100 @@ class RegexMatcher {
         return false
     }
 
+    ; D-VFLAG: a `v` class is a SET EXPRESSION over operands, so membership is
+    ; the operation applied to what each operand answers. A class with no
+    ; operands is the ordinary kind and answers from its own members alone.
+    ; The end position of the longest `\q{…}` alternative matching at `at`, or
+    ; -1. Searched through the whole operand tree, since a nested class carries
+    ; its own strings.
+    fn classStringMatch:int (n:RegexNode at:int) {
+        def best:int (0 - 1)
+        def si:int 0
+        while (si < (array_length n.strings)) {
+            def want:string (itemAt n.strings si)
+            def wu:[int] (RegexText.units(want))
+            def wn:int (array_length wu)
+            if (wn > 0) {
+                if ((at + wn) <= inLen) {
+                    def ok:boolean true
+                    def k:int 0
+                    while (k < wn) {
+                        if (false == (this.sameChar((this.cAt((at + k))) (itemAt wu k)))) {
+                            ok = false
+                            k = wn
+                        } {
+                            k = (k + 1)
+                        }
+                    }
+                    if ok {
+                        if ((at + wn) > best) { best = (at + wn) }
+                    }
+                }
+            }
+            si = (si + 1)
+        }
+        ; A negated class does not match strings at all -- there is no
+        ; complement of a set of strings.
+        if n.negate {
+            return (0 - 1)
+        }
+        def ci:int 0
+        while (ci < (array_length n.subClasses)) {
+            ; Only a UNION carries its operands' strings outward; an
+            ; intersection or difference of string sets is not something the
+            ; grammar can produce here.
+            if (n.setOp == 0) {
+                def sub:int (this.classStringMatch((itemAt n.subClasses ci) at))
+                if (sub > best) { best = sub }
+            }
+            ci = (ci + 1)
+        }
+        return best
+    }
+
     fn classMatches:boolean (n:RegexNode c:int) {
+        def opCount:int (array_length n.subClasses)
+        if (opCount == 0) {
+            return (this.classSelfMatches(n c))
+        }
+        def hit:boolean false
+        if (n.setOp == 0) {
+            ; Union: the class's own members plus every operand's.
+            hit = (this.classSelfMatches(n c))
+            if n.negate { hit = (false == hit) }
+            def ui:int 0
+            while (ui < opCount) {
+                if (this.classMatches((itemAt n.subClasses ui) c)) { hit = true }
+                ui = (ui + 1)
+            }
+        }
+        if (n.setOp == 1) {
+            ; Intersection: every operand must hold.
+            hit = true
+            def ii:int 0
+            while (ii < opCount) {
+                if (false == (this.classMatches((itemAt n.subClasses ii) c))) {
+                    hit = false
+                }
+                ii = (ii + 1)
+            }
+        }
+        if (n.setOp == 2) {
+            ; Difference: the first operand, minus every later one.
+            hit = (this.classMatches((itemAt n.subClasses 0) c))
+            def di:int 1
+            while (di < opCount) {
+                if (this.classMatches((itemAt n.subClasses di) c)) { hit = false }
+                di = (di + 1)
+            }
+        }
+        if n.negate {
+            return (false == hit)
+        }
+        return hit
+    }
+
+    fn classSelfMatches:boolean (n:RegexNode c:int) {
         def hit:boolean false
         def i:int 0
         while (i < (array_length n.ranges)) {
@@ -1787,8 +2145,7 @@ class RegexMatcher {
             } {
                 ; Case-insensitive matching folds the INPUT character, so a
                 ; range written in one case still covers the other.
-                def p:RegexProgram (unwrap prog)
-                if p.ignoreCase {
+                if effIc {
                     def alt:int (this.swapCase(c))
                     if (alt != c) {
                         if ((alt >= lo) && (alt <= hi)) { hit = true }
@@ -1841,7 +2198,7 @@ class RegexMatcher {
             return true
         }
         def p:RegexProgram (unwrap prog)
-        if p.ignoreCase {
+        if effIc {
             return ((this.swapCase(a)) == b)
         }
         return false

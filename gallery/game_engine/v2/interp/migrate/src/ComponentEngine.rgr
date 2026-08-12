@@ -22894,6 +22894,79 @@ class ComponentEngine {
             }
             return (EvValueBridge.taggedNumber(oldD))
         }
+        ; §22.2.5.1 RegExp.escape. Every syntax character is escaped, and so is
+        ; every character that could combine with what surrounds it: a LEADING
+        ; digit or ASCII letter is hex-escaped so the result cannot be read as
+        ; part of a preceding \1 or \u, and the whitespace and line
+        ; terminators are escaped so the result survives being pasted anywhere.
+        if (nsName == "RegExp") {
+            if (name == "escape") {
+                def esArg:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 0) { esArg = (itemAt args 0) }
+                if (false == (esArg.isString())) {
+                    return (this.throwSpecError("TypeError" "RegExp.escape requires a string"))
+                }
+                def esSrc:string (esArg.stringOf())
+                def esOut:string ""
+                def esCps:[int] (this.codePointsOf(esSrc))
+                def esI:int 0
+                while (esI < (array_length esCps)) {
+                    def cp:int (itemAt esCps esI)
+                    def piece:string (this.cuFromCodePoint(cp))
+                    def syntax:boolean false
+                    ; SyntaxCharacter, plus the two the spec adds: `/` so the
+                    ; result is safe in a literal, and `,` and `-` which are
+                    ; only special inside a class but are escaped anyway.
+                    if ((indexOf "^$\\.*+?()[]{}|/" piece) >= 0) { syntax = true }
+                    if (syntax) {
+                        esOut = (esOut + ("\\" + piece))
+                    } {
+                        def hexEsc:string ""
+                        if (cp == 9) { hexEsc = "\\t" }
+                        if (cp == 10) { hexEsc = "\\n" }
+                        if (cp == 11) { hexEsc = "\\v" }
+                        if (cp == 12) { hexEsc = "\\f" }
+                        if (cp == 13) { hexEsc = "\\r" }
+                        if ((strlen hexEsc) > 0) {
+                            esOut = (esOut + hexEsc)
+                        } {
+                            ; The FIRST character gets a hex escape when it is a
+                            ; digit or an ASCII letter; elsewhere those are
+                            ; literal.
+                            def needHex:boolean false
+                            if (esI == 0) {
+                                if ((cp >= 48) && (cp <= 57)) { needHex = true }
+                                if ((cp >= 65) && (cp <= 90)) { needHex = true }
+                                if ((cp >= 97) && (cp <= 122)) { needHex = true }
+                            }
+                            ; Whitespace, the line separators, and the
+                            ; punctuation that is harmless alone but changes
+                            ; meaning beside something else -- a `-` next to a
+                            ; class member, a `&` beside another under the `v`
+                            ; flag. Escaped wherever they appear.
+                            if (cp == 32) { needHex = true }
+                            if (cp == 160) { needHex = true }
+                            if (cp == 8232) { needHex = true }
+                            if (cp == 8233) { needHex = true }
+                            if (cp == 65279) { needHex = true }
+                            if ((indexOf ",-=<>#&!%:;@~'\"`" piece) >= 0) { needHex = true }
+                            if needHex {
+                                def hp:string (this.hexPair(cp))
+                                if ((strlen hp) > 2) {
+                                    esOut = (esOut + ("\\" + hp))
+                                } {
+                                    esOut = (esOut + ("\\x" + hp))
+                                }
+                            } {
+                                esOut = (esOut + piece)
+                            }
+                        }
+                    }
+                    esI = (esI + 1)
+                }
+                return (EvValueBridge.taggedString(esOut))
+            }
+        }
         ; §24.1.2.1 Map.groupBy. Same walk as Object.groupBy, except the key is
         ; the callback's RESULT rather than a string made out of it, so an
         ; object or a NaN groups by identity instead of by "[object Object]".
@@ -23602,6 +23675,13 @@ class ComponentEngine {
             push out "groupBy"
             return out
         }
+        ; §22.2.5.1 RegExp.escape: the string, made safe to drop into a pattern
+        ; as a literal. There is no other correct way to do it -- a hand-rolled
+        ; escape misses at least one of the characters that matter.
+        if (nsName == "RegExp") {
+            push out "escape"
+            return out
+        }
         ; D-ATOMICS: one agent means every one of these is already atomic --
         ; there is nothing to interleave with. What they still owe the caller
         ; is the RIGHT ANSWER and the right refusals, which is what is here.
@@ -24109,6 +24189,9 @@ class ComponentEngine {
             return (this.hasBuiltinStatic(nsName name))
         }
         if (nsName == "Map") {
+            return (this.hasBuiltinStatic(nsName name))
+        }
+        if (nsName == "RegExp") {
             return (this.hasBuiltinStatic(nsName name))
         }
         if (nsName == "Atomics") {
@@ -31796,6 +31879,7 @@ class ComponentEngine {
             if (f == "m") { known = true }
             if (f == "s") { known = true }
             if (f == "u") { known = true }
+            if (f == "v") { known = true }
             if (f == "y") { known = true }
             if (false == known) {
                 return ("Invalid flags supplied to RegExp constructor '" + (flags + "'"))
@@ -31805,6 +31889,14 @@ class ComponentEngine {
             }
             seen = (seen + f)
             i = (i + 1)
+        }
+        ; §22.2.3.3: `u` and `v` are alternatives, not companions -- `v` IS
+        ; Unicode mode, with a different class grammar, so asking for both is a
+        ; SyntaxError rather than a stronger request.
+        if ((indexOf seen "u") >= 0) {
+            if ((indexOf seen "v") >= 0) {
+                return ("Invalid flags supplied to RegExp constructor '" + (flags + "'"))
+            }
         }
         return ""
     }
@@ -31834,6 +31926,8 @@ class ComponentEngine {
         r.setAttrs("unicode" false false false)
         r.setMember("dotAll" (EvValueBridge.taggedBoolean(((indexOf flags "s") >= 0))))
         r.setAttrs("dotAll" false false false)
+        r.setMember("unicodeSets" (EvValueBridge.taggedBoolean(((indexOf flags "v") >= 0))))
+        r.setAttrs("unicodeSets" false false false)
         r.setMember("hasIndices" (EvValueBridge.taggedBoolean(((indexOf flags "d") >= 0))))
         r.setAttrs("hasIndices" false false false)
         ; lastIndex is the one WRITABLE property -- exec advances it -- but it is
@@ -35875,6 +35969,23 @@ class ComponentEngine {
     ; One code point as text. Unlike encodeCodePointUtf8 this is right for the
     ; supplementary range on the UNIT model too, where the character has to be
     ; spelled as a surrogate pair.
+    ; Two lowercase hex digits, for the \xNN escapes RegExp.escape emits. A code
+    ; point past 0xFF is written as \uNNNN instead, which the caller asks for by
+    ; the width it gets back.
+    fn hexPair:string (cp:int) {
+        def digits:string "0123456789abcdef"
+        if (cp > 255) {
+            def h3:int (bit_and (bit_shr cp 12) 15)
+            def h2:int (bit_and (bit_shr cp 8) 15)
+            def h1:int (bit_and (bit_shr cp 4) 15)
+            def h0:int (bit_and cp 15)
+            return ("u" + ((substring digits h3 (h3 + 1)) + ((substring digits h2 (h2 + 1)) + ((substring digits h1 (h1 + 1)) + (substring digits h0 (h0 + 1))))))
+        }
+        def hi:int (bit_and (bit_shr cp 4) 15)
+        def lo:int (bit_and cp 15)
+        return ((substring digits hi (hi + 1)) + (substring digits lo (lo + 1)))
+    }
+
     fn cuFromCodePoint:string (cp:int) {
         if (this.unitsAreBytes()) {
             return (this.encodeCodePointUtf8(cp))

@@ -1045,6 +1045,41 @@ class TSLexer {
                 this.advance()
                 i = (i + 1)
             }
+            ; A HIGH surrogate escape followed immediately by a LOW one is a
+            ; single character written as its two halves -- `"\ud801\udc00"`.
+            ; Emitting the halves separately is fine where a code unit is the
+            ; unit of storage, and impossible on the code-POINT target, where a
+            ; lone surrogate is not a character at all: the pair came out as two
+            ; unrepresentable values and charCodeAt answered 0. Combining here
+            ; costs nothing on the other two targets, which re-split it below.
+            if ((code >= 55296) && (code <= 56319)) {
+                if ((this.peek()) == "\\") {
+                    if ((this.peekAt(1)) == "u") {
+                        def lowVal:int 0
+                        def lj:int 0
+                        def lowOk:boolean true
+                        while (lj < 4) {
+                            def lc:string (this.peekAt((2 + lj)))
+                            def lv:int (this.hexValue(lc))
+                            if (lv < 0) { lowOk = false
+                                lj = 4 } {
+                                lowVal = ((lowVal * 16) + lv)
+                                lj = (lj + 1)
+                            }
+                        }
+                        if lowOk {
+                            if ((lowVal >= 56320) && (lowVal <= 57343)) {
+                                def lk:int 0
+                                while (lk < 6) {
+                                    this.advance()
+                                    lk = (lk + 1)
+                                }
+                                code = ((65536 + ((code - 55296) * 1024)) + (lowVal - 56320))
+                            }
+                        }
+                    }
+                }
+            }
         }
         ; strfromcode is a code-UNIT constructor, so a supplementary-plane code
         ; point has to be written as its surrogate pair — otherwise \u{E01D5}
@@ -1063,6 +1098,18 @@ class TSLexer {
                 if ((strlen "é") == 1) {
                     return (strfromcode code)
                 }
+            }
+            ; On the BYTE model a supplementary code point is one four-byte
+            ; UTF-8 sequence. Writing it as two encoded surrogate halves is
+            ; CESU-8, which is not what a literal character in the source
+            ; decodes to -- so `"\u{10400}" === "𐐀"` was false, the same
+            ; character written two ways comparing unequal.
+            if ((strlen "é") > 1) {
+                def b0:int (240 + (to_int ((to_double code) / 262144.0)))
+                def b1:int (128 + (bit_and (to_int ((to_double code) / 4096.0)) 63))
+                def b2:int (128 + (bit_and (to_int ((to_double code) / 64.0)) 63))
+                def b3:int (128 + (bit_and code 63))
+                return ((strfromcode b0) + ((strfromcode b1) + ((strfromcode b2) + (strfromcode b3))))
             }
             def rest:int (code - 65536)
             def restD:double (to_double rest)

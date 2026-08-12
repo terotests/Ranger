@@ -2307,6 +2307,40 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
 
   // --- async iteration -------------------------------------------------------
   ["async-iterator-symbol-exists", "return typeof Symbol.asyncIterator;", "es2018"],
+
+  // --- the `v` flag: a class is a SET EXPRESSION (ES2024) --------------------
+  ["re-v-flags", "return /a/v.flags + ',' + /a/v.unicodeSets + ',' + /a/u.unicodeSets;", "es2024"],
+  ["re-v-basic", "return /^[a-z]+$/v.test('abc');", "es2024"],
+  ["re-v-difference", "return /[\\p{ASCII}--[a-z]]/v.test('A') + ',' + /[\\p{ASCII}--[a-z]]/v.test('a');", "es2024"],
+  ["re-v-difference-literal", "var r = /^[[a-z]--[aeiou]]+$/v; return r.test('bcd') + ',' + r.test('abc');", "es2024"],
+  ["re-v-intersection", "return /[\\p{L}&&\\p{Ll}]/v.test('a') + ',' + /[\\p{L}&&\\p{Ll}]/v.test('A');", "es2024"],
+  ["re-v-intersection-literal", "var r = /^[[a-m]&&[g-z]]+$/v; return r.test('gh') + ',' + r.test('ab');", "es2024"],
+  ["re-v-nested-union", "var r = /^[[a-c][0-9]]+$/v; return r.test('a1c') + ',' + r.test('z');", "es2024"],
+  ["re-v-three-way", "var r = /^[[\\p{L}--[a-z]]--[A-Z]]+$/v; return r.test('é') + ',' + r.test('A');", "es2024"],
+  // \q{...} is the one construct that puts multi-character STRINGS in a class.
+  ["re-v-strings", "var r = /^[\\q{abc|d}]$/v; return r.test('abc') + ',' + r.test('d') + ',' + r.test('x');", "es2024"],
+  ["re-v-strings-longest-wins", "return /^[\\q{abc|a}]$/v.test('abc');", "es2024"],
+  ["re-v-strings-mixed-with-chars", "return /^[\\q{ab}c]+$/v.test('abc');", "es2024"],
+  ["re-v-negated", "var r = /^[^a-z]+$/v; return r.test('ABC') + ',' + r.test('abc');", "es2024"],
+  ["re-v-properties", "return /^\\p{L}+$/v.test('héllo');", "es2024"],
+  ["re-v-astral", "return /^[\\p{L}]+$/v.test('\\u{10400}');", "es2024"],
+  ["re-v-replace", "return 'a1b2'.replace(/[\\p{Nd}]/gv, '#');", "es2024"],
+  // `u` and `v` are alternatives, not companions.
+  ["re-v-u-conflict", "try { new RegExp('a', 'uv'); return 'no'; } catch (e) { return e.constructor.name; }", "es2024"],
+
+  // --- surrogate pairs written as two escapes --------------------------------
+  // A high escape followed by a low one is ONE character. On the code-point
+  // target the halves are not representable individually, so they are combined
+  // as they are read; on the byte target the pair is one four-byte sequence,
+  // not two encoded halves, or the same character written two ways compares
+  // unequal.
+  ["string-surrogate-pair-escape", "var s = '\\ud801\\udc00'; return s.length + ',' + s.charCodeAt(0) + ',' + s.charCodeAt(1) + ',' + s.codePointAt(0);", "es2015"],
+  ["string-pair-equals-codepoint", "return '\\ud801\\udc00' === '\\u{10400}';", "es2015"],
+  ["string-pair-equals-literal", "return '\\u{1F600}' === '😀';", "es2015"],
+  ["string-pair-in-middle", "var s = 'a\\ud801\\udc00b'; return s.length + ',' + s.codePointAt(1);", "es2015"],
+  ["string-two-pairs", "var s = '\\ud83d\\ude00\\ud83d\\ude01'; return s.length + ',' + s.codePointAt(0) + ',' + s.codePointAt(2);", "es2015"],
+  ["string-pair-then-text", "var s = '\\ud801\\udc00z'; return s.length + ',' + s.charCodeAt(2);", "es2015"],
+  ["re-pair-escape-property", "return /\\p{L}/u.test('\\ud801\\udc00');", "es2018"],
 ];
 
 /**

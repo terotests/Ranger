@@ -1215,12 +1215,49 @@ class TSLexer  {
         this.advance();
         i = i + 1;
       };
+      if ( (code >= 55296) && (code <= 56319) ) {
+        if ( this.peek() == "\\" ) {
+          if ( this.peekAt(1) == "u" ) {
+            let lowVal = 0;
+            let lj = 0;
+            let lowOk = true;
+            while (lj < 4) {
+              const lc = this.peekAt((2 + lj));
+              const lv = this.hexValue(lc);
+              if ( lv < 0 ) {
+                lowOk = false;
+                lj = 4;
+              } else {
+                lowVal = (lowVal * 16) + lv;
+                lj = lj + 1;
+              }
+            };
+            if ( lowOk ) {
+              if ( (lowVal >= 56320) && (lowVal <= 57343) ) {
+                let lk = 0;
+                while (lk < 6) {
+                  this.advance();
+                  lk = lk + 1;
+                };
+                code = (65536 + ((code - 55296) * 1024)) + (lowVal - 56320);
+              }
+            }
+          }
+        }
+      }
     }
     if ( code > 65535 ) {
       if ( ("😀".length) == 1 ) {
         if ( ("é".length) == 1 ) {
           return String.fromCharCode(code);
         }
+      }
+      if ( ("é".length) > 1 ) {
+        const b0 = 240 + (Math.floor( ((code) / 262144.0)));
+        const b1 = 128 + (((Math.floor( ((code) / 4096.0))) & 63));
+        const b2 = 128 + (((Math.floor( ((code) / 64.0))) & 63));
+        const b3 = 128 + ((code & 63));
+        return (String.fromCharCode(b0)) + ((String.fromCharCode(b1)) + ((String.fromCharCode(b2)) + (String.fromCharCode(b3))));
       }
       const rest = code - 65536;
       const restD = rest;

@@ -1220,9 +1220,30 @@ were not about the table:
   one, and neither is the one that ends `\p{L}` — so `/a{2}/u` had never
   worked either. Both now skip past their own brace.
 
-Still absent: the `v` flag's set notation, `RegExp.escape`, and pattern
-modifiers `(?i:…)` — which this Node does not implement either, so there is no
-derived expectation to check one against here.
+**The `v` flag** is here as well. Under `v` a character class is a SET
+EXPRESSION rather than a list: operands joined by union (juxtaposition),
+intersection (`&&`) or difference (`--`), where an operand may itself be a
+nested class — `[[\p{L}--[a-z]]--[A-Z]]` is one class with three of them. A
+class is a TREE under `v`, so it is parsed and matched as one. `\q{ab|c}` puts
+whole STRINGS in a class, which is the only construct that lets a class consume
+more than one character; the longest alternative wins. `u` and `v` are
+alternatives rather than companions, so asking for both is a SyntaxError.
+
+**`RegExp.escape` and pattern modifiers `(?i:…)`** are implemented, and are the
+only two features in this engine whose tests are not derived from Node: no Node
+in this container implements either (checked across 20, 21 and 22 — `(?i:a)` is
+a SyntaxError in all three and `RegExp.escape` is undefined in all three). Their
+probes therefore live in `tests/regexp-es2025.test.ts`, whose header says out
+loud that its expectations come from the specification rather than from a
+running implementation, so a reader can tell which guarantee each suite carries.
+Writing one of those by hand immediately proved the point: the `modifier-nested`
+expectation was wrong on the first pass and the engine was right.
+
+A modifier is SCOPED where a flag is global, and that is the whole feature. The
+matcher's control flow is a continuation chain with no single point at which a
+group is "left", so the flags are resolved down the node tree once after
+parsing instead of being tracked while matching: every node knows the
+case-sensitivity, multiline and dotAll in force where it sits.
 
 #### BigInt
 
@@ -1304,6 +1325,22 @@ implemented is the arithmetic, the element coercion and the refusals — a float
 or clamped array is a TypeError, an out-of-range index is a RangeError. `wait`
 answers "not-equal" or "timed-out" immediately, because no other agent can ever
 arrive to change the value, and `notify` wakes nobody.
+
+#### Surrogate pairs written as two escapes
+
+`"\ud801\udc00"` is one character written as its two halves, and it decoded
+differently on all three targets. On the code-POINT target (Rust) a lone
+surrogate is not a character at all, so the halves came out as two
+unrepresentable values and `charCodeAt` answered 0; the pair is now combined as
+it is read, which costs nothing on the other two targets since they re-split it
+immediately. On the BYTE target a supplementary code point was written as two
+encoded surrogates — CESU-8 — which is not what a literal character in the
+source decodes to, so `"\u{10400}" === "𐐀"` was false: the same character
+written two ways comparing unequal. It is one four-byte sequence now.
+
+A LONE surrogate — `"\ud801"` with no low half after it — is still
+unrepresentable on the code-point target. That is inherent to the string model
+rather than a decoding bug, and is the one item in this area left open.
 
 #### Optional chaining, private fields, annex-B accessors, ArrayBuffer transfer
 
@@ -1557,9 +1594,12 @@ the runtime-conformance corpus, whose expectations are derived by running the
 same source through Node. It is a regression net, not test262, and the two
 numbers must not be quoted side by side as if they measured the same thing.
 
-The runtime-conformance suite is at 1816 checks, every one of them derived from
-Node — 1786 expression probes plus 21 script-level probes run through Node's
-`vm` so the script global is real, plus the module and gap assertions.
+The runtime-conformance suite is at 1846 checks, every one of them derived from
+Node — 1816 expression probes plus 21 script-level probes run through Node's
+`vm` so the script global is real, plus the module and gap assertions. A further
+25 live in `tests/regexp-es2025.test.ts` and are SPEC-derived rather than
+Node-derived, for the two features no Node here implements; that file is
+separate precisely so the difference is visible.
 Date is additionally validated by 209 differential cases against Node covering the
 component getters, the setter family, `Date.parse`, `Date.UTC` and both range extremes.
 The 47 whole-program cases in `tests/async-conformance.test.ts` cover what a
