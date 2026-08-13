@@ -212,6 +212,53 @@ The 05 slope — the thing that made it a leak rather than a cost — goes from
 tracing-GC target, which reclaims cycles itself and has nothing to collect
 here.
 
+
+## Where the memory actually stands
+
+For ordinary programs rangerjs is at QuickJS parity and an order of magnitude
+below Node, peak RSS:
+
+| program | rangerjs | qjs | node |
+|---|---|---|---|
+| the 8 `cases/` files | 1–5 MB | 0–2 MB | 38–43 MB |
+| `05_tree_parent_cycle` N=6400 | 10 MB (`--gc`) | 2 MB | 52 MB |
+| `09_method_chain` N=6400 | 10 MB | 2 MB | 41 MB |
+
+The one regime that is still far off is running the **Ranger compiler itself**
+— a 2.6 MB bundle, which is a different scale of program from anything above:
+
+| | peak RSS |
+|---|---|
+| node | **159 MB** |
+| rangerjs, at the start of this work | 13 GB, never finished |
+| rangerjs now | **2662 MB** |
+
+159 MB is the honest floor to aim at, not 11–20 MB: that is what a JIT engine
+with hidden classes needs for the same job, and it does not drop when V8's
+heap is capped at 64 MB. Where the remaining 2.6 GB sits, all measured:
+
+- **749 MB before the compiler runs a single line** — parsing `output.js` into
+  `TSNode`s. `TSNode` is ≥364 bytes over 62 fields: 5 strings (160 B), 6
+  vectors (144 B, usually empty), 28 bools (28 B). This is untouched so far
+  and is the largest single item.
+- **~600 MB of live guest objects** — 612,000 of them holding 8.7 million
+  property slots. Halved once already by storing plain properties as values
+  rather than heap-allocated slots; the remaining per-property cost is ~56 B
+  against V8's ~8–16 B with hidden classes.
+- **484,813 arrays holding 206,059 elements between them** — 0.4 each, and
+  every one still pays for a full `EvPropertyBag`.
+
+Things that were suspected and **ruled out** by measurement, so they do not
+need revisiting: the `-native-fast-alloc` freelist (749 MB with it, 734 MB on
+plain malloc), cycle garbage (3060 MB with `--gc`, 2936 MB without), and the
+retained token array.
+
+Ranked next steps: shrink `TSNode` (bools to a bitfield, `nodeType` to an
+interned id, the mostly-empty vectors behind a lazily-allocated side struct);
+make `EvPropertyBag` lazy so an array with no named properties does not carry
+one; then shape sharing, which is what actually closes the gap to a JIT engine
+and is a redesign rather than a fix.
+
 ## Known gaps
 
 - **`await` in argument position does not suspend.** `r.push(await p)` and
