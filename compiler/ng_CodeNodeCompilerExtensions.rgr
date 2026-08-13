@@ -392,8 +392,102 @@ extension CodeNode {
     this.has_call = true
   }
 
+  ; Desugar a method chain hanging off a `new`: `(new X a) .m args .n args`
+  ; becomes nested `call` nodes over the constructed receiver. The statement
+  ; form of this lives in RangerFlowParser.fixExpressionAssignmentChains; this
+  ; is the expression form, where the receiver is the `new` itself.
+  ;
+  ; This was a `return false` stub with the real body hand-maintained in
+  ; JavaScript and re-applied to bin/output.js after every build by
+  ; scripts/patch-chain-desugar.js -- so the shipped compiler carried fifty
+  ; lines no .rgr produced, and a compiler built from source silently lost
+  ; new-chain desugaring.
   fn tryDesugarNewMethodChain:boolean () {
-    return false
+    def chlen (size this.children)
+    if (chlen < 4) {
+      return false
+    }
+    def firstCh (this.getFirst())
+    if (firstCh.vref != "new") {
+      return false
+    }
+    ; Where the chain starts: the first child that names a `.method`.
+    def first_dot:int (0 - 1)
+    def di:int 0
+    while (di < chlen) {
+      def item (at this.children di)
+      def dotName:string ""
+      if (has item.children) {
+        def fc (item.getFirst())
+        dotName = fc.vref
+      } {
+        dotName = item.vref
+      }
+      if (((strlen dotName) > 0) && ((charAt dotName 0) == (charcode "."))) {
+        if (first_dot < 0) {
+          first_dot = di
+        }
+      }
+      di = (di + 1)
+    }
+    ; `new` plus at least one constructor argument have to come first, or this
+    ; is not a construction with a chain on it.
+    if (first_dot < 2) {
+      return false
+    }
+    ; The receiver is everything before the first `.method`.
+    def recv (this.copy())
+    while ((size recv.children) > first_dot) {
+      removeLast recv.children
+    }
+    def innerNode:CodeNode recv
+    def i:int first_dot
+    while (i < (chlen - 1)) {
+      def item2 (at this.children i)
+      def dotName2:string ""
+      def mArgs@(optional):CodeNode
+      if (has item2.children) {
+        def fc2 (item2.getFirst())
+        dotName2 = fc2.vref
+        if ((size item2.children) > 1) {
+          mArgs = (item2.getSecond())
+        }
+      } {
+        dotName2 = item2.vref
+      }
+      if (((strlen dotName2) == 0) || ((charAt dotName2 0) != (charcode "."))) {
+        return false
+      }
+      def method_name (substring dotName2 1 (strlen dotName2))
+      ; `.m(a)` carries its arguments inside the item; the flat `.m a` form
+      ; takes the NEXT sibling as the argument list.
+      def callArgs:CodeNode (this.newExpressionNode())
+      if (!null? mArgs) {
+        def theArgs (unwrap mArgs)
+        callArgs = (theArgs.copy())
+      } {
+        def flatArg (at this.children (i + 1))
+        callArgs = (flatArg.copy())
+      }
+      def newNode:CodeNode (this.newExpressionNode())
+      newNode.add((this.newVRefNode("call")))
+      newNode.add((innerNode.copy()))
+      newNode.add((this.newVRefNode(method_name)))
+      newNode.add(callArgs)
+      innerNode = newNode
+      item2.is_part_of_chain = true
+      ; A `.m` that did not carry its own argument list consumed the NEXT
+      ; sibling as one, so that sibling is part of the chain too -- one child
+      ; is still the bare `.m`, not an argument list.
+      if ((size item2.children) <= 1) {
+        def flatArg2 (at this.children (i + 1))
+        flatArg2.is_part_of_chain = true
+      }
+      i = (i + 2)
+    }
+    this.getChildrenFrom(innerNode)
+    this.finalizeAsCallChainRoot()
+    return true
   }
 
   fn cloneWithType:CodeNode (match:RangerArgMatch changeVref:boolean) {

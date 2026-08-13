@@ -49,6 +49,7 @@ const BUILD_SCRIPT = path.join(ROOT_DIR, "scripts", "build-engine-module.sh");
 
 let ComponentEngine: any;
 let EvalValue: any;
+let EngineModule: any;
 
 /** Probes, each the body of a zero-argument function returning a value. */
 const PROBES: Array<[name: string, body: string, group: string]> = [
@@ -2825,6 +2826,33 @@ const SCRIPT_PROBES: Array<[name: string, src: string]> = [
   // "Assignment to constant variable". It depended on call order and on the
   // pool being warm, so it only ever appeared in long runs — the Ranger
   // compiler's own Lisp parser hit it in skip_space/getOperator/parse.
+  // `return ";"` and `return "}"` were read as ARGUMENT-LESS returns: the
+  // parser tests the next token's value against the statement terminators
+  // without checking it is a punctuator, and a string literal's value is its
+  // text. Any writer that emits a statement terminator hits this — it is what
+  // made the Ranger compiler, running on the engine, lose `lineEnding()` and
+  // then fail codegen on `undefined.charCodeAt`.
+  ["script-return-semicolon-string", "function f() { return \";\"; }\n__out__ = JSON.stringify(f());"],
+  ["script-return-brace-string", "function f() { return \"}\"; }\n__out__ = JSON.stringify(f());"],
+  ["script-return-semicolon-concat", "function f() { return \";\" + \"\"; }\n__out__ = JSON.stringify(f());"],
+  ["script-return-single-quoted-semicolon", "function f() { return ';'; }\n__out__ = JSON.stringify(f());"],
+  ["script-override-returns-terminator", "function B() {}\nB.prototype.lineEnding = function () { return \"\"; };\nfunction J() {}\nJ.prototype = Object.create(B.prototype);\nJ.prototype.lineEnding = function () { return \";\"; };\nfunction H(w) { this.w = w; }\nH.prototype.get = function () { return this.w.lineEnding(); };\n__out__ = JSON.stringify(new H(new J()).get());"],
+  ["script-throw-semicolon-string", "try { throw \";\"; } catch (e) { __out__ = 'caught:' + e; }"],
+  ["script-throw-brace-string", "try { throw \"}\"; } catch (e) { __out__ = 'caught:' + e; }"],
+  ["script-return-nothing-still-undefined", "function f() { return; }\n__out__ = String(f());"],
+  ["script-return-asi-still-applies", "function f() { return\n  5; }\n__out__ = String(f());"],
+  // A loop past the engine's iteration guard used to stop SILENTLY: the walker
+  // ended the loop and carried on, the compiled tier abandoned the call and
+  // answered undefined. Both turned a correct program into a wrong answer with
+  // no diagnostic — `for (i = 0; i < 100001; i++)` returned undefined, and
+  // marked's token loop produced exactly 100000 copies. The guard is now high
+  // enough not to be met by real work, and throws when it is.
+  ["script-loop-past-old-cap", "function f() { var c = 0; for (var i = 0; i < 100001; i++) { c++; } return c; }\n__out__ = String(f());"],
+  ["script-loop-300k", "function f() { var s = 0; for (var i = 0; i < 300000; i++) { s += 1; } return s; }\n__out__ = String(f());"],
+  ["script-while-loop-200k", "function f() { var c = 0, i = 0; while (i < 200000) { c++; i++; } return c; }\n__out__ = String(f());"],
+  ["script-do-while-150k", "function f() { var c = 0; do { c++; } while (c < 150000); return c; }\n__out__ = String(f());"],
+  ["script-nested-loops-360k", "function f() { var c = 0; for (var i = 0; i < 600; i++) { for (var j = 0; j < 600; j++) { c++; } } return c; }\n__out__ = String(f());"],
+  ["script-loop-builds-200k-array", "function f() { var a = []; for (var i = 0; i < 200000; i++) { a.push(i); } return a.length; }\n__out__ = String(f());"],
   ["script-pooled-frame-clears-const", "function withConst() { const c = 1; return c; }\nfunction withLet() { let c = 0; c = c + 5; return c; }\nvar last = '';\nfor (var i = 0; i < 40; i++) { withConst(); last = String(withLet()); }\n__out__ = last;"],
   ["script-pooled-frame-const-still-const", "function withConst() { const c = 1; return c; }\nfor (var i = 0; i < 40; i++) { withConst(); }\nfunction reassign() { const z = 1; try { z = 2; return 'no-throw'; } catch (e) { return e.name; } }\n__out__ = reassign();"],
   ["script-type-in-function", "function f() { var type = 1; type = 2; return type; }\n__out__ = String(f());"],
@@ -3015,6 +3043,7 @@ describe("runtime conformance (interp realm)", () => {
     const mod = require(ENGINE_MODULE);
     ComponentEngine = mod.ComponentEngine;
     EvalValue = mod.EvHandle;
+    EngineModule = mod;
 
     // Derive every expectation from Node before touching the engine.
     for (const [name, body] of PROBES) {
@@ -3148,6 +3177,57 @@ describe("runtime conformance (interp realm)", () => {
           console.log = original;
         }
         expect(actual).toEqual(expected);
+      });
+    }
+  });
+
+  // A host installs native functions with setNativeBridge. The bridge used to
+  // be consulted at ONE place — the walker's bare-name call — so the same
+  // function was missing from every other shape: called out of a compiled
+  // body it was "not defined", and held in a variable it answered undefined.
+  // Found by running the Ranger compiler itself on the engine, where the
+  // host's `fs` shim is reached from compiled code.
+  describe("host natives are reachable from every call shape", () => {
+    const bridgeEngine = () => {
+      const e: any = new ComponentEngine();
+      e.quiet = true;
+      class B extends EngineModule.EvalNativeBridge {
+        has(n: string) { return n === "hostAdd" || n === "hostName"; }
+        invoke(n: string, a: any[]) {
+          if (n === "hostAdd") {
+            return EngineModule.EvValueBridge.taggedNumber(a[0].toNumber() + a[1].toNumber());
+          }
+          return EngineModule.EvValueBridge.taggedString("HOST");
+        }
+      }
+      e.setNativeBridge(new B());
+      const original = console.log;
+      console.log = () => {};
+      try {
+        e.loadScript(`
+          function walker() { return hostAdd(2, 3); }
+          function compiled() { var s = 0; for (var i = 0; i < 3; i++) { s = hostAdd(s, 1); } return s; }
+          function asValue() { var f = hostAdd; return f(4, 5); }
+          function asCallback() { return [1, 2].map(function (x) { return hostAdd(x, 10); }).join(','); }
+          function inMethod() { var o = { m: function () { return hostName(); } }; return o.m(); }
+          function nested() { function inner() { return hostAdd(7, 1); } return inner(); }
+        `);
+      } finally {
+        console.log = original;
+      }
+      return e;
+    };
+    const cases: Array<[string, unknown]> = [
+      ["walker", 5],
+      ["compiled", 3],
+      ["asValue", 9],
+      ["asCallback", "11,12"],
+      ["inMethod", "HOST"],
+      ["nested", 8],
+    ];
+    for (const [fn, expected] of cases) {
+      it(fn, () => {
+        expect(engineValue(bridgeEngine(), fn)).toEqual(expected);
       });
     }
   });

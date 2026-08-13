@@ -1597,10 +1597,20 @@ class ComponentEngine {
     ; When true, suppress verbose evaluation trace (game scripts, tests).
     def quiet:boolean false
 
-    ; Safety cap on while/for/do iterations. The default keeps runaway guest
-    ; scripts from hanging the host; Octane-scale benches (and any other
-    ; long-running correct loop) raise it on the instance before loadScript.
-    def maxLoopIterations:int 100000
+    ; Safety cap on while/for/do iterations, so a runaway guest script cannot
+    ; hang the host. Two things about it matter.
+    ;
+    ; It is LOUD. Reaching it throws; it used to stop the loop and carry on in
+    ; the walker, and abandon the whole call in the compiled tier, both without
+    ; a word -- so a correct program that looped past the cap silently got a
+    ; truncated answer or `undefined`. A guard that corrupts results is worse
+    ; than no guard: `for (i = 0; i < 100001; i++)` answered undefined, and
+    ; marked's token loop quietly produced exactly 100000 copies.
+    ;
+    ; And it is high enough not to be reached by real work. 100k is nothing --
+    ; any loop over a modest array hits it -- while 100M costs a runaway script
+    ; well under a minute at engine speed before it is stopped.
+    def maxLoopIterations:int 100000000
 
     ; When true, Date.now() / new Date() read the host wall clock
     ; (`wall_clock_ms`) instead of the frozen hostNowMs. Off by default so
@@ -5371,6 +5381,13 @@ class ComponentEngine {
     
     ; Void wrappers: assigning loop results to an unused local is dead-code-
     ; eliminated by clang++ (while/for become no-ops in native game_sdl).
+    ; The loop guard fired. Reported as a throw so it can never be mistaken for
+    ; the loop finishing: silently stopping is what turned a correct program
+    ; into a wrong answer with no diagnostic.
+    fn throwLoopLimit:EvHandle () {
+        return (this.throwSpecError("RangeError" "loop iteration limit exceeded"))
+    }
+
     fn runForStatementValue:void (stmt:TSNode) {
         ; D-COMPLETION: an iteration statement's completion value starts at
         ; UNDEFINED, not at whatever the statement before it produced. That is
@@ -5471,6 +5488,11 @@ class ComponentEngine {
                     }
                 }
             }
+        }
+        ; `looping` still set means the while ended on the guard, not on the
+        ; loop's own condition.
+        if looping {
+            def _forLimit:EvHandle (this.throwLoopLimit())
         }
         context = (unwrap forOuter)
         ; Consume break/continue at the loop boundary (do not leak to outer loop)
@@ -5959,6 +5981,9 @@ class ComponentEngine {
                 }
             }
         }
+        if looping {
+            def _whileLimit:EvHandle (this.throwLoopLimit())
+        }
         this.settleLoopAbrupt(myLabels savedBreak savedContinue)
     }
 
@@ -6083,6 +6108,9 @@ class ComponentEngine {
                     }
                 }
             }
+        }
+        if looping {
+            def _doLimit:EvHandle (this.throwLoopLimit())
         }
         this.settleLoopAbrupt(myLabels savedBreak savedContinue)
     }
@@ -7553,7 +7581,9 @@ class ComponentEngine {
                 iterations = iterations + 1
             }
         }
-        
+        ; The loop's own exits all `return` from inside it, so reaching here is
+        ; the guard and nothing else.
+        def _forEvalLimit:EvHandle (this.throwLoopLimit())
         return result
     }
     
@@ -7651,7 +7681,7 @@ class ComponentEngine {
                 iterations = iterations + 1
             }
         }
-        
+        def _whileEvalLimit:EvHandle (this.throwLoopLimit())
         return result
     }
     
@@ -13100,6 +13130,10 @@ class ComponentEngine {
             if (op == 15) {
                 backJumps = (backJumps + 1)
                 if (backJumps > maxLoopIterations) {
+                    ; Raised as a throw, so it propagates (and is catchable)
+                    ; instead of ending the call with an undefined result --
+                    ; which is what `for (i = 0; i < 100001; i++)` used to do.
+                    def _bcLimit:EvHandle (this.throwLoopLimit())
                     bcRetTag = 3
                     bcTryTop = tryBase
                     bcSp = base
@@ -17082,6 +17116,23 @@ class ComponentEngine {
             }
             return (this.callProxyApply(fnValue pxThis pxArgs))
         }
+        ; D-BRIDGE: a host native reached as a VALUE -- what lookupIdentifier
+        ; hands back for a name the bridge owns. Checked before the registry so
+        ; a host name always wins over a same-named built-in, which is what a
+        ; host that installed it expects.
+        if (fnValue.isFunction()) {
+            if (false == (fnValue.hasFunctionNode())) {
+                if nativeBridge {
+                    def nbCall:EvalNativeBridge (unwrap nativeBridge)
+                    def nbName:string (fnValue.fnName())
+                    if ((strlen nbName) > 0) {
+                        if (nbCall.has(nbName)) {
+                            return (nbCall.invoke(nbName argVals))
+                        }
+                    }
+                }
+            }
+        }
         ; D-REGISTRY: a built-in extracted as a value (`var f = arr.slice`, or
         ; `Array.prototype.slice`) is invoked through the same dispatcher the
         ; direct call uses, so the two paths cannot diverge. Its receiver is
@@ -19949,6 +20000,25 @@ class ComponentEngine {
                         return (EvValueBridge.taggedUndefined())
                     }
                     return (this.callFnValueWithValues(fnValue pxArgs))
+                }
+                ; D-BRIDGE: a host native held under ANOTHER name --
+                ; `var f = hostRead; f(p)`. The bridge test above asks about
+                ; the name at the call site, which is `f`; the VALUE is what
+                ; carries the host name, so it is the value path that has to
+                ; answer.
+                if (fnValue.isFunction()) {
+                    if (false == (fnValue.hasFunctionNode())) {
+                        if nativeBridge {
+                            def nbVal:EvalNativeBridge (unwrap nativeBridge)
+                            if (nbVal.has((fnValue.fnName()))) {
+                                def nbvArgs:[EvHandle] (this.collectCallArgs(node))
+                                if scriptThrew {
+                                    return (EvValueBridge.taggedUndefined())
+                                }
+                                return (this.callFnValueWithValues(fnValue nbvArgs))
+                            }
+                        }
+                    }
                 }
                 ; D-REGISTRY: a built-in held in a variable is callable like any
                 ; other function value. It has no functionNode, so the paths
@@ -40152,6 +40222,19 @@ class ComponentEngine {
         def clsRef:TSNode (this.classNodeByName(name))
         if ((this.nodeKindOf(clsRef)) == 25) {
             return (this.classValueFor(name))
+        }
+        ; D-BRIDGE: a host-provided native name resolves to a VALUE, so it is
+        ; reachable from every tier and every call shape. The bridge used to be
+        ; consulted at one place only -- the walker's bare-name call -- so a
+        ; host function called from a COMPILED body, or held in a variable, or
+        ; passed as a callback, died on "not defined" before anything could ask
+        ; the bridge about it. The value carries the name; callFnValueWithValues
+        ; hands it back to the bridge when it is invoked.
+        if nativeBridge {
+            def nbLookup:EvalNativeBridge (unwrap nativeBridge)
+            if (nbLookup.has(name)) {
+                return (EvHandle.nativeFunction(name))
+            }
         }
         if strictReferences {
             return (this.throwSpecError("ReferenceError" (name + " is not defined")))

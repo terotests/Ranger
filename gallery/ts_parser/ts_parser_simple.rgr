@@ -1638,7 +1638,18 @@ class TSParserSimple {
       argOnSameLine = false
     }
     ; No argument when the statement ends here: `;`, a closing brace, or EOF.
-    if (argOnSameLine && ((v != ";") && ((v != "}") && ((this.isAtEnd()) == false)))) {
+    ; The `;` and `}` have to be PUNCTUATORS. A string literal's value is its
+    ; text, so `return ";"` and `return "}"` matched these tests and were read
+    ; as argument-less returns -- the function answered undefined and the
+    ; string was dropped. Any writer that emits a statement terminator hits
+    ; this: it is what made the Ranger compiler, running on the engine, lose
+    ; `lineEnding()` and then fail codegen on `undefined.charCodeAt`.
+    def endsHere:boolean (this.isAtEnd())
+    if ((this.peekType()) == "Punctuator") {
+      if (v == ";") { endsHere = true }
+      if (v == "}") { endsHere = true }
+    }
+    if (argOnSameLine && (false == endsHere)) {
       def arg (this.parseExprSeq())
       node.left = arg
     }
@@ -3290,7 +3301,14 @@ class TSParserSimple {
     if (throwArgTok.line != this.lastTokenLine) {
       this.syntaxError("Parse error: no line terminator is allowed after 'throw'")
     }
-    if ((this.isAtEnd()) || (throwArgTok.value == ";") || (throwArgTok.value == "}")) {
+    ; Same punctuator test as `return`: `throw ";"` throws a string, it is not
+    ; a `throw` with nothing after it.
+    def throwEnds:boolean (this.isAtEnd())
+    if ((this.peekType()) == "Punctuator") {
+      if (throwArgTok.value == ";") { throwEnds = true }
+      if (throwArgTok.value == "}") { throwEnds = true }
+    }
+    if throwEnds {
       this.syntaxError("Parse error: 'throw' requires an argument")
     }
     

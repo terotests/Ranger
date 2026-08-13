@@ -13,7 +13,7 @@ Katso myös [compiler/test_chain.rgr](./compiler/test_chain.rgr) (vanha kokeilu)
 | Vaihe | Tila | Huomio |
 |-------|------|--------|
 | 0 Golden testit | **valmis** | `tests/compiler-chain.test.ts` + `chain_*.rgr` (8 testiä) |
-| 1 Codegen | **valmis** | `tryDesugarNewMethodChain` + `finalizeAsCallChainRoot`; `scripts/patch-chain-desugar.js` compile-patchin jälkeen |
+| 1 Codegen | **valmis** | `tryDesugarNewMethodChain` + `finalizeAsCallChainRoot`, molemmat Rangerista käännettyinä (ei enää compile-patchia) |
 | 2 Tyyppipäättely | **valmis** | Ketjun viimeisen kutsun paluutyyppi (`get()` → `int`); `cmdCall` + `clDesc`-receiver |
 | **2b Polymorfinen ketjutus** | **osittain valmis** | `matchMethodCall` + `fnDesc.compiledName` ES6; fixture `chain_polymorphic_add` (10 testiä) |
 | **2c Operaattoriketjutus** | suunniteltu | `str.substring(3,4)` → `Lang.rgr`-operaattori; type-class-tyylinen resoluutio |
@@ -169,7 +169,10 @@ Codegen:
 **Työ (tehty):**
 1. `tryDesugarNewMethodChain` muuttaa `new C().m().n()` → sisäkkäinen `call`-puu
 2. `finalizeAsCallChainRoot` estää `hasNewOper`-skipin codegenissa
-3. `scripts/patch-chain-desugar.js` säilyttää toteutuksen `npm run compile` -jälkeen
+3. Toteutus on `.rgr`-lähteessä ja kääntyy itsestään: `bin/output.js` on nyt
+   tuotettavissa pelkästä lähdekoodista (`gen2 == gen3` tavulleen). Aiempi
+   `scripts/patch-chain-desugar.js` paikkasi käännöksen jälkeen käsin
+   ylläpidetyn JS-toteutuksen; se on poistettu.
 
 **Tiedostot:** `ng_CodeNodeCompilerExtensions.rgr`, `ng_RangerFlowParser.rgr` (`cmdNew`), `bin/output.js`
 
