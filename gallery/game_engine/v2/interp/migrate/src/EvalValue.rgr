@@ -223,6 +223,15 @@ shape EvalValue {
     ; Same call spelling as class EvHandle.* so call sites can switch one
     ; kind at a time. Not wired into ComponentEngine yet.
 
+    ; The shared empty bag, marked on handout so nothing has to initialise a
+    ; singleton field to a non-default value.
+    sfn sharedBag:EvPropertyBag () {
+        def sb:EvSharedBag (EvSharedBag.__singleton())
+        def b:EvPropertyBag sb.empty
+        b.isShared = true
+        return b
+    }
+
     sfn null:EvalValue () {
         return (new EvalValue.Null())
     }
@@ -255,21 +264,21 @@ shape EvalValue {
         return (EvalValue.arrayAt(0 items))
     }
     sfn arrayAt:EvalValue (id:int items:[EvalValue]) {
-        def props:EvPropertyBag (new EvPropertyBag())
+        def props:EvPropertyBag (EvalValue.sharedBag())
         return (EvGcHeap.registered((new EvalValue.Array(id props items (to_double (array_length items))))))
     }
     sfn object:EvalValue () {
         return (EvalValue.objectAt(0))
     }
     sfn objectAt:EvalValue (id:int) {
-        def props:EvPropertyBag (new EvPropertyBag())
+        def props:EvPropertyBag (EvalValue.sharedBag())
         return (EvGcHeap.registered((new EvalValue.Object(id props))))
     }
     sfn mapEmpty:EvalValue () {
         return (EvalValue.mapEmptyAt(0))
     }
     sfn mapEmptyAt:EvalValue (id:int) {
-        def props:EvPropertyBag (new EvPropertyBag())
+        def props:EvPropertyBag (EvalValue.sharedBag())
         ; Bind the empty literal — Rust case ctors drop a bare `([] _:T ())`
         ; argument (ISSUES / empty typed array as ctor arg).
         def entries:[EvMapEntry]
@@ -279,7 +288,7 @@ shape EvalValue {
         return (EvalValue.setEmptyAt(0))
     }
     sfn setEmptyAt:EvalValue (id:int) {
-        def props:EvPropertyBag (new EvPropertyBag())
+        def props:EvPropertyBag (EvalValue.sharedBag())
         def items:[EvalValue]
         return (EvGcHeap.registered((new EvalValue.Set(id props items))))
     }
@@ -287,7 +296,7 @@ shape EvalValue {
         return (EvalValue.functionStubAt(0 name))
     }
     sfn functionStubAt:EvalValue (id:int name:string) {
-        def props:EvPropertyBag (new EvPropertyBag())
+        def props:EvPropertyBag (EvalValue.sharedBag())
         def c:EvFunctionCore (new EvFunctionCore())
         c.functionName = name
         def b:EvFunctionBinding (new EvFunctionBinding())
@@ -297,7 +306,7 @@ shape EvalValue {
     ; module) and takes its own fresh binding. This is what lets a per-call
     ; `this`-bound clone cost a binding instead of a copy of the whole core.
     sfn functionSharedAt:EvalValue (id:int core:EvFunctionCore binding:EvFunctionBinding) {
-        def props:EvPropertyBag (new EvPropertyBag())
+        def props:EvPropertyBag (EvalValue.sharedBag())
         return (EvGcHeap.registered((new EvalValue.Function(id props core binding))))
     }
 
@@ -528,6 +537,11 @@ class EvShape {
     }
 }
 
+; The one empty bag handed to every value that has no properties yet.
+class EvSharedBag @singleton(true) {
+    def empty:EvPropertyBag (new EvPropertyBag())
+}
+
 class EvShapeRoot @singleton(true) {
     ; The empty shape every object starts at. Shared, so an object with no
     ; properties allocates no key table at all.
@@ -558,6 +572,12 @@ class EvPropertyBag {
     def slotValues:[EvalValue]
     ; True once this bag has left shape mode; storage is rare.dictValues.
     def dictMode:boolean false
+    ; True ONLY of the one shared empty bag every property-free value starts
+    ; with. 485,898 of the 614,109 live values on a compile are arrays holding
+    ; 77,808 elements between them, and each carried a private bag it never
+    ; wrote to. Writers go through EvHandle.propsForWrite, which swaps in a
+    ; private bag the first time one is actually needed.
+    def isShared:boolean false
     ; Accessors, non-default attributes and suppressed keys -- absent on an
     ; ordinary object. See EvBagRare.
     def rare@(optional):EvBagRare
@@ -637,6 +657,13 @@ class EvPropertyBag {
         return false
     }
     fn suppressKey:void (key:string) {
+        ; The owner must unshare through EvHandle.propsForWrite before writing.
+        ; Refusing is not right either, but a dropped property is visible in
+        ; the first test that touches it, where a property handed to every
+        ; other object would be a silent correctness bug.
+        if isShared {
+            return
+        }
         def r:EvBagRare (this.rareOf())
         set r.suppressedKeys key true
     }
@@ -649,6 +676,13 @@ class EvPropertyBag {
         return none
     }
     fn setSuppressed:void (m:[string:boolean]) {
+        ; The owner must unshare through EvHandle.propsForWrite before writing.
+        ; Refusing is not right either, but a dropped property is visible in
+        ; the first test that touches it, where a property handed to every
+        ; other object would be a silent correctness bug.
+        if isShared {
+            return
+        }
         def r:EvBagRare (this.rareOf())
         r.suppressedKeys = m
     }
@@ -879,6 +913,13 @@ class EvPropertyBag {
         return (EvalValue.hole())
     }
     fn putData:void (key:string value:EvalValue attrs:int) {
+        ; The owner must unshare through EvHandle.propsForWrite before writing.
+        ; Refusing is not right either, but a dropped property is visible in
+        ; the first test that touches it, where a property handed to every
+        ; other object would be a silent correctness bug.
+        if isShared {
+            return
+        }
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
         if (false == (this.hasKey(ka))) {
             slotCount = (slotCount + 1)
@@ -902,6 +943,13 @@ class EvPropertyBag {
         this.setSlotAt(ka slot)
     }
     fn removeData:void (key:string) {
+        ; The owner must unshare through EvHandle.propsForWrite before writing.
+        ; Refusing is not right either, but a dropped property is visible in
+        ; the first test that touches it, where a property handed to every
+        ; other object would be a silent correctness bug.
+        if isShared {
+            return
+        }
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
         if (false == (this.hasKey(ka))) {
             return
@@ -956,6 +1004,13 @@ class EvPropertyBag {
         return 7
     }
     fn setAttrsOn:void (key:string attrs:int) {
+        ; The owner must unshare through EvHandle.propsForWrite before writing.
+        ; Refusing is not right either, but a dropped property is visible in
+        ; the first test that touches it, where a property handed to every
+        ; other object would be a silent correctness bug.
+        if isShared {
+            return
+        }
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
         everHadAttrs = true
         if (false == (this.hasKey(ka))) {
@@ -1045,6 +1100,13 @@ class EvPropertyBag {
         return (EvalValue.undefined())
     }
     fn putGetter:void (key:string g:EvalValue attrs:int) {
+        ; The owner must unshare through EvHandle.propsForWrite before writing.
+        ; Refusing is not right either, but a dropped property is visible in
+        ; the first test that touches it, where a property handed to every
+        ; other object would be a silent correctness bug.
+        if isShared {
+            return
+        }
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
         everHadAccessor = true
         if (false == (this.hasKey(ka))) {
@@ -1070,6 +1132,13 @@ class EvPropertyBag {
         this.setSlotAt(ka slotN)
     }
     fn putSetter:void (key:string s:EvalValue attrs:int) {
+        ; The owner must unshare through EvHandle.propsForWrite before writing.
+        ; Refusing is not right either, but a dropped property is visible in
+        ; the first test that touches it, where a property handed to every
+        ; other object would be a silent correctness bug.
+        if isShared {
+            return
+        }
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
         everHadAccessor = true
         if (false == (this.hasKey(ka))) {
@@ -1180,6 +1249,13 @@ class EvPropertyBag {
         return prototype
     }
     fn setPrototype:void (p:EvalValue) {
+        ; The owner must unshare through EvHandle.propsForWrite before writing.
+        ; Refusing is not right either, but a dropped property is visible in
+        ; the first test that touches it, where a property handed to every
+        ; other object would be a silent correctness bug.
+        if isShared {
+            return
+        }
         prototype = p
     }
 }

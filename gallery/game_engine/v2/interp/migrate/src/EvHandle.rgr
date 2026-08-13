@@ -423,7 +423,7 @@ class EvHandle {
             def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
             dEp.bump()
         }
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             props.suppressKey(key)
@@ -443,7 +443,7 @@ class EvHandle {
             def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
             dEp.bump()
         }
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             props.setSuppressed(m)
@@ -1341,7 +1341,7 @@ class EvHandle {
         if w { f = (bit_or f 1) }
         if e { f = (bit_or f 2) }
         if c { f = (bit_or f 4) }
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             props.setAttrsOn(key f)
@@ -1384,7 +1384,7 @@ class EvHandle {
     ; accessor property back into a data one -- leaving the functions behind
     ; would let the getter keep winning over the new value.
     fn clearAccessor:void (key:string) {
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             props.clearAccessor(key)
@@ -1395,7 +1395,7 @@ class EvHandle {
     ; an accessor replaces the halves the descriptor mentions and keeps the rest,
     ; so clearing both together would drop a setter the descriptor never named.
     fn clearGetterOnly:void (key:string) {
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             props.clearGetter(key)
@@ -1403,7 +1403,7 @@ class EvHandle {
     }
 
     fn clearSetterOnly:void (key:string) {
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             props.clearSetter(key)
@@ -1466,7 +1466,7 @@ class EvHandle {
             def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
             dEp.bump()
         }
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             props.putGetter(key (fn.toStored()) (props.attrsOf(key)))
@@ -1478,7 +1478,7 @@ class EvHandle {
             def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
             dEp.bump()
         }
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             props.putSetter(key (fn.toStored()) (props.attrsOf(key)))
@@ -1744,6 +1744,70 @@ class EvHandle {
         def missing@(optional):EvPropertyBag
         return missing
     }
+    ; The bag to MUTATE. Every value starts on one shared empty bag; the first
+    ; write swaps in a private one. Read paths keep using tryProps and never
+    ; unshare -- that is the whole point, an array that never gets a named
+    ; property never pays for a bag.
+    fn propsForWrite@(optional):EvPropertyBag () {
+        def _kw:EvalValue body
+        case _kw o:EvalValue.Object {
+            def p:EvPropertyBag o.properties
+            if p.isShared {
+                def f1:EvPropertyBag (new EvPropertyBag())
+                o.properties = f1
+                def r1@(optional):EvPropertyBag f1
+                return r1
+            }
+            def r1b@(optional):EvPropertyBag p
+            return r1b
+        }
+        case _kw a:EvalValue.Array {
+            def p2:EvPropertyBag a.properties
+            if p2.isShared {
+                def f2:EvPropertyBag (new EvPropertyBag())
+                a.properties = f2
+                def r2@(optional):EvPropertyBag f2
+                return r2
+            }
+            def r2b@(optional):EvPropertyBag p2
+            return r2b
+        }
+        case _kw f:EvalValue.Function {
+            def p3:EvPropertyBag f.properties
+            if p3.isShared {
+                def f3:EvPropertyBag (new EvPropertyBag())
+                f.properties = f3
+                def r3@(optional):EvPropertyBag f3
+                return r3
+            }
+            def r3b@(optional):EvPropertyBag p3
+            return r3b
+        }
+        case _kw m:EvalValue.Map {
+            def p4:EvPropertyBag m.properties
+            if p4.isShared {
+                def f4:EvPropertyBag (new EvPropertyBag())
+                m.properties = f4
+                def r4@(optional):EvPropertyBag f4
+                return r4
+            }
+            def r4b@(optional):EvPropertyBag p4
+            return r4b
+        }
+        case _kw st:EvalValue.Set {
+            def p5:EvPropertyBag st.properties
+            if p5.isShared {
+                def f5:EvPropertyBag (new EvPropertyBag())
+                st.properties = f5
+                def r5@(optional):EvPropertyBag f5
+                return r5
+            }
+            def r5b@(optional):EvPropertyBag p5
+            return r5b
+        }
+        def missingW@(optional):EvPropertyBag
+        return missingW
+    }
     fn hasOwnData:boolean (key:string) {
         def propsOpt@(optional):EvPropertyBag (this.tryProps())
         if propsOpt {
@@ -1779,7 +1843,7 @@ class EvHandle {
             def fpEp2:EvDispatchEpoch (EvDispatchEpoch.__singleton())
             fpEp2.bump()
         }
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             ; Plain assignment defaults all three attributes true (mask 7).
@@ -1795,7 +1859,7 @@ class EvHandle {
             def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
             dEp.bump()
         }
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             props.removeData(key)
@@ -1889,7 +1953,7 @@ class EvHandle {
             def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
             dEp.bump()
         }
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             props.setPrototype((p.toStored()))
@@ -1904,7 +1968,7 @@ class EvHandle {
         return true
     }
     fn setExtensible:void (b:boolean) {
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             props.extensible = b
@@ -1919,7 +1983,7 @@ class EvHandle {
         return false
     }
     fn setSealedObj:void (b:boolean) {
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             props.sealed = b
@@ -1934,7 +1998,7 @@ class EvHandle {
         return false
     }
     fn setFrozenObj:void (b:boolean) {
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             props.frozen = b
@@ -2025,6 +2089,11 @@ class EvHandle {
             return false
         }
         case body o:EvalValue.Object {
+            def bag0:EvPropertyBag o.properties
+            if bag0.isShared {
+                def bagFresh:EvPropertyBag (new EvPropertyBag())
+                o.properties = bagFresh
+            }
             def bag:EvPropertyBag o.properties
             if bag.everHadAttrs {
                 return false
