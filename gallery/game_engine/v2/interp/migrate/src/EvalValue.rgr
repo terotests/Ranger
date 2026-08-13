@@ -382,19 +382,36 @@ shape EvPropertySlot {
 class EvAtomTable @singleton(true) {
     def names:[string]
     def ids:[string:int]
+    ; Atom ids start HIGH, and the reason is memory, not identity.
+    ;
+    ; A property bag keys `slots` by atom id, and on the es6 target that map
+    ; lowers to a plain object. An integer key on a JS object goes into V8's
+    ; ELEMENTS store, and V8 backs that with a DENSE array sized to the index
+    ; -- so an object whose only property hashed to atom 600 allocated ~600
+    ; slots. Measured: a three-property object cost 11,945 bytes, against 209
+    ; once the ids are pushed past the point where V8 gives up on dense
+    ; elements and switches to a dictionary. Ordinary property names land in
+    ; exactly the worst range, so this was the common case, not an edge one.
+    ;
+    ; Nothing indexes an array by an atom id -- they are map keys everywhere --
+    ; so the base is free to be arbitrary. nameOf subtracts it back off.
+    fn atomBase:int () {
+        return 1000000
+    }
     fn idOf:int (name:string) {
         def found@(optional):int (get ids name)
         if found {
             return (unwrap found)
         }
-        def next:int (array_length names)
+        def next:int ((this.atomBase()) + (array_length names))
         push names name
         set ids name next
         return next
     }
     fn nameOf:string (a:int) {
-        if ((a >= 0) && (a < (array_length names))) {
-            return (itemAt names a)
+        def idx:int (a - (this.atomBase()))
+        if ((idx >= 0) && (idx < (array_length names))) {
+            return (itemAt names idx)
         }
         return ""
     }
