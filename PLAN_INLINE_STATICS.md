@@ -1,9 +1,90 @@
-# PLAN: -inline-statics — trivial static forwarder inlining (WIP handoff)
+# PLAN: -inline-statics — trivial static forwarder inlining
 
-Status: **implemented but unverified**. The compiler rebootstraps cleanly with
-the pass compiled in, the flag is strictly opt-in (`-inline-statics`), and no
-build uses it yet. Nothing about default compilation changes until the flag is
-passed. This document is the handoff for the next session.
+Status: **verified correct, but it does not pay on the current benchmarks.**
+Keep it opt-in. The flag is `-inline-statics`; no build passes it. See
+"Verification results" for the numbers and "Why it does not pay yet" for what
+would have to change first.
+
+## Verification results (2026-08-13)
+
+**Correctness — passes everything.**
+
+| Check | Result |
+|---|---|
+| Probe: 11 values, flag on vs off | identical; eligible forwarders gone from output |
+| Default path unchanged | engine es6 module **byte-identical** (1 160 345 B) built by the old compiler vs the new one without the flag |
+| es6 engine built WITH flag (785 expansions) | runtime conformance **1327/1327** |
+| C++ engine built WITH flag | **1297/1303, 0 crashes** — failure set identical to baseline |
+| Rust engine built WITH flag | **1297/1303, 0 crashes** — failure set identical to baseline |
+
+The probe (scratchpad `inl/probe.rgr`) covers the guards specifically: an
+expression argument with a side effect (`Bridge.add2((h2.bump()) y)`) stays a
+call and the side effect happens exactly once; a multi-statement body stays a
+call; a cascade (`add3` calling `add2`) expands both levels; a bare-atom body
+(`return v.kind`) is correctly left alone. Generated es6 confirms
+`Bridge.isUndefined(h)` → `h.isUndef()` and `Bridge.add3(x, y, k)` →
+`(x + y) + k`.
+
+Rust codegen does what the pass was written for — the forwarder's `Rc` clone
+disappears:
+
+```
+before:  if EvValueBridge::isNull(v.clone()) || EvValueBridge::isUndefined(v.clone())
+after:   if v.borrow().isNull() || v.borrow().isUndefined()
+```
+
+Generated Rust: `EvValueBridge::` call sites 1230 → 949; total `.clone()`
+7761 → 7554 (−207).
+
+**Performance — no measurable win.** Interleaved A/B, same compiler binary
+with only the flag differing, best-of-9, fixed-work suite:
+
+```
+              Rust                    C++ (control)
+loop      28 → 28ms   +0.0%       21 → 21ms   +0.0%
+fib       83 → 84ms   +1.2%       73 → 73ms   +0.0%
+strcat    25 → 24ms   −4.0%       17 → 18ms   +5.9%
+array     78 → 77ms   −1.3%       64 → 61ms   −4.7%
+object   175 → 173ms  −1.1%      121 → 114ms  −5.8%
+method   269 → 263ms  −2.2%      200 → 205ms  +2.5%
+regex    527 → 524ms  −0.6%      483 → 453ms  −6.2%
+```
+
+Rust mean ≈ −1%. The C++ column is the control: g++ already inlines these
+through `const rg_ptr<T>&`, so it *cannot* benefit, yet it swings ±6%. That
+is the container's noise floor, and the Rust effect sits well inside it.
+**No perf claim is justified from this data.**
+
+## Why it does not pay yet
+
+Of the 785 expansions in the engine build:
+
+- **568 are `tagged*` constructors** (`taggedUndefined` 218, `taggedNull` 111,
+  `taggedString` 64, …). These take no handle, so there was never a clone to
+  save — expanding them only removes a call the native compiler was already
+  going to inline.
+- **211 are `is*` predicates** taking a handle — these are the ones that drop
+  the `Rc` clone (matching the −207 measured).
+- 6 other.
+
+Those 211 sites live in the **tree-walker** paths. The bytecode VM tier built
+over the previous rounds deliberately bypasses exactly those paths on hot
+code, so a large static-count reduction buys almost no dynamic-count
+reduction on this suite.
+
+Before investing further, **profile where the `is*` / shape-case predicates
+are actually executed** (the callgrind recipe in BYTECODE.md: build a plain
+`-O3` twin, since valgrind cannot decode `-march=native` AVX-512). If they do
+not appear hot, neither this pass nor the shape-case folding below will move
+these benchmarks, and the effort belongs elsewhere.
+
+## Recommendation
+
+Keep the flag, opt-in and off by default. It is proven correct and provably
+inert when unused (byte-identical output), it is the enabling half of the
+shape-case lever below, and it may matter on walker-heavy workloads that the
+fixed-work suite does not represent. Do not enable it in the engine build
+scripts on the strength of the current numbers.
 
 ## Why
 
@@ -64,29 +145,37 @@ ComponentEngine.rgr alone has ~1200 EvValueBridge call sites. Per target:
 `bin/output.js` on this branch is the rebootstrapped compiler containing the
 pass (`npm run compile` was clean).
 
-## Verification state — what the next session must do
+## How to re-run the verification
 
-1. **Probe test is UNFINISHED.** Scratch probe (a Bridge class + forwarders,
-   compiled with and without the flag, outputs diffed) kept failing to
-   compile in the BASELINE (no flag) — the probe's own Ranger syntax for
-   multi-arg static calls in print/def positions was wrong, not the pass.
-   Write the probe as plain def-position statements
-   (`def s:int (Bridge.add2(x y))` style — mirror engine sources), get the
-   baseline green FIRST, then diff flag-on vs flag-off generated es6 and
-   check the call disappeared (grep for `Bridge.add2` / `isUndefined(`).
-2. `npm test` / compiler feature tests (tests/, feature_tests.rgr) without
-   the flag — prove the default path is untouched (the rebuildWithType
-   extension runs on any `nodes`-lane match, so `defn` tests matter).
-3. Engine es6 build WITH `-inline-statics` added to
-   scripts/build-engine-module.sh (temporarily) → `npm run test:runtime`
-   (1327 must hold). Use `-show-inline-statics` once to eyeball expansions.
-4. Native builds with the flag (add to bench/zoo_octane/build-native.sh
-   RANGER invocation) → conformance-native.cjs on both targets
-   (1297/1303, 0 crashes must hold).
-5. Perf: interleaved fixed-work timing, **Rust** binary before/after the flag
-   (scratchpad fixed/ suite; method/richards rows). C++/es6 expected flat.
-6. If green and Rust wins: leave the flag ON in the two engine build scripts
-   and document in RESULTS.md; otherwise keep opt-in and record numbers.
+All of it is reproducible; scratchpad helpers are listed in case they are
+gone (they live in a session temp dir, so assume they are).
+
+1. **Probe** — write a class with eligible and ineligible statics, compile
+   twice, diff outputs. Call syntax must mirror engine sources:
+   `def s:int (Bridge.add2(x y))`, args space-separated inside the parens.
+   Include an expression argument wrapping a side effect to prove it stays a
+   call and fires once.
+2. **Default-path byte identity** — extract the pre-change compiler
+   (`git show <base-branch>:bin/output.js > old-output.js`), place it in
+   `bin/` so its lib resolution works (it needs `Lang.rgr`/`stdops.rgr`
+   beside it *and* `lib/stdlib.rgr` via the install dir — running it from a
+   temp dir fails with "Could not import file stdlib.rgr"), build the engine
+   module with both compilers, `diff`. Must be identical.
+3. **es6 with the flag** → `npm run test:runtime` (1327).
+4. **Natives with the flag** → conformance-native.cjs both targets
+   (1297/1303, 0 crashes).
+5. **Perf** — interleaved A/B, same compiler binary with only the flag
+   differing (NOT old-compiler vs new-compiler, which confounds).
+
+Two traps hit during this verification, both worth knowing:
+
+- `-d=<absolute path>` is resolved **relative to cwd**: passing
+  `-d=/tmp/foo` writes to `/home/user/Ranger/tmp/foo`. Read the "Saving
+  results to path" line rather than assuming.
+- A native binary copied aside as a "baseline" was found to SIGILL when run
+  later, while the C++ one from the same moment was fine. Do not trust a
+  stashed binary — rebuild the baseline from source with the same compiler
+  and the flag removed. That is the better comparison anyway.
 
 ## NEXT LEVER (user directive): fold shape-case type tests
 
@@ -129,16 +218,30 @@ per test, no calls, no Rc clone.
 
 Search for candidates: `grep -n "case self\|case body" gallery/game_engine/v2/interp/migrate/src/EvalValue.rgr EvHandle.rgr`
 (EvalValue.isNumber/isString/isArrayValue/isSet/isMap..., EvHandle wrappers
-around body). These sit under EVERY dynamic type dispatch in the engine —
-this is the highest-frequency code in the interpreter.
+around body).
+
+**Profile first, though.** The measurement above is a caution against
+assuming these are hot: 211 predicate call sites were removed from the
+generated Rust and the benchmarks did not move. The shape-case folding
+targets the *same* predicates one level down, so if they are not hot it will
+not move them either. The cheap discriminator is the callgrind recipe in
+BYTECODE.md (plain `-O3` twin binary — valgrind cannot decode `-march=native`
+AVX-512): look for the `is*` / case-narrowing helpers in the profile. If they
+are not near the top, the honest conclusion is that the VM tier already
+bypasses this code on hot paths and the next lever should come from the
+profile instead — BYTECODE.md's own remaining list names property-name
+interning (atom → pointer-compare keys), shape/slot-offset storage, and the
+refcount churn (~5% of instructions in `shared_count` teardown) that a
+borrowed-handle discipline in the VM loop could cut.
 
 ## Invariants for whoever continues
 
 - The designated perf branch is `claude/ranger-performance-improvements-uy9a2n`
   (conformance round pushed as 4a52458). THIS work is parked on its own
-  branch so it can be verified independently — do not merge until the full
-  battery above is green.
+  branch. It is correctness-clean and safe to merge as an opt-in flag, but it
+  should not be turned on in any build without a profile justifying it.
 - Never trust a build ran from the wrong cwd; build scripts must run from
   the repo root; check artifacts, not exit codes.
 - All perf claims: interleaved fixed-work wall time only (RESULTS.md
-  discipline).
+  discipline). Note the noise floor measured here: ±6% on this container,
+  established from a control that provably cannot benefit.
