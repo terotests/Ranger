@@ -5613,11 +5613,27 @@ static <T> ArrayList<T> r_reverse_copy(ArrayList<T> v) {
         ; Callers must treat the number as an UPPER bound on liveness only:
         ; it counts the caller's own argument copy on some targets, so the
         ; only sound reading is "greater than N means at least N".
+        ; A value of a closed family is a variant/enum, not a pointer, so
+        ; neither use_count() nor Rc::strong_count can be handed one directly.
+        ; Both targets answer through a helper that splits on the family's own
+        ; reference/value line -- C++ structurally, since a template deduces
+        ; through std::variant; Rust through a generated trait, exactly as
+        ; `identical` already does for Rc::ptr_eq.
         ref_count       cmdRefCount:int         ( value:T ) {
             templates {
                 ranger ( "(ref_count " (e 1) ")")
-                 cpp ( "(int)(" (e 1) ".use_count())" )
-                 rust ( "(Rc::strong_count(&" (e 1) ") as i64)" )
+                 cpp ( "rg_ref_count(" (e 1) ")"
+(create_polyfill "
+template<class T> inline int rg_ref_count_one(const rg_ptr<T>& p) { return (int)p.use_count(); }
+template<class T> inline int rg_ref_count_one(const T&) { return 0; }
+template<class... Ts> inline int rg_ref_count(const std::variant<Ts...>& v) {
+    return std::visit([](const auto& x) -> int { return rg_ref_count_one(x); }, v);
+}
+template<class T> inline int rg_ref_count(const rg_ptr<T>& p) { return (int)p.use_count(); }
+template<class T> inline int rg_ref_count(const T&) { return 0; }
+")
+                 )
+                 rust ( (e 1) ".rg_ref_count()" )
                  * ( "0" )
             }
         }

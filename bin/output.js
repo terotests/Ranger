@@ -27247,6 +27247,37 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           header.out("}", true);
                         };
                       }
+                      header.out("pub trait RgRefCount { fn rg_ref_count(&self) -> i64; }", true);
+                      header.out("impl<T> RgRefCount for Rc<RefCell<T>> {", true);
+                      header.out("    fn rg_ref_count(&self) -> i64 { Rc::strong_count(self) as i64 }", true);
+                      header.out("}", true);
+                      if ( (unionNames.length) > 0 ) {
+                        for ( let uni3 = 0; uni3 < unionNames.length; uni3++) {
+                          var uname3 = unionNames[uni3];
+                          const ucl3 = hdrRoot.findClass(uname3);
+                          const ename3 = this.unionInterfaceName(uname3);
+                          let anyValueCase = false;
+                          header.out(("impl RgRefCount for " + ename3) + " {", true);
+                          header.out("    fn rg_ref_count(&self) -> i64 {", true);
+                          header.out("        match self {", true);
+                          for ( let mi3 = 0; mi3 < ucl3.is_union_of.length; mi3++) {
+                            var mname3 = ucl3.is_union_of[mi3];
+                            if ( this.rustClassIsShared(mname3, ctx) ) {
+                              let armR = (("            " + ename3) + "::") + mname3;
+                              armR = armR + "(a) => Rc::strong_count(a) as i64,";
+                              header.out(armR, true);
+                            } else {
+                              anyValueCase = true;
+                            }
+                          };
+                          if ( anyValueCase ) {
+                            header.out("            _ => 0,", true);
+                          }
+                          header.out("        }", true);
+                          header.out("    }", true);
+                          header.out("}", true);
+                        };
+                      }
                       if ( (unionNames.length) > 0 ) {
                         header.out("", true);
                       }

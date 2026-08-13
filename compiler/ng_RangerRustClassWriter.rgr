@@ -4365,6 +4365,45 @@ class RangerRustClassWriter {
           header.out("}" true)
         }
       }
+      ; --- strong-reference count of a value of the family -----------------
+      ; `ref_count` has the same shape of problem `identical` has just above:
+      ; Rc::strong_count cannot be handed an enum, so the operator would not
+      ; build for a value of a closed family. Same answer -- a trait, so one
+      ; spelling serves a shared class and a family alike -- and the same
+      ; split: a reference case has an object to count, a value case rides
+      ; inside the tag and has none, which is what 0 means.
+      header.out("pub trait RgRefCount { fn rg_ref_count(&self) -> i64; }" true)
+      header.out("impl<T> RgRefCount for Rc<RefCell<T>> {" true)
+      header.out("    fn rg_ref_count(&self) -> i64 { Rc::strong_count(self) as i64 }" true)
+      header.out("}" true)
+      if ((array_length unionNames) > 0) {
+        for unionNames uname3:string uni3 {
+          def ucl3:RangerAppClassDesc (hdrRoot.findClass(uname3))
+          def ename3:string (this.unionInterfaceName(uname3))
+          def anyValueCase:boolean false
+          header.out((("impl RgRefCount for " + ename3) + " {") true)
+          header.out("    fn rg_ref_count(&self) -> i64 {" true)
+          header.out("        match self {" true)
+          for ucl3.is_union_of mname3:string mi3 {
+            if (this.rustClassIsShared(mname3 ctx)) {
+              def armR:string ((("            " + ename3) + "::") + mname3)
+              armR = (armR + "(a) => Rc::strong_count(a) as i64,")
+              header.out(armR true)
+            } {
+              anyValueCase = true
+            }
+          }
+          ; Only when a value case is actually left over: a family whose cases
+          ; are all shared has every arm written, and rustc warns on a `_` it
+          ; can never reach.
+          if anyValueCase {
+            header.out("            _ => 0," true)
+          }
+          header.out("        }" true)
+          header.out("    }" true)
+          header.out("}" true)
+        }
+      }
       if ((array_length unionNames) > 0) {
         header.out("" true)
       }
