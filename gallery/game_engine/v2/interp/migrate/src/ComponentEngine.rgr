@@ -2677,7 +2677,9 @@ class ComponentEngine {
         parser.initParser(tokens)
         parser.tsxMode = jsxParsing
         parser.setModuleMode((this.sourceIsModule(src)))
-        return (parser.parseProgram())
+        def prog:TSNode (parser.parseProgram())
+        parser.releaseTokens()
+        return prog
     }
 
     ; D-EVAL: run eval'd source in the current scope and return its completion

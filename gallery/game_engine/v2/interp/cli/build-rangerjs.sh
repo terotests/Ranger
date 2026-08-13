@@ -39,7 +39,7 @@ for T in $TARGETS; do
   # The compiler exits 0 even when compilation fails, so the log has to be
   # checked or the previous run's binary is rebuilt and reported as fresh.
   RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node --stack-size=8000 bin/output.js -l="$T" \
-    "$SRC" -d="$OUT_DIR" -o=rangerjs."$EXT" -nodecli -native-fast-alloc \
+    "$SRC" -d="$OUT_DIR" -o=rangerjs."$EXT" -nodecli ${FAST_ALLOC:--native-fast-alloc} \
     "${CPP_ST_FLAGS[@]}" 2>&1 | tee /tmp/rgr_cli_$$.log
   if grep -q "Compilation FAILED" /tmp/rgr_cli_$$.log; then
     rm -f /tmp/rgr_cli_$$.log

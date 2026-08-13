@@ -2425,6 +2425,11 @@ class TSParserSimple  {
     this.speculating = 0;
     this.tsxMode = false;
   }
+  releaseTokens () {
+    let empty = [];
+    this.tokens = empty;
+    this.pos = 0;
+  };
   initParser (toks) {
     this.tokens = toks;
     this.pos = 0;
