@@ -463,6 +463,13 @@ class EvShape {
     def slotIx:[int:int]
     ; atom -> the shape with that key appended. The transition tree.
     def next:[int:EvShape]
+    ; The shape this one was reached from, and the widest shape reachable
+    ; through it. Objects of a given layout are built over and over, so once
+    ; ONE of them has been built the rest can size their value array in one
+    ; go instead of letting it double -- a 72-property object otherwise lands
+    ; in a block sized for 128.
+    def parent@(optional):EvShape
+    def deepest:int 0
 
     sfn rootShape:EvShape () {
         def r:EvShapeRoot (EvShapeRoot.__singleton())
@@ -500,7 +507,23 @@ class EvShape {
         set ni ka i
         sh.atoms = na
         sh.slotIx = ni
+        sh.parent = this
         set next ka sh
+        ; Record the new depth back up the chain, so an object starting from
+        ; the root already knows how wide its kind gets.
+        def w:int (array_length na)
+        def up:EvShape sh
+        def climbing:boolean true
+        while climbing {
+            if (up.deepest < w) {
+                up.deepest = w
+            }
+            if up.parent {
+                up = (unwrap up.parent)
+            } {
+                climbing = false
+            }
+        }
         return sh
     }
 }
@@ -701,6 +724,12 @@ class EvPropertyBag {
             return
         }
         shape = (shape.transition(ka))
+        if ((array_length slotValues) == 0) {
+            def want:int shape.deepest
+            if (want > 2) {
+                array_reserve slotValues want
+            }
+        }
         push slotValues v
     }
     ; Leave shape mode, keeping order and values. Deleting a key does this

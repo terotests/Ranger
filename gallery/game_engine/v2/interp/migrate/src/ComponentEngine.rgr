@@ -3045,7 +3045,7 @@ class ComponentEngine {
         ; the global object, which answered undefined.
         def topLex:boolean (this.blockDeclaresLexical(ast))
         if topLex {
-            this.hoistLexicalTdz(ast.lexNames)
+            this.hoistLexicalTdz((ast.lexNamesOf()))
         }
         def i:int 0
         while (i < (array_length ast.children)) {
@@ -4824,12 +4824,15 @@ class ComponentEngine {
                 this.hoistCollectIn((itemAt body.children i) 0 found)
                 i = (i + 1)
             }
-            body.hoistedVarNames = found
+            body.setHoistedVarNames(found)
         }
-        def n:int (array_length body.hoistedVarNames)
+        ; Bound once: the accessor answers a copy, so reading it per iteration
+        ; would turn the loop quadratic.
+        def hoisted:[string] (body.hoistedVarNamesOf())
+        def n:int (array_length hoisted)
         def k:int 0
         while (k < n) {
-            def nm:string (itemAt body.hoistedVarNames k)
+            def nm:string (itemAt hoisted k)
             if (false == (context.hasOwnBinding(nm))) {
                 context.define(nm (EvValueBridge.taggedUndefined()))
             }
@@ -4846,12 +4849,13 @@ class ComponentEngine {
         if (false == context.isGlobalScope) {
             if (false == body.slotScanned) {
                 body.slotScanned = true
-                body.slotVarNames = (this.slotSafeVarNames(body))
+                body.setSlotVarNames((this.slotSafeVarNames(body)))
             }
-            def sc:int (array_length body.slotVarNames)
+            def slotNamesL:[string] (body.slotVarNamesOf())
+            def sc:int (array_length slotNamesL)
             def si:int 0
             while (si < sc) {
-                set context.slotNames (itemAt body.slotVarNames si) true
+                set context.slotNames (itemAt slotNamesL si) true
                 si = (si + 1)
             }
         }
@@ -7155,7 +7159,7 @@ class ComponentEngine {
         }
         blk.lexScanned = true
         blk.lexDeclares = found
-        blk.lexNames = names
+        blk.setLexNames(names)
         return found
     }
 
@@ -7175,7 +7179,7 @@ class ComponentEngine {
                 def blockCtx:EvalContext (context.createChild())
                 blockCtx.isBlockScope = true
                 context = blockCtx
-                this.hoistLexicalTdz(blk.lexNames)
+                this.hoistLexicalTdz((blk.lexNamesOf()))
                 this.runStatementList(blk.children)
                 context = savedCtx
             } {
@@ -10699,15 +10703,16 @@ class ComponentEngine {
         ; which slots the escape scan proves unshared (in-place append license)
         if (false == body.slotScanned) {
             body.slotScanned = true
-            body.slotVarNames = (this.slotSafeVarNames(body))
+            body.setSlotVarNames((this.slotSafeVarNames(body)))
         }
+        def slotNamesO:[string] (body.slotVarNamesOf())
         def oi:int 0
         while (oi < prog.localCount) {
             def oName:string (itemAt prog.localNames oi)
             def owned:boolean false
             def oj:int 0
-            while (oj < (array_length body.slotVarNames)) {
-                if ((itemAt body.slotVarNames oj) == oName) {
+            while (oj < (array_length slotNamesO)) {
+                if ((itemAt slotNamesO oj) == oName) {
                     owned = true
                 }
                 oj = (oj + 1)
@@ -12006,7 +12011,7 @@ class ComponentEngine {
                 if oprop.computed {
                     return false
                 }
-                if ((strlen oprop.accessor) > 0) {
+                if ((strlen (oprop.accessorOf())) > 0) {
                     return false
                 }
                 if ((strlen oprop.name) == 0) {
@@ -41158,7 +41163,7 @@ class ComponentEngine {
                 ; member read returned the accessor FUNCTION instead of calling
                 ; it, which type-checks as a function and silently misbehaves.
                 if (m.nodeType == "MethodDefinition") {
-                    def mk:string m.accessor
+                    def mk:string (m.accessorOf())
                     if ((strlen mk) == 0) {
                         mk = m.kind
                     }
@@ -41375,7 +41380,7 @@ class ComponentEngine {
             if (m.nodeType == "MethodDefinition") {
                 ; `accessor` names get/set when the parser records it there;
                 ; otherwise `kind` carries it, and `kind` also carries "static".
-                def acc:string m.accessor
+                def acc:string (m.accessorOf())
                 if ((strlen acc) == 0) {
                     if ((m.kind == "get") || (m.kind == "set")) {
                         acc = m.kind
@@ -44616,8 +44621,8 @@ class ComponentEngine {
                 ; (get/set/init); `accessor` carries the same idea for a CLASS
                 ; member. Accept either so both forms are handled.
                 def akind:string prop.kind
-                if ((strlen prop.accessor) > 0) {
-                    akind = prop.accessor
+                if ((strlen (prop.accessorOf())) > 0) {
+                    akind = (prop.accessorOf())
                 }
                 if ((akind == "get") || (akind == "set")) {
                     if prop.left {
