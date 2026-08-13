@@ -4037,6 +4037,176 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
         }
 
 
+        ; Is every byte of this string below 128? A UTF-8 aware accessor can
+        ; skip decoding entirely when it is -- code-unit index equals byte
+        ; index -- which turns an O(n) walk per character into an O(1) index.
+        ; Nearly every string a program touches is ASCII, so this is the
+        ; difference between a linear scan of a string and a quadratic one.
+        ;
+        ; The scan itself is O(n), so it is cached by string identity the same
+        ; way r_utf8_char_at caches its resume point: a caller looping over one
+        ; string pays the scan once. The cache is a small direct-mapped table
+        ; rather than a single slot, so alternating between a few strings --
+        ; a comparison, a haystack and a needle -- does not thrash it.
+        ; The UTF-16 code unit at index `u` of a UTF-8 string, and the byte
+        ; offset where that unit begins. -1 past the end, -2 when the target
+        ; cannot answer (the caller then keeps its own slower path).
+        ;
+        ; JavaScript indexes a string by UTF-16 code unit; this target stores
+        ; UTF-8 bytes. Walking from byte 0 on every index makes `charAt(i)` in
+        ; a loop quadratic -- and it is not enough to special-case ASCII,
+        ; because ONE em dash in a 100 KB file disqualifies the whole string.
+        ; So the walk is resumed rather than restarted, keyed on string
+        ; identity, exactly as r_utf8_char_at does for the code-point view.
+        utf16_unit_at   cmdUtf16UnitAt:int      ( text:string unit:int ) {
+            templates {
+                ranger ( "(utf16_unit_at " (e 1) " " (e 2) ")")
+                cpp ( "r_utf16_unit_at(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+// Resume point for a forward UTF-16-unit walk over a UTF-8 string. Small
+// direct-mapped table so a few interleaved strings do not thrash one slot.
+struct RgU16Ent { const char* data; size_t len; int unit; int byte; };
+static thread_local RgU16Ent rg_u16_cache[8] = {};
+// Decode the code point starting at byte i; width in *w.
+static inline int rg_u16_cp(const std::string& s, int i, int* w)
+{
+    unsigned char b0 = (unsigned char) s[i];
+    if (b0 < 128)  { *w = 1; return b0; }
+    int n = (int) s.length();
+    if (b0 < 224)  { *w = 2; return ((b0 & 31) << 6) | (i+1 < n ? (s[i+1] & 63) : 0); }
+    if (b0 < 240)  { *w = 3; return ((b0 & 15) << 12) | ((i+1 < n ? (s[i+1] & 63) : 0) << 6) | (i+2 < n ? (s[i+2] & 63) : 0); }
+    *w = 4;
+    return ((b0 & 7) << 18) | ((i+1 < n ? (s[i+1] & 63) : 0) << 12) | ((i+2 < n ? (s[i+2] & 63) : 0) << 6) | (i+3 < n ? (s[i+3] & 63) : 0);
+}
+// Walk to UTF-16 unit `unit`; returns byte offset, sets *half to 1 when the
+// unit is the LOW surrogate of a pair starting there. -1 past the end.
+static int rg_u16_seek(const std::string& s, int unit, int* half)
+{
+    if (unit < 0) return -1;
+    int n = (int) s.length();
+    const char* d = s.data();
+    size_t slot = ((size_t) d / 16 + (size_t) n) & 7;
+    RgU16Ent& e = rg_u16_cache[slot];
+    int i = 0, q = 0;
+    if (e.data == d && e.len == (size_t) n && unit >= e.unit) { i = e.byte; q = e.unit; }
+    *half = 0;
+    while (i < n) {
+        int w = 0;
+        int cp = rg_u16_cp(s, i, &w);
+        if (w <= 0) return -1;
+        int units = (cp >= 65536) ? 2 : 1;
+        if (unit < q + units) {
+            *half = unit - q;
+            e.data = d; e.len = (size_t) n; e.unit = q; e.byte = i;
+            return i;
+        }
+        q += units;
+        i += w;
+    }
+    return -1;
+}
+int r_utf16_unit_at(const std::string& s, int unit)
+{
+    int half = 0;
+    int i = rg_u16_seek(s, unit, &half);
+    if (i < 0) return -1;
+    int w = 0;
+    int cp = rg_u16_cp(s, i, &w);
+    if (cp < 65536) return cp;
+    int adj = cp - 65536;
+    return half ? (56320 + (adj & 1023)) : (55296 + (adj >> 10));
+}
+int r_utf16_byte_of(const std::string& s, int unit)
+{
+    int half = 0;
+    int i = rg_u16_seek(s, unit, &half);
+    if (i < 0) return -1;
+    return i;
+}
+")
+                )
+                * ( "(0 - 2)" )
+            }
+        }
+
+        ; The substring between UTF-16 units [a, b), through the same resumed
+        ; walk. A separate op rather than byte offsets handed to `substring`,
+        ; because `substring` counts CODE POINTS on this target -- mixing the
+        ; two index models silently returns the wrong characters.
+        utf16_slice     cmdUtf16Slice:string    ( text:string a:int b:int ) {
+            templates {
+                ranger ( "(utf16_slice " (e 1) " " (e 2) " " (e 3) ")")
+                cpp ( "r_utf16_slice(" (e 1) ", " (e 2) ", " (e 3) ")"
+(create_polyfill "
+std::string r_utf16_slice(const std::string& s, int a, int b)
+{
+    if (a < 0) a = 0;
+    if (b < a) b = a;
+    int halfA = 0, halfB = 0;
+    int lo = rg_u16_seek(s, a, &halfA);
+    if (lo < 0) return std::string();
+    // A cut inside a surrogate pair has no representation in UTF-8: half a
+    // pair is not a character. The partial character is dropped rather than
+    // faked, which is what the code-point path already does. Starting ON the
+    // low half means the pair began BEFORE the slice, so step past it --
+    // otherwise the whole character would be included from its second unit.
+    if (halfA) { int w = 0; rg_u16_cp(s, lo, &w); lo += w; }
+    int hi = rg_u16_seek(s, b, &halfB);
+    if (hi < 0) hi = (int) s.length();
+    if (hi < lo) hi = lo;
+    return s.substr((size_t) lo, (size_t)(hi - lo));
+}
+")
+                )
+                * ( "\"\"" )
+            }
+        }
+
+        ; Byte offset where UTF-16 unit `unit` begins. Same walk and same cache
+        ; as utf16_unit_at; -1 past the end, -2 when unsupported.
+        utf16_byte_of   cmdUtf16ByteOf:int      ( text:string unit:int ) {
+            templates {
+                ranger ( "(utf16_byte_of " (e 1) " " (e 2) ")")
+                cpp ( "r_utf16_byte_of(" (e 1) ", " (e 2) ")" )
+                * ( "(0 - 2)" )
+            }
+        }
+
+        str_is_ascii    cmdStrIsAscii:boolean   ( text:string ) {
+            templates {
+                ranger ( "(str_is_ascii " (e 1) ")")
+                cpp ( "r_str_is_ascii(" (e 1) ")"
+(create_polyfill "
+bool r_str_is_ascii(const std::string& s)
+{
+    struct Ent { const char* data; size_t len; bool val; };
+    static thread_local Ent cache[8] = {};
+    const char* d = s.data();
+    size_t n = s.length();
+    size_t slot = ((size_t) d / 16 + n) & 7;
+    Ent& e = cache[slot];
+    if (e.data == d && e.len == n) return e.val;
+    bool a = true;
+    for (size_t i = 0; i < n; i++) {
+        if ((unsigned char) s[i] > 127) { a = false; break; }
+    }
+    e.data = d; e.len = n; e.val = a;
+    return a;
+}
+")
+                )
+                rust ( (e 1) ".is_ascii()" )
+                es6 ( "(!/[^\\x00-\\x7F]/.test(" (e 1) "))" )
+                python ( (e 1) ".isascii()" )
+                java7 ( (e 1) ".chars().allMatch(c -> c < 128)" )
+                csharp ( "System.Linq.Enumerable.All(" (e 1) ", c => c < 128)" )
+                go ( "r_go_is_ascii(" (e 1) ")"
+(macro ("func r_go_is_ascii(s string) bool { for i := 0; i < len(s); i++ { if s[i] > 127 { return false } }; return true }"))
+                )
+                * ( "true" )
+            }
+        }
+
         at      _:string       ( text:string position:int ) { 
             templates {
                 ranger ( '(at ' (e 1) ' ' ( e 2 ) ')')
@@ -4072,10 +4242,29 @@ std::string r_utf8_char_at(const std::string& str, int pos_i)
     static thread_local size_t c_len = 0;
     static thread_local unsigned int c_pos = 0, c_byte = 0;
     unsigned int i, q;
-    if (c_data == str.data() && c_len == str.length() && pos >= c_pos) {
-        i = c_byte; q = c_pos;              // resume the forward walk
-    } else {
-        i = 0; q = 0;                        // cold, or a backward seek
+    i = 0; q = 0;                            // cold by default
+    if (c_data == str.data() && c_len == str.length()) {
+        if (pos >= c_pos) {
+            i = c_byte; q = c_pos;           // resume the forward walk
+        } else if (c_pos - pos <= 64) {
+            // A SHORT backward seek is the lexer looking ahead and coming
+            // back: peek() reads at pos, peekAt(1) moves the anchor to pos+1
+            // for a two-character operator, and the next read at pos used to
+            // restart from byte 0. That made every lookahead O(n) and the
+            // whole scan O(n^2) again, which is the cost this cache exists to
+            // remove. UTF-8 is self-synchronizing, so stepping back a few code
+            // points is O(1): a continuation byte is 10xxxxxx, so walk left
+            // past those to land on the previous lead byte.
+            unsigned int b = c_byte, back = c_pos - pos;
+            bool ok = true;
+            while (back > 0) {
+                if (b == 0) { ok = false; break; }
+                b--;
+                while (b > 0 && ((unsigned char) str[b] & 0xC0) == 0x80) b--;
+                back--;
+            }
+            if (ok) { i = b; q = pos; }
+        }
     }
     for (; i < ix; i++, q++)
     {

@@ -32444,6 +32444,9 @@ class ComponentEngine {
     ; Whether every unit of `s` is below 128, which is the test for "the three
     ; string models agree about this string".
     fn asciiOnly:boolean (s:string) {
+        if (str_is_ascii s) {
+            return true
+        }
         def n:int (strlen s)
         def i:int 0
         while (i < n) {
@@ -39338,6 +39341,9 @@ class ComponentEngine {
     ; Code units in `s`.
     fn cuLen:int (s:string) {
         def n:int (strlen s)
+        if (str_is_ascii s) {
+            return n
+        }
         if (this.unitsArePoints()) {
             def p:int 0
             def cnt:int 0
@@ -39382,6 +39388,15 @@ class ComponentEngine {
     fn cuUnitAt:int (s:string u:int) {
         def n:int (strlen s)
         if (u < 0) { return (0 - 1) }
+        ; ASCII: a code unit IS a byte, so the index needs no decoding. Without
+        ; this the byte-model walk below restarts at 0 and decodes forward to
+        ; u, allocating per code point, so a guest loop over a string is
+        ; quadratic -- which is most of what a compiler written in JavaScript
+        ; does with its source.
+        if (str_is_ascii s) {
+            if (u >= n) { return (0 - 1) }
+            return (charAt s u)
+        }
         if (this.unitsArePoints()) {
             def p:int 0
             def units:int 0
@@ -39403,6 +39418,14 @@ class ComponentEngine {
         if (false == (this.unitsAreBytes())) {
             if (u >= n) { return (0 - 1) }
             return (bit_and (charAt s u) 65535)
+        }
+        ; A resumed walk when the target can do one. The loop below restarts at
+        ; byte 0 every call, which is what made indexing a non-ASCII string
+        ; quadratic; -2 means this target has no resumable walk, so it keeps
+        ; the loop.
+        def fast:int (utf16_unit_at s u)
+        if (fast >= (0 - 1)) {
+            return fast
         }
         def i:int 0
         def units:int 0
@@ -39440,6 +39463,14 @@ class ComponentEngine {
         if (lo < 0) { lo = 0 }
         if (hi < lo) { hi = lo }
         def n:int (strlen s)
+        ; Same as cuUnitAt: on ASCII the unit range and the byte range are the
+        ; same range, so the slice is a plain substring.
+        if (str_is_ascii s) {
+            if (lo >= n) { return "" }
+            def hiA:int hi
+            if (hiA > n) { hiA = n }
+            return (substring s lo hiA)
+        }
         if (this.unitsArePoints()) {
             ; A cut that lands inside a surrogate pair has no representation
             ; here: this target's string type holds CHARACTERS, and half a
@@ -39466,6 +39497,13 @@ class ComponentEngine {
             def hi2:int hi
             if (hi2 > n) { hi2 = n }
             return (substring s lo hi2)
+        }
+        ; One resumed walk for both ends instead of decoding the whole string
+        ; to find them. The probe answers -2 where the target has no such walk,
+        ; and the loop below stays in charge there.
+        def probe:int (utf16_byte_of s lo)
+        if (probe >= (0 - 1)) {
+            return (utf16_slice s lo hi)
         }
         def out:string ""
         def i:int 0
