@@ -420,12 +420,19 @@ class EvAtomTable @singleton(true) {
 class EvPropertyBag {
     ; keyed by EvAtomTable id, not by name -- see EvAtomTable
     def slots:[int:EvPropertySlot]
-    ; The names, in insertion order. JavaScript enumerates string keys in the
+    ; The keys, in insertion order. JavaScript enumerates string keys in the
     ; order they were added, and the ids in `slots` are global (minted the
     ; first time ANY bag saw the name), so the id order is not this bag's
-    ; order. Keeping the names here is also what lets dataKeys answer without
-    ; mapping every id back through the atom table.
-    def slotNames:[string]
+    ; order.
+    ;
+    ; ATOM IDS, not names. This used to hold the names, which put a whole
+    ; std::string on every property of every object -- ~48 bytes each against
+    ; 4 for an id, duplicated across every bag that ever saw the same key,
+    ; while the atom table already holds exactly one copy of each name. On a
+    ; compiler workload with hundreds of thousands of live objects that was
+    ; hundreds of megabytes of duplicated key text. dataKeys maps the ids back
+    ; through the atom table, which is a vector index.
+    def slotAtoms:[int]
     ; Number of keys in `slots`, maintained by every writer below. O(1)
     ; emptiness for the call-site inline cache (a generic map_length had no
     ; working lowering on every target).
@@ -450,11 +457,11 @@ class EvPropertyBag {
     ; the fast write path can store without the attrs probes.
     def everHadAttrs:boolean false
 
-    ; Record a name the first time this bag gets a slot for it. Every write
-    ; below funnels through here, so `slotNames` and `slots` cannot drift.
+    ; Record a key the first time this bag gets a slot for it. Every write
+    ; below funnels through here, so `slotAtoms` and `slots` cannot drift.
     fn noteKey:void (ka:int key:string) {
         if (false == (has slots ka)) {
-            push slotNames key
+            push slotAtoms ka
         }
     }
     ; E4c: property-bag SoT. Value payload is EvalValue (avoids EvHandle import cycle).
@@ -535,22 +542,22 @@ class EvPropertyBag {
             return
         }
         def rebuilt:[int:EvPropertySlot]
-        def rebuiltNames:[string]
-        def atoms:EvAtomTable (EvAtomTable.__singleton())
-        for slotNames nm:string idx {
-            def nka:int (atoms.idOf(nm))
+        def rebuiltAtoms:[int]
+        for slotAtoms nka:int idx {
             if (nka != ka) {
                 set rebuilt nka (unwrap (get slots nka))
-                push rebuiltNames nm
+                push rebuiltAtoms nka
             }
         }
         slots = rebuilt
-        slotNames = rebuiltNames
+        slotAtoms = rebuiltAtoms
         slotCount = (slotCount - 1)
     }
     fn dataKeys:[string] () {
         def out:[string]
-        for slotNames nm:string idx {
+        def atoms:EvAtomTable (EvAtomTable.__singleton())
+        for slotAtoms ka:int idx {
+            def nm:string (atoms.nameOf(ka))
             if (this.hasData(nm)) {
                 push out nm
             }
@@ -761,7 +768,9 @@ class EvPropertyBag {
     }
     fn getterKeys:[string] () {
         def out:[string]
-        for slotNames nm:string idx {
+        def atoms:EvAtomTable (EvAtomTable.__singleton())
+        for slotAtoms ka:int idx {
+            def nm:string (atoms.nameOf(ka))
             if (this.hasGetter(nm)) {
                 push out nm
             }
@@ -770,7 +779,9 @@ class EvPropertyBag {
     }
     fn setterKeys:[string] () {
         def out:[string]
-        for slotNames nm:string idx {
+        def atoms:EvAtomTable (EvAtomTable.__singleton())
+        for slotAtoms ka:int idx {
+            def nm:string (atoms.nameOf(ka))
             if (this.hasSetter(nm)) {
                 push out nm
             }
@@ -882,6 +893,22 @@ class EvGcHeap @singleton(true) {
     def threshold:int 4096
     def collections:int 0
     def reclaimed:int 0
+    ; Diagnostics for the last pass. `roots` is the count that still had a
+    ; holder after every internal edge was cancelled -- something outside the
+    ; registry points at them. A live set that is mostly ROOTS rather than
+    ; objects reached FROM roots means the retention is external (a scope, an
+    ; engine field), not a data structure the guest is holding.
+    def lastRoots:int 0
+    def lastMarked:int 0
+    def lastObjects:int 0
+    def lastArrays:int 0
+    def lastFunctions:int 0
+    def lastMapsSets:int 0
+    ; Contents of the live set, not just its object count: how many property
+    ; slots and how many array elements are being held. A large object count
+    ; with few slots each is a different problem from a small one with many.
+    def lastSlots:int 0
+    def lastItems:int 0
 
     ; Scratch, reused across passes so a collection does not itself churn.
     def shadow:[int]
@@ -963,18 +990,16 @@ class EvGcHeap @singleton(true) {
 
     ; Every owning reference held by this bag, each named exactly once.
     fn bagChildren:void (bag:EvPropertyBag out:[EvalValue]) {
-        ; slotNames is this bag's insertion order and slots is keyed by atom
+        ; slotAtoms is this bag's insertion order and slots is keyed by atom
         ; id; noteKey keeps them in step. If they have drifted, enumerate
-        ; nothing rather than risk naming one slot twice -- a name listed
+        ; nothing rather than risk naming one slot twice -- a key listed
         ; twice would subtract two counts for one reference and could free a
         ; value something live still holds. Reporting no edges only costs a
         ; missed collection.
-        if (bag.slotCount != (array_length bag.slotNames)) {
+        if (bag.slotCount != (array_length bag.slotAtoms)) {
             return
         }
-        def atoms:EvAtomTable (EvAtomTable.__singleton())
-        for bag.slotNames nm:string idx {
-            def ka:int (atoms.idOf(nm))
+        for bag.slotAtoms ka:int idx {
             if (has bag.slots ka) {
                 def slot:EvPropertySlot (unwrap (get bag.slots ka))
                 case slot d:EvPropertySlot.Data {
@@ -1077,9 +1102,9 @@ class EvGcHeap @singleton(true) {
 
     fn breakBag:void (bag:EvPropertyBag) {
         def fresh:[int:EvPropertySlot]
-        def freshNames:[string]
+        def freshAtoms:[int]
         bag.slots = fresh
-        bag.slotNames = freshNames
+        bag.slotAtoms = freshAtoms
         bag.slotCount = 0
         bag.prototype = (EvalValue.hole())
     }
@@ -1130,6 +1155,7 @@ class EvGcHeap @singleton(true) {
             }
             i = (i + 1)
         }
+        lastRoots = (array_length work)
         def head:int 0
         while (head < (array_length work)) {
             def wi:int (itemAt work head)
@@ -1162,10 +1188,31 @@ class EvGcHeap @singleton(true) {
             i = (i + 1)
         }
         def kept:[EvalValue]
+        lastMarked = 0
+        lastObjects = 0
+        lastArrays = 0
+        lastFunctions = 0
+        lastMapsSets = 0
         i = 0
         while (i < n) {
             if (itemAt liveMark i) {
-                push kept (itemAt objects i)
+                def kv:EvalValue (itemAt objects i)
+                lastMarked = (lastMarked + 1)
+                case kv ko:EvalValue.Object {
+                    lastObjects = (lastObjects + 1)
+                    def ob:EvPropertyBag ko.properties
+                    lastSlots = (lastSlots + ob.slotCount)
+                }
+                case kv ka:EvalValue.Array {
+                    lastArrays = (lastArrays + 1)
+                    def ab:EvPropertyBag ka.properties
+                    lastSlots = (lastSlots + ab.slotCount)
+                    lastItems = (lastItems + (array_length ka.items))
+                }
+                case kv kf:EvalValue.Function { lastFunctions = (lastFunctions + 1) }
+                case kv km:EvalValue.Map { lastMapsSets = (lastMapsSets + 1) }
+                case kv ks:EvalValue.Set { lastMapsSets = (lastMapsSets + 1) }
+                push kept kv
             }
             i = (i + 1)
         }
