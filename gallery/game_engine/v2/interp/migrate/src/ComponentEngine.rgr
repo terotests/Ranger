@@ -1596,6 +1596,9 @@ class ComponentEngine {
 
     ; When true, suppress verbose evaluation trace (game scripts, tests).
     def quiet:boolean false
+    ; Prefix written before every console.* line. Defaults to the marker the
+    ; embedded hosts expect; a host that owns stdout outright sets it to "".
+    def consolePrefix:string "[tsx]"
 
     ; Safety cap on while/for/do iterations, so a runaway guest script cannot
     ; hang the host. Two things about it matter.
@@ -19373,9 +19376,13 @@ class ComponentEngine {
                 }
                 if (arrStaticName == "console") {
                     if ((methodName == "log") || (methodName == "warn") || (methodName == "error") || (methodName == "info") || (methodName == "debug")) {
-                        ; Host stdout is shared with the engine; prefix with [tsx]
-                        ; so script logging is distinguishable (see engine.d.ts).
-                        def line:string "[tsx]"
+                        ; Host stdout is shared with the engine, so script
+                        ; logging is prefixed to stay distinguishable (see
+                        ; engine.d.ts). A host that owns the whole stream --
+                        ; the rangerjs CLI, which is compared byte for byte
+                        ; against other engines -- clears consolePrefix.
+                        def line:string consolePrefix
+                        def wroteAny:boolean false
                         def ci:int 0
                         while (ci < (array_length node.children)) {
                             def logV:EvHandle (this.evaluateExpr((itemAt node.children ci)))
@@ -19388,8 +19395,17 @@ class ComponentEngine {
                             if scriptThrew {
                                 return (EvValueBridge.taggedUndefined())
                             }
-                            line = (line + " ")
+                            ; No leading separator when there is no prefix
+                            ; and nothing has been written yet.
+                            if ((strlen line) > 0) {
+                                line = (line + " ")
+                            } {
+                                if wroteAny {
+                                    line = (line + " ")
+                                }
+                            }
                             line = (line + (logV.toString()))
+                            wroteAny = true
                             ci = (ci + 1)
                         }
                         print line
@@ -34311,6 +34327,13 @@ class ComponentEngine {
     ; a missing onFulfilled forwards the value, a missing onRejected forwards
     ; the rejection -- which is what makes `.then(f)` on a rejected promise
     ; reject rather than swallow.
+    ; Whether any reaction is still queued. A host driving the loop needs to
+    ; know when to stop: drainJobs empties the queue, but a job may enqueue
+    ; more, and its own guard can cut a long chain short.
+    fn hasPendingJobs:boolean () {
+        return (jobHead < (array_length jobHandler))
+    }
+
     fn drainJobs:void () {
         def guard:int 0
         while ((jobHead < (array_length jobHandler)) && (guard < 100000)) {
