@@ -1664,13 +1664,15 @@ class ComponentEngine {
     ; copying whole scripts around (see currentSrcId).
     fn setCurrentSource:void (src:string) {
         currentSource = src
-        currentSrcId = nextSrcId
-        nextSrcId = (nextSrcId + 1)
+        def reg:EvSourceRegistry (EvSourceRegistry.__singleton())
+        currentSrcId = (reg.add(src))
     }
 
     ; Stamp a captured function value with the text in effect and its id.
     fn stampSrcOn:void (fv:EvHandle) {
-        fv.setSrcText(currentSource)
+        ; The ID only. setSrcText would register the text a second time, which
+        ; is the copy this exists to avoid -- 723 of them, 1797 MB, on one
+        ; 2.6 MB bundle.
         fv.setSrcId(currentSrcId)
     }
     

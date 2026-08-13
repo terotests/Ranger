@@ -917,7 +917,8 @@ class EvFunctionCore {
     def functionName:string ""
     def closureId:int (0 - 1)
     def homeModule:string ""
-    def srcText:string ""
+    ; The text itself lives in EvSourceRegistry, addressed by srcId below.
+    ; Holding it here put a copy of the whole script on every function.
     ; Identity of srcText among the engine's source registers: two equal ids
     ; mean the same TEXT, so a call whose callee shares the caller's source
     ; skips the save/set/restore string copies entirely. 0 = unstamped.
@@ -928,6 +929,50 @@ class EvFunctionCore {
     def strictFn:boolean false
     ; AST node for script-defined functions (absent for builtins / stubs).
     def functionNode@(optional):TSNode
+}
+
+; =============================================================================
+; EvSourceRegistry — one copy of each script's text, addressed by id
+; =============================================================================
+; Function.prototype.toString returns a function's own source, so every
+; function value has to be able to reach the text it was captured from. It
+; used to reach it by HOLDING it: stampSrcOn copied the whole script onto each
+; captured function. Measured on a 2.6 MB bundle: 723 live copies, 1797 MB --
+; 72% of the process, for one string.
+;
+; The id that makes this unnecessary was already there. setCurrentSource mints
+; one per registered text and its comment says the point is to "compare ints
+; instead of copying whole scripts around"; only the storage never followed.
+; Now the text lives here once and a function carries the id.
+;
+; Id 0 is reserved for "no source" so hasSrcText stays a comparison.
+class EvSourceRegistry @singleton(true) {
+    def texts:[string]
+    fn add:int (s:string) {
+        if ((array_length texts) == 0) {
+            push texts ""
+        }
+        push texts s
+        return ((array_length texts) - 1)
+    }
+    fn textOf:string (id:int) {
+        if (id <= 0) {
+            return ""
+        }
+        if (id >= (array_length texts)) {
+            return ""
+        }
+        return (itemAt texts id)
+    }
+    fn lengthOf:int (id:int) {
+        if (id <= 0) {
+            return 0
+        }
+        if (id >= (array_length texts)) {
+            return 0
+        }
+        return (strlen (itemAt texts id))
+    }
 }
 
 class EvFunctionBinding {
@@ -1013,6 +1058,8 @@ class EvGcHeap @singleton(true) {
     ; Contents of the live set, not just its object count: how many property
     ; slots and how many array elements are being held. A large object count
     ; with few slots each is a different problem from a small one with many.
+    def lastStrings:int 0
+    def lastStringBytes:int 0
     def lastSlots:int 0
     def lastItems:int 0
 
@@ -1308,6 +1355,14 @@ class EvGcHeap @singleton(true) {
         lastArrays = 0
         lastFunctions = 0
         lastMapsSets = 0
+        ; Reset with the rest of them. These four were left out, so they
+        ; summed across every pass instead of describing the last one -- the
+        ; "8.7 million slots" that first pointed at the property bag was that
+        ; sum over ten collections, not a live figure.
+        lastSlots = 0
+        lastItems = 0
+        lastStrings = 0
+        lastStringBytes = 0
         i = 0
         while (i < n) {
             if (itemAt liveMark i) {
@@ -1324,6 +1379,23 @@ class EvGcHeap @singleton(true) {
                     lastSlots = (lastSlots + ab.slotCount)
                     lastItems = (lastItems + (array_length ka.items))
                 }
+                ; String payload the live graph holds. Strings are not in the
+                ; registry -- they cannot form a cycle, so the collector has no
+                ; business pinning them -- which also means they are invisible
+                ; in every count above. Walking one level of children is enough
+                ; to size them; a value referenced by two objects counts twice,
+                ; and that duplication is itself the thing worth seeing.
+                clear kids
+                this.childrenOf(kv kids)
+                def ci3:int 0
+                while (ci3 < (array_length kids)) {
+                    def cv:EvalValue (itemAt kids ci3)
+                    case cv cs:EvalValue.String {
+                        lastStrings = (lastStrings + 1)
+                        lastStringBytes = (lastStringBytes + (strlen cs.value))
+                    }
+                    ci3 = (ci3 + 1)
+                }
                 case kv kf:EvalValue.Function { lastFunctions = (lastFunctions + 1) }
                 case kv km:EvalValue.Map { lastMapsSets = (lastMapsSets + 1) }
                 case kv ks:EvalValue.Set { lastMapsSets = (lastMapsSets + 1) }
@@ -1336,16 +1408,26 @@ class EvGcHeap @singleton(true) {
         ; Grow the trigger with the surviving set, so a program with a large
         ; live heap does not collect on every allocation once it gets there.
         def survivors:int (array_length objects)
-        threshold = (survivors * 2)
-        if (threshold < 4096) {
-            threshold = 4096
-        }
+        ; ADDITIVE, not multiplicative. `survivors * 2` sounded like the usual
+        ; amortisation rule, but it makes the tolerated garbage proportional to
+        ; the live set: at 600,000 survivors the collector waited for 600,000
+        ; more objects before looking again, so a big live heap bought a
+        ; correspondingly big pile of garbage on top of it. A fixed headroom
+        ; keeps the overshoot bounded no matter how large the program gets,
+        ; and the pass is still O(live) so the amortised cost per allocation
+        ; stays constant.
+        threshold = (survivors + 32768)
         collections = (collections + 1)
         reclaimed = (reclaimed + freed)
         clear shadow
         clear liveMark
         clear work
         clear kids
+        ; Freeing is not returning: the counts above fall the moment the sweep
+        ; runs, but the allocator keeps the pages, so RSS follows the churn
+        ; high-water instead of the live set. A pass is exactly the right
+        ; moment to hand them back -- the garbage has just been released.
+        def trimmed:boolean (mem_trim)
         collecting = false
         return freed
     }

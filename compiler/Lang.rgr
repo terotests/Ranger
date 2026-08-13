@@ -4172,6 +4172,28 @@ std::string r_utf16_slice(const std::string& s, int a, int b)
             }
         }
 
+        ; Hand free heap back to the OS. A reference-counted interpreter frees
+        ; constantly, but glibc only trims the TOP of the heap on its own, so
+        ; RSS tracks the high-water mark of churn rather than what is live --
+        ; measured at 1.4 GB of difference on a compiler workload. Returns
+        ; true if the target can do it at all.
+        mem_trim        cmdMemTrim:boolean      () {
+            templates {
+                ranger ( "(mem_trim)")
+                cpp ( "r_mem_trim()"
+(create_polyfill "
+#if defined(__linux__) || defined(__GLIBC__)
+#include <malloc.h>
+bool r_mem_trim() { malloc_trim(0); return true; }
+#else
+bool r_mem_trim() { return false; }
+#endif
+")
+                )
+                * ( "false" )
+            }
+        }
+
         str_is_ascii    cmdStrIsAscii:boolean   ( text:string ) {
             templates {
                 ranger ( "(str_is_ascii " (e 1) ")")

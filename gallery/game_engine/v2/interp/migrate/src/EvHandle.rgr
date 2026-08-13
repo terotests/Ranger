@@ -304,20 +304,25 @@ class EvHandle {
         def _evBody:EvalValue body
         case _evBody f:EvalValue.Function {
             def c:EvFunctionCore (unwrap f.core)
-            return c.srcText
+            def reg:EvSourceRegistry (EvSourceRegistry.__singleton())
+            return (reg.textOf(c.srcId))
         }
         return ""
     }
+    ; Register a text and point this function at it. Callers that already hold
+    ; a registered id should use setSrcId -- registering the same script twice
+    ; is exactly the copying this indirection exists to avoid.
     fn setSrcText:void (s:string) {
         def c:EvFunctionCore (this.fnCore())
-        c.srcText = s
+        def reg:EvSourceRegistry (EvSourceRegistry.__singleton())
+        c.srcId = (reg.add(s))
     }
     ; PERF: presence probe without copying the text out.
     fn hasSrcText:boolean () {
         def _evBody:EvalValue body
         case _evBody f:EvalValue.Function {
             def c:EvFunctionCore (unwrap f.core)
-            return ((strlen c.srcText) > 0)
+            return (c.srcId > 0)
         }
         return false
     }
@@ -911,7 +916,7 @@ class EvHandle {
             dst.functionName = src.functionName
             dst.closureId = src.closureId
             dst.homeModule = src.homeModule
-            dst.srcText = src.srcText
+            dst.srcId = src.srcId
             dst.builtinKind = src.builtinKind
             dst.builtinName = src.builtinName
             dst.builtinNamespace = src.builtinNamespace
