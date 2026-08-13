@@ -215,49 +215,76 @@ here.
 
 ## Where the memory actually stands
 
-For ordinary programs rangerjs is at QuickJS parity and an order of magnitude
-below Node, peak RSS:
+For ordinary programs rangerjs is in QuickJS's ballpark and an order of
+magnitude below Node, peak RSS:
 
 | program | rangerjs | qjs | node |
 |---|---|---|---|
-| the 8 `cases/` files | 1–5 MB | 0–2 MB | 38–43 MB |
-| `05_tree_parent_cycle` N=6400 | 10 MB (`--gc`) | 2 MB | 52 MB |
-| `09_method_chain` N=6400 | 10 MB | 2 MB | 41 MB |
+| the 8 `cases/` files | 1–6 MB | 0–3 MB | 41–45 MB |
+| `09_method_chain` N=6400 | 13 MB | 2 MB | 41 MB |
+| `05_tree_parent_cycle` N=6400 | 24 MB (`--gc`) | 3 MB | 52 MB |
 
-The one regime that is still far off is running the **Ranger compiler itself**
-— a 2.6 MB bundle, which is a different scale of program from anything above:
+Running the **Ranger compiler itself** — a 2.6 MB bundle — is a different
+scale of program, and the one place still meaningfully off:
 
 | | peak RSS |
 |---|---|
-| node | **159 MB** |
+| node | **158 MB** |
 | rangerjs, at the start of this work | 13 GB, never finished |
-| rangerjs now | **2662 MB** |
+| rangerjs now | **798 MB** |
 
-159 MB is the honest floor to aim at, not 11–20 MB: that is what a JIT engine
-with hidden classes needs for the same job, and it does not drop when V8's
-heap is capped at 64 MB. Where the remaining 2.6 GB sits, all measured:
+158 MB is the honest floor to compare against: that is what a JIT engine with
+hidden classes needs for the same job, and it does not drop when V8's heap is
+capped at 64 MB. QuickJS cannot run the bundle at all (no `require`).
 
-- **749 MB before the compiler runs a single line** — parsing `output.js` into
-  `TSNode`s. `TSNode` is ≥364 bytes over 62 fields: 5 strings (160 B), 6
-  vectors (144 B, usually empty), 28 bools (28 B). This is untouched so far
-  and is the largest single item.
-- **~600 MB of live guest objects** — 612,000 of them holding 8.7 million
-  property slots. Halved once already by storing plain properties as values
-  rather than heap-allocated slots; the remaining per-property cost is ~56 B
-  against V8's ~8–16 B with hidden classes.
-- **484,813 arrays holding 206,059 elements between them** — 0.4 each, and
-  every one still pays for a full `EvPropertyBag`.
+### How it got from 13 GB to 798 MB
 
-Things that were suspected and **ruled out** by measurement, so they do not
-need revisiting: the `-native-fast-alloc` freelist (749 MB with it, 734 MB on
-plain malloc), cycle garbage (3060 MB with `--gc`, 2936 MB without), and the
-retained token array.
+Each step was found by measurement, not inspection — the method is worth more
+than the individual fixes:
 
-Ranked next steps: shrink `TSNode` (bools to a bitfield, `nodeType` to an
-interned id, the mostly-empty vectors behind a lazily-allocated side struct);
-make `EvPropertyBag` lazy so an array with no named properties does not carry
-one; then shape sharing, which is what actually closes the gap to a JIT engine
-and is a redesign rather than a fix.
+1. **Reference cycles were never reclaimed** (`--gc`, trial deletion). Found by
+   the `memcases/` slope harness: cases 04 and 05 differ by one line.
+2. **Two quadratic string walks** — the lexer restarting its UTF-8 scan on
+   every lookahead, and guest string indexing decoding from byte 0 per call.
+   Found by sampling the process with gdb.
+3. **The whole module source was copied onto every function value** — 1797 MB
+   in 723 copies of a 2.6 MB script. Found with an `LD_PRELOAD` malloc shim
+   that attributed a size-class histogram to its callers.
+4. **Per-property and per-object shrinking** — plain properties stored as
+   values rather than heap-allocated slots, insertion order keyed by atom id
+   rather than by name string, and the two rare ordered maps moved behind one
+   optional pointer (`EvPropertyBag` 216 B → 128 B).
+
+### What the remaining 798 MB is made of
+
+Struct sizes measured by compiling the generated C++ with a `sizeof` probe:
+
+| struct | bytes | live | ≈ total |
+|---|---|---|---|
+| `TSNode` | 560 | ~292,000 | ~160 MB |
+| property map entries | 32 + ~12 | ~3.6 M | ~200 MB |
+| `EvPropertyBag` | 128 | ~590,000 | ~86 MB |
+| `EvalContext` | 264 | ~40,000 | ~10 MB |
+
+Closing the last 5× to Node means one of two redesigns, not another fix:
+
+- **`TSNode` is 560 bytes over 62 fields** — 5 strings (160 B), 6 vectors
+  (144 B, usually empty), 28 bools (28 B), 8 node pointers (128 B). The same
+  "move the rare parts behind one pointer" trick that halved the property bag
+  applies, but those fields are read across the whole parser and evaluator
+  rather than inside one class, so it is a refactor of hundreds of sites.
+- **A property costs ~44 bytes against V8's ~8.** A map entry is
+  `pair<int, EvalValue>` = 32 B, and `EvalValue` is 24 B because `rg_ptr` is a
+  non-intrusive shared pointer (data + control block). Intrusive refcounting
+  would take every class reference in every Ranger program from 16 B to 8 B;
+  hidden-class shape sharing would take the entry cost down further. Both are
+  engine/target redesigns.
+
+Things suspected and **ruled out** by measurement, so they need no revisiting:
+the `-native-fast-alloc` freelist (749 MB with it, 734 MB on plain malloc),
+`malloc_trim` retention (126 MB), cycle garbage on this workload (3060 MB with
+`--gc`, 2936 MB without), the retained token array, and live strings (2.4 MB
+of payload in total).
 
 ## Known gaps
 
