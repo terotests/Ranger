@@ -147,9 +147,70 @@ sites), so **every node it builds is a cycle**, and none of them are ever freed.
 It is also exactly the class of bug that measuring under Node hides — V8 collects
 those cycles, so the same programs look fine there.
 
-Fixing it means giving the engine a cycle collector (trial deletion, or a
-mark-sweep over a registry of live objects). Neither is a small change, and
-neither is in this branch — the harness is what is delivered here.
+### The fix: trial-deletion cycle collection (`--gc`)
+
+```bash
+rangerjs --gc file.js          # collect cycles
+rangerjs --gc-stats file.js    # ...and print collections / reclaimed / live
+RANGERJS_ARGS=--gc bash .../mem-probe.sh     # measure with it on
+```
+
+The collector is trial deletion over a registry of every reference value the
+engine mints (`EvGcHeap` in `EvalValue.rgr`). It uses reference counts rather
+than a tracing mark-sweep for one reason: **it needs no root enumeration.** The
+AST walker keeps its temporaries in native locals, which no portable traversal
+can see, so a mark-sweep rooted at the engine's own structures would free
+values that are live on the host stack. A refcount has no such blind spot — a
+native temporary *is* a strong reference, so it counts itself.
+
+```
+shadow[i] = ref_count(objects[i]) - 1      drop the registry's own hold
+for every edge inside the registry:  shadow[target] -= 1
+shadow[i] > 0  =>  held from outside the registry: a root
+mark out from the roots; break and drop whatever stays unmarked
+```
+
+Roots are never enumerated, only *counted* — whatever the registry cannot
+account for is by definition external.
+
+**Safety rests on one invariant:** the subtract pass and the mark pass walk the
+same edges, both through `childrenOf`. That makes the collector safe against
+its own blind spots — an edge `childrenOf` fails to report is never subtracted
+either, so its target keeps that `+1` and reads as externally referenced.
+Under-reporting costs a missed collection and nothing else. The dangerous
+direction is over-reporting, so `childrenOf` names each owning field exactly
+once, and bails out conservatively when a bag's `slotCount` and `slotNames`
+disagree rather than risk naming one slot twice.
+
+Results at N=6400, peak RSS:
+
+| case | no `--gc` | `--gc` | qjs |
+|---|---|---|---|
+| `05_tree_parent_cycle` | **1570M** | **10M** | 3M |
+| `04_tree_no_parent` | 8M | 9M | 2M |
+| `03_class_retained` | 13M | 13M | 2M |
+| `08_map_symbols` | 7M | 11M | 2M |
+| `06_closure_cycle` | 24M | 27M | 2M |
+
+The 05 slope — the thing that made it a leak rather than a cost — goes from
+256,707 B/iter to **8**, flat from N=100 to N=3200 where it used to reach
+787 MB. Wall clock is +28% worst case, and on the leaking case it is *faster*
+(21.7s → 20.2s): less memory pressure pays for the traversal.
+
+**Two limits, both deliberate:**
+
+- **A cycle through a closure is not collected.** `EvFunctionCore` reaches its
+  scope by integer id, not by pointer, so there is no owning edge to report,
+  and the scope sits outside the registry. That keeps everything under it live
+  — safe, just retained. `06_closure_cycle` still grows.
+- **The registry pins until a pass runs**, so a program with no cycles pays a
+  tolerance window (~4096 objects) that plain refcounting would not have cost
+  it. That is why `--gc` is opt-in rather than the default, and why several
+  cases above read a few MB *higher* with it on.
+
+`enable()` probes `ref_count` and refuses on a target that answers 0 — every
+tracing-GC target, which reclaims cycles itself and has nothing to collect
+here.
 
 ## Known gaps
 
@@ -161,7 +222,7 @@ neither is in this branch — the harness is what is delivered here.
   on the resumable path and falls back to the eager one. `08_await_arg.js` pins
   it so it is visible whenever the harness runs. `await` bound to a variable is
   correct.
-- Reference cycles leak, as above.
+- Cycles through a closure scope still leak; see the limits above.
 - `print` is not defined (QuickJS has it); use `console.log`.
 
 ## Continuing this work
