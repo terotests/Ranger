@@ -400,6 +400,76 @@ Hidden classes cost 8–16% on property-heavy cases (`03_object_props` 7730 →
 9% measured on the compile. That is the memory-for-speed trade noted above;
 wiring shape+slot into the call-site inline caches is what would pay it back.
 
+## Memory against QuickJS, on the same benchmark programs
+
+```bash
+MEM=1 bash gallery/game_engine/v2/interp/cli/bench-cpu.sh
+```
+
+Same cases as the speed run, so the two are comparable. Peak RSS, and unlike
+the timings the startup floor is reported alongside rather than subtracted —
+an engine's floor is part of its footprint, and peak RSS is not additive.
+
+Empty program: **rangerjs 2 MB, qjs 2 MB, node 43 MB.**
+
+| case | rangerjs | qjs | node | vs qjs |
+|---|---|---|---|---|
+| `09_regex` | 8 M | 3 M | 43 M | 2.7× |
+| `12_class_dispatch` | 20 M | 7 M | 50 M | 2.9× |
+| `03_object_props` | 15 M | 5 M | 49 M | 3.0× |
+| `01_call_fib` | 7 M | 2 M | 48 M | 3.5× |
+| `02_loop_arith` | 7 M | 2 M | 48 M | 3.5× |
+| `05_string_build` | 7 M | 2 M | 46 M | 3.5× |
+| `06_string_ops` | 7 M | 2 M | 43 M | 3.5× |
+| `08_sort` | 8 M | 2 M | 49 M | 4.0× |
+| `10_map_set` | 8 M | 2 M | 46 M | 4.0× |
+| `11_json` | 10 M | 2 M | 42 M | 5.0× |
+| `04_array_ops` | 11 M | 2 M | 49 M | 5.5× |
+| **`07_closures`** | **202 M** | **2 M** | **41 M** | **101×** |
+
+So the floor matches QuickJS exactly, ordinary workloads sit at 3–5×, and
+everything is 2–10× *below* Node. One case is not like the others.
+
+### Every closure leaks its captured scope
+
+`07_closures` creates 400,000 short-lived closures. Memory grows perfectly
+linearly and the collector does not help:
+
+| N | no `--gc` | `--gc` | qjs |
+|---|---|---|---|
+| 50,000 | 31 MB | 38 MB | 2 MB |
+| 100,000 | 56 MB | 69 MB | 2 MB |
+| 200,000 | 105 MB | 119 MB | 2 MB |
+| 400,000 | 202 MB | 216 MB | 2 MB |
+
+About 0.5 KB per closure, never returned. `--gc` is slightly *worse* because
+the registry adds its own per-object cost and reclaims none of this.
+
+The cause is not a reference cycle, which is what the collector's documented
+blind spot would have suggested. It is simpler: `closureScopes` in
+`ComponentEngine.rgr` is an **append-only array** —
+
+```
+def id:int (array_length closureScopes)     ; the id IS the index
+...
+cell.ctx = capturedCtx
+push closureScopes cell
+fv.setClosureId(id)
+```
+
+— and nothing ever removes an entry. The id has to stay a stable index, so the
+array cannot shrink; but the `ClosureCell.ctx` it holds is the captured
+`EvalContext` (264 bytes plus its bindings), and that is what accumulates. A
+closure whose function value died years ago still pins its scope.
+
+The shape of a fix, since the collector already has what it needs: during a
+pass, gather the `closureId` of every live Function among the marked objects,
+then clear `ctx` on cells no live function claims. The array keeps growing at
+16 bytes per closure ever created (6 MB at 400,000, against 202 MB now), but
+the scopes go. The care needed is in confirming that a Function value is the
+only thing that resolves a cell by id — a generator's saved state would have
+to be checked too — which is why this is written down rather than done here.
+
 ## Known gaps
 
 - **`await` in argument position does not suspend.** `r.push(await p)` and
