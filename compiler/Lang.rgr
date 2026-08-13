@@ -5593,7 +5593,36 @@ static <T> ArrayList<T> r_reverse_copy(ArrayList<T> v) {
             }
         }
 
-        array_length    cmdArrayLength:int      ( array:[T] ) { 
+        ; How many strong references point at this object right now, or 0 when
+        ; the target cannot say.
+        ;
+        ; The count itself is an implementation detail of each runtime --
+        ; use_count() on C++, Rc::strong_count on Rust -- but the QUESTION is
+        ; not, and Ranger already abstracts this exact class of detail: the
+        ; `identical` operator lowers to Rc::ptr_eq on Rust, a pointer compare
+        ; on C++ and === on JS.
+        ;
+        ; 0 means "this runtime does not reference count", and the targets
+        ; split cleanly on it. The refcounted targets (cpp, rust) leak every
+        ; reference cycle and need this to collect them. The tracing-GC targets
+        ; (es6, go, java, csharp, kotlin, dart) collect cycles themselves, so
+        ; there is nothing there to answer and nothing to fix -- a caller that
+        ; reads 0 as "cannot tell, leave it alone" gets correct behaviour on
+        ; every target rather than a compromise on some.
+        ;
+        ; Callers must treat the number as an UPPER bound on liveness only:
+        ; it counts the caller's own argument copy on some targets, so the
+        ; only sound reading is "greater than N means at least N".
+        ref_count       cmdRefCount:int         ( value:T ) {
+            templates {
+                ranger ( "(ref_count " (e 1) ")")
+                 cpp ( "(int)(" (e 1) ".use_count())" )
+                 rust ( "(Rc::strong_count(&" (e 1) ") as i64)" )
+                 * ( "0" )
+            }
+        }
+
+        array_length    cmdArrayLength:int      ( array:[T] ) {
             templates {
                 ranger ( "(array_length " (e 1) ")")
                 llvm ( "(array_length " (e 1) ")")
