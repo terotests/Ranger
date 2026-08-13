@@ -360,6 +360,7 @@ class RangerJsMain {
             print ((("gc stringRefs " + (to_string gcHeap.lastStrings)) + " stringBytes ") + (to_string gcHeap.lastStringBytes))
             print ((((("gc wideObjects(>50) " + (to_string gcHeap.lastBig)) + " widest ") + (to_string gcHeap.lastMaxSlots)) + " keys: ") + gcHeap.lastMaxKeys)
             print ((("gc distinctWideShapes " + (to_string gcHeap.lastShapes)) + " largestShapeCount ") + (to_string gcHeap.lastTopShape))
+            print ((((("gc topShape width " + (to_string gcHeap.lastTopWidth)) + " x") + (to_string gcHeap.lastTopShape)) + " keys: ") + gcHeap.lastTopKeys)
         }
         if showTime {
             def elapsed:double ((wall_clock_ms) - started)

@@ -280,6 +280,43 @@ Closing the last 5× to Node means one of two redesigns, not another fix:
   hidden-class shape sharing would take the entry cost down further. Both are
   engine/target redesigns.
 
+### The measured case for shape sharing
+
+`--gc-stats` reports the live set by shape, which is what makes the biggest
+remaining lever concrete rather than theoretical. On a compile:
+
+- **48,771 objects hold more than 50 properties each**, and between them ~89%
+  of all 3.57 M live property slots.
+- Those 48,771 objects have only **70 distinct key-sets**.
+- The most common one is **72 properties across 25,208 objects**, keyed
+  `__class__ sp ep row col has_operator disabled_node op_index
+  is_array_literal is_system_class is_plugin is_direct_method_call …` — the
+  compiler's own `CodeNode`, i.e. 25,208 instances of one class.
+
+(The *widest* object is a different one: 258 keys, `random cast if_javascript
+if_go if_java …`, which is the operator table from `Lang.rgr`. Widest and
+most-common are separate measurements and should not be conflated — an
+earlier commit message in this branch does exactly that and is wrong.)
+
+Every one of those 25,208 objects stores all 72 keys again. Per property the
+key half is the atom in the map entry (8 B with padding), the `slotAtoms`
+entry (4 B) and a hash-index slot (~7 B) — about 19 B that is byte-identical
+across all 25,208 objects, with only the values differing. That is ~34 MB for
+one shape, and ~60 MB across all the wide objects.
+
+A hidden class stores the key→slot layout once per shape and leaves the object
+holding a shape pointer plus a flat array of values:
+
+```
+object:  [ shape* ][ v0 ][ v1 ][ v2 ] ...     8 B + one word per property
+shape:   { "sp"->0, "ep"->1, "row"->2, ... }  stored once for all 25,208
+```
+
+which is most of why V8 costs ~8 B per property against this engine's ~40.
+Shapes pay off exactly when objects are built the same way every time, which
+is the case here — same constructor, same field order. They do not shrink the
+VALUES, though, and that is the other half of the gap.
+
 Things suspected and **ruled out** by measurement, so they need no revisiting:
 the `-native-fast-alloc` freelist (749 MB with it, 734 MB on plain malloc),
 `malloc_trim` retention (126 MB), cycle garbage on this workload (3060 MB with

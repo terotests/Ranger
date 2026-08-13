@@ -1135,6 +1135,8 @@ class EvGcHeap @singleton(true) {
     def lastBig:int 0
     def shapeSigs:[int:int]
     def lastShapes:int 0
+    def lastTopWidth:int 0
+    def lastTopKeys:string ""
     def lastTopShape:int 0
     def lastSlots:int 0
     def lastItems:int 0
@@ -1477,6 +1479,19 @@ class EvGcHeap @singleton(true) {
                             set shapeSigs sig nc
                             if (nc > lastTopShape) {
                                 lastTopShape = nc
+                                ; Record the keys of the MOST COMMON shape, not
+                                ; the widest object -- they need not be the same
+                                ; object, and conflating them would misattribute
+                                ; where the duplication actually is.
+                                lastTopWidth = ob.slotCount
+                                def atoms2:EvAtomTable (EvAtomTable.__singleton())
+                                def samp2:string ""
+                                def sk:int 0
+                                while ((sk < (array_length ob.slotAtoms)) && (sk < 12)) {
+                                    samp2 = ((samp2 + (atoms2.nameOf((itemAt ob.slotAtoms sk)))) + " ")
+                                    sk = (sk + 1)
+                                }
+                                lastTopKeys = samp2
                             }
                         } {
                             set shapeSigs sig 1
