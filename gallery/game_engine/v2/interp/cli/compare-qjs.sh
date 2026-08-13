@@ -14,6 +14,8 @@ cd "$(dirname "$0")/../../../../.."
 ROOT="$(pwd)"
 
 RANGERJS="${RANGERJS:-$ROOT/gallery/game_engine/v2/interp/bin/cpp/rangerjs}"
+# Extra flags for rangerjs only, e.g. RANGERJS_ARGS=--gc to exercise the collector.
+RANGERJS_ARGS="${RANGERJS_ARGS:-}"
 QJS="${QJS:-qjs}"
 NODE="${NODE:-node}"
 ENGINES="${ENGINES:-rangerjs qjs node}"
@@ -41,7 +43,7 @@ fi
 run_engine() {
   # $1 engine, $2 file -> stdout+stderr on fd 1, exit code in RUN_RC
   case "$1" in
-    rangerjs) "$RANGERJS" "$2" 2>&1 ;;
+    rangerjs) "$RANGERJS" $RANGERJS_ARGS "$2" 2>&1 ;;
     qjs)      "$QJS" --script "$2" 2>&1 ;;
     node)     "$NODE" "$2" 2>&1 ;;
   esac

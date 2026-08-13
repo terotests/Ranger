@@ -249,21 +249,21 @@ shape EvalValue {
         return (EvalValue.elementAt(0 el))
     }
     sfn elementAt:EvalValue (id:int el:EvElement) {
-        return (new EvalValue.Element(id el))
+        return (EvGcHeap.registered((new EvalValue.Element(id el))))
     }
     sfn array:EvalValue (items:[EvalValue]) {
         return (EvalValue.arrayAt(0 items))
     }
     sfn arrayAt:EvalValue (id:int items:[EvalValue]) {
         def props:EvPropertyBag (new EvPropertyBag())
-        return (new EvalValue.Array(id props items (to_double (array_length items))))
+        return (EvGcHeap.registered((new EvalValue.Array(id props items (to_double (array_length items))))))
     }
     sfn object:EvalValue () {
         return (EvalValue.objectAt(0))
     }
     sfn objectAt:EvalValue (id:int) {
         def props:EvPropertyBag (new EvPropertyBag())
-        return (new EvalValue.Object(id props))
+        return (EvGcHeap.registered((new EvalValue.Object(id props))))
     }
     sfn mapEmpty:EvalValue () {
         return (EvalValue.mapEmptyAt(0))
@@ -273,7 +273,7 @@ shape EvalValue {
         ; Bind the empty literal — Rust case ctors drop a bare `([] _:T ())`
         ; argument (ISSUES / empty typed array as ctor arg).
         def entries:[EvMapEntry]
-        return (new EvalValue.Map(id props entries))
+        return (EvGcHeap.registered((new EvalValue.Map(id props entries))))
     }
     sfn setEmpty:EvalValue () {
         return (EvalValue.setEmptyAt(0))
@@ -281,7 +281,7 @@ shape EvalValue {
     sfn setEmptyAt:EvalValue (id:int) {
         def props:EvPropertyBag (new EvPropertyBag())
         def items:[EvalValue]
-        return (new EvalValue.Set(id props items))
+        return (EvGcHeap.registered((new EvalValue.Set(id props items))))
     }
     sfn functionStub:EvalValue (name:string) {
         return (EvalValue.functionStubAt(0 name))
@@ -291,14 +291,14 @@ shape EvalValue {
         def c:EvFunctionCore (new EvFunctionCore())
         c.functionName = name
         def b:EvFunctionBinding (new EvFunctionBinding())
-        return (new EvalValue.Function(id props c b))
+        return (EvGcHeap.registered((new EvalValue.Function(id props c b))))
     }
     ; A Function case that SHARES an existing core (name, node, source text,
     ; module) and takes its own fresh binding. This is what lets a per-call
     ; `this`-bound clone cost a binding instead of a copy of the whole core.
     sfn functionSharedAt:EvalValue (id:int core:EvFunctionCore binding:EvFunctionBinding) {
         def props:EvPropertyBag (new EvPropertyBag())
-        return (new EvalValue.Function(id props core binding))
+        return (EvGcHeap.registered((new EvalValue.Function(id props core binding))))
     }
 
     fn isNull:boolean () {
@@ -820,3 +820,371 @@ class EvFunctionBinding {
     def boundExplicit:boolean false
 }
 
+
+; =============================================================================
+; EvGcHeap — reclaiming reference cycles on the reference-counted targets
+; =============================================================================
+; The native targets refcount and have no cycle collector, so an object graph
+; containing a cycle is never reclaimed. `node.parent = this` is enough, and
+; that is the shape of every AST the engine is asked to run: measured at
+; 256 KB leaked per iteration of a build-and-drop tree loop that QuickJS holds
+; flat (gallery/game_engine/v2/interp/cli/memcases/05_tree_parent_cycle.js).
+;
+; The collector is trial deletion over a registry of every reference value the
+; engine mints, and it needs no root enumeration at all. That is the whole
+; reason it is built this way: the AST walker keeps its temporaries in native
+; locals, which no portable traversal can see, so a mark-sweep rooted at the
+; engine's own structures would free values that are live on the host stack.
+; A refcount does not have that blind spot — a native temporary IS a strong
+; reference, so it counts itself.
+;
+;   1. shadow[i] = ref_count(objects[i]) - 1        (drop the registry's own)
+;   2. for every edge inside the registry, shadow[target] -= 1
+;   3. shadow[i] > 0 now means "referenced from outside the registry" — a
+;      global, a scope, an engine field, or a native temporary. Those are the
+;      roots, and they were never enumerated, only counted.
+;   4. mark everything reachable from a root
+;   5. anything unmarked is unreachable, cyclic or not: break its edges so the
+;      cycle's counts fall, then drop it from the registry
+;
+; SAFETY. Steps 2 and 4 MUST walk the same edges, and they do — both go through
+; childrenOf. That is what makes the collector safe against its own blind
+; spots: an edge childrenOf fails to report is never subtracted either, so the
+; target keeps that +1 and reads as externally referenced. Under-reporting
+; costs a missed collection and nothing else.
+;
+; The dangerous direction is over-reporting — naming an edge twice, or naming
+; one that is not a real owning reference. That cancels a count that something
+; live is still holding, and the object gets freed underneath it. Every case
+; below reports each owning field exactly once, and bails out conservatively
+; rather than guessing when a bag's bookkeeping looks inconsistent.
+;
+; On a target where ref_count answers 0 — every tracing-GC target — collection
+; is a no-op by construction: shadow is 0 - 1 = -1 for everything, which is not
+; > 0, so nothing is a root, so... everything would be swept. That is why
+; `enabled` is off unless a host turns it on, and why enable() refuses on a
+; target that cannot count. Those targets reclaim cycles themselves.
+class EvGcHeap @singleton(true) {
+    ; Every reference value minted since the collector was enabled, in mint
+    ; order — which is ascending identityId, and is what lets findIndex binary
+    ; search instead of carrying an id->slot map for millions of objects.
+    def objects:[EvalValue]
+    def enabled:boolean false
+    ; Re-entrancy guard: collect() runs from an allocation site, and it
+    ; allocates scratch of its own.
+    def collecting:boolean false
+    ; Collect when the registry has grown this far. A reference value costs
+    ; on the order of a kilobyte once its bag is counted, so this is the knob
+    ; that decides the program's floor: 4k objects is a few megabytes of
+    ; garbage tolerated between passes. Raised after each pass to
+    ; twice what survived, so the total work stays proportional to the live
+    ; set rather than to the number of collections.
+    def threshold:int 4096
+    def collections:int 0
+    def reclaimed:int 0
+
+    ; Scratch, reused across passes so a collection does not itself churn.
+    def shadow:[int]
+    def liveMark:[boolean]
+    def work:[int]
+    def kids:[EvalValue]
+
+    ; Turn the collector on, if this target can answer ref_count at all. The
+    ; probe is the honest test: mint a value, hold it in one place, and see
+    ; whether the runtime reports that reference.
+    fn enable:boolean () {
+        def probe:EvalValue (EvalValue.objectAt(0))
+        if ((ref_count probe) < 1) {
+            return false
+        }
+        enabled = true
+        return true
+    }
+
+    ; Register and hand back, so a factory stays a one-liner: the registry is
+    ; the collector's whole view of the heap, and a value that misses it is
+    ; simply never collected (its references read as external, so nothing it
+    ; points at is collected either -- safe, just retained).
+    sfn registered:EvalValue (v:EvalValue) {
+        def heap:EvGcHeap (EvGcHeap.__singleton())
+        heap.note(v)
+        return v
+    }
+
+    fn note:void (v:EvalValue) {
+        if (false == enabled) {
+            return
+        }
+        if collecting {
+            return
+        }
+        push objects v
+        if ((array_length objects) >= threshold) {
+            this.collect()
+        }
+    }
+
+    ; identityId of a reference value; 0 for a primitive, which is never
+    ; registered and never an edge target worth following.
+    sfn idOf:int (v:EvalValue) {
+        case v a:EvalValue.Array { return a.identityId }
+        case v o:EvalValue.Object { return o.identityId }
+        case v f:EvalValue.Function { return f.identityId }
+        case v m:EvalValue.Map { return m.identityId }
+        case v st:EvalValue.Set { return st.identityId }
+        case v el:EvalValue.Element { return el.identityId }
+        return 0
+    }
+
+    ; Registry slot of a value, or -1. The registry is append-ordered by mint
+    ; and identityIds are minted in sequence, so it is sorted by id and stays
+    ; sorted through compaction.
+    fn findIndex:int (v:EvalValue) {
+        def id:int (EvGcHeap.idOf(v))
+        if (id == 0) {
+            return (0 - 1)
+        }
+        def lo:int 0
+        def hi:int ((array_length objects) - 1)
+        while (lo <= hi) {
+            def mid:int (lo + (to_int ((to_double (hi - lo)) / 2.0)))
+            def midId:int (EvGcHeap.idOf((itemAt objects mid)))
+            if (midId == id) {
+                return mid
+            }
+            if (midId < id) {
+                lo = (mid + 1)
+            } {
+                hi = (mid - 1)
+            }
+        }
+        return (0 - 1)
+    }
+
+    ; Every owning reference held by this bag, each named exactly once.
+    fn bagChildren:void (bag:EvPropertyBag out:[EvalValue]) {
+        ; slotNames is this bag's insertion order and slots is keyed by atom
+        ; id; noteKey keeps them in step. If they have drifted, enumerate
+        ; nothing rather than risk naming one slot twice -- a name listed
+        ; twice would subtract two counts for one reference and could free a
+        ; value something live still holds. Reporting no edges only costs a
+        ; missed collection.
+        if (bag.slotCount != (array_length bag.slotNames)) {
+            return
+        }
+        def atoms:EvAtomTable (EvAtomTable.__singleton())
+        for bag.slotNames nm:string idx {
+            def ka:int (atoms.idOf(nm))
+            if (has bag.slots ka) {
+                def slot:EvPropertySlot (unwrap (get bag.slots ka))
+                case slot d:EvPropertySlot.Data {
+                    push out (unwrap d.value)
+                }
+                case slot ac:EvPropertySlot.Accessor {
+                    push out ac.getter
+                    push out ac.setter
+                }
+            }
+        }
+        push out bag.prototype
+    }
+
+    ; Every owning reference held by a value. Used by BOTH the subtract pass
+    ; and the mark pass -- see the safety note above; they must not diverge.
+    fn childrenOf:void (v:EvalValue out:[EvalValue]) {
+        case v a:EvalValue.Array {
+            this.bagChildren(a.properties out)
+            def ai:int 0
+            while (ai < (array_length a.items)) {
+                push out (itemAt a.items ai)
+                ai = (ai + 1)
+            }
+            return
+        }
+        case v o:EvalValue.Object {
+            this.bagChildren(o.properties out)
+            return
+        }
+        case v f:EvalValue.Function {
+            this.bagChildren(f.properties out)
+            ; The core reaches its closure by integer id, not by pointer, so
+            ; there is no owning edge there to report. A cycle that runs
+            ; through a closure scope is therefore not collected by this pass;
+            ; the scope is outside the registry, so its reference reads as
+            ; external and everything under it stays live. Safe, not complete.
+            def fb:EvFunctionBinding f.binding
+            push out fb.boundThis
+            def bi:int 0
+            while (bi < (array_length fb.boundArgs)) {
+                push out (itemAt fb.boundArgs bi)
+                bi = (bi + 1)
+            }
+            return
+        }
+        case v m:EvalValue.Map {
+            this.bagChildren(m.properties out)
+            def mi:int 0
+            while (mi < (array_length m.entries)) {
+                def me:EvMapEntry (itemAt m.entries mi)
+                push out (unwrap me.key)
+                push out (unwrap me.value)
+                mi = (mi + 1)
+            }
+            return
+        }
+        case v st:EvalValue.Set {
+            this.bagChildren(st.properties out)
+            def si:int 0
+            while (si < (array_length st.items)) {
+                push out (itemAt st.items si)
+                si = (si + 1)
+            }
+            return
+        }
+    }
+
+    ; Drop every outgoing reference, which is what actually breaks the cycle:
+    ; the counts inside it fall to zero once the last member is broken.
+    fn breakValue:void (v:EvalValue) {
+        case v a:EvalValue.Array {
+            this.breakBag(a.properties)
+            clear a.items
+            a.declaredLength = 0.0
+            return
+        }
+        case v o:EvalValue.Object {
+            this.breakBag(o.properties)
+            return
+        }
+        case v f:EvalValue.Function {
+            this.breakBag(f.properties)
+            def fb:EvFunctionBinding f.binding
+            fb.boundThis = (EvalValue.hole())
+            clear fb.boundArgs
+            return
+        }
+        case v m:EvalValue.Map {
+            this.breakBag(m.properties)
+            clear m.entries
+            return
+        }
+        case v st:EvalValue.Set {
+            this.breakBag(st.properties)
+            clear st.items
+            return
+        }
+    }
+
+    fn breakBag:void (bag:EvPropertyBag) {
+        def fresh:[int:EvPropertySlot]
+        def freshNames:[string]
+        bag.slots = fresh
+        bag.slotNames = freshNames
+        bag.slotCount = 0
+        bag.prototype = (EvalValue.hole())
+    }
+
+    fn collect:int () {
+        if collecting {
+            return 0
+        }
+        if (false == enabled) {
+            return 0
+        }
+        collecting = true
+        def n:int (array_length objects)
+        clear shadow
+        clear liveMark
+
+        ; 1. What is holding each object, minus the registry's own reference.
+        def i:int 0
+        while (i < n) {
+            push shadow ((ref_count (itemAt objects i)) - 1)
+            push liveMark false
+            i = (i + 1)
+        }
+
+        ; 2. Cancel every reference that comes from inside the registry.
+        i = 0
+        while (i < n) {
+            clear kids
+            this.childrenOf((itemAt objects i) kids)
+            def k:int 0
+            while (k < (array_length kids)) {
+                def ci:int (this.findIndex((itemAt kids k)))
+                if (ci >= 0) {
+                    set_at shadow ci ((itemAt shadow ci) - 1)
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+
+        ; 3+4. Whatever still has a holder is a root; mark out from there.
+        clear work
+        i = 0
+        while (i < n) {
+            if ((itemAt shadow i) > 0) {
+                set_at liveMark i true
+                push work i
+            }
+            i = (i + 1)
+        }
+        def head:int 0
+        while (head < (array_length work)) {
+            def wi:int (itemAt work head)
+            head = (head + 1)
+            clear kids
+            this.childrenOf((itemAt objects wi) kids)
+            def k2:int 0
+            while (k2 < (array_length kids)) {
+                def ci2:int (this.findIndex((itemAt kids k2)))
+                if (ci2 >= 0) {
+                    if (false == (itemAt liveMark ci2)) {
+                        set_at liveMark ci2 true
+                        push work ci2
+                    }
+                }
+                k2 = (k2 + 1)
+            }
+        }
+
+        ; 5. Break the unmarked, then drop them. Breaking first matters: the
+        ; members of a cycle hold each other, so nothing is released until the
+        ; last edge in it is gone.
+        def freed:int 0
+        i = 0
+        while (i < n) {
+            if (false == (itemAt liveMark i)) {
+                this.breakValue((itemAt objects i))
+                freed = (freed + 1)
+            }
+            i = (i + 1)
+        }
+        def kept:[EvalValue]
+        i = 0
+        while (i < n) {
+            if (itemAt liveMark i) {
+                push kept (itemAt objects i)
+            }
+            i = (i + 1)
+        }
+        objects = kept
+
+        ; Grow the trigger with the surviving set, so a program with a large
+        ; live heap does not collect on every allocation once it gets there.
+        def survivors:int (array_length objects)
+        threshold = (survivors * 2)
+        if (threshold < 4096) {
+            threshold = 4096
+        }
+        collections = (collections + 1)
+        reclaimed = (reclaimed + freed)
+        clear shadow
+        clear liveMark
+        clear work
+        clear kids
+        collecting = false
+        return freed
+    }
+}

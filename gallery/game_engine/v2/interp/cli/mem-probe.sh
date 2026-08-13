@@ -16,6 +16,8 @@ cd "$(dirname "$0")/../../../../.."
 ROOT="$(pwd)"
 
 RANGERJS="${RANGERJS:-$ROOT/gallery/game_engine/v2/interp/bin/cpp/rangerjs}"
+# Extra flags for rangerjs only, e.g. RANGERJS_ARGS=--gc to exercise the collector.
+RANGERJS_ARGS="${RANGERJS_ARGS:-}"
 QJS="${QJS:-qjs}"
 NODE="${NODE:-node}"
 ENGINES="${ENGINES:-rangerjs qjs node}"
@@ -68,7 +70,7 @@ for name in "${FILES[@]}"; do
     for n in $SCALES; do
       sed "s/__N__/$n/" "$src" > "$TMP/case.js"
       case "$e" in
-        rangerjs) kb=$(peak_rss_kb "$RANGERJS" "$TMP/case.js") ;;
+        rangerjs) kb=$(peak_rss_kb "$RANGERJS" $RANGERJS_ARGS "$TMP/case.js") ;;
         qjs)      kb=$(peak_rss_kb "$QJS" --script "$TMP/case.js") ;;
         node)     kb=$(peak_rss_kb "$NODE" "$TMP/case.js") ;;
       esac

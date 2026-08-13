@@ -4,6 +4,8 @@
 ;   rangerjs [options] <file.js>
 ;
 ;     --time        elapsed milliseconds, written to stdout after the script
+;     --gc          collect reference cycles (native targets only)
+;     --gc-stats    --gc, plus a final collection and a one-line summary
 ;     --quiet       suppress the engine's own diagnostics (default)
 ;     --verbose     let the engine trace
 ;     --prefix=STR  prefix every console line (default: none)
@@ -236,6 +238,8 @@ class RangerJsMain {
         def beQuiet:boolean true
         def prefix:string ""
         def nodeHost:boolean false
+        def useGc:boolean false
+        def gcStats:boolean false
         def scriptArgs:[string]
         def sawScript:boolean false
         def i:int 0
@@ -262,6 +266,13 @@ class RangerJsMain {
                             if (a == "--node") {
                                 nodeHost = true
                             } {
+                            if (a == "--gc") {
+                                useGc = true
+                            } {
+                            if (a == "--gc-stats") {
+                                useGc = true
+                                gcStats = true
+                            } {
                             if (RangerJsMain.hasPrefix(a "--prefix=")) {
                                 prefix = (substring a 9 (strlen a))
                             } {
@@ -274,6 +285,8 @@ class RangerJsMain {
                                 }
                             }
                             }
+                            }
+                            }
                         }
                     }
                 }
@@ -282,7 +295,7 @@ class RangerJsMain {
             i = (i + 1)
         }
         if ((strlen path) == 0) {
-            print "usage: rangerjs [--time] [--verbose] [--node] [--prefix=STR] <file.js> [script args]"
+            print "usage: rangerjs [--time] [--verbose] [--node] [--gc] [--gc-stats] [--prefix=STR] <file.js> [script args]"
             return
         }
         def dirPath:string (RangerJsMain.dirOf(path))
@@ -294,6 +307,13 @@ class RangerJsMain {
         }
         def src:string (RangerJsMain.stripShebang((unwrap content)))
         def started:double (wall_clock_ms)
+        ; Before the engine exists, so the registry sees every value it mints.
+        def gcHeap:EvGcHeap (EvGcHeap.__singleton())
+        if useGc {
+            if (false == (gcHeap.enable())) {
+                print "rangerjs: --gc needs a reference-counted target; ignoring"
+            }
+        }
         def engine (new ComponentEngine())
         engine.quiet = beQuiet
         engine.consolePrefix = prefix
@@ -331,6 +351,10 @@ class RangerJsMain {
             if (false == (engine.hasPendingJobs())) {
                 drains = 1000000
             }
+        }
+        if gcStats {
+            def swept:int (gcHeap.collect())
+            print ((((("gc collections " + (to_string gcHeap.collections)) + " reclaimed ") + (to_string gcHeap.reclaimed)) + " live ") + (to_string (array_length gcHeap.objects)))
         }
         if showTime {
             def elapsed:double ((wall_clock_ms) - started)
