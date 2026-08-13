@@ -1127,6 +1127,15 @@ class EvGcHeap @singleton(true) {
     ; with few slots each is a different problem from a small one with many.
     def lastStrings:int 0
     def lastStringBytes:int 0
+    ; The widest object in the live set, and a sample of its keys. 42,515
+    ; objects were holding most of the properties on a compile; what they ARE
+    ; decides whether the fix is a smaller property or fewer of them.
+    def lastMaxSlots:int 0
+    def lastMaxKeys:string ""
+    def lastBig:int 0
+    def shapeSigs:[int:int]
+    def lastShapes:int 0
+    def lastTopShape:int 0
     def lastSlots:int 0
     def lastItems:int 0
 
@@ -1432,6 +1441,12 @@ class EvGcHeap @singleton(true) {
         ; "8.7 million slots" that first pointed at the property bag was that
         ; sum over ten collections, not a live figure.
         lastSlots = 0
+        lastMaxSlots = 0
+        lastBig = 0
+        def freshSigs:[int:int]
+        shapeSigs = freshSigs
+        lastShapes = 0
+        lastTopShape = 0
         lastItems = 0
         lastStrings = 0
         lastStringBytes = 0
@@ -1444,6 +1459,41 @@ class EvGcHeap @singleton(true) {
                     lastObjects = (lastObjects + 1)
                     def ob:EvPropertyBag ko.properties
                     lastSlots = (lastSlots + ob.slotCount)
+                    if (ob.slotCount > 50) {
+                        lastBig = (lastBig + 1)
+                        ; How many DISTINCT key-sets do the wide objects have?
+                        ; If a few shapes cover them all, the keys are being
+                        ; stored tens of thousands of times over and shape
+                        ; sharing is the fix; if every one differs, it is not.
+                        def sig:int ob.slotCount
+                        def sj:int 0
+                        while (sj < (array_length ob.slotAtoms)) {
+                            sig = ((sig * 31) + (itemAt ob.slotAtoms sj))
+                            sj = (sj + 1)
+                        }
+                        if (sig < 0) { sig = (0 - sig) }
+                        if (has shapeSigs sig) {
+                            def nc:int ((unwrap (get shapeSigs sig)) + 1)
+                            set shapeSigs sig nc
+                            if (nc > lastTopShape) {
+                                lastTopShape = nc
+                            }
+                        } {
+                            set shapeSigs sig 1
+                            lastShapes = (lastShapes + 1)
+                        }
+                    }
+                    if (ob.slotCount > lastMaxSlots) {
+                        lastMaxSlots = ob.slotCount
+                        def atoms:EvAtomTable (EvAtomTable.__singleton())
+                        def sample:string ""
+                        def si:int 0
+                        while ((si < (array_length ob.slotAtoms)) && (si < 14)) {
+                            sample = ((sample + (atoms.nameOf((itemAt ob.slotAtoms si)))) + " ")
+                            si = (si + 1)
+                        }
+                        lastMaxKeys = sample
+                    }
                 }
                 case kv ka:EvalValue.Array {
                     lastArrays = (lastArrays + 1)

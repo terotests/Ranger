@@ -358,6 +358,8 @@ class RangerJsMain {
             print ((((("gc roots " + (to_string gcHeap.lastRoots)) + " of marked ") + (to_string gcHeap.lastMarked)) + "  obj/arr/fn/mapset ") + ((((((to_string gcHeap.lastObjects) + "/") + (to_string gcHeap.lastArrays)) + "/") + (to_string gcHeap.lastFunctions)) + ("/" + (to_string gcHeap.lastMapsSets))))
             print ((("gc slots " + (to_string gcHeap.lastSlots)) + " arrayItems ") + (to_string gcHeap.lastItems))
             print ((("gc stringRefs " + (to_string gcHeap.lastStrings)) + " stringBytes ") + (to_string gcHeap.lastStringBytes))
+            print ((((("gc wideObjects(>50) " + (to_string gcHeap.lastBig)) + " widest ") + (to_string gcHeap.lastMaxSlots)) + " keys: ") + gcHeap.lastMaxKeys)
+            print ((("gc distinctWideShapes " + (to_string gcHeap.lastShapes)) + " largestShapeCount ") + (to_string gcHeap.lastTopShape))
         }
         if showTime {
             def elapsed:double ((wall_clock_ms) - started)
