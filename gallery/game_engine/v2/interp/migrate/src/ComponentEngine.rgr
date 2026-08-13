@@ -1597,10 +1597,20 @@ class ComponentEngine {
     ; When true, suppress verbose evaluation trace (game scripts, tests).
     def quiet:boolean false
 
-    ; Safety cap on while/for/do iterations. The default keeps runaway guest
-    ; scripts from hanging the host; Octane-scale benches (and any other
-    ; long-running correct loop) raise it on the instance before loadScript.
-    def maxLoopIterations:int 100000
+    ; Safety cap on while/for/do iterations, so a runaway guest script cannot
+    ; hang the host. Two things about it matter.
+    ;
+    ; It is LOUD. Reaching it throws; it used to stop the loop and carry on in
+    ; the walker, and abandon the whole call in the compiled tier, both without
+    ; a word -- so a correct program that looped past the cap silently got a
+    ; truncated answer or `undefined`. A guard that corrupts results is worse
+    ; than no guard: `for (i = 0; i < 100001; i++)` answered undefined, and
+    ; marked's token loop quietly produced exactly 100000 copies.
+    ;
+    ; And it is high enough not to be reached by real work. 100k is nothing --
+    ; any loop over a modest array hits it -- while 100M costs a runaway script
+    ; well under a minute at engine speed before it is stopped.
+    def maxLoopIterations:int 100000000
 
     ; When true, Date.now() / new Date() read the host wall clock
     ; (`wall_clock_ms`) instead of the frozen hostNowMs. Off by default so
@@ -5371,6 +5381,13 @@ class ComponentEngine {
     
     ; Void wrappers: assigning loop results to an unused local is dead-code-
     ; eliminated by clang++ (while/for become no-ops in native game_sdl).
+    ; The loop guard fired. Reported as a throw so it can never be mistaken for
+    ; the loop finishing: silently stopping is what turned a correct program
+    ; into a wrong answer with no diagnostic.
+    fn throwLoopLimit:EvHandle () {
+        return (this.throwSpecError("RangeError" "loop iteration limit exceeded"))
+    }
+
     fn runForStatementValue:void (stmt:TSNode) {
         ; D-COMPLETION: an iteration statement's completion value starts at
         ; UNDEFINED, not at whatever the statement before it produced. That is
@@ -5471,6 +5488,11 @@ class ComponentEngine {
                     }
                 }
             }
+        }
+        ; `looping` still set means the while ended on the guard, not on the
+        ; loop's own condition.
+        if looping {
+            def _forLimit:EvHandle (this.throwLoopLimit())
         }
         context = (unwrap forOuter)
         ; Consume break/continue at the loop boundary (do not leak to outer loop)
@@ -5959,6 +5981,9 @@ class ComponentEngine {
                 }
             }
         }
+        if looping {
+            def _whileLimit:EvHandle (this.throwLoopLimit())
+        }
         this.settleLoopAbrupt(myLabels savedBreak savedContinue)
     }
 
@@ -6083,6 +6108,9 @@ class ComponentEngine {
                     }
                 }
             }
+        }
+        if looping {
+            def _doLimit:EvHandle (this.throwLoopLimit())
         }
         this.settleLoopAbrupt(myLabels savedBreak savedContinue)
     }
@@ -7553,7 +7581,9 @@ class ComponentEngine {
                 iterations = iterations + 1
             }
         }
-        
+        ; The loop's own exits all `return` from inside it, so reaching here is
+        ; the guard and nothing else.
+        def _forEvalLimit:EvHandle (this.throwLoopLimit())
         return result
     }
     
@@ -7651,7 +7681,7 @@ class ComponentEngine {
                 iterations = iterations + 1
             }
         }
-        
+        def _whileEvalLimit:EvHandle (this.throwLoopLimit())
         return result
     }
     
@@ -13100,6 +13130,10 @@ class ComponentEngine {
             if (op == 15) {
                 backJumps = (backJumps + 1)
                 if (backJumps > maxLoopIterations) {
+                    ; Raised as a throw, so it propagates (and is catchable)
+                    ; instead of ending the call with an undefined result --
+                    ; which is what `for (i = 0; i < 100001; i++)` used to do.
+                    def _bcLimit:EvHandle (this.throwLoopLimit())
                     bcRetTag = 3
                     bcTryTop = tryBase
                     bcSp = base
