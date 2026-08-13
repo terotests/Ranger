@@ -5,6 +5,17 @@
 #   TARGET=rust bash .../build-rangerjs.sh                            # rust
 #   TARGET="cpp rust" bash .../build-rangerjs.sh                      # both
 #
+# The system allocator, NOT -native-fast-alloc. That flag parks freed blocks
+# in per-size freelists and never returns them to the OS, which is the right
+# trade for a benchmark and the wrong one for a tool: measured at 577 MB with
+# it against 458 MB without, for 2.8% wall clock. Pass FAST_ALLOC=-native-fast-alloc
+# to get it back.
+#
+# Worth noting the number moved: the same comparison earlier in this work was
+# 749 MB vs 734 MB. The freelist only became expensive once the allocation mix
+# changed underneath it, which is a good reason to re-measure a settled
+# decision after the thing it was measured against has changed.
+#
 # Output: gallery/game_engine/v2/interp/bin/<target>/rangerjs
 set -e
 cd "$(dirname "$0")/../../../../.."
@@ -39,7 +50,7 @@ for T in $TARGETS; do
   # The compiler exits 0 even when compilation fails, so the log has to be
   # checked or the previous run's binary is rebuilt and reported as fresh.
   RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node --stack-size=8000 bin/output.js -l="$T" \
-    "$SRC" -d="$OUT_DIR" -o=rangerjs."$EXT" -nodecli ${FAST_ALLOC:--native-fast-alloc} \
+    "$SRC" -d="$OUT_DIR" -o=rangerjs."$EXT" -nodecli ${FAST_ALLOC:-} \
     "${CPP_ST_FLAGS[@]}" 2>&1 | tee /tmp/rgr_cli_$$.log
   if grep -q "Compilation FAILED" /tmp/rgr_cli_$$.log; then
     rm -f /tmp/rgr_cli_$$.log
