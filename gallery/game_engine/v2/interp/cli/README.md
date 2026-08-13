@@ -325,6 +325,81 @@ the `-native-fast-alloc` freelist (749 MB with it, 734 MB on plain malloc),
 `--gc`, 2936 MB without), the retained token array, and live strings (2.4 MB
 of payload in total).
 
+## Measuring speed
+
+```bash
+bash gallery/game_engine/v2/interp/cli/bench-cpu.sh          # wall clock vs qjs and node
+bash gallery/game_engine/v2/interp/cli/bench-scaling.sh      # linear or quadratic?
+REPS=5 bash .../bench-cpu.sh                                 # more samples
+```
+
+`bench-cpu.sh` reports the **minimum** of several runs, not the mean — the
+minimum is the run least disturbed by scheduling. It subtracts a startup
+baseline (`00_startup.js`) so a short case is not reported as slow because the
+engine takes longer to boot, and it refuses to report a timing for any case
+where the engines disagree on the printed checksum, since then they are not
+doing the same work.
+
+### Results
+
+rangerjs is an AST walker; QuickJS is a bytecode VM and Node is a JIT, so a
+constant factor is expected. Net of startup:
+
+| case | rangerjs | qjs | node | vs qjs |
+|---|---|---|---|---|
+| `06_string_ops` | 369 ms | 96 ms | 13 ms | **3.8×** |
+| `01_call_fib` | 407 ms | 52 ms | 4 ms | 7.8× |
+| `05_string_build` | 1278 ms | 111 ms | 14 ms | 11.5× |
+| `07_closures` | 1606 ms | 116 ms | 4 ms | 13.8× |
+| `09_regex` | 1925 ms | 118 ms | 4 ms | 16.3× |
+| `02_loop_arith` | 2981 ms | 159 ms | 11 ms | 18.7× |
+| `12_class_dispatch` | 5615 ms | 122 ms | 14 ms | 46× |
+| `03_object_props` | 8301 ms | 121 ms | 13 ms | 69× |
+| `04_array_ops` | 1575 ms | 21 ms | 6 ms | **75×** |
+| `10_map_set` | 1974 ms | 7 ms | 3 ms | **282×** |
+| `08_sort` | 4274 ms | 5 ms | 5 ms | **855×** |
+| `11_json` | 27938 ms | 22 ms | 6 ms | **1270×** |
+
+The spread is the finding. Core interpretation sits at 4–20× QuickJS, which is
+roughly what an AST walker costs against a bytecode VM. The bottom four are a
+different phenomenon, and `bench-scaling.sh` says what it is.
+
+### Five operations are quadratic
+
+Ratio is against the previous N; ~2× per doubling is linear, ~4× is quadratic:
+
+| operation | N | N×2 | N×4 | verdict |
+|---|---|---|---|---|
+| `array.push` | 13 ms | 1.3× | 1.6× | linear |
+| **`a[i]` read** | 191 ms | **3.9×** | **4.2×** | **quadratic** |
+| **`a[i]` write** | 175 ms | **4.1×** | **4.4×** | **quadratic** |
+| **`Map.set`** | 644 ms | **3.9×** | **4.1×** | **quadratic** |
+| **`Set.add`** | 622 ms | **3.9×** | **3.9×** | **quadratic** |
+| `JSON.stringify` | 28 ms | 2.1× | 2.6× | linear |
+| **`JSON.parse`** | 886 ms | **4.1×** | **4.1×** | **quadratic** |
+| `o["k"+i] = i` | 24 ms | 1.9× | 3.2× | near-linear |
+| `s += "ab"` | 90 ms | 4.5× | 4.4× | quadratic — **but so is qjs** |
+
+Indexing an array is O(n), which makes it the most severe: it is the most
+basic operation a program has. `push` is linear, so the element store itself is
+fine; it is the indexed access path that scans.
+
+String concatenation is quadratic in QuickJS too (13 → 53 → 345 ms), so that
+one is inherent to building a string by repeated append without ropes, not an
+engine bug.
+
+**These are pre-existing and native-tier only.** Verified both ways: the same
+probe on the es6 build is linear (255 → 289 → 381 ms across a 4× range), and a
+native binary built from the commit *before* hidden classes is equally
+quadratic (215 → 846 → 3159 ms). So it is neither a regression from the
+memory work nor visible when the engine is measured under Node — which is the
+argument for having this CLI at all.
+
+Hidden classes cost 8–16% on property-heavy cases (`03_object_props` 7730 →
+8341 ms, `12_class_dispatch` 5322 → 6150 ms) and 1–3% elsewhere, matching the
+9% measured on the compile. That is the memory-for-speed trade noted above;
+wiring shape+slot into the call-site inline caches is what would pay it back.
+
 ## Known gaps
 
 - **`await` in argument position does not suspend.** `r.push(await p)` and
