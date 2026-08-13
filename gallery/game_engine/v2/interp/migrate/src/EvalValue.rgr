@@ -428,6 +428,87 @@ class EvAtomTable @singleton(true) {
 class EvBagRare {
     def slots:[int:EvPropertySlot]
     def suppressedKeys:[string:boolean]
+    ; Dictionary mode. An object leaves shape mode when a key is DELETED or it
+    ; grows past the width where a shape still pays -- see toDictionary.
+    def dictValues:[int:EvalValue]
+    def dictAtoms:[int]
+}
+
+; A hidden class: the key layout of an object, shared by every object built
+; the same way.
+;
+; The engine used to give every object its own key table. Measured on a
+; compile: 48,771 objects hold >50 properties each and ~89% of all live
+; property slots between them, and they have only 70 DISTINCT key-sets -- the
+; commonest being 72 keys across 25,208 objects, which is one class of the
+; compiler's AST. Each of those 25,208 stored the same 72 atom ids again, in
+; the map entry, in the order list and in the hash index: about 19 bytes per
+; property that is byte-identical across all of them, with only the VALUES
+; differing.
+;
+; Here the layout lives in one shared EvShape and the object keeps a pointer
+; to it plus a flat array of values, indexed by the shape.
+;
+; Shapes are discovered, not declared. `next` caches the shape you reach by
+; appending a key, so two objects that add the same keys in the same order
+; walk the same chain and arrive at the same shape without anything having to
+; know they are the same kind of object. A constructor that always assigns the
+; same fields in the same order -- which is what a class is -- therefore ends
+; up sharing one shape across every instance.
+class EvShape {
+    ; Keys in insertion order. JavaScript enumerates string keys that way, and
+    ; the array doubles as the shape's identity.
+    def atoms:[int]
+    ; atom -> index into the object's value array
+    def slotIx:[int:int]
+    ; atom -> the shape with that key appended. The transition tree.
+    def next:[int:EvShape]
+
+    sfn rootShape:EvShape () {
+        def r:EvShapeRoot (EvShapeRoot.__singleton())
+        return r.root
+    }
+    fn indexOf:int (ka:int) {
+        def f@(optional):int (get slotIx ka)
+        if f {
+            return (unwrap f)
+        }
+        return (0 - 1)
+    }
+    fn width:int () {
+        return (array_length atoms)
+    }
+    ; The shape with `ka` appended, minted once and cached. Copying the key
+    ; table here is O(width), but it happens once per DISTINCT shape rather
+    ; than once per object -- that is the whole trade.
+    fn transition:EvShape (ka:int) {
+        def f@(optional):EvShape (get next ka)
+        if f {
+            return (unwrap f)
+        }
+        def sh:EvShape (new EvShape())
+        def na:[int]
+        def ni:[int:int]
+        def i:int 0
+        while (i < (array_length atoms)) {
+            def a:int (itemAt atoms i)
+            push na a
+            set ni a i
+            i = (i + 1)
+        }
+        push na ka
+        set ni ka i
+        sh.atoms = na
+        sh.slotIx = ni
+        set next ka sh
+        return sh
+    }
+}
+
+class EvShapeRoot @singleton(true) {
+    ; The empty shape every object starts at. Shared, so an object with no
+    ; properties allocates no key table at all.
+    def root:EvShape (new EvShape())
 }
 
 class EvPropertyBag {
@@ -447,7 +528,13 @@ class EvPropertyBag {
     ; attributes -- and takes PRECEDENCE over this map, which is what lets a
     ; key move from here to there without a map-remove op (there is none; the
     ; removers below rebuild). A key is normally in exactly one of the two.
-    def values:[int:EvalValue]
+    def shape:EvShape (EvShape.rootShape())
+    ; Values, parallel to shape.atoms. A key that carries an accessor or
+    ; non-default attributes keeps a Hole here and its real slot in
+    ; rare.slots, so the shape still records where it sits in the order.
+    def slotValues:[EvalValue]
+    ; True once this bag has left shape mode; storage is rare.dictValues.
+    def dictMode:boolean false
     ; Accessors, non-default attributes and suppressed keys -- absent on an
     ; ordinary object. See EvBagRare.
     def rare@(optional):EvBagRare
@@ -463,7 +550,6 @@ class EvPropertyBag {
     ; compiler workload with hundreds of thousands of live objects that was
     ; hundreds of megabytes of duplicated key text. dataKeys maps the ids back
     ; through the atom table, which is a vector index.
-    def slotAtoms:[int]
     ; Number of keys in `slots`, maintained by every writer below. O(1)
     ; emptiness for the call-site inline cache (a generic map_length had no
     ; working lowering on every target).
@@ -485,10 +571,14 @@ class EvPropertyBag {
     def everHadAttrs:boolean false
 
     ; Record a key the first time this bag gets a slot for it. Every write
-    ; below funnels through here, so `slotAtoms` and `slots` cannot drift.
+    ; below funnels through here, so the layout and `slots` cannot drift.
+    ; Record a key the first time this bag sees it. The order list IS the
+    ; layout now, so a key that will live in rare.slots (an accessor, or data
+    ; with attributes) still takes a slot here -- holding a Hole -- to keep
+    ; its position in enumeration order.
     fn noteKey:void (ka:int key:string) {
         if (false == (this.hasKey(ka))) {
-            push slotAtoms ka
+            this.plainPut(ka (EvalValue.hole()))
         }
     }
     ; ---- the rare side, reached only when something actually needs it ----
@@ -540,21 +630,135 @@ class EvPropertyBag {
         r.suppressedKeys = m
     }
 
-    ; Does this bag carry the key at all, in either map?
+    ; ---- plain-data storage: shape mode, or dictionary once it must ------
+    ;
+    ; Every key this bag has ever been given, in insertion order. In shape
+    ; mode that is the shape's own key array, shared with every other object
+    ; of the same layout and costing this bag nothing.
+    fn keyAtoms:[int] () {
+        if dictMode {
+            if rare {
+                def r:EvBagRare (unwrap rare)
+                return r.dictAtoms
+            }
+            def none:[int]
+            return none
+        }
+        return shape.atoms
+    }
+    fn plainHas:boolean (ka:int) {
+        if dictMode {
+            if rare {
+                def r:EvBagRare (unwrap rare)
+                return (has r.dictValues ka)
+            }
+            return false
+        }
+        return ((shape.indexOf(ka)) >= 0)
+    }
+    ; The value, or Hole when the key is absent -- which is also what a key
+    ; present only as an accessor or an attrs placeholder answers, and callers
+    ; already read Hole as "no data property here".
+    fn plainGet:EvalValue (ka:int) {
+        if dictMode {
+            if rare {
+                def r:EvBagRare (unwrap rare)
+                def dv@(optional):EvalValue (get r.dictValues ka)
+                if dv {
+                    return (unwrap dv)
+                }
+            }
+            return (EvalValue.hole())
+        }
+        def ix:int (shape.indexOf(ka))
+        if (ix < 0) {
+            return (EvalValue.hole())
+        }
+        return (itemAt slotValues ix)
+    }
+    fn plainPut:void (ka:int v:EvalValue) {
+        if dictMode {
+            def r:EvBagRare (this.rareOf())
+            if (false == (has r.dictValues ka)) {
+                push r.dictAtoms ka
+            }
+            set r.dictValues ka v
+            return
+        }
+        def ix:int (shape.indexOf(ka))
+        if (ix >= 0) {
+            set_at slotValues ix v
+            return
+        }
+        ; A shape is shared only while objects of that layout keep appearing.
+        ; An object used as a DICTIONARY -- keys nobody else will add, in an
+        ; order nobody else will repeat -- would mint one shape per key and
+        ; each shape carries a copy of the key table, which is quadratic. Past
+        ; a width no real class reaches, stop.
+        if ((shape.width()) >= 128) {
+            this.toDictionary()
+            this.plainPut(ka v)
+            return
+        }
+        shape = (shape.transition(ka))
+        push slotValues v
+    }
+    ; Leave shape mode, keeping order and values. Deleting a key does this
+    ; too: a shape describes a key set that only grows, so a delete has no
+    ; transition to follow.
+    fn toDictionary:void () {
+        if dictMode {
+            return
+        }
+        def r:EvBagRare (this.rareOf())
+        def dv:[int:EvalValue]
+        def da:[int]
+        def i:int 0
+        while (i < (array_length slotValues)) {
+            def a:int (itemAt shape.atoms i)
+            push da a
+            set dv a (itemAt slotValues i)
+            i = (i + 1)
+        }
+        r.dictValues = dv
+        r.dictAtoms = da
+        dictMode = true
+        def empty:[EvalValue]
+        slotValues = empty
+        shape = (EvShape.rootShape())
+    }
+    fn plainDrop:void (ka:int) {
+        this.toDictionary()
+        def r:EvBagRare (this.rareOf())
+        def dv:[int:EvalValue]
+        def da:[int]
+        for r.dictAtoms a:int i {
+            if (a != ka) {
+                push da a
+                if (has r.dictValues a) {
+                    set dv a (unwrap (get r.dictValues a))
+                }
+            }
+        }
+        r.dictValues = dv
+        r.dictAtoms = da
+    }
+
+    ; Does this bag carry the key at all?
     fn hasKey:boolean (ka:int) {
         if (this.hasSlotAt(ka)) {
             return true
         }
-        return (has values ka)
+        return (this.plainHas(ka))
     }
-    ; The key's slot in the rare-shape form, materialising one for a plain
-    ; value. Only the cold paths (attributes, accessors) call this; the hot
-    ; reads go straight at `values` and never build a slot.
+    ; The key's slot in the rare form, materialising one for a plain value.
+    ; Only the cold paths (attributes, accessors) call this; the hot reads go
+    ; straight at the value array and never build a slot.
     fn slotOf:EvPropertySlot (ka:int) {
         if (this.hasSlotAt(ka)) {
             return (this.slotAt(ka))
         }
-        return (new EvPropertySlot.Data((unwrap (get values ka)) 7))
+        return (new EvPropertySlot.Data((this.plainGet(ka)) 7))
     }
     ; Rebuild without one key. There is no map-remove op, and these run only
     ; when a property changes SHAPE -- gaining an accessor or an attribute --
@@ -565,7 +769,7 @@ class EvPropertyBag {
         }
         def r:EvBagRare (unwrap rare)
         def rebuilt:[int:EvPropertySlot]
-        for slotAtoms a:int i {
+        for (this.keyAtoms()) a:int i {
             if (a != ka) {
                 if (has r.slots a) {
                     set rebuilt a (unwrap (get r.slots a))
@@ -574,25 +778,12 @@ class EvPropertyBag {
         }
         r.slots = rebuilt
     }
-    fn dropValue:void (ka:int) {
-        if (false == (has values ka)) {
-            return
-        }
-        def rebuilt:[int:EvalValue]
-        for slotAtoms a:int i {
-            if (a != ka) {
-                if (has values a) {
-                    set rebuilt a (unwrap (get values a))
-                }
-            }
-        }
-        values = rebuilt
-    }
     ; E4c: property-bag SoT. Value payload is EvalValue (avoids EvHandle import cycle).
     fn hasData:boolean (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        if (has values ka) {
-            if (false == (this.hasSlotAt(ka))) {
+        if (false == (this.hasSlotAt(ka))) {
+            def pv:EvalValue (this.plainGet(ka))
+            if (false == (EvalValue.isHole(pv))) {
                 return true
             }
         }
@@ -615,8 +806,9 @@ class EvPropertyBag {
     fn getData:EvalValue (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
         if (false == (this.hasSlotAt(ka))) {
-            if (has values ka) {
-                return (unwrap (get values ka))
+            def pv2:EvalValue (this.plainGet(ka))
+            if (false == (EvalValue.isHole(pv2))) {
+                return pv2
             }
             return (EvalValue.undefined())
         }
@@ -638,10 +830,7 @@ class EvPropertyBag {
     ; work happens once when the bytecode is built, never per access.
     fn dataOrHoleAtom:EvalValue (ka:int) {
         if (false == (this.hasSlotAt(ka))) {
-            if (has values ka) {
-                return (unwrap (get values ka))
-            }
-            return (EvalValue.hole())
+            return (this.plainGet(ka))
         }
         def slot:EvPropertySlot (this.slotAt(ka))
         case slot d:EvPropertySlot.Data {
@@ -652,10 +841,7 @@ class EvPropertyBag {
     fn dataOrHole:EvalValue (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
         if (false == (this.hasSlotAt(ka))) {
-            if (has values ka) {
-                return (unwrap (get values ka))
-            }
-            return (EvalValue.hole())
+            return (this.plainGet(ka))
         }
         def slot:EvPropertySlot (this.slotAt(ka))
         case slot d:EvPropertySlot.Data {
@@ -674,14 +860,16 @@ class EvPropertyBag {
             ; ordinary attributes, stored as the value itself. `slots` wins
             ; lookups, so a key that used to be an accessor has to leave it.
             this.dropSlot(ka)
-            set values ka value
+            this.plainPut(ka value)
             return
         }
         everHadAttrs = true
         ; Bind through the union type so Rust gets union_EvPropertySlot, not the
         ; bare case struct (same pattern as `def a:Value (new Value.Num(...))`).
         def slot:EvPropertySlot (new EvPropertySlot.Data(value attrs))
-        this.dropValue(ka)
+        ; The plain slot keeps whatever it held and stays shadowed --
+        ; rare.slots wins every lookup. Clearing it would only cost a shape
+        ; transition, and the key must keep its place in the layout anyway.
         this.setSlotAt(ka slot)
     }
     fn removeData:void (key:string) {
@@ -689,12 +877,10 @@ class EvPropertyBag {
         if (false == (this.hasKey(ka))) {
             return
         }
-        def rebuiltValues:[int:EvalValue]
-        def rebuiltAtoms:[int]
         if rare {
             def r:EvBagRare (unwrap rare)
             def rebuilt:[int:EvPropertySlot]
-            for slotAtoms nka:int idx {
+            for (this.keyAtoms()) nka:int idx {
                 if (nka != ka) {
                     if (has r.slots nka) {
                         set rebuilt nka (unwrap (get r.slots nka))
@@ -703,22 +889,15 @@ class EvPropertyBag {
             }
             r.slots = rebuilt
         }
-        for slotAtoms nka2:int idx2 {
-            if (nka2 != ka) {
-                if (has values nka2) {
-                    set rebuiltValues nka2 (unwrap (get values nka2))
-                }
-                push rebuiltAtoms nka2
-            }
-        }
-        values = rebuiltValues
-        slotAtoms = rebuiltAtoms
+        ; A shape only ever grows, so there is no transition that removes a
+        ; key: the object leaves shape mode here.
+        this.plainDrop(ka)
         slotCount = (slotCount - 1)
     }
     fn dataKeys:[string] () {
         def out:[string]
         def atoms:EvAtomTable (EvAtomTable.__singleton())
-        for slotAtoms ka:int idx {
+        for (this.keyAtoms()) ka:int idx {
             def nm:string (atoms.nameOf(ka))
             if (this.hasData(nm)) {
                 push out nm
@@ -762,7 +941,7 @@ class EvPropertyBag {
         ; Attributes are a rare shape. The stale plain value is left where it
         ; is rather than dropped here: `slots` wins every lookup, so it is
         ; already unreachable, and dropping it BEFORE the noteKey calls below
-        ; made the key look absent and pushed it into slotAtoms a second time
+        ; made the key look absent and added it to the layout a second time
         ; -- getOwnPropertyNames then listed it twice. removeData rebuilds
         ; both maps, so nothing accumulates.
         def slot:EvPropertySlot (this.slotOf(ka))
@@ -844,7 +1023,7 @@ class EvPropertyBag {
         }
         ; The plain value, if any, stays put and stays shadowed -- same
         ; reason as setAttrsOn: dropping it here would make the key look
-        ; absent to the noteKey below and duplicate it in slotAtoms.
+        ; absent to the noteKey below and duplicate it in the layout.
         def useAttrs:int attrs
         def s:EvalValue (EvalValue.hole())
         if (this.hasSlotAt(ka)) {
@@ -942,7 +1121,7 @@ class EvPropertyBag {
     fn getterKeys:[string] () {
         def out:[string]
         def atoms:EvAtomTable (EvAtomTable.__singleton())
-        for slotAtoms ka:int idx {
+        for (this.keyAtoms()) ka:int idx {
             def nm:string (atoms.nameOf(ka))
             if (this.hasGetter(nm)) {
                 push out nm
@@ -953,7 +1132,7 @@ class EvPropertyBag {
     fn setterKeys:[string] () {
         def out:[string]
         def atoms:EvAtomTable (EvAtomTable.__singleton())
-        for slotAtoms ka:int idx {
+        for (this.keyAtoms()) ka:int idx {
             def nm:string (atoms.nameOf(ka))
             if (this.hasSetter(nm)) {
                 push out nm
@@ -1221,16 +1400,17 @@ class EvGcHeap @singleton(true) {
 
     ; Every owning reference held by this bag, each named exactly once.
     fn bagChildren:void (bag:EvPropertyBag out:[EvalValue]) {
-        ; slotAtoms is this bag's insertion order and slots is keyed by atom
-        ; id; noteKey keeps them in step. If they have drifted, enumerate
+        ; The layout is this bag's insertion order and rare.slots is keyed by
+        ; atom id; noteKey keeps them in step. If they have drifted, enumerate
         ; nothing rather than risk naming one slot twice -- a key listed
         ; twice would subtract two counts for one reference and could free a
         ; value something live still holds. Reporting no edges only costs a
         ; missed collection.
-        if (bag.slotCount != (array_length bag.slotAtoms)) {
+        def bagKeys:[int] (bag.keyAtoms())
+        if (bag.slotCount != (array_length bagKeys)) {
             return
         }
-        for bag.slotAtoms ka:int idx {
+        for bagKeys ka:int idx {
             if (bag.hasSlotAt(ka)) {
                 def slot:EvPropertySlot (bag.slotAt(ka))
                 case slot d:EvPropertySlot.Data {
@@ -1244,8 +1424,9 @@ class EvGcHeap @singleton(true) {
                 ; `slots` wins lookups, so a plain value is an owning edge only
                 ; when no slot shadows it -- counting both would name one
                 ; reference twice, which is the one direction that is unsafe.
-                if (has bag.values ka) {
-                    push out (unwrap (get bag.values ka))
+                def bv:EvalValue (bag.plainGet(ka))
+                if (false == (EvalValue.isHole(bv))) {
+                    push out bv
                 }
             }
         }
@@ -1339,17 +1520,21 @@ class EvGcHeap @singleton(true) {
     }
 
     fn breakBag:void (bag:EvPropertyBag) {
-        def freshValues:[int:EvalValue]
-        def freshAtoms:[int]
         if bag.rare {
             def r:EvBagRare (unwrap bag.rare)
             def fresh:[int:EvPropertySlot]
             def freshSup:[string:boolean]
+            def freshDict:[int:EvalValue]
+            def freshDictAtoms:[int]
             r.slots = fresh
             r.suppressedKeys = freshSup
+            r.dictValues = freshDict
+            r.dictAtoms = freshDictAtoms
         }
-        bag.values = freshValues
-        bag.slotAtoms = freshAtoms
+        def freshValues:[EvalValue]
+        bag.slotValues = freshValues
+        bag.shape = (EvShape.rootShape())
+        bag.dictMode = false
         bag.slotCount = 0
         bag.prototype = (EvalValue.hole())
     }
@@ -1468,9 +1653,10 @@ class EvGcHeap @singleton(true) {
                         ; stored tens of thousands of times over and shape
                         ; sharing is the fix; if every one differs, it is not.
                         def sig:int ob.slotCount
+                        def obKeys:[int] (ob.keyAtoms())
                         def sj:int 0
-                        while (sj < (array_length ob.slotAtoms)) {
-                            sig = ((sig * 31) + (itemAt ob.slotAtoms sj))
+                        while (sj < (array_length obKeys)) {
+                            sig = ((sig * 31) + (itemAt obKeys sj))
                             sj = (sj + 1)
                         }
                         if (sig < 0) { sig = (0 - sig) }
@@ -1487,8 +1673,9 @@ class EvGcHeap @singleton(true) {
                                 def atoms2:EvAtomTable (EvAtomTable.__singleton())
                                 def samp2:string ""
                                 def sk:int 0
-                                while ((sk < (array_length ob.slotAtoms)) && (sk < 12)) {
-                                    samp2 = ((samp2 + (atoms2.nameOf((itemAt ob.slotAtoms sk)))) + " ")
+                                def tk:[int] (ob.keyAtoms())
+                                while ((sk < (array_length tk)) && (sk < 12)) {
+                                    samp2 = ((samp2 + (atoms2.nameOf((itemAt tk sk)))) + " ")
                                     sk = (sk + 1)
                                 }
                                 lastTopKeys = samp2
@@ -1503,8 +1690,9 @@ class EvGcHeap @singleton(true) {
                         def atoms:EvAtomTable (EvAtomTable.__singleton())
                         def sample:string ""
                         def si:int 0
-                        while ((si < (array_length ob.slotAtoms)) && (si < 14)) {
-                            sample = ((sample + (atoms.nameOf((itemAt ob.slotAtoms si)))) + " ")
+                        def wk:[int] (ob.keyAtoms())
+                        while ((si < (array_length wk)) && (si < 14)) {
+                            sample = ((sample + (atoms.nameOf((itemAt wk si)))) + " ")
                             si = (si + 1)
                         }
                         lastMaxKeys = sample
