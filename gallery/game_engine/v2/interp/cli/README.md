@@ -86,9 +86,13 @@ objects and arrays differently in `console.log` (`[1, 2, 3]` vs `1,2,3` vs
 `[ 1, 2, 3 ]`), so a case that prints an array reports a difference that is not a
 bug. Build the expected output with `String()`, `.join()` or `JSON.stringify`.
 
-Current state: 7 of 8 cases match Node byte for byte, including named regex
-capture groups and full microtask ordering. The one failure is `08_await_arg.js`
-— see *Known gaps* below.
+Current state: 6 of 8 cases match Node byte for byte, including named regex
+capture groups and most of the microtask ordering. Both failures —
+`08_await_arg.js` and `06_async.js` — are the *same* documented gap: `await` in
+argument position does not suspend, and `06_async.js` contains
+`results.push(await Promise.resolve(...))`. See *Known gaps* below. (This file
+previously claimed 7 of 8; `06_async.js` was miscounted, not regressed — a
+binary from before any of this branch's work fails it identically.)
 
 ## Measuring memory
 
@@ -347,53 +351,120 @@ constant factor is expected. Net of startup:
 
 | case | rangerjs | qjs | node | vs qjs |
 |---|---|---|---|---|
-| `06_string_ops` | 369 ms | 96 ms | 13 ms | **3.8×** |
-| `01_call_fib` | 407 ms | 52 ms | 4 ms | 7.8× |
-| `05_string_build` | 1278 ms | 111 ms | 14 ms | 11.5× |
-| `07_closures` | 1606 ms | 116 ms | 4 ms | 13.8× |
-| `09_regex` | 1925 ms | 118 ms | 4 ms | 16.3× |
-| `02_loop_arith` | 2981 ms | 159 ms | 11 ms | 18.7× |
-| `12_class_dispatch` | 5615 ms | 122 ms | 14 ms | 46× |
-| `03_object_props` | 8301 ms | 121 ms | 13 ms | 69× |
-| `04_array_ops` | 1575 ms | 21 ms | 6 ms | **75×** |
-| `10_map_set` | 1974 ms | 7 ms | 3 ms | **282×** |
-| `08_sort` | 4274 ms | 5 ms | 5 ms | **855×** |
-| `11_json` | 27938 ms | 22 ms | 6 ms | **1270×** |
+| `06_string_ops` | 347 ms | 99 ms | 12 ms | **3.5×** |
+| `11_json` | 87 ms | 21 ms | 4 ms | 4.1× |
+| `01_call_fib` | 432 ms | 53 ms | 4 ms | 8.2× |
+| `10_map_set` | 85 ms | 8 ms | 4 ms | 10.6× |
+| `05_string_build` | 1340 ms | 107 ms | 11 ms | 12.5× |
+| `07_closures` | 1678 ms | 124 ms | 5 ms | 13.5× |
+| `08_sort` | 73 ms | 5 ms | 5 ms | 14.6× |
+| `09_regex` | 1910 ms | 119 ms | 4 ms | 16.1× |
+| `02_loop_arith` | 3158 ms | 160 ms | 14 ms | 19.7× |
+| `04_array_ops` | 644 ms | 23 ms | 5 ms | 28× |
+| `12_class_dispatch` | 4777 ms | 120 ms | 17 ms | 40× |
+| `03_object_props` | 7781 ms | 127 ms | 9 ms | **61×** |
 
-The spread is the finding. Core interpretation sits at 4–20× QuickJS, which is
-roughly what an AST walker costs against a bytecode VM. The bottom four are a
-different phenomenon, and `bench-scaling.sh` says what it is.
+Core interpretation sits at 4–20× QuickJS, which is roughly what an AST walker
+costs against a bytecode VM. What used to sit far outside that band were five
+operations whose cost grew with the square of the input; `bench-scaling.sh`
+found them and they are now fixed.
 
-### Five operations are quadratic
+### The quadratics, and what each one was
 
-Ratio is against the previous N; ~2× per doubling is linear, ~4× is quadratic:
+Ratio is against the previous N: ~2× per doubling is linear, ~4× is quadratic.
+Before, and after the fixes below:
 
-| operation | N | N×2 | N×4 | verdict |
-|---|---|---|---|---|
-| `array.push` | 13 ms | 1.3× | 1.6× | linear |
-| **`a[i]` read** | 191 ms | **3.9×** | **4.2×** | **quadratic** |
-| **`a[i]` write** | 175 ms | **4.1×** | **4.4×** | **quadratic** |
-| **`Map.set`** | 644 ms | **3.9×** | **4.1×** | **quadratic** |
-| **`Set.add`** | 622 ms | **3.9×** | **3.9×** | **quadratic** |
-| `JSON.stringify` | 28 ms | 2.1× | 2.6× | linear |
-| **`JSON.parse`** | 886 ms | **4.1×** | **4.1×** | **quadratic** |
-| `o["k"+i] = i` | 24 ms | 1.9× | 3.2× | near-linear |
-| `s += "ab"` | 90 ms | 4.5× | 4.4× | quadratic — **but so is qjs** |
+| operation | before | after | verdict |
+|---|---|---|---|
+| `array.push` | 1.3× / 1.6× | 1.2× / 1.6× | linear |
+| `a[i]` read | **3.9× / 4.2×** | 1.8× / 1.9× | fixed |
+| `a[i]` write | **4.1× / 4.4×** | 1.8× / 2.1× | fixed |
+| `Map.set` | **3.9× / 4.1×** | 1.3× / 1.7× | fixed |
+| `Set.add` | **3.9× / 3.9×** | 1.4× / 1.6× | fixed |
+| `JSON.stringify` | 2.1× / 2.6× | 1.8× / 2.3× | linear |
+| `JSON.parse` | **4.1× / 4.1×** | 1.8× / 2.1× | fixed |
+| `o["k"+i] = i` | 1.9× / 3.2× | 1.5× / 3.1× | near-linear |
+| `s += "ab"` | 4.5× / 4.4× | 4.2× / 4.3× | quadratic — **but so is qjs** |
 
-Indexing an array is O(n), which makes it the most severe: it is the most
-basic operation a program has. `push` is linear, so the element store itself is
-fine; it is the indexed access path that scans.
+String concatenation is quadratic in QuickJS too (14 → 53 → 344 ms against
+98 → 414 → 1786 ms), so that one is inherent to building a string by repeated
+append without ropes, not an engine bug.
 
-String concatenation is quadratic in QuickJS too (13 → 53 → 345 ms), so that
-one is inherent to building a string by repeated append without ropes, not an
-engine bug.
+**`a[i]` — a hash table that rehashed on every insert.** Not pre-existing: it
+was introduced by the `rg_ordered_map` change earlier in this branch. `rehash_`
+sized the index vector to 1.5 × (n+1) while the insert path demanded
+2 × (n+1) before it was satisfied, so every single insert rehashed the whole
+table and `EvAtomTable.idOf` — which is on the path of every indexed access,
+because the index is interned as a property key — became O(n) per lookup. Both
+sides are now a 0.75 load factor. **An earlier commit message and an earlier
+version of this file called this one "pre-existing", which was wrong**: the
+"before hidden classes" binary used to check that was built from
+`SHAPE_COMMIT~1`, a commit that *already contained* the map change, so it
+reproduced the same bug and looked like a confirmation.
 
-**These are pre-existing and native-tier only.** Verified both ways: the same
-probe on the es6 build is linear (255 → 289 → 381 ms across a 4× range), and a
-native binary built from the commit *before* hidden classes is equally
-quadratic (215 → 846 → 3159 ms). So it is neither a regression from the
-memory work nor visible when the engine is measured under Node — which is the
-argument for having this CLI at all.
+**`Map.set` / `Set.add` — a linear scan per key.** Every insert compared the
+new key against every existing entry. Both collections now carry a
+`[string:int]` index from a key *tag* to the entry position, where the tag
+renders SameValueZero exactly (`"n0"` for both zeroes, `"n"`+value for other
+numbers, `"s"`+text for strings, `"r"`+identity for references, and the empty
+tag for anything that must still be compared by scan). 10054 ms → 30 ms and
+9330 ms → 26 ms on the benchmark.
+
+**`JSON.parse` — `substring` walks code points from byte 0.** The scanner steps
+one character at a time, and each step re-walked the document from its first
+byte, so parsing was O(n²) in the length of the text. A JSON document is ASCII
+by construction (the grammar escapes everything else), and for ASCII the
+code-point index *is* the byte index, so `jsonParse` now decides once whether
+the text can be cut by byte offset and the whole scanner goes through one
+`jsonSlice`. 400 s (a timeout) → 87 ms. `substringUnitsOf` also stopped
+materialising a code-point array just to measure it.
+
+**`sort` — an insertion sort, and every comparison is an interpreted call.**
+`Array.prototype.sort` and `toSorted` were O(n²) *comparator invocations*, so
+ordering 3000 numbers ran about 4.5 million times through the evaluator. Both
+are now a bottom-up stable merge sort — O(n log n) calls, ~35 thousand for the
+same array, and stability is required by the spec since ES2019. 4580 ms →
+73 ms, and the scaling is n log n (1500/3000/6000 elements: 7/16/39 ms).
+
+### A memo keyed on a pointer is not a memo
+
+Fixing the above surfaced a correctness bug in an optimisation from earlier in
+this branch. `str_is_ascii` cached its answer in a small table keyed on the
+string's buffer *address* and length — the same shape of cache
+`r_utf8_char_at` uses for its resume point. An address is not an identity: the
+interpreter materialises a fresh copy of the receiver on every string built-in
+(`def s:string (this.toStringOf(...))`), and each copy is freed before the next
+is made, so the next copy lands on the same address with the same length and
+inherits the previous string's answer.
+
+That is not a rare race — it is the mechanism by which the cache appeared to
+work at all. It made `'Straße'.localeCompare('Strasse')` answer `1` or `-1`
+depending only on what ran before it, so `['Straße','Strasse'].sort()` and
+`['Strasse','Straße'].sort()` disagreed. The `uni-coll-total-order` conformance
+probe exists to catch exactly this and did, once the native binary was rebuilt.
+
+The memo is gone. The scan is now honest and blocked — 4 KB at a time, OR-ing
+a block together and testing the high bits once, so the inner loop vectorises
+and a non-ASCII byte early in a long string still stops early. Correctness cost
+about 10%: a 400 KB `charCodeAt` sweep goes 10.2 s → 11.3 s, against 60.6 s for
+the naive byte-at-a-time scan the cache originally replaced.
+
+**Two caches of the same shape are still in the tree** — `r_utf8_char_at`'s
+resume point and `rg_u16_seek`'s — and they carry the same hazard for the same
+reason. No probe has caught them yet, which is not evidence that they are safe.
+The real fix for all three is the one below.
+
+### The next thing to fix: the receiver is copied per call
+
+`s.charCodeAt(i)` in a loop is superlinear even with everything above fixed
+(25k/50k/100k characters: 82 / 230 / 715 ms). Every `String.prototype` method
+begins by materialising its receiver into a fresh `std::string`, so a method
+call on a 400 KB string copies 400 KB before it does anything. That single
+copy is what makes string scanning quadratic, *and* it is what recycles buffer
+addresses fast enough to make pointer-keyed memos return other strings'
+answers. Removing it fixes a correctness bug and a performance bug at once, and
+would let the ASCII flag live on the string value — where it is sound — instead
+of in a side table.
 
 Hidden classes cost 8–16% on property-heavy cases (`03_object_props` 7730 →
 8341 ms, `12_class_dispatch` 5322 → 6150 ms) and 1–3% elsewhere, matching the
@@ -478,9 +549,23 @@ to be checked too — which is why this is written down rather than done here.
   observed out of order. This is a known, documented limitation, not a new
   find — `genSpineOk` in `ComponentEngine.rgr` refuses `k == 4` (CallExpression)
   on the resumable path and falls back to the eager one. `08_await_arg.js` pins
-  it so it is visible whenever the harness runs. `await` bound to a variable is
-  correct.
+  it so it is visible whenever the harness runs. `06_async.js` fails for the
+  same reason (`results.push(await Promise.resolve(n * 2))`). `await` bound to
+  a variable is correct.
 - Cycles through a closure scope still leak; see the limits above.
+- **Two pointer-keyed memos remain** — `r_utf8_char_at`'s resume point and
+  `rg_u16_seek`'s — keyed on a `std::string`'s buffer address, which the
+  interpreter recycles constantly because every string built-in copies its
+  receiver. `str_is_ascii` had the same cache and it demonstrably returned
+  other strings' answers; these two have not been caught doing it, which is not
+  the same as being safe. See *A memo keyed on a pointer is not a memo* above.
+- **The Rust target does not build.** `TARGETS=rust npm run jsengine:build`
+  fails with eight type errors in generated code, all in the hidden-class work
+  (`slotValues` assignment, `setSuppressed` taking `&[bool]` where the map is
+  `RgOrderedMap<String, bool>`) plus a `byteSlice` returning `"".clone()`.
+  These are code-generation gaps in the Rust writer, not engine logic; the
+  binary in `bin/rust/` predates the shape work, so `jsengine:conformance`
+  reports a rust score that no longer corresponds to the source.
 - `print` is not defined (QuickJS has it); use `console.log`.
 
 ## Continuing this work

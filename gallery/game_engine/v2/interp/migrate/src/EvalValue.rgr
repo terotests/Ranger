@@ -190,9 +190,17 @@ shape EvalValue {
     }
     case Map does PropertyCarrier {
         def entries:[EvMapEntry]
+        ; SameValueZero key -> index into `entries`. Without it every set/get/
+        ; has scanned the entries, so building a Map was quadratic: 16,000
+        ; inserts took 10 seconds against QuickJS's 15 milliseconds.
+        ; Empty for a key kind the tag function cannot render, and the scan is
+        ; still there as the fallback.
+        def keyIx:[string:int]
     }
     case Set does PropertyCarrier {
         def items:[EvalValue]
+        ; Same as Map.keyIx.
+        def itemIx:[string:int]
     }
     case Element does Reference {
         def element:EvElement
@@ -282,7 +290,8 @@ shape EvalValue {
         ; Bind the empty literal — Rust case ctors drop a bare `([] _:T ())`
         ; argument (ISSUES / empty typed array as ctor arg).
         def entries:[EvMapEntry]
-        return (EvGcHeap.registered((new EvalValue.Map(id props entries))))
+        def kix:[string:int]
+        return (EvGcHeap.registered((new EvalValue.Map(id props entries kix))))
     }
     sfn setEmpty:EvalValue () {
         return (EvalValue.setEmptyAt(0))
@@ -290,7 +299,8 @@ shape EvalValue {
     sfn setEmptyAt:EvalValue (id:int) {
         def props:EvPropertyBag (EvalValue.sharedBag())
         def items:[EvalValue]
-        return (EvGcHeap.registered((new EvalValue.Set(id props items))))
+        def iix:[string:int]
+        return (EvGcHeap.registered((new EvalValue.Set(id props items iix))))
     }
     sfn functionStub:EvalValue (name:string) {
         return (EvalValue.functionStubAt(0 name))

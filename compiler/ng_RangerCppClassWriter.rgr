@@ -2100,7 +2100,12 @@ class RangerCppClassWriter {
       wr.out("            return;" true)
       wr.out("        }" true)
       wr.out("        size_t cap = 16;" true)
-      wr.out("        while (cap * 2 < (entries.size() + 1) * 3) { cap <<= 1; }" true)
+      ; cap >= (n+1) * 4/3, i.e. a load factor of 0.75. This MUST agree with
+      ; the regrow test in operator[] below: sizing the table to 1.5(n+1) while
+      ; the test asked for 2(n+1) meant the test was true again the instant the
+      ; rehash finished, so every insert rehashed the whole table and building
+      ; a map became quadratic.
+      wr.out("        while (cap * 3 < (entries.size() + 1) * 4) { cap <<= 1; }" true)
       wr.out("        index_.assign(cap, -1);" true)
       wr.out("        for (size_t i = 0; i < entries.size(); i++) {" true)
       wr.out("            size_t h = rg_key_hash<K>{}(entries[i].first) & (cap - 1);" true)
@@ -2163,7 +2168,8 @@ class RangerCppClassWriter {
       wr.out("        int32_t s = slot_(k);" true)
       wr.out("        if (s != -1) { return entries[(size_t)s].second; }" true)
       wr.out("        entries.push_back(std::make_pair(k, V()));" true)
-      wr.out("        if (index_.empty() || (entries.size() + 1) * 2 > index_.size()) {" true)
+      ; The same 0.75 as rehash_ sizes to -- see the note there.
+      wr.out("        if (index_.empty() || (entries.size() + 1) * 4 > index_.size() * 3) {" true)
       wr.out("            rehash_();" true)
       wr.out("        } else {" true)
       wr.out("            size_t mask = index_.size() - 1;" true)

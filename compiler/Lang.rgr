@@ -4250,19 +4250,30 @@ std::string r_byte_substr(const std::string& s, int a, int b)
 (create_polyfill "
 bool r_str_is_ascii(const std::string& s)
 {
-    struct Ent { const char* data; size_t len; bool val; };
-    static thread_local Ent cache[8] = {};
+    // NO cross-call memo. The only key a polyfill has for a std::string is its
+    // buffer ADDRESS, and an address is not an identity: a caller that hands
+    // this a fresh copy per call -- which the interpreter does, every string
+    // built-in materialises its receiver -- frees each copy before making the
+    // next, so the next one lands on the SAME address with the SAME length and
+    // inherits the previous string's answer. A pointer-keyed table made
+    // 'Straße'.localeCompare('Strasse') answer 1 or -1 depending only on what
+    // ran before it, so Array#sort put the same two strings in different
+    // orders depending on which came first. Eight bytes per iteration keeps an
+    // honest scan cheap: the high bit of every byte in a word at once.
     const char* d = s.data();
     size_t n = s.length();
-    size_t slot = ((size_t) d / 16 + n) & 7;
-    Ent& e = cache[slot];
-    if (e.data == d && e.len == n) return e.val;
-    bool a = true;
-    for (size_t i = 0; i < n; i++) {
-        if ((unsigned char) s[i] > 127) { a = false; break; }
+    size_t i = 0;
+    while (i < n) {
+        // OR a block together and test the high bits once: no branch per byte,
+        // so the block loop vectorises. Blocked rather than whole-string so a
+        // non-ASCII byte early in a long string still stops early.
+        size_t end = i + 4096;
+        if (end > n) { end = n; }
+        unsigned char m = 0;
+        for (; i < end; i++) { m = (unsigned char)(m | (unsigned char) d[i]); }
+        if (m & 0x80) { return false; }
     }
-    e.data = d; e.len = n; e.val = a;
-    return a;
+    return true;
 }
 ")
                 )

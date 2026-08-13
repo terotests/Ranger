@@ -2747,10 +2747,53 @@ class EvHandle {
     }
 
     ; ---- Map helpers: SoT on body.Map.entries (EvMapEntry key/value) ----
+    ; A Map/Set key rendered as a string, following SameValueZero: strings and
+    ; numbers compare by value, everything else by identity. "" means "cannot
+    ; render this kind", and the caller falls back to scanning.
+    ;
+    ; +0 and -0 are the SAME key, so zero is normalised; NaN is its own key,
+    ; which it gets for free because every NaN renders alike.
+    sfn keyTag:string (k:EvHandle) {
+        if (k.isString()) {
+            return ("s" + (k.stringOf()))
+        }
+        if (k.isNumber()) {
+            def d:double (k.toNumber())
+            if (d == 0.0) {
+                return "n0"
+            }
+            return ("n" + (to_string d))
+        }
+        if (k.isBoolean()) {
+            if (k.boolOf()) {
+                return "bt"
+            }
+            return "bf"
+        }
+        if (k.isNull()) {
+            return "z"
+        }
+        if (k.isUndefined()) {
+            return "u"
+        }
+        def id:int (k.identityIdOf())
+        if (id > 0) {
+            return ("r" + (to_string id))
+        }
+        return ""
+    }
     fn mapIndexOfKey:int (key:EvHandle) {
         def _k:EvalValue body
+        def tag:string (EvHandle.keyTag(key))
         if (EvalValue.isMap(_k)) {
             case _k m:EvalValue.Map {
+                if ((strlen tag) > 0) {
+                    def hit@(optional):int (get m.keyIx tag)
+                    if hit {
+                        return (unwrap hit)
+                    }
+                    return (0 - 1)
+                }
                 def i:int 0
                 while (i < (array_length m.entries)) {
                     def e:EvMapEntry (itemAt m.entries i)
@@ -2783,7 +2826,12 @@ class EvHandle {
                 def ne:EvMapEntry (new EvMapEntry())
                 ne.key = kStored
                 ne.value = vStored
+                def newIx:int (array_length m.entries)
                 push m.entries ne
+                def tagS:string (EvHandle.keyTag(key))
+                if ((strlen tagS) > 0) {
+                    set m.keyIx tagS newIx
+                }
             }
         }
     }
@@ -2812,7 +2860,20 @@ class EvHandle {
                 }
                 i = (i + 1)
             }
-            body = (new EvalValue.Map(m.identityId m.properties rebuilt))
+            ; Every index after the hole moves, so the whole index is rebuilt
+            ; rather than patched.
+            def reIx:[string:int]
+            def r:int 0
+            while (r < (array_length rebuilt)) {
+                def re:EvMapEntry (itemAt rebuilt r)
+                def rk:EvHandle (EvHandle.fromBody((unwrap re.key)))
+                def rt:string (EvHandle.keyTag(rk))
+                if ((strlen rt) > 0) {
+                    set reIx rt r
+                }
+                r = (r + 1)
+            }
+            body = (new EvalValue.Map(m.identityId m.properties rebuilt reIx))
         }
         return true
     }
@@ -2828,13 +2889,22 @@ class EvHandle {
         }
         case _k st:EvalValue.Set {
             ; In place — see mapSet; the rebuild made every Set#add O(n).
+            def newIx:int (array_length st.items)
             push st.items (value.toStored())
+            def tagA:string (EvHandle.keyTag(value))
+            if ((strlen tagA) > 0) {
+                set st.itemIx tagA newIx
+            }
         }
     }
     fn setHas:boolean (value:EvHandle) {
         def _k:EvalValue body
         if (EvalValue.isSet(_k)) {
             case _k st:EvalValue.Set {
+                def tagH:string (EvHandle.keyTag(value))
+                if ((strlen tagH) > 0) {
+                    return (has st.itemIx tagH)
+                }
                 def i:int 0
                 while (i < (array_length st.items)) {
                     def el:EvHandle (EvHandle.fromBody((itemAt st.items i)))
@@ -2873,7 +2943,17 @@ class EvHandle {
                 }
                 j = (j + 1)
             }
-            body = (new EvalValue.Set(st.identityId st.properties rebuilt))
+            def reIx2:[string:int]
+            def r2:int 0
+            while (r2 < (array_length rebuilt)) {
+                def rel:EvHandle (EvHandle.fromBody((itemAt rebuilt r2)))
+                def rt2:string (EvHandle.keyTag(rel))
+                if ((strlen rt2) > 0) {
+                    set reIx2 rt2 r2
+                }
+                r2 = (r2 + 1)
+            }
+            body = (new EvalValue.Set(st.identityId st.properties rebuilt reIx2))
             return true
         }
         return false
@@ -2883,14 +2963,16 @@ class EvHandle {
         if (EvalValue.isMap(_k)) {
             case _k m:EvalValue.Map {
                 def emptyE:[EvMapEntry]
-                body = (new EvalValue.Map(m.identityId m.properties emptyE))
+                def emptyKx:[string:int]
+                body = (new EvalValue.Map(m.identityId m.properties emptyE emptyKx))
             }
             return
         }
         if (EvalValue.isSet(_k)) {
             case _k st:EvalValue.Set {
                 def emptyI:[EvalValue]
-                body = (new EvalValue.Set(st.identityId st.properties emptyI))
+                def emptyIx:[string:int]
+                body = (new EvalValue.Set(st.identityId st.properties emptyI emptyIx))
             }
         }
     }

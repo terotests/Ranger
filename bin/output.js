@@ -23312,7 +23312,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 wr.out("            return;", true);
                 wr.out("        }", true);
                 wr.out("        size_t cap = 16;", true);
-                wr.out("        while (cap * 2 < (entries.size() + 1) * 3) { cap <<= 1; }", true);
+                wr.out("        while (cap * 3 < (entries.size() + 1) * 4) { cap <<= 1; }", true);
                 wr.out("        index_.assign(cap, -1);", true);
                 wr.out("        for (size_t i = 0; i < entries.size(); i++) {", true);
                 wr.out("            size_t h = rg_key_hash<K>{}(entries[i].first) & (cap - 1);", true);
@@ -23375,7 +23375,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 wr.out("        int32_t s = slot_(k);", true);
                 wr.out("        if (s != -1) { return entries[(size_t)s].second; }", true);
                 wr.out("        entries.push_back(std::make_pair(k, V()));", true);
-                wr.out("        if (index_.empty() || (entries.size() + 1) * 2 > index_.size()) {", true);
+                wr.out("        if (index_.empty() || (entries.size() + 1) * 4 > index_.size() * 3) {", true);
                 wr.out("            rehash_();", true);
                 wr.out("        } else {", true);
                 wr.out("            size_t mask = index_.size() - 1;", true);
