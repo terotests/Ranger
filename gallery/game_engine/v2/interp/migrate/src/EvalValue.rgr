@@ -418,6 +418,23 @@ class EvAtomTable @singleton(true) {
 }
 
 class EvPropertyBag {
+    ; A PLAIN data property -- default attributes, ordinary value -- stored as
+    ; the value itself, keyed by atom id.
+    ;
+    ; This is where an interpreted object's memory actually goes. Everything
+    ; used to live in `slots` as an EvPropertySlot, and a slot is a separately
+    ; allocated object behind a pointer, so one property cost a map entry with
+    ; a pointer in it PLUS a heap block PLUS its reference-count control block
+    ; -- around 150 bytes for what is a 48-byte value. Measured on a compiler
+    ; workload: 8.7 million live property slots, about 1.3 GB, on 612,000
+    ; objects. Storing the value inline in the map removes the allocation, the
+    ; control block and the indirection.
+    ;
+    ; `slots` keeps the rare shapes -- accessors, and data with non-default
+    ; attributes -- and takes PRECEDENCE over this map, which is what lets a
+    ; key move from here to there without a map-remove op (there is none; the
+    ; removers below rebuild). A key is normally in exactly one of the two.
+    def values:[int:EvalValue]
     ; keyed by EvAtomTable id, not by name -- see EvAtomTable
     def slots:[int:EvPropertySlot]
     ; The keys, in insertion order. JavaScript enumerates string keys in the
@@ -460,13 +477,65 @@ class EvPropertyBag {
     ; Record a key the first time this bag gets a slot for it. Every write
     ; below funnels through here, so `slotAtoms` and `slots` cannot drift.
     fn noteKey:void (ka:int key:string) {
-        if (false == (has slots ka)) {
+        if (false == (this.hasKey(ka))) {
             push slotAtoms ka
         }
+    }
+    ; Does this bag carry the key at all, in either map?
+    fn hasKey:boolean (ka:int) {
+        if (has slots ka) {
+            return true
+        }
+        return (has values ka)
+    }
+    ; The key's slot in the rare-shape form, materialising one for a plain
+    ; value. Only the cold paths (attributes, accessors) call this; the hot
+    ; reads go straight at `values` and never build a slot.
+    fn slotOf:EvPropertySlot (ka:int) {
+        if (has slots ka) {
+            return (unwrap (get slots ka))
+        }
+        return (new EvPropertySlot.Data((unwrap (get values ka)) 7))
+    }
+    ; Rebuild without one key. There is no map-remove op, and these run only
+    ; when a property changes SHAPE -- gaining an accessor or an attribute --
+    ; which is rare enough that a rebuild is cheaper than carrying tombstones.
+    fn dropSlot:void (ka:int) {
+        if (false == (has slots ka)) {
+            return
+        }
+        def rebuilt:[int:EvPropertySlot]
+        for slotAtoms a:int i {
+            if (a != ka) {
+                if (has slots a) {
+                    set rebuilt a (unwrap (get slots a))
+                }
+            }
+        }
+        slots = rebuilt
+    }
+    fn dropValue:void (ka:int) {
+        if (false == (has values ka)) {
+            return
+        }
+        def rebuilt:[int:EvalValue]
+        for slotAtoms a:int i {
+            if (a != ka) {
+                if (has values a) {
+                    set rebuilt a (unwrap (get values a))
+                }
+            }
+        }
+        values = rebuilt
     }
     ; E4c: property-bag SoT. Value payload is EvalValue (avoids EvHandle import cycle).
     fn hasData:boolean (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
+        if (has values ka) {
+            if (false == (has slots ka)) {
+                return true
+            }
+        }
         if (false == (has slots ka)) {
             return false
         }
@@ -485,6 +554,12 @@ class EvPropertyBag {
     }
     fn getData:EvalValue (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
+        if (false == (has slots ka)) {
+            if (has values ka) {
+                return (unwrap (get values ka))
+            }
+            return (EvalValue.undefined())
+        }
         def slot:EvPropertySlot (unwrap (get slots ka))
         case slot d:EvPropertySlot.Data {
             ; Case field typed as a shape without a default is optional at the
@@ -503,6 +578,9 @@ class EvPropertyBag {
     ; work happens once when the bytecode is built, never per access.
     fn dataOrHoleAtom:EvalValue (ka:int) {
         if (false == (has slots ka)) {
+            if (has values ka) {
+                return (unwrap (get values ka))
+            }
             return (EvalValue.hole())
         }
         def slot:EvPropertySlot (unwrap (get slots ka))
@@ -514,6 +592,9 @@ class EvPropertyBag {
     fn dataOrHole:EvalValue (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
         if (false == (has slots ka)) {
+            if (has values ka) {
+                return (unwrap (get values ka))
+            }
             return (EvalValue.hole())
         }
         def slot:EvPropertySlot (unwrap (get slots ka))
@@ -524,32 +605,46 @@ class EvPropertyBag {
     }
     fn putData:void (key:string value:EvalValue attrs:int) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        if (false == (has slots ka)) {
+        if (false == (this.hasKey(ka))) {
             slotCount = (slotCount + 1)
         }
-        if (attrs != 7) {
-            everHadAttrs = true
+        this.noteKey(ka key)
+        if (attrs == 7) {
+            ; The common case by a wide margin: an ordinary property with
+            ; ordinary attributes, stored as the value itself. `slots` wins
+            ; lookups, so a key that used to be an accessor has to leave it.
+            this.dropSlot(ka)
+            set values ka value
+            return
         }
+        everHadAttrs = true
         ; Bind through the union type so Rust gets union_EvPropertySlot, not the
         ; bare case struct (same pattern as `def a:Value (new Value.Num(...))`).
         def slot:EvPropertySlot (new EvPropertySlot.Data(value attrs))
-        this.noteKey(ka key)
+        this.dropValue(ka)
         set slots ka slot
     }
     fn removeData:void (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        if (false == (has slots ka)) {
+        if (false == (this.hasKey(ka))) {
             return
         }
         def rebuilt:[int:EvPropertySlot]
+        def rebuiltValues:[int:EvalValue]
         def rebuiltAtoms:[int]
         for slotAtoms nka:int idx {
             if (nka != ka) {
-                set rebuilt nka (unwrap (get slots nka))
+                if (has slots nka) {
+                    set rebuilt nka (unwrap (get slots nka))
+                }
+                if (has values nka) {
+                    set rebuiltValues nka (unwrap (get values nka))
+                }
                 push rebuiltAtoms nka
             }
         }
         slots = rebuilt
+        values = rebuiltValues
         slotAtoms = rebuiltAtoms
         slotCount = (slotCount - 1)
     }
@@ -567,11 +662,13 @@ class EvPropertyBag {
 
     fn hasSlot:boolean (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        return (has slots ka)
+        return (this.hasKey(ka))
     }
     fn attrsOf:int (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
         if (false == (has slots ka)) {
+            ; A plain value carries the default attributes by construction,
+            ; and so does an absent key.
             return 7
         }
         def slot:EvPropertySlot (unwrap (get slots ka))
@@ -586,7 +683,7 @@ class EvPropertyBag {
     fn setAttrsOn:void (key:string attrs:int) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
         everHadAttrs = true
-        if (false == (has slots ka)) {
+        if (false == (this.hasKey(ka))) {
             ; Attribute bits without a value — Hole placeholder so hasData is
             ; false (must not shadow array dense indexes / inherited reads).
             def slot0:EvPropertySlot (new EvPropertySlot.Data((EvalValue.hole()) attrs))
@@ -595,7 +692,13 @@ class EvPropertyBag {
             set slots ka slot0
             return
         }
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        ; Attributes are a rare shape. The stale plain value is left where it
+        ; is rather than dropped here: `slots` wins every lookup, so it is
+        ; already unreachable, and dropping it BEFORE the noteKey calls below
+        ; made the key look absent and pushed it into slotAtoms a second time
+        ; -- getOwnPropertyNames then listed it twice. removeData rebuilds
+        ; both maps, so nothing accumulates.
+        def slot:EvPropertySlot (this.slotOf(ka))
         case slot d:EvPropertySlot.Data {
             def slotD:EvPropertySlot (new EvPropertySlot.Data((unwrap d.value) attrs))
             this.noteKey(ka key)
@@ -669,9 +772,12 @@ class EvPropertyBag {
     fn putGetter:void (key:string g:EvalValue attrs:int) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
         everHadAccessor = true
-        if (false == (has slots ka)) {
+        if (false == (this.hasKey(ka))) {
             slotCount = (slotCount + 1)
         }
+        ; The plain value, if any, stays put and stays shadowed -- same
+        ; reason as setAttrsOn: dropping it here would make the key look
+        ; absent to the noteKey below and duplicate it in slotAtoms.
         def useAttrs:int attrs
         def s:EvalValue (EvalValue.hole())
         if (has slots ka) {
@@ -691,7 +797,7 @@ class EvPropertyBag {
     fn putSetter:void (key:string s:EvalValue attrs:int) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
         everHadAccessor = true
-        if (false == (has slots ka)) {
+        if (false == (this.hasKey(ka))) {
             slotCount = (slotCount + 1)
         }
         def useAttrs:int attrs
@@ -1009,6 +1115,13 @@ class EvGcHeap @singleton(true) {
                     push out ac.getter
                     push out ac.setter
                 }
+            } {
+                ; `slots` wins lookups, so a plain value is an owning edge only
+                ; when no slot shadows it -- counting both would name one
+                ; reference twice, which is the one direction that is unsafe.
+                if (has bag.values ka) {
+                    push out (unwrap (get bag.values ka))
+                }
             }
         }
         push out bag.prototype
@@ -1102,8 +1215,10 @@ class EvGcHeap @singleton(true) {
 
     fn breakBag:void (bag:EvPropertyBag) {
         def fresh:[int:EvPropertySlot]
+        def freshValues:[int:EvalValue]
         def freshAtoms:[int]
         bag.slots = fresh
+        bag.values = freshValues
         bag.slotAtoms = freshAtoms
         bag.slotCount = 0
         bag.prototype = (EvalValue.hole())
