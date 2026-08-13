@@ -4194,6 +4194,42 @@ bool r_mem_trim() { return false; }
             }
         }
 
+        ; A slice by BYTE offsets. `substring` counts code points on the
+        ; native targets, so byte-range work had to be done a character at a
+        ; time; that showed up as 403,000 calls and 51 GB of allocation churn
+        ; building one byte range. Returns "" where the target cannot do it,
+        ; and the caller keeps its loop -- the empty answer is never mistaken
+        ; for a real slice because the caller checks the capability first.
+        byte_substring  cmdByteSubstring:string ( text:string start:int end:int ) {
+            templates {
+                ranger ( "(byte_substring " (e 1) " " (e 2) " " (e 3) ")")
+                cpp ( "r_byte_substr(" (e 1) ", " (e 2) ", " (e 3) ")"
+(create_polyfill "
+std::string r_byte_substr(const std::string& s, int a, int b)
+{
+    int n = (int) s.length();
+    if (a < 0) a = 0;
+    if (b > n) b = n;
+    if (b <= a) return std::string();
+    return s.substr((size_t) a, (size_t)(b - a));
+}
+")
+                )
+                * ( "\"\"" )
+            }
+        }
+
+        ; Can this target slice by byte offset at all? Kept separate from
+        ; byte_substring so an empty slice and an unsupported one are not the
+        ; same answer.
+        has_byte_substring cmdHasByteSubstring:boolean () {
+            templates {
+                ranger ( "(has_byte_substring)")
+                cpp ( "true" )
+                * ( "false" )
+            }
+        }
+
         str_is_ascii    cmdStrIsAscii:boolean   ( text:string ) {
             templates {
                 ranger ( "(str_is_ascii " (e 1) ")")

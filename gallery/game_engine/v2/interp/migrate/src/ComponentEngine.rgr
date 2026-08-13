@@ -39290,6 +39290,13 @@ class ComponentEngine {
     }
 
     fn byteSlice:string (s:string i:int j:int) {
+        ; One slice where the target can do it. The loop below appends a
+        ; character at a time, which is O(n^2) in the slice length and was
+        ; measured at 403,000 calls and 51 GB of allocation churn on a single
+        ; compile.
+        if (has_byte_substring) {
+            return (byte_substring s i j)
+        }
         def out:string ""
         def k:int i
         def n:int (strlen s)
