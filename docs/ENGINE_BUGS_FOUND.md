@@ -251,3 +251,37 @@ changing the outcome.
 What *is* established: the engine runs the compiler correctly and compiles real
 programs to byte-identical output. Whether the compiler's own 5 MB working set
 fits is a question about the engine's memory model, not its correctness.
+
+---
+
+## A note on measuring engine memory and speed
+
+The engine has three targets — es6, C++ and Rust — and **a measurement taken
+under Node measures V8, not the engine.** Two examples from this work, one
+that survived the check and one that did not:
+
+- **Atom ids starting high** (bug 15 above) is a real fix, but only for es6:
+  it exists because V8 backs integer-keyed object properties with a *dense*
+  array. On C++ and Rust the map is a hash map where the key's numeric value
+  is irrelevant. Measured: identical 192.4 MB on C++ with the offset and
+  without it. So it costs the native targets nothing, which is why it stands.
+
+- **Re-keying the property bag by property NAME** looked compelling under
+  Node — 16 % less memory and 3.2x faster property reads, because V8 interns
+  strings and gives named properties a compact backing store. On the native
+  targets the same change was a LOSS: 192.4 -> 210.7 MB on C++ and
+  214.9 -> 254.8 MB on Rust, since hashing a string costs more than hashing
+  an int when there is no JIT interning them. It was dropped.
+
+The general shape: V8's optimiser and its object model hide costs the native
+targets pay, and pay costs the native targets do not have. Anything claiming
+to be a memory or speed improvement should be measured on the C++ target at
+least, and a change that helps one target and hurts another should be
+recognised as target-specific rather than an improvement.
+
+For reference, the same 200k three-property-object workload:
+
+| target | peak RSS |
+|---|---|
+| C++ | 192.4 MB |
+| Rust | 215.0 MB |
