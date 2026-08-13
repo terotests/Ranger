@@ -417,6 +417,19 @@ class EvAtomTable @singleton(true) {
     }
 }
 
+; The parts of a property bag almost no object has. Held behind one optional
+; pointer so an ordinary object does not carry them: two ordered maps are 96
+; of the bag's 216 bytes, and with ~619,000 live bags on a compile that is
+; most of a hundred megabytes of empty containers.
+;
+; `slots` became rare when plain data moved into `values` -- it now holds only
+; accessors and properties with non-default attributes. `suppressedKeys`
+; records deleted synthesised keys and is rarer still.
+class EvBagRare {
+    def slots:[int:EvPropertySlot]
+    def suppressedKeys:[string:boolean]
+}
+
 class EvPropertyBag {
     ; A PLAIN data property -- default attributes, ordinary value -- stored as
     ; the value itself, keyed by atom id.
@@ -435,8 +448,9 @@ class EvPropertyBag {
     ; key move from here to there without a map-remove op (there is none; the
     ; removers below rebuild). A key is normally in exactly one of the two.
     def values:[int:EvalValue]
-    ; keyed by EvAtomTable id, not by name -- see EvAtomTable
-    def slots:[int:EvPropertySlot]
+    ; Accessors, non-default attributes and suppressed keys -- absent on an
+    ; ordinary object. See EvBagRare.
+    def rare@(optional):EvBagRare
     ; The keys, in insertion order. JavaScript enumerates string keys in the
     ; order they were added, and the ids in `slots` are global (minted the
     ; first time ANY bag saw the name), so the id order is not this bag's
@@ -460,10 +474,6 @@ class EvPropertyBag {
     def extensible:boolean true
     def sealed:boolean false
     def frozen:boolean false
-    ; Deleted synthesised / registry keys (Function length/name, or a built-in
-    ; method removed from a prototype). Lives on the bag so Object.prototype
-    ; can record `delete Object.prototype.toString` without becoming a Function.
-    def suppressedKeys:[string:boolean]
     ; MONOTONE: true once ANY accessor was ever defined on this bag. Never
     ; cleared (a deleted accessor leaves it set — conservative). Lets hot read
     ; paths skip the per-key accessor probe, and its string-key mint, on the
@@ -481,9 +491,58 @@ class EvPropertyBag {
             push slotAtoms ka
         }
     }
+    ; ---- the rare side, reached only when something actually needs it ----
+    fn rareOf:EvBagRare () {
+        if rare {
+            return (unwrap rare)
+        }
+        def r:EvBagRare (new EvBagRare())
+        rare = r
+        return r
+    }
+    fn hasSlotAt:boolean (ka:int) {
+        if rare {
+            def r:EvBagRare (unwrap rare)
+            return (has r.slots ka)
+        }
+        return false
+    }
+    fn slotAt:EvPropertySlot (ka:int) {
+        def r:EvBagRare (unwrap rare)
+        return (unwrap (get r.slots ka))
+    }
+    fn setSlotAt:void (ka:int sl:EvPropertySlot) {
+        def r:EvBagRare (this.rareOf())
+        set r.slots ka sl
+    }
+    ; Suppressed keys, so EvHandle does not have to know where they live.
+    fn isSuppressed:boolean (key:string) {
+        if rare {
+            def r:EvBagRare (unwrap rare)
+            return (has r.suppressedKeys key)
+        }
+        return false
+    }
+    fn suppressKey:void (key:string) {
+        def r:EvBagRare (this.rareOf())
+        set r.suppressedKeys key true
+    }
+    fn suppressedList:[string] () {
+        if rare {
+            def r:EvBagRare (unwrap rare)
+            return (keys r.suppressedKeys)
+        }
+        def none:[string]
+        return none
+    }
+    fn setSuppressed:void (m:[string:boolean]) {
+        def r:EvBagRare (this.rareOf())
+        r.suppressedKeys = m
+    }
+
     ; Does this bag carry the key at all, in either map?
     fn hasKey:boolean (ka:int) {
-        if (has slots ka) {
+        if (this.hasSlotAt(ka)) {
             return true
         }
         return (has values ka)
@@ -492,8 +551,8 @@ class EvPropertyBag {
     ; value. Only the cold paths (attributes, accessors) call this; the hot
     ; reads go straight at `values` and never build a slot.
     fn slotOf:EvPropertySlot (ka:int) {
-        if (has slots ka) {
-            return (unwrap (get slots ka))
+        if (this.hasSlotAt(ka)) {
+            return (this.slotAt(ka))
         }
         return (new EvPropertySlot.Data((unwrap (get values ka)) 7))
     }
@@ -501,18 +560,19 @@ class EvPropertyBag {
     ; when a property changes SHAPE -- gaining an accessor or an attribute --
     ; which is rare enough that a rebuild is cheaper than carrying tombstones.
     fn dropSlot:void (ka:int) {
-        if (false == (has slots ka)) {
+        if (false == (this.hasSlotAt(ka))) {
             return
         }
+        def r:EvBagRare (unwrap rare)
         def rebuilt:[int:EvPropertySlot]
         for slotAtoms a:int i {
             if (a != ka) {
-                if (has slots a) {
-                    set rebuilt a (unwrap (get slots a))
+                if (has r.slots a) {
+                    set rebuilt a (unwrap (get r.slots a))
                 }
             }
         }
-        slots = rebuilt
+        r.slots = rebuilt
     }
     fn dropValue:void (ka:int) {
         if (false == (has values ka)) {
@@ -532,14 +592,14 @@ class EvPropertyBag {
     fn hasData:boolean (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
         if (has values ka) {
-            if (false == (has slots ka)) {
+            if (false == (this.hasSlotAt(ka))) {
                 return true
             }
         }
-        if (false == (has slots ka)) {
+        if (false == (this.hasSlotAt(ka))) {
             return false
         }
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        def slot:EvPropertySlot (this.slotAt(ka))
         case slot d:EvPropertySlot.Data {
             ; Hole value = attrs-only placeholder (setAttrs before a value),
             ; not a real data property — array index attrs must not shadow
@@ -554,13 +614,13 @@ class EvPropertyBag {
     }
     fn getData:EvalValue (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        if (false == (has slots ka)) {
+        if (false == (this.hasSlotAt(ka))) {
             if (has values ka) {
                 return (unwrap (get values ka))
             }
             return (EvalValue.undefined())
         }
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        def slot:EvPropertySlot (this.slotAt(ka))
         case slot d:EvPropertySlot.Data {
             ; Case field typed as a shape without a default is optional at the
             ; type level; putData always sets it.
@@ -577,13 +637,13 @@ class EvPropertyBag {
     ; hashing a single string. This is the whole point of interning: the string
     ; work happens once when the bytecode is built, never per access.
     fn dataOrHoleAtom:EvalValue (ka:int) {
-        if (false == (has slots ka)) {
+        if (false == (this.hasSlotAt(ka))) {
             if (has values ka) {
                 return (unwrap (get values ka))
             }
             return (EvalValue.hole())
         }
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        def slot:EvPropertySlot (this.slotAt(ka))
         case slot d:EvPropertySlot.Data {
             return (unwrap d.value)
         }
@@ -591,13 +651,13 @@ class EvPropertyBag {
     }
     fn dataOrHole:EvalValue (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        if (false == (has slots ka)) {
+        if (false == (this.hasSlotAt(ka))) {
             if (has values ka) {
                 return (unwrap (get values ka))
             }
             return (EvalValue.hole())
         }
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        def slot:EvPropertySlot (this.slotAt(ka))
         case slot d:EvPropertySlot.Data {
             return (unwrap d.value)
         }
@@ -622,28 +682,35 @@ class EvPropertyBag {
         ; bare case struct (same pattern as `def a:Value (new Value.Num(...))`).
         def slot:EvPropertySlot (new EvPropertySlot.Data(value attrs))
         this.dropValue(ka)
-        set slots ka slot
+        this.setSlotAt(ka slot)
     }
     fn removeData:void (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
         if (false == (this.hasKey(ka))) {
             return
         }
-        def rebuilt:[int:EvPropertySlot]
         def rebuiltValues:[int:EvalValue]
         def rebuiltAtoms:[int]
-        for slotAtoms nka:int idx {
-            if (nka != ka) {
-                if (has slots nka) {
-                    set rebuilt nka (unwrap (get slots nka))
+        if rare {
+            def r:EvBagRare (unwrap rare)
+            def rebuilt:[int:EvPropertySlot]
+            for slotAtoms nka:int idx {
+                if (nka != ka) {
+                    if (has r.slots nka) {
+                        set rebuilt nka (unwrap (get r.slots nka))
+                    }
                 }
-                if (has values nka) {
-                    set rebuiltValues nka (unwrap (get values nka))
+            }
+            r.slots = rebuilt
+        }
+        for slotAtoms nka2:int idx2 {
+            if (nka2 != ka) {
+                if (has values nka2) {
+                    set rebuiltValues nka2 (unwrap (get values nka2))
                 }
-                push rebuiltAtoms nka
+                push rebuiltAtoms nka2
             }
         }
-        slots = rebuilt
         values = rebuiltValues
         slotAtoms = rebuiltAtoms
         slotCount = (slotCount - 1)
@@ -666,12 +733,12 @@ class EvPropertyBag {
     }
     fn attrsOf:int (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        if (false == (has slots ka)) {
+        if (false == (this.hasSlotAt(ka))) {
             ; A plain value carries the default attributes by construction,
             ; and so does an absent key.
             return 7
         }
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        def slot:EvPropertySlot (this.slotAt(ka))
         case slot d:EvPropertySlot.Data {
             return d.attributes
         }
@@ -689,7 +756,7 @@ class EvPropertyBag {
             def slot0:EvPropertySlot (new EvPropertySlot.Data((EvalValue.hole()) attrs))
             slotCount = (slotCount + 1)
             this.noteKey(ka key)
-            set slots ka slot0
+            this.setSlotAt(ka slot0)
             return
         }
         ; Attributes are a rare shape. The stale plain value is left where it
@@ -702,7 +769,7 @@ class EvPropertyBag {
         case slot d:EvPropertySlot.Data {
             def slotD:EvPropertySlot (new EvPropertySlot.Data((unwrap d.value) attrs))
             this.noteKey(ka key)
-            set slots ka slotD
+            this.setSlotAt(ka slotD)
             return
         }
         case slot a:EvPropertySlot.Accessor {
@@ -713,16 +780,16 @@ class EvPropertyBag {
             s = a.setter
             def slotA:EvPropertySlot (new EvPropertySlot.Accessor(g s attrs))
             this.noteKey(ka key)
-            set slots ka slotA
+            this.setSlotAt(ka slotA)
         }
     }
 
     fn hasGetter:boolean (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        if (false == (has slots ka)) {
+        if (false == (this.hasSlotAt(ka))) {
             return false
         }
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        def slot:EvPropertySlot (this.slotAt(ka))
         case slot a:EvPropertySlot.Accessor {
             def g:EvalValue a.getter
             if (false == (EvalValue.isHole(g))) {
@@ -733,10 +800,10 @@ class EvPropertyBag {
     }
     fn hasSetter:boolean (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        if (false == (has slots ka)) {
+        if (false == (this.hasSlotAt(ka))) {
             return false
         }
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        def slot:EvPropertySlot (this.slotAt(ka))
         case slot a:EvPropertySlot.Accessor {
             def s:EvalValue a.setter
             if (false == (EvalValue.isHole(s))) {
@@ -747,15 +814,15 @@ class EvPropertyBag {
     }
     fn hasAccessor:boolean (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        if (false == (has slots ka)) {
+        if (false == (this.hasSlotAt(ka))) {
             return false
         }
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        def slot:EvPropertySlot (this.slotAt(ka))
         return (is slot _:EvPropertySlot.Accessor)
     }
     fn getGetter:EvalValue (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        def slot:EvPropertySlot (this.slotAt(ka))
         case slot a:EvPropertySlot.Accessor {
             return a.getter
         }
@@ -763,7 +830,7 @@ class EvPropertyBag {
     }
     fn getSetter:EvalValue (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        def slot:EvPropertySlot (this.slotAt(ka))
         case slot a:EvPropertySlot.Accessor {
             return a.setter
         }
@@ -780,8 +847,8 @@ class EvPropertyBag {
         ; absent to the noteKey below and duplicate it in slotAtoms.
         def useAttrs:int attrs
         def s:EvalValue (EvalValue.hole())
-        if (has slots ka) {
-            def slot:EvPropertySlot (unwrap (get slots ka))
+        if (this.hasSlotAt(ka)) {
+            def slot:EvPropertySlot (this.slotAt(ka))
             case slot a:EvPropertySlot.Accessor {
                 def sv:EvalValue a.setter
                 if (false == (EvalValue.isHole(sv))) {
@@ -792,7 +859,7 @@ class EvPropertyBag {
         }
         def slotN:EvPropertySlot (new EvPropertySlot.Accessor(g s useAttrs))
         this.noteKey(ka key)
-        set slots ka slotN
+        this.setSlotAt(ka slotN)
     }
     fn putSetter:void (key:string s:EvalValue attrs:int) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
@@ -802,8 +869,8 @@ class EvPropertyBag {
         }
         def useAttrs:int attrs
         def g:EvalValue (EvalValue.hole())
-        if (has slots ka) {
-            def slot:EvPropertySlot (unwrap (get slots ka))
+        if (this.hasSlotAt(ka)) {
+            def slot:EvPropertySlot (this.slotAt(ka))
             case slot a:EvPropertySlot.Accessor {
                 def gv:EvalValue a.getter
                 if (false == (EvalValue.isHole(gv))) {
@@ -814,14 +881,14 @@ class EvPropertyBag {
         }
         def slotN:EvPropertySlot (new EvPropertySlot.Accessor(g s useAttrs))
         this.noteKey(ka key)
-        set slots ka slotN
+        this.setSlotAt(ka slotN)
     }
     fn clearGetter:void (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        if (false == (has slots ka)) {
+        if (false == (this.hasSlotAt(ka))) {
             return
         }
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        def slot:EvPropertySlot (this.slotAt(ka))
         case slot a:EvPropertySlot.Accessor {
             def s:EvalValue (EvalValue.hole())
             def at:int a.attributes
@@ -835,16 +902,16 @@ class EvPropertyBag {
                 def g:EvalValue (EvalValue.hole())
                 def slotN:EvPropertySlot (new EvPropertySlot.Accessor(g s at))
                 this.noteKey(ka key)
-                set slots ka slotN
+                this.setSlotAt(ka slotN)
             }
         }
     }
     fn clearSetter:void (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        if (false == (has slots ka)) {
+        if (false == (this.hasSlotAt(ka))) {
             return
         }
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        def slot:EvPropertySlot (this.slotAt(ka))
         case slot a:EvPropertySlot.Accessor {
             def g:EvalValue (EvalValue.hole())
             def at:int a.attributes
@@ -858,16 +925,16 @@ class EvPropertyBag {
                 def s:EvalValue (EvalValue.hole())
                 def slotN:EvPropertySlot (new EvPropertySlot.Accessor(g s at))
                 this.noteKey(ka key)
-                set slots ka slotN
+                this.setSlotAt(ka slotN)
             }
         }
     }
     fn clearAccessor:void (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        if (false == (has slots ka)) {
+        if (false == (this.hasSlotAt(ka))) {
             return
         }
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        def slot:EvPropertySlot (this.slotAt(ka))
         if (is slot _:EvPropertySlot.Accessor) {
             this.removeData(key)
         }
@@ -1153,8 +1220,8 @@ class EvGcHeap @singleton(true) {
             return
         }
         for bag.slotAtoms ka:int idx {
-            if (has bag.slots ka) {
-                def slot:EvPropertySlot (unwrap (get bag.slots ka))
+            if (bag.hasSlotAt(ka)) {
+                def slot:EvPropertySlot (bag.slotAt(ka))
                 case slot d:EvPropertySlot.Data {
                     push out (unwrap d.value)
                 }
@@ -1261,10 +1328,15 @@ class EvGcHeap @singleton(true) {
     }
 
     fn breakBag:void (bag:EvPropertyBag) {
-        def fresh:[int:EvPropertySlot]
         def freshValues:[int:EvalValue]
         def freshAtoms:[int]
-        bag.slots = fresh
+        if bag.rare {
+            def r:EvBagRare (unwrap bag.rare)
+            def fresh:[int:EvPropertySlot]
+            def freshSup:[string:boolean]
+            r.slots = fresh
+            r.suppressedKeys = freshSup
+        }
         bag.values = freshValues
         bag.slotAtoms = freshAtoms
         bag.slotCount = 0

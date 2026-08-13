@@ -414,7 +414,7 @@ class EvHandle {
         def propsOpt@(optional):EvPropertyBag (this.tryProps())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
-            return (has props.suppressedKeys key)
+            return (props.isSuppressed(key))
         }
         return false
     }
@@ -426,14 +426,14 @@ class EvHandle {
         def propsOpt@(optional):EvPropertyBag (this.tryProps())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
-            set props.suppressedKeys key true
+            props.suppressKey(key)
         }
     }
     fn suppressedKeyList:[string] () {
         def propsOpt@(optional):EvPropertyBag (this.tryProps())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
-            return (keys props.suppressedKeys)
+            return (props.suppressedList())
         }
         def none:[string]
         return none
@@ -446,7 +446,7 @@ class EvHandle {
         def propsOpt@(optional):EvPropertyBag (this.tryProps())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
-            props.suppressedKeys = m
+            props.setSuppressed(m)
         }
     }
     fn copySuppressedMap:[string:boolean] () {
