@@ -43,6 +43,7 @@ class FontMetricsTest {
         test.testVerticalMetrics(t fm)
         test.testWrapAgreement(t fm)
         test.testLayoutMatchesMeasurer(t fm)
+        test.testRasterWrapMatchesLayout(t fm)
         t.summary()
     }
 
@@ -136,6 +137,68 @@ class FontMetricsTest {
         eng.setStrict(true)
         eng.breakLines(para "Open Sans" 13.0 200.0)
         t.no("loaded family is not fatal under strict fonts" eng.hadFatal)
+    }
+
+    ; The raster target paints glyph outlines from the same TTFs, so it has to
+    ; break lines where layout broke them. Both the PNG tool and the preview
+    ; server used to draw the whole textContent as ONE line while the layout
+    ; above them had reserved several — the caption simply ran out of its box.
+    ; They now call this engine, so pinning it here pins them.
+    fn testRasterWrapMatchesLayout:void (t:RgTest fm:FontManager) {
+        def measurer (new TTFTextMeasurer(fm))
+        def eng (new EVGTextEngine())
+        eng.setMeasurer(measurer)
+
+        def para:string "Twelve days along the shoreline, from the first thaw to the midsummer light over Kaivopuisto."
+
+        ; What layout reserves height for...
+        def lay (new EVGLayout())
+        lay.setMeasurer(measurer)
+        def root (new EVGElement())
+        root.width = (EVGUnit.px(400.0))
+        root.height = (EVGUnit.px(200.0))
+        def label (new EVGElement())
+        label.textContent = para
+        label.fontFamily = "Cinzel"
+        label.fontSize = (EVGUnit.px(14.0))
+        label.width = (EVGUnit.px(300.0))
+        root.addChild(label)
+        lay.layout(root)
+
+        ; ...must be the number of lines the raster will paint.
+        def lines:[EVGTextLine] (eng.breakLines(para "Cinzel" 14.0 300.0))
+        def painted:int (array_length lines)
+        t.ok("the caption actually wraps" (painted > 1))
+
+        def lineStep:double (14.0 * 1.2)
+        def reserved:double (lineStep * (to_double painted))
+        t.near("layout reserved exactly the painted lines" label.calculatedHeight reserved)
+
+        ; And every painted line fits the box, so nothing runs off the edge.
+        def i:int 0
+        def allFit:boolean true
+        while (i < painted) {
+            def ln:EVGTextLine (itemAt lines i)
+            if (ln.width > 300.0) {
+                allFit = false
+            }
+            i = (i + 1)
+        }
+        t.ok("no painted line overflows the box" allFit)
+
+        ; The face matters: the raster used to paint everything in Open Sans
+        ; whatever the document asked for, which would wrap differently.
+        def otherFace:[EVGTextLine] (eng.breakLines(para "Open Sans" 14.0 300.0))
+        def otherFirst:EVGTextLine (itemAt otherFace 0)
+        def cinzelFirst:EVGTextLine (itemAt lines 0)
+        def differs:boolean false
+        if ((array_length otherFace) != painted) {
+            differs = true
+        }
+        if (otherFirst.text != cinzelFirst.text) {
+            differs = true
+        }
+        t.ok("a different face is a different wrap" differs)
     }
 
     ; End to end: the width layout assigns to a shrink-wrapped label is the
