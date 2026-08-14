@@ -117,7 +117,7 @@ operators {
     current_time_ms cmdCurrentTimeMs:double () {
         templates {
             es6 ( "Date.now()" )
-            go ( "float64(time.Now().UnixMilli())" )
+            go ( "float64(time.Now().UnixMilli())" (imp "time") )
             cpp ( "((double)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count())" (imp "<chrono>") )
             csharp ( "(System.DateTime.UtcNow - new System.DateTime(1970, 1, 1, 0, 0, 0, System.DateTimeKind.Utc)).TotalMilliseconds" )
             dart ( "DateTime.now().millisecondsSinceEpoch.toDouble()" )
@@ -438,10 +438,10 @@ class CLIProgress {
     }
     
     fn printFailure:void (errorCount:int) {
-        def endTime (current_time_ms)
-        def duration (endTime - startTime)
-        def durationStr (to_string (to_int duration))
-        
+        ; No elapsed time here: unlike printSuccess this never printed one, so
+        ; the three locals that computed it were dead. Go rejects a local that
+        ; is never read, and eliding the last of the three left the one before
+        ; it unread.
         print ""
         print (this.divider())
         print ""

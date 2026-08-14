@@ -87,6 +87,13 @@ class RangerGolangClassWriter {
     if ((strlen targetTypeName) == 0) {
       return false
     }
+    ; hasClass first: findClass ends in `(unwrap (get definedClasses name))`
+    ; with no guard of its own, which answers undefined on JavaScript and
+    ; PANICS on Go -- "interface conversion: interface {} is nil". Generating
+    ; Go from the Go build stopped here.
+    if ((ctx.hasClass(targetTypeName)) == false) {
+      return false
+    }
     def tcOpt@(optional):RangerAppClassDesc (ctx.findClass(targetTypeName))
     if (null? tcOpt) {
       return false
@@ -151,9 +158,77 @@ class RangerGolangClassWriter {
       }
     }
   }
+  ; True for a type name that is itself a collection: the Ranger spelling
+  ; "[string]" or "[string:[int]]". Only a collection NESTED in another one
+  ; reaches the writer this way -- the outer one arrives as a value_type with a
+  ; separate key_type and array_type.
+  fn isCollectionTypeString:boolean (type_string:string) {
+    if ((strlen type_string) >= 2) {
+      if ((charAt type_string 0) == (ccode "[")) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; Convert nested collection type strings such as "[string]" or
+  ; "[string:[int]]" into Go slice / map types. Without this the fallthrough at
+  ; the end of getObjectTypeString returned the Ranger spelling unchanged and
+  ; the field came out as `map[string]*[string]`.
+  fn collectionTypeStringToGo:string (type_string:string ctx:RangerAppWriterContext) {
+    def n:int (strlen type_string)
+    def inner:string (substring type_string 1 (n - 1))
+    def il:int (strlen inner)
+    def depth:int 0
+    def sep:int (0 - 1)
+    def i:int 0
+    while (i < il) {
+      def c:int (charAt inner i)
+      if (c == (ccode "[")) {
+        depth = depth + 1
+      }
+      if (c == (ccode "]")) {
+        depth = depth - 1
+      }
+      if ((c == (ccode ":")) && (depth == 0)) {
+        sep = i
+      }
+      i = i + 1
+    }
+    if (sep >= 0) {
+      def kt:string (substring inner 0 sep)
+      def vt:string (substring inner (sep + 1) il)
+      return ((("map[" + (this.getObjectTypeString(kt ctx))) + "]") + (this.goElementTypeString(vt ctx)))
+    }
+    return ("[]" + (this.goElementTypeString(inner ctx)))
+  }
+
+  ; The element of a Go collection: a class is held as a pointer, a primitive
+  ; and a nested collection are not -- a slice and a map are already reference
+  ; types and `*[]string` is not the same thing.
+  fn goElementTypeString:string (type_string:string ctx:RangerAppWriterContext) {
+    if (this.isCollectionTypeString(type_string)) {
+      return (this.collectionTypeStringToGo(type_string ctx))
+    }
+    if (ctx.isDefinedClass(type_string)) {
+      def cc:RangerAppClassDesc (ctx.findClass(type_string))
+      if cc.is_union {
+        return (this.getObjectTypeString(type_string ctx))
+      }
+    }
+    if (ctx.isPrimitiveType(type_string)) {
+      return (this.getObjectTypeString(type_string ctx))
+    }
+    return ("*" + (this.getObjectTypeString(type_string ctx)))
+  }
+
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
     if (type_string == "this") {
       return thisName
+    }
+
+    if (this.isCollectionTypeString(type_string)) {
+      return (this.collectionTypeStringToGo(type_string ctx))
     }
 
     if(ctx.isDefinedClass(type_string)) {
@@ -305,7 +380,8 @@ class RangerGolangClassWriter {
             return
           }
         }                    
-        if ( (ctx.isPrimitiveType(a_name)) == false) {
+        ; a nested collection is already a reference type: *[]string is not it
+        if ( ((ctx.isPrimitiveType(a_name)) == false) && ((this.isCollectionTypeString(a_name)) == false) ) {
           wr.out("*" false)
         }
         wr.out(((this.getObjectTypeString(a_name ctx)) + "") , false)
@@ -324,7 +400,7 @@ class RangerGolangClassWriter {
             return
           }
         }
-        if ((write_raw_type == false) && ((ctx.isPrimitiveType(a_name)) == false)) {
+        if ((write_raw_type == false) && ((ctx.isPrimitiveType(a_name)) == false) && ((this.isCollectionTypeString(a_name)) == false)) {
           wr.out("*" false)
         }
         wr.out(((this.getObjectTypeString(a_name ctx)) + "") false)
@@ -371,10 +447,23 @@ class RangerGolangClassWriter {
           if( i > 0 ) {
             wr.out(", " false)
           }
-          this.writeTypeDef2( arg ctx wr)
-        }        
+          ; An optional is a *GoNullable everywhere else in the writer -- the
+          ; struct field, the method parameter, the local. The function TYPE
+          ; ignored the flag, so `callback:( fn:void (left@(optional):CodeNode
+          ; …))` was declared as func(*CodeNode, …) while the lambda passed to
+          ; it took *GoNullable, and neither side would accept the other.
+          if (arg.hasFlag("optional")) {
+            wr.out("*GoNullable" false)
+          } {
+            this.writeTypeDef2( arg ctx wr)
+          }
+        }
         wr.out( ") " false)
-        this.writeTypeDef2( rv ctx wr)
+        if (rv.hasFlag("optional")) {
+          wr.out("*GoNullable" false)
+        } {
+          this.writeTypeDef2( rv ctx wr)
+        }
       }
       case RangerNodeType.Enum {
         wr.out("int64" false)
@@ -424,7 +513,7 @@ class RangerGolangClassWriter {
             }
           }
                     
-          if ((write_raw_type == false) && ((ctx.isPrimitiveType(a_name)) == false)) {
+          if ((write_raw_type == false) && ((ctx.isPrimitiveType(a_name)) == false) && ((this.isCollectionTypeString(a_name)) == false)) {
             wr.out("*" false)
           }
           wr.out(((this.getObjectTypeString(a_name ctx)) + "") , false)
@@ -447,7 +536,7 @@ class RangerGolangClassWriter {
           }
         }
 
-        if ((write_raw_type == false) && ((ctx.isPrimitiveType(a_name)) == false)) {
+        if ((write_raw_type == false) && ((ctx.isPrimitiveType(a_name)) == false) && ((this.isCollectionTypeString(a_name)) == false)) {
           wr.out("*" false)
         }
         wr.out(((this.getObjectTypeString(a_name ctx)) + "") false)
@@ -690,9 +779,22 @@ class RangerGolangClassWriter {
       }
     }
 
+    ; A `(goset N)` argument is normally a variable path -- this function writes
+    ; the setter form of a vref. But `??` expands to
+    ; `(? (!null? X) (unwrap X) Y)` and the `!null?` template reaches here with
+    ; whatever X is: `(?? (get env.envVars name) "")` is a CALL, with no name
+    ; path at all, and every loop below then wrote nothing -- the output was
+    ; `if (.has_value)`. An expression is written as an expression.
+    if ((array_length node.ns) == 0) {
+      if (node.hasParamDesc == false) {
+        this.WalkNode(node ctx wr)
+        return
+      }
+    }
+
     def next_is_gs:boolean false
     def last_was_setter:boolean false
-    def needs_par:boolean false    
+    def needs_par:boolean false
 
     def ns_len:int ((array_length node.ns) - 1)
 
@@ -1132,12 +1234,26 @@ class RangerGolangClassWriter {
               wr.out((p.compiledName + ".has_value = true;") true)
               return
             }
-            wr.out((p.compiledName + " = ") false)
+            ; An optional is a *GoNullable BOX, so a plain assignment makes the
+            ; local ALIAS the box the initializer came from -- and a later write
+            ; through the local then lands in the object that owns it.
+            ; `def wr (file.getWriter())` did exactly that, and the `wr =
+            ; contentFork` further down VirtualCompiler.run replaced the FILE's
+            ; writer: every tag slice -- the imports, the utilities, file_end --
+            ; belonged to the writer that had just been dropped, so the output
+            ; came out with no import lines, no polyfills and no entry point.
+            ;
+            ; Copy the two fields instead. The temporary keeps the initializer
+            ; to one evaluation.
+            def srcName:string (p.compiledName + "__src")
+            wr.out((("var " + srcName) + " *GoNullable = ") false)
             ctx.setInExpr()
             def value:CodeNode (node.getThird())
             this.WalkNode(value ctx wr)
             ctx.unsetInExpr()
             wr.out(";" true)
+            wr.out(((((p.compiledName + ".value = ") + srcName) + ".value;")) true)
+            wr.out(((((p.compiledName + ".has_value = ") + srcName) + ".has_value;")) true)
             return
           }
         }

@@ -622,7 +622,12 @@ template <class T, class S> inline T rg_cast(const S& v) {
 }
 ")
                 )
-                go ( (e 1) ".(" (typeof 2) ")" )
+                ; through interface{} first: a type assertion is only legal on an
+                ; INTERFACE, and the argument is often already concrete --
+                ; `(cast (unwrap node.fnDesc) to:RangerAppFunctionDesc)` unwraps to a
+                ; *RangerAppFunctionDesc and then asserted on it. The conversion is
+                ; free and makes the form valid either way.
+                go ( "(interface{}(" (e 1) ")).(" (typeof 2) ")" )
                 php ( (e 1) )
                 ; Python and Rust have no place to write the type: Python is
                 ; dynamic, and a Rust struct is not a subtype of another one.
@@ -1337,6 +1342,61 @@ inline std::string rg_path_dirname(const std::string& p) {
 ")
                 )
                 es6 ( 'require("path").normalize(' (e 1) ')')
+                go ( "r_path_normalize(" (e 1) ")" (imp "strings") (imp "os")
+                (polyfill "after_imports" "
+func r_path_normalize(p string) string {
+  s := strings.Replace(p, string(rune(92)), \"/\", -1)
+  absolute := strings.HasPrefix(s, \"/\")
+  trailing := len(s) > 1 && strings.HasSuffix(s, \"/\")
+  parts := []string{}
+  for _, cur := range strings.Split(s, \"/\") {
+    if cur == \"..\" {
+      if len(parts) > 0 && parts[len(parts)-1] != \"..\" {
+        parts = parts[:len(parts)-1]
+      } else if !absolute {
+        parts = append(parts, cur)
+      }
+    } else if len(cur) > 0 && cur != \".\" {
+      parts = append(parts, cur)
+    }
+  }
+  out := strings.Join(parts, \"/\")
+  if absolute {
+    out = \"/\" + out
+  }
+  if len(out) == 0 {
+    return \".\"
+  }
+  if trailing && out != \"/\" {
+    out = out + \"/\"
+  }
+  return out
+}
+func r_path_dirname(p string) string {
+  s := r_path_normalize(p)
+  if len(s) > 1 && strings.HasSuffix(s, \"/\") {
+    s = s[:len(s)-1]
+  }
+  pos := strings.LastIndex(s, \"/\")
+  if pos < 0 {
+    return \".\"
+  }
+  if pos == 0 {
+    return \"/\"
+  }
+  return s[:pos]
+}
+// The directory the program was started from, which is where the compiler looks
+// for its bundled Lang.rgr and stdops.rgr.
+func r_install_directory() string {
+  exe, err := os.Executable()
+  if err != nil {
+    return \".\"
+  }
+  return r_path_dirname(r_path_normalize(exe))
+}
+")
+                )
                 csharp ( "RgPath.Normalize(" (e 1) ")"
                 (polyfill "after_imports" "
 // Path helpers for the compiler's own file handling. System.IO.Path would do
@@ -1506,6 +1566,61 @@ inline std::string rg_path_dirname(const std::string& p) {
 ")
                 )
                 es6 ( 'require("path").dirname(' (e 1) ')')
+                go ( "r_path_dirname(" (e 1) ")" (imp "strings") (imp "os")
+                (polyfill "after_imports" "
+func r_path_normalize(p string) string {
+  s := strings.Replace(p, string(rune(92)), \"/\", -1)
+  absolute := strings.HasPrefix(s, \"/\")
+  trailing := len(s) > 1 && strings.HasSuffix(s, \"/\")
+  parts := []string{}
+  for _, cur := range strings.Split(s, \"/\") {
+    if cur == \"..\" {
+      if len(parts) > 0 && parts[len(parts)-1] != \"..\" {
+        parts = parts[:len(parts)-1]
+      } else if !absolute {
+        parts = append(parts, cur)
+      }
+    } else if len(cur) > 0 && cur != \".\" {
+      parts = append(parts, cur)
+    }
+  }
+  out := strings.Join(parts, \"/\")
+  if absolute {
+    out = \"/\" + out
+  }
+  if len(out) == 0 {
+    return \".\"
+  }
+  if trailing && out != \"/\" {
+    out = out + \"/\"
+  }
+  return out
+}
+func r_path_dirname(p string) string {
+  s := r_path_normalize(p)
+  if len(s) > 1 && strings.HasSuffix(s, \"/\") {
+    s = s[:len(s)-1]
+  }
+  pos := strings.LastIndex(s, \"/\")
+  if pos < 0 {
+    return \".\"
+  }
+  if pos == 0 {
+    return \"/\"
+  }
+  return s[:pos]
+}
+// The directory the program was started from, which is where the compiler looks
+// for its bundled Lang.rgr and stdops.rgr.
+func r_install_directory() string {
+  exe, err := os.Executable()
+  if err != nil {
+    return \".\"
+  }
+  return r_path_dirname(r_path_normalize(exe))
+}
+")
+                )
                 csharp ( "RgPath.Dirname(" (e 1) ")"
                 (polyfill "after_imports" "
 // Path helpers for the compiler's own file handling. System.IO.Path would do
@@ -1677,6 +1792,61 @@ inline std::string rg_path_dirname(const std::string& p) {
 ")
                 )
                 es6 ( "__dirname" )
+                go ( "r_install_directory()" (imp "strings") (imp "os")
+                (polyfill "after_imports" "
+func r_path_normalize(p string) string {
+  s := strings.Replace(p, string(rune(92)), \"/\", -1)
+  absolute := strings.HasPrefix(s, \"/\")
+  trailing := len(s) > 1 && strings.HasSuffix(s, \"/\")
+  parts := []string{}
+  for _, cur := range strings.Split(s, \"/\") {
+    if cur == \"..\" {
+      if len(parts) > 0 && parts[len(parts)-1] != \"..\" {
+        parts = parts[:len(parts)-1]
+      } else if !absolute {
+        parts = append(parts, cur)
+      }
+    } else if len(cur) > 0 && cur != \".\" {
+      parts = append(parts, cur)
+    }
+  }
+  out := strings.Join(parts, \"/\")
+  if absolute {
+    out = \"/\" + out
+  }
+  if len(out) == 0 {
+    return \".\"
+  }
+  if trailing && out != \"/\" {
+    out = out + \"/\"
+  }
+  return out
+}
+func r_path_dirname(p string) string {
+  s := r_path_normalize(p)
+  if len(s) > 1 && strings.HasSuffix(s, \"/\") {
+    s = s[:len(s)-1]
+  }
+  pos := strings.LastIndex(s, \"/\")
+  if pos < 0 {
+    return \".\"
+  }
+  if pos == 0 {
+    return \"/\"
+  }
+  return s[:pos]
+}
+// The directory the program was started from, which is where the compiler looks
+// for its bundled Lang.rgr and stdops.rgr.
+func r_install_directory() string {
+  exe, err := os.Executable()
+  if err != nil {
+    return \".\"
+  }
+  return r_path_dirname(r_path_normalize(exe))
+}
+")
+                )
                 csharp ( "RgPath.InstallDir()"
                 (polyfill "after_imports" "
 // Path helpers for the compiler's own file handling. System.IO.Path would do
@@ -3827,7 +3997,10 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
         error_msg   _:string () {
             templates {
                 ranger ( "(error_msg   )")
-                go ( "\"\"" )
+                ; the value recover() returned -- the catch block the `try` writer
+                ; emits binds it as `r`. This used to be the empty string, so a Go
+                ; build reported "Unexpected compiler error" and nothing else.
+                go ( "fmt.Sprintf(\"%v\", r)" (imp "fmt") )
                 es6 ( "( e.toString())" )
                 php ( "( $e->getMessage())" )
                 java7 ( "( e.getMessage())" )
@@ -6398,6 +6571,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 ranger ( "(length " (e 1) ")")
                  cpp ( (e 1) ".size()" )                                                              
                  csharp ( (e 1) ".Count" )
+                 go ( "int64(len(" (e 1) "))" )
                  swift3 ( (e 1) ".count")
                  swift6 ( (e 1) ".count")
                  php ( "count(" (e 1) ")")

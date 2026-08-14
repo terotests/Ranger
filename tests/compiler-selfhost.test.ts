@@ -10,8 +10,10 @@ import {
   compileAndRunDart,
   compileAndRunPython,
   compileAndRunCSharp,
+  compileAndRunGo,
   isCSharpAvailable,
   isDartAvailable,
+  isGoAvailable,
 } from "./helpers/compiler";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -256,6 +258,63 @@ describe("self-hosting: the compiler compiles for C#", () => {
   }, 900000);
 });
 
+// Go reported zero compiler errors before any of this work and still would not
+// build. Two of the defects it exposed were not about Go's type system at all:
+// an optional is a *GoNullable BOX, and `def wr (file.getWriter())` made the
+// local ALIAS the box the CodeFile owns — so `wr = contentFork` further down
+// replaced the file's writer and every tag slice (the imports, the polyfills,
+// the entry point) was dropped from the output; and `findClass` unwraps without
+// a guard, which is `undefined` on JavaScript and a panic on Go.
+describe("self-hosting: the compiler compiles for Go", () => {
+  const OUT = path.join(ROOT, "tests", ".output-selfhost-go");
+
+  it("generates Go from the compiler's own sources", () => {
+    fs.mkdirSync(OUT, { recursive: true });
+
+    const result = compileRanger("compiler/ng_Compiler.rgr", "go", OUT);
+    expect(
+      result.success,
+      `Go codegen failed: ${result.error || result.output}`
+    ).toBe(true);
+
+    const generated = path.join(OUT, "ng_Compiler.go");
+    expect(fs.existsSync(generated), `missing ${generated}`).toBe(true);
+
+    const code = fs.readFileSync(generated, "utf-8");
+    // a nested collection reaches the output as a Go type, not "[string]" —
+    // which also kept it out of the generated helper's NAME
+    expect(code).not.toContain("*[string]");
+    expect(code).not.toMatch(/func r_has_key_\w*_\[/);
+    // a union over primitives is interface{} on Go: there is no tag struct to
+    // read a .tag from, so `case` narrows with a type assertion
+    expect(code).not.toContain("interface{}_tag_");
+    // the path operators are real rather than the "./" fallback
+    expect(code).toContain("func r_path_normalize(");
+    expect(code).toContain("func r_install_directory(");
+  }, 300000);
+
+  // `go build` is the step that matters: Go rejects an unread local and an
+  // unused import outright, so a template that drops its argument is an error
+  // here and only a warning (or nothing) everywhere else.
+  const goAvailable = isGoAvailable();
+  const goIt = goAvailable ? it : it.skip;
+
+  goIt("the generated Go builds", () => {
+    const generated = path.join(OUT, "ng_Compiler.go");
+    expect(
+      fs.existsSync(generated),
+      "run the codegen test first — no ng_Compiler.go"
+    ).toBe(true);
+
+    fs.writeFileSync(path.join(OUT, "go.mod"), "module rangerc\n\ngo 1.21\n");
+    execSync(`go build -o ng_Compiler_bin "${generated}"`, {
+      cwd: OUT,
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 900000,
+    });
+  }, 1200000);
+});
+
 // A lambda with a body, and one nested in another. Python has no
 // multi-statement lambda, so this is the shape the hoisting has to preserve:
 // the counters are assigned from inside the closure, which is what needs
@@ -317,6 +376,18 @@ describe("a lambda with a body runs the same on every target", () => {
       expect(run?.output).toContain(line);
     }
   }, 120000);
+
+  (isGoAvailable() ? it : it.skip)("runs on Go", () => {
+    const { compile, run } = compileAndRunGo(FIXTURE);
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+    for (const line of EXPECTED) {
+      expect(run?.output).toContain(line);
+    }
+  }, 300000);
 });
 
 // Every byte over 127 is negative in a signed C++ `char`. The Ranger parser

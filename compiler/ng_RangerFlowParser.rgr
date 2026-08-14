@@ -3118,7 +3118,8 @@ class RangerFlowParser {
                 ; read through the local, not through a second (at …): the
                 ; writers add the `!` a nullable path needs on a named path,
                 ; not inside a parenthesised receiver.
-                def realRegName ( (unwrap regArg.paramDesc).compiledName ) 
+                def realRegDesc:RangerAppParamDesc (unwrap regArg.paramDesc)
+                def realRegName ( realRegDesc.compiledName )
                 regArg.paramDesc.set_cnt = 1
                 regArg.paramDesc.ref_cnt = 1
 
@@ -3560,7 +3561,8 @@ class RangerFlowParser {
                   }
 
                   def regArg (at regExpr.children 1)
-                  def realRegName ( (unwrap regArg.paramDesc).compiledName ) 
+                  def realRegDesc:RangerAppParamDesc (unwrap regArg.paramDesc)
+                  def realRegName ( realRegDesc.compiledName )
                   regArg.paramDesc.set_cnt = 1
                   regArg.paramDesc.ref_cnt = 1
                   
@@ -3674,7 +3676,8 @@ class RangerFlowParser {
             
             this.WalkNode( regExpr ctx wr )
             def regArg (at regExpr.children 1)
-            def realRegName ( (unwrap regArg.paramDesc).compiledName ) 
+            def realRegDesc:RangerAppParamDesc (unwrap regArg.paramDesc)
+            def realRegName ( realRegDesc.compiledName )
             regArg.paramDesc.set_cnt = 1
             regArg.paramDesc.ref_cnt = 1
 

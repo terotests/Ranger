@@ -21,7 +21,7 @@ dropped the call. That form is how the engine writes a for-loop update. Go and
 Python failed to compile; C# compiled and ran with infinite loops until the
 interpreter guard stopped them. The writers now keep the statement live.
 
-## Cross-target gate: the compiler itself, on C++, Dart, Python and C#
+## Cross-target gate: the compiler itself, on C++, Dart, Python, C# and Go
 
 The compiler is self-hosting, but until now only its **JavaScript** output was
 exercised. Compiling the compiler for another target is a different question,
@@ -103,10 +103,25 @@ Its output is **byte-identical** to the Node build's, the compiler that comes
 out of it reproduces that file exactly, and asking the C# build for C# gives
 back the same 1.98 MB source it was built from.
 
-`npm test` runs the codegen for all four and checks the result — `g++
+**Go** is the fifth, and the only one that already reported zero compiler
+errors before any of this — and still would not build:
+
+```bash
+npm run selfhost:build:go      # generate the Go, go build it, copy the library
+
+RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr" \
+  ./tmp/selfhost-go/rangerc -es6 ./compiler/ng_Compiler.rgr -nodecli \
+    -d=./tmp/self -o=output.js
+```
+
+Its output is **byte-identical** to the Node build's, the compiler that comes
+out of it reproduces that file exactly, and asking the Go build for Go gives
+back the same 70k-line source it was built from.
+
+`npm test` runs the codegen for all five and checks the result — `g++
 -fsyntax-only` for C++, `dart analyze` for Dart, `py_compile` for Python, `mcs`
-for C# (`tests/compiler-selfhost.test.ts`, ~50 s together). The binary build and
-the bootstrap rounds are a manual step.
+for C#, `go build` for Go (`tests/compiler-selfhost.test.ts`, ~65 s together).
+The binary build and the bootstrap rounds are a manual step.
 
 ### What C++ took
 
@@ -356,6 +371,79 @@ body**, so a helper written there is a private member of whichever class
 happened to claim it. Every helper added here goes to `after_imports` as a
 file-scope `static class` instead.
 
+### What Go took
+
+Go is the interesting one: it reported **zero** compiler errors from the very
+beginning, generated ~70k lines, and `go build` still refused it. An error count
+of zero says only that the compiler found nothing to say.
+
+Four of the defects were the writer's:
+
+1. **A nested collection kept its Ranger spelling.** `[string:[string]]` came
+   out as `map[string]*[string]` — and because the map helpers are *named* after
+   the type they serve, also as `func r_has_key_string_[string](`. The writer
+   got the recursive conversion the Dart and C# writers have, plus a rule that
+   an element which is itself a collection takes no `*` (a slice and a map are
+   already reference types). `(r_atype_fname N)` now maps every character that
+   is not an identifier character, one for one, so no two types can collapse
+   onto the same helper name.
+2. **A `case` over a system union wrote the tagged-struct compare.** A union
+   holding a primitive is not sealable, so its Go type is `interface{}` and
+   there is no tag: `item.tag == interface{}_tag_string` is not even Go syntax.
+   The six per-primitive `case` overloads narrow with a type assertion now.
+3. **The function TYPE of a lambda ignored `@(optional)`.** An optional is a
+   `*GoNullable` in every other place the writer emits one — the struct field,
+   the method parameter, the local — so `callback:( fn:void
+   (left@(optional):CodeNode …))` was declared `func(*CodeNode, …)` while the
+   lambda handed to it took `*GoNullable`, and neither side accepted the other.
+4. **`(goset N)` wrote nothing for an expression.** It writes the *setter* form
+   of a variable path, but `??` expands to `(? (!null? X) (unwrap X) Y)` and X
+   can be any expression: `(?? (get env.envVars name) "")` is a call, with no
+   name path, so the output was `if (.has_value)`.
+
+Then the one that was not a compile error anywhere, and is the reason this
+target is worth the trouble:
+
+5. **An optional is a `*GoNullable` BOX, and `def` aliased it.** `def wr
+   (file.getWriter())` compiled to `wr = file.getWriter()` — the local pointing
+   at *the very box the CodeFile owns*. Thirty lines later `wr = contentFork`
+   wrote through that alias and replaced the **file's** writer. Every tag slice
+   — the import lines, the polyfills, the entry point — belonged to the writer
+   that had just been dropped, so the Go build produced files with no `using` /
+   `#include` lines, no polyfill classes and no `main`, and reported success.
+   The C# it generated had no `RgJson`; the Python had no
+   `if __name__ == "__main__"`. A `def` of an optional now copies the two
+   fields through a temporary instead of aliasing the box.
+
+And the one that only shows up when the Go build generates Go:
+`findClass` ends in `(unwrap (get definedClasses name))` with no guard of its
+own, which answers `undefined` on JavaScript and **panics** on Go. Its one
+caller that relied on the undefined — `goWriteUnionValue` — asks `hasClass`
+first now.
+
+Go is also stricter than every other target in two ways that turn a dropped
+template argument into an error rather than a warning: an unread local and an
+unused import are both build failures. That is what surfaced `path_dirname`,
+`normalize` and `install_directory` having no Go entry (they fell to the `*`
+fallback, the literal `"./"`, which drops `(e 1)` — so the library search path
+collapsed *and* its argument went unread), the plugin-host templates dropping
+the plugin they were handed, and three genuinely dead locals in
+`CLIProgress.printFailure`.
+
+Two more, both worth naming:
+
+- `return` from inside a `catch` block: Go's catch is a deferred closure running
+  `recover()`, so the return leaves the *closure*. `VirtualCompiler.run` had two;
+  the nesting says the same thing without one.
+- `error_msg` on Go was the empty string, so a Go build reported "Unexpected
+  compiler error" and nothing else. It is the recovered value now — which is how
+  the panic above was found at all.
+
+`getInt` over JSON never matched anything that came back from `from_string`:
+`encoding/json` decodes **every** number as `float64` and the polyfill asserted
+`int`. It answered "absent" for a key that plainly held `3`. Both number getters
+accept either now, the way the Dart, Python, Rust and C# entries do.
+
 ### The same self-compile on the other targets
 
 Measured with `node bin/output.js -l=<target> ./compiler/ng_Compiler.rgr
@@ -367,7 +455,7 @@ Measured with `node bin/output.js -l=<target> ./compiler/ng_Compiler.rgr
 | Dart | **0** | — `dart analyze` clean, runs, see above |
 | Python | **0** | — `py_compile` clean, runs, see above |
 | C# | **0** | — `mcs` clean, runs, see above |
-| Go | **0** | generates ~70k lines; `go build` then reports the two defects below |
+| Go | **0** | — `go build` clean, runs, see above |
 | PHP | **0** | not built or run |
 | Swift 6 | 12 | |
 | Rust | 16 | |
@@ -375,18 +463,9 @@ Measured with `node bin/output.js -l=<target> ./compiler/ng_Compiler.rgr
 | Kotlin | 19 | |
 | Scala | 467 | no JSON templates, the same wall C++, Dart and C# started at |
 
-Go reached zero the same way C++ did — `RangerCompilerPlugin` is a systemclass
-and named no Go type, so the single error was the plugin loader. What `go
-build` finds after that is a shortlist worth having:
-
-- a nested collection type is not converted: `[string:[string]]` comes out as
-  `map[string]*[string]`, and the Ranger spelling also reaches a generated
-  function name (`r_has_key_string_[string]`);
-- a `case` over a **system** union writes the Ranger tag scheme against
-  `interface{}`: `item.tag == interface{}_tag_string`.
-
-Neither is specific to the compiler; both are Go writer work, and both are the
-kind of thing only a program this size reaches.
+A zero in that column is the compiler's own diagnosis and nothing more. Go sat
+at zero through all of this work and did not build until the five defects above
+were fixed; PHP is at zero now and has never been built or run.
 
 ### `strlen` counts bytes, `substring` counts characters
 

@@ -596,6 +596,47 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     }
     this.finishWalkNode(wr)
   }
+  ; An identifier built from a target type name. `(r_atype_fname N)` only ever
+  ; NAMES things -- Go's map helpers are named after the type they serve -- so
+  ; the spelling of the type has to survive being pasted into an identifier.
+  ; `interface{}` had a special case; a nested collection did not, and the value
+  ; type of a `[string:[string]]` spells its Go type `[]string`, which made
+  ; `func r_has_key_string_[]string(` and a syntax error.
+  ;
+  ; Every character is mapped one for one, so two different types can not
+  ; collapse onto the same helper name.
+  fn typeNameToIdentifier:string (ss:string) {
+    if (ss == "interface{}") {
+      return "interface"
+    }
+    def res:string ""
+    def n:int (strlen ss)
+    def i:int 0
+    while (i < n) {
+      def c:int (charAt ss i)
+      def ok:boolean false
+      if ((c >= 48) && (c <= 57)) {
+        ok = true
+      }
+      if ((c >= 65) && (c <= 90)) {
+        ok = true
+      }
+      if ((c >= 97) && (c <= 122)) {
+        ok = true
+      }
+      if (c == 95) {
+        ok = true
+      }
+      if ok {
+        res = res + (strfromcode c)
+      } {
+        res = res + "_"
+      }
+      i = i + 1
+    }
+    return res
+  }
+
   fn walkCommandList:void (cmd:CodeNode node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def paren_suppressed:boolean wr.suppress_expr_parens
     wr.suppress_expr_parens = false
@@ -1272,16 +1313,10 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             def arg:CodeNode (itemAt node.children idx)
             if arg.hasParamDesc {
               def ss:string (langWriter.getObjectTypeString(arg.paramDesc.nameNode.array_type ctx))
-              if(ss == "interface{}") {
-                ss = "interface"
-              }
-              wr.out(ss false)
+              wr.out((this.typeNameToIdentifier(ss)) false)
             } {
               def ss:string (langWriter.getObjectTypeString(arg.array_type ctx))
-              if(ss == "interface{}") {
-                ss = "interface"
-              }
-              wr.out(ss false)
+              wr.out((this.typeNameToIdentifier(ss)) false)
             }
           }
         }

@@ -14,6 +14,16 @@ operators {
 
     case             _@(newcontext):void           ( arg@(union):T item2@(define):boolean code:block )  {
         templates {
+            ; A union that holds a primitive is not sealable, so its Go type is
+            ; interface{} and there is no tag struct: the generic overload below
+            ; wrote `x.tag == interface{}_tag_string`, which is not even Go
+            ; syntax. A type assertion is the narrowing here.
+            go (
+                (forkctx _ ) (def 2) "if " (e 2) ", __rg_ok := " (e 1) ".(" (typeof 2) "); __rg_ok { /* union case */" nl I
+                        "_ = " (e 2) ";" nl
+                        (block 3)
+                        nl i "}"
+            )
             dart (
                 (forkctx _ ) (def 2) "if( " (e 1) " is bool ) /* union case for boolean */ {" nl I
                         "bool " (e 2) " = " (e 1) " as bool;" nl
@@ -54,6 +64,16 @@ operators {
     }
     case             _@(newcontext):void           ( arg@(union):T item2@(define):int code:block )  {
         templates {
+            ; A union that holds a primitive is not sealable, so its Go type is
+            ; interface{} and there is no tag struct: the generic overload below
+            ; wrote `x.tag == interface{}_tag_string`, which is not even Go
+            ; syntax. A type assertion is the narrowing here.
+            go (
+                (forkctx _ ) (def 2) "if " (e 2) ", __rg_ok := " (e 1) ".(" (typeof 2) "); __rg_ok { /* union case */" nl I
+                        "_ = " (e 2) ";" nl
+                        (block 3)
+                        nl i "}"
+            )
             dart (
                 (forkctx _ ) (def 2) "if( " (e 1) " is int ) /* union case for int */ {" nl I
                         "int " (e 2) " = " (e 1) " as int;" nl
@@ -100,6 +120,16 @@ operators {
     }
     case             _@(newcontext):void           ( arg@(union):T item2@(define):double code:block )  {
         templates {
+            ; A union that holds a primitive is not sealable, so its Go type is
+            ; interface{} and there is no tag struct: the generic overload below
+            ; wrote `x.tag == interface{}_tag_string`, which is not even Go
+            ; syntax. A type assertion is the narrowing here.
+            go (
+                (forkctx _ ) (def 2) "if " (e 2) ", __rg_ok := " (e 1) ".(" (typeof 2) "); __rg_ok { /* union case */" nl I
+                        "_ = " (e 2) ";" nl
+                        (block 3)
+                        nl i "}"
+            )
             dart (
                 (forkctx _ ) (def 2) "if( " (e 1) " is double ) /* union case for double */ {" nl I
                         "double " (e 2) " = " (e 1) " as double;" nl
@@ -147,6 +177,16 @@ operators {
 
     case             _@(newcontext):void           ( arg@(union):T item2@(define):string code:block )  {
         templates {
+            ; A union that holds a primitive is not sealable, so its Go type is
+            ; interface{} and there is no tag struct: the generic overload below
+            ; wrote `x.tag == interface{}_tag_string`, which is not even Go
+            ; syntax. A type assertion is the narrowing here.
+            go (
+                (forkctx _ ) (def 2) "if " (e 2) ", __rg_ok := " (e 1) ".(" (typeof 2) "); __rg_ok { /* union case */" nl I
+                        "_ = " (e 2) ";" nl
+                        (block 3)
+                        nl i "}"
+            )
             dart (
                 (forkctx _ ) (def 2) "if( " (e 1) " is String ) /* union case for string */ {" nl I
                         "String " (e 2) " = " (e 1) " as String;" nl
@@ -204,6 +244,16 @@ operators {
     ; so without these the reader of an array of objects reads nothing.
     case             _@(newcontext):void           ( arg@(union):T item2@(define):JSONDataObject code:block )  {
         templates {
+            ; A union that holds a primitive is not sealable, so its Go type is
+            ; interface{} and there is no tag struct: the generic overload below
+            ; wrote `x.tag == interface{}_tag_string`, which is not even Go
+            ; syntax. A type assertion is the narrowing here.
+            go (
+                (forkctx _ ) (def 2) "if " (e 2) ", __rg_ok := " (e 1) ".(" (typeof 2) "); __rg_ok { /* union case */" nl I
+                        "_ = " (e 2) ";" nl
+                        (block 3)
+                        nl i "}"
+            )
             ranger ( "case " (e 1) " " (e 2) ":" (typeof 2) " {" nl
                         I (block 3) i nl "}" nl
             )
@@ -302,6 +352,16 @@ operators {
     }
     case             _@(newcontext):void           ( arg@(union):T item2@(define):JSONArrayObject code:block )  {
         templates {
+            ; A union that holds a primitive is not sealable, so its Go type is
+            ; interface{} and there is no tag struct: the generic overload below
+            ; wrote `x.tag == interface{}_tag_string`, which is not even Go
+            ; syntax. A type assertion is the narrowing here.
+            go (
+                (forkctx _ ) (def 2) "if " (e 2) ", __rg_ok := " (e 1) ".(" (typeof 2) "); __rg_ok { /* union case */" nl I
+                        "_ = " (e 2) ";" nl
+                        (block 3)
+                        nl i "}"
+            )
             ranger ( "case " (e 1) " " (e 2) ":" (typeof 2) " {" nl
                         I (block 3) i nl "}" nl
             )

@@ -7,12 +7,14 @@ import {
   compileAndRun,
   compileAndRunDart,
   compileAndRunCSharp,
+  compileAndRunGo,
   compileAndRunPython,
   compileAndRunRust,
   compileRanger,
   getGeneratedRustCode,
   isCSharpAvailable,
   isDartAvailable,
+  isGoAvailable,
   isPythonAvailable,
   isRustAvailable,
 } from "./helpers/compiler";
@@ -154,6 +156,27 @@ describe("JSON operators", () => {
       }
     },
     120000
+  );
+
+  // Go holds the shapes as map[string]interface{} / []interface{} /
+  // interface{}, and encoding/json reads and writes the text. A union over
+  // primitives is interface{} here, so `case v s:string` narrows with a type
+  // assertion rather than the tagged-struct compare the sealable unions use.
+  it.skipIf(!isGoAvailable())(
+    "round trips an object through text on Go",
+    () => {
+      const { compile, run } = compileAndRunGo(FIXTURE);
+
+      expect(
+        compile.success,
+        `Compile failed: ${compile.error || compile.output}`
+      ).toBe(true);
+      expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+      for (const line of EXPECTED) {
+        expect(run?.output).toContain(line);
+      }
+    },
+    300000
   );
 
   it.skipIf(!isRustAvailable())(

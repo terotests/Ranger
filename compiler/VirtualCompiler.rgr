@@ -261,6 +261,61 @@ inline std::string rg_path_dirname(const std::string& p) {
           ranger ( "( pathname " (e 1) " )" )
           * ( "\"./\"")
           es6 ( "require('path').dirname(" (e 1) ")" )
+          go ( "r_path_dirname(" (e 1) ")" (imp "strings") (imp "os")
+          (polyfill "after_imports" "
+func r_path_normalize(p string) string {
+  s := strings.Replace(p, string(rune(92)), \"/\", -1)
+  absolute := strings.HasPrefix(s, \"/\")
+  trailing := len(s) > 1 && strings.HasSuffix(s, \"/\")
+  parts := []string{}
+  for _, cur := range strings.Split(s, \"/\") {
+    if cur == \"..\" {
+      if len(parts) > 0 && parts[len(parts)-1] != \"..\" {
+        parts = parts[:len(parts)-1]
+      } else if !absolute {
+        parts = append(parts, cur)
+      }
+    } else if len(cur) > 0 && cur != \".\" {
+      parts = append(parts, cur)
+    }
+  }
+  out := strings.Join(parts, \"/\")
+  if absolute {
+    out = \"/\" + out
+  }
+  if len(out) == 0 {
+    return \".\"
+  }
+  if trailing && out != \"/\" {
+    out = out + \"/\"
+  }
+  return out
+}
+func r_path_dirname(p string) string {
+  s := r_path_normalize(p)
+  if len(s) > 1 && strings.HasSuffix(s, \"/\") {
+    s = s[:len(s)-1]
+  }
+  pos := strings.LastIndex(s, \"/\")
+  if pos < 0 {
+    return \".\"
+  }
+  if pos == 0 {
+    return \"/\"
+  }
+  return s[:pos]
+}
+// The directory the program was started from, which is where the compiler looks
+// for its bundled Lang.rgr and stdops.rgr.
+func r_install_directory() string {
+  exe, err := os.Executable()
+  if err != nil {
+    return \".\"
+  }
+  return r_path_dirname(r_path_normalize(exe))
+}
+")
+          )
           csharp ( "RgPath.Dirname(" (e 1) ")"
           (polyfill "after_imports" "
 // Path helpers for the compiler's own file handling. System.IO.Path would do
@@ -1328,21 +1383,21 @@ class tester {
       print "  " + (cli.gray(err_msg))
       res.hasErrors = true
       res.ctx = appCtx
+      ; No `return` from inside a catch block: on Go the catch is a deferred
+      ; closure running recover(), so a return there returns from the CLOSURE
+      ; and not from run() -- `too many return values, have (*CompilerResults),
+      ; want ()`. The nesting below says the same thing without one; all three
+      ; paths ended with the same two statements anyway.
       if(lcc.lastProcessedNode) {
         print ""
         print (cli.gray("Error occurred near:"))
         print "  " + (lcc.lastProcessedNode.getLineAsString())
-        res.errorMessage = err_msg
-        cli.printFailure(1)
-        return res
-      }
-      if(flowParser.lastProcessedNode) {
-        print ""
-        print (cli.gray("Error occurred near:"))
-        print "  " + (flowParser.lastProcessedNode.getLineAsString())
-        res.errorMessage = err_msg
-        cli.printFailure(1)
-        return res
+      } {
+        if(flowParser.lastProcessedNode) {
+          print ""
+          print (cli.gray("Error occurred near:"))
+          print "  " + (flowParser.lastProcessedNode.getLineAsString())
+        }
       }
       res.errorMessage = err_msg
       cli.printFailure(1)

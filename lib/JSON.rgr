@@ -1107,9 +1107,23 @@ func r_get_opt_json_int( data map[string]interface{}, key string ) *GoNullable  
     res := new(GoNullable)
     v, ok := data[key]
     if ok {
-        if arr, ok := v.(int); ok {
+        // encoding/json decodes EVERY number as float64, so the int assertion
+        // alone never matched anything that came back from from_string: getInt
+        // answered \"absent\" for a key that plainly held 3. A JSON number is
+        // int or double and the two are distinct types here, so this accepts
+        // both and converts, the way the Dart, Python, Rust and C# entries do.
+        switch n := v.(type) {
+        case int:
             res.has_value = true
-            res.value = int64(arr)
+            res.value = int64(n)
+            return res
+        case int64:
+            res.has_value = true
+            res.value = n
+            return res
+        case float64:
+            res.has_value = true
+            res.value = int64(n)
             return res
         }
     }
@@ -1483,9 +1497,19 @@ func r_get_opt_json_double( data map[string]interface{}, key string ) *GoNullabl
     res := new(GoNullable)
     v, ok := data[key]
     if ok {
-        if arr, ok := v.(float64); ok {
+        // an int that a json_object literal put there is an int, not a float64
+        switch n := v.(type) {
+        case float64:
             res.has_value = true
-            res.value = arr
+            res.value = n
+            return res
+        case int:
+            res.has_value = true
+            res.value = float64(n)
+            return res
+        case int64:
+            res.has_value = true
+            res.value = float64(n)
             return res
         }
     }

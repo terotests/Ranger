@@ -395,7 +395,8 @@ extension RangerFlowParser {
 
             this.WalkNode( regExpr fnC wr )
             def regArg (at regExpr.children 1)
-            def realRegName ( (unwrap regArg.paramDesc).compiledName ) 
+            def realRegDesc:RangerAppParamDesc (unwrap regArg.paramDesc)
+            def realRegName ( realRegDesc.compiledName )
             
             def then_regs false
             if( has lastRow.register_name ) {
@@ -492,7 +493,8 @@ extension RangerFlowParser {
                 this.WalkNode( regExpr ctx wr )
 
                 def regArg (at regExpr.children 1)
-                def realRegName ( (unwrap regArg.paramDesc).compiledName ) 
+                def realRegDesc:RangerAppParamDesc (unwrap regArg.paramDesc)
+                def realRegName ( realRegDesc.compiledName )
 
                 regArg.paramDesc.set_cnt = 1
                 regArg.paramDesc.ref_cnt = 1
@@ -578,7 +580,8 @@ extension RangerFlowParser {
                       ; def fnC (ctx.findFunctionCtx())
                       this.WalkNode( regExpr ctx wr )
                       def regArg (at regExpr.children 1)
-                      def realRegName ( (unwrap regArg.paramDesc).compiledName ) 
+                      def realRegDesc:RangerAppParamDesc (unwrap regArg.paramDesc)
+                      def realRegName ( realRegDesc.compiledName )
                       regArg.paramDesc.set_cnt = 1
                       regArg.paramDesc.ref_cnt = 1
 
