@@ -1260,6 +1260,13 @@ class ComponentEngine {
     ; function body so nested calls are reentrancy-safe.
     def scriptDidReturn:boolean false
     def scriptReturnValue:EvHandle (EvValueBridge.taggedNull())
+    ; Did the body evaluateFunctionBodyValue just finished actually EXECUTE a
+    ; `return <value>`? `scriptReturnValue` starts as null to mean "nothing
+    ; returned", so a body that explicitly returns null is indistinguishable
+    ; from one that fell off the end -- and callResultOf turned both into
+    ; undefined. Set on the way out of the body, read by callResultOf, which
+    ; is only ever called on that function's result.
+    def bodyDidReturn:boolean false
     def loopBreak:boolean false
     def loopContinue:boolean false
     ; D-LABELS: `break label` / `continue label` name a statement further out
@@ -5295,8 +5302,20 @@ class ComponentEngine {
     ; "no return statement ran" as null, and letting that escape made
     ; `String(f())` answer "null" and every `=== undefined` check on a
     ; procedure's result fail.
+    ; A body that never returned answers undefined; one that RETURNED null
+    ; answers null. The two arrive here as the same value -- scriptReturnValue's
+    ; "nothing yet" state is null -- so they are told apart by bodyDidReturn.
+    ; Without it `function g(){ return null; }` answered undefined on the
+    ; walker, which is what broke Octane earley-boyer: its Scheme lists end in
+    ; null, so every list tail became undefined and the walk ran off the end.
+    ; (The bytecode tier returns null correctly, which is why this only showed
+    ; in functions the compiler rejects -- ones using `new`, `arguments`,
+    ; `delete` or a function expression.)
     fn callResultOf:EvHandle (v:EvHandle) {
         if (v.isNull()) {
+            if bodyDidReturn {
+                return v
+            }
             return (EvValueBridge.taggedUndefined())
         }
         return v
@@ -5329,6 +5348,9 @@ class ComponentEngine {
             exprSlotBase = savedSlotBase
             exprSlotNext = savedSlotNext
             def blockOut:EvHandle scriptReturnValue
+            ; Captured BEFORE the restore: this is whether THIS body returned,
+            ; which is the question callResultOf needs answered.
+            bodyDidReturn = scriptDidReturn
             scriptDidReturn = savedDidReturn
             scriptReturnValue = savedReturnValue
             return blockOut
@@ -5379,8 +5401,12 @@ class ComponentEngine {
             if ((this.nodeKindOf(stmt)) == 35) {
                 if stmt.left {
                     def returnExpr:TSNode (unwrap stmt.left)
+                    bodyDidReturn = true
                     return (this.evaluateExpr(returnExpr))
                 }
+                ; A bare `return;` yields undefined, so it is NOT a value
+                ; return as far as callResultOf is concerned.
+                bodyDidReturn = false
                 return (EvValueBridge.taggedNull())
             }
             
@@ -5395,9 +5421,14 @@ class ComponentEngine {
         
         ; If body is a simple expression
         if (((this.nodeKindOf(body)) != 34) && (body.nodeType != "")) {
+            ; An arrow's expression body IS its value -- `() => null` answers
+            ; null, not undefined.
+            bodyDidReturn = true
             return (this.evaluateExpr(body))
         }
-        
+
+        ; Fell off the end: undefined.
+        bodyDidReturn = false
         return (EvValueBridge.taggedNull())
     }
     
@@ -6843,7 +6874,12 @@ class ComponentEngine {
             if stmt.left {
                 scriptReturnValue = (this.evaluateExpr((unwrap stmt.left)))
             } {
-                scriptReturnValue = (EvValueBridge.taggedNull())
+                ; A bare `return;` yields UNDEFINED, stored explicitly rather
+                ; than left as the null "nothing returned" sentinel -- the two
+                ; are now told apart (see callResultOf/bodyDidReturn), so a
+                ; value-less return has to say what it means. ASI makes this
+                ; reachable from ordinary code: `return\n{ a: 1 }` is one.
+                scriptReturnValue = (EvValueBridge.taggedUndefined())
             }
             ; D-THROW: if evaluating the returned expression threw, the function
             ; did NOT return — it is unwinding. Setting scriptDidReturn here as
