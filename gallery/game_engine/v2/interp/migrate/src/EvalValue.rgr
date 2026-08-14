@@ -432,12 +432,31 @@ class EvPropertyBag {
     ; attributes. False proves every property is plain writable data, so
     ; the fast write path can store without the attrs probes.
     def everHadAttrs:boolean false
+    ; MONOTONE: true once any `__…__` key was stored here. False proves the
+    ; value carries none of the engine's internal brands, which is what
+    ; receiverKind spends ten hasOwnData probes establishing.
+    def everHadDunder:boolean false
 
     ; Record a name the first time this bag gets a slot for it. Every write
     ; below funnels through here, so `slotNames` and `slots` cannot drift.
     fn noteKey:void (ka:int key:string) {
         if (false == (has slots ka)) {
             push slotNames key
+            ; MONOTONE FLAG, same idea as everHadAccessor/everHadAttrs. Every
+            ; internal marker the engine brands a value with is spelled
+            ; `__…__` -- __primitive__, __promise__, __abbytes__, __regex__,
+            ; __date__ and the rest -- so a bag that has never been given a
+            ; `__`-prefixed key cannot carry any of them. receiverKind runs ten
+            ; hasOwnData probes to find that out, each one building a
+            ; std::string and hashing it, and it was 16.5% of instructions on
+            ; the object_props shape. One bit answers all ten.
+            if ((strlen key) > 1) {
+                if ((charAt key 0) == 95) {
+                    if ((charAt key 1) == 95) {
+                        everHadDunder = true
+                    }
+                }
+            }
         }
     }
     ; E4c: property-bag SoT. Value payload is EvalValue (avoids EvHandle import cycle).
@@ -497,6 +516,23 @@ class EvPropertyBag {
             return (unwrap d.value)
         }
         return (EvalValue.hole())
+    }
+    ; putData with the atom id ALREADY RESOLVED. The member-store funnels know
+    ; it from the bytecode constant pool -- the read path has used it since the
+    ; fused member ops landed -- so re-hashing the name on every write was pure
+    ; overhead. EvAtomTable::idOf was 15.6% of instructions on the
+    ; object_props shape and 17.7% with allocation removed, which is what put
+    ; it at the top of the profile.
+    fn putDataAtom:void (ka:int key:string value:EvalValue attrs:int) {
+        if (false == (has slots ka)) {
+            slotCount = (slotCount + 1)
+        }
+        if (attrs != 7) {
+            everHadAttrs = true
+        }
+        def slot:EvPropertySlot (new EvPropertySlot.Data(value attrs))
+        this.noteKey(ka key)
+        set slots ka slot
     }
     fn putData:void (key:string value:EvalValue attrs:int) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))

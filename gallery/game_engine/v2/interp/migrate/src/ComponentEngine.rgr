@@ -13624,7 +13624,10 @@ class ComponentEngine {
                     def oh31:EvHandle (itemAt bcStack (sp - 2))
                     if (oh31.chainAccessorFreeAt()) {
                         def vf31:EvHandle (this.bcSlotBox((sp - 1)))
-                        oh31.setMember((itemAt prog.atoms a) vf31)
+                        ; the atom is already in the pool -- the load op has
+                        ; used it since the fused member ops landed, while the
+                        ; store re-hashed the name on every write
+                        oh31.setMemberAtom((itemAt prog.atomIds a) (itemAt prog.atoms a) vf31)
                         sp = (sp - 2)
                         continue
                     }
@@ -26404,6 +26407,15 @@ class ComponentEngine {
     }
 
     fn receiverKind:string (v:EvHandle) {
+        ; PERF: an ordinary object -- one that has never been branded with a
+        ; `__…__` marker -- is none of the special kinds below, so all ten
+        ; hasOwnData probes are guaranteed to miss. Each of those builds a
+        ; std::string and hashes it, and this function was 16.5% of
+        ; instructions on the object_props shape, almost entirely here.
+        ; The flag is monotone, so a false answer is always safe.
+        if (v.plainMarkerFreeObject()) {
+            return "object"
+        }
         ; D-WRAPPER: a boxed primitive dispatches as its primitive kind, which
         ; is what makes `new String('a').toUpperCase()` reach String.prototype.
         if (v.isObject()) {

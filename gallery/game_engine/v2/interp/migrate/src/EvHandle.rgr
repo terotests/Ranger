@@ -2015,7 +2015,31 @@ class EvHandle {
     ; store with default attributes (which also preserves existing slots'
     ; attributes: with everHadAttrs false they are all 7 already). False =
     ; take the full machinery.
+    ; The string entry resolves the atom once and hands it on. Every caller
+    ; that already knows the id -- the VM's member-store op reads it out of the
+    ; constant pool, exactly as the load op has done since the fused member ops
+    ; landed -- should call setMemberFastAtom directly and skip the hash.
+    ; A plain OBJECT that has never been given a `__…__` key. Such a value
+    ; cannot be a boxed primitive, promise, arraybuffer, dataview, bigint,
+    ; weakref, regexp or date, because every one of those is branded with such
+    ; a marker -- so receiverKind can answer "object" without probing for any
+    ; of them. Deliberately narrow: only the Object case, so array/function/
+    ; map/set keep their existing routing.
+    fn plainMarkerFreeObject:boolean () {
+        case body o:EvalValue.Object {
+            def bag:EvPropertyBag o.properties
+            if bag.everHadDunder {
+                return false
+            }
+            return true
+        }
+        return false
+    }
+
     fn setMemberFast:boolean (key:string value:EvHandle) {
+        return (this.setMemberFastAtom(((EvAtomTable.__singleton()).idOf(key)) key value))
+    }
+    fn setMemberFastAtom:boolean (ka:int key:string value:EvHandle) {
         if isProtoObject {
             return false
         }
@@ -2046,7 +2070,7 @@ class EvHandle {
                         def fpEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
                         fpEp.bump()
                     }
-                    bag.putData(key (value.toStored()) 7)
+                    bag.putDataAtom(ka key (value.toStored()) 7)
                     return true
                 }
                 def stepped:boolean false
@@ -2069,6 +2093,16 @@ class EvHandle {
             return false
         }
         return false
+    }
+
+    ; setMember for a caller that already holds the atom id. Only the FAST
+    ; path can use it; the refusal rules below are keyed by name, and they run
+    ; rarely enough that resolving the atom again there costs nothing.
+    fn setMemberAtom:void (ka:int key:string value:EvHandle) {
+        if (this.setMemberFastAtom(ka key value)) {
+            return
+        }
+        this.setMember(key value)
     }
 
     fn setMember:void (key:string value:EvHandle) {
