@@ -29409,21 +29409,37 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                             }
                             let rhs_is_rc_wrapped = false;
+                            let rhs_is_optional_rc = false;
                             if ( right.hasParamDesc ) {
                               const rhsParam = right.paramDesc;
                               if ( rhsParam.rust_needs_rc_wrap ) {
                                 rhs_is_rc_wrapped = true;
+                                if ( rhsParam.is_optional ) {
+                                  const rhsNN_1 = rhsParam.nameNode;
+                                  if ( (typeof(rhsNN_1) !== "undefined" && rhsNN_1 != null )  ) {
+                                    const rhsN = rhsNN_1;
+                                    if ( ((rhsN.array_type.length) == 0) && ((rhsN.key_type.length) == 0) ) {
+                                      rhs_is_optional_rc = true;
+                                    }
+                                  }
+                                }
                               }
                             }
                             if ( rhs_is_rc_wrapped ) {
+                              let dgOpen = "&";
+                              let dgClose = "";
+                              if ( rhs_is_optional_rc ) {
+                                dgOpen = "";
+                                dgClose = ".as_ref().unwrap()";
+                              }
                               if ( is_optional ) {
-                                wr.out(" = Some(Rc::downgrade(&", false);
+                                wr.out(" = Some(Rc::downgrade(" + dgOpen, false);
                                 await this.WalkNode(right, ctx, wr);
-                                wr.out("));", true);
+                                wr.out(dgClose + "));", true);
                               } else {
-                                wr.out(" = Rc::downgrade(&", false);
+                                wr.out(" = Rc::downgrade(" + dgOpen, false);
                                 await this.WalkNode(right, ctx, wr);
-                                wr.out(");", true);
+                                wr.out(dgClose + ");", true);
                               }
                             } else {
                               if ( is_optional ) {

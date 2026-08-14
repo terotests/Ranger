@@ -6908,23 +6908,42 @@ class RangerRustClassWriter {
         }
         ; Check if RHS is a parameter that's already Rc<RefCell<T>> (rust_needs_rc_wrap)
         def rhs_is_rc_wrapped:boolean false
+        ; …and whether that Rc sits inside an Option. Rc::downgrade takes an
+        ; `&Rc`, so an optional source has to be opened first: `&x` on an
+        ; `Option<Rc<…>>` is a reference to the Option.
+        def rhs_is_optional_rc:boolean false
         if right.hasParamDesc {
           def rhsParam:RangerAppParamDesc right.paramDesc
           if rhsParam.rust_needs_rc_wrap {
             rhs_is_rc_wrapped = true
+            if rhsParam.is_optional {
+              def rhsNN@(optional):CodeNode rhsParam.nameNode
+              if (!null? rhsNN) {
+                def rhsN:CodeNode (unwrap rhsNN)
+                if (((strlen rhsN.array_type) == 0) && ((strlen rhsN.key_type) == 0)) {
+                  rhs_is_optional_rc = true
+                }
+              }
+            }
           }
         }
-        
+
         if rhs_is_rc_wrapped {
+          def dgOpen:string "&"
+          def dgClose:string ""
+          if rhs_is_optional_rc {
+            dgOpen = ""
+            dgClose = ".as_ref().unwrap()"
+          }
           ; RHS is already Rc<RefCell<T>>, just downgrade it directly
           if is_optional {
-            wr.out(" = Some(Rc::downgrade(&" false)
+            wr.out((" = Some(Rc::downgrade(" + dgOpen) false)
             this.WalkNode(right ctx wr)
-            wr.out("));" true)
+            wr.out((dgClose + "));") true)
           } {
-            wr.out(" = Rc::downgrade(&" false)
+            wr.out((" = Rc::downgrade(" + dgOpen) false)
             this.WalkNode(right ctx wr)
-            wr.out(");" true)
+            wr.out((dgClose + ");") true)
           }
         } {
           ; RHS is a raw value, need to wrap in Rc::new(RefCell::new(...)) first
