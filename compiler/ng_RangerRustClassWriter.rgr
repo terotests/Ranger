@@ -6016,6 +6016,25 @@ class RangerRustClassWriter {
   ; closure's parameter types from the `&mut dyn FnMut(…)` it is passed to,
   ; and a `let __arg_0 = &mut |item| …;` ahead of the call has no expected
   ; type at all — "type annotations needed" on every parameter.
+  ; Does this expression already produce an Option? A call whose return is
+  ; declared `@(optional)` does, and so does a read of an optional name.
+  ; Wrapping one in Some() gives an Option holding an Option.
+  fn rustExprIsOptional:boolean (node:CodeNode ctx:RangerAppWriterContext) {
+    if (node.hasFlag("optional")) {
+      return true
+    }
+    if (!null? node.fnDesc) {
+      def fd:RangerAppFunctionDesc (unwrap node.fnDesc)
+      def fdNN@(optional):CodeNode fd.nameNode
+      if (!null? fdNN) {
+        if ((unwrap fdNN).hasFlag("optional")) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
   fn rustNodeIsLambda:boolean (node:CodeNode) {
     def real:CodeNode (this.rustUnwrapParens(node))
     if (!null? real.lambda_ctx) {
@@ -7089,7 +7108,13 @@ class RangerRustClassWriter {
         ; applied at the temporary) — move it in, mirroring the standard
         ; Some(…) branch below
         if preeval_rhs {
-          wr.out(((" = Some(" + preeval_name) + ");") true)
+          ; …and if that value is already an Option it goes in as it is:
+          ; a Some() around it would nest one Option inside another
+          if (this.rustExprIsOptional(right ctx)) {
+            wr.out(((" = " + preeval_name) + ";") true)
+          } {
+            wr.out(((" = Some(" + preeval_name) + ");") true)
+          }
           ctx.unsetInExpr()
           return
         }
@@ -7153,8 +7178,17 @@ class RangerRustClassWriter {
                 }
                 wr.out("));" true)
               } {
-                ; Standard optional assignment: wrap with Some()
-                wr.out(" = Some(" false)
+                ; Standard optional assignment: wrap with Some() — unless
+                ; the right side is ALREADY an Option. `classDesc =
+                ; (ctx.getCurrentClass())` calls a method whose return is
+                ; `@(weak optional)`, and a Some() around that gives an
+                ; Option holding an Option.
+                def rhsAlreadyOption:boolean (this.rustExprIsOptional(right ctx))
+                if rhsAlreadyOption {
+                  wr.out(" = " false)
+                } {
+                  wr.out(" = Some(" false)
+                }
                 this.WalkNode(right ctx wr)
                 if should_clone_rhs {
                   if rhs_str_ref {
@@ -7163,7 +7197,11 @@ class RangerRustClassWriter {
                     wr.out(".clone()" false)
                   }
                 }
-                wr.out(");" true)
+                if rhsAlreadyOption {
+                  wr.out(";" true)
+                } {
+                  wr.out(");" true)
+                }
               }
             }
           }

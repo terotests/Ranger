@@ -28658,6 +28658,21 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         await this.rustWriteBitOperand(oo, ctx, wr);
                         wr.out(" as f64", false);
                       };
+                      rustExprIsOptional (node, ctx) {
+                        if ( node.hasFlag("optional") ) {
+                          return true;
+                        }
+                        if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
+                          const fd = node.fnDesc;
+                          const fdNN = fd.nameNode;
+                          if ( (typeof(fdNN) !== "undefined" && fdNN != null )  ) {
+                            if ( ((fdNN)).hasFlag("optional") ) {
+                              return true;
+                            }
+                          }
+                        }
+                        return false;
+                      };
                       rustNodeIsLambda (node) {
                         const real = this.rustUnwrapParens(node);
                         if ( (typeof(real.lambda_ctx) !== "undefined" && real.lambda_ctx != null )  ) {
@@ -29555,7 +29570,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                           if ( is_optional ) {
                             if ( preeval_rhs ) {
-                              wr.out((" = Some(" + preeval_name) + ");", true);
+                              if ( this.rustExprIsOptional(right, ctx) ) {
+                                wr.out((" = " + preeval_name) + ";", true);
+                              } else {
+                                wr.out((" = Some(" + preeval_name) + ");", true);
+                              }
                               ctx.unsetInExpr();
                               return;
                             }
@@ -29607,7 +29626,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                     }
                                     wr.out("));", true);
                                   } else {
-                                    wr.out(" = Some(", false);
+                                    const rhsAlreadyOption = this.rustExprIsOptional(right, ctx);
+                                    if ( rhsAlreadyOption ) {
+                                      wr.out(" = ", false);
+                                    } else {
+                                      wr.out(" = Some(", false);
+                                    }
                                     await this.WalkNode(right, ctx, wr);
                                     if ( should_clone_rhs ) {
                                       if ( rhs_str_ref ) {
@@ -29616,7 +29640,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                         wr.out(".clone()", false);
                                       }
                                     }
-                                    wr.out(");", true);
+                                    if ( rhsAlreadyOption ) {
+                                      wr.out(";", true);
+                                    } else {
+                                      wr.out(");", true);
+                                    }
                                   }
                                 }
                               }
