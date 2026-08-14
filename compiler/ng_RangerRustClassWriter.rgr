@@ -3019,6 +3019,11 @@ class RangerRustClassWriter {
               argNeedsTmp = true
             }
           }
+          ; a closure literal stays in the call that takes it, whatever it
+          ; contains: hoisted out, it has no expected type to infer from
+          if (this.rustNodeIsLambda(arg)) {
+            argNeedsTmp = false
+          }
           if argNeedsTmp {
             def tmpVarName:string ("__arg_" + (to_string tmpVarIdx))
             tmpVarIdx = tmpVarIdx + 1
@@ -3525,6 +3530,11 @@ class RangerRustClassWriter {
       
       def tmpVarIdx:int 0
       for pms arg:CodeNode i {
+        ; a closure literal stays in the call that takes it: hoisted out, it
+        ; has no expected type to infer its parameters from
+        if (this.rustNodeIsLambda(arg)) {
+          continue
+        }
         def tmpVarName:string ("__arg_" + (to_string tmpVarIdx))
         tmpVarIdx = tmpVarIdx + 1
         
@@ -3691,7 +3701,12 @@ class RangerRustClassWriter {
         for givenArgs.children argNode:CodeNode argIdx {
           ; Check if this arg contains a self reference (class variable)
           def argHasSelfRef:boolean (this.containsSelfReference(argNode))
-          
+          ; a closure literal stays in the call that takes it: hoisted
+          ; out, it has no expected type to infer its parameters from
+          if (this.rustNodeIsLambda(argNode)) {
+            argHasSelfRef = false
+          }
+
           if argHasSelfRef {
             ; Pre-evaluate this argument
             def tmpName:string ("__arg_" + (to_string tmpIdx))
@@ -5934,6 +5949,18 @@ class RangerRustClassWriter {
   ; --- string concatenation as format! (PLAN_RUST_IDIOMATICITY item 5) ---
 
   ; unwraps `( x )` nesting to the single meaningful child
+  ; A closure literal has to stay in the call that takes it. Rust infers a
+  ; closure's parameter types from the `&mut dyn FnMut(…)` it is passed to,
+  ; and a `let __arg_0 = &mut |item| …;` ahead of the call has no expected
+  ; type at all — "type annotations needed" on every parameter.
+  fn rustNodeIsLambda:boolean (node:CodeNode) {
+    def real:CodeNode (this.rustUnwrapParens(node))
+    if (!null? real.lambda_ctx) {
+      return true
+    }
+    return false
+  }
+
   fn rustUnwrapParens:CodeNode (node:CodeNode) {
     def cur:CodeNode node
     while (cur.expression && ((array_length cur.children) == 1)) {

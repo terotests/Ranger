@@ -26059,6 +26059,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             argNeedsTmp = true;
                           }
                         }
+                        if ( this.rustNodeIsLambda(arg) ) {
+                          argNeedsTmp = false;
+                        }
                         if ( argNeedsTmp ) {
                           const tmpVarName = "__arg_" + ((tmpVarIdx.toString()));
                           tmpVarIdx = tmpVarIdx + 1;
@@ -26495,6 +26498,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     let tmpVarIdx = 0;
                     for ( let i_1 = 0; i_1 < pms.length; i_1++) {
                       var arg = pms[i_1];
+                      if ( this.rustNodeIsLambda(arg) ) {
+                        continue;
+                      }
                       const tmpVarName = "__arg_" + ((tmpVarIdx.toString()));
                       tmpVarIdx = tmpVarIdx + 1;
                       wr.out(("let " + tmpVarName) + " = ", false);
@@ -26622,7 +26628,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       const fnD3 = node.fnDesc;
                       for ( let argIdx = 0; argIdx < givenArgs.children.length; argIdx++) {
                         var argNode = givenArgs.children[argIdx];
-                        const argHasSelfRef = this.containsSelfReference(argNode);
+                        let argHasSelfRef = this.containsSelfReference(argNode);
+                        if ( this.rustNodeIsLambda(argNode) ) {
+                          argHasSelfRef = false;
+                        }
                         if ( argHasSelfRef ) {
                           const tmpName = "__arg_" + ((tmpIdx.toString()));
                           tmpIdx = tmpIdx + 1;
@@ -28599,6 +28608,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         }
                         await this.rustWriteBitOperand(oo, ctx, wr);
                         wr.out(" as f64", false);
+                      };
+                      rustNodeIsLambda (node) {
+                        const real = this.rustUnwrapParens(node);
+                        if ( (typeof(real.lambda_ctx) !== "undefined" && real.lambda_ctx != null )  ) {
+                          return true;
+                        }
+                        return false;
                       };
                       rustUnwrapParens (node) {
                         let cur = node;
