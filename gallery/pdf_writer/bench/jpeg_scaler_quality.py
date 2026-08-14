@@ -17,7 +17,11 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path("/workspace")
+import os
+
+# Repo root: RANGER_ROOT wins, then the checkout this file lives in, so the
+# script runs outside the /workspace sandbox it was first written in.
+ROOT = Path(os.environ.get("RANGER_ROOT") or Path(__file__).resolve().parents[3])
 EX = ROOT / "gallery/pdf_writer/assets/images/Example.jpg"
 GPS = ROOT / "gallery/pdf_writer/assets/images/GPS_test.jpg"
 P1080 = ROOT / "tmp/jpeg-bench/images/plasma_1080.jpg"

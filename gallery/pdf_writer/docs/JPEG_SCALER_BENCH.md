@@ -10,7 +10,14 @@ Re-run:
 
 The npm wrappers live in `gallery/pdf_writer/bench/js_scalers/` (isolated `package.json`, not a Ranger runtime dependency).
 
-Ranger C++ / Rust / Go / Node wrote **byte-identical** JPEGs on the Example.jpg → 600px case (`180280` bytes, `md5 2d08fcfb09cdf3627ab41a8e44905762`). Native tools and npm packages write different (usually smaller) files; they are a wall-clock comparison, not a quality match. Quality (PSNR / crops) is in [Scaling and encode quality](#scaling-and-encode-quality): Ranger is bilinear like Jimp, not Lanczos like `sharp`, and its larger JPEGs score **worse**, not better.
+Ranger C++ / Rust / Go / Node wrote **byte-identical** JPEGs on the Example.jpg → 600px case (`75593` bytes, `md5 3f9ef8fa2fb2d1a519a95cc5783d0079`). Native tools and npm packages write different files; they are a wall-clock comparison, not a quality match. Quality (PSNR / crops) is in [Scaling and encode quality](#scaling-and-encode-quality): Ranger is bilinear like Jimp, not Lanczos like `sharp`.
+
+> **The encoder had a quantizer rounding bug; it is fixed.** Everything below that
+> is dated *before the quantizer fix* was measured against an encoder that pushed
+> every negative DCT coefficient a full quantization step away from zero. That is
+> what made Ranger's JPEGs simultaneously 2–4× larger and ~15 dB worse than every
+> other bilinear scaler. See [The quantizer rounding bug](#the-quantizer-rounding-bug).
+> The old reference image was `180280` bytes, `md5 2d08fcfb09cdf3627ab41a8e44905762`.
 
 ## Machine (2026-08-14)
 
@@ -197,6 +204,108 @@ Encode-heavy upscale (2400×2400 output). Decode is cheap; bilinear + JPEG encod
 
 This is the one workload where **hand-written `jpeg-js` / `image-js` beat Ranger C++ and Rust**. Ranger's generated encoder is a straightforward baseline JPEG writer; `jpeg-js` has had years of JS-specific encode work. Ranger Node is ~2.3× Jimp and ~5.5× `jpeg-js` here.
 
+## The quantizer rounding bug
+
+`JPEGEncoder.encodeBlock` quantized a coefficient with
+
+```
+if (c >= 0) { qVal = (to_int ((c + (bit_shr q 1)) / q)) }
+        else { qVal = (to_int ((c - (bit_shr q 1)) / q)) }
+```
+
+which reads as round-half-away-from-zero. It is not, because **`to_int` floors**
+(it compiles to `(int)floor(...)` on C++, and the Rust backend was deliberately
+aligned to floor for byte-identity — see CHANGELOG). On the negative branch the
+`- q/2` bias and the floor both round away from zero, so the bias is applied
+twice:
+
+| c | q | intended | emitted | dequantized |
+| ---: | ---: | ---: | ---: | ---: |
+| -10 | 3 | -3 | **-4** | -12 instead of -9 |
+| -17 | 4 | -4 | **-5** | -20 instead of -16 |
+| -1 | 3 | 0 | **-1** | -3 instead of 0 |
+
+Every negative coefficient landed a full quantization step further from zero, and
+negative coefficients that belonged at zero became -1. Since DCT coefficients are
+roughly symmetric about zero, that is about half of them. Both symptoms followed
+from this one line:
+
+- **quality** — the error is proportional to the quantizer, so it grew as quality
+  dropped: identity-scale round trip on Example.jpg scored 44.9 dB at q100 (where
+  every quantizer is 1 and the bug cannot fire), 23.8 dB at q85, 16.0 dB at q50.
+- **size** — the spurious ±1 coefficients destroyed the zero runs the Huffman
+  coder depends on. A smooth gradient block carried 25–33 nonzero AC coefficients
+  where it should carry 2–3.
+
+The fix mirrors the negative case through zero, so the division always runs on a
+non-negative value:
+
+```
+if (c >= 0) { qVal = (to_int ((c + (bit_shr q 1)) / q)) }
+        else { qVal = (0 - (to_int (((0 - c) + (bit_shr q 1)) / q))) }
+```
+
+The same double-bias sat in the six DC-predictor updates in `encode` /
+`encodeToBuffer`, which have to agree with `encodeBlock`; those are fixed too.
+
+Two properties worth keeping: the corrected form is exactly
+round-half-away-from-zero, and it gives the **same answer whether `to_int` floors
+or truncates**. Over every `(c, q)` pair with `|c| ≤ 2000, 1 ≤ q ≤ 255` the old
+form disagreed between floor and truncate semantics on 497,757 pairs; the new
+form disagrees on none. Cross-target agreement at this site no longer depends on
+the backends rounding alike — and C++/Rust/Go/Node still write byte-identical
+output.
+
+### Effect, same machine, back to back
+
+Identity-scale round trip (decode → 1:1 → encode at q85), scored against a
+libjpeg decode of the input:
+
+| | before | after | ImageMagick q85 |
+| --- | ---: | ---: | ---: |
+| Example.jpg | 23.61 dB / 48 KB | **37.66 dB / 29 KB** | 40.52 dB / 27 KB |
+| GPS_test.jpg | 20.03 dB / 286 KB | **34.82 dB / 146 KB** | 39.38 dB / 157 KB |
+
+Wall clock (`ranger-cpp`, `g++ -O3`, hyperfine, 10 runs), which also improves
+because there are far fewer nonzero coefficients to entropy-code — this figure
+includes the decoder/encoder speedups described in [Where the time goes](#where-the-time-goes):
+
+| workload | before | after | speedup |
+| --- | ---: | ---: | ---: |
+| Example → 600 | 94.8 ms | 53.8 ms | 1.76× |
+| GPS → 400 | 63.5 ms | 48.9 ms | 1.30× |
+| plasma 1080 → 800 | 286.1 ms | 224.8 ms | 1.27× |
+| plasma 4K → 800 | 1.192 s | 0.999 s | 1.19× |
+| Example → 2400 | 1.207 s | 0.629 s | 1.92× |
+
+## Where the time goes
+
+Profiling the HD downscale (`gprof`, `-O2 -pg`) found three portable wins, all
+bit-exact against the pre-existing output:
+
+- **`JPEGEncoder.extractBlock` allocated a `Color` per pixel per channel.**
+  `img.getPixel(x, y)` returns a heap object (a refcounted `shared_ptr` in C++);
+  the block extractor called it 64 times per block per component — 1.09 M
+  allocations on a 1080p frame — and computed all three of Y/Cb/Cr each time only
+  to keep one. It now reads the RGB triple straight out of `img.pixels` and
+  converts only the requested channel.
+- **`IDCT.idct1d` had no flat-row shortcut.** With every AC coefficient zero the
+  1D IDCT is one value repeated eight times, because `cosTable[x * 8]` is 1024 for
+  every x. Most rows of a photographic block are like that, and after the row pass
+  most columns are too.
+- **`FDCT.dct1d` ignored the cosine table's symmetry.** `cos[(7-x)*8+u]` equals
+  `cos[x*8+u]` for even u and its negation for odd u, so folding the eight terms
+  into four sums and four differences halves the multiplies exactly —
+  `a*c + b*c` and `(a+b)*c` are the same integer.
+
+One idiom that did **not** survive: hoisting the IDCT's per-block 64-int scratch
+buffer to an instance field, the standard fix in every other language. The Rust
+backend emits `self.field.clone()` for a member buffer passed as an argument and
+does not infer `&mut self` for the enclosing method, so the change turns into a
+compile error plus two 64-element clones per block. It was reverted; the flat-row
+shortcut is the portable version of the same win. Worth a separate look at the
+Rust writer.
+
 ## Scaling and encode quality
 
 The timing tables mix two different jobs. Ranger's scaler is **bilinear** (`ImageBuffer.scaleToSize`). Jimp / jpeg-js / image-js / ImageMagick `-filter triangle` are the same class of filter. `sharp` and ImageMagick's default `-resize` are **Lanczos** (sharper, more work). Ranger's encoder writes **4:4:4** at IJG quality 85 (no chroma subsample) using an integer FDCT. `sharp` writes **4:2:0**. Jimp / jpeg-js / image-js also write 4:4:4 on these files, so sampling does not explain Ranger vs those three.
@@ -209,7 +318,7 @@ Higher PSNR / SSIM = closer to that reference, not “prettier”. A Lanczos out
 
 | tool | bytes | sampling | PSNR vs bilinear | PSNR vs Lanczos | SSIM vs bilinear | RMSE |
 | --- | ---: | --- | ---: | ---: | ---: | ---: |
-| ranger | 180280 | 4:4:4 | 20.74 | 20.27 | 0.7683 | 23.43 |
+| ranger | 75593 | 4:4:4 | 24.32 | 23.35 | 0.9269 | 15.51 |
 | jimp | 73879 | 4:4:4 | 24.42 | 23.40 | 0.9282 | 15.34 |
 | jpeg-js | 69948 | 4:4:4 | 29.21 | 26.66 | 0.9776 | 8.83 |
 | image-js | 82224 | 4:4:4 | 23.91 | 24.55 | 0.9144 | 16.25 |
@@ -227,7 +336,7 @@ Ranger's crop is grainy around the clock hands. The bilinear group (jimp, jpeg-j
 
 | tool | bytes | sampling | PSNR vs bilinear | PSNR vs Lanczos | SSIM vs bilinear | RMSE |
 | --- | ---: | --- | ---: | ---: | ---: | ---: |
-| ranger | 127871 | 4:4:4 | 18.42 | 18.54 | 0.6799 | 30.60 |
+| ranger | 57668 | 4:4:4 | 26.95 | 26.72 | 0.8629 | 11.45 |
 | jimp | 56517 | 4:4:4 | 27.48 | 27.18 | 0.8659 | 10.78 |
 | jpeg-js | 56231 | 4:4:4 | 28.72 | 28.56 | 0.8951 | 9.34 |
 | image-js | 63525 | 4:4:4 | 24.01 | 24.08 | 0.7651 | 16.06 |
@@ -244,7 +353,7 @@ On a real photo Ranger *looks* crunchier (tree bark, leaves) than Jimp. That is 
 
 | tool | bytes | sampling | PSNR vs bilinear | PSNR vs Lanczos | SSIM vs bilinear | RMSE |
 | --- | ---: | --- | ---: | ---: | ---: | ---: |
-| ranger | 347441 | 4:4:4 | 19.31 | 19.38 | 0.3923 | 27.60 |
+| ranger | 96753 | 4:4:4 | 34.06 | 33.38 | 0.9442 | 5.06 |
 | jimp | 93184 | 4:4:4 | 37.28 | 35.92 | 0.9523 | 3.49 |
 | jpeg-js | 93149 | 4:4:4 | 37.61 | 36.17 | 0.9586 | 3.36 |
 | image-js | 97034 | 4:4:4 | 36.94 | 35.73 | 0.9437 | 3.63 |
@@ -257,12 +366,12 @@ This is the clearest encoder tell. A smooth plasma should JPEG-compress well at 
 
 ### What this does to the speed numbers
 
-- Ranger is **not** slower because it does Lanczos or a higher-quality JPEG. The scaler is bilinear; the encode is a large, noisy 4:4:4 stream from an integer FDCT.
-- `jpeg-js` is both **faster than Ranger Node** and **much closer** to a clean bilinear+JPEG result (and still faster than Ranger C++ on the 2400px upscale, where encode dominates).
+- Ranger is **not** slower because it does Lanczos or a higher-quality JPEG. The scaler is bilinear, and it is now in the bilinear pack on both size and score: on Example → 600 it writes 75.6 KB at 24.32 dB where Jimp writes 73.9 KB at 24.42 dB.
 - `sharp` / ImageMagick are faster *and* sharper because they are a different algorithm (Lanczos) plus libjpeg-turbo. That is not a like-for-like scaler comparison.
-- File size is not a quality proxy here: Ranger's 2–4× larger JPEGs are the worst PSNR in every case.
+- `jpeg-js` still scores better than Ranger on all three images (29.2 vs 24.3 dB on Example, 28.7 vs 27.0 on GPS, 37.6 vs 34.1 on plasma) at a comparable size. That residue is the **transform precision**, not the quantizer: the cosine tables are scaled by only 1024, each 1D pass truncates with `bit_shr` instead of rounding, and no fractional bits are carried between the two passes. Feeding Ranger's own quantized coefficients through an exact float IDCT instead of `IDCT.transform` recovers ~6 dB on real blocks (42.3 → 48.3 dB on Example). The IJG fix is 13-bit constants, a rounding term before each shift, and two guard bits between passes; that is the next encode/decode change worth making, and it would change output bytes again.
+- File size is no longer a red flag: the 2–4× inflation was the spurious ±1 coefficients from the quantizer bug.
 
-The integer FDCT / baseline Huffman writer is the likely quality bottleneck (large files that do not reconstruct well). Fixing encode would change both the quality tables and the encode-heavy timings.
+Note also that `convert` / `gm` run **multi-threaded** here — on the 4K downscale ImageMagick burns 698 ms of user time in 341 ms of wall time — while every Ranger target is single-threaded. Roughly half the remaining gap on the larger images is thread count, not per-core work.
 
 ## What this says about Ranger
 
@@ -270,9 +379,16 @@ Among the generated targets, on this machine:
 
 | | Typical order |
 | --- | --- |
-| Fastest Ranger | **Rust**, then **C++** (within ~10% except 4K, where C++ is slightly ahead) |
-| Next | **Go**, about 1.5× the C++/Rust time |
-| Slowest Ranger | **Node.js**, about 4–5× C++/Rust (7–8× on the 4K downscale) |
+| Fastest Ranger | **C++** |
+| Next | **Rust**, about 1.3–1.5× the C++ time, then **Go** just behind it |
+| Slowest Ranger | **Node.js**, about 6–8× C++ |
+
+The "Rust is fastest" ordering in the table above it did not reproduce. On a
+re-measure (`rustc 1.94.1`, same machine, hyperfine 10 runs back to back) C++ won
+every workload: 53.8 vs 81.3 ms on Example → 600, 224.8 vs 323.1 ms on HD, 999 ms
+vs 1.43 s on 4K, 629 vs 924 ms on the 2400px upscale. The `.clone()` the Rust
+backend emits for member buffers passed as arguments — the same one that blocked
+the IDCT scratch hoist — is the first thing to look at.
 
 Against a native JPEG stack (libjpeg-turbo + SIMD):
 
@@ -286,7 +402,7 @@ Against **npm packages**:
 - Ranger Node sits next to **Jimp** (the usual pure-JS image library): slightly faster on small photos, slower on HD/4K.
 - **`jpeg-js`** (the codec Jimp uses) is the fastest pure-JS stack, about **1.5–3×** Ranger Node depending on the job.
 - Ranger **C++ / Rust beat every pure-JS package** on decode-heavy work (HD and 4K). They are in the same tens of milliseconds as **`sharp`** on tiny images, then `sharp` pulls away as libvips uses SIMD and shrink-on-load.
-- The generated encoder is the weak spot: on a 300→2400 upscale, `jpeg-js` (~404 ms) is faster than Ranger Rust (~541 ms) and C++ (~620 ms). It is also **cleaner**: Ranger's q85 4:4:4 files are 2–4× larger with ~19–21 dB PSNR against a bilinear reference, vs ~29–38 dB for jpeg-js. See [Scaling and encode quality](#scaling-and-encode-quality).
+- The generated encoder was the weak spot and is much less so after the quantizer fix: the 300→2400 upscale went from 1.207 s to 629 ms on C++, and the q85 4:4:4 files went from 2–4× larger at ~19–21 dB to roughly Jimp's size at 24–34 dB. `jpeg-js` still scores 2–5 dB better at a similar size; that gap is transform precision. See [Scaling and encode quality](#scaling-and-encode-quality).
 
 That is a portable software codec generated from one `.rgr` file, not a libjpeg binding. ImageMagick / vips / ffmpeg / `sharp` call SIMD IDCT, Huffman, and (when shrinking) reduced-resolution decode. Ranger does none of those. The interesting number is that **optimized C++ and Rust land in the same tens-to-hundreds of milliseconds as ffmpeg on small images**, stay within a small integer factor of ImageMagick on HD, and **outrun the pure-JS npm codecs** except when the job is almost entirely JPEG encode of a huge bitmap.
 
@@ -294,7 +410,7 @@ Node.js is the odd one out among Ranger targets: same algorithm, but ~4–5× th
 
 ## Output size (not timed, but visible)
 
-On the HD plasma → 800 run Ranger wrote **347 KB** (PSNR 19 dB vs bilinear PNG). jpeg-js wrote **93 KB** (PSNR 38 dB). ImageMagick `-quality 85` wrote **81–88 KB**. The extra Ranger bytes are encoder noise, not extra detail. Timing compares “CLI job finished”, not bits per pixel.
+On the HD plasma → 800 run Ranger now writes **97 KB** at 34.1 dB vs the bilinear PNG, against jpeg-js at **93 KB** / 37.6 dB and ImageMagick `-quality 85` at **81–88 KB** / 38.4 dB. Before the quantizer fix it was **347 KB** at 19 dB — those extra bytes were the spurious ±1 coefficients, not detail. Timing still compares “CLI job finished”, not bits per pixel.
 
 ## LLVM
 
