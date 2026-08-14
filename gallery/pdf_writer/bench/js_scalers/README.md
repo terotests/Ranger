@@ -17,3 +17,5 @@ node scale-jimp.cjs 800 in.jpg out.jpg
 
 `npm install` here (or let the bench script do it). Do not add these to the
 repo-root `package.json`.
+
+Quality (PSNR / SSIM / crop strips) is `python3 gallery/pdf_writer/bench/jpeg_scaler_quality.py`.
