@@ -119,6 +119,36 @@ discipline already noted in BYTECODE.md.
 Allocation cost is real but it is **not** the dominant term, and the
 `03_object_props` 64× is not evidence for it.
 
+## What was actually done, and what it bought
+
+Acting on the above:
+
+| change | result |
+|---|---|
+| thread the pooled atom id into the VM's member **store** op | **no measurable effect** — `idOf` stayed at 15.8%. Kept because it is correct, but it was not the cost. |
+| `receiverKind` stops searching for `__…__` markers (one monotone bit) | **−17.8%** wall clock |
+| the same bit for `isProxyValue`, `isDataViewValue`, `isArrayBufferValue`, `argMapName` | **−23.8%** cumulative |
+| `hasProto`/`protoOf` read the prototype without materialising the bag optional | **+3.3% SLOWER — reverted** |
+
+Cumulative on the `object_props` shape: instructions 825,770,714 →
+617,330,101 (−25.2%), wall clock 9320 ms → 7105 ms (−23.8%), interleaved
+best-of-5 with a plain `-O3` binary on both sides and identical output.
+
+The reverted attempt is worth recording so nobody retries it: removing the
+optional looked like a pure win, but `protoBody` had to return an
+`EvalValue` **by value**, and that is a twelve-alternative variant with
+`rg_ptr` members — so it traded one bag-pointer copy for a whole variant
+copy. `tryProps` duly vanished from the profile and the program got slower.
+Instruction count went *up* 0.9% too, so both signals agreed.
+
+### Still on the table
+
+`EvAtomTable::idOf` is 11.2% and `tryProps` ~10%, so the original lever is
+only partly collected. What remains is the harder half: interning names at
+the *call sites* so `idOf` is never reached on a hot path, and giving
+`tryProps` a return shape that does not copy. The cheap wins — the ones a
+monotone bit could answer — are taken.
+
 ## Measurement notes
 
 - The rangerjs figures come from PR #568's branch; `rangerjs`/`bench-cpu.sh`
