@@ -704,6 +704,14 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["binary-wide", "return 0b100000000000000000000000000000000;", "radixlit"],
   ["octal-wide", "return 0o40000000000;", "radixlit"],
   ["hex-separators", "return 0xff_ff;", "radixlit"],
+  // Module detection must not fire on the WORD `export` inside a comment or a
+  // string. It used to substring-search the whole source, so Octane's
+  // earley-boyer -- which carries 274 `((export #t))` comment markers -- parsed
+  // as module code, became implicitly strict, and its legacy-octal string keys
+  // turned into early errors before a line of it ran.
+  ["module-word-in-comment", "/*** META ((export #t)) */ var o = {'\\000': 'a'}; return o['\\000'];", "modules"],
+  ["module-word-in-string", "var s = 'export default x'; var o = {'\\007': 'b'}; return s.length + o['\\007'];", "modules"],
+  ["module-word-as-identifier", "var exported = 1; var o = {'\\011': 'c'}; return exported + o['\\011'];", "modules"],
   // An accessor member target must be read only by a COMPOUND assignment. The
   // walker called the getter unconditionally to build the old value, so
   // `o.x = 5` ran it once (spec: not at all) and `o.x += 5` twice (spec: once,
