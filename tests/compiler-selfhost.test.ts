@@ -11,9 +11,11 @@ import {
   compileAndRunPython,
   compileAndRunCSharp,
   compileAndRunGo,
+  compileAndRunKotlin,
   isCSharpAvailable,
   isDartAvailable,
   isGoAvailable,
+  isKotlinAvailable,
 } from "./helpers/compiler";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -315,6 +317,61 @@ describe("self-hosting: the compiler compiles for Go", () => {
   }, 1200000);
 });
 
+// Kotlin started at 19 compiler errors and 3490 kotlinc errors. The one worth
+// the trouble was a TYPO in a template: the `default` operator's Kotlin entry
+// wrote `(block 2)` where the operator takes ONE argument, so every `else`
+// branch came out with an empty body. In the compiler that is the flow parser's
+// dispatch, whose default clears a `b_found` that starts true — the Kotlin build
+// declared the whole tree already handled, analysed nothing, and reported
+// success while writing the source back out as bare tokens.
+describe("self-hosting: the compiler compiles for Kotlin", () => {
+  const OUT = path.join(ROOT, "tests", ".output-selfhost-kotlin");
+
+  it("generates Kotlin from the compiler's own sources", () => {
+    fs.mkdirSync(OUT, { recursive: true });
+
+    const result = compileRanger("compiler/ng_Compiler.rgr", "kotlin", OUT);
+    expect(
+      result.success,
+      `Kotlin codegen failed: ${result.error || result.output}`
+    ).toBe(true);
+
+    const generated = path.join(OUT, "ng_Compiler.kt");
+    expect(fs.existsSync(generated), `missing ${generated}`).toBe(true);
+
+    const code = fs.readFileSync(generated, "utf-8");
+    // an `else` branch carries its body. The flow parser's dispatch is the one
+    // that mattered: its default clears a `b_found` that starts true, and with
+    // an empty else the whole tree read as already handled.
+    expect(code).toMatch(/else\s+->\s*\{\s*\n\s*b_found = false;/);
+    // a lambda is an anonymous function, so `return` inside it is legal
+    expect(code).toMatch(/fun\(item : \w+, index : \w+\)/);
+    // a systemclass reaches the output under its Kotlin name
+    expect(code).not.toContain("JSONValueUnion");
+    // org.json is not on the classpath — the polyfill declares the classes
+    expect(code).not.toContain("import org.json");
+  }, 300000);
+
+  // kotlinc is the gate. It needs a large heap for a 57k line file: the default
+  // runs out and dies with an internal OutOfMemoryError rather than a
+  // diagnostic.
+  const kotlinAvailable = isKotlinAvailable();
+  const kotlinIt = kotlinAvailable ? it : it.skip;
+
+  kotlinIt("the generated Kotlin builds", () => {
+    const generated = path.join(OUT, "ng_Compiler.kt");
+    expect(
+      fs.existsSync(generated),
+      "run the codegen test first — no ng_Compiler.kt"
+    ).toBe(true);
+
+    execSync(
+      `kotlinc -J-Xmx12g "${generated}" -include-runtime -d ng_Compiler.jar`,
+      { cwd: OUT, stdio: ["pipe", "pipe", "pipe"], timeout: 2400000 }
+    );
+  }, 3000000);
+});
+
 // A lambda with a body, and one nested in another. Python has no
 // multi-statement lambda, so this is the shape the hoisting has to preserve:
 // the counters are assigned from inside the closure, which is what needs
@@ -388,6 +445,21 @@ describe("a lambda with a body runs the same on every target", () => {
       expect(run?.output).toContain(line);
     }
   }, 300000);
+
+  // The lambdas here have bodies with statements, which is what the anonymous
+  // function form is for, and a nested one that closes over the enclosing
+  // counter.
+  (isKotlinAvailable() ? it : it.skip)("runs on Kotlin", () => {
+    const { compile, run } = compileAndRunKotlin(FIXTURE);
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+    for (const line of EXPECTED) {
+      expect(run?.output).toContain(line);
+    }
+  }, 600000);
 });
 
 // Every byte over 127 is negative in a signed C++ `char`. The Ranger parser

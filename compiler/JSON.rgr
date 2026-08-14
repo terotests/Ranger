@@ -691,37 +691,188 @@ inline rg_json_arr rg_json_get_arr(const rg_json_obj& o, const std::string& k) {
             java7 ( (e 1) ".isNull( " (e 2) " ) ? null : " (e 1) ".optString(" (e 2) ") " )
             kotlin ( "(if (" (e 1) ".isNull(" (e 2) ")) null else " (e 1) ".optString(" (e 2) "))"
 (create_polyfill "
+// Kotlin has no JSON in the standard library and the generated file has to
+// build with a plain kotlinc line and no dependency, so the object, the array,
+// the reader and the writer all live here. org.json is deliberately NOT
+// imported on top of this -- nothing puts that package on the classpath.
 open class JSONObject {
-  protected open val values: MutableMap<String, Any?> = mutableMapOf()
+  open val values: MutableMap<String, Any?> = LinkedHashMap()
   open fun isNull(key: String): Boolean = !values.containsKey(key) || values[key] == null
-  open fun optString(key: String): String? = values[key]?.toString()
+  open fun names(): JSONArray { val a = JSONArray(); for (k in values.keys) { a.add(k) }; return a }
+  open fun optString(key: String): String? = values[key] as? String
+  // A JSON number reads back as Int or Double and the two are distinct types,
+  // so each getter accepts both and converts.
   open fun optInt(key: String): Int? = when (val v = values[key]) {
     is Int -> v
     is Double -> v.toInt()
-    is String -> v.toIntOrNull()
     else -> null
   }
   open fun optDouble(key: String): Double? = when (val v = values[key]) {
     is Double -> v
     is Int -> v.toDouble()
-    is String -> v.toDoubleOrNull()
     else -> null
   }
   open fun optBoolean(key: String): Boolean? = values[key] as? Boolean
   open fun getJSONObject(key: String): JSONObject? = values[key] as? JSONObject
   open fun getJSONArray(key: String): JSONArray? = values[key] as? JSONArray
   open fun put(key: String, value: Any?): JSONObject { values[key] = value; return this }
-  override fun toString(): String = values.toString()
-  constructor(source: String) : this() {}
+  override fun toString(): String = rg_json_write(this)
+  // used to take the text and THROW IT AWAY, so from_string answered an empty
+  // object and every getter after it read absent
+  constructor(source: String) : this() {
+    val parsed = rg_json_read_text(source)
+    if (parsed is JSONObject) { values.putAll(parsed.values) }
+  }
   constructor()
 }
 open class JSONArray : ArrayList<Any?>() {
   open fun length(): Int = size
+  open fun put(value: Any?): JSONArray { add(value); return this }
   override fun get(index: Int): Any? = if (index in indices) super.get(index) else null
-  override fun toString(): String = joinToString(prefix = \"[\", postfix = \"]\")
+  // the JSON text, not Kotlin's list rendering
+  override fun toString(): String = rg_json_write(this)
 }
 typealias JSONDataObject = JSONObject
 typealias JSONArrayObject = JSONArray
+
+fun rg_json_write_str(s: String, o: StringBuilder) {
+  o.append(34.toChar())
+  for (c in s) {
+    when {
+      c == 34.toChar() || c == 92.toChar() -> { o.append(92.toChar()); o.append(c) }
+      c == 10.toChar() -> { o.append(92.toChar()); o.append('n') }
+      c == 13.toChar() -> { o.append(92.toChar()); o.append('r') }
+      c == 9.toChar() -> { o.append(92.toChar()); o.append('t') }
+      c.code < 32 -> { o.append(92.toChar()); o.append('u'); o.append(String.format(\"%04x\", c.code)) }
+      else -> o.append(c)
+    }
+  }
+  o.append(34.toChar())
+}
+fun rg_json_write_val(v: Any?, o: StringBuilder) {
+  when (v) {
+    null -> o.append(\"null\")
+    is String -> rg_json_write_str(v, o)
+    is Boolean -> o.append(if (v) \"true\" else \"false\")
+    is Int -> o.append(v.toString())
+    is Long -> o.append(v.toString())
+    is Double -> {
+      var t = v.toString()
+      if (t.indexOf('.') < 0 && t.indexOf('e') < 0 && t.indexOf('E') < 0) { t = t + \".0\" }
+      o.append(t)
+    }
+    is JSONObject -> {
+      o.append('{')
+      var first = true
+      for (e in v.values) {
+        if (!first) { o.append(',') }
+        first = false
+        rg_json_write_str(e.key, o)
+        o.append(':')
+        rg_json_write_val(e.value, o)
+      }
+      o.append('}')
+    }
+    is JSONArray -> {
+      o.append('[')
+      for (i in v.indices) {
+        if (i > 0) { o.append(',') }
+        rg_json_write_val(v[i], o)
+      }
+      o.append(']')
+    }
+    else -> o.append(\"null\")
+  }
+}
+fun rg_json_write(v: Any?): String {
+  val o = StringBuilder()
+  rg_json_write_val(v, o)
+  return o.toString()
+}
+class RgJsonPos(var i: Int)
+fun rg_json_skip_ws(s: String, p: RgJsonPos) {
+  while (p.i < s.length && (s[p.i] == ' ' || s[p.i] == 9.toChar() || s[p.i] == 10.toChar() || s[p.i] == 13.toChar())) { p.i++ }
+}
+fun rg_json_read_str(s: String, p: RgJsonPos): String {
+  val o = StringBuilder()
+  if (p.i < s.length && s[p.i] == 34.toChar()) { p.i++ }
+  while (p.i < s.length && s[p.i] != 34.toChar()) {
+    val c = s[p.i]
+    if (c == 92.toChar() && (p.i + 1) < s.length) {
+      p.i++
+      val e = s[p.i]
+      when (e) {
+        'n' -> o.append(10.toChar())
+        'r' -> o.append(13.toChar())
+        't' -> o.append(9.toChar())
+        'b' -> o.append(8.toChar())
+        'f' -> o.append(12.toChar())
+        'u' -> {
+          if ((p.i + 4) < s.length) {
+            o.append(s.substring(p.i + 1, p.i + 5).toInt(16).toChar())
+            p.i += 4
+          }
+        }
+        else -> o.append(e)
+      }
+      p.i++
+      continue
+    }
+    o.append(c)
+    p.i++
+  }
+  if (p.i < s.length) { p.i++ }
+  return o.toString()
+}
+fun rg_json_read_val(s: String, p: RgJsonPos): Any? {
+  rg_json_skip_ws(s, p)
+  if (p.i >= s.length) { return null }
+  val c = s[p.i]
+  if (c == '{') {
+    p.i++
+    val o = JSONObject()
+    while (true) {
+      rg_json_skip_ws(s, p)
+      if (p.i >= s.length) { break }
+      if (s[p.i] == '}') { p.i++; break }
+      if (s[p.i] == ',') { p.i++; continue }
+      val k = rg_json_read_str(s, p)
+      rg_json_skip_ws(s, p)
+      if (p.i < s.length && s[p.i] == ':') { p.i++ }
+      o.put(k, rg_json_read_val(s, p))
+    }
+    return o
+  }
+  if (c == '[') {
+    p.i++
+    val a = JSONArray()
+    while (true) {
+      rg_json_skip_ws(s, p)
+      if (p.i >= s.length) { break }
+      if (s[p.i] == ']') { p.i++; break }
+      if (s[p.i] == ',') { p.i++; continue }
+      a.add(rg_json_read_val(s, p))
+    }
+    return a
+  }
+  if (c == 34.toChar()) { return rg_json_read_str(s, p) }
+  if (c == 't') { p.i += 4; return true }
+  if (c == 'f') { p.i += 5; return false }
+  if (c == 'n') { p.i += 4; return null }
+  val start = p.i
+  var isDouble = false
+  while (p.i < s.length) {
+    val d = s[p.i]
+    if (d == '.' || d == 'e' || d == 'E') { isDouble = true }
+    else if (!(d == '-' || d == '+' || (d in '0'..'9'))) { break }
+    p.i++
+  }
+  val text = s.substring(start, p.i)
+  if (text.isEmpty()) { p.i++; return null }
+  if (isDouble) { return text.toDoubleOrNull() ?: 0.0 }
+  return text.toIntOrNull() ?: 0
+}
+fun rg_json_read_text(s: String): Any? = rg_json_read_val(s, RgJsonPos(0))
 ")
             )
             go ( "r_get_opt_json_string(" (e 1) ", " (e 2) ")"
@@ -2616,8 +2767,6 @@ fun __getJSONKeys(obj: JSONObject): ArrayList<String> {
     return list
 }
     ")
-            (imp "org.json.JSONObject")
-            (imp "org.json.JSONArray")
             )
             swift3 (  'Array('(e 1) '.keys)')
             swift6 (  'Array('(e 1) '.keys)')

@@ -79,14 +79,14 @@ class RangerProcessCodegen {
     def givenArgs:CodeNode (node.getThird())
     def constr:RangerAppFunctionDesc (node.clDesc.constructor_fn)
     if ((null? constr) == false) {
-      def i 0
+      ; the `for` declares its own index; the outer `def i 0` was shadowed and
+      ; the `i = i + 1` wrote to the loop variable, which is a `val` on Kotlin
       for constr.params arg:RangerAppParamDesc i {
         def argNode:CodeNode (itemAt givenArgs.children i)
         if (i > 0) {
           wr.out(", " false)
         }
         writer.walkNewArgForProcess(argNode ctx wr)
-        i = i + 1
       }
     }
   }

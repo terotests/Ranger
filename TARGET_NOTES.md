@@ -21,7 +21,7 @@ dropped the call. That form is how the engine writes a for-loop update. Go and
 Python failed to compile; C# compiled and ran with infinite loops until the
 interpreter guard stopped them. The writers now keep the statement live.
 
-## Cross-target gate: the compiler itself, on C++, Dart, Python, C# and Go
+## Cross-target gate: the compiler itself, on C++, Dart, Python, C#, Go and Kotlin
 
 The compiler is self-hosting, but until now only its **JavaScript** output was
 exercised. Compiling the compiler for another target is a different question,
@@ -118,10 +118,27 @@ Its output is **byte-identical** to the Node build's, the compiler that comes
 out of it reproduces that file exactly, and asking the Go build for Go gives
 back the same 70k-line source it was built from.
 
-`npm test` runs the codegen for all five and checks the result — `g++
+**Kotlin** is the sixth:
+
+```bash
+npm run selfhost:build:kotlin   # generate the Kotlin, kotlinc it, copy the library
+
+cd tmp/selfhost-kotlin && RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr" \
+  java -Xmx8g -jar rangerc.jar -es6 ../../compiler/ng_Compiler.rgr -nodecli \
+    -d=../../tmp/self -o=output.js
+```
+
+Its output is **byte-identical** to the Node build's, the compiler that comes
+out of it reproduces that file exactly, and asking the Kotlin build for Kotlin
+gives back the same 57k-line source it was built from. `kotlinc` needs
+`-J-Xmx12g` for a file this size: the default heap runs out and it dies with an
+internal `OutOfMemoryError` rather than a diagnostic.
+
+`npm test` runs the codegen for all six and checks the result — `g++
 -fsyntax-only` for C++, `dart analyze` for Dart, `py_compile` for Python, `mcs`
-for C#, `go build` for Go (`tests/compiler-selfhost.test.ts`, ~65 s together).
-The binary build and the bootstrap rounds are a manual step.
+for C#, `go build` for Go, `kotlinc` for Kotlin
+(`tests/compiler-selfhost.test.ts`). The binary build and the bootstrap rounds
+are a manual step.
 
 ### What C++ took
 
@@ -444,6 +461,76 @@ Two more, both worth naming:
 `int`. It answered "absent" for a key that plainly held `3`. Both number getters
 accept either now, the way the Dart, Python, Rust and C# entries do.
 
+### What Kotlin took
+
+Kotlin started at 19 compiler errors and, once those were gone, **3490**
+`kotlinc` errors — by far the largest of the six. Most of that was two missing
+pieces in the writer, and the one that mattered was a typo in a template.
+
+The writer had **no lambda support at all**: no function type, no lambda
+emission. So a lambda-valued parameter was declared with an empty type —
+`fun forTree(cb : )` — and every lambda came out in the JavaScript arrow form
+`(a, b) => { … }`, which declares no parameters. Roughly 1000 "unresolved
+reference: item" errors and most of the 800 parse errors were those two.
+
+A Kotlin lambda is written as an anonymous **function**, `fun(a: T, b: Int): R
+{ … }`, and not as `{ a, b -> … }`: Kotlin does not allow a bare `return` inside
+a lambda literal — it would return from the *enclosing* function, and is only
+legal when the lambda is inline. The compiler's lambdas return values (`map`,
+`filter`, `sort`), which was another 120 errors with 78 more downstream of the
+body's type then being inferred as `Unit`.
+
+Then the one worth the whole exercise, which produced **no error anywhere**:
+
+> **`default` had `(block 2)` where the operator takes one argument.** Every
+> `switch`'s `else` branch came out with an empty body. In the compiler that is
+> the flow parser's dispatch, whose default clears a `b_found` that starts
+> `true` — so `WalkNode` returned "already handled" for the root node, the
+> Kotlin build analysed **nothing**, reported success, and wrote the source back
+> out as bare tokens with no whitespace. `hasClassDescription` was never set, so
+> `writeClass` was never called on any writer.
+
+Finding it took working backwards from an 813 KB file of run-together
+identifiers: the JavaScript writer's `writeClass` never ran, nor the generic
+one, nor the Ranger one; `CollectMethods` found its 17 classes; `StartWalk` ran
+once and stopped.
+
+The rest:
+
+1. **`char` was mapped to Kotlin's `Char`**, which is not an integer type and
+   does not compare with an `Int` literal — `c == 10` was an error at 150+
+   sites. Ranger's `char` is an integer code unit on every other target
+   (`unsigned char` on C++, `byte` on C#/Go, `ord()` on Python, `int` on Dart),
+   and the Kotlin templates already produced one: `charAt` and `charcode` both
+   end in `.code`. Only the type said otherwise.
+2. **An optional in the middle of a path had no `!!`**, the same hole Dart had.
+   Kotlin smart-casts a local after a null test but never a mutable property, so
+   this was ~640 errors between "only safe (?.) or non-null asserted (!!.) calls
+   are allowed" and "smart cast is impossible, because it is a mutable property
+   that could have been changed by this time".
+3. **A property a subclass redeclares is an error**, not a second field: "hides
+   member of supertype and needs 'override'", and `@JvmField` cannot go on an
+   override at all. Same root cause as the C# storage-slot problem — Kotlin just
+   refuses it outright.
+4. **A parameter is a `val`.** The compiler assigns to two of its own
+   (`node = (this.spliceFunctionBody(…))`), which every other target takes
+   without comment. The parameter gets a suffixed name in the signature and the
+   body opens with a `var` copied from it.
+5. A systemclass reached the output under its Ranger name (`JSONValueUnion`),
+   an enum in a return position wrote its Ranger name, an optional function type
+   needs parentheses before the `?`, `reversed()` and `sortedWith()` answer a
+   read-only `List` where the writer wants a `MutableList`, and `shell_arg` read
+   the `args` of `main`, which nothing outside `main` can see.
+
+The Kotlin **JSON polyfill was a stub**: `constructor(source: String) : this()
+{}` took the text and threw it away, so `from_string` answered an empty object
+and every getter after it read absent, while `to_string` returned Kotlin's map
+rendering rather than JSON. It is a real reader and writer now — Kotlin has no
+JSON in the standard library and the output has to build with a plain `kotlinc`
+line, so the object, the array, the parser and the serializer all live in the
+polyfill. `org.json` is no longer imported on top of it: nothing puts that
+package on the classpath.
+
 ### The same self-compile on the other targets
 
 Measured with `node bin/output.js -l=<target> ./compiler/ng_Compiler.rgr
@@ -456,16 +543,17 @@ Measured with `node bin/output.js -l=<target> ./compiler/ng_Compiler.rgr
 | Python | **0** | — `py_compile` clean, runs, see above |
 | C# | **0** | — `mcs` clean, runs, see above |
 | Go | **0** | — `go build` clean, runs, see above |
+| Kotlin | **0** | — `kotlinc` clean, runs, see above |
 | PHP | **0** | not built or run |
 | Swift 6 | 12 | |
 | Rust | 16 | |
 | Java 7 | 16 | |
-| Kotlin | 19 | |
 | Scala | 467 | no JSON templates, the same wall C++, Dart and C# started at |
 
 A zero in that column is the compiler's own diagnosis and nothing more. Go sat
 at zero through all of this work and did not build until the five defects above
-were fixed; PHP is at zero now and has never been built or run.
+were fixed; Kotlin's 19 became 3490 `kotlinc` errors; PHP is at zero now and has
+never been built or run.
 
 ### `strlen` counts bytes, `substring` counts characters
 

@@ -929,6 +929,16 @@ func _r_sha256(value string) string {
     )            
                 (imp "crypto/sha256") (imp "fmt")) 
                 php( "hash('sha256', " (e 1) ")")
+                kotlin ( "rg_sha256_hex(" (e 1) ")"
+                (create_polyfill "
+fun rg_sha256_hex(input: String): String {
+  val d = java.security.MessageDigest.getInstance(\"SHA-256\").digest(input.toByteArray(Charsets.UTF_8))
+  val sb = StringBuilder()
+  for (b in d) { sb.append(String.format(\"%02x\", b)) }
+  return sb.toString()
+}
+")
+                )
                 csharp ( "RgHash.Sha256Hex(" (e 1) ")"
                 (polyfill "after_imports" "
 // The same digest the other targets produce, spelled with the framework hash
@@ -1170,6 +1180,7 @@ func r_io_get_env( name string) *GoNullable {
 ")
     )
                 es6 ("process.env[" (e 1) "]")
+                kotlin ( "System.getenv(" (e 1) ")" )
                 csharp ( "System.Environment.GetEnvironmentVariable(" (e 1) ")" )
                 ; .get answers None for a name that is not set, which is the
                 ; optional this operator returns
@@ -1193,7 +1204,7 @@ func r_io_get_env( name string) *GoNullable {
                 swift6 ("CommandLine.arguments[" (e 1) " + 1]")
                 es6 ( "process.argv[ 2 + " (e 1) "]")
                 rust ( "std::env::args().nth((" (e 1) " + 1) as usize).unwrap_or_default()")
-                kotlin ( "args[" (e 1) "]")
+                kotlin ( "__g_args[" (e 1) "]")
                 ; Dart hands the list to main(List<String> args) and nothing
                 ; else can see it, so main copies it into __g_args (the writer
                 ; emits that line) and every read goes through the global -- the
@@ -1218,7 +1229,7 @@ func r_io_get_env( name string) *GoNullable {
                 go ( "int64( len( os.Args) - 1 )"  (imp "os"))
                 es6 ( "(process.argv.length - 2)" )
                 rust ( "(std::env::args().len() as i64 - 1)")
-                kotlin ( "args.size")
+                kotlin ( "__g_args.size")
                 dart ( "__g_args.length" )
                 python ( "(len(sys.argv) - 1)" (imp "sys") )
                 ranger ("( shell_arg_cnt )")
@@ -1342,6 +1353,50 @@ inline std::string rg_path_dirname(const std::string& p) {
 ")
                 )
                 es6 ( 'require("path").normalize(' (e 1) ')')
+                kotlin ( "rg_path_normalize(" (e 1) ")"
+                (create_polyfill "
+fun rg_path_normalize(p: String): String {
+  val s = p.replace(92.toChar(), '/')
+  val absolute = s.startsWith(\"/\")
+  val trailing = s.length > 1 && s.endsWith(\"/\")
+  val parts = mutableListOf<String>()
+  for (cur in s.split(\"/\")) {
+    if (cur == \"..\") {
+      if (parts.size > 0 && parts[parts.size - 1] != \"..\") {
+        parts.removeAt(parts.size - 1)
+      } else if (!absolute) {
+        parts.add(cur)
+      }
+    } else if (cur.isNotEmpty() && cur != \".\") {
+      parts.add(cur)
+    }
+  }
+  var out = parts.joinToString(\"/\")
+  if (absolute) { out = \"/\" + out }
+  if (out.isEmpty()) { return \".\" }
+  if (trailing && out != \"/\") { out = out + \"/\" }
+  return out
+}
+fun rg_path_dirname(p: String): String {
+  var s = rg_path_normalize(p)
+  if (s.length > 1 && s.endsWith(\"/\")) { s = s.substring(0, s.length - 1) }
+  val pos = s.lastIndexOf('/')
+  if (pos < 0) { return \".\" }
+  if (pos == 0) { return \"/\" }
+  return s.substring(0, pos)
+}
+// The directory the jar was started from, which is where the compiler looks for
+// its bundled Lang.rgr and stdops.rgr.
+fun rg_install_directory(): String {
+  try {
+    val loc = object {}.javaClass.protectionDomain.codeSource.location.toURI()
+    return rg_path_dirname(rg_path_normalize(java.io.File(loc).absolutePath))
+  } catch (e: Exception) {
+    return \".\"
+  }
+}
+")
+                )
                 go ( "r_path_normalize(" (e 1) ")" (imp "strings") (imp "os")
                 (polyfill "after_imports" "
 func r_path_normalize(p string) string {
@@ -1566,6 +1621,50 @@ inline std::string rg_path_dirname(const std::string& p) {
 ")
                 )
                 es6 ( 'require("path").dirname(' (e 1) ')')
+                kotlin ( "rg_path_dirname(" (e 1) ")"
+                (create_polyfill "
+fun rg_path_normalize(p: String): String {
+  val s = p.replace(92.toChar(), '/')
+  val absolute = s.startsWith(\"/\")
+  val trailing = s.length > 1 && s.endsWith(\"/\")
+  val parts = mutableListOf<String>()
+  for (cur in s.split(\"/\")) {
+    if (cur == \"..\") {
+      if (parts.size > 0 && parts[parts.size - 1] != \"..\") {
+        parts.removeAt(parts.size - 1)
+      } else if (!absolute) {
+        parts.add(cur)
+      }
+    } else if (cur.isNotEmpty() && cur != \".\") {
+      parts.add(cur)
+    }
+  }
+  var out = parts.joinToString(\"/\")
+  if (absolute) { out = \"/\" + out }
+  if (out.isEmpty()) { return \".\" }
+  if (trailing && out != \"/\") { out = out + \"/\" }
+  return out
+}
+fun rg_path_dirname(p: String): String {
+  var s = rg_path_normalize(p)
+  if (s.length > 1 && s.endsWith(\"/\")) { s = s.substring(0, s.length - 1) }
+  val pos = s.lastIndexOf('/')
+  if (pos < 0) { return \".\" }
+  if (pos == 0) { return \"/\" }
+  return s.substring(0, pos)
+}
+// The directory the jar was started from, which is where the compiler looks for
+// its bundled Lang.rgr and stdops.rgr.
+fun rg_install_directory(): String {
+  try {
+    val loc = object {}.javaClass.protectionDomain.codeSource.location.toURI()
+    return rg_path_dirname(rg_path_normalize(java.io.File(loc).absolutePath))
+  } catch (e: Exception) {
+    return \".\"
+  }
+}
+")
+                )
                 go ( "r_path_dirname(" (e 1) ")" (imp "strings") (imp "os")
                 (polyfill "after_imports" "
 func r_path_normalize(p string) string {
@@ -1792,6 +1891,50 @@ inline std::string rg_path_dirname(const std::string& p) {
 ")
                 )
                 es6 ( "__dirname" )
+                kotlin ( "rg_install_directory()"
+                (create_polyfill "
+fun rg_path_normalize(p: String): String {
+  val s = p.replace(92.toChar(), '/')
+  val absolute = s.startsWith(\"/\")
+  val trailing = s.length > 1 && s.endsWith(\"/\")
+  val parts = mutableListOf<String>()
+  for (cur in s.split(\"/\")) {
+    if (cur == \"..\") {
+      if (parts.size > 0 && parts[parts.size - 1] != \"..\") {
+        parts.removeAt(parts.size - 1)
+      } else if (!absolute) {
+        parts.add(cur)
+      }
+    } else if (cur.isNotEmpty() && cur != \".\") {
+      parts.add(cur)
+    }
+  }
+  var out = parts.joinToString(\"/\")
+  if (absolute) { out = \"/\" + out }
+  if (out.isEmpty()) { return \".\" }
+  if (trailing && out != \"/\") { out = out + \"/\" }
+  return out
+}
+fun rg_path_dirname(p: String): String {
+  var s = rg_path_normalize(p)
+  if (s.length > 1 && s.endsWith(\"/\")) { s = s.substring(0, s.length - 1) }
+  val pos = s.lastIndexOf('/')
+  if (pos < 0) { return \".\" }
+  if (pos == 0) { return \"/\" }
+  return s.substring(0, pos)
+}
+// The directory the jar was started from, which is where the compiler looks for
+// its bundled Lang.rgr and stdops.rgr.
+fun rg_install_directory(): String {
+  try {
+    val loc = object {}.javaClass.protectionDomain.codeSource.location.toURI()
+    return rg_path_dirname(rg_path_normalize(java.io.File(loc).absolutePath))
+  } catch (e: Exception) {
+    return \".\"
+  }
+}
+")
+                )
                 go ( "r_install_directory()" (imp "strings") (imp "os")
                 (polyfill "after_imports" "
 func r_path_normalize(p string) string {
@@ -2050,6 +2193,7 @@ static class RgFiles {
                 )
                 python ( "os.path.isdir(" (e 1) ")" (imp "os") )
                 scala ( "false /* dir_exists not implemented */ ")
+                kotlin ( "java.io.File(" (e 1) ").isDirectory()" (imp "java.io.File") )
                 swift3 ( "r_dir_exists( dirName: " (e 1) ")" 
 
 (create_polyfill "
@@ -2249,6 +2393,7 @@ fn r_wall_clock_ms() -> f64 {
             templates {
                 dart ( nl "Directory(" (e 1) ").createSync(recursive: true);" nl (imp "dart:io") )
                 scala ( "/* create_dir not implemented */ ")
+                kotlin ( nl "java.io.File(" (e 1) ").mkdirs()" nl (imp "java.io.File") )
                 csharp ( nl "RgFiles.CreateDir(" (e 1) ");" nl
                 (polyfill "after_imports" "
 // Files on the C# target. System.IO says all of this, but each operator needs
@@ -2330,6 +2475,17 @@ def rg_write_file(path, filename, text):
 ")
                 )
                 scala ( "/* write_file not implemented */ ")
+                kotlin ( nl "rg_write_file(" (e 1) ", " (e 2) ", " (e 3) ")" nl
+                (create_polyfill "
+fun rg_write_file(path: String, name: String, data: String) {
+  val full = if (path.isEmpty()) name else (path + \"/\" + name)
+  val f = java.io.File(full)
+  val parent = f.getParentFile()
+  if (parent != null) { parent.mkdirs() }
+  f.writeText(data, Charsets.UTF_8)
+}
+")
+                )
                 csharp ( nl "RgFiles.WriteFile(" (e 1) ", " (e 2) ", " (e 3) ");" nl
                 (polyfill "after_imports" "
 // Files on the C# target. System.IO says all of this, but each operator needs
@@ -3784,7 +3940,14 @@ def r_div_f64(a, b):
                 go ( nl "default: " nl I (block 1) nl i )
                 python ( nl "case _:" nl I "pass" nl (block 1) nl i )
                 rust ( nl "_ => {" nl I (block 1) nl i "}" nl )
-                kotlin ( nl "else  -> { " nl I (block 2) nl i "}" )
+                ; (block 1), not (block 2): `default` takes ONE argument, so the
+                ; else branch was written with an empty body -- every `switch`
+                ; whose default did the work fell through silently. In the
+                ; compiler that is the flow parser's dispatch, where the default
+                ; clears a `b_found` that starts true: the Kotlin build declared
+                ; the whole tree already handled, analysed nothing, and reported
+                ; success while writing the source back out as bare tokens.
+                kotlin ( nl "else  -> { " nl I (block 1) nl i "}" )
                 java7 ( nl "default: " nl I (java_case 1) nl i )
                 * ( nl "default: " nl I (block 1) nl "break;" i )
             }
@@ -5249,7 +5412,9 @@ std::vector<std::string> r_get_keys_of_map( const M & orig_map )  {
                 csharp ( (e 1) "[" (e 2) "]")
                 php ( "ord(" (e 1) "[" (e 2) "])")               
                 java7 ( (e 1) "[" (e 2) "]")  
-                kotlin ( (e 1) "[" (e 2) "]")    
+                ; .code: a charbuffer is a CharArray on Kotlin, and `char` is an
+                ; integer code unit there as it is on every other target
+                kotlin ( (e 1) "[" (e 2) "].code")    
                 scala ( (e 1) "(" (e 2) ")")    
                 go ( (e 1) "[" (e 2) "]")  
                 swift3 ( (e 1) "[" (e 2) "]")    
@@ -6693,7 +6858,9 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 php ( "(function($__arr, $__cb) { usort($__arr, $__cb); return $__arr; })(" (e 1) ", " (e 2) ")" )
                 rust ( "{ let mut __v = " (e 1) ".clone(); let __cb = " (e 2) "; __v.sort_by(|__a, __b| __cb(__a.clone(), __b.clone()).cmp(&0)); __v }" )
                 cpp ( "[&]() { auto __v = " (e 1) "; auto __cb = " (e 2) "; std::stable_sort(__v.begin(), __v.end(), [&](const auto& __a, const auto& __b) { return __cb(__a, __b) < 0; }); return __v; }()" (imp "<algorithm>") )
-                kotlin ( (e 1) ".sortedWith(Comparator { __a, __b -> (" (e 2) ")(__a, __b).toInt() })" )
+                ; .toMutableList(): sortedWith answers a read only List, and every
+                ; array in the writer is a MutableList
+                kotlin ( (e 1) ".sortedWith(Comparator { __a, __b -> (" (e 2) ")(__a, __b).toInt() }).toMutableList()" )
                 ; `..sort` is a cascade, so the expression is the sorted COPY --
                 ; `sort` leaves its argument alone on every other target.
                 dart ( "(" (typeof 1) ".from(" (e 1) ")..sort((__a, __b) => (" (e 2) ")(__a, __b)))" )
@@ -6735,7 +6902,9 @@ static class RgSort {
                 es6 ( (e 1) ".slice().reverse()")
                 python ( "list(reversed(" (e 1) "))" )
                 php ( "array_reverse(" (e 1) ")" )
-                kotlin ( (e 1) ".reversed()" )
+                ; .toMutableList(): reversed() answers a read only List, and every
+                ; array in the writer is a MutableList
+                kotlin ( (e 1) ".reversed().toMutableList()" )
                 dart ( (e 1) ".reversed.toList()" )
                 scala ( (e 1) ".reverse" )
                 swift3 ( "Array(" (e 1) ".reversed())" )

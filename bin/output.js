@@ -9336,15 +9336,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       const givenArgs = node.getThird();
       const constr = node.clDesc.constructor_fn;
       if ( (typeof(constr) === "undefined") == false ) {
-        const i = 0;
-        for ( let i_1 = 0; i_1 < constr.params.length; i_1++) {
-          var arg = constr.params[i_1];
-          const argNode = givenArgs.children[i_1];
-          if ( i_1 > 0 ) {
+        for ( let i = 0; i < constr.params.length; i++) {
+          var arg = constr.params[i];
+          const argNode = givenArgs.children[i];
+          if ( i > 0 ) {
             wr.out(", ", false);
           }
           await writer.walkNewArgForProcess(argNode, ctx, wr);
-          i_1 = i_1 + 1;
         };
       }
     };
@@ -29637,6 +29635,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             return "Any";
                           }
+                          if ( cc.is_system ) {
+                            const sysName = ( Object.prototype.hasOwnProperty.call(cc.systemNames, "kotlin") ? cc.systemNames["kotlin"] : undefined );
+                            if ( (typeof(sysName) !== "undefined" && sysName != null )  ) {
+                              return sysName;
+                            }
+                          }
                         }
                         switch (type_string ) { 
                           case "int" : 
@@ -29652,12 +29656,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           case "double_buffer" : 
                             return "DoubleArray";
                           case "char" : 
-                            return "Char";
+                            return "Int";
                           case "boolean" : 
                             return "Boolean";
                           case "double" : 
                             return "Double";
                         };
+                        if ( ctx.isEnumDefined(type_string) ) {
+                          return "Int";
+                        }
                         return type_string;
                       };
                       collectionTypeStringToKotlin (type_string, ctx) {
@@ -29702,7 +29709,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           case "double_buffer" : 
                             return "DoubleArray";
                           case "char" : 
-                            return "Char";
+                            return "Int";
                           case "boolean" : 
                             return "Boolean";
                           case "double" : 
@@ -29710,12 +29717,39 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         };
                         return type_string;
                       };
+                      async writeLambdaType (expression_value, ctx, wr) {
+                        const rv = expression_value.children[0];
+                        const sec = expression_value.children[1];
+                        wr.out("(", false);
+                        for ( let i = 0; i < sec.children.length; i++) {
+                          var arg = sec.children[i];
+                          if ( i > 0 ) {
+                            wr.out(", ", false);
+                          }
+                          await this.writeTypeDef(arg, ctx, wr);
+                        };
+                        wr.out(") -> ", false);
+                        if ( (rv.type_name == "void") || (rv.eval_type_name == "void") ) {
+                          wr.out("Unit", false);
+                        } else {
+                          await this.writeTypeDef(rv, ctx, wr);
+                        }
+                      };
                       async writeTypeDef (node, ctx, wr) {
                         let v_type = node.value_type;
                         if ( node.eval_type != 0 ) {
                           v_type = node.eval_type;
                         }
                         switch (v_type ) { 
+                          case 20 : 
+                            if ( node.hasFlag("optional") ) {
+                              wr.out("(", false);
+                              await this.writeLambdaType(node.expression_value, ctx, wr);
+                              wr.out(")", false);
+                            } else {
+                              await this.writeLambdaType(node.expression_value, ctx, wr);
+                            }
+                            break;
                           case 13 : 
                             wr.out("Int", false);
                             break;
@@ -29726,7 +29760,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             wr.out("Double", false);
                             break;
                           case 14 : 
-                            wr.out("Char", false);
+                            wr.out("Int", false);
                             break;
                           case 15 : 
                             wr.out("CharArray", false);
@@ -29763,6 +29797,41 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         if ( node.hasFlag("optional") ) {
                           wr.out("?", false);
                         }
+                      };
+                      async CreateLambda (node, ctx, wr) {
+                        const lambdaCtx = node.lambda_ctx;
+                        const rv = node.children[0];
+                        const args = node.children[1];
+                        const body = node.children[2];
+                        wr.out("fun(", false);
+                        for ( let i = 0; i < args.children.length; i++) {
+                          var arg = args.children[i];
+                          if ( i > 0 ) {
+                            wr.out(", ", false);
+                          }
+                          if ( arg.flow_done == false ) {
+                            await this.compiler.parser.WalkNode(arg, lambdaCtx, wr);
+                          }
+                          await this.WalkNode(arg, lambdaCtx, wr);
+                          wr.out(" : ", false);
+                          await this.writeTypeDef(arg, lambdaCtx, wr);
+                        };
+                        wr.out(") : ", false);
+                        if ( (rv.type_name == "void") || (rv.eval_type_name == "void") ) {
+                          wr.out("Unit", false);
+                        } else {
+                          await this.writeTypeDef(rv, lambdaCtx, wr);
+                        }
+                        wr.out(" {", true);
+                        wr.indent(1);
+                        lambdaCtx.restartExpressionLevel();
+                        for ( let i_1 = 0; i_1 < body.children.length; i_1++) {
+                          var item = body.children[i_1];
+                          await this.WalkNode(item, lambdaCtx, wr);
+                        };
+                        wr.newline();
+                        wr.indent(-1);
+                        wr.out("}", false);
                       };
                       async WriteVRef (node, ctx, wr) {
                         if ( node.vref == "this" ) {
@@ -29821,6 +29890,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             if ( i == 0 ) {
                               if ( p.nameNode.hasFlag("optional") ) {
                                 wr.out("!!", false);
+                              }
+                            } else {
+                              if ( i < ((node.nsp.length) - 1) ) {
+                                if ( p.nameNode.hasFlag("optional") ) {
+                                  wr.out("!!", false);
+                                }
                               }
                             }
                           };
@@ -30017,6 +30092,27 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         }
                         return ctx.transformWord(arg.name);
                       };
+                      paramIsMutated (arg) {
+                        if ( arg.set_cnt > 0 ) {
+                          return true;
+                        }
+                        return false;
+                      };
+                      async kotlinWriteMutableParamCopies (fnDesc, ctx, wr) {
+                        for ( let i = 0; i < fnDesc.params.length; i++) {
+                          var arg = fnDesc.params[i];
+                          if ( arg.nameNode.hasFlag("keyword") ) {
+                            continue;
+                          }
+                          if ( this.paramIsMutated(arg) == false ) {
+                            continue;
+                          }
+                          const nm = this.paramEmitName(arg, ctx);
+                          wr.out(("var " + nm) + " : ", false);
+                          await this.writeTypeDef(arg.nameNode, ctx, wr);
+                          wr.out((" = " + nm) + "__p", true);
+                        };
+                      };
                       async writeArgsDef (fnDesc, ctx, wr) {
                         const pms = operatorsOf.filter_48(fnDesc.params, ((item, index) => { 
                           if ( item.nameNode.hasFlag("keyword") ) {
@@ -30030,7 +30126,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             wr.out(",", false);
                           }
                           wr.out(" ", false);
-                          wr.out(this.paramEmitName(arg, ctx) + " : ", false);
+                          let emitName = this.paramEmitName(arg, ctx);
+                          if ( this.paramIsMutated(arg) ) {
+                            emitName = emitName + "__p";
+                          }
+                          wr.out(emitName + " : ", false);
                           await this.writeTypeDef(arg.nameNode, ctx, wr);
                         };
                       };
@@ -30116,6 +30216,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           return;
                         }
                         let declaredFunction = {};
+                        let declaredVariable = {};
                         const wr = orig_wr;
                         const importFork = wr.fork();
                         this.writeKotlinUnionInterfaces(ctx, wr);
@@ -30147,15 +30248,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 declaredFunction[variant.name] = true;
                               };
                             };
+                            for ( let j_1 = 0; j_1 < parentClass.variables.length; j_1++) {
+                              var pv = parentClass.variables[j_1];
+                              declaredVariable[pv.name] = true;
+                            };
                             wr.out(parentClass.compiledName, false);
                             if ( parentClass.has_constructor ) {
                               wr.out("(", false);
                               if ( cl.has_constructor ) {
                                 const constr_1 = cl.constructor_fn;
                                 const pConstr = parentClass.constructor_fn;
-                                for ( let j_1 = 0; j_1 < pConstr.params.length; j_1++) {
-                                  var pArg = pConstr.params[j_1];
-                                  if ( j_1 > 0 ) {
+                                for ( let j_2 = 0; j_2 < pConstr.params.length; j_2++) {
+                                  var pArg = pConstr.params[j_2];
+                                  if ( j_2 > 0 ) {
                                     wr.out(", ", false);
                                   }
                                   let foundByName = false;
@@ -30168,8 +30273,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                     }
                                   };
                                   if ( false == foundByName ) {
-                                    if ( j_1 < (constr_1.params.length) ) {
-                                      const cArg = constr_1.params[j_1];
+                                    if ( j_2 < (constr_1.params.length) ) {
+                                      const cArg = constr_1.params[j_2];
                                       wr.out(cArg.compiledName, false);
                                     }
                                   }
@@ -30218,6 +30323,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( pvar_1.is_static ) {
                             continue;
                           }
+                          if ( ( typeof(declaredVariable[pvar_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredVariable, pvar_1.name) ) ) {
+                            continue;
+                          }
                           await this.writeVarDef(pvar_1.node, ctx, wr);
                         };
                         if ( cl.has_constructor ) {
@@ -30228,6 +30336,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           wr.newline();
                           const subCtx = constr_2.fnCtx;
                           subCtx.is_function = true;
+                          await this.kotlinWriteMutableParamCopies(constr_2, subCtx, wr);
                           await this.WalkNode(constr_2.fnBody, subCtx, wr);
                           wr.newline();
                           wr.indent(-1);
@@ -30300,6 +30409,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           subCtx_1.in_static_method = false;
                           subCtx_1.currentMethod = variant_1;
                           subCtx_1.setCurrentClass(cl);
+                          await this.kotlinWriteMutableParamCopies(variant_1, subCtx_1, wr);
                           await this.WalkNode(variant_1.fnBody, subCtx_1, wr);
                           wr.newline();
                           wr.indent(-1);
@@ -30349,6 +30459,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             subCtx_2.in_static_method = false;
                             subCtx_2.currentMethod = variant_2;
                             subCtx_2.setCurrentClass(cl);
+                            await this.kotlinWriteMutableParamCopies(variant_2, subCtx_2, wr);
                             await this.WalkNode(variant_2.fnBody, subCtx_2, wr);
                             wr.newline();
                             wr.indent(-1);
@@ -30361,14 +30472,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           var variant_3 = cl.static_methods[i_8];
                           wr.out("", true);
                           if ( variant_3.nameNode.hasFlag("main") && (variant_3.nameNode.code.filename == ctx.getRootFile()) ) {
+                            wr.out("var __g_args : Array<String> = arrayOf()", true);
+                            wr.out("", true);
                             wr.out("fun main(args : Array<String>) {", true);
                             wr.indent(1);
+                            wr.out("__g_args = args", true);
                             wr.newline();
                             const subCtx_3 = variant_3.fnCtx;
                             subCtx_3.is_function = true;
                             subCtx_3.in_method = false;
                             subCtx_3.in_static_method = true;
                             subCtx_3.currentMethod = variant_3;
+                            await this.kotlinWriteMutableParamCopies(variant_3, subCtx_3, wr);
                             await this.WalkNode(variant_3.fnBody, subCtx_3, wr);
                             wr.newline();
                             wr.indent(-1);

@@ -11,6 +11,7 @@ systemclass RangerCompilerPlugin {
     dart "Object?"
     python object
     csharp object
+    kotlin "Any?"
 }
 
 operators {
@@ -22,6 +23,7 @@ operators {
             dart ( "null" )
             python ( "None" )
             csharp ( "null" )
+            kotlin ( "null" )
             * ()
         }
     }
@@ -34,6 +36,7 @@ operators {
             dart ( "<String>[]" )
             python ( "[]" )
             csharp ( "new System.Collections.Generic.List<String>()" )
+            kotlin ( "mutableListOf<String>()" )
             * ()
         }
     }
@@ -46,6 +49,7 @@ operators {
             dart ( "/* no plugin host on this target */" )
             python ( "pass  # no plugin host on this target" )
             csharp ( "/* no plugin host on this target */" )
+            kotlin ( "/* no plugin host on this target */" )
             * ()
         }
     }
@@ -59,6 +63,7 @@ operators {
             dart ( "/* no plugin host on this target */" )
             python ( "pass  # no plugin host on this target" )
             csharp ( "/* no plugin host on this target */" )
+            kotlin ( "/* no plugin host on this target */" )
             * ()
         }
     }
@@ -70,6 +75,7 @@ operators {
             dart ( "/* no plugin host on this target */" )
             python ( "pass  # no plugin host on this target" )
             csharp ( "/* no plugin host on this target */" )
+            kotlin ( "/* no plugin host on this target */" )
             * ()
         }
     }

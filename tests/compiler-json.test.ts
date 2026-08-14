@@ -8,6 +8,7 @@ import {
   compileAndRunDart,
   compileAndRunCSharp,
   compileAndRunGo,
+  compileAndRunKotlin,
   compileAndRunPython,
   compileAndRunRust,
   compileRanger,
@@ -15,6 +16,7 @@ import {
   isCSharpAvailable,
   isDartAvailable,
   isGoAvailable,
+  isKotlinAvailable,
   isPythonAvailable,
   isRustAvailable,
 } from "./helpers/compiler";
@@ -177,6 +179,27 @@ describe("JSON operators", () => {
       }
     },
     300000
+  );
+
+  // Kotlin has no JSON in the standard library and the output has to build
+  // with a plain kotlinc line, so JSON.rgr declares the JSONObject / JSONArray
+  // pair as a polyfill. org.json is NOT imported on top of it -- nothing puts
+  // that package on the classpath.
+  it.skipIf(!isKotlinAvailable())(
+    "round trips an object through text on Kotlin",
+    () => {
+      const { compile, run } = compileAndRunKotlin(FIXTURE);
+
+      expect(
+        compile.success,
+        `Compile failed: ${compile.error || compile.output}`
+      ).toBe(true);
+      expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+      for (const line of EXPECTED) {
+        expect(run?.output).toContain(line);
+      }
+    },
+    600000
   );
 
   it.skipIf(!isRustAvailable())(

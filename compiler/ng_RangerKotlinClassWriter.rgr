@@ -110,6 +110,15 @@ class RangerKotlinClassWriter {
         }
         return "Any"
       }
+      ; A systemclass names one type per target. Without this the Ranger name
+      ; reached the output and kotlinc saw an undeclared type: JSONValueUnion
+      ; instead of the Any? that JSON.rgr declares for Kotlin.
+      if cc.is_system {
+        def sysName@(optional):string (get cc.systemNames "kotlin")
+        if (!null? sysName) {
+          return (unwrap sysName)
+        }
+      }
     }
     switch type_string {
       case "int" {
@@ -131,7 +140,9 @@ class RangerKotlinClassWriter {
         return "DoubleArray"
       }
       case "char" {
-        return "Char"
+        ; an integer code unit, not Kotlin's Char: `charAt` and `charcode` both
+        ; hand back `.code`, and Char does not compare with an Int literal
+        return "Int"
       }
       case "boolean" {
         return "Boolean"
@@ -139,6 +150,13 @@ class RangerKotlinClassWriter {
       case "double" {
         return "Double"
       }
+    }
+    ; An Enum value is an Int on Kotlin, and the enum name is no Kotlin type.
+    ; Only the value_type == Enum path in writeTypeDef knew that, so an enum in
+    ; a RETURN position -- `fn typeNameAsType:RangerNodeType (...)` -- wrote its
+    ; Ranger name and kotlinc saw an undeclared type.
+    if (ctx.isEnumDefined(type_string)) {
+      return "Int"
     }
     return type_string
   }
@@ -193,7 +211,9 @@ class RangerKotlinClassWriter {
         return "DoubleArray"
       }
       case "char" {
-        return "Char"
+        ; an integer code unit, not Kotlin's Char: `charAt` and `charcode` both
+        ; hand back `.code`, and Char does not compare with an Int literal
+        return "Int"
       }
       case "boolean" {
         return "Boolean"
@@ -204,12 +224,46 @@ class RangerKotlinClassWriter {
     }
     return type_string
   }
+  ; A Kotlin function type: `(A, B) -> R`. Without this case the type of a
+  ; lambda-valued parameter or local came out EMPTY -- `fun forTree(cb : )` --
+  ; and the reads inside the body could not resolve either, which was most of
+  ; the 1000 "unresolved reference: item" errors.
+  fn writeLambdaType:void (expression_value:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def rv:CodeNode (itemAt expression_value.children 0)
+    def sec:CodeNode (itemAt expression_value.children 1)
+    wr.out("(" false)
+    for sec.children arg:CodeNode i {
+      if (i > 0) {
+        wr.out(", " false)
+      }
+      this.writeTypeDef(arg ctx wr)
+    }
+    wr.out(") -> " false)
+    if ((rv.type_name == "void") || (rv.eval_type_name == "void")) {
+      wr.out("Unit" false)
+    } {
+      this.writeTypeDef(rv ctx wr)
+    }
+  }
+
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def v_type:RangerNodeType node.value_type
     if (node.eval_type != RangerNodeType.NoType) {
       v_type = node.eval_type
     }
     switch v_type {
+      case RangerNodeType.ExpressionType {
+        ; parenthesised, because the `?` below binds to the whole type: an
+        ; optional lambda field is `((String) -> CodeNode?)?` and never
+        ; `(String) -> CodeNode??`
+        if (node.hasFlag("optional")) {
+          wr.out("(" false)
+          this.writeLambdaType((unwrap node.expression_value) ctx wr)
+          wr.out(")" false)
+        } {
+          this.writeLambdaType((unwrap node.expression_value) ctx wr)
+        }
+      }
       case RangerNodeType.Enum {
         wr.out("Int" false)
       }
@@ -220,7 +274,7 @@ class RangerKotlinClassWriter {
         wr.out("Double" false)
       }
       case RangerNodeType.Char {
-        wr.out("Char" false)
+        wr.out("Int" false)
       }
       case RangerNodeType.CharBuffer {
         wr.out("CharArray" false)
@@ -261,6 +315,57 @@ class RangerKotlinClassWriter {
       wr.out("?" false)
     }
   }
+  ; A Kotlin lambda is `{ a, b -> ... }`. The generic writer emits the
+  ; JavaScript arrow form `(a, b) => { ... }`, which is not Kotlin at all: the
+  ; parameters were never declared, so every read of `item` or `index` inside
+  ; the body was an unresolved reference, and the `=>` itself accounted for most
+  ; of the parse errors around each call site.
+  fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def lambdaCtx (unwrap node.lambda_ctx)
+    def rv:CodeNode (itemAt node.children 0)
+    def args:CodeNode (itemAt node.children 1)
+    def body:CodeNode (itemAt node.children 2)
+    ; An anonymous FUNCTION rather than a lambda literal. The generic writer
+    ; emits the JavaScript arrow form `(a, b) => { … }`, which is not Kotlin at
+    ; all -- the parameters were never declared, so every read of `item` or
+    ; `index` inside the body was an unresolved reference.
+    ;
+    ; `fun(a: T, b: Int): R { … }` and not `{ a, b -> … }` because Kotlin does
+    ; not allow a bare `return` inside a lambda literal: it would return from
+    ; the ENCLOSING function, and is only legal when the lambda is inline. The
+    ; compiler's lambdas return values -- `map`, `filter`, `sort` -- and 120 of
+    ; the errors were exactly that, with another 78 downstream of the body's
+    ; type then being inferred as Unit. An anonymous function takes the same
+    ; plain `return` every other target writes.
+    wr.out("fun(" false)
+    for args.children arg:CodeNode i {
+      if (i > 0) {
+        wr.out(", " false)
+      }
+      if (arg.flow_done == false) {
+        this.compiler.parser.WalkNode(arg lambdaCtx wr)
+      }
+      this.WalkNode(arg lambdaCtx wr)
+      wr.out(" : " false)
+      this.writeTypeDef(arg lambdaCtx wr)
+    }
+    wr.out(") : " false)
+    if ((rv.type_name == "void") || (rv.eval_type_name == "void")) {
+      wr.out("Unit" false)
+    } {
+      this.writeTypeDef(rv lambdaCtx wr)
+    }
+    wr.out(" {" true)
+    wr.indent(1)
+    lambdaCtx.restartExpressionLevel()
+    for body.children item:CodeNode i {
+      this.WalkNode(item lambdaCtx wr)
+    }
+    wr.newline()
+    wr.indent(-1)
+    wr.out("}" false)
+  }
+
   fn WriteVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (node.vref == "this") {
       wr.out("this" false)
@@ -324,6 +429,20 @@ class RangerKotlinClassWriter {
         if (i == 0) {
           if (p.nameNode.hasFlag("optional")) {
             wr.out("!!" false)
+          }
+        } {
+          ; A segment in the MIDDLE of a path needs the same `!!`. Kotlin smart
+          ; casts a local after a null test but never a mutable property, so
+          ; `target.nameNode` stays `CodeNode?` inside
+          ; `if (!null? target.nameNode)` and reading through it is an error --
+          ; "only safe (?.) or non-null asserted (!!.) calls are allowed", and
+          ; "smart cast is impossible, because it is a mutable property that
+          ; could have been changed by this time". Only the last segment is left
+          ; bare: there the optional IS the value.
+          if (i < ((array_length node.nsp) - 1)) {
+            if (p.nameNode.hasFlag("optional")) {
+              wr.out("!!" false)
+            }
           }
         }
       }
@@ -542,6 +661,33 @@ class RangerKotlinClassWriter {
     }
     return (ctx.transformWord(arg.name))
   }
+
+  ; A Kotlin function parameter is a `val` and can not be assigned. The compiler
+  ; does assign to a couple of its own -- `node = (this.spliceFunctionBody(...))`
+  ; -- which every other target takes without comment. The parameter is given a
+  ; suffixed name in the signature and the body opens with a `var` of the
+  ; original name copied from it, so the body needs no other change.
+  fn paramIsMutated:boolean (arg:RangerAppParamDesc) {
+    if (arg.set_cnt > 0) {
+      return true
+    }
+    return false
+  }
+
+  fn kotlinWriteMutableParamCopies:void (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    for fnDesc.params arg:RangerAppParamDesc i {
+      if (arg.nameNode.hasFlag("keyword")) {
+        continue _
+      }
+      if ((this.paramIsMutated(arg)) == false) {
+        continue _
+      }
+      def nm:string (this.paramEmitName(arg ctx))
+      wr.out((("var " + nm) + " : ") false)
+      this.writeTypeDef((unwrap arg.nameNode) ctx wr)
+      wr.out(((" = " + nm) + "__p") true)
+    }
+  }
   ; The constructor of a `record` holds a marker parameter for each keyword,
   ; next to the parameter that carries the value. The marker has a name and no
   ; type, so it must not reach the signature: without this filter the
@@ -559,7 +705,11 @@ class RangerKotlinClassWriter {
         wr.out("," false)
       }
       wr.out(" " false)
-      wr.out(( (this.paramEmitName(arg ctx)) + " : ") false)
+      def emitName:string (this.paramEmitName(arg ctx))
+      if (this.paramIsMutated(arg)) {
+        emitName = (emitName + "__p")
+      }
+      wr.out((emitName + " : ") false)
       this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
     }
   }
@@ -645,6 +795,13 @@ class RangerKotlinClassWriter {
       return
     }
     def declaredFunction:[string:boolean]
+    ; A property a subclass redeclares is not a second field on Kotlin -- it is
+    ; an ERROR ("hides member of supertype and needs 'override'"), and @JvmField
+    ; cannot go on an override at all. RangerAppFunctionDesc redeclares `name`,
+    ; `node` and six more from RangerAppParamDesc, all with the same
+    ; initializer, and every language writer redeclares `compiler`. One slot,
+    ; like every other target.
+    def declaredVariable:[string:boolean]
     def wr:CodeWriter orig_wr
     def importFork:CodeWriter (wr.fork())
     this.writeKotlinUnionInterfaces(ctx wr)
@@ -672,6 +829,9 @@ class RangerKotlinClassWriter {
           for mVs.variants variant:RangerAppFunctionDesc k {
             set declaredFunction variant.name true
           }
+        }
+        for parentClass.variables pv:RangerAppParamDesc j {
+          set declaredVariable pv.name true
         }
         wr.out(parentClass.compiledName false)
         if parentClass.has_constructor {
@@ -742,6 +902,9 @@ class RangerKotlinClassWriter {
       if pvar.is_static {
         continue _
       }
+      if (has declaredVariable pvar.name) {
+        continue _
+      }
       this.writeVarDef((unwrap pvar.node) ctx wr)
     }
     if cl.has_constructor {
@@ -752,6 +915,7 @@ class RangerKotlinClassWriter {
       wr.newline()
       def subCtx:RangerAppWriterContext (unwrap constr.fnCtx)
       subCtx.is_function = true
+      this.kotlinWriteMutableParamCopies((unwrap constr) subCtx wr)
       this.WalkNode( (unwrap constr.fnBody) subCtx wr)
       wr.newline()
       wr.indent(-1)
@@ -821,6 +985,7 @@ class RangerKotlinClassWriter {
       subCtx.in_static_method = false
       subCtx.currentMethod = variant
       subCtx.setCurrentClass( (unwrap cl) )
+      this.kotlinWriteMutableParamCopies(variant subCtx wr)
       this.WalkNode( (unwrap variant.fnBody ) subCtx wr)
       wr.newline()
       wr.indent(-1)
@@ -873,6 +1038,7 @@ class RangerKotlinClassWriter {
         subCtx.in_static_method = false
         subCtx.currentMethod = variant
         subCtx.setCurrentClass( (unwrap cl) )
+        this.kotlinWriteMutableParamCopies(variant subCtx wr)
         this.WalkNode( (unwrap variant.fnBody ) subCtx wr)
         wr.newline()
         wr.indent(-1)
@@ -884,14 +1050,24 @@ class RangerKotlinClassWriter {
     for cl.static_methods variant:RangerAppFunctionDesc i {
       wr.out("" true)
       if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {
+        ; Only main() can see the array Kotlin hands it. The shell_arg
+        ; operators read __g_args, so main copies it there first -- the same
+        ; shape as __g_argv on C++ and __g_args on Dart. Declared here rather
+        ; than in the operator template: main is written once, and a program
+        ; that never reads an argument would otherwise assign to a name that
+        ; was never declared.
+        wr.out("var __g_args : Array<String> = arrayOf()" true)
+        wr.out("" true)
         wr.out("fun main(args : Array<String>) {" true)
         wr.indent(1)
+        wr.out("__g_args = args" true)
         wr.newline()
         def subCtx:RangerAppWriterContext (unwrap variant.fnCtx )
         subCtx.is_function = true
         subCtx.in_method = false
         subCtx.in_static_method = true
         subCtx.currentMethod = variant
+        this.kotlinWriteMutableParamCopies(variant subCtx wr)
         this.WalkNode( (unwrap variant.fnBody ) subCtx wr)
         wr.newline()
         wr.indent(-1)
