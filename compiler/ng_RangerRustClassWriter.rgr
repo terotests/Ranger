@@ -781,6 +781,11 @@ class RangerRustClassWriter {
         ; mutably for a call receiver or an assignment target, shared for a
         ; read, so two reads of one cell can overlap. Weak and optional
         ; segments have their own handling below.
+        ; NOTE: a lambda parameter bound to a shared element carries the Rc
+        ; too but never gets rust_needs_rc_wrap, so `item.field` comes out
+        ; with no borrow. Keying this off the segment's TYPE instead of the
+        ; flag fixes those and over-borrows everywhere a shared class is held
+        ; as a plain struct: 1056 -> 1404. The binding needs the flag.
         if ((i < (nsp_len - 1)) && p.rust_needs_rc_wrap) {
           def rcw_skip:boolean p.is_optional
           def rcwNN@(optional):CodeNode p.nameNode
@@ -4914,6 +4919,20 @@ class RangerRustClassWriter {
       header.out("}" true)
       header.out("impl<K, V> Default for RgOrderedMap<K, V> {" true)
       header.out("    fn default() -> Self { RgOrderedMap { entries: Vec::new(), index: Vec::new() } }" true)
+      header.out("}" true)
+      ; `for (k, v) in map` is how the hash form of the for loop is written,
+      ; and it needs the map to be iterable. Insertion order is the order the
+      ; entries are held in, which is the order every other target walks a
+      ; Ranger hash in.
+      header.out("impl<K, V> IntoIterator for RgOrderedMap<K, V> {" true)
+      header.out("    type Item = (K, V);" true)
+      header.out("    type IntoIter = std::vec::IntoIter<(K, V)>;" true)
+      header.out("    fn into_iter(self) -> Self::IntoIter { self.entries.into_iter() }" true)
+      header.out("}" true)
+      header.out("impl<'a, K, V> IntoIterator for &'a RgOrderedMap<K, V> {" true)
+      header.out("    type Item = &'a (K, V);" true)
+      header.out("    type IntoIter = std::slice::Iter<'a, (K, V)>;" true)
+      header.out("    fn into_iter(self) -> Self::IntoIter { self.entries.iter() }" true)
       header.out("}" true)
       header.out("impl<K: std::hash::Hash + Eq, V> RgOrderedMap<K, V> {" true)
       header.out("    fn rg_hash<Q: std::hash::Hash + ?Sized>(k: &Q) -> u64 {" true)

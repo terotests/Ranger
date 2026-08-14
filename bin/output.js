@@ -27718,6 +27718,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       header.out("impl<K, V> Default for RgOrderedMap<K, V> {", true);
                       header.out("    fn default() -> Self { RgOrderedMap { entries: Vec::new(), index: Vec::new() } }", true);
                       header.out("}", true);
+                      header.out("impl<K, V> IntoIterator for RgOrderedMap<K, V> {", true);
+                      header.out("    type Item = (K, V);", true);
+                      header.out("    type IntoIter = std::vec::IntoIter<(K, V)>;", true);
+                      header.out("    fn into_iter(self) -> Self::IntoIter { self.entries.into_iter() }", true);
+                      header.out("}", true);
+                      header.out("impl<'a, K, V> IntoIterator for &'a RgOrderedMap<K, V> {", true);
+                      header.out("    type Item = &'a (K, V);", true);
+                      header.out("    type IntoIter = std::slice::Iter<'a, (K, V)>;", true);
+                      header.out("    fn into_iter(self) -> Self::IntoIter { self.entries.iter() }", true);
+                      header.out("}", true);
                       header.out("impl<K: std::hash::Hash + Eq, V> RgOrderedMap<K, V> {", true);
                       header.out("    fn rg_hash<Q: std::hash::Hash + ?Sized>(k: &Q) -> u64 {", true);
                       header.out("        let mut h = FxHasher::default();", true);
