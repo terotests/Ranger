@@ -3871,7 +3871,12 @@ def r_div_f64(a, b):
             templates {
                 go ( "switch (int64(" (e 1) " )) { " I (block 2) i "}" )
                 python ( nl "match (" (e 1) "):" I (block 2) i nl )
-                rust ( nl "match " (e 1) " {" I (block 2) i nl "}" nl )
+                ; Rust demands an exhaustive match, and a Ranger `switch` need not
+                ; have a `default`. The catch-all goes in unconditionally: where
+                ; a `default` already wrote one this arm is unreachable, which is
+                ; a warning, while its absence is an error at every switch
+                ; without one.
+                rust ( nl "match " (e 1) " {" I (block 2) nl "_ => {}" i nl "}" nl )
             }
         }
 
@@ -3887,7 +3892,12 @@ def r_div_f64(a, b):
                 scala ( (e 1) " match { " I (block 2) i "}" )
                 kotlin ( "when (" (e 1) ") { " I (block 2) i "}" )
                 python ( nl "match (" (e 1) "):" I (block 2) i nl )
-                rust ( nl "match " (e 1) " {" I (block 2) i nl "}" nl )
+                ; Rust demands an exhaustive match, and a Ranger `switch` need not
+                ; have a `default`. The catch-all goes in unconditionally: where
+                ; a `default` already wrote one this arm is unreachable, which is
+                ; a warning, while its absence is an error at every switch
+                ; without one.
+                rust ( nl "match " (e 1) " {" I (block 2) nl "_ => {}" i nl "}" nl )
                 * ( "switch (" (e 1) " ) { " I (block 2) i "}" )
             }
         }
@@ -3949,7 +3959,12 @@ def r_div_f64(a, b):
                 ; `case` arms already matched their own Python and Rust entries,
                 ; so only the head was wrong.
                 python ( nl "match (" (e 1) "):" I (block 2) i nl )
-                rust ( nl "match " (e 1) " {" I (block 2) i nl "}" nl )
+                ; Rust demands an exhaustive match, and a Ranger `switch` need not
+                ; have a `default`. The catch-all goes in unconditionally: where
+                ; a `default` already wrote one this arm is unreachable, which is
+                ; a warning, while its absence is an error at every switch
+                ; without one.
+                rust ( nl "match " (e 1) " {" I (block 2) nl "_ => {}" i nl "}" nl )
                 * ( "switch (" (e 1) " ) { " I (block 2) i "}" )
             }
         }       
@@ -4326,8 +4341,12 @@ case class customException(smth:String)  extends Exception
                 kotlin ( (forkctx _ ) (def 2) (def 3) "for ( " (e 3) " in " (e 1) ".indices ) {" nl I "val " (e 2) " = " (e 1) "[" (e 3) "]" nl (block 4) nl i "}" )
                 dart ( (forkctx _ ) (def 2) (def 3) "for ( int " (e 3) " = 0; " (e 3) " < " (e 1) ".length; " (e 3) "++) {" nl I "var " (e 2) " = " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
 
-                ; Use index-based loop for Rust with cloned item - no reassignment needed as item is cloned
-                rust ( (forkctx _ ) (def 2) (def 3) "for " (e 3) " in 0.." (e 1) ".len() {" nl I "let mut " (e 2) " = " (e 1) "[" (e 3) "]" (cloneif 2) ";" nl (block 4) nl i "}" )
+                ; Use index-based loop for Rust with cloned item - no reassignment needed as item is cloned.
+                ; The index counts in i64, because Ranger declares it `int` and the
+                ; body compares and arithmetics it against other ints -- a usize
+                ; loop variable made every such comparison a type error. The cast
+                ; back to usize belongs at the one place that indexes.
+                rust ( (forkctx _ ) (def 2) (def 3) "for " (e 3) " in 0..(" (e 1) ".len() as i64) {" nl I "let mut " (e 2) " = " (e 1) "[" (e 3) " as usize]" (cloneif 2) ";" nl (block 4) nl i "}" )
 
                 ; idea of go for macro implementation, not working yet...         
                 go_idea  @macro(true) (nl 
@@ -6650,6 +6669,10 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  python ( (e 1) ".pop(" (e 2) ")" )
                  dart ( (e 1) ".removeAt(" (e 2) ");" )
                  csharp ( (e 1) ".RemoveAt((int)(" (e 2) "));" )
+                 ; Vec::remove drops the element out of the middle; the `*`
+                 ; fallback is JavaScript's splice/pop pair, and Vec::splice
+                 ; wants an iterator, not an index
+                 rust ( (e 1) ".remove((" (e 2) ") as usize);" )
                  * ( (e 1) ".splice(" (e 2) ", 1).pop();" )                                              
             }
         }
@@ -7074,6 +7097,9 @@ static class RgList {
 }
 ")
                  )
+                 ; Vec::remove removes AND returns, which is what this
+                 ; operator is
+                 rust ( (e 1) ".remove((" (e 2) ") as usize)" )
                  * ( (e 1) ".splice(" (e 2) ", 1).pop()" )                                              
             }
         }

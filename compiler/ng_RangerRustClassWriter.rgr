@@ -801,7 +801,10 @@ class RangerRustClassWriter {
         if (!null? pNameNWeak) {
           def pNNWeak:CodeNode (unwrap pNameNWeak)
           if (pNNWeak.hasFlag("weak")) {
-            field_is_weak = true
+            ; only a FIELD holds a Weak — a `@(weak)` local keeps the Rc
+            if p.is_class_variable {
+              field_is_weak = true
+            }
           }
         }
         ; Handle weak references - need to upgrade() to get strong reference
@@ -816,6 +819,12 @@ class RangerRustClassWriter {
               wr.out(".upgrade().unwrap().borrow_mut()" false)
             }
           }
+          ; NOTE: the LAST segment is deliberately left alone. Reading a weak
+          ; field as a whole value does need the upgrade — `def c:ClassDesc
+          ; ctx.currentClass` declares an Rc and is handed a Weak — but the
+          ; upgrade is already added downstream at several use sites, and
+          ; putting it here too doubles up: 1432 -> 1984. The reader sites
+          ; have to be unified before this branch can own it.
         } {
           ; Rust: If this field is optional and there are more parts after it, unwrap it
           if p.is_optional {
@@ -1390,12 +1399,9 @@ class RangerRustClassWriter {
         ; non-optional local writes the bare class type: writeTypeDef reads
         ; the node's optional flag, which an initializer that was unwrapped
         ; from an optional field leaks onto the def.
-        ; a `@(weak)` local is stored into with Rc::downgrade and read back
-        ; with upgrade(), so it holds the Weak, not the Rc
+        ; a `@(weak)` LOCAL keeps the Rc: the annotation guards against
+        ; reference cycles, and a name that dies with its scope makes none
         def localSharedT:string (this.rustSharedTypeString(nameN.type_name ctx))
-        if (nameN.hasFlag("weak")) {
-          localSharedT = (this.rustSharedWeakTypeString(nameN.type_name ctx))
-        }
         if (eff_optional && (((strlen nameN.array_type) == 0) && ((strlen nameN.key_type) == 0))) {
           wr.out((("Option<" + localSharedT) + ">") false)
         } {
@@ -6321,9 +6327,14 @@ class RangerRustClassWriter {
               is_optional = false
             }
           }
-          ; Check if field has weak annotation
+          ; Check if field has weak annotation. A `@(weak)` LOCAL is no cycle
+          ; risk — nothing outlives the scope holding it — so it keeps the
+          ; Rc, and only a FIELD stores the downgraded handle. Downgrading
+          ; into a local made it disagree with every reader of it.
           if (nn.hasFlag("weak")) {
-            is_weak = true
+            if pp.is_class_variable {
+              is_weak = true
+            }
           }
           ; Check if field is an array type 
           if (nn.value_type == RangerNodeType.Array) {
@@ -7272,9 +7283,13 @@ class RangerRustClassWriter {
         if (!null? nameN) {
           def nn:CodeNode (unwrap nameN)
           inner_type = nn.type_name
-          ; Check if this is a weak reference
+          ; Check if this is a weak reference. Only a FIELD holds a Weak; a
+          ; `@(weak)` local keeps the Rc, so upgrading one is an upgrade of
+          ; something that was never downgraded.
           if (nn.hasFlag("weak")) {
-            is_weak_ref = true
+            if pp.is_class_variable {
+              is_weak_ref = true
+            }
           }
           ; Check if field type equals the class that owns this property (self-referential)
           def oc@(optional):RangerAppClassDesc pp.propertyClass

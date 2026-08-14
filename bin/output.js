@@ -24269,7 +24269,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     if ( (typeof(pNameNWeak) !== "undefined" && pNameNWeak != null )  ) {
                       const pNNWeak = pNameNWeak;
                       if ( pNNWeak.hasFlag("weak") ) {
-                        field_is_weak = true;
+                        if ( p.is_class_variable ) {
+                          field_is_weak = true;
+                        }
                       }
                     }
                     if ( field_is_weak ) {
@@ -24733,10 +24735,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     }
                   }
                   if ( local_needs_rc_wrap ) {
-                    let localSharedT = this.rustSharedTypeString(nameN.type_name, ctx);
-                    if ( nameN.hasFlag("weak") ) {
-                      localSharedT = this.rustSharedWeakTypeString(nameN.type_name, ctx);
-                    }
+                    const localSharedT = this.rustSharedTypeString(nameN.type_name, ctx);
                     if ( eff_optional && (((nameN.array_type.length) == 0) && ((nameN.key_type.length) == 0)) ) {
                       wr.out(("Option<" + localSharedT) + ">", false);
                     } else {
@@ -28970,7 +28969,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 }
                               }
                               if ( nn.hasFlag("weak") ) {
-                                is_weak = true;
+                                if ( pp.is_class_variable ) {
+                                  is_weak = true;
+                                }
                               }
                               if ( nn.value_type == 6 ) {
                                 left_is_array = true;
@@ -29746,7 +29747,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               const nn_2 = nameN_2;
                               inner_type = nn_2.type_name;
                               if ( nn_2.hasFlag("weak") ) {
-                                is_weak_ref = true;
+                                if ( pp_3.is_class_variable ) {
+                                  is_weak_ref = true;
+                                }
                               }
                               const oc_1 = pp_3.propertyClass;
                               if ( (typeof(oc_1) !== "undefined" && oc_1 != null )  ) {
