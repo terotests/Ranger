@@ -652,6 +652,25 @@ class RangerRustClassWriter {
     if ((array_length node.nsp) > 0) {
       def had_static:boolean false
       def nsp_len:int (array_length node.nsp)
+      ; A field reached through a parent-typed reference comes from the
+      ; trait's accessor. Writing to one means writing through the `&mut`
+      ; it hands back, so the whole path is dereferenced: the `*` has to go
+      ; in before the first segment, and every branch above this point has
+      ; already returned, so here is where the expression starts.
+      def lastSegThroughTrait:boolean (this.rustSegThroughTrait(node (nsp_len - 1) ctx))
+      def lastWantsMutAccessor:boolean false
+      if lastSegThroughTrait {
+        if ctx.in_lhs_of_assignment {
+          lastWantsMutAccessor = true
+          wr.out("*" false)
+        } {
+          ; a receiver that is about to take a `&mut self` method needs the
+          ; mutable form too, but a method call derefs on its own
+          if (rust_writing_call_receiver && rust_call_receiver_mut) {
+            lastWantsMutAccessor = true
+          }
+        }
+      }
       for node.nsp p:RangerAppParamDesc i {
         if (i == 0) {
           def part:string (itemAt node.ns 0)
@@ -683,13 +702,23 @@ class RangerRustClassWriter {
             }
           }
         }
-        if ((strlen p.compiledName) > 0) {
-          wr.out((this.adjustType(p.compiledName)) false)
-        } {
-          if ((strlen p.name) > 0) {
-            wr.out((this.adjustType(p.name)) false)
+        def segThroughTrait:boolean (this.rustSegThroughTrait(node i ctx))
+        if segThroughTrait {
+          def segAcc:string (this.rustFieldAccessorName(p))
+          if ((i == (nsp_len - 1)) && lastWantsMutAccessor) {
+            wr.out((segAcc + "_mut()") false)
           } {
-            wr.out((this.adjustType( (itemAt node.ns i))) false)
+            wr.out((segAcc + "()") false)
+          }
+        } {
+          if ((strlen p.compiledName) > 0) {
+            wr.out((this.adjustType(p.compiledName)) false)
+          } {
+            if ((strlen p.name) > 0) {
+              wr.out((this.adjustType(p.name)) false)
+            } {
+              wr.out((this.adjustType( (itemAt node.ns i))) false)
+            }
           }
         }
         ; Any Rc<RefCell<T>> segment of the path — a local at the root or a
@@ -950,39 +979,141 @@ class RangerRustClassWriter {
     return false
   }
 
+  ; The parent fields a subclass has to carry in its own layout. Rust has no
+  ; inheritance: `struct Cat` gets nothing from `struct Animal`, so a field
+  ; the parent declares is simply absent — "no field `name` on type `Cat`".
+  ; Every ancestor's variables are collected here, nearest first, skipping any
+  ; the class already declares itself (Ranger lets a subclass restate a
+  ; parent's field, and it names the same slot, so a second copy would be a
+  ; second slot).
+  fn rustCollectInheritedVars:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext seen:[string:boolean] into:[RangerAppParamDesc]) {
+    for cl.extends_classes pName:string i {
+      if (ctx.isDefinedClass(pName)) {
+        def pc:RangerAppClassDesc (ctx.findClass(pName))
+        for pc.variables pvar:RangerAppParamDesc j {
+          if (has seen pvar.name) {
+          } {
+            set seen pvar.name true
+            push into pvar
+          }
+        }
+        this.rustCollectInheritedVars(pc ctx seen into)
+      }
+    }
+  }
+
+  ; The fields of `cl` in layout order: its own, then everything it inherits
+  ; and has not restated.
+  fn rustAllStructVars:[RangerAppParamDesc] (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    def res:[RangerAppParamDesc]
+    def seen:[string:boolean]
+    for cl.variables pvar:RangerAppParamDesc i {
+      set seen pvar.name true
+      push res pvar
+    }
+    this.rustCollectInheritedVars(cl ctx seen res)
+    return res
+  }
+
+  ; The Rust type of a field, without its name — shared by the struct
+  ; declaration and by the trait accessors that hand the field out.
+  fn writeStructFieldType:void (p:RangerAppParamDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    def nameN:CodeNode (unwrap p.nameNode)
+    ; A field of a shared class holds the Rc (PLAN_RUST_OWNERSHIP 2b). A
+    ; weak field keeps its Weak form, and a collection wraps its element
+    ; inside writeTypeDef instead.
+    def shared_field:boolean false
+    if p.rust_needs_rc_wrap {
+      if (nameN.hasFlag("weak") == false) {
+        if (((strlen nameN.array_type) == 0) && ((strlen nameN.key_type) == 0)) {
+          shared_field = true
+        }
+      }
+    }
+    if shared_field {
+      if p.is_optional {
+        wr.out((("Option<" + (this.rustSharedTypeString(nameN.type_name ctx))) + ">") false)
+      } {
+        wr.out((this.rustSharedTypeString(nameN.type_name ctx)) false)
+      }
+    } {
+      if p.rust_static_str {
+        ; a never-computed string: a pointer to the literal, Copy, no
+        ; allocation on any assignment (rust_static_str)
+        wr.out("&'static str" false)
+      } {
+        this.writeTypeDef(nameN ctx wr)
+      }
+    }
+  }
+
+  ; Is the segment at `idx` of this path read out of a parent-typed
+  ; reference? Its owner is the segment before it, and a class that is
+  ; extended by children is written as `Rc<RefCell<dyn XTrait>>` — methods
+  ; and no fields — so the field has to come from a trait accessor.
+  fn rustSegThroughTrait:boolean (node:CodeNode idx:int ctx:RangerAppWriterContext) {
+    if (idx < 1) {
+      return false
+    }
+    if ((array_length node.nsp) <= idx) {
+      return false
+    }
+    def owner:RangerAppParamDesc (itemAt node.nsp (idx - 1))
+    def ownerNN@(optional):CodeNode owner.nameNode
+    if (null? ownerNN) {
+      return false
+    }
+    def onn:CodeNode (unwrap ownerNN)
+    ; a collection segment yields its element, so the owner's own class name
+    ; is not what the next segment is read out of
+    if (((strlen onn.array_type) > 0) || ((strlen onn.key_type) > 0)) {
+      return false
+    }
+    return (this.rustTypeIsOwnHandle(onn.type_name ctx))
+  }
+
   fn writeStructField (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasParamDesc {
       def nn:CodeNode (itemAt node.children 1)
-      def p:RangerAppParamDesc nn.paramDesc
+      def p:RangerAppParamDesc (unwrap nn.paramDesc)
       wr.out(((this.adjustType(p.compiledName)) + " : ") false)
-      def nameN:CodeNode (unwrap p.nameNode)
-      ; A field of a shared class holds the Rc (PLAN_RUST_OWNERSHIP 2b). A
-      ; weak field keeps its Weak form, and a collection wraps its element
-      ; inside writeTypeDef instead.
-      def shared_field:boolean false
-      if p.rust_needs_rc_wrap {
-        if (nameN.hasFlag("weak") == false) {
-          if (((strlen nameN.array_type) == 0) && ((strlen nameN.key_type) == 0)) {
-            shared_field = true
-          }
-        }
-      }
-      if shared_field {
-        if p.is_optional {
-          wr.out((("Option<" + (this.rustSharedTypeString(nameN.type_name ctx))) + ">") false)
-        } {
-          wr.out((this.rustSharedTypeString(nameN.type_name ctx)) false)
-        }
-      } {
-        if p.rust_static_str {
-          ; a never-computed string: a pointer to the literal, Copy, no
-          ; allocation on any assignment (rust_static_str)
-          wr.out("&'static str" false)
-        } {
-          this.writeTypeDef(nameN ctx wr)
-        }
-      }
+      this.writeStructFieldType(p ctx wr)
       wr.out(", " true)
+    }
+  }
+
+  ; A `dyn Trait` has no fields, and the compiler reads a parent's fields
+  ; through parent-typed references everywhere. The trait therefore hands out
+  ; each field of the trait-defining class by reference: `rgf_x()` to read,
+  ; `rgf_x_mut()` to write or mutate in place. Every implementor carries the
+  ; field in its own layout (rustAllStructVars flattens inherited fields
+  ; down), so both bodies are the same one line whichever struct implements it.
+  fn rustFieldAccessorName:string (p:RangerAppParamDesc) {
+    return ("rgf_" + (this.adjustType(p.compiledName)))
+  }
+
+  fn writeTraitFieldAccessorDecls:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    for cl.variables pvar:RangerAppParamDesc i {
+      def acc:string (this.rustFieldAccessorName(pvar))
+      wr.out((("fn " + acc) + "(&self) -> &") false)
+      this.writeStructFieldType(pvar ctx wr)
+      wr.out(";" true)
+      wr.out((("fn " + acc) + "_mut(&mut self) -> &mut ") false)
+      this.writeStructFieldType(pvar ctx wr)
+      wr.out(";" true)
+    }
+  }
+
+  fn writeTraitFieldAccessorImpls:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    for cl.variables pvar:RangerAppParamDesc i {
+      def acc:string (this.rustFieldAccessorName(pvar))
+      def fld:string (this.adjustType(pvar.compiledName))
+      wr.out((("fn " + acc) + "(&self) -> &") false)
+      this.writeStructFieldType(pvar ctx wr)
+      wr.out(((" { &self." + fld) + " }") true)
+      wr.out((("fn " + acc) + "_mut(&mut self) -> &mut ") false)
+      this.writeStructFieldType(pvar ctx wr)
+      wr.out(((" { &mut self." + fld) + " }") true)
     }
   }
   fn writeVarDef (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -1757,6 +1888,31 @@ class RangerRustClassWriter {
       wr.out("&mut self" false)
     } {
       wr.out("&self" false)
+    }
+  }
+
+  ; The argument list a trait forwarding body hands on to the inherent
+  ; method. It has to mirror writeArgsDef exactly — the same names, the same
+  ; skipped keyword parameters, and the hidden __self_rc where the method
+  ; takes one — or the forwarding call does not match the thing it calls.
+  fn writeTraitForwardArgs:void (variant:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter lead:boolean) {
+    def wroteAny:boolean lead
+    if (this.rustNeedsSelfRc(variant ctx)) {
+      if wroteAny {
+        wr.out(", " false)
+      }
+      wroteAny = true
+      wr.out("__self_rc" false)
+    }
+    for variant.params arg:RangerAppParamDesc pi {
+      if (arg.nameNode.hasFlag("keyword")) {
+        continue
+      }
+      if wroteAny {
+        wr.out(", " false)
+      }
+      wroteAny = true
+      wr.out((this.adjustType(arg.compiledName)) false)
     }
   }
 
@@ -4683,9 +4839,14 @@ class RangerRustClassWriter {
       fileHeaderWritten = true
     }
     
+    ; the class's own fields plus everything it inherits: Rust copies no
+    ; layout down, so this is what the struct, the literal and the Clone
+    ; question all work from
+    def allStructVars:[RangerAppParamDesc] (this.rustAllStructVars(cl ctx))
+
     ; Check if class has trait object fields (cannot derive Clone)
     def hasTraitObjectField:boolean false
-    for cl.variables pvar:RangerAppParamDesc i {
+    for allStructVars pvar:RangerAppParamDesc i {
       ; Check if the type is a class that has child classes (used as trait object)
       def nameN@(optional):CodeNode pvar.nameNode
       if (!null? nameN) {
@@ -4717,7 +4878,7 @@ class RangerRustClassWriter {
     }
     wr.out((("struct " + cl.name) + " { ") true)
     wr.indent(1)
-    for cl.variables pvar:RangerAppParamDesc i {
+    for allStructVars pvar:RangerAppParamDesc i {
       def pnode:CodeNode (unwrap pvar.node)
       this.writeStructField(pnode ctx wr)
     }
@@ -4791,7 +4952,9 @@ class RangerRustClassWriter {
       wr.out((cl.name + " { ") true)
     }
     wr.indent(1)
-    for cl.variables pvar:RangerAppParamDesc i {
+    ; the literal has to name every field the struct declares, inherited ones
+    ; included — Rust has no partial struct literal
+    for allStructVars pvar:RangerAppParamDesc i {
       def nn@(optional):CodeNode pvar.node
       if (!null? nn) {
         def node:CodeNode (unwrap nn)
@@ -5098,20 +5261,21 @@ class RangerRustClassWriter {
       wr.out("" true)
       wr.out(("pub trait " + cl.name + "Trait {") true)
       wr.indent(1)
+      this.writeTraitFieldAccessorDecls(cl ctx wr)
       ; Add method signatures only (no default implementations)
       ; Traits use &mut self to allow mutation through the trait interface
       ; This is necessary because Ranger methods can always mutate state
       for cl.defined_variants fnVar:string i {
         def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
         for mVs.variants variant:RangerAppFunctionDesc i {
-          ; Use &mut self for trait methods to allow mutation
-          wr.out(("fn " + variant.name + "(&mut self") false)
-          for variant.params arg:RangerAppParamDesc pi {
-            wr.out(", " false)
-            def nameN:CodeNode (unwrap arg.nameNode)
-            wr.out((arg.compiledName + " : ") false)
-            this.writeTypeDef(nameN ctx wr)
-          }
+          ; Use &mut self for trait methods to allow mutation. The parameter
+          ; list comes from writeArgsDef, the same code the inherent method
+          ; uses: a bare writeTypeDef here gave the trait `changer : CodeNode`
+          ; where the method it forwards to takes `Rc<RefCell<CodeNode>>`, and
+          ; every forwarding body was an E0308.
+          wr.out(("fn " + variant.name + "(") false)
+          this.writeRustReceiver(true wr)
+          this.writeArgsDef(variant ctx wr)
           this.writeRustFnClose(variant ctx wr)
           wr.out(";" true)
         }
@@ -5122,37 +5286,24 @@ class RangerRustClassWriter {
       ; Implement the trait for this class itself
       wr.out(("impl " + cl.name + "Trait for " + cl.name + " {") true)
       wr.indent(1)
+      this.writeTraitFieldAccessorImpls(cl ctx wr)
       for cl.defined_variants fnVar:string i {
         def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
         for mVs.variants variant:RangerAppFunctionDesc i {
           ; Use &mut self for trait methods to match trait definition
-          wr.out(("fn " + variant.name + "(&mut self") false)
-          for variant.params arg:RangerAppParamDesc pi {
-            wr.out(", " false)
-            def nameN:CodeNode (unwrap arg.nameNode)
-            wr.out((arg.compiledName + " : ") false)
-            this.writeTypeDef(nameN ctx wr)
-          }
+          wr.out(("fn " + variant.name + "(") false)
+          this.writeRustReceiver(true wr)
+          this.writeArgsDef(variant ctx wr)
           this.writeRustFnClose(variant ctx wr)
           wr.out(" {" true)
           wr.indent(1)
           ; Check if method is static - if so, don't pass self
           if variant.rust_can_be_static {
             wr.out(((cl.name + "::" + variant.name) + "(") false)
-            def firstArg:boolean true
-            for variant.params arg:RangerAppParamDesc pi {
-              if firstArg {
-                firstArg = false
-              } {
-                wr.out(", " false)
-              }
-              wr.out(arg.compiledName false)
-            }
+            this.writeTraitForwardArgs(variant ctx wr false)
           } {
             wr.out(((cl.name + "::" + variant.name) + "(self") false)
-            for variant.params arg:RangerAppParamDesc pi {
-              wr.out((", " + arg.compiledName) false)
-            }
+            this.writeTraitForwardArgs(variant ctx wr true)
           }
           wr.out(")" true)
           wr.indent(-1)
@@ -5172,18 +5323,16 @@ class RangerRustClassWriter {
           if pc.is_extended_by_children {
             wr.out(("impl " + parentName + "Trait for " + cl.name + " {") true)
             wr.indent(1)
+            ; the parent's fields, served out of this subclass's own layout
+            this.writeTraitFieldAccessorImpls(pc ctx wr)
             ; Implement ALL parent trait methods
             for pc.defined_variants fnVar:string i {
               def mVs:RangerAppMethodVariants (get pc.method_variants fnVar)
               for mVs.variants variant:RangerAppFunctionDesc i {
                 ; Use &mut self for trait methods to match trait definition
-                wr.out(("fn " + variant.name + "(&mut self") false)
-                for variant.params arg:RangerAppParamDesc pi {
-                  wr.out(", " false)
-                  def nameN:CodeNode (unwrap arg.nameNode)
-                  wr.out((arg.compiledName + " : ") false)
-                  this.writeTypeDef(nameN ctx wr)
-                }
+                wr.out(("fn " + variant.name + "(") false)
+                this.writeRustReceiver(true wr)
+                this.writeArgsDef(variant ctx wr)
                 this.writeRustFnClose(variant ctx wr)
                 wr.out(" {" true)
                 wr.indent(1)
@@ -5204,20 +5353,10 @@ class RangerRustClassWriter {
                 ; Generate the call
                 if isStatic {
                   wr.out(((cl.name + "::" + variant.name) + "(") false)
-                  def firstArg:boolean true
-                  for variant.params arg:RangerAppParamDesc pi {
-                    if firstArg {
-                      firstArg = false
-                    } {
-                      wr.out(", " false)
-                    }
-                    wr.out(arg.compiledName false)
-                  }
+                  this.writeTraitForwardArgs(variant ctx wr false)
                 } {
                   wr.out(((cl.name + "::" + variant.name) + "(self") false)
-                  for variant.params arg:RangerAppParamDesc pi {
-                    wr.out((", " + arg.compiledName) false)
-                  }
+                  this.writeTraitForwardArgs(variant ctx wr true)
                 }
                 wr.out(")" true)
                 wr.indent(-1)

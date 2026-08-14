@@ -24161,6 +24161,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( (node.nsp.length) > 0 ) {
                   let had_static = false;
                   const nsp_len = node.nsp.length;
+                  const lastSegThroughTrait = this.rustSegThroughTrait(node, (nsp_len - 1), ctx);
+                  let lastWantsMutAccessor = false;
+                  if ( lastSegThroughTrait ) {
+                    if ( ctx.in_lhs_of_assignment ) {
+                      lastWantsMutAccessor = true;
+                      wr.out("*", false);
+                    } else {
+                      if ( this.rust_writing_call_receiver && this.rust_call_receiver_mut ) {
+                        lastWantsMutAccessor = true;
+                      }
+                    }
+                  }
                   for ( let i = 0; i < node.nsp.length; i++) {
                     var p = node.nsp[i];
                     if ( i == 0 ) {
@@ -24190,13 +24202,23 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         }
                       }
                     }
-                    if ( (p.compiledName.length) > 0 ) {
-                      wr.out(this.adjustType(p.compiledName), false);
-                    } else {
-                      if ( (p.name.length) > 0 ) {
-                        wr.out(this.adjustType(p.name), false);
+                    const segThroughTrait = this.rustSegThroughTrait(node, i, ctx);
+                    if ( segThroughTrait ) {
+                      const segAcc = this.rustFieldAccessorName(p);
+                      if ( (i == (nsp_len - 1)) && lastWantsMutAccessor ) {
+                        wr.out(segAcc + "_mut()", false);
                       } else {
-                        wr.out(this.adjustType((node.ns[i])), false);
+                        wr.out(segAcc + "()", false);
+                      }
+                    } else {
+                      if ( (p.compiledName.length) > 0 ) {
+                        wr.out(this.adjustType(p.compiledName), false);
+                      } else {
+                        if ( (p.name.length) > 0 ) {
+                          wr.out(this.adjustType(p.name), false);
+                        } else {
+                          wr.out(this.adjustType((node.ns[i])), false);
+                        }
                       }
                     }
                     if ( (i < (nsp_len - 1)) && p.rust_needs_rc_wrap ) {
@@ -24416,35 +24438,112 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 };
                 return false;
               };
+              rustCollectInheritedVars (cl, ctx, seen, into) {
+                for ( let i = 0; i < cl.extends_classes.length; i++) {
+                  var pName = cl.extends_classes[i];
+                  if ( ctx.isDefinedClass(pName) ) {
+                    const pc = ctx.findClass(pName);
+                    for ( let j = 0; j < pc.variables.length; j++) {
+                      var pvar = pc.variables[j];
+                      if ( ( typeof(seen[pvar.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(seen, pvar.name) ) ) {
+                      } else {
+                        seen[pvar.name] = true;
+                        into.push(pvar);
+                      }
+                    };
+                    this.rustCollectInheritedVars(pc, ctx, seen, into);
+                  }
+                };
+              };
+              rustAllStructVars (cl, ctx) {
+                let res = [];
+                let seen = {};
+                for ( let i = 0; i < cl.variables.length; i++) {
+                  var pvar = cl.variables[i];
+                  seen[pvar.name] = true;
+                  res.push(pvar);
+                };
+                this.rustCollectInheritedVars(cl, ctx, seen, res);
+                return res;
+              };
+              async writeStructFieldType (p, ctx, wr) {
+                const nameN = p.nameNode;
+                let shared_field = false;
+                if ( p.rust_needs_rc_wrap ) {
+                  if ( nameN.hasFlag("weak") == false ) {
+                    if ( ((nameN.array_type.length) == 0) && ((nameN.key_type.length) == 0) ) {
+                      shared_field = true;
+                    }
+                  }
+                }
+                if ( shared_field ) {
+                  if ( p.is_optional ) {
+                    wr.out(("Option<" + this.rustSharedTypeString(nameN.type_name, ctx)) + ">", false);
+                  } else {
+                    wr.out(this.rustSharedTypeString(nameN.type_name, ctx), false);
+                  }
+                } else {
+                  if ( p.rust_static_str ) {
+                    wr.out("&'static str", false);
+                  } else {
+                    await this.writeTypeDef(nameN, ctx, wr);
+                  }
+                }
+              };
+              rustSegThroughTrait (node, idx, ctx) {
+                if ( idx < 1 ) {
+                  return false;
+                }
+                if ( (node.nsp.length) <= idx ) {
+                  return false;
+                }
+                const owner = node.nsp[(idx - 1)];
+                const ownerNN = owner.nameNode;
+                if ( typeof(ownerNN) === "undefined" ) {
+                  return false;
+                }
+                const onn = ownerNN;
+                if ( ((onn.array_type.length) > 0) || ((onn.key_type.length) > 0) ) {
+                  return false;
+                }
+                return this.rustTypeIsOwnHandle(onn.type_name, ctx);
+              };
               async writeStructField (node, ctx, wr) {
                 if ( node.hasParamDesc ) {
                   const nn = node.children[1];
                   const p = nn.paramDesc;
                   wr.out(this.adjustType(p.compiledName) + " : ", false);
-                  const nameN = p.nameNode;
-                  let shared_field = false;
-                  if ( p.rust_needs_rc_wrap ) {
-                    if ( nameN.hasFlag("weak") == false ) {
-                      if ( ((nameN.array_type.length) == 0) && ((nameN.key_type.length) == 0) ) {
-                        shared_field = true;
-                      }
-                    }
-                  }
-                  if ( shared_field ) {
-                    if ( p.is_optional ) {
-                      wr.out(("Option<" + this.rustSharedTypeString(nameN.type_name, ctx)) + ">", false);
-                    } else {
-                      wr.out(this.rustSharedTypeString(nameN.type_name, ctx), false);
-                    }
-                  } else {
-                    if ( p.rust_static_str ) {
-                      wr.out("&'static str", false);
-                    } else {
-                      await this.writeTypeDef(nameN, ctx, wr);
-                    }
-                  }
+                  await this.writeStructFieldType(p, ctx, wr);
                   wr.out(", ", true);
                 }
+              };
+              rustFieldAccessorName (p) {
+                return "rgf_" + this.adjustType(p.compiledName);
+              };
+              async writeTraitFieldAccessorDecls (cl, ctx, wr) {
+                for ( let i = 0; i < cl.variables.length; i++) {
+                  var pvar = cl.variables[i];
+                  const acc = this.rustFieldAccessorName(pvar);
+                  wr.out(("fn " + acc) + "(&self) -> &", false);
+                  await this.writeStructFieldType(pvar, ctx, wr);
+                  wr.out(";", true);
+                  wr.out(("fn " + acc) + "_mut(&mut self) -> &mut ", false);
+                  await this.writeStructFieldType(pvar, ctx, wr);
+                  wr.out(";", true);
+                };
+              };
+              async writeTraitFieldAccessorImpls (cl, ctx, wr) {
+                for ( let i = 0; i < cl.variables.length; i++) {
+                  var pvar = cl.variables[i];
+                  const acc = this.rustFieldAccessorName(pvar);
+                  const fld = this.adjustType(pvar.compiledName);
+                  wr.out(("fn " + acc) + "(&self) -> &", false);
+                  await this.writeStructFieldType(pvar, ctx, wr);
+                  wr.out((" { &self." + fld) + " }", true);
+                  wr.out(("fn " + acc) + "_mut(&mut self) -> &mut ", false);
+                  await this.writeStructFieldType(pvar, ctx, wr);
+                  wr.out((" { &mut self." + fld) + " }", true);
+                };
               };
               async writeVarDef (node, ctx, wr) {
                 if ( node.hasParamDesc ) {
@@ -25037,6 +25136,27 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   } else {
                     wr.out("&self", false);
                   }
+                };
+                writeTraitForwardArgs (variant, ctx, wr, lead) {
+                  let wroteAny = lead;
+                  if ( this.rustNeedsSelfRc(variant, ctx) ) {
+                    if ( wroteAny ) {
+                      wr.out(", ", false);
+                    }
+                    wroteAny = true;
+                    wr.out("__self_rc", false);
+                  }
+                  for ( let pi = 0; pi < variant.params.length; pi++) {
+                    var arg = variant.params[pi];
+                    if ( arg.nameNode.hasFlag("keyword") ) {
+                      continue;
+                    }
+                    if ( wroteAny ) {
+                      wr.out(", ", false);
+                    }
+                    wroteAny = true;
+                    wr.out(this.adjustType(arg.compiledName), false);
+                  };
                 };
                 async writeArgsDef (fnDesc, ctx, wr) {
                   const pms = operatorsOf.filter_48(fnDesc.params, ((item, index) => { 
@@ -27578,9 +27698,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         } };
                         this.fileHeaderWritten = true;
                       }
+                      const allStructVars = this.rustAllStructVars(cl, ctx);
                       let hasTraitObjectField = false;
-                      for ( let i = 0; i < cl.variables.length; i++) {
-                        var pvar = cl.variables[i];
+                      for ( let i = 0; i < allStructVars.length; i++) {
+                        var pvar = allStructVars[i];
                         const nameN = pvar.nameNode;
                         if ( (typeof(nameN) !== "undefined" && nameN != null )  ) {
                           const nn = nameN;
@@ -27607,8 +27728,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       }
                       wr.out(("struct " + cl.name) + " { ", true);
                       wr.indent(1);
-                      for ( let i_1 = 0; i_1 < cl.variables.length; i_1++) {
-                        var pvar_1 = cl.variables[i_1];
+                      for ( let i_1 = 0; i_1 < allStructVars.length; i_1++) {
+                        var pvar_1 = allStructVars[i_1];
                         const pnode = pvar_1.node;
                         await this.writeStructField(pnode, ctx, wr);
                       };
@@ -27674,8 +27795,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         wr.out(cl.name + " { ", true);
                       }
                       wr.indent(1);
-                      for ( let i_3 = 0; i_3 < cl.variables.length; i_3++) {
-                        var pvar_2 = cl.variables[i_3];
+                      for ( let i_3 = 0; i_3 < allStructVars.length; i_3++) {
+                        var pvar_2 = allStructVars[i_3];
                         const nn_1 = pvar_2.node;
                         if ( (typeof(nn_1) !== "undefined" && nn_1 != null )  ) {
                           const node_1 = nn_1;
@@ -27944,19 +28065,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         wr.out("", true);
                         wr.out(("pub trait " + cl.name) + "Trait {", true);
                         wr.indent(1);
+                        await this.writeTraitFieldAccessorDecls(cl, ctx, wr);
                         for ( let i_9 = 0; i_9 < cl.defined_variants.length; i_9++) {
                           var fnVar_2 = cl.defined_variants[i_9];
                           const mVs_2 = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar_2) ? cl.method_variants[fnVar_2] : undefined );
                           for ( let i_10 = 0; i_10 < mVs_2.variants.length; i_10++) {
                             var variant_3 = mVs_2.variants[i_10];
-                            wr.out(("fn " + variant_3.name) + "(&mut self", false);
-                            for ( let pi_1 = 0; pi_1 < variant_3.params.length; pi_1++) {
-                              var arg_1 = variant_3.params[pi_1];
-                              wr.out(", ", false);
-                              const nameN_2 = arg_1.nameNode;
-                              wr.out(arg_1.compiledName + " : ", false);
-                              await this.writeTypeDef(nameN_2, ctx, wr);
-                            };
+                            wr.out(("fn " + variant_3.name) + "(", false);
+                            this.writeRustReceiver(true, wr);
+                            await this.writeArgsDef(variant_3, ctx, wr);
                             await this.writeRustFnClose(variant_3, ctx, wr);
                             wr.out(";", true);
                           };
@@ -27965,40 +28082,24 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         wr.out("}", true);
                         wr.out(((("impl " + cl.name) + "Trait for ") + cl.name) + " {", true);
                         wr.indent(1);
+                        await this.writeTraitFieldAccessorImpls(cl, ctx, wr);
                         for ( let i_11 = 0; i_11 < cl.defined_variants.length; i_11++) {
                           var fnVar_3 = cl.defined_variants[i_11];
                           const mVs_3 = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar_3) ? cl.method_variants[fnVar_3] : undefined );
                           for ( let i_12 = 0; i_12 < mVs_3.variants.length; i_12++) {
                             var variant_4 = mVs_3.variants[i_12];
-                            wr.out(("fn " + variant_4.name) + "(&mut self", false);
-                            for ( let pi_2 = 0; pi_2 < variant_4.params.length; pi_2++) {
-                              var arg_2 = variant_4.params[pi_2];
-                              wr.out(", ", false);
-                              const nameN_3 = arg_2.nameNode;
-                              wr.out(arg_2.compiledName + " : ", false);
-                              await this.writeTypeDef(nameN_3, ctx, wr);
-                            };
+                            wr.out(("fn " + variant_4.name) + "(", false);
+                            this.writeRustReceiver(true, wr);
+                            await this.writeArgsDef(variant_4, ctx, wr);
                             await this.writeRustFnClose(variant_4, ctx, wr);
                             wr.out(" {", true);
                             wr.indent(1);
                             if ( variant_4.rust_can_be_static ) {
                               wr.out(((cl.name + "::") + variant_4.name) + "(", false);
-                              let firstArg = true;
-                              for ( let pi_3 = 0; pi_3 < variant_4.params.length; pi_3++) {
-                                var arg_3 = variant_4.params[pi_3];
-                                if ( firstArg ) {
-                                  firstArg = false;
-                                } else {
-                                  wr.out(", ", false);
-                                }
-                                wr.out(arg_3.compiledName, false);
-                              };
+                              this.writeTraitForwardArgs(variant_4, ctx, wr, false);
                             } else {
                               wr.out(((cl.name + "::") + variant_4.name) + "(self", false);
-                              for ( let pi_4 = 0; pi_4 < variant_4.params.length; pi_4++) {
-                                var arg_4 = variant_4.params[pi_4];
-                                wr.out(", " + arg_4.compiledName, false);
-                              };
+                              this.writeTraitForwardArgs(variant_4, ctx, wr, true);
                             }
                             wr.out(")", true);
                             wr.indent(-1);
@@ -28009,27 +28110,23 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         wr.out("}", true);
                       }
                       if ( (cl.extends_classes.length) > 0 ) {
-                        for ( let pi_5 = 0; pi_5 < cl.extends_classes.length; pi_5++) {
-                          var parentName_1 = cl.extends_classes[pi_5];
+                        for ( let pi_1 = 0; pi_1 < cl.extends_classes.length; pi_1++) {
+                          var parentName_1 = cl.extends_classes[pi_1];
                           const parentClass_1 = ctx.findClass(parentName_1);
                           if ( (typeof(parentClass_1) !== "undefined" && parentClass_1 != null )  ) {
                             const pc_1 = parentClass_1;
                             if ( pc_1.is_extended_by_children ) {
                               wr.out(((("impl " + parentName_1) + "Trait for ") + cl.name) + " {", true);
                               wr.indent(1);
+                              await this.writeTraitFieldAccessorImpls(pc_1, ctx, wr);
                               for ( let i_13 = 0; i_13 < pc_1.defined_variants.length; i_13++) {
                                 var fnVar_4 = pc_1.defined_variants[i_13];
                                 const mVs_4 = ( Object.prototype.hasOwnProperty.call(pc_1.method_variants, fnVar_4) ? pc_1.method_variants[fnVar_4] : undefined );
                                 for ( let i_14 = 0; i_14 < mVs_4.variants.length; i_14++) {
                                   var variant_5 = mVs_4.variants[i_14];
-                                  wr.out(("fn " + variant_5.name) + "(&mut self", false);
-                                  for ( let pi_6 = 0; pi_6 < variant_5.params.length; pi_6++) {
-                                    var arg_5 = variant_5.params[pi_6];
-                                    wr.out(", ", false);
-                                    const nameN_4 = arg_5.nameNode;
-                                    wr.out(arg_5.compiledName + " : ", false);
-                                    await this.writeTypeDef(nameN_4, ctx, wr);
-                                  };
+                                  wr.out(("fn " + variant_5.name) + "(", false);
+                                  this.writeRustReceiver(true, wr);
+                                  await this.writeArgsDef(variant_5, ctx, wr);
                                   await this.writeRustFnClose(variant_5, ctx, wr);
                                   wr.out(" {", true);
                                   wr.indent(1);
@@ -28045,22 +28142,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   }
                                   if ( isStatic ) {
                                     wr.out(((cl.name + "::") + variant_5.name) + "(", false);
-                                    let firstArg_1 = true;
-                                    for ( let pi_7 = 0; pi_7 < variant_5.params.length; pi_7++) {
-                                      var arg_6 = variant_5.params[pi_7];
-                                      if ( firstArg_1 ) {
-                                        firstArg_1 = false;
-                                      } else {
-                                        wr.out(", ", false);
-                                      }
-                                      wr.out(arg_6.compiledName, false);
-                                    };
+                                    this.writeTraitForwardArgs(variant_5, ctx, wr, false);
                                   } else {
                                     wr.out(((cl.name + "::") + variant_5.name) + "(self", false);
-                                    for ( let pi_8 = 0; pi_8 < variant_5.params.length; pi_8++) {
-                                      var arg_7 = variant_5.params[pi_8];
-                                      wr.out(", " + arg_7.compiledName, false);
-                                    };
+                                    this.writeTraitForwardArgs(variant_5, ctx, wr, true);
                                   }
                                   wr.out(")", true);
                                   wr.indent(-1);
