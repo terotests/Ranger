@@ -24305,7 +24305,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       const rcwNN = p.nameNode;
                       if ( (typeof(rcwNN) !== "undefined" && rcwNN != null )  ) {
                         if ( ((rcwNN)).hasFlag("weak") ) {
-                          rcw_skip = true;
+                          if ( p.is_class_variable ) {
+                            rcw_skip = true;
+                          }
                         }
                       }
                       if ( rcw_skip == false ) {

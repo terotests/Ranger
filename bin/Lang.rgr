@@ -6621,7 +6621,10 @@ int r_arr_index_of( std::vector<T> vec, T elem )  {
                  
                  )   
                  cpp ( "std::distance( std::find( " (e 1) ".begin(), " (e 1) ".end(), " (e 2) ") )" (imp "<vector>") (imp "<iterator>"))   
-                 rust ( (e 1) ".iter().position( |&r| r == " (e 2) " ).unwrap()" )   
+                 ; `|&r|` moves the element out of a shared reference, and
+                 ; `.unwrap()` panics on a miss where this operator has to
+                 ; answer -1 -- indexOf is how the compiler asks "is it here"
+                 rust ( (e 1) ".iter().position( |r| r == &" (e 2) " ).map(|__i| __i as i64).unwrap_or(-1)" )   
                  php ( "array_search(" (e 2) ", " (e 1) ", true)")
                  csharp ( (e 1) ".IndexOf(" (e 2) ")" )
                  go ( "r_indexof_arr_" (rawtype 1)  "(" (e 1) ", " (e 2) ")"

@@ -853,7 +853,13 @@ class RangerRustClassWriter {
           def rcwNN@(optional):CodeNode p.nameNode
           if (!null? rcwNN) {
             if ((unwrap rcwNN).hasFlag("weak")) {
-              rcw_skip = true
+              ; only a FIELD holds a Weak and needs the upgrade instead of
+              ; the borrow; a `@(weak)` parameter or local carries the Rc, so
+              ; skipping the borrow for one left `m.field` on an Rc that has
+              ; no fields and no upgrade to follow it either
+              if p.is_class_variable {
+                rcw_skip = true
+              }
             }
           }
           if (rcw_skip == false) {
