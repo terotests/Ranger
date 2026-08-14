@@ -1,0 +1,35 @@
+# EVG browser parity snapshot v1
+#
+# Widths measured by Chromium laying out each string in the SAME TTF that
+# EVG measures, recorded so the parity gate can run without a browser.
+# Regenerate with: node gallery/pdf_writer/test/browser_parity_snapshot.js --write
+#
+# EVG sums raw hmtx advances and applies no kerning, so `unkerned` is the
+# parity target. `kerned` is what a browser shows by default; the gap between
+# the two IS the kerning EVG does not do, recorded so it stays visible.
+#
+# face<TAB>sizePx<TAB>unkernedWidth<TAB>kernedWidth<TAB>text
+Noto Sans	16	131.78125	131.703125	Hamburgefonstiv
+Open Sans	16	129.734375	129.734375	Hamburgefonstiv
+Cinzel	16	154.46875	153.1875	Hamburgefonstiv
+Josefin Sans	16	109.6875	108.890625	Hamburgefonstiv
+Noto Sans-Bold	16	140.609375	140.53125	Hamburgefonstiv
+Open Sans-Bold	16	139.515625	139.515625	Hamburgefonstiv
+Cinzel-Bold	16	157.078125	156.109375	Hamburgefonstiv
+Open Sans	8	64.875	64.875	Hamburgefonstiv
+Open Sans	32	259.46875	259.46875	Hamburgefonstiv
+Open Sans	48	389.203125	389.203125	Hamburgefonstiv
+Noto Sans	30	192.6875	192.6875	Helsinki, 2024
+Noto Sans	13	133.203125	133.203125	Kaivopuisto, late May.
+Noto Sans	13	444.640625	444.265625	Twelve days along the shoreline, from the first thaw to midsummer light.
+Cinzel	30	214.5625	212.625	Helsinki, 2024
+Noto Sans	24	101.59375	101.59375	Äiti ja Isä
+Noto Sans	24	113.625	113.390625	Löytöretki
+Noto Sans	24	50.921875	50.921875	Ylläs
+Noto Sans	24	64.59375	64.59375	Åland
+Noto Sans	32	190.859375	190.859375	Kivoja hetkiä
+Noto Sans	18	219.3125	219.3125	Hyvää yötä — Kaivopuisto
+Open Sans	14	80.0625	80.0625	1234567890
+Open Sans	14	93.984375	93.984375	(){}[]<>.,;:!?-–—
+Open Sans	14	49.796875	49.796875	a b c   d
+Great Vibes	28	112.703125	112.703125	Kesämuistot

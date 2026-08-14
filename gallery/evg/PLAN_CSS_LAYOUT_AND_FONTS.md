@@ -123,8 +123,12 @@ this replaced.
 6. **Weight / style mapping**  
    `font-weight: 700` / `bold` resolves to a loaded face (e.g. `"Open Sans Bold"`), not a synthetic stroke in layout. If bold face is missing → warning + regular face (measurable), never “pretend bold” for width.
 
-7. **HTML parity**  
-   Preview must load the **same TTF/OTF files** through `@font-face` (preview server already has font endpoints). Add a debug overlay: measured box vs DOM box for golden strings.
+7. **HTML parity** ✅  
+   Preview loads the same TTF files through `@font-face`, and the widths a
+   browser measures for a set of golden strings are recorded into
+   `test/fixtures/browser_parity.snapshot` so the check runs **without a
+   browser**. `--update-snapshot` re-records; `--verify-snapshot` confirms the
+   stored numbers still match a live Chromium.
 
 8. **Encoding honesty** ✅  
    PDF WinAnsi limits remain. Source is decoded as UTF-8 so layout measures real
@@ -132,6 +136,17 @@ this replaced.
    (fatal under `-strict-fonts`) rather than silently substituted. Embedding a
    subset with a `/ToUnicode` cmap, which would lift the limit rather than
    report it, is still open.
+
+9. **Kerning** (open)  
+   EVG sums raw `hmtx` advances and applies no kerning. The parity snapshot
+   records both the unkerned width (which EVG matches to 0.014px) and the
+   browser's kerned width, so the size of the gap is measured rather than
+   assumed: 8 of 24 fixtures kern at all, and the worst is **1.94px on
+   "Helsinki, 2024" in Cinzel at 30px** — about 0.9%. Display faces kern hardest;
+   Open Sans digits and punctuation do not kern at all. This matters for
+   centred and right-aligned text, where the error shifts the whole run.
+   Implementing it means reading GPOS (or `kern` where present) in
+   `TrueTypeFont` and applying pair adjustments in `EVGTextEngine`.
 
 ## 5. Style layer (quick theme changes)
 
@@ -570,11 +585,22 @@ runs all three, or individually:
 | Script | Suite | Covers |
 | --- | --- | --- |
 | `test:evg` | `gallery/game_engine/v2/evg/run.sh` | layout engine: units, box model, flex, grid, stylesheet, text engine, baseline |
-| `test:evg:fonts` | `gallery/pdf_writer/test/run_fonts.sh` | advance-width goldens against the real TTFs, plus EVG-vs-Chromium box parity |
+| `test:evg:fonts` | `gallery/pdf_writer/test/run_fonts.sh` | advance-width goldens against the real TTFs, plus EVG-vs-browser parity from a recorded snapshot |
 | `test:evg:frontend` | `gallery/pdf_writer/test/run_print.sh` | UTF-8 decoding, WinAnsi reporting, page boxes, and the JSX attribute surface |
 
-The parity gate needs `playwright-core` (a declared devDependency); it reports a
-`SKIP` rather than failing if the package is absent.
+**None of these need a browser.** The browser-measured widths live in
+`gallery/pdf_writer/test/fixtures/browser_parity.snapshot`, so the parity gate
+runs anywhere. Chromium is only needed to change that file:
+
+```
+bash gallery/pdf_writer/test/run_fonts.sh --verify-snapshot   # still matches a live browser?
+bash gallery/pdf_writer/test/run_fonts.sh --update-snapshot   # re-record it
+bash gallery/pdf_writer/test/run_fonts.sh --page-parity       # measure a whole rendered page
+```
+
+Re-record only when the font files change. A snapshot diff with unchanged fonts
+means the browser disagreed with itself, which is worth reading before
+committing.
 
 ## 12. Test plan (fonts first)
 

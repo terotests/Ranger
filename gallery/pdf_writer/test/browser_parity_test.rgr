@@ -1,0 +1,138 @@
+; ==============================================================================
+; browser_parity_test.rgr — EVG measures what a browser measured, without a browser
+; ==============================================================================
+; PLAN_CSS_LAYOUT_AND_FONTS.md §4.1 rule 7. The requirement is that EVG's text
+; boxes match a real browser laying out the same string in the same font file.
+; Checking that live needs Chromium on every run, which makes the gate
+; skippable — and a correctness gate that can be skipped stops being one.
+;
+; So the browser establishes the numbers once into a committed snapshot
+; (`browser_parity_snapshot.js --write`), and this suite checks EVG against
+; that snapshot offline: no browser, no network, runs anywhere.
+;
+; The snapshot records TWO widths per fixture. `unkerned` is the sum of the
+; font's own advance widths, which is exactly what EVG computes, and is what
+; this suite checks against — tightly, because there is no reason for it to
+; differ at all. `kerned` is what a browser shows by default; the gap between
+; the two is the kerning EVG does not apply, reported here so a known
+; limitation stays measured instead of being absorbed into a loose tolerance.
+;
+; What that buys: this catches EVG drifting away from the browser. What it
+; cannot catch is the browser itself changing — for that, re-run the recorder
+; and read the diff. Re-record only when the font files change.
+;
+;   bash gallery/pdf_writer/test/run_fonts.sh
+; ==============================================================================
+
+Import "../src/fonts/FontManager.rgr"
+Import "../src/fonts/EVGFontSetup.rgr"
+Import "../src/core/Utf8.rgr"
+Import "../../evg/EVGTextMeasurer.rgr"
+Import "../../game_engine/v2/tests/harness/RgTest.rgr"
+
+class BrowserParityTest {
+
+    ; Against the UNKERNED browser width there is no legitimate source of
+    ; disagreement beyond Chromium's subpixel rounding, so this is tight.
+    def tolerance:double 0.05
+    ; How far the browser's kerned rendering drifts from what EVG lays out.
+    ; Not a failure — a measured statement of a known gap.
+    def worstKerning:double 0.0
+    def worstKerningLabel:string ""
+
+    sfn m@(main):void () {
+        def test (new BrowserParityTest())
+        def t:RgTest (RgTest.forSuite("pdf_writer/browser_parity"))
+
+        def setup (new EVGFontSetup())
+        setup.init("./gallery/pdf_writer/" "")
+        def fm:FontManager (setup.getManager())
+        t.ok("font files were found" ((fm.getFontCount()) > 0))
+
+        def raw:buffer (buffer_read_file "./gallery/pdf_writer/test/fixtures" "browser_parity.snapshot")
+        def text:string (Utf8.decode((buffer_to_string raw)))
+        t.ok("the snapshot was read" ((strlen text) > 0))
+        if ((strlen text) == 0) {
+            print "  Run: node gallery/pdf_writer/test/browser_parity_snapshot.js --write"
+            t.summary()
+            return
+        }
+
+        test.checkAll(t fm text)
+        t.summary()
+    }
+
+    fn checkAll:void (t:RgTest fm:FontManager text:string) {
+        def lines:[string] (strsplit text "\n")
+        def checked:int 0
+        def worst:double 0.0
+        def worstLabel:string ""
+
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:string (trim (itemAt lines i))
+            def skip:boolean false
+            if ((strlen line) == 0) {
+                skip = true
+            } {
+                if ((charAt line 0) == 35) {
+                    skip = true
+                }
+            }
+            if (skip == false) {
+                def parts:[string] (strsplit line "\t")
+                if ((array_length parts) < 5) {
+                    t.ok(("malformed snapshot line: " + line) false)
+                } {
+                    def face:string (itemAt parts 0)
+                    def sizeStr:string (itemAt parts 1)
+                    def wantStr:string (itemAt parts 2)
+                    def kernedStr:string (itemAt parts 3)
+                    def fixture:string (itemAt parts 4)
+
+                    def sizeV@(optional):double (to_double sizeStr)
+                    def wantV@(optional):double (to_double wantStr)
+                    def kernV@(optional):double (to_double kernedStr)
+                    if (sizeV && wantV) {
+                        def size:double (unwrap sizeV)
+                        def want:double (unwrap wantV)
+                        def got:double (fm.measureText(fixture face size))
+                        def delta:double (got - want)
+                        if (delta < 0.0) {
+                            delta = (0.0 - delta)
+                        }
+                        if (delta > worst) {
+                            worst = delta
+                            worstLabel = (face + " @" + sizeStr + " \"" + fixture + "\"")
+                        }
+                        t.ok((face + " @" + sizeStr + " \"" + fixture + "\" (browser " + wantStr + ", evg " + (to_string got) + ")")
+                            (delta <= tolerance))
+                        checked = (checked + 1)
+
+                        ; Track how much the browser's kerning would have moved
+                        ; this run. EVG never kerns, so it is always the wider.
+                        if kernV {
+                            def kerned:double (unwrap kernV)
+                            def kd:double (want - kerned)
+                            if (kd < 0.0) {
+                                kd = (0.0 - kd)
+                            }
+                            if (kd > worstKerning) {
+                                worstKerning = kd
+                                worstKerningLabel = (face + " @" + sizeStr + " \"" + fixture + "\"")
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+
+        t.ok("the snapshot actually contained fixtures" (checked > 0))
+        print ("  " + (to_string checked) + " measurement(s) checked against the browser snapshot")
+        print ("  worst delta " + (to_string worst) + "px on " + worstLabel + " (tolerance " + (to_string tolerance) + "px)")
+        print ("  known gap: browser kerning would tighten these runs by up to "
+            + (to_string worstKerning) + "px (" + worstKerningLabel + ")")
+        print "  EVG applies no kerning; see PLAN_CSS_LAYOUT_AND_FONTS.md §4.1." 
+    }
+}
