@@ -1017,6 +1017,18 @@ class RangerRustClassWriter {
                   optSharedT = pOptN.type_name
                 }
                 def optSegShared:boolean (this.rustClassIsShared(optSharedT ctx))
+                ; …and the field's own mark answers it too: writeStructField
+                ; gives an Option<Rc<RefCell<T>>> to anything carrying
+                ; rust_needs_rc_wrap, so the unwrap hands out an Rc there
+                ; whatever the class-level question says. Without this the
+                ; segment after it read a field straight off the handle.
+                if (optSegShared == false) {
+                  if p.rust_needs_rc_wrap {
+                    if (((strlen optSharedT) > 0) && (p.rust_static_str == false)) {
+                      optSegShared = true
+                    }
+                  }
+                }
                 if (root_is_immutable_borrow || optSegShared) {
                   wr.out(".as_ref().unwrap()" false)
                 } {
@@ -2200,6 +2212,26 @@ class RangerRustClassWriter {
       }
       if segOptional {
         path = (path + ".as_ref().unwrap()")
+      }
+      ; a segment that holds an Rc has to be borrowed before the next field
+      ; is read out of it — the handle has no fields of its own. The Ref this
+      ; makes lives to the end of the statement, which is exactly as long as
+      ; the argument it is being built for.
+      if (segIdx < (nsLen - 2)) {
+        if haveSegD {
+          def segRcD:RangerAppParamDesc (itemAt fc.nsp segIdx)
+          if segRcD.rust_needs_rc_wrap {
+            def segRcNN@(optional):CodeNode segRcD.nameNode
+            if (!null? segRcNN) {
+              def segRcN:CodeNode (unwrap segRcNN)
+              if (((strlen segRcN.array_type) == 0) && ((strlen segRcN.key_type) == 0)) {
+                if (segRcN.hasFlag("weak") == false) {
+                  path = (path + ".borrow()")
+                }
+              }
+            }
+          }
+        }
       }
       segIdx = segIdx + 1
     }

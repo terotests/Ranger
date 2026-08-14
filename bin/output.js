@@ -24426,7 +24426,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 const pOptN = pOptNN;
                                 optSharedT = pOptN.type_name;
                               }
-                              const optSegShared = this.rustClassIsShared(optSharedT, ctx);
+                              let optSegShared = this.rustClassIsShared(optSharedT, ctx);
+                              if ( optSegShared == false ) {
+                                if ( p.rust_needs_rc_wrap ) {
+                                  if ( ((optSharedT.length) > 0) && (p.rust_static_str == false) ) {
+                                    optSegShared = true;
+                                  }
+                                }
+                              }
                               if ( root_is_immutable_borrow || optSegShared ) {
                                 wr.out(".as_ref().unwrap()", false);
                               } else {
@@ -25348,6 +25355,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     }
                     if ( segOptional ) {
                       path = path + ".as_ref().unwrap()";
+                    }
+                    if ( segIdx < (nsLen - 2) ) {
+                      if ( haveSegD ) {
+                        const segRcD = fc.nsp[segIdx];
+                        if ( segRcD.rust_needs_rc_wrap ) {
+                          const segRcNN = segRcD.nameNode;
+                          if ( (typeof(segRcNN) !== "undefined" && segRcNN != null )  ) {
+                            const segRcN = segRcNN;
+                            if ( ((segRcN.array_type.length) == 0) && ((segRcN.key_type.length) == 0) ) {
+                              if ( segRcN.hasFlag("weak") == false ) {
+                                path = path + ".borrow()";
+                              }
+                            }
+                          }
+                        }
+                      }
                     }
                     segIdx = segIdx + 1;
                   };
