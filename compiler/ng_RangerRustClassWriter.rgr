@@ -211,6 +211,89 @@ class RangerRustClassWriter {
     return false
   }
 
+  ; A Ranger lambda is a Rust closure: `|a, b| { … }`. Without this the
+  ; generic writer's JavaScript form reached the output — `(a, b) => { … }`
+  ; — and rustc stopped at the arrow before it could look at anything else
+  ; in the file. Argument types are left to inference: a closure literal is
+  ; always written straight into the call that takes it, so the parameter's
+  ; declared FnMut type fixes them.
+  fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def lambdaCtx (unwrap node.lambda_ctx)
+    def args:CodeNode (itemAt node.children 1)
+    def body:CodeNode (itemAt node.children 2)
+    wr.out("|" false)
+    for args.children arg:CodeNode i {
+      if (i > 0) {
+        wr.out(", " false)
+      }
+      wr.out((this.adjustType(arg.vref)) false)
+    }
+    wr.out("| {" true)
+    wr.indent(1)
+    lambdaCtx.restartExpressionLevel()
+    for body.children item:CodeNode i {
+      this.WalkNode(item lambdaCtx wr)
+    }
+    wr.newline()
+    wr.indent(-1)
+    wr.out("}" false)
+  }
+
+  ; The type of a name that holds a lambda. Rust has no bare function type,
+  ; so the closure trait stands in: FnMut, because a Ranger lambda captures
+  ; its enclosing scope by reference and is free to write through it. Left
+  ; unwritten, a callback parameter came out as `cb : )` — a parse error at
+  ; every operator helper that takes one.
+  fn writeRustLambdaType:void (expression_value:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def rv:CodeNode (itemAt expression_value.children 0)
+    def sec:CodeNode (itemAt expression_value.children 1)
+    wr.out("&mut dyn FnMut(" false)
+    for sec.children arg:CodeNode i {
+      if (i > 0) {
+        wr.out(", " false)
+      }
+      this.writeTypeDef(arg ctx wr)
+    }
+    wr.out(")" false)
+    if ((rv.type_name == "void") || (rv.eval_type_name == "void")) {
+    } {
+      wr.out(" -> " false)
+      this.writeTypeDef(rv ctx wr)
+    }
+  }
+
+  ; Does getObjectTypeString already hand back the whole shared handle for
+  ; this class, rather than the struct that goes inside one? A class that is
+  ; extended by children has no struct type a name can hold: it is written
+  ; as `Rc<RefCell<dyn XTrait>>`, handle and all. Sites that build the shared
+  ; form themselves must ask this first — see rustSharedTypeString.
+  fn rustTypeIsOwnHandle:boolean (type_name:string ctx:RangerAppWriterContext) {
+    def tcOpt@(optional):RangerAppClassDesc (ctx.findClass(type_name))
+    if (null? tcOpt) {
+      return false
+    }
+    def tc:RangerAppClassDesc (unwrap tcOpt)
+    ; a sealable union is an enum and an unsealable one is Rc<dyn Any>;
+    ; neither is a RefCell handle, so both take the wrap like a struct
+    if tc.is_union {
+      return false
+    }
+    return (tc.is_extended_by_children)
+  }
+
+  ; The type a shared name is declared with: the class inside one
+  ; Rc<RefCell<…>>. Wrapping getObjectTypeString unconditionally double
+  ; wrapped every class that has subclasses —
+  ; Rc<RefCell<Rc<RefCell<dyn XTrait>>>> — and .borrow() on such a name
+  ; yields another Rc, so every field read through it was "no field X on
+  ; type RefMut<'_, Rc<RefCell<dyn XTrait>>>".
+  fn rustSharedTypeString:string (type_name:string ctx:RangerAppWriterContext) {
+    if (this.rustTypeIsOwnHandle(type_name ctx)) {
+      return (this.getObjectTypeString(type_name ctx))
+    }
+    return (("Rc<RefCell<" + (this.getObjectTypeString(type_name ctx))) + ">>")
+  }
+
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
     switch type_string {
       case "int" {
@@ -291,6 +374,19 @@ class RangerRustClassWriter {
     return type_string
   }
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ; a lambda-typed name is a closure trait object, and none of the
+    ; Option/Weak/RefCell wrapping below applies to one — it is answered
+    ; before any of that runs
+    def lt_type:RangerNodeType node.value_type
+    if (node.eval_type != RangerNodeType.NoType) {
+      lt_type = node.eval_type
+    }
+    if (lt_type == RangerNodeType.ExpressionType) {
+      if (!null? node.expression_value) {
+        this.writeRustLambdaType((unwrap node.expression_value) ctx wr)
+        return
+      }
+    }
     def is_optional:boolean (node.hasFlag("optional"))
     def is_weak:boolean (node.hasFlag("weak"))
     def is_self_referential:boolean false
@@ -483,7 +579,7 @@ class RangerRustClassWriter {
         def tvM@(optional):RangerAppFunctionDesc (ctx.getCurrentMethod())
         if ((!null? tvCls) && (!null? tvM)) {
           def tvC:RangerAppClassDesc (unwrap tvCls)
-          def tvF:RangerAppFunctionDesc (unwrap tvM)
+          def tvF:RangerAppFunctionDesc (this.rustEnclosingMethod((unwrap tvM)))
           if (this.rustClassIsShared(tvC.name ctx)) {
             if tvF.rust_needs_self_rc {
               wr.out("__self_rc" false)
@@ -821,9 +917,9 @@ class RangerRustClassWriter {
       if (this.rustClassIsShared(vnn.type_name ctx)) {
         ; an @(optional) return keeps its Option around the Rc
         if (vnn.hasFlag("optional")) {
-          wr.out((("Option<Rc<RefCell<" + (this.getObjectTypeString(vnn.type_name ctx))) + ">>>") false)
+          wr.out((("Option<" + (this.rustSharedTypeString(vnn.type_name ctx))) + ">") false)
         } {
-          wr.out((("Rc<RefCell<" + (this.getObjectTypeString(vnn.type_name ctx))) + ">>") false)
+          wr.out((this.rustSharedTypeString(vnn.type_name ctx)) false)
         }
         return
       }
@@ -873,9 +969,9 @@ class RangerRustClassWriter {
       }
       if shared_field {
         if p.is_optional {
-          wr.out((("Option<Rc<RefCell<" + (this.getObjectTypeString(nameN.type_name ctx))) + ">>>") false)
+          wr.out((("Option<" + (this.rustSharedTypeString(nameN.type_name ctx))) + ">") false)
         } {
-          wr.out((("Rc<RefCell<" + (this.getObjectTypeString(nameN.type_name ctx))) + ">>") false)
+          wr.out((this.rustSharedTypeString(nameN.type_name ctx)) false)
         }
       } {
         if p.rust_static_str {
@@ -1031,15 +1127,15 @@ class RangerRustClassWriter {
         ; the node's optional flag, which an initializer that was unwrapped
         ; from an optional field leaks onto the def.
         if (eff_optional && (((strlen nameN.array_type) == 0) && ((strlen nameN.key_type) == 0))) {
-          wr.out((("Option<Rc<RefCell<" + (this.getObjectTypeString(nameN.type_name ctx))) + ">>>") false)
+          wr.out((("Option<" + (this.rustSharedTypeString(nameN.type_name ctx))) + ">") false)
         } {
-          wr.out("Rc<RefCell<" false)
           if ((((strlen nameN.type_name) > 0) && ((strlen nameN.array_type) == 0)) && ((strlen nameN.key_type) == 0)) {
-            wr.out((this.getObjectTypeString(nameN.type_name ctx)) false)
+            wr.out((this.rustSharedTypeString(nameN.type_name ctx)) false)
           } {
+            wr.out("Rc<RefCell<" false)
             this.writeTypeDef(nameN ctx wr)
+            wr.out(">>" false)
           }
-          wr.out(">>" false)
         }
       } {
         if rhs_is_optional_field {
@@ -1474,6 +1570,26 @@ class RangerRustClassWriter {
     return (fnDesc.rust_needs_self_rc)
   }
 
+  ; A lambda body is written inside the body of the method that declares it,
+  ; so the `__self_rc` in scope there is the *enclosing* method's hidden
+  ; argument. The lambda's own desc never carries the flag —
+  ; computeSelfRcNeeds walks `cl.methods` and skips lambdas — so asking the
+  ; lambda whether it holds the Rc always answers no, and a `this.method(…)`
+  ; inside a `forEach` body would be reported as an impossible call from a
+  ; constructor. Hop through `insideFn` to the real method before asking.
+  fn rustEnclosingMethod:RangerAppFunctionDesc (fnDesc:RangerAppFunctionDesc) {
+    def res:RangerAppFunctionDesc fnDesc
+    def rounds:int 0
+    while (res.is_lambda && (rounds < 30)) {
+      rounds = rounds + 1
+      if (null? res.insideFn) {
+        return res
+      }
+      res = (unwrap res.insideFn)
+    }
+    return res
+  }
+
   ; How a def initializer relates to Rc<RefCell<T>> when the local is a
   ; shared-class name: 0 = a raw value that needs the wrap, 1 = another
   ; wrapped name (share it by cloning the Rc), 2 = an expression that already
@@ -1568,7 +1684,7 @@ class RangerRustClassWriter {
       ; the object is not in its cell yet — so the call cannot be written.
       def cm@(optional):RangerAppFunctionDesc (ctx.getCurrentMethod())
       if (!null? cm) {
-        def cmf:RangerAppFunctionDesc (unwrap cm)
+        def cmf:RangerAppFunctionDesc (this.rustEnclosingMethod((unwrap cm)))
         if (cmf.rust_needs_self_rc == false) {
           ctx.addError(node "A method that stores `this` cannot be called from here on Rust: the constructor runs before the object is inside its Rc. Call it on the constructed value instead.")
           return false
@@ -4628,7 +4744,7 @@ class RangerRustClassWriter {
             }
           }
           if ctorArgShared {
-            wr.out((("Rc<RefCell<" + (this.getObjectTypeString(nameN.type_name ctx))) + ">>") false)
+            wr.out((this.rustSharedTypeString(nameN.type_name ctx)) false)
           } {
             this.writeTypeDef(nameN ctx wr)
           }

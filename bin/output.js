@@ -23807,6 +23807,64 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
               return false;
             };
+            async CreateLambda (node, ctx, wr) {
+              const lambdaCtx = node.lambda_ctx;
+              const args = node.children[1];
+              const body = node.children[2];
+              wr.out("|", false);
+              for ( let i = 0; i < args.children.length; i++) {
+                var arg = args.children[i];
+                if ( i > 0 ) {
+                  wr.out(", ", false);
+                }
+                wr.out(this.adjustType(arg.vref), false);
+              };
+              wr.out("| {", true);
+              wr.indent(1);
+              lambdaCtx.restartExpressionLevel();
+              for ( let i_1 = 0; i_1 < body.children.length; i_1++) {
+                var item = body.children[i_1];
+                await this.WalkNode(item, lambdaCtx, wr);
+              };
+              wr.newline();
+              wr.indent(-1);
+              wr.out("}", false);
+            };
+            async writeRustLambdaType (expression_value, ctx, wr) {
+              const rv = expression_value.children[0];
+              const sec = expression_value.children[1];
+              wr.out("&mut dyn FnMut(", false);
+              for ( let i = 0; i < sec.children.length; i++) {
+                var arg = sec.children[i];
+                if ( i > 0 ) {
+                  wr.out(", ", false);
+                }
+                await this.writeTypeDef(arg, ctx, wr);
+              };
+              wr.out(")", false);
+              if ( (rv.type_name == "void") || (rv.eval_type_name == "void") ) {
+              } else {
+                wr.out(" -> ", false);
+                await this.writeTypeDef(rv, ctx, wr);
+              }
+            };
+            rustTypeIsOwnHandle (type_name, ctx) {
+              const tcOpt = ctx.findClass(type_name);
+              if ( typeof(tcOpt) === "undefined" ) {
+                return false;
+              }
+              const tc = tcOpt;
+              if ( tc.is_union ) {
+                return false;
+              }
+              return tc.is_extended_by_children;
+            };
+            rustSharedTypeString (type_name, ctx) {
+              if ( this.rustTypeIsOwnHandle(type_name, ctx) ) {
+                return this.getObjectTypeString(type_name, ctx);
+              }
+              return ("Rc<RefCell<" + this.getObjectTypeString(type_name, ctx)) + ">>";
+            };
             getObjectTypeString (type_string, ctx) {
               switch (type_string ) { 
                 case "int" : 
@@ -23865,6 +23923,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               return type_string;
             };
             async writeTypeDef (node, ctx, wr) {
+              let lt_type = node.value_type;
+              if ( node.eval_type != 0 ) {
+                lt_type = node.eval_type;
+              }
+              if ( lt_type == 20 ) {
+                if ( (typeof(node.expression_value) !== "undefined" && node.expression_value != null )  ) {
+                  await this.writeRustLambdaType(node.expression_value, ctx, wr);
+                  return;
+                }
+              }
               const is_optional = node.hasFlag("optional");
               const is_weak = node.hasFlag("weak");
               let is_self_referential = false;
@@ -24030,7 +24098,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   const tvM = ctx.getCurrentMethod();
                   if ( ((typeof(tvCls) !== "undefined" && tvCls != null ) ) && ((typeof(tvM) !== "undefined" && tvM != null ) ) ) {
                     const tvC = tvCls;
-                    const tvF = tvM;
+                    const tvF = this.rustEnclosingMethod((tvM));
                     if ( this.rustClassIsShared(tvC.name, ctx) ) {
                       if ( tvF.rust_needs_self_rc ) {
                         wr.out("__self_rc", false);
@@ -24319,9 +24387,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( ((vnn.array_type.length) == 0) && ((vnn.key_type.length) == 0) ) {
                   if ( this.rustClassIsShared(vnn.type_name, ctx) ) {
                     if ( vnn.hasFlag("optional") ) {
-                      wr.out(("Option<Rc<RefCell<" + this.getObjectTypeString(vnn.type_name, ctx)) + ">>>", false);
+                      wr.out(("Option<" + this.rustSharedTypeString(vnn.type_name, ctx)) + ">", false);
                     } else {
-                      wr.out(("Rc<RefCell<" + this.getObjectTypeString(vnn.type_name, ctx)) + ">>", false);
+                      wr.out(this.rustSharedTypeString(vnn.type_name, ctx), false);
                     }
                     return;
                   }
@@ -24364,9 +24432,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   }
                   if ( shared_field ) {
                     if ( p.is_optional ) {
-                      wr.out(("Option<Rc<RefCell<" + this.getObjectTypeString(nameN.type_name, ctx)) + ">>>", false);
+                      wr.out(("Option<" + this.rustSharedTypeString(nameN.type_name, ctx)) + ">", false);
                     } else {
-                      wr.out(("Rc<RefCell<" + this.getObjectTypeString(nameN.type_name, ctx)) + ">>", false);
+                      wr.out(this.rustSharedTypeString(nameN.type_name, ctx), false);
                     }
                   } else {
                     if ( p.rust_static_str ) {
@@ -24478,15 +24546,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   }
                   if ( local_needs_rc_wrap ) {
                     if ( eff_optional && (((nameN.array_type.length) == 0) && ((nameN.key_type.length) == 0)) ) {
-                      wr.out(("Option<Rc<RefCell<" + this.getObjectTypeString(nameN.type_name, ctx)) + ">>>", false);
+                      wr.out(("Option<" + this.rustSharedTypeString(nameN.type_name, ctx)) + ">", false);
                     } else {
-                      wr.out("Rc<RefCell<", false);
                       if ( (((nameN.type_name.length) > 0) && ((nameN.array_type.length) == 0)) && ((nameN.key_type.length) == 0) ) {
-                        wr.out(this.getObjectTypeString(nameN.type_name, ctx), false);
+                        wr.out(this.rustSharedTypeString(nameN.type_name, ctx), false);
                       } else {
+                        wr.out("Rc<RefCell<", false);
                         await this.writeTypeDef(nameN, ctx, wr);
+                        wr.out(">>", false);
                       }
-                      wr.out(">>", false);
                     }
                   } else {
                     if ( rhs_is_optional_field ) {
@@ -24818,6 +24886,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 rustNeedsSelfRc (fnDesc, ctx) {
                   return fnDesc.rust_needs_self_rc;
                 };
+                rustEnclosingMethod (fnDesc) {
+                  let res = fnDesc;
+                  let rounds = 0;
+                  while (res.is_lambda && (rounds < 30)) {
+                    rounds = rounds + 1;
+                    if ( typeof(res.insideFn) === "undefined" ) {
+                      return res;
+                    }
+                    res = res.insideFn;
+                  };
+                  return res;
+                };
                 rustInitRcState (value, ctx) {
                   if ( value.expression == false ) {
                     if ( value.hasParamDesc ) {
@@ -24892,7 +24972,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   if ( (root == "this") && (nsLen == 2) ) {
                     const cm = ctx.getCurrentMethod();
                     if ( (typeof(cm) !== "undefined" && cm != null )  ) {
-                      const cmf = cm;
+                      const cmf = this.rustEnclosingMethod((cm));
                       if ( cmf.rust_needs_self_rc == false ) {
                         ctx.addError(node, "A method that stores `this` cannot be called from here on Rust: the constructor runs before the object is inside its Rc. Call it on the constructed value instead.");
                         return false;
@@ -27552,7 +27632,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                             }
                             if ( ctorArgShared ) {
-                              wr.out(("Rc<RefCell<" + this.getObjectTypeString(nameN_1.type_name, ctx)) + ">>", false);
+                              wr.out(this.rustSharedTypeString(nameN_1.type_name, ctx), false);
                             } else {
                               await this.writeTypeDef(nameN_1, ctx, wr);
                             }
