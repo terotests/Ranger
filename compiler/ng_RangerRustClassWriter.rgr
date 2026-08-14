@@ -6928,6 +6928,40 @@ class RangerRustClassWriter {
           }
         }
 
+        ; A weak FIELD on the right is already a Weak handle — copying one
+        ; weak field into another is a clone, not a downgrade, and
+        ; Rc::downgrade has no `&Weak` overload to take it.
+        def rhs_is_weak_field:boolean false
+        if right.hasParamDesc {
+          def rhsWP:RangerAppParamDesc right.paramDesc
+          if rhsWP.is_class_variable {
+            def rhsWNN@(optional):CodeNode rhsWP.nameNode
+            if (!null? rhsWNN) {
+              def rhsWN:CodeNode (unwrap rhsWNN)
+              if (rhsWN.hasFlag("weak")) {
+                if (((strlen rhsWN.array_type) == 0) && ((strlen rhsWN.key_type) == 0)) {
+                  rhs_is_weak_field = true
+                }
+              }
+            }
+          }
+        }
+        if rhs_is_weak_field {
+          rust_in_weak_unwrap = true
+          if is_optional {
+            wr.out(" = " false)
+            this.WalkNode(right ctx wr)
+            wr.out(".clone();" true)
+          } {
+            wr.out(" = " false)
+            this.WalkNode(right ctx wr)
+            wr.out(".clone().unwrap();" true)
+          }
+          rust_in_weak_unwrap = false
+          ctx.unsetInExpr()
+          return
+        }
+
         if rhs_is_rc_wrapped {
           def dgOpen:string "&"
           def dgClose:string ""

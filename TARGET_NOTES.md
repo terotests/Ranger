@@ -546,7 +546,7 @@ Measured with `node bin/output.js -l=<target> ./compiler/ng_Compiler.rgr
 | Kotlin | **0** | — `kotlinc` clean, runs, see above |
 | PHP | **0** | not built or run |
 | Swift 6 | 12 | |
-| Rust | **0** | `rustc` still refuses it — see below |
+| Rust | **0** | `rustc` down from 4981 errors to 536 — see below |
 | Java 7 | 16 | |
 | Scala | 467 | no JSON templates, the same wall C++, Dart and C# started at |
 
@@ -693,18 +693,49 @@ came out of the attempt and are fixed:
 - A callback parameter's type was written as nothing at all — `cb : )` —
   because `writeTypeDef` had no `ExpressionType` case.
 
-What is left is one structural thing, not a list of small ones. `rustc` reports
-about 4700 errors on the 67k-line output, and the largest single share — 1659 —
-is the *"Inheritance is not in the layout"* limit above, met at scale:
-`RangerAppParamDesc` has three subclasses, so it is written as
-`Rc<RefCell<dyn RangerAppParamDescTrait>>`, that trait declares methods and no
-fields, and the compiler reads fields through parent-typed references
-constantly. 39 distinct fields are involved. Field accessors on the trait are
-the obvious repair, but they cannot be written yet: the subclass structs do not
-carry the parent's fields at all (`RangerAppFunctionDesc` has 37 fields and none
-of the 39), so inherited fields have to be flattened into the subclass layout
-first. That is the same defect the bullet above names, and self-hosting Rust
-means fixing it rather than working around it.
+The biggest single thing in the way was the *"Inheritance is not in the layout"*
+limit above, met at scale: `RangerAppParamDesc` has three subclasses, so it is
+written as `Rc<RefCell<dyn RangerAppParamDescTrait>>`, that trait declared
+methods and no fields, and the compiler reads fields through parent-typed
+references constantly — 1881 errors between the two halves of it. Both halves
+are fixed. `rustAllStructVars` gives a class its own fields plus everything it
+inherits and has not restated, so the struct, the constructor's literal and the
+`derive(Clone)` question all work from one list; and the trait hands each field
+of the trait-defining class out by reference, `rgf_x()` to read and
+`rgf_x_mut()` to write, with `WriteVRef` routing a segment through the accessor
+when the segment before it is a class with children.
+
+Everything after that has been ordinary codegen work, measured one shape at a
+time. `rustc` on the 67k-line output is down from **4981 errors to 536**. The
+shapes that carried real defects, rather than Rust-specific plumbing:
+
+- `indexOf` over an array compiled to `.position(…).unwrap()`, which **panics on
+  a miss** where the operator has to answer −1. Every "is this here" question in
+  the compiler would have aborted the process.
+- A Ranger `switch` without a `default` produced a non-exhaustive `match`.
+- `remove_index` and `array_extract` fell through to JavaScript's `splice`/`pop`
+  pair, and their target was walked as a read while `Vec::remove` mutates it.
+- A no-argument operator call — `(ansi_green)` — is an expression holding one
+  bare name, the same shape as a parenthesised variable, so the concat collector
+  unwrapped it and wrote the operator's *name* as if it were a value.
+- The mutation graph that picks `&self` vs `&mut self` never looked at inherited
+  or trait methods, so a `&self` method could call a `&mut self` one.
+
+What remains is a long flat tail: no single shape accounts for more than about
+a dozen errors. The measurements that mattered, including three changes that
+made things worse and were backed out, are recorded in comments at the sites
+they belong to, so the next pass starts from the number rather than the guess.
+
+One conflict is worth naming because no codegen change can settle it:
+`RangerAppParamDesc` declares `node`, `nameNode` and `fnBody` as owning and
+three subclasses restated them `@(weak)`. A restatement is the same slot, an
+inherited method body is emitted into every subclass's impl unchanged, and a
+trait accessor's signature comes from the parent while its body reads the
+subclass's slot — so neither declaration can win everywhere. The subclasses were
+changed to agree with the parent, which the parent's own comment explains: a
+descriptor outlives the tree it came from whenever that tree was a copy or a
+macro expansion, `weak` is a no-op on the JavaScript host so nothing noticed,
+and on C++ the nodes were already gone by the time the flow parser read them.
 
 ## C++ static analysis optimizer (`-l=cpp`)
 

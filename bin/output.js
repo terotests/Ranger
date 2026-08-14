@@ -29425,6 +29425,36 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 }
                               }
                             }
+                            let rhs_is_weak_field = false;
+                            if ( right.hasParamDesc ) {
+                              const rhsWP = right.paramDesc;
+                              if ( rhsWP.is_class_variable ) {
+                                const rhsWNN = rhsWP.nameNode;
+                                if ( (typeof(rhsWNN) !== "undefined" && rhsWNN != null )  ) {
+                                  const rhsWN = rhsWNN;
+                                  if ( rhsWN.hasFlag("weak") ) {
+                                    if ( ((rhsWN.array_type.length) == 0) && ((rhsWN.key_type.length) == 0) ) {
+                                      rhs_is_weak_field = true;
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                            if ( rhs_is_weak_field ) {
+                              this.rust_in_weak_unwrap = true;
+                              if ( is_optional ) {
+                                wr.out(" = ", false);
+                                await this.WalkNode(right, ctx, wr);
+                                wr.out(".clone();", true);
+                              } else {
+                                wr.out(" = ", false);
+                                await this.WalkNode(right, ctx, wr);
+                                wr.out(".clone().unwrap();", true);
+                              }
+                              this.rust_in_weak_unwrap = false;
+                              ctx.unsetInExpr();
+                              return;
+                            }
                             if ( rhs_is_rc_wrapped ) {
                               let dgOpen = "&";
                               let dgClose = "";
