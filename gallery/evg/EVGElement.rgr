@@ -126,6 +126,24 @@ class EVGElement {
     def gridTemplateColumns:string ""
     def gridTemplateRows:string ""
     ; Per-item placement, e.g. "span 2" or "2 / 4". Empty means auto-flow.
+    ; grid-template-areas: rows of names, e.g.
+    ;   "hero hero" "left right"
+    ; An item claims a region with grid-area.
+    ; Column track sizes handed down by an enclosing grid when this element
+    ; declares `grid-template-columns: subgrid`. Filled in by EVGLayout just
+    ; before the child is laid out, because the parent is the only thing that
+    ; knows its own tracks.
+    def subgridColumnSizes:[double]
+    def gridTemplateAreas:string ""
+    ; grid-auto-flow: "row" (default) or "row dense" — dense backfills earlier
+    ; holes instead of only moving forward.
+    def gridAutoFlow:string "row"
+    ; Full-bleed: this element should run past the trim edge into the bleed
+    ; area, so the cut falls inside its ink rather than at its edge. Only has
+    ; an effect when the output was asked for a bleed, and only on the edges
+    ; the element already touches.
+    def fullBleed:boolean false
+    def gridArea:string ""
     def gridColumn:string ""
     def gridRow:string ""
     def position:string "relative"
@@ -976,6 +994,22 @@ class EVGElement {
         }
         if ((name == "grid-template-rows") || (name == "gridTemplateRows")) {
             gridTemplateRows = value
+            return
+        }
+        if ((name == "grid-template-areas") || (name == "gridTemplateAreas")) {
+            gridTemplateAreas = value
+            return
+        }
+        if ((name == "grid-auto-flow") || (name == "gridAutoFlow")) {
+            gridAutoFlow = value
+            return
+        }
+        if ((name == "full-bleed") || (name == "fullBleed")) {
+            fullBleed = ((value == "true") || (value == "1"))
+            return
+        }
+        if ((name == "grid-area") || (name == "gridArea")) {
+            gridArea = value
             return
         }
         if ((name == "grid-column") || (name == "gridColumn")) {

@@ -1247,7 +1247,30 @@ class EVGPDFRenderer {
         def y:double (el.calculatedY + offsetY)
         def w:double el.calculatedWidth
         def h:double el.calculatedHeight
-        
+
+        ; full-bleed: grow this element past the trim on whichever page edges it
+        ; already reaches, so the trim cut lands inside its ink. Layout stays in
+        ; trim coordinates — this is purely a paint-time extension, and it does
+        ; nothing at all when no bleed was requested.
+        if el.fullBleed {
+            if (bleed > 0.0) {
+                if (x <= 0.001) {
+                    x = (x - bleed)
+                    w = (w + bleed)
+                }
+                if (y <= 0.001) {
+                    y = (y - bleed)
+                    h = (h + bleed)
+                }
+                if (((x + w) + 0.001) >= pageWidth) {
+                    w = (w + bleed)
+                }
+                if (((y + h) + 0.001) >= pageHeight) {
+                    h = (h + bleed)
+                }
+            }
+        }
+
         ; PDF uses bottom-left origin, flip Y
         def pdfY:double (pageHeight - y - h)
         

@@ -9,7 +9,8 @@ import { View, Label, Image } from "./evg_types";
  *   Contact sheet   -w 595 -h 842  -theme contact   (3x3 instead of 2x2)
  *
  * `.span-2` and `.tall` are placement helpers, so a page can be recomposed by
- * moving a class rather than restructuring the tree.
+ * moving a class rather than restructuring the tree. `.story-grid` goes further
+ * and names its regions with grid-template-areas.
  *
  * Paths are written out rather than pulled from a const: the JSX front-end
  * resolves literal attributes, not module-level bindings.
@@ -25,6 +26,12 @@ function render() {
       </View>
 
       <Label className="caption">Plate I — Kaivopuisto</Label>
+
+      <View className="story-grid">
+        <Image className="photo story-hero" src="../assets/images/Canon_40D.jpg" />
+        <Image className="photo story-tall" src="../assets/images/Canon_40D.jpg" />
+        <Image className="photo story-wide" src="../assets/images/Canon_40D.jpg" />
+      </View>
 
       <View className="feature-grid">
         <Image className="photo span-2" src="../assets/images/Canon_40D.jpg" />

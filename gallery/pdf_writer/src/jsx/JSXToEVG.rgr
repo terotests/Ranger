@@ -1057,6 +1057,17 @@ class JSXToEVG {
         def last:int (charAt s (len - 1))
         ; Check for quotes: " (34) or ' (39)
         if (((first == 34) || (first == 39)) && (first == last)) {
+            ; Only a quote that wraps the WHOLE value is a delimiter. A value
+            ; that merely starts and ends with one — grid-template-areas is
+            ; written exactly that way, "'hero hero' 'a b'" — would otherwise
+            ; lose its first and last row.
+            def inner:int 1
+            while (inner < (len - 1)) {
+                if ((charAt s inner) == first) {
+                    return s
+                }
+                inner = (inner + 1)
+            }
             return (substring s 1 (len - 1))
         }
         return s

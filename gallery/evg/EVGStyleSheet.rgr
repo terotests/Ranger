@@ -267,6 +267,11 @@ class EVGStyleSheet {
     }
 
     ; font-family: "Cinzel" — the quotes are CSS syntax, not part of the name.
+    ;
+    ; Only a quote wrapping the WHOLE value is a delimiter. grid-template-areas
+    ; is a list of quoted rows, so its value legitimately starts and ends with a
+    ; quote while carrying more inside; stripping there would silently delete
+    ; the first and last row of the layout.
     fn unquote:string (s:string) {
         def len:int (strlen s)
         if (len < 2) {
@@ -275,6 +280,13 @@ class EVGStyleSheet {
         def first:int (charAt s 0)
         def last:int (charAt s (len - 1))
         if (((first == 34) && (last == 34)) || ((first == 39) && (last == 39))) {
+            def inner:int 1
+            while (inner < (len - 1)) {
+                if ((charAt s inner) == first) {
+                    return s
+                }
+                inner = (inner + 1)
+            }
             return (substring s 1 (len - 1))
         }
         return s

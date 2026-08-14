@@ -91,6 +91,7 @@ class EVGTest {
         test.testFlexMinMax(t)
         test.testFlexShrinkFactors(t)
         test.testAlignContent(t)
+        test.testWrapReverseAndStretch(t)
         test.testFlexBasis(t)
         test.testFlexShorthand(t)
         test.testFlexShrink(t)
@@ -104,6 +105,9 @@ class EVGTest {
         test.testTextEngineWrap(t)
         test.testTextEngineFontChecks(t)
         test.testLayoutUsesElementFont(t)
+        test.testGridAreas(t)
+        test.testGridDense(t)
+        test.testSubgrid(t)
         test.testGridTracks(t)
         test.testGridPlacement(t)
         test.testGridLayout(t)
@@ -650,6 +654,92 @@ class EVGTest {
     ; ---- align-content for wrapped lines --------------------------------------
     ; alignItems positions a child inside its line; align-content positions the
     ; LINES. It only applies once content wraps and the box has room to spare.
+    ; ---- wrap-reverse and align-content: stretch ------------------------------
+    fn testWrapReverseAndStretch:void (t:RgTest) {
+        ; wrap-reverse stacks the lines from the far edge, so the first line
+        ; ends up last. Three lines of 20 in a 200-tall box -> 60 of content.
+        def rev (new EVGElement())
+        rev.width = (EVGUnit.px(100.0))
+        rev.height = (EVGUnit.px(200.0))
+        rev.flexDirection = "row"
+        rev.flexWrap = "wrap-reverse"
+        def r1 (new EVGElement())
+        r1.width = (EVGUnit.px(60.0))
+        r1.height = (EVGUnit.px(20.0))
+        def r2 (new EVGElement())
+        r2.width = (EVGUnit.px(60.0))
+        r2.height = (EVGUnit.px(20.0))
+        def r3 (new EVGElement())
+        r3.width = (EVGUnit.px(60.0))
+        r3.height = (EVGUnit.px(20.0))
+        rev.addChild(r1)
+        rev.addChild(r2)
+        rev.addChild(r3)
+        def lay (new EVGLayout())
+        lay.layout(rev)
+        t.near("first line moves to the far edge" r1.calculatedY 40.0)
+        t.near("middle line stays in the middle" r2.calculatedY 20.0)
+        t.near("last line comes to the near edge" r3.calculatedY 0.0)
+
+        ; The wrap POINTS are unchanged — still one item per line.
+        t.near("wrap-reverse does not change the line width" r1.calculatedWidth 60.0)
+
+        ; Plain wrap is untouched.
+        def fwd (new EVGElement())
+        fwd.width = (EVGUnit.px(100.0))
+        fwd.height = (EVGUnit.px(200.0))
+        fwd.flexDirection = "row"
+        def f1 (new EVGElement())
+        f1.width = (EVGUnit.px(60.0))
+        f1.height = (EVGUnit.px(20.0))
+        def f2 (new EVGElement())
+        f2.width = (EVGUnit.px(60.0))
+        f2.height = (EVGUnit.px(20.0))
+        fwd.addChild(f1)
+        fwd.addChild(f2)
+        def lay2 (new EVGLayout())
+        lay2.layout(fwd)
+        t.near("plain wrap keeps the first line first" f1.calculatedY 0.0)
+        t.near("and the second below it" f2.calculatedY 20.0)
+
+        ; align-content: stretch grows each line by an equal share of the spare
+        ; space. 200 tall, 60 of content, 3 lines -> each line gains 140/3.
+        def st (new EVGElement())
+        st.width = (EVGUnit.px(100.0))
+        st.height = (EVGUnit.px(200.0))
+        st.flexDirection = "row"
+        st.alignContent = "stretch"
+        def s1 (new EVGElement())
+        s1.width = (EVGUnit.px(60.0))
+        def s2 (new EVGElement())
+        s2.width = (EVGUnit.px(60.0))
+        st.addChild(s1)
+        st.addChild(s2)
+        def lay3 (new EVGLayout())
+        lay3.layout(st)
+        ; Two auto-height lines share 200: each line becomes 100 tall.
+        t.near("first stretched line starts at the top" s1.calculatedY 0.0)
+        t.near("second stretched line starts halfway" s2.calculatedY 100.0)
+        t.near("an auto-height item grows with its line" s1.calculatedHeight 100.0)
+
+        ; An explicit height is not overridden by stretch.
+        def st2 (new EVGElement())
+        st2.width = (EVGUnit.px(100.0))
+        st2.height = (EVGUnit.px(200.0))
+        st2.flexDirection = "row"
+        st2.alignContent = "stretch"
+        def fixed (new EVGElement())
+        fixed.width = (EVGUnit.px(60.0))
+        fixed.height = (EVGUnit.px(20.0))
+        def auto (new EVGElement())
+        auto.width = (EVGUnit.px(60.0))
+        st2.addChild(fixed)
+        st2.addChild(auto)
+        def lay4 (new EVGLayout())
+        lay4.layout(st2)
+        t.near("explicit height survives stretch" fixed.calculatedHeight 20.0)
+    }
+
     fn testAlignContent:void (t:RgTest) {
         ; Three 60-wide items in a 100-wide box wrap to three lines of 20 each,
         ; 60 total, inside a 200-tall box -> 140 free.
@@ -1367,6 +1457,182 @@ class EVGTest {
         t.near("text shrink-wraps to measured width" label.calculatedWidth 55.0)
     }
 
+    ; ---- grid-template-areas --------------------------------------------------
+    fn testGridAreas:void (t:RgTest) {
+        def a:EVGGridAreas (EVGGridAreas.parse("\"hero hero\" \"left right\""))
+        t.no("a well-formed picture parses" a.hadError)
+        t.eqInt("two columns" a.columns 2)
+        t.eqInt("two rows" a.rows 2)
+        t.eqInt("three named areas" (a.count()) 3)
+
+        def hero:int (a.indexOfName("hero"))
+        t.ok("hero was found" (hero >= 0))
+        t.eqInt("hero starts at row 0" (itemAt a.rowStart hero) 0)
+        t.eqInt("hero spans both columns" (itemAt a.colSpan hero) 2)
+        t.eqInt("hero is one row tall" (itemAt a.rowSpan hero) 1)
+
+        def right:int (a.indexOfName("right"))
+        t.eqInt("right is in column 1" (itemAt a.colStart right) 1)
+        t.eqInt("right is on row 1" (itemAt a.rowStart right) 1)
+
+        ; A name spanning rows becomes one tall rectangle.
+        def side:EVGGridAreas (EVGGridAreas.parse("\"nav main\" \"nav main\""))
+        def nav:int (side.indexOfName("nav"))
+        t.eqInt("nav spans two rows" (itemAt side.rowSpan nav) 2)
+        t.eqInt("and one column" (itemAt side.colSpan nav) 1)
+
+        ; "." is a deliberately empty cell, not an area.
+        def dotted:EVGGridAreas (EVGGridAreas.parse("\"a .\" \". b\""))
+        t.eqInt("dots are not areas" (dotted.count()) 2)
+
+        ; Ragged rows and non-rectangular areas are reported, not guessed at.
+        def ragged:EVGGridAreas (EVGGridAreas.parse("\"a b\" \"c\""))
+        t.ok("ragged rows are an error" ragged.hadError)
+        def bent:EVGGridAreas (EVGGridAreas.parse("\"a a\" \"a b\" \"c a\""))
+        t.ok("a non-rectangular area is an error" bent.hadError)
+        def unquoted:EVGGridAreas (EVGGridAreas.parse("a b"))
+        t.ok("rows must be quoted" unquoted.hadError)
+
+        ; End to end: grid-area places items into the named regions, and the
+        ; column count comes from the picture when no template is given.
+        def root (new EVGElement())
+        root.width = (EVGUnit.px(200.0))
+        root.height = (EVGUnit.px(200.0))
+        root.display = "grid"
+        root.gridTemplateAreas = "\"hero hero\" \"left right\""
+        root.gridTemplateRows = "1fr 1fr"
+        def heroEl (new EVGElement())
+        heroEl.gridArea = "hero"
+        def leftEl (new EVGElement())
+        leftEl.gridArea = "left"
+        def rightEl (new EVGElement())
+        rightEl.gridArea = "right"
+        root.addChild(heroEl)
+        root.addChild(leftEl)
+        root.addChild(rightEl)
+        def lay (new EVGLayout())
+        lay.layout(root)
+        t.near("hero spans the full width" heroEl.calculatedWidth 200.0)
+        t.near("hero is on the top row" heroEl.calculatedY 0.0)
+        t.near("left is half width" leftEl.calculatedWidth 100.0)
+        t.near("left is on the second row" leftEl.calculatedY 100.0)
+        t.near("right sits beside it" rightEl.calculatedX 100.0)
+    }
+
+    ; ---- grid-auto-flow: dense ------------------------------------------------
+    ; The default flow only moves forward, so a wide item can leave a hole that
+    ; nothing fills. Dense goes back for it.
+    ; ---- grid-template-columns: subgrid ---------------------------------------
+    ; A nested grid normally splits its own width, so two cards side by side end
+    ; up with columns that do not line up. Subgrid makes the child adopt the
+    ; enclosing grid's tracks for the span it occupies.
+    fn testSubgrid:void (t:RgTest) {
+        ; Outer: 4 uneven columns across 400. A card spanning columns 1-2 with
+        ; subgrid must reuse those two track widths, not split its own box.
+        def outer (new EVGElement())
+        outer.width = (EVGUnit.px(400.0))
+        outer.height = (EVGUnit.px(200.0))
+        outer.display = "grid"
+        outer.gridTemplateColumns = "100px 300px"
+        outer.gridTemplateRows = "1fr"
+
+        def card (new EVGElement())
+        card.display = "grid"
+        card.gridTemplateColumns = "subgrid"
+        card.gridColumn = "span 2"
+        def cellA (new EVGElement())
+        def cellB (new EVGElement())
+        card.addChild(cellA)
+        card.addChild(cellB)
+        outer.addChild(card)
+
+        def lay (new EVGLayout())
+        lay.layout(outer)
+
+        t.near("the card spans the whole outer grid" card.calculatedWidth 400.0)
+        ; Without subgrid a 2-column child would split 400 into 200/200.
+        t.near("first inner cell adopts the outer 100px track" cellA.calculatedWidth 100.0)
+        t.near("second inner cell adopts the outer 300px track" cellB.calculatedWidth 300.0)
+        t.near("and it starts where the outer track does" cellB.calculatedX 100.0)
+
+        ; A subgrid over only part of the outer grid takes just those tracks.
+        def outer2 (new EVGElement())
+        outer2.width = (EVGUnit.px(400.0))
+        outer2.height = (EVGUnit.px(200.0))
+        outer2.display = "grid"
+        outer2.gridTemplateColumns = "100px 300px"
+        outer2.gridTemplateRows = "1fr"
+        def filler (new EVGElement())
+        def narrow (new EVGElement())
+        narrow.display = "grid"
+        narrow.gridTemplateColumns = "subgrid"
+        def only (new EVGElement())
+        narrow.addChild(only)
+        outer2.addChild(filler)
+        outer2.addChild(narrow)
+        def lay2 (new EVGLayout())
+        lay2.layout(outer2)
+        t.near("a one-column subgrid takes that one track" only.calculatedWidth 300.0)
+
+        ; Declared with nothing to inherit from, it falls back to a single
+        ; column rather than collapsing to nothing.
+        def orphan (new EVGElement())
+        orphan.width = (EVGUnit.px(200.0))
+        orphan.height = (EVGUnit.px(100.0))
+        orphan.display = "grid"
+        orphan.gridTemplateColumns = "subgrid"
+        def child (new EVGElement())
+        orphan.addChild(child)
+        def lay3 (new EVGLayout())
+        lay3.layout(orphan)
+        t.near("an orphan subgrid falls back to one full-width column" child.calculatedWidth 200.0)
+    }
+
+    fn testGridDense:void (t:RgTest) {
+        ; 3 columns. A 1-wide item, then a 2-wide (which must start at column 1
+        ; of the next row... actually fits at column 1), then a 1-wide.
+        def sparse (new EVGElement())
+        sparse.width = (EVGUnit.px(300.0))
+        sparse.height = (EVGUnit.px(200.0))
+        sparse.display = "grid"
+        sparse.gridTemplateColumns = "repeat(3, 1fr)"
+        sparse.gridTemplateRows = "1fr 1fr"
+        def s1 (new EVGElement())
+        def s2 (new EVGElement())
+        s2.gridColumn = "span 3"
+        def s3 (new EVGElement())
+        sparse.addChild(s1)
+        sparse.addChild(s2)
+        sparse.addChild(s3)
+        def lay (new EVGLayout())
+        lay.layout(sparse)
+        ; s1 at (0,0); s2 needs 3 columns so it drops to row 1; s3 follows it
+        ; on row 2 because the cursor never goes back.
+        t.near("wide item drops to its own row" s2.calculatedY 100.0)
+        t.near("the next item follows the cursor" s3.calculatedY 200.0)
+
+        def dense (new EVGElement())
+        dense.width = (EVGUnit.px(300.0))
+        dense.height = (EVGUnit.px(200.0))
+        dense.display = "grid"
+        dense.gridTemplateColumns = "repeat(3, 1fr)"
+        dense.gridTemplateRows = "1fr 1fr"
+        dense.gridAutoFlow = "row dense"
+        def d1 (new EVGElement())
+        def d2 (new EVGElement())
+        d2.gridColumn = "span 3"
+        def d3 (new EVGElement())
+        dense.addChild(d1)
+        dense.addChild(d2)
+        dense.addChild(d3)
+        def lay2 (new EVGLayout())
+        lay2.layout(dense)
+        ; Same first two placements, but d3 backfills the hole beside d1.
+        t.near("dense still drops the wide item" d2.calculatedY 100.0)
+        t.near("the later item backfills row 0" d3.calculatedY 0.0)
+        t.near("in the first free column" d3.calculatedX 100.0)
+    }
+
     fn testGridTracks:void (t:RgTest) {
         def a:EVGGridTemplate (EVGGridTemplate.parse("1fr 1fr"))
         t.eqInt("two fr tracks" (a.count()) 2)
@@ -1408,9 +1674,43 @@ class EVGTest {
         t.near("extent of one track" (g.extentOf(0 1 10.0)) 100.0)
         t.near("extent of two tracks includes inner gap" (g.extentOf(0 2 10.0)) 210.0)
 
-        ; Out-of-subset track sizes are flagged, not silently sized to zero.
-        def bad:EVGGridTemplate (EVGGridTemplate.parse("minmax(10px, 1fr)"))
-        t.ok("minmax() is reported as unsupported" bad.hadError)
+        ; minmax(min, max): sizes as its max, then clamps into the range. A
+        ; floor that bites is pinned and the rest share what is left.
+        def mmT:EVGGridTemplate (EVGGridTemplate.parse("minmax(120px, 1fr) 1fr"))
+        t.eqInt("minmax counts as one track" (mmT.count()) 2)
+        mmT.resolve(200.0)
+        def mm0:EVGGridTrack (mmT.trackAt(0))
+        def mm1:EVGGridTrack (mmT.trackAt(1))
+        ; An even 1fr split would be 100 each, so the 120 floor bites and the
+        ; other track absorbs the difference.
+        t.near("minmax floor holds" mm0.sizePx 120.0)
+        t.near("the other track takes what is left" mm1.sizePx 80.0)
+
+        ; With room to spare the floor is irrelevant and both share evenly.
+        def roomy:EVGGridTemplate (EVGGridTemplate.parse("minmax(50px, 1fr) 1fr"))
+        roomy.resolve(400.0)
+        def rm0:EVGGridTrack (roomy.trackAt(0))
+        t.near("an unbitten floor changes nothing" rm0.sizePx 200.0)
+
+        ; A ceiling caps the track and hands the surplus on.
+        def capped:EVGGridTemplate (EVGGridTemplate.parse("minmax(0px, 60px) 1fr"))
+        capped.resolve(300.0)
+        def cp0:EVGGridTrack (capped.trackAt(0))
+        def cp1:EVGGridTrack (capped.trackAt(1))
+        t.near("minmax ceiling caps the track" cp0.sizePx 60.0)
+        t.near("surplus goes to the neighbour" cp1.sizePx 240.0)
+
+        ; minmax() inside repeat() is how an album grid is normally written.
+        def rep:EVGGridTemplate (EVGGridTemplate.parse("repeat(3, minmax(40px, 1fr))"))
+        t.eqInt("repeat expands minmax tracks" (rep.count()) 3)
+        t.no("and is not an error" rep.hadError)
+        rep.resolve(300.0)
+        def rp1:EVGGridTrack (rep.trackAt(1))
+        t.near("repeated minmax tracks share evenly" rp1.sizePx 100.0)
+
+        ; Genuinely unsupported syntax is still reported.
+        def bad:EVGGridTemplate (EVGGridTemplate.parse("fit-content(10px)"))
+        t.ok("unknown track functions are reported" bad.hadError)
     }
 
     ; ---- grid: placement parsing ----------------------------------------------

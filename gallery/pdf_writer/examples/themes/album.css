@@ -55,6 +55,16 @@
   grid-row: span 2;
 }
 
+/* A full-bleed cover: with `evg-pdf -bleed PT` this runs past the trim so the
+ * cut falls inside the ink instead of at its edge. Without a bleed it is an
+ * ordinary full-page box. */
+.cover-photo {
+  object-fit: cover;
+  width: 100%;
+  height: 100%;
+  full-bleed: true;
+}
+
 /* ---- album theme -------------------------------------------------------- */
 
 .theme-album .page {
@@ -64,6 +74,27 @@
 .theme-album .page-grid {
   gap: 14px;
 }
+
+/* A named-area page: the stylesheet draws the shape, and .hero/.wide/.tall
+ * only say which region they belong to. Re-composing the page is a matter of
+ * redrawing the picture below, not restructuring the TSX. */
+.story-grid {
+  display: grid;
+  grid-template-areas:
+    "hero hero"
+    "tall wide";
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 2fr 1fr;
+  gap: 14px;
+  width: 100%;
+  height: 100%;
+}
+
+/* Named differently from the .tall span helper above, which is a different
+ * idea with the same word. */
+.story-hero { grid-area: hero; }
+.story-wide { grid-area: wide; }
+.story-tall { grid-area: tall; }
 
 /* ---- contact-sheet theme: denser, squarer, no rounding ------------------ */
 

@@ -91,6 +91,24 @@ class AttrsTest {
         t.eqStr("gridTemplateRows" el.gridTemplateRows "1fr 2fr")
         t.eqStr("gridColumn" el.gridColumn "span 2")
         t.eqStr("gridRow" el.gridRow "1 / 3")
+
+        ; Areas, dense flow and named placement.
+        def areas:EVGElement (this.parseOne("gridTemplateAreas=\"'hero hero' 'a b'\" gridAutoFlow=\"row dense\""))
+        t.eqStr("gridTemplateAreas" areas.gridTemplateAreas "'hero hero' 'a b'")
+        t.eqStr("gridAutoFlow" areas.gridAutoFlow "row dense")
+
+        def named:EVGElement (this.parseOne("gridArea=\"hero\""))
+        t.eqStr("gridArea" named.gridArea "hero")
+
+        ; Print helpers.
+        def bleedEl:EVGElement (this.parseOne("fullBleed=\"true\""))
+        t.ok("fullBleed" bleedEl.fullBleed)
+        def notBleed:EVGElement (this.parseOne("width=\"10px\""))
+        t.no("fullBleed defaults off" notBleed.fullBleed)
+
+        ; Wrap-reverse reaches the element like any other flex property.
+        def rev:EVGElement (this.parseOne("flexWrap=\"wrap-reverse\""))
+        t.eqStr("flexWrap wrap-reverse" rev.flexWrap "wrap-reverse")
     }
 
     fn testStyleAndTextAttributes:void (t:RgTest) {

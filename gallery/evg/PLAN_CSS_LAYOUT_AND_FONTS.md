@@ -33,12 +33,12 @@ Without that, flex/grid improvements will still look wrong in print.
 
 | Area | Today | Gap |
 | --- | --- | --- |
-| Flex | Grow, per-item `flex-shrink`, `flex-basis`, `flex` shorthand, min/max resolved inside the distribution | No `wrap-reverse`; `align-content: stretch` behaves as `flex-start` |
+| Flex | Grow, per-item `flex-shrink`, `flex-basis`, `flex` shorthand, min/max resolved inside the distribution | — |
 | `gap` | Main axis, row + column | No separate `row-gap` / `column-gap` |
-| `flex-wrap` | `wrap` (default) / `nowrap`, with `align-content` for wrapped lines | No `wrap-reverse` |
+| `flex-wrap` | `wrap` (default) / `nowrap` / `wrap-reverse`, with the full `align-content` set including `stretch` | — |
 | Alignment | `justifyContent`, `alignItems` (incl. `stretch` and `baseline`), plus legacy `align` / `verticalAlign` | Naming overlap between the CSS and legacy names |
 | Text intrinsic size | Shrink-wraps to content measured from the real face | — |
-| Grid | `display: grid` with fr/px/%/repeat tracks, gaps, spans | No `grid-template-areas`, dense packing, subgrid, `minmax()` |
+| Grid | `display: grid` with fr/px/%/repeat/`minmax()` tracks, gaps, spans, `grid-template-areas`, `grid-auto-flow: dense`, column `subgrid` | Row `subgrid`; `fit-content()` |
 | Styles | Mostly inline JSX attributes | No class/theme stylesheet layer |
 
 `min-width` / `max-width` / `min-height` / `max-height` already parse and clamp;
@@ -253,9 +253,28 @@ Target photo-book pages, not full CSS Grid Level 2.
 .span-2 { grid-column: span 2; }
 ```
 
-### 7.3 Out of scope for v1
+### 7.3 Beyond v1 — landed
 
-`grid-template-areas`, dense packing, subgrid, `minmax()` beyond simple cases, named lines.
+- **`minmax(min, max)`** sizes as its max and clamps into the range. A track
+  that hits a bound is pinned and the space it did not take is offered to the
+  rest, the same freeze-and-redistribute the flex axis uses — so
+  `minmax(120px, 1fr)` holds its floor without silently starving a neighbour.
+  Works inside `repeat()`, which is how a responsive album grid is written.
+- **`grid-template-areas`** draws the page as a picture of names, and
+  `grid-area` claims a region. Each name must form a rectangle; a ragged or
+  bent one is reported rather than guessed at. With no explicit column template
+  the column count comes from the picture.
+- **`grid-auto-flow: row dense`** restarts the scan from the top for each item,
+  so a later small item backfills a hole a wider one left behind. The default
+  only moves forward, which keeps source order but can leave gaps.
+- **Column `subgrid`** — `grid-template-columns: subgrid` adopts the enclosing
+  grid's tracks for the span the element occupies, so nested cards line their
+  columns up with each other instead of each splitting its own width. Declared
+  with nothing to inherit from, it falls back to one full-width column.
+
+Still out of scope: **row `subgrid`** (row sizes are only known after the items
+are measured, so inheriting them needs a second pass the engine does not have),
+`fit-content()`, and named grid lines.
 
 ## 8. Shared text engine API (contract)
 
@@ -365,7 +384,11 @@ wrong. Worst delta is now **0.375px against 8.31px before**.
   when the content wrapped and the container height is definite, following the
   same rule as the rest of the engine. `stretch` would have to grow each line
   and re-lay its children out, so it currently behaves as `flex-start`.
-- `wrap-reverse`, and `align-content: stretch`
+- ~~`wrap-reverse`~~ — landed: the lines stack from the far edge, with the wrap
+  points unchanged.
+- ~~`align-content: stretch`~~ — landed: each line grows by an equal share of
+  the spare space, and items that did not ask for a specific height grow with
+  their line and re-lay their own children inside the taller box.
 - Update `PhotoLayouts` only where behavior changes
 
 ### Phase 2 — Style layer ✅
@@ -461,9 +484,10 @@ evg-html test_album_grid.tsx land.html    -css themes/album.css -theme album   -
 evg-html test_album_grid.tsx contact.html -css themes/album.css -theme contact -w 595 -h 842
 ```
 
-Still out of scope (§7.3): `grid-template-areas`, dense packing, subgrid,
-`minmax()`, named lines. `auto` in a track list is accepted but behaves as
-`1fr` — sizing it properly needs per-track content measurement.
+`grid-template-areas`, `grid-auto-flow: dense`, `minmax()` and column `subgrid`
+landed afterwards — see §7.3. Still out of scope: row `subgrid`, `fit-content()`
+and named lines. `auto` in a track list is accepted but behaves as `1fr` —
+sizing it properly needs per-track content measurement.
 
 ### Phase 4 — Baseline + polish ✅
 

@@ -790,8 +790,10 @@ class EVGLayout {
             totalHeight = totalHeight + rowHeight
         }
         
-        ; align-content: distribute the wrapped LINES down the cross axis.
+        ; Wrapped-line post-passes, in CSS order: wrap-reverse flips the cross
+        ; axis first, then align-content distributes the lines along it.
         if (isColumn == false) {
+            this.applyWrapReverse(parent lineMembers lineCounts lineHeights totalHeight)
             this.applyAlignContent(parent lineMembers lineCounts lineHeights totalHeight innerHeight)
         }
 
@@ -825,6 +827,85 @@ class EVGLayout {
     ;
     ; `stretch` (the CSS default) would have to grow each line and re-lay its
     ; children out, so it is treated as flex-start here and noted in the plan.
+    ; flex-wrap: wrap-reverse — the lines stack from the far edge of the cross
+    ; axis instead of the near one, so the first line ends up at the bottom.
+    ; The wrap POINTS are unchanged; only where each finished line sits moves.
+    fn applyWrapReverse:void (parent:EVGElement members:[EVGElement] counts:[int] heights:[double] contentHeight:double) {
+        if (parent.flexWrap != "wrap-reverse") {
+            return
+        }
+        def lineCount:int (array_length counts)
+        if (lineCount < 2) {
+            return
+        }
+        def idx:int 0
+        def offset:double 0.0
+        def li:int 0
+        while (li < lineCount) {
+            def h:double (itemAt heights li)
+            ; Mirror this line's position about the middle of the content box.
+            def newOffset:double ((contentHeight - offset) - h)
+            def shift:double (newOffset - offset)
+            def n:int (itemAt counts li)
+            def k:int 0
+            while (k < n) {
+                def el:EVGElement (itemAt members (idx + k))
+                if (shift != 0.0) {
+                    el.calculatedY = (el.calculatedY + shift)
+                    this.propagateOffsetToChildren(el 0.0 shift)
+                }
+                k = (k + 1)
+            }
+            idx = (idx + n)
+            offset = (offset + h)
+            li = (li + 1)
+        }
+    }
+
+    ; align-content: stretch — grow every line by an equal share of the spare
+    ; cross-axis space. A line growing means its items grow with it, so each
+    ; item that did not ask for a specific height is resized and its own
+    ; children are laid out again inside the taller box.
+    fn applyAlignContentStretch:void (parent:EVGElement members:[EVGElement] counts:[int] heights:[double] contentHeight:double innerHeight:double) {
+        def lineCount:int (array_length counts)
+        def free:double (innerHeight - contentHeight)
+        if (free <= 0.0) {
+            return
+        }
+        def extra:double (free / (to_double lineCount))
+        def idx:int 0
+        def li:int 0
+        while (li < lineCount) {
+            def shift:double (extra * (to_double li))
+            def grown:double ((itemAt heights li) + extra)
+            def n:int (itemAt counts li)
+            def k:int 0
+            while (k < n) {
+                def el:EVGElement (itemAt members (idx + k))
+                if (shift != 0.0) {
+                    el.calculatedY = (el.calculatedY + shift)
+                    this.propagateOffsetToChildren(el 0.0 shift)
+                }
+                ; Only items that were sized by the line grow with it; an
+                ; explicit height is still an explicit height.
+                if ((el.height.isSet == false) && (el.isAbsolute == false)) {
+                    def target:double ((grown - el.box.marginTopPx) - el.box.marginBottomPx)
+                    if (target > el.calculatedHeight) {
+                        el.calculatedHeight = target
+                        el.calculatedInnerHeight = (el.box.getInnerHeight(target))
+                        el.hasDefiniteHeight = true
+                        if ((el.getChildCount()) > 0) {
+                            this.layoutChildren(el)
+                        }
+                    }
+                }
+                k = (k + 1)
+            }
+            idx = (idx + n)
+            li = (li + 1)
+        }
+    }
+
     fn applyAlignContent:void (parent:EVGElement members:[EVGElement] counts:[int] heights:[double] contentHeight:double innerHeight:double) {
         def lineCount:int (array_length counts)
         if (lineCount < 2) {
@@ -841,6 +922,7 @@ class EVGLayout {
             return
         }
         if (mode == "stretch") {
+            this.applyAlignContentStretch(parent members counts heights contentHeight innerHeight)
             return
         }
         def free:double (innerHeight - contentHeight)
@@ -1291,6 +1373,56 @@ class EVGLayout {
         if ((strlen colSpec) == 0) {
             colSpec = "1fr"
         }
+
+        ; grid-template-columns: subgrid — adopt the enclosing grid's tracks for
+        ; the span this element occupies, so a nested card's columns line up with
+        ; every other card's instead of each one splitting its own width. The
+        ; parent filled these in before laying this element out; with no
+        ; enclosing grid there is nothing to inherit and it falls back to 1fr.
+        def usingSubgrid:boolean false
+        if (colSpec == "subgrid") {
+            if ((array_length parent.subgridColumnSizes) > 0) {
+                usingSubgrid = true
+                def sgSpec:string ""
+                def sg:int 0
+                while (sg < (array_length parent.subgridColumnSizes)) {
+                    if (sg > 0) {
+                        sgSpec = sgSpec + " "
+                    }
+                    sgSpec = sgSpec + (to_string (itemAt parent.subgridColumnSizes sg)) + "px"
+                    sg = (sg + 1)
+                }
+                colSpec = sgSpec
+            } {
+                this.log("  Grid: subgrid requested with no enclosing grid track sizes")
+                colSpec = "1fr"
+            }
+        }
+        ; grid-template-areas names a rectangle per area and, when no explicit
+        ; column template was given, decides the column count.
+        def areas:EVGGridAreas (EVGGridAreas.parse(parent.gridTemplateAreas))
+        def hasAreas:boolean false
+        if ((strlen parent.gridTemplateAreas) > 0) {
+            if (areas.hadError) {
+                this.log(("  Grid: " + areas.errorText))
+            } {
+                hasAreas = true
+                if ((strlen parent.gridTemplateColumns) == 0) {
+                    ; Derive the columns from the picture.
+                    def derived:string ""
+                    def dc:int 0
+                    while (dc < areas.columns) {
+                        if (dc > 0) {
+                            derived = derived + " "
+                        }
+                        derived = derived + "1fr"
+                        dc = (dc + 1)
+                    }
+                    colSpec = derived
+                }
+            }
+        }
+
         def cols:EVGGridTemplate (EVGGridTemplate.parse(colSpec))
         if (cols.hadError) {
             this.log(("  Grid: " + cols.errorText))
@@ -1317,6 +1449,21 @@ class EVGLayout {
             if (c.isAbsolute == false) {
                 def cp:EVGGridPlacement (EVGGridPlacement.parse(c.gridColumn))
                 def rp:EVGGridPlacement (EVGGridPlacement.parse(c.gridRow))
+                ; grid-area names win over grid-column/grid-row: the picture is
+                ; the more specific statement of intent.
+                if hasAreas {
+                    if ((strlen c.gridArea) > 0) {
+                        def at:int (areas.indexOfName(c.gridArea))
+                        if (at >= 0) {
+                            cp.start = ((itemAt areas.colStart at) + 1)
+                            cp.span = (itemAt areas.colSpan at)
+                            rp.start = ((itemAt areas.rowStart at) + 1)
+                            rp.span = (itemAt areas.rowSpan at)
+                        } {
+                            this.log(("  Grid: no area named \"" + c.gridArea + "\""))
+                        }
+                    }
+                }
                 def cspan:int cp.span
                 if (cspan > colCount) {
                     cspan = colCount
@@ -1335,6 +1482,7 @@ class EVGLayout {
         }
 
         ; --- placement -------------------------------------------------------
+        def isDense:boolean ((indexOf parent.gridAutoFlow "dense") >= 0)
         ; occupancy[(row * colCount) + col]; grown a row at a time.
         def occupied:[boolean]
         def rowsUsed:int 0
@@ -1381,8 +1529,17 @@ class EVGLayout {
                         row = (row + 1)
                     }
                 } {
-                    row = cursorRow
-                    col = cursorCol
+                    ; grid-auto-flow: dense restarts the scan from the top for
+                    ; every item, so a later small item backfills a hole a wider
+                    ; one left behind. The default only ever moves forward,
+                    ; which keeps source order but can leave gaps.
+                    if isDense {
+                        row = 0
+                        col = 0
+                    } {
+                        row = cursorRow
+                        col = cursorCol
+                    }
                     def searching:boolean true
                     while searching {
                         if ((col + span) > colCount) {
@@ -1396,8 +1553,10 @@ class EVGLayout {
                             }
                         }
                     }
-                    cursorRow = row
-                    cursorCol = (col + span)
+                    if (isDense == false) {
+                        cursorRow = row
+                        cursorCol = (col + span)
+                    }
                 }
             }
 
@@ -1524,6 +1683,19 @@ class EVGLayout {
             if (boxH > 0.0) {
                 el.calculatedFlexHeight = boxH
             }
+
+            ; Hand this cell's column tracks down to a subgrid child before it
+            ; lays itself out.
+            if (el.gridTemplateColumns == "subgrid") {
+                clear el.subgridColumnSizes
+                def sgi:int 0
+                while (sgi < cSpan) {
+                    def tk:EVGGridTrack (cols.trackAt(cIdx + sgi))
+                    push el.subgridColumnSizes tk.sizePx
+                    sgi = (sgi + 1)
+                }
+            }
+
             this.layoutElement(el el.calculatedX el.calculatedY boxW boxH)
             p = (p + 1)
         }

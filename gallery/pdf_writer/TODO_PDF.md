@@ -282,9 +282,10 @@ These guidelines are important for professional print output (e.g., KDP, IngramS
 - [x] **Bleed area handling**: `evg-pdf -bleed PT` grows the sheet on every side,
       translates the page into it, and writes `TrimBox`/`BleedBox` so the printer
       knows where the cut falls. 3mm is `-bleed 8.5`, 0.125" is `-bleed 9`.
-- [ ] **Full-bleed support**: authoring side — art that should run past the trim
-      still has to be sized to reach the bleed edge itself; there is no
-      `full-bleed` helper that extends an element beyond the trim box.
+- [x] **Full-bleed support**: `full-bleed` on an element extends it past the
+      trim into the bleed on whichever page edges it already touches, so the cut
+      falls inside its ink. Paint-time only: layout stays in trim coordinates
+      and the flag does nothing without `-bleed`.
 
 ## Testing Recommendations
 
