@@ -23841,7 +23841,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( i > 0 ) {
                   wr.out(", ", false);
                 }
-                await this.writeTypeDef(arg, ctx, wr);
+                if ( (((arg.type_name.length) > 0) && ((arg.array_type.length) == 0)) && ((arg.key_type.length) == 0) ) {
+                  if ( this.rustClassIsShared(arg.type_name, ctx) ) {
+                    wr.out(this.rustSharedTypeString(arg.type_name, ctx), false);
+                  } else {
+                    await this.writeTypeDef(arg, ctx, wr);
+                  }
+                } else {
+                  await this.writeTypeDef(arg, ctx, wr);
+                }
               };
               wr.out(")", false);
               if ( (rv.type_name == "void") || (rv.eval_type_name == "void") ) {
@@ -24313,7 +24321,23 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       }
                     }
                     let field_is_weak = false;
-                    const pNameNWeak = p.nameNode;
+                    let pNameNWeak = p.nameNode;
+                    if ( i == 0 ) {
+                      const rootPart = node.ns[0];
+                      if ( (rootPart != "this") && ctx.isMemberVariable(rootPart) ) {
+                        const wcc = ctx.getCurrentClass();
+                        if ( (typeof(wcc) !== "undefined" && wcc != null )  ) {
+                          const wCurrC = wcc;
+                          const wOwn = wCurrC.findVariable(rootPart);
+                          if ( (typeof(wOwn) !== "undefined" && wOwn != null )  ) {
+                            const wOwnD = wOwn;
+                            if ( (typeof(wOwnD.nameNode) !== "undefined" && wOwnD.nameNode != null )  ) {
+                              pNameNWeak = wOwnD.nameNode;
+                            }
+                          }
+                        }
+                      }
+                    }
                     if ( (typeof(pNameNWeak) !== "undefined" && pNameNWeak != null )  ) {
                       const pNNWeak = pNameNWeak;
                       if ( pNNWeak.hasFlag("weak") ) {
@@ -53079,6 +53103,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                           var param = m.params[pi];
                                           this.markDescRcWrap(param);
                                         };
+                                        for ( let li = 0; li < m.myLambdas.length; li++) {
+                                          var lam = m.myLambdas[li];
+                                          for ( let lpi = 0; lpi < lam.params.length; lpi++) {
+                                            var lp = lam.params[lpi];
+                                            this.markDescRcWrap(lp);
+                                          };
+                                        };
                                         if ( (typeof(m.fnBody) !== "undefined" && m.fnBody != null )  ) {
                                           this.walkForSharedLocals(m.fnBody);
                                         }
@@ -53088,6 +53119,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                         for ( let pi_1 = 0; pi_1 < sm.params.length; pi_1++) {
                                           var param_1 = sm.params[pi_1];
                                           this.markDescRcWrap(param_1);
+                                        };
+                                        for ( let li_1 = 0; li_1 < sm.myLambdas.length; li_1++) {
+                                          var lam_1 = sm.myLambdas[li_1];
+                                          for ( let lpi_1 = 0; lpi_1 < lam_1.params.length; lpi_1++) {
+                                            var lp_1 = lam_1.params[lpi_1];
+                                            this.markDescRcWrap(lp_1);
+                                          };
                                         };
                                         if ( (typeof(sm.fnBody) !== "undefined" && sm.fnBody != null )  ) {
                                           this.walkForSharedLocals(sm.fnBody);

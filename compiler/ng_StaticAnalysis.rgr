@@ -2772,6 +2772,16 @@ class StaticAnalyzer {
         for m.params param:RangerAppParamDesc pi {
           this.markDescRcWrap(param)
         }
+        ; A lambda's parameters bind elements of the collection it walks, so
+        ; a shared element reaches the body as its Rc. Nothing else marks
+        ; them -- the analysis walks cl.methods, and a lambda is not one --
+        ; and without the mark the body read `item.field` straight off a
+        ; handle that has no fields.
+        for m.myLambdas lam:RangerAppFunctionDesc li {
+          for lam.params lp:RangerAppParamDesc lpi {
+            this.markDescRcWrap(lp)
+          }
+        }
         if (!null? m.fnBody) {
           this.walkForSharedLocals((unwrap m.fnBody))
         }
@@ -2779,6 +2789,16 @@ class StaticAnalyzer {
       for cl.static_methods sm:RangerAppFunctionDesc i {
         for sm.params param:RangerAppParamDesc pi {
           this.markDescRcWrap(param)
+        }
+        ; A lambda's parameters bind elements of the collection it walks, so
+        ; a shared element reaches the body as its Rc. Nothing else marks
+        ; them -- the analysis walks cl.methods, and a lambda is not one --
+        ; and without the mark the body read `item.field` straight off a
+        ; handle that has no fields.
+        for sm.myLambdas lam:RangerAppFunctionDesc li {
+          for lam.params lp:RangerAppParamDesc lpi {
+            this.markDescRcWrap(lp)
+          }
         }
         if (!null? sm.fnBody) {
           this.walkForSharedLocals((unwrap sm.fnBody))

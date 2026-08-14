@@ -266,13 +266,18 @@ class RangerRustClassWriter {
       if (i > 0) {
         wr.out(", " false)
       }
-      ; NOTE: the element the loop hands to the callback is the shared
-      ; handle, so this ought to be the Rc form — but the closure BODY is
-      ; written against the bare struct (`item.name`, not
-      ; `item.borrow().name`), so declaring the handle here trades 149
-      ; inference errors for 297 missing-field ones. Both sides have to move
-      ; together; until then the bare type is the cheaper mismatch.
-      this.writeTypeDef(arg ctx wr)
+      ; the element the loop hands to the callback is the shared handle, so
+      ; the signature says so. The body agrees because applySharedClassRcWrap
+      ; marks a lambda's parameters too — both sides had to move together.
+      if ((((strlen arg.type_name) > 0) && ((strlen arg.array_type) == 0)) && ((strlen arg.key_type) == 0)) {
+        if (this.rustClassIsShared(arg.type_name ctx)) {
+          wr.out((this.rustSharedTypeString(arg.type_name ctx)) false)
+        } {
+          this.writeTypeDef(arg ctx wr)
+        }
+      } {
+        this.writeTypeDef(arg ctx wr)
+      }
     }
     wr.out(")" false)
     if ((rv.type_name == "void") || (rv.eval_type_name == "void")) {
@@ -865,7 +870,30 @@ class RangerRustClassWriter {
         }
         ; Check if this field has weak annotation
         def field_is_weak:boolean false
+        ; A field the current class declares is read out of ITS declaration.
+        ; Where a subclass restates a parent's field with a different
+        ; strength — RangerAppParamDesc declares `nameNode` strong and
+        ; RangerAppFunctionDesc restates it `@(weak)` — the desc the parser
+        ; bound may be the other class's, and rustAllStructVars laid the
+        ; class's own declaration into the struct. Asking the wrong one left
+        ; `self.nameNode.as_ref().unwrap().borrow_mut()` on a Weak.
         def pNameNWeak@(optional):CodeNode p.nameNode
+        if (i == 0) {
+          def rootPart:string (itemAt node.ns 0)
+          if ((rootPart != "this") && (ctx.isMemberVariable(rootPart))) {
+            def wcc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+            if (!null? wcc) {
+              def wCurrC:RangerAppClassDesc (unwrap wcc)
+              def wOwn@(optional):RangerAppParamDesc (wCurrC.findVariable(rootPart))
+              if (!null? wOwn) {
+                def wOwnD:RangerAppParamDesc (unwrap wOwn)
+                if (!null? wOwnD.nameNode) {
+                  pNameNWeak = wOwnD.nameNode
+                }
+              }
+            }
+          }
+        }
         if (!null? pNameNWeak) {
           def pNNWeak:CodeNode (unwrap pNameNWeak)
           if (pNNWeak.hasFlag("weak")) {
@@ -1150,11 +1178,17 @@ class RangerRustClassWriter {
   fn rustAllStructVars:[RangerAppParamDesc] (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
     def res:[RangerAppParamDesc]
     def seen:[string:boolean]
-    ; The class's own declarations go in first and win: where a subclass
-    ; restates a parent's field the restatement is what its own methods are
-    ; written against. (RangerAppParamDesc declares `nameNode` strong and
-    ; RangerAppFunctionDesc restates it `@(weak)`; letting the parent win
-    ; there costs more than it saves.)
+    ; The class's own declarations go in first and win. Neither order is
+    ; right while a subclass may restate a parent's field with a different
+    ; strength: RangerAppParamDesc declares `nameNode` strong and
+    ; RangerAppFunctionDesc restates it `@(weak)`, an inherited method body
+    ; is emitted into every subclass's impl unchanged (the body of
+    ; RangerAppParamDesc::isAllocatedType lands in RangerAppFunctionDesc's
+    ; impl and reads `self.nameNode` there), and a trait accessor's
+    ; signature comes from the parent while its body reads the subclass's
+    ; slot. Letting the parent win fixes those two and breaks more
+    ; elsewhere — measured twice, 1708 -> 1879 and 869 -> 1141. The real
+    ; repair is to stop restating fields with a different strength.
     for cl.variables pvar:RangerAppParamDesc i {
       set seen pvar.name true
       push res pvar
