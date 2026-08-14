@@ -164,17 +164,37 @@ class FDCT {
     fn dct1d:void (input:int_buffer startIdx:int stride:int output:int_buffer outIdx:int outStride:int) {
         ; 1D DCT: F(u) = C(u)/2 * sum over x of: f(x) * cos((2x+1)*u*pi/16)
         ; C(0) = 1/sqrt(2), C(u>0) = 1
-        
+        ;
+        ; The cosine table is symmetric about the middle of the row:
+        ; cos[(7-x)*8+u] equals cos[x*8+u] for even u and its negation for
+        ; odd u. Folding the eight terms into four sums/differences first
+        ; therefore halves the multiplies without changing any result --
+        ; a*c + b*c and (a+b)*c are the same integer.
+        def s0:int ((int_buffer_get input startIdx) + (int_buffer_get input (startIdx + (7 * stride))))
+        def s1:int ((int_buffer_get input (startIdx + stride)) + (int_buffer_get input (startIdx + (6 * stride))))
+        def s2:int ((int_buffer_get input (startIdx + (2 * stride))) + (int_buffer_get input (startIdx + (5 * stride))))
+        def s3:int ((int_buffer_get input (startIdx + (3 * stride))) + (int_buffer_get input (startIdx + (4 * stride))))
+        def d0:int ((int_buffer_get input startIdx) - (int_buffer_get input (startIdx + (7 * stride))))
+        def d1:int ((int_buffer_get input (startIdx + stride)) - (int_buffer_get input (startIdx + (6 * stride))))
+        def d2:int ((int_buffer_get input (startIdx + (2 * stride))) - (int_buffer_get input (startIdx + (5 * stride))))
+        def d3:int ((int_buffer_get input (startIdx + (3 * stride))) - (int_buffer_get input (startIdx + (4 * stride))))
+
         def u 0
         while (u < 8) {
-            def sum:int 0
-            def x 0
-            while (x < 8) {
-                def pixel:int (int_buffer_get input (startIdx + (x * stride)))
-                def cosVal:int (int_buffer_get cosTable ((x * 8) + u))
-                sum = sum + (pixel * cosVal)
-                x = x + 1
+            def e0:int s0
+            def e1:int s1
+            def e2:int s2
+            def e3:int s3
+            if ((bit_and u 1) == 1) {
+                e0 = d0
+                e1 = d1
+                e2 = d2
+                e3 = d3
             }
+            def sum:int (((e0 * (int_buffer_get cosTable u))
+                        + (e1 * (int_buffer_get cosTable (8 + u))))
+                        + ((e2 * (int_buffer_get cosTable (16 + u)))
+                        + (e3 * (int_buffer_get cosTable (24 + u)))))
             ; Apply C(u) normalization: C(0) = 1/sqrt(2) ≈ 724/1024
             if (u == 0) {
                 sum = (bit_shr (sum * 724) 10)
@@ -1029,12 +1049,17 @@ class JPEGEncoder {
         while (i < 64) {
             def q:int (at quantTable i)
             def c:int (int_buffer_get coeffs i)
-            ; Round to nearest integer during quantization
+            ; Round to nearest, ties away from zero.
+            ; to_int floors, so the negative case has to be mirrored through
+            ; zero rather than written as (c - q/2)/q: flooring a value that
+            ; is already biased downwards rounds away from zero twice, which
+            ; pushes every negative coefficient a full step out and turns
+            ; coefficients that belong at zero into -1.
             def qVal:int 0
             if (c >= 0) {
                 qVal = (to_int ((c + (bit_shr q 1)) / q))
             } {
-                qVal = (to_int ((c - (bit_shr q 1)) / q))
+                qVal = (0 - (to_int (((0 - c) + (bit_shr q 1)) / q)))
             }
             int_buffer_set quantized i qVal
             i = i + 1
@@ -1139,21 +1164,23 @@ class JPEGEncoder {
                 if (imgX >= img.width) { imgX = img.width - 1 }
                 if (imgY >= img.height) { imgY = img.height - 1 }
                 
-                def c:Color (img.getPixel(imgX imgY))
-                
-                ; Convert to YCbCr on the fly
-                def y:int (bit_shr ((77 * c.r) + (150 * c.g) + (29 * c.b)) 8)
-                def cb:int (bit_shr ((0 - (43 * c.r)) - (85 * c.g) + (128 * c.b)) 8) + 128
-                def cr:int (bit_shr ((128 * c.r) - (107 * c.g) - (21 * c.b)) 8) + 128
-                
+                ; Read the RGB triple straight out of the pixel buffer. The
+                ; coordinates are clamped above, so getPixel's bounds check and
+                ; its per-pixel Color allocation are both dead weight here.
+                def off:int (((imgY * img.width) + imgX) * 4)
+                def cr0:int (buffer_get img.pixels off)
+                def cg0:int (buffer_get img.pixels (off + 1))
+                def cb0:int (buffer_get img.pixels (off + 2))
+
+                ; Convert to YCbCr on the fly, for the requested channel only
                 if (channel == 0) {
-                    int_buffer_set output idx y
-                } 
+                    int_buffer_set output idx (bit_shr ((77 * cr0) + (150 * cg0) + (29 * cb0)) 8)
+                }
                 if (channel == 1) {
-                    int_buffer_set output idx cb
+                    int_buffer_set output idx ((bit_shr ((0 - (43 * cr0)) - (85 * cg0) + (128 * cb0)) 8) + 128)
                 }
                 if (channel == 2) {
-                    int_buffer_set output idx cr
+                    int_buffer_set output idx ((bit_shr ((128 * cr0) - (107 * cg0) - (21 * cb0)) 8) + 128)
                 }
                 
                 idx = idx + 1
@@ -1350,7 +1377,7 @@ class JPEGEncoder {
                 if (yDC >= 0) {
                     prevDCY = (to_int ((yDC + (bit_shr yQ 1)) / yQ))
                 } {
-                    prevDCY = (to_int ((yDC - (bit_shr yQ 1)) / yQ))
+                    prevDCY = (0 - (to_int (((0 - yDC) + (bit_shr yQ 1)) / yQ)))
                 }
                 
                 ; Extract and encode Cb block
@@ -1364,7 +1391,7 @@ class JPEGEncoder {
                 if (cbDC >= 0) {
                     prevDCCb = (to_int ((cbDC + (bit_shr cbQ 1)) / cbQ))
                 } {
-                    prevDCCb = (to_int ((cbDC - (bit_shr cbQ 1)) / cbQ))
+                    prevDCCb = (0 - (to_int (((0 - cbDC) + (bit_shr cbQ 1)) / cbQ)))
                 }
                 
                 ; Extract and encode Cr block
@@ -1378,7 +1405,7 @@ class JPEGEncoder {
                 if (crDC >= 0) {
                     prevDCCr = (to_int ((crDC + (bit_shr crQ 1)) / crQ))
                 } {
-                    prevDCCr = (to_int ((crDC - (bit_shr crQ 1)) / crQ))
+                    prevDCCr = (0 - (to_int (((0 - crDC) + (bit_shr crQ 1)) / crQ)))
                 }
                 
                 mcuX = mcuX + 1
@@ -1445,7 +1472,7 @@ class JPEGEncoder {
                 if (yDC >= 0) {
                     prevDCY = (to_int ((yDC + (bit_shr yQ 1)) / yQ))
                 } {
-                    prevDCY = (to_int ((yDC - (bit_shr yQ 1)) / yQ))
+                    prevDCY = (0 - (to_int (((0 - yDC) + (bit_shr yQ 1)) / yQ)))
                 }
                 
                 ; Extract and encode Cb block
@@ -1459,7 +1486,7 @@ class JPEGEncoder {
                 if (cbDC >= 0) {
                     prevDCCb = (to_int ((cbDC + (bit_shr cbQ 1)) / cbQ))
                 } {
-                    prevDCCb = (to_int ((cbDC - (bit_shr cbQ 1)) / cbQ))
+                    prevDCCb = (0 - (to_int (((0 - cbDC) + (bit_shr cbQ 1)) / cbQ)))
                 }
                 
                 ; Extract and encode Cr block
@@ -1473,7 +1500,7 @@ class JPEGEncoder {
                 if (crDC >= 0) {
                     prevDCCr = (to_int ((crDC + (bit_shr crQ 1)) / crQ))
                 } {
-                    prevDCCr = (to_int ((crDC - (bit_shr crQ 1)) / crQ))
+                    prevDCCr = (0 - (to_int (((0 - crDC) + (bit_shr crQ 1)) / crQ)))
                 }
                 
                 mcuX = mcuX + 1

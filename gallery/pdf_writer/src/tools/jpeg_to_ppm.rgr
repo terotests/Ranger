@@ -1,0 +1,90 @@
+; jpeg_to_ppm.rgr - decode a JPEG and write a lossless PPM
+; Usage: jpeg_to_ppm input.jpg outdir outname.ppm
+; Diagnostic only: lets the decoder be scored without the encoder in the way.
+
+Import "../jpeg/JPEGDecoder.rgr"
+Import "../jpeg/ProgressiveJPEGDecoder.rgr"
+Import "../jpeg/PPMImage.rgr"
+
+class JPEGToPPM {
+
+    sfn m@(main):void () {
+        def app (new JPEGToPPM())
+        app.run()
+    }
+
+    fn run:void () {
+        def argc:int (shell_arg_cnt)
+        if (argc < 3) {
+            print ("Usage: jpeg_to_ppm input.jpg outdir outname.ppm (argc=" + (to_string argc) + ")")
+            return
+        }
+        def inputFile:string (shell_arg (argc - 3))
+        def outDir:string (shell_arg (argc - 2))
+        def outName:string (shell_arg (argc - 1))
+
+        def dir:string "."
+        def name:string inputFile
+        def lastSlash:int -1
+        def j 0
+        while (j < (strlen inputFile)) {
+            def c:int (charAt inputFile j)
+            if ((c == 47) || (c == 92)) {
+                lastSlash = j
+            }
+            j = j + 1
+        }
+        if (lastSlash >= 0) {
+            dir = (substring inputFile 0 lastSlash)
+            name = (substring inputFile (lastSlash + 1) (strlen inputFile))
+        }
+
+        def data:buffer (buffer_read_file dir name)
+        def dataLen:int (buffer_length data)
+        def isProgressive:boolean false
+        def i 0
+        def marker:int 0
+        while (i < (dataLen - 1)) {
+            def b:int (buffer_get data i)
+            if (b == 255) {
+                marker = (buffer_get data (i + 1))
+                if (marker == 194) {
+                    isProgressive = true
+                    i = dataLen
+                }
+                if (marker == 192) {
+                    isProgressive = false
+                    i = dataLen
+                }
+            }
+            i = i + 1
+        }
+
+        def img:ImageBuffer (new ImageBuffer())
+        if (isProgressive) {
+            def pdec (new ProgressiveJPEGDecoder())
+            img = (pdec.decode(dir name))
+        } {
+            def bdec (new JPEGDecoder())
+            img = (bdec.decode(dir name))
+        }
+
+        print ("Decoded: " + (to_string img.width) + "x" + (to_string img.height))
+
+        ; optional 4th arg: run scaleToSize to this width before saving, so the
+        ; resampler can be scored on its own
+        if (argc >= 4) {
+            def wStr:string (shell_arg (argc - 4))
+            def optW@(optional):int (to_int wStr)
+            def newW:int (unwrap optW)
+            def ratio:double ((to_double newW) / (to_double img.width))
+            def newH:int (to_int ((to_double img.height) * ratio))
+            print ("scaleToSize -> " + (to_string newW) + "x" + (to_string newH))
+            img = (img.scaleToSize(newW newH))
+        }
+
+        def ppm (new PPMImage())
+        ppm.save(img outDir outName)
+        print "Wrote PPM"
+    }
+}

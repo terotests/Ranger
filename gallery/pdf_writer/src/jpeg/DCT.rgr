@@ -10,7 +10,7 @@ class IDCT {
     
     ; Zigzag order to row-major index mapping
     def zigzagMap:int_buffer (int_buffer_alloc 64)
-    
+
     Constructor () {
         ; Initialize full cosine table for IDCT
         ; cos((2*x+1) * u * pi / 16) * 1024 for x=0..7, u=0..7
@@ -187,7 +187,37 @@ class IDCT {
         ; 1D IDCT: output[x] = sum over u of: C(u) * input[u] * cos((2x+1)*u*pi/16)
         ; C(0) = 1/sqrt(2), C(u>0) = 1
         ; cosTable is scaled by 1024
-        
+
+        ; Flat path: with every AC coefficient zero the result is the same
+        ; value eight times over, because cosTable[x * 8] is 1024 for every x.
+        ; Most rows of a photographic 8x8 block are like this, and after the
+        ; row pass most columns are too, so this skips the bulk of the work.
+        def hasAC:boolean false
+        def uc 1
+        while (uc < 8) {
+            if ((int_buffer_get input (startIdx + (uc * stride))) != 0) {
+                hasAC = true
+                uc = 8
+            }
+            uc = uc + 1
+        }
+        if (hasAC == false) {
+            def dcSum:int 0
+            def dcCoeff:int (int_buffer_get input startIdx)
+            if (dcCoeff != 0) {
+                def dcContrib:int (dcCoeff * 1024)
+                dcContrib = (bit_shr (dcContrib * 724) 10)
+                dcSum = dcSum + dcContrib
+            }
+            def flat:int (bit_shr dcSum 11)
+            def fx 0
+            while (fx < 8) {
+                int_buffer_set output (outIdx + (fx * outStride)) flat
+                fx = fx + 1
+            }
+            return
+        }
+
         def x 0
         while (x < 8) {
             def sum:int 0
@@ -217,7 +247,7 @@ class IDCT {
         
         ; Temporary buffer for row transform results
         def temp:int_buffer (int_buffer_alloc 64)
-        
+
         ; First pass: 1D IDCT on each row
         def row 0
         while (row < 8) {
@@ -225,7 +255,7 @@ class IDCT {
             this.idct1d(block rowStart 1 temp rowStart 1)
             row = row + 1
         }
-        
+
         ; Second pass: 1D IDCT on each column
         def col 0
         while (col < 8) {

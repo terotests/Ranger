@@ -69,12 +69,16 @@ Output: `tmp/jpeg-native/jpeg_scaler` and `tmp/jpeg-native/WARNING.txt`.
 ## Supported alternatives
 
 ```bash
-# Go (recommended for native CLI)
+# C++ / Rust / Go (working native CLIs)
+npm run jpegscaler:build:cpp
+npm run jpegscaler:build:rust
 npm run jpegscaler:build:go
-./gallery/pdf_writer/bin/jpeg_scaler.exe -width 800 input.jpg output.jpg
 
 # JavaScript
-npm run jpegscaler:compile   # if wired in package.json, or compile jpeg_scaler.rgr to ES6
+npm run jpegscaler:compile
+
+# Wall-clock vs ImageMagick / vips / ffmpeg
+npm run jpegscaler:bench
 ```
 
-See also [JPEG_PLAN.md](./JPEG_PLAN.md) for decoder/encoder feature status on ES6/Go.
+See [JPEG_SCALER_BENCH.md](./JPEG_SCALER_BENCH.md) for timings and [JPEG_PLAN.md](./JPEG_PLAN.md) for decoder/encoder feature status.
