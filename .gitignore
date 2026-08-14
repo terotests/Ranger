@@ -15,6 +15,7 @@ data_folder/
 !gallery/game_engine/games/**/sprites/**
 !gallery/game_engine/games/**/models/**
 !tests/fixtures/game_bg_8x8.png
+!gallery/pdf_writer/docs/jpeg_scaler_quality/*.png
 
 # MacOS
 .DS_Store
