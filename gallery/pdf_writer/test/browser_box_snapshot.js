@@ -70,10 +70,14 @@ function parseFixtures(text) {
 // which the browser silently dropped and measured as auto.
 const LEN = (v) => (/^[-+]?[0-9]*\.?[0-9]+$/.test(v) ? v + "px" : v);
 
+// The fixture file is whitespace-delimited, so a value that needs spaces
+// ("1fr 2fr", "1 / 3") writes them as underscores. Both sides expand them.
+const SPACED = (v) => v.replace(/_/g, " ");
+
 function styleFor(p) {
   const s = [
     "box-sizing:border-box",
-    "display:flex",
+    `display:${p.disp === "grid" ? "grid" : "flex"}`,
     `flex-direction:${p.dir === "row" ? "row" : "column"}`,
     // Left at the CSS default of 1, which is also EVG's default. Pinning it to
     // 0 here would have made the browser disagree with EVG for a reason of the
@@ -93,6 +97,17 @@ function styleFor(p) {
   if (p.gap) s.push(`gap:${LEN(p.gap)}`);
   // font-size matters even with no text: `em` lengths resolve against it.
   if (p.fs) s.push(`font-size:${LEN(p.fs)}`);
+  // Grid. align-items/justify-content above are flex-start, which for a grid
+  // container would shrink-wrap every item instead of filling its cell, so
+  // they are overridden back to the CSS default of stretch.
+  if (p.disp === "grid") {
+    s.push("align-items:stretch", "justify-items:stretch", "align-content:start", "justify-content:start");
+  }
+  if (p.gtc) s.push(`grid-template-columns:${SPACED(p.gtc)}`);
+  if (p.gtr) s.push(`grid-template-rows:${SPACED(p.gtr)}`);
+  if (p.gc) s.push(`grid-column:${SPACED(p.gc)}`);
+  if (p.gr) s.push(`grid-row:${SPACED(p.gr)}`);
+  if (p.flow) s.push(`grid-auto-flow:${SPACED(p.flow)}`);
   return s.join(";");
 }
 

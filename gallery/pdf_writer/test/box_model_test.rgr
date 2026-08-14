@@ -221,6 +221,41 @@ class BoxModelTest {
         if (n.has("fs")) {
             el.setAttribute("font-size" (n.get("fs")))
         }
+        ; Grid. Values that need spaces ("1fr 2fr", "1 / 3") carry underscores
+        ; in the fixture file, which is whitespace-delimited.
+        if (n.has("disp")) {
+            el.setAttribute("display" (n.get("disp")))
+        }
+        if (n.has("gtc")) {
+            el.setAttribute("grid-template-columns" (BoxModelTest.unspace((n.get("gtc")))))
+        }
+        if (n.has("gtr")) {
+            el.setAttribute("grid-template-rows" (BoxModelTest.unspace((n.get("gtr")))))
+        }
+        if (n.has("gc")) {
+            el.setAttribute("grid-column" (BoxModelTest.unspace((n.get("gc")))))
+        }
+        if (n.has("gr")) {
+            el.setAttribute("grid-row" (BoxModelTest.unspace((n.get("gr")))))
+        }
+        if (n.has("flow")) {
+            el.setAttribute("grid-auto-flow" (BoxModelTest.unspace((n.get("flow")))))
+        }
+    }
+
+    sfn unspace:string (v:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen v)) {
+            def c:int (charAt v i)
+            if (c == 95) {
+                out = out + " "
+            } {
+                out = out + (strfromcode c)
+            }
+            i = (i + 1)
+        }
+        return out
     }
 
     fn findNode:int (fixture:string id:string) {

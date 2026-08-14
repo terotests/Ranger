@@ -111,6 +111,7 @@ class EVGTest {
         test.testGridTracks(t)
         test.testGridPlacement(t)
         test.testNamedGridLines(t)
+        test.testIntrinsicGridTracks(t)
         test.testLayoutWarnings(t)
         test.testGridLayout(t)
         test.testGridContentRows(t)
@@ -1755,9 +1756,25 @@ class EVGTest {
         def rp1:EVGGridTrack (rep.trackAt(1))
         t.near("repeated minmax tracks share evenly" rp1.sizePx 100.0)
 
+        ; fit-content() is a real track now: an intrinsic track with a ceiling.
+        def fc:EVGGridTemplate (EVGGridTemplate.parse("fit-content(100px) 1fr"))
+        t.no("fit-content() parses" fc.hadError)
+        t.eqInt("fit-content() is one track" (fc.count()) 2)
+        def fct:EVGGridTrack (fc.trackAt(0))
+        t.eqInt("fit-content() is an intrinsic track" fct.kind 3)
+        t.ok("...with a limit" fct.hasFitLimit)
+
+        ; `auto` is intrinsic too, and no longer a disguised 1fr.
+        def au:EVGGridTemplate (EVGGridTemplate.parse("auto 1fr"))
+        def aut:EVGGridTrack (au.trackAt(0))
+        t.eqInt("auto is an intrinsic track" aut.kind 3)
+        t.no("...with no limit" aut.hasFitLimit)
+
         ; Genuinely unsupported syntax is still reported.
-        def bad:EVGGridTemplate (EVGGridTemplate.parse("fit-content(10px)"))
+        def bad:EVGGridTemplate (EVGGridTemplate.parse("nonesuch(10px)"))
         t.ok("unknown track functions are reported" bad.hadError)
+        def badLimit:EVGGridTemplate (EVGGridTemplate.parse("fit-content(bogus)"))
+        t.ok("an unparseable fit-content limit is reported" badLimit.hadError)
     }
 
     ; ---- grid: placement parsing ----------------------------------------------
@@ -1854,6 +1871,94 @@ class EVGTest {
         t.eqInt("a name after repeat is past the last track" (rep.lineNumberNamed("right")) 4)
     }
 
+    ; ---- grid: intrinsic tracks ----------------------------------------------
+    ; `auto` sizes to the content of the items in it; `fit-content(limit)` caps
+    ; that, but never below min-content. The browser box-model gate covers this
+    ; for items with definite widths (see fixtures/box_model.fixtures); the
+    ; limit only actually bites on text, which can be squeezed, and that is
+    ; what this covers.
+    ;
+    ; The suite's measurer gives every character a width of fontSize * 0.5, so
+    ; at 10px a character is 5px wide and the numbers below are exact.
+    fn testIntrinsicGridTracks:void (t:RgTest) {
+        ; "auto 1fr": the auto track takes the item's width, the fr the rest.
+        def root (new EVGElement())
+        root.setAttribute("width" "300px")
+        root.setAttribute("height" "100px")
+        root.setAttribute("display" "grid")
+        root.setAttribute("grid-template-columns" "auto 1fr")
+        def a (new EVGElement())
+        a.setAttribute("width" "80px")
+        root.addChild(a)
+        def b (new EVGElement())
+        root.addChild(b)
+        def lay (new EVGLayout())
+        def rec0 (new RecordingMeasurer())
+        lay.setMeasurer(rec0)
+        lay.layout(root)
+        t.near("auto track takes the item's width" a.calculatedWidth 80.0)
+        t.near("the fr track takes the rest" b.calculatedWidth 220.0)
+        t.near("and starts after it" b.calculatedX 80.0)
+
+        ; A text item: "auto" takes its longest unbroken line.
+        def r2 (new EVGElement())
+        r2.setAttribute("width" "400px")
+        r2.setAttribute("height" "100px")
+        r2.setAttribute("display" "grid")
+        r2.setAttribute("grid-template-columns" "auto 1fr")
+        def txt (new EVGElement())
+        txt.setAttribute("font-size" "10px")
+        txt.textContent = "abcd efg"
+        r2.addChild(txt)
+        def pad (new EVGElement())
+        r2.addChild(pad)
+        def lay2 (new EVGLayout())
+        def rec2 (new RecordingMeasurer())
+        lay2.setMeasurer(rec2)
+        lay2.layout(r2)
+        ; 8 characters at 5px = 40px of max-content.
+        t.near("auto sizes text to its longest line" txt.calculatedWidth 40.0)
+
+        ; fit-content(25px) on the same text: the limit is below max-content
+        ; (40px) but above min-content (the longest word, "abcd" = 20px), so
+        ; the limit is what wins.
+        def r3 (new EVGElement())
+        r3.setAttribute("width" "400px")
+        r3.setAttribute("height" "100px")
+        r3.setAttribute("display" "grid")
+        r3.setAttribute("grid-template-columns" "fit-content(25px) 1fr")
+        def txt3 (new EVGElement())
+        txt3.setAttribute("font-size" "10px")
+        txt3.textContent = "abcd efg"
+        r3.addChild(txt3)
+        def pad3 (new EVGElement())
+        r3.addChild(pad3)
+        def lay3 (new EVGLayout())
+        def rec3 (new RecordingMeasurer())
+        lay3.setMeasurer(rec3)
+        lay3.layout(r3)
+        t.near("fit-content clamps to its limit" txt3.calculatedWidth 25.0)
+
+        ; fit-content(10px): below min-content, so min-content wins and the
+        ; item keeps its longest word rather than spilling out of the track.
+        def r4 (new EVGElement())
+        r4.setAttribute("width" "400px")
+        r4.setAttribute("height" "100px")
+        r4.setAttribute("display" "grid")
+        r4.setAttribute("grid-template-columns" "fit-content(10px) 1fr")
+        def txt4 (new EVGElement())
+        txt4.setAttribute("font-size" "10px")
+        txt4.textContent = "abcd efg"
+        r4.addChild(txt4)
+        def pad4 (new EVGElement())
+        r4.addChild(pad4)
+        def lay4 (new EVGLayout())
+        def rec4 (new RecordingMeasurer())
+        lay4.setMeasurer(rec4)
+        lay4.layout(r4)
+        t.near("fit-content never goes below min-content" txt4.calculatedWidth 20.0)
+    }
+
     ; ---- layout: unsupported declarations are reported ------------------------
     ; These all used to go to this.log(), which does nothing unless `debug` is
     ; on. A grid came out with the wrong number of columns and said nothing.
@@ -1862,7 +1967,7 @@ class EVGTest {
         root.setAttribute("width" "600px")
         root.setAttribute("height" "400px")
         root.setAttribute("display" "grid")
-        root.setAttribute("grid-template-columns" "fit-content(100px) 1fr")
+        root.setAttribute("grid-template-columns" "nonesuch(100px) 1fr")
         root.setAttribute("grid-template-rows" "subgrid")
 
         def a (new EVGElement())
@@ -1878,7 +1983,7 @@ class EVGTest {
 
         t.eqInt("every unsupported declaration is reported" (lay.warningCount()) 4)
         t.ok("the message names the property" ((indexOf (lay.warningAt(0)) "grid-template-columns") >= 0))
-        t.ok("and what it could not do" ((indexOf (lay.warningAt(0)) "fit-content(100px)") >= 0))
+        t.ok("and what it could not do" ((indexOf (lay.warningAt(0)) "nonesuch(100px)") >= 0))
 
         ; A grid the engine fully understands stays quiet.
         def ok (new EVGElement())

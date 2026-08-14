@@ -1395,6 +1395,54 @@ class EVGLayout {
     ; Auto-flow row placement over a fixed column count. Items may span columns
     ; and rows; an occupancy map keeps spans from overlapping. Returns the total
     ; content height, same contract as layoutChildren.
+    ; What a grid item contributes to an intrinsic track.
+    ;
+    ; A definite width is both the min- and max-content size, so it is the
+    ; whole answer. A text leaf contributes its longest unbroken line. Anything
+    ; else contributes nothing: sizing a container to its subtree needs a real
+    ; intrinsic pass, and reporting a made-up number would silently misplace
+    ; every neighbour rather than merely leave a track narrow.
+    fn intrinsicWidthOf:double (el:EVGElement) {
+        return (this.intrinsicWidth(el false))
+    }
+
+    ; The narrowest the item can be squeezed to — for text, its longest word.
+    fn minIntrinsicWidthOf:double (el:EVGElement) {
+        return (this.intrinsicWidth(el true))
+    }
+
+    fn intrinsicWidth:double (el:EVGElement wantMin:boolean) {
+        def outer:double 0.0
+        if el.width.isSet {
+            ; A definite width is both the min- and the max-content size.
+            outer = el.width.pixels
+        } {
+            def textContent:string el.textContent
+            if ((strlen textContent) > 0) {
+                if ((el.getChildCount()) == 0) {
+                    def fs:double el.inheritedFontSize
+                    if el.fontSize.isSet {
+                        fs = el.fontSize.pixels
+                    }
+                    if (fs <= 0.0) {
+                        fs = 14.0
+                    }
+                    def contentW:double 0.0
+                    if wantMin {
+                        contentW = (textEngine.minLineWidth(textContent el.fontFamily fs))
+                    } {
+                        contentW = (textEngine.maxLineWidth(textContent el.fontFamily fs))
+                    }
+                    outer = (contentW + (el.box.getHorizontalChrome()))
+                }
+            }
+        }
+        if (outer <= 0.0) {
+            return 0.0
+        }
+        return ((outer + el.box.marginLeftPx) + el.box.marginRightPx)
+    }
+
     fn layoutGrid:double (parent:EVGElement) {
         def innerWidth:double parent.calculatedInnerWidth
         def innerHeight:double parent.calculatedInnerHeight
@@ -1487,7 +1535,10 @@ class EVGLayout {
             return 0.0
         }
         def colGapTotal:double ((to_double (colCount - 1)) * colGapPx)
-        cols.resolve((innerWidth - colGapTotal))
+        ; Column sizing is deferred until after placement: an `auto` or
+        ; `fit-content()` track is sized from the items that land in it, so
+        ; the tracks cannot be resolved until it is known which those are.
+        ; Nothing between here and there reads a track extent.
 
         ; The row template is parsed here as well as where the rows are sized,
         ; because a `grid-row` naming a line has to be resolved before
@@ -1656,6 +1707,41 @@ class EVGLayout {
             push placedCol col
             k = (k + 1)
         }
+
+        ; --- column sizing ---------------------------------------------------
+        ; Intrinsic tracks take the widest item placed in them. Only items that
+        ; occupy a single column contribute: an item spanning several has no
+        ; one track to charge, and CSS distributes it in a later step this
+        ; engine does not have — so it is left out rather than guessed at.
+        def colContent:[double]
+        def colMinContent:[double]
+        def ci:int 0
+        while (ci < colCount) {
+            push colContent 0.0
+            push colMinContent 0.0
+            ci = (ci + 1)
+        }
+        if (cols.hasIntrinsicTrack()) {
+            def ic:int 0
+            while (ic < (array_length items)) {
+                if ((itemAt colSpans ic) == 1) {
+                    def col2:int (itemAt placedCol ic)
+                    if (col2 < colCount) {
+                        def it:EVGElement (itemAt items ic)
+                        def w2:double (this.intrinsicWidthOf(it))
+                        if (w2 > (itemAt colContent col2)) {
+                            set colContent col2 w2
+                        }
+                        def m2:double (this.minIntrinsicWidthOf(it))
+                        if (m2 > (itemAt colMinContent col2)) {
+                            set colMinContent col2 m2
+                        }
+                    }
+                }
+                ic = (ic + 1)
+            }
+        }
+        cols.resolveWithContent((innerWidth - colGapTotal) colContent colMinContent)
 
         ; --- row sizing ------------------------------------------------------
         def rowSpec:string parent.gridTemplateRows

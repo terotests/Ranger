@@ -214,6 +214,23 @@ class EVGTextEngine {
         return maxW
     }
 
+    ; The narrowest this text can be made without breaking a word — CSS's
+    ; min-content. Breaking at every opportunity puts one word per line, so the
+    ; widest of those lines is the answer.
+    fn minLineWidth:double (text:string fontFamily:string fontSize:double) {
+        def lines:[EVGTextLine] (this.breakLines(text fontFamily fontSize 0.001))
+        def maxW:double 0.0
+        def i:int 0
+        while (i < (array_length lines)) {
+            def ln:EVGTextLine (itemAt lines i)
+            if (ln.width > maxW) {
+                maxW = ln.width
+            }
+            i = (i + 1)
+        }
+        return maxW
+    }
+
     ; Convenience for callers that only want the strings (PDF paint).
     fn breakToStrings:[string] (text:string fontFamily:string fontSize:double maxWidth:double) {
         def out:[string]

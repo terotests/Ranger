@@ -20,7 +20,13 @@
 #
 # A bare number means px, exactly as it does in EVGUnit.parse; anything with a
 # suffix is passed through to both sides untouched, so %, em, rem, pt, pc, in,
-# mm and cm all work wherever a length does.
+# mm and cm all work wherever a length does. NOTE that this does not hold
+# inside a grid track list, which goes to the browser as written — spell those
+# "100px", not "100".
+#
+# Grid keys: disp=grid, gtc/gtr (grid-template-columns/rows), gc/gr
+# (grid-column/row), flow (grid-auto-flow). Values needing spaces write them as
+# underscores, because this file is whitespace-delimited.
 #
 # EVG treats `w`/`h` as the border box with padding inside it, so the browser
 # side sets box-sizing: border-box. EVG's flow is flex, so the browser side uses
@@ -247,3 +253,104 @@ N root -   w=400 h=200 fs=16 bg=#ffffff
 N box root w=300 h=120 fs=2em bg=#dddddd
 N a   box  w=1em  h=20 bg=#ff0000
 N b   box  w=1rem h=20 bg=#00ff00
+
+# ---- grid ------------------------------------------------------------------
+# Values that need spaces carry underscores: the file is whitespace-delimited.
+#   disp=grid  gtc/gtr = grid-template-columns/rows   gc/gr = grid-column/row
+#   flow = grid-auto-flow
+#
+# The browser side sets align-items/justify-items:stretch and *-content:start
+# on a grid container, which are the CSS defaults — the flex-start it uses
+# elsewhere would shrink-wrap every item instead of filling its cell.
+
+F grid-fr-tracks
+N root -   w=300 h=100 disp=grid gtc=1fr_1fr_1fr gtr=100px bg=#ffffff
+N a   root h=100 bg=#ff0000
+N b   root h=100 bg=#00ff00
+N c   root h=100 bg=#0000ff
+
+F grid-mixed-tracks
+N root -   w=400 h=100 disp=grid gtc=100px_1fr_25% gtr=100px bg=#ffffff
+N a   root h=100 bg=#ff0000
+N b   root h=100 bg=#00ff00
+N c   root h=100 bg=#0000ff
+
+F grid-gap
+N root -   w=320 h=220 disp=grid gtc=1fr_1fr gtr=100px_100px gap=20 bg=#ffffff
+N a   root bg=#ff0000
+N b   root bg=#00ff00
+N c   root bg=#0000ff
+N d   root bg=#ffff00
+
+F grid-repeat
+N root -   w=300 h=60 disp=grid gtc=repeat(3,_1fr) gtr=60px bg=#ffffff
+N a   root bg=#ff0000
+N b   root bg=#00ff00
+N c   root bg=#0000ff
+
+F grid-span
+N root -   w=300 h=200 disp=grid gtc=1fr_1fr_1fr gtr=100px_100px gap=0 bg=#ffffff
+N a   root gc=span_2 bg=#ff0000
+N b   root bg=#00ff00
+N c   root gc=1_/_4 bg=#0000ff
+
+F grid-explicit-lines
+N root -   w=300 h=200 disp=grid gtc=1fr_1fr_1fr gtr=100px_100px bg=#ffffff
+N a   root gc=2_/_4 gr=1_/_2 bg=#ff0000
+N b   root gc=1_/_2 gr=2_/_3 bg=#00ff00
+
+F grid-named-lines
+N root -   w=300 h=200 disp=grid gtc=[full-start]_1fr_[main-start]_2fr_[main-end] gtr=[top]_100px_[mid]_100px_[bottom] bg=#ffffff
+N a   root gc=main-start_/_main-end gr=top_/_mid bg=#ff0000
+N b   root gc=full-start_/_main-start gr=mid_/_bottom bg=#00ff00
+
+F grid-minmax
+N root -   w=300 h=80 disp=grid gtc=minmax(40px,_1fr)_1fr gtr=80px bg=#ffffff
+N a   root bg=#ff0000
+N b   root bg=#00ff00
+
+F grid-minmax-clamped
+N root -   w=400 h=80 disp=grid gtc=minmax(0px,_60px)_1fr gtr=80px bg=#ffffff
+N a   root bg=#ff0000
+N b   root bg=#00ff00
+
+F grid-percent-tracks
+N root -   w=400 h=80 disp=grid gtc=25%_50%_25% gtr=80px bg=#ffffff
+N a   root bg=#ff0000
+N b   root bg=#00ff00
+N c   root bg=#0000ff
+
+F grid-padding
+N root -   w=340 h=140 pad=20 disp=grid gtc=1fr_1fr gtr=100px gap=20 bg=#ffffff
+N a   root bg=#ff0000
+N b   root bg=#00ff00
+
+# `auto` and `fit-content()` size to the CONTENT of the items in the track.
+# The items here carry definite widths, which is the part of intrinsic sizing
+# that does not need text measurement.
+F grid-auto-track
+N root -   w=300 h=80 disp=grid gtc=auto_1fr gtr=80px bg=#ffffff
+N a   root w=80 bg=#ff0000
+N b   root bg=#00ff00
+
+F grid-auto-two
+N root -   w=400 h=80 disp=grid gtc=auto_auto gtr=80px bg=#ffffff
+N a   root w=60  bg=#ff0000
+N b   root w=100 bg=#00ff00
+
+F grid-auto-widest-wins
+N root -   w=400 h=180 disp=grid gtc=auto_1fr gtr=80px_80px bg=#ffffff
+N a   root w=50  bg=#ff0000
+N b   root bg=#00ff00
+N c   root w=120 bg=#0000ff
+N d   root bg=#ffff00
+
+F grid-fit-content-clamps
+N root -   w=400 h=80 disp=grid gtc=fit-content(100px)_1fr gtr=80px bg=#ffffff
+N a   root w=200 bg=#ff0000
+N b   root bg=#00ff00
+
+F grid-fit-content-under-limit
+N root -   w=400 h=80 disp=grid gtc=fit-content(150px)_1fr gtr=80px bg=#ffffff
+N a   root w=70 bg=#ff0000
+N b   root bg=#00ff00

@@ -18,18 +18,25 @@
 ; EVGLayout collects and the tools print — an unsupported declaration changes
 ; the layout, so it must not be dropped in silence.
 ;
-; `auto` in a track list is accepted and treated as `1fr`. Real CSS sizes an
-; auto track to its content and only then distributes leftover space; doing
-; that properly needs a content-measuring pass per track, which v1 does not
-; have. Equal-share is predictable and documented rather than subtly wrong.
+; `auto` and `fit-content(limit)` size to the content of the items placed in
+; the track: EVGLayout measures each item's min- and max-content width and
+; hands the per-track maxima to resolveWithContent(). `auto` takes the
+; max-content size; `fit-content(limit)` clamps that to the limit but never
+; below min-content, so an item that cannot be made narrower still fits.
+; Leftover space then goes to the `fr` tracks as before.
 
 Import "EVGUnit.rgr"
 
 ; One column or row track.
-;   kind 0 = fixed pixels, 1 = percentage of the container, 2 = fr
+;   kind 0 = fixed pixels, 1 = percentage of the container, 2 = fr,
+;        3 = intrinsic (`auto`, or `fit-content(limit)` when hasFitLimit)
 class EVGGridTrack {
     def kind:int 0
     def value:double 0.0
+    ; fit-content(limit): the ceiling on the max-content side. Without it an
+    ; intrinsic track is a plain `auto`.
+    def hasFitLimit:boolean false
+    def fitLimit:EVGUnit
     ; Resolved extent in pixels, filled in by EVGGridTemplate.resolve.
     def sizePx:double 0.0
     ; minmax(min, max) bounds in pixels. Percentages are resolved against the
@@ -49,8 +56,10 @@ class EVGGridTrack {
         hasMin = false
         hasMax = false
         frozen = false
+        hasFitLimit = false
         minUnit = (EVGUnit.unset())
         maxUnit = (EVGUnit.unset())
+        fitLimit = (EVGUnit.unset())
     }
 }
 
@@ -320,10 +329,26 @@ class EVGGridTemplate {
         }
         def track (new EVGGridTrack())
 
-        ; `auto` behaves as 1fr here — see the header note.
+        ; `auto` is an intrinsic track: sized to the content of whatever lands
+        ; in it. It used to be 1fr, which is predictable but not what CSS does.
         if (t == "auto") {
-            track.kind = 2
-            track.value = 1.0
+            track.kind = 3
+            push tracks track
+            return
+        }
+
+        ; fit-content(limit) — an intrinsic track with a ceiling.
+        if (EVGGridTemplate.isFitContent(t)) {
+            def inner:string (trim (substring t 12 (len - 1)))
+            def lim:EVGUnit (EVGUnit.parse(inner))
+            if (lim.isSet == false) {
+                hadError = true
+                errorText = ("Unsupported fit-content() limit: " + inner)
+                return
+            }
+            track.kind = 3
+            track.hasFitLimit = true
+            track.fitLimit = lim
             push tracks track
             return
         }
@@ -366,7 +391,42 @@ class EVGGridTemplate {
     ; Resolve every track to pixels inside `available`, which must already have
     ; the gaps subtracted. Fixed and percentage tracks take their size first;
     ; whatever is left is split between the fr tracks in proportion.
+    ; Does any track need to know what is in it?
+    fn hasIntrinsicTrack:boolean () {
+        def i:int 0
+        while (i < (array_length tracks)) {
+            def t:EVGGridTrack (itemAt tracks i)
+            if (t.kind == 3) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn isFitContent:boolean (tok:string) {
+        if ((strlen tok) < 14) {
+            return false
+        }
+        if ((substring tok 0 12) != "fit-content(") {
+            return false
+        }
+        return ((charAt tok ((strlen tok) - 1)) == 41)
+    }
+
+    ; Size the tracks with no content information — every intrinsic track ends
+    ; up at zero. Callers that know what is in the tracks use resolveWithContent.
     fn resolve:void (available:double) {
+        def empty:[double]
+        def empty2:[double]
+        this.resolveWithContent(available empty empty2)
+    }
+
+    ; `content` and `minContent` give each track's max-content and min-content
+    ; width by index — the widest item placed in it, and the narrowest that
+    ; item can be squeezed to. Shorter than the track list (or empty) means the
+    ; rest have no content.
+    fn resolveWithContent:void (available:double content:[double] minContent:[double]) {
         def n:int (array_length tracks)
         def used:double 0.0
         def totalFr:double 0.0
@@ -394,6 +454,39 @@ class EVGGridTemplate {
             }
             if (t.kind == 2) {
                 totalFr = (totalFr + t.value)
+            }
+            if (t.kind == 3) {
+                ; Intrinsic: the widest thing in the track, capped by a
+                ; fit-content() limit if there is one. CSS floors that clamp at
+                ; min-content, but an item that cannot wrap has min-content ==
+                ; max-content, and this engine only measures items that cannot
+                ; — so the floor is the measurement itself and clamping below
+                ; it would make the item overflow its own track.
+                def c:double 0.0
+                if (i < (array_length content)) {
+                    c = (itemAt content i)
+                }
+                if t.hasFitLimit {
+                    t.fitLimit.resolve(available 16.0)
+                    if (c > t.fitLimit.pixels) {
+                        c = t.fitLimit.pixels
+                    }
+                    ; The clamp is floored at min-content: an item that cannot
+                    ; be made narrower than the limit keeps its size and the
+                    ; track grows to hold it, rather than the item spilling out
+                    ; of its own cell. For an item with a definite width that
+                    ; floor IS its width, which is why fit-content(100px)
+                    ; around a 200px box measures 200 in a browser.
+                    if (i < (array_length minContent)) {
+                        def floorPx:double (itemAt minContent i)
+                        if (c < floorPx) {
+                            c = floorPx
+                        }
+                    }
+                }
+                t.sizePx = c
+                used = (used + c)
+                t.frozen = true
             }
             i = (i + 1)
         }

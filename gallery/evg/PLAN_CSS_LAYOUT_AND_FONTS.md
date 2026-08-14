@@ -40,7 +40,7 @@ Without that, flex/grid improvements will still look wrong in print.
 | `flex-wrap` | `wrap` (default) / `nowrap` / `wrap-reverse`, with the full `align-content` set including `stretch` | — |
 | Alignment | `justifyContent`, `alignItems` (incl. `stretch` and `baseline`), plus legacy `align` / `verticalAlign` | Naming overlap between the CSS and legacy names |
 | Text intrinsic size | Shrink-wraps to content measured from the real face | — |
-| Grid | `display: grid` with fr/px/%/repeat/`minmax()` tracks, gaps, spans, `grid-template-areas`, `grid-auto-flow: dense`, column `subgrid`, named lines | Row `subgrid`; `fit-content()`; `auto` tracks size as `1fr` |
+| Grid | `display: grid` with fr/px/%/`auto`/`fit-content()`/repeat/`minmax()` tracks, gaps, spans, `grid-template-areas`, `grid-auto-flow: dense`, column `subgrid`, named lines. 16 fixtures checked against Chromium | Row `subgrid`; intrinsic sizing of a container item (only definite widths and text leaves contribute) |
 | Styles | Mostly inline JSX attributes | No class/theme stylesheet layer |
 
 `min-width` / `max-width` / `min-height` / `max-height` already parse and clamp;
@@ -306,9 +306,13 @@ Target photo-book pages, not full CSS Grid Level 2.
   A name the template does not define leaves the item auto-placed and is
   reported.
 
-Still out of scope: **row `subgrid`** (row sizes are only known after the items
-are measured, so inheriting them needs a second pass the engine does not have)
-and `fit-content()`. Both are reported rather than dropped — see Phase 4.2.
+- **Intrinsic tracks** — `auto` sizes to the content of the items placed in it,
+  and `fit-content(limit)` caps that without ever going below min-content. See
+  Phase 4.4.
+
+Still out of scope: **row `subgrid`** — row sizes are only known after the
+items are measured, so inheriting them needs a second pass the engine does not
+have. It is reported rather than dropped, see Phase 4.2.
 
 ## 8. Shared text engine API (contract)
 
@@ -708,6 +712,41 @@ Results:
 
 All 19 rendering examples that contain text moved, every diff a width or a
 position — no text and no structure changed.
+
+### Phase 4.4 — Grid, against a browser ✅
+
+The box-model parity gate learned `display: grid`, so the grid work stopped
+being checked against hand-computed expectations and started being checked
+against Chromium. Sixteen fixtures: fr tracks, mixed px/fr/%, gaps, `repeat()`,
+spans, explicit lines, named lines, `minmax()` both clamped and not, percentage
+tracks, and a padded container. The gate is now **894 assertions over 161
+boxes**, and it needs no browser to run.
+
+The existing grid passed all of it on the first recording. That is the useful
+kind of result — it says the earlier phases were right, and it is what made the
+two genuine gaps stand out.
+
+**`auto` was a disguised `1fr`.** Predictable, documented, and not what CSS
+does: an `auto` track sizes to the content of the items in it, and only then is
+leftover space handed to the `fr` tracks. Column sizing is now deferred until
+after placement — the tracks cannot be sized until it is known what lands in
+them — and each intrinsic track takes the widest item placed in it.
+
+**`fit-content(limit)`** is the same track with a ceiling on the max-content
+side, floored at min-content. That floor is the whole subtlety: Chromium
+measures `fit-content(100px)` around a 200px box as **200**, because a box with
+a definite width cannot be squeezed and the clamp would push it out of its own
+cell. The limit only bites on something that *can* be squeezed — text — which
+is why `EVGTextEngine` gained `minLineWidth` (break at every opportunity, take
+the widest line: CSS's min-content) to sit beside `maxLineWidth`.
+
+What contributes to an intrinsic track is deliberately narrow: an item with a
+definite width (which is both its min- and max-content size) and a text leaf.
+A container item contributes nothing rather than a guess — sizing one to its
+subtree needs a real recursive intrinsic pass, and a made-up number would
+silently misplace every neighbour instead of merely leaving a track narrow.
+Items spanning several tracks are left out for the same reason: there is no one
+track to charge them to.
 
 ## 11. File / module impact (expected)
 
