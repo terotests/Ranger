@@ -24643,6 +24643,33 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               rustFieldAccessorName (p) {
                 return "rgf_" + this.adjustType(p.compiledName);
               };
+              rustFieldIsPlainString (p, ctx) {
+                if ( p.rust_needs_rc_wrap ) {
+                  return false;
+                }
+                if ( p.is_optional ) {
+                  return false;
+                }
+                if ( p.rust_static_str ) {
+                  return false;
+                }
+                const nameN = p.nameNode;
+                if ( typeof(nameN) === "undefined" ) {
+                  return false;
+                }
+                const nn = nameN;
+                if ( ((nn.array_type.length) > 0) || ((nn.key_type.length) > 0) ) {
+                  return false;
+                }
+                let v_type = nn.value_type;
+                if ( ((v_type == 10) || (v_type == 11)) || (v_type == 0) ) {
+                  v_type = nn.typeNameAsType(ctx);
+                }
+                if ( nn.eval_type != 0 ) {
+                  v_type = nn.eval_type;
+                }
+                return v_type == 4;
+              };
               rustFieldIsCopyScalar (p, ctx) {
                 if ( p.rust_needs_rc_wrap ) {
                   return false;
@@ -24689,7 +24716,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 for ( let i = 0; i < cl.variables.length; i++) {
                   var pvar = cl.variables[i];
                   const acc = this.rustFieldAccessorName(pvar);
-                  if ( this.rustFieldIsCopyScalar(pvar, ctx) ) {
+                  if ( this.rustFieldIsCopyScalar(pvar, ctx) || this.rustFieldIsPlainString(pvar, ctx) ) {
                     wr.out(("fn " + acc) + "(&self) -> ", false);
                   } else {
                     wr.out(("fn " + acc) + "(&self) -> &", false);
@@ -24706,14 +24733,20 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   var pvar = cl.variables[i];
                   const acc = this.rustFieldAccessorName(pvar);
                   const fld = this.adjustType(pvar.compiledName);
-                  if ( this.rustFieldIsCopyScalar(pvar, ctx) ) {
+                  if ( this.rustFieldIsPlainString(pvar, ctx) ) {
                     wr.out(("fn " + acc) + "(&self) -> ", false);
                     await this.writeStructFieldType(pvar, ctx, wr);
-                    wr.out((" { self." + fld) + " }", true);
+                    wr.out((" { self." + fld) + ".clone() }", true);
                   } else {
-                    wr.out(("fn " + acc) + "(&self) -> &", false);
-                    await this.writeStructFieldType(pvar, ctx, wr);
-                    wr.out((" { &self." + fld) + " }", true);
+                    if ( this.rustFieldIsCopyScalar(pvar, ctx) ) {
+                      wr.out(("fn " + acc) + "(&self) -> ", false);
+                      await this.writeStructFieldType(pvar, ctx, wr);
+                      wr.out((" { self." + fld) + " }", true);
+                    } else {
+                      wr.out(("fn " + acc) + "(&self) -> &", false);
+                      await this.writeStructFieldType(pvar, ctx, wr);
+                      wr.out((" { &self." + fld) + " }", true);
+                    }
                   }
                   wr.out(("fn " + acc) + "_mut(&mut self) -> &mut ", false);
                   await this.writeStructFieldType(pvar, ctx, wr);
@@ -29317,6 +29350,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                           }
                           let rhs_is_already_boxed_trait = false;
+                          if ( (typeof(right.fnDesc) !== "undefined" && right.fnDesc != null )  ) {
+                            const rhsFn = right.fnDesc;
+                            const rhsFnNN = rhsFn.nameNode;
+                            if ( (typeof(rhsFnNN) !== "undefined" && rhsFnNN != null )  ) {
+                              const rhsFnN = rhsFnNN;
+                              if ( ((rhsFnN.array_type.length) == 0) && ((rhsFnN.key_type.length) == 0) ) {
+                                if ( this.rustTypeIsOwnHandle(rhsFnN.type_name, ctx) ) {
+                                  rhs_is_already_boxed_trait = true;
+                                  should_clone_rhs = false;
+                                }
+                              }
+                            }
+                          }
                           if ( right.value_type == 11 ) {
                             if ( right.hasParamDesc ) {
                               const rhsP = right.paramDesc;

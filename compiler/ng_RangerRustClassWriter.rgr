@@ -1300,6 +1300,39 @@ class RangerRustClassWriter {
   ; reference: `&bool` where a `bool` is wanted is a type error at every
   ; single read, and a copy of an i64 is what the reference would have been
   ; dereferenced into anyway.
+  ; A plain `string` field. Its read accessor hands back an owned String
+  ; rather than a `&String`: a borrowed one reached call sites that add
+  ; their own `&` — `map.contains_key(&x.rgf_name())` becomes `&&String`,
+  ; which satisfies no Borrow bound — and every reader of a string field in
+  ; the compiler wants a value it can keep anyway.
+  fn rustFieldIsPlainString:boolean (p:RangerAppParamDesc ctx:RangerAppWriterContext) {
+    if p.rust_needs_rc_wrap {
+      return false
+    }
+    if p.is_optional {
+      return false
+    }
+    if p.rust_static_str {
+      return false
+    }
+    def nameN@(optional):CodeNode p.nameNode
+    if (null? nameN) {
+      return false
+    }
+    def nn:CodeNode (unwrap nameN)
+    if (((strlen nn.array_type) > 0) || ((strlen nn.key_type) > 0)) {
+      return false
+    }
+    def v_type:RangerNodeType nn.value_type
+    if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
+      v_type = (nn.typeNameAsType(ctx))
+    }
+    if (nn.eval_type != RangerNodeType.NoType) {
+      v_type = nn.eval_type
+    }
+    return (v_type == RangerNodeType.String)
+  }
+
   fn rustFieldIsCopyScalar:boolean (p:RangerAppParamDesc ctx:RangerAppWriterContext) {
     if p.rust_needs_rc_wrap {
       return false
@@ -1346,7 +1379,7 @@ class RangerRustClassWriter {
   fn writeTraitFieldAccessorDecls:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     for cl.variables pvar:RangerAppParamDesc i {
       def acc:string (this.rustFieldAccessorName(pvar))
-      if (this.rustFieldIsCopyScalar(pvar ctx)) {
+      if ((this.rustFieldIsCopyScalar(pvar ctx)) || (this.rustFieldIsPlainString(pvar ctx))) {
         wr.out((("fn " + acc) + "(&self) -> ") false)
       } {
         wr.out((("fn " + acc) + "(&self) -> &") false)
@@ -1363,6 +1396,11 @@ class RangerRustClassWriter {
     for cl.variables pvar:RangerAppParamDesc i {
       def acc:string (this.rustFieldAccessorName(pvar))
       def fld:string (this.adjustType(pvar.compiledName))
+      if (this.rustFieldIsPlainString(pvar ctx)) {
+        wr.out((("fn " + acc) + "(&self) -> ") false)
+        this.writeStructFieldType(pvar ctx wr)
+        wr.out(((" { self." + fld) + ".clone() }") true)
+      } {
       if (this.rustFieldIsCopyScalar(pvar ctx)) {
         wr.out((("fn " + acc) + "(&self) -> ") false)
         this.writeStructFieldType(pvar ctx wr)
@@ -1371,6 +1409,7 @@ class RangerRustClassWriter {
         wr.out((("fn " + acc) + "(&self) -> &") false)
         this.writeStructFieldType(pvar ctx wr)
         wr.out(((" { &self." + fld) + " }") true)
+      }
       }
       wr.out((("fn " + acc) + "_mut(&mut self) -> &mut ") false)
       this.writeStructFieldType(pvar ctx wr)
@@ -6792,6 +6831,23 @@ class RangerRustClassWriter {
       
       ; Check if RHS is already a Rc<dyn Trait> (parameter with trait object type)
       def rhs_is_already_boxed_trait:boolean false
+      ; A CALL that returns a class with children already hands back the
+      ; whole Rc<RefCell<dyn XTrait>> handle — only a name was checked here,
+      ; so `f = ctx.getVariableDef(n)` was wrapped a second time and the
+      ; result was an Rc holding an Rc.
+      if (!null? right.fnDesc) {
+        def rhsFn:RangerAppFunctionDesc (unwrap right.fnDesc)
+        def rhsFnNN@(optional):CodeNode rhsFn.nameNode
+        if (!null? rhsFnNN) {
+          def rhsFnN:CodeNode (unwrap rhsFnNN)
+          if (((strlen rhsFnN.array_type) == 0) && ((strlen rhsFnN.key_type) == 0)) {
+            if (this.rustTypeIsOwnHandle(rhsFnN.type_name ctx)) {
+              rhs_is_already_boxed_trait = true
+              should_clone_rhs = false
+            }
+          }
+        }
+      }
       if (right.value_type == RangerNodeType.VRef) {
         if right.hasParamDesc {
           def rhsP:RangerAppParamDesc right.paramDesc
