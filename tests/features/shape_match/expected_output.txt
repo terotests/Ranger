@@ -1,0 +1,3 @@
+none
+num 4
+text ok

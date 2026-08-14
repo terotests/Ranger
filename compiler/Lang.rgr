@@ -1681,7 +1681,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 swift3 (  "nil" )
                 csharp ( "(" (typeof 1) "?)" (e 1)  )
                 cpp ( (e 1) )
-                java7 ( "Optional.of(" (e 1 ) ")")
+                java7 ( "null" )
                 go ( (e 1 ) )
                 swift6 ( "nil" )
                 kotlin ( "null" )
@@ -1963,6 +1963,15 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                     cpp ( (e 1 ) " + " "r_double_to_string(" (e 2) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>") (imp "<cstdlib>")
 (create_polyfill "
 inline std::string r_double_to_string(double v) {
+  /* An integral value prints WITHOUT a decimal point and without an
+     exponent, which is what every other target does: the shortest
+     round-trip form of 1000000.0 under the general format is \"1e+06\",
+     so the same program printed a different number here than on ES6,
+     Python, Go or Rust. 1e15 is where a double still names every
+     integer exactly. */
+  if (v == v && v > -1e15 && v < 1e15 && v == (double)(long long) v) {
+    return std::to_string((long long) v);
+  }
     for (int p = 1; p < 18; p++) {
         std::ostringstream s;
         s << std::setprecision(p) << v;
@@ -2157,6 +2166,15 @@ inline std::string r_double_to_string(double v) {
                     cpp ( "r_double_to_string(" (e 1) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>") (imp "<cstdlib>")
 (create_polyfill "
 inline std::string r_double_to_string(double v) {
+  /* An integral value prints WITHOUT a decimal point and without an
+     exponent, which is what every other target does: the shortest
+     round-trip form of 1000000.0 under the general format is \"1e+06\",
+     so the same program printed a different number here than on ES6,
+     Python, Go or Rust. 1e15 is where a double still names every
+     integer exactly. */
+  if (v == v && v > -1e15 && v < 1e15 && v == (double)(long long) v) {
+    return std::to_string((long long) v);
+  }
     for (int p = 1; p < 18; p++) {
         std::ostringstream s;
         s << std::setprecision(p) << v;
@@ -2525,6 +2543,11 @@ def r_div_f64(a, b):
             }
         }
 
+        ; JAVA OPTIONALS ARE NULLABLE REFERENCES. The writer declares an
+        ; optional as the bare type (writeTypeDef leaves the Optional<> wrapper
+        ; commented out), `unwrap` is identity and `null?` is `== null` -- but the
+        ; truth tests here called .isPresent() on it, which does not exist on the
+        ; declared type. Every Java program with an optional failed to compile.
         if              cmdIf:void              ( condition@(optional):int then_block:block )  {
             templates {
                 cpp ( "if ( " (e 1) ".has_value ) {" nl I (block 2) i nl "}" nl )
@@ -2533,7 +2556,7 @@ def r_div_f64(a, b):
                 swift3 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 swift6 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 kotlin ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
-                java7 ( "if ( " (e 1) ".isPresent()) {" nl I (block 2) i nl "}" nl )
+                java7 ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 csharp ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 php ( "if ( isset( " (e 1) " ) ) {" nl I (block 2) i nl "}" nl )
                 go ( "if ( " (e 1) ".has_value) {" nl I (block 2) i nl "}" nl )
@@ -2552,7 +2575,7 @@ def r_div_f64(a, b):
                 swift3 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 swift6 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 kotlin ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
-                java7 ( "if ( " (e 1) ".isPresent()) {" nl I (block 2) i nl "}" nl )
+                java7 ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 csharp ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 php ( "if ( isset( " (e 1) " ) ) {" nl I (block 2) i nl "}" nl )
                 go ( "if ( " (e 1) ".has_value) {" nl I (block 2) i nl "}" nl )
@@ -2572,7 +2595,7 @@ def r_div_f64(a, b):
                 ranger ( "if ( " (e 1) " ) {" I nl (block 2) i nl "} {" nl I (block 3) i "}" nl)
                 php ( "if ( isset(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 scala ( "if ( " (e 1) ".isDefined ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
-                java7 ( "if ( " (e 1) ".isPresent() ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                java7 ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 csharp ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 kotlin ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 rust ( "if " (e 1) ".is_some() {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
@@ -2591,7 +2614,7 @@ def r_div_f64(a, b):
                 ranger ( "if ( " (e 1) " ) {" I nl (block 2) i nl "} {" nl I (block 3) i "}" nl)
                 php ( "if ( isset(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 scala ( "if ( " (e 1) ".isDefined ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
-                java7 ( "if ( " (e 1) ".isPresent() ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                java7 ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 csharp ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 kotlin ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 rust ( "if " (e 1) ".is_some() {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
@@ -2612,7 +2635,7 @@ def r_div_f64(a, b):
                 swift6 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 kotlin ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
                 dart ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
-                java7 ( "if ( " (e 1) ".isPresent()) {" nl I (block 2) i nl "}" nl )
+                java7 ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 csharp ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 ; go ( "" (e 1 ) " == nil " ) 
                 ; is_some
@@ -2631,7 +2654,7 @@ def r_div_f64(a, b):
                 ranger ( "if ( " (e 1) " ) {" I nl (block 2) i nl "} {" nl I (block 3) i "}" nl)
                 php ( "if ( isset(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 scala ( "if ( " (e 1) ".isDefined ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
-                java7 ( "if ( " (e 1) ".isPresent() ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                java7 ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 csharp ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 kotlin ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 dart ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl )
@@ -4463,7 +4486,11 @@ std::string r_utf8_char_at(const std::string& str, int pos_i)
                 dart ( (e 1) ".keys.toList()" )
                 swift3 ("Array(" (e 1) ".keys)")
                 swift6 ("Array(" (e 1) ".keys)")
-                scala ( (e 1) ".keys.to[collection.mutable.ArrayBuffer]")
+                ; `.to[C]` wants a HIGHER-KINDED name and was given the bare
+                ; class, which scalac rejects ("takes type parameters").
+                ; Building the buffer from the iterator says the element type
+                ; without naming a constructor at all.
+                scala ( "(collection.mutable.ArrayBuffer() ++= " (e 1) ".keys)")
                 php ("array_keys(" (e 1) ")")
                 es6 ( "Object.keys(" (e 1) ")")
                 csharp ( "new List<String>(" (e 1) ".Keys)")
@@ -4657,6 +4684,15 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 cpp ( "r_double_to_string(" (e 1) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>") (imp "<cstdlib>")
 (create_polyfill "
 inline std::string r_double_to_string(double v) {
+  /* An integral value prints WITHOUT a decimal point and without an
+     exponent, which is what every other target does: the shortest
+     round-trip form of 1000000.0 under the general format is \"1e+06\",
+     so the same program printed a different number here than on ES6,
+     Python, Go or Rust. 1e15 is where a double still names every
+     integer exactly. */
+  if (v == v && v > -1e15 && v < 1e15 && v == (double)(long long) v) {
+    return std::to_string((long long) v);
+  }
     for (int p = 1; p < 18; p++) {
         std::ostringstream s;
         s << std::setprecision(p) << v;
@@ -4673,14 +4709,30 @@ inline std::string r_double_to_string(double v) {
     return s.str();
 }
 ") )
-                java7 ( "String.valueOf(" (e 1) " )")
+                ; An integral double prints without the trailing ".0" that
+                ; String.valueOf gives it, so the same program prints "4" here
+                ; as it does on ES6, Python, Go, Rust and C++ rather than "4.0".
+                java7 ( "r_double_to_string(" (e 1) ")"
+(create_polyfill "
+static String r_double_to_string(double v) {
+  if (!Double.isNaN(v) && !Double.isInfinite(v) && v > -1e15 && v < 1e15 && v == Math.floor(v)) {
+    return String.valueOf((long) v);
+  }
+  return String.valueOf(v);
+}
+")
+                )
                 php ( "strval(" (e 1) ")")
-                scala ( "(" (e 1) ".toString)")
+                ; Same rule as everywhere else; a block, so the value is
+                ; evaluated once even when it is a call.
+                scala ( "{ val __d: Double = " (e 1) "; if (!__d.isNaN && !__d.isInfinite && __d > -1e15 && __d < 1e15 && __d == Math.floor(__d)) __d.toLong.toString else __d.toString }" )
                 go ("strconv.FormatFloat(" (e 1) ",'f', -1, 64)" (imp "strconv"))
                 swift3 ("String(" (e 1) ")")
                 swift6 ("String(" (e 1) ")")
                 python ( "str(" (e 1) ")" )
                 rust ( (e 1) ".to_string()" )
+                kotlin ( "(" (e 1) ").let { __d -> if (!__d.isNaN() && !__d.isInfinite() && __d > -1e15 && __d < 1e15 && __d == Math.floor(__d)) __d.toLong().toString() else __d.toString() }" )
+                dart ( "((double __d) => (__d.isFinite && __d > -1e15 && __d < 1e15 && __d == __d.roundToDouble()) ? __d.toInt().toString() : __d.toString())(" (e 1) ")" )
                 * ( "(" (e 1) ".toString())")
             }
         }
@@ -4691,6 +4743,15 @@ inline std::string r_double_to_string(double v) {
                 cpp ( "r_double_to_string(" (e 1) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>") (imp "<cstdlib>")
 (create_polyfill "
 inline std::string r_double_to_string(double v) {
+  /* An integral value prints WITHOUT a decimal point and without an
+     exponent, which is what every other target does: the shortest
+     round-trip form of 1000000.0 under the general format is \"1e+06\",
+     so the same program printed a different number here than on ES6,
+     Python, Go or Rust. 1e15 is where a double still names every
+     integer exactly. */
+  if (v == v && v > -1e15 && v < 1e15 && v == (double)(long long) v) {
+    return std::to_string((long long) v);
+  }
     for (int p = 1; p < 18; p++) {
         std::ostringstream s;
         s << std::setprecision(p) << v;
@@ -4707,9 +4768,23 @@ inline std::string r_double_to_string(double v) {
     return s.str();
 }
 ") )
-                java7 ( "String.valueOf(" (e 1) " )")
+                ; An integral double prints without the trailing ".0" that
+                ; String.valueOf gives it, so the same program prints "4" here
+                ; as it does on ES6, Python, Go, Rust and C++ rather than "4.0".
+                java7 ( "r_double_to_string(" (e 1) ")"
+(create_polyfill "
+static String r_double_to_string(double v) {
+  if (!Double.isNaN(v) && !Double.isInfinite(v) && v > -1e15 && v < 1e15 && v == Math.floor(v)) {
+    return String.valueOf((long) v);
+  }
+  return String.valueOf(v);
+}
+")
+                )
                 php ( "strval(" (e 1) ")")
-                scala ( "(" (e 1) ".toString)")
+                ; Same rule as everywhere else; a block, so the value is
+                ; evaluated once even when it is a call.
+                scala ( "{ val __d: Double = " (e 1) "; if (!__d.isNaN && !__d.isInfinite && __d > -1e15 && __d < 1e15 && __d == Math.floor(__d)) __d.toLong.toString else __d.toString }" )
                 go ("strconv.FormatFloat(" (e 1) ",'f', -1, 64)" (imp "strconv"))
                 swift3 ("String(" (e 1) ")")
                 swift6 ("String(" (e 1) ")")
@@ -4720,6 +4795,8 @@ inline std::string r_double_to_string(double v) {
                 ; writes. The invariant culture is not optional: the default
                 ; one puts a comma where the rest of the world expects a point.
                 csharp ( "(" (e 1) ").ToString(\"R\", System.Globalization.CultureInfo.InvariantCulture)" )
+                kotlin ( "(" (e 1) ").let { __d -> if (!__d.isNaN() && !__d.isInfinite() && __d > -1e15 && __d < 1e15 && __d == Math.floor(__d)) __d.toLong().toString() else __d.toString() }" )
+                dart ( "((double __d) => (__d.isFinite && __d > -1e15 && __d < 1e15 && __d == __d.roundToDouble()) ? __d.toInt().toString() : __d.toString())(" (e 1) ")" )
                 * ( "(" (e 1) ".toString())")
             }
         }
@@ -7153,7 +7230,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 csharp ( (e 1) " != null  && " (e 2) " != null") 
 
                 php ( "isset("(e 1) ") && isset(" (e 2) ")") 
-                java7 ( (e 1) ".isPresent()  && " (e 2) ".isPresent()") 
+                java7 ( (e 1) " != null  && " (e 2) " != null") 
                 rust ( (e 1) ".is_some()  && " (e 2) ".is_some()") 
                 swift3 ( (e 1) " != nil  && " (e 2) " != nil") 
                 swift6 ( (e 1) " != nil  && " (e 2) " != nil") 
@@ -7170,7 +7247,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 ranger ( "(" (e 1) " && " (e 2) ")" ) 
                 php ( (e 1) " && isset(" (e 2) ")") 
                 scala ( (e 1) " && " (e 2) ".isDefined") 
-                java7 ( (e 1) " && " (e 2) ".isPresent()") 
+                java7 ( (e 1) " && " (e 2) " != null") 
                 csharp ( (e 1) " && " (e 2) " != null") 
 
                 rust ( (e 1) " && " (e 2) ".is_some()") 
@@ -7189,7 +7266,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 ranger ( "(" (e 1) " && " (e 2) ")" ) 
                 php ( "isset("(e 1) ") && " (e 2) ) 
                 scala ( ""(e 1) ".isDefined && " (e 2) ) 
-                java7 ( ""(e 1) ".isPresent() && " (e 2) ) 
+                java7 ( ""(e 1) " != null && " (e 2) ) 
                 csharp ( ""(e 1) " != null && " (e 2) ) 
 
                 rust ( ""(e 1) ".is_some() && " (e 2) ) 

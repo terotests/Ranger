@@ -18623,7 +18623,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 wr.out("byte[]", false);
                 break;
               case 7 : 
-                wr.out(((("HashMap<" + await this.getObjectTypeString2(k_name, ctx, wr)) + ",") + await this.getObjectTypeString2(a_name, ctx, wr)) + ">", false);
+                wr.out(((("LinkedHashMap<" + await this.getObjectTypeString2(k_name, ctx, wr)) + ",") + await this.getObjectTypeString2(a_name, ctx, wr)) + ">", false);
                 wr.addImport("java.util.*");
                 break;
               case 6 : 
@@ -18716,7 +18716,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 wr.out("Boolean", false);
                 break;
               case 7 : 
-                wr.out(((("HashMap<" + await this.getObjectTypeString2(k_name, ctx, wr)) + ",") + await this.getObjectTypeString2(a_name, ctx, wr)) + ">", false);
+                wr.out(((("LinkedHashMap<" + await this.getObjectTypeString2(k_name, ctx, wr)) + ",") + await this.getObjectTypeString2(a_name, ctx, wr)) + ">", false);
                 wr.addImport("java.util.*");
                 break;
               case 6 : 
@@ -19255,8 +19255,38 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             wr.indent(-1);
             wr.out("}", true);
           }
-          for ( let i_5 = 0; i_5 < cl.static_methods.length; i_5++) {
-            var variant = cl.static_methods[i_5];
+          if ( cl.isSingletonClass() ) {
+            wr.out("", true);
+            wr.out(("private static " + cl.name) + " __singleton_instance = null;", true);
+            wr.out(("public static " + cl.name) + " __singleton(", false);
+            if ( cl.has_constructor ) {
+              const sConstr = cl.constructor_fn;
+              await this.writeArgsDef(sConstr, ctx, wr);
+            }
+            wr.out(") {", true);
+            wr.indent(1);
+            wr.out("if (__singleton_instance == null) {", true);
+            wr.indent(1);
+            wr.out(("__singleton_instance = new " + cl.name) + "(", false);
+            if ( cl.has_constructor ) {
+              const sConstr2 = cl.constructor_fn;
+              for ( let i_5 = 0; i_5 < sConstr2.params.length; i_5++) {
+                var arg = sConstr2.params[i_5];
+                if ( i_5 > 0 ) {
+                  wr.out(", ", false);
+                }
+                wr.out(arg.compiledName, false);
+              };
+            }
+            wr.out(");", true);
+            wr.indent(-1);
+            wr.out("}", true);
+            wr.out("return __singleton_instance;", true);
+            wr.indent(-1);
+            wr.out("}", true);
+          }
+          for ( let i_6 = 0; i_6 < cl.static_methods.length; i_6++) {
+            var variant = cl.static_methods[i_6];
             wr.out("", true);
             if ( variant.nameNode.hasFlag("main") && (variant.nameNode.code.filename != ctx.getRootFile()) ) {
               continue;
@@ -19281,11 +19311,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             wr.indent(-1);
             wr.out("}", true);
           };
-          for ( let i_6 = 0; i_6 < cl.defined_variants.length; i_6++) {
-            var fnVar = cl.defined_variants[i_6];
+          for ( let i_7 = 0; i_7 < cl.defined_variants.length; i_7++) {
+            var fnVar = cl.defined_variants[i_7];
             const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
-            for ( let i_7 = 0; i_7 < mVs.variants.length; i_7++) {
-              var variant_1 = mVs.variants[i_7];
+            for ( let i_8 = 0; i_8 < mVs.variants.length; i_8++) {
+              var variant_1 = mVs.variants[i_8];
               wr.out("", true);
               wr.out("public ", false);
               await this.writeTypeDef(variant_1.nameNode, ctx, wr);
@@ -19306,8 +19336,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           wr.indent(-1);
           wr.out("}", true);
           const import_list = wr.getImports();
-          for ( let i_8 = 0; i_8 < import_list.length; i_8++) {
-            var codeStr = import_list[i_8];
+          for ( let i_9 = 0; i_9 < import_list.length; i_9++) {
+            var codeStr = import_list[i_9];
             importFork.out(("import " + codeStr) + ";", true);
           };
         };
@@ -30042,7 +30072,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 wr.out(" = arrayListOf()", false);
                               }
                               if ( nn.value_type == 7 ) {
-                                wr.out(" = hashMapOf()", false);
+                                wr.out(" = LinkedHashMap()", false);
                               }
                             }
                           }
@@ -32004,7 +32034,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             break;
                           case 7 : 
                             wr.addImport("scala.collection.mutable");
-                            wr.out(((("collection.mutable.HashMap[" + this.getObjectTypeString(k_name, ctx)) + ", ") + this.getObjectTypeString(a_name, ctx)) + "]", false);
+                            wr.out(((("collection.mutable.LinkedHashMap[" + this.getObjectTypeString(k_name, ctx)) + ", ") + this.getObjectTypeString(a_name, ctx)) + "]", false);
                             break;
                           case 6 : 
                             wr.addImport("scala.collection.mutable");
@@ -32094,7 +32124,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             break;
                           case 7 : 
                             wr.addImport("scala.collection.mutable");
-                            wr.out(((("collection.mutable.HashMap[" + this.getObjectTypeString(node.key_type, ctx)) + ", ") + this.getObjectTypeString(node.array_type, ctx)) + "]", false);
+                            wr.out(((("collection.mutable.LinkedHashMap[" + this.getObjectTypeString(node.key_type, ctx)) + ", ") + this.getObjectTypeString(node.array_type, ctx)) + "]", false);
                             break;
                           case 6 : 
                             wr.addImport("scala.collection.mutable");
@@ -32200,7 +32230,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             if ( p.nameNode.value_type == 7 ) {
                               b_inited = true;
-                              wr.out("= new collection.mutable.HashMap()", false);
+                              wr.out("= new collection.mutable.LinkedHashMap()", false);
                             }
                             if ( p.nameNode.hasFlag("optional") ) {
                               wr.out(" = Option.empty[", false);
@@ -32601,11 +32631,27 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             b_has_non_main_static = true;
                           }
                         }));
-                        if ( b_has_non_main_static ) {
+                        const b_is_singleton = cl.isSingletonClass();
+                        if ( b_has_non_main_static || b_is_singleton ) {
                           wr.out("", true);
                           wr.out((("// companion object for static methods of " + cl.name) + " static cnt == ") + (cl.static_methods.length), true);
                           wr.out(("object " + cl.name) + " {", true);
                           wr.indent(1);
+                          if ( b_is_singleton ) {
+                            wr.out(("private var __singleton_instance : " + cl.name) + " = null", true);
+                            wr.out("def __singleton() : ", false);
+                            wr.out(cl.name, false);
+                            wr.out(" = {", true);
+                            wr.indent(1);
+                            wr.out("if (__singleton_instance == null) {", true);
+                            wr.indent(1);
+                            wr.out(("__singleton_instance = new " + cl.name) + "()", true);
+                            wr.indent(-1);
+                            wr.out("}", true);
+                            wr.out("__singleton_instance", true);
+                            wr.indent(-1);
+                            wr.out("}", true);
+                          }
                           for ( let i_8 = 0; i_8 < cl.static_methods.length; i_8++) {
                             var variant_2 = cl.static_methods[i_8];
                             if ( variant_2.nameNode.hasFlag("main") ) {
@@ -35601,8 +35647,37 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         wr.newline();
                         wr.indent(-1);
                         wr.out("}", true);
-                        for ( let i_4 = 0; i_4 < cl.static_methods.length; i_4++) {
-                          var variant = cl.static_methods[i_4];
+                        if ( cl.isSingletonClass() ) {
+                          wr.out("private static $__singleton_instance = null;", true);
+                          wr.out("public static function __singleton(", false);
+                          if ( cl.has_constructor ) {
+                            const sConstr = cl.constructor_fn;
+                            this.writeArgsDef(sConstr, ctx, wr);
+                          }
+                          wr.out(") {", true);
+                          wr.indent(1);
+                          wr.out("if (self::$__singleton_instance === null) {", true);
+                          wr.indent(1);
+                          wr.out(("self::$__singleton_instance = new " + cl.name) + "(", false);
+                          if ( cl.has_constructor ) {
+                            const sConstr2 = cl.constructor_fn;
+                            for ( let i_4 = 0; i_4 < sConstr2.params.length; i_4++) {
+                              var arg = sConstr2.params[i_4];
+                              if ( i_4 > 0 ) {
+                                wr.out(", ", false);
+                              }
+                              wr.out("$" + arg.compiledName, false);
+                            };
+                          }
+                          wr.out(");", true);
+                          wr.indent(-1);
+                          wr.out("}", true);
+                          wr.out("return self::$__singleton_instance;", true);
+                          wr.indent(-1);
+                          wr.out("}", true);
+                        }
+                        for ( let i_5 = 0; i_5 < cl.static_methods.length; i_5++) {
+                          var variant = cl.static_methods[i_5];
                           if ( variant.nameNode.hasFlag("main") ) {
                             continue;
                           } else {
@@ -35622,11 +35697,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           wr.indent(-1);
                           wr.out("}", true);
                         };
-                        for ( let i_5 = 0; i_5 < cl.defined_variants.length; i_5++) {
-                          var fnVar = cl.defined_variants[i_5];
+                        for ( let i_6 = 0; i_6 < cl.defined_variants.length; i_6++) {
+                          var fnVar = cl.defined_variants[i_6];
                           const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
-                          for ( let i_6 = 0; i_6 < mVs.variants.length; i_6++) {
-                            var variant_1 = mVs.variants[i_6];
+                          for ( let i_7 = 0; i_7 < mVs.variants.length; i_7++) {
+                            var variant_1 = mVs.variants[i_7];
                             if ( ( typeof(declaredFunction[variant_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredFunction, variant_1.name) ) ) {
                               continue;
                             }
@@ -35647,8 +35722,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         };
                         wr.indent(-1);
                         wr.out("}", true);
-                        for ( let i_7 = 0; i_7 < cl.static_methods.length; i_7++) {
-                          var variant_2 = cl.static_methods[i_7];
+                        for ( let i_8 = 0; i_8 < cl.static_methods.length; i_8++) {
+                          var variant_2 = cl.static_methods[i_8];
                           ctx.disableCurrentClass();
                           ctx.in_static_method = true;
                           if ( variant_2.nameNode.hasFlag("main") && (variant_2.nameNode.code.filename == ctx.getRootFile()) ) {

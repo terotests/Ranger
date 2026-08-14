@@ -149,6 +149,61 @@ See *How far the other targets get on the interpreter* below.
 | `while_loop` | Conformance: while loop control flow | ES6, Go, Python, PHP, Kotlin, Dart (when toolchain present) |
 <!-- END CONFORMANCE_TABLE -->
 
+### Language-feature matrix
+
+```bash
+node scripts/feature-matrix.mjs                # the matrix
+node scripts/feature-matrix.mjs --markdown     # ...as this table
+node scripts/feature-matrix.mjs --check        # fail if a cell regressed
+FEATURES=union_case TARGETS=rust node scripts/feature-matrix.mjs
+```
+
+"Does target X work" is not a yes/no question, and the two things this repo had
+were both the wrong grain: the conformance fixtures above are whole programs
+that say a target basically functions, and the interpreter is 65,000 lines that
+says nothing at all when it fails except "somewhere". A target carries a real
+program only if it carries the FEATURES that program is built from, so each
+probe in `tests/features/` isolates one and the matrix says which target has it.
+
+A cell is `ok`, or one of three distinct kinds of work: **GEN** (the Ranger
+stage refused to emit code — a missing template), **BUILD** (the target's own
+compiler rejected what was emitted — a writer bug), **RUN** (it built and then
+disagreed — a semantic difference). `–` means no toolchain on this machine.
+
+<!-- BEGIN FEATURE_MATRIX -->
+| Feature | es6 | python | php | go | cpp | rust | java | kotlin | dart | scala |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `class_inherit` | ✅ | ✅ | ✅ | ✅ | ✅ | **BUILD** | ✅ | ✅ | ✅ | ✅ |
+| `double_to_string` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `lambda_capture` | ✅ | **GEN** | **GEN** | ✅ | ✅ | **BUILD** | ✅ | **BUILD** | **RUN** | ✅ |
+| `map_iteration` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `optional_unwrap` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **RUN** |
+| `shape_match` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **RUN** |
+| `singleton` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `union_case` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `union_positions` | ✅ | ✅ | ✅ | **RUN** | ✅ | **BUILD** | ✅ | ✅ | ✅ | **RUN** |
+<!-- END FEATURE_MATRIX -->
+
+`tests/features/baseline.json` records this, and `--check` fails only where a
+cell that *was* `ok` no longer is — so the matrix is a gate against regression
+without pretending the gaps are fixed.
+
+The gaps are real work, in rough order of what they cost:
+
+- **`lambda_capture`** on Python, PHP, Rust, Kotlin and Dart — five targets and
+  one feature. Closures are what an interpreter's evaluator is made of.
+- **`union_positions`** on Go, Rust and Scala — a union survives being a local
+  but not being an array element or an optional field.
+- **Scala has no union or shape lowering at all** (`shape_match`,
+  `union_positions`), which is what stops it carrying the interpreter.
+- **`class_inherit` on Rust** — a subclass does not receive the parent's fields
+  (`RUST_ISSUES.md:567`); this one is known and long-standing.
+
+What has been closed so far, and what it took, is in the commit history: three
+targets gained `@singleton`, three gained insertion-ordered maps, Java's
+optionals became internally consistent, and all ten now agree on how a double
+prints.
+
 ### How far the other targets get on the interpreter
 
 The fixtures above are a few dozen lines each. The ComponentEngine interpreter

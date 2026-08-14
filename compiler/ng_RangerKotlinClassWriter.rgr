@@ -518,7 +518,9 @@ class RangerKotlinClassWriter {
             wr.out(" = arrayListOf()" false)
           }
           if (nn.value_type == RangerNodeType.Hash) {
-            wr.out(" = hashMapOf()" false)
+            ; insertion order, as every other target has: hashMapOf() does
+            ; not keep it and property enumeration depends on it
+            wr.out(" = LinkedHashMap()" false)
           }
         }
       }

@@ -636,6 +636,38 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     wr.newline()
     wr.indent(-1)
     wr.out("}" true)
+    ; @singleton(true): the one instance, reached through __singleton(). Every
+    ; call site writes `C::__singleton()`, so a target that does not emit it
+    ; produces code that calls a method nothing declares -- PHP raised
+    ; "Call to undefined method" on the first singleton in any program.
+    if (cl.isSingletonClass()) {
+      wr.out(("private static $__singleton_instance = null;") true)
+      wr.out("public static function __singleton(" false)
+      if cl.has_constructor {
+        def sConstr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
+        this.writeArgsDef(sConstr ctx wr)
+      }
+      wr.out(") {" true)
+      wr.indent(1)
+      wr.out("if (self::$__singleton_instance === null) {" true)
+      wr.indent(1)
+      wr.out((("self::$__singleton_instance = new " + cl.name) + "(") false)
+      if cl.has_constructor {
+        def sConstr2:RangerAppFunctionDesc (unwrap cl.constructor_fn)
+        for sConstr2.params arg:RangerAppParamDesc i {
+          if (i > 0) {
+            wr.out(", " false)
+          }
+          wr.out(("$" + arg.compiledName) false)
+        }
+      }
+      wr.out(");" true)
+      wr.indent(-1)
+      wr.out("}" true)
+      wr.out("return self::$__singleton_instance;" true)
+      wr.indent(-1)
+      wr.out("}" true)
+    }
     for cl.static_methods variant:RangerAppFunctionDesc i {
       if (variant.nameNode.hasFlag("main")) {
         continue _

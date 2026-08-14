@@ -1,0 +1,29 @@
+; FEATURE: inheritance -- a subclass keeps the parent's fields and overrides
+; one of its methods, and the call goes through the subclass.
+class CiBase {
+    def tag:string "base"
+    fn speak:string () {
+        return ("base:" + tag)
+    }
+    fn shared:string () {
+        return ("shared:" + tag)
+    }
+}
+
+class CiChild {
+    Extends ( CiBase )
+    fn speak:string () {
+        return ("child:" + tag)
+    }
+}
+
+class InheritFeature {
+    sfn m@(main):void () {
+        def b:CiBase (new CiBase())
+        print (b.speak())
+        def c:CiChild (new CiChild())
+        c.tag = "leaf"
+        print (c.speak())
+        print (c.shared())
+    }
+}

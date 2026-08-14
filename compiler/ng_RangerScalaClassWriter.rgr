@@ -188,7 +188,7 @@
       }
       case RangerNodeType.Hash {
         wr.addImport("scala.collection.mutable")
-        wr.out((((("collection.mutable.HashMap[" + (this.getObjectTypeString(k_name ctx))) + ", ") + (this.getObjectTypeString(a_name ctx))) + "]") false)
+        wr.out((((("collection.mutable.LinkedHashMap[" + (this.getObjectTypeString(k_name ctx))) + ", ") + (this.getObjectTypeString(a_name ctx))) + "]") false)
       }
       case RangerNodeType.Array {
         wr.addImport("scala.collection.mutable")
@@ -281,7 +281,7 @@
       }
       case RangerNodeType.Hash {
         wr.addImport("scala.collection.mutable")
-        wr.out((((("collection.mutable.HashMap[" + (this.getObjectTypeString(node.key_type ctx))) + ", ") + (this.getObjectTypeString(node.array_type ctx))) + "]") false)
+        wr.out((((("collection.mutable.LinkedHashMap[" + (this.getObjectTypeString(node.key_type ctx))) + ", ") + (this.getObjectTypeString(node.array_type ctx))) + "]") false)
       }
       case RangerNodeType.Array {
         wr.addImport("scala.collection.mutable")
@@ -391,7 +391,7 @@
         }
         if (p.nameNode.value_type == RangerNodeType.Hash) {
           b_inited = true
-          wr.out("= new collection.mutable.HashMap()" false)
+          wr.out("= new collection.mutable.LinkedHashMap()" false)
         }
         if (p.nameNode.hasFlag("optional")) {
           wr.out(" = Option.empty[" false)
@@ -855,11 +855,31 @@
       }
     })
 
-    if b_has_non_main_static {
+    ; A @singleton class needs its companion object whether or not it declares
+    ; any other static: `__singleton()` IS a static, and without the object
+    ; there is nowhere to put it -- scalac then reports the class name itself
+    ; as "not found: value" at the first call site.
+    def b_is_singleton:boolean (cl.isSingletonClass())
+    if (b_has_non_main_static || b_is_singleton) {
       wr.out("" true)
       wr.out(("// companion object for static methods of " + cl.name) + " static cnt == " + (array_length cl.static_methods) , true)
       wr.out((("object " + cl.name) + " {") true)
       wr.indent(1)
+      if b_is_singleton {
+        wr.out((("private var __singleton_instance : " + cl.name) + " = null") true)
+        wr.out("def __singleton() : " false)
+        wr.out(cl.name false)
+        wr.out(" = {" true)
+        wr.indent(1)
+        wr.out("if (__singleton_instance == null) {" true)
+        wr.indent(1)
+        wr.out((("__singleton_instance = new " + cl.name) + "()") true)
+        wr.indent(-1)
+        wr.out("}" true)
+        wr.out("__singleton_instance" true)
+        wr.indent(-1)
+        wr.out("}" true)
+      }
       for cl.static_methods variant:RangerAppFunctionDesc i {
         if (variant.nameNode.hasFlag("main")) {
           continue _

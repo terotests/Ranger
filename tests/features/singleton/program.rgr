@@ -1,0 +1,21 @@
+; FEATURE: @singleton(true) -- one instance reached through __singleton(),
+; with state that survives between reads. The interpreter uses this for its
+; atom table, its shape root and its heap registry.
+class SgCounter @singleton(true) {
+    def count:int 0
+    def label:string "c"
+}
+
+class SingletonFeature {
+    sfn bump:void () {
+        def c:SgCounter (SgCounter.__singleton())
+        c.count = (c.count + 1)
+    }
+    sfn m@(main):void () {
+        SingletonFeature.bump()
+        SingletonFeature.bump()
+        SingletonFeature.bump()
+        def c:SgCounter (SgCounter.__singleton())
+        print (c.label + (to_string c.count))
+    }
+}
