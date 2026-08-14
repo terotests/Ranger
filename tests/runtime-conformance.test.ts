@@ -712,6 +712,16 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["module-word-in-comment", "/*** META ((export #t)) */ var o = {'\\000': 'a'}; return o['\\000'];", "modules"],
   ["module-word-in-string", "var s = 'export default x'; var o = {'\\007': 'b'}; return s.length + o['\\007'];", "modules"],
   ["module-word-as-identifier", "var exported = 1; var o = {'\\011': 'c'}; return exported + o['\\011'];", "modules"],
+  // OPEN BUG (task #23, earley-boyer). A SELF-RECURSIVE call used as an
+  // argument of a `new` expression loses its return value: the inner call's
+  // result reads back as undefined. A non-recursive function in the same
+  // position is fine, so it is re-entry into the same function while its own
+  // `new` arguments are being evaluated -- the node-level memo / frame-slot
+  // family. This is what breaks Octane earley-boyer's Boyer half, where
+  // `new sc_Pair(x, translate_args_nboyer(y))` builds a pair whose cdr is
+  // undefined instead of null, and the list walk then runs off the end.
+  // Held back until fixed rather than landing red:
+  //   ["new-arg-self-recursion", "function P(a,b){this.car=a;this.cdr=b;} function rec(l){ return (l === null) ? null : new P(1, rec(null)); } return rec('a').cdr === null;", "recursion"],
   // An accessor member target must be read only by a COMPOUND assignment. The
   // walker called the getter unconditionally to build the old value, so
   // `o.x = 5` ran it once (spec: not at all) and `o.x += 5` twice (spec: once,
