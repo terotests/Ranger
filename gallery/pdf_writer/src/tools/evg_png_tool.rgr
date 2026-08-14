@@ -13,6 +13,7 @@ Import "../../../evg/EVGElement.rgr"
 Import "../../../evg/EVGLayout.rgr"
 Import "../fonts/TrueTypeFont.rgr"
 Import "../fonts/FontManager.rgr"
+Import "../fonts/EVGFontSetup.rgr"
 
 class EVGPNGTool {
     def inputFile:string ""
@@ -175,11 +176,13 @@ class EVGPNGTool {
         def p3:int (buffer_get testBuf.pixels 3)
         print ("Buffer created - first pixel RGBA: " + (to_string p0) + "," + (to_string p1) + "," + (to_string p2) + "," + (to_string p3))
         
-        ; Initialize font manager
-        fontManager = (new FontManager())
-        fontManager.setFontsDirectories(inputDir + "../assets/fonts")
-        fontManager.loadFont("Open_Sans/OpenSans-Regular.ttf")
-        fontManager.loadFont("Open_Sans/OpenSans-Bold.ttf")
+        ; Initialize font manager through the shared setup, so the raster
+        ; target resolves the same faces as PDF and HTML.
+        def fontSetup (new EVGFontSetup())
+        fontSetup.init(inputDir "")
+        def fm:FontManager (fontSetup.getManager())
+        fontManager = fm
+        fontSetup.report(false)
         
         ; Initialize text renderer
         textRenderer = (new RasterText())
@@ -193,6 +196,11 @@ class EVGPNGTool {
         print "Running layout engine..."
         
         layout = (new EVGLayout())
+        ; The raster path paints glyph outlines from these TTFs, so layout has
+        ; to measure with them too — it used to run on the heuristic measurer,
+        ; which made the raster target size boxes it then painted differently.
+        def ttfMeasurer (new TTFTextMeasurer(fm))
+        layout.setMeasurer(ttfMeasurer)
         layout.setPageSize(pageWidth pageHeight)
         layout.debug = true
         layout.layout(root)

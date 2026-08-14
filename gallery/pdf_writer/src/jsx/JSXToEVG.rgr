@@ -9,6 +9,7 @@ Import "../../../evg/EVGElement.rgr"
 Import "../../../evg/EVGUnit.rgr"
 Import "../../../evg/EVGColor.rgr"
 Import "../../../evg/EVGGradient.rgr"
+Import "../core/Utf8.rgr"
 
 class JSXToEVG {
     def parser:TSParserSimple
@@ -50,7 +51,9 @@ class JSXToEVG {
     ; Parse a TSX file and return the root EVG element
     fn parseFile:EVGElement (dirPath:string fileName:string) {
         def fileContent:buffer (buffer_read_file dirPath fileName)
-        def src:string (buffer_to_string fileContent)
+        ; Source files are UTF-8; buffer_to_string hands back Latin-1 bytes.
+        ; Decoding here is what lets one "ä" measure as one glyph.
+        def src:string (Utf8.decode((buffer_to_string fileContent)))
         return (this.parse(src))
     }
     
@@ -467,17 +470,43 @@ class JSXToEVG {
                 def attrValue:string (this.getAttributeValue(attr))
                 
                 print ("  Attr: " + rawAttrName + " -> " + attrName + " = " + attrValue)
-                
+
+                ; Record every authored attribute so a stylesheet cannot
+                ; overwrite it: inline wins the cascade.
+                element.markInline(attrName)
+
+                ; Every property EVGElement understands is reachable from JSX,
+                ; because the generic mapping runs first and the special cases
+                ; below refine it.
+                ;
+                ; This used to be a whitelist of its own, independent of
+                ; setAttribute's, and a property missing from either was dropped
+                ; silently on that path only. That cost one bug per phase: `gap`
+                ; (Phase 1), `className` (Phase 2, compared against "className"
+                ; when camelToKebab produces "class-name"), and `display`
+                ; (Phase 3). Unknown names are ignored by setAttribute, so the
+                ; fallthrough is safe for component props like `key`.
+                element.setAttribute(attrName attrValue)
+
                 ; Handle id
                 if (attrName == "id") {
                     element.id = attrValue
                 }
-                
-                ; Handle className
-                if (attrName == "className") {
+
+                ; Handle className. `camelToKebab` turns the JSX spelling
+                ; `className` into "class-name", so matching on "className"
+                ; here never fired and the attribute was silently dropped —
+                ; which left every stylesheet rule unmatched. `class` is
+                ; accepted as the plain-HTML spelling.
+                if ((attrName == "class-name") || (attrName == "class")) {
                     element.className = attrValue
                 }
-                
+
+                ; Document theme, used to select .theme-<name> rules.
+                if (attrName == "theme") {
+                    element.theme = attrValue
+                }
+
                 ; Handle src for images
                 if (attrName == "src") {
                     element.src = attrValue
@@ -619,6 +648,28 @@ class JSXToEVG {
                 if (attrName == "flex") {
                     this.applyStyleProperty(element "flex" attrValue)
                 }
+                ; `gap` was reachable only through style={{ gap: ... }} — as a JSX
+                ; attribute it fell through this whitelist and was silently dropped,
+                ; so <View flexDirection="row" gap="20px"> laid out with no gap.
+                if (attrName == "gap") {
+                    this.applyStyleProperty(element "gap" attrValue)
+                }
+                if (attrName == "flex-wrap") {
+                    element.flexWrap = attrValue
+                }
+                ; Grid subset. `display` matters here too: without it a
+                ; grid-template-* attribute would parse but never be consulted,
+                ; since layoutChildren only branches on display == "grid".
+                if (attrName == "display") {
+                    element.display = attrValue
+                }
+                if (((attrName == "grid-template-columns") || (attrName == "grid-template-rows"))
+                    || ((attrName == "grid-column") || (attrName == "grid-row"))) {
+                    element.setAttribute(attrName attrValue)
+                }
+                if ((attrName == "row-gap") || (attrName == "column-gap")) {
+                    element.setAttribute(attrName attrValue)
+                }
                 if (attrName == "align") {
                     element.align = attrValue
                 }
@@ -742,6 +793,10 @@ class JSXToEVG {
     }
     
     fn applyStyleProperty:void (element:EVGElement name:string value:string) {
+        ; Reached both from JSX attributes and from style={{ ... }} objects.
+        ; Either way the property is authored inline and outranks a stylesheet.
+        element.markInline(name)
+
         ; Dimensions
         if (name == "width") {
             element.width = (EVGUnit.parse(value))
@@ -851,6 +906,19 @@ class JSXToEVG {
         }
         if (name == "gap") {
             element.gap = (EVGUnit.parse(value))
+        }
+        if (name == "flexWrap") {
+            element.flexWrap = value
+        }
+        if (name == "display") {
+            element.display = value
+        }
+        if (((name == "gridTemplateColumns") || (name == "gridTemplateRows"))
+            || ((name == "gridColumn") || (name == "gridRow"))) {
+            element.setAttribute(name value)
+        }
+        if ((name == "rowGap") || (name == "columnGap")) {
+            element.setAttribute(name value)
         }
         if (name == "flex") {
             element.flex = (this.parseNumberValue(value))
@@ -968,7 +1036,10 @@ class JSXToEVG {
                     }
                 }
                 
-                childElement.parent = element
+                ; No `parent` back-reference: nothing reads it any more (the
+                ; renderers thread the parent down their own walk), and setting it
+                ; here only on this path made the field look maintained when
+                ; `addChild` leaves it empty.
                 push element.children childElement
             }
             
@@ -986,6 +1057,17 @@ class JSXToEVG {
         def last:int (charAt s (len - 1))
         ; Check for quotes: " (34) or ' (39)
         if (((first == 34) || (first == 39)) && (first == last)) {
+            ; Only a quote that wraps the WHOLE value is a delimiter. A value
+            ; that merely starts and ends with one — grid-template-areas is
+            ; written exactly that way, "'hero hero' 'a b'" — would otherwise
+            ; lose its first and last row.
+            def inner:int 1
+            while (inner < (len - 1)) {
+                if ((charAt s inner) == first) {
+                    return s
+                }
+                inner = (inner + 1)
+            }
             return (substring s 1 (len - 1))
         }
         return s

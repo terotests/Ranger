@@ -9,11 +9,11 @@
 ; ==============================================================================
 
 Import "../framebuffer.rgr"
-Import "../evg/EVGLayout.rgr"
-Import "../evg/EVGElement.rgr"
-Import "../evg/EVGColor.rgr"
-Import "../evg/EVGUnit.rgr"
-Import "../evg/EVGTextMeasurer.rgr"
+Import "../../../evg/EVGLayout.rgr"
+Import "../../../evg/EVGElement.rgr"
+Import "../../../evg/EVGColor.rgr"
+Import "../../../evg/EVGUnit.rgr"
+Import "../../../evg/EVGTextMeasurer.rgr"
 Import "../ui/UITextRenderer.rgr"
 
 ; Text measurer matching the bitmap HUD font in drawGlyph/drawText.

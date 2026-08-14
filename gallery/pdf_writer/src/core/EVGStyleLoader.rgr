@@ -1,0 +1,117 @@
+; EVGStyleLoader.rgr - Load CSS files and apply them to a laid-out-to-be EVG tree
+;
+; Shared by the CLI tools so `-css` / `-theme` behave identically whichever
+; output format is being produced. Keeping this in one place matters for print:
+; the PDF, HTML and raster tools must resolve the same rules to the same
+; computed properties, or a theme would look different per target.
+;
+; The theme is resolved as: -theme flag, else the `theme` attribute on the
+; document root, else "" (only unscoped rules apply).
+
+Import "../../../evg/EVGElement.rgr"
+Import "../../../evg/EVGStyleSheet.rgr"
+Import "Utf8.rgr"
+
+class EVGStyleLoader {
+    def sheet:EVGStyleSheet
+    def cssFiles:[string]
+    def themeOverride:string ""
+    def loadedCount:int 0
+
+    Constructor () {
+        def s (new EVGStyleSheet())
+        sheet = s
+        themeOverride = ""
+        loadedCount = 0
+    }
+
+    fn addFile:void (path:string) {
+        push cssFiles path
+    }
+
+    fn hasFiles:boolean () {
+        return ((array_length cssFiles) > 0)
+    }
+
+    fn setTheme:void (name:string) {
+        themeOverride = name
+    }
+
+    ; Split "dir/sub/file.css" into a (dir, name) pair for buffer_read_file.
+    fn dirOf:string (path:string) {
+        def lastSlash:int (lastIndexOf path "/")
+        def lastBackslash:int (lastIndexOf path "\\")
+        def lastSep:int lastSlash
+        if (lastBackslash > lastSep) {
+            lastSep = lastBackslash
+        }
+        if (lastSep >= 0) {
+            return (substring path 0 (lastSep + 1))
+        }
+        return "./"
+    }
+
+    fn nameOf:string (path:string) {
+        def lastSlash:int (lastIndexOf path "/")
+        def lastBackslash:int (lastIndexOf path "\\")
+        def lastSep:int lastSlash
+        if (lastBackslash > lastSep) {
+            lastSep = lastBackslash
+        }
+        if (lastSep >= 0) {
+            return (substring path (lastSep + 1) (strlen path))
+        }
+        return path
+    }
+
+    ; Load every -css file, then apply the resulting sheet to the tree.
+    ; Returns the theme that was actually used, for logging.
+    fn applyTo:string (root:EVGElement) {
+        def i:int 0
+        while (i < (array_length cssFiles)) {
+            def path:string (itemAt cssFiles i)
+            ; buffer_read_file inlines its arguments into a plain (non-arrow)
+            ; IIFE, so `this` is not bound inside them — resolve the parts first.
+            def dir:string (this.dirOf(path))
+            def name:string (this.nameOf(path))
+            def content:buffer (buffer_read_file dir name)
+            def css:string (Utf8.decode((buffer_to_string content)))
+            if ((strlen css) == 0) {
+                print ("Warning: stylesheet is empty or could not be read: " + path)
+            } {
+                sheet.parse(css)
+                loadedCount = (loadedCount + 1)
+            }
+            i = (i + 1)
+        }
+
+        def theme:string themeOverride
+        if ((strlen theme) == 0) {
+            theme = root.theme
+        }
+
+        ; Parse problems are reported rather than swallowed — a dropped rule
+        ; otherwise shows up as a silently unstyled page.
+        def e:int 0
+        while (e < (sheet.getErrorCount())) {
+            print ("Stylesheet warning: " + (sheet.getError(e)))
+            e = (e + 1)
+        }
+
+        sheet.applyTree(root theme)
+        return theme
+    }
+
+    fn report:void (theme:string) {
+        if ((this.hasFiles()) == false) {
+            return
+        }
+        print ("Stylesheets: " + (to_string loadedCount) + " file(s), "
+            + (to_string (sheet.getRuleCount())) + " rule(s)")
+        if ((strlen theme) > 0) {
+            print ("Theme: " + theme)
+        } {
+            print "Theme: (none) - only unscoped .class rules apply"
+        }
+    }
+}

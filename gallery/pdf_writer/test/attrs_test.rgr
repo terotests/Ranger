@@ -1,0 +1,155 @@
+; ==============================================================================
+; attrs_test.rgr — the JSX attribute surface matches EVGElement's
+; ==============================================================================
+; PLAN_CSS_LAYOUT_AND_FONTS.md "Phase 2.5 — Attribute surface".
+;
+; A property used to have to appear in TWO independent whitelists to work:
+; `parseAttributes` in JSXToEVG.rgr for JSX attributes, and
+; `EVGElement.setAttribute` for the stylesheet and ComponentEngine paths. A
+; property missing from either was dropped silently on that path only, which
+; cost one bug per phase — `gap`, `className`, `display`.
+;
+; parseAttributes now falls through to setAttribute, so the surfaces cannot
+; drift. This suite is what keeps that true: every property below is set as a
+; JSX attribute and asserted to have landed on the element. A future refactor
+; that reintroduces a whitelist fails here rather than in someone's print run.
+;
+;   bash gallery/pdf_writer/test/run_print.sh
+; ==============================================================================
+
+Import "../src/jsx/JSXToEVG.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../game_engine/v2/tests/harness/RgTest.rgr"
+
+class AttrsTest {
+
+    sfn m@(main):void () {
+        def test (new AttrsTest())
+        def t:RgTest (RgTest.forSuite("pdf_writer/attrs"))
+        test.testFlexAttributes(t)
+        test.testGridAttributes(t)
+        test.testStyleAndTextAttributes(t)
+        test.testUnknownAttributesAreHarmless(t)
+        t.summary()
+    }
+
+    ; Parse a one-element document and hand back that element.
+    fn parseOne:EVGElement (attrs:string) {
+        def src:string ("function render() { return (<View " + attrs + "></View>); }")
+        def conv (new JSXToEVG())
+        return (conv.parse(src))
+    }
+
+    ; These four were reachable only through style={{ ... }} until the surfaces
+    ; were unified — `justify-content` and `align-items` most notably, which are
+    ; core flex properties.
+    fn testFlexAttributes:void (t:RgTest) {
+        def el:EVGElement (this.parseOne("flexDirection=\"row\" justifyContent=\"center\" alignItems=\"baseline\" flexWrap=\"nowrap\" gap=\"12px\" flex=\"2\""))
+        t.eqStr("flexDirection" el.flexDirection "row")
+        t.eqStr("justifyContent reaches the element" el.justifyContent "center")
+        t.eqStr("alignItems reaches the element" el.alignItems "baseline")
+        t.eqStr("flexWrap" el.flexWrap "nowrap")
+        t.ok("gap is set" el.gap.isSet)
+        t.near("gap value" el.gap.value 12.0)
+        t.near("flex" el.flex 2.0)
+
+        ; Kebab-case spellings work too, since setAttribute accepts both.
+        def kebab:EVGElement (this.parseOne("justify-content=\"space-between\" align-items=\"center\""))
+        t.eqStr("kebab justify-content" kebab.justifyContent "space-between")
+        t.eqStr("kebab align-items" kebab.alignItems "center")
+
+        ; flex-shrink / flex-basis / align-content reach the element through
+        ; the same fallthrough, without needing their own JSX cases.
+        def sh:EVGElement (this.parseOne("flexShrink=\"0\" flexBasis=\"120px\" alignContent=\"space-between\""))
+        t.near("flexShrink" sh.flexShrink 0.0)
+        t.near("flexBasis" sh.flexBasis.value 120.0)
+        t.eqStr("alignContent" sh.alignContent "space-between")
+
+        def shorthand:EVGElement (this.parseOne("flex=\"2 0 40px\""))
+        t.near("shorthand grow via JSX" shorthand.flex 2.0)
+        t.near("shorthand shrink via JSX" shorthand.flexShrink 0.0)
+        t.near("shorthand basis via JSX" shorthand.flexBasis.value 40.0)
+
+        ; Axis-specific gaps.
+        def gaps:EVGElement (this.parseOne("rowGap=\"4px\" columnGap=\"9px\""))
+        t.near("rowGap" gaps.rowGap.value 4.0)
+        t.near("columnGap" gaps.columnGap.value 9.0)
+
+        ; min/max constraints.
+        def mm:EVGElement (this.parseOne("minWidth=\"10px\" maxWidth=\"20px\" minHeight=\"30px\" maxHeight=\"40px\""))
+        t.near("minWidth" mm.minWidth.value 10.0)
+        t.near("maxWidth" mm.maxWidth.value 20.0)
+        t.near("minHeight" mm.minHeight.value 30.0)
+        t.near("maxHeight" mm.maxHeight.value 40.0)
+    }
+
+    fn testGridAttributes:void (t:RgTest) {
+        def el:EVGElement (this.parseOne("display=\"grid\" gridTemplateColumns=\"repeat(2, 1fr)\" gridTemplateRows=\"1fr 2fr\" gridColumn=\"span 2\" gridRow=\"1 / 3\""))
+        t.eqStr("display" el.display "grid")
+        t.eqStr("gridTemplateColumns" el.gridTemplateColumns "repeat(2, 1fr)")
+        t.eqStr("gridTemplateRows" el.gridTemplateRows "1fr 2fr")
+        t.eqStr("gridColumn" el.gridColumn "span 2")
+        t.eqStr("gridRow" el.gridRow "1 / 3")
+
+        ; Areas, dense flow and named placement.
+        def areas:EVGElement (this.parseOne("gridTemplateAreas=\"'hero hero' 'a b'\" gridAutoFlow=\"row dense\""))
+        t.eqStr("gridTemplateAreas" areas.gridTemplateAreas "'hero hero' 'a b'")
+        t.eqStr("gridAutoFlow" areas.gridAutoFlow "row dense")
+
+        def named:EVGElement (this.parseOne("gridArea=\"hero\""))
+        t.eqStr("gridArea" named.gridArea "hero")
+
+        ; Print helpers.
+        def bleedEl:EVGElement (this.parseOne("fullBleed=\"true\""))
+        t.ok("fullBleed" bleedEl.fullBleed)
+        def notBleed:EVGElement (this.parseOne("width=\"10px\""))
+        t.no("fullBleed defaults off" notBleed.fullBleed)
+
+        ; Wrap-reverse reaches the element like any other flex property.
+        def rev:EVGElement (this.parseOne("flexWrap=\"wrap-reverse\""))
+        t.eqStr("flexWrap wrap-reverse" rev.flexWrap "wrap-reverse")
+    }
+
+    fn testStyleAndTextAttributes:void (t:RgTest) {
+        ; className drives the whole stylesheet layer; it silently did nothing
+        ; until Phase 2 because camelToKebab produces "class-name".
+        def el:EVGElement (this.parseOne("className=\"photo span-2\" theme=\"classic\""))
+        t.eqStr("className" el.className "photo span-2")
+        t.eqStr("theme" el.theme "classic")
+
+        def plain:EVGElement (this.parseOne("class=\"caption\""))
+        t.eqStr("plain HTML class spelling also works" plain.className "caption")
+
+        def txt:EVGElement (this.parseOne("fontFamily=\"Cinzel\" fontSize=\"13px\" fontWeight=\"bold\" textAlign=\"right\" lineHeight=\"1.4\""))
+        t.eqStr("fontFamily" txt.fontFamily "Cinzel")
+        t.near("fontSize" txt.fontSize.value 13.0)
+        t.eqStr("fontWeight" txt.fontWeight "bold")
+        t.eqStr("textAlign" txt.textAlign "right")
+        t.near("lineHeight" txt.lineHeight 1.4)
+
+        ; Box model, still going through the special cases above the fallthrough.
+        def box:EVGElement (this.parseOne("width=\"120px\" height=\"80px\" padding=\"6px\" marginTop=\"7px\" borderRadius=\"3px\""))
+        t.near("width" box.width.value 120.0)
+        t.near("height" box.height.value 80.0)
+        t.ok("padding parsed" box.box.paddingTop.isSet)
+        t.ok("marginTop parsed" box.box.marginTop.isSet)
+        t.ok("borderRadius parsed" box.box.borderRadius.isSet)
+
+        ; Every authored attribute is recorded so a stylesheet cannot overwrite
+        ; it — the cascade depends on this bookkeeping surviving refactors.
+        t.ok("authored width is marked inline" (box.hasInline("width")))
+        t.ok("camelCase marks the kebab key" (box.hasInline("margin-top")))
+        t.no("an unset property is not marked" (box.hasInline("font-size")))
+    }
+
+    ; Component props and React-isms reach the same code path. They must not
+    ; throw or land on unrelated fields.
+    fn testUnknownAttributesAreHarmless:void (t:RgTest) {
+        def el:EVGElement (this.parseOne("key=\"k1\" someUnknownProp=\"whatever\" width=\"50px\""))
+        t.near("a real property still lands" el.width.value 50.0)
+        t.eqStr("unknown props do not become the class" el.className "")
+        t.eqStr("unknown props do not become the id" el.id "")
+        t.eqStr("unknown props do not change display" el.display "block")
+    }
+}

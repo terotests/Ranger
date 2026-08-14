@@ -6,6 +6,7 @@ Import "PDFWriter.rgr"
 Import "../../../evg/EVGElement.rgr"
 Import "../../../evg/EVGLayout.rgr"
 Import "../../../evg/EVGTextMeasurer.rgr"
+Import "../../../evg/EVGTextEngine.rgr"
 Import "../../../evg/EVGImageMeasurer.rgr"
 Import "../../../evg/EVGUnit.rgr"
 Import "../../../evg/EVGColor.rgr"
@@ -82,6 +83,13 @@ class EVGPDFRenderer {
     def layout:EVGLayout
     def measurer:EVGTextMeasurer
     def streamBuffer:GrowableBuffer
+    ; Characters dropped by WinAnsi encoding, reported at the end of a run.
+    ; Print bleed in points. When > 0 the sheet grows by this much on every
+    ; side, the page content is shifted into the middle, and the PDF declares a
+    ; TrimBox so a printer knows where the finished page actually ends.
+    def bleed:double 0.0
+    def unsupportedGlyphs:[int]
+    def unsupportedContexts:[string]
     def pageWidth:double 595.0
     def pageHeight:double 842.0
     def nextObjNum:int 1
@@ -204,6 +212,14 @@ class EVGPDFRenderer {
         return fullPath
     }
     
+    fn setStrictFonts:void (s:boolean) {
+        layout.setStrictFonts(s)
+    }
+
+    fn getTextEngine:EVGTextEngine () {
+        return (layout.getTextEngine())
+    }
+
     fn setMeasurer:void (m:EVGTextMeasurer) {
         measurer = m
         layout.setMeasurer(m)
@@ -519,8 +535,13 @@ class EVGPDFRenderer {
             pageHeight = pgHeight
             
             streamBuffer.clear()
+            ; With bleed the sheet is larger than the trim size, so the whole
+            ; page is translated into the middle of it. Layout keeps working in
+            ; trim coordinates and knows nothing about the bleed.
+            this.beginBleedShift()
             ; Apply margin offset when rendering
             this.renderElement(pg pgMargin pgMargin)
+            this.endBleedShift()
             def contentData:buffer (streamBuffer.toBuffer())
             push contentDataList contentData
             
@@ -784,7 +805,8 @@ class EVGPDFRenderer {
             push objectOffsets (pdf.size())
             pdf.writeString((to_string nextObjNum) + " 0 obj\n")
             pdf.writeString("<< /Type /Page /Parent " + (to_string pagesRefNum) + " 0 R")
-            pdf.writeString(" /MediaBox [0 0 " + (this.formatNum(pgWidth)) + " " + (this.formatNum(pgHeight)) + "]")
+            def bx1:string (this.pageBoxes(pgWidth pgHeight))
+            pdf.writeString(bx1)
             pdf.writeString(" /Contents " + (to_string contentObjN) + " 0 R")
             pdf.writeString(" /Resources <<")
             pdf.writeString(" /Font <<")
@@ -886,7 +908,9 @@ class EVGPDFRenderer {
         
         ; Build content stream for the page (this also collects used fonts)
         streamBuffer.clear()
+        this.beginBleedShift()
         this.renderElement(root 0.0 0.0)
+        this.endBleedShift()
         def contentData:buffer (streamBuffer.toBuffer())
         def contentLen:int (buffer_length contentData)
         
@@ -1147,7 +1171,8 @@ class EVGPDFRenderer {
         pdf.writeString((to_string nextObjNum) + " 0 obj\n")
         def pagesRef:int (nextObjNum + 1)
         pdf.writeString("<< /Type /Page /Parent " + (to_string pagesRef) + " 0 R")
-        pdf.writeString(" /MediaBox [0 0 " + (this.formatNum(pageWidth)) + " " + (this.formatNum(pageHeight)) + "]")
+        def bx2:string (this.pageBoxes(pageWidth pageHeight))
+        pdf.writeString(bx2)
         pdf.writeString(" /Contents " + (to_string contentObjNum) + " 0 R")
         pdf.writeString(" /Resources <<")
         ; Add font references
@@ -1222,7 +1247,30 @@ class EVGPDFRenderer {
         def y:double (el.calculatedY + offsetY)
         def w:double el.calculatedWidth
         def h:double el.calculatedHeight
-        
+
+        ; full-bleed: grow this element past the trim on whichever page edges it
+        ; already reaches, so the trim cut lands inside its ink. Layout stays in
+        ; trim coordinates — this is purely a paint-time extension, and it does
+        ; nothing at all when no bleed was requested.
+        if el.fullBleed {
+            if (bleed > 0.0) {
+                if (x <= 0.001) {
+                    x = (x - bleed)
+                    w = (w + bleed)
+                }
+                if (y <= 0.001) {
+                    y = (y - bleed)
+                    h = (h + bleed)
+                }
+                if (((x + w) + 0.001) >= pageWidth) {
+                    w = (w + bleed)
+                }
+                if (((y + h) + 0.001) >= pageHeight) {
+                    h = (h + bleed)
+                }
+            }
+        }
+
         ; PDF uses bottom-left origin, flip Y
         def pdfY:double (pageHeight - y - h)
         
@@ -2164,40 +2212,13 @@ class EVGPDFRenderer {
         }
     }
     
+    ; Delegates to the shared text engine rather than wrapping again here.
+    ; This function used to hold its own copy of the algorithm; layout held a
+    ; different one, so the line count reserved by layout could differ from the
+    ; lines actually drawn. Both now come from the same call.
     fn wrapText:[string] (text:string maxWidth:double fontSize:double fontFamily:string) {
-        ; Word wrap text to fit within maxWidth
-        def lines:[string]
-        def words:[string] (strsplit text " ")
-        def currentLine:string ""
-        
-        def i:int 0
-        while (i < (array_length words)) {
-            def word:string (itemAt words i)
-            def testLine:string ""
-            if ((strlen currentLine) == 0) {
-                testLine = word
-            } {
-                testLine = currentLine + " " + word
-            }
-            
-            def testWidth:double (measurer.measureTextWidth(testLine fontFamily fontSize))
-            if ((testWidth > maxWidth) && ((strlen currentLine) > 0)) {
-                ; Line is too long, push current and start new
-                push lines currentLine
-                currentLine = word
-            } {
-                currentLine = testLine
-            }
-            
-            i = i + 1
-        }
-        
-        ; Push final line
-        if ((strlen currentLine) > 0) {
-            push lines currentLine
-        }
-        
-        return lines
+        def engine:EVGTextEngine (layout.getTextEngine())
+        return (engine.breakToStrings(text fontFamily fontSize maxWidth))
     }
     
     fn renderDivider:void (el:EVGElement x:double y:double w:double h:double) {
@@ -2268,6 +2289,93 @@ class EVGPDFRenderer {
         return ("\\" + (to_string d2) + (to_string d1) + (to_string d0))
     }
     
+    ; Codepoints this PDF cannot represent under WinAnsi, collected so the run
+    ; can report them instead of quietly painting "?" where a character was
+    ; measured. §4.1 rule 8: no silent missing-letter width collapse — layout
+    ; reserved space for the real glyph, so a substituted "?" is both a wrong
+    ; glyph AND a wrong width.
+    fn noteUnsupportedGlyph:void (ch:int context:string) {
+        def i:int 0
+        while (i < (array_length unsupportedGlyphs)) {
+            if ((itemAt unsupportedGlyphs i) == ch) {
+                return
+            }
+            i = (i + 1)
+        }
+        push unsupportedGlyphs ch
+        push unsupportedContexts context
+    }
+
+    fn unsupportedGlyphCount:int () {
+        return (array_length unsupportedGlyphs)
+    }
+
+    fn unsupportedGlyphReport:string (i:int) {
+        def ch:int (itemAt unsupportedGlyphs i)
+        return ("U+" + (this.toHex4(ch)) + " in \"" + (itemAt unsupportedContexts i) + "\"")
+    }
+
+    fn toHex4:string (v:int) {
+        def digits:string "0123456789ABCDEF"
+        def nibbles:[int]
+        def n:int v
+        def i:int 0
+        while (i < 4) {
+            push nibbles (n % 16)
+            n = (to_int (n / 16))
+            i = (i + 1)
+        }
+        def out:string ""
+        def j:int 3
+        while (j >= 0) {
+            def d:int (itemAt nibbles j)
+            out = out + (substring digits d (d + 1))
+            j = (j - 1)
+        }
+        return out
+    }
+
+    ; Translate the page content up and right into the trim area of an
+    ; oversized sheet. A no-op when no bleed was asked for, so ordinary output
+    ; is byte-identical.
+    fn beginBleedShift:void () {
+        if (bleed > 0.0) {
+            streamBuffer.writeString("q\n")
+            streamBuffer.writeString("1 0 0 1 " + (this.formatNum(bleed)) + " " + (this.formatNum(bleed)) + " cm\n")
+        }
+    }
+
+    fn endBleedShift:void () {
+        if (bleed > 0.0) {
+            streamBuffer.writeString("Q\n")
+        }
+    }
+
+    fn setBleed:void (b:double) {
+        bleed = b
+    }
+
+    ; Page boxes for a trim size of trimW x trimH.
+    ;
+    ; With no bleed this is the single MediaBox it always was. With bleed the
+    ; sheet is the trim size plus `bleed` on each side, and TrimBox marks where
+    ; the finished page is cut — full-bleed artwork runs past the trim into the
+    ; bleed area and the cut lands inside the ink rather than at its edge.
+    ; BleedBox equals MediaBox here: everything outside trim IS the bleed.
+    fn pageBoxes:string (trimW:double trimH:double) {
+        if (bleed <= 0.0) {
+            return (" /MediaBox [0 0 " + (this.formatNum(trimW)) + " " + (this.formatNum(trimH)) + "]")
+        }
+        def sheetW:double (trimW + (bleed * 2.0))
+        def sheetH:double (trimH + (bleed * 2.0))
+        def out:string (" /MediaBox [0 0 " + (this.formatNum(sheetW)) + " " + (this.formatNum(sheetH)) + "]")
+        out = out + (" /BleedBox [0 0 " + (this.formatNum(sheetW)) + " " + (this.formatNum(sheetH)) + "]")
+        def trimX2:double (bleed + trimW)
+        def trimY2:double (bleed + trimH)
+        out = out + (" /TrimBox [" + (this.formatNum(bleed)) + " " + (this.formatNum(bleed)) + " " + (this.formatNum(trimX2)) + " " + (this.formatNum(trimY2)) + "]")
+        return out
+    }
+
     fn escapeText:string (text:string) {
         ; Escape parentheses and backslashes for PDF
         ; Also handle Unicode characters outside WinAnsi range
@@ -2300,7 +2408,10 @@ class EVGPDFRenderer {
                                     ; Must use PDF octal escape \NNN
                                     result = result + (this.toOctalEscape(ch))
                                 } {
-                                    ; Unicode character outside WinAnsi - use placeholder
+                                    ; Outside WinAnsi. The placeholder stays (a
+                                    ; PDF must still be produced) but the run
+                                    ; reports it rather than hiding it.
+                                    this.noteUnsupportedGlyph(ch text)
                                     result = result + "?"
                                 }
                             }

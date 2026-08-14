@@ -1,0 +1,66 @@
+/* minimal.css - A cool, spacious counterpart to classic.css.
+ *
+ * Deliberately declares the SAME class names as classic.css so the two can be
+ * swapped on the command line without touching the TSX:
+ *
+ *   evg-html album.tsx out.html -css themes/classic.css -theme classic
+ *   evg-html album.tsx out.html -css themes/minimal.css -theme minimal
+ */
+
+/* ---- shared structure, theme-independent ------------------------------- */
+
+.page {
+  width: 100%;
+  height: 100%;
+  padding: 36px;
+}
+
+.row {
+  flex-direction: row;
+  width: 100%;
+}
+
+/* `flex: 1` gives each photo an equal share of the row. The shorthand sets
+ * flex-basis to 0, so this keeps working even if a width is added later. */
+.photo {
+  object-fit: cover;
+  height: 100%;
+  flex: 1;
+}
+
+/* ---- minimal ----------------------------------------------------------- */
+
+.theme-minimal .page {
+  background-color: #ffffff;
+  padding: 64px;
+}
+
+.theme-minimal .title {
+  font-size: 22px;
+  font-weight: bold;
+  color: #14181d;
+  line-height: 1.1;
+}
+
+.theme-minimal .caption {
+  font-size: 11px;
+  color: #8a949e;
+  line-height: 1.5;
+  margin-top: 14px;
+}
+
+.theme-minimal .row {
+  gap: 6px;
+  margin-top: 40px;
+}
+
+.theme-minimal .photo {
+  border-radius: 0px;
+}
+
+.theme-minimal .rule {
+  height: 1px;
+  width: 40px;
+  background-color: #14181d;
+  margin-top: 20px;
+}

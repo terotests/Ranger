@@ -73,6 +73,12 @@ export function FullPagePhotoWithCaption({
 
 /**
  * FourPhotoGrid - 2x2 grid of photos with background
+ *
+ * Uses `display="grid"` rather than nested flex rows. The old version faked the
+ * grid with percentage widths and margins (48% + 4%), which only added up
+ * because the gap was expressed as a percentage of a different axis than the
+ * one it separated — so the vertical and horizontal gutters were never equal.
+ * `gap` now applies to both axes from one value.
  */
 interface FourPhotoGridProps {
   src1: string;
@@ -95,27 +101,19 @@ export function FourPhotoGrid({
 }: FourPhotoGridProps) {
   return (
     <View
+      display="grid"
+      gridTemplateColumns="repeat(2, 1fr)"
+      gridTemplateRows="repeat(2, 1fr)"
+      gap={gap}
       width="100%"
       height="100%"
       backgroundColor={backgroundColor}
       padding={padding}
     >
-      <View flexDirection="row" width="100%" height="48%" marginBottom={gap}>
-        <View width="48%" height="100%" marginRight="4%">
-          <Image src={src1} width="100%" height="100%" borderRadius="3px" />
-        </View>
-        <View width="48%" height="100%">
-          <Image src={src2} width="100%" height="100%" borderRadius="3px" />
-        </View>
-      </View>
-      <View flexDirection="row" width="100%" height="48%">
-        <View width="48%" height="100%" marginRight="4%">
-          <Image src={src3} width="100%" height="100%" borderRadius="3px" />
-        </View>
-        <View width="48%" height="100%">
-          <Image src={src4} width="100%" height="100%" borderRadius="3px" />
-        </View>
-      </View>
+      <Image src={src1} borderRadius="3px" />
+      <Image src={src2} borderRadius="3px" />
+      <Image src={src3} borderRadius="3px" />
+      <Image src={src4} borderRadius="3px" />
     </View>
   );
 }

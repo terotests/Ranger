@@ -15,15 +15,61 @@
 ; "passed=N failed=0" + "ALL PASS" summary on green.
 ; ==============================================================================
 
-Import "EVGUnit.rgr"
-Import "EVGColor.rgr"
-Import "EVGBox.rgr"
-Import "EVGElement.rgr"
-Import "EVGTextMeasurer.rgr"
-Import "EVGText.rgr"
-Import "EVGLayout.rgr"
-Import "SVGPathParser.rgr"
+Import "../../../evg/EVGUnit.rgr"
+Import "../../../evg/EVGColor.rgr"
+Import "../../../evg/EVGBox.rgr"
+Import "../../../evg/EVGElement.rgr"
+Import "../../../evg/EVGTextMeasurer.rgr"
+Import "../../../evg/EVGText.rgr"
+Import "../../../evg/EVGLayout.rgr"
+Import "../../../evg/SVGPathParser.rgr"
+Import "../../../evg/EVGStyleSheet.rgr"
+Import "../../../evg/EVGGrid.rgr"
+Import "../../../evg/EVGTextEngine.rgr"
 Import "../tests/harness/RgTest.rgr"
+
+; A measurer that records which font family it was asked about, so the tests can
+; prove layout threads the element's real family through instead of the
+; hardcoded "Helvetica" it used to pass. Widths are deliberately trivial
+; (0.5 em per character) so wrap positions are exactly predictable.
+class RecordingMeasurer {
+    Extends(EVGTextMeasurer)
+
+    def families:[string]
+
+    Constructor () {
+    }
+
+    fn isFontAccurate:boolean () {
+        return true
+    }
+
+    fn hasFace:boolean (fontFamily:string) {
+        return (fontFamily != "MissingFace")
+    }
+
+    fn measureText:EVGTextMetrics (text:string fontFamily:string fontSize:double) {
+        push families fontFamily
+        def m (new EVGTextMetrics())
+        m.width = ((to_double (strlen text)) * fontSize * 0.5)
+        m.height = (fontSize * 1.2)
+        m.ascent = (fontSize * 0.8)
+        m.descent = (fontSize * 0.2)
+        m.lineHeight = (fontSize * 1.2)
+        return m
+    }
+
+    fn sawFamily:boolean (name:string) {
+        def i:int 0
+        while (i < (array_length families)) {
+            if ((itemAt families i) == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}
 
 class EVGTest {
 
@@ -42,12 +88,32 @@ class EVGTest {
         test.testRowSideBySide(t)
         test.testFlexGrowRow(t)
         test.testFlexGrowColumn(t)
+        test.testFlexMinMax(t)
+        test.testFlexShrinkFactors(t)
+        test.testAlignContent(t)
+        test.testWrapReverseAndStretch(t)
+        test.testFlexBasis(t)
+        test.testFlexShorthand(t)
         test.testFlexShrink(t)
+        test.testAutoHeightNoShrink(t)
         test.testJustifyDistribution(t)
         test.testAlignStretch(t)
         test.testFlexWrap(t)
         test.testTextIntrinsicWidth(t)
         test.testSvgPath(t)
+        test.testBaselineAlignment(t)
+        test.testTextEngineWrap(t)
+        test.testTextEngineFontChecks(t)
+        test.testLayoutUsesElementFont(t)
+        test.testGridAreas(t)
+        test.testGridDense(t)
+        test.testSubgrid(t)
+        test.testGridTracks(t)
+        test.testGridPlacement(t)
+        test.testGridLayout(t)
+        test.testGridContentRows(t)
+        test.testStyleSheetParse(t)
+        test.testStyleSheetCascade(t)
         t.summary()
     }
 
@@ -405,6 +471,462 @@ class EVGTest {
     }
 
     ; ---- #8b: flex shrink — overflowing fixed children scale to fit ----------
+    ; ---- flex-basis and the `flex` shorthand ---------------------------------
+    ; An explicit width used to make `flex` a no-op, so a stylesheet could not
+    ; say `width: 100%; flex: 1` — the wart both bundled themes had to document.
+    ; ---- per-item flex-shrink -------------------------------------------------
+    ; Shrink used to scale every item by the same factor. That is only correct
+    ; when all the shrink factors are 1 (the CSS default), which is why the
+    ; existing cases still pass — but there was no way to say "not this one".
+    ; ---- min/max resolved inside the flex distribution ------------------------
+    ; Clamping used to happen after the shares were handed out, so an item that
+    ; hit its max simply left a hole in the row. The space it did not use is now
+    ; offered back to the items that can still grow.
+    fn testFlexMinMax:void (t:RgTest) {
+        ; Two equal flex items in 300; one capped at 50, so the other takes 250.
+        def row (new EVGElement())
+        row.width = (EVGUnit.px(300.0))
+        row.height = (EVGUnit.px(50.0))
+        row.flexDirection = "row"
+        def capped (new EVGElement())
+        capped.setAttribute("flex" "1")
+        capped.setAttribute("max-width" "50px")
+        def rest (new EVGElement())
+        rest.setAttribute("flex" "1")
+        row.addChild(capped)
+        row.addChild(rest)
+        def lay (new EVGLayout())
+        lay.layout(row)
+        t.near("capped item stops at its max" capped.calculatedWidth 50.0)
+        t.near("the freed space goes to the other item" rest.calculatedWidth 250.0)
+        t.near("the row is still filled"
+            (capped.calculatedWidth + rest.calculatedWidth) 300.0)
+
+        ; A min-width floor works the same way in the other direction.
+        def row2 (new EVGElement())
+        row2.width = (EVGUnit.px(300.0))
+        row2.height = (EVGUnit.px(50.0))
+        row2.flexDirection = "row"
+        def floored (new EVGElement())
+        floored.setAttribute("flex" "1")
+        floored.setAttribute("min-width" "200px")
+        def small (new EVGElement())
+        small.setAttribute("flex" "3")
+        row2.addChild(floored)
+        row2.addChild(small)
+        def lay2 (new EVGLayout())
+        lay2.layout(row2)
+        ; Unclamped the split would be 75/225; the floor lifts it to 200/100.
+        t.near("floored item is lifted to its min" floored.calculatedWidth 200.0)
+        t.near("the other item gives up the difference" small.calculatedWidth 100.0)
+
+        ; Two capped items and one free: both caps hold, the free one takes
+        ; everything left, which needs more than one pass to settle.
+        def row3 (new EVGElement())
+        row3.width = (EVGUnit.px(400.0))
+        row3.height = (EVGUnit.px(50.0))
+        row3.flexDirection = "row"
+        def c1 (new EVGElement())
+        c1.setAttribute("flex" "1")
+        c1.setAttribute("max-width" "40px")
+        def c2 (new EVGElement())
+        c2.setAttribute("flex" "1")
+        c2.setAttribute("max-width" "60px")
+        def free (new EVGElement())
+        free.setAttribute("flex" "1")
+        row3.addChild(c1)
+        row3.addChild(c2)
+        row3.addChild(free)
+        def lay3 (new EVGLayout())
+        lay3.layout(row3)
+        t.near("first cap holds" c1.calculatedWidth 40.0)
+        t.near("second cap holds" c2.calculatedWidth 60.0)
+        t.near("the free item absorbs both remainders" free.calculatedWidth 300.0)
+
+        ; Without any limits nothing changes.
+        def row4 (new EVGElement())
+        row4.width = (EVGUnit.px(300.0))
+        row4.height = (EVGUnit.px(50.0))
+        row4.flexDirection = "row"
+        def p1 (new EVGElement())
+        p1.setAttribute("flex" "1")
+        def p2 (new EVGElement())
+        p2.setAttribute("flex" "1")
+        row4.addChild(p1)
+        row4.addChild(p2)
+        def lay4 (new EVGLayout())
+        lay4.layout(row4)
+        t.near("unconstrained items split evenly" p1.calculatedWidth 150.0)
+        t.near("and the second matches" p2.calculatedWidth 150.0)
+    }
+
+    fn testFlexShrinkFactors:void (t:RgTest) {
+        ; 3 x 200 in a 300 row: 300 overflow shared by weight (1 x 200) each,
+        ; so each loses 100 and ends at 100. Same as the old uniform scale.
+        def row (new EVGElement())
+        row.width = (EVGUnit.px(300.0))
+        row.height = (EVGUnit.px(50.0))
+        row.flexDirection = "row"
+        row.flexWrap = "nowrap"
+        def a (new EVGElement())
+        a.width = (EVGUnit.px(200.0))
+        def b (new EVGElement())
+        b.width = (EVGUnit.px(200.0))
+        def c (new EVGElement())
+        c.width = (EVGUnit.px(200.0))
+        row.addChild(a)
+        row.addChild(b)
+        row.addChild(c)
+        def lay (new EVGLayout())
+        lay.layout(row)
+        t.near("default shrink is still uniform" a.calculatedWidth 100.0)
+        t.near("all three equal" c.calculatedWidth 100.0)
+
+        ; flex-shrink: 0 holds its size; the others absorb the whole overflow.
+        def row2 (new EVGElement())
+        row2.width = (EVGUnit.px(300.0))
+        row2.height = (EVGUnit.px(50.0))
+        row2.flexDirection = "row"
+        row2.flexWrap = "nowrap"
+        def fixed (new EVGElement())
+        fixed.width = (EVGUnit.px(200.0))
+        fixed.setAttribute("flex-shrink" "0")
+        def give1 (new EVGElement())
+        give1.width = (EVGUnit.px(200.0))
+        def give2 (new EVGElement())
+        give2.width = (EVGUnit.px(200.0))
+        row2.addChild(fixed)
+        row2.addChild(give1)
+        row2.addChild(give2)
+        def lay2 (new EVGLayout())
+        lay2.layout(row2)
+        t.near("flex-shrink: 0 keeps its width" fixed.calculatedWidth 200.0)
+        ; 300 overflow split between the two shrinkable 200s: 150 each off.
+        t.near("siblings absorb the overflow" give1.calculatedWidth 50.0)
+        t.near("evenly between them" give2.calculatedWidth 50.0)
+
+        ; A larger factor gives up proportionally more.
+        def row3 (new EVGElement())
+        row3.width = (EVGUnit.px(300.0))
+        row3.height = (EVGUnit.px(50.0))
+        row3.flexDirection = "row"
+        row3.flexWrap = "nowrap"
+        def eager (new EVGElement())
+        eager.width = (EVGUnit.px(200.0))
+        eager.setAttribute("flex-shrink" "3")
+        def calm (new EVGElement())
+        calm.width = (EVGUnit.px(200.0))
+        calm.setAttribute("flex-shrink" "1")
+        row3.addChild(eager)
+        row3.addChild(calm)
+        def lay3 (new EVGLayout())
+        lay3.layout(row3)
+        ; overflow 100; weights 600 and 200 -> cuts of 75 and 25.
+        t.near("eager item gives up three quarters" eager.calculatedWidth 125.0)
+        t.near("calm item gives up one quarter" calm.calculatedWidth 175.0)
+        t.near("together they fit the row"
+            (eager.calculatedWidth + calm.calculatedWidth) 300.0)
+
+        ; The shorthand's middle value is the shrink factor.
+        def sh (new EVGElement())
+        sh.setAttribute("flex" "1 0 50px")
+        t.near("shorthand shrink factor" sh.flexShrink 0.0)
+        t.near("shorthand grow" sh.flex 1.0)
+        t.near("shorthand basis" sh.flexBasis.value 50.0)
+
+        ; Column axis uses the same weighting.
+        def col (new EVGElement())
+        col.width = (EVGUnit.px(100.0))
+        col.height = (EVGUnit.px(200.0))
+        def top (new EVGElement())
+        top.height = (EVGUnit.px(200.0))
+        top.setAttribute("flex-shrink" "0")
+        def bottom (new EVGElement())
+        bottom.height = (EVGUnit.px(200.0))
+        col.addChild(top)
+        col.addChild(bottom)
+        def lay4 (new EVGLayout())
+        lay4.layout(col)
+        t.near("column flex-shrink: 0 keeps its height" top.calculatedHeight 200.0)
+        t.near("the other column item absorbs it" bottom.calculatedHeight 0.0)
+    }
+
+    ; ---- align-content for wrapped lines --------------------------------------
+    ; alignItems positions a child inside its line; align-content positions the
+    ; LINES. It only applies once content wraps and the box has room to spare.
+    ; ---- wrap-reverse and align-content: stretch ------------------------------
+    fn testWrapReverseAndStretch:void (t:RgTest) {
+        ; wrap-reverse stacks the lines from the far edge, so the first line
+        ; ends up last. Three lines of 20 in a 200-tall box -> 60 of content.
+        def rev (new EVGElement())
+        rev.width = (EVGUnit.px(100.0))
+        rev.height = (EVGUnit.px(200.0))
+        rev.flexDirection = "row"
+        rev.flexWrap = "wrap-reverse"
+        def r1 (new EVGElement())
+        r1.width = (EVGUnit.px(60.0))
+        r1.height = (EVGUnit.px(20.0))
+        def r2 (new EVGElement())
+        r2.width = (EVGUnit.px(60.0))
+        r2.height = (EVGUnit.px(20.0))
+        def r3 (new EVGElement())
+        r3.width = (EVGUnit.px(60.0))
+        r3.height = (EVGUnit.px(20.0))
+        rev.addChild(r1)
+        rev.addChild(r2)
+        rev.addChild(r3)
+        def lay (new EVGLayout())
+        lay.layout(rev)
+        t.near("first line moves to the far edge" r1.calculatedY 40.0)
+        t.near("middle line stays in the middle" r2.calculatedY 20.0)
+        t.near("last line comes to the near edge" r3.calculatedY 0.0)
+
+        ; The wrap POINTS are unchanged — still one item per line.
+        t.near("wrap-reverse does not change the line width" r1.calculatedWidth 60.0)
+
+        ; Plain wrap is untouched.
+        def fwd (new EVGElement())
+        fwd.width = (EVGUnit.px(100.0))
+        fwd.height = (EVGUnit.px(200.0))
+        fwd.flexDirection = "row"
+        def f1 (new EVGElement())
+        f1.width = (EVGUnit.px(60.0))
+        f1.height = (EVGUnit.px(20.0))
+        def f2 (new EVGElement())
+        f2.width = (EVGUnit.px(60.0))
+        f2.height = (EVGUnit.px(20.0))
+        fwd.addChild(f1)
+        fwd.addChild(f2)
+        def lay2 (new EVGLayout())
+        lay2.layout(fwd)
+        t.near("plain wrap keeps the first line first" f1.calculatedY 0.0)
+        t.near("and the second below it" f2.calculatedY 20.0)
+
+        ; align-content: stretch grows each line by an equal share of the spare
+        ; space. 200 tall, 60 of content, 3 lines -> each line gains 140/3.
+        def st (new EVGElement())
+        st.width = (EVGUnit.px(100.0))
+        st.height = (EVGUnit.px(200.0))
+        st.flexDirection = "row"
+        st.alignContent = "stretch"
+        def s1 (new EVGElement())
+        s1.width = (EVGUnit.px(60.0))
+        def s2 (new EVGElement())
+        s2.width = (EVGUnit.px(60.0))
+        st.addChild(s1)
+        st.addChild(s2)
+        def lay3 (new EVGLayout())
+        lay3.layout(st)
+        ; Two auto-height lines share 200: each line becomes 100 tall.
+        t.near("first stretched line starts at the top" s1.calculatedY 0.0)
+        t.near("second stretched line starts halfway" s2.calculatedY 100.0)
+        t.near("an auto-height item grows with its line" s1.calculatedHeight 100.0)
+
+        ; An explicit height is not overridden by stretch.
+        def st2 (new EVGElement())
+        st2.width = (EVGUnit.px(100.0))
+        st2.height = (EVGUnit.px(200.0))
+        st2.flexDirection = "row"
+        st2.alignContent = "stretch"
+        def fixed (new EVGElement())
+        fixed.width = (EVGUnit.px(60.0))
+        fixed.height = (EVGUnit.px(20.0))
+        def auto (new EVGElement())
+        auto.width = (EVGUnit.px(60.0))
+        st2.addChild(fixed)
+        st2.addChild(auto)
+        def lay4 (new EVGLayout())
+        lay4.layout(st2)
+        t.near("explicit height survives stretch" fixed.calculatedHeight 20.0)
+    }
+
+    fn testAlignContent:void (t:RgTest) {
+        ; Three 60-wide items in a 100-wide box wrap to three lines of 20 each,
+        ; 60 total, inside a 200-tall box -> 140 free.
+        def lay (new EVGLayout())
+
+        def flexEnd:EVGElement (this.buildWrapped("flex-end"))
+        lay.layout(flexEnd)
+        def fe0:EVGElement (flexEnd.getChild(0))
+        t.near("flex-end pushes the first line down by all the free space" fe0.calculatedY 140.0)
+
+        def centered:EVGElement (this.buildWrapped("center"))
+        def lay2 (new EVGLayout())
+        lay2.layout(centered)
+        def ce0:EVGElement (centered.getChild(0))
+        t.near("center takes half the free space" ce0.calculatedY 70.0)
+
+        def between:EVGElement (this.buildWrapped("space-between"))
+        def lay3 (new EVGLayout())
+        lay3.layout(between)
+        def sb0:EVGElement (between.getChild(0))
+        def sb1:EVGElement (between.getChild(1))
+        def sb2:EVGElement (between.getChild(2))
+        t.near("space-between leaves the first line put" sb0.calculatedY 0.0)
+        t.near("middle line takes half the gap" sb1.calculatedY 90.0)
+        t.near("last line ends at the bottom" sb2.calculatedY 180.0)
+
+        ; The default leaves everything where the flow put it.
+        def start:EVGElement (this.buildWrapped("flex-start"))
+        def lay4 (new EVGLayout())
+        lay4.layout(start)
+        def st0:EVGElement (start.getChild(0))
+        def st1:EVGElement (start.getChild(1))
+        t.near("flex-start line 1" st0.calculatedY 0.0)
+        t.near("flex-start line 2" st1.calculatedY 20.0)
+
+        ; An auto-height box has no spare room, so nothing moves — the same
+        ; definite-height rule the rest of the engine follows.
+        def auto (new EVGElement())
+        auto.width = (EVGUnit.px(100.0))
+        auto.flexDirection = "row"
+        auto.alignContent = "center"
+        def x1 (new EVGElement())
+        x1.width = (EVGUnit.px(60.0))
+        x1.height = (EVGUnit.px(20.0))
+        def x2 (new EVGElement())
+        x2.width = (EVGUnit.px(60.0))
+        x2.height = (EVGUnit.px(20.0))
+        def holder (new EVGElement())
+        holder.width = (EVGUnit.px(300.0))
+        holder.height = (EVGUnit.px(300.0))
+        auto.addChild(x1)
+        auto.addChild(x2)
+        holder.addChild(auto)
+        def lay5 (new EVGLayout())
+        lay5.layout(holder)
+        t.near("auto-height container does not redistribute" x1.calculatedY 0.0)
+    }
+
+    ; Three 60-wide items in a 100-wide, 200-tall row: wraps to three lines.
+    fn buildWrapped:EVGElement (mode:string) {
+        def row (new EVGElement())
+        row.width = (EVGUnit.px(100.0))
+        row.height = (EVGUnit.px(200.0))
+        row.flexDirection = "row"
+        row.alignContent = mode
+        def i:int 0
+        while (i < 3) {
+            def c (new EVGElement())
+            c.width = (EVGUnit.px(60.0))
+            c.height = (EVGUnit.px(20.0))
+            row.addChild(c)
+            i = (i + 1)
+        }
+        return row
+    }
+
+    fn testFlexBasis:void (t:RgTest) {
+        ; `flex: N` sets basis 0, so items share the line whatever width they
+        ; also carry.
+        def row (new EVGElement())
+        row.width = (EVGUnit.px(300.0))
+        row.height = (EVGUnit.px(50.0))
+        row.flexDirection = "row"
+        def a (new EVGElement())
+        a.setAttribute("flex" "1")
+        a.setAttribute("width" "100%")
+        def b (new EVGElement())
+        b.setAttribute("flex" "1")
+        b.setAttribute("width" "100%")
+        def c (new EVGElement())
+        c.setAttribute("flex" "1")
+        c.setAttribute("width" "100%")
+        row.addChild(a)
+        row.addChild(b)
+        row.addChild(c)
+        def lay (new EVGLayout())
+        lay.layout(row)
+        t.near("flex:1 with a width still shares the row" a.calculatedWidth 100.0)
+        t.near("second item is one third" b.calculatedWidth 100.0)
+        t.near("items sit side by side" b.calculatedX 100.0)
+        t.near("third item at two thirds" c.calculatedX 200.0)
+
+        ; Weighted growth.
+        def row2 (new EVGElement())
+        row2.width = (EVGUnit.px(300.0))
+        row2.height = (EVGUnit.px(50.0))
+        row2.flexDirection = "row"
+        def w2 (new EVGElement())
+        w2.setAttribute("flex" "2")
+        def w1 (new EVGElement())
+        w1.setAttribute("flex" "1")
+        row2.addChild(w2)
+        row2.addChild(w1)
+        def lay2 (new EVGLayout())
+        lay2.layout(row2)
+        t.near("flex:2 takes two thirds" w2.calculatedWidth 200.0)
+        t.near("flex:1 takes one third" w1.calculatedWidth 100.0)
+
+        ; A fixed sibling is respected: it keeps its width and flex takes the rest.
+        def row3 (new EVGElement())
+        row3.width = (EVGUnit.px(300.0))
+        row3.height = (EVGUnit.px(50.0))
+        row3.flexDirection = "row"
+        def fixed (new EVGElement())
+        fixed.width = (EVGUnit.px(60.0))
+        def grow (new EVGElement())
+        grow.setAttribute("flex" "1")
+        row3.addChild(fixed)
+        row3.addChild(grow)
+        def lay3 (new EVGLayout())
+        lay3.layout(row3)
+        t.near("fixed sibling keeps its width" fixed.calculatedWidth 60.0)
+        t.near("flex item takes the remainder" grow.calculatedWidth 240.0)
+
+        ; An explicit flex-basis is the starting size, and growth is added to it.
+        def row4 (new EVGElement())
+        row4.width = (EVGUnit.px(300.0))
+        row4.height = (EVGUnit.px(50.0))
+        row4.flexDirection = "row"
+        def basis (new EVGElement())
+        basis.setAttribute("flex-basis" "100px")
+        basis.setAttribute("flex" "1 1 100px")
+        def other (new EVGElement())
+        other.setAttribute("flex" "1 1 0px")
+        row4.addChild(basis)
+        row4.addChild(other)
+        def lay4 (new EVGLayout())
+        lay4.layout(row4)
+        ; 300 - 100 basis = 200 leftover, split evenly: 100 + 100, and 0 + 100.
+        t.near("basis plus its share" basis.calculatedWidth 200.0)
+        t.near("zero basis gets only its share" other.calculatedWidth 100.0)
+    }
+
+    ; ---- the `flex` shorthand parses the CSS forms ----------------------------
+    fn testFlexShorthand:void (t:RgTest) {
+        def one (new EVGElement())
+        one.setAttribute("flex" "1")
+        t.near("flex:1 grow" one.flex 1.0)
+        t.ok("flex:1 sets a basis" one.flexBasis.isSet)
+        t.near("flex:1 basis is zero" one.flexBasis.value 0.0)
+
+        def three (new EVGElement())
+        three.setAttribute("flex" "2 1 120px")
+        t.near("three-value grow" three.flex 2.0)
+        t.near("three-value basis" three.flexBasis.value 120.0)
+
+        def two (new EVGElement())
+        two.setAttribute("flex" "3 1")
+        t.near("two-value grow" two.flex 3.0)
+        t.near("two-value basis stays zero" two.flexBasis.value 0.0)
+
+        ; `flex: auto` and `flex: <length>` are a basis with default growth.
+        def auto (new EVGElement())
+        auto.setAttribute("flex" "auto")
+        t.near("flex:auto grows" auto.flex 1.0)
+
+        def len (new EVGElement())
+        len.setAttribute("flex" "150px")
+        t.near("flex:<length> grows" len.flex 1.0)
+        t.near("flex:<length> basis" len.flexBasis.value 150.0)
+
+        ; An element with no flex at all is untouched.
+        def none (new EVGElement())
+        t.near("default flex" none.flex 0.0)
+        t.no("default has no basis" none.flexBasis.isSet)
+    }
+
     fn testFlexShrink:void (t:RgTest) {
         ; row (nowrap): three fixed 200 in a 400 container -> 400/600 -> ~133.3 each
         def row (new EVGElement())
@@ -445,6 +967,60 @@ class EVGTest {
         def lay2 (new EVGLayout())
         lay2.layout(col)
         t.near("col shrink: each = 200/2" d.calculatedHeight 100.0)
+    }
+
+    ; ---- auto-height columns must NOT shrink their children ------------------
+    ; Main-axis shrink needs a definite container height to shrink to. An
+    ; auto-height column grows to fit its content instead, which is what a
+    ; document flow (Views stacked down a page) relies on: two 100px-tall
+    ; children stay 100px and the column reports 200px, rather than being
+    ; scaled down to whatever stale inner height happened to be left over.
+    ; `layout()` force-sizes the root to the page, so the auto-height container
+    ; under test has to be a child rather than the root itself.
+    fn testAutoHeightNoShrink:void (t:RgTest) {
+        def root (new EVGElement())
+        root.width = (EVGUnit.px(400.0))
+        root.height = (EVGUnit.px(300.0))
+        def col (new EVGElement())
+        col.width = (EVGUnit.px(100.0))
+        ; no height set -> auto
+        root.addChild(col)
+        def a (new EVGElement())
+        a.width = (EVGUnit.px(100.0))
+        a.height = (EVGUnit.px(100.0))
+        col.addChild(a)
+        def b (new EVGElement())
+        b.width = (EVGUnit.px(100.0))
+        b.height = (EVGUnit.px(100.0))
+        col.addChild(b)
+        def lay (new EVGLayout())
+        lay.layout(root)
+        t.near("auto col: first child keeps its height" a.calculatedHeight 100.0)
+        t.near("auto col: second child keeps its height" b.calculatedHeight 100.0)
+        t.near("auto col: second child stacks below the first" b.calculatedY 100.0)
+        t.near("auto col: container grows to content" col.calculatedHeight 200.0)
+
+        ; gap still applies to an auto-height column — it is independent of
+        ; whether the container height is definite.
+        def root2 (new EVGElement())
+        root2.width = (EVGUnit.px(400.0))
+        root2.height = (EVGUnit.px(300.0))
+        def col2 (new EVGElement())
+        col2.width = (EVGUnit.px(100.0))
+        col2.gap = (EVGUnit.parse("10px"))
+        root2.addChild(col2)
+        def c (new EVGElement())
+        c.width = (EVGUnit.px(100.0))
+        c.height = (EVGUnit.px(100.0))
+        col2.addChild(c)
+        def d2 (new EVGElement())
+        d2.width = (EVGUnit.px(100.0))
+        d2.height = (EVGUnit.px(100.0))
+        col2.addChild(d2)
+        def lay2b (new EVGLayout())
+        lay2b.layout(root2)
+        t.near("auto col + gap: second child at 100+10" d2.calculatedY 110.0)
+        t.near("auto col + gap: child height untouched" d2.calculatedHeight 100.0)
     }
 
     ; ---- justifyContent distribution (space-between) on the row main axis -----
@@ -559,6 +1135,733 @@ class EVGTest {
         ; the box stays on the SAME row (not pushed down) right after the label
         t.near("sibling stays on the same row" box.calculatedY label.calculatedY)
         t.near("sibling sits right after the label" box.calculatedX label.calculatedWidth)
+    }
+
+    ; ---- stylesheet: parsing the CSS subset -----------------------------------
+    fn testStyleSheetParse:void (t:RgTest) {
+        def sheet (new EVGStyleSheet())
+        sheet.parse("/* header */ .a, .b { color: #fff; font-size: 12px }\n.theme-x .a { color: #000 }")
+        ; ".a, .b" is two rules sharing one body, plus the theme-scoped rule.
+        t.eqInt("selector list expands to one rule each" (sheet.getRuleCount()) 3)
+        t.eqInt("valid sheet reports no errors" (sheet.getErrorCount()) 0)
+
+        ; Comments must not glue tokens together or swallow the first rule.
+        def commented (new EVGStyleSheet())
+        commented.parse(".a { color: red } /* trailing note */")
+        t.eqInt("comment-only tail is not a rule" (commented.getRuleCount()) 1)
+        t.eqInt("comment-only tail is not an error" (commented.getErrorCount()) 0)
+
+        ; Values may carry ':' and ',' — only the FIRST ':' splits a declaration.
+        def gradient (new EVGStyleSheet())
+        gradient.parse(".g { background: linear-gradient(180deg, rgba(0,0,0,0.2), #fff) }")
+        def el (new EVGElement())
+        el.className = "g"
+        gradient.applyTree(el "")
+        t.eqStr("value keeps its commas and parens" el.backgroundGradient "linear-gradient(180deg, rgba(0,0,0,0.2), #fff)")
+
+        ; Quotes are CSS syntax, not part of the family name.
+        def quoted (new EVGStyleSheet())
+        quoted.parse(".q { font-family: \"Cinzel\" }")
+        def qel (new EVGElement())
+        qel.className = "q"
+        quoted.applyTree(qel "")
+        t.eqStr("quoted font-family is unquoted" qel.fontFamily "Cinzel")
+
+        ; Out-of-subset selectors are reported, not silently dropped.
+        def bad (new EVGStyleSheet())
+        bad.parse("#id { color: red } div .x { color: red } .a .b { color: red }")
+        t.eqInt("unsupported selectors produce no rules" (bad.getRuleCount()) 0)
+        t.eqInt("unsupported selectors are all reported" (bad.getErrorCount()) 3)
+    }
+
+    ; ---- stylesheet: resolution order ----------------------------------------
+    ; unscoped class  <  theme-scoped class  <  inline attributes
+    fn testStyleSheetCascade:void (t:RgTest) {
+        def css:string ".box { color: #111111; font-size: 10px; width: 50px } .theme-dark .box { color: #222222; font-size: 20px }"
+
+        ; Active theme: the theme-scoped rule wins over the unscoped one, and
+        ; properties only the unscoped rule sets still come through.
+        def sheet (new EVGStyleSheet())
+        sheet.parse(css)
+        def dark (new EVGElement())
+        dark.className = "box"
+        sheet.applyTree(dark "dark")
+        t.eqStr("theme rule overrides unscoped color" (dark.color.toHexString()) "#222222")
+        t.near("theme rule overrides unscoped font-size" dark.fontSize.pixels 20.0)
+        t.near("unscoped-only property survives" dark.width.pixels 50.0)
+
+        ; Inactive theme: only unscoped rules apply.
+        def sheet2 (new EVGStyleSheet())
+        sheet2.parse(css)
+        def light (new EVGElement())
+        light.className = "box"
+        sheet2.applyTree(light "light")
+        t.eqStr("non-matching theme leaves unscoped color" (light.color.toHexString()) "#111111")
+        t.near("non-matching theme leaves unscoped font-size" light.fontSize.pixels 10.0)
+
+        ; Inline beats every rule, including the theme-scoped one.
+        def sheet3 (new EVGStyleSheet())
+        sheet3.parse(css)
+        def inlined (new EVGElement())
+        inlined.className = "box"
+        inlined.setAttribute("font-size" "33px")
+        inlined.markInline("fontSize")
+        sheet3.applyTree(inlined "dark")
+        t.near("inline font-size outranks theme rule" inlined.fontSize.pixels 33.0)
+        t.eqStr("non-inline property still themed" (inlined.color.toHexString()) "#222222")
+
+        ; camelCase and kebab-case are the same property for the cascade.
+        t.ok("markInline normalizes camelCase" (inlined.hasInline("font-size")))
+        t.eqStr("toKebab converts camelCase" (EVGElement.toKebab("marginTop")) "margin-top")
+        t.eqStr("toKebab leaves kebab-case alone" (EVGElement.toKebab("margin-top")) "margin-top")
+
+        ; An element carrying several classes matches each of them.
+        def multi (new EVGStyleSheet())
+        multi.parse(".p { width: 10px } .q { height: 20px }")
+        def both (new EVGElement())
+        both.className = "p q"
+        multi.applyTree(both "")
+        t.near("multi-class element gets first class" both.width.pixels 10.0)
+        t.near("multi-class element gets second class" both.height.pixels 20.0)
+
+        ; Rules reach the whole subtree, not just the root.
+        def treeSheet (new EVGStyleSheet())
+        treeSheet.parse(".leaf { width: 7px }")
+        def root (new EVGElement())
+        def mid (new EVGElement())
+        def leaf (new EVGElement())
+        leaf.className = "leaf"
+        mid.addChild(leaf)
+        root.addChild(mid)
+        treeSheet.applyTree(root "")
+        t.near("applyTree reaches nested children" leaf.width.pixels 7.0)
+    }
+
+    ; ---- grid: track lists ----------------------------------------------------
+    ; ---- text engine: one wrap implementation --------------------------------
+    ; ---- align-items: baseline ------------------------------------------------
+    ; Different font sizes in a row should sit on one baseline, not on one top
+    ; edge. This needs real ascent metrics, which is why it waited for Phase 0.
+    fn testBaselineAlignment:void (t:RgTest) {
+        def rec (new RecordingMeasurer())
+        def lay (new EVGLayout())
+        lay.setMeasurer(rec)
+
+        def row (new EVGElement())
+        row.width = (EVGUnit.px(400.0))
+        row.height = (EVGUnit.px(100.0))
+        row.flexDirection = "row"
+        row.alignItems = "baseline"
+
+        ; RecordingMeasurer: ascent = 0.8em, descent = 0.2em, lineHeight = 1.2em.
+        ; big:   30px -> ascent 24, line 36, leading (36-30)/2 = 3 -> baseline 27
+        ; small: 10px -> ascent  8, line 12, leading (12-10)/2 = 1 -> baseline  9
+        def big (new EVGElement())
+        big.textContent = "Big"
+        big.fontSize = (EVGUnit.px(30.0))
+        def small (new EVGElement())
+        small.textContent = "small"
+        small.fontSize = (EVGUnit.px(10.0))
+        row.addChild(big)
+        row.addChild(small)
+
+        lay.layout(row)
+
+        t.ok("text node records a baseline" big.hasBaseline)
+        t.near("baseline is leading + ascent" big.calculatedBaseline 27.0)
+        t.near("smaller text has a smaller baseline" small.calculatedBaseline 9.0)
+
+        ; Both baselines must land on the same y.
+        def bigBase:double (big.calculatedY + big.calculatedBaseline)
+        def smallBase:double (small.calculatedY + small.calculatedBaseline)
+        t.near("baselines line up" smallBase bigBase)
+        ; ...which means the smaller item is pushed DOWN, not aligned at the top.
+        t.ok("smaller item is offset downwards" (small.calculatedY > big.calculatedY))
+        t.near("offset is the baseline difference" small.calculatedY 18.0)
+
+        ; flex-start still aligns tops, so baseline is opt-in.
+        def row2 (new EVGElement())
+        row2.width = (EVGUnit.px(400.0))
+        row2.height = (EVGUnit.px(100.0))
+        row2.flexDirection = "row"
+        def b2 (new EVGElement())
+        b2.textContent = "Big"
+        b2.fontSize = (EVGUnit.px(30.0))
+        def s2 (new EVGElement())
+        s2.textContent = "small"
+        s2.fontSize = (EVGUnit.px(10.0))
+        row2.addChild(b2)
+        row2.addChild(s2)
+        def lay2 (new EVGLayout())
+        lay2.setMeasurer(rec)
+        lay2.layout(row2)
+        t.near("flex-start keeps tops aligned" s2.calculatedY b2.calculatedY)
+
+        ; A container takes the baseline of its first in-flow child, so wrapping
+        ; a label in a View does not break the alignment.
+        def row3 (new EVGElement())
+        row3.width = (EVGUnit.px(400.0))
+        row3.height = (EVGUnit.px(100.0))
+        row3.flexDirection = "row"
+        row3.alignItems = "baseline"
+        ; A width is needed: only text leaves shrink-wrap, so an auto-width
+        ; container would fill the row and push the sibling onto a second line.
+        def wrapper (new EVGElement())
+        wrapper.width = (EVGUnit.px(100.0))
+        def inner (new EVGElement())
+        inner.textContent = "Big"
+        inner.fontSize = (EVGUnit.px(30.0))
+        wrapper.addChild(inner)
+        def plain (new EVGElement())
+        plain.textContent = "small"
+        plain.fontSize = (EVGUnit.px(10.0))
+        row3.addChild(wrapper)
+        row3.addChild(plain)
+        def lay3 (new EVGLayout())
+        lay3.setMeasurer(rec)
+        lay3.layout(row3)
+        t.ok("container inherits its first child's baseline" wrapper.hasBaseline)
+        t.near("wrapped and plain baselines line up"
+            (plain.calculatedY + plain.calculatedBaseline)
+            (wrapper.calculatedY + wrapper.calculatedBaseline))
+
+        ; A box with no text has no baseline; CSS uses its bottom margin edge,
+        ; so an image in a row of captions sits ON the text baseline.
+        def row4 (new EVGElement())
+        row4.width = (EVGUnit.px(400.0))
+        row4.height = (EVGUnit.px(200.0))
+        row4.flexDirection = "row"
+        row4.alignItems = "baseline"
+        def boxEl (new EVGElement())
+        boxEl.width = (EVGUnit.px(20.0))
+        boxEl.height = (EVGUnit.px(40.0))
+        def caption (new EVGElement())
+        caption.textContent = "small"
+        caption.fontSize = (EVGUnit.px(10.0))
+        row4.addChild(boxEl)
+        row4.addChild(caption)
+        def lay4 (new EVGLayout())
+        lay4.setMeasurer(rec)
+        lay4.layout(row4)
+        t.no("a plain box has no text baseline" boxEl.hasBaseline)
+        t.near("box bottom sits on the text baseline"
+            (boxEl.calculatedY + boxEl.calculatedHeight)
+            (caption.calculatedY + caption.calculatedBaseline))
+    }
+
+    fn testTextEngineWrap:void (t:RgTest) {
+        def rec (new RecordingMeasurer())
+        def eng (new EVGTextEngine())
+        eng.setMeasurer(rec)
+
+        ; 0.5 em per char at 10px = 5px per character.
+        ; "aaa bbb" is 7 chars = 35px; at maxWidth 35 it stays on one line.
+        def one:[EVGTextLine] (eng.breakLines("aaa bbb" "Test" 10.0 35.0))
+        t.eqInt("fits exactly on one line" (array_length one) 1)
+
+        ; At 30px it cannot, so it breaks at the space.
+        def two:[EVGTextLine] (eng.breakLines("aaa bbb" "Test" 10.0 30.0))
+        t.eqInt("breaks when the candidate line is too wide" (array_length two) 2)
+        def l0:EVGTextLine (itemAt two 0)
+        def l1:EVGTextLine (itemAt two 1)
+        t.eqStr("first line" l0.text "aaa")
+        t.eqStr("second line" l1.text "bbb")
+        t.near("line width comes from the measurer" l0.width 15.0)
+        t.near("line carries ascent for baseline work" l0.ascent 8.0)
+
+        ; Explicit newlines are honoured even when everything would fit.
+        def nl:[EVGTextLine] (eng.breakLines("ab\ncd" "Test" 10.0 500.0))
+        t.eqInt("explicit newline splits lines" (array_length nl) 2)
+
+        ; A blank line still occupies a line — dropping it would shorten the block.
+        def blank:[EVGTextLine] (eng.breakLines("ab\n\ncd" "Test" 10.0 500.0))
+        t.eqInt("blank line is kept" (array_length blank) 3)
+
+        ; maxWidth <= 0 means "do not wrap".
+        def nowrap:[EVGTextLine] (eng.breakLines("aaa bbb ccc" "Test" 10.0 0.0))
+        t.eqInt("no wrapping without a width" (array_length nowrap) 1)
+
+        ; lineCount is the same wrap, so height and paint cannot disagree.
+        t.eqInt("lineCount agrees with breakLines" (eng.lineCount("aaa bbb" "Test" 10.0 30.0)) 2)
+
+        ; maxLineWidth is the widest unwrapped line.
+        t.near("maxLineWidth takes the widest line" (eng.maxLineWidth("ab\nabcd" "Test" 10.0)) 20.0)
+
+        ; A single word wider than the box still yields one line rather than
+        ; looping forever or dropping the word.
+        def longWord:[EVGTextLine] (eng.breakLines("abcdefghij" "Test" 10.0 5.0))
+        t.eqInt("unbreakable word stays on one line" (array_length longWord) 1)
+    }
+
+    ; ---- text engine: font honesty -------------------------------------------
+    fn testTextEngineFontChecks:void (t:RgTest) {
+        ; The default heuristic measurer reads no font file, so any family it is
+        ; asked about is reported rather than silently guessed at.
+        def guess (new EVGTextEngine())
+        guess.measureRun("hello" "Cinzel" 12.0)
+        t.ok("heuristic measurer is flagged as inaccurate" ((guess.warningCount()) > 0))
+        t.no("not fatal unless strict" guess.hadFatal)
+
+        def strictEng (new EVGTextEngine())
+        strictEng.setStrict(true)
+        strictEng.measureRun("hello" "Cinzel" 12.0)
+        t.ok("strict mode marks the run failed" strictEng.hadFatal)
+
+        ; One warning per family, not one per text node.
+        def once (new EVGTextEngine())
+        once.measureRun("a" "Cinzel" 12.0)
+        once.measureRun("b" "Cinzel" 12.0)
+        once.measureRun("c" "Cinzel" 12.0)
+        t.eqInt("family reported once" (once.warningCount()) 1)
+
+        ; A real measurer that has the face is silent...
+        def rec (new RecordingMeasurer())
+        def ok (new EVGTextEngine())
+        ok.setMeasurer(rec)
+        ok.measureRun("hello" "Cinzel" 12.0)
+        t.eqInt("loaded face produces no warning" (ok.warningCount()) 0)
+
+        ; ...but a substituted face is reported, because widths will not match.
+        def sub (new EVGTextEngine())
+        sub.setMeasurer(rec)
+        sub.setStrict(true)
+        sub.measureRun("hello" "MissingFace" 12.0)
+        t.ok("missing face is reported" ((sub.warningCount()) > 0))
+        t.ok("missing face is fatal under strict" sub.hadFatal)
+    }
+
+    ; ---- layout measures with the element's own font -------------------------
+    ; Layout used to pass a hardcoded "Helvetica" to the measurer for every
+    ; string, so a document set in Cinzel was laid out with Helvetica widths.
+    fn testLayoutUsesElementFont:void (t:RgTest) {
+        def rec (new RecordingMeasurer())
+        def lay (new EVGLayout())
+        lay.setMeasurer(rec)
+
+        def root (new EVGElement())
+        root.width = (EVGUnit.px(400.0))
+        root.height = (EVGUnit.px(200.0))
+
+        def label (new EVGElement())
+        label.textContent = "hello world"
+        label.fontFamily = "Cinzel"
+        label.fontSize = (EVGUnit.px(10.0))
+        root.addChild(label)
+
+        lay.layout(root)
+
+        t.ok("layout measured with the element's family" (rec.sawFamily("Cinzel")))
+        t.no("layout no longer hardcodes Helvetica" (rec.sawFamily("Helvetica")))
+
+        ; 11 chars * 5px = 55px, so the label shrink-wraps to its content.
+        t.near("text shrink-wraps to measured width" label.calculatedWidth 55.0)
+    }
+
+    ; ---- grid-template-areas --------------------------------------------------
+    fn testGridAreas:void (t:RgTest) {
+        def a:EVGGridAreas (EVGGridAreas.parse("\"hero hero\" \"left right\""))
+        t.no("a well-formed picture parses" a.hadError)
+        t.eqInt("two columns" a.columns 2)
+        t.eqInt("two rows" a.rows 2)
+        t.eqInt("three named areas" (a.count()) 3)
+
+        def hero:int (a.indexOfName("hero"))
+        t.ok("hero was found" (hero >= 0))
+        t.eqInt("hero starts at row 0" (itemAt a.rowStart hero) 0)
+        t.eqInt("hero spans both columns" (itemAt a.colSpan hero) 2)
+        t.eqInt("hero is one row tall" (itemAt a.rowSpan hero) 1)
+
+        def right:int (a.indexOfName("right"))
+        t.eqInt("right is in column 1" (itemAt a.colStart right) 1)
+        t.eqInt("right is on row 1" (itemAt a.rowStart right) 1)
+
+        ; A name spanning rows becomes one tall rectangle.
+        def side:EVGGridAreas (EVGGridAreas.parse("\"nav main\" \"nav main\""))
+        def nav:int (side.indexOfName("nav"))
+        t.eqInt("nav spans two rows" (itemAt side.rowSpan nav) 2)
+        t.eqInt("and one column" (itemAt side.colSpan nav) 1)
+
+        ; "." is a deliberately empty cell, not an area.
+        def dotted:EVGGridAreas (EVGGridAreas.parse("\"a .\" \". b\""))
+        t.eqInt("dots are not areas" (dotted.count()) 2)
+
+        ; Ragged rows and non-rectangular areas are reported, not guessed at.
+        def ragged:EVGGridAreas (EVGGridAreas.parse("\"a b\" \"c\""))
+        t.ok("ragged rows are an error" ragged.hadError)
+        def bent:EVGGridAreas (EVGGridAreas.parse("\"a a\" \"a b\" \"c a\""))
+        t.ok("a non-rectangular area is an error" bent.hadError)
+        def unquoted:EVGGridAreas (EVGGridAreas.parse("a b"))
+        t.ok("rows must be quoted" unquoted.hadError)
+
+        ; End to end: grid-area places items into the named regions, and the
+        ; column count comes from the picture when no template is given.
+        def root (new EVGElement())
+        root.width = (EVGUnit.px(200.0))
+        root.height = (EVGUnit.px(200.0))
+        root.display = "grid"
+        root.gridTemplateAreas = "\"hero hero\" \"left right\""
+        root.gridTemplateRows = "1fr 1fr"
+        def heroEl (new EVGElement())
+        heroEl.gridArea = "hero"
+        def leftEl (new EVGElement())
+        leftEl.gridArea = "left"
+        def rightEl (new EVGElement())
+        rightEl.gridArea = "right"
+        root.addChild(heroEl)
+        root.addChild(leftEl)
+        root.addChild(rightEl)
+        def lay (new EVGLayout())
+        lay.layout(root)
+        t.near("hero spans the full width" heroEl.calculatedWidth 200.0)
+        t.near("hero is on the top row" heroEl.calculatedY 0.0)
+        t.near("left is half width" leftEl.calculatedWidth 100.0)
+        t.near("left is on the second row" leftEl.calculatedY 100.0)
+        t.near("right sits beside it" rightEl.calculatedX 100.0)
+    }
+
+    ; ---- grid-auto-flow: dense ------------------------------------------------
+    ; The default flow only moves forward, so a wide item can leave a hole that
+    ; nothing fills. Dense goes back for it.
+    ; ---- grid-template-columns: subgrid ---------------------------------------
+    ; A nested grid normally splits its own width, so two cards side by side end
+    ; up with columns that do not line up. Subgrid makes the child adopt the
+    ; enclosing grid's tracks for the span it occupies.
+    fn testSubgrid:void (t:RgTest) {
+        ; Outer: 4 uneven columns across 400. A card spanning columns 1-2 with
+        ; subgrid must reuse those two track widths, not split its own box.
+        def outer (new EVGElement())
+        outer.width = (EVGUnit.px(400.0))
+        outer.height = (EVGUnit.px(200.0))
+        outer.display = "grid"
+        outer.gridTemplateColumns = "100px 300px"
+        outer.gridTemplateRows = "1fr"
+
+        def card (new EVGElement())
+        card.display = "grid"
+        card.gridTemplateColumns = "subgrid"
+        card.gridColumn = "span 2"
+        def cellA (new EVGElement())
+        def cellB (new EVGElement())
+        card.addChild(cellA)
+        card.addChild(cellB)
+        outer.addChild(card)
+
+        def lay (new EVGLayout())
+        lay.layout(outer)
+
+        t.near("the card spans the whole outer grid" card.calculatedWidth 400.0)
+        ; Without subgrid a 2-column child would split 400 into 200/200.
+        t.near("first inner cell adopts the outer 100px track" cellA.calculatedWidth 100.0)
+        t.near("second inner cell adopts the outer 300px track" cellB.calculatedWidth 300.0)
+        t.near("and it starts where the outer track does" cellB.calculatedX 100.0)
+
+        ; A subgrid over only part of the outer grid takes just those tracks.
+        def outer2 (new EVGElement())
+        outer2.width = (EVGUnit.px(400.0))
+        outer2.height = (EVGUnit.px(200.0))
+        outer2.display = "grid"
+        outer2.gridTemplateColumns = "100px 300px"
+        outer2.gridTemplateRows = "1fr"
+        def filler (new EVGElement())
+        def narrow (new EVGElement())
+        narrow.display = "grid"
+        narrow.gridTemplateColumns = "subgrid"
+        def only (new EVGElement())
+        narrow.addChild(only)
+        outer2.addChild(filler)
+        outer2.addChild(narrow)
+        def lay2 (new EVGLayout())
+        lay2.layout(outer2)
+        t.near("a one-column subgrid takes that one track" only.calculatedWidth 300.0)
+
+        ; Declared with nothing to inherit from, it falls back to a single
+        ; column rather than collapsing to nothing.
+        def orphan (new EVGElement())
+        orphan.width = (EVGUnit.px(200.0))
+        orphan.height = (EVGUnit.px(100.0))
+        orphan.display = "grid"
+        orphan.gridTemplateColumns = "subgrid"
+        def child (new EVGElement())
+        orphan.addChild(child)
+        def lay3 (new EVGLayout())
+        lay3.layout(orphan)
+        t.near("an orphan subgrid falls back to one full-width column" child.calculatedWidth 200.0)
+    }
+
+    fn testGridDense:void (t:RgTest) {
+        ; 3 columns. A 1-wide item, then a 2-wide (which must start at column 1
+        ; of the next row... actually fits at column 1), then a 1-wide.
+        def sparse (new EVGElement())
+        sparse.width = (EVGUnit.px(300.0))
+        sparse.height = (EVGUnit.px(200.0))
+        sparse.display = "grid"
+        sparse.gridTemplateColumns = "repeat(3, 1fr)"
+        sparse.gridTemplateRows = "1fr 1fr"
+        def s1 (new EVGElement())
+        def s2 (new EVGElement())
+        s2.gridColumn = "span 3"
+        def s3 (new EVGElement())
+        sparse.addChild(s1)
+        sparse.addChild(s2)
+        sparse.addChild(s3)
+        def lay (new EVGLayout())
+        lay.layout(sparse)
+        ; s1 at (0,0); s2 needs 3 columns so it drops to row 1; s3 follows it
+        ; on row 2 because the cursor never goes back.
+        t.near("wide item drops to its own row" s2.calculatedY 100.0)
+        t.near("the next item follows the cursor" s3.calculatedY 200.0)
+
+        def dense (new EVGElement())
+        dense.width = (EVGUnit.px(300.0))
+        dense.height = (EVGUnit.px(200.0))
+        dense.display = "grid"
+        dense.gridTemplateColumns = "repeat(3, 1fr)"
+        dense.gridTemplateRows = "1fr 1fr"
+        dense.gridAutoFlow = "row dense"
+        def d1 (new EVGElement())
+        def d2 (new EVGElement())
+        d2.gridColumn = "span 3"
+        def d3 (new EVGElement())
+        dense.addChild(d1)
+        dense.addChild(d2)
+        dense.addChild(d3)
+        def lay2 (new EVGLayout())
+        lay2.layout(dense)
+        ; Same first two placements, but d3 backfills the hole beside d1.
+        t.near("dense still drops the wide item" d2.calculatedY 100.0)
+        t.near("the later item backfills row 0" d3.calculatedY 0.0)
+        t.near("in the first free column" d3.calculatedX 100.0)
+    }
+
+    fn testGridTracks:void (t:RgTest) {
+        def a:EVGGridTemplate (EVGGridTemplate.parse("1fr 1fr"))
+        t.eqInt("two fr tracks" (a.count()) 2)
+        a.resolve(100.0)
+        def a0:EVGGridTrack (a.trackAt(0))
+        t.near("equal fr split" a0.sizePx 50.0)
+
+        ; repeat() survives the space after its comma (paren-aware tokenizing).
+        def r:EVGGridTemplate (EVGGridTemplate.parse("repeat(3, 1fr)"))
+        t.eqInt("repeat(3, 1fr) expands to 3" (r.count()) 3)
+        r.resolve(90.0)
+        def r2:EVGGridTrack (r.trackAt(2))
+        t.near("repeat track size" r2.sizePx 30.0)
+
+        ; Fixed and percentage tracks take their size first; fr splits the rest.
+        def mix:EVGGridTemplate (EVGGridTemplate.parse("120px 20% 1fr"))
+        t.eqInt("mixed track count" (mix.count()) 3)
+        mix.resolve(400.0)
+        def m0:EVGGridTrack (mix.trackAt(0))
+        def m1:EVGGridTrack (mix.trackAt(1))
+        def m2:EVGGridTrack (mix.trackAt(2))
+        t.near("fixed track keeps px" m0.sizePx 120.0)
+        t.near("percent track of 400" m1.sizePx 80.0)
+        t.near("fr track takes the remainder" m2.sizePx 200.0)
+
+        ; Weighted fr.
+        def w:EVGGridTemplate (EVGGridTemplate.parse("2fr 1fr"))
+        w.resolve(300.0)
+        def w0:EVGGridTrack (w.trackAt(0))
+        def w1:EVGGridTrack (w.trackAt(1))
+        t.near("2fr gets two thirds" w0.sizePx 200.0)
+        t.near("1fr gets one third" w1.sizePx 100.0)
+
+        ; Offsets and extents account for gaps between tracks but not outside.
+        def g:EVGGridTemplate (EVGGridTemplate.parse("repeat(3, 1fr)"))
+        g.resolve(300.0)
+        t.near("offset of first track is 0" (g.offsetOf(0 10.0)) 0.0)
+        t.near("offset of third track" (g.offsetOf(2 10.0)) 220.0)
+        t.near("extent of one track" (g.extentOf(0 1 10.0)) 100.0)
+        t.near("extent of two tracks includes inner gap" (g.extentOf(0 2 10.0)) 210.0)
+
+        ; minmax(min, max): sizes as its max, then clamps into the range. A
+        ; floor that bites is pinned and the rest share what is left.
+        def mmT:EVGGridTemplate (EVGGridTemplate.parse("minmax(120px, 1fr) 1fr"))
+        t.eqInt("minmax counts as one track" (mmT.count()) 2)
+        mmT.resolve(200.0)
+        def mm0:EVGGridTrack (mmT.trackAt(0))
+        def mm1:EVGGridTrack (mmT.trackAt(1))
+        ; An even 1fr split would be 100 each, so the 120 floor bites and the
+        ; other track absorbs the difference.
+        t.near("minmax floor holds" mm0.sizePx 120.0)
+        t.near("the other track takes what is left" mm1.sizePx 80.0)
+
+        ; With room to spare the floor is irrelevant and both share evenly.
+        def roomy:EVGGridTemplate (EVGGridTemplate.parse("minmax(50px, 1fr) 1fr"))
+        roomy.resolve(400.0)
+        def rm0:EVGGridTrack (roomy.trackAt(0))
+        t.near("an unbitten floor changes nothing" rm0.sizePx 200.0)
+
+        ; A ceiling caps the track and hands the surplus on.
+        def capped:EVGGridTemplate (EVGGridTemplate.parse("minmax(0px, 60px) 1fr"))
+        capped.resolve(300.0)
+        def cp0:EVGGridTrack (capped.trackAt(0))
+        def cp1:EVGGridTrack (capped.trackAt(1))
+        t.near("minmax ceiling caps the track" cp0.sizePx 60.0)
+        t.near("surplus goes to the neighbour" cp1.sizePx 240.0)
+
+        ; minmax() inside repeat() is how an album grid is normally written.
+        def rep:EVGGridTemplate (EVGGridTemplate.parse("repeat(3, minmax(40px, 1fr))"))
+        t.eqInt("repeat expands minmax tracks" (rep.count()) 3)
+        t.no("and is not an error" rep.hadError)
+        rep.resolve(300.0)
+        def rp1:EVGGridTrack (rep.trackAt(1))
+        t.near("repeated minmax tracks share evenly" rp1.sizePx 100.0)
+
+        ; Genuinely unsupported syntax is still reported.
+        def bad:EVGGridTemplate (EVGGridTemplate.parse("fit-content(10px)"))
+        t.ok("unknown track functions are reported" bad.hadError)
+    }
+
+    ; ---- grid: placement parsing ----------------------------------------------
+    fn testGridPlacement:void (t:RgTest) {
+        def auto:EVGGridPlacement (EVGGridPlacement.parse(""))
+        t.eqInt("empty placement is auto" auto.start 0)
+        t.eqInt("empty placement spans one" auto.span 1)
+
+        def sp:EVGGridPlacement (EVGGridPlacement.parse("span 2"))
+        t.eqInt("span 2 stays auto-placed" sp.start 0)
+        t.eqInt("span 2 spans two" sp.span 2)
+
+        def line:EVGGridPlacement (EVGGridPlacement.parse("3"))
+        t.eqInt("bare line number is a start" line.start 3)
+        t.eqInt("bare line number spans one" line.span 1)
+
+        ; "2 / 4" covers the tracks BETWEEN lines 2 and 4 — two tracks, not four.
+        def range:EVGGridPlacement (EVGGridPlacement.parse("2 / 4"))
+        t.eqInt("line range start" range.start 2)
+        t.eqInt("line range span is the difference" range.span 2)
+
+        def mixed:EVGGridPlacement (EVGGridPlacement.parse("2 / span 3"))
+        t.eqInt("start with span end: start" mixed.start 2)
+        t.eqInt("start with span end: span" mixed.span 3)
+    }
+
+    ; ---- grid: layout ---------------------------------------------------------
+    fn testGridLayout:void (t:RgTest) {
+        ; 2x2 with a gap, plus a third item spanning both columns on row 2.
+        def root (new EVGElement())
+        root.width = (EVGUnit.px(400.0))
+        root.height = (EVGUnit.px(400.0))
+        root.display = "grid"
+        root.gridTemplateColumns = "repeat(2, 1fr)"
+        root.gridTemplateRows = "1fr 1fr"
+        root.gap = (EVGUnit.parse("20px"))
+
+        def a (new EVGElement())
+        def b (new EVGElement())
+        def c (new EVGElement())
+        c.gridColumn = "span 2"
+        root.addChild(a)
+        root.addChild(b)
+        root.addChild(c)
+
+        def lay (new EVGLayout())
+        lay.layout(root)
+
+        ; columns: (400 - 20) / 2 = 190 ; rows: (400 - 20) / 2 = 190
+        t.near("grid col width" a.calculatedWidth 190.0)
+        t.near("grid row height" a.calculatedHeight 190.0)
+        t.near("first cell at origin" a.calculatedX 0.0)
+        t.near("second cell after gap" b.calculatedX 210.0)
+        t.near("second cell same row" b.calculatedY 0.0)
+        t.near("spanning item is full width" c.calculatedWidth 400.0)
+        t.near("spanning item wrapped to row 2" c.calculatedY 210.0)
+        t.near("spanning item back at column 1" c.calculatedX 0.0)
+
+        ; row-gap / column-gap override the shorthand per axis.
+        def g2 (new EVGElement())
+        g2.width = (EVGUnit.px(400.0))
+        g2.height = (EVGUnit.px(400.0))
+        g2.display = "grid"
+        g2.gridTemplateColumns = "1fr 1fr"
+        g2.gridTemplateRows = "1fr 1fr"
+        g2.gap = (EVGUnit.parse("20px"))
+        g2.columnGap = (EVGUnit.parse("40px"))
+        def p1 (new EVGElement())
+        def p2 (new EVGElement())
+        def p3 (new EVGElement())
+        g2.addChild(p1)
+        g2.addChild(p2)
+        g2.addChild(p3)
+        def lay2 (new EVGLayout())
+        lay2.layout(g2)
+        t.near("column-gap overrides gap" p2.calculatedX 220.0)
+        t.near("row-gap still from shorthand" p3.calculatedY 210.0)
+
+        ; A row span reserves its cells so later items flow around it.
+        def g3 (new EVGElement())
+        g3.width = (EVGUnit.px(300.0))
+        g3.height = (EVGUnit.px(300.0))
+        g3.display = "grid"
+        g3.gridTemplateColumns = "1fr 1fr"
+        g3.gridTemplateRows = "1fr 1fr"
+        def tall (new EVGElement())
+        tall.gridRow = "span 2"
+        def s1 (new EVGElement())
+        def s2 (new EVGElement())
+        g3.addChild(tall)
+        g3.addChild(s1)
+        g3.addChild(s2)
+        def lay3 (new EVGLayout())
+        lay3.layout(g3)
+        t.near("row-spanning item covers both rows" tall.calculatedHeight 300.0)
+        t.near("next item sits beside it" s1.calculatedX 150.0)
+        t.near("next item on row 1" s1.calculatedY 0.0)
+        ; column 1 of row 2 is taken by the span, so this lands in column 2.
+        t.near("third item skips the occupied cell" s2.calculatedX 150.0)
+        t.near("third item drops to row 2" s2.calculatedY 150.0)
+
+        ; Without a column template a grid is one full-width column.
+        def g4 (new EVGElement())
+        g4.width = (EVGUnit.px(200.0))
+        g4.height = (EVGUnit.px(200.0))
+        g4.display = "grid"
+        def only (new EVGElement())
+        g4.addChild(only)
+        def lay4 (new EVGLayout())
+        lay4.layout(g4)
+        t.near("default grid is a single full-width column" only.calculatedWidth 200.0)
+    }
+
+    ; ---- grid: content-sized rows ---------------------------------------------
+    ; With no grid-template-rows (or an auto-height container) rows size to the
+    ; tallest item in them, the same principle as the flex auto-height rule.
+    fn testGridContentRows:void (t:RgTest) {
+        def root (new EVGElement())
+        root.width = (EVGUnit.px(400.0))
+        root.height = (EVGUnit.px(400.0))
+
+        def grid (new EVGElement())
+        grid.display = "grid"
+        grid.gridTemplateColumns = "1fr 1fr"
+        grid.gap = (EVGUnit.parse("10px"))
+        root.addChild(grid)
+
+        def short (new EVGElement())
+        short.height = (EVGUnit.px(30.0))
+        def tall (new EVGElement())
+        tall.height = (EVGUnit.px(80.0))
+        def next (new EVGElement())
+        next.height = (EVGUnit.px(25.0))
+        ; No height: stretches to whatever row 2 turns out to be.
+        def stretchy (new EVGElement())
+        grid.addChild(short)
+        grid.addChild(tall)
+        grid.addChild(next)
+        grid.addChild(stretchy)
+
+        def lay (new EVGLayout())
+        lay.layout(root)
+
+        ; An explicit height is kept — grid stretch only fills auto-height items,
+        ; so row 1 is 80 tall while `short` stays 30.
+        t.near("explicit height is not stretched" short.calculatedHeight 30.0)
+        t.near("tallest item defines the row" tall.calculatedHeight 80.0)
+        ; Row 2 starting at 90 is what proves row 1 measured 80 (+10 gap).
+        t.near("second row starts below row 1 + gap" next.calculatedY 90.0)
+        t.near("auto-height item stretches to its row" stretchy.calculatedHeight 25.0)
+        t.near("grid container grows to its rows" grid.calculatedHeight 115.0)
     }
 
     fn testSvgPath:void (t:RgTest) {

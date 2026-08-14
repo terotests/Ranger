@@ -17,9 +17,9 @@
 ; host can skip re-reading + rebuilding identical frames.
 ; ==============================================================================
 
-Import "../evg/EVGElement.rgr"
-Import "../evg/EVGColor.rgr"
-Import "../evg/EVGUnit.rgr"
+Import "../../../evg/EVGElement.rgr"
+Import "../../../evg/EVGColor.rgr"
+Import "../../../evg/EVGUnit.rgr"
 Import "./wasm_runtime.rgr"
 
 ; ---- RGU1 constants (mirror wasm/wasm_ui_abi.h) ------------------------------

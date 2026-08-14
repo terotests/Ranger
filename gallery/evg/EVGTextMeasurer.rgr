@@ -25,7 +25,22 @@ class EVGTextMetrics {
 
 ; Abstract interface - implementations must override
 class EVGTextMeasurer {
-    
+
+    ; Does this measurer report real metrics from the font file that will be
+    ; painted? The default implementation below does NOT — it guesses from the
+    ; font size and never opens a font — so it must not silently drive print
+    ; layout. EVGTextEngine consults this to decide whether a document that
+    ; names custom fonts can be measured honestly.
+    fn isFontAccurate:boolean () {
+        return false
+    }
+
+    ; Is a concrete face available for this family? A measurer with no font
+    ; files has none, whatever the family is called.
+    fn hasFace:boolean (fontFamily:string) {
+        return false
+    }
+
     fn measureText:EVGTextMetrics (text:string fontFamily:string fontSize:double) {
         ; Default implementation - estimate based on font size
         ; Average character width is approximately 0.5-0.6 of font size

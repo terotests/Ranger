@@ -9,9 +9,49 @@
 Import "../../../evg/EVGElement.rgr"
 Import "../../../evg/EVGLayout.rgr"
 Import "../../../evg/EVGTextMeasurer.rgr"
+Import "../../../evg/EVGTextEngine.rgr"
 Import "../../../evg/EVGUnit.rgr"
 Import "../../../evg/EVGColor.rgr"
 Import "EVGResourceLoader.rgr"
+
+; Geometry a child needs from its laid-out parent while rendering.
+;
+; This is threaded down the render walk instead of being read back through
+; `EVGElement.parent`. The back-reference is not maintained by every tree
+; builder — `EVGElement.addChild` does not set it, so component trees built by
+; ComponentEngine have no parent edges at all — which made the clamping below
+; silently depend on which code path produced the tree. The walk always knows
+; the real parent, so it carries what it needs.
+;
+; `isSet` distinguishes "rendered as a root" (no clamping, no clipping) from a
+; parent that genuinely has zero padding.
+class EVGParentFrame {
+    def x:double 0.0
+    def y:double 0.0
+    def height:double 0.0
+    def paddingLeft:double 0.0
+    def paddingTop:double 0.0
+    def paddingBottom:double 0.0
+    def isSet:boolean false
+
+    ; Root-level frame: no parent to position against or clamp into.
+    sfn none:EVGParentFrame () {
+        def p (new EVGParentFrame())
+        return p
+    }
+
+    sfn of:EVGParentFrame (el:EVGElement) {
+        def p (new EVGParentFrame())
+        p.x = el.calculatedX
+        p.y = el.calculatedY
+        p.height = el.calculatedHeight
+        p.paddingLeft = el.box.paddingLeftPx
+        p.paddingTop = el.box.paddingTopPx
+        p.paddingBottom = el.box.paddingBottomPx
+        p.isSet = true
+        return p
+    }
+}
 
 class EVGHTMLRenderer {
     def layout:EVGLayout
@@ -58,6 +98,15 @@ class EVGHTMLRenderer {
         layout.setPageSize(width height)
     }
     
+    fn setStrictFonts:void (s:boolean) {
+        layout.setStrictFonts(s)
+    }
+
+    ; Warnings collected while measuring, so a caller can surface them.
+    fn getTextEngine:EVGTextEngine () {
+        return (layout.getTextEngine())
+    }
+
     fn setMeasurer:void (m:EVGTextMeasurer) {
         measurer = m
         layout.setMeasurer(m)
@@ -313,10 +362,10 @@ class EVGHTMLRenderer {
     
     fn renderElement:string (el:EVGElement depth:int) {
         ; Render with parent position 0,0 (root level)
-        return (this.renderElementWithParent(el depth 0.0 0.0))
+        return (this.renderElementWithParent(el depth (EVGParentFrame.none())))
     }
     
-    fn renderElementWithParent:string (el:EVGElement depth:int parentX:double parentY:double) {
+    fn renderElementWithParent:string (el:EVGElement depth:int pf:EVGParentFrame) {
         elementCounter = elementCounter + 1
         def elementId:string ("evg-" + (to_string elementCounter))
         
@@ -331,23 +380,23 @@ class EVGHTMLRenderer {
             return (this.renderPage_Element(el depth))
         }
         if ((el.tagName == "View") || (el.tagName == "div") || (el.tagName == "layer") || (el.tagName == "Layer")) {
-            return (this.renderViewWithParent(el elementId depth parentX parentY))
+            return (this.renderViewWithParent(el elementId depth pf))
         }
         if ((el.tagName == "Label") || (el.tagName == "span") || (el.tagName == "text")) {
-            return (this.renderLabelWithParent(el elementId depth parentX parentY))
+            return (this.renderLabelWithParent(el elementId depth pf))
         }
         if ((el.tagName == "Image") || (el.tagName == "img") || (el.tagName == "image")) {
-            return (this.renderImageWithParent(el elementId depth parentX parentY))
+            return (this.renderImageWithParent(el elementId depth pf))
         }
         if ((el.tagName == "Path") || (el.tagName == "path")) {
-            return (this.renderPathWithParent(el elementId depth parentX parentY))
+            return (this.renderPathWithParent(el elementId depth pf))
         }
         if ((el.tagName == "Rect") || (el.tagName == "rect")) {
-            return (this.renderViewWithParent(el elementId depth parentX parentY))
+            return (this.renderViewWithParent(el elementId depth pf))
         }
         
         ; Unknown element - render as div with children
-        return (this.renderViewWithParent(el elementId depth parentX parentY))
+        return (this.renderViewWithParent(el elementId depth pf))
     }
     
     fn renderElementForPage:string (el:EVGElement pageNum:int depth:int) {
@@ -443,7 +492,7 @@ class EVGHTMLRenderer {
         def i:int 0
         while (i < (array_length el.children)) {
             def child:EVGElement (itemAt el.children i)
-            html = html + (this.renderElementWithParent(child (depth + 1) el.calculatedX el.calculatedY))
+            html = html + (this.renderElementWithParent(child (depth + 1) (EVGParentFrame.of(el))))
             i = i + 1
         }
         
@@ -456,10 +505,10 @@ class EVGHTMLRenderer {
     ; =========================================================================
     
     fn renderView:string (el:EVGElement elementId:string depth:int) {
-        return (this.renderViewWithParent(el elementId depth 0.0 0.0))
+        return (this.renderViewWithParent(el elementId depth (EVGParentFrame.none())))
     }
     
-    fn renderViewWithParent:string (el:EVGElement elementId:string depth:int parentX:double parentY:double) {
+    fn renderViewWithParent:string (el:EVGElement elementId:string depth:int pf:EVGParentFrame) {
         def html:string ""
         html = html + (this.indent(depth)) + "<div"
         
@@ -484,8 +533,8 @@ class EVGHTMLRenderer {
             relX = el.calculatedX
             relY = el.calculatedY
         } {
-            relX = (el.calculatedX - parentX)
-            relY = (el.calculatedY - parentY)
+            relX = (el.calculatedX - pf.x)
+            relY = (el.calculatedY - pf.y)
         }
         
         html = html + " style=\""
@@ -498,7 +547,7 @@ class EVGHTMLRenderer {
         def i:int 0
         while (i < (array_length el.children)) {
             def child:EVGElement (itemAt el.children i)
-            html = html + (this.renderElementWithParent(child (depth + 1) el.calculatedX el.calculatedY))
+            html = html + (this.renderElementWithParent(child (depth + 1) (EVGParentFrame.of(el))))
             i = i + 1
         }
         
@@ -645,10 +694,10 @@ class EVGHTMLRenderer {
     ; =========================================================================
     
     fn renderLabel:string (el:EVGElement elementId:string depth:int) {
-        return (this.renderLabelWithParent(el elementId depth 0.0 0.0))
+        return (this.renderLabelWithParent(el elementId depth (EVGParentFrame.none())))
     }
     
-    fn renderLabelWithParent:string (el:EVGElement elementId:string depth:int parentX:double parentY:double) {
+    fn renderLabelWithParent:string (el:EVGElement elementId:string depth:int pf:EVGParentFrame) {
         def html:string ""
         html = html + (this.indent(depth)) + "<span"
         
@@ -669,13 +718,13 @@ class EVGHTMLRenderer {
             relX = el.calculatedX
             relY = el.calculatedY
         } {
-            relX = (el.calculatedX - parentX)
-            relY = (el.calculatedY - parentY)
+            relX = (el.calculatedX - pf.x)
+            relY = (el.calculatedY - pf.y)
         }
         
         ; Add inline styles
         html = html + " style=\""
-        html = html + (this.generateLabelStylesRelative(el relX relY))
+        html = html + (this.generateLabelStylesRelative(el relX relY pf))
         html = html + "\""
         
         html = html + ">"
@@ -687,7 +736,7 @@ class EVGHTMLRenderer {
         def i:int 0
         while (i < (array_length el.children)) {
             def child:EVGElement (itemAt el.children i)
-            html = html + (this.renderElementWithParent(child (depth + 1) el.calculatedX el.calculatedY))
+            html = html + (this.renderElementWithParent(child (depth + 1) (EVGParentFrame.of(el))))
             i = i + 1
         }
         
@@ -695,21 +744,24 @@ class EVGHTMLRenderer {
         return html
     }
     
-    fn generateLabelStylesRelative:string (el:EVGElement relX:double relY:double) {
+    fn generateLabelStylesRelative:string (el:EVGElement relX:double relY:double pf:EVGParentFrame) {
         def css:string ""
-        
+
         ; Always use absolute positioning since EVG calculates exact positions
         css = css + "position: absolute; "
         ; If the calculated relative coordinates end up outside the parent's padding
         ; (negative due to layout ordering quirks), clamp them to parent's padding
-        ; to ensure text stays inside the padded content area.
+        ; to ensure text stays inside the padded content area. A label rendered as
+        ; a root has no padding box to clamp into, so it is left as laid out.
         def px:double relX
         def py:double relY
-        if (px < el.parent.box.paddingLeftPx) {
-            px = el.parent.box.paddingLeftPx
-        }
-        if (py < el.parent.box.paddingTopPx) {
-            py = el.parent.box.paddingTopPx
+        if pf.isSet {
+            if (px < pf.paddingLeft) {
+                px = pf.paddingLeft
+            }
+            if (py < pf.paddingTop) {
+                py = pf.paddingTop
+            }
         }
         css = css + "left: " + (this.formatPx(px)) + "; "
         css = css + "top: " + (this.formatPx(py)) + "; "
@@ -797,10 +849,10 @@ class EVGHTMLRenderer {
     ; =========================================================================
     
     fn renderImage:string (el:EVGElement elementId:string depth:int) {
-        return (this.renderImageWithParent(el elementId depth 0.0 0.0))
+        return (this.renderImageWithParent(el elementId depth (EVGParentFrame.none())))
     }
     
-    fn renderImageWithParent:string (el:EVGElement elementId:string depth:int parentX:double parentY:double) {
+    fn renderImageWithParent:string (el:EVGElement elementId:string depth:int pf:EVGParentFrame) {
         def html:string ""
         
         ; Calculate position relative to parent
@@ -812,8 +864,8 @@ class EVGHTMLRenderer {
             relX = el.calculatedX
             relY = el.calculatedY
         } {
-            relX = (el.calculatedX - parentX)
-            relY = (el.calculatedY - parentY)
+            relX = (el.calculatedX - pf.x)
+            relY = (el.calculatedY - pf.y)
         }
         
         ; If imageViewBox is set, use special viewBox rendering
@@ -825,11 +877,13 @@ class EVGHTMLRenderer {
         def containerW:double el.calculatedWidth
         def containerH:double el.calculatedHeight
         
-        ; Get parent's available height for clipping (use parent's calculatedHeight if available)
-        def parentAvailableH:double el.parent.calculatedHeight
+        ; Get parent's available height for clipping (use parent's calculatedHeight if available).
+        ; An image rendered as a root has no parent box, so parentAvailableH stays
+        ; 0.0 and the clipping check below is skipped.
+        def parentAvailableH:double pf.height
         ; Account for padding if parent has it
-        if (el.parent.box.paddingTopPx > 0.0) {
-            parentAvailableH = parentAvailableH - el.parent.box.paddingTopPx - el.parent.box.paddingBottomPx
+        if (pf.paddingTop > 0.0) {
+            parentAvailableH = parentAvailableH - pf.paddingTop - pf.paddingBottom
         }
         
         ; If containerH is 0 but we have source dimensions and containerW, 
@@ -1202,10 +1256,10 @@ class EVGHTMLRenderer {
     ; =========================================================================
     
     fn renderPath:string (el:EVGElement elementId:string depth:int) {
-        return (this.renderPathWithParent(el elementId depth 0.0 0.0))
+        return (this.renderPathWithParent(el elementId depth (EVGParentFrame.none())))
     }
     
-    fn renderPathWithParent:string (el:EVGElement elementId:string depth:int parentX:double parentY:double) {
+    fn renderPathWithParent:string (el:EVGElement elementId:string depth:int pf:EVGParentFrame) {
         def html:string ""
         
         def w:double el.calculatedWidth
@@ -1225,8 +1279,8 @@ class EVGHTMLRenderer {
             relX = el.calculatedX
             relY = el.calculatedY
         } {
-            relX = (el.calculatedX - parentX)
-            relY = (el.calculatedY - parentY)
+            relX = (el.calculatedX - pf.x)
+            relY = (el.calculatedY - pf.y)
         }
         
         html = html + (this.indent(depth)) + "<svg"

@@ -1,0 +1,229 @@
+; EVGTextEngine.rgr - The one text measurement + line breaking implementation
+;
+; PLAN_CSS_LAYOUT_AND_FONTS.md §8. Layout, PDF paint and raster paint must agree
+; on where text breaks and how wide it is, or a page that looks right in preview
+; prints wrong. Before this module there were four separate wrap implementations:
+;
+;   EVGLayout.estimateLineCount   word-by-word, space width guessed as
+;                                 fontSize * 0.3, family hardcoded "Helvetica"
+;   EVGPDFRenderer.wrapText       whole-candidate-line measurement, real family
+;   EVGTextMeasurer.wrapText      character-by-character accumulation
+;   FontManager.measureText       strlen * fontSize * 0.5 when no face loaded
+;
+; They break lines in different places, so layout computed one line count and
+; paint drew another. This module keeps the PDF algorithm — measuring the whole
+; candidate line so the real space advance is included rather than approximated
+; — and everything else calls into it.
+;
+; The engine does not itself know about fonts: it delegates to an
+; EVGTextMeasurer. What it adds is (a) one algorithm, (b) the actual font family
+; threaded through instead of a hardcoded one, and (c) honesty about whether the
+; measurer can back the families a document asks for.
+
+Import "EVGTextMeasurer.rgr"
+
+; One laid-out line. ascent/descent are carried from day one so baseline
+; alignment (§4.1 rule 4) can be added without re-measuring.
+class EVGTextLine {
+    def text:string ""
+    def width:double 0.0
+    def ascent:double 0.0
+    def descent:double 0.0
+
+    Constructor () {
+        text = ""
+        width = 0.0
+        ascent = 0.0
+        descent = 0.0
+    }
+}
+
+class EVGTextEngine {
+    def measurer:EVGTextMeasurer
+    ; When strict, a family the measurer cannot back is a hard error rather
+    ; than a silent fall back to guessed widths. Print pipelines should set it.
+    def strict:boolean false
+    ; Families already reported, so one missing face does not produce one
+    ; warning per text node.
+    def reported:[string]
+    def warnings:[string]
+    ; Set once a strict violation has been seen, so callers can fail the run.
+    def hadFatal:boolean false
+
+    ; Starts on the heuristic measurer so the engine is always usable; callers
+    ; that care about print correctness install a real one via setMeasurer and
+    ; turn on strict mode.
+    Constructor () {
+        def m (new SimpleTextMeasurer())
+        measurer = m
+        strict = false
+        hadFatal = false
+    }
+
+    fn setMeasurer:void (m:EVGTextMeasurer) {
+        measurer = m
+    }
+
+    fn setStrict:void (s:boolean) {
+        strict = s
+    }
+
+    fn warningCount:int () {
+        return (array_length warnings)
+    }
+
+    fn warningAt:string (i:int) {
+        return (itemAt warnings i)
+    }
+
+    ; -----------------------------------------------------------------------
+    ; Font honesty
+    ; -----------------------------------------------------------------------
+
+    ; Record (once per family) that this family cannot be measured from a real
+    ; face. In strict mode this also marks the run as failed.
+    fn noteFamily:void (fontFamily:string) {
+        def i:int 0
+        while (i < (array_length reported)) {
+            if ((itemAt reported i) == fontFamily) {
+                return
+            }
+            i = (i + 1)
+        }
+        push reported fontFamily
+
+        if ((measurer.isFontAccurate()) == false) {
+            push warnings ("No font metrics available for \"" + fontFamily
+                + "\" - measuring with heuristic widths. Print layout will not match paint.")
+            if strict {
+                hadFatal = true
+            }
+            return
+        }
+        if ((measurer.hasFace(fontFamily)) == false) {
+            push warnings ("Font face not loaded: \"" + fontFamily
+                + "\" - falling back to another face. Widths will not match paint.")
+            if strict {
+                hadFatal = true
+            }
+        }
+    }
+
+    fn checkFamily:void (fontFamily:string) {
+        if ((measurer.isFontAccurate()) == false) {
+            this.noteFamily(fontFamily)
+            return
+        }
+        if ((measurer.hasFace(fontFamily)) == false) {
+            this.noteFamily(fontFamily)
+        }
+    }
+
+    ; -----------------------------------------------------------------------
+    ; §8 contract
+    ; -----------------------------------------------------------------------
+
+    fn measureRun:EVGTextMetrics (text:string fontFamily:string fontSize:double) {
+        this.checkFamily(fontFamily)
+        return (measurer.measureText(text fontFamily fontSize))
+    }
+
+    fn lineHeightFor:double (fontFamily:string fontSize:double) {
+        return (measurer.getLineHeight(fontFamily fontSize))
+    }
+
+    ; Greedy word wrap. Honours explicit newlines, and measures each CANDIDATE
+    ; LINE whole rather than summing word widths plus a guessed space — that is
+    ; what makes the result identical to what the paint side draws.
+    ;
+    ; maxWidth <= 0 means "do not wrap": each newline-separated paragraph
+    ; becomes exactly one line.
+    fn breakLines:[EVGTextLine] (text:string fontFamily:string fontSize:double maxWidth:double) {
+        def out:[EVGTextLine]
+        this.checkFamily(fontFamily)
+
+        def paragraphs:[string] (strsplit text "\n")
+        def p:int 0
+        while (p < (array_length paragraphs)) {
+            def para:string (itemAt paragraphs p)
+            if (maxWidth <= 0.0) {
+                this.pushLine(out para fontFamily fontSize)
+            } {
+                def words:[string] (strsplit para " ")
+                def currentLine:string ""
+                def w:int 0
+                while (w < (array_length words)) {
+                    def word:string (itemAt words w)
+                    def testLine:string ""
+                    if ((strlen currentLine) == 0) {
+                        testLine = word
+                    } {
+                        testLine = currentLine + " " + word
+                    }
+                    def testWidth:double (measurer.measureTextWidth(testLine fontFamily fontSize))
+                    if ((testWidth > maxWidth) && ((strlen currentLine) > 0)) {
+                        this.pushLine(out currentLine fontFamily fontSize)
+                        currentLine = word
+                    } {
+                        currentLine = testLine
+                    }
+                    w = (w + 1)
+                }
+                ; An empty paragraph is still a line — blank lines take vertical
+                ; space, and dropping them would shorten the block.
+                this.pushLine(out currentLine fontFamily fontSize)
+            }
+            p = (p + 1)
+        }
+
+        if ((array_length out) == 0) {
+            this.pushLine(out "" fontFamily fontSize)
+        }
+        return out
+    }
+
+    fn pushLine:void (out:[EVGTextLine] text:string fontFamily:string fontSize:double) {
+        def m:EVGTextMetrics (measurer.measureText(text fontFamily fontSize))
+        def line (new EVGTextLine())
+        line.text = text
+        line.width = m.width
+        line.ascent = m.ascent
+        line.descent = m.descent
+        push out line
+    }
+
+    ; Number of lines `text` occupies at `maxWidth` — the wrap and the height
+    ; calculation therefore cannot disagree, because it is the same wrap.
+    fn lineCount:int (text:string fontFamily:string fontSize:double maxWidth:double) {
+        def lines:[EVGTextLine] (this.breakLines(text fontFamily fontSize maxWidth))
+        return (array_length lines)
+    }
+
+    ; Widest line, for shrink-wrapping a text node to its content.
+    fn maxLineWidth:double (text:string fontFamily:string fontSize:double) {
+        def lines:[EVGTextLine] (this.breakLines(text fontFamily fontSize 0.0))
+        def maxW:double 0.0
+        def i:int 0
+        while (i < (array_length lines)) {
+            def ln:EVGTextLine (itemAt lines i)
+            if (ln.width > maxW) {
+                maxW = ln.width
+            }
+            i = (i + 1)
+        }
+        return maxW
+    }
+
+    ; Convenience for callers that only want the strings (PDF paint).
+    fn breakToStrings:[string] (text:string fontFamily:string fontSize:double maxWidth:double) {
+        def out:[string]
+        def lines:[EVGTextLine] (this.breakLines(text fontFamily fontSize maxWidth))
+        def i:int 0
+        while (i < (array_length lines)) {
+            def ln:EVGTextLine (itemAt lines i)
+            push out ln.text
+            i = (i + 1)
+        }
+        return out
+    }
+}

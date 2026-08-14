@@ -3,9 +3,14 @@
 Import "EVGElement.rgr"
 Import "EVGTextMeasurer.rgr"
 Import "EVGImageMeasurer.rgr"
+Import "EVGGrid.rgr"
+Import "EVGTextEngine.rgr"
 
 class EVGLayout {
     def measurer:EVGTextMeasurer
+    ; The one text measurement + wrapping implementation. Layout must break
+    ; lines exactly where paint will, so both go through this.
+    def textEngine:EVGTextEngine (new EVGTextEngine())
     def imageMeasurer:EVGImageMeasurer
     def pageWidth:double 612.0
     def pageHeight:double 792.0
@@ -15,12 +20,23 @@ class EVGLayout {
     Constructor () {
         def m (new SimpleTextMeasurer())
         measurer = m
+        textEngine.setMeasurer(m)
         def im (new SimpleImageMeasurer())
         imageMeasurer = im
     }
     
     fn setMeasurer:void (m:EVGTextMeasurer) {
         measurer = m
+        textEngine.setMeasurer(m)
+    }
+
+    fn getTextEngine:EVGTextEngine () {
+        return textEngine
+    }
+
+    ; Refuse to measure a custom-font document with guessed widths (§4.1 rule 1).
+    fn setStrictFonts:void (s:boolean) {
+        textEngine.setStrict(s)
     }
     
     fn setImageMeasurer:void (m:EVGImageMeasurer) {
@@ -89,7 +105,7 @@ class EVGLayout {
                     if (fontSize <= 0.0) {
                         fontSize = 14.0
                     }
-                    def contentW:double (this.measureTextContentWidth(textContent fontSize))
+                    def contentW:double (textEngine.maxLineWidth(textContent element.fontFamily fontSize))
                     def measuredW:double (contentW + element.box.paddingLeftPx + element.box.paddingRightPx + (element.box.borderWidthPx * 2.0))
                     if (measuredW < parentWidth) {
                         width = measuredW
@@ -115,7 +131,15 @@ class EVGLayout {
             height = element.height.pixels
             autoHeight = false
         }
-        
+        ; Column-axis flex grow / row alignItems:stretch: EVGLayout resolved a
+        ; target height for this child (height not explicitly set) — adopt it.
+        if (element.height.isSet == false) {
+            if (element.calculatedFlexHeight > 0.0) {
+                height = element.calculatedFlexHeight
+                autoHeight = false
+            }
+        }
+
         ; For image elements, calculate dimensions based on aspect ratio
         ; IMPORTANT: If the parent has fixed dimensions and the image should fill the parent,
         ; use the parent dimensions as the container. The objectFit property handles 
@@ -198,6 +222,7 @@ class EVGLayout {
         
         ; If height is explicitly set (not auto), pre-calculate inner height for children
         ; This allows children with height="100%" to resolve correctly
+        element.hasDefiniteHeight = (autoHeight == false)
         if (autoHeight == false) {
             element.calculatedHeight = height
             element.calculatedInnerHeight = (element.box.getInnerHeight(height))
@@ -234,11 +259,24 @@ class EVGLayout {
                 }
                 def lineSpacing:double (fontSize * lineHeightFactor)
                 
-                ; Calculate number of wrapped lines based on text width
+                ; Line count comes from the shared wrap, not a second estimate,
+                ; so the height reserved here matches the lines paint will draw.
                 def availableWidth:double (width - element.box.paddingLeftPx - element.box.paddingRightPx)
-                def lineCount:int (this.estimateLineCount(textContent availableWidth fontSize))
-                
+                def lineCount:int (textEngine.lineCount(textContent element.fontFamily fontSize availableWidth))
+
                 contentHeight = (lineSpacing * (to_double lineCount))
+
+                ; Baseline of the FIRST line, measured from this element's top
+                ; border edge, for align-items: baseline. The glyphs sit inside
+                ; the line box, so half the leading is above the ascent.
+                def metrics:EVGTextMetrics (textEngine.measureRun(textContent element.fontFamily fontSize))
+                def leading:double ((lineSpacing - (metrics.ascent + metrics.descent)) / 2.0)
+                if (leading < 0.0) {
+                    leading = 0.0
+                }
+                element.calculatedBaseline = (element.box.paddingTopPx + element.box.borderWidthPx + leading + metrics.ascent)
+                element.calculatedDescent = metrics.descent
+                element.hasBaseline = true
             }
         }
         
@@ -264,6 +302,12 @@ class EVGLayout {
         element.calculatedInnerHeight = (element.box.getInnerHeight(height))
         element.calculatedPage = currentPage
         element.isLayoutComplete = true
+
+        ; A container inherits the baseline of its first in-flow child (CSS
+        ; "first baseline"), so a Label wrapped in a View still aligns.
+        if ((element.hasBaseline == false) && (childCount > 0)) {
+            this.inheritBaselineFromFirstChild(element)
+        }
         
         this.log(("  Laid out " + element.tagName + " id=" + element.id + " at (" + (to_string element.calculatedX) + "," + (to_string element.calculatedY) + ") size=" + (to_string width) + "x" + (to_string height)))
     }
@@ -277,6 +321,11 @@ class EVGLayout {
             return 0.0
         }
         
+        ; A grid container runs a different placement algorithm entirely.
+        if (parent.display == "grid") {
+            return (this.layoutGrid(parent))
+        }
+
         def innerWidth:double parent.calculatedInnerWidth
         def innerHeight:double parent.calculatedInnerHeight
         
@@ -290,9 +339,29 @@ class EVGLayout {
         def rowHeight:double 0.0
         def rowElements:[EVGElement]
         def totalHeight:double 0.0
-        
+        ; Every wrapped line, flattened, so align-content can move whole lines
+        ; once the total content height is known.
+        def lineMembers:[EVGElement]
+        def lineCounts:[int]
+        def lineHeights:[double]
+        ; count of in-flow (non-absolute) children already placed, so `gap` is
+        ; added BETWEEN consecutive children only (not before the first).
+        def placedInFlow:int 0
+
         ; Check layout direction using flexDirection (CSS standard)
         def isColumn:boolean (parent.flexDirection == "column")
+
+        ; Main-axis `gap` between children (CSS gap). Resolve against the inner
+        ; main-axis extent; px is idempotent, percent recomputes each layout.
+        def gapPx:double 0.0
+        if parent.gap.isSet {
+            if isColumn {
+                parent.gap.resolve(innerHeight parent.inheritedFontSize)
+            } {
+                parent.gap.resolve(innerWidth parent.inheritedFontSize)
+            }
+            gapPx = parent.gap.pixels
+        }
         
         ; For row layout with flex items, we need to calculate available space first
         if (isColumn == false) {
@@ -304,45 +373,267 @@ class EVGLayout {
                 def c:EVGElement (parent.getChild(j))
                 c.inheritProperties(parent)
                 c.resolveUnits(innerWidth innerHeight)
-                if c.width.isSet {
-                    fixedWidth = fixedWidth + c.width.pixels + c.box.marginLeftPx + c.box.marginRightPx
+                ; A flex item's starting size is its flex-basis when set,
+                ; otherwise its width. `flex: 1` sets basis 0, which is what
+                ; lets an item share the line even though it also has a width —
+                ; previously any width made `flex` a no-op.
+                def hasBasis:boolean c.flexBasis.isSet
+                if ((c.flex > 0.0) && hasBasis) {
+                    totalFlex = totalFlex + c.flex
+                    fixedWidth = ((fixedWidth + c.flexBasis.pixels) + c.box.marginLeftPx) + c.box.marginRightPx
                 } {
-                    if (c.flex > 0.0) {
-                        totalFlex = totalFlex + c.flex
-                        fixedWidth = fixedWidth + c.box.marginLeftPx + c.box.marginRightPx
+                    if c.width.isSet {
+                        fixedWidth = fixedWidth + c.width.pixels + c.box.marginLeftPx + c.box.marginRightPx
                     } {
-                        def avail:double (innerWidth - c.box.marginLeftPx - c.box.marginRightPx)
-                        def estW:double (this.estimateChildWidth(c avail))
-                        fixedWidth = fixedWidth + estW + c.box.marginLeftPx + c.box.marginRightPx
+                        if (c.flex > 0.0) {
+                            totalFlex = totalFlex + c.flex
+                            fixedWidth = fixedWidth + c.box.marginLeftPx + c.box.marginRightPx
+                        } {
+                            def avail:double (innerWidth - c.box.marginLeftPx - c.box.marginRightPx)
+                            def estW:double (this.estimateChildWidth(c avail))
+                            fixedWidth = fixedWidth + estW + c.box.marginLeftPx + c.box.marginRightPx
+                        }
                     }
                 }
                 j = j + 1
             }
             
-            ; Calculate available space for flex items
-            def availableForFlex:double (innerWidth - fixedWidth)
+            ; Calculate available space for flex items (row gaps consume it too)
+            def totalGap:double 0.0
+            if (childCount > 1) {
+                totalGap = ((to_double (childCount - 1)) * gapPx)
+            }
+            def availableForFlex:double ((innerWidth - fixedWidth) - totalGap)
             if (availableForFlex < 0.0) {
                 availableForFlex = 0.0
             }
             
-            ; Assign flex widths to children
+            ; Assign flex widths to children: basis plus a share of the leftover.
+            ;
+            ; min/max are resolved as part of this rather than clamped after the
+            ; fact. An item that hits its limit is frozen at the limit and taken
+            ; out of the pool, and the space it did not use is offered to the
+            ; others — otherwise clamping just left a hole in the row. This is
+            ; the CSS "resolve flexible lengths" loop, bounded by the child count
+            ; because each pass freezes at least one item.
             if (totalFlex > 0.0) {
-                j = 0
-                while (j < childCount) {
-                    def c:EVGElement (parent.getChild(j))
-                    if ((c.width.isSet == false) && (c.flex > 0.0)) {
-                        def flexWidth:double ((availableForFlex * c.flex) / totalFlex)
-                        c.calculatedFlexWidth = flexWidth
+                def frozen:[boolean]
+                def jf:int 0
+                while (jf < childCount) {
+                    push frozen false
+                    jf = (jf + 1)
+                }
+
+                def poolSpace:double availableForFlex
+                def poolFlex:double totalFlex
+                def pass:int 0
+                def settled:boolean false
+                while ((pass < childCount) && (settled == false)) {
+                    settled = true
+                    j = 0
+                    while (j < childCount) {
+                        def c:EVGElement (parent.getChild(j))
+                        def isFlexItem:boolean false
+                        if (c.flex > 0.0) {
+                            if (c.flexBasis.isSet || (c.width.isSet == false)) {
+                                isFlexItem = true
+                            }
+                        }
+                        if (isFlexItem && ((itemAt frozen j) == false)) {
+                            def basisW:double 0.0
+                            if c.flexBasis.isSet {
+                                basisW = c.flexBasis.pixels
+                            }
+                            def sizeW:double basisW
+                            if (poolFlex > 0.0) {
+                                sizeW = (basisW + ((poolSpace * c.flex) / poolFlex))
+                            }
+                            ; Clamp, and if the clamp bit, freeze here and give
+                            ; the difference back to the remaining items.
+                            def clampedW:double sizeW
+                            if c.minWidth.isSet {
+                                if (clampedW < c.minWidth.pixels) {
+                                    clampedW = c.minWidth.pixels
+                                }
+                            }
+                            if c.maxWidth.isSet {
+                                if (clampedW > c.maxWidth.pixels) {
+                                    clampedW = c.maxWidth.pixels
+                                }
+                            }
+                            if (clampedW != sizeW) {
+                                set frozen j true
+                                poolSpace = ((poolSpace - clampedW) + basisW)
+                                poolFlex = (poolFlex - c.flex)
+                                if (poolSpace < 0.0) {
+                                    poolSpace = 0.0
+                                }
+                                settled = false
+                            }
+                            c.calculatedFlexWidth = clampedW
+                            c.width.isSet = false
+                        }
+                        j = j + 1
                     }
-                    j = j + 1
+                    pass = (pass + 1)
                 }
             }
         }
-        
+
+        ; Column-axis flex: grow (distribute leftover height to flex>0 children)
+        ; and, when there is no grow flex, shrink-to-fit so fixed children that
+        ; overflow the container height are scaled down instead of spilling out.
+        ;
+        ; Both need a definite container height to work against. An auto-height
+        ; column sizes to its content, so `innerHeight` here is stale (it is only
+        ; pre-computed in layoutElement when the height is definite) and using it
+        ; would shrink content to a height that does not exist yet — which is how
+        ; document flow (auto-height Views stacked down a page) differs from the
+        ; fixed-size panels this was originally written for.
+        if (isColumn && parent.hasDefiniteHeight) {
+            def fixedHeight:double 0.0
+            def totalFlexC:double 0.0
+            def flowCountC:int 0
+            def jc:int 0
+            while (jc < childCount) {
+                def c:EVGElement (parent.getChild(jc))
+                c.inheritProperties(parent)
+                c.resolveUnits(innerWidth innerHeight)
+                if (c.isAbsolute == false) {
+                    flowCountC = (flowCountC + 1)
+                    def mAxis:double (c.box.marginTopPx + c.box.marginBottomPx)
+                    if c.height.isSet {
+                        fixedHeight = (fixedHeight + c.height.pixels + mAxis)
+                    } {
+                        if (c.flex > 0.0) {
+                            totalFlexC = (totalFlexC + c.flex)
+                            fixedHeight = (fixedHeight + mAxis)
+                        } {
+                            ; auto-height non-flex child: 0 main-axis basis estimate
+                            fixedHeight = (fixedHeight + mAxis)
+                        }
+                    }
+                }
+                jc = (jc + 1)
+            }
+            def gapTotalC:double 0.0
+            if (flowCountC > 1) {
+                gapTotalC = ((to_double (flowCountC - 1)) * gapPx)
+            }
+            if (totalFlexC > 0.0) {
+                def availC:double ((innerHeight - fixedHeight) - gapTotalC)
+                if (availC < 0.0) { availC = 0.0 }
+                def jg:int 0
+                while (jg < childCount) {
+                    def c:EVGElement (parent.getChild(jg))
+                    if (c.isAbsolute == false) {
+                        if ((c.height.isSet == false) && (c.flex > 0.0)) {
+                            c.calculatedFlexHeight = ((availC * c.flex) / totalFlexC)
+                        }
+                    }
+                    jg = (jg + 1)
+                }
+            } {
+                ; No grow flex — shrink to fit. Each item gives up space in
+                ; proportion to (flex-shrink x its size), so flex-shrink: 0
+                ; holds its size while the rest absorb the overflow. With every
+                ; factor left at the CSS default of 1 this is the same uniform
+                ; scale as before.
+                def contentH:double (fixedHeight + gapTotalC)
+                def overflowH:double (contentH - innerHeight)
+                if ((overflowH > 0.0) && (fixedHeight > 0.0)) {
+                    def weightedH:double 0.0
+                    def jq:int 0
+                    while (jq < childCount) {
+                        def c:EVGElement (parent.getChild(jq))
+                        if ((c.isAbsolute == false) && c.height.isSet) {
+                            weightedH = (weightedH + (c.flexShrink * c.height.pixels))
+                        }
+                        jq = (jq + 1)
+                    }
+                    if (weightedH > 0.0) {
+                        def js:int 0
+                        while (js < childCount) {
+                            def c:EVGElement (parent.getChild(js))
+                            if ((c.isAbsolute == false) && c.height.isSet) {
+                                def cut:double ((overflowH * (c.flexShrink * c.height.pixels)) / weightedH)
+                                def finalH:double (c.height.pixels - cut)
+                                if (finalH < 0.0) {
+                                    finalH = 0.0
+                                }
+                                c.calculatedFlexHeight = finalH
+                                c.height.isSet = false
+                            }
+                            js = (js + 1)
+                        }
+                    }
+                }
+            }
+        }
+
+        ; Row-axis flex-shrink (nowrap only — with wrap the row wraps instead):
+        ; when there is no grow flex and fixed children overflow the width, scale
+        ; them to fit (they used to spill out). Applied by re-routing each fixed
+        ; child through the flex-width path (calculatedFlexWidth + clear width),
+        ; so layoutElement adopts the shrunk width instead of the explicit one.
+        if (isColumn == false) {
+            if (parent.flexWrap == "nowrap") {
+                def fixedW2:double 0.0
+                def totalFlex2:double 0.0
+                def flowCount2:int 0
+                def jr:int 0
+                while (jr < childCount) {
+                    def c:EVGElement (parent.getChild(jr))
+                    if (c.isAbsolute == false) {
+                        flowCount2 = (flowCount2 + 1)
+                        if c.width.isSet {
+                            fixedW2 = (fixedW2 + c.width.pixels + c.box.marginLeftPx + c.box.marginRightPx)
+                        } {
+                            if (c.flex > 0.0) { totalFlex2 = (totalFlex2 + c.flex) }
+                        }
+                    }
+                    jr = (jr + 1)
+                }
+                def gapTotal2:double 0.0
+                if (flowCount2 > 1) { gapTotal2 = ((to_double (flowCount2 - 1)) * gapPx) }
+                def contentW2:double (fixedW2 + gapTotal2)
+                def overflowW:double (contentW2 - innerWidth)
+                if ((totalFlex2 == 0.0) && (overflowW > 0.0) && (fixedW2 > 0.0)) {
+                    ; Weighted by (flex-shrink x width), so flex-shrink: 0 keeps
+                    ; its size and its siblings absorb the whole overflow.
+                    def weightedW:double 0.0
+                    def jz:int 0
+                    while (jz < childCount) {
+                        def c:EVGElement (parent.getChild(jz))
+                        if ((c.isAbsolute == false) && c.width.isSet) {
+                            weightedW = (weightedW + (c.flexShrink * c.width.pixels))
+                        }
+                        jz = (jz + 1)
+                    }
+                    if (weightedW > 0.0) {
+                        def jw:int 0
+                        while (jw < childCount) {
+                            def c:EVGElement (parent.getChild(jw))
+                            if ((c.isAbsolute == false) && c.width.isSet) {
+                                def cutW:double ((overflowW * (c.flexShrink * c.width.pixels)) / weightedW)
+                                def finalW:double (c.width.pixels - cutW)
+                                if (finalW < 0.0) {
+                                    finalW = 0.0
+                                }
+                                c.calculatedFlexWidth = finalW
+                                c.width.isSet = false
+                            }
+                            jw = (jw + 1)
+                        }
+                    }
+                }
+            }
+        }
+
         def i:int 0
         while (i < childCount) {
             def child:EVGElement (parent.getChild(i))
-            
+
             ; Inherit properties from parent
             child.inheritProperties(parent)
             
@@ -404,16 +695,41 @@ class EVGLayout {
                     childWidth = child.calculatedFlexWidth
                 }
             }
-            
+            ; row alignItems:stretch — a child with no explicit height fills the
+            ; parent's cross (height) extent.
+            if (isColumn == false) {
+                if (parent.alignItems == "stretch") {
+                    if (child.height.isSet == false) {
+                        child.calculatedFlexHeight = innerHeight
+                    }
+                }
+            }
+
             ; Total width including margins (estimated before layout)
             def childTotalWidth:double (childWidth + child.box.marginLeftPx + child.box.marginRightPx)
-            
-            ; Check if we need to wrap to next row (for row direction)
+
+            ; main-axis `gap`: advance the cursor before every in-flow child
+            ; except the first on its row (row) / the first overall (column).
+            if (gapPx > 0.0) {
+                if (isColumn == false) {
+                    if ((array_length rowElements) > 0) { currentX = currentX + gapPx }
+                } {
+                    if (placedInFlow > 0) {
+                        currentY = currentY + gapPx
+                        totalHeight = totalHeight + gapPx
+                    }
+                }
+            }
+
+            ; Check if we need to wrap to next row (for row direction). Gated on
+            ; flexWrap: "nowrap" keeps everything on one line (children overflow /
+            ; shrink); the historical/default "wrap" auto-wraps.
             if (isColumn == false) {
                 def availableWidth:double ((startX + innerWidth) - currentX)
-                if ((childTotalWidth > availableWidth) && ((array_length rowElements) > 0)) {
+                if (((childTotalWidth > availableWidth) && ((array_length rowElements) > 0)) && (parent.flexWrap != "nowrap")) {
                     ; Wrap to next row
                     this.alignRow(rowElements parent rowHeight startX innerWidth)
+                    this.recordLine(lineMembers lineCounts lineHeights rowElements rowHeight)
                     currentY = currentY + rowHeight
                     totalHeight = totalHeight + rowHeight
                     currentX = startX
@@ -449,11 +765,13 @@ class EVGLayout {
                     rowHeight = childTotalHeight
                 }
             }
-            
+            placedInFlow = (placedInFlow + 1)
+
             ; Handle explicit line break
             if child.lineBreak {
                 if (isColumn == false) {
                     this.alignRow(rowElements parent rowHeight startX innerWidth)
+                    this.recordLine(lineMembers lineCounts lineHeights rowElements rowHeight)
                     currentY = currentY + rowHeight
                     totalHeight = totalHeight + rowHeight
                     currentX = startX
@@ -468,15 +786,187 @@ class EVGLayout {
         ; Handle final row (for row layout)
         if ((isColumn == false) && ((array_length rowElements) > 0)) {
             this.alignRow(rowElements parent rowHeight startX innerWidth)
+            this.recordLine(lineMembers lineCounts lineHeights rowElements rowHeight)
             totalHeight = totalHeight + rowHeight
         }
         
+        ; Wrapped-line post-passes, in CSS order: wrap-reverse flips the cross
+        ; axis first, then align-content distributes the lines along it.
+        if (isColumn == false) {
+            this.applyWrapReverse(parent lineMembers lineCounts lineHeights totalHeight)
+            this.applyAlignContent(parent lineMembers lineCounts lineHeights totalHeight innerHeight)
+        }
+
         ; Handle column alignment (for column layout)
         if isColumn {
             this.alignColumn(parent totalHeight startX startY innerWidth innerHeight)
         }
         
         return totalHeight
+    }
+
+    ; Remember a finished line so align-content can move it later.
+    fn recordLine:void (members:[EVGElement] counts:[int] heights:[double] rowElements:[EVGElement] rowHeight:double) {
+        def n:int (array_length rowElements)
+        if (n == 0) {
+            return
+        }
+        def i:int 0
+        while (i < n) {
+            push members (itemAt rowElements i)
+            i = (i + 1)
+        }
+        push counts n
+        push heights rowHeight
+    }
+
+    ; Distribute spare cross-axis space between wrapped lines. alignItems places
+    ; a child WITHIN its line; this places the lines themselves, and only does
+    ; anything when the content actually wrapped and the container has a
+    ; definite height with room left over.
+    ;
+    ; `stretch` (the CSS default) would have to grow each line and re-lay its
+    ; children out, so it is treated as flex-start here and noted in the plan.
+    ; flex-wrap: wrap-reverse — the lines stack from the far edge of the cross
+    ; axis instead of the near one, so the first line ends up at the bottom.
+    ; The wrap POINTS are unchanged; only where each finished line sits moves.
+    fn applyWrapReverse:void (parent:EVGElement members:[EVGElement] counts:[int] heights:[double] contentHeight:double) {
+        if (parent.flexWrap != "wrap-reverse") {
+            return
+        }
+        def lineCount:int (array_length counts)
+        if (lineCount < 2) {
+            return
+        }
+        def idx:int 0
+        def offset:double 0.0
+        def li:int 0
+        while (li < lineCount) {
+            def h:double (itemAt heights li)
+            ; Mirror this line's position about the middle of the content box.
+            def newOffset:double ((contentHeight - offset) - h)
+            def shift:double (newOffset - offset)
+            def n:int (itemAt counts li)
+            def k:int 0
+            while (k < n) {
+                def el:EVGElement (itemAt members (idx + k))
+                if (shift != 0.0) {
+                    el.calculatedY = (el.calculatedY + shift)
+                    this.propagateOffsetToChildren(el 0.0 shift)
+                }
+                k = (k + 1)
+            }
+            idx = (idx + n)
+            offset = (offset + h)
+            li = (li + 1)
+        }
+    }
+
+    ; align-content: stretch — grow every line by an equal share of the spare
+    ; cross-axis space. A line growing means its items grow with it, so each
+    ; item that did not ask for a specific height is resized and its own
+    ; children are laid out again inside the taller box.
+    fn applyAlignContentStretch:void (parent:EVGElement members:[EVGElement] counts:[int] heights:[double] contentHeight:double innerHeight:double) {
+        def lineCount:int (array_length counts)
+        def free:double (innerHeight - contentHeight)
+        if (free <= 0.0) {
+            return
+        }
+        def extra:double (free / (to_double lineCount))
+        def idx:int 0
+        def li:int 0
+        while (li < lineCount) {
+            def shift:double (extra * (to_double li))
+            def grown:double ((itemAt heights li) + extra)
+            def n:int (itemAt counts li)
+            def k:int 0
+            while (k < n) {
+                def el:EVGElement (itemAt members (idx + k))
+                if (shift != 0.0) {
+                    el.calculatedY = (el.calculatedY + shift)
+                    this.propagateOffsetToChildren(el 0.0 shift)
+                }
+                ; Only items that were sized by the line grow with it; an
+                ; explicit height is still an explicit height.
+                if ((el.height.isSet == false) && (el.isAbsolute == false)) {
+                    def target:double ((grown - el.box.marginTopPx) - el.box.marginBottomPx)
+                    if (target > el.calculatedHeight) {
+                        el.calculatedHeight = target
+                        el.calculatedInnerHeight = (el.box.getInnerHeight(target))
+                        el.hasDefiniteHeight = true
+                        if ((el.getChildCount()) > 0) {
+                            this.layoutChildren(el)
+                        }
+                    }
+                }
+                k = (k + 1)
+            }
+            idx = (idx + n)
+            li = (li + 1)
+        }
+    }
+
+    fn applyAlignContent:void (parent:EVGElement members:[EVGElement] counts:[int] heights:[double] contentHeight:double innerHeight:double) {
+        def lineCount:int (array_length counts)
+        if (lineCount < 2) {
+            return
+        }
+        if ((parent.hasDefiniteHeight) == false) {
+            return
+        }
+        def mode:string parent.alignContent
+        if (mode == "flex-start") {
+            return
+        }
+        if (mode == "start") {
+            return
+        }
+        if (mode == "stretch") {
+            this.applyAlignContentStretch(parent members counts heights contentHeight innerHeight)
+            return
+        }
+        def free:double (innerHeight - contentHeight)
+        if (free <= 0.0) {
+            return
+        }
+
+        def first:double 0.0
+        def between:double 0.0
+        if ((mode == "flex-end") || (mode == "end")) {
+            first = free
+        }
+        if (mode == "center") {
+            first = (free / 2.0)
+        }
+        if (mode == "space-between") {
+            between = (free / (to_double (lineCount - 1)))
+        }
+        if (mode == "space-around") {
+            between = (free / (to_double lineCount))
+            first = (between / 2.0)
+        }
+        if (mode == "space-evenly") {
+            between = (free / (to_double (lineCount + 1)))
+            first = between
+        }
+
+        def idx:int 0
+        def li:int 0
+        while (li < lineCount) {
+            def shift:double (first + (between * (to_double li)))
+            def n:int (itemAt counts li)
+            def k:int 0
+            while (k < n) {
+                def el:EVGElement (itemAt members (idx + k))
+                if (shift != 0.0) {
+                    el.calculatedY = (el.calculatedY + shift)
+                    this.propagateOffsetToChildren(el 0.0 shift)
+                }
+                k = (k + 1)
+            }
+            idx = (idx + n)
+            li = (li + 1)
+        }
     }
     
     fn alignColumn:void (parent:EVGElement contentHeight:double startX:double startY:double innerWidth:double innerHeight:double) {
@@ -589,6 +1079,35 @@ class EVGLayout {
         }
     }
     
+    ; Adopt the first in-flow child's baseline, expressed relative to this
+    ; element's own top edge.
+    fn inheritBaselineFromFirstChild:void (element:EVGElement) {
+        def i:int 0
+        def n:int (element.getChildCount())
+        while (i < n) {
+            def c:EVGElement (element.getChild(i))
+            if (c.isAbsolute == false) {
+                if c.hasBaseline {
+                    element.calculatedBaseline = ((c.calculatedY - element.calculatedY) + c.calculatedBaseline)
+                    element.calculatedDescent = c.calculatedDescent
+                    element.hasBaseline = true
+                    return
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Distance from an element's top MARGIN edge to its baseline. CSS gives a
+    ; box with no text baseline the bottom of its margin box, which is what
+    ; makes an image in a row of captions sit on the text baseline.
+    fn baselineOffsetOf:double (el:EVGElement) {
+        if el.hasBaseline {
+            return (el.box.marginTopPx + el.calculatedBaseline)
+        }
+        return (el.box.marginTopPx + el.calculatedHeight + el.box.marginBottomPx)
+    }
+
     fn alignRow:void (rowElements:[EVGElement] parent:EVGElement rowHeight:double startX:double innerWidth:double) {
         ; Apply horizontal and vertical alignment to a row of elements
         def elementCount:int (array_length rowElements)
@@ -680,6 +1199,23 @@ class EVGLayout {
             }
         }
         
+        ; align-items: baseline — line the row up on the text baselines rather
+        ; than on the box edges, so captions of different sizes read as one line.
+        ; Needs real ascent metrics, which is why this waited for the font work.
+        def useBaseline:boolean (verticalAlignVal == "baseline")
+        def maxBaseline:double 0.0
+        if useBaseline {
+            def b:int 0
+            while (b < elementCount) {
+                def bel:EVGElement (itemAt rowElements b)
+                def bo:double (this.baselineOffsetOf(bel))
+                if (bo > maxBaseline) {
+                    maxBaseline = bo
+                }
+                b = (b + 1)
+            }
+        }
+
         ; Apply alignment offsets
         i = 0
         while (i < elementCount) {
@@ -705,6 +1241,9 @@ class EVGLayout {
             }
             if ((verticalAlignVal == "flex-end") || (verticalAlignVal == "bottom")) {
                 offsetY = (effectiveRowHeight - childTotalHeight)
+            }
+            if useBaseline {
+                offsetY = (maxBaseline - (this.baselineOffsetOf(el)))
             }
             
             if (offsetY != 0.0) {
@@ -797,6 +1336,428 @@ class EVGLayout {
         }
     }
     
+    ; =========================================================================
+    ; CSS Grid subset (see EVGGrid.rgr for the supported syntax)
+    ; =========================================================================
+    ;
+    ; Auto-flow row placement over a fixed column count. Items may span columns
+    ; and rows; an occupancy map keeps spans from overlapping. Returns the total
+    ; content height, same contract as layoutChildren.
+    fn layoutGrid:double (parent:EVGElement) {
+        def innerWidth:double parent.calculatedInnerWidth
+        def innerHeight:double parent.calculatedInnerHeight
+
+        def startX:double (parent.calculatedX + parent.box.borderWidthPx + parent.box.paddingLeftPx)
+        def startY:double (parent.calculatedY + parent.box.borderWidthPx + parent.box.paddingTopPx)
+
+        ; `row-gap` / `column-gap` fall back to `gap` when unset.
+        def colGapPx:double 0.0
+        def rowGapPx:double 0.0
+        if parent.gap.isSet {
+            parent.gap.resolve(innerWidth parent.inheritedFontSize)
+            colGapPx = parent.gap.pixels
+            rowGapPx = parent.gap.pixels
+        }
+        if parent.columnGap.isSet {
+            parent.columnGap.resolve(innerWidth parent.inheritedFontSize)
+            colGapPx = parent.columnGap.pixels
+        }
+        if parent.rowGap.isSet {
+            parent.rowGap.resolve(innerHeight parent.inheritedFontSize)
+            rowGapPx = parent.rowGap.pixels
+        }
+
+        ; Columns. With no template a grid is a single full-width column, which
+        ; keeps `display: grid` from silently collapsing content to zero width.
+        def colSpec:string parent.gridTemplateColumns
+        if ((strlen colSpec) == 0) {
+            colSpec = "1fr"
+        }
+
+        ; grid-template-columns: subgrid — adopt the enclosing grid's tracks for
+        ; the span this element occupies, so a nested card's columns line up with
+        ; every other card's instead of each one splitting its own width. The
+        ; parent filled these in before laying this element out; with no
+        ; enclosing grid there is nothing to inherit and it falls back to 1fr.
+        def usingSubgrid:boolean false
+        if (colSpec == "subgrid") {
+            if ((array_length parent.subgridColumnSizes) > 0) {
+                usingSubgrid = true
+                def sgSpec:string ""
+                def sg:int 0
+                while (sg < (array_length parent.subgridColumnSizes)) {
+                    if (sg > 0) {
+                        sgSpec = sgSpec + " "
+                    }
+                    sgSpec = sgSpec + (to_string (itemAt parent.subgridColumnSizes sg)) + "px"
+                    sg = (sg + 1)
+                }
+                colSpec = sgSpec
+            } {
+                this.log("  Grid: subgrid requested with no enclosing grid track sizes")
+                colSpec = "1fr"
+            }
+        }
+        ; grid-template-areas names a rectangle per area and, when no explicit
+        ; column template was given, decides the column count.
+        def areas:EVGGridAreas (EVGGridAreas.parse(parent.gridTemplateAreas))
+        def hasAreas:boolean false
+        if ((strlen parent.gridTemplateAreas) > 0) {
+            if (areas.hadError) {
+                this.log(("  Grid: " + areas.errorText))
+            } {
+                hasAreas = true
+                if ((strlen parent.gridTemplateColumns) == 0) {
+                    ; Derive the columns from the picture.
+                    def derived:string ""
+                    def dc:int 0
+                    while (dc < areas.columns) {
+                        if (dc > 0) {
+                            derived = derived + " "
+                        }
+                        derived = derived + "1fr"
+                        dc = (dc + 1)
+                    }
+                    colSpec = derived
+                }
+            }
+        }
+
+        def cols:EVGGridTemplate (EVGGridTemplate.parse(colSpec))
+        if (cols.hadError) {
+            this.log(("  Grid: " + cols.errorText))
+        }
+        def colCount:int (cols.count())
+        if (colCount < 1) {
+            return 0.0
+        }
+        def colGapTotal:double ((to_double (colCount - 1)) * colGapPx)
+        cols.resolve((innerWidth - colGapTotal))
+
+        ; Collect the in-flow children and their placements.
+        def items:[EVGElement]
+        def colStarts:[int]
+        def colSpans:[int]
+        def rowStarts:[int]
+        def rowSpans:[int]
+        def i:int 0
+        def childCount:int (parent.getChildCount())
+        while (i < childCount) {
+            def c:EVGElement (parent.getChild(i))
+            c.inheritProperties(parent)
+            c.resolveUnits(innerWidth innerHeight)
+            if (c.isAbsolute == false) {
+                def cp:EVGGridPlacement (EVGGridPlacement.parse(c.gridColumn))
+                def rp:EVGGridPlacement (EVGGridPlacement.parse(c.gridRow))
+                ; grid-area names win over grid-column/grid-row: the picture is
+                ; the more specific statement of intent.
+                if hasAreas {
+                    if ((strlen c.gridArea) > 0) {
+                        def at:int (areas.indexOfName(c.gridArea))
+                        if (at >= 0) {
+                            cp.start = ((itemAt areas.colStart at) + 1)
+                            cp.span = (itemAt areas.colSpan at)
+                            rp.start = ((itemAt areas.rowStart at) + 1)
+                            rp.span = (itemAt areas.rowSpan at)
+                        } {
+                            this.log(("  Grid: no area named \"" + c.gridArea + "\""))
+                        }
+                    }
+                }
+                def cspan:int cp.span
+                if (cspan > colCount) {
+                    cspan = colCount
+                }
+                push items c
+                push colStarts cp.start
+                push colSpans cspan
+                push rowStarts rp.start
+                push rowSpans rp.span
+            }
+            i = (i + 1)
+        }
+        def itemCount:int (array_length items)
+        if (itemCount == 0) {
+            return 0.0
+        }
+
+        ; --- placement -------------------------------------------------------
+        def isDense:boolean ((indexOf parent.gridAutoFlow "dense") >= 0)
+        ; occupancy[(row * colCount) + col]; grown a row at a time.
+        def occupied:[boolean]
+        def rowsUsed:int 0
+        def placedRow:[int]
+        def placedCol:[int]
+
+        def cursorRow:int 0
+        def cursorCol:int 0
+        def k:int 0
+        while (k < itemCount) {
+            def wantCol:int (itemAt colStarts k)
+            def wantRow:int (itemAt rowStarts k)
+            def span:int (itemAt colSpans k)
+            def rspan:int (itemAt rowSpans k)
+
+            def col:int 0
+            def row:int 0
+            if (wantCol > 0) {
+                col = (wantCol - 1)
+                if (col > (colCount - span)) {
+                    col = (colCount - span)
+                }
+                if (col < 0) {
+                    col = 0
+                }
+            }
+            if (wantRow > 0) {
+                row = (wantRow - 1)
+            }
+
+            if ((wantCol > 0) && (wantRow > 0)) {
+                ; Fully explicit placement — take it as given.
+            } {
+                ; Auto-flow: scan forward from the cursor for a free run of
+                ; `span` columns, wrapping to the next row when it does not fit.
+                if (wantRow > 0) {
+                    cursorRow = row
+                    cursorCol = 0
+                }
+                if (wantCol > 0) {
+                    ; Column pinned, row auto: find the first row where it is free.
+                    row = cursorRow
+                    while (this.gridOccupied(occupied colCount row col span rspan)) {
+                        row = (row + 1)
+                    }
+                } {
+                    ; grid-auto-flow: dense restarts the scan from the top for
+                    ; every item, so a later small item backfills a hole a wider
+                    ; one left behind. The default only ever moves forward,
+                    ; which keeps source order but can leave gaps.
+                    if isDense {
+                        row = 0
+                        col = 0
+                    } {
+                        row = cursorRow
+                        col = cursorCol
+                    }
+                    def searching:boolean true
+                    while searching {
+                        if ((col + span) > colCount) {
+                            row = (row + 1)
+                            col = 0
+                        } {
+                            if (this.gridOccupied(occupied colCount row col span rspan)) {
+                                col = (col + 1)
+                            } {
+                                searching = false
+                            }
+                        }
+                    }
+                    if (isDense == false) {
+                        cursorRow = row
+                        cursorCol = (col + span)
+                    }
+                }
+            }
+
+            ; Grow the occupancy map to cover this item, then mark it.
+            def needRows:int (row + rspan)
+            while (rowsUsed < needRows) {
+                def g:int 0
+                while (g < colCount) {
+                    push occupied false
+                    g = (g + 1)
+                }
+                rowsUsed = (rowsUsed + 1)
+            }
+            def rr:int 0
+            while (rr < rspan) {
+                def cc:int 0
+                while (cc < span) {
+                    def idx:int ((((row + rr) * colCount) + col) + cc)
+                    set occupied idx true
+                    cc = (cc + 1)
+                }
+                rr = (rr + 1)
+            }
+            push placedRow row
+            push placedCol col
+            k = (k + 1)
+        }
+
+        ; --- row sizing ------------------------------------------------------
+        def rowSpec:string parent.gridTemplateRows
+        def rowSizes:[double]
+        def rowGapTotal:double 0.0
+        if (rowsUsed > 1) {
+            rowGapTotal = ((to_double (rowsUsed - 1)) * rowGapPx)
+        }
+
+        def haveTemplateRows:boolean false
+        if ((strlen rowSpec) > 0) {
+            if (parent.hasDefiniteHeight) {
+                haveTemplateRows = true
+            }
+        }
+
+        if haveTemplateRows {
+            ; Explicit row tracks against a definite container height.
+            def rows:EVGGridTemplate (EVGGridTemplate.parse(rowSpec))
+            if (rows.hadError) {
+                this.log(("  Grid: " + rows.errorText))
+            }
+            rows.resolve((innerHeight - rowGapTotal))
+            def r2:int 0
+            while (r2 < rowsUsed) {
+                if (r2 < (rows.count())) {
+                    def tk:EVGGridTrack (rows.trackAt(r2))
+                    push rowSizes tk.sizePx
+                } {
+                    ; More rows than tracks: implicit rows repeat the last track.
+                    if ((rows.count()) > 0) {
+                        def lastTk:EVGGridTrack (rows.trackAt((rows.count()) - 1))
+                        push rowSizes lastTk.sizePx
+                    } {
+                        push rowSizes 0.0
+                    }
+                }
+                r2 = (r2 + 1)
+            }
+        } {
+            ; Content-sized rows: measure each single-row item at its cell width
+            ; and take the tallest per row. Items spanning rows are left out of
+            ; this max — they get whatever their spanned rows add up to.
+            def r3:int 0
+            while (r3 < rowsUsed) {
+                push rowSizes 0.0
+                r3 = (r3 + 1)
+            }
+            def m:int 0
+            while (m < itemCount) {
+                if ((itemAt rowSpans m) == 1) {
+                    def it:EVGElement (itemAt items m)
+                    def cw:double (cols.extentOf((itemAt placedCol m) (itemAt colSpans m) colGapPx))
+                    def avail:double (cw - it.box.marginLeftPx - it.box.marginRightPx)
+                    ; Measure with auto height: clear any inherited flex height.
+                    it.calculatedFlexHeight = 0.0
+                    this.layoutElement(it 0.0 0.0 avail 0.0)
+                    def h:double (it.calculatedHeight + it.box.marginTopPx + it.box.marginBottomPx)
+                    def ri:int (itemAt placedRow m)
+                    if (h > (itemAt rowSizes ri)) {
+                        set rowSizes ri h
+                    }
+                }
+                m = (m + 1)
+            }
+        }
+
+        ; --- final placement -------------------------------------------------
+        def p:int 0
+        while (p < itemCount) {
+            def el:EVGElement (itemAt items p)
+            def cIdx:int (itemAt placedCol p)
+            def rIdx:int (itemAt placedRow p)
+            def cSpan:int (itemAt colSpans p)
+            def rSpan:int (itemAt rowSpans p)
+
+            def cellW:double (cols.extentOf(cIdx cSpan colGapPx))
+            def cellH:double (this.gridRowExtent(rowSizes rIdx rSpan rowGapPx))
+            def offX:double (cols.offsetOf(cIdx colGapPx))
+            def offY:double (this.gridRowOffset(rowSizes rIdx rowGapPx))
+
+            el.calculatedX = (startX + offX + el.box.marginLeftPx)
+            el.calculatedY = (startY + offY + el.box.marginTopPx)
+
+            def boxW:double (cellW - el.box.marginLeftPx - el.box.marginRightPx)
+            def boxH:double (cellH - el.box.marginTopPx - el.box.marginBottomPx)
+            if (boxW < 0.0) {
+                boxW = 0.0
+            }
+            if (boxH < 0.0) {
+                boxH = 0.0
+            }
+
+            ; Grid items stretch to their cell by default (§7.1), which is what
+            ; photo cells want. An explicit height still wins: layoutElement only
+            ; consults calculatedFlexHeight when height.isSet is false.
+            if (boxH > 0.0) {
+                el.calculatedFlexHeight = boxH
+            }
+
+            ; Hand this cell's column tracks down to a subgrid child before it
+            ; lays itself out.
+            if (el.gridTemplateColumns == "subgrid") {
+                clear el.subgridColumnSizes
+                def sgi:int 0
+                while (sgi < cSpan) {
+                    def tk:EVGGridTrack (cols.trackAt(cIdx + sgi))
+                    push el.subgridColumnSizes tk.sizePx
+                    sgi = (sgi + 1)
+                }
+            }
+
+            this.layoutElement(el el.calculatedX el.calculatedY boxW boxH)
+            p = (p + 1)
+        }
+
+        def total:double 0.0
+        def s:int 0
+        while (s < rowsUsed) {
+            total = (total + (itemAt rowSizes s))
+            s = (s + 1)
+        }
+        total = (total + rowGapTotal)
+        return total
+    }
+
+    ; True if any cell of the rspan x span block at (row, col) is already taken.
+    ; Rows beyond the current map are by definition free.
+    fn gridOccupied:boolean (occupied:[boolean] colCount:int row:int col:int span:int rspan:int) {
+        def total:int (array_length occupied)
+        def rr:int 0
+        while (rr < rspan) {
+            def cc:int 0
+            while (cc < span) {
+                def idx:int ((((row + rr) * colCount) + col) + cc)
+                if (idx < total) {
+                    if (itemAt occupied idx) {
+                        return true
+                    }
+                }
+                cc = (cc + 1)
+            }
+            rr = (rr + 1)
+        }
+        return false
+    }
+
+    fn gridRowExtent:double (rowSizes:[double] from:int span:int gap:double) {
+        def total:double 0.0
+        def n:int (array_length rowSizes)
+        def i:int from
+        def placed:int 0
+        while ((i < n) && (placed < span)) {
+            total = (total + (itemAt rowSizes i))
+            placed = (placed + 1)
+            i = (i + 1)
+        }
+        if (placed > 1) {
+            total = (total + ((to_double (placed - 1)) * gap))
+        }
+        return total
+    }
+
+    fn gridRowOffset:double (rowSizes:[double] index:int gap:double) {
+        def total:double 0.0
+        def i:int 0
+        while (i < index) {
+            total = (total + (itemAt rowSizes i))
+            total = (total + gap)
+            i = (i + 1)
+        }
+        return total
+    }
+
     fn estimateChildWidth:double (child:EVGElement maxInnerWidth:double) {
         ; Width used for row flow / flex pre-calc — matches layoutElement shrink-wrap
         if child.width.isSet {
@@ -815,7 +1776,7 @@ class EVGLayout {
                 if (fontSize <= 0.0) {
                     fontSize = 14.0
                 }
-                def contentW:double (this.measureTextContentWidth(textContent fontSize))
+                def contentW:double (textEngine.maxLineWidth(textContent child.fontFamily fontSize))
                 def measuredW:double (contentW + child.box.paddingLeftPx + child.box.paddingRightPx + (child.box.borderWidthPx * 2.0))
                 if (measuredW < maxInnerWidth) {
                     return measuredW
@@ -825,64 +1786,4 @@ class EVGLayout {
         return maxInnerWidth
     }
     
-    fn measureTextContentWidth:double (text:string fontSize:double) {
-        ; Widest line width for shrink-wrapped text nodes
-        if ((strlen text) == 0) {
-            return 0.0
-        }
-        def fontFamily:string "Helvetica"
-        def lines:[string] (strsplit text "\n")
-        def maxW:double 0.0
-        def i:int 0
-        while (i < (array_length lines)) {
-            def line:string (itemAt lines i)
-            def lineW:double (measurer.measureTextWidth(line fontFamily fontSize))
-            if (lineW > maxW) {
-                maxW = lineW
-            }
-            i = i + 1
-        }
-        return maxW
-    }
-    
-    fn estimateLineCount:int (text:string maxWidth:double fontSize:double) {
-        ; Estimate how many lines text will wrap to
-        if ((strlen text) == 0) {
-            return 1
-        }
-        if (maxWidth <= 0.0) {
-            return 1
-        }
-        
-        ; Split text into words
-        def words:[string] (strsplit text " ")
-        def lineCount:int 1
-        def currentLineWidth:double 0.0
-        def spaceWidth:double (fontSize * 0.3)
-        
-        def i:int 0
-        while (i < (array_length words)) {
-            def word:string (itemAt words i)
-            def wordWidth:double (measurer.measureTextWidth(word "Helvetica" fontSize))
-            
-            if (currentLineWidth == 0.0) {
-                ; First word on line
-                currentLineWidth = wordWidth
-            } {
-                ; Check if word fits on current line
-                def testWidth:double (currentLineWidth + spaceWidth + wordWidth)
-                if (testWidth > maxWidth) {
-                    ; Word doesn't fit, wrap to new line
-                    lineCount = lineCount + 1
-                    currentLineWidth = wordWidth
-                } {
-                    currentLineWidth = testWidth
-                }
-            }
-            
-            i = i + 1
-        }
-        
-        return lineCount
-    }
 }

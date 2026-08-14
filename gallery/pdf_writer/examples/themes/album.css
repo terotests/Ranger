@@ -1,0 +1,114 @@
+/* album.css - Grid-based photo-book pages.
+ *
+ * The point of this sheet is that page composition lives here, not in the TSX:
+ * `.page-grid` and the span helpers decide the arrangement, and swapping the
+ * theme re-composes the same photos.
+ *
+ *   evg-html test_album_grid.tsx out.html -css themes/album.css -theme album
+ *   evg-pdf  test_album_grid.tsx out.pdf  -css themes/album.css -theme album \
+ *            -w 842 -h 595            # landscape album
+ */
+
+.page {
+  width: 100%;
+  height: 100%;
+  padding: 28px;
+}
+
+.caption {
+  font-size: 11px;
+  color: #6b6b6b;
+  line-height: 1.4;
+}
+
+/* A 2x2 page. `grid-template-rows` needs the container height to be definite,
+ * which `.page-grid` gets from height: 100% inside a sized Page. */
+.page-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 14px;
+  width: 100%;
+  height: 100%;
+}
+
+/* A feature page: one wide photo above two smaller ones. */
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: 2fr 1fr;
+  gap: 14px;
+  width: 100%;
+  height: 100%;
+}
+
+.photo {
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.span-2 {
+  grid-column: span 2;
+}
+
+.tall {
+  grid-row: span 2;
+}
+
+/* A full-bleed cover: with `evg-pdf -bleed PT` this runs past the trim so the
+ * cut falls inside the ink instead of at its edge. Without a bleed it is an
+ * ordinary full-page box. */
+.cover-photo {
+  object-fit: cover;
+  width: 100%;
+  height: 100%;
+  full-bleed: true;
+}
+
+/* ---- album theme -------------------------------------------------------- */
+
+.theme-album .page {
+  background-color: #ffffff;
+}
+
+.theme-album .page-grid {
+  gap: 14px;
+}
+
+/* A named-area page: the stylesheet draws the shape, and .hero/.wide/.tall
+ * only say which region they belong to. Re-composing the page is a matter of
+ * redrawing the picture below, not restructuring the TSX. */
+.story-grid {
+  display: grid;
+  grid-template-areas:
+    "hero hero"
+    "tall wide";
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 2fr 1fr;
+  gap: 14px;
+  width: 100%;
+  height: 100%;
+}
+
+/* Named differently from the .tall span helper above, which is a different
+ * idea with the same word. */
+.story-hero { grid-area: hero; }
+.story-wide { grid-area: wide; }
+.story-tall { grid-area: tall; }
+
+/* ---- contact-sheet theme: denser, squarer, no rounding ------------------ */
+
+.theme-contact .page {
+  background-color: #f2f2f2;
+  padding: 16px;
+}
+
+.theme-contact .page-grid {
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 5px;
+}
+
+.theme-contact .photo {
+  border-radius: 0px;
+}

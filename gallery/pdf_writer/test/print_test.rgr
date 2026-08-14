@@ -1,0 +1,102 @@
+; ==============================================================================
+; print_test.rgr — encoding honesty and print page boxes
+; ==============================================================================
+; PLAN_CSS_LAYOUT_AND_FONTS.md §4.1 rule 8 and Phase 4.
+;
+;   bash gallery/pdf_writer/test/run_print.sh
+; ==============================================================================
+
+Import "../src/core/Utf8.rgr"
+Import "../src/core/EVGPDFRenderer.rgr"
+Import "../../game_engine/v2/tests/harness/RgTest.rgr"
+
+class PrintTest {
+
+    sfn m@(main):void () {
+        def test (new PrintTest())
+        def t:RgTest (RgTest.forSuite("pdf_writer/print"))
+        test.testUtf8Decode(t)
+        test.testWinAnsiDetection(t)
+        test.testPageBoxes(t)
+        t.summary()
+    }
+
+    ; buffer_to_string hands back one character per BYTE. Decoding turns those
+    ; back into codepoints, which is what makes "ä" measure as one glyph instead
+    ; of two and print as "ä" instead of "Ã¤".
+    fn testUtf8Decode:void (t:RgTest) {
+        ; "ä" is C3 A4 as UTF-8 -> two chars before decoding, one after.
+        def aeBytes:string ((strfromcode 195) + (strfromcode 164))
+        t.eqInt("raw UTF-8 bytes look like two characters" (strlen aeBytes) 2)
+        def ae:string (Utf8.decode(aeBytes))
+        t.eqInt("decoded to one character" (strlen ae) 1)
+        t.eqInt("decoded to U+00E4" (charAt ae 0) 228)
+
+        ; "—" is E2 80 94 -> three bytes, one codepoint above the byte range.
+        def dashBytes:string (((strfromcode 226) + (strfromcode 128)) + (strfromcode 148))
+        def dash:string (Utf8.decode(dashBytes))
+        t.eqInt("three-byte sequence decodes to one character" (strlen dash) 1)
+        t.eqInt("decoded to U+2014" (charAt dash 0) 8212)
+
+        ; Plain ASCII must survive untouched — this is the common case and any
+        ; change here would move every existing layout.
+        def ascii:string "Hello, World! 123"
+        t.eqStr("ASCII is unchanged" (Utf8.decode(ascii)) ascii)
+
+        ; Mixed content keeps its ASCII neighbours in place.
+        def mixed:string (("Hyv" + ((strfromcode 195) + (strfromcode 164))) + "on")
+        def dec:string (Utf8.decode(mixed))
+        t.eqInt("mixed string collapses only the sequence" (strlen dec) 6)
+        t.eqInt("first char still 'H'" (charAt dec 0) 72)
+        t.eqInt("last char still 'n'" (charAt dec 5) 110)
+
+        ; A byte that cannot start a valid sequence is passed through, so a file
+        ; that really is Latin-1 keeps working rather than losing characters.
+        def lone:string (strfromcode 200)
+        def loneOut:string (Utf8.decode(lone))
+        t.eqInt("invalid lead byte is preserved" (strlen loneOut) 1)
+        t.eqInt("invalid lead byte keeps its value" (charAt loneOut 0) 200)
+
+        ; A truncated multi-byte sequence must not run off the end.
+        def truncated:string ((strfromcode 226) + (strfromcode 128))
+        def truncOut:string (Utf8.decode(truncated))
+        t.eqInt("truncated sequence is passed through" (strlen truncOut) 2)
+
+        t.eqStr("empty input stays empty" (Utf8.decode("")) "")
+    }
+
+    fn testWinAnsiDetection:void (t:RgTest) {
+        t.no("ASCII fits WinAnsi" (Utf8.hasNonWinAnsi("Hello")))
+        ; U+00E4 has a WinAnsi slot; U+2014 does not.
+        t.no("Latin-1 range fits WinAnsi" (Utf8.hasNonWinAnsi((strfromcode 228))))
+        t.ok("an em dash does not" (Utf8.hasNonWinAnsi((strfromcode 8212))))
+    }
+
+    ; Bleed grows the sheet and declares where the finished page is cut.
+    fn testPageBoxes:void (t:RgTest) {
+        def r (new EVGPDFRenderer())
+
+        ; With no bleed the output is exactly the single MediaBox it always was.
+        def plain:string (r.pageBoxes(595.0 842.0))
+        t.eqStr("no bleed emits only a MediaBox" plain " /MediaBox [0 0 595 842]")
+
+        ; 8.5pt is 3mm, the usual trade bleed.
+        r.setBleed(8.5)
+        def bled:string (r.pageBoxes(595.0 842.0))
+        ; Sheet is trim + bleed on every side: 595 + 17, 842 + 17.
+        t.ok("sheet grows by twice the bleed" ((indexOf bled "/MediaBox [0 0 612 859]") >= 0))
+        t.ok("BleedBox matches the sheet" ((indexOf bled "/BleedBox [0 0 612 859]") >= 0))
+        ; TrimBox is inset by the bleed on each side — this is what the printer
+        ; cuts to, and why full-bleed art must run past it.
+        t.ok("TrimBox marks the finished page" ((indexOf bled "/TrimBox [8.5 8.5 603.5 850.5]") >= 0))
+
+        ; Landscape trims are handled the same way, not assumed portrait.
+        def land:string (r.pageBoxes(842.0 595.0))
+        t.ok("landscape sheet" ((indexOf land "/MediaBox [0 0 859 612]") >= 0))
+        t.ok("landscape trim" ((indexOf land "/TrimBox [8.5 8.5 850.5 603.5]") >= 0))
+
+        ; Turning bleed back off restores the plain box.
+        r.setBleed(0.0)
+        t.eqStr("bleed can be turned off" (r.pageBoxes(595.0 842.0)) " /MediaBox [0 0 595 842]")
+    }
+}

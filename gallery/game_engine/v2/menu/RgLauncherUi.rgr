@@ -17,7 +17,7 @@
 
 Import "../ui/UILayer.rgr"
 Import "../framebuffer.rgr"
-Import "../evg/EVGColor.rgr"
+Import "../../../evg/EVGColor.rgr"
 Import "../imaging/png/PNGDecoder.rgr"
 Import "../imaging/jpeg/ImageBuffer.rgr"
 Import "game_catalog.rgr"

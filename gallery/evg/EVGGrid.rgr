@@ -1,0 +1,705 @@
+; EVGGrid.rgr - Track lists and item placement for EVG's CSS Grid subset
+;
+; Targets photo-book pages, not CSS Grid Level 2. What is supported:
+;
+;   grid-template-columns: 120px 1fr 40%
+;   grid-template-columns: repeat(3, 1fr)
+;   grid-template-rows:    1fr 1fr
+;   grid-column: span 2  |  2  |  2 / 4  |  2 / span 3
+;   grid-row:    (same forms)
+;
+; Explicitly NOT supported (see PLAN_CSS_LAYOUT_AND_FONTS.md §7.3):
+; grid-template-areas, dense packing, subgrid, minmax(), named lines.
+;
+; `auto` in a track list is accepted and treated as `1fr`. Real CSS sizes an
+; auto track to its content and only then distributes leftover space; doing
+; that properly needs a content-measuring pass per track, which v1 does not
+; have. Equal-share is predictable and documented rather than subtly wrong.
+
+Import "EVGUnit.rgr"
+
+; One column or row track.
+;   kind 0 = fixed pixels, 1 = percentage of the container, 2 = fr
+class EVGGridTrack {
+    def kind:int 0
+    def value:double 0.0
+    ; Resolved extent in pixels, filled in by EVGGridTemplate.resolve.
+    def sizePx:double 0.0
+    ; minmax(min, max) bounds in pixels. Percentages are resolved against the
+    ; container when the template is resolved. `hasMin`/`hasMax` distinguish an
+    ; absent bound from a zero one.
+    def hasMin:boolean false
+    def hasMax:boolean false
+    def minUnit:EVGUnit
+    def maxUnit:EVGUnit
+    ; Set while the redistribution loop has already pinned this track.
+    def frozen:boolean false
+
+    Constructor () {
+        kind = 0
+        value = 0.0
+        sizePx = 0.0
+        hasMin = false
+        hasMax = false
+        frozen = false
+        minUnit = (EVGUnit.unset())
+        maxUnit = (EVGUnit.unset())
+    }
+}
+
+class EVGGridTemplate {
+    def tracks:[EVGGridTrack]
+    ; Set when the spec named a track type this subset does not implement.
+    def hadError:boolean false
+    def errorText:string ""
+
+    Constructor () {
+        hadError = false
+        errorText = ""
+    }
+
+    fn count:int () {
+        return (array_length tracks)
+    }
+
+    fn trackAt:EVGGridTrack (i:int) {
+        return (itemAt tracks i)
+    }
+
+    ; "1fr 1fr", "repeat(3, 1fr)", "120px 40% 1fr"
+    sfn parse:EVGGridTemplate (spec:string) {
+        def tpl (new EVGGridTemplate())
+        def tokens:[string] (EVGGridTemplate.tokenize(spec))
+        def i:int 0
+        while (i < (array_length tokens)) {
+            def tok:string (itemAt tokens i)
+            if (EVGGridTemplate.isRepeat(tok)) {
+                tpl.expandRepeat(tok)
+            } {
+                if (EVGGridTemplate.isMinmax(tok)) {
+                    tpl.addMinmax(tok)
+                } {
+                    tpl.addTrack(tok)
+                }
+            }
+            i = (i + 1)
+        }
+        return tpl
+    }
+
+    ; Split on whitespace, but only at paren depth 0 so "repeat(3, 1fr)"
+    ; survives as a single token despite the space after its comma.
+    sfn tokenize:[string] (spec:string) {
+        def out:[string]
+        def len:int (strlen spec)
+        def depth:int 0
+        def start:int 0
+        def inTok:boolean false
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt spec i)
+            if (c == 40) {
+                depth = (depth + 1)
+            }
+            if (c == 41) {
+                depth = (depth - 1)
+            }
+            def isSpace:boolean (((c == 32) || (c == 9)) || ((c == 10) || (c == 13)))
+            if (isSpace && (depth == 0)) {
+                if inTok {
+                    push out (substring spec start i)
+                    inTok = false
+                }
+            } {
+                if (inTok == false) {
+                    start = i
+                    inTok = true
+                }
+            }
+            i = (i + 1)
+        }
+        if inTok {
+            push out (substring spec start len)
+        }
+        return out
+    }
+
+    sfn isRepeat:boolean (tok:string) {
+        if ((strlen tok) < 8) {
+            return false
+        }
+        return ((substring tok 0 7) == "repeat(")
+    }
+
+    ; repeat(N, <track list>) -> the track list N times.
+    fn expandRepeat:void (tok:string) {
+        def len:int (strlen tok)
+        def close:int (len - 1)
+        if ((charAt tok close) != 41) {
+            hadError = true
+            errorText = ("Malformed repeat(): " + tok)
+            return
+        }
+        def inner:string (substring tok 7 close)
+        def comma:int 0 - 1
+        def j:int 0
+        while (j < (strlen inner)) {
+            if ((charAt inner j) == 44) {
+                comma = j
+                j = (strlen inner)
+            } {
+                j = (j + 1)
+            }
+        }
+        if (comma < 0) {
+            hadError = true
+            errorText = ("repeat() needs a count and a track list: " + tok)
+            return
+        }
+        def countStr:string (trim (substring inner 0 comma))
+        def listStr:string (trim (substring inner (comma + 1) (strlen inner)))
+        def countVal@(optional):double (to_double countStr)
+        def n:int 0
+        if countVal {
+            n = (to_int (unwrap countVal))
+        } {
+            hadError = true
+            errorText = ("repeat() count is not a number: " + tok)
+            return
+        }
+        if (n < 1) {
+            hadError = true
+            errorText = ("repeat() count must be at least 1: " + tok)
+            return
+        }
+        def inner2:[string] (EVGGridTemplate.tokenize(listStr))
+        def r:int 0
+        while (r < n) {
+            def k:int 0
+            while (k < (array_length inner2)) {
+                ; Nested repeat() is out of scope, but minmax() inside repeat()
+                ; is the ordinary way to write a responsive album grid.
+                def innerTok:string (itemAt inner2 k)
+                if (EVGGridTemplate.isMinmax(innerTok)) {
+                    this.addMinmax(innerTok)
+                } {
+                    this.addTrack(innerTok)
+                }
+                k = (k + 1)
+            }
+            r = (r + 1)
+        }
+    }
+
+    sfn isMinmax:boolean (tok:string) {
+        if ((strlen tok) < 8) {
+            return false
+        }
+        return ((substring tok 0 7) == "minmax(")
+    }
+
+    ; minmax(<min>, <max>): the track sizes as its max but is clamped into the
+    ; range once the fr share is known. A fixed min with an fr max is the common
+    ; photo-grid case — "at least 120px, otherwise share what is left".
+    fn addMinmax:void (tok:string) {
+        def len:int (strlen tok)
+        def close:int (len - 1)
+        if ((charAt tok close) != 41) {
+            hadError = true
+            errorText = ("Malformed minmax(): " + tok)
+            return
+        }
+        def inner:string (substring tok 7 close)
+        def comma:int 0 - 1
+        def j:int 0
+        while (j < (strlen inner)) {
+            if ((charAt inner j) == 44) {
+                comma = j
+                j = (strlen inner)
+            } {
+                j = (j + 1)
+            }
+        }
+        if (comma < 0) {
+            hadError = true
+            errorText = ("minmax() needs two values: " + tok)
+            return
+        }
+        def minStr:string (trim (substring inner 0 comma))
+        def maxStr:string (trim (substring inner (comma + 1) (strlen inner)))
+
+        ; The max decides how the track grows; the min is a floor applied after.
+        def before:int (array_length tracks)
+        this.addTrack(maxStr)
+        if ((array_length tracks) == before) {
+            return
+        }
+        def track:EVGGridTrack (itemAt tracks ((array_length tracks) - 1))
+        if ((EVGGridTemplate.isFrToken(minStr)) == false) {
+            track.minUnit = (EVGUnit.parse(minStr))
+            track.hasMin = track.minUnit.isSet
+        }
+        if ((EVGGridTemplate.isFrToken(maxStr)) == false) {
+            track.maxUnit = (EVGUnit.parse(maxStr))
+            track.hasMax = track.maxUnit.isSet
+        }
+    }
+
+    sfn isFrToken:boolean (tok:string) {
+        def len:int (strlen tok)
+        if (len < 2) {
+            return false
+        }
+        return ((substring tok (len - 2) len) == "fr")
+    }
+
+    fn addTrack:void (tok:string) {
+        def t:string (trim tok)
+        def len:int (strlen t)
+        if (len == 0) {
+            return
+        }
+        def track (new EVGGridTrack())
+
+        ; `auto` behaves as 1fr here — see the header note.
+        if (t == "auto") {
+            track.kind = 2
+            track.value = 1.0
+            push tracks track
+            return
+        }
+
+        if (len > 2) {
+            if ((substring t (len - 2) len) == "fr") {
+                def numStr:string (substring t 0 (len - 2))
+                def frVal@(optional):double (to_double numStr)
+                if frVal {
+                    track.kind = 2
+                    track.value = (unwrap frVal)
+                    push tracks track
+                    return
+                }
+            }
+        }
+        if (t == "fr") {
+            track.kind = 2
+            track.value = 1.0
+            push tracks track
+            return
+        }
+
+        def unit:EVGUnit (EVGUnit.parse(t))
+        if (unit.isSet == false) {
+            hadError = true
+            errorText = ("Unsupported track size: " + t)
+            return
+        }
+        if (unit.unitType == 1) {
+            track.kind = 1
+            track.value = unit.value
+        } {
+            track.kind = 0
+            track.value = unit.value
+        }
+        push tracks track
+    }
+
+    ; Resolve every track to pixels inside `available`, which must already have
+    ; the gaps subtracted. Fixed and percentage tracks take their size first;
+    ; whatever is left is split between the fr tracks in proportion.
+    fn resolve:void (available:double) {
+        def n:int (array_length tracks)
+        def used:double 0.0
+        def totalFr:double 0.0
+        def i:int 0
+        while (i < n) {
+            def t:EVGGridTrack (itemAt tracks i)
+            t.frozen = false
+            ; Resolve any minmax() bounds against the container first, so the
+            ; clamp below is in pixels like everything else.
+            if t.hasMin {
+                t.minUnit.resolve(available 16.0)
+            }
+            if t.hasMax {
+                t.maxUnit.resolve(available 16.0)
+            }
+            if (t.kind == 0) {
+                t.sizePx = t.value
+                used = (used + t.sizePx)
+                t.frozen = true
+            }
+            if (t.kind == 1) {
+                t.sizePx = ((available * t.value) / 100.0)
+                used = (used + t.sizePx)
+                t.frozen = true
+            }
+            if (t.kind == 2) {
+                totalFr = (totalFr + t.value)
+            }
+            i = (i + 1)
+        }
+
+        ; Distribute the leftover across the fr tracks, then clamp against any
+        ; minmax() bounds. A track that hits a bound is pinned there and the
+        ; space it did not take is offered to the rest — the same freeze-and-
+        ; redistribute the flex axis uses, and the reason `minmax(120px, 1fr)`
+        ; can hold its floor without stealing from its neighbours silently.
+        def poolSpace:double (available - used)
+        if (poolSpace < 0.0) {
+            poolSpace = 0.0
+        }
+        def poolFr:double totalFr
+        def pass:int 0
+        def settled:boolean false
+        while ((pass <= n) && (settled == false)) {
+            settled = true
+            def j:int 0
+            while (j < n) {
+                def t2:EVGGridTrack (itemAt tracks j)
+                if ((t2.kind == 2) && (t2.frozen == false)) {
+                    def size:double 0.0
+                    if (poolFr > 0.0) {
+                        size = ((poolSpace * t2.value) / poolFr)
+                    }
+                    def clamped:double size
+                    if t2.hasMin {
+                        if (clamped < t2.minUnit.pixels) {
+                            clamped = t2.minUnit.pixels
+                        }
+                    }
+                    if t2.hasMax {
+                        if (clamped > t2.maxUnit.pixels) {
+                            clamped = t2.maxUnit.pixels
+                        }
+                    }
+                    t2.sizePx = clamped
+                    if (clamped != size) {
+                        t2.frozen = true
+                        poolSpace = (poolSpace - clamped)
+                        poolFr = (poolFr - t2.value)
+                        if (poolSpace < 0.0) {
+                            poolSpace = 0.0
+                        }
+                        settled = false
+                    }
+                }
+                j = (j + 1)
+            }
+            pass = (pass + 1)
+        }
+
+        ; A fixed or percentage track can still carry a minmax() floor.
+        def k:int 0
+        while (k < n) {
+            def t3:EVGGridTrack (itemAt tracks k)
+            if (t3.kind != 2) {
+                if t3.hasMin {
+                    if (t3.sizePx < t3.minUnit.pixels) {
+                        t3.sizePx = t3.minUnit.pixels
+                    }
+                }
+                if t3.hasMax {
+                    if (t3.sizePx > t3.maxUnit.pixels) {
+                        t3.sizePx = t3.maxUnit.pixels
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; Extent of `span` tracks starting at index `from`, including the gaps
+    ; between them (but not the gaps on either outer edge).
+    fn extentOf:double (from:int span:int gap:double) {
+        def total:double 0.0
+        def n:int (array_length tracks)
+        def i:int from
+        def placed:int 0
+        while ((i < n) && (placed < span)) {
+            def tk:EVGGridTrack (itemAt tracks i)
+            total = (total + tk.sizePx)
+            placed = (placed + 1)
+            i = (i + 1)
+        }
+        if (placed > 1) {
+            total = (total + ((to_double (placed - 1)) * gap))
+        }
+        return total
+    }
+
+    ; Distance from the container's content edge to the start of track `index`.
+    fn offsetOf:double (index:int gap:double) {
+        def total:double 0.0
+        def i:int 0
+        while (i < index) {
+            def tk:EVGGridTrack (itemAt tracks i)
+            total = (total + tk.sizePx)
+            total = (total + gap)
+            i = (i + 1)
+        }
+        return total
+    }
+}
+
+; A `grid-column` / `grid-row` value.
+;   start: 1-based grid line, or 0 for "wherever auto-flow puts it"
+;   span : number of tracks covered, at least 1
+; grid-template-areas — a picture of the page in names:
+;
+;   grid-template-areas="'hero hero' 'left right'"
+;
+; Each quoted string is a row, each name a column. An item claims a region with
+; grid-area="hero". A name repeated across adjacent cells forms one rectangle,
+; which is the whole point: the layout reads as the shape it produces.
+;
+; "." is the CSS spelling for a deliberately empty cell.
+class EVGGridAreas {
+    def names:[string]
+    def rowStart:[int]
+    def colStart:[int]
+    def rowSpan:[int]
+    def colSpan:[int]
+    def columns:int 0
+    def rows:int 0
+    def hadError:boolean false
+    def errorText:string ""
+
+    Constructor () {
+        columns = 0
+        rows = 0
+        hadError = false
+        errorText = ""
+    }
+
+    fn count:int () {
+        return (array_length names)
+    }
+
+    fn indexOfName:int (name:string) {
+        def i:int 0
+        while (i < (array_length names)) {
+            if ((itemAt names i) == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return 0 - 1
+    }
+
+    ; Split the spec into rows. Both quote styles are accepted, and a row may
+    ; also be separated by a newline so a stylesheet can lay it out readably.
+    sfn parse:EVGGridAreas (spec:string) {
+        def areas (new EVGGridAreas())
+        def rowsOut:[string]
+        def cur:string ""
+        def inQuote:boolean false
+        def quoteCh:int 0
+        def i:int 0
+        def len:int (strlen spec)
+        while (i < len) {
+            def c:int (charAt spec i)
+            if inQuote {
+                if (c == quoteCh) {
+                    push rowsOut cur
+                    cur = ""
+                    inQuote = false
+                } {
+                    cur = cur + (strfromcode c)
+                }
+            } {
+                if ((c == 34) || (c == 39)) {
+                    inQuote = true
+                    quoteCh = c
+                }
+            }
+            i = (i + 1)
+        }
+        if inQuote {
+            areas.hadError = true
+            areas.errorText = ("Unterminated row in grid-template-areas: " + spec)
+            return areas
+        }
+        if ((array_length rowsOut) == 0) {
+            areas.hadError = true
+            areas.errorText = ("grid-template-areas needs quoted rows: " + spec)
+            return areas
+        }
+        areas.build(rowsOut)
+        return areas
+    }
+
+    ; Turn the grid of names into one rectangle per name. A name that appears in
+    ; a non-rectangular pattern is reported rather than guessed at, because the
+    ; result would silently overlap another area.
+    fn build:void (rowsOut:[string]) {
+        rows = (array_length rowsOut)
+        def cells:[string]
+        def r:int 0
+        while (r < rows) {
+            def toks:[string] (EVGGridTemplate.tokenize((itemAt rowsOut r)))
+            if (r == 0) {
+                columns = (array_length toks)
+            } {
+                if ((array_length toks) != columns) {
+                    hadError = true
+                    errorText = "grid-template-areas rows must all have the same number of columns"
+                    return
+                }
+            }
+            def c:int 0
+            while (c < (array_length toks)) {
+                push cells (itemAt toks c)
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+        if (columns == 0) {
+            hadError = true
+            errorText = "grid-template-areas has no columns"
+            return
+        }
+
+        def rr:int 0
+        while (rr < rows) {
+            def cc:int 0
+            while (cc < columns) {
+                def name:string (itemAt cells ((rr * columns) + cc))
+                if (name != ".") {
+                    def at:int (this.indexOfName(name))
+                    if (at < 0) {
+                        push names name
+                        push rowStart rr
+                        push colStart cc
+                        push rowSpan 1
+                        push colSpan 1
+                    } {
+                        ; Extend the existing rectangle to cover this cell.
+                        def r0:int (itemAt rowStart at)
+                        def c0:int (itemAt colStart at)
+                        def rs:int (itemAt rowSpan at)
+                        def cs:int (itemAt colSpan at)
+                        if ((rr + 1) > (r0 + rs)) {
+                            set rowSpan at ((rr + 1) - r0)
+                        }
+                        if ((cc + 1) > (c0 + cs)) {
+                            set colSpan at ((cc + 1) - c0)
+                        }
+                    }
+                }
+                cc = (cc + 1)
+            }
+            rr = (rr + 1)
+        }
+
+        ; Every cell inside a name's rectangle must actually carry that name.
+        def n:int (array_length names)
+        def k:int 0
+        while (k < n) {
+            def nm:string (itemAt names k)
+            def r0:int (itemAt rowStart k)
+            def c0:int (itemAt colStart k)
+            def rs:int (itemAt rowSpan k)
+            def cs:int (itemAt colSpan k)
+            def a:int 0
+            while (a < rs) {
+                def b:int 0
+                while (b < cs) {
+                    def idx:int (((r0 + a) * columns) + (c0 + b))
+                    if ((itemAt cells idx) != nm) {
+                        hadError = true
+                        errorText = ("Area \"" + nm + "\" is not a rectangle in grid-template-areas")
+                        return
+                    }
+                    b = (b + 1)
+                }
+                a = (a + 1)
+            }
+            k = (k + 1)
+        }
+    }
+}
+
+class EVGGridPlacement {
+    def start:int 0
+    def span:int 1
+
+    Constructor () {
+        start = 0
+        span = 1
+    }
+
+    ; "span 2" | "2" | "2 / 4" | "2 / span 3" | "" (auto)
+    sfn parse:EVGGridPlacement (spec:string) {
+        def p (new EVGGridPlacement())
+        def s:string (trim spec)
+        if ((strlen s) == 0) {
+            return p
+        }
+
+        ; Split on '/' into at most two sides.
+        def slash:int 0 - 1
+        def i:int 0
+        while (i < (strlen s)) {
+            if ((charAt s i) == 47) {
+                slash = i
+                i = (strlen s)
+            } {
+                i = (i + 1)
+            }
+        }
+
+        if (slash < 0) {
+            ; One side: either "span N" or a start line.
+            if (EVGGridPlacement.isSpan(s)) {
+                p.span = (EVGGridPlacement.spanCount(s))
+            } {
+                p.start = (EVGGridPlacement.lineNumber(s))
+            }
+            return p
+        }
+
+        def lhs:string (trim (substring s 0 slash))
+        def rhs:string (trim (substring s (slash + 1) (strlen s)))
+        p.start = (EVGGridPlacement.lineNumber(lhs))
+        if (EVGGridPlacement.isSpan(rhs)) {
+            p.span = (EVGGridPlacement.spanCount(rhs))
+        } {
+            ; "2 / 4" covers the tracks between lines 2 and 4, i.e. two tracks.
+            def endLine:int (EVGGridPlacement.lineNumber(rhs))
+            if (endLine > p.start) {
+                p.span = (endLine - p.start)
+            }
+        }
+        return p
+    }
+
+    sfn isSpan:boolean (s:string) {
+        if ((strlen s) < 4) {
+            return false
+        }
+        return ((substring s 0 4) == "span")
+    }
+
+    sfn spanCount:int (s:string) {
+        def rest:string (trim (substring s 4 (strlen s)))
+        def v@(optional):double (to_double rest)
+        if v {
+            def n:int (to_int (unwrap v))
+            if (n >= 1) {
+                return n
+            }
+        }
+        return 1
+    }
+
+    sfn lineNumber:int (s:string) {
+        def v@(optional):double (to_double s)
+        if v {
+            def n:int (to_int (unwrap v))
+            if (n >= 1) {
+                return n
+            }
+        }
+        return 0
+    }
+}
