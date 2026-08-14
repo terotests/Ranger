@@ -129,25 +129,44 @@ Acting on the above:
 | `receiverKind` stops searching for `__…__` markers (one monotone bit) | **−17.8%** wall clock |
 | the same bit for `isProxyValue`, `isDataViewValue`, `isArrayBufferValue`, `argMapName` | **−23.8%** cumulative |
 | `hasProto`/`protoOf` read the prototype without materialising the bag optional | **+3.3% SLOWER — reverted** |
+| `ownAccessorsEver` as a boolean case chain + early-out in `hasOwnGetter`/`hasOwnSetter` | **−2.1% instructions but +1.0…2.2% SLOWER — reverted** |
 
 Cumulative on the `object_props` shape: instructions 825,770,714 →
 617,330,101 (−25.2%), wall clock 9320 ms → 7105 ms (−23.8%), interleaved
 best-of-5 with a plain `-O3` binary on both sides and identical output.
 
-The reverted attempt is worth recording so nobody retries it: removing the
-optional looked like a pure win, but `protoBody` had to return an
-`EvalValue` **by value**, and that is a twelve-alternative variant with
-`rg_ptr` members — so it traded one bag-pointer copy for a whole variant
-copy. `tryProps` duly vanished from the profile and the program got slower.
-Instruction count went *up* 0.9% too, so both signals agreed.
+### Restructuring bag access does not pay — measured twice, two ways
+
+Both reverted attempts were the same idea in different clothes: stop
+materialising the property bag as an optional, read what you need straight
+out of the case. Both lost.
+
+1. **Return the prototype `EvalValue`.** `tryProps` vanished from the profile
+   entirely and the program got 3.3% slower. `protoBody` has to return the
+   variant **by value** — twelve alternatives with `rg_ptr` members — so it
+   traded one bag-pointer copy for a whole variant copy. Instructions rose
+   0.9%, so both signals agreed.
+
+2. **Return a bool instead**, which copies nothing: `ownAccessorsEver` as a
+   case chain, plus a monotone early-out in `hasOwnGetter`/`hasOwnSetter`.
+   This time instructions **fell 2.1%** — and wall clock still rose, 1.0% on
+   best-of-9 and 2.2% on the mean, interleaved. Fewer instructions, more
+   time: the case bindings copy `rg_ptr`s, and a refcount is a memory write
+   that an instruction count does not price.
+
+The lesson for anyone continuing: **instruction count is not cycles here.**
+Where a change trades pointer traffic for instruction count, only wall clock
+decides, and this engine's hot paths are dominated by refcount writes rather
+than by work.
 
 ### Still on the table
 
 `EvAtomTable::idOf` is 11.2% and `tryProps` ~10%, so the original lever is
-only partly collected. What remains is the harder half: interning names at
-the *call sites* so `idOf` is never reached on a hot path, and giving
-`tryProps` a return shape that does not copy. The cheap wins — the ones a
-monotone bit could answer — are taken.
+only partly collected. But the two obvious ways in are now measured dead
+ends, so what remains is the genuinely structural change: intern names at the
+*call sites* so `idOf` is never reached on a hot path at all, and reduce the
+refcount traffic itself (the borrowed-handle discipline BYTECODE.md names).
+Every win a monotone bit could deliver has been taken.
 
 ## Measurement notes
 
