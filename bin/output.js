@@ -23606,6 +23606,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               this.rust_call_receiver_mut = true;
               this.rust_receiver_written = false;
               this.rust_in_trait_decl = false;
+              this.rust_in_weak_unwrap = false;
               this.thisName = "self";
               this.rustFnReturnsUnion = "";
               this.fileHeaderWritten = false;
@@ -24270,7 +24271,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       const pNNWeak = pNameNWeak;
                       if ( pNNWeak.hasFlag("weak") ) {
                         if ( p.is_class_variable ) {
-                          field_is_weak = true;
+                          if ( ((pNNWeak.array_type.length) == 0) && ((pNNWeak.key_type.length) == 0) ) {
+                            field_is_weak = true;
+                          }
                         }
                       }
                     }
@@ -24280,6 +24283,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           wr.out(".as_ref().unwrap().upgrade().unwrap().borrow_mut()", false);
                         } else {
                           wr.out(".upgrade().unwrap().borrow_mut()", false);
+                        }
+                      } else {
+                        if ( (ctx.in_lhs_of_assignment == false) && (this.rust_in_weak_unwrap == false) ) {
+                          if ( p.is_optional ) {
+                            wr.out(".as_ref().map(|__w| __w.upgrade().unwrap())", false);
+                          } else {
+                            wr.out(".upgrade().unwrap()", false);
+                          }
                         }
                       }
                     } else {
@@ -29765,7 +29776,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                           ctx.setInExpr();
                           if ( is_weak_ref ) {
+                            this.rust_in_weak_unwrap = true;
                             await this.WalkNode(arg_3, ctx, wr);
+                            this.rust_in_weak_unwrap = false;
                             if ( this.rustClassIsShared(inner_type, ctx) ) {
                               wr.out(".clone().unwrap().upgrade().unwrap()", false);
                               ctx.unsetInExpr();

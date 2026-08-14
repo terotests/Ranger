@@ -29,6 +29,10 @@ class RangerRustClassWriter {
   ; `mut x : T` there is "patterns aren't allowed in functions without
   ; bodies". The binding mode is the implementor's business anyway.
   def rust_in_trait_decl:boolean false
+  ; set while the `unwrap` handler walks its own argument. That handler adds
+  ; the upgrade of a weak field itself, so the path writer must not add a
+  ; second one for the same read.
+  def rust_in_weak_unwrap:boolean false
 
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
@@ -801,9 +805,13 @@ class RangerRustClassWriter {
         if (!null? pNameNWeak) {
           def pNNWeak:CodeNode (unwrap pNameNWeak)
           if (pNNWeak.hasFlag("weak")) {
-            ; only a FIELD holds a Weak — a `@(weak)` local keeps the Rc
+            ; only a FIELD holds a Weak — a `@(weak)` local keeps the Rc —
+            ; and a weak COLLECTION field is a plain Vec or map, because the
+            ; annotation there is about the elements, not the container
             if p.is_class_variable {
-              field_is_weak = true
+              if (((strlen pNNWeak.array_type) == 0) && ((strlen pNNWeak.key_type) == 0)) {
+                field_is_weak = true
+              }
             }
           }
         }
@@ -818,13 +826,20 @@ class RangerRustClassWriter {
               ; Non-optional weak: .upgrade().unwrap().borrow_mut()
               wr.out(".upgrade().unwrap().borrow_mut()" false)
             }
+          } {
+            ; The last segment: the field IS the value being read, and its
+            ; readers hold Rcs — `def c:ClassDesc ctx.currentClass` declares
+            ; an Rc and was handed a Weak. Two things must stay out of the
+            ; way: an assignment target (the store side downgrades into the
+            ; raw field) and an `unwrap`, which writes its own upgrade.
+            if ((ctx.in_lhs_of_assignment == false) && (rust_in_weak_unwrap == false)) {
+              if p.is_optional {
+                wr.out(".as_ref().map(|__w| __w.upgrade().unwrap())" false)
+              } {
+                wr.out(".upgrade().unwrap()" false)
+              }
+            }
           }
-          ; NOTE: the LAST segment is deliberately left alone. Reading a weak
-          ; field as a whole value does need the upgrade — `def c:ClassDesc
-          ; ctx.currentClass` declares an Rc and is handed a Weak — but the
-          ; upgrade is already added downstream at several use sites, and
-          ; putting it here too doubles up: 1432 -> 1984. The reader sites
-          ; have to be unified before this branch can own it.
         } {
           ; Rust: If this field is optional and there are more parts after it, unwrap it
           if p.is_optional {
@@ -7311,7 +7326,11 @@ class RangerRustClassWriter {
       
       ; Handle weak references - need to upgrade() to get Rc, then borrow_mut() to access value
       if is_weak_ref {
+        ; this handler writes the upgrade itself, so the path writer must
+        ; leave the field alone while the argument is walked
+        rust_in_weak_unwrap = true
         this.WalkNode(arg ctx wr)
+        rust_in_weak_unwrap = false
         ; A weak field of a shared class upgrades to the Rc itself
         ; (PLAN_RUST_OWNERSHIP 2b): the unwrapped value stays
         ; Rc<RefCell<T>>, and use sites borrow it like any shared name.
