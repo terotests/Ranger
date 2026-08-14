@@ -110,6 +110,7 @@ class EVGTest {
         test.testSubgrid(t)
         test.testGridTracks(t)
         test.testGridPlacement(t)
+        test.testNamedGridLines(t)
         test.testLayoutWarnings(t)
         test.testGridLayout(t)
         test.testGridContentRows(t)
@@ -1782,25 +1783,75 @@ class EVGTest {
         t.eqInt("start with span end: start" mixed.start 2)
         t.eqInt("start with span end: span" mixed.span 3)
 
-        ; A named line is not supported. It used to fall through to_double and
-        ; come back as 0 — identical to auto-placement, with nothing to say the
-        ; name had been thrown away.
+        ; A name is carried unresolved out of parse — the lines it refers to
+        ; live on the container's template, which only the layout can see.
         def named:EVGGridPlacement (EVGGridPlacement.parse("sidebar"))
-        t.ok("a named line is reported" named.hadError)
-        t.eqInt("a named line still auto-places" named.start 0)
-        t.eqInt("a named line still spans one" named.span 1)
-
-        def namedEnd:EVGGridPlacement (EVGGridPlacement.parse("2 / main"))
-        t.ok("a named end line is reported" namedEnd.hadError)
-        t.eqInt("the numeric side is still honoured" namedEnd.start 2)
+        t.no("a name is not an error on its own" named.hadError)
+        t.eqStr("the name is kept for the layout to resolve" named.startName "sidebar")
 
         ; Negative lines count from the end of the grid in CSS; unsupported
-        ; here, and reported for the same reason.
+        ; here, and rejected at once rather than mistaken for a name.
         def neg:EVGGridPlacement (EVGGridPlacement.parse("-1"))
         t.ok("a negative line is reported" neg.hadError)
+        def zero:EVGGridPlacement (EVGGridPlacement.parse("0"))
+        t.ok("line 0 is reported" zero.hadError)
 
         def fine:EVGGridPlacement (EVGGridPlacement.parse("2 / span 3"))
         t.no("a placement it understands is not an error" fine.hadError)
+    }
+
+    ; ---- grid: named lines ----------------------------------------------------
+    ; "[full-start] 1fr [main] 2fr [main-end]" labels the lines BETWEEN tracks —
+    ; line 1 before the first track, one past the last when the name trails.
+    fn testNamedGridLines:void (t:RgTest) {
+        def tpl:EVGGridTemplate (EVGGridTemplate.parse("[full-start] 1fr [main] 2fr [main-end]"))
+        t.no("a template with names is not an error" tpl.hadError)
+        t.eqInt("names do not add tracks" (tpl.count()) 2)
+        t.eqInt("the leading name is line 1" (tpl.lineNumberNamed("full-start")) 1)
+        t.eqInt("a name between tracks is line 2" (tpl.lineNumberNamed("main")) 2)
+        t.eqInt("a trailing name is one past the last track" (tpl.lineNumberNamed("main-end")) 3)
+        t.eqInt("an unknown name is 0" (tpl.lineNumberNamed("nope")) 0)
+
+        ; One line may carry several names.
+        def multi:EVGGridTemplate (EVGGridTemplate.parse("[a b] 1fr [c]"))
+        t.eqInt("both names label the same line: a" (multi.lineNumberNamed("a")) 1)
+        t.eqInt("both names label the same line: b" (multi.lineNumberNamed("b")) 1)
+        t.eqInt("and the trailing one follows" (multi.lineNumberNamed("c")) 2)
+
+        ; Resolving a placement against that template.
+        def p1:EVGGridPlacement (EVGGridPlacement.parse("main"))
+        p1.resolveNames(tpl)
+        t.no("a name the template has is not an error" p1.hadError)
+        t.eqInt("the name became its line" p1.start 2)
+
+        def p2:EVGGridPlacement (EVGGridPlacement.parse("full-start / main-end"))
+        p2.resolveNames(tpl)
+        t.no("both ends resolve" p2.hadError)
+        t.eqInt("start line" p2.start 1)
+        t.eqInt("span is the distance between the two lines" p2.span 2)
+
+        ; A name on one side and a number on the other.
+        def p3:EVGGridPlacement (EVGGridPlacement.parse("main / 3"))
+        p3.resolveNames(tpl)
+        t.eqInt("named start, numeric end: start" p3.start 2)
+        t.eqInt("named start, numeric end: span" p3.span 1)
+
+        ; An explicit span outranks the end line, as in CSS.
+        def p4:EVGGridPlacement (EVGGridPlacement.parse("main / span 5"))
+        p4.resolveNames(tpl)
+        t.eqInt("an explicit span wins" p4.span 5)
+
+        ; A name the template does not define leaves the item auto-placed.
+        def p5:EVGGridPlacement (EVGGridPlacement.parse("nowhere"))
+        p5.resolveNames(tpl)
+        t.ok("an unknown name is reported" p5.hadError)
+        t.eqInt("and the item stays auto-placed" p5.start 0)
+
+        ; repeat() still expands, and names around it still land correctly.
+        def rep:EVGGridTemplate (EVGGridTemplate.parse("[left] repeat(3, 1fr) [right]"))
+        t.eqInt("repeat still expands beside names" (rep.count()) 3)
+        t.eqInt("a name before repeat is line 1" (rep.lineNumberNamed("left")) 1)
+        t.eqInt("a name after repeat is past the last track" (rep.lineNumberNamed("right")) 4)
     }
 
     ; ---- layout: unsupported declarations are reported ------------------------

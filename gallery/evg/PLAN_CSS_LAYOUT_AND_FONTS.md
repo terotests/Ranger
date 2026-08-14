@@ -40,7 +40,7 @@ Without that, flex/grid improvements will still look wrong in print.
 | `flex-wrap` | `wrap` (default) / `nowrap` / `wrap-reverse`, with the full `align-content` set including `stretch` | — |
 | Alignment | `justifyContent`, `alignItems` (incl. `stretch` and `baseline`), plus legacy `align` / `verticalAlign` | Naming overlap between the CSS and legacy names |
 | Text intrinsic size | Shrink-wraps to content measured from the real face | — |
-| Grid | `display: grid` with fr/px/%/repeat/`minmax()` tracks, gaps, spans, `grid-template-areas`, `grid-auto-flow: dense`, column `subgrid` | Row `subgrid`; `fit-content()` |
+| Grid | `display: grid` with fr/px/%/repeat/`minmax()` tracks, gaps, spans, `grid-template-areas`, `grid-auto-flow: dense`, column `subgrid`, named lines | Row `subgrid`; `fit-content()`; `auto` tracks size as `1fr` |
 | Styles | Mostly inline JSX attributes | No class/theme stylesheet layer |
 
 `min-width` / `max-width` / `min-height` / `max-height` already parse and clamp;
@@ -298,10 +298,17 @@ Target photo-book pages, not full CSS Grid Level 2.
   columns up with each other instead of each splitting its own width. Declared
   with nothing to inherit from, it falls back to one full-width column.
 
+- **Named grid lines** — `[full-start] 1fr [main] 2fr [main-end]` labels the
+  lines between tracks, and `grid-column: main-start / main-end` places against
+  them. One line may carry several names (`[a b]`); a name is resolved against
+  the container's template, so the placement is parsed from the item and
+  pointed at real lines by the layout, which is the only place that sees both.
+  A name the template does not define leaves the item auto-placed and is
+  reported.
+
 Still out of scope: **row `subgrid`** (row sizes are only known after the items
-are measured, so inheriting them needs a second pass the engine does not have),
-`fit-content()`, and named grid lines. All three are now *reported* rather than
-dropped — see Phase 4.2.
+are measured, so inheriting them needs a second pass the engine does not have)
+and `fit-content()`. Both are reported rather than dropped — see Phase 4.2.
 
 ## 8. Shared text engine API (contract)
 

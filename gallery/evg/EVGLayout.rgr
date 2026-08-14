@@ -1489,6 +1489,12 @@ class EVGLayout {
         def colGapTotal:double ((to_double (colCount - 1)) * colGapPx)
         cols.resolve((innerWidth - colGapTotal))
 
+        ; The row template is parsed here as well as where the rows are sized,
+        ; because a `grid-row` naming a line has to be resolved before
+        ; placement runs. With no row template it holds no names, and every
+        ; named row line is reported as unknown — which is the truth.
+        def rowTemplate:EVGGridTemplate (EVGGridTemplate.parse(parent.gridTemplateRows))
+
         ; Collect the in-flow children and their placements.
         def items:[EVGElement]
         def colStarts:[int]
@@ -1502,11 +1508,16 @@ class EVGLayout {
             c.inheritProperties(parent)
             c.resolveUnits(innerWidth innerHeight)
             if (c.isAbsolute == false) {
+                ; Named lines live on the container's template, so the
+                ; placement is parsed first and pointed at real lines here,
+                ; where both are in hand.
                 def cp:EVGGridPlacement (EVGGridPlacement.parse(c.gridColumn))
+                cp.resolveNames(cols)
                 if (cp.hadError) {
                     this.warn(("grid-column: " + cp.errorText))
                 }
                 def rp:EVGGridPlacement (EVGGridPlacement.parse(c.gridRow))
+                rp.resolveNames(rowTemplate)
                 if (rp.hadError) {
                     this.warn(("grid-row: " + rp.errorText))
                 }
