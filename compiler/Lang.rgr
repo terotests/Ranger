@@ -3944,7 +3944,9 @@ def r_div_f64(a, b):
                 kotlin ( "when (" (e 1) ") { " I (block 2) i "}" )
                 python ( nl "match (" (e 1) "):" I (block 2) i nl )
                 ; Rust matches a &str, so a String subject needs as_str().
-                rust ( nl "match " (e 1) ".as_str() {" I (block 2) nl "_ => {}" i nl "}" nl )
+                ; `&*x` is a &str whether x is a String or already a &str;
+                ; `.as_str()` on a &str is the unstable str_as_str feature
+                rust ( nl "match &*(" (e 1) ") {" I (block 2) nl "_ => {}" i nl "}" nl )
                 * ( "switch (" (e 1) " ) { " I (block 2) i "}" )
             }
         }
@@ -6625,7 +6627,7 @@ int r_arr_index_of( std::vector<T> vec, T elem )  {
                  ; `|&r|` moves the element out of a shared reference, and
                  ; `.unwrap()` panics on a miss where this operator has to
                  ; answer -1 -- indexOf is how the compiler asks "is it here"
-                 rust ( (e 1) ".iter().position( |r| r == &" (e 2) " ).map(|__i| __i as i64).unwrap_or(-1)" )   
+                 rust ( (e 1) ".iter().position( |r| r.clone() == (" (e 2) ").clone() ).map(|__i| __i as i64).unwrap_or(-1)" )   
                  php ( "array_search(" (e 2) ", " (e 1) ", true)")
                  csharp ( (e 1) ".IndexOf(" (e 2) ")" )
                  go ( "r_indexof_arr_" (rawtype 1)  "(" (e 1) ", " (e 2) ")"

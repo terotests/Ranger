@@ -1647,7 +1647,16 @@ class RangerRustClassWriter {
         if ((local_needs_rc_wrap && eff_optional) && (optInitPassthrough == false)) {
           wr.out(")" false)
         }
-        
+        ; An Option<Rc<…>> that passes through whole is still a READ of a
+        ; field, and reading a non-Copy field out of a borrowed struct moves
+        ; it — `def b (lctx.builder)` cannot take the Option out of `lctx`.
+        ; The clone is of the Option, so it costs one Rc bump.
+        if optInitPassthrough {
+          if (value.value_type == RangerNodeType.VRef) {
+            wr.out(".clone()" false)
+          }
+        }
+
         ; If RHS was optional field, unwrap it — unless the local itself
         ; keeps the Option (an optional shared local): Option = Option
         if (rhs_is_optional_field && ((local_needs_rc_wrap && eff_optional) == false)) {
@@ -1707,6 +1716,21 @@ class RangerRustClassWriter {
               def v_type:RangerNodeType nameN.value_type
               if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
                 v_type = (nameN.typeNameAsType(ctx))
+              }
+              ; `def b (lctx.builder)` writes no type, so the name has none to
+              ; resolve and the read looked like a scalar — it is a move of a
+              ; non-Copy field out of a borrowed struct. The field's own
+              ; declaration answers what the local's does not.
+              if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
+                def vpNN@(optional):CodeNode vp.nameNode
+                if (!null? vpNN) {
+                  def vpN:CodeNode (unwrap vpNN)
+                  def fld_type:RangerNodeType vpN.value_type
+                  if ((fld_type == RangerNodeType.Object) || (fld_type == RangerNodeType.VRef) || (fld_type == RangerNodeType.NoType)) {
+                    fld_type = (vpN.typeNameAsType(ctx))
+                  }
+                  v_type = fld_type
+                }
               }
               if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.Array) || (v_type == RangerNodeType.Buffer) || (v_type == RangerNodeType.IntBuffer)) {
                 should_clone_vardef = true

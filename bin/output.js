@@ -24920,6 +24920,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     if ( (local_needs_rc_wrap && eff_optional) && (optInitPassthrough == false) ) {
                       wr.out(")", false);
                     }
+                    if ( optInitPassthrough ) {
+                      if ( value_1.value_type == 11 ) {
+                        wr.out(".clone()", false);
+                      }
+                    }
                     if ( rhs_is_optional_field && ((local_needs_rc_wrap && eff_optional) == false) ) {
                       let v_type_1 = nameN.value_type;
                       if ( ((v_type_1 == 10) || (v_type_1 == 11)) || (v_type_1 == 0) ) {
@@ -24966,6 +24971,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           let v_type_2 = nameN.value_type;
                           if ( ((v_type_2 == 10) || (v_type_2 == 11)) || (v_type_2 == 0) ) {
                             v_type_2 = nameN.typeNameAsType(ctx);
+                          }
+                          if ( ((v_type_2 == 10) || (v_type_2 == 11)) || (v_type_2 == 0) ) {
+                            const vpNN_1 = vp_2.nameNode;
+                            if ( (typeof(vpNN_1) !== "undefined" && vpNN_1 != null )  ) {
+                              const vpN_1 = vpNN_1;
+                              let fld_type = vpN_1.value_type;
+                              if ( ((fld_type == 10) || (fld_type == 11)) || (fld_type == 0) ) {
+                                fld_type = vpN_1.typeNameAsType(ctx);
+                              }
+                              v_type_2 = fld_type;
+                            }
                           }
                           if ( (((v_type_2 == 10) || (v_type_2 == 6)) || (v_type_2 == 16)) || (v_type_2 == 17) ) {
                             should_clone_vardef = true;
