@@ -101,10 +101,19 @@ class EVGElement {
     ; shrink. Unset means "use width". The `flex: N` shorthand sets it to 0,
     ; which is what makes `flex: 1` share space evenly even when the item also
     ; carries a width — without it an explicit width made `flex` a no-op.
+    ; flex-shrink: how readily this item gives up space when the line
+    ; overflows, relative to its siblings. CSS default is 1; 0 means "never
+    ; shrink me", which is how a logo or a fixed label keeps its size while the
+    ; rest of the row compresses.
+    def flexShrink:double 1.0
     def flexBasis:EVGUnit
     def flexDirection:string "column"
     def justifyContent:string "flex-start"
     def alignItems:string "flex-start"
+    ; align-content: how WRAPPED LINES are distributed along the cross axis,
+    ; as opposed to alignItems which positions children within one line. Only
+    ; meaningful when the content wraps and the container has room to spare.
+    def alignContent:string "flex-start"
     ; flexWrap: "wrap" (row auto-wraps — historical EVG default) or "nowrap"
     ; (CSS default; children never wrap, they overflow / shrink instead).
     def flexWrap:string "wrap"
@@ -598,6 +607,12 @@ class EVGElement {
             ; A bare `flex: N` starts from zero, so items share the line in
             ; proportion to N regardless of any width they also carry.
             flexBasis = (EVGUnit.px(0.0))
+            if (n >= 2) {
+                def shrinkVal@(optional):double (to_double (itemAt parts 1))
+                if shrinkVal {
+                    flexShrink = (unwrap shrinkVal)
+                }
+            }
             if (n >= 3) {
                 flexBasis = (EVGUnit.parse((itemAt parts 2)))
             }
@@ -928,6 +943,13 @@ class EVGElement {
             flexWrap = value
             return
         }
+        if ((name == "flex-shrink") || (name == "flexShrink")) {
+            def sv@(optional):double (to_double value)
+            if sv {
+                flexShrink = (unwrap sv)
+            }
+            return
+        }
         if ((name == "flex-basis") || (name == "flexBasis")) {
             flexBasis = (EVGUnit.parse(value))
             return
@@ -966,6 +988,10 @@ class EVGElement {
         }
         if ((name == "justify-content") || (name == "justifyContent")) {
             justifyContent = value
+            return
+        }
+        if ((name == "align-content") || (name == "alignContent")) {
+            alignContent = value
             return
         }
         if ((name == "align-items") || (name == "alignItems")) {

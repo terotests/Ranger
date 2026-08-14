@@ -59,6 +59,18 @@ class AttrsTest {
         t.eqStr("kebab justify-content" kebab.justifyContent "space-between")
         t.eqStr("kebab align-items" kebab.alignItems "center")
 
+        ; flex-shrink / flex-basis / align-content reach the element through
+        ; the same fallthrough, without needing their own JSX cases.
+        def sh:EVGElement (this.parseOne("flexShrink=\"0\" flexBasis=\"120px\" alignContent=\"space-between\""))
+        t.near("flexShrink" sh.flexShrink 0.0)
+        t.near("flexBasis" sh.flexBasis.value 120.0)
+        t.eqStr("alignContent" sh.alignContent "space-between")
+
+        def shorthand:EVGElement (this.parseOne("flex=\"2 0 40px\""))
+        t.near("shorthand grow via JSX" shorthand.flex 2.0)
+        t.near("shorthand shrink via JSX" shorthand.flexShrink 0.0)
+        t.near("shorthand basis via JSX" shorthand.flexBasis.value 40.0)
+
         ; Axis-specific gaps.
         def gaps:EVGElement (this.parseOne("rowGap=\"4px\" columnGap=\"9px\""))
         t.near("rowGap" gaps.rowGap.value 4.0)

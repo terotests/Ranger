@@ -33,9 +33,9 @@ Without that, flex/grid improvements will still look wrong in print.
 
 | Area | Today | Gap |
 | --- | --- | --- |
-| Flex direction / grow | Row + column grow, `flex-basis`, `flex` shorthand, main-axis shrink-to-fit | Shrink is proportional scaling, not per-item `flex-shrink` factors |
+| Flex | Grow, per-item `flex-shrink`, `flex-basis`, `flex` shorthand, min/max resolved inside the distribution | No `wrap-reverse`; `align-content: stretch` behaves as `flex-start` |
 | `gap` | Main axis, row + column | No separate `row-gap` / `column-gap` |
-| `flex-wrap` | `wrap` (default) / `nowrap` | No `wrap-reverse`; no `align-content` for wrapped lines |
+| `flex-wrap` | `wrap` (default) / `nowrap`, with `align-content` for wrapped lines | No `wrap-reverse` |
 | Alignment | `justifyContent`, `alignItems` (incl. `stretch` and `baseline`), plus legacy `align` / `verticalAlign` | Naming overlap between the CSS and legacy names |
 | Text intrinsic size | Shrink-wraps to content measured from the real face | — |
 | Grid | `display: grid` with fr/px/%/repeat tracks, gaps, spans | No `grid-template-areas`, dense packing, subgrid, `minmax()` |
@@ -352,10 +352,20 @@ wrong. Worst delta is now **0.375px against 8.31px before**.
   `flex: auto` and `flex: 120px` parse. This removed the wart both bundled
   themes had to document.
 - ~~Widen the JSX attribute surface~~ — see Phase 2.5.
-- Real per-item `flex-shrink` factors (today shrink scales fixed sizes
-  proportionally rather than per item)
-- min/max clamped in the right order relative to grow/shrink
-- `align-content` for wrapped lines, `wrap-reverse`
+- ~~Real per-item `flex-shrink` factors~~ — landed. Overflow is shared by
+  `flex-shrink x size`, so `flex-shrink: 0` holds an item's size while its
+  siblings absorb the whole overflow. With every factor at the CSS default of 1
+  this is the same uniform scale as before, which is why no existing page moved.
+- ~~min/max clamped in the right order relative to grow/shrink~~ — landed.
+  Limits are resolved inside the distribution: an item that hits one is frozen
+  there and the space it did not use is offered back to the others, instead of
+  being clamped afterwards and leaving a hole in the row.
+- ~~`align-content` for wrapped lines~~ — landed: `flex-start`, `flex-end`,
+  `center`, `space-between`, `space-around`, `space-evenly`. It applies only
+  when the content wrapped and the container height is definite, following the
+  same rule as the rest of the engine. `stretch` would have to grow each line
+  and re-lay its children out, so it currently behaves as `flex-start`.
+- `wrap-reverse`, and `align-content: stretch`
 - Update `PhotoLayouts` only where behavior changes
 
 ### Phase 2 — Style layer ✅

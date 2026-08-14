@@ -88,6 +88,9 @@ class EVGTest {
         test.testRowSideBySide(t)
         test.testFlexGrowRow(t)
         test.testFlexGrowColumn(t)
+        test.testFlexMinMax(t)
+        test.testFlexShrinkFactors(t)
+        test.testAlignContent(t)
         test.testFlexBasis(t)
         test.testFlexShorthand(t)
         test.testFlexShrink(t)
@@ -467,6 +470,262 @@ class EVGTest {
     ; ---- flex-basis and the `flex` shorthand ---------------------------------
     ; An explicit width used to make `flex` a no-op, so a stylesheet could not
     ; say `width: 100%; flex: 1` — the wart both bundled themes had to document.
+    ; ---- per-item flex-shrink -------------------------------------------------
+    ; Shrink used to scale every item by the same factor. That is only correct
+    ; when all the shrink factors are 1 (the CSS default), which is why the
+    ; existing cases still pass — but there was no way to say "not this one".
+    ; ---- min/max resolved inside the flex distribution ------------------------
+    ; Clamping used to happen after the shares were handed out, so an item that
+    ; hit its max simply left a hole in the row. The space it did not use is now
+    ; offered back to the items that can still grow.
+    fn testFlexMinMax:void (t:RgTest) {
+        ; Two equal flex items in 300; one capped at 50, so the other takes 250.
+        def row (new EVGElement())
+        row.width = (EVGUnit.px(300.0))
+        row.height = (EVGUnit.px(50.0))
+        row.flexDirection = "row"
+        def capped (new EVGElement())
+        capped.setAttribute("flex" "1")
+        capped.setAttribute("max-width" "50px")
+        def rest (new EVGElement())
+        rest.setAttribute("flex" "1")
+        row.addChild(capped)
+        row.addChild(rest)
+        def lay (new EVGLayout())
+        lay.layout(row)
+        t.near("capped item stops at its max" capped.calculatedWidth 50.0)
+        t.near("the freed space goes to the other item" rest.calculatedWidth 250.0)
+        t.near("the row is still filled"
+            (capped.calculatedWidth + rest.calculatedWidth) 300.0)
+
+        ; A min-width floor works the same way in the other direction.
+        def row2 (new EVGElement())
+        row2.width = (EVGUnit.px(300.0))
+        row2.height = (EVGUnit.px(50.0))
+        row2.flexDirection = "row"
+        def floored (new EVGElement())
+        floored.setAttribute("flex" "1")
+        floored.setAttribute("min-width" "200px")
+        def small (new EVGElement())
+        small.setAttribute("flex" "3")
+        row2.addChild(floored)
+        row2.addChild(small)
+        def lay2 (new EVGLayout())
+        lay2.layout(row2)
+        ; Unclamped the split would be 75/225; the floor lifts it to 200/100.
+        t.near("floored item is lifted to its min" floored.calculatedWidth 200.0)
+        t.near("the other item gives up the difference" small.calculatedWidth 100.0)
+
+        ; Two capped items and one free: both caps hold, the free one takes
+        ; everything left, which needs more than one pass to settle.
+        def row3 (new EVGElement())
+        row3.width = (EVGUnit.px(400.0))
+        row3.height = (EVGUnit.px(50.0))
+        row3.flexDirection = "row"
+        def c1 (new EVGElement())
+        c1.setAttribute("flex" "1")
+        c1.setAttribute("max-width" "40px")
+        def c2 (new EVGElement())
+        c2.setAttribute("flex" "1")
+        c2.setAttribute("max-width" "60px")
+        def free (new EVGElement())
+        free.setAttribute("flex" "1")
+        row3.addChild(c1)
+        row3.addChild(c2)
+        row3.addChild(free)
+        def lay3 (new EVGLayout())
+        lay3.layout(row3)
+        t.near("first cap holds" c1.calculatedWidth 40.0)
+        t.near("second cap holds" c2.calculatedWidth 60.0)
+        t.near("the free item absorbs both remainders" free.calculatedWidth 300.0)
+
+        ; Without any limits nothing changes.
+        def row4 (new EVGElement())
+        row4.width = (EVGUnit.px(300.0))
+        row4.height = (EVGUnit.px(50.0))
+        row4.flexDirection = "row"
+        def p1 (new EVGElement())
+        p1.setAttribute("flex" "1")
+        def p2 (new EVGElement())
+        p2.setAttribute("flex" "1")
+        row4.addChild(p1)
+        row4.addChild(p2)
+        def lay4 (new EVGLayout())
+        lay4.layout(row4)
+        t.near("unconstrained items split evenly" p1.calculatedWidth 150.0)
+        t.near("and the second matches" p2.calculatedWidth 150.0)
+    }
+
+    fn testFlexShrinkFactors:void (t:RgTest) {
+        ; 3 x 200 in a 300 row: 300 overflow shared by weight (1 x 200) each,
+        ; so each loses 100 and ends at 100. Same as the old uniform scale.
+        def row (new EVGElement())
+        row.width = (EVGUnit.px(300.0))
+        row.height = (EVGUnit.px(50.0))
+        row.flexDirection = "row"
+        row.flexWrap = "nowrap"
+        def a (new EVGElement())
+        a.width = (EVGUnit.px(200.0))
+        def b (new EVGElement())
+        b.width = (EVGUnit.px(200.0))
+        def c (new EVGElement())
+        c.width = (EVGUnit.px(200.0))
+        row.addChild(a)
+        row.addChild(b)
+        row.addChild(c)
+        def lay (new EVGLayout())
+        lay.layout(row)
+        t.near("default shrink is still uniform" a.calculatedWidth 100.0)
+        t.near("all three equal" c.calculatedWidth 100.0)
+
+        ; flex-shrink: 0 holds its size; the others absorb the whole overflow.
+        def row2 (new EVGElement())
+        row2.width = (EVGUnit.px(300.0))
+        row2.height = (EVGUnit.px(50.0))
+        row2.flexDirection = "row"
+        row2.flexWrap = "nowrap"
+        def fixed (new EVGElement())
+        fixed.width = (EVGUnit.px(200.0))
+        fixed.setAttribute("flex-shrink" "0")
+        def give1 (new EVGElement())
+        give1.width = (EVGUnit.px(200.0))
+        def give2 (new EVGElement())
+        give2.width = (EVGUnit.px(200.0))
+        row2.addChild(fixed)
+        row2.addChild(give1)
+        row2.addChild(give2)
+        def lay2 (new EVGLayout())
+        lay2.layout(row2)
+        t.near("flex-shrink: 0 keeps its width" fixed.calculatedWidth 200.0)
+        ; 300 overflow split between the two shrinkable 200s: 150 each off.
+        t.near("siblings absorb the overflow" give1.calculatedWidth 50.0)
+        t.near("evenly between them" give2.calculatedWidth 50.0)
+
+        ; A larger factor gives up proportionally more.
+        def row3 (new EVGElement())
+        row3.width = (EVGUnit.px(300.0))
+        row3.height = (EVGUnit.px(50.0))
+        row3.flexDirection = "row"
+        row3.flexWrap = "nowrap"
+        def eager (new EVGElement())
+        eager.width = (EVGUnit.px(200.0))
+        eager.setAttribute("flex-shrink" "3")
+        def calm (new EVGElement())
+        calm.width = (EVGUnit.px(200.0))
+        calm.setAttribute("flex-shrink" "1")
+        row3.addChild(eager)
+        row3.addChild(calm)
+        def lay3 (new EVGLayout())
+        lay3.layout(row3)
+        ; overflow 100; weights 600 and 200 -> cuts of 75 and 25.
+        t.near("eager item gives up three quarters" eager.calculatedWidth 125.0)
+        t.near("calm item gives up one quarter" calm.calculatedWidth 175.0)
+        t.near("together they fit the row"
+            (eager.calculatedWidth + calm.calculatedWidth) 300.0)
+
+        ; The shorthand's middle value is the shrink factor.
+        def sh (new EVGElement())
+        sh.setAttribute("flex" "1 0 50px")
+        t.near("shorthand shrink factor" sh.flexShrink 0.0)
+        t.near("shorthand grow" sh.flex 1.0)
+        t.near("shorthand basis" sh.flexBasis.value 50.0)
+
+        ; Column axis uses the same weighting.
+        def col (new EVGElement())
+        col.width = (EVGUnit.px(100.0))
+        col.height = (EVGUnit.px(200.0))
+        def top (new EVGElement())
+        top.height = (EVGUnit.px(200.0))
+        top.setAttribute("flex-shrink" "0")
+        def bottom (new EVGElement())
+        bottom.height = (EVGUnit.px(200.0))
+        col.addChild(top)
+        col.addChild(bottom)
+        def lay4 (new EVGLayout())
+        lay4.layout(col)
+        t.near("column flex-shrink: 0 keeps its height" top.calculatedHeight 200.0)
+        t.near("the other column item absorbs it" bottom.calculatedHeight 0.0)
+    }
+
+    ; ---- align-content for wrapped lines --------------------------------------
+    ; alignItems positions a child inside its line; align-content positions the
+    ; LINES. It only applies once content wraps and the box has room to spare.
+    fn testAlignContent:void (t:RgTest) {
+        ; Three 60-wide items in a 100-wide box wrap to three lines of 20 each,
+        ; 60 total, inside a 200-tall box -> 140 free.
+        def lay (new EVGLayout())
+
+        def flexEnd:EVGElement (this.buildWrapped("flex-end"))
+        lay.layout(flexEnd)
+        def fe0:EVGElement (flexEnd.getChild(0))
+        t.near("flex-end pushes the first line down by all the free space" fe0.calculatedY 140.0)
+
+        def centered:EVGElement (this.buildWrapped("center"))
+        def lay2 (new EVGLayout())
+        lay2.layout(centered)
+        def ce0:EVGElement (centered.getChild(0))
+        t.near("center takes half the free space" ce0.calculatedY 70.0)
+
+        def between:EVGElement (this.buildWrapped("space-between"))
+        def lay3 (new EVGLayout())
+        lay3.layout(between)
+        def sb0:EVGElement (between.getChild(0))
+        def sb1:EVGElement (between.getChild(1))
+        def sb2:EVGElement (between.getChild(2))
+        t.near("space-between leaves the first line put" sb0.calculatedY 0.0)
+        t.near("middle line takes half the gap" sb1.calculatedY 90.0)
+        t.near("last line ends at the bottom" sb2.calculatedY 180.0)
+
+        ; The default leaves everything where the flow put it.
+        def start:EVGElement (this.buildWrapped("flex-start"))
+        def lay4 (new EVGLayout())
+        lay4.layout(start)
+        def st0:EVGElement (start.getChild(0))
+        def st1:EVGElement (start.getChild(1))
+        t.near("flex-start line 1" st0.calculatedY 0.0)
+        t.near("flex-start line 2" st1.calculatedY 20.0)
+
+        ; An auto-height box has no spare room, so nothing moves — the same
+        ; definite-height rule the rest of the engine follows.
+        def auto (new EVGElement())
+        auto.width = (EVGUnit.px(100.0))
+        auto.flexDirection = "row"
+        auto.alignContent = "center"
+        def x1 (new EVGElement())
+        x1.width = (EVGUnit.px(60.0))
+        x1.height = (EVGUnit.px(20.0))
+        def x2 (new EVGElement())
+        x2.width = (EVGUnit.px(60.0))
+        x2.height = (EVGUnit.px(20.0))
+        def holder (new EVGElement())
+        holder.width = (EVGUnit.px(300.0))
+        holder.height = (EVGUnit.px(300.0))
+        auto.addChild(x1)
+        auto.addChild(x2)
+        holder.addChild(auto)
+        def lay5 (new EVGLayout())
+        lay5.layout(holder)
+        t.near("auto-height container does not redistribute" x1.calculatedY 0.0)
+    }
+
+    ; Three 60-wide items in a 100-wide, 200-tall row: wraps to three lines.
+    fn buildWrapped:EVGElement (mode:string) {
+        def row (new EVGElement())
+        row.width = (EVGUnit.px(100.0))
+        row.height = (EVGUnit.px(200.0))
+        row.flexDirection = "row"
+        row.alignContent = mode
+        def i:int 0
+        while (i < 3) {
+            def c (new EVGElement())
+            c.width = (EVGUnit.px(60.0))
+            c.height = (EVGUnit.px(20.0))
+            row.addChild(c)
+            i = (i + 1)
+        }
+        return row
+    }
+
     fn testFlexBasis:void (t:RgTest) {
         ; `flex: N` sets basis 0, so items share the line whatever width they
         ; also carry.
