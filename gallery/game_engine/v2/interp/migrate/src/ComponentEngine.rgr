@@ -7900,6 +7900,102 @@ class ComponentEngine {
         return 0.0
     }
 
+    ; ECMA-262 Number::exponentiate. The exponent is a DOUBLE here: every call
+    ; site used to coerce it with ToInt32 first, so a fractional exponent was
+    ; simply truncated -- Math.pow(4, 0.5) answered 1 rather than 2, and
+    ; RayTrace's shadow term `pow(transparency, 0.5)` turned every shadow into
+    ; a wash (the scene checksum came out 2544 against 2321).
+    fn jsPow:double (base:double expo:double) {
+        def inf:double (1.0 / 0.0)
+        def nan:double (0.0 / 0.0)
+        ; A NaN exponent poisons the result, but an exponent of ZERO answers 1
+        ; even for a NaN base -- both rules come before any test on the base.
+        if (expo != expo) { return nan }
+        if (expo == 0.0) { return 1.0 }
+        if (base != base) { return nan }
+        def absBase:double base
+        if (absBase < 0.0) { absBase = (0.0 - absBase) }
+        ; Is the exponent an integer, and if so is it odd? Only an odd integer
+        ; carries the sign of a negative base (or of -0) into the result.
+        def expIsInt:boolean ((this.truncNum(expo)) == expo)
+        def expIsOdd:boolean false
+        if expIsInt {
+            def halfE:double (expo / 2.0)
+            if ((this.truncNum(halfE)) != halfE) {
+                expIsOdd = true
+            }
+        }
+        ; An INFINITE exponent only cares how the base compares to 1.
+        if (false == (this.isFiniteNum(expo))) {
+            if (absBase == 1.0) { return nan }
+            def bigBase:boolean (absBase > 1.0)
+            if (expo > 0.0) {
+                if bigBase { return inf }
+                return 0.0
+            }
+            if bigBase { return 0.0 }
+            return inf
+        }
+        ; An INFINITE base.
+        if (false == (this.isFiniteNum(base))) {
+            def negInfBase:boolean (base < 0.0)
+            if (expo > 0.0) {
+                if (negInfBase && expIsOdd) { return (0.0 - inf) }
+                return inf
+            }
+            if (negInfBase && expIsOdd) { return (this.negativeZero()) }
+            return 0.0
+        }
+        ; A ZERO base. -0 keeps its sign only through an odd exponent, and a
+        ; negative exponent divides by it: pow(0, -1) is Infinity, which the
+        ; truncating path answered as 0.
+        if (base == 0.0) {
+            def negZeroBase:boolean ((1.0 / base) < 0.0)
+            if (expo > 0.0) {
+                if (negZeroBase && expIsOdd) { return (this.negativeZero()) }
+                return 0.0
+            }
+            if (negZeroBase && expIsOdd) { return (0.0 - inf) }
+            return inf
+        }
+        ; A negative base to a fractional power has no real value.
+        if ((base < 0.0) && (false == expIsInt)) { return nan }
+        ; An INTEGRAL exponent multiplies out exactly -- 2**10 is 1024, where
+        ; exp(10*ln2) lands a few ulps off -- and carries a negative base's
+        ; sign for free. Bounded so a huge exponent takes the series path
+        ; instead of looping billions of times.
+        if expIsInt {
+            def absE:double expo
+            if (absE < 0.0) { absE = (0.0 - absE) }
+            if (absE <= 4096.0) {
+                return (this.powNum(base (to_int expo)))
+            }
+        }
+        ; sqrt is exact where the series is not: pow(9, 0.5) must be 3, not
+        ; 2.9999999999999996.
+        if (expo == 0.5) { return (sqrt base) }
+        if (expo == (0.0 - 0.5)) { return (1.0 / (sqrt base)) }
+        ; Split off the INTEGER part: x**(i+f) = x**i * x**f. The integer half
+        ; multiplies out exactly and the remaining |f| < 1 keeps the series
+        ; argument small, which is where expNum/logNum are most accurate --
+        ; 1.5**2.5 as 1.5**2 * sqrt(1.5) rather than exp(2.5*ln 1.5).
+        def ipart:double (this.truncNum(expo))
+        def fpart:double (expo - ipart)
+        def absI:double ipart
+        if (absI < 0.0) { absI = (0.0 - absI) }
+        if (absI <= 4096.0) {
+            def whole:double (this.powNum(base (to_int ipart)))
+            if (fpart == 0.5) {
+                return (whole * (sqrt base))
+            }
+            if (fpart == (0.0 - 0.5)) {
+                return (whole / (sqrt base))
+            }
+            return (whole * (this.expNum((fpart * (this.logNum(base))))))
+        }
+        return (this.expNum((expo * (this.logNum(base)))))
+    }
+
     ; Wrap a number into a `bits`-wide integer (two's-complement if signed),
     ; matching AssemblyScript's i8/u8/i16/u16/i32/u32 truncation. Computed in
     ; doubles (exact up to 2^53, so u32 fits) via truncate-then-modulo-2^bits.
@@ -8109,7 +8205,7 @@ class ComponentEngine {
             return (this.evaluateRemainder((this.toNumberOf(current)) (this.toNumberOf(rightValue))))
         }
         if (opK == 7) {
-            return (EvValueBridge.taggedNumber((this.powNum((this.toNumberOf(current)) (this.toInt32Of(rightValue))))))
+            return (EvValueBridge.taggedNumber((this.jsPow((this.toNumberOf(current)) (this.toNumberOf(rightValue))))))
         }
         if (opK == 11) {
             return (EvHandle.fromInt((bit_and (this.toInt32Of(current)) (this.toInt32Of(rightValue)))))
@@ -8482,12 +8578,21 @@ class ComponentEngine {
                 }
                 if (sFn.hasFunctionNode()) {
                     def cur0:EvHandle (EvValueBridge.taggedUndefined())
-                    def gFn0:EvHandle (this.resolveGetterOn(obj key))
-                    if (gFn0.isFunction()) {
-                        if (gFn0.hasFunctionNode()) {
-                            def noArgs0:[EvHandle]
-                            def gb0:EvHandle (gFn0.withThisForCall(obj))
-                            cur0 = (this.callFnValueWithValues(gb0 noArgs0))
+                    ; Only a COMPOUND assignment reads the target first. For a
+                    ; plain `=` applyAssignOp just answers the right-hand side,
+                    ; so calling the getter was pointless -- and OBSERVABLE:
+                    ; `o.x = 5` ran the getter once where the spec runs it not
+                    ; at all, and `o.x += 5` ran it twice (the caller has
+                    ; already read the target into preCurrent and passes the
+                    ; combined value down with opK 1).
+                    if (opK != 1) {
+                        def gFn0:EvHandle (this.resolveGetterOn(obj key))
+                        if (gFn0.isFunction()) {
+                            if (gFn0.hasFunctionNode()) {
+                                def noArgs0:[EvHandle]
+                                def gb0:EvHandle (gFn0.withThisForCall(obj))
+                                cur0 = (this.callFnValueWithValues(gb0 noArgs0))
+                            }
                         }
                     }
                     result = (this.applyAssignOp(opK cur0 rightValue))
@@ -9269,8 +9374,16 @@ class ComponentEngine {
                 def preKey:string ""
                 def preCurrent:EvHandle (EvValueBridge.taggedUndefined())
                 def preResolved:boolean false
+                ; D-EVALORDER (§13.15.2 step 1): a PLAIN assignment resolves
+                ; its target reference before the right-hand side too -- only
+                ; the READ below is peculiar to a compound. This gate used to
+                ; be `opK != 1`, so `a[i] = f()` re-derived the index AFTER
+                ; f() had moved it: Octane NavierStokes' lin_solve writes
+                ; `x[currentRow] = (… x[++currentRow] …)` and every store
+                ; landed one cell along, which the checksum caught.
+                def preTarget:boolean false
                 def leftK0:int (this.nodeKindOf(leftNode))
-                if (opK != 1) {
+                if true {
                     if (leftK0 == 3) {
                         if leftNode.left {
                             def pbNode:TSNode (unwrap leftNode.left)
@@ -9299,14 +9412,22 @@ class ComponentEngine {
                                     }
                                 }
                             }
-                            preCurrent = (this.getPropertyValue(preBase preKey))
-                            if scriptThrew {
-                                return (EvValueBridge.taggedUndefined())
+                            preTarget = true
+                            ; Only a COMPOUND assignment reads the target. A
+                            ; plain `=` must not: the read would fire a getter
+                            ; the spec never runs.
+                            if (opK != 1) {
+                                preCurrent = (this.getPropertyValue(preBase preKey))
+                                if scriptThrew {
+                                    return (EvValueBridge.taggedUndefined())
+                                }
+                                preResolved = true
                             }
-                            preResolved = true
                         }
                     }
-                    if (leftK0 == 1) {
+                    ; A plain assignment to a NAME needs no pre-read either --
+                    ; there is no index to fix and reading it is not observable.
+                    if ((leftK0 == 1) && (opK != 1)) {
                         def pcName:string leftNode.name
                         def pcW:EvHandle preWith
                         if (pcW.isObject()) {
@@ -9534,6 +9655,12 @@ class ComponentEngine {
                             return (EvValueBridge.taggedUndefined())
                         }
                         return (this.assignMemberResolved(leftNode 1 memRes preBase true preKey true))
+                    }
+                    ; A PLAIN assignment stores through the base and key that
+                    ; were resolved before the right-hand side ran, so a side
+                    ; effect in the value cannot move the target cell.
+                    if preTarget {
+                        return (this.assignMemberResolved(leftNode 1 rightValue preBase true preKey true))
                     }
                     return (this.assignMember(leftNode opK rightValue))
                 }
@@ -20913,10 +21040,10 @@ class ComponentEngine {
         if (opK == 42) {
             return (this.ushr32Of(left right))
         }
-        ; Exponentiation (a ** b). Integer-exponent fast path (covers game/AS use);
-        ; falls back to repeated multiply for the truncated integer exponent.
+        ; Exponentiation (a ** b), full Number::exponentiate. This used to
+        ; truncate the exponent to an int32, so `2 ** 0.5` was 1.
         if (opK == 25) {
-            return (EvValueBridge.taggedNumber((this.powNum((left.toNumber()) (this.toInt32Of(right))))))
+            return (EvValueBridge.taggedNumber((this.jsPow((left.toNumber()) (this.toNumberOf(right))))))
         }
 
         ; Comparison
@@ -22480,11 +22607,13 @@ class ComponentEngine {
                 return (EvValueBridge.taggedNumber((atan2 ay ax)))
             }
             if (name == "pow") {
-                def pe:int 0
+                ; The exponent is a NUMBER, not an int32: truncating it made
+                ; every fractional power answer base**0 == 1.
+                def pe:double 0.0
                 if ((array_length args) > 1) {
-                    pe = (this.toInt32Of((itemAt args 1)))
+                    pe = (this.toNumberOf((itemAt args 1)))
                 }
-                return (EvValueBridge.taggedNumber((this.powNum(n0 pe))))
+                return (EvValueBridge.taggedNumber((this.jsPow(n0 pe))))
             }
             ; ---- ES2015 Math additions --------------------------------------
             ; Built from the intrinsics the engine already wraps (expNum/logNum

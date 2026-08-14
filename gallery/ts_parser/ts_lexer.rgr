@@ -818,10 +818,18 @@ class TSLexer {
         def prefix:string ((this.peek()) + (this.peekAt(1)))
         this.advance()
         this.advance()
-        def acc:int 0
-        ; The digits WITHOUT separators, for the BigInt case: `acc` is an int
-        ; and has already overflowed for anything a BigInt literal is written
-        ; for, and BigNum.parse stops at a literal `_`.
+        ; DOUBLE, not int: a JS numeric literal is a double, and `int` is only
+        ; 32 bits on the C++ target -- so `0xffffffff` accumulated to -1 and
+        ; `0x80000000` to -2147483648 there. jsbn's bnpExp opens with
+        ; `if (e > 0xffffffff || e < 1) return ONE`, so with 0xffffffff at -1
+        ; every RSA exponentiation returned 1 and Octane Crypto failed on C++
+        ; alone. Integral values up to 2^53 are exact in a double, and past
+        ; that the literal is approximated exactly as a real JS engine does.
+        def acc:double 0.0
+        def radixD:double (to_double radix)
+        ; The digits WITHOUT separators, for the BigInt case: a BigInt literal
+        ; is written precisely when the value does not fit a double, and
+        ; BigNum.parse stops at a literal `_`.
         def digits:string ""
         def looping:boolean true
         while ((pos < len) && looping) {
@@ -832,7 +840,7 @@ class TSLexer {
                 def d:int (this.digitVal(ch))
                 if (d >= 0) {
                     if (d < radix) {
-                        acc = ((acc * radix) + d)
+                        acc = ((acc * radixD) + (to_double d))
                         digits = (digits + ch)
                         this.advance()
                     } {

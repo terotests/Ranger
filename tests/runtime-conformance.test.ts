@@ -656,6 +656,64 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["math-max-empty", "return String(Math.max());", "statics"],
   ["math-abs-coerces", "return Math.abs('-3');", "statics"],
   ["math-floor-large", "return Math.floor(1e20);", "statics"],
+  // Number::exponentiate. Every call site used to coerce the exponent with
+  // ToInt32, so a fractional power answered base**0 == 1 -- which is what
+  // washed out every shadow in the Octane RayTrace scene.
+  ["math-pow-sqrt", "return Math.pow(4, 0.5);", "mathpow"],
+  ["math-pow-sqrt9", "return Math.pow(9, 0.5);", "mathpow"],
+  ["math-pow-zero-frac", "return Math.pow(0, 0.5);", "mathpow"],
+  ["math-pow-frac-str", "return String(Math.pow(2, 0.5));", "mathpow"],
+  ["math-pow-half-int", "return String(Math.pow(1.5, 2.5));", "mathpow"],
+  ["math-pow-int-exact", "return Math.pow(2, 10);", "mathpow"],
+  ["math-pow-neg-exp", "return Math.pow(2, -1);", "mathpow"],
+  ["math-pow-zero-negexp", "return String(Math.pow(0, -1));", "mathpow"],
+  ["math-pow-negzero-odd", "return 1 / Math.pow(-0, 3);", "mathpow"],
+  ["math-pow-negbase-frac", "return String(Math.pow(-8, 0.5));", "mathpow"],
+  ["math-pow-negbase-odd", "return Math.pow(-2, 3);", "mathpow"],
+  ["math-pow-exp-zero-nan", "return Math.pow(NaN, 0);", "mathpow"],
+  ["math-pow-nan-base", "return String(Math.pow(NaN, 2));", "mathpow"],
+  ["math-pow-inf-exp", "return String(Math.pow(2, Infinity));", "mathpow"],
+  ["math-pow-inf-exp-one", "return String(Math.pow(1, Infinity));", "mathpow"],
+  ["math-pow-inf-base", "return String(Math.pow(Infinity, -1));", "mathpow"],
+  ["math-pow-neginf-odd", "return String(Math.pow(-Infinity, 3));", "mathpow"],
+  ["op-exp-frac", "return 4 ** 0.5;", "mathpow"],
+  ["op-exp-int", "return 2 ** 10;", "mathpow"],
+  ["op-exp-assign-frac", "var x = 9; x **= 0.5; return x;", "mathpow"],
+  // §13.15.2 step 1: a PLAIN assignment resolves its target reference -- base
+  // and computed key -- before the right-hand side runs. Resolving it after
+  // let a side effect in the value move the cell being written, which is how
+  // Octane NavierStokes' `x[currentRow] = (... x[++currentRow] ...)` stored
+  // every result one cell along.
+  ["assign-order-index", "var a=[0,0,0]; var i=0; a[i] = (++i) + 100; return a.join(',');", "evalorder"],
+  ["assign-order-index-read", "var b=[0,0,0]; var j=0; b[j] = b[++j] + 7; return b.join(',');", "evalorder"],
+  ["assign-order-key", "var o={}; var k='x'; o[k] = (k='y', 5); return Object.keys(o).join(',');", "evalorder"],
+  ["assign-order-chain", "var c=[10,20,30]; var m=0; var r = c[m] = c[++m]; return c.join(',') + '|' + r;", "evalorder"],
+  ["assign-order-base", "var o1={v:1}, o2={v:2}; var t=o1; t.v = (t=o2, 9); return o1.v + ',' + o2.v;", "evalorder"],
+  // A radix-prefixed literal is a DOUBLE. It used to accumulate into an int,
+  // which is 32 bits on the C++ target, so 0xffffffff came out -1 -- and
+  // jsbn's `if (e > 0xffffffff || e < 1) return ONE` then made every RSA
+  // exponentiation answer 1, failing Octane Crypto on C++ alone.
+  ["hex-uint32-max", "return 0xffffffff;", "radixlit"],
+  ["hex-high-bit", "return 0x80000000;", "radixlit"],
+  ["hex-int32-max", "return 0x7fffffff;", "radixlit"],
+  ["hex-53-bit", "return 0x1fffffffffffff;", "radixlit"],
+  ["hex-cmp-uint32", "return String(65537 > 0xffffffff);", "radixlit"],
+  ["hex-small", "return 0xff;", "radixlit"],
+  ["binary-literal", "return 0b1111;", "radixlit"],
+  ["octal-literal", "return 0o777;", "radixlit"],
+  ["binary-wide", "return 0b100000000000000000000000000000000;", "radixlit"],
+  ["octal-wide", "return 0o40000000000;", "radixlit"],
+  ["hex-separators", "return 0xff_ff;", "radixlit"],
+  // An accessor member target must be read only by a COMPOUND assignment. The
+  // walker called the getter unconditionally to build the old value, so
+  // `o.x = 5` ran it once (spec: not at all) and `o.x += 5` twice (spec: once,
+  // and the caller had already read it into preCurrent). The bytecode tier was
+  // always correct here, so this only showed at the top level.
+  ["assign-order-plain-no-get", "var n=0; var o={get x(){ n++; return 1; }, set x(v){}}; o.x = 5; return n;", "evalorder"],
+  ["assign-order-compound-gets", "var n=0; var o={get x(){ n++; return 1; }, set x(v){}}; o.x += 5; return n;", "evalorder"],
+  ["assign-defineprop-no-get", "var n=0; var o={}; Object.defineProperty(o,'z',{get:function(){n++;return 1;},set:function(v){},configurable:true}); o.z = 7; return n;", "evalorder"],
+  ["assign-setter-still-runs", "var s=0; var o={get w(){return 1;}, set w(v){ s=v; }}; o.w = 3; return s;", "evalorder"],
+  ["assign-compound-uses-getter", "var o={_v:10, get x(){ return this._v; }, set x(v){ this._v=v; }}; o.x += 5; return o._v;", "evalorder"],
 
   // D-STRNUM: ToNumber on a string follows the StringNumericLiteral grammar.
   ["strnum-hex", "return Number('0x1A');", "numbers"],
