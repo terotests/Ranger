@@ -722,11 +722,23 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   //   array literal + recursion           ok
   //   object literal + recursion          ok
   //
-  // Fails identically with bcEnabled true and false, so it is the WALKER's
-  // construct path (evaluateNewExpr / constructFromFunction /
-  // callUserFunctionNode), not the bytecode tier. Same family as the
-  // already-fixed "helper call-outs run above the live frame" and "frame
-  // clobber via member/coercion re-entry".
+  // Fails identically with bcEnabled true and false, so it is the WALKER, not
+  // the bytecode tier.
+  //
+  // The decisive narrowing: a `new` that NEVER EXECUTES still triggers it.
+  //
+  //   if (l===null) return null; var t=rA(null); return {car:1,cdr:t};      ok
+  //   ... same, plus `if (l==='zz'){ var q = new P(0,0); }` dead branch    FAILS
+  //   ... same, returning new P(1,t)                                        FAILS
+  //
+  // So it is a STATIC property of the function body -- merely containing a
+  // `new` changes how the call is handled -- and the value is already lost at
+  // `var t = rec(null)`, before any `new` runs. That points at the frame-pool
+  // gate in callUserFunctionNode (framePoolMark / acquireFrame / releaseFrame)
+  // or the escape analysis feeding it: on re-entry the inner invocation's
+  // frame appears to be released or reused while the outer call still needs
+  // its result. Same family as the already-fixed "helper call-outs run above
+  // the live frame" and "frame clobber via member/coercion re-entry".
   //
   // This is what breaks Octane earley-boyer's Boyer half:
   // `new sc_Pair(x, translate_args_nboyer(y))` builds a pair whose cdr is
