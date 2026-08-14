@@ -7701,6 +7701,46 @@ class RangerRustClassWriter {
     ; but walks the target as a read, which left `node.borrow().children`
     ; where `node.borrow_mut().children` was needed. array_extract is the
     ; same call used for its return value.
+    ; indexOf answers -1 when the item is absent, and how it compares
+    ; depends on the element. Rc<RefCell<T>> implements PartialEq only when
+    ; T does, and the generated structs derive none — but an Rc in a Ranger
+    ; array is a handle, and "is this one in there" is an identity question.
+    ; Anything else compares by value, through clones so that a reference on
+    ; either side collapses.
+    if (cmd == "indexOf") {
+      def ioArr:CodeNode (node.getSecond())
+      def ioItem:CodeNode (node.getThird())
+      def ioElem:string ioArr.array_type
+      if ((strlen ioElem) == 0) {
+        if ioArr.hasParamDesc {
+          def ioP:RangerAppParamDesc (unwrap ioArr.paramDesc)
+          def ioPNN@(optional):CodeNode ioP.nameNode
+          if (!null? ioPNN) {
+            def ioPN:CodeNode (unwrap ioPNN)
+            ioElem = ioPN.array_type
+          }
+        }
+      }
+      ctx.setInExpr()
+      wr.out("(" false)
+      this.WalkNode(ioArr ctx wr)
+      if (this.rustClassIsShared(ioElem ctx)) {
+        wr.out(".iter().position( |__r| Rc::ptr_eq(__r, &(" false)
+        this.WalkNode(ioItem ctx wr)
+        wr.out(")) )" false)
+      } {
+        wr.out(".iter().position( |__r| __r.clone() == (" false)
+        this.WalkNode(ioItem ctx wr)
+        wr.out(").clone() )" false)
+      }
+      wr.out(".map(|__i| __i as i64).unwrap_or(-1))" false)
+      ctx.unsetInExpr()
+      if ((ctx.expressionLevel()) == 0) {
+        wr.out(";" true)
+      }
+      return
+    }
+
     if ((cmd == "remove_index") || (cmd == "array_extract")) {
       def rmTarget:CodeNode (node.getSecond())
       def rmIndex:CodeNode (node.getThird())

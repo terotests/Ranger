@@ -30036,6 +30036,39 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                           return;
                         }
+                        if ( cmd == "indexOf" ) {
+                          const ioArr = node.getSecond();
+                          const ioItem = node.getThird();
+                          let ioElem = ioArr.array_type;
+                          if ( (ioElem.length) == 0 ) {
+                            if ( ioArr.hasParamDesc ) {
+                              const ioP = ioArr.paramDesc;
+                              const ioPNN = ioP.nameNode;
+                              if ( (typeof(ioPNN) !== "undefined" && ioPNN != null )  ) {
+                                const ioPN = ioPNN;
+                                ioElem = ioPN.array_type;
+                              }
+                            }
+                          }
+                          ctx.setInExpr();
+                          wr.out("(", false);
+                          await this.WalkNode(ioArr, ctx, wr);
+                          if ( this.rustClassIsShared(ioElem, ctx) ) {
+                            wr.out(".iter().position( |__r| Rc::ptr_eq(__r, &(", false);
+                            await this.WalkNode(ioItem, ctx, wr);
+                            wr.out(")) )", false);
+                          } else {
+                            wr.out(".iter().position( |__r| __r.clone() == (", false);
+                            await this.WalkNode(ioItem, ctx, wr);
+                            wr.out(").clone() )", false);
+                          }
+                          wr.out(".map(|__i| __i as i64).unwrap_or(-1))", false);
+                          ctx.unsetInExpr();
+                          if ( ctx.expressionLevel() == 0 ) {
+                            wr.out(";", true);
+                          }
+                          return;
+                        }
                         if ( (cmd == "remove_index") || (cmd == "array_extract") ) {
                           const rmTarget = node.getSecond();
                           const rmIndex = node.getThird();

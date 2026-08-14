@@ -6627,7 +6627,10 @@ int r_arr_index_of( std::vector<T> vec, T elem )  {
                  ; `|&r|` moves the element out of a shared reference, and
                  ; `.unwrap()` panics on a miss where this operator has to
                  ; answer -1 -- indexOf is how the compiler asks "is it here"
-                 rust ( (e 1) ".iter().position( |r| r.clone() == (" (e 2) ").clone() ).map(|__i| __i as i64).unwrap_or(-1)" )   
+                 ; written by the class writer: the comparison depends on the
+                 ; element -- an Rc is compared by identity, since
+                 ; Rc<RefCell<T>> implements PartialEq only when T does
+                 rust ( (custom _) )   
                  php ( "array_search(" (e 2) ", " (e 1) ", true)")
                  csharp ( (e 1) ".IndexOf(" (e 2) ")" )
                  go ( "r_indexof_arr_" (rawtype 1)  "(" (e 1) ", " (e 2) ")"
