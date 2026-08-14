@@ -593,8 +593,41 @@ final Random rg_random = Random();
                 java7 ( "((" (typeof 2) ")" (e 1) ")" )
                 swift3 ( (e 1) " as " (typeof 2) "" )
                 swift6 ( (e 1) " as " (typeof 2) "" )
-                cpp ( "std::get<" (typeof 2) ">(" (e 1) ")" )
-                go ( (e 1) ".(" (typeof 2) ")" )
+                cpp ( "rg_cast<" (typeof 2) ">(" (e 1) ")"
+                    (create_polyfill "
+#include <memory>
+#include <type_traits>
+#include <variant>
+// `cast` on the C++ target has two shapes to serve. A closed family is a
+// std::variant, so the cast is std::get. A class hierarchy is a shared_ptr, so
+// the cast is a pointer cast -- and a `weak` field reads through .lock() first.
+// The template picks the one that compiles for the pair it is given; writing
+// std::get for both put std::get<shared_ptr<Derived>>(shared_ptr<Base>) in the
+// output, which is not a std::get at all.
+template <class S> inline auto rg_shared_of_(const S& v, int) -> decltype(v.lock()) { return v.lock(); }
+template <class S> inline S rg_shared_of_(const S& v, long) { return v; }
+template <class S> inline auto rg_shared_of(const S& v) -> decltype(rg_shared_of_(v, 0)) { return rg_shared_of_(v, 0); }
+template <class T, class S, class = void> struct rg_variant_holds : std::false_type {};
+template <class T, class S> struct rg_variant_holds<T, S, std::void_t<decltype(std::get<T>(std::declval<const S&>()))>> : std::true_type {};
+template <class T, class S> inline T rg_cast(const S& v) {
+    if constexpr (rg_variant_holds<T, S>::value) {
+        return std::get<T>(v);
+    } else if constexpr (std::is_convertible<const S&, T>::value) {
+        return (T)v;
+    } else if constexpr (std::is_polymorphic<typename std::remove_reference<decltype(*rg_shared_of(v))>::type>::value) {
+        return std::dynamic_pointer_cast<typename T::element_type>(rg_shared_of(v));
+    } else {
+        return std::static_pointer_cast<typename T::element_type>(rg_shared_of(v));
+    }
+}
+")
+                )
+                ; through interface{} first: a type assertion is only legal on an
+                ; INTERFACE, and the argument is often already concrete --
+                ; `(cast (unwrap node.fnDesc) to:RangerAppFunctionDesc)` unwraps to a
+                ; *RangerAppFunctionDesc and then asserted on it. The conversion is
+                ; free and makes the form valid either way.
+                go ( "(interface{}(" (e 1) ")).(" (typeof 2) ")" )
                 php ( (e 1) )
                 ; Python and Rust have no place to write the type: Python is
                 ; dynamic, and a Rust struct is not a subtype of another one.
@@ -749,12 +782,142 @@ final Random rg_random = Random();
             templates {
                 ranger ( "(sha256 " (e 1) ")")
                 es6 ("require('crypto').createHash('sha256').update(" (e 1) ").digest('hex')")
-                cpp ( "picosha2::hash256_hex_string(" (e 1) ")"
-                    (imp "\"picosha2.h\"")
-                    (install_file "picosha2.h")
-                    (plugin 'makefile' (  (dep 'picosha2.h' 'https://github.com/okdshin/PicoSHA2/blob/master/picosha2.h'  ) ) )                    
+                ; picosha2.h used to be DOWNLOADED at build time, so every C++
+                ; program that hashed anything needed network access -- and the
+                ; compiler itself hashes, so the C++ build of the compiler could
+                ; not be produced offline. This is the same digest, in the
+                ; output.
+                cpp ( "rg_sha256_hex(" (e 1) ")"
+                    (create_polyfill "
+#include <string>
+#include <vector>
+#include <cstdint>
+inline std::string rg_sha256_hex(const std::string& input) {
+    static const uint32_t K[64] = {
+        0x428a2f98u,0x71374491u,0xb5c0fbcfu,0xe9b5dba5u,0x3956c25bu,0x59f111f1u,0x923f82a4u,0xab1c5ed5u,
+        0xd807aa98u,0x12835b01u,0x243185beu,0x550c7dc3u,0x72be5d74u,0x80deb1feu,0x9bdc06a7u,0xc19bf174u,
+        0xe49b69c1u,0xefbe4786u,0x0fc19dc6u,0x240ca1ccu,0x2de92c6fu,0x4a7484aau,0x5cb0a9dcu,0x76f988dau,
+        0x983e5152u,0xa831c66du,0xb00327c8u,0xbf597fc7u,0xc6e00bf3u,0xd5a79147u,0x06ca6351u,0x14292967u,
+        0x27b70a85u,0x2e1b2138u,0x4d2c6dfcu,0x53380d13u,0x650a7354u,0x766a0abbu,0x81c2c92eu,0x92722c85u,
+        0xa2bfe8a1u,0xa81a664bu,0xc24b8b70u,0xc76c51a3u,0xd192e819u,0xd6990624u,0xf40e3585u,0x106aa070u,
+        0x19a4c116u,0x1e376c08u,0x2748774cu,0x34b0bcb5u,0x391c0cb3u,0x4ed8aa4au,0x5b9cca4fu,0x682e6ff3u,
+        0x748f82eeu,0x78a5636fu,0x84c87814u,0x8cc70208u,0x90befffau,0xa4506cebu,0xbef9a3f7u,0xc67178f2u };
+    uint32_t h[8] = { 0x6a09e667u,0xbb67ae85u,0x3c6ef372u,0xa54ff53au,0x510e527fu,0x9b05688cu,0x1f83d9abu,0x5be0cd19u };
+    std::vector<unsigned char> msg(input.begin(), input.end());
+    uint64_t bitlen = (uint64_t)msg.size() * 8;
+    msg.push_back(0x80);
+    while ((msg.size() % 64) != 56) { msg.push_back(0); }
+    for (int i = 7; i >= 0; i--) { msg.push_back((unsigned char)((bitlen >> (i * 8)) & 0xff)); }
+    for (size_t off = 0; off < msg.size(); off += 64) {
+        uint32_t w[64];
+        for (int i = 0; i < 16; i++) {
+            w[i] = ((uint32_t)msg[off + i * 4] << 24) | ((uint32_t)msg[off + i * 4 + 1] << 16)
+                 | ((uint32_t)msg[off + i * 4 + 2] << 8) | ((uint32_t)msg[off + i * 4 + 3]);
+        }
+        for (int i = 16; i < 64; i++) {
+            uint32_t s0 = ((w[i-15] >> 7) | (w[i-15] << 25)) ^ ((w[i-15] >> 18) | (w[i-15] << 14)) ^ (w[i-15] >> 3);
+            uint32_t s1 = ((w[i-2] >> 17) | (w[i-2] << 15)) ^ ((w[i-2] >> 19) | (w[i-2] << 13)) ^ (w[i-2] >> 10);
+            w[i] = w[i-16] + s0 + w[i-7] + s1;
+        }
+        uint32_t a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7];
+        for (int i = 0; i < 64; i++) {
+            uint32_t S1 = ((e >> 6) | (e << 26)) ^ ((e >> 11) | (e << 21)) ^ ((e >> 25) | (e << 7));
+            uint32_t ch = (e & f) ^ ((~e) & g);
+            uint32_t t1 = hh + S1 + ch + K[i] + w[i];
+            uint32_t S0 = ((a >> 2) | (a << 30)) ^ ((a >> 13) | (a << 19)) ^ ((a >> 22) | (a << 10));
+            uint32_t mj = (a & b) ^ (a & c) ^ (b & c);
+            uint32_t t2 = S0 + mj;
+            hh = g; g = f; f = e; e = d + t1; d = c; c = b; b = a; a = t1 + t2;
+        }
+        h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
+    }
+    static const char* hexd = \"0123456789abcdef\";
+    std::string out;
+    for (int i = 0; i < 8; i++) {
+        for (int k = 3; k >= 0; k--) {
+            unsigned char byte = (unsigned char)((h[i] >> (k * 8)) & 0xff);
+            out.push_back(hexd[(byte >> 4) & 15]);
+            out.push_back(hexd[byte & 15]);
+        }
+    }
+    return out;
+}
+")
                 )
 ; fmt.Printf("sha256:\t%x\n", sha_256.Sum(nil))
+                python ( "hashlib.sha256(" (e 1) ".encode(\"utf-8\")).hexdigest()" (imp "hashlib") )
+                ; SHA-256 is not in the Dart SDK (package:crypto is a
+                ; dependency), and the generated program has to run with plain
+                ; `dart run`. Same digest, same file.
+                dart ( "rg_sha256_hex(" (e 1) ")"
+                    (create_polyfill "String rg_sha256_hex(String input) {
+  const List<int> k = <int>[
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2];
+  final List<int> h = <int>[
+    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+  const int mask = 0xffffffff;
+  int rotr(int x, int n) => ((x >> n) | (x << (32 - n))) & mask;
+  final List<int> msg = <int>[];
+  for (final int c in input.runes) {
+    if (c < 0x80) {
+      msg.add(c);
+    } else if (c < 0x800) {
+      msg.add(0xc0 | (c >> 6));
+      msg.add(0x80 | (c & 63));
+    } else if (c < 0x10000) {
+      msg.add(0xe0 | (c >> 12));
+      msg.add(0x80 | ((c >> 6) & 63));
+      msg.add(0x80 | (c & 63));
+    } else {
+      msg.add(0xf0 | (c >> 18));
+      msg.add(0x80 | ((c >> 12) & 63));
+      msg.add(0x80 | ((c >> 6) & 63));
+      msg.add(0x80 | (c & 63));
+    }
+  }
+  final int bitlen = msg.length * 8;
+  msg.add(0x80);
+  while ((msg.length % 64) != 56) { msg.add(0); }
+  for (int i = 7; i >= 0; i--) { msg.add((bitlen >> (i * 8)) & 0xff); }
+  final List<int> w = List<int>.filled(64, 0);
+  for (int off = 0; off < msg.length; off += 64) {
+    for (int i = 0; i < 16; i++) {
+      w[i] = (msg[off + i * 4] << 24) | (msg[off + i * 4 + 1] << 16) |
+             (msg[off + i * 4 + 2] << 8) | msg[off + i * 4 + 3];
+    }
+    for (int i = 16; i < 64; i++) {
+      final int s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >> 3);
+      final int s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >> 10);
+      w[i] = (w[i - 16] + s0 + w[i - 7] + s1) & mask;
+    }
+    int a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7];
+    for (int i = 0; i < 64; i++) {
+      final int s1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+      final int ch = (e & f) ^ ((~e & mask) & g);
+      final int t1 = (hh + s1 + ch + k[i] + w[i]) & mask;
+      final int s0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+      final int mj = (a & b) ^ (a & c) ^ (b & c);
+      final int t2 = (s0 + mj) & mask;
+      hh = g; g = f; f = e; e = (d + t1) & mask; d = c; c = b; b = a; a = (t1 + t2) & mask;
+    }
+    h[0] = (h[0] + a) & mask; h[1] = (h[1] + b) & mask;
+    h[2] = (h[2] + c) & mask; h[3] = (h[3] + d) & mask;
+    h[4] = (h[4] + e) & mask; h[5] = (h[5] + f) & mask;
+    h[6] = (h[6] + g) & mask; h[7] = (h[7] + hh) & mask;
+  }
+  final StringBuffer out = StringBuffer();
+  for (final int v in h) { out.write(v.toRadixString(16).padLeft(8, '0')); }
+  return out.toString();
+}
+")
+                )
                 go ( "_r_sha256(" (e 1) ")" 
     (create_polyfill
 "
@@ -766,6 +929,33 @@ func _r_sha256(value string) string {
     )            
                 (imp "crypto/sha256") (imp "fmt")) 
                 php( "hash('sha256', " (e 1) ")")
+                kotlin ( "rg_sha256_hex(" (e 1) ")"
+                (create_polyfill "
+fun rg_sha256_hex(input: String): String {
+  val d = java.security.MessageDigest.getInstance(\"SHA-256\").digest(input.toByteArray(Charsets.UTF_8))
+  val sb = StringBuilder()
+  for (b in d) { sb.append(String.format(\"%02x\", b)) }
+  return sb.toString()
+}
+")
+                )
+                csharp ( "RgHash.Sha256Hex(" (e 1) ")"
+                (polyfill "after_imports" "
+// The same digest the other targets produce, spelled with the framework hash
+// rather than a copy of the algorithm.
+static class RgHash {
+  public static string Sha256Hex(string input) {
+    byte[] d;
+    using (System.Security.Cryptography.SHA256 h = System.Security.Cryptography.SHA256.Create()) {
+      d = h.ComputeHash(new System.Text.UTF8Encoding(false).GetBytes(input));
+    }
+    System.Text.StringBuilder o = new System.Text.StringBuilder();
+    for (int i = 0; i < d.Length; i++) { o.Append(d[i].ToString(\"x2\")); }
+    return o.ToString();
+  }
+}
+")
+                )
             }
         }
 
@@ -990,6 +1180,12 @@ func r_io_get_env( name string) *GoNullable {
 ")
     )
                 es6 ("process.env[" (e 1) "]")
+                kotlin ( "System.getenv(" (e 1) ")" )
+                csharp ( "System.Environment.GetEnvironmentVariable(" (e 1) ")" )
+                ; .get answers None for a name that is not set, which is the
+                ; optional this operator returns
+                python ( "os.environ.get(" (e 1) ")" (imp "os") )
+                dart ( "Platform.environment[" (e 1) "]" (imp "dart:io") )
                 cpp ( "std::getenv(" (e 1) ".c_str()) ? std::string(std::getenv(" (e 1) ".c_str())) : std::string(\"\")" (imp "<cstdlib>") )
                 ; * ("/* environment variable reading not implemented */")
             }
@@ -1008,9 +1204,12 @@ func r_io_get_env( name string) *GoNullable {
                 swift6 ("CommandLine.arguments[" (e 1) " + 1]")
                 es6 ( "process.argv[ 2 + " (e 1) "]")
                 rust ( "std::env::args().nth((" (e 1) " + 1) as usize).unwrap_or_default()")
-                kotlin ( "args[" (e 1) "]")
-                ; Dart main(List<String> args) — user args only, like Java.
-                dart ( "args[" (e 1) "]" )
+                kotlin ( "__g_args[" (e 1) "]")
+                ; Dart hands the list to main(List<String> args) and nothing
+                ; else can see it, so main copies it into __g_args (the writer
+                ; emits that line) and every read goes through the global -- the
+                ; same shape as __g_argv on C++.
+                dart ( "__g_args[" (e 1) "]" )
                 ; sys.argv[0] is the script, so the +1 matches every other
                 ; target that keeps the program name in the list.
                 python ( "sys.argv[" (e 1) " + 1]" (imp "sys") )
@@ -1030,8 +1229,8 @@ func r_io_get_env( name string) *GoNullable {
                 go ( "int64( len( os.Args) - 1 )"  (imp "os"))
                 es6 ( "(process.argv.length - 2)" )
                 rust ( "(std::env::args().len() as i64 - 1)")
-                kotlin ( "args.size")
-                dart ( "args.length" )
+                kotlin ( "__g_args.size")
+                dart ( "__g_args.length" )
                 python ( "(len(sys.argv) - 1)" (imp "sys") )
                 ranger ("( shell_arg_cnt )")
             }
@@ -1040,7 +1239,267 @@ func r_io_get_env( name string) *GoNullable {
         ; I/O
         normalize cmdArg:string ( arg:string ) {
             templates {
+                python ( "rg_path_normalize(" (e 1) ")" (imp "os")
+                (create_polyfill "
+# Path helpers for the compiler's own file handling. os.path.normpath drops a
+# trailing slash and Node's path.normalize keeps it, and the compiler builds its
+# library search path by concatenating onto one, so these follow Node.
+def rg_path_normalize(p):
+    s = p.replace(chr(92), \"/\")
+    trailing = len(s) > 1 and s.endswith(\"/\")
+    out = os.path.normpath(s).replace(chr(92), \"/\")
+    if out == \"\":
+        return \".\"
+    if trailing and out != \"/\":
+        out = out + \"/\"
+    return out
+
+def rg_path_dirname(p):
+    s = rg_path_normalize(p)
+    if len(s) > 1 and s.endswith(\"/\"):
+        s = s[:-1]
+    pos = s.rfind(\"/\")
+    if pos < 0:
+        return \".\"
+    if pos == 0:
+        return \"/\"
+    return s[:pos]
+")
+                )
+                dart ( "rg_path_normalize(" (e 1) ")"
+                (create_polyfill "
+// Path helpers for the compiler's own file handling. package:path would do
+// this, but the generated program has to run with a plain `dart run` and no
+// pubspec, so these are string operations. The shape follows Node's
+// path.normalize / path.dirname, because that is what the JavaScript host of
+// the same Ranger source does.
+String rg_path_normalize(String p) {
+  final String s = p.replaceAll(String.fromCharCode(92), '/');
+  final bool absolute = s.startsWith('/');
+  final bool trailing = s.length > 1 && s.endsWith('/');
+  final List<String> parts = <String>[];
+  for (final String cur in s.split('/')) {
+    if (cur == '..') {
+      if (parts.isNotEmpty && parts[parts.length - 1] != '..') {
+        parts.removeLast();
+      } else if (absolute == false) {
+        parts.add(cur);
+      }
+    } else if (cur.isNotEmpty && cur != '.') {
+      parts.add(cur);
+    }
+  }
+  String out = parts.join('/');
+  if (absolute) { out = '/' + out; }
+  if (out.isEmpty) { return '.'; }
+  if (trailing && out != '/') { out = out + '/'; }
+  return out;
+}
+String rg_path_dirname(String p) {
+  String s = rg_path_normalize(p);
+  if (s.length > 1 && s.endsWith('/')) { s = s.substring(0, s.length - 1); }
+  final int pos = s.lastIndexOf('/');
+  if (pos < 0) { return '.'; }
+  if (pos == 0) { return '/'; }
+  return s.substring(0, pos);
+}
+")
+                )
+                cpp ( "rg_path_normalize(" (e 1) ")"
+                (create_polyfill "
+#include <string>
+#include <vector>
+// Path helpers for the compiler's own file handling. std::filesystem would do
+// this, but the generated program has to build with a plain -std=c++17 line and
+// no extra library, so these are string operations. The shape follows Node's
+// path.normalize / path.dirname, because that is what the JavaScript host of
+// the same Ranger source does.
+inline std::string rg_path_normalize(const std::string& p) {
+    std::string s;
+    for (size_t i = 0; i < p.size(); i++) { s.push_back(p[i] == (char)92 ? '/' : p[i]); }
+    bool absolute = (s.size() > 0 && s[0] == '/');
+    bool trailing = (s.size() > 1 && s[s.size() - 1] == '/');
+    std::vector<std::string> parts;
+    std::string cur;
+    for (size_t i = 0; i <= s.size(); i++) {
+        if (i == s.size() || s[i] == '/') {
+            if (cur == \"..\") {
+                if (parts.size() > 0 && parts[parts.size() - 1] != \"..\") { parts.pop_back(); }
+                else if (absolute == false) { parts.push_back(cur); }
+            } else if (cur.size() > 0 && cur != \".\") {
+                parts.push_back(cur);
+            }
+            cur.clear();
+        } else { cur.push_back(s[i]); }
+    }
+    std::string out;
+    for (size_t i = 0; i < parts.size(); i++) {
+        if (i > 0) { out.push_back('/'); }
+        out += parts[i];
+    }
+    if (absolute) { out = std::string(\"/\") + out; }
+    if (out.size() == 0) { return std::string(\".\"); }
+    if (trailing && out != \"/\") { out.push_back('/'); }
+    return out;
+}
+inline std::string rg_path_dirname(const std::string& p) {
+    std::string s = rg_path_normalize(p);
+    if (s.size() > 1 && s[s.size() - 1] == '/') { s.erase(s.size() - 1); }
+    size_t pos = s.rfind('/');
+    if (pos == std::string::npos) { return std::string(\".\"); }
+    if (pos == 0) { return std::string(\"/\"); }
+    return s.substr(0, pos);
+}
+")
+                )
                 es6 ( 'require("path").normalize(' (e 1) ')')
+                kotlin ( "rg_path_normalize(" (e 1) ")"
+                (create_polyfill "
+fun rg_path_normalize(p: String): String {
+  val s = p.replace(92.toChar(), '/')
+  val absolute = s.startsWith(\"/\")
+  val trailing = s.length > 1 && s.endsWith(\"/\")
+  val parts = mutableListOf<String>()
+  for (cur in s.split(\"/\")) {
+    if (cur == \"..\") {
+      if (parts.size > 0 && parts[parts.size - 1] != \"..\") {
+        parts.removeAt(parts.size - 1)
+      } else if (!absolute) {
+        parts.add(cur)
+      }
+    } else if (cur.isNotEmpty() && cur != \".\") {
+      parts.add(cur)
+    }
+  }
+  var out = parts.joinToString(\"/\")
+  if (absolute) { out = \"/\" + out }
+  if (out.isEmpty()) { return \".\" }
+  if (trailing && out != \"/\") { out = out + \"/\" }
+  return out
+}
+fun rg_path_dirname(p: String): String {
+  var s = rg_path_normalize(p)
+  if (s.length > 1 && s.endsWith(\"/\")) { s = s.substring(0, s.length - 1) }
+  val pos = s.lastIndexOf('/')
+  if (pos < 0) { return \".\" }
+  if (pos == 0) { return \"/\" }
+  return s.substring(0, pos)
+}
+// The directory the jar was started from, which is where the compiler looks for
+// its bundled Lang.rgr and stdops.rgr.
+fun rg_install_directory(): String {
+  try {
+    val loc = object {}.javaClass.protectionDomain.codeSource.location.toURI()
+    return rg_path_dirname(rg_path_normalize(java.io.File(loc).absolutePath))
+  } catch (e: Exception) {
+    return \".\"
+  }
+}
+")
+                )
+                go ( "r_path_normalize(" (e 1) ")" (imp "strings") (imp "os")
+                (polyfill "after_imports" "
+func r_path_normalize(p string) string {
+  s := strings.Replace(p, string(rune(92)), \"/\", -1)
+  absolute := strings.HasPrefix(s, \"/\")
+  trailing := len(s) > 1 && strings.HasSuffix(s, \"/\")
+  parts := []string{}
+  for _, cur := range strings.Split(s, \"/\") {
+    if cur == \"..\" {
+      if len(parts) > 0 && parts[len(parts)-1] != \"..\" {
+        parts = parts[:len(parts)-1]
+      } else if !absolute {
+        parts = append(parts, cur)
+      }
+    } else if len(cur) > 0 && cur != \".\" {
+      parts = append(parts, cur)
+    }
+  }
+  out := strings.Join(parts, \"/\")
+  if absolute {
+    out = \"/\" + out
+  }
+  if len(out) == 0 {
+    return \".\"
+  }
+  if trailing && out != \"/\" {
+    out = out + \"/\"
+  }
+  return out
+}
+func r_path_dirname(p string) string {
+  s := r_path_normalize(p)
+  if len(s) > 1 && strings.HasSuffix(s, \"/\") {
+    s = s[:len(s)-1]
+  }
+  pos := strings.LastIndex(s, \"/\")
+  if pos < 0 {
+    return \".\"
+  }
+  if pos == 0 {
+    return \"/\"
+  }
+  return s[:pos]
+}
+// The directory the program was started from, which is where the compiler looks
+// for its bundled Lang.rgr and stdops.rgr.
+func r_install_directory() string {
+  exe, err := os.Executable()
+  if err != nil {
+    return \".\"
+  }
+  return r_path_dirname(r_path_normalize(exe))
+}
+")
+                )
+                csharp ( "RgPath.Normalize(" (e 1) ")"
+                (polyfill "after_imports" "
+// Path helpers for the compiler's own file handling. System.IO.Path would do
+// most of it, but its behaviour follows the host platform's separator and the
+// compiler builds its search path by concatenating onto a normalized string, so
+// these follow Node's path.normalize / path.dirname the way the C++, Dart and
+// Python entries do.
+static class RgPath {
+  public static string Normalize(string p) {
+    string s = p.Replace((char)92, '/');
+    bool absolute = s.StartsWith(\"/\");
+    bool trailing = s.Length > 1 && s.EndsWith(\"/\");
+    System.Collections.Generic.List<string> parts = new System.Collections.Generic.List<string>();
+    foreach (string cur in s.Split('/')) {
+      if (cur == \"..\") {
+        if (parts.Count > 0 && parts[parts.Count - 1] != \"..\") {
+          parts.RemoveAt(parts.Count - 1);
+        } else if (absolute == false) {
+          parts.Add(cur);
+        }
+      } else if (cur.Length > 0 && cur != \".\") {
+        parts.Add(cur);
+      }
+    }
+    string outp = string.Join(\"/\", parts.ToArray());
+    if (absolute) { outp = \"/\" + outp; }
+    if (outp.Length == 0) { return \".\"; }
+    if (trailing && outp != \"/\") { outp = outp + \"/\"; }
+    return outp;
+  }
+  public static string Dirname(string p) {
+    string s = Normalize(p);
+    if (s.Length > 1 && s.EndsWith(\"/\")) { s = s.Substring(0, s.Length - 1); }
+    int pos = s.LastIndexOf('/');
+    if (pos < 0) { return \".\"; }
+    if (pos == 0) { return \"/\"; }
+    return s.Substring(0, pos);
+  }
+  // The directory the program was started from, which is where the compiler
+  // looks for its bundled Lang.rgr and stdops.rgr.
+  public static string InstallDir() {
+    string loc = System.Reflection.Assembly.GetEntryAssembly().Location;
+    if (loc == null || loc.Length == 0) { return \".\"; }
+    return Dirname(Normalize(System.IO.Path.GetFullPath(loc)));
+  }
+}
+")
+                )
                 ranger ("( normalize " (e 1) " )")
                 * ( "\"./\"")
             }
@@ -1048,7 +1507,267 @@ func r_io_get_env( name string) *GoNullable {
 
         path_dirname cmdArg:string ( arg:string ) {
             templates {
+                python ( "rg_path_dirname(" (e 1) ")" (imp "os")
+                (create_polyfill "
+# Path helpers for the compiler's own file handling. os.path.normpath drops a
+# trailing slash and Node's path.normalize keeps it, and the compiler builds its
+# library search path by concatenating onto one, so these follow Node.
+def rg_path_normalize(p):
+    s = p.replace(chr(92), \"/\")
+    trailing = len(s) > 1 and s.endswith(\"/\")
+    out = os.path.normpath(s).replace(chr(92), \"/\")
+    if out == \"\":
+        return \".\"
+    if trailing and out != \"/\":
+        out = out + \"/\"
+    return out
+
+def rg_path_dirname(p):
+    s = rg_path_normalize(p)
+    if len(s) > 1 and s.endswith(\"/\"):
+        s = s[:-1]
+    pos = s.rfind(\"/\")
+    if pos < 0:
+        return \".\"
+    if pos == 0:
+        return \"/\"
+    return s[:pos]
+")
+                )
+                dart ( "rg_path_dirname(" (e 1) ")"
+                (create_polyfill "
+// Path helpers for the compiler's own file handling. package:path would do
+// this, but the generated program has to run with a plain `dart run` and no
+// pubspec, so these are string operations. The shape follows Node's
+// path.normalize / path.dirname, because that is what the JavaScript host of
+// the same Ranger source does.
+String rg_path_normalize(String p) {
+  final String s = p.replaceAll(String.fromCharCode(92), '/');
+  final bool absolute = s.startsWith('/');
+  final bool trailing = s.length > 1 && s.endsWith('/');
+  final List<String> parts = <String>[];
+  for (final String cur in s.split('/')) {
+    if (cur == '..') {
+      if (parts.isNotEmpty && parts[parts.length - 1] != '..') {
+        parts.removeLast();
+      } else if (absolute == false) {
+        parts.add(cur);
+      }
+    } else if (cur.isNotEmpty && cur != '.') {
+      parts.add(cur);
+    }
+  }
+  String out = parts.join('/');
+  if (absolute) { out = '/' + out; }
+  if (out.isEmpty) { return '.'; }
+  if (trailing && out != '/') { out = out + '/'; }
+  return out;
+}
+String rg_path_dirname(String p) {
+  String s = rg_path_normalize(p);
+  if (s.length > 1 && s.endsWith('/')) { s = s.substring(0, s.length - 1); }
+  final int pos = s.lastIndexOf('/');
+  if (pos < 0) { return '.'; }
+  if (pos == 0) { return '/'; }
+  return s.substring(0, pos);
+}
+")
+                )
+                cpp ( "rg_path_dirname(" (e 1) ")"
+                (create_polyfill "
+#include <string>
+#include <vector>
+// Path helpers for the compiler's own file handling. std::filesystem would do
+// this, but the generated program has to build with a plain -std=c++17 line and
+// no extra library, so these are string operations. The shape follows Node's
+// path.normalize / path.dirname, because that is what the JavaScript host of
+// the same Ranger source does.
+inline std::string rg_path_normalize(const std::string& p) {
+    std::string s;
+    for (size_t i = 0; i < p.size(); i++) { s.push_back(p[i] == (char)92 ? '/' : p[i]); }
+    bool absolute = (s.size() > 0 && s[0] == '/');
+    bool trailing = (s.size() > 1 && s[s.size() - 1] == '/');
+    std::vector<std::string> parts;
+    std::string cur;
+    for (size_t i = 0; i <= s.size(); i++) {
+        if (i == s.size() || s[i] == '/') {
+            if (cur == \"..\") {
+                if (parts.size() > 0 && parts[parts.size() - 1] != \"..\") { parts.pop_back(); }
+                else if (absolute == false) { parts.push_back(cur); }
+            } else if (cur.size() > 0 && cur != \".\") {
+                parts.push_back(cur);
+            }
+            cur.clear();
+        } else { cur.push_back(s[i]); }
+    }
+    std::string out;
+    for (size_t i = 0; i < parts.size(); i++) {
+        if (i > 0) { out.push_back('/'); }
+        out += parts[i];
+    }
+    if (absolute) { out = std::string(\"/\") + out; }
+    if (out.size() == 0) { return std::string(\".\"); }
+    if (trailing && out != \"/\") { out.push_back('/'); }
+    return out;
+}
+inline std::string rg_path_dirname(const std::string& p) {
+    std::string s = rg_path_normalize(p);
+    if (s.size() > 1 && s[s.size() - 1] == '/') { s.erase(s.size() - 1); }
+    size_t pos = s.rfind('/');
+    if (pos == std::string::npos) { return std::string(\".\"); }
+    if (pos == 0) { return std::string(\"/\"); }
+    return s.substr(0, pos);
+}
+")
+                )
                 es6 ( 'require("path").dirname(' (e 1) ')')
+                kotlin ( "rg_path_dirname(" (e 1) ")"
+                (create_polyfill "
+fun rg_path_normalize(p: String): String {
+  val s = p.replace(92.toChar(), '/')
+  val absolute = s.startsWith(\"/\")
+  val trailing = s.length > 1 && s.endsWith(\"/\")
+  val parts = mutableListOf<String>()
+  for (cur in s.split(\"/\")) {
+    if (cur == \"..\") {
+      if (parts.size > 0 && parts[parts.size - 1] != \"..\") {
+        parts.removeAt(parts.size - 1)
+      } else if (!absolute) {
+        parts.add(cur)
+      }
+    } else if (cur.isNotEmpty() && cur != \".\") {
+      parts.add(cur)
+    }
+  }
+  var out = parts.joinToString(\"/\")
+  if (absolute) { out = \"/\" + out }
+  if (out.isEmpty()) { return \".\" }
+  if (trailing && out != \"/\") { out = out + \"/\" }
+  return out
+}
+fun rg_path_dirname(p: String): String {
+  var s = rg_path_normalize(p)
+  if (s.length > 1 && s.endsWith(\"/\")) { s = s.substring(0, s.length - 1) }
+  val pos = s.lastIndexOf('/')
+  if (pos < 0) { return \".\" }
+  if (pos == 0) { return \"/\" }
+  return s.substring(0, pos)
+}
+// The directory the jar was started from, which is where the compiler looks for
+// its bundled Lang.rgr and stdops.rgr.
+fun rg_install_directory(): String {
+  try {
+    val loc = object {}.javaClass.protectionDomain.codeSource.location.toURI()
+    return rg_path_dirname(rg_path_normalize(java.io.File(loc).absolutePath))
+  } catch (e: Exception) {
+    return \".\"
+  }
+}
+")
+                )
+                go ( "r_path_dirname(" (e 1) ")" (imp "strings") (imp "os")
+                (polyfill "after_imports" "
+func r_path_normalize(p string) string {
+  s := strings.Replace(p, string(rune(92)), \"/\", -1)
+  absolute := strings.HasPrefix(s, \"/\")
+  trailing := len(s) > 1 && strings.HasSuffix(s, \"/\")
+  parts := []string{}
+  for _, cur := range strings.Split(s, \"/\") {
+    if cur == \"..\" {
+      if len(parts) > 0 && parts[len(parts)-1] != \"..\" {
+        parts = parts[:len(parts)-1]
+      } else if !absolute {
+        parts = append(parts, cur)
+      }
+    } else if len(cur) > 0 && cur != \".\" {
+      parts = append(parts, cur)
+    }
+  }
+  out := strings.Join(parts, \"/\")
+  if absolute {
+    out = \"/\" + out
+  }
+  if len(out) == 0 {
+    return \".\"
+  }
+  if trailing && out != \"/\" {
+    out = out + \"/\"
+  }
+  return out
+}
+func r_path_dirname(p string) string {
+  s := r_path_normalize(p)
+  if len(s) > 1 && strings.HasSuffix(s, \"/\") {
+    s = s[:len(s)-1]
+  }
+  pos := strings.LastIndex(s, \"/\")
+  if pos < 0 {
+    return \".\"
+  }
+  if pos == 0 {
+    return \"/\"
+  }
+  return s[:pos]
+}
+// The directory the program was started from, which is where the compiler looks
+// for its bundled Lang.rgr and stdops.rgr.
+func r_install_directory() string {
+  exe, err := os.Executable()
+  if err != nil {
+    return \".\"
+  }
+  return r_path_dirname(r_path_normalize(exe))
+}
+")
+                )
+                csharp ( "RgPath.Dirname(" (e 1) ")"
+                (polyfill "after_imports" "
+// Path helpers for the compiler's own file handling. System.IO.Path would do
+// most of it, but its behaviour follows the host platform's separator and the
+// compiler builds its search path by concatenating onto a normalized string, so
+// these follow Node's path.normalize / path.dirname the way the C++, Dart and
+// Python entries do.
+static class RgPath {
+  public static string Normalize(string p) {
+    string s = p.Replace((char)92, '/');
+    bool absolute = s.StartsWith(\"/\");
+    bool trailing = s.Length > 1 && s.EndsWith(\"/\");
+    System.Collections.Generic.List<string> parts = new System.Collections.Generic.List<string>();
+    foreach (string cur in s.Split('/')) {
+      if (cur == \"..\") {
+        if (parts.Count > 0 && parts[parts.Count - 1] != \"..\") {
+          parts.RemoveAt(parts.Count - 1);
+        } else if (absolute == false) {
+          parts.Add(cur);
+        }
+      } else if (cur.Length > 0 && cur != \".\") {
+        parts.Add(cur);
+      }
+    }
+    string outp = string.Join(\"/\", parts.ToArray());
+    if (absolute) { outp = \"/\" + outp; }
+    if (outp.Length == 0) { return \".\"; }
+    if (trailing && outp != \"/\") { outp = outp + \"/\"; }
+    return outp;
+  }
+  public static string Dirname(string p) {
+    string s = Normalize(p);
+    if (s.Length > 1 && s.EndsWith(\"/\")) { s = s.Substring(0, s.Length - 1); }
+    int pos = s.LastIndexOf('/');
+    if (pos < 0) { return \".\"; }
+    if (pos == 0) { return \"/\"; }
+    return s.Substring(0, pos);
+  }
+  // The directory the program was started from, which is where the compiler
+  // looks for its bundled Lang.rgr and stdops.rgr.
+  public static string InstallDir() {
+    string loc = System.Reflection.Assembly.GetEntryAssembly().Location;
+    if (loc == null || loc.Length == 0) { return \".\"; }
+    return Dirname(Normalize(System.IO.Path.GetFullPath(loc)));
+  }
+}
+")
+                )
                 ranger ("( path_dirname " (e 1) " )")
                 * ( "\"./\"")
             }
@@ -1056,7 +1775,269 @@ func r_io_get_env( name string) *GoNullable {
 
         install_directory         cmdArg:string () {
             templates {
+                python ( "rg_path_dirname(os.path.abspath(sys.argv[0]))" (imp "os") (imp "sys")
+                (create_polyfill "
+# Path helpers for the compiler's own file handling. os.path.normpath drops a
+# trailing slash and Node's path.normalize keeps it, and the compiler builds its
+# library search path by concatenating onto one, so these follow Node.
+def rg_path_normalize(p):
+    s = p.replace(chr(92), \"/\")
+    trailing = len(s) > 1 and s.endswith(\"/\")
+    out = os.path.normpath(s).replace(chr(92), \"/\")
+    if out == \"\":
+        return \".\"
+    if trailing and out != \"/\":
+        out = out + \"/\"
+    return out
+
+def rg_path_dirname(p):
+    s = rg_path_normalize(p)
+    if len(s) > 1 and s.endswith(\"/\"):
+        s = s[:-1]
+    pos = s.rfind(\"/\")
+    if pos < 0:
+        return \".\"
+    if pos == 0:
+        return \"/\"
+    return s[:pos]
+")
+                )
+                ; the directory the program was started from -- Platform.script
+                ; under `dart run`, the executable under `dart compile exe`
+                dart ( "rg_path_dirname(Platform.script.toFilePath())" (imp "dart:io")
+                (create_polyfill "
+// Path helpers for the compiler's own file handling. package:path would do
+// this, but the generated program has to run with a plain `dart run` and no
+// pubspec, so these are string operations. The shape follows Node's
+// path.normalize / path.dirname, because that is what the JavaScript host of
+// the same Ranger source does.
+String rg_path_normalize(String p) {
+  final String s = p.replaceAll(String.fromCharCode(92), '/');
+  final bool absolute = s.startsWith('/');
+  final bool trailing = s.length > 1 && s.endsWith('/');
+  final List<String> parts = <String>[];
+  for (final String cur in s.split('/')) {
+    if (cur == '..') {
+      if (parts.isNotEmpty && parts[parts.length - 1] != '..') {
+        parts.removeLast();
+      } else if (absolute == false) {
+        parts.add(cur);
+      }
+    } else if (cur.isNotEmpty && cur != '.') {
+      parts.add(cur);
+    }
+  }
+  String out = parts.join('/');
+  if (absolute) { out = '/' + out; }
+  if (out.isEmpty) { return '.'; }
+  if (trailing && out != '/') { out = out + '/'; }
+  return out;
+}
+String rg_path_dirname(String p) {
+  String s = rg_path_normalize(p);
+  if (s.length > 1 && s.endsWith('/')) { s = s.substring(0, s.length - 1); }
+  final int pos = s.lastIndexOf('/');
+  if (pos < 0) { return '.'; }
+  if (pos == 0) { return '/'; }
+  return s.substring(0, pos);
+}
+")
+                )
+                cpp ( "rg_path_dirname(std::string(__g_argv[0]))"
+                (create_polyfill "
+#include <string>
+#include <vector>
+// Path helpers for the compiler's own file handling. std::filesystem would do
+// this, but the generated program has to build with a plain -std=c++17 line and
+// no extra library, so these are string operations. The shape follows Node's
+// path.normalize / path.dirname, because that is what the JavaScript host of
+// the same Ranger source does.
+inline std::string rg_path_normalize(const std::string& p) {
+    std::string s;
+    for (size_t i = 0; i < p.size(); i++) { s.push_back(p[i] == (char)92 ? '/' : p[i]); }
+    bool absolute = (s.size() > 0 && s[0] == '/');
+    bool trailing = (s.size() > 1 && s[s.size() - 1] == '/');
+    std::vector<std::string> parts;
+    std::string cur;
+    for (size_t i = 0; i <= s.size(); i++) {
+        if (i == s.size() || s[i] == '/') {
+            if (cur == \"..\") {
+                if (parts.size() > 0 && parts[parts.size() - 1] != \"..\") { parts.pop_back(); }
+                else if (absolute == false) { parts.push_back(cur); }
+            } else if (cur.size() > 0 && cur != \".\") {
+                parts.push_back(cur);
+            }
+            cur.clear();
+        } else { cur.push_back(s[i]); }
+    }
+    std::string out;
+    for (size_t i = 0; i < parts.size(); i++) {
+        if (i > 0) { out.push_back('/'); }
+        out += parts[i];
+    }
+    if (absolute) { out = std::string(\"/\") + out; }
+    if (out.size() == 0) { return std::string(\".\"); }
+    if (trailing && out != \"/\") { out.push_back('/'); }
+    return out;
+}
+inline std::string rg_path_dirname(const std::string& p) {
+    std::string s = rg_path_normalize(p);
+    if (s.size() > 1 && s[s.size() - 1] == '/') { s.erase(s.size() - 1); }
+    size_t pos = s.rfind('/');
+    if (pos == std::string::npos) { return std::string(\".\"); }
+    if (pos == 0) { return std::string(\"/\"); }
+    return s.substr(0, pos);
+}
+")
+                )
                 es6 ( "__dirname" )
+                kotlin ( "rg_install_directory()"
+                (create_polyfill "
+fun rg_path_normalize(p: String): String {
+  val s = p.replace(92.toChar(), '/')
+  val absolute = s.startsWith(\"/\")
+  val trailing = s.length > 1 && s.endsWith(\"/\")
+  val parts = mutableListOf<String>()
+  for (cur in s.split(\"/\")) {
+    if (cur == \"..\") {
+      if (parts.size > 0 && parts[parts.size - 1] != \"..\") {
+        parts.removeAt(parts.size - 1)
+      } else if (!absolute) {
+        parts.add(cur)
+      }
+    } else if (cur.isNotEmpty() && cur != \".\") {
+      parts.add(cur)
+    }
+  }
+  var out = parts.joinToString(\"/\")
+  if (absolute) { out = \"/\" + out }
+  if (out.isEmpty()) { return \".\" }
+  if (trailing && out != \"/\") { out = out + \"/\" }
+  return out
+}
+fun rg_path_dirname(p: String): String {
+  var s = rg_path_normalize(p)
+  if (s.length > 1 && s.endsWith(\"/\")) { s = s.substring(0, s.length - 1) }
+  val pos = s.lastIndexOf('/')
+  if (pos < 0) { return \".\" }
+  if (pos == 0) { return \"/\" }
+  return s.substring(0, pos)
+}
+// The directory the jar was started from, which is where the compiler looks for
+// its bundled Lang.rgr and stdops.rgr.
+fun rg_install_directory(): String {
+  try {
+    val loc = object {}.javaClass.protectionDomain.codeSource.location.toURI()
+    return rg_path_dirname(rg_path_normalize(java.io.File(loc).absolutePath))
+  } catch (e: Exception) {
+    return \".\"
+  }
+}
+")
+                )
+                go ( "r_install_directory()" (imp "strings") (imp "os")
+                (polyfill "after_imports" "
+func r_path_normalize(p string) string {
+  s := strings.Replace(p, string(rune(92)), \"/\", -1)
+  absolute := strings.HasPrefix(s, \"/\")
+  trailing := len(s) > 1 && strings.HasSuffix(s, \"/\")
+  parts := []string{}
+  for _, cur := range strings.Split(s, \"/\") {
+    if cur == \"..\" {
+      if len(parts) > 0 && parts[len(parts)-1] != \"..\" {
+        parts = parts[:len(parts)-1]
+      } else if !absolute {
+        parts = append(parts, cur)
+      }
+    } else if len(cur) > 0 && cur != \".\" {
+      parts = append(parts, cur)
+    }
+  }
+  out := strings.Join(parts, \"/\")
+  if absolute {
+    out = \"/\" + out
+  }
+  if len(out) == 0 {
+    return \".\"
+  }
+  if trailing && out != \"/\" {
+    out = out + \"/\"
+  }
+  return out
+}
+func r_path_dirname(p string) string {
+  s := r_path_normalize(p)
+  if len(s) > 1 && strings.HasSuffix(s, \"/\") {
+    s = s[:len(s)-1]
+  }
+  pos := strings.LastIndex(s, \"/\")
+  if pos < 0 {
+    return \".\"
+  }
+  if pos == 0 {
+    return \"/\"
+  }
+  return s[:pos]
+}
+// The directory the program was started from, which is where the compiler looks
+// for its bundled Lang.rgr and stdops.rgr.
+func r_install_directory() string {
+  exe, err := os.Executable()
+  if err != nil {
+    return \".\"
+  }
+  return r_path_dirname(r_path_normalize(exe))
+}
+")
+                )
+                csharp ( "RgPath.InstallDir()"
+                (polyfill "after_imports" "
+// Path helpers for the compiler's own file handling. System.IO.Path would do
+// most of it, but its behaviour follows the host platform's separator and the
+// compiler builds its search path by concatenating onto a normalized string, so
+// these follow Node's path.normalize / path.dirname the way the C++, Dart and
+// Python entries do.
+static class RgPath {
+  public static string Normalize(string p) {
+    string s = p.Replace((char)92, '/');
+    bool absolute = s.StartsWith(\"/\");
+    bool trailing = s.Length > 1 && s.EndsWith(\"/\");
+    System.Collections.Generic.List<string> parts = new System.Collections.Generic.List<string>();
+    foreach (string cur in s.Split('/')) {
+      if (cur == \"..\") {
+        if (parts.Count > 0 && parts[parts.Count - 1] != \"..\") {
+          parts.RemoveAt(parts.Count - 1);
+        } else if (absolute == false) {
+          parts.Add(cur);
+        }
+      } else if (cur.Length > 0 && cur != \".\") {
+        parts.Add(cur);
+      }
+    }
+    string outp = string.Join(\"/\", parts.ToArray());
+    if (absolute) { outp = \"/\" + outp; }
+    if (outp.Length == 0) { return \".\"; }
+    if (trailing && outp != \"/\") { outp = outp + \"/\"; }
+    return outp;
+  }
+  public static string Dirname(string p) {
+    string s = Normalize(p);
+    if (s.Length > 1 && s.EndsWith(\"/\")) { s = s.Substring(0, s.Length - 1); }
+    int pos = s.LastIndexOf('/');
+    if (pos < 0) { return \".\"; }
+    if (pos == 0) { return \"/\"; }
+    return s.Substring(0, pos);
+  }
+  // The directory the program was started from, which is where the compiler
+  // looks for its bundled Lang.rgr and stdops.rgr.
+  public static string InstallDir() {
+    string loc = System.Reflection.Assembly.GetEntryAssembly().Location;
+    if (loc == null || loc.Length == 0) { return \".\"; }
+    return Dirname(Normalize(System.IO.Path.GetFullPath(loc)));
+  }
+}
+")
+                )
                 ranger ("( install_directory )")
                 * ( "\"./\"")
             }
@@ -1065,6 +2046,8 @@ func r_io_get_env( name string) *GoNullable {
         current_directory         cmdArg:string () {
             templates {
                 es6 ( "process.cwd()" )
+                python ( "os.getcwd()" (imp "os") )
+                dart ( "Directory.current.path" (imp "dart:io") )
                 csharp( "Directory.GetCurrentDirectory()" (imp "System") (imp "System.IO"))
                 ranger ("( current_directory )")
                 cpp ( "__cpp_curr_dir()"
@@ -1172,9 +2155,45 @@ func r_file_exists(pathName string, fileName string) bool {
 
         dir_exists          cmdIsDir:boolean (path:string) {
             templates {
-                csharp ( "false /* dir_exists not implemented */ ")
+                dart ( "Directory(" (e 1) ").existsSync()" (imp "dart:io") )
+                csharp ( "RgFiles.DirExists(" (e 1) ")"
+                (polyfill "after_imports" "
+// Files on the C# target. System.IO says all of this, but each operator needs
+// one expression and several need a try/catch, so they are wrapped here.
+static class RgFiles {
+  static string Join(string path, string name) {
+    if (path.Length == 0) { return name; }
+    return path + \"/\" + name;
+  }
+  // The optional this operator returns: null is how C# spells absent, which is
+  // what a missing or unreadable file has to answer.
+  public static string ReadFile(string path, string name) {
+    try {
+      return System.IO.File.ReadAllText(Join(path, name), new System.Text.UTF8Encoding(false));
+    } catch (System.Exception) {
+      return null;
+    }
+  }
+  public static void WriteFile(string path, string name, string data) {
+    string full = Join(path, name);
+    string dir = System.IO.Path.GetDirectoryName(full);
+    if (dir != null && dir.Length > 0) { System.IO.Directory.CreateDirectory(dir); }
+    // No BOM: every other target writes plain UTF-8 and the compiler compares
+    // its own output byte for byte.
+    System.IO.File.WriteAllText(full, data, new System.Text.UTF8Encoding(false));
+  }
+  public static void CreateDir(string path) {
+    try { System.IO.Directory.CreateDirectory(path); } catch (System.Exception) { }
+  }
+  public static bool DirExists(string path) {
+    return System.IO.Directory.Exists(path);
+  }
+}
+")
+                )
                 python ( "os.path.isdir(" (e 1) ")" (imp "os") )
                 scala ( "false /* dir_exists not implemented */ ")
+                kotlin ( "java.io.File(" (e 1) ").isDirectory()" (imp "java.io.File") )
                 swift3 ( "r_dir_exists( dirName: " (e 1) ")" 
 
 (create_polyfill "
@@ -1372,8 +2391,44 @@ fn r_wall_clock_ms() -> f64 {
 
         create_dir          cmdCreateDir:void (path:string) {
             templates {
+                dart ( nl "Directory(" (e 1) ").createSync(recursive: true);" nl (imp "dart:io") )
                 scala ( "/* create_dir not implemented */ ")
-                csharp ( "/* create_dir not implemented */ ")
+                kotlin ( nl "java.io.File(" (e 1) ").mkdirs()" nl (imp "java.io.File") )
+                csharp ( nl "RgFiles.CreateDir(" (e 1) ");" nl
+                (polyfill "after_imports" "
+// Files on the C# target. System.IO says all of this, but each operator needs
+// one expression and several need a try/catch, so they are wrapped here.
+static class RgFiles {
+  static string Join(string path, string name) {
+    if (path.Length == 0) { return name; }
+    return path + \"/\" + name;
+  }
+  // The optional this operator returns: null is how C# spells absent, which is
+  // what a missing or unreadable file has to answer.
+  public static string ReadFile(string path, string name) {
+    try {
+      return System.IO.File.ReadAllText(Join(path, name), new System.Text.UTF8Encoding(false));
+    } catch (System.Exception) {
+      return null;
+    }
+  }
+  public static void WriteFile(string path, string name, string data) {
+    string full = Join(path, name);
+    string dir = System.IO.Path.GetDirectoryName(full);
+    if (dir != null && dir.Length > 0) { System.IO.Directory.CreateDirectory(dir); }
+    // No BOM: every other target writes plain UTF-8 and the compiler compares
+    // its own output byte for byte.
+    System.IO.File.WriteAllText(full, data, new System.Text.UTF8Encoding(false));
+  }
+  public static void CreateDir(string path) {
+    try { System.IO.Directory.CreateDirectory(path); } catch (System.Exception) { }
+  }
+  public static bool DirExists(string path) {
+    return System.IO.Directory.Exists(path);
+  }
+}
+")
+                )
 
                 cpp ( "r_cpp_create_dir( " (e 1) " );" nl (imp "<sys/stat.h>") (imp "<sys/types.h>") (imp "<string>")
 (create_polyfill "
@@ -1411,8 +2466,61 @@ static void createDir(String path)
 ; try text.write(to: path, atomically: false, encoding: String.Encoding.utf8)
         write_file          cmdWriteFile:void (path:string file:string data:string) {
             templates {
+                dart ( nl "File(" (e 1) " + \"/\" + " (e 2) ").writeAsStringSync(" (e 3) ");" nl (imp "dart:io") )
+                python ( nl "rg_write_file(" (e 1) ", " (e 2) ", " (e 3) ")" nl (imp "os")
+(create_polyfill "
+def rg_write_file(path, filename, text):
+    with open(os.path.join(path, filename), \"w\", encoding=\"utf-8\") as f:
+        f.write(text)
+")
+                )
                 scala ( "/* write_file not implemented */ ")
-                csharp ( "/* write_file not implemented */ ")
+                kotlin ( nl "rg_write_file(" (e 1) ", " (e 2) ", " (e 3) ")" nl
+                (create_polyfill "
+fun rg_write_file(path: String, name: String, data: String) {
+  val full = if (path.isEmpty()) name else (path + \"/\" + name)
+  val f = java.io.File(full)
+  val parent = f.getParentFile()
+  if (parent != null) { parent.mkdirs() }
+  f.writeText(data, Charsets.UTF_8)
+}
+")
+                )
+                csharp ( nl "RgFiles.WriteFile(" (e 1) ", " (e 2) ", " (e 3) ");" nl
+                (polyfill "after_imports" "
+// Files on the C# target. System.IO says all of this, but each operator needs
+// one expression and several need a try/catch, so they are wrapped here.
+static class RgFiles {
+  static string Join(string path, string name) {
+    if (path.Length == 0) { return name; }
+    return path + \"/\" + name;
+  }
+  // The optional this operator returns: null is how C# spells absent, which is
+  // what a missing or unreadable file has to answer.
+  public static string ReadFile(string path, string name) {
+    try {
+      return System.IO.File.ReadAllText(Join(path, name), new System.Text.UTF8Encoding(false));
+    } catch (System.Exception) {
+      return null;
+    }
+  }
+  public static void WriteFile(string path, string name, string data) {
+    string full = Join(path, name);
+    string dir = System.IO.Path.GetDirectoryName(full);
+    if (dir != null && dir.Length > 0) { System.IO.Directory.CreateDirectory(dir); }
+    // No BOM: every other target writes plain UTF-8 and the compiler compares
+    // its own output byte for byte.
+    System.IO.File.WriteAllText(full, data, new System.Text.UTF8Encoding(false));
+  }
+  public static void CreateDir(string path) {
+    try { System.IO.Directory.CreateDirectory(path); } catch (System.Exception) { }
+  }
+  public static bool DirExists(string path) {
+    return System.IO.Directory.Exists(path);
+  }
+}
+")
+                )
 
                 swift3 ("r_write_file(dirName: " (e 1) " + \"/\" + " (e 2) ", dataToWrite: " (e 3) ") " 
 
@@ -1526,6 +2634,18 @@ fn r_write_file(path: &str, filename: &str, data: &str) {
                 ts ( "await (new Promise<string>(resolve => { require('fs').readFile( " (e 1) " + '/' + " (e 2) " , 'utf8', (err,data)=>{ resolve(data) }) } ))" )
                 es6 ( "await (new Promise(resolve => { require('fs').readFile( " (e 1) " + '/' + " (e 2) " , 'utf8', (err,data)=>{ resolve(data) }) } ))" )
                 ranger (  "(read_file " (e 1) " " (e 2) ")" )
+                ; returns the optional: None is how Python spells absent, which
+                ; is what a missing or unreadable file has to answer
+                python ( "rg_read_file(" (e 1) ", " (e 2) ")" (imp "os")
+(create_polyfill "
+def rg_read_file(path, filename):
+    try:
+        with open(os.path.join(path, filename), \"r\", encoding=\"utf-8\") as f:
+            return f.read()
+    except Exception:
+        return None
+")
+                )
                 cpp ( "r_cpp_readFile( " (e 1) " , " (e 2) ")" (imp "<fstream>")
 (create_polyfill "
 std::string  r_cpp_readFile(std::string path, std::string filename) 
@@ -1614,6 +2734,41 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 es6 ( "(require('fs').readFileSync( " (e 1) " + '/' + " (e 2) " , 'utf8'))" )
                 kotlin ( "try { java.io.File(if (" (e 1) ".isEmpty()) " (e 2) " else " (e 1) " + \"/\" + " (e 2) ").readText() } catch (_: Exception) { null }" (imp "java.io.File") )
                 dart ( (imp "dart:io") "(() { try { final __p = (" (e 1) ").isEmpty ? (" (e 2) ") : ((" (e 1) ") + \"/\" + (" (e 2) ")); return File(__p).readAsStringSync(); } catch (_) { return null; } })()" )
+                csharp ( "RgFiles.ReadFile(" (e 1) ", " (e 2) ")"
+                (polyfill "after_imports" "
+// Files on the C# target. System.IO says all of this, but each operator needs
+// one expression and several need a try/catch, so they are wrapped here.
+static class RgFiles {
+  static string Join(string path, string name) {
+    if (path.Length == 0) { return name; }
+    return path + \"/\" + name;
+  }
+  // The optional this operator returns: null is how C# spells absent, which is
+  // what a missing or unreadable file has to answer.
+  public static string ReadFile(string path, string name) {
+    try {
+      return System.IO.File.ReadAllText(Join(path, name), new System.Text.UTF8Encoding(false));
+    } catch (System.Exception) {
+      return null;
+    }
+  }
+  public static void WriteFile(string path, string name, string data) {
+    string full = Join(path, name);
+    string dir = System.IO.Path.GetDirectoryName(full);
+    if (dir != null && dir.Length > 0) { System.IO.Directory.CreateDirectory(dir); }
+    // No BOM: every other target writes plain UTF-8 and the compiler compares
+    // its own output byte for byte.
+    System.IO.File.WriteAllText(full, data, new System.Text.UTF8Encoding(false));
+  }
+  public static void CreateDir(string path) {
+    try { System.IO.Directory.CreateDirectory(path); } catch (System.Exception) { }
+  }
+  public static bool DirExists(string path) {
+    return System.IO.Directory.Exists(path);
+  }
+}
+")
+                )
             }
         }
 
@@ -1742,7 +2897,15 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 cpp ( "/*unwrap dbl*/" (e 1) ".value" )
                 csharp ( "(" (e 1) ").Value" )
             }
-        }        
+        }
+        ; `bool?` is a Nullable<bool> like the two above, and `if (unwrap ok)`
+        ; without the .Value does not compile. Only C# has an entry, so every
+        ; other target keeps reaching the generic overload below.
+        unwrap       cmdUnwrap:boolean        ( arg@(optional):boolean ) {
+            templates {
+                csharp ( "(" (e 1) ").Value" )
+            }
+        }
 
         unwrap       cmdUnwrap:T        ( arg@(optional):T ) {
             templates {
@@ -1926,6 +3089,8 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                     ; not concatenate an int onto a str.
                     python ( (e 1) " + str(" (e 2) ")" )
                     kotlin ( (e 1) " + " (e 2) ".toString()" )
+                    ; an enum is an int on Dart, and Dart has no String + int
+                    dart ( (e 1) " + " (e 2) ".toString()" )
                     java7 ( (e 1) " + String.valueOf(" (e 2) ")" )
                     csharp ( (e 1) " + " (e 2) ".ToString()" )
                     scala ( (e 1) " + " (e 2) ".toString" )
@@ -2719,6 +3884,13 @@ def r_div_f64(a, b):
 
                 scala ( (e 1) " match { " I (block 2) i "}" )
                 kotlin ( "when (" (e 1) ") { " I (block 2) i "}" )
+                ; An ENUM condition lands here, not on the int overload above,
+                ; and Python and Rust have no C style switch -- without these two
+                ; the `*` fallback wrote a C `switch` into a Python file. The
+                ; `case` arms already matched their own Python and Rust entries,
+                ; so only the head was wrong.
+                python ( nl "match (" (e 1) "):" I (block 2) i nl )
+                rust ( nl "match " (e 1) " {" I (block 2) i nl "}" nl )
                 * ( "switch (" (e 1) " ) { " I (block 2) i "}" )
             }
         }       
@@ -2768,7 +3940,14 @@ def r_div_f64(a, b):
                 go ( nl "default: " nl I (block 1) nl i )
                 python ( nl "case _:" nl I "pass" nl (block 1) nl i )
                 rust ( nl "_ => {" nl I (block 1) nl i "}" nl )
-                kotlin ( nl "else  -> { " nl I (block 2) nl i "}" )
+                ; (block 1), not (block 2): `default` takes ONE argument, so the
+                ; else branch was written with an empty body -- every `switch`
+                ; whose default did the work fell through silently. In the
+                ; compiler that is the flow parser's dispatch, where the default
+                ; clears a `b_found` that starts true: the Kotlin build declared
+                ; the whole tree already handled, analysed nothing, and reported
+                ; success while writing the source back out as bare tokens.
+                kotlin ( nl "else  -> { " nl I (block 1) nl i "}" )
                 java7 ( nl "default: " nl I (java_case 1) nl i )
                 * ( nl "default: " nl I (block 1) nl "break;" i )
             }
@@ -2897,6 +4076,17 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
             }
         }
 
+        ; an optional boolean is a plain `bool` on C++ (there is no place to put
+        ; "absent"), so the generic `== NULL` path compares a bool against a null
+        ; pointer constant -- g++ warns `NULL used in arithmetic`. false is the
+        ; absent value, which is what getBoolean already answers for a missing
+        ; key.
+        null?       cmdIsNotNull:boolean        ( arg@(optional):boolean ) {
+            templates {
+                cpp ("(false == " (e 1) ")")
+            }
+        }
+
         null?       cmdIsNull:boolean        ( arg@(optional):T ) {
             templates {
                 ranger ("(null? " (e 1) ")")
@@ -2941,6 +4131,13 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
             }
         }
 
+        ; see the null? overload above: an optional boolean is a plain `bool`
+        !null?       cmdIsNotNull:boolean        ( arg@(optional):boolean ) {
+            templates {
+                cpp ( (e 1) )
+            }
+        }
+
         !null?       cmdIsNotNull:boolean        ( arg@(optional):T ) {
             templates {
                 ranger ("(!null? " (e 1) ")")
@@ -2963,11 +4160,17 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
         error_msg   _:string () {
             templates {
                 ranger ( "(error_msg   )")
-                go ( "\"\"" )
+                ; the value recover() returned -- the catch block the `try` writer
+                ; emits binds it as `r`. This used to be the empty string, so a Go
+                ; build reported "Unexpected compiler error" and nothing else.
+                go ( "fmt.Sprintf(\"%v\", r)" (imp "fmt") )
                 es6 ( "( e.toString())" )
                 php ( "( $e->getMessage())" )
                 java7 ( "( e.getMessage())" )
                 cpp ( " \"unspecified error\" " )
+                ; Dart has no `try` entry of its own and takes the `*` one, which
+                ; binds `e`.
+                dart ( "e.toString()" )
                 ; The name each target binds in its catch clause. See the `try`
                 ; operator: python binds `e`, swift binds the implicit `error`.
                 python ( "str(e)" )
@@ -3190,6 +4393,7 @@ inline std::string r_trim_right(const std::string& s) {
                 csharp ( (e 1) ".TrimEnd()" (imp "System"))
                 go ("strings.TrimRight(" (e 1) ", \" \\t\\n\\r\")" (imp "strings"))
                 kotlin ( (e 1) ".trimEnd()" )
+                dart ( (e 1) ".trimRight()" )
                 java7 ( (e 1) ".replaceAll(\"\\\\s+$\", \"\")" )
                 python ( (e 1) ".rstrip()" )
                 rust ( (e 1) ".trim_end().to_string()" )
@@ -3205,25 +4409,26 @@ inline std::string r_trim_right(const std::string& s) {
                 ranger ( "( strsplit " (e 1) " " (e 2) " )")
                 ; TODO: C++ version, requires perhaps external lib to do it directly to vector<std::string>
                 scala ( (e 1) ".split(" (e 2) ").to[collection.mutable.ArrayBuffer]")  
-                csharp ( 
-(create_polyfill 
-"
-  public static List<String>  __Split( String str, String token ) {
-      if( token.Length == 0 ) {
-        List<String> res = new List<String>();
-        foreach (Char c in str) {
-          res.Append( c.ToString() );
-        }
-        return res;
-      }
-      return ( (List<String>)str.Split(token[0]).ToList() );
+                csharp ( "RgStr.Split(" (e 1) ", " (e 2) ")"
+                (polyfill "after_imports" "
+static class RgStr {
+  public static System.Collections.Generic.List<string> Split(string str, string token) {
+    System.Collections.Generic.List<string> res = new System.Collections.Generic.List<string>();
+    if (token.Length == 0) {
+      foreach (char c in str) { res.Add(c.ToString()); }
+      return res;
+    }
+    // Split(string[]) and not Split(token[0]): the parser normalizes line
+    // endings by splitting on the TWO character sequence CR LF, and splitting
+    // on the first character alone left every LF behind as an extra empty
+    // field -- the C# build doubled the newline inside every multi line string
+    // literal it read.
+    res.AddRange(str.Split(new string[] { token }, System.StringSplitOptions.None));
+    return res;
   }
-
-"
-
-)                    
-                    
-                    "__Split(" (e 1) ", " (e 2) ")" (imp 'System.Linq'))
+}
+")
+                )
                 swift3 ( (e 2) ".characters.count == 0 ? Array(" (e 1) ".characters).map { String($0) } : " (e 1) ".components( separatedBy : " (e 2) ")" (imp "Foundation"))
                 swift6 ( (e 2) ".count == 0 ? Array(" (e 1) ").map { String($0) } : " (e 1) ".components( separatedBy : " (e 2) ")" (imp "Foundation"))
                 java7( "new ArrayList<String>(Arrays.asList(" (e 1) ".split(" (e 2) ")))" )
@@ -3410,7 +4615,7 @@ static bool r_regex_test_i(string pattern, string s) {
         substring   cmdSubstring:string       ( text:charbuffer start:int end:int ) { 
             templates {
                 ranger ( "(substring " (e 1) " " (e 2) " " (e 3) ")") 
-                csharp ( "Encoding.UTF.GetString(new List<byte>(" (e 1) ").GetRange(" (e 2) ", " (e 3) ").toArray())")
+                csharp ( "System.Text.Encoding.UTF8.GetString(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")" )
                 scala ( "new String(" (e 1) ".slice(" (e 2) ", " (e 3) ").map(_.toChar) )")
                 java7 ( "new String(" (e 1) "," (e 2) ", " (e 3) " - " (e 2) " )")
                 swift3 ( "String(data: Data(bytes:" (e 1) "[" (e 2) " ..< " (e 3) "]), encoding: .utf8)!"  (imp "Foundation"))
@@ -3420,6 +4625,11 @@ static bool r_regex_test_i(string pattern, string s) {
                  (imp "fmt")
                 )
                 cpp ( "std::string( " (e 1) " + " (e 2) ", " (e 3) " - " (e 2) " )")
+                ; a charbuffer is List<int> on Dart, so the `*` fallback (the
+                ; JavaScript String.substring) does not apply to it
+                dart ( "String.fromCharCodes(" (e 1) ".sublist(" (e 2) ", " (e 3) "))" )
+                ; ...and a str on Python, where the slice is the substring
+                python ( (e 1) "[" (e 2) ":" (e 3) "]" )
                 php ( "substr(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")") 
                 * ( (e 1) ".substring(" (e 2) ", " (e 3) " )")
             }
@@ -3429,6 +4639,8 @@ static bool r_regex_test_i(string pattern, string s) {
             templates {      
                 ranger ( "(to_string " (e 1) ")")
                 go ( "string(" (e 1) ")" )
+                dart ( "String.fromCharCodes(" (e 1) ")" )
+                csharp ( "System.Text.Encoding.UTF8.GetString(" (e 1) ")" )
                 * ( (e 1) )
             }
         }     
@@ -3436,6 +4648,8 @@ static bool r_regex_test_i(string pattern, string s) {
         toString   bufferToString:string       ( text:charbuffer ) { 
             templates {      
                 go ( "string(" (e 1) ")" )
+                dart ( "String.fromCharCodes(" (e 1) ")" )
+                csharp ( "System.Text.Encoding.UTF8.GetString(" (e 1) ")" )
                 * ( (e 1) )
             }
         }        
@@ -3446,10 +4660,11 @@ static bool r_regex_test_i(string pattern, string s) {
                 swift3 ( "Array(" (e 1) ".utf8)" )
                 scala ( (e 1) ".toCharArray.map(_.toByte)")
                 java7 ( (e 1) ".getBytes()" )
-                csharp ( "Encoding.ASCII.GetBytes(" (e 1) ")")
+                csharp ( "System.Text.Encoding.UTF8.GetBytes(" (e 1) ")" )
                 kotlin ( (e 1 ) ".toCharArray()" )
                 rust ( (e 1) ".into_bytes()")
                 cpp ( (e 1) ".c_str()")
+                dart ( (e 1) ".codeUnits" )
                 php ( (e 1) )
                 go("[]byte(" (e 1) ")")
                 * ( (e 1) )
@@ -4018,6 +5233,10 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 java7 ( (e 1 ) ".length" )
                 cpp( "strlen( " (e 1) " )" (imp "<cstring>"))
                 go ( "int64(len(" (e 1 ) "))")
+                ; to_charbuffer passes the string through on Python, so a
+                ; charbuffer IS a str there -- the `*` fallback is the
+                ; JavaScript `.length` property
+                python ( "len(" (e 1) ")" )
                 php ( "strlen(" (e 1 ) ")")
                 * ( (e 1) ".length" )
             }
@@ -4116,7 +5335,12 @@ std::string r_utf8_char_at(const std::string& str, int pos_i)
             templates {
                 llvm ( "(charAt " (e 1) " " (e 2) ")")
                 ranger ( "(charAt " (e 1) " " ( e 2 ) ")")
-                cpp ( (e 1) ".at(" (e 2) ")")    
+                ; std::string::at gives a SIGNED char, and every other target
+                ; hands back an unsigned code unit (charCodeAt, ord, rune). A
+                ; byte over 127 read back negative, so a scanner written as
+                ; `c > 31` stopped at the first non-ASCII byte -- the compiler's
+                ; own comment scanner stopped at an em dash in Lang.rgr.
+                cpp ( "((unsigned char)" (e 1) ".at(" (e 2) "))")
                 csharp ( (e 1) "[" (e 2) "]")
                 php ( "ord(" (e 1) "[" (e 2) "])")               
                 java7 ( "(int)" (e 1) ".charAt(" (e 2) ")")  
@@ -4178,11 +5402,19 @@ std::vector<std::string> r_get_keys_of_map( const M & orig_map )  {
         charAt      cmdCharAt:char       ( text:charbuffer position:int ) { 
             templates {
                 ranger ( "(charAt " (e 1) " " ( e 2 ) ")")
-                cpp ( (e 1) "[" (e 2) "]")    
+                ; see the note on the string overload above: a charbuffer is a
+                ; const char* and indexing it gives a SIGNED char
+                cpp ( "((unsigned char)" (e 1) "[" (e 2) "])")
+                ; a charbuffer is List<int> on Dart: index it, do not call
+                ; codeUnitAt (which is the String overload's entry)
+                dart ( (e 1) "[" (e 2) "]" )
+                python ( "ord(" (e 1) "[" (e 2) "])" )
                 csharp ( (e 1) "[" (e 2) "]")
                 php ( "ord(" (e 1) "[" (e 2) "])")               
                 java7 ( (e 1) "[" (e 2) "]")  
-                kotlin ( (e 1) "[" (e 2) "]")    
+                ; .code: a charbuffer is a CharArray on Kotlin, and `char` is an
+                ; integer code unit there as it is on every other target
+                kotlin ( (e 1) "[" (e 2) "].code")    
                 scala ( (e 1) "(" (e 2) ")")    
                 go ( (e 1) "[" (e 2) "]")  
                 swift3 ( (e 1) "[" (e 2) "]")    
@@ -4236,7 +5468,10 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
             templates {
                 ranger ( "(charcode " (e 1) ")")
                 go ( "[]byte(" (e 1) ")[0]" )
-                cpp( (e 1) ".at(0)")
+                ; unsigned for the same reason as charAt: std::string::at
+                ; gives a SIGNED char, and every other target returns a code unit
+                cpp( "((unsigned char)" (e 1) ".at(0))")
+                dart ( (e 1) ".codeUnitAt(0)" )
                 php ( "ord(" (e 1) ")") 
                 java7 ( "((" (e 1) ".getBytes())[0])") 
                 swift3 ( "UInt8( (  NSString(string: " (e 1) " )     ).character( at: 0 ) )" (imp "Foundation"))
@@ -4244,7 +5479,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 swift6 ( "UInt8(" (e 1) ".utf8.first ?? 0)" )
                 python ( "ord(" (e 1) "[0])" )
                 kotlin ( (e 1) "[0].code" )
-                csharp ( "(int)(" (e 1) "[0])" )
+                csharp ( "(byte)(" (e 1) "[0])" )
                 scala ( (e 1) ".charAt(0).toInt" )
                 rust ( "(" (e 1) ".as_bytes()[0] as i64)" )
                 * ( (e 1) ".charCodeAt(0)" )
@@ -4362,6 +5597,7 @@ inline std::string r_double_to_string(double v) {
                 swift6 ("String(" (e 1) ")")
                 python ( "str(" (e 1) ")" )
                 rust ( (e 1) ".to_string()" )
+                csharp ( "(" (e 1) ").ToString(\"R\", System.Globalization.CultureInfo.InvariantCulture)" )
                 * ( "(" (e 1) ".toString())")
             }
         }
@@ -4465,7 +5701,15 @@ class r_optional_primitive {
 "r_optional_primitive<int> cpp_str_to_int(std::string s) {
     r_optional_primitive<int> result;
     try {
-        result.value = std::stoi(s);
+        // Ranger `int` is 64-bit on Go, Rust, Java, Kotlin and Python and 32-bit
+        // here, so a literal between INT_MAX and INT64_MAX has no C++ int to
+        // land in. stoi threw for those and the value stayed 0 -- the compiler
+        // read its own `2147483648` bound as zero. Saturating keeps the sign
+        // and the magnitude order, which is what a bound check needs.
+        long long wide = std::stoll(s);
+        if (wide > 2147483647LL) { wide = 2147483647LL; }
+        if (wide < -2147483648LL) { wide = -2147483648LL; }
+        result.value = (int)wide;
         result.has_value = true;
     } catch (...) {
         
@@ -4553,7 +5797,35 @@ func rangerStr2IntPrefix(_ s: String) -> Int? {
 }
 ")
                 )
-                csharp( "Int32.Parse(" (e 1) ")" )
+                csharp ( "RgParse.Int(" (e 1) ")"
+                (polyfill "after_imports" "
+// str2int and str2double return an OPTIONAL, so the C# entry has to be int? and
+// double?; Parse returned the plain value and threw on bad input, so `unwrap`
+// wrote .Value on an int and did not compile.
+static class RgParse {
+  public static int? Int(string s) {
+    long wide;
+    if (!long.TryParse(s, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out wide)) {
+      return null;
+    }
+    // Ranger `int` is 64-bit on Go, Rust, Java, Kotlin and Python and 32-bit
+    // here, so a literal between int.MaxValue and long.MaxValue has no C# int to
+    // land in. Saturating keeps the sign and the magnitude order, which is what
+    // a bound check needs -- the C++ target does the same.
+    if (wide > 2147483647L) { wide = 2147483647L; }
+    if (wide < -2147483647L - 1L) { wide = -2147483647L - 1L; }
+    return (int)wide;
+  }
+  public static double? Double(string s) {
+    double v;
+    if (double.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v)) {
+      return v;
+    }
+    return null;
+  }
+}
+")
+                )
                 rust ( (e 1) ".parse::<i64>().ok()" )
                 python ( "r_str_to_int(" (e 1) ")"
 (polyfill "after_imports" "
@@ -4669,7 +5941,35 @@ Double _getDoubleOrNull ( String str ) {
                 swift3 ("Double(" (e 1) ")")
                 swift6 ("Double(" (e 1) ")")
                 rust ( (e 1) ".parse::<f64>().ok()" )
-                csharp ( "Double.Parse(" (e 1) ")" )
+                csharp ( "RgParse.Double(" (e 1) ")"
+                (polyfill "after_imports" "
+// str2int and str2double return an OPTIONAL, so the C# entry has to be int? and
+// double?; Parse returned the plain value and threw on bad input, so `unwrap`
+// wrote .Value on an int and did not compile.
+static class RgParse {
+  public static int? Int(string s) {
+    long wide;
+    if (!long.TryParse(s, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out wide)) {
+      return null;
+    }
+    // Ranger `int` is 64-bit on Go, Rust, Java, Kotlin and Python and 32-bit
+    // here, so a literal between int.MaxValue and long.MaxValue has no C# int to
+    // land in. Saturating keeps the sign and the magnitude order, which is what
+    // a bound check needs -- the C++ target does the same.
+    if (wide > 2147483647L) { wide = 2147483647L; }
+    if (wide < -2147483647L - 1L) { wide = -2147483647L - 1L; }
+    return (int)wide;
+  }
+  public static double? Double(string s) {
+    double v;
+    if (double.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v)) {
+      return v;
+    }
+    return null;
+  }
+}
+")
+                )
                 python ( "r_str_to_double(" (e 1) ")"
 (polyfill "after_imports" "
 def r_str_to_double(s):
@@ -4877,6 +6177,16 @@ r_optional_primitive<double> cpp_get_map_string_double_value( const M & m , cons
             }
         }
          
+        ; `bool` and `null` have no common type, so the generic overload's
+        ; conditional does not compile for a map of booleans -- the int and the
+        ; double overloads above carry a cast for exactly this reason. Only C#
+        ; has an entry here, so every other target keeps reaching the generic
+        ; overload below.
+        get             cmdGet@(optional weak):boolean          ( map:[K:boolean] key:K ) {
+            templates {
+                csharp ( "(" (e 1) ".ContainsKey(" (e 2) ") ? (bool?)" (e 1) "[" (e 2) "] : null)" )
+            }
+        }
         get             cmdGet@(optional weak):T          ( map:[K:T] key:K ) { 
             templates {
                 ranger ( "(get " (e 1) " " (e 2) ")")                 
@@ -5225,6 +6535,7 @@ int r_arr_index_of( std::vector<T> vec, T elem )  {
                  cpp ( "std::distance( std::find( " (e 1) ".begin(), " (e 1) ".end(), " (e 2) ") )" (imp "<vector>") (imp "<iterator>"))   
                  rust ( (e 1) ".iter().position( |&r| r == " (e 2) " ).unwrap()" )   
                  php ( "array_search(" (e 2) ", " (e 1) ", true)")
+                 csharp ( (e 1) ".IndexOf(" (e 2) ")" )
                  go ( "r_indexof_arr_" (rawtype 1)  "(" (e 1) ", " (e 2) ")"
 (macro ("func r_indexof_arr_" (rawtype 1)  "( a []"  (ptr 1) (rawtype 1) ", item "  (ptr 1) (rawtype 1) " ) ( int64 ) { " nl I 
     "for i, v := range a {" nl I "if item == v { " nl I "return int64(i) " nl i " } " nl i " } " nl i
@@ -5271,6 +6582,8 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  scala ( (e 1) ".remove((" (e 2) ").toInt)" )
                  go ( (e 1) " = append(" (e 1) "[:" (e 2) "], " (e 1) "[" (e 2) "+1:]...)" )
                  python ( (e 1) ".pop(" (e 2) ")" )
+                 dart ( (e 1) ".removeAt(" (e 2) ");" )
+                 csharp ( (e 1) ".RemoveAt((int)(" (e 2) "));" )
                  * ( (e 1) ".splice(" (e 2) ", 1).pop();" )                                              
             }
         }
@@ -5410,7 +6723,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  java7 ( (e 1) ".remove(" (e 1) ".size() - 1);" )
                  kotlin ( (e 1) ".removeAt(" (e 1) ".size - 1)" )
                  dart ( (e 1) ".removeLast();" )
-                 csharp ( "Array.Resize(ref "(e 1) ", " (e 1 )".Length - 1);" ) 
+                 csharp ( (e 1) ".RemoveAt(" (e 1) ".Count - 1);" )
                  scala ( (e 1) ".remove(" (e 1) ".length - 1)" )
                  go ( (custom _) )
                  go ( (e 1) "= " (e 1)"[:len(" (e 1)") - 1]")
@@ -5422,6 +6735,8 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
             templates {
                 ranger ( "(length " (e 1) ")")
                  cpp ( (e 1) ".size()" )                                                              
+                 csharp ( (e 1) ".Count" )
+                 go ( "int64(len(" (e 1) "))" )
                  swift3 ( (e 1) ".count")
                  swift6 ( (e 1) ".count")
                  php ( "count(" (e 1) ")")
@@ -5462,7 +6777,11 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  dart ( (e 1) ".clear();" )
                  scala ( (e 1) ".clear()" )
                  go ( (e 1) " = " (e 1) "[:0]" )
+                 ; the `*` fallback assigns the JavaScript `length` property,
+                 ; which a Python list does not have
+                 python ( (e 1) ".clear()" )
                  rust ( (custom _) )
+                 csharp ( (e 1) ".Clear();" )
                  * ( (e 1) ".length = 0;" nl )
             }
         }
@@ -5539,7 +6858,12 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 php ( "(function($__arr, $__cb) { usort($__arr, $__cb); return $__arr; })(" (e 1) ", " (e 2) ")" )
                 rust ( "{ let mut __v = " (e 1) ".clone(); let __cb = " (e 2) "; __v.sort_by(|__a, __b| __cb(__a.clone(), __b.clone()).cmp(&0)); __v }" )
                 cpp ( "[&]() { auto __v = " (e 1) "; auto __cb = " (e 2) "; std::stable_sort(__v.begin(), __v.end(), [&](const auto& __a, const auto& __b) { return __cb(__a, __b) < 0; }); return __v; }()" (imp "<algorithm>") )
-                kotlin ( (e 1) ".sortedWith(Comparator { __a, __b -> (" (e 2) ")(__a, __b).toInt() })" )
+                ; .toMutableList(): sortedWith answers a read only List, and every
+                ; array in the writer is a MutableList
+                kotlin ( (e 1) ".sortedWith(Comparator { __a, __b -> (" (e 2) ")(__a, __b).toInt() }).toMutableList()" )
+                ; `..sort` is a cascade, so the expression is the sorted COPY --
+                ; `sort` leaves its argument alone on every other target.
+                dart ( "(" (typeof 1) ".from(" (e 1) ")..sort((__a, __b) => (" (e 2) ")(__a, __b)))" )
                 scala ( (e 1) ".sortWith((__a, __b) => (" (e 2) ")(__a, __b) < 0)" )
                 swift3 ( (e 1) ".sorted(by: { (" (e 2) ")($0, $1) < 0 })" )
                 swift6 ( (e 1) ".sorted(by: { (" (e 2) ")($0, $1) < 0 })" )
@@ -5552,6 +6876,20 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                       "return list" nl 
                     i "}(" (e 1) "))"
                     (imp "sort"))
+                    csharp ( "RgSort.Copy(" (e 1) ", " (e 2) ")" (imp "System.Linq")
+                    (polyfill "after_imports" "
+// `sort` gives a new array and leaves the argument alone, and equal elements
+// keep their order -- List<T>.Sort is in place AND unstable, so neither holds.
+// OrderBy is documented stable and returns a new sequence.
+static class RgSort {
+  public static System.Collections.Generic.List<T> Copy<T>(System.Collections.Generic.List<T> v, System.Func<T, T, int> cb) {
+    return System.Linq.Enumerable.ToList(
+      System.Linq.Enumerable.OrderBy(v, x => x,
+        System.Collections.Generic.Comparer<T>.Create((a, b) => cb(a, b))));
+  }
+}
+")
+                    )
             }            
         }
 
@@ -5564,7 +6902,10 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 es6 ( (e 1) ".slice().reverse()")
                 python ( "list(reversed(" (e 1) "))" )
                 php ( "array_reverse(" (e 1) ")" )
-                kotlin ( (e 1) ".reversed()" )
+                ; .toMutableList(): reversed() answers a read only List, and every
+                ; array in the writer is a MutableList
+                kotlin ( (e 1) ".reversed().toMutableList()" )
+                dart ( (e 1) ".reversed.toList()" )
                 scala ( (e 1) ".reverse" )
                 swift3 ( "Array(" (e 1) ".reversed())" )
                 swift6 ( "Array(" (e 1) ".reversed())" )
@@ -5651,6 +6992,22 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
                  
                  )
                  scala ( (e 1) ".remove(" (e 2) ")" )
+                 dart ( (e 1) ".removeAt(" (e 2) ")" )
+                 ; list.pop(i) removes AND returns, which is what this operator
+                 ; is; the `*` fallback is the JavaScript splice/pop pair
+                 python ( (e 1) ".pop(" (e 2) ")" )
+                 csharp ( "RgList.Extract(" (e 1) ", (int)(" (e 2) "))"
+                 (polyfill "after_imports" "
+// `array_extract` removes AND returns, which no single List<T> call does.
+static class RgList {
+  public static T Extract<T>(System.Collections.Generic.List<T> v, int i) {
+    T e = v[i];
+    v.RemoveAt(i);
+    return e;
+  }
+}
+")
+                 )
                  * ( (e 1) ".splice(" (e 2) ", 1).pop()" )                                              
             }
         }
@@ -6788,6 +8145,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 swift3 ( (e 1) " != nil  && " (e 2) " != nil") 
                 swift6 ( (e 1) " != nil  && " (e 2) " != nil") 
                 go ( "" (e 1) ".has_value  && " "" (e 2) ".has_value")
+                dart ( (e 1) " != null  && " (e 2) " != null")
                 cpp ( "" (e 1) "!= NULL  && " "" (e 2) " != NULL") 
                 kotlin ( (e 1) " != null  && " (e 2) " != null") 
                 python ( '(' (e 1) " is not None and " (e 2) " is not None)")
@@ -6807,6 +8165,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 swift3 ( (e 1) " && " (e 2) " != nil") 
                 swift6 ( (e 1) " && " (e 2) " != nil") 
                 go ( (e 1) " && " "" (e 2) ".has_value") 
+                dart ( (e 1) " && " (e 2) " != null")
                 cpp ( (e 1) " && " "" (e 2) "!= NULL ") 
                 kotlin ( (e 1) " && " (e 2) " != null") 
                 python ( (e 1) " and " (e 2) " is not None") 
@@ -6826,6 +8185,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 swift3 ( ""(e 1) " != nil && " (e 2) ) 
                 swift6 ( ""(e 1) " != nil && " (e 2) ) 
                 go ( "" (e 1) ".has_value && " (e 2) ) 
+                dart ( (e 1) " != null && " (e 2) )
                 cpp ( "" (e 1) " != NULL && " (e 2) ) 
                 kotlin ( ""(e 1) " != null && " (e 2) ) 
                 python ( (e 1) " is not None and " (e 2) ) 

@@ -65,7 +65,13 @@ class RangerAppClassDesc {
   def is_not_used false
 
   def generic_params:CodeNode
-  def ctx@(weak):RangerAppWriterContext
+  ; The class OWNS its context. Every creator forks a context into a local and
+  ; hands it here, so nothing else holds one: `weak` is a no-op on the
+  ; JavaScript host, but on a target with real weak references the context died
+  ; at the end of the creating function and the next `desc.ctx` read gave null.
+  ; The context points back at the class through `currentClass`, which is weak,
+  ; so this direction is the owning one.
+  def ctx:RangerAppWriterContext
   def variables:[RangerAppParamDesc]
   def capturedLocals@(weak):[RangerAppParamDesc]
   def methods:[RangerAppFunctionDesc]

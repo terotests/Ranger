@@ -1,0 +1,29 @@
+; Non-ASCII text in a comment — an em dash — and in a string literal.
+;
+; A UTF-8 byte over 127 is negative in a signed C++ `char`, so a scanner
+; written as `c > 31` (which is how the Ranger parser skips a comment) treated
+; the first byte of an em dash as a control character and stopped. The compiler
+; hit this on its own Lang.rgr: everything after the first em dash in a comment
+; was read as code. This fixture keeps the C++ `charAt`/`charcode` result
+; unsigned, the way charCodeAt / ord / rune give it on every other target.
+class Utf8Scan {
+    sfn main:void () {
+        ; the value below is read back one code unit at a time
+        def text:string "a—b"
+        def n:int (strlen text)
+        def i:int 0
+        def over:int 0
+        while (i < n) {
+            def c:int (charAt text i)
+            if (c > 127) {
+                over = over + 1
+            }
+            i = i + 1
+        }
+        print ("over=" + over)
+        def first:int (charcode "z")
+        print ("first=" + first)
+        print text
+        print "utf8-scan-ok"
+    }
+}

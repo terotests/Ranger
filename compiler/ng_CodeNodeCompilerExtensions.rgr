@@ -64,11 +64,18 @@ extension CodeNode {
   def hasParamDesc:boolean false    
   def paramDesc@(weak optional):RangerAppParamDesc
   def ownParamDesc@(optional):RangerAppParamDesc
-  def evalCtx@(weak):RangerAppWriterContext
+  ; The context a node was ANALYSED in. Code generation reads it back
+  ; (LiveCompiler.WalkNode) to resolve names the way the analysis did, so it has
+  ; to outlive the walk that set it. `weak` is a no-op on the JavaScript host;
+  ; on C++ it had already expired by code generation, the writer fell back to
+  ; the walker's own context, and a local that shadowed a field of the same name
+  ; resolved to the FIELD -- `values_1` came out as `this.values_1`.
+  def evalCtx:RangerAppWriterContext
   def evalState:NodeEvalState
 
   def operator_node@(weak):CodeNode
-  def flow_ctx@(weak):RangerAppWriterContext
+  ; see evalCtx above -- same lifetime, same reason
+  def flow_ctx:RangerAppWriterContext
 
   def is_part_of_chain false
   def methodChain:[CallChain]

@@ -1,12 +1,29 @@
 
+; An external compiler plugin is an npm package, so only the Node.js host can
+; load one. Every other target still has to produce a program that COMPILES:
+; the operators below were written with an empty `*` template, which wrote
+; `plugin = ;` into the C++ output. The C++ entries below say the same thing
+; the empty template meant -- there is no plugin here -- in a way g++ accepts.
 systemclass RangerCompilerPlugin {
-    es6 any    
+    es6 any
+    cpp "void*"
+    go "interface{}"
+    dart "Object?"
+    python object
+    csharp object
+    kotlin "Any?"
 }
 
 operators {
     load_compiler_plugin _:RangerCompilerPlugin ( name:string ) {
         templates {
             es6 ( 'require( ' (e 1) ' )' )
+            cpp ( "((void*)nullptr)" )
+            go ( "nil" )
+            dart ( "null" )
+            python ( "None" )
+            csharp ( "null" )
+            kotlin ( "null" )
             * ()
         }
     }
@@ -14,6 +31,12 @@ operators {
     register_plugin _@(throws):[string] (plugin:RangerCompilerPlugin ) {
         templates {
             es6 ( '(new ' (e 1) '.Plugin () ).features()' )
+            cpp ( "std::vector<std::string>()" (imp "<vector>") (imp "<string>") )
+            go ( "func() []string { _ = " (e 1) "; return []string{} }()" )
+            dart ( "<String>[]" )
+            python ( "[]" )
+            csharp ( "new System.Collections.Generic.List<String>()" )
+            kotlin ( "mutableListOf<String>()" )
             * ()
         }
     }
@@ -21,6 +44,12 @@ operators {
     call_plugin _@(throws):Any (plugin:RangerCompilerPlugin fnName:string root:CodeNode ctx:RangerAppWriterContext wr:CodeWriter ) {
         templates {
             es6 ( '( (new ' (e 1) '.Plugin () )[' (e 2) '] )( ' (e 3) ', ' (e 4) ' , ' (e 5) ' )' )
+            cpp ( "/* no plugin host on this target */" )
+            go ( "_ = " (e 1) " /* no plugin host on this target */" )
+            dart ( "/* no plugin host on this target */" )
+            python ( "pass  # no plugin host on this target" )
+            csharp ( "/* no plugin host on this target */" )
+            kotlin ( "/* no plugin host on this target */" )
             * ()
         }
     }
@@ -29,12 +58,24 @@ operators {
     plugin_preprocess _@(throws):void (plugin:RangerCompilerPlugin root:CodeNode ctx:RangerAppWriterContext wr:CodeWriter ) {
         templates {
             es6 ( '(new ' (e 1) '.Plugin () ).preprocess( ' (e 2) ', ' (e 3) ' , ' (e 4) ' )' )
+            cpp ( "/* no plugin host on this target */" )
+            go ( "_ = " (e 1) " /* no plugin host on this target */" )
+            dart ( "/* no plugin host on this target */" )
+            python ( "pass  # no plugin host on this target" )
+            csharp ( "/* no plugin host on this target */" )
+            kotlin ( "/* no plugin host on this target */" )
             * ()
         }
     }
     plugin_postprocess _@(throws):void (plugin:RangerCompilerPlugin root:CodeNode ctx:RangerAppWriterContext wr:CodeWriter ) {
         templates {
             es6 ( '(new ' (e 1) '.Plugin () ).postprocess( ' (e 2) ', ' (e 3) ' , ' (e 4) ' )' )
+            cpp ( "/* no plugin host on this target */" )
+            go ( "_ = " (e 1) " /* no plugin host on this target */" )
+            dart ( "/* no plugin host on this target */" )
+            python ( "pass  # no plugin host on this target" )
+            csharp ( "/* no plugin host on this target */" )
+            kotlin ( "/* no plugin host on this target */" )
             * ()
         }
     }

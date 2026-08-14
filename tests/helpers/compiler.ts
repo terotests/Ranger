@@ -55,6 +55,7 @@ export function compileRanger(
       "swift6",
       "java7",
       "llvm",
+      "csharp",
     ].includes(language)
   ) {
     // Assume it's outputDir from old signature
@@ -100,6 +101,7 @@ export function compileRanger(
     swift6: ".swift",
     java7: ".java",
     llvm: ".ll",
+    csharp: ".cs",
   };
   const ext = extMap[targetLang] || ".js";
   const outputFile = `${sourceBasename}${ext}`;
@@ -220,6 +222,7 @@ export function compileRangerWithFlags(
     swift6: ".swift",
     java7: ".java",
     llvm: ".ll",
+    csharp: ".cs",
   };
   const ext = extMap[language] || ".js";
   const outputFile = `${sourceBasename}${ext}`;
@@ -2076,4 +2079,196 @@ export function getGeneratedKotlinCode(
       error: err.message || "Failed to read generated file",
     };
   }
+}
+
+// ---------------------------------------------------------------------------
+// C#
+//
+// mcs + mono rather than the dotnet SDK: nothing the compiler generates needs a
+// language version past C# 7, and mcs is a single apt package. `csc` is used if
+// it is the only one present.
+// ---------------------------------------------------------------------------
+
+const CSHARP_OUTPUT_DIR = path.join(ROOT_DIR, "tests", ".output-csharp");
+
+export function isCSharpAvailable(): boolean {
+  for (const cmd of ["mcs --version", "csc -version"]) {
+    try {
+      execSync(cmd, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+      return true;
+    } catch {
+      // try the next one
+    }
+  }
+  return false;
+}
+
+function getCSharpCommand(): string {
+  try {
+    execSync("mcs --version", {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return "mcs";
+  } catch {
+    return "csc";
+  }
+}
+
+export function compileRangerToCSharp(
+  sourceFile: string,
+  outputDir?: string
+): CompileResult {
+  const sourcePath = path.isAbsolute(sourceFile)
+    ? sourceFile
+    : `./${sourceFile.replace(/\\/g, "/")}`;
+
+  const absoluteSource = path.isAbsolute(sourceFile)
+    ? sourceFile
+    : path.join(ROOT_DIR, sourceFile);
+
+  if (!fs.existsSync(absoluteSource)) {
+    return {
+      success: false,
+      output: "",
+      error: `Source file not found: ${absoluteSource}`,
+    };
+  }
+
+  const sourceBasename = path.basename(
+    absoluteSource.replace(/\.clj$/, ".rgr"),
+    ".rgr"
+  );
+  const outputFile = `${sourceBasename}.cs`;
+  const targetDir = outputDir || CSHARP_OUTPUT_DIR;
+
+  if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(targetDir, { recursive: true });
+  }
+
+  try {
+    const env = {
+      ...process.env,
+      RANGER_LIB: `./compiler/Lang.rgr;./lib/stdops.rgr`,
+    };
+    const relativeTargetDir = path
+      .relative(ROOT_DIR, targetDir)
+      .replace(/\\/g, "/");
+    const cmd = `node "${OUTPUT_JS}" -l=csharp "${sourcePath}" -d="${relativeTargetDir}" -o="${outputFile}"`;
+
+    const output = execSync(cmd, {
+      cwd: ROOT_DIR,
+      env,
+      encoding: "utf-8",
+      timeout: 60000,
+      stdio: ["pipe", "pipe", "pipe"],
+    }).toString();
+
+    const hasError =
+      output.includes("TypeError:") ||
+      output.includes("Compilation FAILED") ||
+      output.includes("[FAIL]") ||
+      output.includes("Got unknown compiler error") ||
+      output.includes("Undefined variable");
+
+    const outputPath = path.join(targetDir, outputFile);
+    if (!hasError && !fs.existsSync(outputPath)) {
+      return {
+        success: false,
+        output,
+        error: `Compiler did not create expected output file: ${outputPath}\n${output}`,
+      };
+    }
+
+    return {
+      success: !hasError,
+      output,
+      error: hasError ? output : undefined,
+    };
+  } catch (err: any) {
+    const stdout = err.stdout?.toString() || "";
+    const stderr = err.stderr?.toString() || "";
+    return {
+      success: false,
+      output: stdout,
+      error: stdout + stderr || err.message,
+    };
+  }
+}
+
+export function runCompiledCSharp(csFile: string): RunResult {
+  const absoluteCs = path.isAbsolute(csFile)
+    ? csFile
+    : path.join(ROOT_DIR, csFile);
+
+  if (!fs.existsSync(absoluteCs)) {
+    return {
+      success: false,
+      output: "",
+      error: `C# file not found: ${absoluteCs}`,
+    };
+  }
+
+  const dir = path.dirname(absoluteCs);
+  const exe = absoluteCs.replace(/\.cs$/, ".exe");
+
+  try {
+    execSync(
+      `${getCSharpCommand()} -langversion:latest -out:"${exe}" "${absoluteCs}"`,
+      { cwd: dir, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }
+    );
+  } catch (err: any) {
+    return {
+      success: false,
+      output: err.stdout?.toString() || "",
+      error: err.stderr?.toString() || err.message,
+    };
+  }
+
+  try {
+    const output = execSync(`mono "${exe}"`, {
+      cwd: dir,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return { success: true, output: output.trim() };
+  } catch (err: any) {
+    return {
+      success: false,
+      output: err.stdout || "",
+      error: err.stderr || err.message,
+    };
+  }
+}
+
+export function compileAndRunCSharp(sourceFile: string): {
+  compile: CompileResult;
+  run?: RunResult;
+} {
+  const compile = compileRangerToCSharp(sourceFile);
+  if (!compile.success) {
+    return { compile };
+  }
+
+  const absoluteSource = path.isAbsolute(sourceFile)
+    ? sourceFile
+    : path.join(ROOT_DIR, sourceFile);
+  const sourceBasename = path.basename(
+    absoluteSource.replace(/\.clj$/, ".rgr"),
+    ".rgr"
+  );
+  const outputCs = path.join(CSHARP_OUTPUT_DIR, `${sourceBasename}.cs`);
+
+  if (!fs.existsSync(outputCs)) {
+    return {
+      compile,
+      run: {
+        success: false,
+        output: "",
+        error: `Compiled C# file not found: ${outputCs}`,
+      },
+    };
+  }
+
+  return { compile, run: runCompiledCSharp(outputCs) };
 }

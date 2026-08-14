@@ -1,0 +1,33 @@
+; A lambda with a BODY, and one nested inside another. Python has no
+; multi-statement lambda at all, so each becomes a named nested def hoisted
+; above the statement that uses it — with `nonlocal` for the names it assigns,
+; or the read of the enclosing counter raises UnboundLocalError.
+class LambdaHoist {
+    sfn main:void () {
+        def xs:[int]
+        push xs 1
+        push xs 2
+        push xs 3
+
+        def total 0
+        xs.forEach({
+            def doubled (item * 2)
+            total = total + doubled
+        })
+        print ("total=" + total)
+
+        def names:[string]
+        def seen 0
+        xs.forEach({
+            def inner:[int]
+            push inner item
+            inner.forEach({
+                seen = seen + 1
+            })
+            push names ("n" + item)
+        })
+        print ("seen=" + seen)
+        print ("names=" + (join names ","))
+        print "lambda-hoist-ok"
+    }
+}

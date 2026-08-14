@@ -26,6 +26,9 @@ class RangerCSharpClassWriter {
   ; check and routed each call through the DLR.
   def csharp_unions_written:boolean false
 
+  ; Serial number for the lambda parameter renaming in CreateLambda below.
+  def csLambdaArgCounter:int 0
+
   fn writeCSharpUnionInterfaces:void (ctx:RangerAppWriterContext wr:CodeWriter) {
     if csharp_unions_written {
       return
@@ -39,6 +42,16 @@ class RangerCSharpClassWriter {
   }
 
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
+
+    ; A collection nested inside another collection arrives here as its Ranger
+    ; spelling -- "[string]" for the value type of a [string:[string]] -- and
+    ; the fallthrough at the end of this function returned it unchanged, so the
+    ; declaration came out as Dictionary<String,[string]>.
+    if ((strlen type_string) >= 2) {
+      if ((charAt type_string 0) == (ccode "[")) {
+        return (this.collectionTypeStringToCS(type_string ctx))
+      }
+    }
 
     if(ctx.isDefinedClass(type_string)) {
       def cc (ctx.findClass(type_string))
@@ -91,6 +104,37 @@ class RangerCSharpClassWriter {
     }
     return type_string
   }
+
+  ; Convert nested collection type strings such as "[string]" or
+  ; "[string:[int]]" into C# List / Dictionary types.
+  fn collectionTypeStringToCS:string (type_string:string ctx:RangerAppWriterContext) {
+    def n:int (strlen type_string)
+    def inner:string (substring type_string 1 (n - 1))
+    def il:int (strlen inner)
+    def depth:int 0
+    def sep:int (0 - 1)
+    def i:int 0
+    while (i < il) {
+      def c:int (charAt inner i)
+      if (c == (ccode "[")) {
+        depth = depth + 1
+      }
+      if (c == (ccode "]")) {
+        depth = depth - 1
+      }
+      if ((c == (ccode ":")) && (depth == 0)) {
+        sep = i
+      }
+      i = i + 1
+    }
+    if (sep >= 0) {
+      def kt:string (substring inner 0 sep)
+      def vt:string (substring inner (sep + 1) il)
+      return (((("Dictionary<" + (this.getObjectTypeString(kt ctx))) + ",") + (this.getObjectTypeString(vt ctx))) + ">")
+    }
+    return (("List<" + (this.getObjectTypeString(inner ctx))) + ">")
+  }
+
   fn getTypeString:string (type_string:string) {
     switch type_string {
       case "int" {
@@ -437,6 +481,44 @@ class RangerCSharpClassWriter {
     }
   }
 
+  ; C# does not allow a lambda parameter to reuse a name that is already live in
+  ; an enclosing scope: `xs.forEach({ ys.forEach({ ... }) })` writes `item` and
+  ; `index` twice and stops with CS0136, "would give a different meaning". The
+  ; implicit names of a nested forEach make that shape common -- it was 96 of
+  ; the errors the generated compiler produced. Ranger allows the shadowing, so
+  ; the writer renames the inner parameter. Renaming the ParamDesc renames the
+  ; reads too: WriteVRef writes compiledName, and the body resolves to this same
+  ; descriptor.
+  ;
+  ; A member variable is left alone -- C# is happy for a local to shadow a
+  ; field, and renaming there would only make the output harder to read.
+  fn renameShadowedLambdaArg:void (arg:CodeNode ctx:RangerAppWriterContext) {
+    if (arg.hasParamDesc == false) {
+      return
+    }
+    ; unwrap, not a plain read: paramDesc is @(weak optional), and on the C++
+    ; target a plain member read of it is an alias the writer tries to bind a
+    ; reference to -- which does not compile against the temporary that the
+    ; weak-to-shared conversion produces.
+    def p:RangerAppParamDesc (unwrap arg.paramDesc)
+    def nm:string p.name
+    if ((strlen nm) == 0) {
+      return
+    }
+    ; already renamed on an earlier visit to this same descriptor
+    if ((indexOf p.compiledName "__l") >= 0) {
+      return
+    }
+    if ((ctx.isVarDefined(nm)) == false) {
+      return
+    }
+    if (ctx.isMemberVariable(nm)) {
+      return
+    }
+    csLambdaArgCounter = csLambdaArgCounter + 1
+    p.compiledName = ((nm + "__l") + csLambdaArgCounter)
+  }
+
   fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
     ;         this.writeLambdaType( (unwrap node.expression_value) ctx wr)
@@ -459,8 +541,9 @@ class RangerCSharpClassWriter {
         wr.out(', ' false)
       }
       if(arg.flow_done == false) {
-        this.compiler.parser.WalkNode( arg lambdaCtx wr)  
+        this.compiler.parser.WalkNode( arg lambdaCtx wr)
       }
+      this.renameShadowedLambdaArg(arg ctx)
       this.WalkNode(arg lambdaCtx wr)
     }
     wr.out(')' false)
@@ -518,11 +601,48 @@ class RangerCSharpClassWriter {
     wr.out("}" false)
   }
 
+  ; C# is not JavaScript, and the difference is not cosmetic:
+  ;
+  ;   * a field a subclass redeclares is a SECOND storage slot, so a write
+  ;     through the subclass and a read through a base typed reference touch
+  ;     different memory. RangerAppFunctionDesc redeclares `name`, `node`,
+  ;     `nameNode` and five more from RangerAppParamDesc, all with the same
+  ;     initializer, exactly the way JavaScript lets you.
+  ;   * a method a subclass redeclares WITHOUT `override` is a second method,
+  ;     and a call through a base typed reference runs the base one. Every
+  ;     language writer redeclares writeClass from RangerGenericClassWriter, so
+  ;     `langWriter.writeClass(...)` wrote the generic placeholder -- the C#
+  ;     build of the compiler produced `class X { /* static main */ }` for
+  ;     every target and reported success.
+  ;
+  ; Neither showed up as an error: 894 CS0108 warnings and a program that ran.
+  fn csCollectInherited:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext vars:[string:boolean] methods:[string:int]) {
+    for cl.extends_classes pName:string i {
+      if (ctx.isDefinedClass(pName)) {
+        def pc:RangerAppClassDesc (ctx.findClass(pName))
+        for pc.variables pvar:RangerAppParamDesc j {
+          set vars pvar.name true
+        }
+        for pc.defined_variants fnVar:string j {
+          def mVs:RangerAppMethodVariants (get pc.method_variants fnVar)
+          for mVs.variants variant:RangerAppFunctionDesc k {
+            set methods variant.compiledName (array_length variant.params)
+          }
+        }
+        this.csCollectInherited(pc ctx vars methods)
+      }
+    }
+  }
+
   fn writeClass:void (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
     def cl:RangerAppClassDesc node.clDesc
     if (null? cl) {
       return
     }
+
+    def inheritedVars:[string:boolean]
+    def inheritedMethods:[string:int]
+    this.csCollectInherited((unwrap cl) ctx inheritedVars inheritedMethods)
 
     def wr orig_wr
 
@@ -562,6 +682,10 @@ class RangerCSharpClassWriter {
     wr.createTag("utilities")
 
     for cl.variables pvar:RangerAppParamDesc i {
+      ; a redeclaration of a parent's field: one slot, like every other target
+      if (has inheritedVars pvar.name) {
+        continue
+      }
       wr.out('public ' false)
       this.writeVarDef( (unwrap pvar.node) ctx wr)
     }
@@ -657,6 +781,20 @@ class RangerCSharpClassWriter {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
         wr.out('public ' false)
+        ; `override` only when the parent really declares the same method --
+        ; matched on the compiled name AND the argument count, because a
+        ; same-named method with a different signature is an overload and
+        ; `override` would not compile against it.
+        def parentArgc@(optional):int (get inheritedMethods variant.compiledName)
+        if (!null? parentArgc) {
+          if ((unwrap parentArgc) == (array_length variant.params)) {
+            wr.out('override ' false)
+          }
+        } {
+          if cl.is_extended_by_children {
+            wr.out('virtual ' false)
+          }
+        }
         this.writeTypeDef( (unwrap variant.nameNode) ctx wr)
         wr.out(' ' false)
         ; compiledName, not name: a method called `string` or `null` in Ranger

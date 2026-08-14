@@ -97,7 +97,7 @@ a compiler flag. Support is uneven:
 | Area | Current expectation |
 | --- | --- |
 | Host/runtime | Node.js is the primary supported host for the compiler |
-| Self-hosting | Actively used, but full compiler generation quality is strongest in JavaScript |
+| Self-hosting | Actively used. JavaScript is the reference; the compiler also compiles **itself for C++, Dart, Python, C#, Go and Kotlin** — each of those builds accepts the result and compiles the compiler again, all but C++ byte-for-byte identically ([`TARGET_NOTES.md`](TARGET_NOTES.md#cross-target-gate-the-compiler-itself-on-c-dart-python-c-go-and-kotlin)) |
 | JavaScript / ES6 | Best baseline target and most reliable place to start |
 | Go / Python / Kotlin / C# / Rust / C++ | Large programs verified (TS engine and/or jpeg / parsers); expect remaining edge cases |
 | Dart / Swift | Strong for substantial modules (ts_parser; TS engine builds and matches Node on both when toolchains are present); Flutter packages via `-l=dart -pubspec` |
