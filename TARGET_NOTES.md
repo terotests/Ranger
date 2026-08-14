@@ -60,6 +60,7 @@ file:
 
 ```bash
 npm run selfhost:check:dart    # generate the Dart and run `dart analyze`
+npm run selfhost:build:dart    # ...and put the library beside it
 
 RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr" \
   dart run ./tmp/selfhost-dart/ranger_compiler.dart \

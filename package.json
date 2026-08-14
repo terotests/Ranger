@@ -46,6 +46,8 @@
     "selfhost:compile:dart": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node --max-old-space-size=8192 bin/output.js -l=dart ./compiler/ng_Compiler.rgr -nodecli -d=./tmp/selfhost-dart -o=ranger_compiler.dart",
     "selfhost:check:dart": "npm run selfhost:compile:dart && dart analyze --no-fatal-warnings ./tmp/selfhost-dart/ranger_compiler.dart",
     "selfhost:copylibs": "cp ./compiler/Lang.rgr ./tmp/selfhost/Lang.rgr && cp ./lib/stdops.rgr ./tmp/selfhost/stdops.rgr && mkdir -p ./tmp/selfhost/lib && cp ./lib/*.rgr ./tmp/selfhost/lib/",
+    "selfhost:build:dart": "npm run selfhost:check:dart && npm run selfhost:copylibs:dart",
+    "selfhost:copylibs:dart": "cp ./compiler/Lang.rgr ./tmp/selfhost-dart/Lang.rgr && cp ./lib/stdops.rgr ./tmp/selfhost-dart/stdops.rgr && mkdir -p ./tmp/selfhost-dart/lib && cp ./lib/*.rgr ./tmp/selfhost-dart/lib/",
     "compile": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./compiler/ng_Compiler.rgr -nodecli -d=./bin -o=output.js && npm run compile:fixcrlf && node scripts/patch-chain-desugar.js && npm run compile:copylibs",
     "compile:fixcrlf": "sed -i '' 's/\\r$//' bin/output.js || sed -i 's/\\r$//' bin/output.js || true",
     "compile:copylibs": "cp ./compiler/Lang.rgr ./bin/Lang.rgr && cp ./lib/stdops.rgr ./bin/stdops.rgr",
