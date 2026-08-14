@@ -8578,12 +8578,21 @@ class ComponentEngine {
                 }
                 if (sFn.hasFunctionNode()) {
                     def cur0:EvHandle (EvValueBridge.taggedUndefined())
-                    def gFn0:EvHandle (this.resolveGetterOn(obj key))
-                    if (gFn0.isFunction()) {
-                        if (gFn0.hasFunctionNode()) {
-                            def noArgs0:[EvHandle]
-                            def gb0:EvHandle (gFn0.withThisForCall(obj))
-                            cur0 = (this.callFnValueWithValues(gb0 noArgs0))
+                    ; Only a COMPOUND assignment reads the target first. For a
+                    ; plain `=` applyAssignOp just answers the right-hand side,
+                    ; so calling the getter was pointless -- and OBSERVABLE:
+                    ; `o.x = 5` ran the getter once where the spec runs it not
+                    ; at all, and `o.x += 5` ran it twice (the caller has
+                    ; already read the target into preCurrent and passes the
+                    ; combined value down with opK 1).
+                    if (opK != 1) {
+                        def gFn0:EvHandle (this.resolveGetterOn(obj key))
+                        if (gFn0.isFunction()) {
+                            if (gFn0.hasFunctionNode()) {
+                                def noArgs0:[EvHandle]
+                                def gb0:EvHandle (gFn0.withThisForCall(obj))
+                                cur0 = (this.callFnValueWithValues(gb0 noArgs0))
+                            }
                         }
                     }
                     result = (this.applyAssignOp(opK cur0 rightValue))

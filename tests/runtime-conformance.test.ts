@@ -704,14 +704,16 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["binary-wide", "return 0b100000000000000000000000000000000;", "radixlit"],
   ["octal-wide", "return 0o40000000000;", "radixlit"],
   ["hex-separators", "return 0xff_ff;", "radixlit"],
-  // NOTE: an accessor-valued member target is read once too often on the WRITE
-  // path -- `o.x = 5` invokes the getter (Node: 0 calls) and `o.x += 5` invokes
-  // it twice (Node: 1). That is a separate pre-existing bug in
-  // bcPutField/setMember, not in assignment ordering; assignMember only
-  // delegates to assignMemberResolved, where the read is gated on opK != 1.
-  // Probes are held back until it is fixed rather than landing red:
-  //   ["assign-order-plain-no-get", "var n=0; var o={get x(){ n++; return 1; }, set x(v){}}; o.x = 5; return n;", "evalorder"],
-  //   ["assign-order-compound-gets", "var n=0; var o={get x(){ n++; return 1; }, set x(v){}}; o.x += 5; return n;", "evalorder"],
+  // An accessor member target must be read only by a COMPOUND assignment. The
+  // walker called the getter unconditionally to build the old value, so
+  // `o.x = 5` ran it once (spec: not at all) and `o.x += 5` twice (spec: once,
+  // and the caller had already read it into preCurrent). The bytecode tier was
+  // always correct here, so this only showed at the top level.
+  ["assign-order-plain-no-get", "var n=0; var o={get x(){ n++; return 1; }, set x(v){}}; o.x = 5; return n;", "evalorder"],
+  ["assign-order-compound-gets", "var n=0; var o={get x(){ n++; return 1; }, set x(v){}}; o.x += 5; return n;", "evalorder"],
+  ["assign-defineprop-no-get", "var n=0; var o={}; Object.defineProperty(o,'z',{get:function(){n++;return 1;},set:function(v){},configurable:true}); o.z = 7; return n;", "evalorder"],
+  ["assign-setter-still-runs", "var s=0; var o={get w(){return 1;}, set w(v){ s=v; }}; o.w = 3; return s;", "evalorder"],
+  ["assign-compound-uses-getter", "var o={_v:10, get x(){ return this._v; }, set x(v){ this._v=v; }}; o.x += 5; return o._v;", "evalorder"],
 
   // D-STRNUM: ToNumber on a string follows the StringNumericLiteral grammar.
   ["strnum-hex", "return Number('0x1A');", "numbers"],
