@@ -225,7 +225,11 @@ class RangerRustClassWriter {
     def lambdaCtx (unwrap node.lambda_ctx)
     def args:CodeNode (itemAt node.children 1)
     def body:CodeNode (itemAt node.children 2)
-    wr.out("|" false)
+    ; the parameter that receives it is `&mut dyn FnMut(…)`, so the literal
+    ; goes in as a mutable borrow. Without it rustc has no expected type to
+    ; infer the closure's own parameters from — "type annotations needed" on
+    ; every `item`.
+    wr.out("&mut |" false)
     for args.children arg:CodeNode i {
       if (i > 0) {
         wr.out(", " false)
@@ -256,6 +260,12 @@ class RangerRustClassWriter {
       if (i > 0) {
         wr.out(", " false)
       }
+      ; NOTE: the element the loop hands to the callback is the shared
+      ; handle, so this ought to be the Rc form — but the closure BODY is
+      ; written against the bare struct (`item.name`, not
+      ; `item.borrow().name`), so declaring the handle here trades 149
+      ; inference errors for 297 missing-field ones. Both sides have to move
+      ; together; until then the bare type is the cheaper mismatch.
       this.writeTypeDef(arg ctx wr)
     }
     wr.out(")" false)
@@ -983,11 +993,17 @@ class RangerRustClassWriter {
     def vnn:CodeNode (unwrap variant.nameNode)
     if (((strlen vnn.array_type) == 0) && ((strlen vnn.key_type) == 0)) {
       if (this.rustClassIsShared(vnn.type_name ctx)) {
+        ; NOTE: a `@(weak)` return could hand back the Weak, matching the
+        ; local it usually returns, but every CALLER binds the result to an
+        ; Rc name — declaring the Weak form here costs more than the returns
+        ; it fixes (1630 -> 1915). The upgrade belongs at the `return`, which
+        ; is a change to make with the rest of the weak modelling.
+        def retSharedT:string (this.rustSharedTypeString(vnn.type_name ctx))
         ; an @(optional) return keeps its Option around the Rc
         if (vnn.hasFlag("optional")) {
-          wr.out((("Option<" + (this.rustSharedTypeString(vnn.type_name ctx))) + ">") false)
+          wr.out((("Option<" + retSharedT) + ">") false)
         } {
-          wr.out((this.rustSharedTypeString(vnn.type_name ctx)) false)
+          wr.out(retSharedT false)
         }
         return
       }

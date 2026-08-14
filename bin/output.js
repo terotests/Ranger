@@ -23812,7 +23812,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               const lambdaCtx = node.lambda_ctx;
               const args = node.children[1];
               const body = node.children[2];
-              wr.out("|", false);
+              wr.out("&mut |", false);
               for ( let i = 0; i < args.children.length; i++) {
                 var arg = args.children[i];
                 if ( i > 0 ) {
@@ -24431,10 +24431,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const vnn = variant.nameNode;
                 if ( ((vnn.array_type.length) == 0) && ((vnn.key_type.length) == 0) ) {
                   if ( this.rustClassIsShared(vnn.type_name, ctx) ) {
+                    const retSharedT = this.rustSharedTypeString(vnn.type_name, ctx);
                     if ( vnn.hasFlag("optional") ) {
-                      wr.out(("Option<" + this.rustSharedTypeString(vnn.type_name, ctx)) + ">", false);
+                      wr.out(("Option<" + retSharedT) + ">", false);
                     } else {
-                      wr.out(this.rustSharedTypeString(vnn.type_name, ctx), false);
+                      wr.out(retSharedT, false);
                     }
                     return;
                   }
