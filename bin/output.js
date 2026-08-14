@@ -5691,6 +5691,9 @@ class CodeWriter  {
     }
   };
   line_end (str) {
+    if ( (str.length) == 0 ) {
+      return;
+    }
     if ( (this.currentLine.length) > 0 ) {
       if ( (str.charCodeAt(0)) != (this.currentLine.charCodeAt(((this.currentLine.length) - 1) )) ) {
         this.out(str, false);
@@ -5700,7 +5703,7 @@ class CodeWriter  {
   advanceColumnForString (str) {
     let i = 0;
     while (i < (str.length)) {
-      const ch = (str.substring(i, (i + 1) )).charCodeAt(0);
+      const ch = str.charCodeAt(i );
       if ( ch == 10 ) {
         this.lineNumber = this.lineNumber + 1;
         this.columnNumber = 0;
@@ -5783,6 +5786,7 @@ CodeWriter.emptyWithFS = function() {
 };
 class RangerLispParser  {
   constructor(code_module) {
+    this.source_text = "";
     this.__len = 0;
     this.i = 0;
     this.last_line_start = 0;     /** note: unused */
@@ -5792,8 +5796,8 @@ class RangerLispParser  {
     this.get_op_pred = 0;     /** note: unused */
     this.had_error = false;
     this.disableOperators = false;
-    const normalized = RangerLispParser.normalizeLineEndings(code_module.code);
-    this.buff = normalized;
+    this.source_text = RangerLispParser.normalizeLineEndings(code_module.code);
+    this.buff = this.source_text;
     this.code = code_module;
     this.__len = (this.buff).length;
     this.rootNode = new CodeNode(this.code, 0, 0);
@@ -6585,7 +6589,10 @@ class RangerLispParser  {
             continue;
           }
         }
-        const nextCharT = s.charCodeAt((this.i + 4) );
+        let nextCharT = 0;
+        if ( (this.i + 4) < this.__len ) {
+          nextCharT = s.charCodeAt((this.i + 4) );
+        }
         if ( ((((fc == (116)) && ((s.charCodeAt((this.i + 1) )) == (114))) && ((s.charCodeAt((this.i + 2) )) == (117))) && ((s.charCodeAt((this.i + 3) )) == (101))) && ((((((nextCharT <= 32) || (nextCharT == 40)) || (nextCharT == 41)) || (nextCharT == 58)) || (nextCharT == (125))) || ((this.i + 4) >= this.__len)) ) {
           const newBoolNode = new CodeNode(this.code, sp, sp + 4);
           newBoolNode.value_type = 5;
@@ -6595,7 +6602,10 @@ class RangerLispParser  {
           this.i = this.i + 4;
           continue;
         }
-        const nextCharF = s.charCodeAt((this.i + 5) );
+        let nextCharF = 0;
+        if ( (this.i + 5) < this.__len ) {
+          nextCharF = s.charCodeAt((this.i + 5) );
+        }
         if ( (((((fc == (102)) && ((s.charCodeAt((this.i + 1) )) == (97))) && ((s.charCodeAt((this.i + 2) )) == (108))) && ((s.charCodeAt((this.i + 3) )) == (115))) && ((s.charCodeAt((this.i + 4) )) == (101))) && ((((((nextCharF <= 32) || (nextCharF == 40)) || (nextCharF == 41)) || (nextCharF == 58)) || (nextCharF == (125))) || ((this.i + 5) >= this.__len)) ) {
           const newBoolNodeF = new CodeNode(this.code, sp, sp + 5);
           newBoolNodeF.value_type = 5;
@@ -10838,8 +10848,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               if ( (typeof(item.container_class) !== "undefined" && item.container_class != null )  ) {
                 const cc = item.container_class;
                 if ( ((cc.extends_classes.length) > 0) || cc.is_inherited ) {
-                  const eC = cc.extends_classes[0];
-                  ctx.findClass(eC);
+                  if ( (cc.extends_classes.length) > 0 ) {
+                    const eC = cc.extends_classes[0];
+                    ctx.findClass(eC);
+                  }
                 } else {
                   notUsedFunctionCnt = notUsedFunctionCnt + 1;
                   item.is_unsed = true;
@@ -21645,7 +21657,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
           switch (type_string ) { 
             case "char" : 
-              return "char";
+              return "unsigned char";
             case "charbuffer" : 
               return "const char*";
             case "buffer" : 
@@ -21683,6 +21695,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             }
             if ( this.cppUnionValueCase(cc, ctx) ) {
               return type_string;
+            }
+            if ( cc.is_system ) {
+              const sysName = ( Object.prototype.hasOwnProperty.call(cc.systemNames, "cpp") ? cc.systemNames["cpp"] : undefined );
+              if ( (typeof(sysName) !== "undefined" && sysName != null )  ) {
+                return sysName;
+              }
             }
             return this.cppPtr(type_string);
           }
@@ -21761,7 +21779,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           getTypeString2 (type_string, ctx) {
             switch (type_string ) { 
               case "char" : 
-                return "char";
+                return "unsigned char";
               case "charbuffer" : 
                 return "const char*";
               case "buffer" : 
@@ -21791,6 +21809,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             };
             if ( ctx.isEnumDefined(type_string) ) {
               return "int";
+            }
+            if ( ctx.isDefinedClass(type_string) ) {
+              const scc = ctx.findClass(type_string);
+              if ( scc.is_system ) {
+                const sysName = ( Object.prototype.hasOwnProperty.call(scc.systemNames, "cpp") ? scc.systemNames["cpp"] : undefined );
+                if ( (typeof(sysName) !== "undefined" && sysName != null )  ) {
+                  return sysName;
+                }
+              }
             }
             return type_string;
           };
@@ -21864,7 +21891,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
                 break;
               case 14 : 
-                wr.out("char", false);
+                wr.out("unsigned char", false);
                 break;
               case 15 : 
                 wr.out("const char*", false);
@@ -21931,6 +21958,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   if ( this.cppUnionValueCase(cc_1, ctx) ) {
                     wr.out(cc_1.name, false);
                     return;
+                  }
+                  if ( cc_1.is_system ) {
+                    const sysName = ( Object.prototype.hasOwnProperty.call(cc_1.systemNames, "cpp") ? cc_1.systemNames["cpp"] : undefined );
+                    if ( (typeof(sysName) !== "undefined" && sysName != null )  ) {
+                      wr.out(sysName, false);
+                      return;
+                    }
                   }
                   wr.out(this.cppPtrOpen(), false);
                   wr.out(cc_1.name, false);
@@ -22203,6 +22237,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   useCppRef = false;
                 }
                 if ( initNode.has_call ) {
+                  useCppRef = false;
+                }
+                if ( initNode.expression ) {
                   useCppRef = false;
                 }
                 if ( (typeof(p.nameNode) !== "undefined" && p.nameNode != null )  ) {
@@ -22819,6 +22856,38 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 wr.out((" " + arg.compiledName) + " ", false);
               };
             };
+            cppMutableRefParam (fnDesc, arg, ctx) {
+              if ( this.cppReadonlyValueParam(arg) ) {
+                return false;
+              }
+              if ( this.cppReadonlyUnionParam(arg, ctx) ) {
+                return false;
+              }
+              if ( this.cppBorrowedObjectParam(fnDesc, arg, ctx) ) {
+                return false;
+              }
+              if ( typeof(arg.nameNode) === "undefined" ) {
+                return false;
+              }
+              const typeNode = arg.nameNode;
+              const tn = typeNode.type_name;
+              if ( ((tn == "buffer") || (tn == "int_buffer")) || (tn == "double_buffer") ) {
+                return true;
+              }
+              if ( arg.needs_cpp_reference == false ) {
+                return false;
+              }
+              const v_type = typeNode.value_type;
+              if ( (v_type == 10) || (v_type == 11) ) {
+                return false;
+              }
+              if ( (tn.length) > 0 ) {
+                if ( ctx.isDefinedClass(tn) ) {
+                  return false;
+                }
+              }
+              return true;
+            };
             async writeFnCall (node, ctx, wr) {
               if ( node.hasFnCall ) {
                 const fc = node.getFirst();
@@ -22843,11 +22912,23 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   }
                   const n = givenArgs.children[i];
                   const tempCopy = this.cppNeedsCallTempCopy((node.fnDesc), arg, n, ctx);
+                  let argRef = false;
+                  if ( tempCopy == false ) {
+                    if ( n.expression ) {
+                      argRef = this.cppMutableRefParam((node.fnDesc), arg, ctx);
+                    }
+                  }
                   if ( tempCopy ) {
                     await this.writeTypeDef(arg.nameNode, ctx, wr);
                     wr.out("(", false);
                   }
+                  if ( argRef ) {
+                    wr.out("rg_arg_ref(", false);
+                  }
                   await this.WalkNode(n, ctx, wr);
+                  if ( argRef ) {
+                    wr.out(")", false);
+                  }
                   if ( tempCopy ) {
                     wr.out(")", false);
                   }
@@ -23343,6 +23424,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   this.writeCppWeakHelper(wr);
                   wr.out("", true);
                 }
+                wr.out("template <class T> inline T& rg_arg_ref(T&& v) { return v; }", true);
+                wr.out("", true);
                 wr.out("// header definitions", true);
                 wr.createTag("c++Header");
                 wr.out("", true);
@@ -53011,7 +53094,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                           the_file = params.values[0];
                                                         }
                                                         let root_file = the_file;
-                                                        const root_dir = require("path").normalize((((operatorsOf_8.currentc95directory_51(env) + "/") + (require('path').dirname(the_file))) + "/"));
+                                                        const root_dir = require("path").normalize((((operatorsOf_8.currentc95directory_51(env) + "/") + ("./")) + "/"));
                                                         const the_lang_file = "Lang.rgr";
                                                         let the_lang = "es6";
                                                         let the_target_dir = root_dir + "bin";

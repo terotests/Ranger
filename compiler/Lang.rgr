@@ -593,7 +593,35 @@ final Random rg_random = Random();
                 java7 ( "((" (typeof 2) ")" (e 1) ")" )
                 swift3 ( (e 1) " as " (typeof 2) "" )
                 swift6 ( (e 1) " as " (typeof 2) "" )
-                cpp ( "std::get<" (typeof 2) ">(" (e 1) ")" )
+                cpp ( "rg_cast<" (typeof 2) ">(" (e 1) ")"
+                    (create_polyfill "
+#include <memory>
+#include <type_traits>
+#include <variant>
+// `cast` on the C++ target has two shapes to serve. A closed family is a
+// std::variant, so the cast is std::get. A class hierarchy is a shared_ptr, so
+// the cast is a pointer cast -- and a `weak` field reads through .lock() first.
+// The template picks the one that compiles for the pair it is given; writing
+// std::get for both put std::get<shared_ptr<Derived>>(shared_ptr<Base>) in the
+// output, which is not a std::get at all.
+template <class S> inline auto rg_shared_of_(const S& v, int) -> decltype(v.lock()) { return v.lock(); }
+template <class S> inline S rg_shared_of_(const S& v, long) { return v; }
+template <class S> inline auto rg_shared_of(const S& v) -> decltype(rg_shared_of_(v, 0)) { return rg_shared_of_(v, 0); }
+template <class T, class S, class = void> struct rg_variant_holds : std::false_type {};
+template <class T, class S> struct rg_variant_holds<T, S, std::void_t<decltype(std::get<T>(std::declval<const S&>()))>> : std::true_type {};
+template <class T, class S> inline T rg_cast(const S& v) {
+    if constexpr (rg_variant_holds<T, S>::value) {
+        return std::get<T>(v);
+    } else if constexpr (std::is_convertible<const S&, T>::value) {
+        return (T)v;
+    } else if constexpr (std::is_polymorphic<typename std::remove_reference<decltype(*rg_shared_of(v))>::type>::value) {
+        return std::dynamic_pointer_cast<typename T::element_type>(rg_shared_of(v));
+    } else {
+        return std::static_pointer_cast<typename T::element_type>(rg_shared_of(v));
+    }
+}
+")
+                )
                 go ( (e 1) ".(" (typeof 2) ")" )
                 php ( (e 1) )
                 ; Python and Rust have no place to write the type: Python is
@@ -749,10 +777,67 @@ final Random rg_random = Random();
             templates {
                 ranger ( "(sha256 " (e 1) ")")
                 es6 ("require('crypto').createHash('sha256').update(" (e 1) ").digest('hex')")
-                cpp ( "picosha2::hash256_hex_string(" (e 1) ")"
-                    (imp "\"picosha2.h\"")
-                    (install_file "picosha2.h")
-                    (plugin 'makefile' (  (dep 'picosha2.h' 'https://github.com/okdshin/PicoSHA2/blob/master/picosha2.h'  ) ) )                    
+                ; picosha2.h used to be DOWNLOADED at build time, so every C++
+                ; program that hashed anything needed network access -- and the
+                ; compiler itself hashes, so the C++ build of the compiler could
+                ; not be produced offline. This is the same digest, in the
+                ; output.
+                cpp ( "rg_sha256_hex(" (e 1) ")"
+                    (create_polyfill "
+#include <string>
+#include <vector>
+#include <cstdint>
+inline std::string rg_sha256_hex(const std::string& input) {
+    static const uint32_t K[64] = {
+        0x428a2f98u,0x71374491u,0xb5c0fbcfu,0xe9b5dba5u,0x3956c25bu,0x59f111f1u,0x923f82a4u,0xab1c5ed5u,
+        0xd807aa98u,0x12835b01u,0x243185beu,0x550c7dc3u,0x72be5d74u,0x80deb1feu,0x9bdc06a7u,0xc19bf174u,
+        0xe49b69c1u,0xefbe4786u,0x0fc19dc6u,0x240ca1ccu,0x2de92c6fu,0x4a7484aau,0x5cb0a9dcu,0x76f988dau,
+        0x983e5152u,0xa831c66du,0xb00327c8u,0xbf597fc7u,0xc6e00bf3u,0xd5a79147u,0x06ca6351u,0x14292967u,
+        0x27b70a85u,0x2e1b2138u,0x4d2c6dfcu,0x53380d13u,0x650a7354u,0x766a0abbu,0x81c2c92eu,0x92722c85u,
+        0xa2bfe8a1u,0xa81a664bu,0xc24b8b70u,0xc76c51a3u,0xd192e819u,0xd6990624u,0xf40e3585u,0x106aa070u,
+        0x19a4c116u,0x1e376c08u,0x2748774cu,0x34b0bcb5u,0x391c0cb3u,0x4ed8aa4au,0x5b9cca4fu,0x682e6ff3u,
+        0x748f82eeu,0x78a5636fu,0x84c87814u,0x8cc70208u,0x90befffau,0xa4506cebu,0xbef9a3f7u,0xc67178f2u };
+    uint32_t h[8] = { 0x6a09e667u,0xbb67ae85u,0x3c6ef372u,0xa54ff53au,0x510e527fu,0x9b05688cu,0x1f83d9abu,0x5be0cd19u };
+    std::vector<unsigned char> msg(input.begin(), input.end());
+    uint64_t bitlen = (uint64_t)msg.size() * 8;
+    msg.push_back(0x80);
+    while ((msg.size() % 64) != 56) { msg.push_back(0); }
+    for (int i = 7; i >= 0; i--) { msg.push_back((unsigned char)((bitlen >> (i * 8)) & 0xff)); }
+    for (size_t off = 0; off < msg.size(); off += 64) {
+        uint32_t w[64];
+        for (int i = 0; i < 16; i++) {
+            w[i] = ((uint32_t)msg[off + i * 4] << 24) | ((uint32_t)msg[off + i * 4 + 1] << 16)
+                 | ((uint32_t)msg[off + i * 4 + 2] << 8) | ((uint32_t)msg[off + i * 4 + 3]);
+        }
+        for (int i = 16; i < 64; i++) {
+            uint32_t s0 = ((w[i-15] >> 7) | (w[i-15] << 25)) ^ ((w[i-15] >> 18) | (w[i-15] << 14)) ^ (w[i-15] >> 3);
+            uint32_t s1 = ((w[i-2] >> 17) | (w[i-2] << 15)) ^ ((w[i-2] >> 19) | (w[i-2] << 13)) ^ (w[i-2] >> 10);
+            w[i] = w[i-16] + s0 + w[i-7] + s1;
+        }
+        uint32_t a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7];
+        for (int i = 0; i < 64; i++) {
+            uint32_t S1 = ((e >> 6) | (e << 26)) ^ ((e >> 11) | (e << 21)) ^ ((e >> 25) | (e << 7));
+            uint32_t ch = (e & f) ^ ((~e) & g);
+            uint32_t t1 = hh + S1 + ch + K[i] + w[i];
+            uint32_t S0 = ((a >> 2) | (a << 30)) ^ ((a >> 13) | (a << 19)) ^ ((a >> 22) | (a << 10));
+            uint32_t mj = (a & b) ^ (a & c) ^ (b & c);
+            uint32_t t2 = S0 + mj;
+            hh = g; g = f; f = e; e = d + t1; d = c; c = b; b = a; a = t1 + t2;
+        }
+        h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
+    }
+    static const char* hexd = \"0123456789abcdef\";
+    std::string out;
+    for (int i = 0; i < 8; i++) {
+        for (int k = 3; k >= 0; k--) {
+            unsigned char byte = (unsigned char)((h[i] >> (k * 8)) & 0xff);
+            out.push_back(hexd[(byte >> 4) & 15]);
+            out.push_back(hexd[byte & 15]);
+        }
+    }
+    return out;
+}
+")
                 )
 ; fmt.Printf("sha256:\t%x\n", sha_256.Sum(nil))
                 go ( "_r_sha256(" (e 1) ")" 
@@ -1040,6 +1125,53 @@ func r_io_get_env( name string) *GoNullable {
         ; I/O
         normalize cmdArg:string ( arg:string ) {
             templates {
+                cpp ( "rg_path_normalize(" (e 1) ")"
+                (create_polyfill "
+#include <string>
+#include <vector>
+// Path helpers for the compiler's own file handling. std::filesystem would do
+// this, but the generated program has to build with a plain -std=c++17 line and
+// no extra library, so these are string operations. The shape follows Node's
+// path.normalize / path.dirname, because that is what the JavaScript host of
+// the same Ranger source does.
+inline std::string rg_path_normalize(const std::string& p) {
+    std::string s;
+    for (size_t i = 0; i < p.size(); i++) { s.push_back(p[i] == (char)92 ? '/' : p[i]); }
+    bool absolute = (s.size() > 0 && s[0] == '/');
+    bool trailing = (s.size() > 1 && s[s.size() - 1] == '/');
+    std::vector<std::string> parts;
+    std::string cur;
+    for (size_t i = 0; i <= s.size(); i++) {
+        if (i == s.size() || s[i] == '/') {
+            if (cur == \"..\") {
+                if (parts.size() > 0 && parts[parts.size() - 1] != \"..\") { parts.pop_back(); }
+                else if (absolute == false) { parts.push_back(cur); }
+            } else if (cur.size() > 0 && cur != \".\") {
+                parts.push_back(cur);
+            }
+            cur.clear();
+        } else { cur.push_back(s[i]); }
+    }
+    std::string out;
+    for (size_t i = 0; i < parts.size(); i++) {
+        if (i > 0) { out.push_back('/'); }
+        out += parts[i];
+    }
+    if (absolute) { out = std::string(\"/\") + out; }
+    if (out.size() == 0) { return std::string(\".\"); }
+    if (trailing && out != \"/\") { out.push_back('/'); }
+    return out;
+}
+inline std::string rg_path_dirname(const std::string& p) {
+    std::string s = rg_path_normalize(p);
+    if (s.size() > 1 && s[s.size() - 1] == '/') { s.erase(s.size() - 1); }
+    size_t pos = s.rfind('/');
+    if (pos == std::string::npos) { return std::string(\".\"); }
+    if (pos == 0) { return std::string(\"/\"); }
+    return s.substr(0, pos);
+}
+")
+                )
                 es6 ( 'require("path").normalize(' (e 1) ')')
                 ranger ("( normalize " (e 1) " )")
                 * ( "\"./\"")
@@ -1048,6 +1180,53 @@ func r_io_get_env( name string) *GoNullable {
 
         path_dirname cmdArg:string ( arg:string ) {
             templates {
+                cpp ( "rg_path_dirname(" (e 1) ")"
+                (create_polyfill "
+#include <string>
+#include <vector>
+// Path helpers for the compiler's own file handling. std::filesystem would do
+// this, but the generated program has to build with a plain -std=c++17 line and
+// no extra library, so these are string operations. The shape follows Node's
+// path.normalize / path.dirname, because that is what the JavaScript host of
+// the same Ranger source does.
+inline std::string rg_path_normalize(const std::string& p) {
+    std::string s;
+    for (size_t i = 0; i < p.size(); i++) { s.push_back(p[i] == (char)92 ? '/' : p[i]); }
+    bool absolute = (s.size() > 0 && s[0] == '/');
+    bool trailing = (s.size() > 1 && s[s.size() - 1] == '/');
+    std::vector<std::string> parts;
+    std::string cur;
+    for (size_t i = 0; i <= s.size(); i++) {
+        if (i == s.size() || s[i] == '/') {
+            if (cur == \"..\") {
+                if (parts.size() > 0 && parts[parts.size() - 1] != \"..\") { parts.pop_back(); }
+                else if (absolute == false) { parts.push_back(cur); }
+            } else if (cur.size() > 0 && cur != \".\") {
+                parts.push_back(cur);
+            }
+            cur.clear();
+        } else { cur.push_back(s[i]); }
+    }
+    std::string out;
+    for (size_t i = 0; i < parts.size(); i++) {
+        if (i > 0) { out.push_back('/'); }
+        out += parts[i];
+    }
+    if (absolute) { out = std::string(\"/\") + out; }
+    if (out.size() == 0) { return std::string(\".\"); }
+    if (trailing && out != \"/\") { out.push_back('/'); }
+    return out;
+}
+inline std::string rg_path_dirname(const std::string& p) {
+    std::string s = rg_path_normalize(p);
+    if (s.size() > 1 && s[s.size() - 1] == '/') { s.erase(s.size() - 1); }
+    size_t pos = s.rfind('/');
+    if (pos == std::string::npos) { return std::string(\".\"); }
+    if (pos == 0) { return std::string(\"/\"); }
+    return s.substr(0, pos);
+}
+")
+                )
                 es6 ( 'require("path").dirname(' (e 1) ')')
                 ranger ("( path_dirname " (e 1) " )")
                 * ( "\"./\"")
@@ -1056,6 +1235,53 @@ func r_io_get_env( name string) *GoNullable {
 
         install_directory         cmdArg:string () {
             templates {
+                cpp ( "rg_path_dirname(std::string(__g_argv[0]))"
+                (create_polyfill "
+#include <string>
+#include <vector>
+// Path helpers for the compiler's own file handling. std::filesystem would do
+// this, but the generated program has to build with a plain -std=c++17 line and
+// no extra library, so these are string operations. The shape follows Node's
+// path.normalize / path.dirname, because that is what the JavaScript host of
+// the same Ranger source does.
+inline std::string rg_path_normalize(const std::string& p) {
+    std::string s;
+    for (size_t i = 0; i < p.size(); i++) { s.push_back(p[i] == (char)92 ? '/' : p[i]); }
+    bool absolute = (s.size() > 0 && s[0] == '/');
+    bool trailing = (s.size() > 1 && s[s.size() - 1] == '/');
+    std::vector<std::string> parts;
+    std::string cur;
+    for (size_t i = 0; i <= s.size(); i++) {
+        if (i == s.size() || s[i] == '/') {
+            if (cur == \"..\") {
+                if (parts.size() > 0 && parts[parts.size() - 1] != \"..\") { parts.pop_back(); }
+                else if (absolute == false) { parts.push_back(cur); }
+            } else if (cur.size() > 0 && cur != \".\") {
+                parts.push_back(cur);
+            }
+            cur.clear();
+        } else { cur.push_back(s[i]); }
+    }
+    std::string out;
+    for (size_t i = 0; i < parts.size(); i++) {
+        if (i > 0) { out.push_back('/'); }
+        out += parts[i];
+    }
+    if (absolute) { out = std::string(\"/\") + out; }
+    if (out.size() == 0) { return std::string(\".\"); }
+    if (trailing && out != \"/\") { out.push_back('/'); }
+    return out;
+}
+inline std::string rg_path_dirname(const std::string& p) {
+    std::string s = rg_path_normalize(p);
+    if (s.size() > 1 && s[s.size() - 1] == '/') { s.erase(s.size() - 1); }
+    size_t pos = s.rfind('/');
+    if (pos == std::string::npos) { return std::string(\".\"); }
+    if (pos == 0) { return std::string(\"/\"); }
+    return s.substr(0, pos);
+}
+")
+                )
                 es6 ( "__dirname" )
                 ranger ("( install_directory )")
                 * ( "\"./\"")
@@ -2897,6 +3123,17 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
             }
         }
 
+        ; an optional boolean is a plain `bool` on C++ (there is no place to put
+        ; "absent"), so the generic `== NULL` path compares a bool against a null
+        ; pointer constant -- g++ warns `NULL used in arithmetic`. false is the
+        ; absent value, which is what getBoolean already answers for a missing
+        ; key.
+        null?       cmdIsNotNull:boolean        ( arg@(optional):boolean ) {
+            templates {
+                cpp ("(false == " (e 1) ")")
+            }
+        }
+
         null?       cmdIsNull:boolean        ( arg@(optional):T ) {
             templates {
                 ranger ("(null? " (e 1) ")")
@@ -2938,6 +3175,13 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
         !null?       cmdIsNotNull:boolean        ( arg@(optional):buffer ) {
             templates {
                 cpp ((e 1) ".empty() == false ")
+            }
+        }
+
+        ; see the null? overload above: an optional boolean is a plain `bool`
+        !null?       cmdIsNotNull:boolean        ( arg@(optional):boolean ) {
+            templates {
+                cpp ( (e 1) )
             }
         }
 
@@ -4116,7 +4360,12 @@ std::string r_utf8_char_at(const std::string& str, int pos_i)
             templates {
                 llvm ( "(charAt " (e 1) " " (e 2) ")")
                 ranger ( "(charAt " (e 1) " " ( e 2 ) ")")
-                cpp ( (e 1) ".at(" (e 2) ")")    
+                ; std::string::at gives a SIGNED char, and every other target
+                ; hands back an unsigned code unit (charCodeAt, ord, rune). A
+                ; byte over 127 read back negative, so a scanner written as
+                ; `c > 31` stopped at the first non-ASCII byte -- the compiler's
+                ; own comment scanner stopped at an em dash in Lang.rgr.
+                cpp ( "((unsigned char)" (e 1) ".at(" (e 2) "))")
                 csharp ( (e 1) "[" (e 2) "]")
                 php ( "ord(" (e 1) "[" (e 2) "])")               
                 java7 ( "(int)" (e 1) ".charAt(" (e 2) ")")  
@@ -4178,7 +4427,9 @@ std::vector<std::string> r_get_keys_of_map( const M & orig_map )  {
         charAt      cmdCharAt:char       ( text:charbuffer position:int ) { 
             templates {
                 ranger ( "(charAt " (e 1) " " ( e 2 ) ")")
-                cpp ( (e 1) "[" (e 2) "]")    
+                ; see the note on the string overload above: a charbuffer is a
+                ; const char* and indexing it gives a SIGNED char
+                cpp ( "((unsigned char)" (e 1) "[" (e 2) "])")
                 csharp ( (e 1) "[" (e 2) "]")
                 php ( "ord(" (e 1) "[" (e 2) "])")               
                 java7 ( (e 1) "[" (e 2) "]")  
@@ -4236,7 +4487,9 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
             templates {
                 ranger ( "(charcode " (e 1) ")")
                 go ( "[]byte(" (e 1) ")[0]" )
-                cpp( (e 1) ".at(0)")
+                ; unsigned for the same reason as charAt: std::string::at
+                ; gives a SIGNED char, and every other target returns a code unit
+                cpp( "((unsigned char)" (e 1) ".at(0))")
                 php ( "ord(" (e 1) ")") 
                 java7 ( "((" (e 1) ".getBytes())[0])") 
                 swift3 ( "UInt8( (  NSString(string: " (e 1) " )     ).character( at: 0 ) )" (imp "Foundation"))
@@ -4465,7 +4718,15 @@ class r_optional_primitive {
 "r_optional_primitive<int> cpp_str_to_int(std::string s) {
     r_optional_primitive<int> result;
     try {
-        result.value = std::stoi(s);
+        // Ranger `int` is 64-bit on Go, Rust, Java, Kotlin and Python and 32-bit
+        // here, so a literal between INT_MAX and INT64_MAX has no C++ int to
+        // land in. stoi threw for those and the value stayed 0 -- the compiler
+        // read its own `2147483648` bound as zero. Saturating keeps the sign
+        // and the magnitude order, which is what a bound check needs.
+        long long wide = std::stoll(s);
+        if (wide > 2147483647LL) { wide = 2147483647LL; }
+        if (wide < -2147483648LL) { wide = -2147483648LL; }
+        result.value = (int)wide;
         result.has_value = true;
     } catch (...) {
         

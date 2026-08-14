@@ -21,6 +21,177 @@ dropped the call. That form is how the engine writes a for-loop update. Go and
 Python failed to compile; C# compiled and ran with infinite loops until the
 interpreter guard stopped them. The writers now keep the statement live.
 
+## Cross-target gate: the compiler itself, on C++
+
+The compiler is self-hosting, but until now only its **JavaScript** output was
+exercised. Compiling the compiler for another target is a different question,
+and it is the sharpest test the language has: the compiler is the largest
+Ranger program in the repository, and it reaches parts of the language no
+fixture does.
+
+It now works end to end:
+
+```bash
+npm run selfhost:check:cpp     # generate the C++ and run g++ -fsyntax-only
+npm run selfhost:build:cpp     # ...and link ./tmp/selfhost/rangerc
+
+# the C++ binary compiles a Ranger program
+RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr" \
+  ./tmp/selfhost/rangerc -es6 hello.rgr -d=./tmp/out -o=hello.js -nodecli
+
+# ...including the compiler
+RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr" \
+  ./tmp/selfhost/rangerc -es6 ./compiler/ng_Compiler.rgr -nodecli \
+    -d=./tmp/self -o=output.js
+```
+
+`selfhost:build:cpp` copies `Lang.rgr`, `stdops.rgr` and `lib/` next to the
+binary, the same way `compile:copylibs` does for `bin/`: the compiler looks for
+its library beside the executable, and `install_directory` on C++ is the
+directory of `argv[0]`.
+
+The JavaScript the C++ build writes for the compiler is byte-identical to what
+the Node build writes, save for one line — see *32-bit `int`* below — and the
+compiler that comes out of it compiles the compiler again to a file that
+matches the Node build exactly. `npm test` runs the codegen and a `g++
+-fsyntax-only` over the result (`tests/compiler-selfhost-cpp.test.ts`, ~20 s);
+the binary build and the two bootstrap rounds are a manual step.
+
+### What it took
+
+Seven kinds of defect, and only one of them was in the C++ writer's own
+templates. The rest are the shape of the problem for **any** target that is not
+JavaScript:
+
+1. **A systemclass reached the output under its Ranger name.** The C++ writer
+   fell through to `std::shared_ptr<JSONDataObject>`, which names no C++ type.
+   It now reads `systemNames["cpp"]`, the way the Rust writer already did.
+2. **JSON had no C++ template at all** (441 of the 441 errors on the first
+   run). Every `@serialize` class generates a `toDictionary` that calls
+   `json_object` / `set` / `keys`, so the compiler could not be compiled for
+   C++ at all. See *JSON on C++* below.
+3. **An operator declared for one target only.** `pathname` in
+   `VirtualCompiler.rgr` had an `es6` template and nothing else, so the
+   compiler's own path handling compiled for no other target.
+4. **A signed `char`.** A UTF-8 byte over 127 is negative in a C++ `char`, and
+   the parser skips a comment with `while (charAt s i) > 31`. The compiler
+   stopped at the first em dash in a comment in `Lang.rgr` and read the rest of
+   the line as code. `charAt` and `charcode` now give an unsigned code unit on
+   C++, which is what `charCodeAt` / `ord` / `rune` give everywhere else.
+5. **`weak` is a no-op on JavaScript.** Four fields in the compiler were marked
+   `@(weak)` and were the only reference to their object. On JavaScript the
+   garbage collector kept them alive and nobody noticed; on C++ they were
+   already destroyed at the read. See *`weak` in a self-hosted compiler* below.
+6. **An out-of-range read.** `at(list, 0)` on an empty list, `charcode("")`,
+   `charAt(s, i + 5)` past the end: JavaScript answers `undefined` / `NaN` and
+   the program carries on. C++ throws, Python and Rust raise. Four of these
+   were live in the compiler; each is fixed at the source, not papered over in
+   the template.
+7. **A C++ reference bound to a temporary.** A local aliasing a member gets `&`
+   in C++, and the analysis read `(unwrap this.block)` and `(array_extract
+   node.children 0)` as member accesses — both are temporaries. A non-const
+   reference parameter had the same problem at the call site, where Ranger
+   passes an array literal.
+
+### JSON on C++
+
+`JSONDataObject` and `JSONArrayObject` are handles (`std::shared_ptr`), so
+pushing an object into an array and then filling it behaves the way it does on
+JavaScript. `JSONValueUnion` is a `std::variant`, so `case v x:JSONDataObject`
+lowers to the same `std::holds_alternative` every other closed family uses, and
+the generic `case` for `string` / `int` / `double` / `boolean` gained a C++
+template for the same reason. The reader, the writer and the parser are
+polyfills — a C++ build needs no library and no download.
+
+Two things do not survive the trip, both because C++ has no place to put
+"absent":
+
+- `getStr` gives `""` for a missing key, so a key whose value is the empty
+  string reads as missing. This is the same trade `read_file` already makes.
+- `getBoolean` gives `false` for a missing key.
+
+`getInt` and `getDouble` keep the distinction (`r_optional_primitive<T>`), and
+`getObject` / `getArray` keep it too (a null handle).
+
+### `weak` in a self-hosted compiler
+
+`@(weak)` means "do not keep this alive". On JavaScript it means nothing at
+all — the field is an ordinary reference and the collector keeps the object.
+So a Ranger program can mark an **owning** edge `weak`, run correctly on
+JavaScript forever, and dangle the moment it is compiled for C++, Swift or any
+other target with real weak references.
+
+The compiler had four of these, and each one produced a different symptom:
+
+| Field | What broke |
+| --- | --- |
+| `RangerAppClassDesc.ctx` | null context in `defineVariable`, segfault |
+| `RangerAppParamDesc.node` / `nameNode` / `fnBody` | null node in the flow parser, segfault |
+| `CodeNode.evalCtx` / `flow_ctx` | code generation silently used the wrong context: a local that shadowed a field of the same name resolved to the **field**, so `values_1` came out as `this.values_1` |
+| `CompilerResults.ctx` / `fileSystem` | the compile reported success and wrote no file |
+
+The third one is the one to remember: it is not a crash. It is wrong output,
+from a compile that reports success.
+
+If you are porting a Ranger program to a target that is not JavaScript, read
+every `@(weak)` in it and ask who else holds the object. `g++
+-fsanitize=address` answers the first two rows immediately; the third and
+fourth need a diff against the JavaScript build.
+
+### 32-bit `int`
+
+Ranger `int` is 64 bits on Go (`int64`), Rust (`i64`), Java (`long`), Kotlin
+and Python, and **32 bits** on C++ (`int`) — even though `int_buffer` on C++ is
+`std::vector<int64_t>`. The compiler contains the literal `2147483648`, which
+has no C++ `int` to land in: `std::stoi` threw and the value silently became
+`0`, so the C++ build read its own `INT_MIN` bound as zero. `str2int` now
+saturates instead, which leaves one line of difference between the C++ build's
+output and the Node build's (`0 - 2147483647` against `0 - 2147483648`) rather
+than a wrong answer.
+
+Widening C++ `int` to `int64_t` would remove the difference and is the change
+this note argues for, but it moves every scalar in the generated C++ and the
+engine tuning in `CPP_ENGINE_ANALYSIS.md` is measured against the current
+width, so it is not made here.
+
+### The same self-compile on the other targets
+
+Measured with `node bin/output.js -l=<target> ./compiler/ng_Compiler.rgr
+-nodecli`, so this is the compiler's own diagnosis, not the target toolchain's:
+
+| Target | Errors | First thing in the way |
+| --- | ---: | --- |
+| C++ | **0** | — builds and runs, see above |
+| Go | **0** | generates ~70k lines; `go build` then reports the three defects below |
+| Swift 6 | 12 | |
+| Rust | 16 | |
+| Kotlin | 19 | |
+| Python | 72 | |
+| Dart | 482 | |
+| C# | 499 | |
+
+Go reached zero the same way C++ did — `RangerCompilerPlugin` is a systemclass
+and named no Go type, so the single error was the plugin loader. What `go
+build` finds after that is a shortlist worth having:
+
+- a nested collection type is not converted: `[string:[string]]` comes out as
+  `map[string]*[string]`, and the Ranger spelling also reaches a generated
+  function name (`r_has_key_string_[string]`);
+- a `case` over a **system** union writes the Ranger tag scheme against
+  `interface{}`: `item.tag == interface{}_tag_string`.
+
+Neither is specific to the compiler; both are Go writer work, and both are the
+kind of thing only a program this size reaches.
+
+### `strlen` counts bytes, `substring` counts characters
+
+On C++ `strlen` is `std::string::length()` (bytes) and `charAt` indexes bytes,
+but `substring` is `r_utf8_substr` and counts UTF-8 **characters**. A loop
+written as `while (i < (strlen s))` over `(substring s i (i + 1))` therefore
+runs past the end of a string that holds any non-ASCII character. Every other
+target counts the same unit in both. Prefer `charAt` for a scan; the compiler's
+own `advanceColumnForString` was rewritten that way.
+
 ## Dart (`-l=dart`)
 
 Flutter-ready **package** generation for shared application logic (models,

@@ -9,66 +9,77 @@ operators {
     ansi_reset      cmdAnsiReset:string () {
         templates {
             es6 ( "\"\\x1b[0m\"" )
+            cpp ( "std::string(\"\\x1b[0m\")" )
             * ( "\"\"" )
         }
     }
     ansi_bold       cmdAnsiBold:string () {
         templates {
             es6 ( "\"\\x1b[1m\"" )
+            cpp ( "std::string(\"\\x1b[1m\")" )
             * ( "\"\"" )
         }
     }
     ansi_dim        cmdAnsiDim:string () {
         templates {
             es6 ( "\"\\x1b[2m\"" )
+            cpp ( "std::string(\"\\x1b[2m\")" )
             * ( "\"\"" )
         }
     }
     ansi_green      cmdAnsiGreen:string () {
         templates {
             es6 ( "\"\\x1b[32m\"" )
+            cpp ( "std::string(\"\\x1b[32m\")" )
             * ( "\"\"" )
         }
     }
     ansi_red        cmdAnsiRed:string () {
         templates {
             es6 ( "\"\\x1b[31m\"" )
+            cpp ( "std::string(\"\\x1b[31m\")" )
             * ( "\"\"" )
         }
     }
     ansi_yellow     cmdAnsiYellow:string () {
         templates {
             es6 ( "\"\\x1b[33m\"" )
+            cpp ( "std::string(\"\\x1b[33m\")" )
             * ( "\"\"" )
         }
     }
     ansi_blue       cmdAnsiBlue:string () {
         templates {
             es6 ( "\"\\x1b[34m\"" )
+            cpp ( "std::string(\"\\x1b[34m\")" )
             * ( "\"\"" )
         }
     }
     ansi_magenta    cmdAnsiMagenta:string () {
         templates {
             es6 ( "\"\\x1b[35m\"" )
+            cpp ( "std::string(\"\\x1b[35m\")" )
             * ( "\"\"" )
         }
     }
     ansi_cyan       cmdAnsiCyan:string () {
         templates {
             es6 ( "\"\\x1b[36m\"" )
+            cpp ( "std::string(\"\\x1b[36m\")" )
             * ( "\"\"" )
         }
     }
     ansi_gray       cmdAnsiGray:string () {
         templates {
             es6 ( "\"\\x1b[90m\"" )
+            cpp ( "std::string(\"\\x1b[90m\")" )
             * ( "\"\"" )
         }
     }
     ansi_white      cmdAnsiWhite:string () {
         templates {
             es6 ( "\"\\x1b[37m\"" )
+            cpp ( "std::string(\"\\x1b[37m\")" )
             * ( "\"\"" )
         }
     }
@@ -77,12 +88,14 @@ operators {
     ansi_bg_red     cmdAnsiBgRed:string () {
         templates {
             es6 ( "\"\\x1b[41m\"" )
+            cpp ( "std::string(\"\\x1b[41m\")" )
             * ( "\"\"" )
         }
     }
     ansi_bg_green   cmdAnsiBgGreen:string () {
         templates {
             es6 ( "\"\\x1b[42m\"" )
+            cpp ( "std::string(\"\\x1b[42m\")" )
             * ( "\"\"" )
         }
     }
@@ -91,6 +104,7 @@ operators {
     is_tty          cmdIsTTY:boolean () {
         templates {
             es6 ( "((typeof process !== \"undefined\" && process.stdout && process.stdout.isTTY) || false)" )
+            cpp ( "(isatty(1) != 0)" (imp "<unistd.h>") )
             * ( "false" )
         }
     }
@@ -100,6 +114,7 @@ operators {
         templates {
             es6 ( "Date.now()" )
             go ( "float64(time.Now().UnixMilli())" )
+            cpp ( "((double)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count())" (imp "<chrono>") )
             * ( "0.0" )
         }
     }

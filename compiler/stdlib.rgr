@@ -14,6 +14,12 @@ operators {
 
     case             _@(newcontext):void           ( arg@(union):T item2@(define):boolean code:block )  {
         templates {
+            cpp (
+                (forkctx _ ) (def 2) "if( std::holds_alternative<bool>(" (e 1) ") ) /* union case for boolean */ {" nl I
+                        "bool " (e 2) " = std::get<bool>(" (e 1) ");" nl
+                        (block 3)
+                        nl i "}"
+            )
             es6 (
                 (forkctx _ ) (def 2) "if( typeof(" (e 1) ") === 'boolean' ) /* union case for boolean */ {" nl I
                         "var " (e 2) " = " (e 1) ";" nl
@@ -42,6 +48,12 @@ operators {
     }
     case             _@(newcontext):void           ( arg@(union):T item2@(define):int code:block )  {
         templates {
+            cpp (
+                (forkctx _ ) (def 2) "if( std::holds_alternative<int>(" (e 1) ") ) /* union case for int */ {" nl I
+                        "int " (e 2) " = std::get<int>(" (e 1) ");" nl
+                        (block 3)
+                        nl i "}"
+            )
             es6 (
                 (forkctx _ ) (def 2) "if( " "Number.isInteger ? Number.isInteger(" (e 1) ") : (function(v) { return typeof v === 'number' &&  isFinite(v) && Math.floor(v) === v; })(" (e 1) ")" " ) /* union case for int */ {" nl I
                         "var " (e 2) " = " (e 1) ";" nl
@@ -76,6 +88,12 @@ operators {
     }
     case             _@(newcontext):void           ( arg@(union):T item2@(define):double code:block )  {
         templates {
+            cpp (
+                (forkctx _ ) (def 2) "if( std::holds_alternative<double>(" (e 1) ") ) /* union case for double */ {" nl I
+                        "double " (e 2) " = std::get<double>(" (e 1) ");" nl
+                        (block 3)
+                        nl i "}"
+            )
             es6 (
                 (forkctx _ ) (def 2) "if ( (function(v) { return typeof v === 'number' &&  isFinite(v); })(" (e 1) "))" " /* union case for double */ {" nl I
                         "var " (e 2) " = " (e 1) ";" nl
@@ -111,6 +129,12 @@ operators {
 
     case             _@(newcontext):void           ( arg@(union):T item2@(define):string code:block )  {
         templates {
+            cpp (
+                (forkctx _ ) (def 2) "if( std::holds_alternative<std::string>(" (e 1) ") ) /* union case for string */ {" nl I
+                        "std::string " (e 2) " = std::get<std::string>(" (e 1) ");" nl
+                        (block 3)
+                        nl i "}"
+            )
             es6 (
                 (forkctx _ ) (def 2) "if( typeof(" (e 1) ") === 'string' ) /* union case for string */ {" nl I
                         "var " (e 2) " = " (e 1) ";" nl

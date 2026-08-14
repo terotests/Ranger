@@ -25,6 +25,53 @@ defn CreateFile (name data) (create_file (unwrap env.filesystem) name data)
 operators {
   normalize cmdArg:string ( arg:string ) {
       templates {
+          cpp ( "rg_path_normalize(" (e 1) ")"
+          (create_polyfill "
+#include <string>
+#include <vector>
+// Path helpers for the compiler's own file handling. std::filesystem would do
+// this, but the generated program has to build with a plain -std=c++17 line and
+// no extra library, so these are string operations. The shape follows Node's
+// path.normalize / path.dirname, because that is what the JavaScript host of
+// the same Ranger source does.
+inline std::string rg_path_normalize(const std::string& p) {
+    std::string s;
+    for (size_t i = 0; i < p.size(); i++) { s.push_back(p[i] == (char)92 ? '/' : p[i]); }
+    bool absolute = (s.size() > 0 && s[0] == '/');
+    bool trailing = (s.size() > 1 && s[s.size() - 1] == '/');
+    std::vector<std::string> parts;
+    std::string cur;
+    for (size_t i = 0; i <= s.size(); i++) {
+        if (i == s.size() || s[i] == '/') {
+            if (cur == \"..\") {
+                if (parts.size() > 0 && parts[parts.size() - 1] != \"..\") { parts.pop_back(); }
+                else if (absolute == false) { parts.push_back(cur); }
+            } else if (cur.size() > 0 && cur != \".\") {
+                parts.push_back(cur);
+            }
+            cur.clear();
+        } else { cur.push_back(s[i]); }
+    }
+    std::string out;
+    for (size_t i = 0; i < parts.size(); i++) {
+        if (i > 0) { out.push_back('/'); }
+        out += parts[i];
+    }
+    if (absolute) { out = std::string(\"/\") + out; }
+    if (out.size() == 0) { return std::string(\".\"); }
+    if (trailing && out != \"/\") { out.push_back('/'); }
+    return out;
+}
+inline std::string rg_path_dirname(const std::string& p) {
+    std::string s = rg_path_normalize(p);
+    if (s.size() > 1 && s[s.size() - 1] == '/') { s.erase(s.size() - 1); }
+    size_t pos = s.rfind('/');
+    if (pos == std::string::npos) { return std::string(\".\"); }
+    if (pos == 0) { return std::string(\"/\"); }
+    return s.substr(0, pos);
+}
+")
+          )
           es6 ( 'require("path").normalize(' (e 1) ')')
           ranger ('( normalize ' (e 1) ' )')
           * ( "\"./\"")
@@ -32,6 +79,55 @@ operators {
   }  
   pathname _:string (path:string) {
       templates {
+          cpp ( "rg_path_dirname(" (e 1) ")"
+          (create_polyfill "
+#include <string>
+#include <vector>
+// Path helpers for the compiler's own file handling. std::filesystem would do
+// this, but the generated program has to build with a plain -std=c++17 line and
+// no extra library, so these are string operations. The shape follows Node's
+// path.normalize / path.dirname, because that is what the JavaScript host of
+// the same Ranger source does.
+inline std::string rg_path_normalize(const std::string& p) {
+    std::string s;
+    for (size_t i = 0; i < p.size(); i++) { s.push_back(p[i] == (char)92 ? '/' : p[i]); }
+    bool absolute = (s.size() > 0 && s[0] == '/');
+    bool trailing = (s.size() > 1 && s[s.size() - 1] == '/');
+    std::vector<std::string> parts;
+    std::string cur;
+    for (size_t i = 0; i <= s.size(); i++) {
+        if (i == s.size() || s[i] == '/') {
+            if (cur == \"..\") {
+                if (parts.size() > 0 && parts[parts.size() - 1] != \"..\") { parts.pop_back(); }
+                else if (absolute == false) { parts.push_back(cur); }
+            } else if (cur.size() > 0 && cur != \".\") {
+                parts.push_back(cur);
+            }
+            cur.clear();
+        } else { cur.push_back(s[i]); }
+    }
+    std::string out;
+    for (size_t i = 0; i < parts.size(); i++) {
+        if (i > 0) { out.push_back('/'); }
+        out += parts[i];
+    }
+    if (absolute) { out = std::string(\"/\") + out; }
+    if (out.size() == 0) { return std::string(\".\"); }
+    if (trailing && out != \"/\") { out.push_back('/'); }
+    return out;
+}
+inline std::string rg_path_dirname(const std::string& p) {
+    std::string s = rg_path_normalize(p);
+    if (s.size() > 1 && s[s.size() - 1] == '/') { s.erase(s.size() - 1); }
+    size_t pos = s.rfind('/');
+    if (pos == std::string::npos) { return std::string(\".\"); }
+    if (pos == 0) { return std::string(\"/\"); }
+    return s.substr(0, pos);
+}
+")
+          )
+          ranger ( "( pathname " (e 1) " )" )
+          * ( "\"./\"")
           es6 ( "require('path').dirname(" (e 1) ")" )
       }        
   }  
@@ -41,9 +137,14 @@ operator type:void es6 {
   fn get_compiler_data:JSONDataObject () ('window._Ranger_compiler_environment_')
 }
 
+; What `run` hands back to its caller, which then writes the files. Both of
+; these have to be owning references: the locals inside `run` are the only other
+; holders, so on a target where `weak` is a real weak reference the result was
+; already dead when main() read it — the C++ build reported success and wrote no
+; file, because `res.fileSystem` had expired.
 class CompilerResults {
-  def ctx@(weak):RangerAppWriterContext
-  def fileSystem@(weak):CodeFileSystem  
+  def ctx:RangerAppWriterContext
+  def fileSystem:CodeFileSystem
   def target_dir ""
   def hasErrors false
   def errorMessage ""

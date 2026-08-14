@@ -139,9 +139,15 @@ class RangerAppParamDesc {
   def escape_return_only:boolean true
   def ownership_read_only:boolean false ; observed only in read positions
   
-  def node@(weak):CodeNode
-  def nameNode@(weak):CodeNode
-  def fnBody@(weak):CodeNode
+  ; The AST nodes a descriptor was built from. These have to be owning: a
+  ; descriptor outlives the tree it came from whenever the tree was a copy or a
+  ; macro expansion, and `weak` is a no-op on the JavaScript host so nothing
+  ; noticed. On C++ the nodes were already gone by the time the flow parser read
+  ; `item.nameNode.hasFlag(...)`. CodeNode points back through `paramDesc`,
+  ; which stays weak, so this direction is the owning one.
+  def node:CodeNode
+  def nameNode:CodeNode
+  def fnBody:CodeNode
   def params:[RangerAppParamDesc]
   def return_value:RangerAppParamDesc
   def description:string ""

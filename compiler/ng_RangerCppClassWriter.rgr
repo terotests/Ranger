@@ -131,8 +131,14 @@ class RangerCppClassWriter {
       }
     }
     switch type_string {
+      ; Ranger `char` is a code unit VALUE, the way charCodeAt gives it on the
+      ; JavaScript host: 0..255 for a byte of a charbuffer. Plain `char` is
+      ; signed on x86, so every byte over 127 came out negative and each
+      ; `c <= 32` test in a lexer read a UTF-8 continuation byte as
+      ; whitespace. The compiler's own parser stopped at the first em dash in
+      ; a comment in Lang.rgr.
       case "char" {
-        return "char"
+        return "unsigned char"
       }   
       case "charbuffer" {
         return "const char*"
@@ -191,6 +197,16 @@ class RangerCppClassWriter {
       ; the whole cost, and a value case has nothing that needs one.
       if (this.cppUnionValueCase(cc ctx)) {
         return type_string
+      }
+      ; A systemclass names one type per target. Without this the Ranger name
+      ; reached the output behind a shared_ptr and g++ saw an undeclared type:
+      ; std::shared_ptr<JSONDataObject> instead of the object handle that
+      ; JSON.rgr declares for C++.
+      if cc.is_system {
+        def sysName@(optional):string (get cc.systemNames "cpp")
+        if (!null? sysName) {
+          return (unwrap sysName)
+        }
       }
 
       return (this.cppPtr(type_string))
@@ -280,8 +296,14 @@ class RangerCppClassWriter {
 
   fn getTypeString2:string (type_string:string ctx:RangerAppWriterContext) {
     switch type_string {
+      ; Ranger `char` is a code unit VALUE, the way charCodeAt gives it on the
+      ; JavaScript host: 0..255 for a byte of a charbuffer. Plain `char` is
+      ; signed on x86, so every byte over 127 came out negative and each
+      ; `c <= 32` test in a lexer read a UTF-8 continuation byte as
+      ; whitespace. The compiler's own parser stopped at the first em dash in
+      ; a comment in Lang.rgr.
       case "char" {
-        return "char"
+        return "unsigned char"
       }   
       case "charbuffer" {
         return "const char*"
@@ -325,10 +347,21 @@ class RangerCppClassWriter {
     }
     if(ctx.isEnumDefined(type_string)) {
       return "int"
-    }     
+    }
+    ; Same reason as in getObjectTypeString: a systemclass carries the target
+    ; type name, and this path writes the bare name of a value.
+    if(ctx.isDefinedClass(type_string)) {
+      def scc (ctx.findClass(type_string))
+      if scc.is_system {
+        def sysName@(optional):string (get scc.systemNames "cpp")
+        if (!null? sysName) {
+          return (unwrap sysName)
+        }
+      }
+    }
     return type_string
   }
-  
+
   fn writePtr:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (node.type_name == "void") {
       return
@@ -394,7 +427,7 @@ class RangerCppClassWriter {
         }
       }
       case RangerNodeType.Char {
-        wr.out("char" false)
+        wr.out("unsigned char" false)
       }  
       case RangerNodeType.CharBuffer {
         wr.out("const char*" false)
@@ -476,6 +509,16 @@ class RangerCppClassWriter {
           if (this.cppUnionValueCase(cc ctx)) {
             wr.out(cc.name false)
             return
+          }
+          ; A systemclass carries the target type name; without this a variable
+          ; of one was declared as a shared_ptr of the Ranger name, which names
+          ; no C++ type (std::shared_ptr<JSONDataObject>).
+          if cc.is_system {
+            def sysName@(optional):string (get cc.systemNames "cpp")
+            if (!null? sysName) {
+              wr.out((unwrap sysName) false)
+              return
+            }
           }
           wr.out((this.cppPtrOpen()) false)
           wr.out(cc.name false)
@@ -804,6 +847,14 @@ class RangerCppClassWriter {
           useCppRef = false
         }
         if initNode.has_call {
+          useCppRef = false
+        }
+        ; The alias is only sound when the initializer IS the member: an
+        ; expression around it -- `(unwrap this.block)`, `(array_extract
+        ; node.children 0)` -- produces a temporary, and a C++ reference does
+        ; not bind one. The static analysis reads both of those as a member
+        ; access, so the writer has to be the one that says no.
+        if initNode.expression {
           useCppRef = false
         }
         if (!null? p.nameNode) {
@@ -1564,6 +1615,41 @@ class RangerCppClassWriter {
       wr.out(((" " + arg.compiledName) + " ") false)
     }
   }
+  ; True when writeArgsDef gives this parameter a NON-const C++ reference, so a
+  ; call site knows the argument has to be an lvalue. Mirrors the decisions the
+  ; loop above makes, in the same order.
+  fn cppMutableRefParam:boolean (fnDesc:RangerAppFunctionDesc arg:RangerAppParamDesc ctx:RangerAppWriterContext) {
+    if (this.cppReadonlyValueParam(arg)) {
+      return false
+    }
+    if (this.cppReadonlyUnionParam(arg ctx)) {
+      return false
+    }
+    if (this.cppBorrowedObjectParam(fnDesc arg ctx)) {
+      return false
+    }
+    if (null? arg.nameNode) {
+      return false
+    }
+    def typeNode:CodeNode (unwrap arg.nameNode)
+    def tn:string typeNode.type_name
+    if (((tn == "buffer") || (tn == "int_buffer")) || (tn == "double_buffer")) {
+      return true
+    }
+    if (arg.needs_cpp_reference == false) {
+      return false
+    }
+    def v_type:RangerNodeType typeNode.value_type
+    if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef)) {
+      return false
+    }
+    if ((strlen tn) > 0) {
+      if (ctx.isDefinedClass(tn)) {
+        return false
+      }
+    }
+    return true
+  }
   fn writeFnCall:void  (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasFnCall {
       def fc:CodeNode (node.getFirst())
@@ -1587,11 +1673,27 @@ class RangerCppClassWriter {
         }
         def n:CodeNode (itemAt givenArgs.children i)
         def tempCopy:boolean (this.cppNeedsCallTempCopy((unwrap node.fnDesc) arg n ctx))
+        ; An argument written as an expression is a temporary — an array
+        ; literal, a call result — and a non-const reference parameter can not
+        ; bind one. rg_arg_ref passes an lvalue straight through, so only the
+        ; temporary case changes.
+        def argRef:boolean false
+        if (tempCopy == false) {
+          if n.expression {
+            argRef = (this.cppMutableRefParam((unwrap node.fnDesc) arg ctx))
+          }
+        }
         if tempCopy {
           this.writeTypeDef((unwrap arg.nameNode) ctx wr)
           wr.out("(" false)
         }
+        if argRef {
+          wr.out("rg_arg_ref(" false)
+        }
         this.WalkNode(n ctx wr)
+        if argRef {
+          wr.out(")" false)
+        }
         if tempCopy {
           wr.out(")" false)
         }
@@ -2155,6 +2257,15 @@ class RangerCppClassWriter {
         this.writeCppWeakHelper(wr)
         wr.out("" true)
       }
+      ; A parameter that the callee mutates is a non-const C++ reference, and a
+      ; non-const reference does not bind a temporary. Ranger call sites do pass
+      ; one — `this.TransformOpFn(([] opTpl) node ctx wr)` builds the array in
+      ; the argument list. The forwarding reference keeps an lvalue argument
+      ; exactly as it was, so the callee still writes through to the caller's
+      ; object, and materialises an rvalue for the duration of the call, which
+      ; is what the JavaScript host does with the same source.
+      wr.out("template <class T> inline T& rg_arg_ref(T&& v) { return v; }" true)
+      wr.out("" true)
       wr.out("// header definitions" true)
       wr.createTag("c++Header")
       wr.out("" true)

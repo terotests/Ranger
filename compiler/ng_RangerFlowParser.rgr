@@ -1647,8 +1647,14 @@ class RangerFlowParser {
             if( !null? item.container_class) {
               def cc (unwrap item.container_class)
               if( (has cc.extends_classes ) || cc.is_inherited )  {
-                def eC (at cc.extends_classes 0)
-                ctx.findClass( eC )
+                ; `is_inherited` alone reaches here with an EMPTY list, and the
+                ; read below is index 0. On JavaScript that gives undefined and
+                ; findClass shrugs; on a target where an out-of-range read is an
+                ; error it stopped the compile with no diagnostic.
+                if( has cc.extends_classes ) {
+                  def eC (at cc.extends_classes 0)
+                  ctx.findClass( eC )
+                }
                 ; not sure if this function is necessary or not...
               } {
                 ; print " unused function " + item.name + " in class " + item.container_class.name

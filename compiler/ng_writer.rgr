@@ -456,6 +456,14 @@ class CodeWriter {
     }
 
     fn line_end:void (str:string) {
+        ; `charcode` reads index 0, so an empty argument has to leave early.
+        ; JavaScript answers NaN and the comparison below is then always true,
+        ; which writes the empty string -- a no-op. Every other target raises on
+        ; the read instead, and the C++ build turned that into "Error parsing
+        ; function unspecified error" for 106 functions.
+        if ( (strlen str) == 0) {
+            return
+        }
         if ( (strlen currentLine) > 0) {
             if ( (charcode str) != (charAt currentLine ( (strlen currentLine) - 1) ) ) {
                 this.out(str false)
@@ -466,7 +474,13 @@ class CodeWriter {
     fn advanceColumnForString:void (str:string) {
         def i:int 0
         while (i < (strlen str)) {
-            def ch:int (charcode (substring str i (+ i 1)))
+            ; `charAt` indexes the same units `strlen` counts on every target.
+            ; The previous form asked `substring` for one unit and read its
+            ; first code: on C++ `substring` counts UTF-8 CHARACTERS while
+            ; `strlen` counts BYTES, so a string holding one multi-byte
+            ; character ran the index past the end, `substring` gave "" and
+            ; reading its first code raised.
+            def ch:int (charAt str i)
             if (ch == 10) {
                 lineNumber = lineNumber + 1
                 columnNumber = 0
