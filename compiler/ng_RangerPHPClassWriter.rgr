@@ -439,7 +439,29 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       if (i > 0) {
         wr.out("," false)
       }
-      wr.out(((" $" + arg.compiledName) + " ") false)
+      ; PHP passes arrays BY VALUE. A callee that writes through its
+      ; parameter -- `sfn grow (arr:[int]) { push arr 42 }` -- therefore grew
+      ; a copy and the caller saw an empty array, silently. The same static
+      ; analysis that gives C++ its `&` and Rust its `&mut` says which
+      ; parameters are written through; objects are already handles in PHP, so
+      ; only the collection types need it.
+      def byRef:boolean false
+      if arg.needs_cpp_reference {
+        if (!null? arg.nameNode) {
+          def nn:CodeNode (unwrap arg.nameNode)
+          if ((strlen nn.array_type) > 0) {
+            byRef = true
+          }
+          if ((nn.value_type == RangerNodeType.Array) || (nn.value_type == RangerNodeType.Hash)) {
+            byRef = true
+          }
+        }
+      }
+      if byRef {
+        wr.out(((" &$" + arg.compiledName) + " ") false)
+      } {
+        wr.out(((" $" + arg.compiledName) + " ") false)
+      }
     }
   }
 

@@ -786,13 +786,20 @@
     def b_had_app:boolean false
     def app_obj:RangerAppFunctionDesc
 
+    ; The entry point is the one carrying @(main), which is almost never
+    ; CALLED `main` -- every conformance fixture spells it `m@(main)`. Matching
+    ; on the name meant such a function was classified as an ordinary static,
+    ; and then skipped by the loop below (which does check the flag), so it was
+    ; emitted nowhere and `b_had_app` stayed false: a single-class program came
+    ; out as an empty companion object with its whole body missing. A function
+    ; literally named `main` is still accepted, as it was before.
     cl.static_methods.forEach({
-      if( item.name != "main" ) {
-        b_has_non_main_static = true
-      } {
+      if( (item.nameNode.hasFlag("main")) || (item.name == "main") ) {
         b_had_app = true
         def it item
         app_obj = it
+      } {
+        b_has_non_main_static = true
       }
     })
 

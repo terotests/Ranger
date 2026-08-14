@@ -32500,12 +32500,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         let b_had_app = false;
                         let app_obj;
                         await operatorsOf.forEach_29(cl.static_methods, ((item, index) => { 
-                          if ( item.name != "main" ) {
-                            b_has_non_main_static = true;
-                          } else {
+                          if ( item.nameNode.hasFlag("main") || (item.name == "main") ) {
                             b_had_app = true;
                             const it = item;
                             app_obj = it;
+                          } else {
+                            b_has_non_main_static = true;
                           }
                         }));
                         if ( b_has_non_main_static ) {
@@ -35326,7 +35326,23 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( i > 0 ) {
                             wr.out(",", false);
                           }
-                          wr.out((" $" + arg.compiledName) + " ", false);
+                          let byRef = false;
+                          if ( arg.needs_cpp_reference ) {
+                            if ( (typeof(arg.nameNode) !== "undefined" && arg.nameNode != null )  ) {
+                              const nn = arg.nameNode;
+                              if ( (nn.array_type.length) > 0 ) {
+                                byRef = true;
+                              }
+                              if ( (nn.value_type == 6) || (nn.value_type == 7) ) {
+                                byRef = true;
+                              }
+                            }
+                          }
+                          if ( byRef ) {
+                            wr.out((" &$" + arg.compiledName) + " ", false);
+                          } else {
+                            wr.out((" $" + arg.compiledName) + " ", false);
+                          }
                         };
                       };
                       async writeArrayLiteral (node, ctx, wr) {
@@ -53518,7 +53534,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                             res.ctx = appCtx;
                                                             return res;
                                                           }
-                                                          if ( (appCtx.targetLangName == "cpp") || (appCtx.targetLangName == "rust") ) {
+                                                          if ( ((appCtx.targetLangName == "cpp") || (appCtx.targetLangName == "rust")) || (appCtx.targetLangName == "php") ) {
                                                             cli.stepWithDetail(3, "Static analysis", "for " + appCtx.targetLangName);
                                                             const staticAnalyzer = new StaticAnalyzer();
                                                             staticAnalyzer.ctx = appCtx;

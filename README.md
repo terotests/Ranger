@@ -123,16 +123,25 @@ program has to know.
 Cross-target semantic fixtures live in `tests/conformance/`. Run `npx vitest run tests/compiler-conformance.test.ts`.
 Regenerate the fixture list with `node scripts/generate-conformance-table.mjs`.
 
+The suite runs a fixture on every target whose toolchain is installed and skips
+the rest, so what it actually covers depends on the machine. These fixtures have
+been run end to end on **ES6, Python, PHP, Go, Java, C++, Rust, Kotlin, Dart and
+Scala**; only Go still fails one (`array_param_mutate`, Issue #58 — a Go slice
+parameter is a copy, so a callee that appends to it grows nothing the caller can
+see). **Swift and C# are not verified** — no toolchain was available — and the
+Scala and Java runs were manual, since the harness has no helper for them yet.
+
 <!-- BEGIN CONFORMANCE_TABLE -->
 | Fixture | Topic | Targets |
 | --- | --- | --- |
-| `array_param_mutate` | array parameters use reference semantics (Issue #58; Go known gap) | ES6, Go, Kotlin, Dart (when toolchain present) |
-| `clear_then_push` | clear resets slice without nil, push refills (Issue #59) | ES6, Go, Kotlin, Dart (when toolchain present) |
-| `int_division_to_double` | Conformance: integer division promoted to double (Issue #4) | ES6, Go, Kotlin, Dart (when toolchain present) |
-| `lf_line_endings` | LF-only source (Issue #12 class must not break operator spacing) | ES6, Go, Kotlin, Dart (when toolchain present) |
-| `math_ops` | Conformance: arithmetic and comparisons | ES6, Go, Kotlin, Dart (when toolchain present) |
-| `string_codepoint_index` | Conformance: Unicode code-point string indexing (Issue #57) | ES6, Go, Kotlin, Dart (when toolchain present) |
-| `while_loop` | Conformance: while loop control flow | ES6, Go, Kotlin, Dart (when toolchain present) |
+| `array_param_mutate` | array parameters use reference semantics (Issue #58; Go known gap) | ES6, Go, Python, PHP, Kotlin, Dart (when toolchain present) |
+| `clear_then_push` | clear resets slice without nil, push refills (Issue #59) | ES6, Go, Python, PHP, Kotlin, Dart (when toolchain present) |
+| `int_division_to_double` | Conformance: integer division promoted to double (Issue #4) | ES6, Go, Python, PHP, Kotlin, Dart (when toolchain present) |
+| `lf_line_endings` | LF-only source (Issue #12 class must not break operator spacing) | ES6, Go, Python, PHP, Kotlin, Dart (when toolchain present) |
+| `math_ops` | Conformance: arithmetic and comparisons | ES6, Go, Python, PHP, Kotlin, Dart (when toolchain present) |
+| `string_ascii_and_reserve` | Conformance: string-inspection and array-sizing ops agree on every target | ES6, Go, Python, PHP, Kotlin, Dart (when toolchain present) |
+| `string_codepoint_index` | Conformance: Unicode code-point string indexing (Issue #57) | ES6, Go, Python, PHP, Kotlin, Dart (when toolchain present) |
+| `while_loop` | Conformance: while loop control flow | ES6, Go, Python, PHP, Kotlin, Dart (when toolchain present) |
 <!-- END CONFORMANCE_TABLE -->
 
 ## Quick start

@@ -4194,6 +4194,7 @@ bool r_mem_trim() { return false; }
 #endif
 ")
                 )
+                python ( "False" )
                 * ( "false" )
             }
         }
@@ -4238,6 +4239,9 @@ std::string r_byte_substr(const std::string& s, int a, int b)
                 ranger ( "(has_byte_substring)")
                 cpp ( "true" )
                 rust ( "true" )
+                ; Python spells its booleans with a capital, and a template is
+                ; raw text -- the writer never sees a boolean to translate.
+                python ( "False" )
                 * ( "false" )
             }
         }
@@ -4251,6 +4255,12 @@ std::string r_byte_substr(const std::string& s, int a, int b)
                 ranger ( "(array_reserve " (e 1) " " (e 2) ")")
                 cpp ( (e 1) ".reserve((size_t)(" (e 2) "))" )
                 rust ( (e 1) ".reserve(" (e 2) " as usize)" )
+                ; `pass`, not a comment: this is a whole statement, and where
+                ; it is the ONLY statement in a block a comment leaves the
+                ; block empty. A C-style comment is not Python syntax at all,
+                ; which turned every generated file that pre-sized an array
+                ; into a SyntaxError.
+                python ( "pass" )
                 * ( "/* array_reserve: not needed on this target */" )
             }
         }
@@ -4297,7 +4307,21 @@ bool r_str_is_ascii(const std::string& s)
                 go ( "r_go_is_ascii(" (e 1) ")"
 (macro ("func r_go_is_ascii(s string) bool { for i := 0; i < len(s); i++ { if s[i] > 127 { return false } }; return true }"))
                 )
-                * ( "true" )
+                ; PHP strings are byte strings, so this is literally "no byte
+                ; has the high bit set". preg_match rather than mb_* because
+                ; mbstring is an optional extension and this is not.
+                php ( "(preg_match('/[\\x80-\\xFF]/', " (e 1) ") === 0)" )
+                kotlin ( (e 1) ".all { it.code < 128 }" )
+                swift6 ( (e 1) ".unicodeScalars.allSatisfy { $0.value < 128 }" )
+                swift3 ( (e 1) ".unicodeScalars.filter { $0.value > 127 }.isEmpty" )
+                dart ( (e 1) ".codeUnits.every((c) => c < 128)" )
+                scala ( (e 1) ".forall(_ < 128)" )
+                ; A target with no answer says NO. The callers use this to take
+                ; a byte-indexing shortcut, so a wrong "yes" reads the wrong
+                ; characters while a wrong "no" only takes the slower path that
+                ; was always correct. The default used to be "true", which made
+                ; every string on PHP, Kotlin, Swift and Dart claim to be ASCII.
+                * ( "false" )
             }
         }
 
@@ -4382,7 +4406,11 @@ std::string r_utf8_char_at(const std::string& str, int pos_i)
                 kotlin ( (e 1) ".substring(" (e 2) ", " (e 2) " + 1)")
                 ; Dart `s[i]` is a code unit (int), not a one-character string.
                 dart ( (e 1) ".substring(" (e 2) ", " (e 2) " + 1)")
-                scala ( (e 1) "(" (e 2) ")")    
+                ; `text(i)` is a Char, and `at` is specified to answer a
+                ; one-character STRING -- so every use of it failed to compile
+                ; with "type mismatch". `.toString` costs nothing and evaluates
+                ; the index once, unlike the substring form the JVM targets use.
+                scala ( (e 1) "(" (e 2) ").toString")
                 go ( "string([]rune(" (e 1) ")[" (e 2) "])")  
 
                 swift3 ( (imp 'Foundation') (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) " + 1)]" )
@@ -5747,6 +5775,11 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  scala ( (e 1) ".clear()" )
                  go ( (e 1) " = " (e 1) "[:0]" )
                  rust ( (custom _) )
+                 ; A Python list has no `.length`, so the JavaScript-shaped
+                 ; default was an AttributeError at the first `clear` in any
+                 ; generated program. map_clear already had this; the array
+                 ; form did not.
+                 python ( (e 1) ".clear()" )
                  * ( (e 1) ".length = 0;" nl )
             }
         }
