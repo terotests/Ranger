@@ -20,7 +20,7 @@
 ; ==============================================================================
 
 Import "../WasmUiSelect.rgr"
-Import "../../evg/EVGUnit.rgr"
+Import "../../../../evg/EVGUnit.rgr"
 Import "../../tests/harness/RgTest.rgr"
 
 class ClipOverflowTest {

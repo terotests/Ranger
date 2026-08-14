@@ -33,11 +33,22 @@ Without that, flex/grid improvements will still look wrong in print.
 
 | Area | Today | Gap |
 | --- | --- | --- |
-| Flex direction / grow / gap | Partial (`flex` ≈ grow) | Missing shrink, basis, reliable wrap |
-| Alignment | `justifyContent`, `alignItems`, plus legacy `align` / `verticalAlign` | Naming overlap; incomplete CSS semantics |
-| Text intrinsic size | Weak | Labels often take full parent width in `row` (ISSUES #1) |
+| Flex direction / grow | Row + column grow, main-axis shrink-to-fit | No `flex-basis`; shrink is proportional scaling, not CSS shrink factors |
+| `gap` | Main axis, row + column | No separate `row-gap` / `column-gap` |
+| `flex-wrap` | `wrap` (default) / `nowrap` | No `wrap-reverse`; no `align-content` for wrapped lines |
+| Alignment | `justifyContent`, `alignItems` (incl. `stretch`), plus legacy `align` / `verticalAlign` | Naming overlap; no `baseline` |
+| Text intrinsic size | Shrink-wraps to measured content | Measurement still heuristic unless a TTF measurer is installed |
 | Grid | Emulated with nested flex HOC components | No real grid algorithm |
 | Styles | Mostly inline JSX attributes | No class/theme stylesheet layer |
+
+`min-width` / `max-width` / `min-height` / `max-height` already parse and clamp;
+what is missing is ordering them correctly against grow/shrink.
+
+Note on ISSUES #1 (labels taking full parent width in a `row`): the shrink-wrap
+path now exists in `EVGLayout` and is covered by the `evg_test` cases
+"text label shrink-wraps" and "sibling stays on the same row". The issue file
+still describes the old behavior and needs re-verifying against the current
+engine before any work is planned against it.
 
 ### Fonts
 
@@ -284,8 +295,17 @@ Tolerance: integer pixel/pt rounding policy documented (e.g. round half-up to 1/
 
 ### Phase 1 — Flexbox v2
 
-- grow/shrink/basis, wrap, min/max
+- ~~row/column grow, main-axis shrink, wrap gating, `gap`, `alignItems: stretch`~~
+  (landed with the engine unification — see §11.1)
+- `flex-basis` and real per-item shrink factors (today shrink scales fixed sizes
+  proportionally rather than by `flex-shrink`)
+- min/max clamped in the right order relative to grow/shrink
 - CSS property names as source of truth
+- Widen the JSX attribute surface: `parseAttributes` in `JSXToEVG.rgr` is an
+  explicit whitelist, so a property the engine supports is silently dropped
+  unless it is listed there. `gap` and `flex-wrap` are wired up;
+  `justify-content` and `align-items` are still reachable only through
+  `style={{ ... }}`, not as JSX attributes.
 - Update `PhotoLayouts` only where behavior changes
 
 ### Phase 2 — Style layer
@@ -317,6 +337,26 @@ Tolerance: integer pixel/pt rounding policy documented (e.g. round half-up to 1/
 | Renderers | `EVGPDFRenderer`, `EVGHTMLRenderer`, `EVGRasterRenderer` / `RasterText` |
 | Examples | `components/PhotoLayouts.tsx`, new theme CSS, album fixtures |
 | Docs | this plan → later SPEC sections for flex/grid/style |
+
+### 11.1 One engine, one location
+
+`gallery/evg/` is the single EVG engine. It was previously forked — the game
+engine carried its own copy under `gallery/game_engine/v2/evg/` that had drifted
+~200 lines ahead (main-axis `gap`, column grow, shrink-to-fit, `alignItems:
+stretch`, `flexWrap`, `SVGPathParser.flatten`). That copy has been promoted into
+`gallery/evg/` and deleted, so pdf_writer, the game engine (v1 and v2) and
+`watch_evg` all compile against the same files.
+
+Only `EvElementToEVG.rgr` (which depends on the interpreter's `EvalValue`) and
+`evg_test.rgr` (which uses the v2 `RgTest` harness) remain under
+`game_engine/v2/evg/`. **Layout changes belong in `gallery/evg/` only** — do not
+re-fork.
+
+The layout suite is the gate for this engine:
+
+```
+bash gallery/game_engine/v2/evg/run.sh
+```
 
 ## 12. Test plan (fonts first)
 

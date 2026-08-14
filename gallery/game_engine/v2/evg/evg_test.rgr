@@ -15,14 +15,14 @@
 ; "passed=N failed=0" + "ALL PASS" summary on green.
 ; ==============================================================================
 
-Import "EVGUnit.rgr"
-Import "EVGColor.rgr"
-Import "EVGBox.rgr"
-Import "EVGElement.rgr"
-Import "EVGTextMeasurer.rgr"
-Import "EVGText.rgr"
-Import "EVGLayout.rgr"
-Import "SVGPathParser.rgr"
+Import "../../../evg/EVGUnit.rgr"
+Import "../../../evg/EVGColor.rgr"
+Import "../../../evg/EVGBox.rgr"
+Import "../../../evg/EVGElement.rgr"
+Import "../../../evg/EVGTextMeasurer.rgr"
+Import "../../../evg/EVGText.rgr"
+Import "../../../evg/EVGLayout.rgr"
+Import "../../../evg/SVGPathParser.rgr"
 Import "../tests/harness/RgTest.rgr"
 
 class EVGTest {
@@ -43,6 +43,7 @@ class EVGTest {
         test.testFlexGrowRow(t)
         test.testFlexGrowColumn(t)
         test.testFlexShrink(t)
+        test.testAutoHeightNoShrink(t)
         test.testJustifyDistribution(t)
         test.testAlignStretch(t)
         test.testFlexWrap(t)
@@ -445,6 +446,60 @@ class EVGTest {
         def lay2 (new EVGLayout())
         lay2.layout(col)
         t.near("col shrink: each = 200/2" d.calculatedHeight 100.0)
+    }
+
+    ; ---- auto-height columns must NOT shrink their children ------------------
+    ; Main-axis shrink needs a definite container height to shrink to. An
+    ; auto-height column grows to fit its content instead, which is what a
+    ; document flow (Views stacked down a page) relies on: two 100px-tall
+    ; children stay 100px and the column reports 200px, rather than being
+    ; scaled down to whatever stale inner height happened to be left over.
+    ; `layout()` force-sizes the root to the page, so the auto-height container
+    ; under test has to be a child rather than the root itself.
+    fn testAutoHeightNoShrink:void (t:RgTest) {
+        def root (new EVGElement())
+        root.width = (EVGUnit.px(400.0))
+        root.height = (EVGUnit.px(300.0))
+        def col (new EVGElement())
+        col.width = (EVGUnit.px(100.0))
+        ; no height set -> auto
+        root.addChild(col)
+        def a (new EVGElement())
+        a.width = (EVGUnit.px(100.0))
+        a.height = (EVGUnit.px(100.0))
+        col.addChild(a)
+        def b (new EVGElement())
+        b.width = (EVGUnit.px(100.0))
+        b.height = (EVGUnit.px(100.0))
+        col.addChild(b)
+        def lay (new EVGLayout())
+        lay.layout(root)
+        t.near("auto col: first child keeps its height" a.calculatedHeight 100.0)
+        t.near("auto col: second child keeps its height" b.calculatedHeight 100.0)
+        t.near("auto col: second child stacks below the first" b.calculatedY 100.0)
+        t.near("auto col: container grows to content" col.calculatedHeight 200.0)
+
+        ; gap still applies to an auto-height column — it is independent of
+        ; whether the container height is definite.
+        def root2 (new EVGElement())
+        root2.width = (EVGUnit.px(400.0))
+        root2.height = (EVGUnit.px(300.0))
+        def col2 (new EVGElement())
+        col2.width = (EVGUnit.px(100.0))
+        col2.gap = (EVGUnit.parse("10px"))
+        root2.addChild(col2)
+        def c (new EVGElement())
+        c.width = (EVGUnit.px(100.0))
+        c.height = (EVGUnit.px(100.0))
+        col2.addChild(c)
+        def d2 (new EVGElement())
+        d2.width = (EVGUnit.px(100.0))
+        d2.height = (EVGUnit.px(100.0))
+        col2.addChild(d2)
+        def lay2b (new EVGLayout())
+        lay2b.layout(root2)
+        t.near("auto col + gap: second child at 100+10" d2.calculatedY 110.0)
+        t.near("auto col + gap: child height untouched" d2.calculatedHeight 100.0)
     }
 
     ; ---- justifyContent distribution (space-between) on the row main axis -----

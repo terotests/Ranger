@@ -619,7 +619,7 @@ class EVGPreviewServer@(HttpServer) {
         print ("Page position after layout: (" + (to_string pageElement.calculatedX) + "," + (to_string pageElement.calculatedY) + ")")
         
         ; Render the page element with no offset (page is at origin after re-layout)
-        this.renderElementToPNG(renderer textRenderer fm pageElement scale 0.0 0.0)
+        this.renderElementToPNG(renderer textRenderer fm pageElement scale 0.0 0.0 0.0 0.0)
         
         ; Also save as PNG for debugging
         def pngEncoder:PNGEncoder (new PNGEncoder())
@@ -656,7 +656,11 @@ class EVGPreviewServer@(HttpServer) {
     }
     
     ; Render EVG element to raster buffer for PNG export
-    fn renderElementToPNG:void (renderer:EVGRasterRenderer textRenderer:RasterText fm:FontManager el:EVGElement scale:double offsetX:double offsetY:double) {
+    ; `ancW`/`ancH` are the already-scaled dimensions of the nearest ancestor that
+    ; has both dimensions > 0, or 0.0 when no such ancestor exists. They are passed
+    ; down the walk rather than recovered by climbing `EVGElement.parent`, which is
+    ; not populated for trees built through `addChild`.
+    fn renderElementToPNG:void (renderer:EVGRasterRenderer textRenderer:RasterText fm:FontManager el:EVGElement scale:double offsetX:double offsetY:double ancW:double ancH:double) {
         ; Calculate position relative to the page (subtract page offset)
         def x:double ((el.calculatedX * scale) - offsetX)
         def y:double ((el.calculatedY * scale) - offsetY)
@@ -835,7 +839,7 @@ class EVGPreviewServer@(HttpServer) {
         ; Render images
         if ((el.tagName == "image") || (el.tagName == "Image") || (el.tagName == "img")) {
             if ((strlen el.src) > 0) {
-                this.renderImageToPNG(renderer el x y w h scale)
+                this.renderImageToPNG(renderer el x y w h scale ancW ancH)
             }
         }
         
@@ -844,13 +848,21 @@ class EVGPreviewServer@(HttpServer) {
         def childCount:int (el.getChildCount())
         while (i < childCount) {
             def child:EVGElement (el.getChild(i))
-            this.renderElementToPNG(renderer textRenderer fm child scale offsetX offsetY)
+            ; This element becomes the children's nearest sized ancestor only when
+            ; it actually has dimensions; otherwise they keep looking further up.
+            def childAncW:double ancW
+            def childAncH:double ancH
+            if ((w > 0.0) && (h > 0.0)) {
+                childAncW = w
+                childAncH = h
+            }
+            this.renderElementToPNG(renderer textRenderer fm child scale offsetX offsetY childAncW childAncH)
             i = i + 1
         }
     }
     
     ; Render an image element to the raster buffer
-    fn renderImageToPNG:void (renderer:EVGRasterRenderer el:EVGElement x:double y:double w:double h:double scale:double) {
+    fn renderImageToPNG:void (renderer:EVGRasterRenderer el:EVGElement x:double y:double w:double h:double scale:double ancW:double ancH:double) {
         def src:string el.src
         if ((strlen src) == 0) {
             return
@@ -874,23 +886,14 @@ class EVGPreviewServer@(HttpServer) {
         def containerW:double w
         def containerH:double h
         
-        ; Get parent container dimensions for clipping when element dimension is 0
-        ; Walk up the parent chain to find a container with actual dimensions
-        def parentW:double 0.0
-        def parentH:double 0.0
-        def ancestorEl:EVGElement el
+        ; Parent container dimensions for clipping when element dimension is 0.
+        ; The walk already resolved the nearest ancestor with actual dimensions.
+        def parentW:double ancW
+        def parentH:double ancH
         def foundParent:boolean false
-        while ((ancestorEl.hasParent()) && (foundParent == false)) {
-            ancestorEl = (unwrap ancestorEl.parent)
-            def testW:double (ancestorEl.calculatedWidth * scale)
-            def testH:double (ancestorEl.calculatedHeight * scale)
-            ; Use this ancestor if it has both dimensions > 0
-            if ((testW > 0.0) && (testH > 0.0)) {
-                parentW = testW
-                parentH = testH
-                foundParent = true
-                print ("  Found ancestor container: " + (to_string parentW) + "x" + (to_string parentH) + " (" + ancestorEl.tagName + ")")
-            }
+        if ((ancW > 0.0) && (ancH > 0.0)) {
+            foundParent = true
+            print ("  Ancestor container: " + (to_string parentW) + "x" + (to_string parentH))
         }
         if (foundParent == false) {
             print ("  No ancestor with dimensions found, using buffer size")

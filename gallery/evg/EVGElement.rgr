@@ -100,6 +100,9 @@ class EVGElement {
     def flexDirection:string "column"
     def justifyContent:string "flex-start"
     def alignItems:string "flex-start"
+    ; flexWrap: "wrap" (row auto-wraps — historical EVG default) or "nowrap"
+    ; (CSS default; children never wrap, they overflow / shrink instead).
+    def flexWrap:string "wrap"
     def gap:EVGUnit
     def position:string "relative"
     
@@ -153,7 +156,7 @@ class EVGElement {
     
     ; Clip path (for any element)
     def clipPath:string ""
-    
+
     ; CSS class (for reference)
     def className:string ""
     
@@ -184,6 +187,15 @@ class EVGElement {
     def calculatedInnerWidth:double 0.0
     def calculatedInnerHeight:double 0.0
     def calculatedFlexWidth:double 0.0
+    ; Column-axis flex grow (and row alignItems:stretch) target height, resolved
+    ; by EVGLayout and consumed by layoutElement when height is not explicitly set.
+    def calculatedFlexHeight:double 0.0
+    ; True when this element's height was definite (explicit, page-sized, or
+    ; already resolved by flex) at the moment its children were laid out, which
+    ; is the only time `calculatedInnerHeight` is meaningful as a constraint.
+    ; Auto-height elements size to their content, so main-axis grow/shrink must
+    ; not run against them — there is nothing to grow into or shrink to.
+    def hasDefiniteHeight:boolean false
     def calculatedPage:int 0
     def isAbsolute:boolean false
     def isLayoutComplete:boolean false
@@ -214,7 +226,8 @@ class EVGElement {
         bottom = (EVGUnit.unset())
         x = (EVGUnit.unset())
         y = (EVGUnit.unset())
-        
+        gap = (EVGUnit.unset())
+
         def newBox (new EVGBox())
         box = newBox
         
@@ -264,7 +277,10 @@ class EVGElement {
     }
     
     fn addChild:void (child:EVGElement) {
-        child.parent = this
+        ; NOTE: no `child.parent = this` back-reference — it was write-only (never
+        ; read) and, in the C++ backend, assigning `this` to a shared_ptr field
+        ; forces enable_shared_from_this on EVGElement, which broke the native
+        ; build. Children are tracked by `children[]` (forward edges) only.
         push children child
     }
     
@@ -275,6 +291,7 @@ class EVGElement {
         calculatedY = 0.0
         calculatedWidth = 0.0
         calculatedHeight = 0.0
+        hasDefiniteHeight = false
         ; Recursively reset children
         def i:int 0
         while (i < (array_length children)) {
@@ -733,6 +750,10 @@ class EVGElement {
             flexDirection = value
             return
         }
+        if ((name == "flex-wrap") || (name == "flexWrap")) {
+            flexWrap = value
+            return
+        }
         if (name == "flex") {
             def val@(optional):double (to_double value)
             if val {
@@ -811,6 +832,10 @@ class EVGElement {
         ; Clip path (SVG path for clipping)
         if ((name == "clip-path") || (name == "clipPath")) {
             clipPath = value
+            return
+        }
+        if (((name == "d") || (name == "svgPath")) || (name == "path")) {
+            svgPath = value
             return
         }
         

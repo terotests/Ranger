@@ -10,7 +10,7 @@
 Import "UIContext.rgr"
 Import "../scripting/game_image_loader.rgr"
 Import "../imaging/raster/PNGEncoder.rgr"
-Import "../evg/EVGColor.rgr"
+Import "../../../evg/EVGColor.rgr"
 
 class UIBgImageDemo {
     sfn snap:void (canvas:SoftCanvas file:string) {

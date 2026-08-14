@@ -10,7 +10,7 @@
 
 Import "../framebuffer.rgr"
 Import "UITextRenderer.rgr"
-Import "../evg/EVGColor.rgr"
+Import "../../../evg/EVGColor.rgr"
 Import "../imaging/jpeg/ImageBuffer.rgr"
 
 ; Named colour roles. Dark, translucent-panel theme by default (reads well as an

@@ -5,10 +5,10 @@
 
 Import "../../../../../ts_parser/ts_parser_simple.rgr"
 Import "../../../../../ts_parser/ts_lexer.rgr"
-Import "../../../evg/EVGElement.rgr"
-Import "../../../evg/EVGUnit.rgr"
-Import "../../../evg/EVGColor.rgr"
-Import "../../../evg/EVGGradient.rgr"
+Import "../../../../../evg/EVGElement.rgr"
+Import "../../../../../evg/EVGUnit.rgr"
+Import "../../../../../evg/EVGColor.rgr"
+Import "../../../../../evg/EVGGradient.rgr"
 
 class JSXToEVG {
     def parser:TSParserSimple

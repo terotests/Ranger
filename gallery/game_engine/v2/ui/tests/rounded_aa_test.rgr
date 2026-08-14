@@ -14,8 +14,8 @@
 ; ==============================================================================
 
 Import "../WasmUiSelect.rgr"
-Import "../../evg/EVGUnit.rgr"
-Import "../../evg/EVGColor.rgr"
+Import "../../../../evg/EVGUnit.rgr"
+Import "../../../../evg/EVGColor.rgr"
 Import "../../tests/harness/RgTest.rgr"
 
 class RoundedAaTest {

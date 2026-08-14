@@ -115,7 +115,15 @@ class EVGLayout {
             height = element.height.pixels
             autoHeight = false
         }
-        
+        ; Column-axis flex grow / row alignItems:stretch: EVGLayout resolved a
+        ; target height for this child (height not explicitly set) — adopt it.
+        if (element.height.isSet == false) {
+            if (element.calculatedFlexHeight > 0.0) {
+                height = element.calculatedFlexHeight
+                autoHeight = false
+            }
+        }
+
         ; For image elements, calculate dimensions based on aspect ratio
         ; IMPORTANT: If the parent has fixed dimensions and the image should fill the parent,
         ; use the parent dimensions as the container. The objectFit property handles 
@@ -198,6 +206,7 @@ class EVGLayout {
         
         ; If height is explicitly set (not auto), pre-calculate inner height for children
         ; This allows children with height="100%" to resolve correctly
+        element.hasDefiniteHeight = (autoHeight == false)
         if (autoHeight == false) {
             element.calculatedHeight = height
             element.calculatedInnerHeight = (element.box.getInnerHeight(height))
@@ -290,9 +299,24 @@ class EVGLayout {
         def rowHeight:double 0.0
         def rowElements:[EVGElement]
         def totalHeight:double 0.0
-        
+        ; count of in-flow (non-absolute) children already placed, so `gap` is
+        ; added BETWEEN consecutive children only (not before the first).
+        def placedInFlow:int 0
+
         ; Check layout direction using flexDirection (CSS standard)
         def isColumn:boolean (parent.flexDirection == "column")
+
+        ; Main-axis `gap` between children (CSS gap). Resolve against the inner
+        ; main-axis extent; px is idempotent, percent recomputes each layout.
+        def gapPx:double 0.0
+        if parent.gap.isSet {
+            if isColumn {
+                parent.gap.resolve(innerHeight parent.inheritedFontSize)
+            } {
+                parent.gap.resolve(innerWidth parent.inheritedFontSize)
+            }
+            gapPx = parent.gap.pixels
+        }
         
         ; For row layout with flex items, we need to calculate available space first
         if (isColumn == false) {
@@ -319,8 +343,12 @@ class EVGLayout {
                 j = j + 1
             }
             
-            ; Calculate available space for flex items
-            def availableForFlex:double (innerWidth - fixedWidth)
+            ; Calculate available space for flex items (row gaps consume it too)
+            def totalGap:double 0.0
+            if (childCount > 1) {
+                totalGap = ((to_double (childCount - 1)) * gapPx)
+            }
+            def availableForFlex:double ((innerWidth - fixedWidth) - totalGap)
             if (availableForFlex < 0.0) {
                 availableForFlex = 0.0
             }
@@ -338,11 +366,126 @@ class EVGLayout {
                 }
             }
         }
-        
+
+        ; Column-axis flex: grow (distribute leftover height to flex>0 children)
+        ; and, when there is no grow flex, shrink-to-fit so fixed children that
+        ; overflow the container height are scaled down instead of spilling out.
+        ;
+        ; Both need a definite container height to work against. An auto-height
+        ; column sizes to its content, so `innerHeight` here is stale (it is only
+        ; pre-computed in layoutElement when the height is definite) and using it
+        ; would shrink content to a height that does not exist yet — which is how
+        ; document flow (auto-height Views stacked down a page) differs from the
+        ; fixed-size panels this was originally written for.
+        if (isColumn && parent.hasDefiniteHeight) {
+            def fixedHeight:double 0.0
+            def totalFlexC:double 0.0
+            def flowCountC:int 0
+            def jc:int 0
+            while (jc < childCount) {
+                def c:EVGElement (parent.getChild(jc))
+                c.inheritProperties(parent)
+                c.resolveUnits(innerWidth innerHeight)
+                if (c.isAbsolute == false) {
+                    flowCountC = (flowCountC + 1)
+                    def mAxis:double (c.box.marginTopPx + c.box.marginBottomPx)
+                    if c.height.isSet {
+                        fixedHeight = (fixedHeight + c.height.pixels + mAxis)
+                    } {
+                        if (c.flex > 0.0) {
+                            totalFlexC = (totalFlexC + c.flex)
+                            fixedHeight = (fixedHeight + mAxis)
+                        } {
+                            ; auto-height non-flex child: 0 main-axis basis estimate
+                            fixedHeight = (fixedHeight + mAxis)
+                        }
+                    }
+                }
+                jc = (jc + 1)
+            }
+            def gapTotalC:double 0.0
+            if (flowCountC > 1) {
+                gapTotalC = ((to_double (flowCountC - 1)) * gapPx)
+            }
+            if (totalFlexC > 0.0) {
+                def availC:double ((innerHeight - fixedHeight) - gapTotalC)
+                if (availC < 0.0) { availC = 0.0 }
+                def jg:int 0
+                while (jg < childCount) {
+                    def c:EVGElement (parent.getChild(jg))
+                    if (c.isAbsolute == false) {
+                        if ((c.height.isSet == false) && (c.flex > 0.0)) {
+                            c.calculatedFlexHeight = ((availC * c.flex) / totalFlexC)
+                        }
+                    }
+                    jg = (jg + 1)
+                }
+            } {
+                ; no grow flex — shrink explicit-height children to fit if they
+                ; overflow (flex-shrink analog on the main axis).
+                def contentH:double (fixedHeight + gapTotalC)
+                if ((contentH > innerHeight) && (fixedHeight > 0.0)) {
+                    def scaleC:double ((innerHeight - gapTotalC) / fixedHeight)
+                    if (scaleC < 0.0) { scaleC = 0.0 }
+                    def js:int 0
+                    while (js < childCount) {
+                        def c:EVGElement (parent.getChild(js))
+                        if ((c.isAbsolute == false) && c.height.isSet) {
+                            c.calculatedFlexHeight = (c.height.pixels * scaleC)
+                            c.height.isSet = false
+                        }
+                        js = (js + 1)
+                    }
+                }
+            }
+        }
+
+        ; Row-axis flex-shrink (nowrap only — with wrap the row wraps instead):
+        ; when there is no grow flex and fixed children overflow the width, scale
+        ; them to fit (they used to spill out). Applied by re-routing each fixed
+        ; child through the flex-width path (calculatedFlexWidth + clear width),
+        ; so layoutElement adopts the shrunk width instead of the explicit one.
+        if (isColumn == false) {
+            if (parent.flexWrap == "nowrap") {
+                def fixedW2:double 0.0
+                def totalFlex2:double 0.0
+                def flowCount2:int 0
+                def jr:int 0
+                while (jr < childCount) {
+                    def c:EVGElement (parent.getChild(jr))
+                    if (c.isAbsolute == false) {
+                        flowCount2 = (flowCount2 + 1)
+                        if c.width.isSet {
+                            fixedW2 = (fixedW2 + c.width.pixels + c.box.marginLeftPx + c.box.marginRightPx)
+                        } {
+                            if (c.flex > 0.0) { totalFlex2 = (totalFlex2 + c.flex) }
+                        }
+                    }
+                    jr = (jr + 1)
+                }
+                def gapTotal2:double 0.0
+                if (flowCount2 > 1) { gapTotal2 = ((to_double (flowCount2 - 1)) * gapPx) }
+                def contentW2:double (fixedW2 + gapTotal2)
+                if ((totalFlex2 == 0.0) && (contentW2 > innerWidth) && (fixedW2 > 0.0)) {
+                    def scaleR:double ((innerWidth - gapTotal2) / fixedW2)
+                    if (scaleR < 0.0) { scaleR = 0.0 }
+                    def jw:int 0
+                    while (jw < childCount) {
+                        def c:EVGElement (parent.getChild(jw))
+                        if ((c.isAbsolute == false) && c.width.isSet) {
+                            c.calculatedFlexWidth = (c.width.pixels * scaleR)
+                            c.width.isSet = false
+                        }
+                        jw = (jw + 1)
+                    }
+                }
+            }
+        }
+
         def i:int 0
         while (i < childCount) {
             def child:EVGElement (parent.getChild(i))
-            
+
             ; Inherit properties from parent
             child.inheritProperties(parent)
             
@@ -404,14 +547,38 @@ class EVGLayout {
                     childWidth = child.calculatedFlexWidth
                 }
             }
-            
+            ; row alignItems:stretch — a child with no explicit height fills the
+            ; parent's cross (height) extent.
+            if (isColumn == false) {
+                if (parent.alignItems == "stretch") {
+                    if (child.height.isSet == false) {
+                        child.calculatedFlexHeight = innerHeight
+                    }
+                }
+            }
+
             ; Total width including margins (estimated before layout)
             def childTotalWidth:double (childWidth + child.box.marginLeftPx + child.box.marginRightPx)
-            
-            ; Check if we need to wrap to next row (for row direction)
+
+            ; main-axis `gap`: advance the cursor before every in-flow child
+            ; except the first on its row (row) / the first overall (column).
+            if (gapPx > 0.0) {
+                if (isColumn == false) {
+                    if ((array_length rowElements) > 0) { currentX = currentX + gapPx }
+                } {
+                    if (placedInFlow > 0) {
+                        currentY = currentY + gapPx
+                        totalHeight = totalHeight + gapPx
+                    }
+                }
+            }
+
+            ; Check if we need to wrap to next row (for row direction). Gated on
+            ; flexWrap: "nowrap" keeps everything on one line (children overflow /
+            ; shrink); the historical/default "wrap" auto-wraps.
             if (isColumn == false) {
                 def availableWidth:double ((startX + innerWidth) - currentX)
-                if ((childTotalWidth > availableWidth) && ((array_length rowElements) > 0)) {
+                if (((childTotalWidth > availableWidth) && ((array_length rowElements) > 0)) && (parent.flexWrap != "nowrap")) {
                     ; Wrap to next row
                     this.alignRow(rowElements parent rowHeight startX innerWidth)
                     currentY = currentY + rowHeight
@@ -449,7 +616,8 @@ class EVGLayout {
                     rowHeight = childTotalHeight
                 }
             }
-            
+            placedInFlow = (placedInFlow + 1)
+
             ; Handle explicit line break
             if child.lineBreak {
                 if (isColumn == false) {

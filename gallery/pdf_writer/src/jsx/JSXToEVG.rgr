@@ -619,6 +619,15 @@ class JSXToEVG {
                 if (attrName == "flex") {
                     this.applyStyleProperty(element "flex" attrValue)
                 }
+                ; `gap` was reachable only through style={{ gap: ... }} — as a JSX
+                ; attribute it fell through this whitelist and was silently dropped,
+                ; so <View flexDirection="row" gap="20px"> laid out with no gap.
+                if (attrName == "gap") {
+                    this.applyStyleProperty(element "gap" attrValue)
+                }
+                if (attrName == "flex-wrap") {
+                    element.flexWrap = attrValue
+                }
                 if (attrName == "align") {
                     element.align = attrValue
                 }
@@ -852,6 +861,9 @@ class JSXToEVG {
         if (name == "gap") {
             element.gap = (EVGUnit.parse(value))
         }
+        if (name == "flexWrap") {
+            element.flexWrap = value
+        }
         if (name == "flex") {
             element.flex = (this.parseNumberValue(value))
         }
@@ -968,7 +980,10 @@ class JSXToEVG {
                     }
                 }
                 
-                childElement.parent = element
+                ; No `parent` back-reference: nothing reads it any more (the
+                ; renderers thread the parent down their own walk), and setting it
+                ; here only on this path made the field look maintained when
+                ; `addChild` leaves it empty.
                 push element.children childElement
             }
             
