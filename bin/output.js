@@ -24847,7 +24847,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   const nameN = p.nameNode;
                   let rhs_is_optional_field = false;
                   if ( (node.children.length) > 2 ) {
-                    const value = node.getThird();
+                    const value = this.rustUnwrapParens(node.getThird());
                     if ( value.value_type == 11 ) {
                       if ( (value.nsp.length) > 0 ) {
                         const lastIdx = (value.nsp.length) - 1;

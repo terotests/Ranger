@@ -1550,7 +1550,10 @@ class RangerRustClassWriter {
       ; spurious .unwrap() to a field that was never Option.
       def rhs_is_optional_field:boolean false
       if ((array_length node.children) > 2) {
-        def value:CodeNode (node.getThird())
+        ; the initializer is usually parenthesised — `def p (h.payload)` —
+        ; and the wrapper carries none of the name's own information, so it
+        ; is opened before asking whether the read is of an optional field
+        def value:CodeNode (this.rustUnwrapParens((node.getThird())))
         if (value.value_type == RangerNodeType.VRef) {
           if ((array_length value.nsp) > 0) {
             def lastIdx:int ((array_length value.nsp) - 1)
