@@ -1,0 +1,12 @@
+{
+  "name": "jpeg-scaler-js-bench",
+  "private": true,
+  "description": "Isolated npm packages for jpeg_scaler JS comparison (not a Ranger runtime dep)",
+  "type": "commonjs",
+  "dependencies": {
+    "image-js": "^0.35.5",
+    "jimp": "^0.22.12",
+    "jpeg-js": "^0.4.4",
+    "sharp": "^0.33.5"
+  }
+}

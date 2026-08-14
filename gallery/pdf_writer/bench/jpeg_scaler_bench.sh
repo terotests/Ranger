@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # Compile jpeg_scaler.rgr to C++ / Rust / Go / Node and time it against
-# ImageMagick, GraphicsMagick, libvips, and ffmpeg (whichever are installed).
+# ImageMagick, GraphicsMagick, libvips, ffmpeg, and npm packages
+# (jimp, jpeg-js, image-js, sharp) whichever are installed.
 #
 # Usage (from repo root):
 #   ./gallery/pdf_writer/bench/jpeg_scaler_bench.sh
 #   SKIP_BUILD=1 ./gallery/pdf_writer/bench/jpeg_scaler_bench.sh   # reuse binaries
+#   SKIP_NPM=1   ./gallery/pdf_writer/bench/jpeg_scaler_bench.sh   # skip npm install
 #
 # Needs: node, g++, rustc, go (for Ranger targets);
 #        hyperfine (preferred) or date +%s%N;
-#        convert / gm / vips / ffmpeg for native comparison.
+#        convert / gm / vips / ffmpeg for native comparison;
+#        npm for the JS package comparison.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -22,6 +25,7 @@ BIN="$OUT_DIR/bin"
 IMG="$OUT_DIR/images"
 RUN="$OUT_DIR/out"
 RESULTS="$OUT_DIR/results"
+JS_SCALERS="gallery/pdf_writer/bench/js_scalers"
 export RANGER_LIB="${RANGER_LIB:-./compiler/Lang.rgr}"
 
 mkdir -p "$BIN/cpp" "$BIN/rust" "$BIN/go" "$BIN/es6" "$IMG" "$RUN" "$RESULTS"
@@ -47,6 +51,11 @@ if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
   ( cd "$BIN/go" && go build -o jpeg_scaler jpeg_scaler.go )
 fi
 
+if [[ "${SKIP_NPM:-0}" != "1" && -f "$JS_SCALERS/package.json" ]] && have npm; then
+  echo "==> npm install (jimp, jpeg-js, image-js, sharp)"
+  ( cd "$JS_SCALERS" && npm install --no-fund --no-audit )
+fi
+
 CPP="$BIN/cpp/jpeg_scaler"
 RUST="$BIN/rust/jpeg_scaler"
 GO="$BIN/go/jpeg_scaler"
@@ -69,6 +78,12 @@ have convert && convert -version | head -1
 have gm && gm version | head -1
 have vips && echo "vips: $(vips --version)"
 have ffmpeg && ffmpeg -version | head -1
+if [[ -d "$JS_SCALERS/node_modules" ]]; then
+  echo "jimp: $(node -p "require('./$JS_SCALERS/node_modules/jimp/package.json').version")"
+  echo "jpeg-js: $(node -p "require('./$JS_SCALERS/node_modules/jpeg-js/package.json').version")"
+  echo "image-js: $(node -p "require('./$JS_SCALERS/node_modules/image-js/package.json').version")"
+  echo "sharp: $(node -p "require('./$JS_SCALERS/node_modules/sharp/package.json').version")"
+fi
 echo
 
 # Collect commands that exist. Each entry is name<TAB>command string.
@@ -91,6 +106,12 @@ cmds_for() {
   fi
   if have ffmpeg; then
     printf 'ffmpeg\tffmpeg -y -hide_banner -loglevel error -i %s -vf scale=%s:-1 -q:v 5 %s/ff_%s.jpg\n' "$input" "$width" "$RUN" "$stem"
+  fi
+  if [[ -d "$JS_SCALERS/node_modules" ]]; then
+    printf 'npm-jimp\tnode %s/scale-jimp.cjs %s %s %s/jimp_%s.jpg\n' "$JS_SCALERS" "$width" "$input" "$RUN" "$stem"
+    printf 'npm-jpeg-js\tnode %s/scale-jpegjs.cjs %s %s %s/jpegjs_%s.jpg\n' "$JS_SCALERS" "$width" "$input" "$RUN" "$stem"
+    printf 'npm-image-js\tnode %s/scale-imagejs.cjs %s %s %s/imagejs_%s.jpg\n' "$JS_SCALERS" "$width" "$input" "$RUN" "$stem"
+    printf 'npm-sharp\tnode %s/scale-sharp.cjs %s %s %s/sharp_%s.jpg\n' "$JS_SCALERS" "$width" "$input" "$RUN" "$stem"
   fi
 }
 

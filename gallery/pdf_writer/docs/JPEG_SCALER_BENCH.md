@@ -1,6 +1,6 @@
-# jpeg_scaler — C++ / Rust / Node vs native tools
+# jpeg_scaler — C++ / Rust / Node vs native tools and npm packages
 
-Timed decode → scale → encode of `gallery/pdf_writer/src/tools/jpeg_scaler.rgr` compiled to C++, Rust, Go, and Node.js, against ImageMagick, GraphicsMagick, libvips, and ffmpeg.
+Timed decode → scale → encode of `gallery/pdf_writer/src/tools/jpeg_scaler.rgr` compiled to C++, Rust, Go, and Node.js, against ImageMagick, GraphicsMagick, libvips, ffmpeg, and Node packages (`jimp`, `jpeg-js`, `image-js`, `sharp`).
 
 Re-run:
 
@@ -8,7 +8,9 @@ Re-run:
 ./gallery/pdf_writer/bench/jpeg_scaler_bench.sh
 ```
 
-Ranger C++ / Rust / Go / Node wrote **byte-identical** JPEGs on the Example.jpg → 600px case (`180280` bytes, `md5 2d08fcfb09cdf3627ab41a8e44905762`). Native tools write different (usually smaller) files; they are a wall-clock comparison, not a quality match.
+The npm wrappers live in `gallery/pdf_writer/bench/js_scalers/` (isolated `package.json`, not a Ranger runtime dependency).
+
+Ranger C++ / Rust / Go / Node wrote **byte-identical** JPEGs on the Example.jpg → 600px case (`180280` bytes, `md5 2d08fcfb09cdf3627ab41a8e44905762`). Native tools and npm packages write different (usually smaller) files; they are a wall-clock comparison, not a quality match.
 
 ## Machine (2026-08-14)
 
@@ -25,6 +27,10 @@ Ranger C++ / Rust / Go / Node wrote **byte-identical** JPEGs on the Example.jpg 
 | GraphicsMagick | 1.3.42 Q16 (same geometry / quality) |
 | libvips | 8.15.1 (`vips thumbnail in.jpg out.jpg WIDTH`) |
 | ffmpeg | 6.1.1 (`-vf scale=WIDTH:-1 -q:v 5`) |
+| jimp | 0.22.12 (pure JS; bilinear resize; uses jpeg-js) |
+| jpeg-js | 0.4.4 (pure JS decode/encode + a bilinear resize in the wrapper) |
+| image-js | 0.35.6 (pure JS) |
+| sharp | 0.33.5 (native libvips addon, not pure JS) |
 | timer | hyperfine 1.18.0 |
 
 `-O3` matters: the same C++ source on Example.jpg → 600px is **47.9 ms** at `-O3` and **353.5 ms** at `-O0` (7.4×). Docs that timed `g++ -std=c++17` without `-O3` are not comparable.
@@ -108,6 +114,89 @@ Synthetic 4K baseline JPEG (~3.2 MB), downscale to 800×600. libvips pulls ahead
 | **libvips** | **78.8 ± 1.5** | 76.5 | 81.2 | 1.00× |
 | ffmpeg | 135.6 ± 1.8 | 132.3 | 138.8 | 1.72× |
 
+## vs npm packages (same machine, same images)
+
+CLI wrappers: `node gallery/pdf_writer/bench/js_scalers/scale-*.cjs <width> in.jpg out.jpg`, quality 85, width-proportional height.
+
+`jimp`, `jpeg-js`, and `image-js` are **pure JavaScript**. `sharp` is the usual Node choice and is a **native addon over libvips** — closer to the `vips` CLI than to Ranger's Node target.
+
+### Example.jpg 300×300 → width 600 (20 runs)
+
+| Command | Mean [ms] | Min | Max |
+|:---|---:|---:|---:|
+| ranger-rust | 43.6 ± 0.5 | 42.9 | 44.8 |
+| ranger-cpp | 48.5 ± 0.7 | 47.7 | 50.4 |
+| npm-sharp | 52.6 ± 1.0 | 51.1 | 54.7 |
+| npm-jpeg-js | 126.3 ± 4.3 | 119.5 | 136.8 |
+| npm-image-js | 190.0 ± 3.9 | 186.0 | 204.5 |
+| ranger-node | 220.6 ± 7.9 | 213.8 | 247.8 |
+| npm-jimp | 230.9 ± 4.4 | 222.7 | 242.5 |
+| imagemagick | 14.4 ± 0.4 | 13.1 | 15.0 |
+
+Ranger Node and Jimp are the same job in the same language and land within ~5% of each other. Hand-written `jpeg-js` is about **1.7×** Ranger Node. Ranger C++/Rust beat every pure-JS package and match `sharp` on this small upscale.
+
+### GPS_test.jpg 640×480 → width 400 (15 runs)
+
+| Command | Mean [ms] | Min | Max |
+|:---|---:|---:|---:|
+| ranger-rust | 31.0 ± 0.2 | 30.6 | 31.5 |
+| ranger-cpp | 33.5 ± 0.2 | 33.0 | 33.9 |
+| npm-sharp | 43.5 ± 0.5 | 42.9 | 44.6 |
+| npm-jpeg-js | 106.5 ± 1.5 | 104.6 | 110.7 |
+| ranger-node | 156.7 ± 1.9 | 154.0 | 160.9 |
+| npm-image-js | 170.3 ± 6.1 | 166.5 | 191.3 |
+| npm-jimp | 203.9 ± 2.5 | 201.1 | 211.4 |
+| imagemagick | 11.4 ± 0.8 | 10.9 | 14.1 |
+
+Ranger Node is **faster than Jimp and image-js** on this small camera JPEG, slower than `jpeg-js`. C++/Rust are faster than `sharp` here (startup + tiny image; sharp still has to load the native addon).
+
+### plasma 1920×1080 → width 800 (12 runs)
+
+| Command | Mean [ms] | Min | Max |
+|:---|---:|---:|---:|
+| npm-sharp | 55.9 ± 0.6 | 54.7 | 57.3 |
+| ranger-cpp | 153.3 ± 2.3 | 151.8 | 160.3 |
+| ranger-rust | 154.7 ± 1.0 | 153.4 | 156.5 |
+| npm-jpeg-js | 271.2 ± 5.2 | 264.3 | 281.4 |
+| npm-image-js | 329.2 ± 4.1 | 323.4 | 336.2 |
+| npm-jimp | 398.7 ± 3.4 | 394.3 | 405.3 |
+| ranger-node | 709.1 ± 8.9 | 687.9 | 721.7 |
+| imagemagick | 37.5 ± 0.5 | 36.7 | 38.2 |
+
+C++/Rust are about **1.8×** `jpeg-js` and **4.6×** Ranger Node. Ranger Node is the slowest JS option once the bitmap is HD-sized.
+
+### plasma 4000×3000 → width 800 (8 runs)
+
+| Command | Mean [ms] | Min | Max |
+|:---|---:|---:|---:|
+| npm-sharp | 83.6 ± 0.8 | 82.3 | 85.0 |
+| ranger-cpp | 651.2 ± 24.1 | 638.3 | 710.3 |
+| ranger-rust | 691.7 ± 3.9 | 684.9 | 696.5 |
+| npm-jpeg-js | 1058.9 ± 53.7 | 1006.8 | 1177.0 |
+| npm-image-js | 1122.3 ± 47.5 | 1066.2 | 1207.0 |
+| npm-jimp | 1166.9 ± 32.5 | 1130.2 | 1220.9 |
+| ranger-node | 3098.1 ± 45.0 | 3037.7 | 3175.6 |
+| imagemagick | 166.2 ± 3.7 | 164.0 | 175.0 |
+
+Decode-heavy: C++ still beats every pure-JS codec (~1.6× `jpeg-js`, ~4.8× Ranger Node). `sharp` wins by a lot because libvips can shrink-on-load.
+
+### Example.jpg 300×300 → width 2400 (8 runs)
+
+Encode-heavy upscale (2400×2400 output). Decode is cheap; bilinear + JPEG encode dominate.
+
+| Command | Mean [ms] | Min | Max |
+|:---|---:|---:|---:|
+| npm-sharp | 177.8 ± 1.3 | 176.0 | 180.5 |
+| npm-image-js | 398.1 ± 2.7 | 394.3 | 403.3 |
+| npm-jpeg-js | 404.3 ± 4.1 | 398.3 | 411.2 |
+| ranger-rust | 540.5 ± 2.1 | 537.5 | 544.1 |
+| ranger-cpp | 619.6 ± 3.9 | 615.6 | 628.4 |
+| npm-jimp | 955.8 ± 54.3 | 924.9 | 1074.0 |
+| ranger-node | 2228.5 ± 32.9 | 2192.7 | 2290.2 |
+| imagemagick | 81.9 ± 0.4 | 81.3 | 82.8 |
+
+This is the one workload where **hand-written `jpeg-js` / `image-js` beat Ranger C++ and Rust**. Ranger's generated encoder is a straightforward baseline JPEG writer; `jpeg-js` has had years of JS-specific encode work. Ranger Node is ~2.3× Jimp and ~5.5× `jpeg-js` here.
+
 ## What this says about Ranger
 
 Among the generated targets, on this machine:
@@ -125,9 +214,16 @@ Against a native JPEG stack (libjpeg-turbo + SIMD):
 - 4K downscale: C++ is **~4×** ImageMagick and **~8×** libvips (shrink-on-load).
 - Large upscale (300 → 2400): encode-bound; C++/Rust are **~8–9×** GraphicsMagick.
 
-That is a portable software codec generated from one `.rgr` file, not a libjpeg binding. ImageMagick / vips / ffmpeg call SIMD IDCT, Huffman, and (when shrinking) reduced-resolution decode. Ranger does none of those. The interesting number is that **optimized C++ and Rust land in the same tens-to-hundreds of milliseconds as ffmpeg on small images**, and stay within a small integer factor of ImageMagick on HD.
+Against **npm packages**:
 
-Node.js is the odd one out: same algorithm, but ~4–5× the native Ranger binaries, with much higher user+system time (GC / JS typed-array traffic in the pixel loops).
+- Ranger Node sits next to **Jimp** (the usual pure-JS image library): slightly faster on small photos, slower on HD/4K.
+- **`jpeg-js`** (the codec Jimp uses) is the fastest pure-JS stack, about **1.5–3×** Ranger Node depending on the job.
+- Ranger **C++ / Rust beat every pure-JS package** on decode-heavy work (HD and 4K). They are in the same tens of milliseconds as **`sharp`** on tiny images, then `sharp` pulls away as libvips uses SIMD and shrink-on-load.
+- The generated encoder is the weak spot: on a 300→2400 upscale, `jpeg-js` (~404 ms) is faster than Ranger Rust (~541 ms) and C++ (~620 ms).
+
+That is a portable software codec generated from one `.rgr` file, not a libjpeg binding. ImageMagick / vips / ffmpeg / `sharp` call SIMD IDCT, Huffman, and (when shrinking) reduced-resolution decode. Ranger does none of those. The interesting number is that **optimized C++ and Rust land in the same tens-to-hundreds of milliseconds as ffmpeg on small images**, stay within a small integer factor of ImageMagick on HD, and **outrun the pure-JS npm codecs** except when the job is almost entirely JPEG encode of a huge bitmap.
+
+Node.js is the odd one out among Ranger targets: same algorithm, but ~4–5× the native Ranger binaries, with much higher user+system time (GC / JS typed-array traffic in the pixel loops). That generated JS is in Jimp's league, not `jpeg-js`'s.
 
 ## Output size (not timed, but visible)
 
