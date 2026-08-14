@@ -656,6 +656,47 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["math-max-empty", "return String(Math.max());", "statics"],
   ["math-abs-coerces", "return Math.abs('-3');", "statics"],
   ["math-floor-large", "return Math.floor(1e20);", "statics"],
+  // Number::exponentiate. Every call site used to coerce the exponent with
+  // ToInt32, so a fractional power answered base**0 == 1 -- which is what
+  // washed out every shadow in the Octane RayTrace scene.
+  ["math-pow-sqrt", "return Math.pow(4, 0.5);", "mathpow"],
+  ["math-pow-sqrt9", "return Math.pow(9, 0.5);", "mathpow"],
+  ["math-pow-zero-frac", "return Math.pow(0, 0.5);", "mathpow"],
+  ["math-pow-frac-str", "return String(Math.pow(2, 0.5));", "mathpow"],
+  ["math-pow-half-int", "return String(Math.pow(1.5, 2.5));", "mathpow"],
+  ["math-pow-int-exact", "return Math.pow(2, 10);", "mathpow"],
+  ["math-pow-neg-exp", "return Math.pow(2, -1);", "mathpow"],
+  ["math-pow-zero-negexp", "return String(Math.pow(0, -1));", "mathpow"],
+  ["math-pow-negzero-odd", "return 1 / Math.pow(-0, 3);", "mathpow"],
+  ["math-pow-negbase-frac", "return String(Math.pow(-8, 0.5));", "mathpow"],
+  ["math-pow-negbase-odd", "return Math.pow(-2, 3);", "mathpow"],
+  ["math-pow-exp-zero-nan", "return Math.pow(NaN, 0);", "mathpow"],
+  ["math-pow-nan-base", "return String(Math.pow(NaN, 2));", "mathpow"],
+  ["math-pow-inf-exp", "return String(Math.pow(2, Infinity));", "mathpow"],
+  ["math-pow-inf-exp-one", "return String(Math.pow(1, Infinity));", "mathpow"],
+  ["math-pow-inf-base", "return String(Math.pow(Infinity, -1));", "mathpow"],
+  ["math-pow-neginf-odd", "return String(Math.pow(-Infinity, 3));", "mathpow"],
+  ["op-exp-frac", "return 4 ** 0.5;", "mathpow"],
+  ["op-exp-int", "return 2 ** 10;", "mathpow"],
+  ["op-exp-assign-frac", "var x = 9; x **= 0.5; return x;", "mathpow"],
+  // §13.15.2 step 1: a PLAIN assignment resolves its target reference -- base
+  // and computed key -- before the right-hand side runs. Resolving it after
+  // let a side effect in the value move the cell being written, which is how
+  // Octane NavierStokes' `x[currentRow] = (... x[++currentRow] ...)` stored
+  // every result one cell along.
+  ["assign-order-index", "var a=[0,0,0]; var i=0; a[i] = (++i) + 100; return a.join(',');", "evalorder"],
+  ["assign-order-index-read", "var b=[0,0,0]; var j=0; b[j] = b[++j] + 7; return b.join(',');", "evalorder"],
+  ["assign-order-key", "var o={}; var k='x'; o[k] = (k='y', 5); return Object.keys(o).join(',');", "evalorder"],
+  ["assign-order-chain", "var c=[10,20,30]; var m=0; var r = c[m] = c[++m]; return c.join(',') + '|' + r;", "evalorder"],
+  ["assign-order-base", "var o1={v:1}, o2={v:2}; var t=o1; t.v = (t=o2, 9); return o1.v + ',' + o2.v;", "evalorder"],
+  // NOTE: an accessor-valued member target is read once too often on the WRITE
+  // path -- `o.x = 5` invokes the getter (Node: 0 calls) and `o.x += 5` invokes
+  // it twice (Node: 1). That is a separate pre-existing bug in
+  // bcPutField/setMember, not in assignment ordering; assignMember only
+  // delegates to assignMemberResolved, where the read is gated on opK != 1.
+  // Probes are held back until it is fixed rather than landing red:
+  //   ["assign-order-plain-no-get", "var n=0; var o={get x(){ n++; return 1; }, set x(v){}}; o.x = 5; return n;", "evalorder"],
+  //   ["assign-order-compound-gets", "var n=0; var o={get x(){ n++; return 1; }, set x(v){}}; o.x += 5; return n;", "evalorder"],
 
   // D-STRNUM: ToNumber on a string follows the StringNumericLiteral grammar.
   ["strnum-hex", "return Number('0x1A');", "numbers"],
