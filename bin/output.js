@@ -24970,26 +24970,33 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         wr.out(".unwrap()", false);
                       }
                     }
-                    if ( value_1.value_type == 11 ) {
+                    const valueInner = this.rustUnwrapParens(value_1);
+                    let vardef_is_name_read = valueInner.value_type == 11;
+                    if ( vardef_is_name_read == false ) {
+                      if ( (valueInner.ns.length) > 1 ) {
+                        vardef_is_name_read = true;
+                      }
+                    }
+                    if ( vardef_is_name_read ) {
                       let should_clone_vardef = false;
-                      let vardef_src_ref_str = this.rustStaticStrRead(value_1);
+                      let vardef_src_ref_str = this.rustStaticStrRead(valueInner);
                       if ( nameN.type_name == "string" ) {
                         if ( vardef_src_ref_str ) {
                           should_clone_vardef = true;
                         }
-                        if ( (value_1.ns.length) > 1 ) {
+                        if ( (valueInner.ns.length) > 1 ) {
                           should_clone_vardef = true;
                         } else {
-                          if ( value_1.hasParamDesc ) {
-                            const vp_1 = value_1.paramDesc;
+                          if ( valueInner.hasParamDesc ) {
+                            const vp_1 = valueInner.paramDesc;
                             if ( vp_1.ref_cnt > 1 ) {
                               should_clone_vardef = true;
                             }
                           }
                         }
                       }
-                      if ( value_1.hasParamDesc ) {
-                        const vpB = value_1.paramDesc;
+                      if ( valueInner.hasParamDesc ) {
+                        const vpB = valueInner.paramDesc;
                         if ( vpB.rust_borrow_type > 0 ) {
                           if ( (nn.value_type == 6) || (nn.value_type == 7) ) {
                             should_clone_vardef = true;
@@ -24999,8 +25006,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                         }
                       }
-                      if ( value_1.hasParamDesc ) {
-                        const vp_2 = value_1.paramDesc;
+                      if ( valueInner.hasParamDesc ) {
+                        const vp_2 = valueInner.paramDesc;
                         if ( vp_2.is_class_variable ) {
                           let v_type_2 = nameN.value_type;
                           if ( ((v_type_2 == 10) || (v_type_2 == 11)) || (v_type_2 == 0) ) {

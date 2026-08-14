@@ -1716,23 +1716,36 @@ class RangerRustClassWriter {
           }
         }
         ; In Rust, reading a non-primitive variable moves it - clone to avoid E0507
-        ; Clone strings, objects, arrays when reading from self fields
-        if (value.value_type == RangerNodeType.VRef) {
+        ; Clone strings, objects, arrays when reading from self fields.
+        ; A DOTTED read reaches here whatever the front end labelled its
+        ; value_type: `def b (lctx.builder)` is a field read, and taking a
+        ; non-Copy field by value out of a borrowed struct is a move.
+        ; …and the initializer may be parenthesised — `def p (h.payload)` is
+        ; how the language writes one — so the wrapper is opened first or
+        ; none of the tests below see the name at all.
+        def valueInner:CodeNode (this.rustUnwrapParens(value))
+        def vardef_is_name_read:boolean (valueInner.value_type == RangerNodeType.VRef)
+        if (vardef_is_name_read == false) {
+          if ((array_length valueInner.ns) > 1) {
+            vardef_is_name_read = true
+          }
+        }
+        if vardef_is_name_read {
           def should_clone_vardef:boolean false
           ; a static-string read into an owned String local always converts —
           ; the &'static str cannot move into a String slot (E0308)
-          def vardef_src_ref_str:boolean (this.rustStaticStrRead(value))
+          def vardef_src_ref_str:boolean (this.rustStaticStrRead(valueInner))
           if (nameN.type_name == "string") {
             if vardef_src_ref_str {
               should_clone_vardef = true
             }
             ; Clone if accessing a field (has dot path)
-            if ((array_length value.ns) > 1) {
+            if ((array_length valueInner.ns) > 1) {
               should_clone_vardef = true
             } {
               ; For simple variable references, clone if ref_cnt > 1 (used elsewhere)
-              if value.hasParamDesc {
-                def vp:RangerAppParamDesc value.paramDesc
+              if valueInner.hasParamDesc {
+                def vp:RangerAppParamDesc valueInner.paramDesc
                 if (vp.ref_cnt > 1) {
                   should_clone_vardef = true
                 }
@@ -1741,8 +1754,8 @@ class RangerRustClassWriter {
           }
           ; a borrowed parameter (&Vec<T> / &[T] / &String) read into an
           ; owned local clones — the reference cannot move (E0308)
-          if value.hasParamDesc {
-            def vpB:RangerAppParamDesc value.paramDesc
+          if valueInner.hasParamDesc {
+            def vpB:RangerAppParamDesc valueInner.paramDesc
             if (vpB.rust_borrow_type > 0) {
               if ((nn.value_type == RangerNodeType.Array) || (nn.value_type == RangerNodeType.Hash)) {
                 should_clone_vardef = true
@@ -1753,8 +1766,8 @@ class RangerRustClassWriter {
             }
           }
           ; Clone objects/arrays when reading from self fields (prevents E0507)
-          if value.hasParamDesc {
-            def vp:RangerAppParamDesc value.paramDesc
+          if valueInner.hasParamDesc {
+            def vp:RangerAppParamDesc valueInner.paramDesc
             if vp.is_class_variable {
               ; This is reading from a self field
               def v_type:RangerNodeType nameN.value_type
