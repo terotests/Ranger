@@ -1722,7 +1722,11 @@ class RangerRustClassWriter {
           ; ptr_arg — `&Vec<u8>` involves a new object where `&[u8]` will
           ; do, and `&Vec` coerces to `&[T]` at every call site.
           def slice_elem:string ""
-          if ((strlen nameN.array_type) > 0) {
+          ; A MAP also carries an `array_type` -- its VALUE type -- so a
+          ; `[string:boolean]` parameter took this branch and was written
+          ; `&[bool]`, a slice of the values with the keys thrown away. The
+          ; key type is what tells the two apart.
+          if (((strlen nameN.array_type) > 0) && ((strlen nameN.key_type) == 0)) {
             def ael:string nameN.array_type
             if (((((ael == "int") || (ael == "double")) || (ael == "boolean")) || (ael == "string")) || (ael == "char")) {
               slice_elem = (this.getObjectTypeString(ael ctx))
@@ -3382,10 +3386,21 @@ class RangerRustClassWriter {
       def is_self_call:boolean (part == "this")
       def selfCallArgIdx:int (this.findSelfCallInArgs(node))
       
-      ; If this is a self method call and has a self call in arguments, extract to temp var
+      ; If a self call appears in the arguments, extract it to a temp var
       ; — only at statement level: a `let` cannot be emitted inside an
-      ; expression, and two-phase borrows cover the nested-call shape there
-      if ((is_self_call && (selfCallArgIdx >= 0)) && ((ctx.expressionLevel()) == 0)) {
+      ; expression, and two-phase borrows cover the nested-call shape there.
+      ;
+      ; The RECEIVER's identity does not matter and used to: this fired only
+      ; for `this.f(this.g())`. But a call on any Rc receiver takes that
+      ; object's borrow BEFORE evaluating the arguments, so a nested
+      ; `this.g()` runs inside it — and in a re-entrant interpreter the
+      ; nested call can reach the very same object. `g.setMember("prototype",
+      ; &self.builtinPrototype(ns))` aborted with "already mutably borrowed"
+      ; before the first line of any program ran. Hoisting the argument is
+      ; the same fix in both cases, and it is harmless where there was no
+      ; conflict: it only moves the argument's evaluation ahead of a borrow
+      ; that nothing can observe.
+      if ((selfCallArgIdx >= 0) && ((ctx.expressionLevel()) == 0)) {
         ; Extract all self call arguments to temp variables first
         def tempVars:[string]
         for givenArgs.children argNode:CodeNode argIdx {
@@ -3419,9 +3434,13 @@ class RangerRustClassWriter {
         rust_writing_call_receiver = false
         rust_call_receiver_mut = true
         wr.out("(" false)
+        ; A callee that needs its own Rc back takes it as the first argument,
+        ; exactly as on the ordinary path. Leaving it out here is how the
+        ; extraction used to compile only for `this` receivers.
+        def ext_wrote_selfrc:boolean (this.writeSelfRcReceiverArg(node fc ctx wr))
         for node.fnDesc.params arg:RangerAppParamDesc i {
           def n@(optional):CodeNode (itemAt givenArgs.children i)
-          if (i > 0) {
+          if ((i > 0) || ext_wrote_selfrc) {
             wr.out(", " false)
           }
           if (null? n) {
@@ -6778,6 +6797,74 @@ class RangerRustClassWriter {
         wr.out(".clear();" true)
         ctx.unsetInExpr()
       }
+      return
+    }
+
+    ; `set_at a i v` writes an element that already exists, and Rust needs the
+    ; same ownership care the push path takes: a value reached through a
+    ; borrowed parameter cannot be MOVED into the vector by name, and a `&str`
+    ; is not a `String`. The plain template wrote the expression bare, so
+    ; `slotValues[ix] = v` with `v : &union_EvalValue` did not compile -- the
+    ; one place the engine overwrites an existing shape slot.
+    if (cmd == "set_at") {
+      def arrN:CodeNode (node.getSecond())
+      def idxN:CodeNode (node.getThird())
+      def valN:CodeNode (itemAt node.children 3)
+      def elem_type:string ""
+      if arrN.hasParamDesc {
+        def ap:RangerAppParamDesc arrN.paramDesc
+        elem_type = ap.nameNode.array_type
+      }
+      ctx.setInExpr()
+      ctx.setInLhs()
+      this.WalkNode(arrN ctx wr)
+      ctx.unsetInLhs()
+      wr.out("[(" false)
+      this.WalkNode(idxN ctx wr)
+      wr.out(") as usize] = " false)
+      ; an element of a shared class is an Rc: wrap a raw value, clone a
+      ; wrapped name, take an owned Rc as it is -- same three cases as push
+      if (this.rustClassIsShared(elem_type ctx)) {
+        def set_rc_state:int (this.rustInitRcState(valN ctx))
+        if (set_rc_state == 0) {
+          wr.out("Rc::new(RefCell::new(" false)
+          this.WalkNode(valN ctx wr)
+          wr.out("))" false)
+        }
+        if (set_rc_state == 1) {
+          this.WalkNode(valN ctx wr)
+          wr.out(".clone()" false)
+        }
+        if (set_rc_state == 2) {
+          this.WalkNode(valN ctx wr)
+        }
+        wr.out(";" true)
+        ctx.unsetInExpr()
+        return
+      }
+      this.WalkNode(valN ctx wr)
+      if (elem_type == "string") {
+        ; a literal or a borrowed &str becomes owned; a String name is cloned
+        if (valN.value_type == RangerNodeType.String) {
+          wr.out(".to_string()" false)
+        } {
+          if (this.rustStrRefRead(valN)) {
+            wr.out(".to_string()" false)
+          } {
+            wr.out(".clone()" false)
+          }
+        }
+      } {
+        ; a Copy scalar is assigned as it is; anything else read by name is
+        ; cloned, because the name may still be used after this
+        if (valN.value_type == RangerNodeType.VRef) {
+          if (((((elem_type != "int") && (elem_type != "double")) && (elem_type != "boolean")) && (elem_type != "char")) && ((strlen elem_type) > 0)) {
+            wr.out(".clone()" false)
+          }
+        }
+      }
+      wr.out(";" true)
+      ctx.unsetInExpr()
       return
     }
 

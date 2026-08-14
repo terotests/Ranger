@@ -24974,7 +24974,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     } else {
                       if ( needsImmutableBorrow ) {
                         let slice_elem = "";
-                        if ( (nameN.array_type.length) > 0 ) {
+                        if ( ((nameN.array_type.length) > 0) && ((nameN.key_type.length) == 0) ) {
                           const ael = nameN.array_type;
                           if ( ((((ael == "int") || (ael == "double")) || (ael == "boolean")) || (ael == "string")) || (ael == "char") ) {
                             slice_elem = this.getObjectTypeString(ael, ctx);
@@ -26411,7 +26411,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     }
                     const is_self_call = part == "this";
                     const selfCallArgIdx = this.findSelfCallInArgs(node);
-                    if ( (is_self_call && (selfCallArgIdx >= 0)) && (ctx.expressionLevel() == 0) ) {
+                    if ( (selfCallArgIdx >= 0) && (ctx.expressionLevel() == 0) ) {
                       let tempVars_1 = [];
                       for ( let argIdx_1 = 0; argIdx_1 < givenArgs.children.length; argIdx_1++) {
                         var argNode_1 = givenArgs.children[argIdx_1];
@@ -26438,10 +26438,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       this.rust_writing_call_receiver = false;
                       this.rust_call_receiver_mut = true;
                       wr.out("(", false);
+                      const ext_wrote_selfrc = this.writeSelfRcReceiverArg(node, fc, ctx, wr);
                       for ( let i_1 = 0; i_1 < node.fnDesc.params.length; i_1++) {
                         var arg_1 = node.fnDesc.params[i_1];
                         const n_1 = givenArgs.children[i_1];
-                        if ( i_1 > 0 ) {
+                        if ( (i_1 > 0) || ext_wrote_selfrc ) {
                           wr.out(", ", false);
                         }
                         if ( typeof(n_1) === "undefined" ) {
@@ -29367,6 +29368,62 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             wr.out(".clear();", true);
                             ctx.unsetInExpr();
                           }
+                          return;
+                        }
+                        if ( cmd == "set_at" ) {
+                          const arrN = node.getSecond();
+                          const idxN = node.getThird();
+                          const valN = node.children[3];
+                          let elem_type = "";
+                          if ( arrN.hasParamDesc ) {
+                            const ap = arrN.paramDesc;
+                            elem_type = ap.nameNode.array_type;
+                          }
+                          ctx.setInExpr();
+                          ctx.setInLhs();
+                          await this.WalkNode(arrN, ctx, wr);
+                          ctx.unsetInLhs();
+                          wr.out("[(", false);
+                          await this.WalkNode(idxN, ctx, wr);
+                          wr.out(") as usize] = ", false);
+                          if ( this.rustClassIsShared(elem_type, ctx) ) {
+                            const set_rc_state = this.rustInitRcState(valN, ctx);
+                            if ( set_rc_state == 0 ) {
+                              wr.out("Rc::new(RefCell::new(", false);
+                              await this.WalkNode(valN, ctx, wr);
+                              wr.out("))", false);
+                            }
+                            if ( set_rc_state == 1 ) {
+                              await this.WalkNode(valN, ctx, wr);
+                              wr.out(".clone()", false);
+                            }
+                            if ( set_rc_state == 2 ) {
+                              await this.WalkNode(valN, ctx, wr);
+                            }
+                            wr.out(";", true);
+                            ctx.unsetInExpr();
+                            return;
+                          }
+                          await this.WalkNode(valN, ctx, wr);
+                          if ( elem_type == "string" ) {
+                            if ( valN.value_type == 4 ) {
+                              wr.out(".to_string()", false);
+                            } else {
+                              if ( this.rustStrRefRead(valN) ) {
+                                wr.out(".to_string()", false);
+                              } else {
+                                wr.out(".clone()", false);
+                              }
+                            }
+                          } else {
+                            if ( valN.value_type == 11 ) {
+                              if ( ((((elem_type != "int") && (elem_type != "double")) && (elem_type != "boolean")) && (elem_type != "char")) && ((elem_type.length) > 0) ) {
+                                wr.out(".clone()", false);
+                              }
+                            }
+                          }
+                          wr.out(";", true);
+                          ctx.unsetInExpr();
                           return;
                         }
                         if ( cmd == "push" ) {

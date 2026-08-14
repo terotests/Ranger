@@ -4158,6 +4158,10 @@ std::string r_utf16_slice(const std::string& s, int a, int b)
 }
 ")
                 )
+                ; Unreachable on Rust -- utf16_byte_of answers -2 there, so the
+                ; caller keeps its own loop -- but it still has to TYPE as the
+                ; String this returns everywhere else.
+                rust ( "String::new()" )
                 * ( "\"\"" )
             }
         }
@@ -4215,6 +4219,13 @@ std::string r_byte_substr(const std::string& s, int a, int b)
 }
 ")
                 )
+                ; Rust strings ARE UTF-8 bytes, so the slice is the range --
+                ; but only on character boundaries, and a cut that lands
+                ; mid-character panics rather than returning nonsense. The
+                ; boundary check turns that into the empty answer, which is
+                ; what the caller already handles. Written inline because the
+                ; Rust writer emits no polyfills.
+                rust ( "{ let __bs: &str = &(" (e 1) "); let __b0: i64 = (" (e 2) "); let __b1: i64 = (" (e 3) "); let __bn = __bs.len(); let __ba = if __b0 < 0 { 0usize } else if (__b0 as usize) > __bn { __bn } else { __b0 as usize }; let __bb = if __b1 < 0 { 0usize } else if (__b1 as usize) > __bn { __bn } else { __b1 as usize }; if __bb <= __ba || !__bs.is_char_boundary(__ba) || !__bs.is_char_boundary(__bb) { String::new() } else { __bs[__ba..__bb].to_string() } }" )
                 * ( "\"\"" )
             }
         }
@@ -4226,6 +4237,7 @@ std::string r_byte_substr(const std::string& s, int a, int b)
             templates {
                 ranger ( "(has_byte_substring)")
                 cpp ( "true" )
+                rust ( "true" )
                 * ( "false" )
             }
         }
@@ -4250,19 +4262,30 @@ std::string r_byte_substr(const std::string& s, int a, int b)
 (create_polyfill "
 bool r_str_is_ascii(const std::string& s)
 {
-    struct Ent { const char* data; size_t len; bool val; };
-    static thread_local Ent cache[8] = {};
+    // NO cross-call memo. The only key a polyfill has for a std::string is its
+    // buffer ADDRESS, and an address is not an identity: a caller that hands
+    // this a fresh copy per call -- which the interpreter does, every string
+    // built-in materialises its receiver -- frees each copy before making the
+    // next, so the next one lands on the SAME address with the SAME length and
+    // inherits the previous string's answer. A pointer-keyed table made
+    // 'Straße'.localeCompare('Strasse') answer 1 or -1 depending only on what
+    // ran before it, so Array#sort put the same two strings in different
+    // orders depending on which came first. Eight bytes per iteration keeps an
+    // honest scan cheap: the high bit of every byte in a word at once.
     const char* d = s.data();
     size_t n = s.length();
-    size_t slot = ((size_t) d / 16 + n) & 7;
-    Ent& e = cache[slot];
-    if (e.data == d && e.len == n) return e.val;
-    bool a = true;
-    for (size_t i = 0; i < n; i++) {
-        if ((unsigned char) s[i] > 127) { a = false; break; }
+    size_t i = 0;
+    while (i < n) {
+        // OR a block together and test the high bits once: no branch per byte,
+        // so the block loop vectorises. Blocked rather than whole-string so a
+        // non-ASCII byte early in a long string still stops early.
+        size_t end = i + 4096;
+        if (end > n) { end = n; }
+        unsigned char m = 0;
+        for (; i < end; i++) { m = (unsigned char)(m | (unsigned char) d[i]); }
+        if (m & 0x80) { return false; }
     }
-    e.data = d; e.len = n; e.val = a;
-    return a;
+    return true;
 }
 ")
                 )
@@ -5590,6 +5613,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
                  csharp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
                  scala ( (e 1) "(" (e 2) ") = " (e 3) )
+                 rust ( (custom _) )
                  rust ( (e 1) "[" (idx 2) "] = " (e 3) ";" )
                  * ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             }

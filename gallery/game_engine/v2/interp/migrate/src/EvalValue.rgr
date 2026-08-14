@@ -530,15 +530,31 @@ class EvShape {
         set next ka sh
         ; Record the new depth back up the chain, so an object starting from
         ; the root already knows how wide its kind gets.
+        ; The climb starts at the NEW shape, then this one, then its
+        ; ancestors. `this` is reached as a field rather than through
+        ; `sh.parent`, and the loop begins one link further up: on the Rust
+        ; target the caller is already inside this object's cell
+        ; (`shape.borrow_mut().transition(...)`), so arriving back at it
+        ; through the parent Rc is a second borrow of a cell that is already
+        ; borrowed, and the process aborts. Reading the field is the same
+        ; object by a route that cannot alias.
         def w:int (array_length na)
-        def up:EvShape sh
+        if (sh.deepest < w) {
+            sh.deepest = w
+        }
+        if (deepest < w) {
+            deepest = w
+        }
+        def up@(optional):EvShape parent
         def climbing:boolean true
         while climbing {
-            if (up.deepest < w) {
-                up.deepest = w
-            }
-            if up.parent {
-                up = (unwrap up.parent)
+            if up {
+                def u:EvShape (unwrap up)
+                def d:int u.deepest
+                if (d < w) {
+                    u.deepest = w
+                }
+                up = u.parent
             } {
                 climbing = false
             }
