@@ -2202,7 +2202,7 @@ class EVGPDFRenderer {
                     def shadowX:double (textX + shadowOffsetX + blurOffset)
                     def shadowY:double (lineY + shadowOffsetY - blurOffset)
                     streamBuffer.writeString((this.formatNum(shadowX)) + " " + (this.formatNum(shadowY)) + " Td\n")
-                    streamBuffer.writeString("(" + (this.escapeText(line)) + ") Tj\n")
+                    streamBuffer.writeString((this.textShowOperator(line fontFamily)) + "\n")
                     streamBuffer.writeString("ET\n")
                     
                     pass = pass + 1
@@ -2220,7 +2220,7 @@ class EVGPDFRenderer {
             streamBuffer.writeString((this.formatNum(r)) + " " + (this.formatNum(g)) + " " + (this.formatNum(b)) + " rg\n")
             
             streamBuffer.writeString((this.formatNum(textX)) + " " + (this.formatNum(lineY)) + " Td\n")
-            streamBuffer.writeString("(" + (this.escapeText(line)) + ") Tj\n")
+            streamBuffer.writeString((this.textShowOperator(line fontFamily)) + "\n")
             streamBuffer.writeString("ET\n")
             
             lineY = lineY - lineSpacing
@@ -2228,6 +2228,58 @@ class EVGPDFRenderer {
         }
     }
     
+    ; The show operator for one line: a plain `Tj`, or a `TJ` array carrying
+    ; the face's kerning.
+    ;
+    ; A PDF viewer advances by the /Widths entry and applies no kerning of its
+    ; own, so a page whose layout was measured with kerning but painted with
+    ; `Tj` would reserve one width and draw another — the box right, the ink
+    ; wrong, which is worse than not kerning at all. `TJ` puts the adjustment
+    ; in the stream.
+    ;
+    ; TJ numbers are thousandths of a text-space unit and move the pen LEFT,
+    ; and /Widths is written scaled to 1000 units per em regardless of the
+    ; face's own unitsPerEm — so a kern of k font units becomes -1000k/upem.
+    fn textShowOperator:string (line:string fontFamily:string) {
+        def font:TrueTypeFont (fontManager.getFont(fontFamily))
+        def plain:string ("(" + (this.escapeText(line)) + ") Tj")
+        if (font.hasKerning == false) {
+            return plain
+        }
+        if (font.unitsPerEm <= 0) {
+            return plain
+        }
+        def len:int (strlen line)
+        if (len < 2) {
+            return plain
+        }
+
+        def out:string "["
+        def seg:string ""
+        def kerns:int 0
+        def i:int 0
+        while (i < len) {
+            def ch:int (charAt line i)
+            if (i > 0) {
+                def k:int (font.kernUnits((charAt line (i - 1)) ch))
+                if (k != 0) {
+                    out = out + "(" + (this.escapeText(seg)) + ")"
+                    seg = ""
+                    def num:double (((0.0 - 1000.0) * (to_double k)) / (to_double font.unitsPerEm))
+                    out = out + " " + (this.formatNum(num)) + " "
+                    kerns = (kerns + 1)
+                }
+            }
+            seg = seg + (strfromcode ch)
+            i = (i + 1)
+        }
+        if (kerns == 0) {
+            return plain
+        }
+        out = out + "(" + (this.escapeText(seg)) + ")] TJ"
+        return out
+    }
+
     ; Delegates to the shared text engine rather than wrapping again here.
     ; This function used to hold its own copy of the algorithm; layout held a
     ; different one, so the line count reserved by layout could differ from the

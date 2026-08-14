@@ -34,6 +34,7 @@ Without that, flex/grid improvements will still look wrong in print.
 | Area | Today | Gap |
 | --- | --- | --- |
 | Lengths | `px`, `%`, `em`, `rem`, and the absolute print units `pt` / `pc` / `in` / `mm` / `cm`, plus EVG's own `hp` and `fill` | `vw` / `vh`, `ch` / `ex`, `calc()` — all rejected rather than misread |
+| Kerning | GPOS pair adjustments (formats 1 and 2, incl. Extension lookups) and the legacy `kern` table, in measurement and in paint | Ligatures and other GPOS features |
 | Flex | Grow, per-item `flex-shrink`, `flex-basis`, `flex` shorthand, min/max resolved inside the distribution | — |
 | `gap` | Main axis, row + column | No separate `row-gap` / `column-gap` |
 | `flex-wrap` | `wrap` (default) / `nowrap` / `wrap-reverse`, with the full `align-content` set including `stretch` | — |
@@ -151,16 +152,12 @@ this replaced.
    exceeded its declared size kept that size and gave its children a negative
    content box, where CSS grows the box instead. Both are fixed.
 
-10. **Kerning** (open)  
-   EVG sums raw `hmtx` advances and applies no kerning. The parity snapshot
-   records both the unkerned width (which EVG matches to 0.014px) and the
-   browser's kerned width, so the size of the gap is measured rather than
-   assumed: 8 of 24 fixtures kern at all, and the worst is **1.94px on
-   "Helsinki, 2024" in Cinzel at 30px** — about 0.9%. Display faces kern hardest;
-   Open Sans digits and punctuation do not kern at all. This matters for
-   centred and right-aligned text, where the error shifts the whole run.
-   Implementing it means reading GPOS (or `kern` where present) in
-   `TrueTypeFont` and applying pair adjustments in `EVGTextEngine`.
+10. **Kerning** ✅  
+   EVG reads GPOS pair adjustments — and the legacy `kern` table on a face with
+   no GPOS — and applies them in measurement AND in paint. The parity snapshot
+   now targets the browser's **kerned** width: worst delta **0.015px** across
+   24 fixtures, and **0.006px** against a live Chromium page. Before this, the
+   worst was 1.94px on "Helsinki, 2024" in Cinzel at 30px. See Phase 4.3.
 
 ## 5. Style layer (quick theme changes)
 
@@ -659,6 +656,51 @@ report, the dedup, and silence on a grid the engine fully understands.
 > reports success on a broken tool. Grep the output for `Compilation FAILED`.
 > This cost a round here: a tool that had not rebuilt looked like a feature
 > that had not worked.
+
+### Phase 4.3 — Kerning ✅
+
+The last open rule in §4.1, and the one that needed the most care to not make
+things worse.
+
+**Reading it.** `TrueTypeFont` walks GPOS: FeatureList for a `kern` feature,
+its lookups, and the pair-adjustment subtables underneath — including
+LookupType 9 (Extension), which large faces use to reach past the 64K offset
+limit, so skipping it would have missed kerning in exactly the fonts that need
+it most. Both PairPos formats are read: format 1 (per-glyph pair sets, binary
+searched) and format 2 (class pairs). Coverage and ClassDef tables are binary
+searched rather than expanded — a class subtable is a few hundred bytes that
+expands to tens of thousands of pairs, almost none of which a given page uses.
+
+Two things the browser snapshot caught that reading the spec alone did not:
+
+- **Subtables within one lookup are first-match-wins**, not additive. Summing
+  every subtable double-counted any pair listed in more than one, which made
+  Noto Sans measure narrower than Chromium draws it. Separate lookups still
+  accumulate.
+- **A face with GPOS is positioned by GPOS alone.** Open Sans has a GPOS table
+  with no `kern` feature *and* 18694 legacy `kern` pairs. Falling back to those
+  made EVG kern a run a browser leaves alone. OpenType says GPOS wins outright;
+  the fallback now only applies when there is no GPOS table at all.
+
+**Painting it.** Measuring kerned while painting unkerned would have been worse
+than not kerning: the box right and the ink wrong. A PDF viewer advances by the
+`/Widths` entry and kerns nothing itself, so the renderer emits a `TJ` array
+instead of `Tj` when the face kerns — `[(H) 15 (e) 10 (lsinki, 20) 25 (2) 15
+(4)] TJ`, which is 65/1000 em at 30px, exactly the 1.95px the measurement
+moved. A run that does not kern still emits a plain `Tj`. The raster pen kerns
+between glyphs the same way; A/B-ing the PNG shows the right edge of that
+Cinzel line moving 2px left with the left edge unchanged, which is kerning
+between glyphs and not a shifted origin.
+
+Results:
+
+| | before | after |
+| --- | --- | --- |
+| worst vs browser (24 snapshot fixtures) | 1.94px | **0.015px** |
+| worst vs live Chromium page | 0.375px | **0.006px** |
+
+All 19 rendering examples that contain text moved, every diff a width or a
+position — no text and no structure changed.
 
 ## 11. File / module impact (expected)
 

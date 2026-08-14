@@ -69,6 +69,26 @@ class TrueTypeFont {
     ; Character to width cache (ASCII 0-255)
     def charWidths:[int]
     def charWidthsLoaded:boolean false
+
+    ; ---- Kerning -----------------------------------------------------------
+    ; Absolute file offsets of the GPOS pair-adjustment subtables reachable
+    ; from the `kern` feature. Walked per pair rather than expanded into a
+    ; table: a class-based subtable is a few hundred bytes and expands to tens
+    ; of thousands of pairs, almost none of which a given page uses.
+    def kernSubtables:[int]
+    ; Which lookup each subtable came from. Subtables WITHIN a lookup are tried
+    ; in order and the first match wins; separate lookups each get to apply.
+    ; Summing every subtable double-counted any pair listed in more than one,
+    ; which made Noto Sans measure narrower than a browser shows it.
+    def kernSubtableLookups:[int]
+    ; Did the last pairAdvance find the pair at all? A matched pair may still
+    ; carry a zero adjustment, so the return value cannot say.
+    def pairMatched:boolean false
+    ; Legacy `kern` table, format 0. Some older faces carry this instead of
+    ; GPOS; a few carry both, in which case GPOS wins as OpenType requires.
+    def legacyKernOffset:int 0
+    def legacyKernPairs:int 0
+    def hasKerning:boolean false
     
     Constructor () {
         def t:[TTFTableRecord]
@@ -77,6 +97,10 @@ class TrueTypeFont {
         glyphWidths = gw
         def cw:[int]
         charWidths = cw
+        def ks:[int]
+        kernSubtables = ks
+        def ksl:[int]
+        kernSubtableLookups = ksl
     }
     
     fn loadFromFile:boolean (path:string) {
@@ -125,6 +149,7 @@ class TrueTypeFont {
         this.parseCmapTable()
         this.parseHmtxTable()
         this.parseNameTable()
+        this.parseKerning()
         
         ; Build character width cache
         this.buildCharWidthCache()
@@ -441,7 +466,10 @@ class TrueTypeFont {
     }
     
     fn measureText:double (text:string fontSize:double) {
-        ; Measure text width in points
+        ; Measure text width in points, including the kerning the face asks
+        ; for. Without it every run came out slightly wide — and the error is
+        ; not a rounding artefact: it shifts the whole line for centred and
+        ; right-aligned text, and display faces kern hardest.
         def width:double 0.0
         def len:int (strlen text)
         def i:int 0
@@ -449,6 +477,9 @@ class TrueTypeFont {
         while (i < len) {
             def ch:int (charAt text i)
             width = width + (this.getCharWidthPoints(ch fontSize))
+            if (i > 0) {
+                width = (width + (this.kernPoints((charAt text (i - 1)) ch fontSize)))
+            }
             i = i + 1
         }
         
@@ -501,6 +532,377 @@ class TrueTypeFont {
         return (buffer_get fontData offset)
     }
     
+    ; ==========================================================================
+    ; Kerning
+    ; ==========================================================================
+    ; EVG summed raw hmtx advances and never kerned, so every run came out
+    ; slightly wide — measurably so for display faces, and visibly so for
+    ; centred or right-aligned text, where the error shifts the whole line.
+    ;
+    ; Modern faces put kerning in GPOS as a `kern` feature over pair-adjustment
+    ; lookups; older ones use the legacy `kern` table. Both are read here.
+
+    fn parseKerning:void () {
+        def gpos:TTFTableRecord (this.findTable("GPOS"))
+        if (gpos.offset > 0) {
+            ; A face with GPOS is positioned by GPOS alone. If it declares no
+            ; `kern` feature there, it does not kern — even when it also ships
+            ; a legacy `kern` table, which several do for old software.
+            ;
+            ; Open Sans is exactly that font: GPOS with no kern feature, plus
+            ; 18694 legacy pairs. Falling back to those made EVG kern a run the
+            ; browser leaves alone, which the parity snapshot caught at once.
+            this.parseGposKernFeature(gpos.offset)
+            if ((array_length kernSubtables) > 0) {
+                hasKerning = true
+            }
+            return
+        }
+        def kt:TTFTableRecord (this.findTable("kern"))
+        if (kt.offset > 0) {
+            this.parseLegacyKern(kt.offset)
+        }
+    }
+
+    ; Collect every pair-adjustment subtable the `kern` feature points at.
+    fn parseGposKernFeature:void (gposOff:int) {
+        def featureListOff:int (gposOff + (this.readUInt16(gposOff + 6)))
+        def lookupListOff:int (gposOff + (this.readUInt16(gposOff + 8)))
+
+        def featureCount:int (this.readUInt16(featureListOff))
+        def lookupCount:int (this.readUInt16(lookupListOff))
+
+        def f:int 0
+        while (f < featureCount) {
+            def recOff:int (featureListOff + 2 + (f * 6))
+            def tag:string (this.readTag(recOff))
+            if (tag == "kern") {
+                def featOff:int (featureListOff + (this.readUInt16(recOff + 4)))
+                def idxCount:int (this.readUInt16(featOff + 2))
+                def li:int 0
+                while (li < idxCount) {
+                    def lookupIndex:int (this.readUInt16(featOff + 4 + (li * 2)))
+                    if (lookupIndex < lookupCount) {
+                        def lookupOff:int (lookupListOff + (this.readUInt16(lookupListOff + 2 + (lookupIndex * 2))))
+                        this.collectPairLookup(lookupOff lookupIndex)
+                    }
+                    li = (li + 1)
+                }
+            }
+            f = (f + 1)
+        }
+    }
+
+    ; LookupType 2 is pair adjustment. Type 9 is an Extension wrapper, which a
+    ; large face uses to reach past the 64K offset limit — unwrap it or the
+    ; kerning of exactly the fonts that need it most is invisible.
+    fn collectPairLookup:void (lookupOff:int lookupIndex:int) {
+        def lookupType:int (this.readUInt16(lookupOff))
+        def subCount:int (this.readUInt16(lookupOff + 4))
+        def i:int 0
+        while (i < subCount) {
+            def subOff:int (lookupOff + (this.readUInt16(lookupOff + 6 + (i * 2))))
+            if (lookupType == 2) {
+                push kernSubtables subOff
+                push kernSubtableLookups lookupIndex
+            }
+            if (lookupType == 9) {
+                def extType:int (this.readUInt16(subOff + 2))
+                if (extType == 2) {
+                    push kernSubtables (subOff + (this.readUInt32(subOff + 4)))
+                    push kernSubtableLookups lookupIndex
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn parseLegacyKern:void (kernOff:int) {
+        def nTables:int (this.readUInt16(kernOff + 2))
+        if (nTables < 1) {
+            return
+        }
+        ; Only the first horizontal format-0 subtable is used, which is what
+        ; every face that still ships this table actually has.
+        def sub:int (kernOff + 4)
+        def coverage:int (this.readUInt16(sub + 4))
+        def format:int (to_int (coverage / 256))
+        def horizontal:boolean ((coverage % 2) == 1)
+        if ((format == 0) && horizontal) {
+            legacyKernPairs = (this.readUInt16(sub + 6))
+            legacyKernOffset = (sub + 14)
+            if (legacyKernPairs > 0) {
+                hasKerning = true
+            }
+        }
+    }
+
+    ; Kerning between two glyphs, in font units. 0 when the pair does not kern.
+    fn kernAdvance:int (leftGlyph:int rightGlyph:int) {
+        if (hasKerning == false) {
+            return 0
+        }
+        if (legacyKernOffset > 0) {
+            return (this.legacyKernAdvance(leftGlyph rightGlyph))
+        }
+        def total:int 0
+        ; -1 is "no lookup satisfied yet"; a real lookup index is >= 0.
+        def satisfied:int (0 - 1)
+        def i:int 0
+        while (i < (array_length kernSubtables)) {
+            def lk:int (itemAt kernSubtableLookups i)
+            if (lk != satisfied) {
+                def adj:int (this.pairAdvance((itemAt kernSubtables i) leftGlyph rightGlyph))
+                if pairMatched {
+                    total = (total + adj)
+                    satisfied = lk
+                }
+            }
+            i = (i + 1)
+        }
+        return total
+    }
+
+    fn pairAdvance:int (st:int leftGlyph:int rightGlyph:int) {
+        pairMatched = false
+        def posFormat:int (this.readUInt16(st))
+        def coverageOff:int (st + (this.readUInt16(st + 2)))
+        def valueFormat1:int (this.readUInt16(st + 4))
+        def valueFormat2:int (this.readUInt16(st + 6))
+
+        ; Coverage gates which glyphs may start a pair, in both formats.
+        def covIndex:int (this.coverageIndex(coverageOff leftGlyph))
+        if (covIndex < 0) {
+            return 0
+        }
+
+        def v1Size:int (this.valueRecordSize(valueFormat1))
+        def v2Size:int (this.valueRecordSize(valueFormat2))
+
+        if (posFormat == 1) {
+            def pairSetOff:int (st + (this.readUInt16(st + 10 + (covIndex * 2))))
+            def pairCount:int (this.readUInt16(pairSetOff))
+            def recSize:int ((2 + v1Size) + v2Size)
+            ; PairValueRecords are sorted by glyph id.
+            def lo:int 0
+            def hi:int (pairCount - 1)
+            while (lo <= hi) {
+                def mid:int (to_int ((lo + hi) / 2))
+                def recOff:int ((pairSetOff + 2) + (mid * recSize))
+                def second:int (this.readUInt16(recOff))
+                if (second == rightGlyph) {
+                    pairMatched = true
+                    return (this.valueXAdvance((recOff + 2) valueFormat1))
+                }
+                if (second < rightGlyph) {
+                    lo = (mid + 1)
+                } {
+                    hi = (mid - 1)
+                }
+            }
+            return 0
+        }
+
+        if (posFormat == 2) {
+            def classDef1:int (st + (this.readUInt16(st + 8)))
+            def classDef2:int (st + (this.readUInt16(st + 10)))
+            def class2Count:int (this.readUInt16(st + 14))
+            def c1:int (this.glyphClass(classDef1 leftGlyph))
+            def c2:int (this.glyphClass(classDef2 rightGlyph))
+            def recSize:int (v1Size + v2Size)
+            def recOff:int ((st + 16) + (((c1 * class2Count) + c2) * recSize))
+            ; A class-based subtable covers every pair whose left glyph is in
+            ; its coverage — class 0 is the catch-all — so reaching here is a
+            ; match even when the adjustment is zero.
+            pairMatched = true
+            return (this.valueXAdvance(recOff valueFormat1))
+        }
+
+        return 0
+    }
+
+    ; A ValueRecord holds one int16 per set bit of its format.
+    fn valueRecordSize:int (format:int) {
+        def size:int 0
+        def bit:int 0
+        while (bit < 8) {
+            def mask:int (this.powTwo(bit))
+            if ((this.hasBit(format mask)) ) {
+                size = (size + 2)
+            }
+            bit = (bit + 1)
+        }
+        return size
+    }
+
+    ; X_ADVANCE is 0x0004, the third field. Its offset is two bytes for each of
+    ; X_PLACEMENT and Y_PLACEMENT that happens to be present.
+    fn valueXAdvance:int (recOff:int format:int) {
+        if ((this.hasBit(format 4)) == false) {
+            return 0
+        }
+        def off:int recOff
+        if (this.hasBit(format 1)) {
+            off = (off + 2)
+        }
+        if (this.hasBit(format 2)) {
+            off = (off + 2)
+        }
+        return (this.readInt16(off))
+    }
+
+    fn powTwo:int (n:int) {
+        def v:int 1
+        def i:int 0
+        while (i < n) {
+            v = (v * 2)
+            i = (i + 1)
+        }
+        return v
+    }
+
+    fn hasBit:boolean (value:int mask:int) {
+        return (((to_int (value / mask)) % 2) == 1)
+    }
+
+    ; Position of a glyph within a Coverage table, or -1 if absent.
+    fn coverageIndex:int (cov:int glyph:int) {
+        def format:int (this.readUInt16(cov))
+        if (format == 1) {
+            def count:int (this.readUInt16(cov + 2))
+            def lo:int 0
+            def hi:int (count - 1)
+            while (lo <= hi) {
+                def mid:int (to_int ((lo + hi) / 2))
+                def g:int (this.readUInt16(cov + 4 + (mid * 2)))
+                if (g == glyph) {
+                    return mid
+                }
+                if (g < glyph) {
+                    lo = (mid + 1)
+                } {
+                    hi = (mid - 1)
+                }
+            }
+            return (0 - 1)
+        }
+        if (format == 2) {
+            def rangeCount:int (this.readUInt16(cov + 2))
+            def lo2:int 0
+            def hi2:int (rangeCount - 1)
+            while (lo2 <= hi2) {
+                def mid2:int (to_int ((lo2 + hi2) / 2))
+                def rec:int (cov + 4 + (mid2 * 6))
+                def start:int (this.readUInt16(rec))
+                def end:int (this.readUInt16(rec + 2))
+                if (glyph < start) {
+                    hi2 = (mid2 - 1)
+                } {
+                    if (glyph > end) {
+                        lo2 = (mid2 + 1)
+                    } {
+                        return ((this.readUInt16(rec + 4)) + (glyph - start))
+                    }
+                }
+            }
+            return (0 - 1)
+        }
+        return (0 - 1)
+    }
+
+    ; Class of a glyph in a ClassDef table. Anything not listed is class 0.
+    fn glyphClass:int (cd:int glyph:int) {
+        def format:int (this.readUInt16(cd))
+        if (format == 1) {
+            def startGlyph:int (this.readUInt16(cd + 2))
+            def count:int (this.readUInt16(cd + 4))
+            if (glyph < startGlyph) {
+                return 0
+            }
+            if (glyph >= (startGlyph + count)) {
+                return 0
+            }
+            return (this.readUInt16(cd + 6 + ((glyph - startGlyph) * 2)))
+        }
+        if (format == 2) {
+            def rangeCount:int (this.readUInt16(cd + 2))
+            def lo:int 0
+            def hi:int (rangeCount - 1)
+            while (lo <= hi) {
+                def mid:int (to_int ((lo + hi) / 2))
+                def rec:int (cd + 4 + (mid * 6))
+                def start:int (this.readUInt16(rec))
+                def end:int (this.readUInt16(rec + 2))
+                if (glyph < start) {
+                    hi = (mid - 1)
+                } {
+                    if (glyph > end) {
+                        lo = (mid + 1)
+                    } {
+                        return (this.readUInt16(rec + 4))
+                    }
+                }
+            }
+            return 0
+        }
+        return 0
+    }
+
+    fn legacyKernAdvance:int (leftGlyph:int rightGlyph:int) {
+        def lo:int 0
+        def hi:int (legacyKernPairs - 1)
+        while (lo <= hi) {
+            def mid:int (to_int ((lo + hi) / 2))
+            def rec:int (legacyKernOffset + (mid * 6))
+            def l:int (this.readUInt16(rec))
+            def r:int (this.readUInt16(rec + 2))
+            if (l == leftGlyph) {
+                if (r == rightGlyph) {
+                    return (this.readInt16(rec + 4))
+                }
+            }
+            ; Pairs are sorted by the combined (left, right) key.
+            def key:int ((l * 65536) + r)
+            def want:int ((leftGlyph * 65536) + rightGlyph)
+            if (key < want) {
+                lo = (mid + 1)
+            } {
+                hi = (mid - 1)
+            }
+        }
+        return 0
+    }
+
+    ; Kerning between two characters, in font units.
+    fn kernUnits:int (leftChar:int rightChar:int) {
+        if (hasKerning == false) {
+            return 0
+        }
+        def lg:int (this.getGlyphIndex(leftChar))
+        def rg:int (this.getGlyphIndex(rightChar))
+        if ((lg == 0) || (rg == 0)) {
+            return 0
+        }
+        return (this.kernAdvance(lg rg))
+    }
+
+    ; Kerning between two characters, in points.
+    fn kernPoints:double (leftChar:int rightChar:int fontSize:double) {
+        if (hasKerning == false) {
+            return 0.0
+        }
+        def lg:int (this.getGlyphIndex(leftChar))
+        def rg:int (this.getGlyphIndex(rightChar))
+        if ((lg == 0) || (rg == 0)) {
+            return 0.0
+        }
+        def units:int (this.kernAdvance(lg rg))
+        if (units == 0) {
+            return 0.0
+        }
+        return (((to_double units) * fontSize) / (to_double unitsPerEm))
+    }
+
     fn readUInt16:int (offset:int) {
         ; Big-endian
         def b1:int (buffer_get fontData offset)

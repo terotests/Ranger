@@ -10,12 +10,11 @@
 ; (`browser_parity_snapshot.js --write`), and this suite checks EVG against
 ; that snapshot offline: no browser, no network, runs anywhere.
 ;
-; The snapshot records TWO widths per fixture. `unkerned` is the sum of the
-; font's own advance widths, which is exactly what EVG computes, and is what
-; this suite checks against — tightly, because there is no reason for it to
-; differ at all. `kerned` is what a browser shows by default; the gap between
-; the two is the kerning EVG does not apply, reported here so a known
-; limitation stays measured instead of being absorbed into a loose tolerance.
+; The snapshot records TWO widths per fixture. `kerned` is what a browser shows
+; by default, and is the target this suite checks against — tightly, because
+; now that EVG reads the same GPOS pair adjustments there is no reason for the
+; two to differ at all. `unkerned` is the bare sum of the font's advance
+; widths: what EVG used to compute, kept as the measure of how far off it was.
 ;
 ; What that buys: this catches EVG drifting away from the browser. What it
 ; cannot catch is the browser itself changing — for that, re-run the recorder
@@ -86,13 +85,16 @@ class BrowserParityTest {
                 } {
                     def face:string (itemAt parts 0)
                     def sizeStr:string (itemAt parts 1)
-                    def wantStr:string (itemAt parts 2)
-                    def kernedStr:string (itemAt parts 3)
+                    def unkernedStr:string (itemAt parts 2)
+                    def wantStr:string (itemAt parts 3)
                     def fixture:string (itemAt parts 4)
 
+                    ; The KERNED width is the target now that EVG kerns. The
+                    ; unkerned column is kept as the record of how far off the
+                    ; engine used to be.
                     def sizeV@(optional):double (to_double sizeStr)
                     def wantV@(optional):double (to_double wantStr)
-                    def kernV@(optional):double (to_double kernedStr)
+                    def kernV@(optional):double (to_double unkernedStr)
                     if (sizeV && wantV) {
                         def size:double (unwrap sizeV)
                         def want:double (unwrap wantV)
@@ -109,11 +111,11 @@ class BrowserParityTest {
                             (delta <= tolerance))
                         checked = (checked + 1)
 
-                        ; Track how much the browser's kerning would have moved
-                        ; this run. EVG never kerns, so it is always the wider.
+                        ; How much kerning moved this run — i.e. how wrong the
+                        ; engine was before it applied any.
                         if kernV {
-                            def kerned:double (unwrap kernV)
-                            def kd:double (want - kerned)
+                            def unkerned:double (unwrap kernV)
+                            def kd:double (want - unkerned)
                             if (kd < 0.0) {
                                 kd = (0.0 - kd)
                             }
@@ -131,8 +133,7 @@ class BrowserParityTest {
         t.ok("the snapshot actually contained fixtures" (checked > 0))
         print ("  " + (to_string checked) + " measurement(s) checked against the browser snapshot")
         print ("  worst delta " + (to_string worst) + "px on " + worstLabel + " (tolerance " + (to_string tolerance) + "px)")
-        print ("  known gap: browser kerning would tighten these runs by up to "
-            + (to_string worstKerning) + "px (" + worstKerningLabel + ")")
-        print "  EVG applies no kerning; see PLAN_CSS_LAYOUT_AND_FONTS.md §4.1." 
+        print ("  kerning moved these runs by up to " + (to_string worstKerning)
+            + "px (" + worstKerningLabel + ") — the error before EVG applied it")
     }
 }
