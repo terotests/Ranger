@@ -304,20 +304,25 @@ class EvHandle {
         def _evBody:EvalValue body
         case _evBody f:EvalValue.Function {
             def c:EvFunctionCore (unwrap f.core)
-            return c.srcText
+            def reg:EvSourceRegistry (EvSourceRegistry.__singleton())
+            return (reg.textOf(c.srcId))
         }
         return ""
     }
+    ; Register a text and point this function at it. Callers that already hold
+    ; a registered id should use setSrcId -- registering the same script twice
+    ; is exactly the copying this indirection exists to avoid.
     fn setSrcText:void (s:string) {
         def c:EvFunctionCore (this.fnCore())
-        c.srcText = s
+        def reg:EvSourceRegistry (EvSourceRegistry.__singleton())
+        c.srcId = (reg.add(s))
     }
     ; PERF: presence probe without copying the text out.
     fn hasSrcText:boolean () {
         def _evBody:EvalValue body
         case _evBody f:EvalValue.Function {
             def c:EvFunctionCore (unwrap f.core)
-            return ((strlen c.srcText) > 0)
+            return (c.srcId > 0)
         }
         return false
     }
@@ -409,7 +414,7 @@ class EvHandle {
         def propsOpt@(optional):EvPropertyBag (this.tryProps())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
-            return (has props.suppressedKeys key)
+            return (props.isSuppressed(key))
         }
         return false
     }
@@ -418,17 +423,17 @@ class EvHandle {
             def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
             dEp.bump()
         }
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
-            set props.suppressedKeys key true
+            props.suppressKey(key)
         }
     }
     fn suppressedKeyList:[string] () {
         def propsOpt@(optional):EvPropertyBag (this.tryProps())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
-            return (keys props.suppressedKeys)
+            return (props.suppressedList())
         }
         def none:[string]
         return none
@@ -438,10 +443,10 @@ class EvHandle {
             def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
             dEp.bump()
         }
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
-            props.suppressedKeys = m
+            props.setSuppressed(m)
         }
     }
     fn copySuppressedMap:[string:boolean] () {
@@ -911,7 +916,7 @@ class EvHandle {
             dst.functionName = src.functionName
             dst.closureId = src.closureId
             dst.homeModule = src.homeModule
-            dst.srcText = src.srcText
+            dst.srcId = src.srcId
             dst.builtinKind = src.builtinKind
             dst.builtinName = src.builtinName
             dst.builtinNamespace = src.builtinNamespace
@@ -1336,7 +1341,7 @@ class EvHandle {
         if w { f = (bit_or f 1) }
         if e { f = (bit_or f 2) }
         if c { f = (bit_or f 4) }
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             props.setAttrsOn(key f)
@@ -1379,7 +1384,7 @@ class EvHandle {
     ; accessor property back into a data one -- leaving the functions behind
     ; would let the getter keep winning over the new value.
     fn clearAccessor:void (key:string) {
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             props.clearAccessor(key)
@@ -1390,7 +1395,7 @@ class EvHandle {
     ; an accessor replaces the halves the descriptor mentions and keeps the rest,
     ; so clearing both together would drop a setter the descriptor never named.
     fn clearGetterOnly:void (key:string) {
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             props.clearGetter(key)
@@ -1398,7 +1403,7 @@ class EvHandle {
     }
 
     fn clearSetterOnly:void (key:string) {
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             props.clearSetter(key)
@@ -1461,7 +1466,7 @@ class EvHandle {
             def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
             dEp.bump()
         }
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             props.putGetter(key (fn.toStored()) (props.attrsOf(key)))
@@ -1473,7 +1478,7 @@ class EvHandle {
             def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
             dEp.bump()
         }
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             props.putSetter(key (fn.toStored()) (props.attrsOf(key)))
@@ -1739,6 +1744,70 @@ class EvHandle {
         def missing@(optional):EvPropertyBag
         return missing
     }
+    ; The bag to MUTATE. Every value starts on one shared empty bag; the first
+    ; write swaps in a private one. Read paths keep using tryProps and never
+    ; unshare -- that is the whole point, an array that never gets a named
+    ; property never pays for a bag.
+    fn propsForWrite@(optional):EvPropertyBag () {
+        def _kw:EvalValue body
+        case _kw o:EvalValue.Object {
+            def p:EvPropertyBag o.properties
+            if p.isShared {
+                def f1:EvPropertyBag (new EvPropertyBag())
+                o.properties = f1
+                def r1@(optional):EvPropertyBag f1
+                return r1
+            }
+            def r1b@(optional):EvPropertyBag p
+            return r1b
+        }
+        case _kw a:EvalValue.Array {
+            def p2:EvPropertyBag a.properties
+            if p2.isShared {
+                def f2:EvPropertyBag (new EvPropertyBag())
+                a.properties = f2
+                def r2@(optional):EvPropertyBag f2
+                return r2
+            }
+            def r2b@(optional):EvPropertyBag p2
+            return r2b
+        }
+        case _kw f:EvalValue.Function {
+            def p3:EvPropertyBag f.properties
+            if p3.isShared {
+                def f3:EvPropertyBag (new EvPropertyBag())
+                f.properties = f3
+                def r3@(optional):EvPropertyBag f3
+                return r3
+            }
+            def r3b@(optional):EvPropertyBag p3
+            return r3b
+        }
+        case _kw m:EvalValue.Map {
+            def p4:EvPropertyBag m.properties
+            if p4.isShared {
+                def f4:EvPropertyBag (new EvPropertyBag())
+                m.properties = f4
+                def r4@(optional):EvPropertyBag f4
+                return r4
+            }
+            def r4b@(optional):EvPropertyBag p4
+            return r4b
+        }
+        case _kw st:EvalValue.Set {
+            def p5:EvPropertyBag st.properties
+            if p5.isShared {
+                def f5:EvPropertyBag (new EvPropertyBag())
+                st.properties = f5
+                def r5@(optional):EvPropertyBag f5
+                return r5
+            }
+            def r5b@(optional):EvPropertyBag p5
+            return r5b
+        }
+        def missingW@(optional):EvPropertyBag
+        return missingW
+    }
     fn hasOwnData:boolean (key:string) {
         def propsOpt@(optional):EvPropertyBag (this.tryProps())
         if propsOpt {
@@ -1774,7 +1843,7 @@ class EvHandle {
             def fpEp2:EvDispatchEpoch (EvDispatchEpoch.__singleton())
             fpEp2.bump()
         }
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             ; Plain assignment defaults all three attributes true (mask 7).
@@ -1790,7 +1859,7 @@ class EvHandle {
             def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
             dEp.bump()
         }
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             props.removeData(key)
@@ -1884,7 +1953,7 @@ class EvHandle {
             def dEp:EvDispatchEpoch (EvDispatchEpoch.__singleton())
             dEp.bump()
         }
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             props.setPrototype((p.toStored()))
@@ -1899,7 +1968,7 @@ class EvHandle {
         return true
     }
     fn setExtensible:void (b:boolean) {
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             props.extensible = b
@@ -1914,7 +1983,7 @@ class EvHandle {
         return false
     }
     fn setSealedObj:void (b:boolean) {
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             props.sealed = b
@@ -1929,7 +1998,7 @@ class EvHandle {
         return false
     }
     fn setFrozenObj:void (b:boolean) {
-        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        def propsOpt@(optional):EvPropertyBag (this.propsForWrite())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
             props.frozen = b
@@ -2020,6 +2089,11 @@ class EvHandle {
             return false
         }
         case body o:EvalValue.Object {
+            def bag0:EvPropertyBag o.properties
+            if bag0.isShared {
+                def bagFresh:EvPropertyBag (new EvPropertyBag())
+                o.properties = bagFresh
+            }
             def bag:EvPropertyBag o.properties
             if bag.everHadAttrs {
                 return false
@@ -2673,10 +2747,53 @@ class EvHandle {
     }
 
     ; ---- Map helpers: SoT on body.Map.entries (EvMapEntry key/value) ----
+    ; A Map/Set key rendered as a string, following SameValueZero: strings and
+    ; numbers compare by value, everything else by identity. "" means "cannot
+    ; render this kind", and the caller falls back to scanning.
+    ;
+    ; +0 and -0 are the SAME key, so zero is normalised; NaN is its own key,
+    ; which it gets for free because every NaN renders alike.
+    sfn keyTag:string (k:EvHandle) {
+        if (k.isString()) {
+            return ("s" + (k.stringOf()))
+        }
+        if (k.isNumber()) {
+            def d:double (k.toNumber())
+            if (d == 0.0) {
+                return "n0"
+            }
+            return ("n" + (to_string d))
+        }
+        if (k.isBoolean()) {
+            if (k.boolOf()) {
+                return "bt"
+            }
+            return "bf"
+        }
+        if (k.isNull()) {
+            return "z"
+        }
+        if (k.isUndefined()) {
+            return "u"
+        }
+        def id:int (k.identityIdOf())
+        if (id > 0) {
+            return ("r" + (to_string id))
+        }
+        return ""
+    }
     fn mapIndexOfKey:int (key:EvHandle) {
         def _k:EvalValue body
+        def tag:string (EvHandle.keyTag(key))
         if (EvalValue.isMap(_k)) {
             case _k m:EvalValue.Map {
+                if ((strlen tag) > 0) {
+                    def hit@(optional):int (get m.keyIx tag)
+                    if hit {
+                        return (unwrap hit)
+                    }
+                    return (0 - 1)
+                }
                 def i:int 0
                 while (i < (array_length m.entries)) {
                     def e:EvMapEntry (itemAt m.entries i)
@@ -2709,7 +2826,12 @@ class EvHandle {
                 def ne:EvMapEntry (new EvMapEntry())
                 ne.key = kStored
                 ne.value = vStored
+                def newIx:int (array_length m.entries)
                 push m.entries ne
+                def tagS:string (EvHandle.keyTag(key))
+                if ((strlen tagS) > 0) {
+                    set m.keyIx tagS newIx
+                }
             }
         }
     }
@@ -2738,7 +2860,20 @@ class EvHandle {
                 }
                 i = (i + 1)
             }
-            body = (new EvalValue.Map(m.identityId m.properties rebuilt))
+            ; Every index after the hole moves, so the whole index is rebuilt
+            ; rather than patched.
+            def reIx:[string:int]
+            def r:int 0
+            while (r < (array_length rebuilt)) {
+                def re:EvMapEntry (itemAt rebuilt r)
+                def rk:EvHandle (EvHandle.fromBody((unwrap re.key)))
+                def rt:string (EvHandle.keyTag(rk))
+                if ((strlen rt) > 0) {
+                    set reIx rt r
+                }
+                r = (r + 1)
+            }
+            body = (new EvalValue.Map(m.identityId m.properties rebuilt reIx))
         }
         return true
     }
@@ -2754,13 +2889,22 @@ class EvHandle {
         }
         case _k st:EvalValue.Set {
             ; In place — see mapSet; the rebuild made every Set#add O(n).
+            def newIx:int (array_length st.items)
             push st.items (value.toStored())
+            def tagA:string (EvHandle.keyTag(value))
+            if ((strlen tagA) > 0) {
+                set st.itemIx tagA newIx
+            }
         }
     }
     fn setHas:boolean (value:EvHandle) {
         def _k:EvalValue body
         if (EvalValue.isSet(_k)) {
             case _k st:EvalValue.Set {
+                def tagH:string (EvHandle.keyTag(value))
+                if ((strlen tagH) > 0) {
+                    return (has st.itemIx tagH)
+                }
                 def i:int 0
                 while (i < (array_length st.items)) {
                     def el:EvHandle (EvHandle.fromBody((itemAt st.items i)))
@@ -2799,7 +2943,17 @@ class EvHandle {
                 }
                 j = (j + 1)
             }
-            body = (new EvalValue.Set(st.identityId st.properties rebuilt))
+            def reIx2:[string:int]
+            def r2:int 0
+            while (r2 < (array_length rebuilt)) {
+                def rel:EvHandle (EvHandle.fromBody((itemAt rebuilt r2)))
+                def rt2:string (EvHandle.keyTag(rel))
+                if ((strlen rt2) > 0) {
+                    set reIx2 rt2 r2
+                }
+                r2 = (r2 + 1)
+            }
+            body = (new EvalValue.Set(st.identityId st.properties rebuilt reIx2))
             return true
         }
         return false
@@ -2809,14 +2963,16 @@ class EvHandle {
         if (EvalValue.isMap(_k)) {
             case _k m:EvalValue.Map {
                 def emptyE:[EvMapEntry]
-                body = (new EvalValue.Map(m.identityId m.properties emptyE))
+                def emptyKx:[string:int]
+                body = (new EvalValue.Map(m.identityId m.properties emptyE emptyKx))
             }
             return
         }
         if (EvalValue.isSet(_k)) {
             case _k st:EvalValue.Set {
                 def emptyI:[EvalValue]
-                body = (new EvalValue.Set(st.identityId st.properties emptyI))
+                def emptyIx:[string:int]
+                body = (new EvalValue.Set(st.identityId st.properties emptyI emptyIx))
             }
         }
     }

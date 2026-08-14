@@ -5,7 +5,92 @@ Import "ts_token.rgr"
 Import "ts_lexer.rgr"
 
 ; Unified AST node - all node types use this
+; Fields only a handful of node kinds ever touch, behind one pointer instead
+; of on every node. TSNode is 560 bytes and there are ~250,000 of them live
+; while a script runs, so a field costs its width times a quarter of a million
+; whether or not anything reads it. These five are 128 of those bytes and are
+; touched from about twenty places between the parser and the evaluator.
+class TSNodeRare {
+    def lexNames:[string]
+    def hoistedVarNames:[string]
+    def decorators:[TSNode]
+    def slotVarNames:[string]
+    def accessor:string ""
+}
+
 class TSNode {
+  ; Absent until one of the rare fields is written. See TSNodeRare.
+  def rare@(optional):TSNodeRare
+
+  fn rareOf:TSNodeRare () {
+    if rare {
+      return (unwrap rare)
+    }
+    def r:TSNodeRare (new TSNodeRare())
+    rare = r
+    return r
+  }
+  ; Readers answer the empty default without allocating, so merely ASKING
+  ; whether a node has decorators does not give it a rare block.
+  fn accessorOf:string () {
+    if rare {
+      def r:TSNodeRare (unwrap rare)
+      return r.accessor
+    }
+    return ""
+  }
+  fn setAccessor:void (v:string) {
+    def r:TSNodeRare (this.rareOf())
+    r.accessor = v
+  }
+  fn lexNamesOf:[string] () {
+    if rare {
+      def r:TSNodeRare (unwrap rare)
+      return r.lexNames
+    }
+    def none:[string]
+    return none
+  }
+  fn setLexNames:void (v:[string]) {
+    def r:TSNodeRare (this.rareOf())
+    r.lexNames = v
+  }
+  fn hoistedVarNamesOf:[string] () {
+    if rare {
+      def r:TSNodeRare (unwrap rare)
+      return r.hoistedVarNames
+    }
+    def none:[string]
+    return none
+  }
+  fn setHoistedVarNames:void (v:[string]) {
+    def r:TSNodeRare (this.rareOf())
+    r.hoistedVarNames = v
+  }
+  fn slotVarNamesOf:[string] () {
+    if rare {
+      def r:TSNodeRare (unwrap rare)
+      return r.slotVarNames
+    }
+    def none:[string]
+    return none
+  }
+  fn setSlotVarNames:void (v:[string]) {
+    def r:TSNodeRare (this.rareOf())
+    r.slotVarNames = v
+  }
+  fn setDecorators:void (v:[TSNode]) {
+    def r:TSNodeRare (this.rareOf())
+    r.decorators = v
+  }
+  fn decoratorsOf:[TSNode] () {
+    if rare {
+      def r:TSNodeRare (unwrap rare)
+      return r.decorators
+    }
+    def none:[TSNode]
+    return none
+  }
   def nodeType:string ""
   def start:int 0
   def end:int 0
@@ -29,7 +114,6 @@ class TSNode {
   ; ToString of its VALUE ("1"), not the source text. The parser cannot format
   ; a double the way JS does; the engine can, and this is what tells it to.
   def numericKey:boolean false
-  def accessor:string ""      ; "get" / "set" for a class accessor member
   ; True for a node written inside parentheses. A parenthesised object or array
   ; literal is not a valid assignment target -- `({a} = b)` destructures but
   ; `({a}) = b` does not -- so the two have to be told apart.
@@ -92,7 +176,6 @@ class TSNode {
   ; D-TDZ: the let/const/class names this block declares, collected once. They
   ; are bound UNINITIALISED on entry so a read before the declaration runs is a
   ; ReferenceError rather than a lookup that walks out to an outer scope.
-  def lexNames:[string]
   ; Memo: does a `yield` occur anywhere under this node, not counting nested
   ; function bodies (which have their own)? This is what makes a resumable
   ; generator affordable -- a subtree with no yield in it is evaluated by the
@@ -107,7 +190,6 @@ class TSNode {
   ; finds them ran on every invocation (a fifth of call-heavy profiles);
   ; the names never change for a given node.
   def hoistScanned:boolean false
-  def hoistedVarNames:[string]
   ; Memo the EVALUATOR fills on first visit, alongside the hoist memo above:
   ; which of this body's hoisted `var` names hold a number whose VALUE OBJECT
   ; provably never leaves the frame. Such a binding can own ONE EvalValue for
@@ -117,7 +199,6 @@ class TSNode {
   ; (see ComponentEngine.slotSafeVarNames), so a name absent from this list is
   ; simply handled the old way.
   def slotScanned:boolean false
-  def slotVarNames:[string]
   ; Expression slot numbering. Every node of a function body is given an index
   ; the first time the body runs; a call then owns the ID range
   ; [base, base + exprSlotCount), so the same expression evaluated again in that
@@ -145,7 +226,6 @@ class TSNode {
   ; Child nodes
   def children:[TSNode]       ; statements, members, types in union
   def params:[TSNode]         ; function params, type params
-  def decorators:[TSNode]     ; decorators on classes/methods/properties
   def left@(optional):TSNode
   def right@(optional):TSNode
   def body@(optional):TSNode
@@ -308,6 +388,18 @@ class TSParserSimple {
   def speculating:int 0
   def tsxMode:boolean false ; enable JSX/TSX parsing
   
+  ; Drop the token array once the tree is built. The parser instance lives on
+  ; the engine and is reused, so without this the tokens of the LAST script
+  ; parsed stay resident for the life of the process -- for a 2.6 MB bundle
+  ; that is ~400,000 Token objects held after nothing can read them again.
+  ; Every reader (nextToken, peek, the lookahead scans) runs during
+  ; parseProgram; the tree carries positions, not tokens.
+  fn releaseTokens:void () {
+    def empty:[Token]
+    this.tokens = empty
+    this.pos = 0
+  }
+
   fn initParser:void (toks:[Token]) {
     this.tokens = toks
     this.pos = 0
@@ -1222,7 +1314,7 @@ class TSParserSimple {
       }
       ; Now parse the decorated statement (class)
       def decorated (this.parseStatement())
-      decorated.decorators = decorators
+      decorated.setDecorators(decorators)
       return decorated
     }
     
@@ -2573,7 +2665,7 @@ class TSParserSimple {
       push decorators dec
     }
     if ((array_length decorators) > 0) {
-      member.decorators = decorators
+      member.setDecorators(decorators)
     }
     
     ; Parse modifiers
@@ -2809,7 +2901,7 @@ class TSParserSimple {
         if (isStatic == false) {
           member.kind = accessorKind
         }
-        member.accessor = accessorKind
+        member.setAccessor(accessorKind)
       }
       if (isAbstract) {
         member.kind = "abstract"
@@ -4416,7 +4508,8 @@ class TSParserSimple {
       this.declaringKind = savedParamDeclaring
       ; Copy decorators if any
       for decorators d:TSNode i {
-        push pattern.decorators d
+        def pr:TSNodeRare (pattern.rareOf())
+        push pr.decorators d
       }
       if isRest {
         def restElem (new TSNode())
@@ -4450,7 +4543,8 @@ class TSParserSimple {
       this.declaringKind = savedParamDeclaring
       ; Copy decorators if any
       for decorators d:TSNode i {
-        push pattern.decorators d
+        def pr:TSNodeRare (pattern.rareOf())
+        push pr.decorators d
       }
       if isRest {
         def restElem (new TSNode())
@@ -4487,7 +4581,8 @@ class TSParserSimple {
     
     ; Copy decorators
     for decorators d:TSNode i {
-      push param.decorators d
+      def pr2:TSNodeRare (param.rareOf())
+      push pr2.decorators d
     }
     
     def nameTok (this.expectBindingName())

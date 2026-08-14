@@ -1491,6 +1491,15 @@ class ComponentEngine {
     ; non-ASCII character ended in "Unexpected non-whitespace character".
     def jsonLen:int 0
     def jsonPos:int 0
+    ; Whether jsonSrc can be cut by BYTE offset -- it is all-ASCII and the
+    ; target can slice bytes. `substring` walks code points from byte 0 on
+    ; every call, so a scanner stepping one character at a time is O(n) per
+    ; character and O(n^2) over the document: JSON.parse of a 1 MB text took
+    ; minutes. For ASCII (which every JSON document produced by a program is,
+    ; since the grammar escapes anything else) the code-point index IS the
+    ; byte index, so the cut is a pointer pair. Non-ASCII text keeps the
+    ; code-point walk, which stays correct.
+    def jsonByteIx:boolean false
     ; D-JSON: whether the current JSON.parse hit a grammar error, and what to say.
     def jsonFailed:boolean false
     def jsonError:string ""
@@ -1596,6 +1605,9 @@ class ComponentEngine {
 
     ; When true, suppress verbose evaluation trace (game scripts, tests).
     def quiet:boolean false
+    ; Prefix written before every console.* line. Defaults to the marker the
+    ; embedded hosts expect; a host that owns stdout outright sets it to "".
+    def consolePrefix:string "[tsx]"
 
     ; Safety cap on while/for/do iterations, so a runaway guest script cannot
     ; hang the host. Two things about it matter.
@@ -1661,13 +1673,15 @@ class ComponentEngine {
     ; copying whole scripts around (see currentSrcId).
     fn setCurrentSource:void (src:string) {
         currentSource = src
-        currentSrcId = nextSrcId
-        nextSrcId = (nextSrcId + 1)
+        def reg:EvSourceRegistry (EvSourceRegistry.__singleton())
+        currentSrcId = (reg.add(src))
     }
 
     ; Stamp a captured function value with the text in effect and its id.
     fn stampSrcOn:void (fv:EvHandle) {
-        fv.setSrcText(currentSource)
+        ; The ID only. setSrcText would register the text a second time, which
+        ; is the copy this exists to avoid -- 723 of them, 1797 MB, on one
+        ; 2.6 MB bundle.
         fv.setSrcId(currentSrcId)
     }
     
@@ -2674,7 +2688,9 @@ class ComponentEngine {
         parser.initParser(tokens)
         parser.tsxMode = jsxParsing
         parser.setModuleMode((this.sourceIsModule(src)))
-        return (parser.parseProgram())
+        def prog:TSNode (parser.parseProgram())
+        parser.releaseTokens()
+        return prog
     }
 
     ; D-EVAL: run eval'd source in the current scope and return its completion
@@ -3038,7 +3054,7 @@ class ComponentEngine {
         ; the global object, which answered undefined.
         def topLex:boolean (this.blockDeclaresLexical(ast))
         if topLex {
-            this.hoistLexicalTdz(ast.lexNames)
+            this.hoistLexicalTdz((ast.lexNamesOf()))
         }
         def i:int 0
         while (i < (array_length ast.children)) {
@@ -4817,12 +4833,15 @@ class ComponentEngine {
                 this.hoistCollectIn((itemAt body.children i) 0 found)
                 i = (i + 1)
             }
-            body.hoistedVarNames = found
+            body.setHoistedVarNames(found)
         }
-        def n:int (array_length body.hoistedVarNames)
+        ; Bound once: the accessor answers a copy, so reading it per iteration
+        ; would turn the loop quadratic.
+        def hoisted:[string] (body.hoistedVarNamesOf())
+        def n:int (array_length hoisted)
         def k:int 0
         while (k < n) {
-            def nm:string (itemAt body.hoistedVarNames k)
+            def nm:string (itemAt hoisted k)
             if (false == (context.hasOwnBinding(nm))) {
                 context.define(nm (EvValueBridge.taggedUndefined()))
             }
@@ -4839,12 +4858,13 @@ class ComponentEngine {
         if (false == context.isGlobalScope) {
             if (false == body.slotScanned) {
                 body.slotScanned = true
-                body.slotVarNames = (this.slotSafeVarNames(body))
+                body.setSlotVarNames((this.slotSafeVarNames(body)))
             }
-            def sc:int (array_length body.slotVarNames)
+            def slotNamesL:[string] (body.slotVarNamesOf())
+            def sc:int (array_length slotNamesL)
             def si:int 0
             while (si < sc) {
-                set context.slotNames (itemAt body.slotVarNames si) true
+                set context.slotNames (itemAt slotNamesL si) true
                 si = (si + 1)
             }
         }
@@ -7148,7 +7168,7 @@ class ComponentEngine {
         }
         blk.lexScanned = true
         blk.lexDeclares = found
-        blk.lexNames = names
+        blk.setLexNames(names)
         return found
     }
 
@@ -7168,7 +7188,7 @@ class ComponentEngine {
                 def blockCtx:EvalContext (context.createChild())
                 blockCtx.isBlockScope = true
                 context = blockCtx
-                this.hoistLexicalTdz(blk.lexNames)
+                this.hoistLexicalTdz((blk.lexNamesOf()))
                 this.runStatementList(blk.children)
                 context = savedCtx
             } {
@@ -10692,15 +10712,16 @@ class ComponentEngine {
         ; which slots the escape scan proves unshared (in-place append license)
         if (false == body.slotScanned) {
             body.slotScanned = true
-            body.slotVarNames = (this.slotSafeVarNames(body))
+            body.setSlotVarNames((this.slotSafeVarNames(body)))
         }
+        def slotNamesO:[string] (body.slotVarNamesOf())
         def oi:int 0
         while (oi < prog.localCount) {
             def oName:string (itemAt prog.localNames oi)
             def owned:boolean false
             def oj:int 0
-            while (oj < (array_length body.slotVarNames)) {
-                if ((itemAt body.slotVarNames oj) == oName) {
+            while (oj < (array_length slotNamesO)) {
+                if ((itemAt slotNamesO oj) == oName) {
                     owned = true
                 }
                 oj = (oj + 1)
@@ -11999,7 +12020,7 @@ class ComponentEngine {
                 if oprop.computed {
                     return false
                 }
-                if ((strlen oprop.accessor) > 0) {
+                if ((strlen (oprop.accessorOf())) > 0) {
                     return false
                 }
                 if ((strlen oprop.name) == 0) {
@@ -19373,9 +19394,13 @@ class ComponentEngine {
                 }
                 if (arrStaticName == "console") {
                     if ((methodName == "log") || (methodName == "warn") || (methodName == "error") || (methodName == "info") || (methodName == "debug")) {
-                        ; Host stdout is shared with the engine; prefix with [tsx]
-                        ; so script logging is distinguishable (see engine.d.ts).
-                        def line:string "[tsx]"
+                        ; Host stdout is shared with the engine, so script
+                        ; logging is prefixed to stay distinguishable (see
+                        ; engine.d.ts). A host that owns the whole stream --
+                        ; the rangerjs CLI, which is compared byte for byte
+                        ; against other engines -- clears consolePrefix.
+                        def line:string consolePrefix
+                        def wroteAny:boolean false
                         def ci:int 0
                         while (ci < (array_length node.children)) {
                             def logV:EvHandle (this.evaluateExpr((itemAt node.children ci)))
@@ -19388,8 +19413,17 @@ class ComponentEngine {
                             if scriptThrew {
                                 return (EvValueBridge.taggedUndefined())
                             }
-                            line = (line + " ")
+                            ; No leading separator when there is no prefix
+                            ; and nothing has been written yet.
+                            if ((strlen line) > 0) {
+                                line = (line + " ")
+                            } {
+                                if wroteAny {
+                                    line = (line + " ")
+                                }
+                            }
                             line = (line + (logV.toString()))
+                            wroteAny = true
                             ci = (ci + 1)
                         }
                         print line
@@ -27661,6 +27695,32 @@ class ComponentEngine {
         return m
     }
 
+    ; §22.1.3.25 SortCompare, for the two values Array.prototype.sort has
+    ; decided to order. A comparator that answers NaN -- or answers nothing --
+    ; means "equal", which is what keeps a broken comparator from scrambling
+    ; the array instead of leaving it alone. Once a comparator has THROWN the
+    ; sort has no ordering left to ask about, so every later comparison
+    ; answers 0 rather than re-entering the evaluator with a live exception.
+    fn sortCompareVals:int (x:EvHandle y:EvHandle hasCmp:boolean cmp:EvHandle) {
+        if scriptThrew {
+            return 0
+        }
+        if hasCmp {
+            def cargs:[EvHandle]
+            push cargs x
+            push cargs y
+            def r:double ((this.callFnValueWithValues(cmp cargs)).toNumber())
+            if scriptThrew {
+                return 0
+            }
+            ; NaN compares false both ways, so this is the NaN case too.
+            if (r > 0.0) { return 1 }
+            if (r < 0.0) { return (0 - 1) }
+            return 0
+        }
+        return (this.strCmp((x.toString()) (y.toString())))
+    }
+
     fn invokeBuiltin:EvHandle (kind:string name:string recv:EvHandle args:[EvHandle]) {
         def override:EvHandle (this.overriddenPrototypeMethod(kind name))
         if (override.isFunction()) {
@@ -30194,36 +30254,68 @@ class ComponentEngine {
                             }
                             q = (q + 1)
                         }
+                        ; A bottom-up STABLE merge sort. This was an insertion
+                        ; sort: O(n^2) comparisons, and every comparison here
+                        ; is a full interpreted call, so ordering 3000 numbers
+                        ; ran about 4.5 million times through the evaluator
+                        ; and took seconds. Merging makes it O(n log n) calls
+                        ; -- ~35 thousand for the same array -- and stability
+                        ; is required by the spec since ES2019, which the
+                        ; insertion sort happened to give and a naive
+                        ; quicksort would have taken away.
                         def sn:int (array_length items)
-                        def a:int 1
-                        while (a < sn) {
-                            def keyv:EvHandle (itemAt items a)
-                            def b:int (a - 1)
-                            def moving:boolean true
-                            while (moving && (b >= 0)) {
-                                def cur:EvHandle (itemAt items b)
-                                def gt:boolean false
-                                if hasCmp {
-                                    def cargs:[EvHandle]
-                                    push cargs cur
-                                    push cargs keyv
-                                    if (((this.callFnValueWithValues(cmp cargs)).toNumber()) > 0.0) {
-                                        gt = true
+                        def buf:[EvHandle]
+                        array_reserve buf sn
+                        def bi:int 0
+                        while (bi < sn) {
+                            push buf (itemAt items bi)
+                            bi = (bi + 1)
+                        }
+                        def width:int 1
+                        while (width < sn) {
+                            def step:int (width * 2)
+                            def lo:int 0
+                            while (lo < sn) {
+                                def mid:int (lo + width)
+                                def hi:int (lo + step)
+                                if (mid > sn) { mid = sn }
+                                if (hi > sn) { hi = sn }
+                                def li:int lo
+                                def ri:int mid
+                                def wi:int lo
+                                while (wi < hi) {
+                                    def takeLeft:boolean true
+                                    if (li >= mid) {
+                                        takeLeft = false
+                                    } {
+                                        if (ri < hi) {
+                                            ; Take the left run unless the
+                                            ; right element is strictly
+                                            ; smaller -- ties keep their
+                                            ; original order, which is what
+                                            ; makes the merge stable.
+                                            if ((this.sortCompareVals((itemAt items li) (itemAt items ri) hasCmp cmp)) > 0) {
+                                                takeLeft = false
+                                            }
+                                        }
                                     }
-                                } {
-                                    if ((this.strCmp((cur.toString()) (keyv.toString()))) > 0) {
-                                        gt = true
+                                    if takeLeft {
+                                        set buf wi (itemAt items li)
+                                        li = (li + 1)
+                                    } {
+                                        set buf wi (itemAt items ri)
+                                        ri = (ri + 1)
                                     }
+                                    wi = (wi + 1)
                                 }
-                                if gt {
-                                    set items (b + 1) cur
-                                    b = (b - 1)
-                                } {
-                                    moving = false
-                                }
+                                lo = (lo + step)
                             }
-                            set items (b + 1) keyv
-                            a = (a + 1)
+                            def ci:int 0
+                            while (ci < sn) {
+                                set items ci (itemAt buf ci)
+                                ci = (ci + 1)
+                            }
+                            width = step
                         }
                         def ui:int 0
                         while (ui < undefCount) {
@@ -30475,41 +30567,59 @@ class ComponentEngine {
                             }
                             sq = (sq + 1)
                         }
+                        ; The same stable merge sort `sort` uses, for the same
+                        ; reason: an insertion sort spends O(n^2) interpreted
+                        ; comparator calls.
                         def ssn:int (array_length sItems)
-                        def sa:int 1
-                        while (sa < ssn) {
-                            def sKey:EvHandle (itemAt sItems sa)
-                            def sb:int (sa - 1)
-                            def sMoving:boolean true
-                            while (sMoving && (sb >= 0)) {
-                                def sCur:EvHandle (itemAt sItems sb)
-                                def sGt:boolean false
-                                if sHasCmp {
-                                    def scargs:[EvHandle]
-                                    push scargs sCur
-                                    push scargs sKey
-                                    def sRes:EvHandle (this.callFnValueWithValues(scmp scargs))
-                                    if scriptThrew { return (EvValueBridge.taggedUndefined()) }
-                                    if ((sRes.toNumber()) > 0.0) {
-                                        sGt = true
-                                    }
-                                } {
-                                    def sLeft:string (sCur.toString())
-                                    def sRight:string (sKey.toString())
-                                    if ((this.strCmp(sLeft sRight)) > 0) {
-                                        sGt = true
-                                    }
-                                }
-                                if sGt {
-                                    set sItems (sb + 1) sCur
-                                    sb = (sb - 1)
-                                } {
-                                    sMoving = false
-                                }
-                            }
-                            set sItems (sb + 1) sKey
-                            sa = (sa + 1)
+                        def sBuf:[EvHandle]
+                        array_reserve sBuf ssn
+                        def sbi:int 0
+                        while (sbi < ssn) {
+                            push sBuf (itemAt sItems sbi)
+                            sbi = (sbi + 1)
                         }
+                        def sWidth:int 1
+                        while (sWidth < ssn) {
+                            def sStep:int (sWidth * 2)
+                            def sLo:int 0
+                            while (sLo < ssn) {
+                                def sMid:int (sLo + sWidth)
+                                def sHi:int (sLo + sStep)
+                                if (sMid > ssn) { sMid = ssn }
+                                if (sHi > ssn) { sHi = ssn }
+                                def sLi:int sLo
+                                def sRi:int sMid
+                                def sWi:int sLo
+                                while (sWi < sHi) {
+                                    def sTakeLeft:boolean true
+                                    if (sLi >= sMid) {
+                                        sTakeLeft = false
+                                    } {
+                                        if (sRi < sHi) {
+                                            if ((this.sortCompareVals((itemAt sItems sLi) (itemAt sItems sRi) sHasCmp scmp)) > 0) {
+                                                sTakeLeft = false
+                                            }
+                                        }
+                                    }
+                                    if sTakeLeft {
+                                        set sBuf sWi (itemAt sItems sLi)
+                                        sLi = (sLi + 1)
+                                    } {
+                                        set sBuf sWi (itemAt sItems sRi)
+                                        sRi = (sRi + 1)
+                                    }
+                                    sWi = (sWi + 1)
+                                }
+                                sLo = (sLo + sStep)
+                            }
+                            def sci:int 0
+                            while (sci < ssn) {
+                                set sItems sci (itemAt sBuf sci)
+                                sci = (sci + 1)
+                            }
+                            sWidth = sStep
+                        }
+                        if scriptThrew { return (EvValueBridge.taggedUndefined()) }
                         def su:int 0
                         while (su < sUndef) {
                             push sItems (EvValueBridge.taggedUndefined())
@@ -32428,6 +32538,9 @@ class ComponentEngine {
     ; Whether every unit of `s` is below 128, which is the test for "the three
     ; string models agree about this string".
     fn asciiOnly:boolean (s:string) {
+        if (str_is_ascii s) {
+            return true
+        }
         def n:int (strlen s)
         def i:int 0
         while (i < n) {
@@ -34311,6 +34424,13 @@ class ComponentEngine {
     ; a missing onFulfilled forwards the value, a missing onRejected forwards
     ; the rejection -- which is what makes `.then(f)` on a rejected promise
     ; reject rather than swallow.
+    ; Whether any reaction is still queued. A host driving the loop needs to
+    ; know when to stop: drainJobs empties the queue, but a job may enqueue
+    ; more, and its own guard can cut a long chain short.
+    fn hasPendingJobs:boolean () {
+        return (jobHead < (array_length jobHandler))
+    }
+
     fn drainJobs:void () {
         def guard:int 0
         while ((jobHead < (array_length jobHandler)) && (guard < 100000)) {
@@ -39260,6 +39380,13 @@ class ComponentEngine {
     }
 
     fn byteSlice:string (s:string i:int j:int) {
+        ; One slice where the target can do it. The loop below appends a
+        ; character at a time, which is O(n^2) in the slice length and was
+        ; measured at 403,000 calls and 51 GB of allocation churn on a single
+        ; compile.
+        if (has_byte_substring) {
+            return (byte_substring s i j)
+        }
         def out:string ""
         def k:int i
         def n:int (strlen s)
@@ -39315,6 +39442,9 @@ class ComponentEngine {
     ; Code units in `s`.
     fn cuLen:int (s:string) {
         def n:int (strlen s)
+        if (str_is_ascii s) {
+            return n
+        }
         if (this.unitsArePoints()) {
             def p:int 0
             def cnt:int 0
@@ -39359,6 +39489,15 @@ class ComponentEngine {
     fn cuUnitAt:int (s:string u:int) {
         def n:int (strlen s)
         if (u < 0) { return (0 - 1) }
+        ; ASCII: a code unit IS a byte, so the index needs no decoding. Without
+        ; this the byte-model walk below restarts at 0 and decodes forward to
+        ; u, allocating per code point, so a guest loop over a string is
+        ; quadratic -- which is most of what a compiler written in JavaScript
+        ; does with its source.
+        if (str_is_ascii s) {
+            if (u >= n) { return (0 - 1) }
+            return (charAt s u)
+        }
         if (this.unitsArePoints()) {
             def p:int 0
             def units:int 0
@@ -39380,6 +39519,14 @@ class ComponentEngine {
         if (false == (this.unitsAreBytes())) {
             if (u >= n) { return (0 - 1) }
             return (bit_and (charAt s u) 65535)
+        }
+        ; A resumed walk when the target can do one. The loop below restarts at
+        ; byte 0 every call, which is what made indexing a non-ASCII string
+        ; quadratic; -2 means this target has no resumable walk, so it keeps
+        ; the loop.
+        def fast:int (utf16_unit_at s u)
+        if (fast >= (0 - 1)) {
+            return fast
         }
         def i:int 0
         def units:int 0
@@ -39417,6 +39564,14 @@ class ComponentEngine {
         if (lo < 0) { lo = 0 }
         if (hi < lo) { hi = lo }
         def n:int (strlen s)
+        ; Same as cuUnitAt: on ASCII the unit range and the byte range are the
+        ; same range, so the slice is a plain substring.
+        if (str_is_ascii s) {
+            if (lo >= n) { return "" }
+            def hiA:int hi
+            if (hiA > n) { hiA = n }
+            return (substring s lo hiA)
+        }
         if (this.unitsArePoints()) {
             ; A cut that lands inside a surrogate pair has no representation
             ; here: this target's string type holds CHARACTERS, and half a
@@ -39443,6 +39598,13 @@ class ComponentEngine {
             def hi2:int hi
             if (hi2 > n) { hi2 = n }
             return (substring s lo hi2)
+        }
+        ; One resumed walk for both ends instead of decoding the whole string
+        ; to find them. The probe answers -2 where the target has no such walk,
+        ; and the loop below stays in charge there.
+        def probe:int (utf16_byte_of s lo)
+        if (probe >= (0 - 1)) {
+            return (utf16_slice s lo hi)
         }
         def out:string ""
         def i:int 0
@@ -41086,7 +41248,7 @@ class ComponentEngine {
                 ; member read returned the accessor FUNCTION instead of calling
                 ; it, which type-checks as a function and silently misbehaves.
                 if (m.nodeType == "MethodDefinition") {
-                    def mk:string m.accessor
+                    def mk:string (m.accessorOf())
                     if ((strlen mk) == 0) {
                         mk = m.kind
                     }
@@ -41303,7 +41465,7 @@ class ComponentEngine {
             if (m.nodeType == "MethodDefinition") {
                 ; `accessor` names get/set when the parser records it there;
                 ; otherwise `kind` carries it, and `kind` also carries "static".
-                def acc:string m.accessor
+                def acc:string (m.accessorOf())
                 if ((strlen acc) == 0) {
                     if ((m.kind == "get") || (m.kind == "set")) {
                         acc = m.kind
@@ -44040,9 +44202,18 @@ class ComponentEngine {
             jsonError = msg
         }
     }
+    ; The one place the scanner cuts jsonSrc. Byte offsets where jsonByteIx
+    ; says they mean the same thing as code-point offsets, code points
+    ; otherwise.
+    fn jsonSlice:string (a:int b:int) {
+        if jsonByteIx {
+            return (byte_substring jsonSrc a b)
+        }
+        return (substring jsonSrc a b)
+    }
     fn jsonPeek:string () {
         if (jsonPos < jsonLen) {
-            return (substring jsonSrc jsonPos (jsonPos + 1))
+            return (this.jsonSlice(jsonPos (jsonPos + 1)))
         }
         return ""
     }
@@ -44065,7 +44236,7 @@ class ComponentEngine {
         if ((jsonPos + n) > jsonLen) {
             return false
         }
-        if ((substring jsonSrc jsonPos (jsonPos + n)) != word) {
+        if ((this.jsonSlice(jsonPos (jsonPos + n))) != word) {
             return false
         }
         jsonPos = (jsonPos + n)
@@ -44133,7 +44304,7 @@ class ComponentEngine {
         def looping:boolean true
         def closed:boolean false
         while (looping && (jsonPos < L)) {
-            def ch:string (substring jsonSrc jsonPos (jsonPos + 1))
+            def ch:string (this.jsonSlice(jsonPos (jsonPos + 1)))
             ; The code point of the CHARACTER just read, not the byte at the
             ; same offset. `substring` walks code points and `charAt` walks
             ; bytes, so on the byte target these were two different positions
@@ -44156,7 +44327,7 @@ class ComponentEngine {
                         this.jsonFail("Unexpected end of JSON input")
                         return out
                     }
-                    def esc:string (substring jsonSrc (jsonPos + 1) (jsonPos + 2))
+                    def esc:string (this.jsonSlice((jsonPos + 1) (jsonPos + 2)))
                     def known:boolean true
                     if (esc == "n") { out = (out + "\n") } {
                     if (esc == "t") { out = (out + "\t") } {
@@ -44171,7 +44342,7 @@ class ComponentEngine {
                             this.jsonFail("Bad Unicode escape in JSON")
                             return out
                         }
-                        def hex:string (substring jsonSrc (jsonPos + 2) (jsonPos + 6))
+                        def hex:string (this.jsonSlice((jsonPos + 2) (jsonPos + 6)))
                         def hv:int 0
                         def hi:int 0
                         while (hi < 4) {
@@ -44270,7 +44441,7 @@ class ComponentEngine {
                 return (EvValueBridge.taggedUndefined())
             }
         }
-        def numStr:string (substring jsonSrc start jsonPos)
+        def numStr:string (this.jsonSlice(start jsonPos))
         def d@(optional):double (to_double numStr)
         if d {
             return (EvValueBridge.taggedNumber((unwrap d)))
@@ -44408,6 +44579,12 @@ class ComponentEngine {
     ; scanner that steps with `substring` has to use for its end test.
     fn substringUnitsOf:int (s:string) {
         if (this.unitsAreBytes()) {
+            ; One byte per code point, so the count needs no decode -- and no
+            ; code-point ARRAY, which for a megabyte of source was a megabyte
+            ; of ints materialised only to be measured.
+            if (str_is_ascii s) {
+                return (strlen s)
+            }
             return (array_length (this.codePointsOf(s)))
         }
         return (strlen s)
@@ -44415,6 +44592,7 @@ class ComponentEngine {
 
     fn jsonParse:EvHandle (src:string) {
         jsonSrc = src
+        jsonByteIx = ((has_byte_substring) && (str_is_ascii src))
         jsonLen = (this.substringUnitsOf(src))
         jsonPos = 0
         jsonFailed = false
@@ -44544,8 +44722,8 @@ class ComponentEngine {
                 ; (get/set/init); `accessor` carries the same idea for a CLASS
                 ; member. Accept either so both forms are handled.
                 def akind:string prop.kind
-                if ((strlen prop.accessor) > 0) {
-                    akind = prop.accessor
+                if ((strlen (prop.accessorOf())) > 0) {
+                    akind = (prop.accessorOf())
                 }
                 if ((akind == "get") || (akind == "set")) {
                     if prop.left {

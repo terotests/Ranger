@@ -2084,9 +2084,28 @@ class RangerCppClassWriter {
       wr.out("    const_iterator end() const { return entries.end(); }" true)
       wr.out("    size_t size() const { return entries.size(); }" true)
       wr.out("    void clear() { entries.clear(); index_.clear(); }" true)
+      ; Below RG_LINEAR_MAX entries there is no index at all: a scan over a
+      ; handful of keys beats hashing, and more to the point the index vector
+      ; is a whole extra heap block per map. An interpreted object is a map,
+      ; and most of them hold a few properties -- measured at ~565,000 live
+      ; maps of which only ~42,000 were large, so the index was pure overhead
+      ; on 93% of them.
+      ;
+      ; The large ones size the index at a 0.67 load factor rather than 0.5,
+      ; which halves it whenever the count sits just above a power of two.
+      wr.out("    static const size_t RG_LINEAR_MAX = 8;" true)
       wr.out("    void rehash_() {" true)
-      wr.out("        size_t cap = 8;" true)
-      wr.out("        while (cap < (entries.size() + 1) * 2) { cap <<= 1; }" true)
+      wr.out("        if (entries.size() <= RG_LINEAR_MAX) {" true)
+      wr.out("            std::vector<int32_t>().swap(index_);" true)
+      wr.out("            return;" true)
+      wr.out("        }" true)
+      wr.out("        size_t cap = 16;" true)
+      ; cap >= (n+1) * 4/3, i.e. a load factor of 0.75. This MUST agree with
+      ; the regrow test in operator[] below: sizing the table to 1.5(n+1) while
+      ; the test asked for 2(n+1) meant the test was true again the instant the
+      ; rehash finished, so every insert rehashed the whole table and building
+      ; a map became quadratic.
+      wr.out("        while (cap * 3 < (entries.size() + 1) * 4) { cap <<= 1; }" true)
       wr.out("        index_.assign(cap, -1);" true)
       wr.out("        for (size_t i = 0; i < entries.size(); i++) {" true)
       wr.out("            size_t h = rg_key_hash<K>{}(entries[i].first) & (cap - 1);" true)
@@ -2095,7 +2114,12 @@ class RangerCppClassWriter {
       wr.out("        }" true)
       wr.out("    }" true)
       wr.out("    int32_t slot_(const K& k) const {" true)
-      wr.out("        if (index_.empty()) { return -1; }" true)
+      wr.out("        if (index_.empty()) {" true)
+      wr.out("            for (size_t i = 0; i < entries.size(); i++) {" true)
+      wr.out("                if (entries[i].first == k) { return (int32_t) i; }" true)
+      wr.out("            }" true)
+      wr.out("            return -1;" true)
+      wr.out("        }" true)
       wr.out("        size_t mask = index_.size() - 1;" true)
       wr.out("        size_t h = rg_key_hash<K>{}(k) & mask;" true)
       wr.out("        while (true) {" true)
@@ -2115,7 +2139,12 @@ class RangerCppClassWriter {
       wr.out("    // hash<string_view> agree on equal character sequences. Instantiated" true)
       wr.out("    // lazily, so non-string-keyed maps never touch them." true)
       wr.out("    int32_t slot_sv_(std::string_view k) const {" true)
-      wr.out("        if (index_.empty()) { return -1; }" true)
+      wr.out("        if (index_.empty()) {" true)
+      wr.out("            for (size_t i = 0; i < entries.size(); i++) {" true)
+      wr.out("                if (std::string_view(entries[i].first) == k) { return (int32_t) i; }" true)
+      wr.out("            }" true)
+      wr.out("            return -1;" true)
+      wr.out("        }" true)
       wr.out("        size_t mask = index_.size() - 1;" true)
       wr.out("        size_t h = rg_hash_bytes(k.data(), k.size()) & mask;" true)
       wr.out("        while (true) {" true)
@@ -2139,7 +2168,8 @@ class RangerCppClassWriter {
       wr.out("        int32_t s = slot_(k);" true)
       wr.out("        if (s != -1) { return entries[(size_t)s].second; }" true)
       wr.out("        entries.push_back(std::make_pair(k, V()));" true)
-      wr.out("        if (index_.empty() || (entries.size() + 1) * 2 > index_.size()) {" true)
+      ; The same 0.75 as rehash_ sizes to -- see the note there.
+      wr.out("        if (index_.empty() || (entries.size() + 1) * 4 > index_.size() * 3) {" true)
       wr.out("            rehash_();" true)
       wr.out("        } else {" true)
       wr.out("            size_t mask = index_.size() - 1;" true)

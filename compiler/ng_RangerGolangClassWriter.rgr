@@ -3,6 +3,9 @@ class RangerGolangClassWriter {
   def compiler:LiveCompiler
   def thisName:string "this"
   def write_raw_type:boolean false
+  ; While set, the Hash type is written WITHOUT its leading `*` so the same
+  ; code can spell the constructor: `NewRgMap[K, V]()`.
+  def go_map_ctor:boolean false
   def did_write_nullable:boolean false
   def did_write_sseclient:boolean false
   ; S5 (PLAN_SHAPES.md): a sealable union is a tagged struct with one pointer
@@ -410,16 +413,24 @@ class RangerGolangClassWriter {
         if write_raw_type {
           wr.out( ( (this.getObjectTypeString(a_name ctx) ) + "") , false)
         } {
-          wr.out((("map[" + (this.getObjectTypeString(k_name ctx))) + "]") , false)
+          ; *RgMap[K, V], not map[K]V: the ordered map above. The value type is
+          ; written exactly as it was, including the union and interface cases.
+          if go_map_ctor {
+            wr.out((("RgMap[" + (this.getObjectTypeString(k_name ctx))) + ", ") , false)
+          } {
+            wr.out((("*RgMap[" + (this.getObjectTypeString(k_name ctx))) + ", ") , false)
+          }
 
           if(ctx.isDefinedClass(a_name)) {
             def cc:RangerAppClassDesc (ctx.findClass(a_name))
             if(cc.is_union) {
               wr.out((this.getObjectTypeString(a_name ctx)) false)
+              wr.out("]" false)
               return
             }
             if(cc.doesInherit()) {
               wr.out("IFACE_" + (this.getTypeString2(a_name ctx)) , false)
+              wr.out("]" false)
               return
             }
           }
@@ -428,6 +439,7 @@ class RangerGolangClassWriter {
             wr.out("*" false)
           }
           wr.out(((this.getObjectTypeString(a_name ctx)) + "") , false)
+          wr.out("]" false)
         }
       }
       case RangerNodeType.Array {
@@ -675,6 +687,30 @@ class RangerGolangClassWriter {
   }
 
 
+  ; A union on Go is a tagged struct, so a member value assigned into a
+  ; union-typed slot has to be wrapped by its constructor. The ordinary
+  ; assignment path does this; the OPTIONAL one is written from a template and
+  ; did not, so `b.one = t` stored the bare *UpText inside the GoNullable and
+  ; the read back -- `.(union_UpValue)` -- panicked at run time.
+  fn writeAssignedValue:void (left:CodeNode right:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def slotType:string ""
+    if left.hasParamDesc {
+      def lp:RangerAppParamDesc left.paramDesc
+      def lnn@(optional):CodeNode lp.nameNode
+      if (!null? lnn) {
+        def lnnN:CodeNode (unwrap lnn)
+        slotType = lnnN.type_name
+      }
+    }
+    if ((strlen slotType) > 0) {
+      if (this.goWriteUnionValue(slotType right ctx wr)) {
+        return
+      }
+    }
+    ctx.setInExpr()
+    this.WalkNode(right ctx wr)
+    ctx.unsetInExpr()
+  }
   fn WriteSetterVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (node.vref == "this") {
       wr.out(thisName false)
@@ -1196,9 +1232,12 @@ class RangerGolangClassWriter {
           wr.out(", 0)" false)
         }
         if (nn.value_type == RangerNodeType.Hash) {
-          wr.out(" = make(" false)
+          ; the ordered map has a constructor rather than make()
+          wr.out(" = New" false)
+          go_map_ctor = true
           this.writeTypeDef(( unwrap p.nameNode ) ctx wr)
-          wr.out(")" false)
+          go_map_ctor = false
+          wr.out("()" false)
         }
       }
       wr.out(";" false)
@@ -1902,6 +1941,13 @@ class RangerGolangClassWriter {
     def wr:CodeWriter orig_wr
     if (did_write_nullable == false) {
       wr.raw("\r\ntype GoNullable struct { \r\n  value interface{}\r\n  has_value bool\r\n}\r\n" true)
+      ; Ranger maps iterate in INSERTION order -- every other target does, and
+      ; the interpreter depends on it for property enumeration. A Go
+      ; `map[K]V` iterates in a RANDOM order that differs per RUN, so the same
+      ; program printed a different answer each time it was started. This
+      ; carries the key order beside the map. One generic type serves every
+      ; key/value pair, so nothing is generated per map type.
+      wr.raw("\r\ntype RgMap[K comparable, V any] struct {\r\n  m map[K]V\r\n  keys []K\r\n}\r\nfunc NewRgMap[K comparable, V any]() *RgMap[K, V] {\r\n  return &RgMap[K, V]{m: make(map[K]V), keys: []K{}}\r\n}\r\nfunc (o *RgMap[K, V]) Set(k K, v V) {\r\n  if _, ok := o.m[k]; !ok { o.keys = append(o.keys, k) }\r\n  o.m[k] = v\r\n}\r\nfunc (o *RgMap[K, V]) Get(k K) (V, bool) { v, ok := o.m[k]; return v, ok }\r\nfunc (o *RgMap[K, V]) Has(k K) bool { _, ok := o.m[k]; return ok }\r\nfunc (o *RgMap[K, V]) Keys() []K { return o.keys }\r\nfunc (o *RgMap[K, V]) Len() int64 { return int64(len(o.keys)) }\r\nfunc (o *RgMap[K, V]) Delete(k K) {\r\n  if _, ok := o.m[k]; !ok { return }\r\n  delete(o.m, k)\r\n  for i, kk := range o.keys { if kk == k { o.keys = append(o.keys[:i], o.keys[i+1:]...); break } }\r\n}\r\nfunc (o *RgMap[K, V]) Clear() { o.m = make(map[K]V); o.keys = o.keys[:0] }\r\n" true)
       wr.createTag("utilities")
       did_write_nullable = true
     }

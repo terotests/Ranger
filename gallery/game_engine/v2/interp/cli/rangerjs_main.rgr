@@ -1,0 +1,370 @@
+; =============================================================================
+; rangerjs — run a .js file through ComponentEngine, natively.
+; =============================================================================
+;   rangerjs [options] <file.js>
+;
+;     --time        elapsed milliseconds, written to stdout after the script
+;     --gc          collect reference cycles (native targets only)
+;     --gc-stats    --gc, plus a final collection and a one-line summary
+;     --quiet       suppress the engine's own diagnostics (default)
+;     --verbose     let the engine trace
+;     --prefix=STR  prefix every console line (default: none)
+;     --version
+;
+; The point of the tool is that it takes the same argument shape as `qjs`,
+; `node` and `d8`, so the same file can be run through all of them and the
+; output compared byte for byte. Nothing is prefixed and nothing extra is
+; printed, so a difference in output is a difference in behaviour.
+;
+; Build: bash gallery/game_engine/v2/interp/cli/build-rangerjs.sh
+; =============================================================================
+
+Import "../migrate/src/ComponentEngine.rgr"
+
+
+; -----------------------------------------------------------------------------
+; The Node surface the Ranger compiler (and most CLI JavaScript) expects.
+; -----------------------------------------------------------------------------
+; Reached from guest code through the engine's native bridge, so `require("fs")`
+; and friends are real host calls rather than a simulation. Everything here is
+; ordinary Ranger, which means the same host works on every native target --
+; there is no Node underneath.
+class CliHostBridge extends EvalNativeBridge {
+    def argv:[string]
+    def cwdPath:string "."
+
+    ; EXACT names, not a prefix. lookupIdentifier consults the bridge before
+    ; the guest scope, so claiming a whole namespace shadows any guest function
+    ; whose name happens to start with it -- the prelude's own `__rjs_abs`
+    ; helper resolved to the bridge and answered null.
+    fn has:boolean (name:string) {
+        if (name == "__rjs_read") { return true }
+        if (name == "__rjs_exists") { return true }
+        if (name == "__rjs_write") { return true }
+        if (name == "__rjs_dirname") { return true }
+        if (name == "__rjs_basename") { return true }
+        if (name == "__rjs_sha256") { return true }
+        if (name == "__rjs_cwd") { return true }
+        if (name == "__rjs_env") { return true }
+        if (name == "__rjs_argc") { return true }
+        if (name == "__rjs_argv") { return true }
+        return false
+    }
+
+    fn argAt:string (args:[EvHandle] i:int) {
+        if (i < (array_length args)) {
+            def h:EvHandle (itemAt args i)
+            return (h.toString())
+        }
+        return ""
+    }
+
+    fn invoke:EvHandle (name:string args:[EvHandle]) {
+        if (name == "__rjs_read") {
+            def p:string (this.argAt(args 0))
+            def d:string (RangerJsMain.dirOf(p))
+            def f:string (RangerJsMain.fileOf(p))
+            def c@(optional):string (read_file d f)
+            if (null? c) {
+                return (EvValueBridge.taggedNull())
+            }
+            return (EvValueBridge.taggedString((unwrap c)))
+        }
+        if (name == "__rjs_exists") {
+            def p2:string (this.argAt(args 0))
+            def d2:string (RangerJsMain.dirOf(p2))
+            def f2:string (RangerJsMain.fileOf(p2))
+            return (EvValueBridge.taggedBoolean((file_exists d2 f2)))
+        }
+        if (name == "__rjs_write") {
+            def p3:string (this.argAt(args 0))
+            def d3:string (RangerJsMain.dirOf(p3))
+            def f3:string (RangerJsMain.fileOf(p3))
+            write_file d3 f3 (this.argAt(args 1))
+            return (EvValueBridge.taggedBoolean(true))
+        }
+        if (name == "__rjs_dirname") {
+            return (EvValueBridge.taggedString((RangerJsMain.dirOf((this.argAt(args 0))))))
+        }
+        if (name == "__rjs_basename") {
+            return (EvValueBridge.taggedString((RangerJsMain.fileOf((this.argAt(args 0))))))
+        }
+        if (name == "__rjs_sha256") {
+            ; NOT a real digest. Ranger's sha256 lowers to picosha2 on C++, a
+            ; vendored header this CLI does not carry, so rather than fail to
+            ; build it answers a deterministic stand-in. The compiler uses the
+            ; hash only for service GUIDs; anything that needs a true digest
+            ; must not use this host.
+            def sv:string (this.argAt(args 0))
+            def acc:int 0
+            def si:int 0
+            while (si < (strlen sv)) {
+                acc = (((acc * 31) + (charAt sv si)) % 1000000007)
+                si = (si + 1)
+            }
+            return (EvValueBridge.taggedString(("rjs" + (to_string acc))))
+        }
+        if (name == "__rjs_cwd") {
+            return (EvValueBridge.taggedString(cwdPath))
+        }
+        if (name == "__rjs_env") {
+            def ev@(optional):string (env_var (this.argAt(args 0)))
+            if (null? ev) {
+                return (EvValueBridge.taggedUndefined())
+            }
+            return (EvValueBridge.taggedString((unwrap ev)))
+        }
+        if (name == "__rjs_argc") {
+            return (EvHandle.fromInt((array_length argv)))
+        }
+        if (name == "__rjs_argv") {
+            def ai:int 0
+            def want:int 0
+            if ((array_length args) > 0) {
+                def h0:EvHandle (itemAt args 0)
+                want = (to_int (h0.toNumber()))
+            }
+            if ((want >= 0) && (want < (array_length argv))) {
+                return (EvValueBridge.taggedString((itemAt argv want)))
+            }
+            return (EvValueBridge.taggedUndefined())
+        }
+        return (EvValueBridge.taggedNull())
+    }
+}
+
+class RangerJsMain {
+    ; Everything up to and including the last "/". "" when the path has none,
+    ; which read_file reads as the working directory.
+    sfn dirOf:string (p:string) {
+        def cut:int (0 - 1)
+        def i:int 0
+        while (i < (strlen p)) {
+            if ((charAt p i) == (charcode "/")) {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return "."
+        }
+        return (substring p 0 cut)
+    }
+
+    sfn fileOf:string (p:string) {
+        def cut:int (0 - 1)
+        def i:int 0
+        while (i < (strlen p)) {
+            if ((charAt p i) == (charcode "/")) {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return p
+        }
+        return (substring p (cut + 1) (strlen p))
+    }
+
+    sfn hasPrefix:boolean (s:string prefix:string) {
+        if ((strlen s) < (strlen prefix)) {
+            return false
+        }
+        return ((substring s 0 (strlen prefix)) == prefix)
+    }
+
+    ; A CLI is handed executable scripts, and those start with `#!/usr/bin/env
+    ; node`. That is not JavaScript, so it has to come off before the source
+    ; reaches the parser -- node itself does the same.
+    sfn stripShebang:string (s:string) {
+        if ((strlen s) < 2) {
+            return s
+        }
+        if (false == ((substring s 0 2) == "#!")) {
+            return s
+        }
+        def i:int 0
+        while (i < (strlen s)) {
+            if ((charAt s i) == 10) {
+                return (substring s i (strlen s))
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; The guest-visible Node surface, written on top of the bridge calls. Kept
+    ; as source rather than built into the engine: the engine should not know
+    ; what `require` means, and a different host can supply a different one.
+    sfn nodePrelude:string (scriptPath:string) {
+        def p:string ""
+        p = (p + "var __rjs_argvCache = null;\n")
+        p = (p + "function __rjs_buildArgv() { if (__rjs_argvCache) return __rjs_argvCache; var a = []; var n = __rjs_argc(); for (var i = 0; i < n; i++) { a.push(__rjs_argv(i)); } __rjs_argvCache = a; return a; }\n")
+        p = (p + "var process = { get argv() { return __rjs_buildArgv(); }, env: { get RANGER_LIB() { return __rjs_env('RANGER_LIB'); } }, cwd: function () { return __rjs_cwd(); }, platform: 'linux', exit: function () {}, stdout: { isTTY: false, write: function (s) { } } };\n")
+        p = (p + "var __filename = " + (RangerJsMain.jsonQuote(scriptPath)) + ";\n")
+        p = (p + "var __dirname = __rjs_dirname(__filename);\n")
+        p = (p + "function __rjs_abs(x) { x = String(x); if (x.charAt(0) === '/') return x; if (x.substring(0,2) === './') return __rjs_cwd() + '/' + x.substring(2); return __rjs_cwd() + '/' + x; }\n")
+        p = (p + "var __rjs_fs = { existsSync: function (f) { return __rjs_exists(__rjs_abs(f)); }, readFileSync: function (f) { var r = __rjs_read(__rjs_abs(f)); if (r === null) { throw new Error('ENOENT: ' + f); } return r; }, readFile: function (f, enc, cb) { var g = (typeof enc === 'function') ? enc : cb; var r = __rjs_read(__rjs_abs(f)); if (r === null) { g(new Error('ENOENT: ' + f), null); } else { g(null, r); } }, writeFileSync: function (f, d) { __rjs_write(__rjs_abs(f), String(d)); }, mkdirSync: function () {}, readdirSync: function () { return []; } };\n")
+        p = (p + "var __rjs_path = { dirname: function (x) { return __rjs_dirname(String(x)); }, basename: function (x) { return __rjs_basename(String(x)); }, normalize: function (x) { return String(x); }, resolve: function (x) { return __rjs_abs(x); }, join: function () { var o = ''; for (var i = 0; i < arguments.length; i++) { o = o.length ? o + '/' + arguments[i] : String(arguments[i]); } return o; }, sep: '/' };\n")
+        p = (p + "var __rjs_crypto = { createHash: function () { var acc = ''; var h = { update: function (s) { acc += String(s); return h; }, digest: function () { return __rjs_sha256(acc); } }; return h; } };\n")
+        p = (p + "function require(m) { if (m === 'fs') return __rjs_fs; if (m === 'path') return __rjs_path; if (m === 'crypto') return __rjs_crypto; return {}; }\n")
+        return p
+    }
+
+    ; Minimal JSON string quoting for embedding a path in generated source.
+    sfn jsonQuote:string (v:string) {
+        def out:string "\""
+        def i:int 0
+        while (i < (strlen v)) {
+            def c:int (charAt v i)
+            if (c == (charcode "\\")) {
+                out = (out + "\\\\")
+            } {
+                if (c == (charcode "\"")) {
+                    out = (out + "\\\"")
+                } {
+                    out = (out + (substring v i (i + 1)))
+                }
+            }
+            i = (i + 1)
+        }
+        return (out + "\"")
+    }
+
+    sfn m@(main):void () {
+        def argCnt:int (shell_arg_cnt)
+        def path:string ""
+        def showTime:boolean false
+        def beQuiet:boolean true
+        def prefix:string ""
+        def nodeHost:boolean false
+        def useGc:boolean false
+        def gcStats:boolean false
+        def scriptArgs:[string]
+        def sawScript:boolean false
+        def i:int 0
+        while (i < argCnt) {
+            def a:string (shell_arg i)
+            if (sawScript) {
+                ; Everything after the script path belongs to the script, the
+                ; way `node file.js --flag` hands --flag to the program.
+                push scriptArgs a
+            } {
+            if (a == "--time") {
+                showTime = true
+            } {
+                if (a == "--verbose") {
+                    beQuiet = false
+                } {
+                    if (a == "--quiet") {
+                        beQuiet = true
+                    } {
+                        if (a == "--version") {
+                            print "rangerjs (ComponentEngine, native)"
+                            return
+                        } {
+                            if (a == "--node") {
+                                nodeHost = true
+                            } {
+                            if (a == "--gc") {
+                                useGc = true
+                            } {
+                            if (a == "--gc-stats") {
+                                useGc = true
+                                gcStats = true
+                            } {
+                            if (RangerJsMain.hasPrefix(a "--prefix=")) {
+                                prefix = (substring a 9 (strlen a))
+                            } {
+                                if (RangerJsMain.hasPrefix(a "--")) {
+                                    print ("rangerjs: unknown option " + a)
+                                    return
+                                } {
+                                    path = a
+                                    sawScript = true
+                                }
+                            }
+                            }
+                            }
+                            }
+                        }
+                    }
+                }
+            }
+            }
+            i = (i + 1)
+        }
+        if ((strlen path) == 0) {
+            print "usage: rangerjs [--time] [--verbose] [--node] [--gc] [--gc-stats] [--prefix=STR] <file.js> [script args]"
+            return
+        }
+        def dirPath:string (RangerJsMain.dirOf(path))
+        def fileName:string (RangerJsMain.fileOf(path))
+        def content@(optional):string (read_file dirPath fileName)
+        if (null? content) {
+            print ("rangerjs: cannot read " + path)
+            return
+        }
+        def src:string (RangerJsMain.stripShebang((unwrap content)))
+        def started:double (wall_clock_ms)
+        ; Before the engine exists, so the registry sees every value it mints.
+        def gcHeap:EvGcHeap (EvGcHeap.__singleton())
+        if useGc {
+            if (false == (gcHeap.enable())) {
+                print "rangerjs: --gc needs a reference-counted target; ignoring"
+            }
+        }
+        def engine (new ComponentEngine())
+        engine.quiet = beQuiet
+        engine.consolePrefix = prefix
+        def runSrc:string src
+        if nodeHost {
+            def bridge (new CliHostBridge())
+            bridge.cwdPath = "."
+            ; process.argv mirrors Node: [exe, script, ...scriptArgs]
+            push bridge.argv "rangerjs"
+            push bridge.argv path
+            def sa:int 0
+            while (sa < (array_length scriptArgs)) {
+                push bridge.argv (itemAt scriptArgs sa)
+                sa = (sa + 1)
+            }
+            engine.setNativeBridge(bridge)
+            runSrc = ((RangerJsMain.nodePrelude(path)) + src)
+        }
+        ; A CLI runs whole programs, not probes: the guard exists to stop a
+        ; runaway script, not to bound a legitimate one.
+        engine.maxLoopIterations = 1000000000
+        engine.liveClock = true
+        ; A trailing no-op function gives the engine a named entry to call, the
+        ; way the Octane runner does, so top-level code runs to completion.
+        engine.loadScript((runSrc + "\nfunction __rangerjs_done__() { return 'done'; }\n"))
+        def ignored:EvHandle (engine.callFunction("__rangerjs_done__" (EvHandle.null())))
+        ; Top-level `await` and every promise continuation sit on the job queue
+        ; until it is drained. A CLI runs the program to completion, so drain
+        ; until the queue stops producing work -- an async main (the Ranger
+        ; compiler's own entry is one) does nothing at all without this.
+        def drains:int 0
+        while (drains < 1000000) {
+            engine.drainJobs()
+            drains = (drains + 1)
+            if (false == (engine.hasPendingJobs())) {
+                drains = 1000000
+            }
+        }
+        if gcStats {
+            def swept:int (gcHeap.collect())
+            print ((((("gc collections " + (to_string gcHeap.collections)) + " reclaimed ") + (to_string gcHeap.reclaimed)) + " live ") + (to_string (array_length gcHeap.objects)))
+            print ((((("gc roots " + (to_string gcHeap.lastRoots)) + " of marked ") + (to_string gcHeap.lastMarked)) + "  obj/arr/fn/mapset ") + ((((((to_string gcHeap.lastObjects) + "/") + (to_string gcHeap.lastArrays)) + "/") + (to_string gcHeap.lastFunctions)) + ("/" + (to_string gcHeap.lastMapsSets))))
+            print ((("gc slots " + (to_string gcHeap.lastSlots)) + " arrayItems ") + (to_string gcHeap.lastItems))
+            print ((("gc stringRefs " + (to_string gcHeap.lastStrings)) + " stringBytes ") + (to_string gcHeap.lastStringBytes))
+            print ((((("gc wideObjects(>50) " + (to_string gcHeap.lastBig)) + " widest ") + (to_string gcHeap.lastMaxSlots)) + " keys: ") + gcHeap.lastMaxKeys)
+            print ((("gc distinctWideShapes " + (to_string gcHeap.lastShapes)) + " largestShapeCount ") + (to_string gcHeap.lastTopShape))
+            print ((((("gc topShape width " + (to_string gcHeap.lastTopWidth)) + " x") + (to_string gcHeap.lastTopShape)) + " keys: ") + gcHeap.lastTopKeys)
+        }
+        if showTime {
+            def elapsed:double ((wall_clock_ms) - started)
+            print ("elapsed_ms " + (to_string elapsed))
+        }
+    }
+}

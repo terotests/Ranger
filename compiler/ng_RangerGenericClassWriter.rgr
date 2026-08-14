@@ -185,6 +185,15 @@ class RangerGenericClassWriter {
   fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
   }
 
+  ; Write the RIGHT-hand side of an assignment, given the LEFT so a target can
+  ; see the declared slot type. Only Go overrides it: its unions are tagged
+  ; structs and a member has to be wrapped in the tag before it goes in.
+  ; Everywhere else the value is written as it is.
+  fn writeAssignedValue:void (left:CodeNode right:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ctx.setInExpr()
+    this.WalkNode(right ctx wr)
+    ctx.unsetInExpr()
+  }
   fn WriteSetterVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {  
   }
 

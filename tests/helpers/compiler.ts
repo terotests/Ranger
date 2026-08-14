@@ -19,6 +19,7 @@ const GO_OUTPUT_DIR = path.join(ROOT_DIR, "tests", ".output-go");
 const PYTHON_OUTPUT_DIR = path.join(ROOT_DIR, "tests", ".output-python");
 const RUST_OUTPUT_DIR = path.join(ROOT_DIR, "tests", ".output-rust");
 const SWIFT_OUTPUT_DIR = path.join(ROOT_DIR, "tests", ".output-swift");
+const PHP_OUTPUT_DIR = path.join(ROOT_DIR, "tests", ".output-php");
 
 export interface CompileResult {
   success: boolean;
@@ -2076,4 +2077,174 @@ export function getGeneratedKotlinCode(
       error: err.message || "Failed to read generated file",
     };
   }
+}
+
+
+/**
+ * Is a PHP CLI on PATH?
+ */
+export function isPhpAvailable(): boolean {
+  try {
+    execSync("php --version", {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Compile a Ranger source file to PHP
+ */
+export function compileRangerToPhp(
+  sourceFile: string,
+  outputDir?: string
+): CompileResult {
+  const sourcePath = path.isAbsolute(sourceFile)
+    ? sourceFile
+    : `./${sourceFile.replace(/\\/g, "/")}`;
+
+  const absoluteSource = path.isAbsolute(sourceFile)
+    ? sourceFile
+    : path.join(ROOT_DIR, sourceFile);
+
+  if (!fs.existsSync(absoluteSource)) {
+    return {
+      success: false,
+      output: "",
+      error: `Source file not found: ${absoluteSource}`,
+    };
+  }
+
+  const sourceBasename = path.basename(
+    absoluteSource.replace(/\.clj$/, ".rgr"),
+    ".rgr"
+  );
+  const outputFile = `${sourceBasename}.php`;
+  const targetDir = outputDir || PHP_OUTPUT_DIR;
+
+  if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(targetDir, { recursive: true });
+  }
+
+  try {
+    const env = {
+      ...process.env,
+      RANGER_LIB: `./compiler/Lang.rgr;./lib/stdops.rgr`,
+    };
+
+    const relativeTargetDir = path
+      .relative(ROOT_DIR, targetDir)
+      .replace(/\\/g, "/");
+
+    const cmd = `node "${OUTPUT_JS}" -l=php "${sourcePath}" -d="${relativeTargetDir}" -o="${outputFile}"`;
+
+    const output = execSync(cmd, {
+      cwd: ROOT_DIR,
+      env,
+      encoding: "utf-8",
+      timeout: 30000,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    const outputStr = output.toString();
+    const hasError =
+      outputStr.includes("TypeError:") ||
+      outputStr.includes("Got unknown compiler error") ||
+      outputStr.includes("Undefined variable") ||
+      outputStr.includes("invalid variable definition") ||
+      outputStr.includes("Compilation FAILED");
+
+    return {
+      success: !hasError,
+      output: outputStr,
+      error: hasError ? outputStr : undefined,
+    };
+  } catch (err: any) {
+    const stdout = err.stdout?.toString() || "";
+    const stderr = err.stderr?.toString() || "";
+    return {
+      success: false,
+      output: stdout,
+      error: stdout + stderr || err.message,
+    };
+  }
+}
+
+/**
+ * Run a compiled PHP file
+ */
+export function runCompiledPhp(phpFile: string): RunResult {
+  const absolutePhp = path.isAbsolute(phpFile)
+    ? phpFile
+    : path.join(ROOT_DIR, phpFile);
+
+  if (!fs.existsSync(absolutePhp)) {
+    return {
+      success: false,
+      output: "",
+      error: `PHP file not found: ${absolutePhp}`,
+    };
+  }
+
+  try {
+    // -d error_reporting: a NOTICE on stdout would be diffed as output.
+    const output = execSync(`php -d error_reporting=E_ALL "${absolutePhp}"`, {
+      cwd: path.dirname(absolutePhp),
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    return {
+      success: true,
+      output: output.trim(),
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      output: err.stdout || "",
+      error: err.stderr || err.message,
+    };
+  }
+}
+
+/**
+ * Compile and run a Ranger source file as PHP
+ */
+export function compileAndRunPhp(sourceFile: string): {
+  compile: CompileResult;
+  run?: RunResult;
+} {
+  const compileResult = compileRangerToPhp(sourceFile);
+
+  if (!compileResult.success) {
+    return { compile: compileResult };
+  }
+
+  const absoluteSource = path.isAbsolute(sourceFile)
+    ? sourceFile
+    : path.join(ROOT_DIR, sourceFile);
+  const sourceBasename = path.basename(
+    absoluteSource.replace(/\.clj$/, ".rgr"),
+    ".rgr"
+  );
+  const outputPhp = path.join(PHP_OUTPUT_DIR, `${sourceBasename}.php`);
+
+  if (!fs.existsSync(outputPhp)) {
+    return {
+      compile: compileResult,
+      run: {
+        success: false,
+        output: "",
+        error: `Compiled PHP file not found: ${outputPhp}. Compile output: ${compileResult.output}`,
+      },
+    };
+  }
+
+  return {
+    compile: compileResult,
+    run: runCompiledPhp(outputPhp),
+  };
 }

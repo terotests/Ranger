@@ -2,6 +2,46 @@
   Extends ( RangerGenericClassWriter )
   def compiler:LiveCompiler
   def init_done false
+  ; Scala keywords are not usable as identifiers, and Ranger names are not
+  ; chosen with Scala in mind: `EvalValue` declares `sfn null` and `sfn object`,
+  ; which came out as `def null()` and `def object()` and stopped the parser
+  ; dead. Backticks are exactly the escape Scala provides for this. `this` is
+  ; excluded because it is written as the receiver, not as a name.
+  fn scalaReserved:boolean (n:string) {
+    if (n == "null") { return true }
+    if (n == "object") { return true }
+    if (n == "type") { return true }
+    if (n == "val") { return true }
+    if (n == "var") { return true }
+    if (n == "def") { return true }
+    if (n == "class") { return true }
+    if (n == "trait") { return true }
+    if (n == "match") { return true }
+    if (n == "case") { return true }
+    if (n == "implicit") { return true }
+    if (n == "lazy") { return true }
+    if (n == "sealed") { return true }
+    if (n == "override") { return true }
+    if (n == "new") { return true }
+    if (n == "with") { return true }
+    if (n == "yield") { return true }
+    if (n == "forSome") { return true }
+    if (n == "package") { return true }
+    if (n == "import") { return true }
+    if (n == "extends") { return true }
+    if (n == "abstract") { return true }
+    if (n == "final") { return true }
+    if (n == "private") { return true }
+    if (n == "protected") { return true }
+    if (n == "object") { return true }
+    return false
+  }
+  fn adjustType:string (tn:string) {
+    if (this.scalaReserved(tn)) {
+      return (("`" + tn) + "`")
+    }
+    return tn
+  }
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
 
     if(ctx.isDefinedClass(type_string)) {
@@ -148,7 +188,7 @@
       }
       case RangerNodeType.Hash {
         wr.addImport("scala.collection.mutable")
-        wr.out((((("collection.mutable.HashMap[" + (this.getObjectTypeString(k_name ctx))) + ", ") + (this.getObjectTypeString(a_name ctx))) + "]") false)
+        wr.out((((("collection.mutable.LinkedHashMap[" + (this.getObjectTypeString(k_name ctx))) + ", ") + (this.getObjectTypeString(a_name ctx))) + "]") false)
       }
       case RangerNodeType.Array {
         wr.addImport("scala.collection.mutable")
@@ -241,7 +281,7 @@
       }
       case RangerNodeType.Hash {
         wr.addImport("scala.collection.mutable")
-        wr.out((((("collection.mutable.HashMap[" + (this.getObjectTypeString(node.key_type ctx))) + ", ") + (this.getObjectTypeString(node.array_type ctx))) + "]") false)
+        wr.out((((("collection.mutable.LinkedHashMap[" + (this.getObjectTypeString(node.key_type ctx))) + ", ") + (this.getObjectTypeString(node.array_type ctx))) + "]") false)
       }
       case RangerNodeType.Array {
         wr.addImport("scala.collection.mutable")
@@ -341,7 +381,31 @@
         wr.out("= " false)
         ctx.setInExpr()
         def value:CodeNode (node.getThird())
+        ; An Option holds Some(x), not x. `def some@(optional):T made` was
+        ; written `val some : Option[T] = made`, which is a type mismatch --
+        ; the language's way of MAKING an optional from a present value could
+        ; not be compiled at all. An initializer that is itself optional (an
+        ; optional-returning call, a map get) is already an Option and passes
+        ; through.
+        def needsSome:boolean false
+        if (p.nameNode.hasFlag("optional")) {
+          needsSome = true
+          if (value.hasFlag("optional")) {
+            needsSome = false
+          }
+          if (value.eval_type == RangerNodeType.NoType) {
+            if (value.value_type == RangerNodeType.NoType) {
+              needsSome = false
+            }
+          }
+        }
+        if needsSome {
+          wr.out("Some(" false)
+        }
         this.WalkNode(value ctx wr)
+        if needsSome {
+          wr.out(")" false)
+        }
         ctx.unsetInExpr()
       } {
         def b_inited:boolean false
@@ -351,12 +415,14 @@
         }
         if (p.nameNode.value_type == RangerNodeType.Hash) {
           b_inited = true
-          wr.out("= new collection.mutable.HashMap()" false)
+          wr.out("= new collection.mutable.LinkedHashMap()" false)
         }
         if (p.nameNode.hasFlag("optional")) {
-          wr.out(" = Option.empty[" false)
-          this.writeTypeDefNoOption( ( unwrap p.nameNode ) ctx wr)
-          wr.out("]" false)
+          ; `None` rather than `Option.empty[T]`: writeTypeDefNoOption writes
+          ; the DECLARED name, and a union has no Scala type of its own -- the
+          ; field is typed Option[Any] while the initializer named the union,
+          ; which scalac rejects as "not found: type". None fits any Option.
+          wr.out(" = None" false)
         } {
           if (b_inited == false) {
             wr.out("= _" false)
@@ -450,20 +516,32 @@
           wr.indent(1)
         }
 
+        ; The list is an EXPRESSION here, not a statement. Walked without
+        ; saying so, a method call for the collection -- `for (this.keyAtoms())`
+        ; -- had a `;` and a newline appended in the middle of the loop header,
+        ; so the generated code read `0 until this.keyAtoms();` and then a
+        ; stray `.length ) {` on the next line. Every for-loop over a call
+        ; failed to parse.
         wr.out( 'for( ' false )
+        ctx.setInExpr()
         this.WalkNode( indexNode ctx wr )
         wr.out( ' <- 0 until ' false)
         this.WalkNode( listNode ctx wr )
+        ctx.unsetInExpr()
         wr.out('.length ) {' true}
         wr.indent(1)
         ;  "for (  " (e 3) " <- 0 until " (e 1) ".length ) {" nl I "val " (e 2) " = " (e 1) "(" (e 3) ")" nl (block 4) nl i "}" 
 
         wr.out('val ' false)
+        ctx.setInExpr()
         this.WalkNode( itemNode ctx wr )
+        ctx.unsetInExpr()
         wr.out(' = ' false)
+        ctx.setInExpr()
         this.WalkNode( listNode ctx wr )
         wr.out("(" false)
         this.WalkNode( indexNode ctx wr )
+        ctx.unsetInExpr()
         wr.out(')' true)
         
         this.WalkNode( bodyNode ctx wr )
@@ -658,7 +736,12 @@
       wr.createTag("beginning")
     }
     def importFork:CodeWriter (wr.getTag("imports"))
-    def b_class_has_content ( cl.has_constructor || ( has cl.variables) || (has cl.defined_variants) || (has cl.extends_classes) )
+    ; A class with no fields, no methods and no parent is still a CLASS. A
+    ; fieldless shape case -- `case Nothing` -- is exactly that, and the ops
+    ; class and every `match` arm name its type, so emitting nothing for it
+    ; left `SmPayload_Nothing` undeclared and scalac stopped at "not found:
+    ; type". No other writer has this gate; Scala had it alone.
+    def b_class_has_content:boolean true
     if b_class_has_content {
 
 
@@ -697,7 +780,14 @@
             wr.out(", " false)
           }
           written = written + 1
-          wr.out((arg.name + " : ") false)
+          ; A Scala class PARAMETER and a member of the same name collide: the
+          ; generated `class C (value : Int) { var value : Int = 0; this.value
+          ; = value }` assigned the member to ITSELF, so every record and every
+          ; shape case came out holding its field's default -- `new Num(4)`
+          ; answered 0. Renaming the parameter separates them, and the
+          ; constructor body follows because it writes compiledName.
+          arg.compiledName = ("__ctor_" + arg.name)
+          wr.out((arg.compiledName + " : ") false)
           this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
         }
         wr.out(")" false)
@@ -733,7 +823,7 @@
           }
           wr.out("def " false)
           wr.out(" " false)
-          wr.out((variant.name + "(") false)
+          wr.out(((this.adjustType(variant.name)) + "(") false)
           this.writeArgsDef(variant ctx wr)
           wr.out(") : " false)
           this.writeTypeDef(( unwrap variant.nameNode ) ctx wr)
@@ -786,28 +876,55 @@
     def b_had_app:boolean false
     def app_obj:RangerAppFunctionDesc
 
+    ; The entry point is the one carrying @(main), which is almost never
+    ; CALLED `main` -- every conformance fixture spells it `m@(main)`. Matching
+    ; on the name meant such a function was classified as an ordinary static,
+    ; and then skipped by the loop below (which does check the flag), so it was
+    ; emitted nowhere and `b_had_app` stayed false: a single-class program came
+    ; out as an empty companion object with its whole body missing. A function
+    ; literally named `main` is still accepted, as it was before.
     cl.static_methods.forEach({
-      if( item.name != "main" ) {
-        b_has_non_main_static = true
-      } {
+      if( (item.nameNode.hasFlag("main")) || (item.name == "main") ) {
         b_had_app = true
         def it item
         app_obj = it
+      } {
+        b_has_non_main_static = true
       }
     })
 
-    if b_has_non_main_static {
+    ; A @singleton class needs its companion object whether or not it declares
+    ; any other static: `__singleton()` IS a static, and without the object
+    ; there is nowhere to put it -- scalac then reports the class name itself
+    ; as "not found: value" at the first call site.
+    def b_is_singleton:boolean (cl.isSingletonClass())
+    if (b_has_non_main_static || b_is_singleton) {
       wr.out("" true)
       wr.out(("// companion object for static methods of " + cl.name) + " static cnt == " + (array_length cl.static_methods) , true)
       wr.out((("object " + cl.name) + " {") true)
       wr.indent(1)
+      if b_is_singleton {
+        wr.out((("private var __singleton_instance : " + cl.name) + " = null") true)
+        wr.out("def __singleton() : " false)
+        wr.out(cl.name false)
+        wr.out(" = {" true)
+        wr.indent(1)
+        wr.out("if (__singleton_instance == null) {" true)
+        wr.indent(1)
+        wr.out((("__singleton_instance = new " + cl.name) + "()") true)
+        wr.indent(-1)
+        wr.out("}" true)
+        wr.out("__singleton_instance" true)
+        wr.indent(-1)
+        wr.out("}" true)
+      }
       for cl.static_methods variant:RangerAppFunctionDesc i {
         if (variant.nameNode.hasFlag("main")) {
           continue _
         }
         wr.out("def " false)
         wr.out(" " false)
-        wr.out((variant.name + "(") false)
+        wr.out(((this.adjustType(variant.name)) + "(") false)
         this.writeArgsDef(variant ctx wr)
         wr.out(") : " false)
         this.writeTypeDef(( unwrap variant.nameNode ) ctx wr)

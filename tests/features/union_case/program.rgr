@@ -1,0 +1,25 @@
+; FEATURE: union + `case` narrowing in a function body.
+; This is the substrate a closed variant family lowers to on every target with
+; no native sum type, so a target that cannot narrow a union cannot carry a
+; shape either -- and cannot carry the interpreter, whose value type IS one.
+class UcNumber { def value:double 0.0 }
+class UcText   { def value:string "" }
+
+union UcValue (UcNumber UcText)
+
+class UnionCaseFeature {
+    fn describe:string (v:UcValue) {
+        case v n:UcNumber { return "number" }
+        case v s:UcText   { return "text" }
+        return "unknown"
+    }
+    sfn m@(main):void () {
+        def p:UnionCaseFeature (new UnionCaseFeature())
+        def n:UcNumber (new UcNumber())
+        n.value = 2.0
+        def t:UcText (new UcText())
+        t.value = "hi"
+        print (p.describe(n))
+        print (p.describe(t))
+    }
+}

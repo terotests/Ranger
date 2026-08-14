@@ -190,9 +190,17 @@ shape EvalValue {
     }
     case Map does PropertyCarrier {
         def entries:[EvMapEntry]
+        ; SameValueZero key -> index into `entries`. Without it every set/get/
+        ; has scanned the entries, so building a Map was quadratic: 16,000
+        ; inserts took 10 seconds against QuickJS's 15 milliseconds.
+        ; Empty for a key kind the tag function cannot render, and the scan is
+        ; still there as the fallback.
+        def keyIx:[string:int]
     }
     case Set does PropertyCarrier {
         def items:[EvalValue]
+        ; Same as Map.keyIx.
+        def itemIx:[string:int]
     }
     case Element does Reference {
         def element:EvElement
@@ -223,6 +231,15 @@ shape EvalValue {
     ; Same call spelling as class EvHandle.* so call sites can switch one
     ; kind at a time. Not wired into ComponentEngine yet.
 
+    ; The shared empty bag, marked on handout so nothing has to initialise a
+    ; singleton field to a non-default value.
+    sfn sharedBag:EvPropertyBag () {
+        def sb:EvSharedBag (EvSharedBag.__singleton())
+        def b:EvPropertyBag sb.empty
+        b.isShared = true
+        return b
+    }
+
     sfn null:EvalValue () {
         return (new EvalValue.Null())
     }
@@ -249,56 +266,58 @@ shape EvalValue {
         return (EvalValue.elementAt(0 el))
     }
     sfn elementAt:EvalValue (id:int el:EvElement) {
-        return (new EvalValue.Element(id el))
+        return (EvGcHeap.registered((new EvalValue.Element(id el))))
     }
     sfn array:EvalValue (items:[EvalValue]) {
         return (EvalValue.arrayAt(0 items))
     }
     sfn arrayAt:EvalValue (id:int items:[EvalValue]) {
-        def props:EvPropertyBag (new EvPropertyBag())
-        return (new EvalValue.Array(id props items (to_double (array_length items))))
+        def props:EvPropertyBag (EvalValue.sharedBag())
+        return (EvGcHeap.registered((new EvalValue.Array(id props items (to_double (array_length items))))))
     }
     sfn object:EvalValue () {
         return (EvalValue.objectAt(0))
     }
     sfn objectAt:EvalValue (id:int) {
-        def props:EvPropertyBag (new EvPropertyBag())
-        return (new EvalValue.Object(id props))
+        def props:EvPropertyBag (EvalValue.sharedBag())
+        return (EvGcHeap.registered((new EvalValue.Object(id props))))
     }
     sfn mapEmpty:EvalValue () {
         return (EvalValue.mapEmptyAt(0))
     }
     sfn mapEmptyAt:EvalValue (id:int) {
-        def props:EvPropertyBag (new EvPropertyBag())
+        def props:EvPropertyBag (EvalValue.sharedBag())
         ; Bind the empty literal — Rust case ctors drop a bare `([] _:T ())`
         ; argument (ISSUES / empty typed array as ctor arg).
         def entries:[EvMapEntry]
-        return (new EvalValue.Map(id props entries))
+        def kix:[string:int]
+        return (EvGcHeap.registered((new EvalValue.Map(id props entries kix))))
     }
     sfn setEmpty:EvalValue () {
         return (EvalValue.setEmptyAt(0))
     }
     sfn setEmptyAt:EvalValue (id:int) {
-        def props:EvPropertyBag (new EvPropertyBag())
+        def props:EvPropertyBag (EvalValue.sharedBag())
         def items:[EvalValue]
-        return (new EvalValue.Set(id props items))
+        def iix:[string:int]
+        return (EvGcHeap.registered((new EvalValue.Set(id props items iix))))
     }
     sfn functionStub:EvalValue (name:string) {
         return (EvalValue.functionStubAt(0 name))
     }
     sfn functionStubAt:EvalValue (id:int name:string) {
-        def props:EvPropertyBag (new EvPropertyBag())
+        def props:EvPropertyBag (EvalValue.sharedBag())
         def c:EvFunctionCore (new EvFunctionCore())
         c.functionName = name
         def b:EvFunctionBinding (new EvFunctionBinding())
-        return (new EvalValue.Function(id props c b))
+        return (EvGcHeap.registered((new EvalValue.Function(id props c b))))
     }
     ; A Function case that SHARES an existing core (name, node, source text,
     ; module) and takes its own fresh binding. This is what lets a per-call
     ; `this`-bound clone cost a binding instead of a copy of the whole core.
     sfn functionSharedAt:EvalValue (id:int core:EvFunctionCore binding:EvFunctionBinding) {
-        def props:EvPropertyBag (new EvPropertyBag())
-        return (new EvalValue.Function(id props core binding))
+        def props:EvPropertyBag (EvalValue.sharedBag())
+        return (EvGcHeap.registered((new EvalValue.Function(id props core binding))))
     }
 
     fn isNull:boolean () {
@@ -417,15 +436,189 @@ class EvAtomTable @singleton(true) {
     }
 }
 
-class EvPropertyBag {
-    ; keyed by EvAtomTable id, not by name -- see EvAtomTable
+; The parts of a property bag almost no object has. Held behind one optional
+; pointer so an ordinary object does not carry them: two ordered maps are 96
+; of the bag's 216 bytes, and with ~619,000 live bags on a compile that is
+; most of a hundred megabytes of empty containers.
+;
+; `slots` became rare when plain data moved into `values` -- it now holds only
+; accessors and properties with non-default attributes. `suppressedKeys`
+; records deleted synthesised keys and is rarer still.
+class EvBagRare {
     def slots:[int:EvPropertySlot]
-    ; The names, in insertion order. JavaScript enumerates string keys in the
+    def suppressedKeys:[string:boolean]
+    ; Dictionary mode. An object leaves shape mode when a key is DELETED or it
+    ; grows past the width where a shape still pays -- see toDictionary.
+    def dictValues:[int:EvalValue]
+    def dictAtoms:[int]
+}
+
+; A hidden class: the key layout of an object, shared by every object built
+; the same way.
+;
+; The engine used to give every object its own key table. Measured on a
+; compile: 48,771 objects hold >50 properties each and ~89% of all live
+; property slots between them, and they have only 70 DISTINCT key-sets -- the
+; commonest being 72 keys across 25,208 objects, which is one class of the
+; compiler's AST. Each of those 25,208 stored the same 72 atom ids again, in
+; the map entry, in the order list and in the hash index: about 19 bytes per
+; property that is byte-identical across all of them, with only the VALUES
+; differing.
+;
+; Here the layout lives in one shared EvShape and the object keeps a pointer
+; to it plus a flat array of values, indexed by the shape.
+;
+; Shapes are discovered, not declared. `next` caches the shape you reach by
+; appending a key, so two objects that add the same keys in the same order
+; walk the same chain and arrive at the same shape without anything having to
+; know they are the same kind of object. A constructor that always assigns the
+; same fields in the same order -- which is what a class is -- therefore ends
+; up sharing one shape across every instance.
+class EvShape {
+    ; Keys in insertion order. JavaScript enumerates string keys that way, and
+    ; the array doubles as the shape's identity.
+    def atoms:[int]
+    ; atom -> index into the object's value array
+    def slotIx:[int:int]
+    ; atom -> the shape with that key appended. The transition tree.
+    def next:[int:EvShape]
+    ; The shape this one was reached from, and the widest shape reachable
+    ; through it. Objects of a given layout are built over and over, so once
+    ; ONE of them has been built the rest can size their value array in one
+    ; go instead of letting it double -- a 72-property object otherwise lands
+    ; in a block sized for 128.
+    def parent@(optional):EvShape
+    def deepest:int 0
+
+    sfn rootShape:EvShape () {
+        def r:EvShapeRoot (EvShapeRoot.__singleton())
+        return r.root
+    }
+    fn indexOf:int (ka:int) {
+        def f@(optional):int (get slotIx ka)
+        if f {
+            return (unwrap f)
+        }
+        return (0 - 1)
+    }
+    fn width:int () {
+        return (array_length atoms)
+    }
+    ; The shape with `ka` appended, minted once and cached. Copying the key
+    ; table here is O(width), but it happens once per DISTINCT shape rather
+    ; than once per object -- that is the whole trade.
+    fn transition:EvShape (ka:int) {
+        def f@(optional):EvShape (get next ka)
+        if f {
+            return (unwrap f)
+        }
+        def sh:EvShape (new EvShape())
+        def na:[int]
+        def ni:[int:int]
+        def i:int 0
+        while (i < (array_length atoms)) {
+            def a:int (itemAt atoms i)
+            push na a
+            set ni a i
+            i = (i + 1)
+        }
+        push na ka
+        set ni ka i
+        sh.atoms = na
+        sh.slotIx = ni
+        sh.parent = this
+        set next ka sh
+        ; Record the new depth back up the chain, so an object starting from
+        ; the root already knows how wide its kind gets.
+        ; The climb starts at the NEW shape, then this one, then its
+        ; ancestors. `this` is reached as a field rather than through
+        ; `sh.parent`, and the loop begins one link further up: on the Rust
+        ; target the caller is already inside this object's cell
+        ; (`shape.borrow_mut().transition(...)`), so arriving back at it
+        ; through the parent Rc is a second borrow of a cell that is already
+        ; borrowed, and the process aborts. Reading the field is the same
+        ; object by a route that cannot alias.
+        def w:int (array_length na)
+        if (sh.deepest < w) {
+            sh.deepest = w
+        }
+        if (deepest < w) {
+            deepest = w
+        }
+        def up@(optional):EvShape parent
+        def climbing:boolean true
+        while climbing {
+            if up {
+                def u:EvShape (unwrap up)
+                def d:int u.deepest
+                if (d < w) {
+                    u.deepest = w
+                }
+                up = u.parent
+            } {
+                climbing = false
+            }
+        }
+        return sh
+    }
+}
+
+; The one empty bag handed to every value that has no properties yet.
+class EvSharedBag @singleton(true) {
+    def empty:EvPropertyBag (new EvPropertyBag())
+}
+
+class EvShapeRoot @singleton(true) {
+    ; The empty shape every object starts at. Shared, so an object with no
+    ; properties allocates no key table at all.
+    def root:EvShape (new EvShape())
+}
+
+class EvPropertyBag {
+    ; A PLAIN data property -- default attributes, ordinary value -- stored as
+    ; the value itself, keyed by atom id.
+    ;
+    ; This is where an interpreted object's memory actually goes. Everything
+    ; used to live in `slots` as an EvPropertySlot, and a slot is a separately
+    ; allocated object behind a pointer, so one property cost a map entry with
+    ; a pointer in it PLUS a heap block PLUS its reference-count control block
+    ; -- around 150 bytes for what is a 48-byte value. Measured on a compiler
+    ; workload: 8.7 million live property slots, about 1.3 GB, on 612,000
+    ; objects. Storing the value inline in the map removes the allocation, the
+    ; control block and the indirection.
+    ;
+    ; `slots` keeps the rare shapes -- accessors, and data with non-default
+    ; attributes -- and takes PRECEDENCE over this map, which is what lets a
+    ; key move from here to there without a map-remove op (there is none; the
+    ; removers below rebuild). A key is normally in exactly one of the two.
+    def shape:EvShape (EvShape.rootShape())
+    ; Values, parallel to shape.atoms. A key that carries an accessor or
+    ; non-default attributes keeps a Hole here and its real slot in
+    ; rare.slots, so the shape still records where it sits in the order.
+    def slotValues:[EvalValue]
+    ; True once this bag has left shape mode; storage is rare.dictValues.
+    def dictMode:boolean false
+    ; True ONLY of the one shared empty bag every property-free value starts
+    ; with. 485,898 of the 614,109 live values on a compile are arrays holding
+    ; 77,808 elements between them, and each carried a private bag it never
+    ; wrote to. Writers go through EvHandle.propsForWrite, which swaps in a
+    ; private bag the first time one is actually needed.
+    def isShared:boolean false
+    ; Accessors, non-default attributes and suppressed keys -- absent on an
+    ; ordinary object. See EvBagRare.
+    def rare@(optional):EvBagRare
+    ; The keys, in insertion order. JavaScript enumerates string keys in the
     ; order they were added, and the ids in `slots` are global (minted the
     ; first time ANY bag saw the name), so the id order is not this bag's
-    ; order. Keeping the names here is also what lets dataKeys answer without
-    ; mapping every id back through the atom table.
-    def slotNames:[string]
+    ; order.
+    ;
+    ; ATOM IDS, not names. This used to hold the names, which put a whole
+    ; std::string on every property of every object -- ~48 bytes each against
+    ; 4 for an id, duplicated across every bag that ever saw the same key,
+    ; while the atom table already holds exactly one copy of each name. On a
+    ; compiler workload with hundreds of thousands of live objects that was
+    ; hundreds of megabytes of duplicated key text. dataKeys maps the ids back
+    ; through the atom table, which is a vector index.
     ; Number of keys in `slots`, maintained by every writer below. O(1)
     ; emptiness for the call-site inline cache (a generic map_length had no
     ; working lowering on every target).
@@ -436,10 +629,6 @@ class EvPropertyBag {
     def extensible:boolean true
     def sealed:boolean false
     def frozen:boolean false
-    ; Deleted synthesised / registry keys (Function length/name, or a built-in
-    ; method removed from a prototype). Lives on the bag so Object.prototype
-    ; can record `delete Object.prototype.toString` without becoming a Function.
-    def suppressedKeys:[string:boolean]
     ; MONOTONE: true once ANY accessor was ever defined on this bag. Never
     ; cleared (a deleted accessor leaves it set — conservative). Lets hot read
     ; paths skip the per-key accessor probe, and its string-key mint, on the
@@ -450,20 +639,247 @@ class EvPropertyBag {
     ; the fast write path can store without the attrs probes.
     def everHadAttrs:boolean false
 
-    ; Record a name the first time this bag gets a slot for it. Every write
-    ; below funnels through here, so `slotNames` and `slots` cannot drift.
+    ; Record a key the first time this bag gets a slot for it. Every write
+    ; below funnels through here, so the layout and `slots` cannot drift.
+    ; Record a key the first time this bag sees it. The order list IS the
+    ; layout now, so a key that will live in rare.slots (an accessor, or data
+    ; with attributes) still takes a slot here -- holding a Hole -- to keep
+    ; its position in enumeration order.
     fn noteKey:void (ka:int key:string) {
-        if (false == (has slots ka)) {
-            push slotNames key
+        if (false == (this.hasKey(ka))) {
+            this.plainPut(ka (EvalValue.hole()))
         }
+    }
+    ; ---- the rare side, reached only when something actually needs it ----
+    fn rareOf:EvBagRare () {
+        if rare {
+            return (unwrap rare)
+        }
+        def r:EvBagRare (new EvBagRare())
+        rare = r
+        return r
+    }
+    fn hasSlotAt:boolean (ka:int) {
+        if rare {
+            def r:EvBagRare (unwrap rare)
+            return (has r.slots ka)
+        }
+        return false
+    }
+    fn slotAt:EvPropertySlot (ka:int) {
+        def r:EvBagRare (unwrap rare)
+        return (unwrap (get r.slots ka))
+    }
+    fn setSlotAt:void (ka:int sl:EvPropertySlot) {
+        def r:EvBagRare (this.rareOf())
+        set r.slots ka sl
+    }
+    ; Suppressed keys, so EvHandle does not have to know where they live.
+    fn isSuppressed:boolean (key:string) {
+        if rare {
+            def r:EvBagRare (unwrap rare)
+            return (has r.suppressedKeys key)
+        }
+        return false
+    }
+    fn suppressKey:void (key:string) {
+        ; The owner must unshare through EvHandle.propsForWrite before writing.
+        ; Refusing is not right either, but a dropped property is visible in
+        ; the first test that touches it, where a property handed to every
+        ; other object would be a silent correctness bug.
+        if isShared {
+            return
+        }
+        def r:EvBagRare (this.rareOf())
+        set r.suppressedKeys key true
+    }
+    fn suppressedList:[string] () {
+        if rare {
+            def r:EvBagRare (unwrap rare)
+            return (keys r.suppressedKeys)
+        }
+        def none:[string]
+        return none
+    }
+    fn setSuppressed:void (m:[string:boolean]) {
+        ; The owner must unshare through EvHandle.propsForWrite before writing.
+        ; Refusing is not right either, but a dropped property is visible in
+        ; the first test that touches it, where a property handed to every
+        ; other object would be a silent correctness bug.
+        if isShared {
+            return
+        }
+        def r:EvBagRare (this.rareOf())
+        r.suppressedKeys = m
+    }
+
+    ; ---- plain-data storage: shape mode, or dictionary once it must ------
+    ;
+    ; Every key this bag has ever been given, in insertion order. In shape
+    ; mode that is the shape's own key array, shared with every other object
+    ; of the same layout and costing this bag nothing.
+    fn keyAtoms:[int] () {
+        if dictMode {
+            if rare {
+                def r:EvBagRare (unwrap rare)
+                return r.dictAtoms
+            }
+            def none:[int]
+            return none
+        }
+        return shape.atoms
+    }
+    fn plainHas:boolean (ka:int) {
+        if dictMode {
+            if rare {
+                def r:EvBagRare (unwrap rare)
+                return (has r.dictValues ka)
+            }
+            return false
+        }
+        return ((shape.indexOf(ka)) >= 0)
+    }
+    ; The value, or Hole when the key is absent -- which is also what a key
+    ; present only as an accessor or an attrs placeholder answers, and callers
+    ; already read Hole as "no data property here".
+    fn plainGet:EvalValue (ka:int) {
+        if dictMode {
+            if rare {
+                def r:EvBagRare (unwrap rare)
+                def dv@(optional):EvalValue (get r.dictValues ka)
+                if dv {
+                    return (unwrap dv)
+                }
+            }
+            return (EvalValue.hole())
+        }
+        def ix:int (shape.indexOf(ka))
+        if (ix < 0) {
+            return (EvalValue.hole())
+        }
+        return (itemAt slotValues ix)
+    }
+    fn plainPut:void (ka:int v:EvalValue) {
+        if dictMode {
+            def r:EvBagRare (this.rareOf())
+            if (false == (has r.dictValues ka)) {
+                push r.dictAtoms ka
+            }
+            set r.dictValues ka v
+            return
+        }
+        def ix:int (shape.indexOf(ka))
+        if (ix >= 0) {
+            set_at slotValues ix v
+            return
+        }
+        ; A shape is shared only while objects of that layout keep appearing.
+        ; An object used as a DICTIONARY -- keys nobody else will add, in an
+        ; order nobody else will repeat -- would mint one shape per key and
+        ; each shape carries a copy of the key table, which is quadratic. Past
+        ; a width no real class reaches, stop.
+        if ((shape.width()) >= 128) {
+            this.toDictionary()
+            this.plainPut(ka v)
+            return
+        }
+        shape = (shape.transition(ka))
+        if ((array_length slotValues) == 0) {
+            def want:int shape.deepest
+            if (want > 2) {
+                array_reserve slotValues want
+            }
+        }
+        push slotValues v
+    }
+    ; Leave shape mode, keeping order and values. Deleting a key does this
+    ; too: a shape describes a key set that only grows, so a delete has no
+    ; transition to follow.
+    fn toDictionary:void () {
+        if dictMode {
+            return
+        }
+        def r:EvBagRare (this.rareOf())
+        def dv:[int:EvalValue]
+        def da:[int]
+        def i:int 0
+        while (i < (array_length slotValues)) {
+            def a:int (itemAt shape.atoms i)
+            push da a
+            set dv a (itemAt slotValues i)
+            i = (i + 1)
+        }
+        r.dictValues = dv
+        r.dictAtoms = da
+        dictMode = true
+        def empty:[EvalValue]
+        slotValues = empty
+        shape = (EvShape.rootShape())
+    }
+    fn plainDrop:void (ka:int) {
+        this.toDictionary()
+        def r:EvBagRare (this.rareOf())
+        def dv:[int:EvalValue]
+        def da:[int]
+        for r.dictAtoms a:int i {
+            if (a != ka) {
+                push da a
+                if (has r.dictValues a) {
+                    set dv a (unwrap (get r.dictValues a))
+                }
+            }
+        }
+        r.dictValues = dv
+        r.dictAtoms = da
+    }
+
+    ; Does this bag carry the key at all?
+    fn hasKey:boolean (ka:int) {
+        if (this.hasSlotAt(ka)) {
+            return true
+        }
+        return (this.plainHas(ka))
+    }
+    ; The key's slot in the rare form, materialising one for a plain value.
+    ; Only the cold paths (attributes, accessors) call this; the hot reads go
+    ; straight at the value array and never build a slot.
+    fn slotOf:EvPropertySlot (ka:int) {
+        if (this.hasSlotAt(ka)) {
+            return (this.slotAt(ka))
+        }
+        return (new EvPropertySlot.Data((this.plainGet(ka)) 7))
+    }
+    ; Rebuild without one key. There is no map-remove op, and these run only
+    ; when a property changes SHAPE -- gaining an accessor or an attribute --
+    ; which is rare enough that a rebuild is cheaper than carrying tombstones.
+    fn dropSlot:void (ka:int) {
+        if (false == (this.hasSlotAt(ka))) {
+            return
+        }
+        def r:EvBagRare (unwrap rare)
+        def rebuilt:[int:EvPropertySlot]
+        for (this.keyAtoms()) a:int i {
+            if (a != ka) {
+                if (has r.slots a) {
+                    set rebuilt a (unwrap (get r.slots a))
+                }
+            }
+        }
+        r.slots = rebuilt
     }
     ; E4c: property-bag SoT. Value payload is EvalValue (avoids EvHandle import cycle).
     fn hasData:boolean (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        if (false == (has slots ka)) {
+        if (false == (this.hasSlotAt(ka))) {
+            def pv:EvalValue (this.plainGet(ka))
+            if (false == (EvalValue.isHole(pv))) {
+                return true
+            }
+        }
+        if (false == (this.hasSlotAt(ka))) {
             return false
         }
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        def slot:EvPropertySlot (this.slotAt(ka))
         case slot d:EvPropertySlot.Data {
             ; Hole value = attrs-only placeholder (setAttrs before a value),
             ; not a real data property — array index attrs must not shadow
@@ -478,7 +894,14 @@ class EvPropertyBag {
     }
     fn getData:EvalValue (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        if (false == (this.hasSlotAt(ka))) {
+            def pv2:EvalValue (this.plainGet(ka))
+            if (false == (EvalValue.isHole(pv2))) {
+                return pv2
+            }
+            return (EvalValue.undefined())
+        }
+        def slot:EvPropertySlot (this.slotAt(ka))
         case slot d:EvPropertySlot.Data {
             ; Case field typed as a shape without a default is optional at the
             ; type level; putData always sets it.
@@ -495,10 +918,10 @@ class EvPropertyBag {
     ; hashing a single string. This is the whole point of interning: the string
     ; work happens once when the bytecode is built, never per access.
     fn dataOrHoleAtom:EvalValue (ka:int) {
-        if (false == (has slots ka)) {
-            return (EvalValue.hole())
+        if (false == (this.hasSlotAt(ka))) {
+            return (this.plainGet(ka))
         }
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        def slot:EvPropertySlot (this.slotAt(ka))
         case slot d:EvPropertySlot.Data {
             return (unwrap d.value)
         }
@@ -506,51 +929,79 @@ class EvPropertyBag {
     }
     fn dataOrHole:EvalValue (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        if (false == (has slots ka)) {
-            return (EvalValue.hole())
+        if (false == (this.hasSlotAt(ka))) {
+            return (this.plainGet(ka))
         }
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        def slot:EvPropertySlot (this.slotAt(ka))
         case slot d:EvPropertySlot.Data {
             return (unwrap d.value)
         }
         return (EvalValue.hole())
     }
     fn putData:void (key:string value:EvalValue attrs:int) {
+        ; The owner must unshare through EvHandle.propsForWrite before writing.
+        ; Refusing is not right either, but a dropped property is visible in
+        ; the first test that touches it, where a property handed to every
+        ; other object would be a silent correctness bug.
+        if isShared {
+            return
+        }
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        if (false == (has slots ka)) {
+        if (false == (this.hasKey(ka))) {
             slotCount = (slotCount + 1)
         }
-        if (attrs != 7) {
-            everHadAttrs = true
+        this.noteKey(ka key)
+        if (attrs == 7) {
+            ; The common case by a wide margin: an ordinary property with
+            ; ordinary attributes, stored as the value itself. `slots` wins
+            ; lookups, so a key that used to be an accessor has to leave it.
+            this.dropSlot(ka)
+            this.plainPut(ka value)
+            return
         }
+        everHadAttrs = true
         ; Bind through the union type so Rust gets union_EvPropertySlot, not the
         ; bare case struct (same pattern as `def a:Value (new Value.Num(...))`).
         def slot:EvPropertySlot (new EvPropertySlot.Data(value attrs))
-        this.noteKey(ka key)
-        set slots ka slot
+        ; The plain slot keeps whatever it held and stays shadowed --
+        ; rare.slots wins every lookup. Clearing it would only cost a shape
+        ; transition, and the key must keep its place in the layout anyway.
+        this.setSlotAt(ka slot)
     }
     fn removeData:void (key:string) {
-        def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        if (false == (has slots ka)) {
+        ; The owner must unshare through EvHandle.propsForWrite before writing.
+        ; Refusing is not right either, but a dropped property is visible in
+        ; the first test that touches it, where a property handed to every
+        ; other object would be a silent correctness bug.
+        if isShared {
             return
         }
-        def rebuilt:[int:EvPropertySlot]
-        def rebuiltNames:[string]
-        def atoms:EvAtomTable (EvAtomTable.__singleton())
-        for slotNames nm:string idx {
-            def nka:int (atoms.idOf(nm))
-            if (nka != ka) {
-                set rebuilt nka (unwrap (get slots nka))
-                push rebuiltNames nm
-            }
+        def ka:int ((EvAtomTable.__singleton()).idOf(key))
+        if (false == (this.hasKey(ka))) {
+            return
         }
-        slots = rebuilt
-        slotNames = rebuiltNames
+        if rare {
+            def r:EvBagRare (unwrap rare)
+            def rebuilt:[int:EvPropertySlot]
+            for (this.keyAtoms()) nka:int idx {
+                if (nka != ka) {
+                    if (has r.slots nka) {
+                        set rebuilt nka (unwrap (get r.slots nka))
+                    }
+                }
+            }
+            r.slots = rebuilt
+        }
+        ; A shape only ever grows, so there is no transition that removes a
+        ; key: the object leaves shape mode here.
+        this.plainDrop(ka)
         slotCount = (slotCount - 1)
     }
     fn dataKeys:[string] () {
         def out:[string]
-        for slotNames nm:string idx {
+        def atoms:EvAtomTable (EvAtomTable.__singleton())
+        for (this.keyAtoms()) ka:int idx {
+            def nm:string (atoms.nameOf(ka))
             if (this.hasData(nm)) {
                 push out nm
             }
@@ -560,14 +1011,16 @@ class EvPropertyBag {
 
     fn hasSlot:boolean (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        return (has slots ka)
+        return (this.hasKey(ka))
     }
     fn attrsOf:int (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        if (false == (has slots ka)) {
+        if (false == (this.hasSlotAt(ka))) {
+            ; A plain value carries the default attributes by construction,
+            ; and so does an absent key.
             return 7
         }
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        def slot:EvPropertySlot (this.slotAt(ka))
         case slot d:EvPropertySlot.Data {
             return d.attributes
         }
@@ -577,22 +1030,35 @@ class EvPropertyBag {
         return 7
     }
     fn setAttrsOn:void (key:string attrs:int) {
+        ; The owner must unshare through EvHandle.propsForWrite before writing.
+        ; Refusing is not right either, but a dropped property is visible in
+        ; the first test that touches it, where a property handed to every
+        ; other object would be a silent correctness bug.
+        if isShared {
+            return
+        }
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
         everHadAttrs = true
-        if (false == (has slots ka)) {
+        if (false == (this.hasKey(ka))) {
             ; Attribute bits without a value — Hole placeholder so hasData is
             ; false (must not shadow array dense indexes / inherited reads).
             def slot0:EvPropertySlot (new EvPropertySlot.Data((EvalValue.hole()) attrs))
             slotCount = (slotCount + 1)
             this.noteKey(ka key)
-            set slots ka slot0
+            this.setSlotAt(ka slot0)
             return
         }
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        ; Attributes are a rare shape. The stale plain value is left where it
+        ; is rather than dropped here: `slots` wins every lookup, so it is
+        ; already unreachable, and dropping it BEFORE the noteKey calls below
+        ; made the key look absent and added it to the layout a second time
+        ; -- getOwnPropertyNames then listed it twice. removeData rebuilds
+        ; both maps, so nothing accumulates.
+        def slot:EvPropertySlot (this.slotOf(ka))
         case slot d:EvPropertySlot.Data {
             def slotD:EvPropertySlot (new EvPropertySlot.Data((unwrap d.value) attrs))
             this.noteKey(ka key)
-            set slots ka slotD
+            this.setSlotAt(ka slotD)
             return
         }
         case slot a:EvPropertySlot.Accessor {
@@ -603,16 +1069,16 @@ class EvPropertyBag {
             s = a.setter
             def slotA:EvPropertySlot (new EvPropertySlot.Accessor(g s attrs))
             this.noteKey(ka key)
-            set slots ka slotA
+            this.setSlotAt(ka slotA)
         }
     }
 
     fn hasGetter:boolean (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        if (false == (has slots ka)) {
+        if (false == (this.hasSlotAt(ka))) {
             return false
         }
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        def slot:EvPropertySlot (this.slotAt(ka))
         case slot a:EvPropertySlot.Accessor {
             def g:EvalValue a.getter
             if (false == (EvalValue.isHole(g))) {
@@ -623,10 +1089,10 @@ class EvPropertyBag {
     }
     fn hasSetter:boolean (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        if (false == (has slots ka)) {
+        if (false == (this.hasSlotAt(ka))) {
             return false
         }
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        def slot:EvPropertySlot (this.slotAt(ka))
         case slot a:EvPropertySlot.Accessor {
             def s:EvalValue a.setter
             if (false == (EvalValue.isHole(s))) {
@@ -637,15 +1103,15 @@ class EvPropertyBag {
     }
     fn hasAccessor:boolean (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        if (false == (has slots ka)) {
+        if (false == (this.hasSlotAt(ka))) {
             return false
         }
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        def slot:EvPropertySlot (this.slotAt(ka))
         return (is slot _:EvPropertySlot.Accessor)
     }
     fn getGetter:EvalValue (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        def slot:EvPropertySlot (this.slotAt(ka))
         case slot a:EvPropertySlot.Accessor {
             return a.getter
         }
@@ -653,22 +1119,32 @@ class EvPropertyBag {
     }
     fn getSetter:EvalValue (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        def slot:EvPropertySlot (this.slotAt(ka))
         case slot a:EvPropertySlot.Accessor {
             return a.setter
         }
         return (EvalValue.undefined())
     }
     fn putGetter:void (key:string g:EvalValue attrs:int) {
+        ; The owner must unshare through EvHandle.propsForWrite before writing.
+        ; Refusing is not right either, but a dropped property is visible in
+        ; the first test that touches it, where a property handed to every
+        ; other object would be a silent correctness bug.
+        if isShared {
+            return
+        }
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
         everHadAccessor = true
-        if (false == (has slots ka)) {
+        if (false == (this.hasKey(ka))) {
             slotCount = (slotCount + 1)
         }
+        ; The plain value, if any, stays put and stays shadowed -- same
+        ; reason as setAttrsOn: dropping it here would make the key look
+        ; absent to the noteKey below and duplicate it in the layout.
         def useAttrs:int attrs
         def s:EvalValue (EvalValue.hole())
-        if (has slots ka) {
-            def slot:EvPropertySlot (unwrap (get slots ka))
+        if (this.hasSlotAt(ka)) {
+            def slot:EvPropertySlot (this.slotAt(ka))
             case slot a:EvPropertySlot.Accessor {
                 def sv:EvalValue a.setter
                 if (false == (EvalValue.isHole(sv))) {
@@ -679,18 +1155,25 @@ class EvPropertyBag {
         }
         def slotN:EvPropertySlot (new EvPropertySlot.Accessor(g s useAttrs))
         this.noteKey(ka key)
-        set slots ka slotN
+        this.setSlotAt(ka slotN)
     }
     fn putSetter:void (key:string s:EvalValue attrs:int) {
+        ; The owner must unshare through EvHandle.propsForWrite before writing.
+        ; Refusing is not right either, but a dropped property is visible in
+        ; the first test that touches it, where a property handed to every
+        ; other object would be a silent correctness bug.
+        if isShared {
+            return
+        }
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
         everHadAccessor = true
-        if (false == (has slots ka)) {
+        if (false == (this.hasKey(ka))) {
             slotCount = (slotCount + 1)
         }
         def useAttrs:int attrs
         def g:EvalValue (EvalValue.hole())
-        if (has slots ka) {
-            def slot:EvPropertySlot (unwrap (get slots ka))
+        if (this.hasSlotAt(ka)) {
+            def slot:EvPropertySlot (this.slotAt(ka))
             case slot a:EvPropertySlot.Accessor {
                 def gv:EvalValue a.getter
                 if (false == (EvalValue.isHole(gv))) {
@@ -701,14 +1184,14 @@ class EvPropertyBag {
         }
         def slotN:EvPropertySlot (new EvPropertySlot.Accessor(g s useAttrs))
         this.noteKey(ka key)
-        set slots ka slotN
+        this.setSlotAt(ka slotN)
     }
     fn clearGetter:void (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        if (false == (has slots ka)) {
+        if (false == (this.hasSlotAt(ka))) {
             return
         }
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        def slot:EvPropertySlot (this.slotAt(ka))
         case slot a:EvPropertySlot.Accessor {
             def s:EvalValue (EvalValue.hole())
             def at:int a.attributes
@@ -722,16 +1205,16 @@ class EvPropertyBag {
                 def g:EvalValue (EvalValue.hole())
                 def slotN:EvPropertySlot (new EvPropertySlot.Accessor(g s at))
                 this.noteKey(ka key)
-                set slots ka slotN
+                this.setSlotAt(ka slotN)
             }
         }
     }
     fn clearSetter:void (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        if (false == (has slots ka)) {
+        if (false == (this.hasSlotAt(ka))) {
             return
         }
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        def slot:EvPropertySlot (this.slotAt(ka))
         case slot a:EvPropertySlot.Accessor {
             def g:EvalValue (EvalValue.hole())
             def at:int a.attributes
@@ -745,23 +1228,25 @@ class EvPropertyBag {
                 def s:EvalValue (EvalValue.hole())
                 def slotN:EvPropertySlot (new EvPropertySlot.Accessor(g s at))
                 this.noteKey(ka key)
-                set slots ka slotN
+                this.setSlotAt(ka slotN)
             }
         }
     }
     fn clearAccessor:void (key:string) {
         def ka:int ((EvAtomTable.__singleton()).idOf(key))
-        if (false == (has slots ka)) {
+        if (false == (this.hasSlotAt(ka))) {
             return
         }
-        def slot:EvPropertySlot (unwrap (get slots ka))
+        def slot:EvPropertySlot (this.slotAt(ka))
         if (is slot _:EvPropertySlot.Accessor) {
             this.removeData(key)
         }
     }
     fn getterKeys:[string] () {
         def out:[string]
-        for slotNames nm:string idx {
+        def atoms:EvAtomTable (EvAtomTable.__singleton())
+        for (this.keyAtoms()) ka:int idx {
+            def nm:string (atoms.nameOf(ka))
             if (this.hasGetter(nm)) {
                 push out nm
             }
@@ -770,7 +1255,9 @@ class EvPropertyBag {
     }
     fn setterKeys:[string] () {
         def out:[string]
-        for slotNames nm:string idx {
+        def atoms:EvAtomTable (EvAtomTable.__singleton())
+        for (this.keyAtoms()) ka:int idx {
+            def nm:string (atoms.nameOf(ka))
             if (this.hasSetter(nm)) {
                 push out nm
             }
@@ -788,6 +1275,13 @@ class EvPropertyBag {
         return prototype
     }
     fn setPrototype:void (p:EvalValue) {
+        ; The owner must unshare through EvHandle.propsForWrite before writing.
+        ; Refusing is not right either, but a dropped property is visible in
+        ; the first test that touches it, where a property handed to every
+        ; other object would be a silent correctness bug.
+        if isShared {
+            return
+        }
         prototype = p
     }
 }
@@ -800,7 +1294,8 @@ class EvFunctionCore {
     def functionName:string ""
     def closureId:int (0 - 1)
     def homeModule:string ""
-    def srcText:string ""
+    ; The text itself lives in EvSourceRegistry, addressed by srcId below.
+    ; Holding it here put a copy of the whole script on every function.
     ; Identity of srcText among the engine's source registers: two equal ids
     ; mean the same TEXT, so a call whose callee shares the caller's source
     ; skips the save/set/restore string copies entirely. 0 = unstamped.
@@ -813,6 +1308,50 @@ class EvFunctionCore {
     def functionNode@(optional):TSNode
 }
 
+; =============================================================================
+; EvSourceRegistry — one copy of each script's text, addressed by id
+; =============================================================================
+; Function.prototype.toString returns a function's own source, so every
+; function value has to be able to reach the text it was captured from. It
+; used to reach it by HOLDING it: stampSrcOn copied the whole script onto each
+; captured function. Measured on a 2.6 MB bundle: 723 live copies, 1797 MB --
+; 72% of the process, for one string.
+;
+; The id that makes this unnecessary was already there. setCurrentSource mints
+; one per registered text and its comment says the point is to "compare ints
+; instead of copying whole scripts around"; only the storage never followed.
+; Now the text lives here once and a function carries the id.
+;
+; Id 0 is reserved for "no source" so hasSrcText stays a comparison.
+class EvSourceRegistry @singleton(true) {
+    def texts:[string]
+    fn add:int (s:string) {
+        if ((array_length texts) == 0) {
+            push texts ""
+        }
+        push texts s
+        return ((array_length texts) - 1)
+    }
+    fn textOf:string (id:int) {
+        if (id <= 0) {
+            return ""
+        }
+        if (id >= (array_length texts)) {
+            return ""
+        }
+        return (itemAt texts id)
+    }
+    fn lengthOf:int (id:int) {
+        if (id <= 0) {
+            return 0
+        }
+        if (id >= (array_length texts)) {
+            return 0
+        }
+        return (strlen (itemAt texts id))
+    }
+}
+
 class EvFunctionBinding {
     ; Hole = unbound. Same C++ optional-shape constraint as prototype.
     def boundThis:EvalValue (EvalValue.hole())
@@ -820,3 +1359,532 @@ class EvFunctionBinding {
     def boundExplicit:boolean false
 }
 
+
+; =============================================================================
+; EvGcHeap — reclaiming reference cycles on the reference-counted targets
+; =============================================================================
+; The native targets refcount and have no cycle collector, so an object graph
+; containing a cycle is never reclaimed. `node.parent = this` is enough, and
+; that is the shape of every AST the engine is asked to run: measured at
+; 256 KB leaked per iteration of a build-and-drop tree loop that QuickJS holds
+; flat (gallery/game_engine/v2/interp/cli/memcases/05_tree_parent_cycle.js).
+;
+; The collector is trial deletion over a registry of every reference value the
+; engine mints, and it needs no root enumeration at all. That is the whole
+; reason it is built this way: the AST walker keeps its temporaries in native
+; locals, which no portable traversal can see, so a mark-sweep rooted at the
+; engine's own structures would free values that are live on the host stack.
+; A refcount does not have that blind spot — a native temporary IS a strong
+; reference, so it counts itself.
+;
+;   1. shadow[i] = ref_count(objects[i]) - 1        (drop the registry's own)
+;   2. for every edge inside the registry, shadow[target] -= 1
+;   3. shadow[i] > 0 now means "referenced from outside the registry" — a
+;      global, a scope, an engine field, or a native temporary. Those are the
+;      roots, and they were never enumerated, only counted.
+;   4. mark everything reachable from a root
+;   5. anything unmarked is unreachable, cyclic or not: break its edges so the
+;      cycle's counts fall, then drop it from the registry
+;
+; SAFETY. Steps 2 and 4 MUST walk the same edges, and they do — both go through
+; childrenOf. That is what makes the collector safe against its own blind
+; spots: an edge childrenOf fails to report is never subtracted either, so the
+; target keeps that +1 and reads as externally referenced. Under-reporting
+; costs a missed collection and nothing else.
+;
+; The dangerous direction is over-reporting — naming an edge twice, or naming
+; one that is not a real owning reference. That cancels a count that something
+; live is still holding, and the object gets freed underneath it. Every case
+; below reports each owning field exactly once, and bails out conservatively
+; rather than guessing when a bag's bookkeeping looks inconsistent.
+;
+; On a target where ref_count answers 0 — every tracing-GC target — collection
+; is a no-op by construction: shadow is 0 - 1 = -1 for everything, which is not
+; > 0, so nothing is a root, so... everything would be swept. That is why
+; `enabled` is off unless a host turns it on, and why enable() refuses on a
+; target that cannot count. Those targets reclaim cycles themselves.
+class EvGcHeap @singleton(true) {
+    ; Every reference value minted since the collector was enabled, in mint
+    ; order — which is ascending identityId, and is what lets findIndex binary
+    ; search instead of carrying an id->slot map for millions of objects.
+    def objects:[EvalValue]
+    def enabled:boolean false
+    ; Re-entrancy guard: collect() runs from an allocation site, and it
+    ; allocates scratch of its own.
+    def collecting:boolean false
+    ; Collect when the registry has grown this far. A reference value costs
+    ; on the order of a kilobyte once its bag is counted, so this is the knob
+    ; that decides the program's floor: 4k objects is a few megabytes of
+    ; garbage tolerated between passes. Raised after each pass to
+    ; twice what survived, so the total work stays proportional to the live
+    ; set rather than to the number of collections.
+    def threshold:int 4096
+    def collections:int 0
+    def reclaimed:int 0
+    ; Diagnostics for the last pass. `roots` is the count that still had a
+    ; holder after every internal edge was cancelled -- something outside the
+    ; registry points at them. A live set that is mostly ROOTS rather than
+    ; objects reached FROM roots means the retention is external (a scope, an
+    ; engine field), not a data structure the guest is holding.
+    def lastRoots:int 0
+    def lastMarked:int 0
+    def lastObjects:int 0
+    def lastArrays:int 0
+    def lastFunctions:int 0
+    def lastMapsSets:int 0
+    ; Contents of the live set, not just its object count: how many property
+    ; slots and how many array elements are being held. A large object count
+    ; with few slots each is a different problem from a small one with many.
+    def lastStrings:int 0
+    def lastStringBytes:int 0
+    ; The widest object in the live set, and a sample of its keys. 42,515
+    ; objects were holding most of the properties on a compile; what they ARE
+    ; decides whether the fix is a smaller property or fewer of them.
+    def lastMaxSlots:int 0
+    def lastMaxKeys:string ""
+    def lastBig:int 0
+    def shapeSigs:[int:int]
+    def lastShapes:int 0
+    def lastTopWidth:int 0
+    def lastTopKeys:string ""
+    def lastTopShape:int 0
+    def lastSlots:int 0
+    def lastItems:int 0
+
+    ; Scratch, reused across passes so a collection does not itself churn.
+    def shadow:[int]
+    def liveMark:[boolean]
+    def work:[int]
+    def kids:[EvalValue]
+
+    ; Turn the collector on, if this target can answer ref_count at all. The
+    ; probe is the honest test: mint a value, hold it in one place, and see
+    ; whether the runtime reports that reference.
+    fn enable:boolean () {
+        def probe:EvalValue (EvalValue.objectAt(0))
+        if ((ref_count probe) < 1) {
+            return false
+        }
+        enabled = true
+        return true
+    }
+
+    ; Register and hand back, so a factory stays a one-liner: the registry is
+    ; the collector's whole view of the heap, and a value that misses it is
+    ; simply never collected (its references read as external, so nothing it
+    ; points at is collected either -- safe, just retained).
+    sfn registered:EvalValue (v:EvalValue) {
+        def heap:EvGcHeap (EvGcHeap.__singleton())
+        heap.note(v)
+        return v
+    }
+
+    fn note:void (v:EvalValue) {
+        if (false == enabled) {
+            return
+        }
+        if collecting {
+            return
+        }
+        push objects v
+        if ((array_length objects) >= threshold) {
+            this.collect()
+        }
+    }
+
+    ; identityId of a reference value; 0 for a primitive, which is never
+    ; registered and never an edge target worth following.
+    sfn idOf:int (v:EvalValue) {
+        case v a:EvalValue.Array { return a.identityId }
+        case v o:EvalValue.Object { return o.identityId }
+        case v f:EvalValue.Function { return f.identityId }
+        case v m:EvalValue.Map { return m.identityId }
+        case v st:EvalValue.Set { return st.identityId }
+        case v el:EvalValue.Element { return el.identityId }
+        return 0
+    }
+
+    ; Registry slot of a value, or -1. The registry is append-ordered by mint
+    ; and identityIds are minted in sequence, so it is sorted by id and stays
+    ; sorted through compaction.
+    fn findIndex:int (v:EvalValue) {
+        def id:int (EvGcHeap.idOf(v))
+        if (id == 0) {
+            return (0 - 1)
+        }
+        def lo:int 0
+        def hi:int ((array_length objects) - 1)
+        while (lo <= hi) {
+            def mid:int (lo + (to_int ((to_double (hi - lo)) / 2.0)))
+            def midId:int (EvGcHeap.idOf((itemAt objects mid)))
+            if (midId == id) {
+                return mid
+            }
+            if (midId < id) {
+                lo = (mid + 1)
+            } {
+                hi = (mid - 1)
+            }
+        }
+        return (0 - 1)
+    }
+
+    ; Every owning reference held by this bag, each named exactly once.
+    fn bagChildren:void (bag:EvPropertyBag out:[EvalValue]) {
+        ; The layout is this bag's insertion order and rare.slots is keyed by
+        ; atom id; noteKey keeps them in step. If they have drifted, enumerate
+        ; nothing rather than risk naming one slot twice -- a key listed
+        ; twice would subtract two counts for one reference and could free a
+        ; value something live still holds. Reporting no edges only costs a
+        ; missed collection.
+        def bagKeys:[int] (bag.keyAtoms())
+        if (bag.slotCount != (array_length bagKeys)) {
+            return
+        }
+        for bagKeys ka:int idx {
+            if (bag.hasSlotAt(ka)) {
+                def slot:EvPropertySlot (bag.slotAt(ka))
+                case slot d:EvPropertySlot.Data {
+                    push out (unwrap d.value)
+                }
+                case slot ac:EvPropertySlot.Accessor {
+                    push out ac.getter
+                    push out ac.setter
+                }
+            } {
+                ; `slots` wins lookups, so a plain value is an owning edge only
+                ; when no slot shadows it -- counting both would name one
+                ; reference twice, which is the one direction that is unsafe.
+                def bv:EvalValue (bag.plainGet(ka))
+                if (false == (EvalValue.isHole(bv))) {
+                    push out bv
+                }
+            }
+        }
+        push out bag.prototype
+    }
+
+    ; Every owning reference held by a value. Used by BOTH the subtract pass
+    ; and the mark pass -- see the safety note above; they must not diverge.
+    fn childrenOf:void (v:EvalValue out:[EvalValue]) {
+        case v a:EvalValue.Array {
+            this.bagChildren(a.properties out)
+            def ai:int 0
+            while (ai < (array_length a.items)) {
+                push out (itemAt a.items ai)
+                ai = (ai + 1)
+            }
+            return
+        }
+        case v o:EvalValue.Object {
+            this.bagChildren(o.properties out)
+            return
+        }
+        case v f:EvalValue.Function {
+            this.bagChildren(f.properties out)
+            ; The core reaches its closure by integer id, not by pointer, so
+            ; there is no owning edge there to report. A cycle that runs
+            ; through a closure scope is therefore not collected by this pass;
+            ; the scope is outside the registry, so its reference reads as
+            ; external and everything under it stays live. Safe, not complete.
+            def fb:EvFunctionBinding f.binding
+            push out fb.boundThis
+            def bi:int 0
+            while (bi < (array_length fb.boundArgs)) {
+                push out (itemAt fb.boundArgs bi)
+                bi = (bi + 1)
+            }
+            return
+        }
+        case v m:EvalValue.Map {
+            this.bagChildren(m.properties out)
+            def mi:int 0
+            while (mi < (array_length m.entries)) {
+                def me:EvMapEntry (itemAt m.entries mi)
+                push out (unwrap me.key)
+                push out (unwrap me.value)
+                mi = (mi + 1)
+            }
+            return
+        }
+        case v st:EvalValue.Set {
+            this.bagChildren(st.properties out)
+            def si:int 0
+            while (si < (array_length st.items)) {
+                push out (itemAt st.items si)
+                si = (si + 1)
+            }
+            return
+        }
+    }
+
+    ; Drop every outgoing reference, which is what actually breaks the cycle:
+    ; the counts inside it fall to zero once the last member is broken.
+    fn breakValue:void (v:EvalValue) {
+        case v a:EvalValue.Array {
+            this.breakBag(a.properties)
+            clear a.items
+            a.declaredLength = 0.0
+            return
+        }
+        case v o:EvalValue.Object {
+            this.breakBag(o.properties)
+            return
+        }
+        case v f:EvalValue.Function {
+            this.breakBag(f.properties)
+            def fb:EvFunctionBinding f.binding
+            fb.boundThis = (EvalValue.hole())
+            clear fb.boundArgs
+            return
+        }
+        case v m:EvalValue.Map {
+            this.breakBag(m.properties)
+            clear m.entries
+            return
+        }
+        case v st:EvalValue.Set {
+            this.breakBag(st.properties)
+            clear st.items
+            return
+        }
+    }
+
+    fn breakBag:void (bag:EvPropertyBag) {
+        if bag.rare {
+            def r:EvBagRare (unwrap bag.rare)
+            def fresh:[int:EvPropertySlot]
+            def freshSup:[string:boolean]
+            def freshDict:[int:EvalValue]
+            def freshDictAtoms:[int]
+            r.slots = fresh
+            r.suppressedKeys = freshSup
+            r.dictValues = freshDict
+            r.dictAtoms = freshDictAtoms
+        }
+        def freshValues:[EvalValue]
+        bag.slotValues = freshValues
+        bag.shape = (EvShape.rootShape())
+        bag.dictMode = false
+        bag.slotCount = 0
+        bag.prototype = (EvalValue.hole())
+    }
+
+    fn collect:int () {
+        if collecting {
+            return 0
+        }
+        if (false == enabled) {
+            return 0
+        }
+        collecting = true
+        def n:int (array_length objects)
+        clear shadow
+        clear liveMark
+
+        ; 1. What is holding each object, minus the registry's own reference.
+        def i:int 0
+        while (i < n) {
+            push shadow ((ref_count (itemAt objects i)) - 1)
+            push liveMark false
+            i = (i + 1)
+        }
+
+        ; 2. Cancel every reference that comes from inside the registry.
+        i = 0
+        while (i < n) {
+            clear kids
+            this.childrenOf((itemAt objects i) kids)
+            def k:int 0
+            while (k < (array_length kids)) {
+                def ci:int (this.findIndex((itemAt kids k)))
+                if (ci >= 0) {
+                    set_at shadow ci ((itemAt shadow ci) - 1)
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+
+        ; 3+4. Whatever still has a holder is a root; mark out from there.
+        clear work
+        i = 0
+        while (i < n) {
+            if ((itemAt shadow i) > 0) {
+                set_at liveMark i true
+                push work i
+            }
+            i = (i + 1)
+        }
+        lastRoots = (array_length work)
+        def head:int 0
+        while (head < (array_length work)) {
+            def wi:int (itemAt work head)
+            head = (head + 1)
+            clear kids
+            this.childrenOf((itemAt objects wi) kids)
+            def k2:int 0
+            while (k2 < (array_length kids)) {
+                def ci2:int (this.findIndex((itemAt kids k2)))
+                if (ci2 >= 0) {
+                    if (false == (itemAt liveMark ci2)) {
+                        set_at liveMark ci2 true
+                        push work ci2
+                    }
+                }
+                k2 = (k2 + 1)
+            }
+        }
+
+        ; 5. Break the unmarked, then drop them. Breaking first matters: the
+        ; members of a cycle hold each other, so nothing is released until the
+        ; last edge in it is gone.
+        def freed:int 0
+        i = 0
+        while (i < n) {
+            if (false == (itemAt liveMark i)) {
+                this.breakValue((itemAt objects i))
+                freed = (freed + 1)
+            }
+            i = (i + 1)
+        }
+        def kept:[EvalValue]
+        lastMarked = 0
+        lastObjects = 0
+        lastArrays = 0
+        lastFunctions = 0
+        lastMapsSets = 0
+        ; Reset with the rest of them. These four were left out, so they
+        ; summed across every pass instead of describing the last one -- the
+        ; "8.7 million slots" that first pointed at the property bag was that
+        ; sum over ten collections, not a live figure.
+        lastSlots = 0
+        lastMaxSlots = 0
+        lastBig = 0
+        def freshSigs:[int:int]
+        shapeSigs = freshSigs
+        lastShapes = 0
+        lastTopShape = 0
+        lastItems = 0
+        lastStrings = 0
+        lastStringBytes = 0
+        i = 0
+        while (i < n) {
+            if (itemAt liveMark i) {
+                def kv:EvalValue (itemAt objects i)
+                lastMarked = (lastMarked + 1)
+                case kv ko:EvalValue.Object {
+                    lastObjects = (lastObjects + 1)
+                    def ob:EvPropertyBag ko.properties
+                    lastSlots = (lastSlots + ob.slotCount)
+                    if (ob.slotCount > 50) {
+                        lastBig = (lastBig + 1)
+                        ; How many DISTINCT key-sets do the wide objects have?
+                        ; If a few shapes cover them all, the keys are being
+                        ; stored tens of thousands of times over and shape
+                        ; sharing is the fix; if every one differs, it is not.
+                        def sig:int ob.slotCount
+                        def obKeys:[int] (ob.keyAtoms())
+                        def sj:int 0
+                        while (sj < (array_length obKeys)) {
+                            sig = ((sig * 31) + (itemAt obKeys sj))
+                            sj = (sj + 1)
+                        }
+                        if (sig < 0) { sig = (0 - sig) }
+                        if (has shapeSigs sig) {
+                            def nc:int ((unwrap (get shapeSigs sig)) + 1)
+                            set shapeSigs sig nc
+                            if (nc > lastTopShape) {
+                                lastTopShape = nc
+                                ; Record the keys of the MOST COMMON shape, not
+                                ; the widest object -- they need not be the same
+                                ; object, and conflating them would misattribute
+                                ; where the duplication actually is.
+                                lastTopWidth = ob.slotCount
+                                def atoms2:EvAtomTable (EvAtomTable.__singleton())
+                                def samp2:string ""
+                                def sk:int 0
+                                def tk:[int] (ob.keyAtoms())
+                                while ((sk < (array_length tk)) && (sk < 12)) {
+                                    samp2 = ((samp2 + (atoms2.nameOf((itemAt tk sk)))) + " ")
+                                    sk = (sk + 1)
+                                }
+                                lastTopKeys = samp2
+                            }
+                        } {
+                            set shapeSigs sig 1
+                            lastShapes = (lastShapes + 1)
+                        }
+                    }
+                    if (ob.slotCount > lastMaxSlots) {
+                        lastMaxSlots = ob.slotCount
+                        def atoms:EvAtomTable (EvAtomTable.__singleton())
+                        def sample:string ""
+                        def si:int 0
+                        def wk:[int] (ob.keyAtoms())
+                        while ((si < (array_length wk)) && (si < 14)) {
+                            sample = ((sample + (atoms.nameOf((itemAt wk si)))) + " ")
+                            si = (si + 1)
+                        }
+                        lastMaxKeys = sample
+                    }
+                }
+                case kv ka:EvalValue.Array {
+                    lastArrays = (lastArrays + 1)
+                    def ab:EvPropertyBag ka.properties
+                    lastSlots = (lastSlots + ab.slotCount)
+                    lastItems = (lastItems + (array_length ka.items))
+                }
+                ; String payload the live graph holds. Strings are not in the
+                ; registry -- they cannot form a cycle, so the collector has no
+                ; business pinning them -- which also means they are invisible
+                ; in every count above. Walking one level of children is enough
+                ; to size them; a value referenced by two objects counts twice,
+                ; and that duplication is itself the thing worth seeing.
+                clear kids
+                this.childrenOf(kv kids)
+                def ci3:int 0
+                while (ci3 < (array_length kids)) {
+                    def cv:EvalValue (itemAt kids ci3)
+                    case cv cs:EvalValue.String {
+                        lastStrings = (lastStrings + 1)
+                        lastStringBytes = (lastStringBytes + (strlen cs.value))
+                    }
+                    ci3 = (ci3 + 1)
+                }
+                case kv kf:EvalValue.Function { lastFunctions = (lastFunctions + 1) }
+                case kv km:EvalValue.Map { lastMapsSets = (lastMapsSets + 1) }
+                case kv ks:EvalValue.Set { lastMapsSets = (lastMapsSets + 1) }
+                push kept kv
+            }
+            i = (i + 1)
+        }
+        objects = kept
+
+        ; Grow the trigger with the surviving set, so a program with a large
+        ; live heap does not collect on every allocation once it gets there.
+        def survivors:int (array_length objects)
+        ; ADDITIVE, not multiplicative. `survivors * 2` sounded like the usual
+        ; amortisation rule, but it makes the tolerated garbage proportional to
+        ; the live set: at 600,000 survivors the collector waited for 600,000
+        ; more objects before looking again, so a big live heap bought a
+        ; correspondingly big pile of garbage on top of it. A fixed headroom
+        ; keeps the overshoot bounded no matter how large the program gets,
+        ; and the pass is still O(live) so the amortised cost per allocation
+        ; stays constant.
+        threshold = (survivors + 32768)
+        collections = (collections + 1)
+        reclaimed = (reclaimed + freed)
+        clear shadow
+        clear liveMark
+        clear work
+        clear kids
+        ; Freeing is not returning: the counts above fall the moment the sweep
+        ; runs, but the allocator keeps the pages, so RSS follows the churn
+        ; high-water instead of the live set. A pass is exactly the right
+        ; moment to hand them back -- the garbage has just been released.
+        def trimmed:boolean (mem_trim)
+        collecting = false
+        return freed
+    }
+}

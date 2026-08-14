@@ -1,0 +1,19 @@
+; FEATURE: how a double renders as text. Not a formatting nicety -- a program
+; that prints a computed number gives a DIFFERENT ANSWER per target unless the
+; rule is the same everywhere, and "same answer everywhere" is the whole point
+; of a transpiler. The rule taken here is the one most targets already have:
+; an integral double prints without a trailing ".0", and a fractional one
+; prints its shortest round-trip form.
+class DoubleToStringFeature {
+    sfn m@(main):void () {
+        def whole:double 4.0
+        def frac:double 2.5
+        def neg:double (0.0 - 0.5)
+        def big:double 1000000.0
+        print (to_string whole)
+        print (to_string frac)
+        print (to_string neg)
+        print (to_string big)
+        print ("x" + (to_string whole))
+    }
+}

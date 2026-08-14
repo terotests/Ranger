@@ -720,8 +720,15 @@ class tester {
         return res
       }
 
-      ; Run static analysis for C++ and Rust targets
-      if ((appCtx.targetLangName == "cpp") || (appCtx.targetLangName == "rust")) {
+      ; Run static analysis for C++, Rust and PHP targets.
+      ;
+      ; PHP is here for one field: `needs_cpp_reference`, which says a
+      ; parameter is written through by its callee. C++ turns that into `&`
+      ; and Rust into `&mut`; PHP needs exactly the same thing, because PHP
+      ; passes arrays BY VALUE and a callee that pushes to its parameter was
+      ; growing a copy while the caller saw nothing. The analysis itself is
+      ; target-independent -- only the writers' use of its answers is not.
+      if (((appCtx.targetLangName == "cpp") || (appCtx.targetLangName == "rust")) || (appCtx.targetLangName == "php")) {
         cli.stepWithDetail(3 "Static analysis" ("for " + appCtx.targetLangName))
         def staticAnalyzer:StaticAnalyzer (new StaticAnalyzer())
         staticAnalyzer.ctx = appCtx

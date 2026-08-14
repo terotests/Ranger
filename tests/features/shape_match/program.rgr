@@ -1,0 +1,32 @@
+; FEATURE: a `shape` -- a closed variant family -- plus `match` over it. The
+; interpreter's value type is exactly this, so a target that cannot carry a
+; shape cannot carry the interpreter.
+shape SmPayload {
+    case Nothing
+    case Num { def value:int 0 }
+    case Text { def value:string "" }
+}
+
+class ShapeMatchFeature {
+    fn render:string (p:SmPayload) {
+        def out:string "?"
+        match p {
+            Nothing {
+                out = "none"
+            }
+            Num n {
+                out = ("num " + (to_string n.value))
+            }
+            Text t {
+                out = ("text " + t.value)
+            }
+        }
+        return out
+    }
+    sfn m@(main):void () {
+        def f:ShapeMatchFeature (new ShapeMatchFeature())
+        print (f.render((new SmPayload.Nothing())))
+        print (f.render((new SmPayload.Num(4))))
+        print (f.render((new SmPayload.Text("ok"))))
+    }
+}

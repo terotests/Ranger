@@ -2317,6 +2317,15 @@ class TSLexer  {
     return this.makeToken("Regex", value, startPos, startLine, startCol);
   };
 }
+class TSNodeRare  {
+  constructor() {
+    this.lexNames = [];
+    this.hoistedVarNames = [];
+    this.decorators = [];
+    this.slotVarNames = [];
+    this.accessor = "";
+  }
+}
 class TSNode  {
   constructor() {
     this.nodeType = "";
@@ -2333,7 +2342,6 @@ class TSNode  {
     this.shorthand = false;
     this.computed = false;
     this.numericKey = false;
-    this.accessor = "";
     this.parenthesized = false;
     this.hasEscape = false;
     this.argScanned = false;     /** note: unused */
@@ -2351,15 +2359,12 @@ class TSNode  {
     this.scopeHops = 0 - 1;     /** note: unused */
     this.lexScanned = false;     /** note: unused */
     this.lexDeclares = false;     /** note: unused */
-    this.lexNames = [];     /** note: unused */
     this.yieldScanned = false;     /** note: unused */
     this.yieldInside = false;     /** note: unused */
     this.evalKind = 0;     /** note: unused */
     this.evalOpKind = 0;     /** note: unused */
     this.hoistScanned = false;     /** note: unused */
-    this.hoistedVarNames = [];     /** note: unused */
     this.slotScanned = false;     /** note: unused */
-    this.slotVarNames = [];     /** note: unused */
     this.exprId = 0 - 1;     /** note: unused */
     this.exprSlotCount = 0 - 1;     /** note: unused */
     this.transientOk = 0 - 1;     /** note: unused */
@@ -2372,8 +2377,74 @@ class TSNode  {
     this.await = false;
     this.children = [];
     this.params = [];
-    this.decorators = [];
   }
+  rareOf () {
+    if ( typeof(this.rare) != "undefined" ) {
+      return this.rare;
+    }
+    const r = new TSNodeRare();
+    this.rare = r;
+    return r;
+  };
+  accessorOf () {
+    if ( typeof(this.rare) != "undefined" ) {
+      const r = this.rare;
+      return r.accessor;
+    }
+    return "";
+  };
+  setAccessor (v) {
+    const r = this.rareOf();
+    r.accessor = v;
+  };
+  lexNamesOf () {
+    if ( typeof(this.rare) != "undefined" ) {
+      const r = this.rare;
+      return r.lexNames;
+    }
+    let none = [];
+    return none;
+  };
+  setLexNames (v) {
+    const r = this.rareOf();
+    r.lexNames = v;
+  };
+  hoistedVarNamesOf () {
+    if ( typeof(this.rare) != "undefined" ) {
+      const r = this.rare;
+      return r.hoistedVarNames;
+    }
+    let none = [];
+    return none;
+  };
+  setHoistedVarNames (v) {
+    const r = this.rareOf();
+    r.hoistedVarNames = v;
+  };
+  slotVarNamesOf () {
+    if ( typeof(this.rare) != "undefined" ) {
+      const r = this.rare;
+      return r.slotVarNames;
+    }
+    let none = [];
+    return none;
+  };
+  setSlotVarNames (v) {
+    const r = this.rareOf();
+    r.slotVarNames = v;
+  };
+  setDecorators (v) {
+    const r = this.rareOf();
+    r.decorators = v;
+  };
+  decoratorsOf () {
+    if ( typeof(this.rare) != "undefined" ) {
+      const r = this.rare;
+      return r.decorators;
+    }
+    let none = [];
+    return none;
+  };
 }
 class TSParserSimple  {
   constructor() {
@@ -2425,6 +2496,11 @@ class TSParserSimple  {
     this.speculating = 0;
     this.tsxMode = false;
   }
+  releaseTokens () {
+    let empty = [];
+    this.tokens = empty;
+    this.pos = 0;
+  };
   initParser (toks) {
     this.tokens = toks;
     this.pos = 0;
@@ -3281,7 +3357,7 @@ class TSParserSimple  {
         decorators.push(dec);
       };
       const decorated = this.parseStatement();
-      decorated.decorators = decorators;
+      decorated.setDecorators(decorators);
       return decorated;
     }
     if ( tokVal == "declare" ) {
@@ -4331,7 +4407,7 @@ class TSParserSimple  {
       decorators.push(dec);
     };
     if ( (decorators.length) > 0 ) {
-      member.decorators = decorators;
+      member.setDecorators(decorators);
     }
     let isStatic = false;
     let isAbstract = false;
@@ -4522,7 +4598,7 @@ class TSParserSimple  {
         if ( isStatic == false ) {
           member.kind = accessorKind;
         }
-        member.accessor = accessorKind;
+        member.setAccessor(accessorKind);
       }
       if ( isAbstract ) {
         member.kind = "abstract";
@@ -5789,7 +5865,8 @@ class TSParserSimple  {
       this.declaringKind = savedParamDeclaring;
       for ( let i = 0; i < decorators.length; i++) {
         var d = decorators[i];
-        pattern.decorators.push(d);
+        const pr = pattern.rareOf();
+        pr.decorators.push(d);
       };
       if ( isRest ) {
         const restElem = new TSNode();
@@ -5819,7 +5896,8 @@ class TSParserSimple  {
       this.declaringKind = savedParamDeclaring_1;
       for ( let i_1 = 0; i_1 < decorators.length; i_1++) {
         var d_1 = decorators[i_1];
-        pattern_1.decorators.push(d_1);
+        const pr_1 = pattern_1.rareOf();
+        pr_1.decorators.push(d_1);
       };
       if ( isRest ) {
         const restElem_1 = new TSNode();
@@ -5851,7 +5929,8 @@ class TSParserSimple  {
     }
     for ( let i_2 = 0; i_2 < decorators.length; i_2++) {
       var d_2 = decorators[i_2];
-      param.decorators.push(d_2);
+      const pr2 = param.rareOf();
+      pr2.decorators.push(d_2);
     };
     const nameTok = this.expectBindingName();
     param.name = nameTok.value;
@@ -9500,6 +9579,7 @@ TSParserMain.printNode = function(node, depth) {
 module.exports.Token = Token;
 module.exports.TSUnicodeId = TSUnicodeId;
 module.exports.TSLexer = TSLexer;
+module.exports.TSNodeRare = TSNodeRare;
 module.exports.TSNode = TSNode;
 module.exports.TSParserSimple = TSParserSimple;
 module.exports.TSParserMain = TSParserMain;

@@ -1053,6 +1053,21 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             }
           }
         }
+        ; (asgval N M) -- write child M as the value assigned to child N, so a
+        ; target can consult the declared slot type. Go wraps a union member in
+        ; its tag here; every other writer writes the value unchanged.
+        case "asgval" {
+          def lidx:int cmdArg.int_value
+          if ((array_length cmd.children) > 2) {
+            def ridxNode:CodeNode (itemAt cmd.children 2)
+            def ridx:int ridxNode.int_value
+            if (((array_length node.children) > lidx) && ((array_length node.children) > ridx)) {
+              def lArg:CodeNode (itemAt node.children lidx)
+              def rArg:CodeNode (itemAt node.children ridx)
+              langWriter.writeAssignedValue(lArg rArg ctx wr)
+            }
+          }
+        }
         case "goset" {
           def idx:int cmdArg.int_value
           if ((array_length node.children) > idx) {

@@ -1,0 +1,39 @@
+; Conformance: the string-inspection and array-sizing ops answer the same way
+; on every target.
+;
+; Two of these ops are CAPABILITY probes -- `has_byte_substring` and
+; `mem_trim` -- whose answer is legitimately different per target, so the
+; branches print the same text. What is under test there is that the op is
+; SPELLABLE at all: the C-style comment `array_reserve` emitted by default is
+; not Python syntax, and a bare `false` is not a Python literal, so a
+; generated Python file with either in it failed before it ran a line.
+class StringAsciiReserveTest {
+    sfn m@(main):void () {
+        def plain:string "Hello, world"
+        def wide:string "Gruesse ueber Straße"
+
+        ; Every target agrees about the CONTENT, whatever its string model.
+        if (str_is_ascii plain) { print "ascii yes" } { print "ascii no" }
+        if (str_is_ascii wide) { print "wide yes" } { print "wide no" }
+
+        ; The slice is the same five characters whether the target can cut by
+        ; byte offset or has to count code points.
+        if (has_byte_substring) {
+            print (byte_substring plain 0 5)
+        } {
+            print (substring plain 0 5)
+        }
+
+        ; Pre-sizing is advisory: the array behaves identically without it.
+        def nums:[int]
+        array_reserve nums 8
+        push nums 1
+        push nums 2
+        print (to_string (array_length nums))
+
+        ; Called for its spelling, not its answer.
+        if (mem_trim) { print "trim probed" } { print "trim probed" }
+
+        print "Done"
+    }
+}

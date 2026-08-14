@@ -1,0 +1,16 @@
+; FEATURE: a lambda that closes over a local, stored in a variable and called
+; through it, and one passed to another function. The interpreter's evaluator
+; is built out of these.
+class LambdaFeature {
+    static fn applyTo:int (f:(_:int (x:int)) value:int) {
+        return (f(value))
+    }
+    sfn m@(main):void () {
+        def offset:int 10
+        def add (fn:int (x:int) {
+            return (x + offset)
+        })
+        print (to_string (add(5)))
+        print (to_string (LambdaFeature.applyTo(add 1)))
+    }
+}
