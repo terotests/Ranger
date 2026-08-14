@@ -733,12 +733,13 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   //
   // So it is a STATIC property of the function body -- merely containing a
   // `new` changes how the call is handled -- and the value is already lost at
-  // `var t = rec(null)`, before any `new` runs. That points at the frame-pool
-  // gate in callUserFunctionNode (framePoolMark / acquireFrame / releaseFrame)
-  // or the escape analysis feeding it: on re-entry the inner invocation's
-  // frame appears to be released or reused while the outer call still needs
-  // its result. Same family as the already-fixed "helper call-outs run above
-  // the live frame" and "frame clobber via member/coercion re-entry".
+  // `var t = rec(null)`, before any `new` runs.
+  //
+  // RULED OUT: frame pooling. Making releaseFrame a no-op (so no EvalContext
+  // is ever reused) does not change the result, so it is not the pool handing
+  // the same frame to two live invocations. Look instead at whatever else
+  // keys off a body containing `new` -- the node analysis that sets
+  // hasNewOper, or the call/return path selected from it.
   //
   // This is what breaks Octane earley-boyer's Boyer half:
   // `new sc_Pair(x, translate_args_nboyer(y))` builds a pair whose cdr is
