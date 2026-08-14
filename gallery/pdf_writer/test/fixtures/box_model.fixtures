@@ -354,3 +354,45 @@ F grid-fit-content-under-limit
 N root -   w=400 h=80 disp=grid gtc=fit-content(150px)_1fr gtr=80px bg=#ffffff
 N a   root w=70 bg=#ff0000
 N b   root bg=#00ff00
+
+# subgrid — a card adopts the enclosing grid's tracks for the span it occupies,
+# so the pieces of every card line up with each other instead of each card
+# dividing its own box. Chromium has supported this since 117.
+# The cards pin their own column axis with gtc=1fr. Leaving it off would make
+# the browser size that axis as a single `auto` column, which under this
+# harness's justify-content:start does not stretch and measures 0 — while EVG
+# defaults a template-less grid to 1fr. That difference is real and noted in
+# §7.3, but it is not what these fixtures are about.
+F grid-row-subgrid
+N root -    w=400 h=140 disp=grid gtc=1fr_1fr gtr=100px_40px bg=#ffffff
+N c1   root disp=grid gtc=1fr gtr=subgrid gr=1_/_3 bg=#dddddd
+N c1a  c1   bg=#ff0000
+N c1b  c1   bg=#00ff00
+N c2   root disp=grid gtc=1fr gtr=subgrid gr=1_/_3 bg=#cccccc
+N c2a  c2   bg=#0000ff
+N c2b  c2   bg=#ffff00
+
+# The rows the subgrid inherits are content-sized on the parent, not declared.
+F grid-row-subgrid-content-rows
+N root -    w=400 h=160 disp=grid gtc=1fr_1fr bg=#ffffff
+N c1   root disp=grid gtc=1fr gtr=subgrid gr=1_/_3 bg=#dddddd
+N c1a  c1   h=60 bg=#ff0000
+N c1b  c1   h=25 bg=#00ff00
+N c2   root disp=grid gtc=1fr gtr=subgrid gr=1_/_3 bg=#cccccc
+N c2a  c2   h=30 bg=#0000ff
+N c2b  c2   h=45 bg=#ffff00
+
+F grid-col-subgrid
+N root -    w=400 h=100 disp=grid gtc=100px_1fr_60px gtr=100px bg=#ffffff
+N c1   root disp=grid gtc=subgrid gc=1_/_4 bg=#dddddd
+N c1a  c1   bg=#ff0000
+N c1b  c1   bg=#00ff00
+N c1c  c1   bg=#0000ff
+
+F grid-both-subgrid
+N root -    w=300 h=140 disp=grid gtc=1fr_2fr gtr=100px_40px bg=#ffffff
+N c1   root disp=grid gtc=subgrid gtr=subgrid gc=1_/_3 gr=1_/_3 bg=#dddddd
+N a    c1   bg=#ff0000
+N b    c1   bg=#00ff00
+N c    c1   bg=#0000ff
+N d    c1   bg=#ffff00

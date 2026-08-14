@@ -1497,7 +1497,13 @@ class EVGLayout {
                 }
                 colSpec = sgSpec
             } {
-                this.warn("grid-template-columns: subgrid has no enclosing grid to inherit tracks from; falling back to 1fr")
+                ; During an enclosing grid's content-measuring pass the sizes
+                ; do not exist yet, and falling back is correct rather than
+                ; wrong — subgridPending is what tells that apart from having
+                ; no enclosing grid at all.
+                if (parent.subgridPending == false) {
+                    this.warn("grid-template-columns: subgrid has no enclosing grid to inherit tracks from; falling back to 1fr")
+                }
                 colSpec = "1fr"
             }
         }
@@ -1544,7 +1550,12 @@ class EVGLayout {
         ; because a `grid-row` naming a line has to be resolved before
         ; placement runs. With no row template it holds no names, and every
         ; named row line is reported as unknown — which is the truth.
-        def rowTemplate:EVGGridTemplate (EVGGridTemplate.parse(parent.gridTemplateRows))
+        def rowTemplateSpec:string parent.gridTemplateRows
+        if (rowTemplateSpec == "subgrid") {
+            ; Inherited tracks carry no names of their own.
+            rowTemplateSpec = ""
+        }
+        def rowTemplate:EVGGridTemplate (EVGGridTemplate.parse(rowTemplateSpec))
 
         ; Collect the in-flow children and their placements.
         def items:[EVGElement]
@@ -1558,6 +1569,12 @@ class EVGLayout {
             def c:EVGElement (parent.getChild(i))
             c.inheritProperties(parent)
             c.resolveUnits(innerWidth innerHeight)
+            ; Claim it now: the tracks cannot be handed over until they are
+            ; sized, but the child needs to know an enclosing grid exists long
+            ; before that — it may be laid out during the measuring pass below.
+            if ((c.gridTemplateColumns == "subgrid") || (c.gridTemplateRows == "subgrid")) {
+                c.subgridPending = true
+            }
             if (c.isAbsolute == false) {
                 ; Named lines live on the container's template, so the
                 ; placement is parsed first and pointed at real lines here,
@@ -1751,9 +1768,41 @@ class EVGLayout {
             rowGapTotal = ((to_double (rowsUsed - 1)) * rowGapPx)
         }
 
+        ; grid-template-rows: subgrid — adopt the enclosing grid's row tracks
+        ; for the rows this element occupies, so the pieces of a card line up
+        ; with every other card's instead of each one dividing its own height.
+        ;
+        ; The rows are handed down at final placement, by which point the
+        ; parent has sized them either from its own template or from its
+        ; content pass. That is why this could wait until the rest of grid was
+        ; in place: it needs the parent's rows to be settled, and they are.
+        def usingRowSubgrid:boolean false
+        if (rowSpec == "subgrid") {
+            if ((array_length parent.subgridRowSizes) > 0) {
+                usingRowSubgrid = true
+                def sgrSpec:string ""
+                def sgr:int 0
+                while (sgr < (array_length parent.subgridRowSizes)) {
+                    if (sgr > 0) {
+                        sgrSpec = sgrSpec + " "
+                    }
+                    sgrSpec = sgrSpec + (to_string (itemAt parent.subgridRowSizes sgr)) + "px"
+                    sgr = (sgr + 1)
+                }
+                rowSpec = sgrSpec
+            } {
+                if (parent.subgridPending == false) {
+                    this.warn("grid-template-rows: subgrid has no enclosing grid to inherit tracks from; falling back to content-sized rows")
+                }
+                rowSpec = ""
+            }
+        }
+
         def haveTemplateRows:boolean false
         if ((strlen rowSpec) > 0) {
-            if (parent.hasDefiniteHeight) {
+            ; Inherited rows are already absolute pixels, so they do not need
+            ; the container's own height to resolve against.
+            if (parent.hasDefiniteHeight || usingRowSubgrid) {
                 haveTemplateRows = true
             }
         }
@@ -1792,17 +1841,38 @@ class EVGLayout {
             }
             def m:int 0
             while (m < itemCount) {
-                if ((itemAt rowSpans m) == 1) {
-                    def it:EVGElement (itemAt items m)
+                def it:EVGElement (itemAt items m)
+                def rspanM:int (itemAt rowSpans m)
+                def ri:int (itemAt placedRow m)
+                ; A row subgrid always spans several rows, so the span-1 rule
+                ; below would leave it out — and with only subgrid cards in the
+                ; grid every row would measure zero and the cards collapse.
+                ; With subgrid it is the grandchildren that size these rows, so
+                ; the card is measured on its own terms and the rows it worked
+                ; out are adopted one for one.
+                def isRowSubgrid:boolean (it.gridTemplateRows == "subgrid")
+                if ((rspanM == 1) || isRowSubgrid) {
                     def cw:double (cols.extentOf((itemAt placedCol m) (itemAt colSpans m) colGapPx))
                     def avail:double (cw - it.box.marginLeftPx - it.box.marginRightPx)
                     ; Measure with auto height: clear any inherited flex height.
                     it.calculatedFlexHeight = 0.0
                     this.layoutElement(it 0.0 0.0 avail 0.0)
-                    def h:double (it.calculatedHeight + it.box.marginTopPx + it.box.marginBottomPx)
-                    def ri:int (itemAt placedRow m)
-                    if (h > (itemAt rowSizes ri)) {
-                        set rowSizes ri h
+                    if isRowSubgrid {
+                        def sub:int 0
+                        while (sub < rspanM) {
+                            if (sub < (array_length it.computedRowSizes)) {
+                                def sh:double (itemAt it.computedRowSizes sub)
+                                if (sh > (itemAt rowSizes (ri + sub))) {
+                                    set rowSizes (ri + sub) sh
+                                }
+                            }
+                            sub = (sub + 1)
+                        }
+                    } {
+                        def h:double (it.calculatedHeight + it.box.marginTopPx + it.box.marginBottomPx)
+                        if (h > (itemAt rowSizes ri)) {
+                            set rowSizes ri h
+                        }
                     }
                 }
                 m = (m + 1)
@@ -1842,8 +1912,9 @@ class EVGLayout {
                 el.calculatedFlexHeight = boxH
             }
 
-            ; Hand this cell's column tracks down to a subgrid child before it
-            ; lays itself out.
+            ; Hand this cell's tracks down to a subgrid child before it lays
+            ; itself out. Both axes work the same way; the rows are simply
+            ; known later, which is the only reason columns landed first.
             if (el.gridTemplateColumns == "subgrid") {
                 clear el.subgridColumnSizes
                 def sgi:int 0
@@ -1853,9 +1924,32 @@ class EVGLayout {
                     sgi = (sgi + 1)
                 }
             }
+            if (el.gridTemplateRows == "subgrid") {
+                clear el.subgridRowSizes
+                def sgj:int 0
+                while (sgj < rSpan) {
+                    def rIdx2:int (rIdx + sgj)
+                    if (rIdx2 < (array_length rowSizes)) {
+                        push el.subgridRowSizes (itemAt rowSizes rIdx2)
+                    }
+                    sgj = (sgj + 1)
+                }
+                ; The child's own units were resolved before the rows existed;
+                ; let it resolve them again against the height it now has.
+                el.unitsResolved = false
+            }
 
             this.layoutElement(el el.calculatedX el.calculatedY boxW boxH)
             p = (p + 1)
+        }
+
+        ; Leave the rows behind for an enclosing grid that has to size its own
+        ; rows around this one.
+        clear parent.computedRowSizes
+        def cr:int 0
+        while (cr < rowsUsed) {
+            push parent.computedRowSizes (itemAt rowSizes cr)
+            cr = (cr + 1)
         }
 
         def total:double 0.0

@@ -142,11 +142,24 @@ class EVGElement {
     ; grid-template-areas: rows of names, e.g.
     ;   "hero hero" "left right"
     ; An item claims a region with grid-area.
-    ; Column track sizes handed down by an enclosing grid when this element
-    ; declares `grid-template-columns: subgrid`. Filled in by EVGLayout just
-    ; before the child is laid out, because the parent is the only thing that
-    ; knows its own tracks.
+    ; Track sizes handed down by an enclosing grid when this element declares
+    ; `grid-template-columns: subgrid` / `grid-template-rows: subgrid`. Filled
+    ; in by EVGLayout just before the child is laid out, because the parent is
+    ; the only thing that knows its own tracks.
     def subgridColumnSizes:[double]
+    def subgridRowSizes:[double]
+    ; The row heights this element's own grid worked out, left behind for an
+    ; enclosing grid to read. A row subgrid always spans several of its
+    ; parent's rows, and with subgrid it is the GRANDCHILDREN that have to size
+    ; those rows — so the parent measures the subgrid once and adopts the rows
+    ; it came up with, rather than trying to see through it.
+    def computedRowSizes:[double]
+    ; Set by the enclosing grid as soon as it has claimed this element, which
+    ; is well before it can size its tracks. It is what tells a subgrid child
+    ; laid out during the parent's content-measuring pass — where the sizes do
+    ; not exist yet — apart from one with no enclosing grid at all. Without it
+    ; the first kind reported "no enclosing grid", which was simply untrue.
+    def subgridPending:boolean false
     def gridTemplateAreas:string ""
     ; grid-auto-flow: "row" (default) or "row dense" — dense backfills earlier
     ; holes instead of only moving forward.

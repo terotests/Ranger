@@ -40,7 +40,7 @@ Without that, flex/grid improvements will still look wrong in print.
 | `flex-wrap` | `wrap` (default) / `nowrap` / `wrap-reverse`, with the full `align-content` set including `stretch` | — |
 | Alignment | `justifyContent`, `alignItems` (incl. `stretch` and `baseline`), plus legacy `align` / `verticalAlign` | Naming overlap between the CSS and legacy names |
 | Text intrinsic size | Shrink-wraps to content measured from the real face | — |
-| Grid | `display: grid` with fr/px/%/`auto`/`fit-content()`/repeat/`minmax()` tracks, gaps, spans, `grid-template-areas`, `grid-auto-flow: dense`, column `subgrid`, named lines. 16 fixtures checked against Chromium | Row `subgrid`; intrinsic sizing of a container item (only definite widths and text leaves contribute) |
+| Grid | `display: grid` with fr/px/%/`auto`/`fit-content()`/repeat/`minmax()` tracks, gaps, spans, `grid-template-areas`, `grid-auto-flow: dense`, `subgrid` on both axes, named lines. 20 fixtures checked against Chromium | Intrinsic sizing of a container item (only definite widths and text leaves contribute) |
 | Styles | Mostly inline JSX attributes | No class/theme stylesheet layer |
 
 `min-width` / `max-width` / `min-height` / `max-height` already parse and clamp;
@@ -293,10 +293,12 @@ Target photo-book pages, not full CSS Grid Level 2.
 - **`grid-auto-flow: row dense`** restarts the scan from the top for each item,
   so a later small item backfills a hole a wider one left behind. The default
   only moves forward, which keeps source order but can leave gaps.
-- **Column `subgrid`** — `grid-template-columns: subgrid` adopts the enclosing
-  grid's tracks for the span the element occupies, so nested cards line their
-  columns up with each other instead of each splitting its own width. Declared
-  with nothing to inherit from, it falls back to one full-width column.
+- **`subgrid`, both axes** — `grid-template-columns: subgrid` and
+  `grid-template-rows: subgrid` adopt the enclosing grid's tracks for the span
+  the element occupies, so nested cards line their columns *and* their internal
+  rows up with each other instead of each dividing its own box. Declared with
+  nothing to inherit from, either falls back — one full-width column, or
+  content-sized rows — and says so. See Phase 4.5.
 
 - **Named grid lines** — `[full-start] 1fr [main] 2fr [main-end]` labels the
   lines between tracks, and `grid-column: main-start / main-end` places against
@@ -310,9 +312,8 @@ Target photo-book pages, not full CSS Grid Level 2.
   and `fit-content(limit)` caps that without ever going below min-content. See
   Phase 4.4.
 
-Still out of scope: **row `subgrid`** — row sizes are only known after the
-items are measured, so inheriting them needs a second pass the engine does not
-have. It is reported rather than dropped, see Phase 4.2.
+Still out of scope: the intrinsic size of a **container** item, which needs a
+recursive pass — see the end of Phase 4.4.
 
 ## 8. Shared text engine API (contract)
 
@@ -747,6 +748,44 @@ subtree needs a real recursive intrinsic pass, and a made-up number would
 silently misplace every neighbour instead of merely leaving a track narrow.
 Items spanning several tracks are left out for the same reason: there is no one
 track to charge them to.
+
+### Phase 4.5 — Row subgrid ✅
+
+Columns landed in §7.3; rows were left out because "row sizes are only known
+after the items are measured". True, but the conclusion was wrong: the tracks
+are handed to a subgrid child at *final placement*, and by then the parent's
+rows are settled — whether they came from its own template or from its content
+pass. The handoff is the same code as columns, one axis over.
+
+What actually made rows harder is that a row subgrid **always spans** several
+of its parent's rows, and spanning items are excluded from content-based row
+sizing (there is no one row to charge them to). With only subgrid cards in a
+grid, every row measured zero and the cards collapsed. The fix is the thing
+that defines subgrid: it is the *grandchildren* that size those rows. Rather
+than see through the card, the parent measures it once — a subgrid with nothing
+inherited falls back to content-sized rows, which is exactly the measurement
+wanted — and adopts the rows it came up with, one for one, via
+`computedRowSizes`.
+
+Fixing this also turned up a bug in what column subgrid had been reporting. A
+subgrid child is laid out during its parent's content-measuring pass, before
+any tracks can exist, and it was announcing "subgrid has no enclosing grid to
+inherit tracks from" every time — which was simply untrue. The enclosing grid
+now claims the child (`subgridPending`) as soon as it collects it, well before
+it can size anything, so a child that is merely early is told apart from one
+that really is orphaned.
+
+Verification: four subgrid fixtures against Chromium — rows over an explicit
+parent template, rows over content-sized parent rows, columns, and both axes at
+once — plus 10 assertions on the case subgrid exists for: two cards, spanning
+the same rows, whose captions line up without either card knowing about the
+other. The box-model gate is now **1019 assertions over 203 boxes**.
+
+One harness note recorded in the fixtures: a card that subgrids only its rows
+has a template-less column axis, which CSS sizes as a single `auto` track. EVG
+defaults that to `1fr`. Under this harness's `justify-content: start` an auto
+track does not stretch, so the two disagree; with the CSS default of `normal`
+they coincide. The fixtures pin the column axis rather than paper over it.
 
 ## 11. File / module impact (expected)
 

@@ -108,6 +108,7 @@ class EVGTest {
         test.testGridAreas(t)
         test.testGridDense(t)
         test.testSubgrid(t)
+        test.testRowSubgrid(t)
         test.testGridTracks(t)
         test.testGridPlacement(t)
         test.testNamedGridLines(t)
@@ -1869,6 +1870,67 @@ class EVGTest {
         t.eqInt("repeat still expands beside names" (rep.count()) 3)
         t.eqInt("a name before repeat is line 1" (rep.lineNumberNamed("left")) 1)
         t.eqInt("a name after repeat is past the last track" (rep.lineNumberNamed("right")) 4)
+    }
+
+    ; ---- grid: row subgrid ----------------------------------------------------
+    ; The point of a row subgrid: two cards, each spanning the same rows, whose
+    ; internal pieces line up with each other because both adopt the OUTER
+    ; grid's rows instead of each dividing its own height.
+    fn testRowSubgrid:void (t:RgTest) {
+        def outer (new EVGElement())
+        outer.setAttribute("width" "400px")
+        outer.setAttribute("height" "140px")
+        outer.setAttribute("display" "grid")
+        outer.setAttribute("grid-template-columns" "1fr 1fr")
+        outer.setAttribute("grid-template-rows" "100px 40px")
+
+        def cardA (new EVGElement())
+        cardA.setAttribute("display" "grid")
+        cardA.setAttribute("grid-template-rows" "subgrid")
+        cardA.setAttribute("grid-row" "1 / 3")
+        def photoA (new EVGElement())
+        cardA.addChild(photoA)
+        def capA (new EVGElement())
+        cardA.addChild(capA)
+        outer.addChild(cardA)
+
+        def cardB (new EVGElement())
+        cardB.setAttribute("display" "grid")
+        cardB.setAttribute("grid-template-rows" "subgrid")
+        cardB.setAttribute("grid-row" "1 / 3")
+        def photoB (new EVGElement())
+        cardB.addChild(photoB)
+        def capB (new EVGElement())
+        cardB.addChild(capB)
+        outer.addChild(cardB)
+
+        def lay (new EVGLayout())
+        lay.layout(outer)
+
+        t.eqInt("a real enclosing grid is not reported as missing" (lay.warningCount()) 0)
+        t.near("the card spans both outer rows" cardA.calculatedHeight 140.0)
+        t.near("the photo takes the outer 100px row" photoA.calculatedHeight 100.0)
+        t.near("the caption takes the outer 40px row" capA.calculatedHeight 40.0)
+        t.near("and starts where that row does" capA.calculatedY 100.0)
+        ; The whole point: both cards agree, without either knowing about the
+        ; other.
+        t.near("the second card's caption lines up with the first" capB.calculatedY capA.calculatedY)
+        t.near("...and is the same height" capB.calculatedHeight capA.calculatedHeight)
+
+        ; Without an enclosing grid it falls back and says so.
+        def lone (new EVGElement())
+        lone.setAttribute("width" "200px")
+        lone.setAttribute("height" "100px")
+        lone.setAttribute("display" "grid")
+        lone.setAttribute("grid-template-rows" "subgrid")
+        def kid (new EVGElement())
+        kid.setAttribute("height" "30px")
+        lone.addChild(kid)
+        def lay2 (new EVGLayout())
+        lay2.layout(lone)
+        t.eqInt("a row subgrid with no enclosing grid is reported" (lay2.warningCount()) 1)
+        t.ok("and the message says which property" ((indexOf (lay2.warningAt(0)) "grid-template-rows") >= 0))
+        t.near("it still lays out, on content-sized rows" kid.calculatedHeight 30.0)
     }
 
     ; ---- grid: intrinsic tracks ----------------------------------------------
