@@ -10,6 +10,7 @@ Import "../../../ts_parser/ts_parser_simple.rgr"
 Import "../../../ts_parser/ts_lexer.rgr"
 Import "../../../ts_parser/ts_ast_patch.rgr"
 Import "../../../evg/EVGElement.rgr"
+Import "../core/Utf8.rgr"
 Import "EvalValue.rgr"
 Import "../jpeg/JPEGMetadata.rgr"
 
@@ -567,7 +568,7 @@ class ComponentEngine {
         push loadedFiles mainFilePath
         
         def fileContent:buffer (buffer_read_file dirPath fileName)
-        def src:string (buffer_to_string fileContent)
+        def src:string (Utf8.decode((buffer_to_string fileContent)))
         return (this.parse(src))
     }
 
@@ -1160,7 +1161,7 @@ class ComponentEngine {
     fn readImportSource:string (dirPath:string fullPath:string) {
         if (file_exists dirPath fullPath) {
             def content:buffer (buffer_read_file dirPath fullPath)
-            def src:string (buffer_to_string content)
+            def src:string (Utf8.decode((buffer_to_string content)))
             if ((strlen src) > 0) {
                 resolvedImportDir = dirPath
                 return src
@@ -1171,7 +1172,7 @@ class ComponentEngine {
             def assetDir:string (itemAt assetPaths i)
             if (file_exists assetDir fullPath) {
                 def tryBuf:buffer (buffer_read_file assetDir fullPath)
-                def trySrc:string (buffer_to_string tryBuf)
+                def trySrc:string (Utf8.decode((buffer_to_string tryBuf)))
                 if ((strlen trySrc) > 0) {
                     resolvedImportDir = assetDir
                     return trySrc

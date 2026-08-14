@@ -1,0 +1,120 @@
+; Utf8.rgr - Decode source files as UTF-8 instead of Latin-1
+;
+; `buffer_to_string` builds a string with String.fromCharCode over the raw
+; bytes, i.e. it reinterprets the file as Latin-1. For an ASCII file that is
+; identical to UTF-8, so nothing showed up for a long time. For anything else it
+; is wrong twice over:
+;
+;   "ä"  (U+00E4, bytes C3 A4)    -> two characters 0xC3 0xA4
+;   "—"  (U+2014, bytes E2 80 94) -> three characters 0xE2 0x80 0x94
+;
+; Layout then measures two or three glyph advances for one character, so the box
+; it reserves is too wide, and the PDF writes each byte as a separate WinAnsi
+; escape, so the page prints "Ã¤" where the source said "ä". Neither side
+; complains, which is exactly the silent mangling PLAN_CSS_LAYOUT_AND_FONTS.md
+; §4.1 rule 8 is about.
+;
+; Decoding here means text content carries real codepoints, so measurement
+; counts real glyphs and characters genuinely outside WinAnsi (U+2014 and up)
+; can be reported honestly by the PDF encoder rather than hidden inside a byte
+; sequence that happens to fit.
+;
+; Invalid sequences are passed through byte-for-byte rather than replaced: a
+; file that is actually Latin-1 keeps working exactly as it did before.
+
+class Utf8 {
+
+    ; Reinterpret a Latin-1-decoded string (what buffer_to_string produces) as
+    ; UTF-8, returning real codepoints.
+    sfn decode:string (raw:string) {
+        def out:string ""
+        def len:int (strlen raw)
+        def i:int 0
+        while (i < len) {
+            def b0:int (charAt raw i)
+
+            ; Anything already above the byte range means this string was not
+            ; produced by a raw byte read; leave it alone.
+            if (b0 > 255) {
+                out = out + (strfromcode b0)
+                i = (i + 1)
+                continue
+            }
+
+            if (b0 < 128) {
+                out = out + (strfromcode b0)
+                i = (i + 1)
+                continue
+            }
+
+            ; 110xxxxx 10xxxxxx  ->  U+0080..U+07FF
+            if ((b0 >= 192) && (b0 < 224)) {
+                if ((i + 1) < len) {
+                    def b1:int (charAt raw (i + 1))
+                    if (Utf8.isCont(b1)) {
+                        def cp:int (((b0 - 192) * 64) + (b1 - 128))
+                        out = out + (strfromcode cp)
+                        i = (i + 2)
+                        continue
+                    }
+                }
+            }
+
+            ; 1110xxxx 10xxxxxx 10xxxxxx  ->  U+0800..U+FFFF
+            if ((b0 >= 224) && (b0 < 240)) {
+                if ((i + 2) < len) {
+                    def b1b:int (charAt raw (i + 1))
+                    def b2:int (charAt raw (i + 2))
+                    if ((Utf8.isCont(b1b)) && (Utf8.isCont(b2))) {
+                        def cp3:int ((((b0 - 224) * 4096) + ((b1b - 128) * 64)) + (b2 - 128))
+                        out = out + (strfromcode cp3)
+                        i = (i + 3)
+                        continue
+                    }
+                }
+            }
+
+            ; 11110xxx + 3 continuations -> above the BMP. strfromcode takes a
+            ; UTF-16 code unit, so these are emitted as a surrogate pair.
+            if ((b0 >= 240) && (b0 < 248)) {
+                if ((i + 3) < len) {
+                    def c1:int (charAt raw (i + 1))
+                    def c2:int (charAt raw (i + 2))
+                    def c3:int (charAt raw (i + 3))
+                    if (((Utf8.isCont(c1)) && (Utf8.isCont(c2))) && (Utf8.isCont(c3))) {
+                        def cp4:int (((((b0 - 240) * 262144) + ((c1 - 128) * 4096)) + ((c2 - 128) * 64)) + (c3 - 128))
+                        def rel:int (cp4 - 65536)
+                        def hi:int (55296 + (to_int (rel / 1024)))
+                        def lo:int (56320 + (rel % 1024))
+                        out = out + (strfromcode hi)
+                        out = out + (strfromcode lo)
+                        i = (i + 4)
+                        continue
+                    }
+                }
+            }
+
+            ; Not a valid sequence — keep the byte as-is so genuinely Latin-1
+            ; input is unchanged.
+            out = out + (strfromcode b0)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn isCont:boolean (b:int) {
+        return ((b >= 128) && (b < 192))
+    }
+
+    ; Does this string contain anything a WinAnsi PDF font cannot encode?
+    sfn hasNonWinAnsi:boolean (s:string) {
+        def i:int 0
+        while (i < (strlen s)) {
+            if ((charAt s i) > 255) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}

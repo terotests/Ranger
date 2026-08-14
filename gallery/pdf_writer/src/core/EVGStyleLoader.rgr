@@ -10,6 +10,7 @@
 
 Import "../../../evg/EVGElement.rgr"
 Import "../../../evg/EVGStyleSheet.rgr"
+Import "Utf8.rgr"
 
 class EVGStyleLoader {
     def sheet:EVGStyleSheet
@@ -74,7 +75,7 @@ class EVGStyleLoader {
             def dir:string (this.dirOf(path))
             def name:string (this.nameOf(path))
             def content:buffer (buffer_read_file dir name)
-            def css:string (buffer_to_string content)
+            def css:string (Utf8.decode((buffer_to_string content)))
             if ((strlen css) == 0) {
                 print ("Warning: stylesheet is empty or could not be read: " + path)
             } {

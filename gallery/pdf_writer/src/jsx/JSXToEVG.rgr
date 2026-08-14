@@ -9,6 +9,7 @@ Import "../../../evg/EVGElement.rgr"
 Import "../../../evg/EVGUnit.rgr"
 Import "../../../evg/EVGColor.rgr"
 Import "../../../evg/EVGGradient.rgr"
+Import "../core/Utf8.rgr"
 
 class JSXToEVG {
     def parser:TSParserSimple
@@ -50,7 +51,9 @@ class JSXToEVG {
     ; Parse a TSX file and return the root EVG element
     fn parseFile:EVGElement (dirPath:string fileName:string) {
         def fileContent:buffer (buffer_read_file dirPath fileName)
-        def src:string (buffer_to_string fileContent)
+        ; Source files are UTF-8; buffer_to_string hands back Latin-1 bytes.
+        ; Decoding here is what lets one "ä" measure as one glyph.
+        def src:string (Utf8.decode((buffer_to_string fileContent)))
         return (this.parse(src))
     }
     

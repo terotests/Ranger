@@ -279,8 +279,12 @@ These guidelines are important for professional print output (e.g., KDP, IngramS
 ### Graphics & Images
 
 - [ ] **Rasterize complex vectors**: Convert overly complex vector art (Illustrator, CAD) to raster images
-- [ ] **Full-bleed support**: For full-bleed printing, ensure images extend to the trim edge (+ bleed area)
-- [ ] **Bleed area handling**: Add 3mm/0.125" bleed beyond trim for full-bleed elements
+- [x] **Bleed area handling**: `evg-pdf -bleed PT` grows the sheet on every side,
+      translates the page into it, and writes `TrimBox`/`BleedBox` so the printer
+      knows where the cut falls. 3mm is `-bleed 8.5`, 0.125" is `-bleed 9`.
+- [ ] **Full-bleed support**: authoring side — art that should run past the trim
+      still has to be sized to reach the bleed edge itself; there is no
+      `full-bleed` helper that extends an element beyond the trim box.
 
 ## Testing Recommendations
 

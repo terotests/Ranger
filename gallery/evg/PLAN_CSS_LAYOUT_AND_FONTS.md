@@ -1,6 +1,6 @@
 # EVG: CSS-closer layout + font-correct rendering
 
-**Status:** Phases 0-3 landed; Phase 4 (baseline alignment + polish) open  
+**Status:** Phases 0-4 landed  
 **Date:** 2026-08-12, updated 2026-08-14  
 **Related:** `PLAN_EVG.md`, `SPEC.md`, `ISSUES.md`, `gallery/pdf_writer/TODO_PDF.md`
 
@@ -36,7 +36,7 @@ Without that, flex/grid improvements will still look wrong in print.
 | Flex direction / grow | Row + column grow, main-axis shrink-to-fit | No `flex-basis`; shrink is proportional scaling, not CSS shrink factors |
 | `gap` | Main axis, row + column | No separate `row-gap` / `column-gap` |
 | `flex-wrap` | `wrap` (default) / `nowrap` | No `wrap-reverse`; no `align-content` for wrapped lines |
-| Alignment | `justifyContent`, `alignItems` (incl. `stretch`), plus legacy `align` / `verticalAlign` | Naming overlap; no `baseline` |
+| Alignment | `justifyContent`, `alignItems` (incl. `stretch` and `baseline`), plus legacy `align` / `verticalAlign` | Naming overlap between the CSS and legacy names |
 | Text intrinsic size | Shrink-wraps to content measured from the real face | — |
 | Grid | `display: grid` with fr/px/%/repeat tracks, gaps, spans | No `grid-template-areas`, dense packing, subgrid, `minmax()` |
 | Styles | Mostly inline JSX attributes | No class/theme stylesheet layer |
@@ -113,8 +113,9 @@ this replaced.
    - absolute (`18px`, `14pt`)  
    Default should match current print-friendly behavior, not browser quirks mode.
 
-4. **Baseline alignment**  
-   Flex/grid cross-axis `align-items: baseline` needs real ascent metrics. Defer full baseline alignment to flex v2.1, but store ascent/descent on laid-out text nodes from day one.
+4. **Baseline alignment** ✅  
+   `align-items: baseline` is implemented against real ascent metrics; text
+   nodes carry `calculatedBaseline` / `calculatedDescent`.
 
 5. **Wrapping**  
    Word wrap must use the same width measurement as final paint. PDF `wrapText` and layout height calculation must call the shared shaper, not duplicate heuristics.
@@ -125,8 +126,12 @@ this replaced.
 7. **HTML parity**  
    Preview must load the **same TTF/OTF files** through `@font-face` (preview server already has font endpoints). Add a debug overlay: measured box vs DOM box for golden strings.
 
-8. **Encoding honesty**  
-   PDF WinAnsi limits remain. Layout may accept Unicode; paint path must either subset/cmap correctly or fail clearly for unsupported glyphs (no silent missing-letter width collapse).
+8. **Encoding honesty** ✅  
+   PDF WinAnsi limits remain. Source is decoded as UTF-8 so layout measures real
+   glyphs, and anything WinAnsi cannot encode is reported with its codepoint
+   (fatal under `-strict-fonts`) rather than silently substituted. Embedding a
+   subset with a `/ToUnicode` cmap, which would lift the limit rather than
+   report it, is still open.
 
 ## 5. Style layer (quick theme changes)
 
@@ -441,11 +446,49 @@ Still out of scope (§7.3): `grid-template-areas`, dense packing, subgrid,
 `minmax()`, named lines. `auto` in a track list is accepted but behaves as
 `1fr` — sizing it properly needs per-track content measurement.
 
-### Phase 4 — Baseline + polish
+### Phase 4 — Baseline + polish ✅
 
-- `align-items: baseline`
-- clearer missing-glyph / encoding errors
-- bleed-aware page boxes (coordinate with `TODO_PDF.md` print guidelines)
+**`align-items: baseline`.** Text nodes record `calculatedBaseline` (leading +
+ascent from the real face) and `calculatedDescent`; containers inherit the first
+in-flow child's baseline, so wrapping a label in a `View` does not break the
+alignment. A box with no text baseline aligns on its bottom margin edge, which
+is what CSS does and what makes an image sit on a caption's baseline. Row
+alignment takes the max baseline offset and shifts each item down to meet it.
+This is why the rule waited for Phase 0 — it is meaningless without real ascents.
+
+**Encoding honesty (§4.1 rule 8).** The starting point was not the expected
+"unsupported codepoint becomes `?`" — it was that `buffer_to_string` builds a
+string with one character per *byte*, i.e. it reads UTF-8 source as Latin-1. So
+`ä` arrived as two characters and `—` as three. Layout measured two or three
+glyph advances for one character, and the PDF wrote each byte as its own WinAnsi
+escape, printing `Ã¤` where the source said `ä`. Nothing complained, because the
+mangled bytes are all inside the byte range.
+
+`Utf8.decode` now runs at every source-read boundary (TSX, components,
+stylesheets). Text carries real codepoints, so measurement counts real glyphs,
+Latin-1-range characters encode correctly, and characters genuinely outside
+WinAnsi are reported with their codepoint and context instead of being hidden:
+
+```
+Encoding warning: U+2014 in "Hyvää yötä — Kaivopuisto" is outside WinAnsi and was written as '?'
+```
+
+`-strict-fonts` makes that fatal. Invalid byte sequences pass through unchanged,
+so a file that really is Latin-1 keeps working.
+
+**Bleed-aware page boxes.** `-bleed PT` grows the sheet by that much on every
+side, translates the page content into the middle of it, and declares
+`TrimBox`/`BleedBox` so a printer knows where the finished page is cut. Layout
+keeps working in trim coordinates and knows nothing about bleed. With no bleed
+the output is byte-identical to before — a single `MediaBox`, no translate.
+
+```
+evg-pdf album.tsx out.pdf -bleed 8.5     # 3mm trade bleed
+```
+
+Verification: `bash gallery/pdf_writer/test/run_print.sh` (23 assertions covering
+UTF-8 decoding, WinAnsi detection and page boxes at both orientations), plus the
+baseline cases in `evg_test`.
 
 ## 11. File / module impact (expected)
 

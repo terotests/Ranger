@@ -95,6 +95,7 @@ class EVGTest {
         test.testFlexWrap(t)
         test.testTextIntrinsicWidth(t)
         test.testSvgPath(t)
+        test.testBaselineAlignment(t)
         test.testTextEngineWrap(t)
         test.testTextEngineFontChecks(t)
         test.testLayoutUsesElementFont(t)
@@ -773,6 +774,116 @@ class EVGTest {
 
     ; ---- grid: track lists ----------------------------------------------------
     ; ---- text engine: one wrap implementation --------------------------------
+    ; ---- align-items: baseline ------------------------------------------------
+    ; Different font sizes in a row should sit on one baseline, not on one top
+    ; edge. This needs real ascent metrics, which is why it waited for Phase 0.
+    fn testBaselineAlignment:void (t:RgTest) {
+        def rec (new RecordingMeasurer())
+        def lay (new EVGLayout())
+        lay.setMeasurer(rec)
+
+        def row (new EVGElement())
+        row.width = (EVGUnit.px(400.0))
+        row.height = (EVGUnit.px(100.0))
+        row.flexDirection = "row"
+        row.alignItems = "baseline"
+
+        ; RecordingMeasurer: ascent = 0.8em, descent = 0.2em, lineHeight = 1.2em.
+        ; big:   30px -> ascent 24, line 36, leading (36-30)/2 = 3 -> baseline 27
+        ; small: 10px -> ascent  8, line 12, leading (12-10)/2 = 1 -> baseline  9
+        def big (new EVGElement())
+        big.textContent = "Big"
+        big.fontSize = (EVGUnit.px(30.0))
+        def small (new EVGElement())
+        small.textContent = "small"
+        small.fontSize = (EVGUnit.px(10.0))
+        row.addChild(big)
+        row.addChild(small)
+
+        lay.layout(row)
+
+        t.ok("text node records a baseline" big.hasBaseline)
+        t.near("baseline is leading + ascent" big.calculatedBaseline 27.0)
+        t.near("smaller text has a smaller baseline" small.calculatedBaseline 9.0)
+
+        ; Both baselines must land on the same y.
+        def bigBase:double (big.calculatedY + big.calculatedBaseline)
+        def smallBase:double (small.calculatedY + small.calculatedBaseline)
+        t.near("baselines line up" smallBase bigBase)
+        ; ...which means the smaller item is pushed DOWN, not aligned at the top.
+        t.ok("smaller item is offset downwards" (small.calculatedY > big.calculatedY))
+        t.near("offset is the baseline difference" small.calculatedY 18.0)
+
+        ; flex-start still aligns tops, so baseline is opt-in.
+        def row2 (new EVGElement())
+        row2.width = (EVGUnit.px(400.0))
+        row2.height = (EVGUnit.px(100.0))
+        row2.flexDirection = "row"
+        def b2 (new EVGElement())
+        b2.textContent = "Big"
+        b2.fontSize = (EVGUnit.px(30.0))
+        def s2 (new EVGElement())
+        s2.textContent = "small"
+        s2.fontSize = (EVGUnit.px(10.0))
+        row2.addChild(b2)
+        row2.addChild(s2)
+        def lay2 (new EVGLayout())
+        lay2.setMeasurer(rec)
+        lay2.layout(row2)
+        t.near("flex-start keeps tops aligned" s2.calculatedY b2.calculatedY)
+
+        ; A container takes the baseline of its first in-flow child, so wrapping
+        ; a label in a View does not break the alignment.
+        def row3 (new EVGElement())
+        row3.width = (EVGUnit.px(400.0))
+        row3.height = (EVGUnit.px(100.0))
+        row3.flexDirection = "row"
+        row3.alignItems = "baseline"
+        ; A width is needed: only text leaves shrink-wrap, so an auto-width
+        ; container would fill the row and push the sibling onto a second line.
+        def wrapper (new EVGElement())
+        wrapper.width = (EVGUnit.px(100.0))
+        def inner (new EVGElement())
+        inner.textContent = "Big"
+        inner.fontSize = (EVGUnit.px(30.0))
+        wrapper.addChild(inner)
+        def plain (new EVGElement())
+        plain.textContent = "small"
+        plain.fontSize = (EVGUnit.px(10.0))
+        row3.addChild(wrapper)
+        row3.addChild(plain)
+        def lay3 (new EVGLayout())
+        lay3.setMeasurer(rec)
+        lay3.layout(row3)
+        t.ok("container inherits its first child's baseline" wrapper.hasBaseline)
+        t.near("wrapped and plain baselines line up"
+            (plain.calculatedY + plain.calculatedBaseline)
+            (wrapper.calculatedY + wrapper.calculatedBaseline))
+
+        ; A box with no text has no baseline; CSS uses its bottom margin edge,
+        ; so an image in a row of captions sits ON the text baseline.
+        def row4 (new EVGElement())
+        row4.width = (EVGUnit.px(400.0))
+        row4.height = (EVGUnit.px(200.0))
+        row4.flexDirection = "row"
+        row4.alignItems = "baseline"
+        def boxEl (new EVGElement())
+        boxEl.width = (EVGUnit.px(20.0))
+        boxEl.height = (EVGUnit.px(40.0))
+        def caption (new EVGElement())
+        caption.textContent = "small"
+        caption.fontSize = (EVGUnit.px(10.0))
+        row4.addChild(boxEl)
+        row4.addChild(caption)
+        def lay4 (new EVGLayout())
+        lay4.setMeasurer(rec)
+        lay4.layout(row4)
+        t.no("a plain box has no text baseline" boxEl.hasBaseline)
+        t.near("box bottom sits on the text baseline"
+            (boxEl.calculatedY + boxEl.calculatedHeight)
+            (caption.calculatedY + caption.calculatedBaseline))
+    }
+
     fn testTextEngineWrap:void (t:RgTest) {
         def rec (new RecordingMeasurer())
         def eng (new EVGTextEngine())

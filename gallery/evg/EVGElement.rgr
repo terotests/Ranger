@@ -207,6 +207,14 @@ class EVGElement {
     ; Column-axis flex grow (and row alignItems:stretch) target height, resolved
     ; by EVGLayout and consumed by layoutElement when height is not explicitly set.
     def calculatedFlexHeight:double 0.0
+    ; Distance from this element's top border edge down to the baseline of its
+    ; FIRST line of text, and the matching descent. Filled in by EVGLayout for
+    ; text nodes from their real font metrics, and propagated up from the first
+    ; in-flow child for containers, so `align-items: baseline` has something to
+    ; line up. 0 means "no text baseline" — CSS then uses the bottom margin edge.
+    def calculatedBaseline:double 0.0
+    def calculatedDescent:double 0.0
+    def hasBaseline:boolean false
     ; True when this element's height was definite (explicit, page-sized, or
     ; already resolved by flex) at the moment its children were laid out, which
     ; is the only time `calculatedInnerHeight` is meaningful as a constraint.
@@ -311,6 +319,9 @@ class EVGElement {
         calculatedWidth = 0.0
         calculatedHeight = 0.0
         hasDefiniteHeight = false
+        calculatedBaseline = 0.0
+        calculatedDescent = 0.0
+        hasBaseline = false
         ; Recursively reset children
         def i:int 0
         while (i < (array_length children)) {

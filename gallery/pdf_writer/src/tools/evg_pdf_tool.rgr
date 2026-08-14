@@ -26,6 +26,7 @@ class EVGPDFTool {
     def fontSetup:EVGFontSetup (new EVGFontSetup())
     def fontsOverride:string ""
     def strictFonts:boolean false
+    def bleed:double 0.0
     
     Constructor () {
         def sl (new EVGStyleLoader())
@@ -76,6 +77,17 @@ class EVGPDFTool {
                 }
             }
             
+            if (arg == "-bleed") {
+                if ((i + 1) < argCount) {
+                    i = i + 1
+                    def bArg:string (shell_arg i)
+                    def bVal@(optional):double (to_double bArg)
+                    if bVal {
+                        bleed = (unwrap bVal)
+                    }
+                }
+            }
+
             if (arg == "-fonts") {
                 if ((i + 1) < argCount) {
                     i = i + 1
@@ -137,6 +149,7 @@ class EVGPDFTool {
         print "  -h HEIGHT  Page height in points (default: 842 = A4)"
         print "  -css FILE  Apply a CSS subset stylesheet (repeatable)"
         print "  -theme T   Theme name selecting .theme-T rules"
+        print "  -bleed PT  Print bleed in points on every side (adds TrimBox)"
         print "  -fonts DIR Directory to search for font families"
         print "  -strict-fonts  Fail instead of measuring with guessed widths"
         print "  -debug     Enable debug output"
@@ -214,6 +227,7 @@ class EVGPDFTool {
         def ttfMeasurer (new TTFTextMeasurer(fontManager))
         renderer.setMeasurer(ttfMeasurer)
         renderer.setStrictFonts(strictFonts)
+        renderer.setBleed(bleed)
         
         def pdfData:buffer (renderer.render(root))
 
@@ -230,6 +244,25 @@ class EVGPDFTool {
         if (engine.hadFatal) {
             print "Error: -strict-fonts was requested and text could not be measured from the declared faces."
             return
+        }
+
+        ; Characters WinAnsi cannot encode were painted as "?" but measured as
+        ; the real glyph, so the reserved width is wrong too. Report rather than
+        ; ship a page with silently missing letters.
+        def gi:int 0
+        while (gi < (renderer.unsupportedGlyphCount())) {
+            print ("Encoding warning: " + (renderer.unsupportedGlyphReport(gi))
+                + " is outside WinAnsi and was written as '?'")
+            gi = (gi + 1)
+        }
+        if ((renderer.unsupportedGlyphCount()) > 0) {
+            print ("  " + (to_string (renderer.unsupportedGlyphCount()))
+                + " character(s) could not be encoded. Use characters within WinAnsi,")
+            print "  or extend the PDF font path to an embedded subset with a /ToUnicode cmap."
+            if strictFonts {
+                print "Error: -strict-fonts was requested and some characters cannot be encoded."
+                return
+            }
         }
 
         

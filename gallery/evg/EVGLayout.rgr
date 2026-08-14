@@ -265,6 +265,18 @@ class EVGLayout {
                 def lineCount:int (textEngine.lineCount(textContent element.fontFamily fontSize availableWidth))
 
                 contentHeight = (lineSpacing * (to_double lineCount))
+
+                ; Baseline of the FIRST line, measured from this element's top
+                ; border edge, for align-items: baseline. The glyphs sit inside
+                ; the line box, so half the leading is above the ascent.
+                def metrics:EVGTextMetrics (textEngine.measureRun(textContent element.fontFamily fontSize))
+                def leading:double ((lineSpacing - (metrics.ascent + metrics.descent)) / 2.0)
+                if (leading < 0.0) {
+                    leading = 0.0
+                }
+                element.calculatedBaseline = (element.box.paddingTopPx + element.box.borderWidthPx + leading + metrics.ascent)
+                element.calculatedDescent = metrics.descent
+                element.hasBaseline = true
             }
         }
         
@@ -290,6 +302,12 @@ class EVGLayout {
         element.calculatedInnerHeight = (element.box.getInnerHeight(height))
         element.calculatedPage = currentPage
         element.isLayoutComplete = true
+
+        ; A container inherits the baseline of its first in-flow child (CSS
+        ; "first baseline"), so a Label wrapped in a View still aligns.
+        if ((element.hasBaseline == false) && (childCount > 0)) {
+            this.inheritBaselineFromFirstChild(element)
+        }
         
         this.log(("  Laid out " + element.tagName + " id=" + element.id + " at (" + (to_string element.calculatedX) + "," + (to_string element.calculatedY) + ") size=" + (to_string width) + "x" + (to_string height)))
     }
@@ -779,6 +797,35 @@ class EVGLayout {
         }
     }
     
+    ; Adopt the first in-flow child's baseline, expressed relative to this
+    ; element's own top edge.
+    fn inheritBaselineFromFirstChild:void (element:EVGElement) {
+        def i:int 0
+        def n:int (element.getChildCount())
+        while (i < n) {
+            def c:EVGElement (element.getChild(i))
+            if (c.isAbsolute == false) {
+                if c.hasBaseline {
+                    element.calculatedBaseline = ((c.calculatedY - element.calculatedY) + c.calculatedBaseline)
+                    element.calculatedDescent = c.calculatedDescent
+                    element.hasBaseline = true
+                    return
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Distance from an element's top MARGIN edge to its baseline. CSS gives a
+    ; box with no text baseline the bottom of its margin box, which is what
+    ; makes an image in a row of captions sit on the text baseline.
+    fn baselineOffsetOf:double (el:EVGElement) {
+        if el.hasBaseline {
+            return (el.box.marginTopPx + el.calculatedBaseline)
+        }
+        return (el.box.marginTopPx + el.calculatedHeight + el.box.marginBottomPx)
+    }
+
     fn alignRow:void (rowElements:[EVGElement] parent:EVGElement rowHeight:double startX:double innerWidth:double) {
         ; Apply horizontal and vertical alignment to a row of elements
         def elementCount:int (array_length rowElements)
@@ -870,6 +917,23 @@ class EVGLayout {
             }
         }
         
+        ; align-items: baseline — line the row up on the text baselines rather
+        ; than on the box edges, so captions of different sizes read as one line.
+        ; Needs real ascent metrics, which is why this waited for the font work.
+        def useBaseline:boolean (verticalAlignVal == "baseline")
+        def maxBaseline:double 0.0
+        if useBaseline {
+            def b:int 0
+            while (b < elementCount) {
+                def bel:EVGElement (itemAt rowElements b)
+                def bo:double (this.baselineOffsetOf(bel))
+                if (bo > maxBaseline) {
+                    maxBaseline = bo
+                }
+                b = (b + 1)
+            }
+        }
+
         ; Apply alignment offsets
         i = 0
         while (i < elementCount) {
@@ -895,6 +959,9 @@ class EVGLayout {
             }
             if ((verticalAlignVal == "flex-end") || (verticalAlignVal == "bottom")) {
                 offsetY = (effectiveRowHeight - childTotalHeight)
+            }
+            if useBaseline {
+                offsetY = (maxBaseline - (this.baselineOffsetOf(el)))
             }
             
             if (offsetY != 0.0) {
