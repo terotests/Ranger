@@ -219,6 +219,38 @@ class RangerRustClassWriter {
     return false
   }
 
+  ; Calling a lambda MOVES each argument that is not Copy, and the operator
+  ; helpers written in Ranger hand the element to the callback and then keep
+  ; using it — `if cb(it, i) { res.push(it.clone()) }` is what `filter`
+  ; compiles to. Every non-scalar argument goes in as a clone; for an Rc that
+  ; is a refcount bump, and the callback owns what it was given either way.
+  fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def fName:CodeNode (itemAt node.children 0)
+    def args:CodeNode (itemAt node.children 1)
+    ctx.setInExpr()
+    this.WalkNode(fName ctx wr)
+    wr.out("(" false)
+    for args.children arg:CodeNode i {
+      if (i > 0) {
+        wr.out(", " false)
+      }
+      this.WalkNode(arg ctx wr)
+      if (arg.expression == false) {
+        if arg.hasParamDesc {
+          def ap:RangerAppParamDesc (unwrap arg.paramDesc)
+          if ((this.rustFieldIsCopyScalar(ap ctx)) == false) {
+            wr.out(".clone()" false)
+          }
+        }
+      }
+    }
+    wr.out(")" false)
+    ctx.unsetInExpr()
+    if ((ctx.expressionLevel()) == 0) {
+      wr.out(";" true)
+    }
+  }
+
   ; A Ranger lambda is a Rust closure: `|a, b| { … }`. Without this the
   ; generic writer's JavaScript form reached the output — `(a, b) => { … }`
   ; — and rustc stopped at the arrow before it could look at anything else
@@ -7064,6 +7096,25 @@ class RangerRustClassWriter {
         }
         ; Check if RHS is a parameter that's already Rc<RefCell<T>> (rust_needs_rc_wrap)
         def rhs_is_rc_wrapped:boolean false
+        ; A CALL returning a shared class already hands back the Rc, so it
+        ; is downgraded as it stands. Wrapping it made
+        ; `Rc::downgrade(&Rc::new(RefCell::new(f(…))))` — a cell around a
+        ; cell, and a Weak pointing at a handle rather than at the object.
+        ; Downgrading the call's own Rc is sound: the value it came from is
+        ; owned elsewhere, which is what makes the field weak in the first
+        ; place.
+        if (!null? right.fnDesc) {
+          def rhsWFn:RangerAppFunctionDesc (unwrap right.fnDesc)
+          def rhsWFnNN@(optional):CodeNode rhsWFn.nameNode
+          if (!null? rhsWFnNN) {
+            def rhsWFnN:CodeNode (unwrap rhsWFnNN)
+            if (((strlen rhsWFnN.array_type) == 0) && ((strlen rhsWFnN.key_type) == 0)) {
+              if (this.rustClassIsShared(rhsWFnN.type_name ctx)) {
+                rhs_is_rc_wrapped = true
+              }
+            }
+          }
+        }
         ; …and whether that Rc sits inside an Option. Rc::downgrade takes an
         ; `&Rc`, so an optional source has to be opened first: `&x` on an
         ; `Option<Rc<…>>` is a reference to the Option.

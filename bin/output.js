@@ -23809,6 +23809,33 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
               return false;
             };
+            async CreateLambdaCall (node, ctx, wr) {
+              const fName = node.children[0];
+              const args = node.children[1];
+              ctx.setInExpr();
+              await this.WalkNode(fName, ctx, wr);
+              wr.out("(", false);
+              for ( let i = 0; i < args.children.length; i++) {
+                var arg = args.children[i];
+                if ( i > 0 ) {
+                  wr.out(", ", false);
+                }
+                await this.WalkNode(arg, ctx, wr);
+                if ( arg.expression == false ) {
+                  if ( arg.hasParamDesc ) {
+                    const ap = arg.paramDesc;
+                    if ( this.rustFieldIsCopyScalar(ap, ctx) == false ) {
+                      wr.out(".clone()", false);
+                    }
+                  }
+                }
+              };
+              wr.out(")", false);
+              ctx.unsetInExpr();
+              if ( ctx.expressionLevel() == 0 ) {
+                wr.out(";", true);
+              }
+            };
             async CreateLambda (node, ctx, wr) {
               const lambdaCtx = node.lambda_ctx;
               const args = node.children[1];
@@ -29521,6 +29548,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                             }
                             let rhs_is_rc_wrapped = false;
+                            if ( (typeof(right.fnDesc) !== "undefined" && right.fnDesc != null )  ) {
+                              const rhsWFn = right.fnDesc;
+                              const rhsWFnNN = rhsWFn.nameNode;
+                              if ( (typeof(rhsWFnNN) !== "undefined" && rhsWFnNN != null )  ) {
+                                const rhsWFnN = rhsWFnNN;
+                                if ( ((rhsWFnN.array_type.length) == 0) && ((rhsWFnN.key_type.length) == 0) ) {
+                                  if ( this.rustClassIsShared(rhsWFnN.type_name, ctx) ) {
+                                    rhs_is_rc_wrapped = true;
+                                  }
+                                }
+                              }
+                            }
                             let rhs_is_optional_rc = false;
                             if ( right.hasParamDesc ) {
                               const rhsParam = right.paramDesc;
