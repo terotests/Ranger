@@ -2486,12 +2486,48 @@ class ComponentEngine {
     ; parameters, assignment to an undeclared variable. Those failed at PARSE
     ; time, so the engine never got to run them and the failure looked like a
     ; missing feature rather than a mode mismatch.
+    ; Is this source MODULE code? The answer decides strictness, because a
+    ; module is strict whether or not it says so.
+    ;
+    ; The old test searched the whole text for "import "/"export " -- which
+    ; matches inside COMMENTS and STRINGS. Octane's earley-boyer carries 274
+    ; `/*** META ((export #t)) */` markers, so it parsed as a module, became
+    ; implicitly strict, and its `"\000"` string keys turned into early errors
+    ; ("a leading-zero numeric key is not allowed in strict mode"). The whole
+    ; suite failed to parse on every target.
+    ;
+    ; Real module syntax OPENS A STATEMENT, so only a line whose first
+    ; non-blank text is the keyword counts. That leaves the marker in a
+    ; comment alone -- `/*** META ...` starts with `/`, ` * META ...` with `*`.
     fn sourceIsModule:boolean (src:string) {
-        if ((indexOf src "import ") >= 0) { return true }
-        if ((indexOf src "import(") >= 0) { return true }
-        if ((indexOf src "export ") >= 0) { return true }
-        if ((indexOf src "export{") >= 0) { return true }
-        if ((indexOf src "export default") >= 0) { return true }
+        def lines:[string] (strsplit src "\n")
+        for lines raw:string i {
+            def ln:string (trim raw)
+            if (this.startsModuleDecl(ln "import")) { return true }
+            if (this.startsModuleDecl(ln "export")) { return true }
+        }
+        return false
+    }
+
+    ; `ln` opens with `kw` used as a KEYWORD -- the next character must not be
+    ; an identifier character, or `exported`/`imports` would count.
+    fn startsModuleDecl:boolean (ln:string kw:string) {
+        def n:int (strlen kw)
+        if ((strlen ln) <= n) {
+            return false
+        }
+        if ((substring ln 0 n) != kw) {
+            return false
+        }
+        def c:int (charAt ln n)
+        ; space / tab
+        if ((c == 32) || (c == 9)) { return true }
+        ; `export{a}`, `import*`, `import(`, `import"m"`, `import'm'`
+        if (c == 123) { return true }
+        if (c == 42) { return true }
+        if (c == 40) { return true }
+        if (c == 34) { return true }
+        if (c == 39) { return true }
         return false
     }
 
