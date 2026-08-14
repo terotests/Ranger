@@ -173,44 +173,40 @@ disagreed — a semantic difference). `–` means no toolchain on this machine.
 <!-- BEGIN FEATURE_MATRIX -->
 | Feature | es6 | python | php | go | cpp | rust | java | kotlin | dart | scala |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `class_inherit` | ✅ | ✅ | ✅ | ✅ | ✅ | **BUILD** | ✅ | ✅ | ✅ | ✅ |
+| `class_inherit` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `double_to_string` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `lambda_capture` | ✅ | ✅ | ✅ | ✅ | ✅ | **BUILD** | ✅ | ✅ | ✅ | ✅ |
+| `lambda_capture` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `map_iteration` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `optional_unwrap` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `shape_match` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `singleton` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `union_case` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `union_positions` | ✅ | ✅ | ✅ | **RUN** | ✅ | **BUILD** | ✅ | ✅ | ✅ | ✅ |
+| `union_positions` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 <!-- END FEATURE_MATRIX -->
 
 `tests/features/baseline.json` records this, and `--check` fails only where a
 cell that *was* `ok` no longer is — so the matrix is a gate against regression
 without pretending the gaps are fixed.
 
-Every target except Rust carries all nine features. What is left:
+**All ten targets carry all nine features.** The matrix started at 56 of 80.
 
-- **Rust closures** (`lambda_capture`) — the function TYPE renders empty and
-  the body comes out as a JavaScript arrow. Rust is the hard one of the five
-  that had this: a closure needs an owning representation (`Rc<dyn Fn(..)>`)
-  and the call sites need to clone it, where Kotlin, Dart, Python and PHP each
-  needed only their own spelling.
-- **`class_inherit` on Rust** — a subclass does not receive the parent's fields
-  (`RUST_ISSUES.md:567`); known and long-standing.
-- **`union_positions` on Rust** — a union survives being a local but not being
-  an array element.
-- **`map_iteration` on Go** — Go randomizes map iteration *per run*, so this
-  cell is not merely failing, it is nondeterministic: an early run of the
-  matrix passed it by luck. Ranger maps are ordered everywhere else and the
-  interpreter depends on it, so Go needs a real ordered-map type rather than a
-  `map[K]V`.
+What each column cost is in the commit history. The ones that took real work:
 
-What has been closed, and what each took, is in the commit history: three
-targets gained `@singleton`, four gained insertion-ordered maps, four gained
-working closures, Java's optionals became internally consistent, all ten now
-agree on how a double prints, and Scala went from four of nine to all nine —
-fieldless classes, constructor parameters that shadowed their own fields,
-`Some(...)` for a present optional, and `None` for an absent one.
+- **Rust closures** — a closure that is stored, passed and called more than
+  once needs an owning type, so a function type is `Rc<dyn Fn(A) -> R>` and a
+  lambda is `Rc::new(move |x: T| -> R { … })`. Calling it needs `(f)(x)`: an
+  `Rc` is not itself callable and Rust does not auto-deref the callee of a
+  call.
+- **Rust inheritance** (`RUST_ISSUES.md:567`, long-standing) — the writer
+  flattens inheritance, emitting the parent's methods on the child struct, but
+  never copied the parent's FIELDS across, so every one of those methods named
+  a field that did not exist. A local declared as an extended class is also
+  typed as a trait object, and neither its initializer nor its calls followed;
+  they do now.
+- **Go map order** — Go's `map[K]V` iterates in an order that differs per RUN.
+  Go maps are now `*RgMap[K, V]`, an ordered map carrying its keys beside the
+  data. One generic type serves every key/value pair, so nothing is generated
+  per map type and the per-type `r_get_…`/`r_has_key_…` helpers are gone.
 
 ### How far the other targets get on the interpreter
 

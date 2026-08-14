@@ -290,6 +290,110 @@ class RangerRustClassWriter {
     }
     return type_string
   }
+  ; A lambda literal. `move` because the closure outlives the frame it was
+  ; made in -- it is stored in a local, passed to another function and called
+  ; later -- and Rc so the same closure can be used more than once, which
+  ; matches the Rc<dyn Fn(..)> the type renders as. The generic writer emits
+  ; JavaScript arrow syntax here, which is not Rust at all.
+  fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def lambdaCtx (unwrap node.lambda_ctx)
+    def fnDef:CodeNode (itemAt node.children 0)
+    def args:CodeNode (itemAt node.children 1)
+    def body:CodeNode (itemAt node.children 2)
+    lambdaCtx.is_lambda = true
+    wr.out("Rc::new(move |" false)
+    for args.children arg:CodeNode i {
+      if (i > 0) {
+        wr.out(", " false)
+      }
+      if (arg.flow_done == false) {
+        this.compiler.parser.WalkNode(arg lambdaCtx wr)
+      }
+      this.WalkNode(arg lambdaCtx wr)
+      wr.out(" : " false)
+      this.writeTypeDef(arg ctx wr)
+    }
+    wr.out("|" false)
+    if ((fnDef.type_name == "void") || (fnDef.eval_type_name == "void")) {
+      wr.out(" " false)
+    } {
+      wr.out(" -> " false)
+      this.writeTypeDef(fnDef ctx wr)
+      wr.out(" " false)
+    }
+    wr.out("{ " true)
+    wr.indent(1)
+    lambdaCtx.restartExpressionLevel()
+    for body.children item:CodeNode i {
+      this.WalkNode(item lambdaCtx wr)
+    }
+    wr.newline()
+    wr.indent(-1)
+    wr.out("})" false)
+  }
+
+  ; Calling a closure held in a variable. `f(x)` does not compile when `f` is
+  ; an Rc: Rc itself is not callable, and Rust does not auto-deref the callee
+  ; of a call expression. `(f)(x)` does, through the Deref to dyn Fn.
+  fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def fName:CodeNode (itemAt node.children 0)
+    def args:CodeNode (itemAt node.children 1)
+    ctx.setInExpr()
+    wr.out("(" false)
+    this.WalkNode(fName ctx wr)
+    wr.out(")(" false)
+    for args.children arg:CodeNode i {
+      if (i > 0) {
+        wr.out(", " false)
+      }
+      this.WalkNode(arg ctx wr)
+    }
+    wr.out(")" false)
+    ctx.unsetInExpr()
+    if ((ctx.expressionLevel()) == 0) {
+      wr.out(";" true)
+    }
+  }
+
+  ; The fields a class INHERITS. The Rust writer flattens inheritance: the
+  ; child is its own struct that implements the parent's trait, and the
+  ; parent's methods -- including the ones the child does not override -- are
+  ; emitted on it operating on `self.<field>`. The fields themselves were never
+  ; copied across, so every one of those methods named a field the struct did
+  ; not have: "no field `tag` on type `&mut CiChild`" (RUST_ISSUES.md:567).
+  ; Parents first, breadth-first up the chain, and a field the child declares
+  ; itself wins.
+  fn rustInheritedVars:[RangerAppParamDesc] (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    def out:[RangerAppParamDesc]
+    def seen:[string:boolean]
+    for cl.variables ov:RangerAppParamDesc oi {
+      set seen ov.name true
+    }
+    def stack:[string]
+    for cl.extends_classes pn:string pi {
+      push stack pn
+    }
+    def si:int 0
+    while (si < (array_length stack)) {
+      def pname:string (itemAt stack si)
+      si = (si + 1)
+      def pcOpt@(optional):RangerAppClassDesc (ctx.findClass(pname))
+      if (!null? pcOpt) {
+        def pc:RangerAppClassDesc (unwrap pcOpt)
+        for pc.extends_classes gp:string gi {
+          push stack gp
+        }
+        for pc.variables pv:RangerAppParamDesc vi {
+          if (false == (has seen pv.name)) {
+            set seen pv.name true
+            push out pv
+          }
+        }
+      }
+    }
+    return out
+  }
+
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def is_optional:boolean (node.hasFlag("optional"))
     def is_weak:boolean (node.hasFlag("weak"))
@@ -400,6 +504,34 @@ class RangerRustClassWriter {
       }
       case RangerNodeType.Char {
         wr.out("i64" false)
+      }
+      ; A function TYPE. Rust has no single "some closure of this shape" type,
+      ; so a closure that is stored, passed and called more than once needs an
+      ; OWNING one: Rc<dyn Fn(A) -> R>. Box would move on the first use, and a
+      ; bare `impl Fn` cannot name a local's type. Without this case the type
+      ; rendered EMPTY -- `pub fn applyTo(f : , value : i64)` and
+      ; `let add :  = ...` -- so no Rust program with a lambda in it parsed.
+      case RangerNodeType.ExpressionType {
+        def rv:CodeNode (itemAt node.expression_value.children 0)
+        def sec:CodeNode (itemAt node.expression_value.children 1)
+        def is_void:boolean false
+        if ((rv.type_name == "void") || (rv.eval_type_name == "void")) {
+          is_void = true
+        }
+        wr.out("Rc<dyn Fn(" false)
+        for sec.children arg:CodeNode i {
+          if (i > 0) {
+            wr.out(", " false)
+          }
+          this.writeTypeDef(arg ctx wr)
+        }
+        wr.out(")" false)
+        if (false == is_void) {
+          wr.out(" -> " false)
+          this.writeTypeDef(rv ctx wr)
+        }
+        wr.out(">" false)
+        return
       }
       case RangerNodeType.CharBuffer {
         wr.out("Vec<u8>" false)
@@ -950,6 +1082,29 @@ class RangerRustClassWriter {
       ; This is detected by static analysis when the variable is passed to a method 
       ; whose parameter is assigned to a @(weak) field
       def local_needs_rc_wrap:boolean p.rust_needs_rc_wrap
+      ; A local whose declared class is EXTENDED BY OTHERS is written as a
+      ; trait object -- writeTypeDef gives it Rc<RefCell<dyn CTrait>> so it can
+      ; hold a subclass. The initializer and the call sites did not follow, so
+      ; the local was declared as a trait object and then assigned a bare
+      ; struct (`= CiBase::new()`) and called on directly (`b.speak()`): two
+      ; errors on any program with a subclass in it. Marking it Rc-wrapped is
+      ; what the writer already keys the wrap and the `.borrow_mut()` off.
+      if (false == local_needs_rc_wrap) {
+        if ((strlen nn.type_name) > 0) {
+          if ((nn.hasFlag("weak")) == false) {
+            if (((strlen nn.array_type) == 0) && ((strlen nn.key_type) == 0)) {
+              def declCls@(optional):RangerAppClassDesc (ctx.findClass(nn.type_name))
+              if (!null? declCls) {
+                def dCl:RangerAppClassDesc (unwrap declCls)
+                if dCl.is_extended_by_children {
+                  local_needs_rc_wrap = true
+                  p.rust_needs_rc_wrap = true
+                }
+              }
+            }
+          }
+        }
+      }
       ; a local of union type initialized with `new`: the member takes its cell here
       ; D-UNION: `def v:Shape (…)` — the local's TYPE is the enum, and the
       ; initializer is written by rustWriteUnionValue: a member is wrapped in its
@@ -1033,13 +1188,31 @@ class RangerRustClassWriter {
         if (eff_optional && (((strlen nameN.array_type) == 0) && ((strlen nameN.key_type) == 0))) {
           wr.out((("Option<Rc<RefCell<" + (this.getObjectTypeString(nameN.type_name ctx))) + ">>>") false)
         } {
-          wr.out("Rc<RefCell<" false)
+          ; A trait-object type is ALREADY Rc<RefCell<dyn CTrait>> --
+          ; getObjectTypeString writes it that way for a class other classes
+          ; extend -- so wrapping it again gives
+          ; Rc<RefCell<Rc<RefCell<dyn CTrait>>>>, which nothing can be
+          ; assigned to.
+          def declIsTrait:boolean false
           if ((((strlen nameN.type_name) > 0) && ((strlen nameN.array_type) == 0)) && ((strlen nameN.key_type) == 0)) {
+            def dcOpt@(optional):RangerAppClassDesc (ctx.findClass(nameN.type_name))
+            if (!null? dcOpt) {
+              if ((unwrap dcOpt).is_extended_by_children) {
+                declIsTrait = true
+              }
+            }
+          }
+          if declIsTrait {
             wr.out((this.getObjectTypeString(nameN.type_name ctx)) false)
           } {
-            this.writeTypeDef(nameN ctx wr)
+            wr.out("Rc<RefCell<" false)
+            if ((((strlen nameN.type_name) > 0) && ((strlen nameN.array_type) == 0)) && ((strlen nameN.key_type) == 0)) {
+              wr.out((this.getObjectTypeString(nameN.type_name ctx)) false)
+            } {
+              this.writeTypeDef(nameN ctx wr)
+            }
+            wr.out(">>" false)
           }
-          wr.out(">>" false)
         }
       } {
         if rhs_is_optional_field {
@@ -4644,6 +4817,11 @@ class RangerRustClassWriter {
     }
     wr.out((("struct " + cl.name) + " { ") true)
     wr.indent(1)
+    def inheritedFields:[RangerAppParamDesc] (this.rustInheritedVars(cl ctx))
+    for inheritedFields ivar:RangerAppParamDesc ii {
+      def inode:CodeNode (unwrap ivar.node)
+      this.writeStructField(inode ctx wr)
+    }
     for cl.variables pvar:RangerAppParamDesc i {
       def pnode:CodeNode (unwrap pvar.node)
       this.writeStructField(pnode ctx wr)
@@ -4718,7 +4896,17 @@ class RangerRustClassWriter {
       wr.out((cl.name + " { ") true)
     }
     wr.indent(1)
-    for cl.variables pvar:RangerAppParamDesc i {
+    ; An inherited field needs its default here too, or the struct literal is
+    ; missing a member.
+    def inheritedInit:[RangerAppParamDesc] (this.rustInheritedVars(cl ctx))
+    def ctorVars:[RangerAppParamDesc]
+    for inheritedInit iv:RangerAppParamDesc ivi {
+      push ctorVars iv
+    }
+    for cl.variables cv:RangerAppParamDesc cvi {
+      push ctorVars cv
+    }
+    for ctorVars pvar:RangerAppParamDesc i {
       def nn@(optional):CodeNode pvar.node
       if (!null? nn) {
         def node:CodeNode (unwrap nn)
@@ -6425,12 +6613,24 @@ class RangerRustClassWriter {
               } {
                 ; Standard optional assignment: wrap with Some()
                 wr.out(" = Some(" false)
-                this.WalkNode(right ctx wr)
-                if should_clone_rhs {
-                  if rhs_str_ref {
-                    wr.out(".to_string()" false)
-                  } {
-                    wr.out(".clone()" false)
+                ; ...and if the slot is a union, the member still has to be
+                ; wrapped in its VARIANT first. The non-optional path below
+                ; does this; the optional one did not, so
+                ; `b.one = t` on an `@(optional)` union field came out as
+                ; `Some(t.clone())` -- Rc<RefCell<UpText>> where the enum was
+                ; expected. A union in an optional field did not compile.
+                def wroteUnionOpt:boolean false
+                if (preeval_rhs == false) {
+                  wroteUnionOpt = (this.rustWriteUnionValue(field_type_name right ctx wr))
+                }
+                if (false == wroteUnionOpt) {
+                  this.WalkNode(right ctx wr)
+                  if should_clone_rhs {
+                    if rhs_str_ref {
+                      wr.out(".to_string()" false)
+                    } {
+                      wr.out(".clone()" false)
+                    }
                   }
                 }
                 wr.out(");" true)

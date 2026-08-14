@@ -1654,7 +1654,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 scala ( nl (e 1) " = Some(" (e 2) ")" nl )  
                 swift ( nl (e 1) " = Optional(" (e 2) ");" nl )   
                 java7 ( nl (e 1) " = " (e 2) ";" nl )   
-                go ( nl (goset 1) ".value = " (e 2) ";" nl nl (goset 1) ".has_value = true; /* detected as non-optional */" nl )  
+                go ( nl (goset 1) ".value = " (asgval 1 2) ";" nl nl (goset 1) ".has_value = true; /* detected as non-optional */" nl )  
                 cpp ( nl ( e 1) "  = " (e 2) ";" nl )
                 rust ( (custom _) )
                 * ( nl (e 1) " = " (e 2) ";" nl ) 
@@ -3139,7 +3139,9 @@ case class customException(smth:String)  extends Exception
                 dart ( (forkctx _ ) (def 2) (def 3) "for ( var " (e 3) " in " (e 1) ".keys ) {" nl I "var " (e 2) " = " (e 1) "[" (e 3) "]!; " nl (block 4) nl i "}" )
                 ; Go rejects a declared and unused loop variable, so both names
                 ; are read once before the block.
-                go ( (forkctx _ ) (def 2) (def 3) "for " (e 3) ", " (e 2) " := range " (e 1) " {" nl I "_ = " (e 3) nl "_ = " (e 2) nl (block 4) nl i "}" )
+                ; over the ordered map's key list, not the map itself: ranging
+                ; a Go map visits keys in a random order that changes per run
+                go ( (forkctx _ ) (def 2) (def 3) "for _, " (e 3) " := range " (e 1) ".Keys() {" nl I (e 2) ", _ := " (e 1) ".Get(" (e 3) ")" nl "_ = " (e 3) nl "_ = " (e 2) nl (block 4) nl i "}" )
                 python ( (forkctx _ ) (def 2) (def 3) "for " (e 3) ", " (e 2) " in " (e 1) ".items():" nl I (block 4) nl i )
                 php ( (forkctx _ ) (def 2) (def 3) "foreach ( " (e 1) " as " (e 3) " => " (e 2) " ) {" nl I (block 4) nl i "}" )
                 kotlin ( (forkctx _ ) (def 2) (def 3) "for ( (" (e 3) ", " (e 2) ") in " (e 1) " ) {" nl I (block 4) nl i "}" )
@@ -3163,7 +3165,7 @@ case class customException(smth:String)  extends Exception
                         nl i "} " nl i "}"
                      )
                 dart ( (forkctx _ ) (def 2) "for ( var " (e 2) " in " (e 1) ".keys ) {" nl I (block 3) nl i "}" )
-                go ( (forkctx _ ) (def 2) "for " (e 2) " := range " (e 1) " {" nl I "_ = " (e 2) nl (block 3) nl i "}" )
+                go ( (forkctx _ ) (def 2) "for _, " (e 2) " := range " (e 1) ".Keys() {" nl I "_ = " (e 2) nl (block 3) nl i "}" )
                 python ( (forkctx _ ) (def 2) "for " (e 2) " in " (e 1) ":" nl I (block 3) nl i )
                 php ( (forkctx _ ) (def 2) "foreach ( array_keys(" (e 1) ") as " (e 2) " ) {" nl I (block 3) nl i "}" )
                 kotlin ( (forkctx _ ) (def 2) "for ( " (e 2) " in " (e 1) ".keys ) {" nl I (block 3) nl i "}" )
@@ -4514,13 +4516,10 @@ std::vector<std::string> r_get_keys_of_map( const M & orig_map )  {
                     
 
                 )
-                go ("(func() []string {" nl I
-                        "keys := reflect.ValueOf(" (e 1) ").MapKeys()" nl
-                        "strkeys := make([]string, len(keys))" nl
-                        "for i := 0; i < len(keys); i++ {" nl I
-                          "strkeys[i] = keys[i].String()" nl i "}" nl
-                        "return strkeys" nl i "})()"
-                    (imp "reflect"))
+                ; the ordered map already holds its keys in insertion order --
+                ; reflect.MapKeys gives Go's RANDOM order, which differed from
+                ; every other target and from one run to the next
+                go ( (e 1) ".Keys()" )
             }
         } 
 
@@ -5152,13 +5151,7 @@ std::string join(const T& v, const std::string& delim) {
                 kotlin ( (e 1) ".containsKey(" (e 2) ")" )
                 dart ( (e 1) ".containsKey(" (e 2) ")" )
                 python ( (e 2) " in " (e 1) )
-                go ( 
-
-(macro (nl "func r_has_key_" (r_ktype 1)  "_" (r_atype_fname 1) "( a "  (typeof 1) ", key " (r_ktype 1) " ) bool { " nl I 
-    "_, ok := a[key]" nl "return ok" nl i "
-}" nl ))                   
-                    "r_has_key_" (r_ktype 1)  "_" (r_atype_fname 1) "(" (e 1) ", " (e 2) ")"
-                )
+                go ( (e 1) ".Has(" (e 2) ")" )
                 rust ( (e 1 ) ".contains_key(" (kref 2) ")")
                 csharp ( (e 1) ".ContainsKey(" (e 2) ")" )
                 scala ( (e 1) ".contains(" (e 2) ")" )
@@ -5321,13 +5314,12 @@ typename r_map_result<typename M::mapped_type>::type r_map_get_val( const M & m 
 
                 ; scala ( (e 1) ".get(" (e 2) ").asInstanceOf[" (atype 1) "]" )
 
-                go ( 
-
-(macro (nl "func r_get_" (r_ktype 1)  "_" (r_atype_fname 1) "( a " (typeof 1) ", key " (r_ktype 1) " ) *GoNullable  { " nl I 
-    "res := new(GoNullable)" nl  
-    "v, ok := a[key]" nl 
+                go (
+(macro (nl "func r_map_get[K comparable, V any]( a *RgMap[K, V], key K ) *GoNullable  { " nl I
+    "res := new(GoNullable)" nl
+    "v, ok := a.Get(key)" nl
     "if ok { " nl
-        I 
+        I
           "res.has_value = true" nl
           "res.value = v" nl
           "return res" nl
@@ -5335,8 +5327,8 @@ typename r_map_result<typename M::mapped_type>::type r_map_get_val( const M & m 
     "}" nl
     "res.has_value = false" nl
     "return res" nl
-i "}" nl ))                   
-                    "r_get_" (r_ktype 1)  "_" (r_atype_fname 1) "(" (e 1) ", " (e 2) ")"
+i "}" nl ))
+                    "r_map_get(" (e 1) ", " (e 2) ")"
                 )
                 es6 ( "( Object.prototype.hasOwnProperty.call(" (e 1) ", " (e 2) ") ? " (e 1) "[" (e 2) "] : undefined )" )
                 python ( (e 1) ".get(" (e 2) ")" )
@@ -5370,6 +5362,8 @@ i "}" nl ))
                 kotlin ( (e 1) ".set(" (e 2) ", " (e 3) ")" )
                 php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
                 cpp ( (e 1) "[" (ckey 2) "] = " (e 3) ";" )
+                ; the ordered map records a new key's position here
+                go ( (e 1) ".Set(" (e 2) ", " (e 3) ");" )
                 * ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             }            
         }                 
@@ -5887,7 +5881,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  kotlin ( (e 1) ".clear()" )
                  dart ( (e 1) ".clear();" )
                  scala ( (e 1) ".clear()" )
-                 go ( "for __mck := range " (e 1) " { delete(" (e 1) ", __mck) }" )
+                 go ( (e 1) ".Clear()" )
                  python ( (e 1) ".clear()" )
                  rust ( (e 1) ".clear();" )
                  * ( (e 1) ".clear();" )
