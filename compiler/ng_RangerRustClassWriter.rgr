@@ -5954,6 +5954,19 @@ class RangerRustClassWriter {
         return
       }
     }
+    ; A NO-ARGUMENT operator call is an expression holding one bare name,
+    ; the same shape as a parenthesised variable, so unwrapping it threw the
+    ; call away and left the operator's name to be written as if it were a
+    ; value — `format!("{}{}", ansi_green, text)` with no `ansi_green` in
+    ; scope. A name that resolves to a variable has a desc; one that does
+    ; not is the operator, and it keeps its wrapper so WalkNode expands it.
+    if (node.expression && ((array_length node.children) == 1)) {
+      def onlyC:CodeNode (node.getFirst())
+      if (((onlyC.value_type == RangerNodeType.VRef) && (onlyC.expression == false)) && (onlyC.hasParamDesc == false)) {
+        push out node
+        return
+      }
+    }
     push out cur
   }
 

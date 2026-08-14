@@ -28617,6 +28617,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             return;
                           }
                         }
+                        if ( node.expression && ((node.children.length) == 1) ) {
+                          const onlyC = node.getFirst();
+                          if ( ((onlyC.value_type == 11) && (onlyC.expression == false)) && (onlyC.hasParamDesc == false) ) {
+                            out.push(node);
+                            return;
+                          }
+                        }
                         out.push(cur);
                       };
                       rustFmtInline (o) {

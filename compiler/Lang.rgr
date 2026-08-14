@@ -2103,6 +2103,7 @@ static class RgPath {
         current_directory         cmdArg:string () {
             templates {
                 es6 ( "process.cwd()" )
+                rust ( "std::env::current_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_default()" )
                 python ( "os.getcwd()" (imp "os") )
                 dart ( "Directory.current.path" (imp "dart:io") )
                 csharp( "Directory.GetCurrentDirectory()" (imp "System") (imp "System.IO"))
