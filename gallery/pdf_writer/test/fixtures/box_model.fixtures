@@ -1,0 +1,130 @@
+# Box-model parity fixtures — read by BOTH sides, so they cannot drift.
+#
+#   browser_box_snapshot.js  builds the equivalent HTML and records what
+#                            Chromium lays out
+#   box_model_test.rgr       builds the equivalent EVG tree and compares
+#
+# Format
+#   F <name>                       start a fixture
+#   N <id> <parent|-> k=v k=v ...  a node; '-' means the fixture root
+#
+# Keys (all lengths in px unless the value ends in %)
+#   w,h            width, height
+#   pad            padding on all sides    padT padR padB padL  per side
+#   mar            margin on all sides     marT marR marB marL  per side
+#   bg             background colour (no spaces: rgb(12,34,56), not rgb(12, 34, 56),
+#                  because the format is whitespace-delimited)
+#   dir            row | column   (EVG default is column)
+#   gap            main-axis gap
+#
+# EVG treats `w`/`h` as the border box with padding inside it, so the browser
+# side sets box-sizing: border-box. EVG's flow is flex, so the browser side uses
+# display:flex — block-flow margin collapsing would otherwise make the two
+# disagree for reasons that have nothing to do with EVG.
+
+F padding-simple
+N root -    w=200 h=100 pad=10 bg=#ff0000
+N a    root w=50  h=20  bg=#00ff00
+
+F padding-per-side
+N root -    w=200 h=120 padT=5 padR=10 padB=15 padL=20 bg=#eeeeee
+N a    root w=40  h=20  bg=#3366ff
+N b    root w=40  h=20  bg=#ff6633
+
+F margin-simple
+N root -    w=200 h=140 bg=#ffffff
+N a    root w=60  h=20  mar=10 bg=#111111
+N b    root w=60  h=20  mar=10 bg=#222222
+
+F margin-per-side
+N root -    w=200 h=160 bg=#ffffff
+N a    root w=50  h=20  marT=4 marR=8 marB=12 marL=16 bg=#aa0000
+N b    root w=50  h=20  marT=2 marL=30 bg=#00aa00
+
+F padding-and-margin
+N root -    w=240 h=160 pad=20 bg=#f0f0f0
+N a    root w=60  h=30  mar=5  bg=#0000aa
+N b    root w=60  h=30  mar=5  bg=#aa00aa
+
+F row-gap
+N root -    w=300 h=80 dir=row gap=12 bg=#fafafa
+N a    root w=60  h=40 bg=#ff0000
+N b    root w=60  h=40 bg=#00ff00
+N c    root w=60  h=40 bg=#0000ff
+
+F column-gap
+N root -    w=120 h=200 gap=8 bg=#fafafa
+N a    root w=60  h=30 bg=#ff0000
+N b    root w=60  h=30 bg=#00ff00
+N c    root w=60  h=30 bg=#0000ff
+
+F row-margins
+N root -    w=300 h=100 dir=row bg=#ffffff
+N a    root w=50  h=30 marL=10 marR=20 bg=#123456
+N b    root w=50  h=30 marL=5  bg=#654321
+
+F nested-padding
+N root  -     w=240 h=160 pad=10 bg=#dddddd
+N outer root  w=200 h=100 pad=15 bg=#bbbbbb
+N inner outer w=80  h=30  bg=#333333
+
+F percent-width
+N root -    w=200 h=100 pad=10 bg=#ffffff
+N a    root w=50% h=20  bg=#ff8800
+
+F background-formats
+N root -    w=200 h=120 bg=rgb(12,34,56)
+N a    root w=40  h=20  bg=#abc
+N b    root w=40  h=20  bg=rgba(255,0,0,1)
+
+F zero-padding-baseline
+N root -    w=160 h=80 bg=#ffffff
+N a    root w=160 h=40 bg=#00ffff
+
+# ---- harder cases: where EVG and CSS are most likely to part company --------
+
+# Percentages resolve against the CONTAINING BLOCK, so the node carrying them
+# has to be a child — a fixture root has no meaningful parent on either side.
+F percent-padding
+N root -   w=200 h=140 bg=#ffffff
+N box root w=100 h=100 pad=10% bg=#dddddd
+N a   box  w=20  h=20  bg=#ff0000
+
+F percent-height
+N root -   w=200 h=200 bg=#ffffff
+N box root w=100 h=100 bg=#dddddd
+N a   box  w=40  h=50% bg=#00ff00
+
+# Vertical percentage padding also resolves against the containing block's
+# WIDTH in CSS, not its height. This is the case that caught EVG doing the
+# intuitive-but-wrong thing.
+F percent-padding-vertical
+N root -   w=200 h=200 bg=#ffffff
+N box root w=120 h=60  padT=10% padB=10% bg=#dddddd
+N a   box  w=20  h=10  bg=#0000ff
+
+F margin-auto-centering
+N root -    w=200 h=100 dir=row bg=#ffffff
+N a    root w=60  h=40 marL=70 bg=#0000ff
+
+F padding-larger-than-box
+N root -    w=100 h=60 pad=40 bg=#ffffff
+N a    root w=10  h=10 bg=#ff00ff
+
+F row-with-padding-and-gap
+N root -    w=300 h=100 dir=row pad=15 gap=10 bg=#f5f5f5
+N a    root w=60  h=40 bg=#ff0000
+N b    root w=60  h=40 bg=#00ff00
+N c    root w=60  h=40 bg=#0000ff
+
+F deep-nesting
+N root -   w=300 h=200 pad=10 bg=#111111
+N l1  root w=260 h=160 pad=10 bg=#222222
+N l2  l1   w=220 h=120 pad=10 bg=#333333
+N l3  l2   w=180 h=80  pad=10 bg=#444444
+N l4  l3   w=140 h=40  bg=#555555
+
+F margin-between-siblings-column
+N root -    w=200 h=200 bg=#ffffff
+N a    root w=60 h=30 marB=20 bg=#aa0000
+N b    root w=60 h=30 marT=10 bg=#00aa00

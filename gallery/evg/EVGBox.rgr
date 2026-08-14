@@ -78,27 +78,32 @@ class EVGBox {
     fn resolveUnits:void (parentWidth:double parentHeight:double fontSize:double) {
         ; Resolve all units to pixel values
         
-        ; Margins - use width for horizontal, height for vertical (like CSS)
-        marginTop.resolve(parentHeight fontSize)
+        ; Percentage margins and padding resolve against the containing block's
+        ; WIDTH on all four sides — including top and bottom. That is genuinely
+        ; what CSS does (it is the rule the padding-bottom aspect-ratio trick
+        ; relies on), however unintuitive it reads. This used to resolve the
+        ; vertical ones against the height, under a comment claiming that was
+        ; "like CSS"; a browser comparison showed it was not.
+        marginTop.resolve(parentWidth fontSize)
         marginTopPx = marginTop.pixels
         
         marginRight.resolve(parentWidth fontSize)
         marginRightPx = marginRight.pixels
         
-        marginBottom.resolve(parentHeight fontSize)
+        marginBottom.resolve(parentWidth fontSize)
         marginBottomPx = marginBottom.pixels
         
         marginLeft.resolve(parentWidth fontSize)
         marginLeftPx = marginLeft.pixels
         
         ; Padding
-        paddingTop.resolve(parentHeight fontSize)
+        paddingTop.resolve(parentWidth fontSize)
         paddingTopPx = paddingTop.pixels
         
         paddingRight.resolve(parentWidth fontSize)
         paddingRightPx = paddingRight.pixels
         
-        paddingBottom.resolve(parentHeight fontSize)
+        paddingBottom.resolve(parentWidth fontSize)
         paddingBottomPx = paddingBottom.pixels
         
         paddingLeft.resolve(parentWidth fontSize)
@@ -117,14 +122,33 @@ class EVGBox {
         borderRadiusPx = borderRadius.pixels
     }
     
-    fn getInnerWidth:double (outerWidth:double) {
-        ; Calculate inner width after padding and border
-        return (outerWidth - paddingLeftPx - paddingRightPx - (borderWidthPx * 2.0))
+    ; Space the padding and border take on each axis. A border box can never be
+    ; smaller than this, so it is also the floor for the box itself.
+    fn getHorizontalChrome:double () {
+        return (paddingLeftPx + paddingRightPx + (borderWidthPx * 2.0))
     }
-    
+
+    fn getVerticalChrome:double () {
+        return (paddingTopPx + paddingBottomPx + (borderWidthPx * 2.0))
+    }
+
+    fn getInnerWidth:double (outerWidth:double) {
+        ; Calculate inner width after padding and border. Never negative: a
+        ; content box of -20px is not a thing, and letting it go negative made
+        ; children collapse to zero instead of simply having no room.
+        def inner:double (outerWidth - (this.getHorizontalChrome()))
+        if (inner < 0.0) {
+            return 0.0
+        }
+        return inner
+    }
+
     fn getInnerHeight:double (outerHeight:double) {
-        ; Calculate inner height after padding and border
-        return (outerHeight - paddingTopPx - paddingBottomPx - (borderWidthPx * 2.0))
+        def inner:double (outerHeight - (this.getVerticalChrome()))
+        if (inner < 0.0) {
+            return 0.0
+        }
+        return inner
     }
     
     fn getTotalWidth:double (contentWidth:double) {

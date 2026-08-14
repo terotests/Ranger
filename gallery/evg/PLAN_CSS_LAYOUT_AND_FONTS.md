@@ -137,7 +137,16 @@ this replaced.
    subset with a `/ToUnicode` cmap, which would lift the limit rather than
    report it, is still open.
 
-9. **Kerning** (open)  
+9. **Box model** ✅  
+   Padding, margins, gaps, nesting and background colour are checked against
+   recorded browser geometry. Building it found two real divergences:
+   percentage padding/margin on the vertical axis resolved against the
+   containing block's *height* (CSS uses its **width** on all four sides — the
+   rule behind the padding-bottom aspect-ratio trick), and a box whose padding
+   exceeded its declared size kept that size and gave its children a negative
+   content box, where CSS grows the box instead. Both are fixed.
+
+10. **Kerning** (open)  
    EVG sums raw `hmtx` advances and applies no kerning. The parity snapshot
    records both the unkerned width (which EVG matches to 0.014px) and the
    browser's kerned width, so the size of the gap is measured rather than
@@ -586,6 +595,7 @@ runs all three, or individually:
 | --- | --- | --- |
 | `test:evg` | `gallery/game_engine/v2/evg/run.sh` | layout engine: units, box model, flex, grid, stylesheet, text engine, baseline |
 | `test:evg:fonts` | `gallery/pdf_writer/test/run_fonts.sh` | advance-width goldens against the real TTFs, plus EVG-vs-browser parity from a recorded snapshot |
+| `test:evg:layout` | `gallery/pdf_writer/test/run_layout.sh` | box-model parity against the browser: padding, margins, gaps, nesting, background colour |
 | `test:evg:frontend` | `gallery/pdf_writer/test/run_print.sh` | UTF-8 decoding, WinAnsi reporting, page boxes, and the JSX attribute surface |
 
 **None of these need a browser.** The browser-measured widths live in
@@ -593,10 +603,21 @@ runs all three, or individually:
 runs anywhere. Chromium is only needed to change that file:
 
 ```
-bash gallery/pdf_writer/test/run_fonts.sh --verify-snapshot   # still matches a live browser?
-bash gallery/pdf_writer/test/run_fonts.sh --update-snapshot   # re-record it
-bash gallery/pdf_writer/test/run_fonts.sh --page-parity       # measure a whole rendered page
+bash gallery/pdf_writer/test/run_fonts.sh  --verify-snapshot   # still matches a live browser?
+bash gallery/pdf_writer/test/run_fonts.sh  --update-snapshot   # re-record it
+bash gallery/pdf_writer/test/run_fonts.sh  --page-parity       # measure a whole rendered page
+bash gallery/pdf_writer/test/run_layout.sh --verify-snapshot   # same, for the box model
+bash gallery/pdf_writer/test/run_layout.sh --update-snapshot
 ```
+
+The box-model gate compares padding, per-side padding, margins, per-side
+margins, row and column gaps, nesting, percentage sizes and background colour
+across 60 boxes. Both sides build their tree from the same
+`fixtures/box_model.fixtures`, and the browser side is configured to EVG's model
+rather than CSS defaults — `box-sizing: border-box` because EVG's width includes
+padding, and `display: flex` because EVG's flow is flex (block flow would
+collapse adjacent vertical margins and the two would disagree for a reason that
+has nothing to do with EVG).
 
 Re-record only when the font files change. A snapshot diff with unchanged fonts
 means the browser disagreed with itself, which is worth reading before

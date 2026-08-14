@@ -286,6 +286,18 @@ class EVGLayout {
             height = contentHeight + element.box.paddingTopPx + element.box.paddingBottomPx + (element.box.borderWidthPx * 2.0)
         }
         
+        ; A border box cannot be smaller than its own padding and border. CSS
+        ; grows the box in that case rather than producing a negative content
+        ; box; EVG used to keep the declared size and collapse the children.
+        def vChrome:double (element.box.getVerticalChrome())
+        if (height < vChrome) {
+            height = vChrome
+        }
+        def hChrome:double (element.box.getHorizontalChrome())
+        if (width < hChrome) {
+            width = hChrome
+        }
+
         ; Apply min/max height constraints
         if element.minHeight.isSet {
             if (height < element.minHeight.pixels) {

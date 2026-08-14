@@ -1,0 +1,347 @@
+; ==============================================================================
+; box_model_test.rgr — EVG's boxes match a browser's, without a browser
+; ==============================================================================
+; The font work established that EVG measures text like a browser. This does the
+; same for the boxes around it: padding, margins, gaps and background colour.
+;
+; Both sides build their tree from fixtures/box_model.fixtures, so the thing
+; under test cannot drift between them. The browser's geometry is recorded once
+; into fixtures/box_model.snapshot (browser_box_snapshot.js --write) and this
+; suite checks EVG against it offline.
+;
+; The browser side is set up to match EVG's model rather than CSS defaults:
+; box-sizing: border-box, because EVG's width includes padding; and display:flex,
+; because EVG's flow is flex — under block flow the browser would collapse
+; adjacent vertical margins and the two would disagree for a reason that has
+; nothing to do with EVG.
+;
+;   bash gallery/pdf_writer/test/run_layout.sh
+; ==============================================================================
+
+Import "../src/core/Utf8.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGColor.rgr"
+Import "../../game_engine/v2/tests/harness/RgTest.rgr"
+
+; One node of a fixture, as read from the shared fixture file.
+class BoxFixtureNode {
+    def id:string ""
+    def parent:string ""
+    def keys:[string]
+    def values:[string]
+    def element:EVGElement (new EVGElement())
+
+    Constructor () {
+        id = ""
+        parent = ""
+    }
+
+    fn get:string (key:string) {
+        def i:int 0
+        while (i < (array_length keys)) {
+            if ((itemAt keys i) == key) {
+                return (itemAt values i)
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn has:boolean (key:string) {
+        return ((strlen (this.get(key))) > 0)
+    }
+}
+
+class BoxModelTest {
+
+    ; Geometry should agree exactly; this only absorbs Chromium's 4-decimal
+    ; rounding in the snapshot.
+    def tolerance:double 0.01
+
+    def names:[string]
+    def nodes:[BoxFixtureNode]
+    def nodeFixture:[string]
+
+    sfn m@(main):void () {
+        def test (new BoxModelTest())
+        def t:RgTest (RgTest.forSuite("pdf_writer/box_model"))
+
+        def fixRaw:buffer (buffer_read_file "./gallery/pdf_writer/test/fixtures" "box_model.fixtures")
+        def fixText:string (Utf8.decode((buffer_to_string fixRaw)))
+        def snapRaw:buffer (buffer_read_file "./gallery/pdf_writer/test/fixtures" "box_model.snapshot")
+        def snapText:string (Utf8.decode((buffer_to_string snapRaw)))
+
+        t.ok("fixtures were read" ((strlen fixText) > 0))
+        t.ok("snapshot was read" ((strlen snapText) > 0))
+        if (((strlen fixText) == 0) || ((strlen snapText) == 0)) {
+            print "  Run: node gallery/pdf_writer/test/browser_box_snapshot.js --write"
+            t.summary()
+            return
+        }
+
+        test.parseFixtures(fixText)
+        t.ok("fixtures parsed" ((array_length test.names) > 0))
+        test.layoutAll()
+        test.compare(t snapText)
+        t.summary()
+    }
+
+    ; -----------------------------------------------------------------------
+    ; Fixture file
+    ; -----------------------------------------------------------------------
+
+    fn parseFixtures:void (text:string) {
+        def lines:[string] (strsplit text "\n")
+        def current:string ""
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:string (trim (itemAt lines i))
+            def skip:boolean false
+            if ((strlen line) == 0) {
+                skip = true
+            } {
+                if ((charAt line 0) == 35) {
+                    skip = true
+                }
+            }
+            if (skip == false) {
+                def parts:[string] (this.splitSpaces(line))
+                def kind:string (itemAt parts 0)
+                if (kind == "F") {
+                    current = (itemAt parts 1)
+                    push names current
+                }
+                if (kind == "N") {
+                    def n (new BoxFixtureNode())
+                    n.id = (itemAt parts 1)
+                    def par:string (itemAt parts 2)
+                    if (par != "-") {
+                        n.parent = par
+                    }
+                    def p:int 3
+                    while (p < (array_length parts)) {
+                        def kv:string (itemAt parts p)
+                        def eq:int (indexOf kv "=")
+                        if (eq > 0) {
+                            push n.keys (substring kv 0 eq)
+                            push n.values (substring kv (eq + 1) (strlen kv))
+                        }
+                        p = (p + 1)
+                    }
+                    push nodes n
+                    push nodeFixture current
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn splitSpaces:[string] (s:string) {
+        def out:[string]
+        def len:int (strlen s)
+        def start:int 0
+        def inTok:boolean false
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt s i)
+            def isSpace:boolean (((c == 32) || (c == 9)) || ((c == 10) || (c == 13)))
+            if isSpace {
+                if inTok {
+                    push out (substring s start i)
+                    inTok = false
+                }
+            } {
+                if (inTok == false) {
+                    start = i
+                    inTok = true
+                }
+            }
+            i = (i + 1)
+        }
+        if inTok {
+            push out (substring s start len)
+        }
+        return out
+    }
+
+    ; -----------------------------------------------------------------------
+    ; Build and lay out the same trees in EVG
+    ; -----------------------------------------------------------------------
+
+    fn applyProps:void (n:BoxFixtureNode) {
+        def el:EVGElement n.element
+        if (n.has("w")) {
+            el.setAttribute("width" (n.get("w")))
+        }
+        if (n.has("h")) {
+            el.setAttribute("height" (n.get("h")))
+        }
+        if (n.has("pad")) {
+            el.setAttribute("padding" (n.get("pad")))
+        }
+        if (n.has("padT")) {
+            el.setAttribute("padding-top" (n.get("padT")))
+        }
+        if (n.has("padR")) {
+            el.setAttribute("padding-right" (n.get("padR")))
+        }
+        if (n.has("padB")) {
+            el.setAttribute("padding-bottom" (n.get("padB")))
+        }
+        if (n.has("padL")) {
+            el.setAttribute("padding-left" (n.get("padL")))
+        }
+        if (n.has("mar")) {
+            el.setAttribute("margin" (n.get("mar")))
+        }
+        if (n.has("marT")) {
+            el.setAttribute("margin-top" (n.get("marT")))
+        }
+        if (n.has("marR")) {
+            el.setAttribute("margin-right" (n.get("marR")))
+        }
+        if (n.has("marB")) {
+            el.setAttribute("margin-bottom" (n.get("marB")))
+        }
+        if (n.has("marL")) {
+            el.setAttribute("margin-left" (n.get("marL")))
+        }
+        if (n.has("bg")) {
+            el.setAttribute("background-color" (n.get("bg")))
+        }
+        if (n.has("dir")) {
+            el.setAttribute("flex-direction" (n.get("dir")))
+        }
+        if (n.has("gap")) {
+            el.setAttribute("gap" (n.get("gap")))
+        }
+    }
+
+    fn findNode:int (fixture:string id:string) {
+        def i:int 0
+        while (i < (array_length nodes)) {
+            if ((itemAt nodeFixture i) == fixture) {
+                def n:BoxFixtureNode (itemAt nodes i)
+                if (n.id == id) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return 0 - 1
+    }
+
+    fn layoutAll:void () {
+        ; Wire up the trees.
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:BoxFixtureNode (itemAt nodes i)
+            this.applyProps(n)
+            if ((strlen n.parent) > 0) {
+                def pi:int (this.findNode((itemAt nodeFixture i) n.parent))
+                if (pi >= 0) {
+                    def parent:BoxFixtureNode (itemAt nodes pi)
+                    parent.element.addChild(n.element)
+                }
+            }
+            i = (i + 1)
+        }
+        ; Lay out each fixture root.
+        def j:int 0
+        while (j < (array_length nodes)) {
+            def n2:BoxFixtureNode (itemAt nodes j)
+            if ((strlen n2.parent) == 0) {
+                def lay (new EVGLayout())
+                lay.layout(n2.element)
+            }
+            j = (j + 1)
+        }
+    }
+
+    ; -----------------------------------------------------------------------
+    ; Compare against the browser snapshot
+    ; -----------------------------------------------------------------------
+
+    fn compare:void (t:RgTest snapText:string) {
+        def lines:[string] (strsplit snapText "\n")
+        def checked:int 0
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:string (trim (itemAt lines i))
+            def skip:boolean false
+            if ((strlen line) == 0) {
+                skip = true
+            } {
+                if ((charAt line 0) == 35) {
+                    skip = true
+                }
+            }
+            if (skip == false) {
+                def parts:[string] (strsplit line "\t")
+                if ((array_length parts) < 7) {
+                    t.ok(("malformed snapshot line: " + line) false)
+                } {
+                    def fixture:string (itemAt parts 0)
+                    def id:string (itemAt parts 1)
+                    def idx:int (this.findNode(fixture id))
+                    if (idx < 0) {
+                        t.ok(("snapshot names a node the fixtures do not have: " + fixture + "/" + id) false)
+                    } {
+                        def n:BoxFixtureNode (itemAt nodes idx)
+                        def el:EVGElement n.element
+                        def rootIdx:int (this.findNode(fixture "root"))
+                        def rootEl:EVGElement (itemAt nodes rootIdx).element
+
+                        ; The snapshot is relative to the fixture root.
+                        def relX:double (el.calculatedX - rootEl.calculatedX)
+                        def relY:double (el.calculatedY - rootEl.calculatedY)
+
+                        def label:string (fixture + "/" + id)
+                        this.near(t (label + " x") relX (itemAt parts 2))
+                        this.near(t (label + " y") relY (itemAt parts 3))
+                        this.near(t (label + " width") el.calculatedWidth (itemAt parts 4))
+                        this.near(t (label + " height") el.calculatedHeight (itemAt parts 5))
+
+                        ; Background colour, compared as the browser reports it.
+                        def want:string (itemAt parts 6)
+                        def got:string (this.cssColorOf(el))
+                        t.eqStr((label + " background") got want)
+                        checked = (checked + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        t.ok("the snapshot contained boxes" (checked > 0))
+        print ("  " + (to_string checked) + " box(es) checked against the browser snapshot")
+    }
+
+    fn near:void (t:RgTest label:string got:double wantStr:string) {
+        def wantV@(optional):double (to_double wantStr)
+        if wantV {
+            def want:double (unwrap wantV)
+            def d:double (got - want)
+            if (d < 0.0) {
+                d = (0.0 - d)
+            }
+            t.ok((label + " (browser " + wantStr + ", evg " + (to_string got) + ")") (d <= tolerance))
+        } {
+            t.ok((label + " has an unparseable snapshot value: " + wantStr) false)
+        }
+    }
+
+    ; Chromium reports backgrounds as "rgb(r, g, b)". An unset background is
+    ; transparent, which is what a node with no bg should resolve to.
+    fn cssColorOf:string (el:EVGElement) {
+        if el.backgroundColor {
+            def c:EVGColor (unwrap el.backgroundColor)
+            if (c.isSet == false) {
+                return "rgba(0, 0, 0, 0)"
+            }
+            return ("rgb(" + (to_string (c.red())) + ", " + (to_string (c.green())) + ", " + (to_string (c.blue())) + ")")
+        }
+        return "rgba(0, 0, 0, 0)"
+    }
+}
