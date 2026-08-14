@@ -31791,6 +31791,93 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         super()
                         this.init_done = false;
                       }
+                      scalaReserved (n) {
+                        if ( n == "null" ) {
+                          return true;
+                        }
+                        if ( n == "object" ) {
+                          return true;
+                        }
+                        if ( n == "type" ) {
+                          return true;
+                        }
+                        if ( n == "val" ) {
+                          return true;
+                        }
+                        if ( n == "var" ) {
+                          return true;
+                        }
+                        if ( n == "def" ) {
+                          return true;
+                        }
+                        if ( n == "class" ) {
+                          return true;
+                        }
+                        if ( n == "trait" ) {
+                          return true;
+                        }
+                        if ( n == "match" ) {
+                          return true;
+                        }
+                        if ( n == "case" ) {
+                          return true;
+                        }
+                        if ( n == "implicit" ) {
+                          return true;
+                        }
+                        if ( n == "lazy" ) {
+                          return true;
+                        }
+                        if ( n == "sealed" ) {
+                          return true;
+                        }
+                        if ( n == "override" ) {
+                          return true;
+                        }
+                        if ( n == "new" ) {
+                          return true;
+                        }
+                        if ( n == "with" ) {
+                          return true;
+                        }
+                        if ( n == "yield" ) {
+                          return true;
+                        }
+                        if ( n == "forSome" ) {
+                          return true;
+                        }
+                        if ( n == "package" ) {
+                          return true;
+                        }
+                        if ( n == "import" ) {
+                          return true;
+                        }
+                        if ( n == "extends" ) {
+                          return true;
+                        }
+                        if ( n == "abstract" ) {
+                          return true;
+                        }
+                        if ( n == "final" ) {
+                          return true;
+                        }
+                        if ( n == "private" ) {
+                          return true;
+                        }
+                        if ( n == "protected" ) {
+                          return true;
+                        }
+                        if ( n == "object" ) {
+                          return true;
+                        }
+                        return false;
+                      };
+                      adjustType (tn) {
+                        if ( this.scalaReserved(tn) ) {
+                          return ("`" + tn) + "`";
+                        }
+                        return tn;
+                      };
                       getObjectTypeString (type_string, ctx) {
                         if ( ctx.isDefinedClass(type_string) ) {
                           const cc = ctx.findClass(type_string);
@@ -32200,17 +32287,23 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             wr.indent(1);
                           }
                           wr.out("for( ", false);
+                          ctx.setInExpr();
                           await this.WalkNode(indexNode, ctx, wr);
                           wr.out(" <- 0 until ", false);
                           await this.WalkNode(listNode, ctx, wr);
+                          ctx.unsetInExpr();
                           wr.out(".length ) {", true);
                           wr.indent(1);
                           wr.out("val ", false);
+                          ctx.setInExpr();
                           await this.WalkNode(itemNode, ctx, wr);
+                          ctx.unsetInExpr();
                           wr.out(" = ", false);
+                          ctx.setInExpr();
                           await this.WalkNode(listNode, ctx, wr);
                           wr.out("(", false);
                           await this.WalkNode(indexNode, ctx, wr);
+                          ctx.unsetInExpr();
                           wr.out(")", true);
                           await this.WalkNode(bodyNode, ctx, wr);
                           wr.indent(-1);
@@ -32451,7 +32544,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                               wr.out("def ", false);
                               wr.out(" ", false);
-                              wr.out(variant_1.name + "(", false);
+                              wr.out(this.adjustType(variant_1.name) + "(", false);
                               await this.writeArgsDef(variant_1, ctx, wr);
                               wr.out(") : ", false);
                               await this.writeTypeDef(variant_1.nameNode, ctx, wr);
@@ -32520,7 +32613,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             wr.out("def ", false);
                             wr.out(" ", false);
-                            wr.out(variant_2.name + "(", false);
+                            wr.out(this.adjustType(variant_2.name) + "(", false);
                             await this.writeArgsDef(variant_2, ctx, wr);
                             wr.out(") : ", false);
                             await this.writeTypeDef(variant_2.nameNode, ctx, wr);

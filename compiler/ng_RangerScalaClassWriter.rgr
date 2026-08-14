@@ -2,6 +2,46 @@
   Extends ( RangerGenericClassWriter )
   def compiler:LiveCompiler
   def init_done false
+  ; Scala keywords are not usable as identifiers, and Ranger names are not
+  ; chosen with Scala in mind: `EvalValue` declares `sfn null` and `sfn object`,
+  ; which came out as `def null()` and `def object()` and stopped the parser
+  ; dead. Backticks are exactly the escape Scala provides for this. `this` is
+  ; excluded because it is written as the receiver, not as a name.
+  fn scalaReserved:boolean (n:string) {
+    if (n == "null") { return true }
+    if (n == "object") { return true }
+    if (n == "type") { return true }
+    if (n == "val") { return true }
+    if (n == "var") { return true }
+    if (n == "def") { return true }
+    if (n == "class") { return true }
+    if (n == "trait") { return true }
+    if (n == "match") { return true }
+    if (n == "case") { return true }
+    if (n == "implicit") { return true }
+    if (n == "lazy") { return true }
+    if (n == "sealed") { return true }
+    if (n == "override") { return true }
+    if (n == "new") { return true }
+    if (n == "with") { return true }
+    if (n == "yield") { return true }
+    if (n == "forSome") { return true }
+    if (n == "package") { return true }
+    if (n == "import") { return true }
+    if (n == "extends") { return true }
+    if (n == "abstract") { return true }
+    if (n == "final") { return true }
+    if (n == "private") { return true }
+    if (n == "protected") { return true }
+    if (n == "object") { return true }
+    return false
+  }
+  fn adjustType:string (tn:string) {
+    if (this.scalaReserved(tn)) {
+      return (("`" + tn) + "`")
+    }
+    return tn
+  }
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
 
     if(ctx.isDefinedClass(type_string)) {
@@ -450,20 +490,32 @@
           wr.indent(1)
         }
 
+        ; The list is an EXPRESSION here, not a statement. Walked without
+        ; saying so, a method call for the collection -- `for (this.keyAtoms())`
+        ; -- had a `;` and a newline appended in the middle of the loop header,
+        ; so the generated code read `0 until this.keyAtoms();` and then a
+        ; stray `.length ) {` on the next line. Every for-loop over a call
+        ; failed to parse.
         wr.out( 'for( ' false )
+        ctx.setInExpr()
         this.WalkNode( indexNode ctx wr )
         wr.out( ' <- 0 until ' false)
         this.WalkNode( listNode ctx wr )
+        ctx.unsetInExpr()
         wr.out('.length ) {' true}
         wr.indent(1)
         ;  "for (  " (e 3) " <- 0 until " (e 1) ".length ) {" nl I "val " (e 2) " = " (e 1) "(" (e 3) ")" nl (block 4) nl i "}" 
 
         wr.out('val ' false)
+        ctx.setInExpr()
         this.WalkNode( itemNode ctx wr )
+        ctx.unsetInExpr()
         wr.out(' = ' false)
+        ctx.setInExpr()
         this.WalkNode( listNode ctx wr )
         wr.out("(" false)
         this.WalkNode( indexNode ctx wr )
+        ctx.unsetInExpr()
         wr.out(')' true)
         
         this.WalkNode( bodyNode ctx wr )
@@ -733,7 +785,7 @@
           }
           wr.out("def " false)
           wr.out(" " false)
-          wr.out((variant.name + "(") false)
+          wr.out(((this.adjustType(variant.name)) + "(") false)
           this.writeArgsDef(variant ctx wr)
           wr.out(") : " false)
           this.writeTypeDef(( unwrap variant.nameNode ) ctx wr)
@@ -814,7 +866,7 @@
         }
         wr.out("def " false)
         wr.out(" " false)
-        wr.out((variant.name + "(") false)
+        wr.out(((this.adjustType(variant.name)) + "(") false)
         this.writeArgsDef(variant ctx wr)
         wr.out(") : " false)
         this.writeTypeDef(( unwrap variant.nameNode ) ctx wr)

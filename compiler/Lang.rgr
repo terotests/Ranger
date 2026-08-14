@@ -1002,6 +1002,9 @@ func r_io_get_env( name string) *GoNullable {
                 cpp ( "std::string(__g_argv[" (e 1) " + 1])")
                 php ( "$argv[" (e 1) " + 1]" )
                 java7 ( "args[" (e 1) "]")
+                ; The generated entry point is `object App… extends App`, so
+                ; `args` is in scope exactly as it is in a Java main.
+                scala ( "args(" (e 1) ")")
                 csharp ('Environment.GetCommandLineArgs()[' (e 1) ' + 1]' (imp "System"))
                 go ( "os.Args[" (e 1) " + 1]"  (imp "os"))
                 swift3 ("CommandLine.arguments[" (e 1) " + 1]")
@@ -1027,6 +1030,7 @@ func r_io_get_env( name string) *GoNullable {
                 csharp ('Environment.GetCommandLineArgs().Length - 1' (imp "System"))                
                 php ( "(count($argv) - 1)" )
                 java7 ( "args.length")
+                scala ( "args.length")
                 go ( "int64( len( os.Args) - 1 )"  (imp "os"))
                 es6 ( "(process.argv.length - 2)" )
                 rust ( "(std::env::args().len() as i64 - 1)")
@@ -3564,6 +3568,7 @@ static bool r_regex_test_i(string pattern, string s) {
                 rust ( "String::from_utf8_lossy(&" (e 1) ").to_string()" )
                 cpp ( "std::string(" (e 1) ".begin(), " (e 1) ".end())" )
                 java7 ( "new String(" (e 1) ", java.nio.charset.StandardCharsets.UTF_8)" )
+                scala ( "new String(" (e 1) ", java.nio.charset.StandardCharsets.UTF_8)" )
                 python ( (e 1) ".decode('utf-8')" )
                 dart ( (imp "dart:convert") "utf8.decode(" (e 1) ")" )
                 swift6 ( "String(bytes: " (e 1) ", encoding: .utf8) ?? \"\"" )
@@ -3648,6 +3653,9 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
 ")
                 )
                 java7 ( "java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(" (e 1) " + \"/\" + " (e 2) "))" )
+                ; Scala maps `buffer` to Array[Byte] exactly as Java does,
+                ; so the JVM spelling carries over unchanged.
+                scala ( "java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(" (e 1) " + \"/\" + " (e 2) "))" )
                 python ( "bytearray(open(" (e 1) " + '/' + " (e 2) ", 'rb').read())" )
                 swift6 ( "(try? Data(contentsOf: URL(fileURLWithPath: " (e 1) " + \"/\" + " (e 2) "))).map { Array($0) } ?? []" (imp "Foundation") )
                 csharp ( "System.IO.File.ReadAllBytes(" (e 1) " + \"/\" + " (e 2) ")" )

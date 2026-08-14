@@ -131,6 +131,11 @@ parameter is a copy, so a callee that appends to it grows nothing the caller can
 see). **Swift and C# are not verified** — no toolchain was available — and the
 Scala and Java runs were manual, since the harness has no helper for them yet.
 
+These fixtures are small programs. Passing them says the target handles the
+constructs they use, **not** that it can carry a large program: the JavaScript
+interpreter in `gallery/game_engine/v2/interp` builds only on ES6, C++ and Rust.
+See *How far the other targets get on the interpreter* below.
+
 <!-- BEGIN CONFORMANCE_TABLE -->
 | Fixture | Topic | Targets |
 | --- | --- | --- |
@@ -143,6 +148,35 @@ Scala and Java runs were manual, since the harness has no helper for them yet.
 | `string_codepoint_index` | Conformance: Unicode code-point string indexing (Issue #57) | ES6, Go, Python, PHP, Kotlin, Dart (when toolchain present) |
 | `while_loop` | Conformance: while loop control flow | ES6, Go, Python, PHP, Kotlin, Dart (when toolchain present) |
 <!-- END CONFORMANCE_TABLE -->
+
+### How far the other targets get on the interpreter
+
+The fixtures above are a few dozen lines each. The ComponentEngine interpreter
+is 65,000 lines of generated code and uses the whole language, so it is the
+real measure of a target. It builds on **ES6, C++ and Rust**. Scala was
+measured rather than assumed:
+
+| stage | result |
+|---|---|
+| Ranger → Scala source | **works** (after adding Scala spellings for `shell_arg`, `shell_arg_cnt`, `buffer_read_file` and `buffer_to_string`, which the JVM targets already had) |
+| `scalac` parse | **works** (after the two writer fixes below) |
+| `scalac` typecheck | **fails**, 220 errors |
+
+The two parse-level bugs were generic, not engine-specific, and are fixed:
+Scala keywords were emitted bare as member names (`EvalValue` declares
+`sfn null` and `sfn object`, so the output contained `def null()`), and a
+for-loop walked its collection expression at statement level, so
+`for (this.keyAtoms())` produced `0 until this.keyAtoms();` with a stray
+`.length ) {` on the next line.
+
+What remains is not a bug list but a missing feature. Almost every one of the
+220 errors is a union variant class or a singleton that was never emitted —
+`not found: type EvalValue_Null`, `value __singleton is not a member of object
+EvGcHeap`. The Scala writer maps a union to `Any` and stops there; C++ gets a
+`std::variant` and Rust gets an enum with a generated `RgIdentical` trait, and
+each of those was real work. Bringing Scala (or Kotlin, Dart, PHP, Python —
+none of which have it either) up to running the interpreter means implementing
+`shape`/union lowering and `@singleton` for that writer, not adding templates.
 
 ## Quick start
 
