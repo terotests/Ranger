@@ -6,10 +6,12 @@ import { fileURLToPath } from "url";
 import {
   compileAndRun,
   compileAndRunDart,
+  compileAndRunCSharp,
   compileAndRunPython,
   compileAndRunRust,
   compileRanger,
   getGeneratedRustCode,
+  isCSharpAvailable,
   isDartAvailable,
   isPythonAvailable,
   isRustAvailable,
@@ -132,6 +134,27 @@ describe("JSON operators", () => {
       expect(output).toContain(line);
     }
   }, 300000);
+
+  // C# holds the three shapes as Dictionary / List / object, the same mapping
+  // Go and Python use. The reader and the writer are hand written rather than
+  // System.Text.Json, so the generated code builds on Mono and on .NET alike
+  // with no package reference and the numbers keep the invariant culture.
+  it.skipIf(!isCSharpAvailable())(
+    "round trips an object through text on C#",
+    () => {
+      const { compile, run } = compileAndRunCSharp(FIXTURE);
+
+      expect(
+        compile.success,
+        `Compile failed: ${compile.error || compile.output}`
+      ).toBe(true);
+      expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+      for (const line of EXPECTED) {
+        expect(run?.output).toContain(line);
+      }
+    },
+    120000
+  );
 
   it.skipIf(!isRustAvailable())(
     "round trips an object through text on Rust",

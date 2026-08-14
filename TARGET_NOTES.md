@@ -21,7 +21,7 @@ dropped the call. That form is how the engine writes a for-loop update. Go and
 Python failed to compile; C# compiled and ran with infinite loops until the
 interpreter guard stopped them. The writers now keep the statement live.
 
-## Cross-target gate: the compiler itself, on C++, Dart and Python
+## Cross-target gate: the compiler itself, on C++, Dart, Python and C#
 
 The compiler is self-hosting, but until now only its **JavaScript** output was
 exercised. Compiling the compiler for another target is a different question,
@@ -87,10 +87,26 @@ RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr" \
 Its output is **byte-identical** to the Node build's as well, and reproduces
 itself the same way.
 
-`npm test` runs the codegen for all three and checks the result — `g++
--fsyntax-only` for C++, `dart analyze` for Dart, `py_compile` for Python
-(`tests/compiler-selfhost.test.ts`, ~50 s together). The binary build and the
-bootstrap rounds are a manual step.
+**C#** is the fourth. Mono's `mcs` is enough — nothing generated needs a
+language version past C# 7, and the JSON runtime is hand written rather than
+`System.Text.Json`, so the same file builds on .NET too:
+
+```bash
+npm run selfhost:build:csharp   # generate the C#, build it with mcs, copy the library
+
+cd tmp/selfhost-csharp && RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr" \
+  mono ranger_compiler.exe -es6 ../../compiler/ng_Compiler.rgr -nodecli \
+    -d=../../tmp/self -o=output.js
+```
+
+Its output is **byte-identical** to the Node build's, the compiler that comes
+out of it reproduces that file exactly, and asking the C# build for C# gives
+back the same 1.98 MB source it was built from.
+
+`npm test` runs the codegen for all four and checks the result — `g++
+-fsyntax-only` for C++, `dart analyze` for Dart, `py_compile` for Python, `mcs`
+for C# (`tests/compiler-selfhost.test.ts`, ~50 s together). The binary build and
+the bootstrap rounds are a manual step.
 
 ### What C++ took
 
@@ -268,6 +284,78 @@ and the `charbuffer` overloads of `length` / `charAt` / `substring` — Python
 passes a charbuffer through as a `str`, so the JavaScript String methods of the
 fallback did not apply.
 
+### What C# took
+
+C# started at 499, and every one of them was downstream of `JSON.rgr` having no
+`csharp` template: an unknown `JSONDataObject` made 77 "Unknown type" errors and
+the rest cascaded through them. The shapes are `Dictionary<string, object>`,
+`List<object>` and `object`, the same mapping Go and Python use, and the reader
+and the writer are hand written rather than `System.Text.Json` so the generated
+file builds on Mono and on .NET alike with no package reference.
+
+After that the compiler reported zero and `mcs` reported 188. Two of the things
+it found are worth naming, because neither was an error anywhere — they were
+**warnings and a program that ran**:
+
+1. **A subclass field that redeclares a parent's field is a second storage
+   slot.** `RangerAppFunctionDesc` redeclares `name`, `node`, `nameNode` and
+   five more from `RangerAppParamDesc`, all with the same initializer, the way
+   JavaScript lets you. In C# a write through the subclass and a read through a
+   base-typed reference then touch different memory. The writer now skips a
+   variable an ancestor already declares, which is one slot, like every other
+   target.
+2. **A subclass method that redeclares a parent's method without `override` is
+   a second method**, and a call through a base-typed reference runs the *base*
+   one. Every language writer redeclares `writeClass` from
+   `RangerGenericClassWriter`, so `langWriter.writeClass(...)` ran the generic
+   placeholder: the C# build of the compiler emitted
+   `class LambdaHoist { /* static main */ }` for every target and reported
+   success. The writer now emits `virtual` on a method of a class that is
+   extended and `override` when an ancestor declares the same compiled name
+   with the same argument count. That removed 894 CS0108 warnings with it.
+
+Then three more, all C#-specific:
+
+3. **A lambda parameter may not reuse a name that is live in an enclosing
+   scope** (CS0136). `xs.forEach({ ys.forEach({ ... }) })` writes the implicit
+   `item` and `index` twice, and that shape is 96 of the 188. The writer renames
+   the inner parameter — renaming the ParamDesc renames the reads with it.
+4. **A nested collection kept its Ranger spelling.** `[string:[string]]` came
+   out as `Dictionary<String,[string]>`; the C# writer got the recursive
+   conversion the Dart writer already had.
+5. **`removeLast` wrote `Array.Resize`**, which is for `T[]` and not for
+   `List<T>` — 84 errors from one line.
+
+Plus the operators: `read_file`, `write_file`, `create_dir` and `dir_exists`
+were **stubs that compiled to a comment**, so the C# compiler would have
+reported success and written nothing; `normalize`, `path_dirname` and
+`install_directory` fell to the `*` fallback, which is the literal `"./"`, so
+the library search path collapsed and no import resolved; `env_var`, `sha256`,
+`sort`, `clear`, `length`, `indexOf`, `remove_index`, `array_extract`,
+`double2str`, `current_time_ms` and the `charbuffer` overloads of `substring`
+and `to_charbuffer` had no entry or a wrong one. `str2int` and `str2double`
+returned a plain `int`/`double` where the operator declares an optional, and
+`charcode` returned `int` where the declared type is `char`.
+
+Two of the existing C# entries were quietly wrong rather than missing:
+
+- `to_charbuffer` used `Encoding.ASCII.GetBytes`, which writes `0x3F` for every
+  byte over 127 — a source file with one non-ASCII character would have parsed
+  as question marks. It is UTF-8 now, and `substring` over a charbuffer decodes
+  the same way (its old entry named `Encoding.UTF`, which is not a type, and
+  passed an end index where `GetRange` takes a count).
+- `strsplit` split on `token[0]`, the **first character** of the delimiter. The
+  parser normalizes line endings by splitting on the two-character sequence
+  CR LF, so splitting on CR alone left every LF behind as an extra empty field:
+  the C# build doubled the newline inside every multi-line string literal it
+  read. That was the last difference between its output and the Node build's.
+
+One more thing the C# target needs that the others do not: a `create_polyfill`
+lands in the `utilities` tag, and the C# writer opens that tag **inside a class
+body**, so a helper written there is a private member of whichever class
+happened to claim it. Every helper added here goes to `after_imports` as a
+file-scope `static class` instead.
+
 ### The same self-compile on the other targets
 
 Measured with `node bin/output.js -l=<target> ./compiler/ng_Compiler.rgr
@@ -278,11 +366,14 @@ Measured with `node bin/output.js -l=<target> ./compiler/ng_Compiler.rgr
 | C++ | **0** | — builds and runs, see above |
 | Dart | **0** | — `dart analyze` clean, runs, see above |
 | Python | **0** | — `py_compile` clean, runs, see above |
-| Go | **0** | generates ~70k lines; `go build` then reports the three defects below |
+| C# | **0** | — `mcs` clean, runs, see above |
+| Go | **0** | generates ~70k lines; `go build` then reports the two defects below |
+| PHP | **0** | not built or run |
 | Swift 6 | 12 | |
 | Rust | 16 | |
+| Java 7 | 16 | |
 | Kotlin | 19 | |
-| C# | 499 | |
+| Scala | 467 | no JSON templates, the same wall C++, Dart and C# started at |
 
 Go reached zero the same way C++ did — `RangerCompilerPlugin` is a systemclass
 and named no Go type, so the single error was the plugin loader. What `go

@@ -10,6 +10,7 @@ systemclass RangerCompilerPlugin {
     go "interface{}"
     dart "Object?"
     python object
+    csharp object
 }
 
 operators {
@@ -20,6 +21,7 @@ operators {
             go ( "nil" )
             dart ( "null" )
             python ( "None" )
+            csharp ( "null" )
             * ()
         }
     }
@@ -31,6 +33,7 @@ operators {
             go ( "[]string{}" )
             dart ( "<String>[]" )
             python ( "[]" )
+            csharp ( "new System.Collections.Generic.List<String>()" )
             * ()
         }
     }
@@ -42,6 +45,7 @@ operators {
             go ( "/* no plugin host on this target */" )
             dart ( "/* no plugin host on this target */" )
             python ( "pass  # no plugin host on this target" )
+            csharp ( "/* no plugin host on this target */" )
             * ()
         }
     }
@@ -54,6 +58,7 @@ operators {
             go ( "/* no plugin host on this target */" )
             dart ( "/* no plugin host on this target */" )
             python ( "pass  # no plugin host on this target" )
+            csharp ( "/* no plugin host on this target */" )
             * ()
         }
     }
@@ -64,6 +69,7 @@ operators {
             go ( "/* no plugin host on this target */" )
             dart ( "/* no plugin host on this target */" )
             python ( "pass  # no plugin host on this target" )
+            csharp ( "/* no plugin host on this target */" )
             * ()
         }
     }

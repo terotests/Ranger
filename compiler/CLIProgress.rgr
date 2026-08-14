@@ -119,6 +119,9 @@ operators {
             es6 ( "Date.now()" )
             go ( "float64(time.Now().UnixMilli())" )
             cpp ( "((double)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count())" (imp "<chrono>") )
+            csharp ( "(System.DateTime.UtcNow - new System.DateTime(1970, 1, 1, 0, 0, 0, System.DateTimeKind.Utc)).TotalMilliseconds" )
+            dart ( "DateTime.now().millisecondsSinceEpoch.toDouble()" )
+            python ( "(time.time() * 1000.0)" (imp "time") )
             * ( "0.0" )
         }
     }

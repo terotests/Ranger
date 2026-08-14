@@ -9,6 +9,8 @@ import {
   compileRangerToDart,
   compileAndRunDart,
   compileAndRunPython,
+  compileAndRunCSharp,
+  isCSharpAvailable,
   isDartAvailable,
 } from "./helpers/compiler";
 
@@ -195,6 +197,65 @@ describe("self-hosting: the compiler compiles for Python", () => {
   }, 600000);
 });
 
+// C# started at 499, all of it downstream of JSON.rgr having no `csharp`
+// template. The two that mattered came later, and neither was an error: C#
+// gives a subclass field that redeclares a parent's field a SECOND storage slot,
+// and a subclass method that redeclares a parent's method without `override` is
+// a second method — so `langWriter.writeClass(...)`, called through the base
+// type, ran the generic placeholder and the compiler emitted
+// `class X { /* static main */ }` for every target while reporting success.
+describe("self-hosting: the compiler compiles for C#", () => {
+  const OUT = path.join(ROOT, "tests", ".output-selfhost-csharp");
+
+  it("generates C# from the compiler's own sources", () => {
+    fs.mkdirSync(OUT, { recursive: true });
+
+    const result = compileRanger("compiler/ng_Compiler.rgr", "csharp", OUT);
+    expect(
+      result.success,
+      `C# codegen failed: ${result.error || result.output}`
+    ).toBe(true);
+
+    const generated = path.join(OUT, "ng_Compiler.cs");
+    expect(fs.existsSync(generated), `missing ${generated}`).toBe(true);
+
+    const code = fs.readFileSync(generated, "utf-8");
+    // the JSON runtime the @serialize classes need, under its C# name
+    expect(code).toContain("static class RgJson");
+    expect(code).not.toMatch(/\bJSONDataObject\s+\w+\s*[=;]/);
+    // the writers override rather than hide, or every call through
+    // RangerGenericClassWriter runs the base method
+    expect(code).toMatch(/public override void writeClass\(/);
+    expect(code).toMatch(/public virtual void writeClass\(/);
+    // a nested collection reaches the output as a C# type, not "[string]"
+    expect(code).not.toContain(",[string]>");
+    // the file operators are implemented rather than stubbed out — a compiler
+    // that writes nothing and reports success is worse than one that errors
+    expect(code).not.toContain("write_file not implemented");
+    expect(code).toContain("static class RgFiles");
+  }, 300000);
+
+  // The C# compiler is the step that catches a template producing
+  // syntactically or semantically wrong C#. Mono's mcs is enough: nothing here
+  // needs a language version past 7.
+  const mcsAvailable = has("mcs --version");
+  const mcsIt = mcsAvailable ? it : it.skip;
+
+  mcsIt("the generated C# builds", () => {
+    const generated = path.join(OUT, "ng_Compiler.cs");
+    expect(
+      fs.existsSync(generated),
+      "run the codegen test first — no ng_Compiler.cs"
+    ).toBe(true);
+
+    execSync(`mcs -langversion:latest -out:ng_Compiler.exe "${generated}"`, {
+      cwd: OUT,
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 600000,
+    });
+  }, 900000);
+});
+
 // A lambda with a body, and one nested in another. Python has no
 // multi-statement lambda, so this is the shape the hoisting has to preserve:
 // the counters are assigned from inside the closure, which is what needs
@@ -231,6 +292,22 @@ describe("a lambda with a body runs the same on every target", () => {
   const dartAvailable2 = isDartAvailable();
   (dartAvailable2 ? it : it.skip)("runs on Dart", () => {
     const { compile, run } = compileAndRunDart(FIXTURE);
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+    for (const line of EXPECTED) {
+      expect(run?.output).toContain(line);
+    }
+  }, 120000);
+
+  // The nested forEach in this fixture writes `item` and `index` twice, which
+  // C# rejects: a lambda parameter may not reuse a name that is live in an
+  // enclosing scope. 96 of the errors the generated compiler produced were this
+  // one shape.
+  (isCSharpAvailable() ? it : it.skip)("runs on C#", () => {
+    const { compile, run } = compileAndRunCSharp(FIXTURE);
     expect(
       compile.success,
       `Compile failed: ${compile.error || compile.output}`

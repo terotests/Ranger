@@ -28,6 +28,7 @@ systemclass JSONDataObject {
     rust "std::collections::HashMap<String, RJson>"
     cpp "rg_json_obj"
     dart "Map<String, dynamic>"
+    csharp "System.Collections.Generic.Dictionary<string, object>"
 }
 
 systemclass JSONArrayObject {
@@ -41,6 +42,7 @@ systemclass JSONArrayObject {
     rust "Vec<RJson>"
     cpp "rg_json_arr"
     dart "List<dynamic>"
+    csharp "System.Collections.Generic.List<object>"
 }
 
 systemclass JSONKeyValue {
@@ -58,6 +60,7 @@ systemclass JSONValueUnion {
     rust RJson
     cpp "rg_json_val"
     dart "dynamic"
+    csharp "object"
 }
 
 systemunion JSONValueUnion ( JSONDataObject JSONArrayObject string int double boolean )
@@ -92,6 +95,192 @@ operators {
 
     print _:void (e:JSONDataObject) {
          templates {
+             csharp ( "Console.WriteLine(RgJson.Str(" (e 1) "));" (imp "System")
+             (polyfill "after_imports" "
+// The JSON value on the C# target: an object is a Dictionary, an array is a
+// List and a value is the boxed object inside them, which is what `case v
+// x:JSONDataObject` type-tests against.
+static class RgJson {
+  public static object Get(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v;
+    if (o != null && o.TryGetValue(k, out v)) { return v; }
+    return null;
+  }
+  public static string GetStr(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as string; }
+  public static System.Collections.Generic.Dictionary<string, object> GetObj(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as System.Collections.Generic.Dictionary<string, object>; }
+  public static System.Collections.Generic.List<object> GetArr(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as System.Collections.Generic.List<object>; }
+  public static bool? GetBool(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is bool) { return (bool)v; }
+    return null;
+  }
+  // A JSON number reads back as int or double and the two are distinct types,
+  // so each getter accepts both and converts, the way the Dart, Python and Rust
+  // entries do.
+  public static int? GetInt(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is int) { return (int)v; }
+    if (v is double) { return (int)(double)v; }
+    return null;
+  }
+  public static double? GetDouble(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is double) { return (double)v; }
+    if (v is int) { return (double)(int)v; }
+    return null;
+  }
+  public static System.Collections.Generic.List<object> AsArr(object v) { return v as System.Collections.Generic.List<object>; }
+  public static object At(System.Collections.Generic.List<object> a, int i) {
+    if (a != null && i >= 0 && i < a.Count) { return a[i]; }
+    return null;
+  }
+  static readonly char[] Hexd = new char[] { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f' };
+  static void WriteStr(string s, System.Text.StringBuilder o) {
+    o.Append((char)34);
+    for (int i = 0; i < s.Length; i++) {
+      char c = s[i];
+      if (c == (char)34 || c == (char)92) { o.Append((char)92); o.Append(c); }
+      else if (c == (char)10) { o.Append((char)92); o.Append('n'); }
+      else if (c == (char)13) { o.Append((char)92); o.Append('r'); }
+      else if (c == (char)9) { o.Append((char)92); o.Append('t'); }
+      else if (c < (char)32) {
+        o.Append((char)92); o.Append('u'); o.Append('0'); o.Append('0');
+        o.Append(Hexd[((int)c >> 4) & 15]); o.Append(Hexd[(int)c & 15]);
+      }
+      else { o.Append(c); }
+    }
+    o.Append((char)34);
+  }
+  static void Write(object v, System.Text.StringBuilder o) {
+    if (v == null) { o.Append(\"null\"); return; }
+    if (v is string) { WriteStr((string)v, o); return; }
+    if (v is bool) { o.Append(((bool)v) ? \"true\" : \"false\"); return; }
+    if (v is int) { o.Append(((int)v).ToString(System.Globalization.CultureInfo.InvariantCulture)); return; }
+    if (v is long) { o.Append(((long)v).ToString(System.Globalization.CultureInfo.InvariantCulture)); return; }
+    if (v is double) {
+      string t = ((double)v).ToString(\"R\", System.Globalization.CultureInfo.InvariantCulture);
+      if (t.IndexOf('.') < 0 && t.IndexOf('e') < 0 && t.IndexOf('E') < 0) { t = t + \".0\"; }
+      o.Append(t);
+      return;
+    }
+    if (v is System.Collections.Generic.Dictionary<string, object>) {
+      System.Collections.Generic.Dictionary<string, object> m = (System.Collections.Generic.Dictionary<string, object>)v;
+      o.Append('{');
+      bool first = true;
+      foreach (System.Collections.Generic.KeyValuePair<string, object> kv in m) {
+        if (!first) { o.Append(','); }
+        first = false;
+        WriteStr(kv.Key, o);
+        o.Append(':');
+        Write(kv.Value, o);
+      }
+      o.Append('}');
+      return;
+    }
+    if (v is System.Collections.Generic.List<object>) {
+      System.Collections.Generic.List<object> a = (System.Collections.Generic.List<object>)v;
+      o.Append('[');
+      for (int i = 0; i < a.Count; i++) {
+        if (i > 0) { o.Append(','); }
+        Write(a[i], o);
+      }
+      o.Append(']');
+      return;
+    }
+    o.Append(\"null\");
+  }
+  public static string Str(object v) {
+    System.Text.StringBuilder o = new System.Text.StringBuilder();
+    Write(v, o);
+    return o.ToString();
+  }
+  static void SkipWs(string s, ref int i) {
+    while (i < s.Length && (s[i] == ' ' || s[i] == (char)9 || s[i] == (char)10 || s[i] == (char)13)) { i++; }
+  }
+  static string ReadStr(string s, ref int i) {
+    System.Text.StringBuilder o = new System.Text.StringBuilder();
+    if (i < s.Length && s[i] == (char)34) { i++; }
+    while (i < s.Length && s[i] != (char)34) {
+      char c = s[i];
+      if (c == (char)92 && (i + 1) < s.Length) {
+        i++;
+        char e = s[i];
+        if (e == 'n') { o.Append((char)10); }
+        else if (e == 'r') { o.Append((char)13); }
+        else if (e == 't') { o.Append((char)9); }
+        else if (e == 'b') { o.Append((char)8); }
+        else if (e == 'f') { o.Append((char)12); }
+        else if (e == 'u' && (i + 4) < s.Length) {
+          o.Append((char)System.Convert.ToInt32(s.Substring(i + 1, 4), 16));
+          i = i + 4;
+        }
+        else { o.Append(e); }
+        i++;
+        continue;
+      }
+      o.Append(c);
+      i++;
+    }
+    if (i < s.Length) { i++; }
+    return o.ToString();
+  }
+  static object Read(string s, ref int i) {
+    SkipWs(s, ref i);
+    if (i >= s.Length) { return null; }
+    char c = s[i];
+    if (c == '{') {
+      i++;
+      System.Collections.Generic.Dictionary<string, object> o = new System.Collections.Generic.Dictionary<string, object>();
+      while (true) {
+        SkipWs(s, ref i);
+        if (i >= s.Length) { break; }
+        if (s[i] == '}') { i++; break; }
+        if (s[i] == ',') { i++; continue; }
+        string k = ReadStr(s, ref i);
+        SkipWs(s, ref i);
+        if (i < s.Length && s[i] == ':') { i++; }
+        o[k] = Read(s, ref i);
+      }
+      return o;
+    }
+    if (c == '[') {
+      i++;
+      System.Collections.Generic.List<object> a = new System.Collections.Generic.List<object>();
+      while (true) {
+        SkipWs(s, ref i);
+        if (i >= s.Length) { break; }
+        if (s[i] == ']') { i++; break; }
+        if (s[i] == ',') { i++; continue; }
+        a.Add(Read(s, ref i));
+      }
+      return a;
+    }
+    if (c == (char)34) { return ReadStr(s, ref i); }
+    if (c == 't') { i = i + 4; return true; }
+    if (c == 'f') { i = i + 5; return false; }
+    if (c == 'n') { i = i + 4; return null; }
+    int start = i;
+    bool isDouble = false;
+    while (i < s.Length) {
+      char d = s[i];
+      if (d == '.' || d == 'e' || d == 'E') { isDouble = true; }
+      else if (!(d == '-' || d == '+' || (d >= '0' && d <= '9'))) { break; }
+      i++;
+    }
+    string text = s.Substring(start, i - start);
+    if (text.Length == 0) { i++; return null; }
+    if (isDouble) { return double.Parse(text, System.Globalization.CultureInfo.InvariantCulture); }
+    return int.Parse(text, System.Globalization.CultureInfo.InvariantCulture);
+  }
+  public static System.Collections.Generic.Dictionary<string, object> Parse(string s) {
+    int i = 0;
+    object v = Read(s, ref i);
+    if (v is System.Collections.Generic.Dictionary<string, object>) { return (System.Collections.Generic.Dictionary<string, object>)v; }
+    throw new System.Exception(\"Invalid JSON\");
+  }
+}
+")
+             )
              dart ( "print(jsonEncode(" (e 1) "));" (imp "dart:convert") )
              cpp ( "std::cout << rg_json_obj_to_string(" (e 1) ") << std::endl;" (imp "<iostream>")
              (create_polyfill "
@@ -202,6 +391,192 @@ inline std::string rg_json_arr_to_string(const rg_json_arr& a) { std::string out
 
     getStr _@(optional):string (e:JSONDataObject key:string) {
          templates {
+             csharp ( "RgJson.GetStr(" (e 1) ", " (e 2) ")"
+             (polyfill "after_imports" "
+// The JSON value on the C# target: an object is a Dictionary, an array is a
+// List and a value is the boxed object inside them, which is what `case v
+// x:JSONDataObject` type-tests against.
+static class RgJson {
+  public static object Get(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v;
+    if (o != null && o.TryGetValue(k, out v)) { return v; }
+    return null;
+  }
+  public static string GetStr(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as string; }
+  public static System.Collections.Generic.Dictionary<string, object> GetObj(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as System.Collections.Generic.Dictionary<string, object>; }
+  public static System.Collections.Generic.List<object> GetArr(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as System.Collections.Generic.List<object>; }
+  public static bool? GetBool(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is bool) { return (bool)v; }
+    return null;
+  }
+  // A JSON number reads back as int or double and the two are distinct types,
+  // so each getter accepts both and converts, the way the Dart, Python and Rust
+  // entries do.
+  public static int? GetInt(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is int) { return (int)v; }
+    if (v is double) { return (int)(double)v; }
+    return null;
+  }
+  public static double? GetDouble(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is double) { return (double)v; }
+    if (v is int) { return (double)(int)v; }
+    return null;
+  }
+  public static System.Collections.Generic.List<object> AsArr(object v) { return v as System.Collections.Generic.List<object>; }
+  public static object At(System.Collections.Generic.List<object> a, int i) {
+    if (a != null && i >= 0 && i < a.Count) { return a[i]; }
+    return null;
+  }
+  static readonly char[] Hexd = new char[] { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f' };
+  static void WriteStr(string s, System.Text.StringBuilder o) {
+    o.Append((char)34);
+    for (int i = 0; i < s.Length; i++) {
+      char c = s[i];
+      if (c == (char)34 || c == (char)92) { o.Append((char)92); o.Append(c); }
+      else if (c == (char)10) { o.Append((char)92); o.Append('n'); }
+      else if (c == (char)13) { o.Append((char)92); o.Append('r'); }
+      else if (c == (char)9) { o.Append((char)92); o.Append('t'); }
+      else if (c < (char)32) {
+        o.Append((char)92); o.Append('u'); o.Append('0'); o.Append('0');
+        o.Append(Hexd[((int)c >> 4) & 15]); o.Append(Hexd[(int)c & 15]);
+      }
+      else { o.Append(c); }
+    }
+    o.Append((char)34);
+  }
+  static void Write(object v, System.Text.StringBuilder o) {
+    if (v == null) { o.Append(\"null\"); return; }
+    if (v is string) { WriteStr((string)v, o); return; }
+    if (v is bool) { o.Append(((bool)v) ? \"true\" : \"false\"); return; }
+    if (v is int) { o.Append(((int)v).ToString(System.Globalization.CultureInfo.InvariantCulture)); return; }
+    if (v is long) { o.Append(((long)v).ToString(System.Globalization.CultureInfo.InvariantCulture)); return; }
+    if (v is double) {
+      string t = ((double)v).ToString(\"R\", System.Globalization.CultureInfo.InvariantCulture);
+      if (t.IndexOf('.') < 0 && t.IndexOf('e') < 0 && t.IndexOf('E') < 0) { t = t + \".0\"; }
+      o.Append(t);
+      return;
+    }
+    if (v is System.Collections.Generic.Dictionary<string, object>) {
+      System.Collections.Generic.Dictionary<string, object> m = (System.Collections.Generic.Dictionary<string, object>)v;
+      o.Append('{');
+      bool first = true;
+      foreach (System.Collections.Generic.KeyValuePair<string, object> kv in m) {
+        if (!first) { o.Append(','); }
+        first = false;
+        WriteStr(kv.Key, o);
+        o.Append(':');
+        Write(kv.Value, o);
+      }
+      o.Append('}');
+      return;
+    }
+    if (v is System.Collections.Generic.List<object>) {
+      System.Collections.Generic.List<object> a = (System.Collections.Generic.List<object>)v;
+      o.Append('[');
+      for (int i = 0; i < a.Count; i++) {
+        if (i > 0) { o.Append(','); }
+        Write(a[i], o);
+      }
+      o.Append(']');
+      return;
+    }
+    o.Append(\"null\");
+  }
+  public static string Str(object v) {
+    System.Text.StringBuilder o = new System.Text.StringBuilder();
+    Write(v, o);
+    return o.ToString();
+  }
+  static void SkipWs(string s, ref int i) {
+    while (i < s.Length && (s[i] == ' ' || s[i] == (char)9 || s[i] == (char)10 || s[i] == (char)13)) { i++; }
+  }
+  static string ReadStr(string s, ref int i) {
+    System.Text.StringBuilder o = new System.Text.StringBuilder();
+    if (i < s.Length && s[i] == (char)34) { i++; }
+    while (i < s.Length && s[i] != (char)34) {
+      char c = s[i];
+      if (c == (char)92 && (i + 1) < s.Length) {
+        i++;
+        char e = s[i];
+        if (e == 'n') { o.Append((char)10); }
+        else if (e == 'r') { o.Append((char)13); }
+        else if (e == 't') { o.Append((char)9); }
+        else if (e == 'b') { o.Append((char)8); }
+        else if (e == 'f') { o.Append((char)12); }
+        else if (e == 'u' && (i + 4) < s.Length) {
+          o.Append((char)System.Convert.ToInt32(s.Substring(i + 1, 4), 16));
+          i = i + 4;
+        }
+        else { o.Append(e); }
+        i++;
+        continue;
+      }
+      o.Append(c);
+      i++;
+    }
+    if (i < s.Length) { i++; }
+    return o.ToString();
+  }
+  static object Read(string s, ref int i) {
+    SkipWs(s, ref i);
+    if (i >= s.Length) { return null; }
+    char c = s[i];
+    if (c == '{') {
+      i++;
+      System.Collections.Generic.Dictionary<string, object> o = new System.Collections.Generic.Dictionary<string, object>();
+      while (true) {
+        SkipWs(s, ref i);
+        if (i >= s.Length) { break; }
+        if (s[i] == '}') { i++; break; }
+        if (s[i] == ',') { i++; continue; }
+        string k = ReadStr(s, ref i);
+        SkipWs(s, ref i);
+        if (i < s.Length && s[i] == ':') { i++; }
+        o[k] = Read(s, ref i);
+      }
+      return o;
+    }
+    if (c == '[') {
+      i++;
+      System.Collections.Generic.List<object> a = new System.Collections.Generic.List<object>();
+      while (true) {
+        SkipWs(s, ref i);
+        if (i >= s.Length) { break; }
+        if (s[i] == ']') { i++; break; }
+        if (s[i] == ',') { i++; continue; }
+        a.Add(Read(s, ref i));
+      }
+      return a;
+    }
+    if (c == (char)34) { return ReadStr(s, ref i); }
+    if (c == 't') { i = i + 4; return true; }
+    if (c == 'f') { i = i + 5; return false; }
+    if (c == 'n') { i = i + 4; return null; }
+    int start = i;
+    bool isDouble = false;
+    while (i < s.Length) {
+      char d = s[i];
+      if (d == '.' || d == 'e' || d == 'E') { isDouble = true; }
+      else if (!(d == '-' || d == '+' || (d >= '0' && d <= '9'))) { break; }
+      i++;
+    }
+    string text = s.Substring(start, i - start);
+    if (text.Length == 0) { i++; return null; }
+    if (isDouble) { return double.Parse(text, System.Globalization.CultureInfo.InvariantCulture); }
+    return int.Parse(text, System.Globalization.CultureInfo.InvariantCulture);
+  }
+  public static System.Collections.Generic.Dictionary<string, object> Parse(string s) {
+    int i = 0;
+    object v = Read(s, ref i);
+    if (v is System.Collections.Generic.Dictionary<string, object>) { return (System.Collections.Generic.Dictionary<string, object>)v; }
+    throw new System.Exception(\"Invalid JSON\");
+  }
+}
+")
+             )
              dart ( "rg_json_get_str(" (e 1) ", " (e 2) ")"
              (create_polyfill "
 Map<String, dynamic>? rg_json_get_obj(Map<String, dynamic> o, String k) {
@@ -386,6 +761,192 @@ fn r_json_get_str(o: &std::collections::HashMap<String, RJson>, k: &str) -> Opti
 
     getInt _@(optional):int (e:JSONDataObject key:string) {
          templates {
+             csharp ( "RgJson.GetInt(" (e 1) ", " (e 2) ")"
+             (polyfill "after_imports" "
+// The JSON value on the C# target: an object is a Dictionary, an array is a
+// List and a value is the boxed object inside them, which is what `case v
+// x:JSONDataObject` type-tests against.
+static class RgJson {
+  public static object Get(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v;
+    if (o != null && o.TryGetValue(k, out v)) { return v; }
+    return null;
+  }
+  public static string GetStr(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as string; }
+  public static System.Collections.Generic.Dictionary<string, object> GetObj(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as System.Collections.Generic.Dictionary<string, object>; }
+  public static System.Collections.Generic.List<object> GetArr(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as System.Collections.Generic.List<object>; }
+  public static bool? GetBool(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is bool) { return (bool)v; }
+    return null;
+  }
+  // A JSON number reads back as int or double and the two are distinct types,
+  // so each getter accepts both and converts, the way the Dart, Python and Rust
+  // entries do.
+  public static int? GetInt(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is int) { return (int)v; }
+    if (v is double) { return (int)(double)v; }
+    return null;
+  }
+  public static double? GetDouble(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is double) { return (double)v; }
+    if (v is int) { return (double)(int)v; }
+    return null;
+  }
+  public static System.Collections.Generic.List<object> AsArr(object v) { return v as System.Collections.Generic.List<object>; }
+  public static object At(System.Collections.Generic.List<object> a, int i) {
+    if (a != null && i >= 0 && i < a.Count) { return a[i]; }
+    return null;
+  }
+  static readonly char[] Hexd = new char[] { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f' };
+  static void WriteStr(string s, System.Text.StringBuilder o) {
+    o.Append((char)34);
+    for (int i = 0; i < s.Length; i++) {
+      char c = s[i];
+      if (c == (char)34 || c == (char)92) { o.Append((char)92); o.Append(c); }
+      else if (c == (char)10) { o.Append((char)92); o.Append('n'); }
+      else if (c == (char)13) { o.Append((char)92); o.Append('r'); }
+      else if (c == (char)9) { o.Append((char)92); o.Append('t'); }
+      else if (c < (char)32) {
+        o.Append((char)92); o.Append('u'); o.Append('0'); o.Append('0');
+        o.Append(Hexd[((int)c >> 4) & 15]); o.Append(Hexd[(int)c & 15]);
+      }
+      else { o.Append(c); }
+    }
+    o.Append((char)34);
+  }
+  static void Write(object v, System.Text.StringBuilder o) {
+    if (v == null) { o.Append(\"null\"); return; }
+    if (v is string) { WriteStr((string)v, o); return; }
+    if (v is bool) { o.Append(((bool)v) ? \"true\" : \"false\"); return; }
+    if (v is int) { o.Append(((int)v).ToString(System.Globalization.CultureInfo.InvariantCulture)); return; }
+    if (v is long) { o.Append(((long)v).ToString(System.Globalization.CultureInfo.InvariantCulture)); return; }
+    if (v is double) {
+      string t = ((double)v).ToString(\"R\", System.Globalization.CultureInfo.InvariantCulture);
+      if (t.IndexOf('.') < 0 && t.IndexOf('e') < 0 && t.IndexOf('E') < 0) { t = t + \".0\"; }
+      o.Append(t);
+      return;
+    }
+    if (v is System.Collections.Generic.Dictionary<string, object>) {
+      System.Collections.Generic.Dictionary<string, object> m = (System.Collections.Generic.Dictionary<string, object>)v;
+      o.Append('{');
+      bool first = true;
+      foreach (System.Collections.Generic.KeyValuePair<string, object> kv in m) {
+        if (!first) { o.Append(','); }
+        first = false;
+        WriteStr(kv.Key, o);
+        o.Append(':');
+        Write(kv.Value, o);
+      }
+      o.Append('}');
+      return;
+    }
+    if (v is System.Collections.Generic.List<object>) {
+      System.Collections.Generic.List<object> a = (System.Collections.Generic.List<object>)v;
+      o.Append('[');
+      for (int i = 0; i < a.Count; i++) {
+        if (i > 0) { o.Append(','); }
+        Write(a[i], o);
+      }
+      o.Append(']');
+      return;
+    }
+    o.Append(\"null\");
+  }
+  public static string Str(object v) {
+    System.Text.StringBuilder o = new System.Text.StringBuilder();
+    Write(v, o);
+    return o.ToString();
+  }
+  static void SkipWs(string s, ref int i) {
+    while (i < s.Length && (s[i] == ' ' || s[i] == (char)9 || s[i] == (char)10 || s[i] == (char)13)) { i++; }
+  }
+  static string ReadStr(string s, ref int i) {
+    System.Text.StringBuilder o = new System.Text.StringBuilder();
+    if (i < s.Length && s[i] == (char)34) { i++; }
+    while (i < s.Length && s[i] != (char)34) {
+      char c = s[i];
+      if (c == (char)92 && (i + 1) < s.Length) {
+        i++;
+        char e = s[i];
+        if (e == 'n') { o.Append((char)10); }
+        else if (e == 'r') { o.Append((char)13); }
+        else if (e == 't') { o.Append((char)9); }
+        else if (e == 'b') { o.Append((char)8); }
+        else if (e == 'f') { o.Append((char)12); }
+        else if (e == 'u' && (i + 4) < s.Length) {
+          o.Append((char)System.Convert.ToInt32(s.Substring(i + 1, 4), 16));
+          i = i + 4;
+        }
+        else { o.Append(e); }
+        i++;
+        continue;
+      }
+      o.Append(c);
+      i++;
+    }
+    if (i < s.Length) { i++; }
+    return o.ToString();
+  }
+  static object Read(string s, ref int i) {
+    SkipWs(s, ref i);
+    if (i >= s.Length) { return null; }
+    char c = s[i];
+    if (c == '{') {
+      i++;
+      System.Collections.Generic.Dictionary<string, object> o = new System.Collections.Generic.Dictionary<string, object>();
+      while (true) {
+        SkipWs(s, ref i);
+        if (i >= s.Length) { break; }
+        if (s[i] == '}') { i++; break; }
+        if (s[i] == ',') { i++; continue; }
+        string k = ReadStr(s, ref i);
+        SkipWs(s, ref i);
+        if (i < s.Length && s[i] == ':') { i++; }
+        o[k] = Read(s, ref i);
+      }
+      return o;
+    }
+    if (c == '[') {
+      i++;
+      System.Collections.Generic.List<object> a = new System.Collections.Generic.List<object>();
+      while (true) {
+        SkipWs(s, ref i);
+        if (i >= s.Length) { break; }
+        if (s[i] == ']') { i++; break; }
+        if (s[i] == ',') { i++; continue; }
+        a.Add(Read(s, ref i));
+      }
+      return a;
+    }
+    if (c == (char)34) { return ReadStr(s, ref i); }
+    if (c == 't') { i = i + 4; return true; }
+    if (c == 'f') { i = i + 5; return false; }
+    if (c == 'n') { i = i + 4; return null; }
+    int start = i;
+    bool isDouble = false;
+    while (i < s.Length) {
+      char d = s[i];
+      if (d == '.' || d == 'e' || d == 'E') { isDouble = true; }
+      else if (!(d == '-' || d == '+' || (d >= '0' && d <= '9'))) { break; }
+      i++;
+    }
+    string text = s.Substring(start, i - start);
+    if (text.Length == 0) { i++; return null; }
+    if (isDouble) { return double.Parse(text, System.Globalization.CultureInfo.InvariantCulture); }
+    return int.Parse(text, System.Globalization.CultureInfo.InvariantCulture);
+  }
+  public static System.Collections.Generic.Dictionary<string, object> Parse(string s) {
+    int i = 0;
+    object v = Read(s, ref i);
+    if (v is System.Collections.Generic.Dictionary<string, object>) { return (System.Collections.Generic.Dictionary<string, object>)v; }
+    throw new System.Exception(\"Invalid JSON\");
+  }
+}
+")
+             )
              dart ( "rg_json_get_int(" (e 1) ", " (e 2) ")"
              (create_polyfill "
 Map<String, dynamic>? rg_json_get_obj(Map<String, dynamic> o, String k) {
@@ -576,6 +1137,192 @@ fn r_json_get_int(o: &std::collections::HashMap<String, RJson>, k: &str) -> Opti
 
     getDouble _@(optional):double (e:JSONDataObject key:string) {
          templates {
+             csharp ( "RgJson.GetDouble(" (e 1) ", " (e 2) ")"
+             (polyfill "after_imports" "
+// The JSON value on the C# target: an object is a Dictionary, an array is a
+// List and a value is the boxed object inside them, which is what `case v
+// x:JSONDataObject` type-tests against.
+static class RgJson {
+  public static object Get(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v;
+    if (o != null && o.TryGetValue(k, out v)) { return v; }
+    return null;
+  }
+  public static string GetStr(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as string; }
+  public static System.Collections.Generic.Dictionary<string, object> GetObj(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as System.Collections.Generic.Dictionary<string, object>; }
+  public static System.Collections.Generic.List<object> GetArr(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as System.Collections.Generic.List<object>; }
+  public static bool? GetBool(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is bool) { return (bool)v; }
+    return null;
+  }
+  // A JSON number reads back as int or double and the two are distinct types,
+  // so each getter accepts both and converts, the way the Dart, Python and Rust
+  // entries do.
+  public static int? GetInt(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is int) { return (int)v; }
+    if (v is double) { return (int)(double)v; }
+    return null;
+  }
+  public static double? GetDouble(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is double) { return (double)v; }
+    if (v is int) { return (double)(int)v; }
+    return null;
+  }
+  public static System.Collections.Generic.List<object> AsArr(object v) { return v as System.Collections.Generic.List<object>; }
+  public static object At(System.Collections.Generic.List<object> a, int i) {
+    if (a != null && i >= 0 && i < a.Count) { return a[i]; }
+    return null;
+  }
+  static readonly char[] Hexd = new char[] { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f' };
+  static void WriteStr(string s, System.Text.StringBuilder o) {
+    o.Append((char)34);
+    for (int i = 0; i < s.Length; i++) {
+      char c = s[i];
+      if (c == (char)34 || c == (char)92) { o.Append((char)92); o.Append(c); }
+      else if (c == (char)10) { o.Append((char)92); o.Append('n'); }
+      else if (c == (char)13) { o.Append((char)92); o.Append('r'); }
+      else if (c == (char)9) { o.Append((char)92); o.Append('t'); }
+      else if (c < (char)32) {
+        o.Append((char)92); o.Append('u'); o.Append('0'); o.Append('0');
+        o.Append(Hexd[((int)c >> 4) & 15]); o.Append(Hexd[(int)c & 15]);
+      }
+      else { o.Append(c); }
+    }
+    o.Append((char)34);
+  }
+  static void Write(object v, System.Text.StringBuilder o) {
+    if (v == null) { o.Append(\"null\"); return; }
+    if (v is string) { WriteStr((string)v, o); return; }
+    if (v is bool) { o.Append(((bool)v) ? \"true\" : \"false\"); return; }
+    if (v is int) { o.Append(((int)v).ToString(System.Globalization.CultureInfo.InvariantCulture)); return; }
+    if (v is long) { o.Append(((long)v).ToString(System.Globalization.CultureInfo.InvariantCulture)); return; }
+    if (v is double) {
+      string t = ((double)v).ToString(\"R\", System.Globalization.CultureInfo.InvariantCulture);
+      if (t.IndexOf('.') < 0 && t.IndexOf('e') < 0 && t.IndexOf('E') < 0) { t = t + \".0\"; }
+      o.Append(t);
+      return;
+    }
+    if (v is System.Collections.Generic.Dictionary<string, object>) {
+      System.Collections.Generic.Dictionary<string, object> m = (System.Collections.Generic.Dictionary<string, object>)v;
+      o.Append('{');
+      bool first = true;
+      foreach (System.Collections.Generic.KeyValuePair<string, object> kv in m) {
+        if (!first) { o.Append(','); }
+        first = false;
+        WriteStr(kv.Key, o);
+        o.Append(':');
+        Write(kv.Value, o);
+      }
+      o.Append('}');
+      return;
+    }
+    if (v is System.Collections.Generic.List<object>) {
+      System.Collections.Generic.List<object> a = (System.Collections.Generic.List<object>)v;
+      o.Append('[');
+      for (int i = 0; i < a.Count; i++) {
+        if (i > 0) { o.Append(','); }
+        Write(a[i], o);
+      }
+      o.Append(']');
+      return;
+    }
+    o.Append(\"null\");
+  }
+  public static string Str(object v) {
+    System.Text.StringBuilder o = new System.Text.StringBuilder();
+    Write(v, o);
+    return o.ToString();
+  }
+  static void SkipWs(string s, ref int i) {
+    while (i < s.Length && (s[i] == ' ' || s[i] == (char)9 || s[i] == (char)10 || s[i] == (char)13)) { i++; }
+  }
+  static string ReadStr(string s, ref int i) {
+    System.Text.StringBuilder o = new System.Text.StringBuilder();
+    if (i < s.Length && s[i] == (char)34) { i++; }
+    while (i < s.Length && s[i] != (char)34) {
+      char c = s[i];
+      if (c == (char)92 && (i + 1) < s.Length) {
+        i++;
+        char e = s[i];
+        if (e == 'n') { o.Append((char)10); }
+        else if (e == 'r') { o.Append((char)13); }
+        else if (e == 't') { o.Append((char)9); }
+        else if (e == 'b') { o.Append((char)8); }
+        else if (e == 'f') { o.Append((char)12); }
+        else if (e == 'u' && (i + 4) < s.Length) {
+          o.Append((char)System.Convert.ToInt32(s.Substring(i + 1, 4), 16));
+          i = i + 4;
+        }
+        else { o.Append(e); }
+        i++;
+        continue;
+      }
+      o.Append(c);
+      i++;
+    }
+    if (i < s.Length) { i++; }
+    return o.ToString();
+  }
+  static object Read(string s, ref int i) {
+    SkipWs(s, ref i);
+    if (i >= s.Length) { return null; }
+    char c = s[i];
+    if (c == '{') {
+      i++;
+      System.Collections.Generic.Dictionary<string, object> o = new System.Collections.Generic.Dictionary<string, object>();
+      while (true) {
+        SkipWs(s, ref i);
+        if (i >= s.Length) { break; }
+        if (s[i] == '}') { i++; break; }
+        if (s[i] == ',') { i++; continue; }
+        string k = ReadStr(s, ref i);
+        SkipWs(s, ref i);
+        if (i < s.Length && s[i] == ':') { i++; }
+        o[k] = Read(s, ref i);
+      }
+      return o;
+    }
+    if (c == '[') {
+      i++;
+      System.Collections.Generic.List<object> a = new System.Collections.Generic.List<object>();
+      while (true) {
+        SkipWs(s, ref i);
+        if (i >= s.Length) { break; }
+        if (s[i] == ']') { i++; break; }
+        if (s[i] == ',') { i++; continue; }
+        a.Add(Read(s, ref i));
+      }
+      return a;
+    }
+    if (c == (char)34) { return ReadStr(s, ref i); }
+    if (c == 't') { i = i + 4; return true; }
+    if (c == 'f') { i = i + 5; return false; }
+    if (c == 'n') { i = i + 4; return null; }
+    int start = i;
+    bool isDouble = false;
+    while (i < s.Length) {
+      char d = s[i];
+      if (d == '.' || d == 'e' || d == 'E') { isDouble = true; }
+      else if (!(d == '-' || d == '+' || (d >= '0' && d <= '9'))) { break; }
+      i++;
+    }
+    string text = s.Substring(start, i - start);
+    if (text.Length == 0) { i++; return null; }
+    if (isDouble) { return double.Parse(text, System.Globalization.CultureInfo.InvariantCulture); }
+    return int.Parse(text, System.Globalization.CultureInfo.InvariantCulture);
+  }
+  public static System.Collections.Generic.Dictionary<string, object> Parse(string s) {
+    int i = 0;
+    object v = Read(s, ref i);
+    if (v is System.Collections.Generic.Dictionary<string, object>) { return (System.Collections.Generic.Dictionary<string, object>)v; }
+    throw new System.Exception(\"Invalid JSON\");
+  }
+}
+")
+             )
              dart ( "rg_json_get_double(" (e 1) ", " (e 2) ")"
              (create_polyfill "
 Map<String, dynamic>? rg_json_get_obj(Map<String, dynamic> o, String k) {
@@ -766,6 +1513,192 @@ fn r_json_get_double(o: &std::collections::HashMap<String, RJson>, k: &str) -> O
 
     getBoolean _@(optional):boolean (e:JSONDataObject key:string) {
          templates {
+             csharp ( "RgJson.GetBool(" (e 1) ", " (e 2) ")"
+             (polyfill "after_imports" "
+// The JSON value on the C# target: an object is a Dictionary, an array is a
+// List and a value is the boxed object inside them, which is what `case v
+// x:JSONDataObject` type-tests against.
+static class RgJson {
+  public static object Get(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v;
+    if (o != null && o.TryGetValue(k, out v)) { return v; }
+    return null;
+  }
+  public static string GetStr(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as string; }
+  public static System.Collections.Generic.Dictionary<string, object> GetObj(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as System.Collections.Generic.Dictionary<string, object>; }
+  public static System.Collections.Generic.List<object> GetArr(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as System.Collections.Generic.List<object>; }
+  public static bool? GetBool(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is bool) { return (bool)v; }
+    return null;
+  }
+  // A JSON number reads back as int or double and the two are distinct types,
+  // so each getter accepts both and converts, the way the Dart, Python and Rust
+  // entries do.
+  public static int? GetInt(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is int) { return (int)v; }
+    if (v is double) { return (int)(double)v; }
+    return null;
+  }
+  public static double? GetDouble(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is double) { return (double)v; }
+    if (v is int) { return (double)(int)v; }
+    return null;
+  }
+  public static System.Collections.Generic.List<object> AsArr(object v) { return v as System.Collections.Generic.List<object>; }
+  public static object At(System.Collections.Generic.List<object> a, int i) {
+    if (a != null && i >= 0 && i < a.Count) { return a[i]; }
+    return null;
+  }
+  static readonly char[] Hexd = new char[] { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f' };
+  static void WriteStr(string s, System.Text.StringBuilder o) {
+    o.Append((char)34);
+    for (int i = 0; i < s.Length; i++) {
+      char c = s[i];
+      if (c == (char)34 || c == (char)92) { o.Append((char)92); o.Append(c); }
+      else if (c == (char)10) { o.Append((char)92); o.Append('n'); }
+      else if (c == (char)13) { o.Append((char)92); o.Append('r'); }
+      else if (c == (char)9) { o.Append((char)92); o.Append('t'); }
+      else if (c < (char)32) {
+        o.Append((char)92); o.Append('u'); o.Append('0'); o.Append('0');
+        o.Append(Hexd[((int)c >> 4) & 15]); o.Append(Hexd[(int)c & 15]);
+      }
+      else { o.Append(c); }
+    }
+    o.Append((char)34);
+  }
+  static void Write(object v, System.Text.StringBuilder o) {
+    if (v == null) { o.Append(\"null\"); return; }
+    if (v is string) { WriteStr((string)v, o); return; }
+    if (v is bool) { o.Append(((bool)v) ? \"true\" : \"false\"); return; }
+    if (v is int) { o.Append(((int)v).ToString(System.Globalization.CultureInfo.InvariantCulture)); return; }
+    if (v is long) { o.Append(((long)v).ToString(System.Globalization.CultureInfo.InvariantCulture)); return; }
+    if (v is double) {
+      string t = ((double)v).ToString(\"R\", System.Globalization.CultureInfo.InvariantCulture);
+      if (t.IndexOf('.') < 0 && t.IndexOf('e') < 0 && t.IndexOf('E') < 0) { t = t + \".0\"; }
+      o.Append(t);
+      return;
+    }
+    if (v is System.Collections.Generic.Dictionary<string, object>) {
+      System.Collections.Generic.Dictionary<string, object> m = (System.Collections.Generic.Dictionary<string, object>)v;
+      o.Append('{');
+      bool first = true;
+      foreach (System.Collections.Generic.KeyValuePair<string, object> kv in m) {
+        if (!first) { o.Append(','); }
+        first = false;
+        WriteStr(kv.Key, o);
+        o.Append(':');
+        Write(kv.Value, o);
+      }
+      o.Append('}');
+      return;
+    }
+    if (v is System.Collections.Generic.List<object>) {
+      System.Collections.Generic.List<object> a = (System.Collections.Generic.List<object>)v;
+      o.Append('[');
+      for (int i = 0; i < a.Count; i++) {
+        if (i > 0) { o.Append(','); }
+        Write(a[i], o);
+      }
+      o.Append(']');
+      return;
+    }
+    o.Append(\"null\");
+  }
+  public static string Str(object v) {
+    System.Text.StringBuilder o = new System.Text.StringBuilder();
+    Write(v, o);
+    return o.ToString();
+  }
+  static void SkipWs(string s, ref int i) {
+    while (i < s.Length && (s[i] == ' ' || s[i] == (char)9 || s[i] == (char)10 || s[i] == (char)13)) { i++; }
+  }
+  static string ReadStr(string s, ref int i) {
+    System.Text.StringBuilder o = new System.Text.StringBuilder();
+    if (i < s.Length && s[i] == (char)34) { i++; }
+    while (i < s.Length && s[i] != (char)34) {
+      char c = s[i];
+      if (c == (char)92 && (i + 1) < s.Length) {
+        i++;
+        char e = s[i];
+        if (e == 'n') { o.Append((char)10); }
+        else if (e == 'r') { o.Append((char)13); }
+        else if (e == 't') { o.Append((char)9); }
+        else if (e == 'b') { o.Append((char)8); }
+        else if (e == 'f') { o.Append((char)12); }
+        else if (e == 'u' && (i + 4) < s.Length) {
+          o.Append((char)System.Convert.ToInt32(s.Substring(i + 1, 4), 16));
+          i = i + 4;
+        }
+        else { o.Append(e); }
+        i++;
+        continue;
+      }
+      o.Append(c);
+      i++;
+    }
+    if (i < s.Length) { i++; }
+    return o.ToString();
+  }
+  static object Read(string s, ref int i) {
+    SkipWs(s, ref i);
+    if (i >= s.Length) { return null; }
+    char c = s[i];
+    if (c == '{') {
+      i++;
+      System.Collections.Generic.Dictionary<string, object> o = new System.Collections.Generic.Dictionary<string, object>();
+      while (true) {
+        SkipWs(s, ref i);
+        if (i >= s.Length) { break; }
+        if (s[i] == '}') { i++; break; }
+        if (s[i] == ',') { i++; continue; }
+        string k = ReadStr(s, ref i);
+        SkipWs(s, ref i);
+        if (i < s.Length && s[i] == ':') { i++; }
+        o[k] = Read(s, ref i);
+      }
+      return o;
+    }
+    if (c == '[') {
+      i++;
+      System.Collections.Generic.List<object> a = new System.Collections.Generic.List<object>();
+      while (true) {
+        SkipWs(s, ref i);
+        if (i >= s.Length) { break; }
+        if (s[i] == ']') { i++; break; }
+        if (s[i] == ',') { i++; continue; }
+        a.Add(Read(s, ref i));
+      }
+      return a;
+    }
+    if (c == (char)34) { return ReadStr(s, ref i); }
+    if (c == 't') { i = i + 4; return true; }
+    if (c == 'f') { i = i + 5; return false; }
+    if (c == 'n') { i = i + 4; return null; }
+    int start = i;
+    bool isDouble = false;
+    while (i < s.Length) {
+      char d = s[i];
+      if (d == '.' || d == 'e' || d == 'E') { isDouble = true; }
+      else if (!(d == '-' || d == '+' || (d >= '0' && d <= '9'))) { break; }
+      i++;
+    }
+    string text = s.Substring(start, i - start);
+    if (text.Length == 0) { i++; return null; }
+    if (isDouble) { return double.Parse(text, System.Globalization.CultureInfo.InvariantCulture); }
+    return int.Parse(text, System.Globalization.CultureInfo.InvariantCulture);
+  }
+  public static System.Collections.Generic.Dictionary<string, object> Parse(string s) {
+    int i = 0;
+    object v = Read(s, ref i);
+    if (v is System.Collections.Generic.Dictionary<string, object>) { return (System.Collections.Generic.Dictionary<string, object>)v; }
+    throw new System.Exception(\"Invalid JSON\");
+  }
+}
+")
+             )
              dart ( "rg_json_get_bool(" (e 1) ", " (e 2) ")"
              (create_polyfill "
 Map<String, dynamic>? rg_json_get_obj(Map<String, dynamic> o, String k) {
@@ -914,6 +1847,192 @@ fn r_json_get_bool(o: &std::collections::HashMap<String, RJson>, k: &str) -> Opt
 
     getObject _@(optional):JSONDataObject (e:JSONDataObject key:string) {
          templates {
+             csharp ( "RgJson.GetObj(" (e 1) ", " (e 2) ")"
+             (polyfill "after_imports" "
+// The JSON value on the C# target: an object is a Dictionary, an array is a
+// List and a value is the boxed object inside them, which is what `case v
+// x:JSONDataObject` type-tests against.
+static class RgJson {
+  public static object Get(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v;
+    if (o != null && o.TryGetValue(k, out v)) { return v; }
+    return null;
+  }
+  public static string GetStr(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as string; }
+  public static System.Collections.Generic.Dictionary<string, object> GetObj(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as System.Collections.Generic.Dictionary<string, object>; }
+  public static System.Collections.Generic.List<object> GetArr(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as System.Collections.Generic.List<object>; }
+  public static bool? GetBool(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is bool) { return (bool)v; }
+    return null;
+  }
+  // A JSON number reads back as int or double and the two are distinct types,
+  // so each getter accepts both and converts, the way the Dart, Python and Rust
+  // entries do.
+  public static int? GetInt(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is int) { return (int)v; }
+    if (v is double) { return (int)(double)v; }
+    return null;
+  }
+  public static double? GetDouble(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is double) { return (double)v; }
+    if (v is int) { return (double)(int)v; }
+    return null;
+  }
+  public static System.Collections.Generic.List<object> AsArr(object v) { return v as System.Collections.Generic.List<object>; }
+  public static object At(System.Collections.Generic.List<object> a, int i) {
+    if (a != null && i >= 0 && i < a.Count) { return a[i]; }
+    return null;
+  }
+  static readonly char[] Hexd = new char[] { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f' };
+  static void WriteStr(string s, System.Text.StringBuilder o) {
+    o.Append((char)34);
+    for (int i = 0; i < s.Length; i++) {
+      char c = s[i];
+      if (c == (char)34 || c == (char)92) { o.Append((char)92); o.Append(c); }
+      else if (c == (char)10) { o.Append((char)92); o.Append('n'); }
+      else if (c == (char)13) { o.Append((char)92); o.Append('r'); }
+      else if (c == (char)9) { o.Append((char)92); o.Append('t'); }
+      else if (c < (char)32) {
+        o.Append((char)92); o.Append('u'); o.Append('0'); o.Append('0');
+        o.Append(Hexd[((int)c >> 4) & 15]); o.Append(Hexd[(int)c & 15]);
+      }
+      else { o.Append(c); }
+    }
+    o.Append((char)34);
+  }
+  static void Write(object v, System.Text.StringBuilder o) {
+    if (v == null) { o.Append(\"null\"); return; }
+    if (v is string) { WriteStr((string)v, o); return; }
+    if (v is bool) { o.Append(((bool)v) ? \"true\" : \"false\"); return; }
+    if (v is int) { o.Append(((int)v).ToString(System.Globalization.CultureInfo.InvariantCulture)); return; }
+    if (v is long) { o.Append(((long)v).ToString(System.Globalization.CultureInfo.InvariantCulture)); return; }
+    if (v is double) {
+      string t = ((double)v).ToString(\"R\", System.Globalization.CultureInfo.InvariantCulture);
+      if (t.IndexOf('.') < 0 && t.IndexOf('e') < 0 && t.IndexOf('E') < 0) { t = t + \".0\"; }
+      o.Append(t);
+      return;
+    }
+    if (v is System.Collections.Generic.Dictionary<string, object>) {
+      System.Collections.Generic.Dictionary<string, object> m = (System.Collections.Generic.Dictionary<string, object>)v;
+      o.Append('{');
+      bool first = true;
+      foreach (System.Collections.Generic.KeyValuePair<string, object> kv in m) {
+        if (!first) { o.Append(','); }
+        first = false;
+        WriteStr(kv.Key, o);
+        o.Append(':');
+        Write(kv.Value, o);
+      }
+      o.Append('}');
+      return;
+    }
+    if (v is System.Collections.Generic.List<object>) {
+      System.Collections.Generic.List<object> a = (System.Collections.Generic.List<object>)v;
+      o.Append('[');
+      for (int i = 0; i < a.Count; i++) {
+        if (i > 0) { o.Append(','); }
+        Write(a[i], o);
+      }
+      o.Append(']');
+      return;
+    }
+    o.Append(\"null\");
+  }
+  public static string Str(object v) {
+    System.Text.StringBuilder o = new System.Text.StringBuilder();
+    Write(v, o);
+    return o.ToString();
+  }
+  static void SkipWs(string s, ref int i) {
+    while (i < s.Length && (s[i] == ' ' || s[i] == (char)9 || s[i] == (char)10 || s[i] == (char)13)) { i++; }
+  }
+  static string ReadStr(string s, ref int i) {
+    System.Text.StringBuilder o = new System.Text.StringBuilder();
+    if (i < s.Length && s[i] == (char)34) { i++; }
+    while (i < s.Length && s[i] != (char)34) {
+      char c = s[i];
+      if (c == (char)92 && (i + 1) < s.Length) {
+        i++;
+        char e = s[i];
+        if (e == 'n') { o.Append((char)10); }
+        else if (e == 'r') { o.Append((char)13); }
+        else if (e == 't') { o.Append((char)9); }
+        else if (e == 'b') { o.Append((char)8); }
+        else if (e == 'f') { o.Append((char)12); }
+        else if (e == 'u' && (i + 4) < s.Length) {
+          o.Append((char)System.Convert.ToInt32(s.Substring(i + 1, 4), 16));
+          i = i + 4;
+        }
+        else { o.Append(e); }
+        i++;
+        continue;
+      }
+      o.Append(c);
+      i++;
+    }
+    if (i < s.Length) { i++; }
+    return o.ToString();
+  }
+  static object Read(string s, ref int i) {
+    SkipWs(s, ref i);
+    if (i >= s.Length) { return null; }
+    char c = s[i];
+    if (c == '{') {
+      i++;
+      System.Collections.Generic.Dictionary<string, object> o = new System.Collections.Generic.Dictionary<string, object>();
+      while (true) {
+        SkipWs(s, ref i);
+        if (i >= s.Length) { break; }
+        if (s[i] == '}') { i++; break; }
+        if (s[i] == ',') { i++; continue; }
+        string k = ReadStr(s, ref i);
+        SkipWs(s, ref i);
+        if (i < s.Length && s[i] == ':') { i++; }
+        o[k] = Read(s, ref i);
+      }
+      return o;
+    }
+    if (c == '[') {
+      i++;
+      System.Collections.Generic.List<object> a = new System.Collections.Generic.List<object>();
+      while (true) {
+        SkipWs(s, ref i);
+        if (i >= s.Length) { break; }
+        if (s[i] == ']') { i++; break; }
+        if (s[i] == ',') { i++; continue; }
+        a.Add(Read(s, ref i));
+      }
+      return a;
+    }
+    if (c == (char)34) { return ReadStr(s, ref i); }
+    if (c == 't') { i = i + 4; return true; }
+    if (c == 'f') { i = i + 5; return false; }
+    if (c == 'n') { i = i + 4; return null; }
+    int start = i;
+    bool isDouble = false;
+    while (i < s.Length) {
+      char d = s[i];
+      if (d == '.' || d == 'e' || d == 'E') { isDouble = true; }
+      else if (!(d == '-' || d == '+' || (d >= '0' && d <= '9'))) { break; }
+      i++;
+    }
+    string text = s.Substring(start, i - start);
+    if (text.Length == 0) { i++; return null; }
+    if (isDouble) { return double.Parse(text, System.Globalization.CultureInfo.InvariantCulture); }
+    return int.Parse(text, System.Globalization.CultureInfo.InvariantCulture);
+  }
+  public static System.Collections.Generic.Dictionary<string, object> Parse(string s) {
+    int i = 0;
+    object v = Read(s, ref i);
+    if (v is System.Collections.Generic.Dictionary<string, object>) { return (System.Collections.Generic.Dictionary<string, object>)v; }
+    throw new System.Exception(\"Invalid JSON\");
+  }
+}
+")
+             )
              dart ( "rg_json_get_obj(" (e 1) ", " (e 2) ")"
              (create_polyfill "
 Map<String, dynamic>? rg_json_get_obj(Map<String, dynamic> o, String k) {
@@ -1080,6 +2199,192 @@ fn r_json_get_obj(o: &std::collections::HashMap<String, RJson>, k: &str) -> Opti
     ; todo: proper array detection for optionals
     getArray _@(optional):JSONArrayObject (e:JSONDataObject key:string) {
          templates {
+             csharp ( "RgJson.GetArr(" (e 1) ", " (e 2) ")"
+             (polyfill "after_imports" "
+// The JSON value on the C# target: an object is a Dictionary, an array is a
+// List and a value is the boxed object inside them, which is what `case v
+// x:JSONDataObject` type-tests against.
+static class RgJson {
+  public static object Get(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v;
+    if (o != null && o.TryGetValue(k, out v)) { return v; }
+    return null;
+  }
+  public static string GetStr(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as string; }
+  public static System.Collections.Generic.Dictionary<string, object> GetObj(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as System.Collections.Generic.Dictionary<string, object>; }
+  public static System.Collections.Generic.List<object> GetArr(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as System.Collections.Generic.List<object>; }
+  public static bool? GetBool(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is bool) { return (bool)v; }
+    return null;
+  }
+  // A JSON number reads back as int or double and the two are distinct types,
+  // so each getter accepts both and converts, the way the Dart, Python and Rust
+  // entries do.
+  public static int? GetInt(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is int) { return (int)v; }
+    if (v is double) { return (int)(double)v; }
+    return null;
+  }
+  public static double? GetDouble(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is double) { return (double)v; }
+    if (v is int) { return (double)(int)v; }
+    return null;
+  }
+  public static System.Collections.Generic.List<object> AsArr(object v) { return v as System.Collections.Generic.List<object>; }
+  public static object At(System.Collections.Generic.List<object> a, int i) {
+    if (a != null && i >= 0 && i < a.Count) { return a[i]; }
+    return null;
+  }
+  static readonly char[] Hexd = new char[] { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f' };
+  static void WriteStr(string s, System.Text.StringBuilder o) {
+    o.Append((char)34);
+    for (int i = 0; i < s.Length; i++) {
+      char c = s[i];
+      if (c == (char)34 || c == (char)92) { o.Append((char)92); o.Append(c); }
+      else if (c == (char)10) { o.Append((char)92); o.Append('n'); }
+      else if (c == (char)13) { o.Append((char)92); o.Append('r'); }
+      else if (c == (char)9) { o.Append((char)92); o.Append('t'); }
+      else if (c < (char)32) {
+        o.Append((char)92); o.Append('u'); o.Append('0'); o.Append('0');
+        o.Append(Hexd[((int)c >> 4) & 15]); o.Append(Hexd[(int)c & 15]);
+      }
+      else { o.Append(c); }
+    }
+    o.Append((char)34);
+  }
+  static void Write(object v, System.Text.StringBuilder o) {
+    if (v == null) { o.Append(\"null\"); return; }
+    if (v is string) { WriteStr((string)v, o); return; }
+    if (v is bool) { o.Append(((bool)v) ? \"true\" : \"false\"); return; }
+    if (v is int) { o.Append(((int)v).ToString(System.Globalization.CultureInfo.InvariantCulture)); return; }
+    if (v is long) { o.Append(((long)v).ToString(System.Globalization.CultureInfo.InvariantCulture)); return; }
+    if (v is double) {
+      string t = ((double)v).ToString(\"R\", System.Globalization.CultureInfo.InvariantCulture);
+      if (t.IndexOf('.') < 0 && t.IndexOf('e') < 0 && t.IndexOf('E') < 0) { t = t + \".0\"; }
+      o.Append(t);
+      return;
+    }
+    if (v is System.Collections.Generic.Dictionary<string, object>) {
+      System.Collections.Generic.Dictionary<string, object> m = (System.Collections.Generic.Dictionary<string, object>)v;
+      o.Append('{');
+      bool first = true;
+      foreach (System.Collections.Generic.KeyValuePair<string, object> kv in m) {
+        if (!first) { o.Append(','); }
+        first = false;
+        WriteStr(kv.Key, o);
+        o.Append(':');
+        Write(kv.Value, o);
+      }
+      o.Append('}');
+      return;
+    }
+    if (v is System.Collections.Generic.List<object>) {
+      System.Collections.Generic.List<object> a = (System.Collections.Generic.List<object>)v;
+      o.Append('[');
+      for (int i = 0; i < a.Count; i++) {
+        if (i > 0) { o.Append(','); }
+        Write(a[i], o);
+      }
+      o.Append(']');
+      return;
+    }
+    o.Append(\"null\");
+  }
+  public static string Str(object v) {
+    System.Text.StringBuilder o = new System.Text.StringBuilder();
+    Write(v, o);
+    return o.ToString();
+  }
+  static void SkipWs(string s, ref int i) {
+    while (i < s.Length && (s[i] == ' ' || s[i] == (char)9 || s[i] == (char)10 || s[i] == (char)13)) { i++; }
+  }
+  static string ReadStr(string s, ref int i) {
+    System.Text.StringBuilder o = new System.Text.StringBuilder();
+    if (i < s.Length && s[i] == (char)34) { i++; }
+    while (i < s.Length && s[i] != (char)34) {
+      char c = s[i];
+      if (c == (char)92 && (i + 1) < s.Length) {
+        i++;
+        char e = s[i];
+        if (e == 'n') { o.Append((char)10); }
+        else if (e == 'r') { o.Append((char)13); }
+        else if (e == 't') { o.Append((char)9); }
+        else if (e == 'b') { o.Append((char)8); }
+        else if (e == 'f') { o.Append((char)12); }
+        else if (e == 'u' && (i + 4) < s.Length) {
+          o.Append((char)System.Convert.ToInt32(s.Substring(i + 1, 4), 16));
+          i = i + 4;
+        }
+        else { o.Append(e); }
+        i++;
+        continue;
+      }
+      o.Append(c);
+      i++;
+    }
+    if (i < s.Length) { i++; }
+    return o.ToString();
+  }
+  static object Read(string s, ref int i) {
+    SkipWs(s, ref i);
+    if (i >= s.Length) { return null; }
+    char c = s[i];
+    if (c == '{') {
+      i++;
+      System.Collections.Generic.Dictionary<string, object> o = new System.Collections.Generic.Dictionary<string, object>();
+      while (true) {
+        SkipWs(s, ref i);
+        if (i >= s.Length) { break; }
+        if (s[i] == '}') { i++; break; }
+        if (s[i] == ',') { i++; continue; }
+        string k = ReadStr(s, ref i);
+        SkipWs(s, ref i);
+        if (i < s.Length && s[i] == ':') { i++; }
+        o[k] = Read(s, ref i);
+      }
+      return o;
+    }
+    if (c == '[') {
+      i++;
+      System.Collections.Generic.List<object> a = new System.Collections.Generic.List<object>();
+      while (true) {
+        SkipWs(s, ref i);
+        if (i >= s.Length) { break; }
+        if (s[i] == ']') { i++; break; }
+        if (s[i] == ',') { i++; continue; }
+        a.Add(Read(s, ref i));
+      }
+      return a;
+    }
+    if (c == (char)34) { return ReadStr(s, ref i); }
+    if (c == 't') { i = i + 4; return true; }
+    if (c == 'f') { i = i + 5; return false; }
+    if (c == 'n') { i = i + 4; return null; }
+    int start = i;
+    bool isDouble = false;
+    while (i < s.Length) {
+      char d = s[i];
+      if (d == '.' || d == 'e' || d == 'E') { isDouble = true; }
+      else if (!(d == '-' || d == '+' || (d >= '0' && d <= '9'))) { break; }
+      i++;
+    }
+    string text = s.Substring(start, i - start);
+    if (text.Length == 0) { i++; return null; }
+    if (isDouble) { return double.Parse(text, System.Globalization.CultureInfo.InvariantCulture); }
+    return int.Parse(text, System.Globalization.CultureInfo.InvariantCulture);
+  }
+  public static System.Collections.Generic.Dictionary<string, object> Parse(string s) {
+    int i = 0;
+    object v = Read(s, ref i);
+    if (v is System.Collections.Generic.Dictionary<string, object>) { return (System.Collections.Generic.Dictionary<string, object>)v; }
+    throw new System.Exception(\"Invalid JSON\");
+  }
+}
+")
+             )
              dart ( "rg_json_get_arr(" (e 1) ", " (e 2) ")"
              (create_polyfill "
 Map<String, dynamic>? rg_json_get_obj(Map<String, dynamic> o, String k) {
@@ -1228,6 +2533,7 @@ fn r_json_get_arr(o: &std::collections::HashMap<String, RJson>, k: &str) -> Opti
 
     keys _:[string] (e:JSONDataObject) {
         templates {
+            csharp ( "new System.Collections.Generic.List<String>(" (e 1) ".Keys)" )
             dart ( (e 1) ".keys.toList()" )
             cpp ( "rg_json_keys(" (e 1) ")"
             (create_polyfill "
@@ -1335,6 +2641,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     isArray _:boolean (e:JSONValueUnion) {
         templates {
+            csharp ( "(" (e 1) " is System.Collections.Generic.List<object>)" )
             dart ( "(" (e 1) " is List)" )
             cpp ( "std::holds_alternative<rg_json_arr>(" (e 1) ")"
             (create_polyfill "
@@ -1399,6 +2706,192 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     asArray _@(optional):JSONArrayObject (e:JSONValueUnion) {
         templates {
+            csharp ( "RgJson.AsArr(" (e 1) ")"
+            (polyfill "after_imports" "
+// The JSON value on the C# target: an object is a Dictionary, an array is a
+// List and a value is the boxed object inside them, which is what `case v
+// x:JSONDataObject` type-tests against.
+static class RgJson {
+  public static object Get(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v;
+    if (o != null && o.TryGetValue(k, out v)) { return v; }
+    return null;
+  }
+  public static string GetStr(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as string; }
+  public static System.Collections.Generic.Dictionary<string, object> GetObj(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as System.Collections.Generic.Dictionary<string, object>; }
+  public static System.Collections.Generic.List<object> GetArr(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as System.Collections.Generic.List<object>; }
+  public static bool? GetBool(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is bool) { return (bool)v; }
+    return null;
+  }
+  // A JSON number reads back as int or double and the two are distinct types,
+  // so each getter accepts both and converts, the way the Dart, Python and Rust
+  // entries do.
+  public static int? GetInt(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is int) { return (int)v; }
+    if (v is double) { return (int)(double)v; }
+    return null;
+  }
+  public static double? GetDouble(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is double) { return (double)v; }
+    if (v is int) { return (double)(int)v; }
+    return null;
+  }
+  public static System.Collections.Generic.List<object> AsArr(object v) { return v as System.Collections.Generic.List<object>; }
+  public static object At(System.Collections.Generic.List<object> a, int i) {
+    if (a != null && i >= 0 && i < a.Count) { return a[i]; }
+    return null;
+  }
+  static readonly char[] Hexd = new char[] { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f' };
+  static void WriteStr(string s, System.Text.StringBuilder o) {
+    o.Append((char)34);
+    for (int i = 0; i < s.Length; i++) {
+      char c = s[i];
+      if (c == (char)34 || c == (char)92) { o.Append((char)92); o.Append(c); }
+      else if (c == (char)10) { o.Append((char)92); o.Append('n'); }
+      else if (c == (char)13) { o.Append((char)92); o.Append('r'); }
+      else if (c == (char)9) { o.Append((char)92); o.Append('t'); }
+      else if (c < (char)32) {
+        o.Append((char)92); o.Append('u'); o.Append('0'); o.Append('0');
+        o.Append(Hexd[((int)c >> 4) & 15]); o.Append(Hexd[(int)c & 15]);
+      }
+      else { o.Append(c); }
+    }
+    o.Append((char)34);
+  }
+  static void Write(object v, System.Text.StringBuilder o) {
+    if (v == null) { o.Append(\"null\"); return; }
+    if (v is string) { WriteStr((string)v, o); return; }
+    if (v is bool) { o.Append(((bool)v) ? \"true\" : \"false\"); return; }
+    if (v is int) { o.Append(((int)v).ToString(System.Globalization.CultureInfo.InvariantCulture)); return; }
+    if (v is long) { o.Append(((long)v).ToString(System.Globalization.CultureInfo.InvariantCulture)); return; }
+    if (v is double) {
+      string t = ((double)v).ToString(\"R\", System.Globalization.CultureInfo.InvariantCulture);
+      if (t.IndexOf('.') < 0 && t.IndexOf('e') < 0 && t.IndexOf('E') < 0) { t = t + \".0\"; }
+      o.Append(t);
+      return;
+    }
+    if (v is System.Collections.Generic.Dictionary<string, object>) {
+      System.Collections.Generic.Dictionary<string, object> m = (System.Collections.Generic.Dictionary<string, object>)v;
+      o.Append('{');
+      bool first = true;
+      foreach (System.Collections.Generic.KeyValuePair<string, object> kv in m) {
+        if (!first) { o.Append(','); }
+        first = false;
+        WriteStr(kv.Key, o);
+        o.Append(':');
+        Write(kv.Value, o);
+      }
+      o.Append('}');
+      return;
+    }
+    if (v is System.Collections.Generic.List<object>) {
+      System.Collections.Generic.List<object> a = (System.Collections.Generic.List<object>)v;
+      o.Append('[');
+      for (int i = 0; i < a.Count; i++) {
+        if (i > 0) { o.Append(','); }
+        Write(a[i], o);
+      }
+      o.Append(']');
+      return;
+    }
+    o.Append(\"null\");
+  }
+  public static string Str(object v) {
+    System.Text.StringBuilder o = new System.Text.StringBuilder();
+    Write(v, o);
+    return o.ToString();
+  }
+  static void SkipWs(string s, ref int i) {
+    while (i < s.Length && (s[i] == ' ' || s[i] == (char)9 || s[i] == (char)10 || s[i] == (char)13)) { i++; }
+  }
+  static string ReadStr(string s, ref int i) {
+    System.Text.StringBuilder o = new System.Text.StringBuilder();
+    if (i < s.Length && s[i] == (char)34) { i++; }
+    while (i < s.Length && s[i] != (char)34) {
+      char c = s[i];
+      if (c == (char)92 && (i + 1) < s.Length) {
+        i++;
+        char e = s[i];
+        if (e == 'n') { o.Append((char)10); }
+        else if (e == 'r') { o.Append((char)13); }
+        else if (e == 't') { o.Append((char)9); }
+        else if (e == 'b') { o.Append((char)8); }
+        else if (e == 'f') { o.Append((char)12); }
+        else if (e == 'u' && (i + 4) < s.Length) {
+          o.Append((char)System.Convert.ToInt32(s.Substring(i + 1, 4), 16));
+          i = i + 4;
+        }
+        else { o.Append(e); }
+        i++;
+        continue;
+      }
+      o.Append(c);
+      i++;
+    }
+    if (i < s.Length) { i++; }
+    return o.ToString();
+  }
+  static object Read(string s, ref int i) {
+    SkipWs(s, ref i);
+    if (i >= s.Length) { return null; }
+    char c = s[i];
+    if (c == '{') {
+      i++;
+      System.Collections.Generic.Dictionary<string, object> o = new System.Collections.Generic.Dictionary<string, object>();
+      while (true) {
+        SkipWs(s, ref i);
+        if (i >= s.Length) { break; }
+        if (s[i] == '}') { i++; break; }
+        if (s[i] == ',') { i++; continue; }
+        string k = ReadStr(s, ref i);
+        SkipWs(s, ref i);
+        if (i < s.Length && s[i] == ':') { i++; }
+        o[k] = Read(s, ref i);
+      }
+      return o;
+    }
+    if (c == '[') {
+      i++;
+      System.Collections.Generic.List<object> a = new System.Collections.Generic.List<object>();
+      while (true) {
+        SkipWs(s, ref i);
+        if (i >= s.Length) { break; }
+        if (s[i] == ']') { i++; break; }
+        if (s[i] == ',') { i++; continue; }
+        a.Add(Read(s, ref i));
+      }
+      return a;
+    }
+    if (c == (char)34) { return ReadStr(s, ref i); }
+    if (c == 't') { i = i + 4; return true; }
+    if (c == 'f') { i = i + 5; return false; }
+    if (c == 'n') { i = i + 4; return null; }
+    int start = i;
+    bool isDouble = false;
+    while (i < s.Length) {
+      char d = s[i];
+      if (d == '.' || d == 'e' || d == 'E') { isDouble = true; }
+      else if (!(d == '-' || d == '+' || (d >= '0' && d <= '9'))) { break; }
+      i++;
+    }
+    string text = s.Substring(start, i - start);
+    if (text.Length == 0) { i++; return null; }
+    if (isDouble) { return double.Parse(text, System.Globalization.CultureInfo.InvariantCulture); }
+    return int.Parse(text, System.Globalization.CultureInfo.InvariantCulture);
+  }
+  public static System.Collections.Generic.Dictionary<string, object> Parse(string s) {
+    int i = 0;
+    object v = Read(s, ref i);
+    if (v is System.Collections.Generic.Dictionary<string, object>) { return (System.Collections.Generic.Dictionary<string, object>)v; }
+    throw new System.Exception(\"Invalid JSON\");
+  }
+}
+")
+            )
             dart ( "rg_json_as_arr(" (e 1) ")"
             (create_polyfill "
 Map<String, dynamic>? rg_json_get_obj(Map<String, dynamic> o, String k) {
@@ -1492,6 +2985,192 @@ fn r_json_as_arr(v: &RJson) -> Option<Vec<RJson>> {
 
     getValue _:JSONValueUnion (e:JSONArrayObject index:int) {
         templates {
+            csharp ( "RgJson.At(" (e 1) ", " (e 2) ")"
+            (polyfill "after_imports" "
+// The JSON value on the C# target: an object is a Dictionary, an array is a
+// List and a value is the boxed object inside them, which is what `case v
+// x:JSONDataObject` type-tests against.
+static class RgJson {
+  public static object Get(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v;
+    if (o != null && o.TryGetValue(k, out v)) { return v; }
+    return null;
+  }
+  public static string GetStr(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as string; }
+  public static System.Collections.Generic.Dictionary<string, object> GetObj(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as System.Collections.Generic.Dictionary<string, object>; }
+  public static System.Collections.Generic.List<object> GetArr(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as System.Collections.Generic.List<object>; }
+  public static bool? GetBool(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is bool) { return (bool)v; }
+    return null;
+  }
+  // A JSON number reads back as int or double and the two are distinct types,
+  // so each getter accepts both and converts, the way the Dart, Python and Rust
+  // entries do.
+  public static int? GetInt(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is int) { return (int)v; }
+    if (v is double) { return (int)(double)v; }
+    return null;
+  }
+  public static double? GetDouble(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is double) { return (double)v; }
+    if (v is int) { return (double)(int)v; }
+    return null;
+  }
+  public static System.Collections.Generic.List<object> AsArr(object v) { return v as System.Collections.Generic.List<object>; }
+  public static object At(System.Collections.Generic.List<object> a, int i) {
+    if (a != null && i >= 0 && i < a.Count) { return a[i]; }
+    return null;
+  }
+  static readonly char[] Hexd = new char[] { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f' };
+  static void WriteStr(string s, System.Text.StringBuilder o) {
+    o.Append((char)34);
+    for (int i = 0; i < s.Length; i++) {
+      char c = s[i];
+      if (c == (char)34 || c == (char)92) { o.Append((char)92); o.Append(c); }
+      else if (c == (char)10) { o.Append((char)92); o.Append('n'); }
+      else if (c == (char)13) { o.Append((char)92); o.Append('r'); }
+      else if (c == (char)9) { o.Append((char)92); o.Append('t'); }
+      else if (c < (char)32) {
+        o.Append((char)92); o.Append('u'); o.Append('0'); o.Append('0');
+        o.Append(Hexd[((int)c >> 4) & 15]); o.Append(Hexd[(int)c & 15]);
+      }
+      else { o.Append(c); }
+    }
+    o.Append((char)34);
+  }
+  static void Write(object v, System.Text.StringBuilder o) {
+    if (v == null) { o.Append(\"null\"); return; }
+    if (v is string) { WriteStr((string)v, o); return; }
+    if (v is bool) { o.Append(((bool)v) ? \"true\" : \"false\"); return; }
+    if (v is int) { o.Append(((int)v).ToString(System.Globalization.CultureInfo.InvariantCulture)); return; }
+    if (v is long) { o.Append(((long)v).ToString(System.Globalization.CultureInfo.InvariantCulture)); return; }
+    if (v is double) {
+      string t = ((double)v).ToString(\"R\", System.Globalization.CultureInfo.InvariantCulture);
+      if (t.IndexOf('.') < 0 && t.IndexOf('e') < 0 && t.IndexOf('E') < 0) { t = t + \".0\"; }
+      o.Append(t);
+      return;
+    }
+    if (v is System.Collections.Generic.Dictionary<string, object>) {
+      System.Collections.Generic.Dictionary<string, object> m = (System.Collections.Generic.Dictionary<string, object>)v;
+      o.Append('{');
+      bool first = true;
+      foreach (System.Collections.Generic.KeyValuePair<string, object> kv in m) {
+        if (!first) { o.Append(','); }
+        first = false;
+        WriteStr(kv.Key, o);
+        o.Append(':');
+        Write(kv.Value, o);
+      }
+      o.Append('}');
+      return;
+    }
+    if (v is System.Collections.Generic.List<object>) {
+      System.Collections.Generic.List<object> a = (System.Collections.Generic.List<object>)v;
+      o.Append('[');
+      for (int i = 0; i < a.Count; i++) {
+        if (i > 0) { o.Append(','); }
+        Write(a[i], o);
+      }
+      o.Append(']');
+      return;
+    }
+    o.Append(\"null\");
+  }
+  public static string Str(object v) {
+    System.Text.StringBuilder o = new System.Text.StringBuilder();
+    Write(v, o);
+    return o.ToString();
+  }
+  static void SkipWs(string s, ref int i) {
+    while (i < s.Length && (s[i] == ' ' || s[i] == (char)9 || s[i] == (char)10 || s[i] == (char)13)) { i++; }
+  }
+  static string ReadStr(string s, ref int i) {
+    System.Text.StringBuilder o = new System.Text.StringBuilder();
+    if (i < s.Length && s[i] == (char)34) { i++; }
+    while (i < s.Length && s[i] != (char)34) {
+      char c = s[i];
+      if (c == (char)92 && (i + 1) < s.Length) {
+        i++;
+        char e = s[i];
+        if (e == 'n') { o.Append((char)10); }
+        else if (e == 'r') { o.Append((char)13); }
+        else if (e == 't') { o.Append((char)9); }
+        else if (e == 'b') { o.Append((char)8); }
+        else if (e == 'f') { o.Append((char)12); }
+        else if (e == 'u' && (i + 4) < s.Length) {
+          o.Append((char)System.Convert.ToInt32(s.Substring(i + 1, 4), 16));
+          i = i + 4;
+        }
+        else { o.Append(e); }
+        i++;
+        continue;
+      }
+      o.Append(c);
+      i++;
+    }
+    if (i < s.Length) { i++; }
+    return o.ToString();
+  }
+  static object Read(string s, ref int i) {
+    SkipWs(s, ref i);
+    if (i >= s.Length) { return null; }
+    char c = s[i];
+    if (c == '{') {
+      i++;
+      System.Collections.Generic.Dictionary<string, object> o = new System.Collections.Generic.Dictionary<string, object>();
+      while (true) {
+        SkipWs(s, ref i);
+        if (i >= s.Length) { break; }
+        if (s[i] == '}') { i++; break; }
+        if (s[i] == ',') { i++; continue; }
+        string k = ReadStr(s, ref i);
+        SkipWs(s, ref i);
+        if (i < s.Length && s[i] == ':') { i++; }
+        o[k] = Read(s, ref i);
+      }
+      return o;
+    }
+    if (c == '[') {
+      i++;
+      System.Collections.Generic.List<object> a = new System.Collections.Generic.List<object>();
+      while (true) {
+        SkipWs(s, ref i);
+        if (i >= s.Length) { break; }
+        if (s[i] == ']') { i++; break; }
+        if (s[i] == ',') { i++; continue; }
+        a.Add(Read(s, ref i));
+      }
+      return a;
+    }
+    if (c == (char)34) { return ReadStr(s, ref i); }
+    if (c == 't') { i = i + 4; return true; }
+    if (c == 'f') { i = i + 5; return false; }
+    if (c == 'n') { i = i + 4; return null; }
+    int start = i;
+    bool isDouble = false;
+    while (i < s.Length) {
+      char d = s[i];
+      if (d == '.' || d == 'e' || d == 'E') { isDouble = true; }
+      else if (!(d == '-' || d == '+' || (d >= '0' && d <= '9'))) { break; }
+      i++;
+    }
+    string text = s.Substring(start, i - start);
+    if (text.Length == 0) { i++; return null; }
+    if (isDouble) { return double.Parse(text, System.Globalization.CultureInfo.InvariantCulture); }
+    return int.Parse(text, System.Globalization.CultureInfo.InvariantCulture);
+  }
+  public static System.Collections.Generic.Dictionary<string, object> Parse(string s) {
+    int i = 0;
+    object v = Read(s, ref i);
+    if (v is System.Collections.Generic.Dictionary<string, object>) { return (System.Collections.Generic.Dictionary<string, object>)v; }
+    throw new System.Exception(\"Invalid JSON\");
+  }
+}
+")
+            )
             dart ( (e 1) "[" (e 2) "]" )
             cpp ( "rg_json_at(" (e 1) ", " (e 2) ")"
             (create_polyfill "
@@ -1574,6 +3253,7 @@ fn r_json_at(a: &Vec<RJson>, i: i64) -> RJson {
 
     array_length _:int (e:JSONArrayObject) {
         templates {
+            csharp ( (e 1) ".Count" )
             dart ( (e 1) ".length" )
             cpp ( "rg_json_len(" (e 1) ")"
             (create_polyfill "
@@ -1633,6 +3313,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     set _@(moves@( 3 1 ) ):void (e@(mutates):JSONDataObject key:string value:enum) {
         templates {
+            csharp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             cpp ( "rg_json_set(" (e 1) ", " (e 2) ", " (e 3) ");"
             (create_polyfill "
@@ -1717,6 +3398,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     set _@(moves@( 3 1 ) ):void (e@(mutates):JSONDataObject key:string value:string) {
         templates {
+            csharp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             cpp ( "rg_json_set(" (e 1) ", " (e 2) ", " (e 3) ");"
             (create_polyfill "
@@ -1801,6 +3483,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     set _@(moves@( 3 1 ) ):void (e@(mutates):JSONDataObject key:string value:int) {
         templates {
+            csharp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             cpp ( "rg_json_set(" (e 1) ", " (e 2) ", " (e 3) ");"
             (create_polyfill "
@@ -1885,6 +3568,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     set _@(moves@( 3 1 ) ):void (e@(mutates):JSONDataObject key:string value:double) {
         templates {
+            csharp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             cpp ( "rg_json_set(" (e 1) ", " (e 2) ", " (e 3) ");"
             (create_polyfill "
@@ -1969,6 +3653,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     set _@(moves@( 3 1 ) ):void (e@(mutates):JSONDataObject key:string value:boolean) {
         templates {
+            csharp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             cpp ( "rg_json_set(" (e 1) ", " (e 2) ", " (e 3) ");"
             (create_polyfill "
@@ -2053,6 +3738,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     set _@(moves@( 3 1 ) ):void (e@(mutates):JSONDataObject key:string value:JSONValueUnion) {
         templates {
+            csharp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             cpp ( "rg_json_set(" (e 1) ", " (e 2) ", " (e 3) ");"
             (create_polyfill "
@@ -2185,6 +3871,192 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     from_string _@(throws):JSONDataObject (txt:string) {
          templates {
+             csharp ( "RgJson.Parse(" (e 1) ")"
+             (polyfill "after_imports" "
+// The JSON value on the C# target: an object is a Dictionary, an array is a
+// List and a value is the boxed object inside them, which is what `case v
+// x:JSONDataObject` type-tests against.
+static class RgJson {
+  public static object Get(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v;
+    if (o != null && o.TryGetValue(k, out v)) { return v; }
+    return null;
+  }
+  public static string GetStr(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as string; }
+  public static System.Collections.Generic.Dictionary<string, object> GetObj(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as System.Collections.Generic.Dictionary<string, object>; }
+  public static System.Collections.Generic.List<object> GetArr(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as System.Collections.Generic.List<object>; }
+  public static bool? GetBool(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is bool) { return (bool)v; }
+    return null;
+  }
+  // A JSON number reads back as int or double and the two are distinct types,
+  // so each getter accepts both and converts, the way the Dart, Python and Rust
+  // entries do.
+  public static int? GetInt(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is int) { return (int)v; }
+    if (v is double) { return (int)(double)v; }
+    return null;
+  }
+  public static double? GetDouble(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is double) { return (double)v; }
+    if (v is int) { return (double)(int)v; }
+    return null;
+  }
+  public static System.Collections.Generic.List<object> AsArr(object v) { return v as System.Collections.Generic.List<object>; }
+  public static object At(System.Collections.Generic.List<object> a, int i) {
+    if (a != null && i >= 0 && i < a.Count) { return a[i]; }
+    return null;
+  }
+  static readonly char[] Hexd = new char[] { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f' };
+  static void WriteStr(string s, System.Text.StringBuilder o) {
+    o.Append((char)34);
+    for (int i = 0; i < s.Length; i++) {
+      char c = s[i];
+      if (c == (char)34 || c == (char)92) { o.Append((char)92); o.Append(c); }
+      else if (c == (char)10) { o.Append((char)92); o.Append('n'); }
+      else if (c == (char)13) { o.Append((char)92); o.Append('r'); }
+      else if (c == (char)9) { o.Append((char)92); o.Append('t'); }
+      else if (c < (char)32) {
+        o.Append((char)92); o.Append('u'); o.Append('0'); o.Append('0');
+        o.Append(Hexd[((int)c >> 4) & 15]); o.Append(Hexd[(int)c & 15]);
+      }
+      else { o.Append(c); }
+    }
+    o.Append((char)34);
+  }
+  static void Write(object v, System.Text.StringBuilder o) {
+    if (v == null) { o.Append(\"null\"); return; }
+    if (v is string) { WriteStr((string)v, o); return; }
+    if (v is bool) { o.Append(((bool)v) ? \"true\" : \"false\"); return; }
+    if (v is int) { o.Append(((int)v).ToString(System.Globalization.CultureInfo.InvariantCulture)); return; }
+    if (v is long) { o.Append(((long)v).ToString(System.Globalization.CultureInfo.InvariantCulture)); return; }
+    if (v is double) {
+      string t = ((double)v).ToString(\"R\", System.Globalization.CultureInfo.InvariantCulture);
+      if (t.IndexOf('.') < 0 && t.IndexOf('e') < 0 && t.IndexOf('E') < 0) { t = t + \".0\"; }
+      o.Append(t);
+      return;
+    }
+    if (v is System.Collections.Generic.Dictionary<string, object>) {
+      System.Collections.Generic.Dictionary<string, object> m = (System.Collections.Generic.Dictionary<string, object>)v;
+      o.Append('{');
+      bool first = true;
+      foreach (System.Collections.Generic.KeyValuePair<string, object> kv in m) {
+        if (!first) { o.Append(','); }
+        first = false;
+        WriteStr(kv.Key, o);
+        o.Append(':');
+        Write(kv.Value, o);
+      }
+      o.Append('}');
+      return;
+    }
+    if (v is System.Collections.Generic.List<object>) {
+      System.Collections.Generic.List<object> a = (System.Collections.Generic.List<object>)v;
+      o.Append('[');
+      for (int i = 0; i < a.Count; i++) {
+        if (i > 0) { o.Append(','); }
+        Write(a[i], o);
+      }
+      o.Append(']');
+      return;
+    }
+    o.Append(\"null\");
+  }
+  public static string Str(object v) {
+    System.Text.StringBuilder o = new System.Text.StringBuilder();
+    Write(v, o);
+    return o.ToString();
+  }
+  static void SkipWs(string s, ref int i) {
+    while (i < s.Length && (s[i] == ' ' || s[i] == (char)9 || s[i] == (char)10 || s[i] == (char)13)) { i++; }
+  }
+  static string ReadStr(string s, ref int i) {
+    System.Text.StringBuilder o = new System.Text.StringBuilder();
+    if (i < s.Length && s[i] == (char)34) { i++; }
+    while (i < s.Length && s[i] != (char)34) {
+      char c = s[i];
+      if (c == (char)92 && (i + 1) < s.Length) {
+        i++;
+        char e = s[i];
+        if (e == 'n') { o.Append((char)10); }
+        else if (e == 'r') { o.Append((char)13); }
+        else if (e == 't') { o.Append((char)9); }
+        else if (e == 'b') { o.Append((char)8); }
+        else if (e == 'f') { o.Append((char)12); }
+        else if (e == 'u' && (i + 4) < s.Length) {
+          o.Append((char)System.Convert.ToInt32(s.Substring(i + 1, 4), 16));
+          i = i + 4;
+        }
+        else { o.Append(e); }
+        i++;
+        continue;
+      }
+      o.Append(c);
+      i++;
+    }
+    if (i < s.Length) { i++; }
+    return o.ToString();
+  }
+  static object Read(string s, ref int i) {
+    SkipWs(s, ref i);
+    if (i >= s.Length) { return null; }
+    char c = s[i];
+    if (c == '{') {
+      i++;
+      System.Collections.Generic.Dictionary<string, object> o = new System.Collections.Generic.Dictionary<string, object>();
+      while (true) {
+        SkipWs(s, ref i);
+        if (i >= s.Length) { break; }
+        if (s[i] == '}') { i++; break; }
+        if (s[i] == ',') { i++; continue; }
+        string k = ReadStr(s, ref i);
+        SkipWs(s, ref i);
+        if (i < s.Length && s[i] == ':') { i++; }
+        o[k] = Read(s, ref i);
+      }
+      return o;
+    }
+    if (c == '[') {
+      i++;
+      System.Collections.Generic.List<object> a = new System.Collections.Generic.List<object>();
+      while (true) {
+        SkipWs(s, ref i);
+        if (i >= s.Length) { break; }
+        if (s[i] == ']') { i++; break; }
+        if (s[i] == ',') { i++; continue; }
+        a.Add(Read(s, ref i));
+      }
+      return a;
+    }
+    if (c == (char)34) { return ReadStr(s, ref i); }
+    if (c == 't') { i = i + 4; return true; }
+    if (c == 'f') { i = i + 5; return false; }
+    if (c == 'n') { i = i + 4; return null; }
+    int start = i;
+    bool isDouble = false;
+    while (i < s.Length) {
+      char d = s[i];
+      if (d == '.' || d == 'e' || d == 'E') { isDouble = true; }
+      else if (!(d == '-' || d == '+' || (d >= '0' && d <= '9'))) { break; }
+      i++;
+    }
+    string text = s.Substring(start, i - start);
+    if (text.Length == 0) { i++; return null; }
+    if (isDouble) { return double.Parse(text, System.Globalization.CultureInfo.InvariantCulture); }
+    return int.Parse(text, System.Globalization.CultureInfo.InvariantCulture);
+  }
+  public static System.Collections.Generic.Dictionary<string, object> Parse(string s) {
+    int i = 0;
+    object v = Read(s, ref i);
+    if (v is System.Collections.Generic.Dictionary<string, object>) { return (System.Collections.Generic.Dictionary<string, object>)v; }
+    throw new System.Exception(\"Invalid JSON\");
+  }
+}
+")
+             )
              dart ( "(jsonDecode(" (e 1) ") as Map<String, dynamic>)" (imp "dart:convert") )
              cpp ( "rg_json_parse_obj(" (e 1) ")"
              (create_polyfill "
@@ -2472,6 +4344,192 @@ fn r_json_parse_obj(text: &str) -> std::collections::HashMap<String, RJson> {
 
     to_string _:string (e:JSONDataObject) {
          templates {
+             csharp ( "RgJson.Str(" (e 1) ")"
+             (polyfill "after_imports" "
+// The JSON value on the C# target: an object is a Dictionary, an array is a
+// List and a value is the boxed object inside them, which is what `case v
+// x:JSONDataObject` type-tests against.
+static class RgJson {
+  public static object Get(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v;
+    if (o != null && o.TryGetValue(k, out v)) { return v; }
+    return null;
+  }
+  public static string GetStr(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as string; }
+  public static System.Collections.Generic.Dictionary<string, object> GetObj(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as System.Collections.Generic.Dictionary<string, object>; }
+  public static System.Collections.Generic.List<object> GetArr(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as System.Collections.Generic.List<object>; }
+  public static bool? GetBool(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is bool) { return (bool)v; }
+    return null;
+  }
+  // A JSON number reads back as int or double and the two are distinct types,
+  // so each getter accepts both and converts, the way the Dart, Python and Rust
+  // entries do.
+  public static int? GetInt(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is int) { return (int)v; }
+    if (v is double) { return (int)(double)v; }
+    return null;
+  }
+  public static double? GetDouble(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is double) { return (double)v; }
+    if (v is int) { return (double)(int)v; }
+    return null;
+  }
+  public static System.Collections.Generic.List<object> AsArr(object v) { return v as System.Collections.Generic.List<object>; }
+  public static object At(System.Collections.Generic.List<object> a, int i) {
+    if (a != null && i >= 0 && i < a.Count) { return a[i]; }
+    return null;
+  }
+  static readonly char[] Hexd = new char[] { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f' };
+  static void WriteStr(string s, System.Text.StringBuilder o) {
+    o.Append((char)34);
+    for (int i = 0; i < s.Length; i++) {
+      char c = s[i];
+      if (c == (char)34 || c == (char)92) { o.Append((char)92); o.Append(c); }
+      else if (c == (char)10) { o.Append((char)92); o.Append('n'); }
+      else if (c == (char)13) { o.Append((char)92); o.Append('r'); }
+      else if (c == (char)9) { o.Append((char)92); o.Append('t'); }
+      else if (c < (char)32) {
+        o.Append((char)92); o.Append('u'); o.Append('0'); o.Append('0');
+        o.Append(Hexd[((int)c >> 4) & 15]); o.Append(Hexd[(int)c & 15]);
+      }
+      else { o.Append(c); }
+    }
+    o.Append((char)34);
+  }
+  static void Write(object v, System.Text.StringBuilder o) {
+    if (v == null) { o.Append(\"null\"); return; }
+    if (v is string) { WriteStr((string)v, o); return; }
+    if (v is bool) { o.Append(((bool)v) ? \"true\" : \"false\"); return; }
+    if (v is int) { o.Append(((int)v).ToString(System.Globalization.CultureInfo.InvariantCulture)); return; }
+    if (v is long) { o.Append(((long)v).ToString(System.Globalization.CultureInfo.InvariantCulture)); return; }
+    if (v is double) {
+      string t = ((double)v).ToString(\"R\", System.Globalization.CultureInfo.InvariantCulture);
+      if (t.IndexOf('.') < 0 && t.IndexOf('e') < 0 && t.IndexOf('E') < 0) { t = t + \".0\"; }
+      o.Append(t);
+      return;
+    }
+    if (v is System.Collections.Generic.Dictionary<string, object>) {
+      System.Collections.Generic.Dictionary<string, object> m = (System.Collections.Generic.Dictionary<string, object>)v;
+      o.Append('{');
+      bool first = true;
+      foreach (System.Collections.Generic.KeyValuePair<string, object> kv in m) {
+        if (!first) { o.Append(','); }
+        first = false;
+        WriteStr(kv.Key, o);
+        o.Append(':');
+        Write(kv.Value, o);
+      }
+      o.Append('}');
+      return;
+    }
+    if (v is System.Collections.Generic.List<object>) {
+      System.Collections.Generic.List<object> a = (System.Collections.Generic.List<object>)v;
+      o.Append('[');
+      for (int i = 0; i < a.Count; i++) {
+        if (i > 0) { o.Append(','); }
+        Write(a[i], o);
+      }
+      o.Append(']');
+      return;
+    }
+    o.Append(\"null\");
+  }
+  public static string Str(object v) {
+    System.Text.StringBuilder o = new System.Text.StringBuilder();
+    Write(v, o);
+    return o.ToString();
+  }
+  static void SkipWs(string s, ref int i) {
+    while (i < s.Length && (s[i] == ' ' || s[i] == (char)9 || s[i] == (char)10 || s[i] == (char)13)) { i++; }
+  }
+  static string ReadStr(string s, ref int i) {
+    System.Text.StringBuilder o = new System.Text.StringBuilder();
+    if (i < s.Length && s[i] == (char)34) { i++; }
+    while (i < s.Length && s[i] != (char)34) {
+      char c = s[i];
+      if (c == (char)92 && (i + 1) < s.Length) {
+        i++;
+        char e = s[i];
+        if (e == 'n') { o.Append((char)10); }
+        else if (e == 'r') { o.Append((char)13); }
+        else if (e == 't') { o.Append((char)9); }
+        else if (e == 'b') { o.Append((char)8); }
+        else if (e == 'f') { o.Append((char)12); }
+        else if (e == 'u' && (i + 4) < s.Length) {
+          o.Append((char)System.Convert.ToInt32(s.Substring(i + 1, 4), 16));
+          i = i + 4;
+        }
+        else { o.Append(e); }
+        i++;
+        continue;
+      }
+      o.Append(c);
+      i++;
+    }
+    if (i < s.Length) { i++; }
+    return o.ToString();
+  }
+  static object Read(string s, ref int i) {
+    SkipWs(s, ref i);
+    if (i >= s.Length) { return null; }
+    char c = s[i];
+    if (c == '{') {
+      i++;
+      System.Collections.Generic.Dictionary<string, object> o = new System.Collections.Generic.Dictionary<string, object>();
+      while (true) {
+        SkipWs(s, ref i);
+        if (i >= s.Length) { break; }
+        if (s[i] == '}') { i++; break; }
+        if (s[i] == ',') { i++; continue; }
+        string k = ReadStr(s, ref i);
+        SkipWs(s, ref i);
+        if (i < s.Length && s[i] == ':') { i++; }
+        o[k] = Read(s, ref i);
+      }
+      return o;
+    }
+    if (c == '[') {
+      i++;
+      System.Collections.Generic.List<object> a = new System.Collections.Generic.List<object>();
+      while (true) {
+        SkipWs(s, ref i);
+        if (i >= s.Length) { break; }
+        if (s[i] == ']') { i++; break; }
+        if (s[i] == ',') { i++; continue; }
+        a.Add(Read(s, ref i));
+      }
+      return a;
+    }
+    if (c == (char)34) { return ReadStr(s, ref i); }
+    if (c == 't') { i = i + 4; return true; }
+    if (c == 'f') { i = i + 5; return false; }
+    if (c == 'n') { i = i + 4; return null; }
+    int start = i;
+    bool isDouble = false;
+    while (i < s.Length) {
+      char d = s[i];
+      if (d == '.' || d == 'e' || d == 'E') { isDouble = true; }
+      else if (!(d == '-' || d == '+' || (d >= '0' && d <= '9'))) { break; }
+      i++;
+    }
+    string text = s.Substring(start, i - start);
+    if (text.Length == 0) { i++; return null; }
+    if (isDouble) { return double.Parse(text, System.Globalization.CultureInfo.InvariantCulture); }
+    return int.Parse(text, System.Globalization.CultureInfo.InvariantCulture);
+  }
+  public static System.Collections.Generic.Dictionary<string, object> Parse(string s) {
+    int i = 0;
+    object v = Read(s, ref i);
+    if (v is System.Collections.Generic.Dictionary<string, object>) { return (System.Collections.Generic.Dictionary<string, object>)v; }
+    throw new System.Exception(\"Invalid JSON\");
+  }
+}
+")
+             )
              dart ( "jsonEncode(" (e 1) ")" (imp "dart:convert") )
              cpp ( "rg_json_obj_to_string(" (e 1) ")"
              (create_polyfill "
@@ -2664,6 +4722,192 @@ fn r_json_to_string(v: &RJson) -> String {
 
     to_string _:string (e:JSONArrayObject) {
          templates {
+             csharp ( "RgJson.Str(" (e 1) ")"
+             (polyfill "after_imports" "
+// The JSON value on the C# target: an object is a Dictionary, an array is a
+// List and a value is the boxed object inside them, which is what `case v
+// x:JSONDataObject` type-tests against.
+static class RgJson {
+  public static object Get(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v;
+    if (o != null && o.TryGetValue(k, out v)) { return v; }
+    return null;
+  }
+  public static string GetStr(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as string; }
+  public static System.Collections.Generic.Dictionary<string, object> GetObj(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as System.Collections.Generic.Dictionary<string, object>; }
+  public static System.Collections.Generic.List<object> GetArr(System.Collections.Generic.Dictionary<string, object> o, string k) { return Get(o, k) as System.Collections.Generic.List<object>; }
+  public static bool? GetBool(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is bool) { return (bool)v; }
+    return null;
+  }
+  // A JSON number reads back as int or double and the two are distinct types,
+  // so each getter accepts both and converts, the way the Dart, Python and Rust
+  // entries do.
+  public static int? GetInt(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is int) { return (int)v; }
+    if (v is double) { return (int)(double)v; }
+    return null;
+  }
+  public static double? GetDouble(System.Collections.Generic.Dictionary<string, object> o, string k) {
+    object v = Get(o, k);
+    if (v is double) { return (double)v; }
+    if (v is int) { return (double)(int)v; }
+    return null;
+  }
+  public static System.Collections.Generic.List<object> AsArr(object v) { return v as System.Collections.Generic.List<object>; }
+  public static object At(System.Collections.Generic.List<object> a, int i) {
+    if (a != null && i >= 0 && i < a.Count) { return a[i]; }
+    return null;
+  }
+  static readonly char[] Hexd = new char[] { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f' };
+  static void WriteStr(string s, System.Text.StringBuilder o) {
+    o.Append((char)34);
+    for (int i = 0; i < s.Length; i++) {
+      char c = s[i];
+      if (c == (char)34 || c == (char)92) { o.Append((char)92); o.Append(c); }
+      else if (c == (char)10) { o.Append((char)92); o.Append('n'); }
+      else if (c == (char)13) { o.Append((char)92); o.Append('r'); }
+      else if (c == (char)9) { o.Append((char)92); o.Append('t'); }
+      else if (c < (char)32) {
+        o.Append((char)92); o.Append('u'); o.Append('0'); o.Append('0');
+        o.Append(Hexd[((int)c >> 4) & 15]); o.Append(Hexd[(int)c & 15]);
+      }
+      else { o.Append(c); }
+    }
+    o.Append((char)34);
+  }
+  static void Write(object v, System.Text.StringBuilder o) {
+    if (v == null) { o.Append(\"null\"); return; }
+    if (v is string) { WriteStr((string)v, o); return; }
+    if (v is bool) { o.Append(((bool)v) ? \"true\" : \"false\"); return; }
+    if (v is int) { o.Append(((int)v).ToString(System.Globalization.CultureInfo.InvariantCulture)); return; }
+    if (v is long) { o.Append(((long)v).ToString(System.Globalization.CultureInfo.InvariantCulture)); return; }
+    if (v is double) {
+      string t = ((double)v).ToString(\"R\", System.Globalization.CultureInfo.InvariantCulture);
+      if (t.IndexOf('.') < 0 && t.IndexOf('e') < 0 && t.IndexOf('E') < 0) { t = t + \".0\"; }
+      o.Append(t);
+      return;
+    }
+    if (v is System.Collections.Generic.Dictionary<string, object>) {
+      System.Collections.Generic.Dictionary<string, object> m = (System.Collections.Generic.Dictionary<string, object>)v;
+      o.Append('{');
+      bool first = true;
+      foreach (System.Collections.Generic.KeyValuePair<string, object> kv in m) {
+        if (!first) { o.Append(','); }
+        first = false;
+        WriteStr(kv.Key, o);
+        o.Append(':');
+        Write(kv.Value, o);
+      }
+      o.Append('}');
+      return;
+    }
+    if (v is System.Collections.Generic.List<object>) {
+      System.Collections.Generic.List<object> a = (System.Collections.Generic.List<object>)v;
+      o.Append('[');
+      for (int i = 0; i < a.Count; i++) {
+        if (i > 0) { o.Append(','); }
+        Write(a[i], o);
+      }
+      o.Append(']');
+      return;
+    }
+    o.Append(\"null\");
+  }
+  public static string Str(object v) {
+    System.Text.StringBuilder o = new System.Text.StringBuilder();
+    Write(v, o);
+    return o.ToString();
+  }
+  static void SkipWs(string s, ref int i) {
+    while (i < s.Length && (s[i] == ' ' || s[i] == (char)9 || s[i] == (char)10 || s[i] == (char)13)) { i++; }
+  }
+  static string ReadStr(string s, ref int i) {
+    System.Text.StringBuilder o = new System.Text.StringBuilder();
+    if (i < s.Length && s[i] == (char)34) { i++; }
+    while (i < s.Length && s[i] != (char)34) {
+      char c = s[i];
+      if (c == (char)92 && (i + 1) < s.Length) {
+        i++;
+        char e = s[i];
+        if (e == 'n') { o.Append((char)10); }
+        else if (e == 'r') { o.Append((char)13); }
+        else if (e == 't') { o.Append((char)9); }
+        else if (e == 'b') { o.Append((char)8); }
+        else if (e == 'f') { o.Append((char)12); }
+        else if (e == 'u' && (i + 4) < s.Length) {
+          o.Append((char)System.Convert.ToInt32(s.Substring(i + 1, 4), 16));
+          i = i + 4;
+        }
+        else { o.Append(e); }
+        i++;
+        continue;
+      }
+      o.Append(c);
+      i++;
+    }
+    if (i < s.Length) { i++; }
+    return o.ToString();
+  }
+  static object Read(string s, ref int i) {
+    SkipWs(s, ref i);
+    if (i >= s.Length) { return null; }
+    char c = s[i];
+    if (c == '{') {
+      i++;
+      System.Collections.Generic.Dictionary<string, object> o = new System.Collections.Generic.Dictionary<string, object>();
+      while (true) {
+        SkipWs(s, ref i);
+        if (i >= s.Length) { break; }
+        if (s[i] == '}') { i++; break; }
+        if (s[i] == ',') { i++; continue; }
+        string k = ReadStr(s, ref i);
+        SkipWs(s, ref i);
+        if (i < s.Length && s[i] == ':') { i++; }
+        o[k] = Read(s, ref i);
+      }
+      return o;
+    }
+    if (c == '[') {
+      i++;
+      System.Collections.Generic.List<object> a = new System.Collections.Generic.List<object>();
+      while (true) {
+        SkipWs(s, ref i);
+        if (i >= s.Length) { break; }
+        if (s[i] == ']') { i++; break; }
+        if (s[i] == ',') { i++; continue; }
+        a.Add(Read(s, ref i));
+      }
+      return a;
+    }
+    if (c == (char)34) { return ReadStr(s, ref i); }
+    if (c == 't') { i = i + 4; return true; }
+    if (c == 'f') { i = i + 5; return false; }
+    if (c == 'n') { i = i + 4; return null; }
+    int start = i;
+    bool isDouble = false;
+    while (i < s.Length) {
+      char d = s[i];
+      if (d == '.' || d == 'e' || d == 'E') { isDouble = true; }
+      else if (!(d == '-' || d == '+' || (d >= '0' && d <= '9'))) { break; }
+      i++;
+    }
+    string text = s.Substring(start, i - start);
+    if (text.Length == 0) { i++; return null; }
+    if (isDouble) { return double.Parse(text, System.Globalization.CultureInfo.InvariantCulture); }
+    return int.Parse(text, System.Globalization.CultureInfo.InvariantCulture);
+  }
+  public static System.Collections.Generic.Dictionary<string, object> Parse(string s) {
+    int i = 0;
+    object v = Read(s, ref i);
+    if (v is System.Collections.Generic.Dictionary<string, object>) { return (System.Collections.Generic.Dictionary<string, object>)v; }
+    throw new System.Exception(\"Invalid JSON\");
+  }
+}
+")
+             )
              dart ( "jsonEncode(" (e 1) ")" (imp "dart:convert") )
              cpp ( "rg_json_arr_to_string(" (e 1) ")"
              (create_polyfill "
@@ -2844,6 +5088,7 @@ fn r_json_to_string(v: &RJson) -> String {
 
     push _@(moves@( 2 1 ) ):void ( e@(mutates):JSONArrayObject el:JSONArrayUnion) {
         templates {
+            csharp ( (e 1) ".Add(" (e 2) ");" )
             dart ( (e 1) ".add(" (e 2) ");" )
             cpp ( "rg_json_push(" (e 1) ", " (e 2) ");"
             (create_polyfill "
@@ -2939,6 +5184,7 @@ impl RJsonValue for RJson { fn r_json_value(&self) -> RJson { self.clone() } }
     }
     json_array json@(expands):JSONArrayObject () {
         templates {
+            csharp ( "new System.Collections.Generic.List<object>()" )
             dart ( "<dynamic>[]" )
             cpp ( "rg_json_new_arr()"
             (create_polyfill "
@@ -2997,6 +5243,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
     }
     json_object json:JSONDataObject () {
         templates {
+            csharp ( "new System.Collections.Generic.Dictionary<string, object>()" )
             dart ( "<String, dynamic>{}" )
             cpp ( "rg_json_new_obj()"
             (create_polyfill "

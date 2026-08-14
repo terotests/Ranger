@@ -29576,7 +29576,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             wr.out(("\"" + s) + "\"", false);
                             break;
                           case 3 : 
-                            if ( (node.int_value > 2147483647) || (node.int_value < (0 - 2147483648)) ) {
+                            if ( (node.int_value > 2147483647) || (node.int_value < ((0 - 2147483647) - 1)) ) {
                               wr.out(("(" + node.int_value) + "L).toInt()", false);
                             } else {
                               wr.out("" + node.int_value, false);
@@ -31224,6 +31224,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       constructor() {
                         super()
                         this.csharp_unions_written = false;
+                        this.csLambdaArgCounter = 0;
                       }
                       adjustType (tn) {
                         if ( tn == "this" ) {
@@ -31244,6 +31245,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         };
                       };
                       getObjectTypeString (type_string, ctx) {
+                        if ( (type_string.length) >= 2 ) {
+                          if ( (type_string.charCodeAt(0 )) == (91) ) {
+                            return this.collectionTypeStringToCS(type_string, ctx);
+                          }
+                        }
                         if ( ctx.isDefinedClass(type_string) ) {
                           const cc = ctx.findClass(type_string);
                           if ( cc.is_union ) {
@@ -31283,6 +31289,33 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             return "double";
                         };
                         return type_string;
+                      };
+                      collectionTypeStringToCS (type_string, ctx) {
+                        const n = type_string.length;
+                        const inner = type_string.substring(1, (n - 1) );
+                        const il = inner.length;
+                        let depth = 0;
+                        let sep = 0 - 1;
+                        let i = 0;
+                        while (i < il) {
+                          const c = inner.charCodeAt(i );
+                          if ( c == (91) ) {
+                            depth = depth + 1;
+                          }
+                          if ( c == (93) ) {
+                            depth = depth - 1;
+                          }
+                          if ( (c == (58)) && (depth == 0) ) {
+                            sep = i;
+                          }
+                          i = i + 1;
+                        };
+                        if ( sep >= 0 ) {
+                          const kt = inner.substring(0, sep );
+                          const vt = inner.substring((sep + 1), il );
+                          return ((("Dictionary<" + this.getObjectTypeString(kt, ctx)) + ",") + this.getObjectTypeString(vt, ctx)) + ">";
+                        }
+                        return ("List<" + this.getObjectTypeString(inner, ctx)) + ">";
                       };
                       getTypeString (type_string) {
                         switch (type_string ) { 
@@ -31584,6 +31617,27 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                         }
                       };
+                      renameShadowedLambdaArg (arg, ctx) {
+                        if ( arg.hasParamDesc == false ) {
+                          return;
+                        }
+                        const p = arg.paramDesc;
+                        const nm = p.name;
+                        if ( (nm.length) == 0 ) {
+                          return;
+                        }
+                        if ( (p.compiledName.indexOf("__l")) >= 0 ) {
+                          return;
+                        }
+                        if ( ctx.isVarDefined(nm) == false ) {
+                          return;
+                        }
+                        if ( ctx.isMemberVariable(nm) ) {
+                          return;
+                        }
+                        this.csLambdaArgCounter = this.csLambdaArgCounter + 1;
+                        p.compiledName = (nm + "__l") + this.csLambdaArgCounter;
+                      };
                       async CreateLambda (node, ctx, wr) {
                         const lambdaCtx = node.lambda_ctx;
                         const fName = node.children[1];
@@ -31603,6 +31657,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( arg.flow_done == false ) {
                             await this.compiler.parser.WalkNode(arg, lambdaCtx, wr);
                           }
+                          this.renameShadowedLambdaArg(arg, ctx);
                           await this.WalkNode(arg, lambdaCtx, wr);
                         };
                         wr.out(")", false);
@@ -31650,11 +31705,35 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         }));
                         wr.out("}", false);
                       };
+                      csCollectInherited (cl, ctx, vars, methods) {
+                        for ( let i = 0; i < cl.extends_classes.length; i++) {
+                          var pName = cl.extends_classes[i];
+                          if ( ctx.isDefinedClass(pName) ) {
+                            const pc = ctx.findClass(pName);
+                            for ( let j = 0; j < pc.variables.length; j++) {
+                              var pvar = pc.variables[j];
+                              vars[pvar.name] = true;
+                            };
+                            for ( let j_1 = 0; j_1 < pc.defined_variants.length; j_1++) {
+                              var fnVar = pc.defined_variants[j_1];
+                              const mVs = ( Object.prototype.hasOwnProperty.call(pc.method_variants, fnVar) ? pc.method_variants[fnVar] : undefined );
+                              for ( let k = 0; k < mVs.variants.length; k++) {
+                                var variant = mVs.variants[k];
+                                methods[variant.compiledName] = variant.params.length;
+                              };
+                            };
+                            this.csCollectInherited(pc, ctx, vars, methods);
+                          }
+                        };
+                      };
                       async writeClass (node, ctx, orig_wr) {
                         const cl = node.clDesc;
                         if ( typeof(cl) === "undefined" ) {
                           return;
                         }
+                        let inheritedVars = {};
+                        let inheritedMethods = {};
+                        this.csCollectInherited(cl, ctx, inheritedVars, inheritedMethods);
                         const wr = orig_wr;
                         this.import_lib("System", ctx, wr);
                         this.writeCSharpUnionInterfaces(ctx, wr);
@@ -31687,6 +31766,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         wr.createTag("utilities");
                         for ( let i_1 = 0; i_1 < cl.variables.length; i_1++) {
                           var pvar = cl.variables[i_1];
+                          if ( ( typeof(inheritedVars[pvar.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(inheritedVars, pvar.name) ) ) {
+                            continue;
+                          }
                           wr.out("public ", false);
                           await this.writeVarDef(pvar.node, ctx, wr);
                         };
@@ -31776,6 +31858,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           for ( let i_5 = 0; i_5 < mVs.variants.length; i_5++) {
                             var variant_1 = mVs.variants[i_5];
                             wr.out("public ", false);
+                            const parentArgc = ( Object.prototype.hasOwnProperty.call(inheritedMethods, variant_1.compiledName) ? inheritedMethods[variant_1.compiledName] : undefined );
+                            if ( (typeof(parentArgc) !== "undefined" && parentArgc != null )  ) {
+                              if ( (parentArgc) == (variant_1.params.length) ) {
+                                wr.out("override ", false);
+                              }
+                            } else {
+                              if ( cl.is_extended_by_children ) {
+                                wr.out("virtual ", false);
+                              }
+                            }
                             await this.writeTypeDef(variant_1.nameNode, ctx, wr);
                             wr.out(" ", false);
                             wr.out(variant_1.compiledName + "(", false);

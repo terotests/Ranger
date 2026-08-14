@@ -261,6 +261,54 @@ inline std::string rg_path_dirname(const std::string& p) {
           ranger ( "( pathname " (e 1) " )" )
           * ( "\"./\"")
           es6 ( "require('path').dirname(" (e 1) ")" )
+          csharp ( "RgPath.Dirname(" (e 1) ")"
+          (polyfill "after_imports" "
+// Path helpers for the compiler's own file handling. System.IO.Path would do
+// most of it, but its behaviour follows the host platform's separator and the
+// compiler builds its search path by concatenating onto a normalized string, so
+// these follow Node's path.normalize / path.dirname the way the C++, Dart and
+// Python entries do.
+static class RgPath {
+  public static string Normalize(string p) {
+    string s = p.Replace((char)92, '/');
+    bool absolute = s.StartsWith(\"/\");
+    bool trailing = s.Length > 1 && s.EndsWith(\"/\");
+    System.Collections.Generic.List<string> parts = new System.Collections.Generic.List<string>();
+    foreach (string cur in s.Split('/')) {
+      if (cur == \"..\") {
+        if (parts.Count > 0 && parts[parts.Count - 1] != \"..\") {
+          parts.RemoveAt(parts.Count - 1);
+        } else if (absolute == false) {
+          parts.Add(cur);
+        }
+      } else if (cur.Length > 0 && cur != \".\") {
+        parts.Add(cur);
+      }
+    }
+    string outp = string.Join(\"/\", parts.ToArray());
+    if (absolute) { outp = \"/\" + outp; }
+    if (outp.Length == 0) { return \".\"; }
+    if (trailing && outp != \"/\") { outp = outp + \"/\"; }
+    return outp;
+  }
+  public static string Dirname(string p) {
+    string s = Normalize(p);
+    if (s.Length > 1 && s.EndsWith(\"/\")) { s = s.Substring(0, s.Length - 1); }
+    int pos = s.LastIndexOf('/');
+    if (pos < 0) { return \".\"; }
+    if (pos == 0) { return \"/\"; }
+    return s.Substring(0, pos);
+  }
+  // The directory the program was started from, which is where the compiler
+  // looks for its bundled Lang.rgr and stdops.rgr.
+  public static string InstallDir() {
+    string loc = System.Reflection.Assembly.GetEntryAssembly().Location;
+    if (loc == null || loc.Length == 0) { return \".\"; }
+    return Dirname(Normalize(System.IO.Path.GetFullPath(loc)));
+  }
+}
+")
+          )
       }        
   }  
 }

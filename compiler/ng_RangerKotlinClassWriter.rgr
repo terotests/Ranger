@@ -41,7 +41,10 @@ class RangerKotlinClassWriter {
       case RangerNodeType.Integer {
         ; Kotlin `Int` is signed 32-bit. Literals outside that range are Long
         ; and will not type-check against Int parameters or `and`/`or`.
-        if ((node.int_value > 2147483647) || (node.int_value < (0 - 2147483648))) {
+        ; -2147483648 is written as (-2147483647 - 1): the literal 2147483648
+        ; does not fit a signed 32-bit int, and on C# a constant expression that
+        ; overflows is a compile error, not a wrap.
+        if ((node.int_value > 2147483647) || (node.int_value < ((0 - 2147483647) - 1))) {
           wr.out((("(" + node.int_value) + "L).toInt()") false)
         } {
           wr.out(("" + node.int_value) false)
