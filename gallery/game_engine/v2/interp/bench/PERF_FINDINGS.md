@@ -63,27 +63,61 @@ contact with the workloads:
 `--gc` matters enormously for `05_tree_parent_cycle` (1570 MB → 10 MB), which
 is what it was built for. It is not what makes `object_props` 64×.
 
-## What this means for the next lever
+## What this means for the next lever — MEASURED, and not what I expected
 
-The engine's remaining gap is **allocation and per-object memory traffic**,
-not the interpreter dispatch loop:
+My first reading of the table above was that the gap is **allocation**, since
+the ratio tracks allocation volume so cleanly. That inference is **wrong**,
+and the profile says so.
 
-- Arithmetic and control flow are already within ~2.4× of QuickJS
-  (`loop` 2.4×, and the micro geomean is 3.3×).
-- Cases that merely *touch* objects are ~3–5×.
-- Cases that *create* objects in bulk are 29–64×.
+Callgrind on the `object_props` shape, against a control that does the same
+property traffic on **one** object instead of 2,000 (plain `-O3` twin, since
+valgrind cannot decode `-march=native` AVX-512):
 
-So the ordering of the documented levers should be revisited. Property-name
-interning and shape/slot storage both reduce per-object *size* and per-access
-cost, which helps — but the measurement says the first question to ask is
-what one `new P(x, y, z)` costs end to end: allocation, refcount traffic, the
-property bag's initial capacity, and how many separate allocations one guest
-object implies.
+| function | 2,000 objects | 1 object (control) |
+|---|---:|---:|
+| `EvAtomTable::idOf(string)` | 15.60% | **17.74%** |
+| `EvHandle::tryProps()` | 11.86% | 11.60% |
+| `EvPropertyBag::hasData(string)` | 5.09% | 6.37% |
+| `~__shared_count` (refcount teardown) | 6.50% | 6.32% |
+| `EvHandle::hasOwnData(string)` | 3.79% | 4.60% |
+| `basic_string(char const*)` | 3.69% | 4.52% |
+| `__memcmp_avx2_movbe` | 3.91% | 4.35% |
 
-A profile of `03_object_props` specifically (rather than of Richards, which
-is the shape that has been profiled before) is the cheapest next step, using
-the callgrind recipe in BYTECODE.md — build a plain `-O3` twin, since
-valgrind cannot decode `-march=native` AVX-512.
+**The same functions dominate both, in nearly the same proportions, with
+allocation removed entirely.** String→key resolution — `idOf` + `hasData` +
+`hasOwnData` + `basic_string` + `memcmp` — is **32%** of instructions in the
+allocating case and **38%** in the non-allocating one. Refcount teardown is
+~6.4% in both.
+
+So the allocation-heavy cases are not slow *because* they allocate. They are
+slow because they perform more property accesses in total, and every property
+access pays:
+
+1. constructing a `std::string` from a literal at the call site,
+2. hashing/comparing it in `EvAtomTable::idOf` to find the atom id,
+3. comparing it again inside the bag (`hasData` → `memcmp`).
+
+An atom table exists, but it is consulted **by string on every access**
+rather than the name being resolved once and carried as an id.
+
+### The lever
+
+**Property-name interning — atom ids resolved once, carried as integers —
+is the measured next step**, which is what BYTECODE.md already listed and
+what this document previously deprioritised in favour of allocation. Concretely:
+
+- resolve the atom at compile time for constant member names (the bytecode
+  already has a constant pool; the name should become an id there, not a
+  string), and cache it per IC site for dynamic ones;
+- key `EvPropertyBag` by id so the bag probe is an integer compare rather
+  than `memcmp`;
+- stop materialising `std::string` at member-access call sites.
+
+Refcount teardown (~6.4%) is the second term and is the borrowed-handle
+discipline already noted in BYTECODE.md.
+
+Allocation cost is real but it is **not** the dominant term, and the
+`03_object_props` 64× is not evidence for it.
 
 ## Measurement notes
 
