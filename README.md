@@ -175,8 +175,8 @@ disagreed — a semantic difference). `–` means no toolchain on this machine.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `class_inherit` | ✅ | ✅ | ✅ | ✅ | ✅ | **BUILD** | ✅ | ✅ | ✅ | ✅ |
 | `double_to_string` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `lambda_capture` | ✅ | **GEN** | **GEN** | ✅ | ✅ | **BUILD** | ✅ | **BUILD** | **RUN** | ✅ |
-| `map_iteration` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `lambda_capture` | ✅ | ✅ | ✅ | ✅ | ✅ | **BUILD** | ✅ | ✅ | ✅ | ✅ |
+| `map_iteration` | ✅ | ✅ | ✅ | **RUN** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `optional_unwrap` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **RUN** |
 | `shape_match` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **RUN** |
 | `singleton` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -190,19 +190,27 @@ without pretending the gaps are fixed.
 
 The gaps are real work, in rough order of what they cost:
 
-- **`lambda_capture`** on Python, PHP, Rust, Kotlin and Dart — five targets and
-  one feature. Closures are what an interpreter's evaluator is made of.
+- **Rust closures** (`lambda_capture`) — the function TYPE renders empty and
+  the body comes out as a JavaScript arrow. Rust is the hard one of the four
+  that had this: a closure needs an owning representation (`Rc<dyn Fn(..)>`)
+  and the call sites need to clone it, where Kotlin, Dart and Python each
+  needed only their own spelling.
 - **`union_positions`** on Go, Rust and Scala — a union survives being a local
   but not being an array element or an optional field.
 - **Scala has no union or shape lowering at all** (`shape_match`,
   `union_positions`), which is what stops it carrying the interpreter.
+- **`map_iteration` on Go** — Go randomizes map iteration *per run*, so this
+  cell is not merely failing, it is nondeterministic: an early run of the
+  matrix passed it by luck. Ranger maps are ordered everywhere else and the
+  interpreter depends on it, so Go needs a real ordered-map type rather than a
+  `map[K]V`.
 - **`class_inherit` on Rust** — a subclass does not receive the parent's fields
   (`RUST_ISSUES.md:567`); this one is known and long-standing.
 
 What has been closed so far, and what it took, is in the commit history: three
-targets gained `@singleton`, three gained insertion-ordered maps, Java's
-optionals became internally consistent, and all ten now agree on how a double
-prints.
+targets gained `@singleton`, three gained insertion-ordered maps, four gained
+working closures, Java's optionals became internally consistent, and all ten
+now agree on how a double prints.
 
 ### How far the other targets get on the interpreter
 

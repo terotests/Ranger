@@ -325,12 +325,30 @@ class RangerPythonClassWriter {
     def fName:CodeNode (itemAt node.children 0)
     def givenArgs:CodeNode (itemAt node.children 1)
 
+    ; The declared signature is used to skip untyped slots. It is not always
+    ; reachable: a local whose type was INFERRED (`def add (fn:int (x:int) {...})`)
+    ; has no expression_value on its name node, and getVariableDef answers a
+    ; blank descriptor for a name it does not know -- so this walked into a
+    ; null and the whole compile died with "Unexpected compiler error" at the
+    ; first call of a lambda through a variable. Without a signature, pass the
+    ; arguments as given.
     def args:CodeNode
-    if( (!null? fName.expression_value) ) {
-      args = ( itemAt fName.expression_value.children 1)      
+    def haveSig:boolean false
+    if ((!null? fName.expression_value)) {
+      args = (itemAt fName.expression_value.children 1)
+      haveSig = true
     } {
-      def param (ctx.getVariableDef(fName.vref))
-      args = ( itemAt param.nameNode.expression_value.children 1)
+      def param:RangerAppParamDesc (ctx.getVariableDef(fName.vref))
+      if (!null? param.nameNode) {
+        def pnn:CodeNode (unwrap param.nameNode)
+        if ((!null? pnn.expression_value)) {
+          args = (itemAt pnn.expression_value.children 1)
+          haveSig = true
+        }
+      }
+    }
+    if (false == haveSig) {
+      args = givenArgs
     }
     ctx.setInExpr()
     this.WalkNode(fName ctx wr)
@@ -341,9 +359,13 @@ class RangerPythonClassWriter {
       if (i > 0) {
         wr.out(', ' false)
       }
-      if(arg.value_type != RangerNodeType.NoType) {
+      if haveSig {
+        if(arg.value_type != RangerNodeType.NoType) {
+          this.WalkNode(n ctx wr)
+        }
+      } {
         this.WalkNode(n ctx wr)
-      }        
+      }
     }
     ctx.unsetInExpr()
     wr.out(")" false)
@@ -366,12 +388,32 @@ class RangerPythonClassWriter {
       this.WalkNode(arg lambdaCtx wr)  
     }    
     wr.out(": " false)
-    
-    ; Python lambdas are single expressions, so this is simplified
+
+    ; A Python lambda holds ONE EXPRESSION -- no statements, no `return`. The
+    ; body was written out as statements anyway, so `lambda x:` was followed by
+    ; a newline and a bare `return`, which is a SyntaxError. A Ranger lambda is
+    ; almost always exactly `{ return <expr> }`, and that is the shape Python
+    ; can carry: write the expression the return carries and nothing else.
     lambdaCtx.restartExpressionLevel()
-    for body.children item:CodeNode i {
-      this.WalkNode(item lambdaCtx wr)
+    lambdaCtx.setInExpr()
+    def bodyLines:int (array_length body.children)
+    def wroteExpr:boolean false
+    if (bodyLines == 1) {
+      def only:CodeNode (itemAt body.children 0)
+      if (only.isFirstVref("return")) {
+        if ((array_length only.children) > 1) {
+          this.WalkNode((itemAt only.children 1) lambdaCtx wr)
+          wroteExpr = true
+        }
+      }
     }
+    if (false == wroteExpr) {
+      ; Anything else needs a named `def` hoisted out of the expression, which
+      ; this writer has no place to put. Saying so beats emitting a file that
+      ; cannot be parsed.
+      ctx.addError(node "Python target: a lambda body must be a single `return <expression>`")
+    }
+    lambdaCtx.unsetInExpr()
   } 
 
   ; The Python target writes no type annotations, so a type name only reaches

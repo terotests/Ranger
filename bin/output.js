@@ -29786,6 +29786,43 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         };
                         return type_string;
                       };
+                      async CreateLambda (node, ctx, wr) {
+                        const lambdaCtx = node.lambda_ctx;
+                        const fnDef = node.children[0];
+                        const args = node.children[1];
+                        const body = node.children[2];
+                        lambdaCtx.is_lambda = true;
+                        wr.out("fun(", false);
+                        for ( let i = 0; i < args.children.length; i++) {
+                          var arg = args.children[i];
+                          if ( i > 0 ) {
+                            wr.out(", ", false);
+                          }
+                          if ( arg.flow_done == false ) {
+                            await this.compiler.parser.WalkNode(arg, lambdaCtx, wr);
+                          }
+                          await this.WalkNode(arg, lambdaCtx, wr);
+                          wr.out(" : ", false);
+                          await this.writeTypeDef(arg, ctx, wr);
+                        };
+                        wr.out(")", false);
+                        if ( (fnDef.type_name == "void") || (fnDef.eval_type_name == "void") ) {
+                          wr.out(" : Unit", false);
+                        } else {
+                          wr.out(" : ", false);
+                          await this.writeTypeDef(fnDef, ctx, wr);
+                        }
+                        wr.out(" { ", true);
+                        wr.indent(1);
+                        lambdaCtx.restartExpressionLevel();
+                        for ( let i_1 = 0; i_1 < body.children.length; i_1++) {
+                          var item = body.children[i_1];
+                          await this.WalkNode(item, lambdaCtx, wr);
+                        };
+                        wr.newline();
+                        wr.indent(-1);
+                        wr.out("}", false);
+                      };
                       async writeTypeDef (node, ctx, wr) {
                         let v_type = node.value_type;
                         if ( node.eval_type != 0 ) {
@@ -29806,6 +29843,28 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             break;
                           case 15 : 
                             wr.out("CharArray", false);
+                            break;
+                          case 20 : 
+                            const rv = node.expression_value.children[0];
+                            const sec = node.expression_value.children[1];
+                            let is_void = false;
+                            if ( (rv.type_name == "void") || (rv.eval_type_name == "void") ) {
+                              is_void = true;
+                            }
+                            wr.out("(", false);
+                            for ( let i = 0; i < sec.children.length; i++) {
+                              var arg = sec.children[i];
+                              if ( i > 0 ) {
+                                wr.out(", ", false);
+                              }
+                              await this.writeTypeDef(arg, ctx, wr);
+                            };
+                            wr.out(") -> ", false);
+                            if ( is_void ) {
+                              wr.out("Unit", false);
+                            } else {
+                              await this.writeTypeDef(rv, ctx, wr);
+                            }
                             break;
                           case 16 : 
                             wr.out("ByteArray", false);
@@ -30632,12 +30691,59 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         };
                         return type_string;
                       };
+                      async CreateLambda (node, ctx, wr) {
+                        const lambdaCtx = node.lambda_ctx;
+                        const args = node.children[1];
+                        const body = node.children[2];
+                        lambdaCtx.is_lambda = true;
+                        wr.out("(", false);
+                        for ( let i = 0; i < args.children.length; i++) {
+                          var arg = args.children[i];
+                          if ( i > 0 ) {
+                            wr.out(", ", false);
+                          }
+                          if ( arg.flow_done == false ) {
+                            await this.compiler.parser.WalkNode(arg, lambdaCtx, wr);
+                          }
+                          await this.writeTypeDef(arg, ctx, wr);
+                          wr.out(" ", false);
+                          await this.WalkNode(arg, lambdaCtx, wr);
+                        };
+                        wr.out(") { ", true);
+                        wr.indent(1);
+                        lambdaCtx.restartExpressionLevel();
+                        for ( let i_1 = 0; i_1 < body.children.length; i_1++) {
+                          var item = body.children[i_1];
+                          await this.WalkNode(item, lambdaCtx, wr);
+                        };
+                        wr.newline();
+                        wr.indent(-1);
+                        wr.out("}", false);
+                      };
                       async writeTypeDef (node, ctx, wr) {
                         let v_type = node.value_type;
                         if ( node.eval_type != 0 ) {
                           v_type = node.eval_type;
                         }
                         switch (v_type ) { 
+                          case 20 : 
+                            const rv = node.expression_value.children[0];
+                            const sec = node.expression_value.children[1];
+                            if ( (rv.type_name == "void") || (rv.eval_type_name == "void") ) {
+                              wr.out("void", false);
+                            } else {
+                              await this.writeTypeDef(rv, ctx, wr);
+                            }
+                            wr.out(" Function(", false);
+                            for ( let i = 0; i < sec.children.length; i++) {
+                              var arg = sec.children[i];
+                              if ( i > 0 ) {
+                                wr.out(", ", false);
+                              }
+                              await this.writeTypeDef(arg, ctx, wr);
+                            };
+                            wr.out(")", false);
+                            break;
                           case 13 : 
                             wr.out("int", false);
                             break;
@@ -35366,11 +35472,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         const fName = node.children[0];
                         const givenArgs = node.children[1];
                         let args;
+                        let haveSig = false;
                         if ( (typeof(fName.expression_value) !== "undefined" && fName.expression_value != null )  ) {
                           args = fName.expression_value.children[1];
+                          haveSig = true;
                         } else {
                           const param = ctx.getVariableDef(fName.vref);
-                          args = param.nameNode.expression_value.children[1];
+                          if ( (typeof(param.nameNode) !== "undefined" && param.nameNode != null )  ) {
+                            const pnn = param.nameNode;
+                            if ( (typeof(pnn.expression_value) !== "undefined" && pnn.expression_value != null )  ) {
+                              args = pnn.expression_value.children[1];
+                              haveSig = true;
+                            }
+                          }
+                        }
+                        if ( false == haveSig ) {
+                          args = givenArgs;
                         }
                         ctx.setInExpr();
                         wr.out("call_user_func(", false);
@@ -35381,7 +35498,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( i >= 0 ) {
                             wr.out(", ", false);
                           }
-                          if ( arg.value_type != 0 ) {
+                          if ( haveSig ) {
+                            if ( arg.value_type != 0 ) {
+                              await this.WalkNode(n, ctx, wr);
+                            }
+                          } else {
                             await this.WalkNode(n, ctx, wr);
                           }
                         };
@@ -36032,11 +36153,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         const fName = node.children[0];
                         const givenArgs = node.children[1];
                         let args;
+                        let haveSig = false;
                         if ( (typeof(fName.expression_value) !== "undefined" && fName.expression_value != null )  ) {
                           args = fName.expression_value.children[1];
+                          haveSig = true;
                         } else {
                           const param = ctx.getVariableDef(fName.vref);
-                          args = param.nameNode.expression_value.children[1];
+                          if ( (typeof(param.nameNode) !== "undefined" && param.nameNode != null )  ) {
+                            const pnn = param.nameNode;
+                            if ( (typeof(pnn.expression_value) !== "undefined" && pnn.expression_value != null )  ) {
+                              args = pnn.expression_value.children[1];
+                              haveSig = true;
+                            }
+                          }
+                        }
+                        if ( false == haveSig ) {
+                          args = givenArgs;
                         }
                         ctx.setInExpr();
                         await this.WalkNode(fName, ctx, wr);
@@ -36047,7 +36179,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( i > 0 ) {
                             wr.out(", ", false);
                           }
-                          if ( arg.value_type != 0 ) {
+                          if ( haveSig ) {
+                            if ( arg.value_type != 0 ) {
+                              await this.WalkNode(n, ctx, wr);
+                            }
+                          } else {
                             await this.WalkNode(n, ctx, wr);
                           }
                         };
@@ -36072,10 +36208,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         };
                         wr.out(": ", false);
                         lambdaCtx.restartExpressionLevel();
-                        for ( let i_1 = 0; i_1 < body.children.length; i_1++) {
-                          var item = body.children[i_1];
-                          await this.WalkNode(item, lambdaCtx, wr);
-                        };
+                        lambdaCtx.setInExpr();
+                        const bodyLines = body.children.length;
+                        let wroteExpr = false;
+                        if ( bodyLines == 1 ) {
+                          const only = body.children[0];
+                          if ( only.isFirstVref("return") ) {
+                            if ( (only.children.length) > 1 ) {
+                              await this.WalkNode(only.children[1], lambdaCtx, wr);
+                              wroteExpr = true;
+                            }
+                          }
+                        }
+                        if ( false == wroteExpr ) {
+                          ctx.addError(node, "Python target: a lambda body must be a single `return <expression>`");
+                        }
+                        lambdaCtx.unsetInExpr();
                       };
                       getPythonTypeName (node, ctx) {
                         let v_type = node.value_type;

@@ -218,12 +218,63 @@ class RangerDartClassWriter {
     return type_string
   }
 
+  ; Dart's `=>` form takes a single EXPRESSION, so the generic writer's
+  ; JavaScript-shaped `(x) => { return ...; }` is a syntax error here. The
+  ; block form `(int x) { ... }` is the closure Dart actually has, and it
+  ; takes a `return`.
+  fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def lambdaCtx (unwrap node.lambda_ctx)
+    def args:CodeNode (itemAt node.children 1)
+    def body:CodeNode (itemAt node.children 2)
+    lambdaCtx.is_lambda = true
+    wr.out("(" false)
+    for args.children arg:CodeNode i {
+      if (i > 0) {
+        wr.out(", " false)
+      }
+      if (arg.flow_done == false) {
+        this.compiler.parser.WalkNode(arg lambdaCtx wr)
+      }
+      this.writeTypeDef(arg ctx wr)
+      wr.out(" " false)
+      this.WalkNode(arg lambdaCtx wr)
+    }
+    wr.out(") { " true)
+    wr.indent(1)
+    lambdaCtx.restartExpressionLevel()
+    for body.children item:CodeNode i {
+      this.WalkNode(item lambdaCtx wr)
+    }
+    wr.newline()
+    wr.indent(-1)
+    wr.out("}" false)
+  }
+
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def v_type:RangerNodeType node.value_type
     if (node.eval_type != RangerNodeType.NoType) {
       v_type = node.eval_type
     }
     switch v_type {
+      ; A function TYPE: Dart spells it R Function(A, B). Without this case
+      ; the type rendered EMPTY, so a lambda-typed local came out as ` add =`.
+      case RangerNodeType.ExpressionType {
+        def rv:CodeNode (itemAt node.expression_value.children 0)
+        def sec:CodeNode (itemAt node.expression_value.children 1)
+        if ((rv.type_name == "void") || (rv.eval_type_name == "void")) {
+          wr.out("void" false)
+        } {
+          this.writeTypeDef(rv ctx wr)
+        }
+        wr.out(" Function(" false)
+        for sec.children arg:CodeNode i {
+          if (i > 0) {
+            wr.out(", " false)
+          }
+          this.writeTypeDef(arg ctx wr)
+        }
+        wr.out(")" false)
+      }
       case RangerNodeType.Enum {
         wr.out("int" false)
       }

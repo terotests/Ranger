@@ -330,12 +330,30 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     def fName:CodeNode (itemAt node.children 0)
     def givenArgs:CodeNode (itemAt node.children 1)
 
+    ; The declared signature is used to skip untyped slots. It is not always
+    ; reachable: a local whose type was INFERRED (`def add (fn:int (x:int) {...})`)
+    ; has no expression_value on its name node, and getVariableDef answers a
+    ; blank descriptor for a name it does not know -- so this walked into a
+    ; null and the whole compile died with "Unexpected compiler error" at the
+    ; first call of a lambda through a variable. Without a signature, pass the
+    ; arguments as given.
     def args:CodeNode
-    if( (!null? fName.expression_value) ) {
-      args  = ( itemAt fName.expression_value.children 1)      
+    def haveSig:boolean false
+    if ((!null? fName.expression_value)) {
+      args = (itemAt fName.expression_value.children 1)
+      haveSig = true
     } {
-      def param (ctx.getVariableDef(fName.vref))
-      args  = ( itemAt param.nameNode.expression_value.children 1)
+      def param:RangerAppParamDesc (ctx.getVariableDef(fName.vref))
+      if (!null? param.nameNode) {
+        def pnn:CodeNode (unwrap param.nameNode)
+        if ((!null? pnn.expression_value)) {
+          args = (itemAt pnn.expression_value.children 1)
+          haveSig = true
+        }
+      }
+    }
+    if (false == haveSig) {
+      args = givenArgs
     }
     ctx.setInExpr()
     wr.out('call_user_func(' false)
@@ -346,9 +364,13 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         if (i >= 0) {
           wr.out(', ' false)
         }
-        if(arg.value_type != RangerNodeType.NoType) {
+        if haveSig {
+          if(arg.value_type != RangerNodeType.NoType) {
+            this.WalkNode(n ctx wr)
+          }
+        } {
           this.WalkNode(n ctx wr)
-        }        
+        }
     }
 
     ctx.unsetInExpr()
