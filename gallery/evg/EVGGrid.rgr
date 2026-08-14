@@ -2,14 +2,18 @@
 ;
 ; Targets photo-book pages, not CSS Grid Level 2. What is supported:
 ;
-;   grid-template-columns: 120px 1fr 40%
-;   grid-template-columns: repeat(3, 1fr)
+;   grid-template-columns: 120px 1fr 40% | repeat(3, 1fr) | minmax(40px, 1fr)
 ;   grid-template-rows:    1fr 1fr
+;   grid-template-areas:   "hero hero" "a b"
+;   grid-auto-flow:        row | row dense
+;   grid-template-columns: subgrid   (columns only)
 ;   grid-column: span 2  |  2  |  2 / 4  |  2 / span 3
 ;   grid-row:    (same forms)
 ;
-; Explicitly NOT supported (see PLAN_CSS_LAYOUT_AND_FONTS.md §7.3):
-; grid-template-areas, dense packing, subgrid, minmax(), named lines.
+; Explicitly NOT supported (see PLAN_CSS_LAYOUT_AND_FONTS.md §7.3): row
+; subgrid, fit-content(), and named lines. The first two set `hadError` with
+; a message; a named line in a *placement* is silently treated as auto, which
+; is a gap.
 ;
 ; `auto` in a track list is accepted and treated as `1fr`. Real CSS sizes an
 ; auto track to its content and only then distributes leftover space; doing
