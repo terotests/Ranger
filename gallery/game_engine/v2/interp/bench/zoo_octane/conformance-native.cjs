@@ -79,9 +79,23 @@ function loadProbes() {
 }
 
 /** What Node makes of a probe body, as the engine would print it. */
+// Globals a real script environment has and a bare vm sandbox does not. Without
+// them the ORACLE is wrong rather than the engine: `typeof performance` is
+// "object" in Node and in every engine target, but "undefined" in an empty
+// sandbox, so performance-typeof was reported as a native failure when all
+// three targets already agreed with Node. Keep this list to globals the engine
+// genuinely provides.
+function sandboxGlobals() {
+  return { performance: performance };
+}
+
 function nodeValue(body) {
   try {
-    const v = vm.runInNewContext("(function(){" + body + "})()", {}, { timeout: 5000 });
+    const v = vm.runInNewContext(
+      "(function(){" + body + "})()",
+      sandboxGlobals(),
+      { timeout: 5000 }
+    );
     return { ok: true, text: render(v) };
   } catch (e) {
     return { ok: false, text: "throw:" + (e && e.name ? e.name : "Error") };
