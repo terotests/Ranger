@@ -2,10 +2,32 @@
 
 ## Issue #1: Text/Label Elements Don't Auto-Size Width Based on Content
 
-**Status:** Open  
+**Status:** Resolved  
 **Severity:** Medium  
 **Found:** December 19, 2025  
+**Resolved:** August 14, 2026  
 **Component:** EVGLayout.rgr
+
+### Resolution
+
+Text leaf nodes shrink-wrap to their measured content in `EVGLayout.layoutElement`
+and `estimateChildWidth`, so a `<Label>` no longer claims the full parent width
+in a `flexDirection="row"`.
+
+Two follow-ups were needed before the fix could be trusted, both landed with the
+font-correctness work:
+
+- The measurement passed a hardcoded `"Helvetica"` for every string, so the
+  shrink-wrapped width was right in shape but wrong in size for any other face.
+  It now measures with the element's own `fontFamily`.
+- The measurement itself was a `fontSize * 0.55` guess. Layout now measures with
+  the same TTF the output embeds, checked against a browser in
+  `gallery/pdf_writer/test/font_parity.js`.
+
+Covered by `evg_test`: "text label shrink-wraps (not full width)",
+"sibling stays on the same row", "sibling sits right after the label", and
+"layout measured with the element's family". The original report below is kept
+for history and no longer describes current behavior.
 
 ### Description
 

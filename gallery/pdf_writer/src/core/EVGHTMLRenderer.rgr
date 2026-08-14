@@ -9,6 +9,7 @@
 Import "../../../evg/EVGElement.rgr"
 Import "../../../evg/EVGLayout.rgr"
 Import "../../../evg/EVGTextMeasurer.rgr"
+Import "../../../evg/EVGTextEngine.rgr"
 Import "../../../evg/EVGUnit.rgr"
 Import "../../../evg/EVGColor.rgr"
 Import "EVGResourceLoader.rgr"
@@ -97,6 +98,15 @@ class EVGHTMLRenderer {
         layout.setPageSize(width height)
     }
     
+    fn setStrictFonts:void (s:boolean) {
+        layout.setStrictFonts(s)
+    }
+
+    ; Warnings collected while measuring, so a caller can surface them.
+    fn getTextEngine:EVGTextEngine () {
+        return (layout.getTextEngine())
+    }
+
     fn setMeasurer:void (m:EVGTextMeasurer) {
         measurer = m
         layout.setMeasurer(m)

@@ -25,7 +25,51 @@ Import "../../../evg/EVGLayout.rgr"
 Import "../../../evg/SVGPathParser.rgr"
 Import "../../../evg/EVGStyleSheet.rgr"
 Import "../../../evg/EVGGrid.rgr"
+Import "../../../evg/EVGTextEngine.rgr"
 Import "../tests/harness/RgTest.rgr"
+
+; A measurer that records which font family it was asked about, so the tests can
+; prove layout threads the element's real family through instead of the
+; hardcoded "Helvetica" it used to pass. Widths are deliberately trivial
+; (0.5 em per character) so wrap positions are exactly predictable.
+class RecordingMeasurer {
+    Extends(EVGTextMeasurer)
+
+    def families:[string]
+
+    Constructor () {
+    }
+
+    fn isFontAccurate:boolean () {
+        return true
+    }
+
+    fn hasFace:boolean (fontFamily:string) {
+        return (fontFamily != "MissingFace")
+    }
+
+    fn measureText:EVGTextMetrics (text:string fontFamily:string fontSize:double) {
+        push families fontFamily
+        def m (new EVGTextMetrics())
+        m.width = ((to_double (strlen text)) * fontSize * 0.5)
+        m.height = (fontSize * 1.2)
+        m.ascent = (fontSize * 0.8)
+        m.descent = (fontSize * 0.2)
+        m.lineHeight = (fontSize * 1.2)
+        return m
+    }
+
+    fn sawFamily:boolean (name:string) {
+        def i:int 0
+        while (i < (array_length families)) {
+            if ((itemAt families i) == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}
 
 class EVGTest {
 
@@ -51,6 +95,9 @@ class EVGTest {
         test.testFlexWrap(t)
         test.testTextIntrinsicWidth(t)
         test.testSvgPath(t)
+        test.testTextEngineWrap(t)
+        test.testTextEngineFontChecks(t)
+        test.testLayoutUsesElementFont(t)
         test.testGridTracks(t)
         test.testGridPlacement(t)
         test.testGridLayout(t)
@@ -725,6 +772,115 @@ class EVGTest {
     }
 
     ; ---- grid: track lists ----------------------------------------------------
+    ; ---- text engine: one wrap implementation --------------------------------
+    fn testTextEngineWrap:void (t:RgTest) {
+        def rec (new RecordingMeasurer())
+        def eng (new EVGTextEngine())
+        eng.setMeasurer(rec)
+
+        ; 0.5 em per char at 10px = 5px per character.
+        ; "aaa bbb" is 7 chars = 35px; at maxWidth 35 it stays on one line.
+        def one:[EVGTextLine] (eng.breakLines("aaa bbb" "Test" 10.0 35.0))
+        t.eqInt("fits exactly on one line" (array_length one) 1)
+
+        ; At 30px it cannot, so it breaks at the space.
+        def two:[EVGTextLine] (eng.breakLines("aaa bbb" "Test" 10.0 30.0))
+        t.eqInt("breaks when the candidate line is too wide" (array_length two) 2)
+        def l0:EVGTextLine (itemAt two 0)
+        def l1:EVGTextLine (itemAt two 1)
+        t.eqStr("first line" l0.text "aaa")
+        t.eqStr("second line" l1.text "bbb")
+        t.near("line width comes from the measurer" l0.width 15.0)
+        t.near("line carries ascent for baseline work" l0.ascent 8.0)
+
+        ; Explicit newlines are honoured even when everything would fit.
+        def nl:[EVGTextLine] (eng.breakLines("ab\ncd" "Test" 10.0 500.0))
+        t.eqInt("explicit newline splits lines" (array_length nl) 2)
+
+        ; A blank line still occupies a line — dropping it would shorten the block.
+        def blank:[EVGTextLine] (eng.breakLines("ab\n\ncd" "Test" 10.0 500.0))
+        t.eqInt("blank line is kept" (array_length blank) 3)
+
+        ; maxWidth <= 0 means "do not wrap".
+        def nowrap:[EVGTextLine] (eng.breakLines("aaa bbb ccc" "Test" 10.0 0.0))
+        t.eqInt("no wrapping without a width" (array_length nowrap) 1)
+
+        ; lineCount is the same wrap, so height and paint cannot disagree.
+        t.eqInt("lineCount agrees with breakLines" (eng.lineCount("aaa bbb" "Test" 10.0 30.0)) 2)
+
+        ; maxLineWidth is the widest unwrapped line.
+        t.near("maxLineWidth takes the widest line" (eng.maxLineWidth("ab\nabcd" "Test" 10.0)) 20.0)
+
+        ; A single word wider than the box still yields one line rather than
+        ; looping forever or dropping the word.
+        def longWord:[EVGTextLine] (eng.breakLines("abcdefghij" "Test" 10.0 5.0))
+        t.eqInt("unbreakable word stays on one line" (array_length longWord) 1)
+    }
+
+    ; ---- text engine: font honesty -------------------------------------------
+    fn testTextEngineFontChecks:void (t:RgTest) {
+        ; The default heuristic measurer reads no font file, so any family it is
+        ; asked about is reported rather than silently guessed at.
+        def guess (new EVGTextEngine())
+        guess.measureRun("hello" "Cinzel" 12.0)
+        t.ok("heuristic measurer is flagged as inaccurate" ((guess.warningCount()) > 0))
+        t.no("not fatal unless strict" guess.hadFatal)
+
+        def strictEng (new EVGTextEngine())
+        strictEng.setStrict(true)
+        strictEng.measureRun("hello" "Cinzel" 12.0)
+        t.ok("strict mode marks the run failed" strictEng.hadFatal)
+
+        ; One warning per family, not one per text node.
+        def once (new EVGTextEngine())
+        once.measureRun("a" "Cinzel" 12.0)
+        once.measureRun("b" "Cinzel" 12.0)
+        once.measureRun("c" "Cinzel" 12.0)
+        t.eqInt("family reported once" (once.warningCount()) 1)
+
+        ; A real measurer that has the face is silent...
+        def rec (new RecordingMeasurer())
+        def ok (new EVGTextEngine())
+        ok.setMeasurer(rec)
+        ok.measureRun("hello" "Cinzel" 12.0)
+        t.eqInt("loaded face produces no warning" (ok.warningCount()) 0)
+
+        ; ...but a substituted face is reported, because widths will not match.
+        def sub (new EVGTextEngine())
+        sub.setMeasurer(rec)
+        sub.setStrict(true)
+        sub.measureRun("hello" "MissingFace" 12.0)
+        t.ok("missing face is reported" ((sub.warningCount()) > 0))
+        t.ok("missing face is fatal under strict" sub.hadFatal)
+    }
+
+    ; ---- layout measures with the element's own font -------------------------
+    ; Layout used to pass a hardcoded "Helvetica" to the measurer for every
+    ; string, so a document set in Cinzel was laid out with Helvetica widths.
+    fn testLayoutUsesElementFont:void (t:RgTest) {
+        def rec (new RecordingMeasurer())
+        def lay (new EVGLayout())
+        lay.setMeasurer(rec)
+
+        def root (new EVGElement())
+        root.width = (EVGUnit.px(400.0))
+        root.height = (EVGUnit.px(200.0))
+
+        def label (new EVGElement())
+        label.textContent = "hello world"
+        label.fontFamily = "Cinzel"
+        label.fontSize = (EVGUnit.px(10.0))
+        root.addChild(label)
+
+        lay.layout(root)
+
+        t.ok("layout measured with the element's family" (rec.sawFamily("Cinzel")))
+        t.no("layout no longer hardcodes Helvetica" (rec.sawFamily("Helvetica")))
+
+        ; 11 chars * 5px = 55px, so the label shrink-wraps to its content.
+        t.near("text shrink-wraps to measured width" label.calculatedWidth 55.0)
+    }
+
     fn testGridTracks:void (t:RgTest) {
         def a:EVGGridTemplate (EVGGridTemplate.parse("1fr 1fr"))
         t.eqInt("two fr tracks" (a.count()) 2)

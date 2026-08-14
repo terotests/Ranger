@@ -1,0 +1,164 @@
+; ==============================================================================
+; font_metrics_test.rgr — the print-correctness gate for text
+; ==============================================================================
+; PLAN_CSS_LAYOUT_AND_FONTS.md §12.1/§12.2. These are golden values: they lock
+; the advance widths that come out of the real TTF files, so a change to font
+; loading, the measurer or the shaping path shows up as a failing number rather
+; than as a photo book that reflows in print.
+;
+; Unlike evg_test (which runs against a stub measurer), this suite needs the
+; actual font files under gallery/pdf_writer/assets/fonts.
+;
+;   bash gallery/pdf_writer/test/run_fonts.sh
+; ==============================================================================
+
+Import "../src/fonts/FontManager.rgr"
+Import "../src/fonts/EVGFontSetup.rgr"
+Import "../../evg/EVGTextEngine.rgr"
+Import "../../evg/EVGTextMeasurer.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../game_engine/v2/tests/harness/RgTest.rgr"
+
+class FontMetricsTest {
+
+    sfn m@(main):void () {
+        def test (new FontMetricsTest())
+        def t:RgTest (RgTest.forSuite("pdf_writer/font_metrics"))
+
+        def setup (new EVGFontSetup())
+        setup.init("./gallery/pdf_writer/" "")
+        def fm:FontManager (setup.getManager())
+
+        t.ok("font files were found" ((fm.getFontCount()) > 0))
+        if ((fm.getFontCount()) == 0) {
+            print "  Cannot run metric goldens without font files."
+            t.summary()
+            return
+        }
+
+        test.testFaceAvailability(t fm)
+        test.testAdvanceWidths(t fm)
+        test.testBoldIsARealFace(t fm)
+        test.testVerticalMetrics(t fm)
+        test.testWrapAgreement(t fm)
+        test.testLayoutMatchesMeasurer(t fm)
+        t.summary()
+    }
+
+    ; getFont() always returns something, so hasFont is what tells a caller
+    ; whether the face it asked for is the face it will get.
+    fn testFaceAvailability:void (t:RgTest fm:FontManager) {
+        t.ok("Open Sans is loaded" (fm.hasFont("Open Sans")))
+        t.ok("Cinzel is loaded" (fm.hasFont("Cinzel")))
+        t.ok("Noto Sans is loaded" (fm.hasFont("Noto Sans")))
+        t.no("an unknown family is reported missing" (fm.hasFont("No Such Family")))
+
+        def m (new TTFTextMeasurer(fm))
+        t.ok("TTF measurer declares itself accurate" (m.isFontAccurate()))
+        t.ok("TTF measurer sees a loaded face" (m.hasFace("Cinzel")))
+        t.no("TTF measurer reports a missing face" (m.hasFace("No Such Family")))
+
+        def heuristic (new SimpleTextMeasurer())
+        t.no("heuristic measurer admits it is not font accurate" (heuristic.isFontAccurate()))
+    }
+
+    ; Golden advance widths. If these move, glyph metrics or the measurement
+    ; path changed and every laid-out page moves with them.
+    fn testAdvanceWidths:void (t:RgTest fm:FontManager) {
+        t.near("Open Sans 'Hamburgefonstiv' @16" (fm.measureText("Hamburgefonstiv" "Open Sans" 16.0)) 129.734375)
+        t.near("Open Sans 'Helsinki, 2024' @30" (fm.measureText("Helsinki, 2024" "Open Sans" 30.0)) 193.9599609375)
+        t.near("Cinzel 'Hamburgefonstiv' @16" (fm.measureText("Hamburgefonstiv" "Cinzel" 16.0)) 154.464)
+        ; Cross-checked against Chromium laying out the same string in the same
+        ; file (see font_parity.js): the browser reports 192.69 too.
+        t.near("Noto Sans 'Helsinki, 2024' @30" (fm.measureText("Helsinki, 2024" "Noto Sans" 30.0)) 192.685546875)
+        ; Exactly double the 16px width — advances scale with the em, so a
+        ; rounding change anywhere in the path breaks this first.
+        t.near("width scales linearly with size" (fm.measureText("Hamburgefonstiv" "Open Sans" 32.0)) 259.46875)
+        t.near("empty string measures zero" (fm.measureText("" "Open Sans" 16.0)) 0.0)
+    }
+
+    ; §4.1 rule 6: bold must resolve to a loaded bold face, not a widened
+    ; regular one. If the two measured the same, layout would be reserving
+    ; regular-width boxes for bold text.
+    fn testBoldIsARealFace:void (t:RgTest fm:FontManager) {
+        def regular:double (fm.measureText("Hamburgefonstiv" "Open Sans" 16.0))
+        def bold:double (fm.measureText("Open Sans-Bold" "Open Sans-Bold" 16.0))
+        t.ok("a bold face is loaded" (fm.hasFont("Open Sans-Bold")))
+        def boldSame:double (fm.measureText("Hamburgefonstiv" "Open Sans-Bold" 16.0))
+        t.ok("bold is wider than regular" (boldSame > regular))
+        t.near("Open Sans Bold 'Hamburgefonstiv' @16" boldSame 139.515625)
+    }
+
+    ; Line height / ascent / descent come from the font's own tables, not a
+    ; 1.2 multiplier, so vertical space matches the face being painted.
+    fn testVerticalMetrics:void (t:RgTest fm:FontManager) {
+        def lh:double (fm.getLineHeight("Open Sans" 16.0))
+        def asc:double (fm.getAscender("Open Sans" 16.0))
+        def desc:double (fm.getDescender("Open Sans" 16.0))
+        t.ok("line height is positive" (lh > 0.0))
+        t.ok("line height is not the 1.2 default" ((lh > 19.3) || (lh < 19.1)))
+        t.ok("ascender is positive" (asc > 0.0))
+        t.ok("ascent plus descent fits inside the line" ((asc + desc) <= (lh + 0.001)))
+    }
+
+    ; The wrap the engine produces is the wrap paint uses, because there is only
+    ; one implementation now. This pins the actual break positions.
+    fn testWrapAgreement:void (t:RgTest fm:FontManager) {
+        def measurer (new TTFTextMeasurer(fm))
+        def eng (new EVGTextEngine())
+        eng.setMeasurer(measurer)
+
+        def para:string "Twelve days along the shoreline, from the first thaw to midsummer light."
+        def lines:[EVGTextLine] (eng.breakLines(para "Open Sans" 13.0 200.0))
+        t.eqInt("paragraph wraps to the expected line count" (array_length lines) 3)
+
+        ; Every produced line must actually fit the box it was wrapped into.
+        def i:int 0
+        def allFit:boolean true
+        while (i < (array_length lines)) {
+            def ln:EVGTextLine (itemAt lines i)
+            if (ln.width > 200.0) {
+                allFit = false
+            }
+            i = (i + 1)
+        }
+        t.ok("no wrapped line overflows its width" allFit)
+
+        ; lineCount is the same computation layout uses for height.
+        t.eqInt("lineCount matches breakLines" (eng.lineCount(para "Open Sans" 13.0 200.0)) 3)
+
+        ; A narrower box must not produce fewer lines.
+        t.ok("narrower box wraps at least as much"
+            ((eng.lineCount(para "Open Sans" 13.0 120.0)) >= 3))
+
+        ; No warnings for a loaded family, even in strict mode.
+        eng.setStrict(true)
+        eng.breakLines(para "Open Sans" 13.0 200.0)
+        t.no("loaded family is not fatal under strict fonts" eng.hadFatal)
+    }
+
+    ; End to end: the width layout assigns to a shrink-wrapped label is the
+    ; width the measurer reports for that string in that face.
+    fn testLayoutMatchesMeasurer:void (t:RgTest fm:FontManager) {
+        def measurer (new TTFTextMeasurer(fm))
+        def lay (new EVGLayout())
+        lay.setMeasurer(measurer)
+
+        def root (new EVGElement())
+        root.width = (EVGUnit.px(500.0))
+        root.height = (EVGUnit.px(200.0))
+
+        def label (new EVGElement())
+        label.textContent = "Helsinki, 2024"
+        label.fontFamily = "Cinzel"
+        label.fontSize = (EVGUnit.px(30.0))
+        root.addChild(label)
+
+        lay.layout(root)
+
+        def expected:double (fm.measureText("Helsinki, 2024" "Cinzel" 30.0))
+        t.near("laid-out label width equals the measured advance" label.calculatedWidth expected)
+        t.ok("and it is not the heuristic width" ((label.calculatedWidth - (14.0 * 30.0 * 0.55)) != 0.0))
+    }
+}

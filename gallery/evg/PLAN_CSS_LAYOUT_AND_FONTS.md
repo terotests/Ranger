@@ -1,7 +1,7 @@
 # EVG: CSS-closer layout + font-correct rendering
 
-**Status:** Sketch / design outline  
-**Date:** 2026-08-12  
+**Status:** Phases 0-3 landed; Phase 4 (baseline alignment + polish) open  
+**Date:** 2026-08-12, updated 2026-08-14  
 **Related:** `PLAN_EVG.md`, `SPEC.md`, `ISSUES.md`, `gallery/pdf_writer/TODO_PDF.md`
 
 ## 1. Goal
@@ -37,29 +37,28 @@ Without that, flex/grid improvements will still look wrong in print.
 | `gap` | Main axis, row + column | No separate `row-gap` / `column-gap` |
 | `flex-wrap` | `wrap` (default) / `nowrap` | No `wrap-reverse`; no `align-content` for wrapped lines |
 | Alignment | `justifyContent`, `alignItems` (incl. `stretch`), plus legacy `align` / `verticalAlign` | Naming overlap; no `baseline` |
-| Text intrinsic size | Shrink-wraps to measured content | Measurement still heuristic unless a TTF measurer is installed |
+| Text intrinsic size | Shrink-wraps to content measured from the real face | — |
 | Grid | `display: grid` with fr/px/%/repeat tracks, gaps, spans | No `grid-template-areas`, dense packing, subgrid, `minmax()` |
 | Styles | Mostly inline JSX attributes | No class/theme stylesheet layer |
 
 `min-width` / `max-width` / `min-height` / `max-height` already parse and clamp;
 what is missing is ordering them correctly against grow/shrink.
 
-Note on ISSUES #1 (labels taking full parent width in a `row`): the shrink-wrap
-path now exists in `EVGLayout` and is covered by the `evg_test` cases
-"text label shrink-wraps" and "sibling stays on the same row". The issue file
-still describes the old behavior and needs re-verifying against the current
-engine before any work is planned against it.
+ISSUES #1 (labels taking full parent width in a `row`) is resolved — see that
+file for what the fix depended on.
 
 ### Fonts
 
 | Path | Role | Risk |
 | --- | --- | --- |
-| `EVGTextMeasurer` default | Heuristic widths (`fontSize * 0.55`) | **Must not drive print layout** |
-| `TTFTextMeasurer` + `FontManager` + `TrueTypeFont` | Real advance widths, ascender/descender/lineGap | Correct path for PDF/tools |
-| HTML renderer | Browser CSS fonts | Can diverge unless same TTF is served/`@font-face` |
-| Raster (`RasterText`) | Glyph outlines from same TTF | Must use same metrics as layout |
+| `EVGTextMeasurer` default | Heuristic widths (`fontSize * 0.55`) | Declares `isFontAccurate() == false`; reported, and fatal under `-strict-fonts` |
+| `TTFTextMeasurer` + `FontManager` + `TrueTypeFont` | Real advance widths, ascender/descender/lineGap | Installed by every tool via `EVGFontSetup` |
+| HTML renderer | Same TTFs via `@font-face`, measured with `TTFTextMeasurer` | Parity checked against Chromium in CI |
+| Raster (`RasterText`) | Glyph outlines from same TTF | Layout now measures with the same faces |
 
-Today PDF/tools can already measure with TTF. The sketch hardens that into a **single font pipeline** that layout always uses.
+All four targets resolve fonts through `EVGFontSetup` and measure through
+`EVGTextEngine`, so layout and paint cannot disagree. See Phase 0 below for what
+this replaced.
 
 ## 4. Design principle: fonts drive layout
 
@@ -285,13 +284,59 @@ Tolerance: integer pixel/pt rounding policy documented (e.g. round half-up to 1/
 
 ## 10. Phased delivery
 
-### Phase 0 — Font/layout correctness foundation
+### Phase 0 — Font/layout correctness foundation ✅
 
-- Mandate `TTFTextMeasurer` for any document that uses custom fonts
-- Fix intrinsic text width in flex row (ISSUES #1)
-- Unify wrap: layout + PDF call shared `breakLines`
-- Golden tests: measure/paint widths for fixture strings (Open Sans, Cinzel, bold face)
-- HTML preview: ensure same font files; add metrics debug flag
+Landed last, which is why the earlier phases carried a caveat. The starting
+state was worse than this plan assumed: **no target was measuring with real font
+metrics at all.**
+
+- The PDF tool's fonts directory was `./gallery/pdf_writer/Fonts` — a path that
+  does not exist (the files are under `assets/fonts`) and resolved against the
+  process working directory rather than the document. Every `loadFont` failed,
+  so `FontManager.measureText` fell through to `strlen * fontSize * 0.5`.
+- The HTML tool never constructed a `FontManager` at all and measured with
+  `fontSize * 0.55`.
+- The PNG tool loaded fonts, painted real glyph outlines, and laid out with the
+  heuristic measurer.
+
+So preview and print disagreed with each other *and* with the faces being
+painted. Measured against Chromium loading the same TTF, the title in
+`test_theme.tsx` was 8.31px (4.3%) too wide.
+
+What landed:
+
+- **`EVGTextEngine.rgr`** — the §8 contract (`measureRun`, `breakLines`,
+  `lineCount`, `maxLineWidth`) in one place. There were four wrap
+  implementations; layout's and the PDF's broke lines in different places, so
+  the height layout reserved did not match the lines paint drew. The PDF's
+  algorithm won (it measures the whole candidate line, including the real space
+  advance, instead of adding a guessed `fontSize * 0.3`) and everything else
+  calls it.
+- **The element's own font family is threaded through.** Layout passed a
+  hardcoded `"Helvetica"` to the measurer for every string, so a document set in
+  Cinzel was laid out with Helvetica widths even once a TTF measurer was
+  installed.
+- **`EVGFontSetup.rgr`** — one font-resolution path for all four tools,
+  anchored on the document's directory. `-fonts DIR` overrides it and is
+  authoritative rather than merely first, since falling back after a typo is
+  exactly the silent substitution this is meant to prevent.
+- **Honesty instead of fallback.** `FontManager.hasFont` distinguishes a real
+  hit from `getFont`'s substitution chain; measurers declare `isFontAccurate`;
+  the engine reports each unbacked family once and `-strict-fonts` refuses to
+  write output rather than guessing.
+- **ISSUES #1 closed**, with the family and measurement caveats fixed.
+
+Verification:
+
+```
+bash gallery/pdf_writer/test/run_fonts.sh
+```
+
+`font_metrics_test.rgr` locks advance widths, vertical metrics and wrap
+positions against the real TTFs (29 assertions). `font_parity.js` renders a page
+in Chromium with the same faces via `@font-face` and compares EVG's boxes to the
+browser's — the check that catches EVG agreeing with itself while both sides are
+wrong. Worst delta is now **0.375px against 8.31px before**.
 
 ### Phase 1 — Flexbox v2
 
@@ -407,7 +452,7 @@ Still out of scope (§7.3): `grid-template-areas`, dense packing, subgrid,
 | Area | Likely touch points |
 | --- | --- |
 | Layout | `gallery/evg/EVGLayout.rgr`, `EVGElement.rgr`, `EVGText.rgr`, `EVGGrid.rgr` |
-| Fonts | `pdf_writer/src/fonts/FontManager.rgr`, `TrueTypeFont.rgr`, shared shaper module |
+| Fonts | `pdf_writer/src/fonts/FontManager.rgr`, `TrueTypeFont.rgr`, `EVGFontSetup.rgr`, `gallery/evg/EVGTextEngine.rgr` |
 | JSX bridge | `pdf_writer/src/jsx/JSXToEVG.rgr`, component engine |
 | Style | `gallery/evg/EVGStyleSheet.rgr` (parse/resolve), `pdf_writer/src/core/EVGStyleLoader.rgr` (CLI wiring) |
 | Renderers | `EVGPDFRenderer`, `EVGHTMLRenderer`, `EVGRasterRenderer` / `RasterText` |

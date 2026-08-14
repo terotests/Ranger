@@ -9,6 +9,8 @@ Import "../jsx/JSXToEVG.rgr"
 Import "../core/EVGPDFRenderer.rgr"
 Import "../core/EVGStyleLoader.rgr"
 Import "../fonts/FontManager.rgr"
+Import "../fonts/EVGFontSetup.rgr"
+Import "../../../evg/EVGTextEngine.rgr"
 Import "../core/Buffer.rgr"
 Import "../../../evg/EVGElement.rgr"
 
@@ -21,6 +23,9 @@ class EVGPDFTool {
     def debug:boolean false
     def styles:EVGStyleLoader
     def fontManager:FontManager (new FontManager()) (new FontManager())
+    def fontSetup:EVGFontSetup (new EVGFontSetup())
+    def fontsOverride:string ""
+    def strictFonts:boolean false
     
     Constructor () {
         def sl (new EVGStyleLoader())
@@ -71,6 +76,17 @@ class EVGPDFTool {
                 }
             }
             
+            if (arg == "-fonts") {
+                if ((i + 1) < argCount) {
+                    i = i + 1
+                    fontsOverride = (shell_arg i)
+                }
+            }
+
+            if (arg == "-strict-fonts") {
+                strictFonts = true
+            }
+
             if (arg == "-css") {
                 if ((i + 1) < argCount) {
                     i = i + 1
@@ -97,32 +113,18 @@ class EVGPDFTool {
         print ("Output: " + outputFile)
         print ("Page:   " + (to_string pageWidth) + " x " + (to_string pageHeight) + " points")
         
-        ; Initialize font manager
-        this.initFonts()
-        
         this.convert()
     }
     
-    fn initFonts:void () {
-        ; Initialize font manager with TrueType fonts
+    ; Font directories depend on where the document lives, so this runs from
+    ; convert() once the input path is known — not at startup against the
+    ; process working directory, which is what silently found nothing before.
+    fn initFonts:void (inputDir:string) {
         print ""
         print "Loading fonts..."
-        
-        fontManager.setFontsDirectory(fontsDir)
-        
-        ; Load common fonts
-        fontManager.loadFont("Open_Sans/OpenSans-Regular.ttf")
-        fontManager.loadFont("Open_Sans/OpenSans-Bold.ttf")
-        fontManager.loadFont("Helvetica/Helvetica.ttf")
-        
-        ; Load additional fonts for variety
-        fontManager.loadFont("Cinzel/Cinzel-Regular.ttf")
-        fontManager.loadFont("Cinzel/Cinzel-Bold.ttf")
-        fontManager.loadFont("Josefin_Sans/JosefinSans-Regular.ttf")
-        fontManager.loadFont("Josefin_Sans/JosefinSans-Bold.ttf")
-        fontManager.loadFont("Great_Vibes/GreatVibes-Regular.ttf")
-        fontManager.loadFont("Noto_Sans/NotoSans-Regular.ttf")
-        fontManager.loadFont("Noto_Sans/NotoSans-Bold.ttf")
+        fontSetup.init(inputDir fontsOverride)
+        fontManager = (fontSetup.getManager())
+        fontSetup.report(debug)
     }
     
     fn printUsage:void () {
@@ -135,6 +137,8 @@ class EVGPDFTool {
         print "  -h HEIGHT  Page height in points (default: 842 = A4)"
         print "  -css FILE  Apply a CSS subset stylesheet (repeatable)"
         print "  -theme T   Theme name selecting .theme-T rules"
+        print "  -fonts DIR Directory to search for font families"
+        print "  -strict-fonts  Fail instead of measuring with guessed widths"
         print "  -debug     Enable debug output"
         print ""
         print "Example:"
@@ -161,6 +165,10 @@ class EVGPDFTool {
             inputDir = "./"
         }
         
+        ; Fonts first: the measurer that layout uses has to be the real one
+        ; before anything is measured.
+        this.initFonts(inputDir)
+
         ; Parse TSX file
         print ""
         print "Parsing TSX file..."
@@ -205,8 +213,25 @@ class EVGPDFTool {
         ; Use TTF text measurer for accurate measurements
         def ttfMeasurer (new TTFTextMeasurer(fontManager))
         renderer.setMeasurer(ttfMeasurer)
+        renderer.setStrictFonts(strictFonts)
         
         def pdfData:buffer (renderer.render(root))
+
+        ; Surface anything the text engine could not measure honestly. A page
+        ; that silently fell back to guessed widths looks fine on screen and
+        ; reflows in print, so it is reported every run and is fatal under
+        ; -strict-fonts.
+        def engine:EVGTextEngine (renderer.getTextEngine())
+        def wi:int 0
+        while (wi < (engine.warningCount())) {
+            print ("Font warning: " + (engine.warningAt(wi)))
+            wi = (wi + 1)
+        }
+        if (engine.hadFatal) {
+            print "Error: -strict-fonts was requested and text could not be measured from the declared faces."
+            return
+        }
+
         
         ; Write output file
         print ""

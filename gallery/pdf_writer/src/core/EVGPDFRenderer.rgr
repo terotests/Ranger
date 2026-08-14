@@ -6,6 +6,7 @@ Import "PDFWriter.rgr"
 Import "../../../evg/EVGElement.rgr"
 Import "../../../evg/EVGLayout.rgr"
 Import "../../../evg/EVGTextMeasurer.rgr"
+Import "../../../evg/EVGTextEngine.rgr"
 Import "../../../evg/EVGImageMeasurer.rgr"
 Import "../../../evg/EVGUnit.rgr"
 Import "../../../evg/EVGColor.rgr"
@@ -204,6 +205,14 @@ class EVGPDFRenderer {
         return fullPath
     }
     
+    fn setStrictFonts:void (s:boolean) {
+        layout.setStrictFonts(s)
+    }
+
+    fn getTextEngine:EVGTextEngine () {
+        return (layout.getTextEngine())
+    }
+
     fn setMeasurer:void (m:EVGTextMeasurer) {
         measurer = m
         layout.setMeasurer(m)
@@ -2164,40 +2173,13 @@ class EVGPDFRenderer {
         }
     }
     
+    ; Delegates to the shared text engine rather than wrapping again here.
+    ; This function used to hold its own copy of the algorithm; layout held a
+    ; different one, so the line count reserved by layout could differ from the
+    ; lines actually drawn. Both now come from the same call.
     fn wrapText:[string] (text:string maxWidth:double fontSize:double fontFamily:string) {
-        ; Word wrap text to fit within maxWidth
-        def lines:[string]
-        def words:[string] (strsplit text " ")
-        def currentLine:string ""
-        
-        def i:int 0
-        while (i < (array_length words)) {
-            def word:string (itemAt words i)
-            def testLine:string ""
-            if ((strlen currentLine) == 0) {
-                testLine = word
-            } {
-                testLine = currentLine + " " + word
-            }
-            
-            def testWidth:double (measurer.measureTextWidth(testLine fontFamily fontSize))
-            if ((testWidth > maxWidth) && ((strlen currentLine) > 0)) {
-                ; Line is too long, push current and start new
-                push lines currentLine
-                currentLine = word
-            } {
-                currentLine = testLine
-            }
-            
-            i = i + 1
-        }
-        
-        ; Push final line
-        if ((strlen currentLine) > 0) {
-            push lines currentLine
-        }
-        
-        return lines
+        def engine:EVGTextEngine (layout.getTextEngine())
+        return (engine.breakToStrings(text fontFamily fontSize maxWidth))
     }
     
     fn renderDivider:void (el:EVGElement x:double y:double w:double h:double) {

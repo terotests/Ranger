@@ -11,6 +11,8 @@
 Import "../jsx/JSXToEVG.rgr"
 Import "../core/EVGHTMLRenderer.rgr"
 Import "../core/EVGStyleLoader.rgr"
+Import "../fonts/FontManager.rgr"
+Import "../fonts/EVGFontSetup.rgr"
 Import "../../../evg/EVGElement.rgr"
 
 class EVGHTMLTool {
@@ -20,6 +22,12 @@ class EVGHTMLTool {
     def pageHeight:double 842.0
     def debug:boolean false
     def styles:EVGStyleLoader
+    ; The HTML preview measures with the same TTF faces the PDF embeds.
+    ; Without this the preview laid out with heuristic widths, so a page could
+    ; look right in the browser and still print wrong.
+    def fontSetup:EVGFontSetup (new EVGFontSetup())
+    def fontsOverride:string ""
+    def strictFonts:boolean false
     def embedAssets:boolean false
     def title:string "EVG Preview"
     
@@ -79,6 +87,17 @@ class EVGHTMLTool {
                 }
             }
             
+            if (arg == "-fonts") {
+                if ((i + 1) < argCount) {
+                    i = i + 1
+                    fontsOverride = (shell_arg i)
+                }
+            }
+
+            if (arg == "-strict-fonts") {
+                strictFonts = true
+            }
+
             if (arg == "-css") {
                 if ((i + 1) < argCount) {
                     i = i + 1
@@ -123,6 +142,8 @@ class EVGHTMLTool {
         print "  -title T   HTML page title"
         print "  -css FILE  Apply a CSS subset stylesheet (repeatable)"
         print "  -theme T   Theme name selecting .theme-T rules"
+        print "  -fonts DIR Directory to search for font families"
+        print "  -strict-fonts  Fail instead of measuring with guessed widths"
         print "  -debug     Enable debug output"
         print "  -embed     Embed images as base64 data URLs"
         print ""
@@ -150,6 +171,12 @@ class EVGHTMLTool {
             inputDir = "./"
         }
         
+        ; Fonts first, so layout measures with the real faces.
+        print ""
+        print "Loading fonts..."
+        fontSetup.init(inputDir fontsOverride)
+        fontSetup.report(debug)
+
         ; Parse TSX file
         print ""
         print "Parsing TSX file..."
@@ -188,6 +215,12 @@ class EVGHTMLTool {
         renderer.setBaseDir(inputDir)
         ; Set font path relative to input directory (assumes fonts in ../assets/fonts/)
         renderer.setFontBasePath(inputDir + "../assets/fonts/")
+
+        ; Same faces as the PDF path: measurement now comes from the TTF files
+        ; rather than fontSize * 0.55.
+        def ttfMeasurer (new TTFTextMeasurer((fontSetup.getManager())))
+        renderer.setMeasurer(ttfMeasurer)
+        renderer.setStrictFonts(strictFonts)
         if debug {
             renderer.setDebug(true)
         }
@@ -196,6 +229,22 @@ class EVGHTMLTool {
         }
         
         def htmlContent:string (renderer.render(root))
+
+        ; Surface anything the text engine could not measure honestly. A page
+        ; that silently fell back to guessed widths looks fine on screen and
+        ; reflows in print, so it is reported every run and is fatal under
+        ; -strict-fonts.
+        def engine:EVGTextEngine (renderer.getTextEngine())
+        def wi:int 0
+        while (wi < (engine.warningCount())) {
+            print ("Font warning: " + (engine.warningAt(wi)))
+            wi = (wi + 1)
+        }
+        if (engine.hadFatal) {
+            print "Error: -strict-fonts was requested and text could not be measured from the declared faces."
+            return
+        }
+
         
         ; Write output file
         print ""

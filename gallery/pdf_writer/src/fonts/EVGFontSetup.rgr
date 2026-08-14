@@ -1,0 +1,120 @@
+; EVGFontSetup.rgr - One place that decides which font files a run measures with
+;
+; PLAN_CSS_LAYOUT_AND_FONTS.md §4.1 rule 1: the same face file must be used for
+; measurement and for paint, on every target. That only holds if every tool
+; resolves fonts the same way, so all of them come through here.
+;
+; This exists because the tools did not agree and, worse, none of them were
+; actually loading anything: the PDF tool's default fonts directory was
+; `./gallery/pdf_writer/Fonts` (relative to the *current working directory*, and
+; a path that does not exist — the files are under `assets/fonts`), while the
+; HTML tool never created a FontManager at all. Every load failed silently and
+; both tools fell back to guessed widths — different guesses, so preview and
+; print disagreed by roughly ten percent on every string.
+;
+; An explicit -fonts argument is authoritative and used alone — falling back
+; after a mistyped path would substitute faces silently. With no override the
+; search is `<input dir>/../assets/fonts`, then `<input dir>/assets/fonts`, then
+; the repository copy. Either way the run reports what it actually loaded.
+
+Import "FontManager.rgr"
+
+class EVGFontSetup {
+    def manager:FontManager (new FontManager())
+    def searched:[string]
+    def loaded:[string]
+    def missing:[string]
+
+    Constructor () {
+    }
+
+    fn getManager:FontManager () {
+        return manager
+    }
+
+    fn loadedCount:int () {
+        return (array_length loaded)
+    }
+
+    fn missingCount:int () {
+        return (array_length missing)
+    }
+
+    ; `inputDir` is the directory of the document being rendered; `override` is
+    ; the -fonts argument or "" when not given.
+    fn init:void (inputDir:string override:string) {
+        if ((strlen override) > 0) {
+            ; An explicit -fonts is authoritative, not merely first in line.
+            ; Falling back to the bundled faces after a mistyped path would
+            ; substitute fonts silently, which is the failure this whole module
+            ; exists to prevent.
+            manager.addFontsDirectory(override)
+            push searched override
+            this.loadStandardFaces()
+            return
+        }
+        ; Examples live in gallery/pdf_writer/examples and reference
+        ; ../assets/fonts, so resolve the same way relative to the document.
+        def rel:string (inputDir + "../assets/fonts")
+        manager.addFontsDirectory(rel)
+        push searched rel
+
+        def rel2:string (inputDir + "assets/fonts")
+        manager.addFontsDirectory(rel2)
+        push searched rel2
+
+        manager.addFontsDirectory("./gallery/pdf_writer/assets/fonts")
+        push searched "./gallery/pdf_writer/assets/fonts"
+
+        this.loadStandardFaces()
+    }
+
+    ; The faces the bundled examples and themes name. Bold is loaded as its own
+    ; face rather than synthesised, so `font-weight: bold` measures from a real
+    ; face (§4.1 rule 6) instead of widening the regular one.
+    fn loadStandardFaces:void () {
+        this.tryFace("Noto_Sans/NotoSans-Regular.ttf")
+        this.tryFace("Noto_Sans/NotoSans-Bold.ttf")
+        this.tryFace("Open_Sans/OpenSans-Regular.ttf")
+        this.tryFace("Open_Sans/OpenSans-Bold.ttf")
+        this.tryFace("Cinzel/Cinzel-Regular.ttf")
+        this.tryFace("Cinzel/Cinzel-Bold.ttf")
+        this.tryFace("Josefin_Sans/JosefinSans-Regular.ttf")
+        this.tryFace("Josefin_Sans/JosefinSans-Bold.ttf")
+        this.tryFace("Great_Vibes/GreatVibes-Regular.ttf")
+    }
+
+    fn tryFace:void (relativePath:string) {
+        if (manager.loadFont(relativePath)) {
+            push loaded relativePath
+        } {
+            push missing relativePath
+        }
+    }
+
+    fn report:void (verbose:boolean) {
+        print ("Fonts: " + (to_string (array_length loaded)) + " face(s) loaded")
+        if ((array_length loaded) == 0) {
+            print "  WARNING: no font files found - text will be measured with"
+            print "  heuristic widths and will not match printed output."
+            def s:int 0
+            while (s < (array_length searched)) {
+                print ("    searched: " + (itemAt searched s))
+                s = (s + 1)
+            }
+            return
+        }
+        if verbose {
+            def i:int 0
+            while (i < (array_length loaded)) {
+                print ("    " + (itemAt loaded i))
+                i = (i + 1)
+            }
+            def m:int 0
+            while (m < (array_length missing)) {
+                print ("    (not found) " + (itemAt missing m))
+                m = (m + 1)
+            }
+        }
+    }
+}

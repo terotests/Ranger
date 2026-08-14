@@ -4,9 +4,13 @@ Import "EVGElement.rgr"
 Import "EVGTextMeasurer.rgr"
 Import "EVGImageMeasurer.rgr"
 Import "EVGGrid.rgr"
+Import "EVGTextEngine.rgr"
 
 class EVGLayout {
     def measurer:EVGTextMeasurer
+    ; The one text measurement + wrapping implementation. Layout must break
+    ; lines exactly where paint will, so both go through this.
+    def textEngine:EVGTextEngine (new EVGTextEngine())
     def imageMeasurer:EVGImageMeasurer
     def pageWidth:double 612.0
     def pageHeight:double 792.0
@@ -16,12 +20,23 @@ class EVGLayout {
     Constructor () {
         def m (new SimpleTextMeasurer())
         measurer = m
+        textEngine.setMeasurer(m)
         def im (new SimpleImageMeasurer())
         imageMeasurer = im
     }
     
     fn setMeasurer:void (m:EVGTextMeasurer) {
         measurer = m
+        textEngine.setMeasurer(m)
+    }
+
+    fn getTextEngine:EVGTextEngine () {
+        return textEngine
+    }
+
+    ; Refuse to measure a custom-font document with guessed widths (§4.1 rule 1).
+    fn setStrictFonts:void (s:boolean) {
+        textEngine.setStrict(s)
     }
     
     fn setImageMeasurer:void (m:EVGImageMeasurer) {
@@ -90,7 +105,7 @@ class EVGLayout {
                     if (fontSize <= 0.0) {
                         fontSize = 14.0
                     }
-                    def contentW:double (this.measureTextContentWidth(textContent fontSize))
+                    def contentW:double (textEngine.maxLineWidth(textContent element.fontFamily fontSize))
                     def measuredW:double (contentW + element.box.paddingLeftPx + element.box.paddingRightPx + (element.box.borderWidthPx * 2.0))
                     if (measuredW < parentWidth) {
                         width = measuredW
@@ -244,10 +259,11 @@ class EVGLayout {
                 }
                 def lineSpacing:double (fontSize * lineHeightFactor)
                 
-                ; Calculate number of wrapped lines based on text width
+                ; Line count comes from the shared wrap, not a second estimate,
+                ; so the height reserved here matches the lines paint will draw.
                 def availableWidth:double (width - element.box.paddingLeftPx - element.box.paddingRightPx)
-                def lineCount:int (this.estimateLineCount(textContent availableWidth fontSize))
-                
+                def lineCount:int (textEngine.lineCount(textContent element.fontFamily fontSize availableWidth))
+
                 contentHeight = (lineSpacing * (to_double lineCount))
             }
         }
@@ -1321,7 +1337,7 @@ class EVGLayout {
                 if (fontSize <= 0.0) {
                     fontSize = 14.0
                 }
-                def contentW:double (this.measureTextContentWidth(textContent fontSize))
+                def contentW:double (textEngine.maxLineWidth(textContent child.fontFamily fontSize))
                 def measuredW:double (contentW + child.box.paddingLeftPx + child.box.paddingRightPx + (child.box.borderWidthPx * 2.0))
                 if (measuredW < maxInnerWidth) {
                     return measuredW
@@ -1331,64 +1347,4 @@ class EVGLayout {
         return maxInnerWidth
     }
     
-    fn measureTextContentWidth:double (text:string fontSize:double) {
-        ; Widest line width for shrink-wrapped text nodes
-        if ((strlen text) == 0) {
-            return 0.0
-        }
-        def fontFamily:string "Helvetica"
-        def lines:[string] (strsplit text "\n")
-        def maxW:double 0.0
-        def i:int 0
-        while (i < (array_length lines)) {
-            def line:string (itemAt lines i)
-            def lineW:double (measurer.measureTextWidth(line fontFamily fontSize))
-            if (lineW > maxW) {
-                maxW = lineW
-            }
-            i = i + 1
-        }
-        return maxW
-    }
-    
-    fn estimateLineCount:int (text:string maxWidth:double fontSize:double) {
-        ; Estimate how many lines text will wrap to
-        if ((strlen text) == 0) {
-            return 1
-        }
-        if (maxWidth <= 0.0) {
-            return 1
-        }
-        
-        ; Split text into words
-        def words:[string] (strsplit text " ")
-        def lineCount:int 1
-        def currentLineWidth:double 0.0
-        def spaceWidth:double (fontSize * 0.3)
-        
-        def i:int 0
-        while (i < (array_length words)) {
-            def word:string (itemAt words i)
-            def wordWidth:double (measurer.measureTextWidth(word "Helvetica" fontSize))
-            
-            if (currentLineWidth == 0.0) {
-                ; First word on line
-                currentLineWidth = wordWidth
-            } {
-                ; Check if word fits on current line
-                def testWidth:double (currentLineWidth + spaceWidth + wordWidth)
-                if (testWidth > maxWidth) {
-                    ; Word doesn't fit, wrap to new line
-                    lineCount = lineCount + 1
-                    currentLineWidth = wordWidth
-                } {
-                    currentLineWidth = testWidth
-                }
-            }
-            
-            i = i + 1
-        }
-        
-        return lineCount
-    }
 }

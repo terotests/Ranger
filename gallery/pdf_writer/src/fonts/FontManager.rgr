@@ -212,6 +212,32 @@ class FontManager {
         return defaultFont
     }
     
+    ; Is there a loaded face for this family? getFont() always returns
+    ; something — it walks a chain of looser matches and finally hands back
+    ; defaultFont — so callers cannot tell a real hit from a substitution.
+    ; This reports the substitution, which is what print correctness needs.
+    fn hasFont:boolean (fontFamily:string) {
+        if ((array_length fonts) == 0) {
+            return false
+        }
+        def font:TrueTypeFont (this.getFont(fontFamily))
+        if (font.unitsPerEm == 0) {
+            return false
+        }
+        ; An exact family match, with or without a style suffix.
+        def slashIdx:int (indexOf fontFamily "/")
+        def searchFamily:string fontFamily
+        if (slashIdx >= 0) {
+            searchFamily = (substring fontFamily 0 slashIdx)
+        } {
+            def dashIdx:int (indexOf fontFamily "-")
+            if (dashIdx >= 0) {
+                searchFamily = (substring fontFamily 0 dashIdx)
+            }
+        }
+        return ((font.fontFamily == searchFamily) || (font.fontFamily == fontFamily))
+    }
+
     fn measureText:double (text:string fontFamily:string fontSize:double) {
         def font:TrueTypeFont (this.getFont(fontFamily))
         if (font.unitsPerEm > 0) {
@@ -274,6 +300,16 @@ class TTFTextMeasurer {
     
     Constructor (fm:FontManager) {
         fontManager = fm
+    }
+
+    ; This measurer reads advance widths out of the same TTF the paint side
+    ; embeds, so it may drive print layout.
+    fn isFontAccurate:boolean () {
+        return true
+    }
+
+    fn hasFace:boolean (fontFamily:string) {
+        return (fontManager.hasFont(fontFamily))
     }
     
     fn measureText:EVGTextMetrics (text:string fontFamily:string fontSize:double) {
