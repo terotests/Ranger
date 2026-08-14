@@ -2372,7 +2372,11 @@ class RangerRustClassWriter {
           ; ptr_arg — `&Vec<u8>` involves a new object where `&[u8]` will
           ; do, and `&Vec` coerces to `&[T]` at every call site.
           def slice_elem:string ""
-          if ((strlen nameN.array_type) > 0) {
+          ; a HASH carries its value type in array_type as well, so the
+          ; key_type has to be empty for this to be an array — a
+          ; `[string:string]` parameter came out as `&[String]` and every
+          ; map call on it was a missing method
+          if (((strlen nameN.array_type) > 0) && ((strlen nameN.key_type) == 0)) {
             def ael:string nameN.array_type
             if (((((ael == "int") || (ael == "double")) || (ael == "boolean")) || (ael == "string")) || (ael == "char")) {
               slice_elem = (this.getObjectTypeString(ael ctx))
@@ -5275,6 +5279,23 @@ class RangerRustClassWriter {
             }
           }
         }
+        ; rust_can_be_static tells a CALL site to write `Class::m(…)` rather
+        ; than `self.m(…)`, and it was only set while the class was being
+        ; written — so any call site emitted before that class reached the
+        ; writer said `self.m(…)` for a method emitted without a receiver.
+        ; It is a property of the body alone, so it is settled here for
+        ; every class, ahead of the first call site.
+        for mcl.methods scm:RangerAppFunctionDesc scmi {
+          def scmB@(optional):CodeNode scm.fnBody
+          if (!null? scmB) {
+            def scmCtxO@(optional):RangerAppWriterContext scm.fnCtx
+            def scmCtx:RangerAppWriterContext ctx
+            if (!null? scmCtxO) {
+              scmCtx = (unwrap scmCtxO)
+            }
+            scm.rust_can_be_static = ((this.fnBodyUsesThis((unwrap scmB) scmCtx)) == false)
+          }
+        }
       }
       fileHeaderWritten = true
     }
@@ -5555,7 +5576,11 @@ class RangerRustClassWriter {
             method_mutates_this = (this.methodMutatesThis(variant.name directMutations callGraph))
           }
         }
-        ; Mark on the function descriptor so writeFnCall knows to use static call
+        ; Mark on the function descriptor so writeFnCall knows to use static call.
+        ; NOTE: some call sites honour this and write `Class::m(…)`, so the
+        ; definition cannot simply always take a receiver -- forcing that was
+        ; measured at 429 -> 869. The remaining `self.m(…)` mismatches are
+        ; call sites that do NOT ask; the repair belongs there.
         variant.rust_can_be_static = (method_uses_this == false)
         
         wr.out((("fn " + variant.name) + "(") false)

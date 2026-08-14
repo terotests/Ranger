@@ -25478,7 +25478,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     } else {
                       if ( needsImmutableBorrow ) {
                         let slice_elem = "";
-                        if ( (nameN.array_type.length) > 0 ) {
+                        if ( ((nameN.array_type.length) > 0) && ((nameN.key_type.length) == 0) ) {
                           const ael = nameN.array_type;
                           if ( ((((ael == "int") || (ael == "double")) || (ael == "boolean")) || (ael == "string")) || (ael == "char") ) {
                             slice_elem = this.getObjectTypeString(ael, ctx);
@@ -28008,6 +28008,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                             };
                           }
+                          for ( let scmi = 0; scmi < mcl.methods.length; scmi++) {
+                            var scm = mcl.methods[scmi];
+                            const scmB = scm.fnBody;
+                            if ( (typeof(scmB) !== "undefined" && scmB != null )  ) {
+                              const scmCtxO = scm.fnCtx;
+                              let scmCtx = ctx;
+                              if ( (typeof(scmCtxO) !== "undefined" && scmCtxO != null )  ) {
+                                scmCtx = scmCtxO;
+                              }
+                              scm.rust_can_be_static = this.fnBodyUsesThis((scmB), scmCtx) == false;
+                            }
+                          };
                         } };
                         this.fileHeaderWritten = true;
                       }
