@@ -23873,7 +23873,54 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
               return ("Weak<RefCell<" + this.getObjectTypeString(type_name, ctx)) + ">>";
             };
+            rustIsCollectionTypeString (type_string) {
+              if ( (type_string.length) >= 2 ) {
+                if ( (type_string.charCodeAt(0 )) == (91) ) {
+                  return true;
+                }
+              }
+              return false;
+            };
+            rustCollectionTypeString (type_string, ctx) {
+              const n = type_string.length;
+              const inner = type_string.substring(1, (n - 1) );
+              const il = inner.length;
+              let depth = 0;
+              let sep = 0 - 1;
+              let i = 0;
+              while (i < il) {
+                const c = inner.charCodeAt(i );
+                if ( c == (91) ) {
+                  depth = depth + 1;
+                }
+                if ( c == (93) ) {
+                  depth = depth - 1;
+                }
+                if ( (c == (58)) && (depth == 0) ) {
+                  sep = i;
+                }
+                i = i + 1;
+              };
+              if ( sep >= 0 ) {
+                const kt = inner.substring(0, sep );
+                const vt = inner.substring((sep + 1), il );
+                return ((("HashMap<" + this.rustElementTypeString(kt, ctx)) + ",") + this.rustElementTypeString(vt, ctx)) + ">";
+              }
+              return ("Vec<" + this.rustElementTypeString(inner, ctx)) + ">";
+            };
+            rustElementTypeString (type_string, ctx) {
+              if ( this.rustIsCollectionTypeString(type_string) ) {
+                return this.rustCollectionTypeString(type_string, ctx);
+              }
+              if ( this.rustClassIsShared(type_string, ctx) ) {
+                return this.rustSharedTypeString(type_string, ctx);
+              }
+              return this.getObjectTypeString(type_string, ctx);
+            };
             getObjectTypeString (type_string, ctx) {
+              if ( this.rustIsCollectionTypeString(type_string) ) {
+                return this.rustCollectionTypeString(type_string, ctx);
+              }
               switch (type_string ) { 
                 case "int" : 
                   return "i64";

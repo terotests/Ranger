@@ -325,7 +325,64 @@ class RangerRustClassWriter {
     return (("Weak<RefCell<" + (this.getObjectTypeString(type_name ctx))) + ">>")
   }
 
+  fn rustIsCollectionTypeString:boolean (type_string:string) {
+    if ((strlen type_string) >= 2) {
+      if ((charAt type_string 0) == (ccode "[")) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; Turn a nested collection type string — "[string]", "[string:[int]]" —
+  ; into the Rust Vec / map form. Without this the fallthrough at the end of
+  ; getObjectTypeString handed back the Ranger spelling unchanged and the
+  ; field came out as `HashMap<String,[string]>`, with `string` an unknown
+  ; type.
+  fn rustCollectionTypeString:string (type_string:string ctx:RangerAppWriterContext) {
+    def n:int (strlen type_string)
+    def inner:string (substring type_string 1 (n - 1))
+    def il:int (strlen inner)
+    def depth:int 0
+    def sep:int (0 - 1)
+    def i:int 0
+    while (i < il) {
+      def c:int (charAt inner i)
+      if (c == (ccode "[")) {
+        depth = depth + 1
+      }
+      if (c == (ccode "]")) {
+        depth = depth - 1
+      }
+      if ((c == (ccode ":")) && (depth == 0)) {
+        sep = i
+      }
+      i = i + 1
+    }
+    if (sep >= 0) {
+      def kt:string (substring inner 0 sep)
+      def vt:string (substring inner (sep + 1) il)
+      return ((((("HashMap<" + (this.rustElementTypeString(kt ctx))) + ",") + (this.rustElementTypeString(vt ctx)))) + ">")
+    }
+    return (("Vec<" + (this.rustElementTypeString(inner ctx))) + ">")
+  }
+
+  ; The element of a Rust collection: a shared class is held through its Rc,
+  ; a primitive and a nested collection are held by value.
+  fn rustElementTypeString:string (type_string:string ctx:RangerAppWriterContext) {
+    if (this.rustIsCollectionTypeString(type_string)) {
+      return (this.rustCollectionTypeString(type_string ctx))
+    }
+    if (this.rustClassIsShared(type_string ctx)) {
+      return (this.rustSharedTypeString(type_string ctx))
+    }
+    return (this.getObjectTypeString(type_string ctx))
+  }
+
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
+    if (this.rustIsCollectionTypeString(type_string)) {
+      return (this.rustCollectionTypeString(type_string ctx))
+    }
     switch type_string {
       case "int" {
         return "i64"

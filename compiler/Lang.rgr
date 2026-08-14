@@ -3943,7 +3943,7 @@ def r_div_f64(a, b):
                 kotlin ( "when (" (e 1) ") { " I (block 2) i "}" )
                 python ( nl "match (" (e 1) "):" I (block 2) i nl )
                 ; Rust matches a &str, so a String subject needs as_str().
-                rust ( nl "match " (e 1) ".as_str() {" I (block 2) i nl "}" nl )
+                rust ( nl "match " (e 1) ".as_str() {" I (block 2) nl "_ => {}" i nl "}" nl )
                 * ( "switch (" (e 1) " ) { " I (block 2) i "}" )
             }
         }
@@ -6506,7 +6506,8 @@ int r_string_last_index_of( std::string str, std::string key )  {
                 kotlin ( (e 1) ".startsWith(" (e 2) ")" )
                 dart ( (e 1) ".startsWith(" (e 2) ")" )
                 python ( (e 1) ".startswith(" (e 2) ")" )
-                rust ( (e 1) ".starts_with(" (e 2) ")" )
+                ; the pattern is a &str: String does not implement Pattern
+                rust ( (e 1) ".starts_with(" (e 2) ".as_str())" )
             }
         }
 
@@ -6521,7 +6522,8 @@ int r_string_last_index_of( std::string str, std::string key )  {
                 swift6 ( (e 1) ".hasSuffix(" (e 2) ")" )
                 csharp ( (e 1) ".EndsWith(" (e 2) ")" )
                 scala ( (e 1) ".endsWith(" (e 2) ")" )
-                rust ( (e 1) ".ends_with(" (e 2) ")" )
+                ; the pattern is a &str: String does not implement Pattern
+                rust ( (e 1) ".ends_with(" (e 2) ".as_str())" )
                 cpp ( "r_string_ends_with(" (e 1) ", " (e 2) ")"
 (create_polyfill
 "
@@ -6574,7 +6576,8 @@ bool r_string_ends_with(const std::string& str, const std::string& suffix) {
                 swift6 ( (e 1) ".replacingOccurrences(of: " (e 2) ", with: " (e 3) ")" )
                 csharp ( (e 1) ".Replace(" (e 2) ", " (e 3) ")" )
                 scala ( (e 1) ".replace(" (e 2) ", " (e 3) ")" )
-                rust ( (e 1) ".replace(" (e 2) ", " (e 3) ")" )
+                ; the pattern is a &str: String does not implement Pattern
+                rust ( (e 1) ".replace(" (e 2) ".as_str(), " (e 3) ".as_str())" )
                 cpp ( "r_string_replace(" (e 1) ", " (e 2) ", " (e 3) ")"
 (create_polyfill
 "
@@ -6671,8 +6674,10 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  csharp ( (e 1) ".RemoveAt((int)(" (e 2) "));" )
                  ; Vec::remove drops the element out of the middle; the `*`
                  ; fallback is JavaScript's splice/pop pair, and Vec::splice
-                 ; wants an iterator, not an index
-                 rust ( (e 1) ".remove((" (e 2) ") as usize);" )
+                 ; wants an iterator, not an index. Written by the class
+                 ; writer, because the target is mutated and an Rc<RefCell>
+                 ; segment on its path has to borrow mutably.
+                 rust ( (custom _) )
                  * ( (e 1) ".splice(" (e 2) ", 1).pop();" )                                              
             }
         }
@@ -7098,8 +7103,9 @@ static class RgList {
 ")
                  )
                  ; Vec::remove removes AND returns, which is what this
-                 ; operator is
-                 rust ( (e 1) ".remove((" (e 2) ") as usize)" )
+                 ; operator is; the class writer writes it, so the mutated
+                 ; target borrows mutably
+                 rust ( (custom _) )
                  * ( (e 1) ".splice(" (e 2) ", 1).pop()" )                                              
             }
         }
