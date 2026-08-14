@@ -23819,7 +23819,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( i > 0 ) {
                   wr.out(", ", false);
                 }
-                wr.out(this.adjustType(arg.vref), false);
+                wr.out("mut " + this.adjustType(arg.vref), false);
               };
               wr.out("| {", true);
               wr.indent(1);
@@ -29338,6 +29338,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                       needs_refcell_wrap_assign = true;
                                     }
                                   }
+                                  if ( this.rustClassIsShared(field_type_name, ctx) ) {
+                                    needs_refcell_wrap_assign = false;
+                                  }
                                   if ( needs_refcell_wrap_assign ) {
                                     wr.out(" = Some(RefCell::new(", false);
                                     await this.WalkNode(right, ctx, wr);
@@ -29663,6 +29666,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             ctx.unsetInLhs();
                             wr.out(".clear();", true);
                             ctx.unsetInExpr();
+                          }
+                          return;
+                        }
+                        if ( (cmd == "remove_index") || (cmd == "array_extract") ) {
+                          const rmTarget = node.getSecond();
+                          const rmIndex = node.getThird();
+                          ctx.setInExpr();
+                          ctx.setInLhs();
+                          await this.WalkNode(rmTarget, ctx, wr);
+                          ctx.unsetInLhs();
+                          wr.out(".remove((", false);
+                          await this.WalkNode(rmIndex, ctx, wr);
+                          wr.out(") as usize)", false);
+                          ctx.unsetInExpr();
+                          if ( ctx.expressionLevel() == 0 ) {
+                            wr.out(";", true);
                           }
                           return;
                         }

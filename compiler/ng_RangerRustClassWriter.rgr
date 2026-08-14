@@ -238,7 +238,9 @@ class RangerRustClassWriter {
       if (i > 0) {
         wr.out(", " false)
       }
-      wr.out((this.adjustType(arg.vref)) false)
+      ; the body calls `&mut self` methods on the element as freely as any
+      ; other name, so the binding is mutable; an unused `mut` is a warning
+      wr.out(("mut " + (this.adjustType(arg.vref))) false)
     }
     wr.out("| {" true)
     wr.indent(1)
@@ -6797,6 +6799,12 @@ class RangerRustClassWriter {
                   needs_refcell_wrap_assign = true
                 }
               }
+              ; A field of a shared class already holds the Rc — writeStructField
+              ; gives it Option<Rc<RefCell<X>>> and never the extra cell — so a
+              ; RefCell::new here made the value one cell deeper than the slot.
+              if (this.rustClassIsShared(field_type_name ctx)) {
+                needs_refcell_wrap_assign = false
+              }
               if needs_refcell_wrap_assign {
                 ; Optional assignment to RefCell-wrapped field: Some(RefCell::new(value))
                 wr.out(" = Some(RefCell::new(" false)
@@ -7179,6 +7187,28 @@ class RangerRustClassWriter {
         ctx.unsetInLhs()
         wr.out(".clear();" true)
         ctx.unsetInExpr()
+      }
+      return
+    }
+
+    ; Vec::remove takes &mut self, so an Rc<RefCell> segment on the target's
+    ; path has to borrow mutably. The Lang.rgr template writes the same call
+    ; but walks the target as a read, which left `node.borrow().children`
+    ; where `node.borrow_mut().children` was needed. array_extract is the
+    ; same call used for its return value.
+    if ((cmd == "remove_index") || (cmd == "array_extract")) {
+      def rmTarget:CodeNode (node.getSecond())
+      def rmIndex:CodeNode (node.getThird())
+      ctx.setInExpr()
+      ctx.setInLhs()
+      this.WalkNode(rmTarget ctx wr)
+      ctx.unsetInLhs()
+      wr.out(".remove((" false)
+      this.WalkNode(rmIndex ctx wr)
+      wr.out(") as usize)" false)
+      ctx.unsetInExpr()
+      if ((ctx.expressionLevel()) == 0) {
+        wr.out(";" true)
       }
       return
     }
