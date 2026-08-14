@@ -513,7 +513,7 @@ class RangerRustClassWriter {
         ; an element of a shared class follows the class (PLAN_RUST_OWNERSHIP 2b)
         def helem:string (this.getObjectTypeString(node.array_type ctx))
         if (this.rustClassIsShared(node.array_type ctx)) {
-          helem = (("Rc<RefCell<" + helem) + ">>")
+          helem = (this.rustSharedTypeString(node.array_type ctx))
         }
         wr.out((((("HashMap<" + (this.getObjectTypeString(node.key_type ctx))) + ",") + helem) + ">") false)
 
@@ -521,7 +521,7 @@ class RangerRustClassWriter {
       case RangerNodeType.Array {
         def aelem:string (this.getObjectTypeString(node.array_type ctx))
         if (this.rustClassIsShared(node.array_type ctx)) {
-          aelem = (("Rc<RefCell<" + aelem) + ">>")
+          aelem = (this.rustSharedTypeString(node.array_type ctx))
         }
         wr.out((("Vec<" + aelem) + ">") false)
       }
@@ -1809,16 +1809,31 @@ class RangerRustClassWriter {
         ; A proven-borrowed Rc parameter takes a reference: the callee reads the
         ; handle and never stores it, so every call site passes `&x` instead of
         ; cloning. `.borrow()` / `.borrow_mut()` work the same through it.
+        ; a plain class name is the whole shared type on its own — a class
+        ; with subclasses already reads as Rc<RefCell<dyn XTrait>>, so
+        ; wrapping writeTypeDef here would give it a second cell
+        def argIsPlainClass:boolean (((strlen nameN.array_type) == 0) && ((strlen nameN.key_type) == 0))
+        if (argIsPlainClass && ((strlen nameN.type_name) == 0)) {
+          argIsPlainClass = false
+        }
         if (arg.rust_borrow_type == 1) {
-          wr.out((paramName + " : &Rc<RefCell<") false)
-          this.writeTypeDef(nameN ctx wr)
-          wr.out(">>" false)
+          if argIsPlainClass {
+            wr.out(((paramName + " : &") + (this.rustSharedTypeString(nameN.type_name ctx))) false)
+          } {
+            wr.out((paramName + " : &Rc<RefCell<") false)
+            this.writeTypeDef(nameN ctx wr)
+            wr.out(">>" false)
+          }
           continue
         }
         ; Parameter is assigned to weak field - needs Rc<RefCell<T>> type
-        wr.out(("mut " + paramName + " : Rc<RefCell<") false)
-        this.writeTypeDef(nameN ctx wr)
-        wr.out(">>" false)
+        if argIsPlainClass {
+          wr.out(((("mut " + paramName) + " : ") + (this.rustSharedTypeString(nameN.type_name ctx))) false)
+        } {
+          wr.out(("mut " + paramName + " : Rc<RefCell<") false)
+          this.writeTypeDef(nameN ctx wr)
+          wr.out(">>" false)
+        }
         continue
       }
       

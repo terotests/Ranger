@@ -24042,14 +24042,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 case 7 : 
                   let helem = this.getObjectTypeString(node.array_type, ctx);
                   if ( this.rustClassIsShared(node.array_type, ctx) ) {
-                    helem = ("Rc<RefCell<" + helem) + ">>";
+                    helem = this.rustSharedTypeString(node.array_type, ctx);
                   }
                   wr.out(((("HashMap<" + this.getObjectTypeString(node.key_type, ctx)) + ",") + helem) + ">", false);
                   break;
                 case 6 : 
                   let aelem = this.getObjectTypeString(node.array_type, ctx);
                   if ( this.rustClassIsShared(node.array_type, ctx) ) {
-                    aelem = ("Rc<RefCell<" + aelem) + ">>";
+                    aelem = this.rustSharedTypeString(node.array_type, ctx);
                   }
                   wr.out(("Vec<" + aelem) + ">", false);
                   break;
@@ -25076,15 +25076,27 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       needsMutRef = true;
                     }
                     if ( arg.rust_needs_rc_wrap ) {
+                      let argIsPlainClass = ((nameN.array_type.length) == 0) && ((nameN.key_type.length) == 0);
+                      if ( argIsPlainClass && ((nameN.type_name.length) == 0) ) {
+                        argIsPlainClass = false;
+                      }
                       if ( arg.rust_borrow_type == 1 ) {
-                        wr.out(paramName + " : &Rc<RefCell<", false);
-                        await this.writeTypeDef(nameN, ctx, wr);
-                        wr.out(">>", false);
+                        if ( argIsPlainClass ) {
+                          wr.out((paramName + " : &") + this.rustSharedTypeString(nameN.type_name, ctx), false);
+                        } else {
+                          wr.out(paramName + " : &Rc<RefCell<", false);
+                          await this.writeTypeDef(nameN, ctx, wr);
+                          wr.out(">>", false);
+                        }
                         continue;
                       }
-                      wr.out(("mut " + paramName) + " : Rc<RefCell<", false);
-                      await this.writeTypeDef(nameN, ctx, wr);
-                      wr.out(">>", false);
+                      if ( argIsPlainClass ) {
+                        wr.out((("mut " + paramName) + " : ") + this.rustSharedTypeString(nameN.type_name, ctx), false);
+                      } else {
+                        wr.out(("mut " + paramName) + " : Rc<RefCell<", false);
+                        await this.writeTypeDef(nameN, ctx, wr);
+                        wr.out(">>", false);
+                      }
                       continue;
                     }
                     const needsImmutableBorrow = arg.rust_borrow_type == 1;

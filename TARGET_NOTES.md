@@ -546,7 +546,7 @@ Measured with `node bin/output.js -l=<target> ./compiler/ng_Compiler.rgr
 | Kotlin | **0** | — `kotlinc` clean, runs, see above |
 | PHP | **0** | not built or run |
 | Swift 6 | 12 | |
-| Rust | 16 | |
+| Rust | **0** | `rustc` still refuses it — see below |
 | Java 7 | 16 | |
 | Scala | 467 | no JSON templates, the same wall C++, Dart and C# started at |
 
@@ -661,6 +661,50 @@ without a message from the Ranger compiler:
 
 See [RUST_ISSUES.md](RUST_ISSUES.md) for the measurements and the order of the
 work, and [RUST_TODO.md](RUST_TODO.md).
+
+### What the compiler's own sources took, and where they still stop
+
+Rust is the one target in this round that does **not** self-host. It is worth
+recording how far it got, because the number in the table above says `0` and
+that number means less here than anywhere else.
+
+`node bin/output.js -l=rust ./compiler/ng_Compiler.rgr` reported 21 errors, and
+all 21 were one writer bug: a `this.method(…)` written inside a `forEach` body
+came out as *"a method that stores `this` cannot be called from here on Rust:
+the constructor runs before the object is inside its Rc"*. None of the 21 was in
+a constructor. `StaticAnalyzer.computeSelfRcNeeds` walks `cl.methods` and skips
+lambdas, so a lambda's own desc never carries `rust_needs_self_rc`; the writer
+asked the lambda rather than the method that declares it, and a lambda always
+answers no. The lambda desc already points at its declaring method through
+`insideFn` — `rustEnclosingMethod` hops to it first. That, plus operator entries
+for `sha256`, `env_var`, `dir_exists` and `create_dir`, takes the target to 0.
+
+`rustc` is the real gate, and it still refuses the result. Three writer defects
+came out of the attempt and are fixed:
+
+- A shared local of a class that has subclasses was declared
+  `Rc<RefCell<Rc<RefCell<dyn XTrait>>>>`. `getObjectTypeString` returns the
+  whole handle for such a class, and six sites wrapped it a second time —
+  `.borrow()` then yields another `Rc`, so every field read through the name
+  failed. About 1700 errors.
+- Lambdas were written in the generic writer's JavaScript form,
+  `(item, index) => {`. The Rust writer had no `CreateLambda`. `rustc` stopped
+  at the arrow, 222 parse errors, hiding whatever they covered.
+- A callback parameter's type was written as nothing at all — `cb : )` —
+  because `writeTypeDef` had no `ExpressionType` case.
+
+What is left is one structural thing, not a list of small ones. `rustc` reports
+about 4700 errors on the 67k-line output, and the largest single share — 1659 —
+is the *"Inheritance is not in the layout"* limit above, met at scale:
+`RangerAppParamDesc` has three subclasses, so it is written as
+`Rc<RefCell<dyn RangerAppParamDescTrait>>`, that trait declares methods and no
+fields, and the compiler reads fields through parent-typed references
+constantly. 39 distinct fields are involved. Field accessors on the trait are
+the obvious repair, but they cannot be written yet: the subclass structs do not
+carry the parent's fields at all (`RangerAppFunctionDesc` has 37 fields and none
+of the 39), so inherited fields have to be flattened into the subclass layout
+first. That is the same defect the bullet above names, and self-hosting Rust
+means fixing it rather than working around it.
 
 ## C++ static analysis optimizer (`-l=cpp`)
 
