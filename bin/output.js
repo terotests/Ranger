@@ -25830,6 +25830,47 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   }
                   return false;
                 };
+                buildInheritedMutationGraph (cl, ctx, directMutations, callGraph) {
+                  for ( let pi = 0; pi < cl.extends_classes.length; pi++) {
+                    var pName = cl.extends_classes[pi];
+                    if ( ctx.isDefinedClass(pName) ) {
+                      const pc = ctx.findClass(pName);
+                      for ( let i = 0; i < pc.defined_variants.length; i++) {
+                        var fnVar = pc.defined_variants[i];
+                        const mVs = ( Object.prototype.hasOwnProperty.call(pc.method_variants, fnVar) ? pc.method_variants[fnVar] : undefined );
+                        for ( let vi = 0; vi < mVs.variants.length; vi++) {
+                          var variant = mVs.variants[vi];
+                          if ( ( typeof(directMutations[variant.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(directMutations, variant.name) ) ) {
+                            continue;
+                          }
+                          const inTraitIface = pc.is_extended_by_children;
+                          const fnB = variant.fnBody;
+                          if ( (typeof(fnB) !== "undefined" && fnB != null )  ) {
+                            const fnCtx = variant.fnCtx;
+                            let useCtx = ctx;
+                            if ( (typeof(fnCtx) !== "undefined" && fnCtx != null )  ) {
+                              useCtx = fnCtx;
+                            }
+                            const fnBody = fnB;
+                            if ( inTraitIface ) {
+                              directMutations[variant.name] = true;
+                            } else {
+                              directMutations[variant.name] = this.fnBodyDirectlyMutatesThis(fnBody, useCtx);
+                            }
+                            const callList = new MethodCallList();
+                            this.collectSelfMethodCalls(fnBody, useCtx, callList.calls);
+                            callGraph[variant.name] = callList;
+                          } else {
+                            if ( inTraitIface ) {
+                              directMutations[variant.name] = true;
+                            }
+                          }
+                        };
+                      };
+                      this.buildInheritedMutationGraph(pc, ctx, directMutations, callGraph);
+                    }
+                  };
+                };
                 buildClassMutationGraph (cl, ctx, directMutations, callGraph) {
                   for ( let i = 0; i < cl.defined_variants.length; i++) {
                     var fnVar = cl.defined_variants[i];
@@ -27866,6 +27907,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             let mDirect = {};
                             let mGraph = {};
                             this.buildClassMutationGraph(mcl, ctx, mDirect, mGraph);
+                            this.buildInheritedMutationGraph(mcl, ctx, mDirect, mGraph);
                             for ( let mmi = 0; mmi < mcl.methods.length; mmi++) {
                               var mm = mcl.methods[mmi];
                               const mmB = mm.fnBody;
@@ -28083,6 +28125,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       let directMutations = {};
                       let callGraph = {};
                       this.buildClassMutationGraph(cl, ctx, directMutations, callGraph);
+                      this.buildInheritedMutationGraph(cl, ctx, directMutations, callGraph);
                       for ( let i_4 = 0; i_4 < cl.static_methods.length; i_4++) {
                         var variant = cl.static_methods[i_4];
                         const vnn = variant.nameNode;
@@ -28187,6 +28230,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             let parentDirectMutations = {};
                             let parentCallGraph = {};
                             this.buildClassMutationGraph(pc, ctx, parentDirectMutations, parentCallGraph);
+                            this.buildInheritedMutationGraph(pc, ctx, parentDirectMutations, parentCallGraph);
                             wr.out(("impl " + cl.name) + " {", true);
                             wr.indent(1);
                             wr.out("// Inherited methods from parent class " + parentName, true);

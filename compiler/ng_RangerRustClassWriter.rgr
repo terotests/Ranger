@@ -2733,6 +2733,53 @@ class RangerRustClassWriter {
 
   ; Build call graph and mutation info for a class
   ; Returns two maps: methodName -> directlyMutates (boolean), methodName -> MethodCallList
+  ; The same walk over the ancestors, for the methods a class inherits. They
+  ; are emitted into this class's impl and can be called from its own
+  ; methods, so leaving them out of the graph made a caller of an inherited
+  ; mutating method look immutable — `&self` calling a `&mut self` method.
+  ; A name the class defines itself is already in the maps and wins.
+  fn buildInheritedMutationGraph:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext directMutations:[string:boolean] callGraph:[string:MethodCallList]) {
+    for cl.extends_classes pName:string pi {
+      if (ctx.isDefinedClass(pName)) {
+        def pc:RangerAppClassDesc (ctx.findClass(pName))
+        for pc.defined_variants fnVar:string i {
+          def mVs:RangerAppMethodVariants (get pc.method_variants fnVar)
+          for mVs.variants variant:RangerAppFunctionDesc vi {
+            if (has directMutations variant.name) {
+              continue
+            }
+            ; A method of the trait interface is emitted `&mut self`,
+            ; whatever the analysis makes of its body, so calling it needs a
+            ; mutable receiver and the caller has to be `&mut self` too.
+            def inTraitIface:boolean pc.is_extended_by_children
+            def fnB@(optional):CodeNode variant.fnBody
+            if (!null? fnB) {
+              def fnCtx@(optional):RangerAppWriterContext variant.fnCtx
+              def useCtx:RangerAppWriterContext ctx
+              if (!null? fnCtx) {
+                useCtx = (unwrap fnCtx)
+              }
+              def fnBody:CodeNode (unwrap fnB)
+              if inTraitIface {
+                set directMutations variant.name true
+              } {
+                set directMutations variant.name (this.fnBodyDirectlyMutatesThis(fnBody useCtx))
+              }
+              def callList:MethodCallList (new MethodCallList())
+              this.collectSelfMethodCalls(fnBody useCtx callList.calls)
+              set callGraph variant.name callList
+            } {
+              if inTraitIface {
+                set directMutations variant.name true
+              }
+            }
+          }
+        }
+        this.buildInheritedMutationGraph(pc ctx directMutations callGraph)
+      }
+    }
+  }
+
   fn buildClassMutationGraph:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext directMutations:[string:boolean] callGraph:[string:MethodCallList]) {
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
@@ -5095,6 +5142,7 @@ class RangerRustClassWriter {
           def mDirect:[string:boolean]
           def mGraph:[string:MethodCallList]
           this.buildClassMutationGraph(mcl ctx mDirect mGraph)
+          this.buildInheritedMutationGraph(mcl ctx mDirect mGraph)
           for mcl.methods mm:RangerAppFunctionDesc mmi {
             def mmB@(optional):CodeNode mm.fnBody
             if (!null? mmB) {
@@ -5343,6 +5391,7 @@ class RangerRustClassWriter {
     def directMutations:[string:boolean]
     def callGraph:[string:MethodCallList]
     this.buildClassMutationGraph(cl ctx directMutations callGraph)
+    this.buildInheritedMutationGraph(cl ctx directMutations callGraph)
     
     for cl.static_methods variant:RangerAppFunctionDesc i {
       def vnn:CodeNode (unwrap variant.nameNode)
@@ -5462,6 +5511,7 @@ class RangerRustClassWriter {
           def parentDirectMutations:[string:boolean]
           def parentCallGraph:[string:MethodCallList]
           this.buildClassMutationGraph(pc ctx parentDirectMutations parentCallGraph)
+          this.buildInheritedMutationGraph(pc ctx parentDirectMutations parentCallGraph)
           
           wr.out(("impl " + cl.name + " {") true)
           wr.indent(1)
