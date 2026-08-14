@@ -308,11 +308,43 @@ Tolerance: integer pixel/pt rounding policy documented (e.g. round half-up to 1/
   `style={{ ... }}`, not as JSX attributes.
 - Update `PhotoLayouts` only where behavior changes
 
-### Phase 2 — Style layer
+### Phase 2 — Style layer ✅
 
-- `className` + theme stylesheet (CSS subset parser or constrained JSON)
-- Cascade: theme < class < inline
-- One “classic” and one “minimal” photo-book theme as examples
+Landed. Open decision #1 was settled in favour of a **real CSS subset parser**
+rather than JSON style maps: the property names were already CSS-shaped, and
+`EVGElement.setAttribute` already accepted both `font-size` and `fontSize`, so
+the parser only had to tokenize and dispatch — no second authoring vocabulary.
+
+- `EVGStyleSheet.rgr` parses `.class`, `.theme-<name> .class`, selector lists
+  and `/* comments */`, and applies rules over a tree
+- Cascade: unscoped class < theme-scoped class < inline attributes, with source
+  order breaking ties inside each group
+- Inline precedence is explicit, not positional: front-ends call
+  `EVGElement.markInline()` for every authored attribute and the applier skips
+  those properties. `toKebab` normalizes so `fontSize` and `font-size` are one key
+- `-css FILE` (repeatable) and `-theme NAME` on the PDF and HTML tools, via the
+  shared `EVGStyleLoader` so both targets resolve identically
+- Unsupported selectors are collected and printed, not silently dropped
+- `examples/themes/classic.css` + `minimal.css` declare the same class names, so
+  `examples/test_theme.tsx` swaps look with no TSX edit:
+
+```
+evg-html test_theme.tsx out.html -css themes/classic.css -theme classic
+evg-html test_theme.tsx out.html -css themes/minimal.css -theme minimal
+```
+
+Not in this subset: element/ID selectors, multi-level descendants, pseudo-classes,
+`!important`, shorthand expansion beyond what `setAttribute` already does.
+
+### Phase 2.5 — Attribute surface (carried over)
+
+The style layer exposed that the JSX front-end drops properties it does not
+list. `parseAttributes` in `JSXToEVG.rgr` is a whitelist, and `camelToKebab`
+rewrites the incoming name first, so `className` was compared against
+`"className"` when it arrives as `"class-name"` — meaning `className` never
+reached an element, the same way `gap` never did. Both are fixed; the general
+hazard remains, and `justify-content` / `align-items` are still reachable only
+through `style={{ ... }}`.
 
 ### Phase 3 — Grid v1
 
@@ -333,7 +365,7 @@ Tolerance: integer pixel/pt rounding policy documented (e.g. round half-up to 1/
 | Layout | `gallery/evg/EVGLayout.rgr`, `EVGElement.rgr`, `EVGText.rgr` |
 | Fonts | `pdf_writer/src/fonts/FontManager.rgr`, `TrueTypeFont.rgr`, shared shaper module |
 | JSX bridge | `pdf_writer/src/jsx/JSXToEVG.rgr`, component engine |
-| Style | new `EVGStyleSheet.rgr` (parse/resolve) |
+| Style | `gallery/evg/EVGStyleSheet.rgr` (parse/resolve), `pdf_writer/src/core/EVGStyleLoader.rgr` (CLI wiring) |
 | Renderers | `EVGPDFRenderer`, `EVGHTMLRenderer`, `EVGRasterRenderer` / `RasterText` |
 | Examples | `components/PhotoLayouts.tsx`, new theme CSS, album fixtures |
 | Docs | this plan → later SPEC sections for flex/grid/style |
@@ -369,7 +401,8 @@ bash gallery/game_engine/v2/evg/run.sh
 
 ## 13. Open decisions
 
-1. Stylesheet syntax: real CSS subset parser vs JSON style maps with CSS-like property names  
+1. ~~Stylesheet syntax: real CSS subset parser vs JSON style maps~~ — **decided:
+   CSS subset parser** (`EVGStyleSheet.rgr`), see Phase 2  
 2. HTML preview strategy: precomputed frames (parity) vs native CSS (speed) + CI diffs  
 3. Default `line-height` policy when property omitted (font `lineGap` vs `1.2`)  
 4. Whether Grid v1 lands before or after theme CSS (recommend: flex+fonts → themes → grid)

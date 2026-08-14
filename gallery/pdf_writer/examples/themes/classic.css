@@ -1,0 +1,68 @@
+/* classic.css - A warm, traditional photo-book theme.
+ *
+ * Supported subset (see gallery/evg/EVGStyleSheet.rgr):
+ *   .class                  applies in every theme
+ *   .theme-<name> .class    applies only when that theme is active
+ *
+ * Rules are resolved as: unscoped < theme-scoped < inline attributes.
+ * Anything set directly on the element in TSX always wins.
+ */
+
+/* ---- shared structure, theme-independent ------------------------------- */
+
+.page {
+  width: 100%;
+  height: 100%;
+  padding: 36px;
+}
+
+.row {
+  flex-direction: row;
+  width: 100%;
+}
+
+/* No `width` here on purpose: EVG has no flex-basis yet, so a child with an
+ * explicit width is treated as fixed and `flex` is ignored. Sizing the photos
+ * with `flex` alone is what makes them share the row. */
+.photo {
+  object-fit: cover;
+  height: 100%;
+  flex: 1;
+}
+
+/* ---- classic ----------------------------------------------------------- */
+
+.theme-classic .page {
+  background-color: #fbf7f0;
+  padding: 44px;
+}
+
+.theme-classic .title {
+  font-size: 30px;
+  font-weight: bold;
+  color: #3b2f2a;
+  line-height: 1.25;
+}
+
+.theme-classic .caption {
+  font-size: 13px;
+  color: #6b5b52;
+  line-height: 1.35;
+  margin-top: 8px;
+}
+
+.theme-classic .row {
+  gap: 18px;
+  margin-top: 24px;
+}
+
+.theme-classic .photo {
+  border-radius: 10px;
+}
+
+.theme-classic .rule {
+  height: 3px;
+  width: 96px;
+  background-color: #b08d57;
+  margin-top: 14px;
+}

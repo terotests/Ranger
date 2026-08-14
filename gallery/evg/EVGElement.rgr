@@ -157,9 +157,16 @@ class EVGElement {
     ; Clip path (for any element)
     def clipPath:string ""
 
-    ; CSS class (for reference)
+    ; CSS class — selects stylesheet rules (see EVGStyleSheet.rgr). Space
+    ; separated, like HTML: "photo span-2".
     def className:string ""
-    
+    ; Theme name for stylesheet resolution, read from the document root.
+    def theme:string ""
+    ; Property names the authoring layer set directly on this element, in
+    ; kebab-case. A stylesheet must not overwrite these — inline wins the
+    ; cascade — so front-ends call markInline() for every attribute they apply.
+    def inlineProps:[string]
+
     ; PDF/Print settings (for Print element)
     def imageQuality:int 0          ; JPEG quality 1-100 (0 = use default)
     def maxImageSize:int 0          ; Max image dimension in pixels (0 = use default)
@@ -500,9 +507,57 @@ class EVGElement {
         isAbsolute = (this.hasAbsolutePosition())
     }
     
+    ; Normalize a property spelling so `fontSize` and `font-size` are one key.
+    sfn toKebab:string (name:string) {
+        def out:string ""
+        def len:int (strlen name)
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt name i)
+            if ((c >= 65) && (c <= 90)) {
+                if (i > 0) {
+                    out = out + "-"
+                }
+                out = out + (strfromcode (c + 32))
+            } {
+                out = out + (strfromcode c)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Record that the authoring layer set `name` directly on this element.
+    fn markInline:void (name:string) {
+        def key:string (EVGElement.toKebab(name))
+        if ((this.hasInline(key)) == false) {
+            push inlineProps key
+        }
+    }
+
+    fn hasInline:boolean (name:string) {
+        def key:string (EVGElement.toKebab(name))
+        def i:int 0
+        while (i < (array_length inlineProps)) {
+            if ((itemAt inlineProps i) == key) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
     fn setAttribute:void (name:string value:string) {
         ; Set attribute by name (for parser)
-        
+
+        if (name == "className") {
+            className = value
+            return
+        }
+        if (name == "theme") {
+            theme = value
+            return
+        }
         if (name == "id") {
             id = value
             return

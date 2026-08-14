@@ -7,6 +7,7 @@
 
 Import "../jsx/JSXToEVG.rgr"
 Import "../core/EVGPDFRenderer.rgr"
+Import "../core/EVGStyleLoader.rgr"
 Import "../fonts/FontManager.rgr"
 Import "../core/Buffer.rgr"
 Import "../../../evg/EVGElement.rgr"
@@ -18,8 +19,14 @@ class EVGPDFTool {
     def pageHeight:double 842.0
     def fontsDir:string "./gallery/pdf_writer/Fonts"
     def debug:boolean false
+    def styles:EVGStyleLoader
     def fontManager:FontManager (new FontManager()) (new FontManager())
     
+    Constructor () {
+        def sl (new EVGStyleLoader())
+        styles = sl
+    }
+
     sfn m@(main):void () {
         def tool (new EVGPDFTool())
         tool.run()
@@ -64,6 +71,20 @@ class EVGPDFTool {
                 }
             }
             
+            if (arg == "-css") {
+                if ((i + 1) < argCount) {
+                    i = i + 1
+                    styles.addFile((shell_arg i))
+                }
+            }
+
+            if (arg == "-theme") {
+                if ((i + 1) < argCount) {
+                    i = i + 1
+                    styles.setTheme((shell_arg i))
+                }
+            }
+
             if (arg == "-debug") {
                 debug = true
             }
@@ -112,6 +133,8 @@ class EVGPDFTool {
         print "Options:"
         print "  -w WIDTH   Page width in points (default: 595 = A4)"
         print "  -h HEIGHT  Page height in points (default: 842 = A4)"
+        print "  -css FILE  Apply a CSS subset stylesheet (repeatable)"
+        print "  -theme T   Theme name selecting .theme-T rules"
         print "  -debug     Enable debug output"
         print ""
         print "Example:"
@@ -155,6 +178,12 @@ class EVGPDFTool {
         
         print ("Found root element: <" + root.tagName + ">")
         print ("Children: " + (to_string (root.getChildCount())))
+
+        ; Resolve stylesheet rules onto the tree BEFORE layout, so layout and
+        ; every renderer see one set of computed properties. Inline attributes
+        ; recorded during parsing are left untouched.
+        def usedTheme:string (styles.applyTo(root))
+        styles.report(usedTheme)
         
         if debug {
             this.printTree(root 0)

@@ -3478,6 +3478,10 @@ class ComponentEngine {
     }
     
     fn applyAttribute:void (element:EVGElement rawName:string strValue:string) {
+        ; Record the authored property so a stylesheet cannot overwrite it:
+        ; inline wins the cascade.
+        element.markInline(rawName)
+
         ; Handle special attributes
         if (rawName == "id") {
             element.id = strValue

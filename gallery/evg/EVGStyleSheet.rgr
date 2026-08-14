@@ -1,0 +1,396 @@
+; EVGStyleSheet.rgr - A small, print-safe CSS subset for EVG
+;
+; This is deliberately NOT a browser cascade. It supports exactly what a
+; photo-book / print document needs to switch its look without editing the
+; component tree:
+;
+;   .caption                  { ... }   ; class rule, applies in every theme
+;   .theme-classic .caption   { ... }   ; class rule, only under theme "classic"
+;   .a, .b                    { ... }   ; selector lists
+;   /* comments */
+;
+; No IDs, no element selectors, no `!important`, no specificity arithmetic
+; beyond "theme-scoped beats unscoped". Resolution order is:
+;
+;   unscoped class rules  <  theme-scoped class rules  <  inline attributes
+;
+; ...with source order breaking ties inside each group. Inline always wins:
+; the applier skips any property the authoring layer already set, which
+; EVGElement records in `inlineProps`.
+;
+; Properties are not interpreted here. Every declaration is handed to
+; `EVGElement.setAttribute`, which already accepts both `font-size` and
+; `fontSize` spellings for the whole EVG property surface, so the stylesheet
+; and inline attributes cannot drift apart.
+
+Import "EVGElement.rgr"
+
+class EVGStyleDecl {
+    def name:string ""
+    def value:string ""
+
+    Constructor () {
+        name = ""
+        value = ""
+    }
+}
+
+class EVGStyleRule {
+    ; Theme this rule is scoped to, or "" when it applies in every theme.
+    def theme:string ""
+    ; Class this rule selects. Always set — the subset has no other selectors.
+    def className:string ""
+    def decls:[EVGStyleDecl]
+    ; Source order, used to break ties between rules of equal specificity.
+    def order:int 0
+
+    Constructor () {
+        theme = ""
+        className = ""
+        order = 0
+    }
+
+    fn isThemeScoped:boolean () {
+        return ((strlen theme) > 0)
+    }
+}
+
+class EVGStyleSheet {
+    def rules:[EVGStyleRule]
+    ; Rules that failed to parse, kept so tools can report them instead of
+    ; silently rendering an unstyled page.
+    def errors:[string]
+    def ruleCounter:int 0
+
+    Constructor () {
+        ruleCounter = 0
+    }
+
+    fn getRuleCount:int () {
+        return (array_length rules)
+    }
+
+    fn getErrorCount:int () {
+        return (array_length errors)
+    }
+
+    fn getError:string (i:int) {
+        return (itemAt errors i)
+    }
+
+    ; -----------------------------------------------------------------------
+    ; Parsing
+    ; -----------------------------------------------------------------------
+
+    fn parse:void (css:string) {
+        def src:string (this.stripComments(css))
+        def len:int (strlen src)
+        def i:int 0
+        while (i < len) {
+            ; Selector text runs up to the next '{'
+            def braceAt:int (this.findChar(src i 123))
+            if (braceAt < 0) {
+                ; Trailing text with no block — ignore unless it has content
+                def tail:string (trim (substring src i len))
+                if ((strlen tail) > 0) {
+                    push errors ("Ignored trailing text with no rule body: " + tail)
+                }
+                return
+            }
+            def selectorText:string (substring src i braceAt)
+            def closeAt:int (this.findChar(src (braceAt + 1) 125))
+            if (closeAt < 0) {
+                push errors ("Unclosed rule body for selector: " + (trim selectorText))
+                return
+            }
+            def body:string (substring src (braceAt + 1) closeAt)
+            this.addRules(selectorText body)
+            i = (closeAt + 1)
+        }
+    }
+
+    ; Replace /* ... */ spans with a single space so tokens either side stay apart.
+    fn stripComments:string (css:string) {
+        def out:string ""
+        def len:int (strlen css)
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt css i)
+            def isStart:boolean false
+            if (c == 47) {
+                if ((i + 1) < len) {
+                    if ((charAt css (i + 1)) == 42) {
+                        isStart = true
+                    }
+                }
+            }
+            if isStart {
+                def j:int (i + 2)
+                def closed:boolean false
+                while ((j < len) && (closed == false)) {
+                    if ((charAt css j) == 42) {
+                        if ((j + 1) < len) {
+                            if ((charAt css (j + 1)) == 47) {
+                                closed = true
+                            }
+                        }
+                    }
+                    if (closed == false) {
+                        j = (j + 1)
+                    }
+                }
+                out = out + " "
+                i = (j + 2)
+            } {
+                out = out + (substring css i (i + 1))
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    fn findChar:int (s:string from:int ch:int) {
+        def len:int (strlen s)
+        def i:int from
+        while (i < len) {
+            if ((charAt s i) == ch) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return 0 - 1
+    }
+
+    ; A selector list ("`.a, .theme-x .b`") plus one body becomes one rule per
+    ; selector, all sharing the same declarations.
+    fn addRules:void (selectorText:string body:string) {
+        def decls:[EVGStyleDecl] (this.parseDeclarations(body))
+        def selectors:[string] (this.splitOn(selectorText 44))
+        def i:int 0
+        while (i < (array_length selectors)) {
+            def sel:string (trim (itemAt selectors i))
+            if ((strlen sel) > 0) {
+                this.addRuleForSelector(sel decls)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; ".caption" -> class rule; ".theme-classic .caption" -> theme-scoped rule.
+    ; Anything else is outside the subset and is reported rather than guessed at.
+    fn addRuleForSelector:void (sel:string decls:[EVGStyleDecl]) {
+        def parts:[string] (this.splitWhitespace(sel))
+        def n:int (array_length parts)
+
+        if (n == 1) {
+            def only:string (itemAt parts 0)
+            if ((this.isClassToken(only)) == false) {
+                push errors ("Unsupported selector (only .class and .theme-x .class are supported): " + sel)
+                return
+            }
+            def rule (new EVGStyleRule())
+            rule.className = (substring only 1 (strlen only))
+            this.pushRule(rule decls)
+            return
+        }
+
+        if (n == 2) {
+            def scope:string (itemAt parts 0)
+            def target:string (itemAt parts 1)
+            if (((this.isClassToken(scope)) == false) || ((this.isClassToken(target)) == false)) {
+                push errors ("Unsupported selector (only .class and .theme-x .class are supported): " + sel)
+                return
+            }
+            def scopeName:string (substring scope 1 (strlen scope))
+            if ((this.startsWith(scopeName "theme-")) == false) {
+                push errors ("Descendant selectors are only supported as `.theme-<name> .class`: " + sel)
+                return
+            }
+            def rule2 (new EVGStyleRule())
+            rule2.theme = (substring scopeName 6 (strlen scopeName))
+            rule2.className = (substring target 1 (strlen target))
+            this.pushRule(rule2 decls)
+            return
+        }
+
+        push errors ("Unsupported selector (too many parts): " + sel)
+    }
+
+    fn pushRule:void (rule:EVGStyleRule decls:[EVGStyleDecl]) {
+        rule.decls = decls
+        rule.order = ruleCounter
+        ruleCounter = (ruleCounter + 1)
+        push rules rule
+    }
+
+    fn isClassToken:boolean (tok:string) {
+        if ((strlen tok) < 2) {
+            return false
+        }
+        return ((charAt tok 0) == 46)
+    }
+
+    fn startsWith:boolean (s:string prefix:string) {
+        def pl:int (strlen prefix)
+        if ((strlen s) < pl) {
+            return false
+        }
+        return ((substring s 0 pl) == prefix)
+    }
+
+    ; "a: 1; b: 2" -> declarations. Values may contain ':' and ',' (urls,
+    ; gradients, rgba) so only the FIRST ':' separates name from value.
+    fn parseDeclarations:[EVGStyleDecl] (body:string) {
+        def out:[EVGStyleDecl]
+        def parts:[string] (this.splitOn(body 59))
+        def i:int 0
+        while (i < (array_length parts)) {
+            def part:string (trim (itemAt parts i))
+            if ((strlen part) > 0) {
+                def colon:int (this.findChar(part 0 58))
+                if (colon < 0) {
+                    push errors ("Declaration without ':' ignored: " + part)
+                } {
+                    def d (new EVGStyleDecl())
+                    d.name = (trim (substring part 0 colon))
+                    d.value = (this.unquote((trim (substring part (colon + 1) (strlen part)))))
+                    if (((strlen d.name) > 0) && ((strlen d.value) > 0)) {
+                        push out d
+                    } {
+                        push errors ("Incomplete declaration ignored: " + part)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; font-family: "Cinzel" — the quotes are CSS syntax, not part of the name.
+    fn unquote:string (s:string) {
+        def len:int (strlen s)
+        if (len < 2) {
+            return s
+        }
+        def first:int (charAt s 0)
+        def last:int (charAt s (len - 1))
+        if (((first == 34) && (last == 34)) || ((first == 39) && (last == 39))) {
+            return (substring s 1 (len - 1))
+        }
+        return s
+    }
+
+    fn splitOn:[string] (s:string sep:int) {
+        def out:[string]
+        def len:int (strlen s)
+        def start:int 0
+        def i:int 0
+        while (i < len) {
+            if ((charAt s i) == sep) {
+                push out (substring s start i)
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        push out (substring s start len)
+        return out
+    }
+
+    fn splitWhitespace:[string] (s:string) {
+        def out:[string]
+        def len:int (strlen s)
+        def start:int 0
+        def inTok:boolean false
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt s i)
+            def isSpace:boolean (((c == 32) || (c == 9)) || ((c == 10) || (c == 13)))
+            if isSpace {
+                if inTok {
+                    push out (substring s start i)
+                    inTok = false
+                }
+            } {
+                if (inTok == false) {
+                    start = i
+                    inTok = true
+                }
+            }
+            i = (i + 1)
+        }
+        if inTok {
+            push out (substring s start len)
+        }
+        return out
+    }
+
+    ; -----------------------------------------------------------------------
+    ; Resolution
+    ; -----------------------------------------------------------------------
+
+    ; Apply this stylesheet to `root` and everything below it.
+    fn applyTree:void (root:EVGElement theme:string) {
+        this.applyTo(root theme)
+        def i:int 0
+        def n:int (root.getChildCount())
+        while (i < n) {
+            this.applyTree((root.getChild(i)) theme)
+            i = (i + 1)
+        }
+    }
+
+    ; Apply matching rules to a single element, weakest group first so that
+    ; stronger groups overwrite: unscoped classes, then theme-scoped classes.
+    ; Inline attributes are never overwritten.
+    fn applyTo:void (el:EVGElement theme:string) {
+        if ((strlen el.className) == 0) {
+            return
+        }
+        def classes:[string] (this.splitWhitespace(el.className))
+        this.applyGroup(el classes theme false)
+        this.applyGroup(el classes theme true)
+    }
+
+    fn applyGroup:void (el:EVGElement classes:[string] theme:string themeScoped:boolean) {
+        def i:int 0
+        def n:int (array_length rules)
+        while (i < n) {
+            def rule:EVGStyleRule (itemAt rules i)
+            if ((rule.isThemeScoped()) == themeScoped) {
+                def applies:boolean true
+                if themeScoped {
+                    applies = (rule.theme == theme)
+                }
+                if applies {
+                    if (this.matchesClass(classes rule.className)) {
+                        this.applyDecls(el rule)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn matchesClass:boolean (classes:[string] want:string) {
+        def i:int 0
+        while (i < (array_length classes)) {
+            if ((itemAt classes i) == want) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn applyDecls:void (el:EVGElement rule:EVGStyleRule) {
+        def i:int 0
+        while (i < (array_length rule.decls)) {
+            def d:EVGStyleDecl (itemAt rule.decls i)
+            ; Inline attributes outrank every stylesheet rule.
+            if ((el.hasInline(d.name)) == false) {
+                el.setAttribute(d.name d.value)
+            }
+            i = (i + 1)
+        }
+    }
+}

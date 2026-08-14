@@ -467,17 +467,30 @@ class JSXToEVG {
                 def attrValue:string (this.getAttributeValue(attr))
                 
                 print ("  Attr: " + rawAttrName + " -> " + attrName + " = " + attrValue)
-                
+
+                ; Record every authored attribute so a stylesheet cannot
+                ; overwrite it: inline wins the cascade.
+                element.markInline(attrName)
+
                 ; Handle id
                 if (attrName == "id") {
                     element.id = attrValue
                 }
-                
-                ; Handle className
-                if (attrName == "className") {
+
+                ; Handle className. `camelToKebab` turns the JSX spelling
+                ; `className` into "class-name", so matching on "className"
+                ; here never fired and the attribute was silently dropped —
+                ; which left every stylesheet rule unmatched. `class` is
+                ; accepted as the plain-HTML spelling.
+                if ((attrName == "class-name") || (attrName == "class")) {
                     element.className = attrValue
                 }
-                
+
+                ; Document theme, used to select .theme-<name> rules.
+                if (attrName == "theme") {
+                    element.theme = attrValue
+                }
+
                 ; Handle src for images
                 if (attrName == "src") {
                     element.src = attrValue
@@ -751,6 +764,10 @@ class JSXToEVG {
     }
     
     fn applyStyleProperty:void (element:EVGElement name:string value:string) {
+        ; Reached both from JSX attributes and from style={{ ... }} objects.
+        ; Either way the property is authored inline and outranks a stylesheet.
+        element.markInline(name)
+
         ; Dimensions
         if (name == "width") {
             element.width = (EVGUnit.parse(value))

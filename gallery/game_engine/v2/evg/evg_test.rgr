@@ -23,6 +23,7 @@ Import "../../../evg/EVGTextMeasurer.rgr"
 Import "../../../evg/EVGText.rgr"
 Import "../../../evg/EVGLayout.rgr"
 Import "../../../evg/SVGPathParser.rgr"
+Import "../../../evg/EVGStyleSheet.rgr"
 Import "../tests/harness/RgTest.rgr"
 
 class EVGTest {
@@ -49,6 +50,8 @@ class EVGTest {
         test.testFlexWrap(t)
         test.testTextIntrinsicWidth(t)
         test.testSvgPath(t)
+        test.testStyleSheetParse(t)
+        test.testStyleSheetCascade(t)
         t.summary()
     }
 
@@ -614,6 +617,106 @@ class EVGTest {
         ; the box stays on the SAME row (not pushed down) right after the label
         t.near("sibling stays on the same row" box.calculatedY label.calculatedY)
         t.near("sibling sits right after the label" box.calculatedX label.calculatedWidth)
+    }
+
+    ; ---- stylesheet: parsing the CSS subset -----------------------------------
+    fn testStyleSheetParse:void (t:RgTest) {
+        def sheet (new EVGStyleSheet())
+        sheet.parse("/* header */ .a, .b { color: #fff; font-size: 12px }\n.theme-x .a { color: #000 }")
+        ; ".a, .b" is two rules sharing one body, plus the theme-scoped rule.
+        t.eqInt("selector list expands to one rule each" (sheet.getRuleCount()) 3)
+        t.eqInt("valid sheet reports no errors" (sheet.getErrorCount()) 0)
+
+        ; Comments must not glue tokens together or swallow the first rule.
+        def commented (new EVGStyleSheet())
+        commented.parse(".a { color: red } /* trailing note */")
+        t.eqInt("comment-only tail is not a rule" (commented.getRuleCount()) 1)
+        t.eqInt("comment-only tail is not an error" (commented.getErrorCount()) 0)
+
+        ; Values may carry ':' and ',' — only the FIRST ':' splits a declaration.
+        def gradient (new EVGStyleSheet())
+        gradient.parse(".g { background: linear-gradient(180deg, rgba(0,0,0,0.2), #fff) }")
+        def el (new EVGElement())
+        el.className = "g"
+        gradient.applyTree(el "")
+        t.eqStr("value keeps its commas and parens" el.backgroundGradient "linear-gradient(180deg, rgba(0,0,0,0.2), #fff)")
+
+        ; Quotes are CSS syntax, not part of the family name.
+        def quoted (new EVGStyleSheet())
+        quoted.parse(".q { font-family: \"Cinzel\" }")
+        def qel (new EVGElement())
+        qel.className = "q"
+        quoted.applyTree(qel "")
+        t.eqStr("quoted font-family is unquoted" qel.fontFamily "Cinzel")
+
+        ; Out-of-subset selectors are reported, not silently dropped.
+        def bad (new EVGStyleSheet())
+        bad.parse("#id { color: red } div .x { color: red } .a .b { color: red }")
+        t.eqInt("unsupported selectors produce no rules" (bad.getRuleCount()) 0)
+        t.eqInt("unsupported selectors are all reported" (bad.getErrorCount()) 3)
+    }
+
+    ; ---- stylesheet: resolution order ----------------------------------------
+    ; unscoped class  <  theme-scoped class  <  inline attributes
+    fn testStyleSheetCascade:void (t:RgTest) {
+        def css:string ".box { color: #111111; font-size: 10px; width: 50px } .theme-dark .box { color: #222222; font-size: 20px }"
+
+        ; Active theme: the theme-scoped rule wins over the unscoped one, and
+        ; properties only the unscoped rule sets still come through.
+        def sheet (new EVGStyleSheet())
+        sheet.parse(css)
+        def dark (new EVGElement())
+        dark.className = "box"
+        sheet.applyTree(dark "dark")
+        t.eqStr("theme rule overrides unscoped color" (dark.color.toHexString()) "#222222")
+        t.near("theme rule overrides unscoped font-size" dark.fontSize.pixels 20.0)
+        t.near("unscoped-only property survives" dark.width.pixels 50.0)
+
+        ; Inactive theme: only unscoped rules apply.
+        def sheet2 (new EVGStyleSheet())
+        sheet2.parse(css)
+        def light (new EVGElement())
+        light.className = "box"
+        sheet2.applyTree(light "light")
+        t.eqStr("non-matching theme leaves unscoped color" (light.color.toHexString()) "#111111")
+        t.near("non-matching theme leaves unscoped font-size" light.fontSize.pixels 10.0)
+
+        ; Inline beats every rule, including the theme-scoped one.
+        def sheet3 (new EVGStyleSheet())
+        sheet3.parse(css)
+        def inlined (new EVGElement())
+        inlined.className = "box"
+        inlined.setAttribute("font-size" "33px")
+        inlined.markInline("fontSize")
+        sheet3.applyTree(inlined "dark")
+        t.near("inline font-size outranks theme rule" inlined.fontSize.pixels 33.0)
+        t.eqStr("non-inline property still themed" (inlined.color.toHexString()) "#222222")
+
+        ; camelCase and kebab-case are the same property for the cascade.
+        t.ok("markInline normalizes camelCase" (inlined.hasInline("font-size")))
+        t.eqStr("toKebab converts camelCase" (EVGElement.toKebab("marginTop")) "margin-top")
+        t.eqStr("toKebab leaves kebab-case alone" (EVGElement.toKebab("margin-top")) "margin-top")
+
+        ; An element carrying several classes matches each of them.
+        def multi (new EVGStyleSheet())
+        multi.parse(".p { width: 10px } .q { height: 20px }")
+        def both (new EVGElement())
+        both.className = "p q"
+        multi.applyTree(both "")
+        t.near("multi-class element gets first class" both.width.pixels 10.0)
+        t.near("multi-class element gets second class" both.height.pixels 20.0)
+
+        ; Rules reach the whole subtree, not just the root.
+        def treeSheet (new EVGStyleSheet())
+        treeSheet.parse(".leaf { width: 7px }")
+        def root (new EVGElement())
+        def mid (new EVGElement())
+        def leaf (new EVGElement())
+        leaf.className = "leaf"
+        mid.addChild(leaf)
+        root.addChild(mid)
+        treeSheet.applyTree(root "")
+        t.near("applyTree reaches nested children" leaf.width.pixels 7.0)
     }
 
     fn testSvgPath:void (t:RgTest) {
