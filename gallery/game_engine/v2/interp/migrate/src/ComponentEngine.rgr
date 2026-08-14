@@ -10064,6 +10064,9 @@ class ComponentEngine {
     ; The parameter name index `key` of `obj` is mapped onto, or "" when the
     ; value is not a mapped arguments object or the index is not mapped.
     fn argMapName:string (obj:EvHandle key:string) {
+        if (obj.plainMarkerFreeObject()) {
+            return ""
+        }
         if (false == (obj.isObject())) {
             return ""
         }
@@ -21958,6 +21961,7 @@ class ComponentEngine {
     }
 
     fn isArrayBufferValue:boolean (v:EvHandle) {
+        if (v.plainMarkerFreeObject()) { return false }
         if (false == (this.isDescriptorObject(v))) { return false }
         return (v.hasOwnData("__abbytes__"))
     }
@@ -22068,6 +22072,7 @@ class ComponentEngine {
     }
 
     fn isDataViewValue:boolean (v:EvHandle) {
+        if (v.plainMarkerFreeObject()) { return false }
         if (false == (this.isDescriptorObject(v))) { return false }
         return (v.hasOwnData("__dvbuffer__"))
     }
@@ -33808,6 +33813,10 @@ class ComponentEngine {
     ; one of them funnels through the same handful of primitives.
     ; --------------------------------------------------------------------------
     fn isProxyValue:boolean (v:EvHandle) {
+        ; PERF: the marker cannot be there if no `__…__` key ever was. Same
+        ; monotone bit receiverKind uses; this probe alone was 2.0% of
+        ; instructions on the object_props shape.
+        if (v.plainMarkerFreeObject()) { return false }
         if (false == (v.isObject())) { return false }
         return (v.hasOwnData("__proxytarget__"))
     }
