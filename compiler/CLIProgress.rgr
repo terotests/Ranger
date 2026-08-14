@@ -105,6 +105,10 @@ operators {
         templates {
             es6 ( "((typeof process !== \"undefined\" && process.stdout && process.stdout.isTTY) || false)" )
             cpp ( "(isatty(1) != 0)" (imp "<unistd.h>") )
+            ; the `*` fallback is the JavaScript literal `false`, which Python
+            ; reads as a name
+            python ( "sys.stdout.isatty()" (imp "sys") )
+            dart ( "stdout.hasTerminal" (imp "dart:io") )
             * ( "false" )
         }
     }

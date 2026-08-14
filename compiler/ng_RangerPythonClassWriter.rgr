@@ -4,6 +4,18 @@ class RangerPythonClassWriter {
   def thisName:string "self"
   def wrote_header:boolean false
 
+  ; Python has no multi-statement lambda, so a lambda with a body becomes a
+  ; named nested `def` written ABOVE the statement that uses it, and the
+  ; statement carries only the name. `pyHoistWriters` is the stack of places
+  ; those defs go: one per function body, innermost last, so a lambda inside a
+  ; lambda lands inside the enclosing def and still sees its parameters.
+  ;
+  ; Hoisting to the top of the body rather than to the exact statement is safe
+  ; because Python resolves a closure's free variables when the function RUNS,
+  ; not where it is defined -- the call is always after the locals it reads.
+  def pyHoistWriters@(weak):[CodeWriter]
+  def pyLambdaCounter:int 0
+
   fn emptyBlockFiller:string () {
     return "pass"
   }
@@ -211,11 +223,18 @@ class RangerPythonClassWriter {
   ; default of an overridable hook. The test is on what was WRITTEN, so a body
   ; whose only statement the writer dropped counts as empty too.
   fn pyWalkBody:void (body:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def hoist:CodeWriter (wr.fork())
+    push pyHoistWriters hoist
+    def hoistLineBefore:int hoist.lineNumber
     def lineBefore:int wr.lineNumber
     def colBefore:int (strlen wr.currentLine)
     this.WalkNode(body ctx wr)
+    remove_index pyHoistWriters ((array_length pyHoistWriters) - 1)
     if ((wr.lineNumber == lineBefore) && ((strlen wr.currentLine) == colBefore)) {
-      wr.out("pass" true)
+      ; a body whose only content was hoisted is not empty
+      if (hoist.lineNumber == hoistLineBefore) {
+        wr.out("pass" true)
+      }
     }
   }
 
@@ -265,7 +284,12 @@ class RangerPythonClassWriter {
         }
       }
       if (unusedDef && (keepsCall == false)) {
-        wr.out("# unused:  " false)
+        ; Python has no empty suite, and a commented-out statement is not a
+        ; statement: a method whose only line was an unused `def` came out as
+        ; `def joo(self, cm):` with nothing under it (IndentationError). `pass`
+        ; ahead of the comment is legal wherever a statement is, so it costs
+        ; nothing in a body that has other lines.
+        wr.out("pass  # unused:  " false)
       }
       if keepsCall {
         ; the underscore is Python's own spelling for a binding nobody reads
@@ -352,26 +376,124 @@ class RangerPythonClassWriter {
     }
   }
 
+  ; The name a node writes in the Python output: the compiled name when the
+  ; flow pass gave it one (a shadowing local is renamed `values_1`), the source
+  ; name otherwise.
+  fn pyEmittedName:string (n:CodeNode) {
+    if n.hasParamDesc {
+      def pd:RangerAppParamDesc (unwrap n.paramDesc)
+      if ((strlen pd.compiledName) > 0) {
+        return pd.compiledName
+      }
+    }
+    return n.vref
+  }
+
+  ; Collect what a lambda body ASSIGNS and what it DECLARES. Python makes an
+  ; assigned name a local of the function it is written in, so a hoisted lambda
+  ; that updates a counter of the enclosing scope needs `nonlocal` -- without it
+  ; the read raises UnboundLocalError. A nested lambda contributes its own
+  ; parameters and defs as declared, so the outer def does not claim them.
+  fn pyCollectAssigned:void (node:CodeNode assigned:[string:boolean] declared:[string:boolean]) {
+    if node.expression {
+      if ((array_length node.children) > 1) {
+        def fc:CodeNode (node.getFirst())
+        if ((fc.vref == "def") || (fc.vref == "let")) {
+          def nn:CodeNode (node.getSecond())
+          set declared (this.pyEmittedName(nn)) true
+        }
+        if (fc.vref == "fn") {
+          if ((array_length node.children) > 2) {
+            def lArgs:CodeNode (itemAt node.children 1)
+            for lArgs.children la:CodeNode lai {
+              set declared (this.pyEmittedName(la)) true
+            }
+          }
+        }
+        if (fc.vref == "=") {
+          def tgt:CodeNode (node.getSecond())
+          if ((array_length tgt.ns) < 2) {
+            def tn:string (this.pyEmittedName(tgt))
+            if ((strlen tn) > 0) {
+              set assigned tn true
+            }
+          }
+        }
+      }
+    }
+    for node.children ch:CodeNode ci {
+      this.pyCollectAssigned(ch assigned declared)
+    }
+  }
+
   fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def lambdaCtx (unwrap node.lambda_ctx)
     def fnNode:CodeNode (itemAt node.children 0)
     def args:CodeNode (itemAt node.children 1)
     def body:CodeNode (itemAt node.children 2)
-   
-    wr.out("lambda " false)
+
+    ; No enclosing body to hoist into (a field initializer, say): keep the
+    ; single-expression form, which is all Python allows there anyway.
+    if ((array_length pyHoistWriters) == 0) {
+      wr.out("lambda " false)
+      for args.children arg:CodeNode i {
+        if (i > 0) {
+          wr.out(", " false)
+        }
+        this.WalkNode(arg lambdaCtx wr)
+      }
+      wr.out(": " false)
+      lambdaCtx.restartExpressionLevel()
+      for body.children item:CodeNode i {
+        this.WalkNode(item lambdaCtx wr)
+      }
+      return
+    }
+
+    pyLambdaCounter = pyLambdaCounter + 1
+    def fname:string ("__rg_lambda_" + pyLambdaCounter)
+    def hoist:CodeWriter (last pyHoistWriters)
+    hoist.out(("def " + fname) false)
+    hoist.out("(" false)
     for args.children arg:CodeNode i {
       if (i > 0) {
-        wr.out(", " false)
+        hoist.out(", " false)
       }
-      this.WalkNode(arg lambdaCtx wr)  
-    }    
-    wr.out(": " false)
-    
-    ; Python lambdas are single expressions, so this is simplified
+      this.WalkNode(arg lambdaCtx hoist)
+    }
+    hoist.out("):" true)
+    hoist.indent(1)
+    def assigned:[string:boolean]
+    def declared:[string:boolean]
+    for args.children arg2:CodeNode ai {
+      set declared (this.pyEmittedName(arg2)) true
+    }
+    this.pyCollectAssigned(body assigned declared)
+    def nonlocals:[string]
+    for (keys assigned) anm:string ani {
+      if ((has declared anm) == false) {
+        push nonlocals anm
+      }
+    }
+    if (has nonlocals) {
+      hoist.out(("nonlocal " + (join nonlocals ", ")) true)
+    }
+    ; the body of this def is where a lambda INSIDE it has to land
+    def inner:CodeWriter (hoist.fork())
+    push pyHoistWriters inner
+    def innerLine:int inner.lineNumber
+    def lineBefore:int hoist.lineNumber
     lambdaCtx.restartExpressionLevel()
     for body.children item:CodeNode i {
-      this.WalkNode(item lambdaCtx wr)
+      this.WalkNode(item lambdaCtx hoist)
     }
+    remove_index pyHoistWriters ((array_length pyHoistWriters) - 1)
+    if ((hoist.lineNumber == lineBefore) && (inner.lineNumber == innerLine)) {
+      hoist.out("pass" true)
+    }
+    hoist.newline()
+    hoist.indent(-1)
+    wr.out(fname false)
   } 
 
   ; The Python target writes no type annotations, so a type name only reaches
@@ -751,10 +873,17 @@ class RangerPythonClassWriter {
         this.pyWalkBody(( unwrap variant.fnBody ) ctx wr)
         wr.indent(-1)
         wr.newline()
-        wr.out("if __name__ == \"__main__\":" true)
-        wr.indent(1)
-        wr.out("main()" true)
-        wr.indent(-1)
+        ; The call runs at import time, so everything it reaches has to be
+        ; defined by then -- and the operator helper classes (operatorsOf…) are
+        ; written after the user classes. Writing the entry point here left
+        ; `NameError: name 'operatorsOf' is not defined` for any program that
+        ; used a collection operator. file_end is after all of it.
+        def theEnd:CodeWriter (wr.getTag("file_end"))
+        theEnd.newline()
+        theEnd.out("if __name__ == \"__main__\":" true)
+        theEnd.indent(1)
+        theEnd.out("main()" true)
+        theEnd.indent(-1)
       }
       ctx.in_static_method = false
     }

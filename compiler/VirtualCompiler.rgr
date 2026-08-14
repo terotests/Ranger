@@ -25,6 +25,33 @@ defn CreateFile (name data) (create_file (unwrap env.filesystem) name data)
 operators {
   normalize cmdArg:string ( arg:string ) {
       templates {
+          python ( "rg_path_normalize(" (e 1) ")" (imp "os")
+          (create_polyfill "
+# Path helpers for the compiler's own file handling. os.path.normpath drops a
+# trailing slash and Node's path.normalize keeps it, and the compiler builds its
+# library search path by concatenating onto one, so these follow Node.
+def rg_path_normalize(p):
+    s = p.replace(chr(92), \"/\")
+    trailing = len(s) > 1 and s.endswith(\"/\")
+    out = os.path.normpath(s).replace(chr(92), \"/\")
+    if out == \"\":
+        return \".\"
+    if trailing and out != \"/\":
+        out = out + \"/\"
+    return out
+
+def rg_path_dirname(p):
+    s = rg_path_normalize(p)
+    if len(s) > 1 and s.endswith(\"/\"):
+        s = s[:-1]
+    pos = s.rfind(\"/\")
+    if pos < 0:
+        return \".\"
+    if pos == 0:
+        return \"/\"
+    return s[:pos]
+")
+          )
           dart ( "rg_path_normalize(" (e 1) ")"
           (create_polyfill "
 // Path helpers for the compiler's own file handling. package:path would do
@@ -118,6 +145,33 @@ inline std::string rg_path_dirname(const std::string& p) {
   }  
   pathname _:string (path:string) {
       templates {
+          python ( "rg_path_dirname(" (e 1) ")" (imp "os")
+          (create_polyfill "
+# Path helpers for the compiler's own file handling. os.path.normpath drops a
+# trailing slash and Node's path.normalize keeps it, and the compiler builds its
+# library search path by concatenating onto one, so these follow Node.
+def rg_path_normalize(p):
+    s = p.replace(chr(92), \"/\")
+    trailing = len(s) > 1 and s.endswith(\"/\")
+    out = os.path.normpath(s).replace(chr(92), \"/\")
+    if out == \"\":
+        return \".\"
+    if trailing and out != \"/\":
+        out = out + \"/\"
+    return out
+
+def rg_path_dirname(p):
+    s = rg_path_normalize(p)
+    if len(s) > 1 and s.endswith(\"/\"):
+        s = s[:-1]
+    pos = s.rfind(\"/\")
+    if pos < 0:
+        return \".\"
+    if pos == 0:
+        return \"/\"
+    return s[:pos]
+")
+          )
           dart ( "rg_path_dirname(" (e 1) ")"
           (create_polyfill "
 // Path helpers for the compiler's own file handling. package:path would do

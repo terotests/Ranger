@@ -21,7 +21,7 @@ dropped the call. That form is how the engine writes a for-loop update. Go and
 Python failed to compile; C# compiled and ran with infinite loops until the
 interpreter guard stopped them. The writers now keep the statement live.
 
-## Cross-target gate: the compiler itself, on C++ and Dart
+## Cross-target gate: the compiler itself, on C++, Dart and Python
 
 The compiler is self-hosting, but until now only its **JavaScript** output was
 exercised. Compiling the compiler for another target is a different question,
@@ -74,9 +74,23 @@ all `unnecessary_non_null_assertion` — the writer adds `!` wherever the Ranger
 type is optional, and Dart's flow analysis can often prove the value is already
 non-null).
 
-`npm test` runs the codegen for both targets and checks the result — `g++
--fsyntax-only` for C++, `dart analyze` for Dart (`tests/compiler-selfhost.test.ts`,
-~35 s together). The binary build and the bootstrap rounds are a manual step.
+**Python** is the third, and needs no toolchain beyond the interpreter:
+
+```bash
+npm run selfhost:build:python   # generate the Python, py_compile it, copy the library
+
+RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr" \
+  python3 ./tmp/selfhost-python/ranger_compiler.py \
+    -es6 ./compiler/ng_Compiler.rgr -nodecli -d=./tmp/self -o=output.js
+```
+
+Its output is **byte-identical** to the Node build's as well, and reproduces
+itself the same way.
+
+`npm test` runs the codegen for all three and checks the result — `g++
+-fsyntax-only` for C++, `dart analyze` for Dart, `py_compile` for Python
+(`tests/compiler-selfhost.test.ts`, ~50 s together). The binary build and the
+bootstrap rounds are a manual step.
 
 ### What C++ took
 
@@ -215,6 +229,45 @@ ones: an optional handed to a lambda parameter that is not optional, and an
 optional read through a parenthesised receiver — `(at xs 1).paramDesc.name`,
 where the writer has no named path to hang the `!` on.
 
+### What Python took
+
+Python started at 72 — the JSON templates were already there from an earlier
+round — but the errors the compiler reports were not the hard part. What the
+interpreter then found was:
+
+1. **Python has no multi-statement lambda at all.** The writer had a comment
+   saying so and emitted the single-expression form anyway, which is a syntax
+   error for any lambda with a body: 231 of them. A lambda now becomes a named
+   nested `def` hoisted above the statement that uses it, and the statement
+   carries only the name. Hoisting to the top of the enclosing body rather than
+   to the exact statement is safe because Python resolves a closure's free
+   variables when the function *runs*.
+2. **A closure that assigns an enclosing local needs `nonlocal`.** Without it
+   Python makes the name a local of the `def` and the read raises
+   `UnboundLocalError` — `total = total + doubled` inside a `forEach` is the
+   shape, and it is everywhere in the compiler. The writer collects what the
+   body assigns minus what it declares (including a nested lambda's own
+   parameters and defs) and writes the `nonlocal` line.
+3. **The entry point ran before the operator helpers existed.** `if __name__ ==
+   "__main__": main()` was written after the class holding `main`, and the
+   `operatorsOf…` helper classes come after all user classes, so any program
+   using a collection operator died with `NameError`. It goes to `file_end` now.
+4. **A `switch` over an ENUM fell through to a C `switch`.** The int overload
+   has a Python `match` entry and the generic one did not, so the arms came out
+   as Python `case` under a C head. Rust had the same hole.
+5. **A body whose only statement was elided had no suite.** An unused `def` is
+   written as a comment, and a comment is not a statement: `def joo(self, cm):`
+   with nothing under it is an `IndentationError`. The elided line now starts
+   with `pass`.
+
+Plus the operators: `read_file`, `write_file`, `env_var`, `sha256`,
+`normalize`, `path_dirname`, `install_directory`, `current_directory`,
+`is_tty` (the `*` fallback is the JavaScript literal `false`, which Python
+reads as a name), `clear` (`.length = 0`), `array_extract` (`.splice().pop()`),
+and the `charbuffer` overloads of `length` / `charAt` / `substring` — Python
+passes a charbuffer through as a `str`, so the JavaScript String methods of the
+fallback did not apply.
+
 ### The same self-compile on the other targets
 
 Measured with `node bin/output.js -l=<target> ./compiler/ng_Compiler.rgr
@@ -224,11 +277,11 @@ Measured with `node bin/output.js -l=<target> ./compiler/ng_Compiler.rgr
 | --- | ---: | --- |
 | C++ | **0** | — builds and runs, see above |
 | Dart | **0** | — `dart analyze` clean, runs, see above |
+| Python | **0** | — `py_compile` clean, runs, see above |
 | Go | **0** | generates ~70k lines; `go build` then reports the three defects below |
 | Swift 6 | 12 | |
 | Rust | 16 | |
 | Kotlin | 19 | |
-| Python | 72 | |
 | C# | 499 | |
 
 Go reached zero the same way C++ did — `RangerCompilerPlugin` is a systemclass

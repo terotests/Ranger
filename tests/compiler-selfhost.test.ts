@@ -7,8 +7,9 @@ import {
   compileRanger,
   compileAndRun,
   compileRangerToDart,
+  compileAndRunDart,
+  compileAndRunPython,
   isDartAvailable,
-  runCompiledDart,
 } from "./helpers/compiler";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -144,6 +145,101 @@ describe("self-hosting: the compiler compiles for Dart", () => {
       expect(errors, errors.slice(0, 10).join("\n")).toHaveLength(0);
     }
   }, 900000);
+});
+
+// Python was the third, from 72 errors — the JSON templates were already
+// there. Its own gaps: Python has no multi-statement lambda at all (a lambda
+// with a body becomes a named nested def hoisted above the statement, with
+// `nonlocal` for what it assigns), the module-level entry point ran before the
+// operator helper classes were defined, a `switch` over an ENUM fell through to
+// a C `switch`, and a body whose only statement was elided was left with no
+// suite.
+describe("self-hosting: the compiler compiles for Python", () => {
+  const OUT = path.join(ROOT, "tests", ".output-selfhost-python");
+
+  it("generates Python from the compiler's own sources", () => {
+    fs.mkdirSync(OUT, { recursive: true });
+
+    const result = compileRanger("compiler/ng_Compiler.rgr", "python", OUT);
+    expect(
+      result.success,
+      `Python codegen failed: ${result.error || result.output}`
+    ).toBe(true);
+
+    const generated = path.join(OUT, "ng_Compiler.py");
+    expect(fs.existsSync(generated), `missing ${generated}`).toBe(true);
+
+    const code = fs.readFileSync(generated, "utf-8");
+    // a lambda with a body is a hoisted def, never a `lambda` that runs off
+    // the end of the line
+    expect(code).toContain("def __rg_lambda_");
+    expect(code).toContain("nonlocal ");
+    // the entry point is last, after the operator helper classes
+    expect(code.trimEnd().endsWith("main()")).toBe(true);
+  }, 300000);
+
+  // py_compile is the parser, which is what the lambda, switch and empty-suite
+  // defects all broke.
+  it("the generated Python compiles", () => {
+    const generated = path.join(OUT, "ng_Compiler.py");
+    expect(
+      fs.existsSync(generated),
+      "run the codegen test first — no ng_Compiler.py"
+    ).toBe(true);
+
+    execSync(`python3 -m py_compile "${generated}"`, {
+      cwd: OUT,
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 300000,
+    });
+  }, 600000);
+});
+
+// A lambda with a body, and one nested in another. Python has no
+// multi-statement lambda, so this is the shape the hoisting has to preserve:
+// the counters are assigned from inside the closure, which is what needs
+// `nonlocal`, and the nested one has to land inside the enclosing def rather
+// than beside it.
+describe("a lambda with a body runs the same on every target", () => {
+  const FIXTURE = "tests/fixtures/lambda_hoist.rgr";
+  const EXPECTED = ["total=12", "seen=3", "names=n1,n2,n3", "lambda-hoist-ok"];
+
+  it("runs on ES6", () => {
+    const { compile, run } = compileAndRun(FIXTURE);
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+    for (const line of EXPECTED) {
+      expect(run?.output).toContain(line);
+    }
+  });
+
+  it("runs on Python", () => {
+    const { compile, run } = compileAndRunPython(FIXTURE);
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+    for (const line of EXPECTED) {
+      expect(run?.output).toContain(line);
+    }
+  });
+
+  const dartAvailable2 = isDartAvailable();
+  (dartAvailable2 ? it : it.skip)("runs on Dart", () => {
+    const { compile, run } = compileAndRunDart(FIXTURE);
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+    for (const line of EXPECTED) {
+      expect(run?.output).toContain(line);
+    }
+  }, 120000);
 });
 
 // Every byte over 127 is negative in a signed C++ `char`. The Ranger parser

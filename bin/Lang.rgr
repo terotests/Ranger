@@ -840,6 +840,7 @@ inline std::string rg_sha256_hex(const std::string& input) {
 ")
                 )
 ; fmt.Printf("sha256:\t%x\n", sha_256.Sum(nil))
+                python ( "hashlib.sha256(" (e 1) ".encode(\"utf-8\")).hexdigest()" (imp "hashlib") )
                 ; SHA-256 is not in the Dart SDK (package:crypto is a
                 ; dependency), and the generated program has to run with plain
                 ; `dart run`. Same digest, same file.
@@ -1147,6 +1148,9 @@ func r_io_get_env( name string) *GoNullable {
 ")
     )
                 es6 ("process.env[" (e 1) "]")
+                ; .get answers None for a name that is not set, which is the
+                ; optional this operator returns
+                python ( "os.environ.get(" (e 1) ")" (imp "os") )
                 dart ( "Platform.environment[" (e 1) "]" (imp "dart:io") )
                 cpp ( "std::getenv(" (e 1) ".c_str()) ? std::string(std::getenv(" (e 1) ".c_str())) : std::string(\"\")" (imp "<cstdlib>") )
                 ; * ("/* environment variable reading not implemented */")
@@ -1201,6 +1205,33 @@ func r_io_get_env( name string) *GoNullable {
         ; I/O
         normalize cmdArg:string ( arg:string ) {
             templates {
+                python ( "rg_path_normalize(" (e 1) ")" (imp "os")
+                (create_polyfill "
+# Path helpers for the compiler's own file handling. os.path.normpath drops a
+# trailing slash and Node's path.normalize keeps it, and the compiler builds its
+# library search path by concatenating onto one, so these follow Node.
+def rg_path_normalize(p):
+    s = p.replace(chr(92), \"/\")
+    trailing = len(s) > 1 and s.endswith(\"/\")
+    out = os.path.normpath(s).replace(chr(92), \"/\")
+    if out == \"\":
+        return \".\"
+    if trailing and out != \"/\":
+        out = out + \"/\"
+    return out
+
+def rg_path_dirname(p):
+    s = rg_path_normalize(p)
+    if len(s) > 1 and s.endswith(\"/\"):
+        s = s[:-1]
+    pos = s.rfind(\"/\")
+    if pos < 0:
+        return \".\"
+    if pos == 0:
+        return \"/\"
+    return s[:pos]
+")
+                )
                 dart ( "rg_path_normalize(" (e 1) ")"
                 (create_polyfill "
 // Path helpers for the compiler's own file handling. package:path would do
@@ -1295,6 +1326,33 @@ inline std::string rg_path_dirname(const std::string& p) {
 
         path_dirname cmdArg:string ( arg:string ) {
             templates {
+                python ( "rg_path_dirname(" (e 1) ")" (imp "os")
+                (create_polyfill "
+# Path helpers for the compiler's own file handling. os.path.normpath drops a
+# trailing slash and Node's path.normalize keeps it, and the compiler builds its
+# library search path by concatenating onto one, so these follow Node.
+def rg_path_normalize(p):
+    s = p.replace(chr(92), \"/\")
+    trailing = len(s) > 1 and s.endswith(\"/\")
+    out = os.path.normpath(s).replace(chr(92), \"/\")
+    if out == \"\":
+        return \".\"
+    if trailing and out != \"/\":
+        out = out + \"/\"
+    return out
+
+def rg_path_dirname(p):
+    s = rg_path_normalize(p)
+    if len(s) > 1 and s.endswith(\"/\"):
+        s = s[:-1]
+    pos = s.rfind(\"/\")
+    if pos < 0:
+        return \".\"
+    if pos == 0:
+        return \"/\"
+    return s[:pos]
+")
+                )
                 dart ( "rg_path_dirname(" (e 1) ")"
                 (create_polyfill "
 // Path helpers for the compiler's own file handling. package:path would do
@@ -1389,6 +1447,33 @@ inline std::string rg_path_dirname(const std::string& p) {
 
         install_directory         cmdArg:string () {
             templates {
+                python ( "rg_path_dirname(os.path.abspath(sys.argv[0]))" (imp "os") (imp "sys")
+                (create_polyfill "
+# Path helpers for the compiler's own file handling. os.path.normpath drops a
+# trailing slash and Node's path.normalize keeps it, and the compiler builds its
+# library search path by concatenating onto one, so these follow Node.
+def rg_path_normalize(p):
+    s = p.replace(chr(92), \"/\")
+    trailing = len(s) > 1 and s.endswith(\"/\")
+    out = os.path.normpath(s).replace(chr(92), \"/\")
+    if out == \"\":
+        return \".\"
+    if trailing and out != \"/\":
+        out = out + \"/\"
+    return out
+
+def rg_path_dirname(p):
+    s = rg_path_normalize(p)
+    if len(s) > 1 and s.endswith(\"/\"):
+        s = s[:-1]
+    pos = s.rfind(\"/\")
+    if pos < 0:
+        return \".\"
+    if pos == 0:
+        return \"/\"
+    return s[:pos]
+")
+                )
                 ; the directory the program was started from -- Platform.script
                 ; under `dart run`, the executable under `dart compile exe`
                 dart ( "rg_path_dirname(Platform.script.toFilePath())" (imp "dart:io")
@@ -1486,6 +1571,7 @@ inline std::string rg_path_dirname(const std::string& p) {
         current_directory         cmdArg:string () {
             templates {
                 es6 ( "process.cwd()" )
+                python ( "os.getcwd()" (imp "os") )
                 dart ( "Directory.current.path" (imp "dart:io") )
                 csharp( "Directory.GetCurrentDirectory()" (imp "System") (imp "System.IO"))
                 ranger ("( current_directory )")
@@ -1836,6 +1922,13 @@ static void createDir(String path)
         write_file          cmdWriteFile:void (path:string file:string data:string) {
             templates {
                 dart ( nl "File(" (e 1) " + \"/\" + " (e 2) ").writeAsStringSync(" (e 3) ");" nl (imp "dart:io") )
+                python ( nl "rg_write_file(" (e 1) ", " (e 2) ", " (e 3) ")" nl (imp "os")
+(create_polyfill "
+def rg_write_file(path, filename, text):
+    with open(os.path.join(path, filename), \"w\", encoding=\"utf-8\") as f:
+        f.write(text)
+")
+                )
                 scala ( "/* write_file not implemented */ ")
                 csharp ( "/* write_file not implemented */ ")
 
@@ -1951,6 +2044,18 @@ fn r_write_file(path: &str, filename: &str, data: &str) {
                 ts ( "await (new Promise<string>(resolve => { require('fs').readFile( " (e 1) " + '/' + " (e 2) " , 'utf8', (err,data)=>{ resolve(data) }) } ))" )
                 es6 ( "await (new Promise(resolve => { require('fs').readFile( " (e 1) " + '/' + " (e 2) " , 'utf8', (err,data)=>{ resolve(data) }) } ))" )
                 ranger (  "(read_file " (e 1) " " (e 2) ")" )
+                ; returns the optional: None is how Python spells absent, which
+                ; is what a missing or unreadable file has to answer
+                python ( "rg_read_file(" (e 1) ", " (e 2) ")" (imp "os")
+(create_polyfill "
+def rg_read_file(path, filename):
+    try:
+        with open(os.path.join(path, filename), \"r\", encoding=\"utf-8\") as f:
+            return f.read()
+    except Exception:
+        return None
+")
+                )
                 cpp ( "r_cpp_readFile( " (e 1) " , " (e 2) ")" (imp "<fstream>")
 (create_polyfill "
 std::string  r_cpp_readFile(std::string path, std::string filename) 
@@ -3146,6 +3251,13 @@ def r_div_f64(a, b):
 
                 scala ( (e 1) " match { " I (block 2) i "}" )
                 kotlin ( "when (" (e 1) ") { " I (block 2) i "}" )
+                ; An ENUM condition lands here, not on the int overload above,
+                ; and Python and Rust have no C style switch -- without these two
+                ; the `*` fallback wrote a C `switch` into a Python file. The
+                ; `case` arms already matched their own Python and Rust entries,
+                ; so only the head was wrong.
+                python ( nl "match (" (e 1) "):" I (block 2) i nl )
+                rust ( nl "match " (e 1) " {" I (block 2) i nl "}" nl )
                 * ( "switch (" (e 1) " ) { " I (block 2) i "}" )
             }
         }       
@@ -3872,6 +3984,8 @@ static bool r_regex_test_i(string pattern, string s) {
                 ; a charbuffer is List<int> on Dart, so the `*` fallback (the
                 ; JavaScript String.substring) does not apply to it
                 dart ( "String.fromCharCodes(" (e 1) ".sublist(" (e 2) ", " (e 3) "))" )
+                ; ...and a str on Python, where the slice is the substring
+                python ( (e 1) "[" (e 2) ":" (e 3) "]" )
                 php ( "substr(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")") 
                 * ( (e 1) ".substring(" (e 2) ", " (e 3) " )")
             }
@@ -4473,6 +4587,10 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 java7 ( (e 1 ) ".length" )
                 cpp( "strlen( " (e 1) " )" (imp "<cstring>"))
                 go ( "int64(len(" (e 1 ) "))")
+                ; to_charbuffer passes the string through on Python, so a
+                ; charbuffer IS a str there -- the `*` fallback is the
+                ; JavaScript `.length` property
+                python ( "len(" (e 1) ")" )
                 php ( "strlen(" (e 1 ) ")")
                 * ( (e 1) ".length" )
             }
@@ -4644,6 +4762,7 @@ std::vector<std::string> r_get_keys_of_map( const M & orig_map )  {
                 ; a charbuffer is List<int> on Dart: index it, do not call
                 ; codeUnitAt (which is the String overload's entry)
                 dart ( (e 1) "[" (e 2) "]" )
+                python ( "ord(" (e 1) "[" (e 2) "])" )
                 csharp ( (e 1) "[" (e 2) "]")
                 php ( "ord(" (e 1) "[" (e 2) "])")               
                 java7 ( (e 1) "[" (e 2) "]")  
@@ -5939,6 +6058,9 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  dart ( (e 1) ".clear();" )
                  scala ( (e 1) ".clear()" )
                  go ( (e 1) " = " (e 1) "[:0]" )
+                 ; the `*` fallback assigns the JavaScript `length` property,
+                 ; which a Python list does not have
+                 python ( (e 1) ".clear()" )
                  rust ( (custom _) )
                  * ( (e 1) ".length = 0;" nl )
             }
@@ -6133,6 +6255,9 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
                  )
                  scala ( (e 1) ".remove(" (e 2) ")" )
                  dart ( (e 1) ".removeAt(" (e 2) ")" )
+                 ; list.pop(i) removes AND returns, which is what this operator
+                 ; is; the `*` fallback is the JavaScript splice/pop pair
+                 python ( (e 1) ".pop(" (e 2) ")" )
                  * ( (e 1) ".splice(" (e 2) ", 1).pop()" )                                              
             }
         }

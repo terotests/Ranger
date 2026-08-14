@@ -35564,6 +35564,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         super()
                         this.thisName = "self";
                         this.wrote_header = false;
+                        this.pyHoistWriters = [];
+                        this.pyLambdaCounter = 0;
                       }
                       emptyBlockFiller () {
                         return "pass";
@@ -35749,11 +35751,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         return false;
                       };
                       async pyWalkBody (body, ctx, wr) {
+                        const hoist = wr.fork();
+                        this.pyHoistWriters.push(hoist);
+                        const hoistLineBefore = hoist.lineNumber;
                         const lineBefore = wr.lineNumber;
                         const colBefore = wr.currentLine.length;
                         await this.WalkNode(body, ctx, wr);
+                        this.pyHoistWriters.splice((this.pyHoistWriters.length) - 1, 1).pop();
                         if ( (wr.lineNumber == lineBefore) && ((wr.currentLine.length) == colBefore) ) {
-                          wr.out("pass", true);
+                          if ( hoist.lineNumber == hoistLineBefore ) {
+                            wr.out("pass", true);
+                          }
                         }
                       };
                       async writeVarInitDef (node, ctx, wr) {
@@ -35798,7 +35806,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                           }
                           if ( unusedDef && (keepsCall == false) ) {
-                            wr.out("# unused:  ", false);
+                            wr.out("pass  # unused:  ", false);
                           }
                           if ( keepsCall ) {
                             wr.out("_", false);
@@ -35880,25 +35888,117 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           wr.newline();
                         }
                       };
+                      pyEmittedName (n) {
+                        if ( n.hasParamDesc ) {
+                          const pd = n.paramDesc;
+                          if ( (pd.compiledName.length) > 0 ) {
+                            return pd.compiledName;
+                          }
+                        }
+                        return n.vref;
+                      };
+                      pyCollectAssigned (node, assigned, declared) {
+                        if ( node.expression ) {
+                          if ( (node.children.length) > 1 ) {
+                            const fc = node.getFirst();
+                            if ( (fc.vref == "def") || (fc.vref == "let") ) {
+                              const nn = node.getSecond();
+                              declared[this.pyEmittedName(nn)] = true;
+                            }
+                            if ( fc.vref == "fn" ) {
+                              if ( (node.children.length) > 2 ) {
+                                const lArgs = node.children[1];
+                                for ( let lai = 0; lai < lArgs.children.length; lai++) {
+                                  var la = lArgs.children[lai];
+                                  declared[this.pyEmittedName(la)] = true;
+                                };
+                              }
+                            }
+                            if ( fc.vref == "=" ) {
+                              const tgt = node.getSecond();
+                              if ( (tgt.ns.length) < 2 ) {
+                                const tn = this.pyEmittedName(tgt);
+                                if ( (tn.length) > 0 ) {
+                                  assigned[tn] = true;
+                                }
+                              }
+                            }
+                          }
+                        }
+                        for ( let ci = 0; ci < node.children.length; ci++) {
+                          var ch = node.children[ci];
+                          this.pyCollectAssigned(ch, assigned, declared);
+                        };
+                      };
                       async CreateLambda (node, ctx, wr) {
                         const lambdaCtx = node.lambda_ctx;
                         const fnNode = node.children[0];
                         const args = node.children[1];
                         const body = node.children[2];
-                        wr.out("lambda ", false);
-                        for ( let i = 0; i < args.children.length; i++) {
-                          var arg = args.children[i];
-                          if ( i > 0 ) {
-                            wr.out(", ", false);
+                        if ( (this.pyHoistWriters.length) == 0 ) {
+                          wr.out("lambda ", false);
+                          for ( let i = 0; i < args.children.length; i++) {
+                            var arg = args.children[i];
+                            if ( i > 0 ) {
+                              wr.out(", ", false);
+                            }
+                            await this.WalkNode(arg, lambdaCtx, wr);
+                          };
+                          wr.out(": ", false);
+                          lambdaCtx.restartExpressionLevel();
+                          for ( let i_1 = 0; i_1 < body.children.length; i_1++) {
+                            var item = body.children[i_1];
+                            await this.WalkNode(item, lambdaCtx, wr);
+                          };
+                          return;
+                        }
+                        this.pyLambdaCounter = this.pyLambdaCounter + 1;
+                        const fname = "__rg_lambda_" + this.pyLambdaCounter;
+                        const hoist = this.pyHoistWriters[((this.pyHoistWriters.length) - 1)];
+                        hoist.out("def " + fname, false);
+                        hoist.out("(", false);
+                        for ( let i_2 = 0; i_2 < args.children.length; i_2++) {
+                          var arg_1 = args.children[i_2];
+                          if ( i_2 > 0 ) {
+                            hoist.out(", ", false);
                           }
-                          await this.WalkNode(arg, lambdaCtx, wr);
+                          await this.WalkNode(arg_1, lambdaCtx, hoist);
                         };
-                        wr.out(": ", false);
+                        hoist.out("):", true);
+                        hoist.indent(1);
+                        let assigned = {};
+                        let declared = {};
+                        for ( let ai = 0; ai < args.children.length; ai++) {
+                          var arg2 = args.children[ai];
+                          declared[this.pyEmittedName(arg2)] = true;
+                        };
+                        this.pyCollectAssigned(body, assigned, declared);
+                        let nonlocals = [];
+                        for ( let ani = 0; ani < Object.keys(assigned).length; ani++) {
+                          var anm = Object.keys(assigned)[ani];
+                          if ( (( typeof(declared[anm] ) != "undefined" && Object.prototype.hasOwnProperty.call(declared, anm) )) == false ) {
+                            nonlocals.push(anm);
+                          }
+                        };
+                        if ( (nonlocals.length) > 0 ) {
+                          hoist.out("nonlocal " + (nonlocals.join(", ")), true);
+                        }
+                        const inner = hoist.fork();
+                        this.pyHoistWriters.push(inner);
+                        const innerLine = inner.lineNumber;
+                        const lineBefore = hoist.lineNumber;
                         lambdaCtx.restartExpressionLevel();
-                        for ( let i_1 = 0; i_1 < body.children.length; i_1++) {
-                          var item = body.children[i_1];
-                          await this.WalkNode(item, lambdaCtx, wr);
+                        for ( let i_3 = 0; i_3 < body.children.length; i_3++) {
+                          var item_1 = body.children[i_3];
+                          await this.WalkNode(item_1, lambdaCtx, hoist);
                         };
+                        this.pyHoistWriters.splice((this.pyHoistWriters.length) - 1, 1).pop();
+                        if ( (hoist.lineNumber == lineBefore) && (inner.lineNumber == innerLine) ) {
+                          hoist.out("pass", true);
+                        }
+                        hoist.newline();
+                        hoist.indent(-1);
+                        wr.out(fname, false);
                       };
                       getPythonTypeName (node, ctx) {
                         let v_type = node.value_type;
@@ -36228,10 +36328,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             await this.pyWalkBody(variant_2.fnBody, ctx, wr);
                             wr.indent(-1);
                             wr.newline();
-                            wr.out("if __name__ == \"__main__\":", true);
-                            wr.indent(1);
-                            wr.out("main()", true);
-                            wr.indent(-1);
+                            const theEnd = wr.getTag("file_end");
+                            theEnd.newline();
+                            theEnd.out("if __name__ == \"__main__\":", true);
+                            theEnd.indent(1);
+                            theEnd.out("main()", true);
+                            theEnd.indent(-1);
                           }
                           ctx.in_static_method = false;
                         };

@@ -9,6 +9,7 @@ systemclass RangerCompilerPlugin {
     cpp "void*"
     go "interface{}"
     dart "Object?"
+    python object
 }
 
 operators {
@@ -18,6 +19,7 @@ operators {
             cpp ( "((void*)nullptr)" )
             go ( "nil" )
             dart ( "null" )
+            python ( "None" )
             * ()
         }
     }
@@ -28,6 +30,7 @@ operators {
             cpp ( "std::vector<std::string>()" (imp "<vector>") (imp "<string>") )
             go ( "[]string{}" )
             dart ( "<String>[]" )
+            python ( "[]" )
             * ()
         }
     }
@@ -38,6 +41,7 @@ operators {
             cpp ( "/* no plugin host on this target */" )
             go ( "/* no plugin host on this target */" )
             dart ( "/* no plugin host on this target */" )
+            python ( "pass  # no plugin host on this target" )
             * ()
         }
     }
@@ -49,6 +53,7 @@ operators {
             cpp ( "/* no plugin host on this target */" )
             go ( "/* no plugin host on this target */" )
             dart ( "/* no plugin host on this target */" )
+            python ( "pass  # no plugin host on this target" )
             * ()
         }
     }
@@ -58,6 +63,7 @@ operators {
             cpp ( "/* no plugin host on this target */" )
             go ( "/* no plugin host on this target */" )
             dart ( "/* no plugin host on this target */" )
+            python ( "pass  # no plugin host on this target" )
             * ()
         }
     }
