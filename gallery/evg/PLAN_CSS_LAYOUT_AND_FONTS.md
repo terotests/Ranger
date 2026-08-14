@@ -33,7 +33,7 @@ Without that, flex/grid improvements will still look wrong in print.
 
 | Area | Today | Gap |
 | --- | --- | --- |
-| Flex direction / grow | Row + column grow, main-axis shrink-to-fit | No `flex-basis`; shrink is proportional scaling, not CSS shrink factors |
+| Flex direction / grow | Row + column grow, `flex-basis`, `flex` shorthand, main-axis shrink-to-fit | Shrink is proportional scaling, not per-item `flex-shrink` factors |
 | `gap` | Main axis, row + column | No separate `row-gap` / `column-gap` |
 | `flex-wrap` | `wrap` (default) / `nowrap` | No `wrap-reverse`; no `align-content` for wrapped lines |
 | Alignment | `justifyContent`, `alignItems` (incl. `stretch` and `baseline`), plus legacy `align` / `verticalAlign` | Naming overlap between the CSS and legacy names |
@@ -194,7 +194,7 @@ Bring `EVGLayout` closer to CSS Flexbox without rewriting callers.
 
 | Feature | Notes |
 | --- | --- |
-| `flex-grow` / `flex-shrink` / `flex-basis` | Expand today’s single `flex` number |
+| ~~`flex-grow` / `flex-basis`~~ ✅ | `flex` shorthand parses `1`, `1 1 auto`, `2 0 120px` |
 | `flex-wrap` | Row/column wrap with correct line packing |
 | `min-width` / `max-width` / `min-height` / `max-height` | Clamp before grow/shrink |
 | Intrinsic text width | Fix ISSUES #1: content-sized labels in `row` |
@@ -347,15 +347,15 @@ wrong. Worst delta is now **0.375px against 8.31px before**.
 
 - ~~row/column grow, main-axis shrink, wrap gating, `gap`, `alignItems: stretch`~~
   (landed with the engine unification — see §11.1)
-- `flex-basis` and real per-item shrink factors (today shrink scales fixed sizes
-  proportionally rather than by `flex-shrink`)
+- ~~`flex-basis` and the `flex` shorthand~~ — landed. `flex: 1` sets basis 0, so
+  an item shares the line even when it also carries a width; `flex: 2 1 120px`,
+  `flex: auto` and `flex: 120px` parse. This removed the wart both bundled
+  themes had to document.
+- ~~Widen the JSX attribute surface~~ — see Phase 2.5.
+- Real per-item `flex-shrink` factors (today shrink scales fixed sizes
+  proportionally rather than per item)
 - min/max clamped in the right order relative to grow/shrink
-- CSS property names as source of truth
-- Widen the JSX attribute surface: `parseAttributes` in `JSXToEVG.rgr` is an
-  explicit whitelist, so a property the engine supports is silently dropped
-  unless it is listed there. `gap` and `flex-wrap` are wired up;
-  `justify-content` and `align-items` are still reachable only through
-  `style={{ ... }}`, not as JSX attributes.
+- `align-content` for wrapped lines, `wrap-reverse`
 - Update `PhotoLayouts` only where behavior changes
 
 ### Phase 2 — Style layer ✅
@@ -386,24 +386,33 @@ evg-html test_theme.tsx out.html -css themes/minimal.css -theme minimal
 Not in this subset: element/ID selectors, multi-level descendants, pseudo-classes,
 `!important`, shorthand expansion beyond what `setAttribute` already does.
 
-### Phase 2.5 — Attribute surface (carried over)
+### Phase 2.5 — Attribute surface ✅
 
-Every phase so far has turned up a property that parses but never reaches the
-engine, because there are **two** independent whitelists a property must appear
-in — `parseAttributes` in `JSXToEVG.rgr` for JSX attributes, and
-`EVGElement.setAttribute` for the stylesheet and `ComponentEngine` paths. A
-property missing from either is silently dropped on that path only:
+Every phase turned up a property that parsed but never reached the engine,
+because a property had to appear in **two** independent whitelists —
+`parseAttributes` in `JSXToEVG.rgr` for JSX attributes, and
+`EVGElement.setAttribute` for the stylesheet and `ComponentEngine` paths. Missing
+from either meant silently dropped on that path only:
 
 | Property | Was dropped from | Found during |
 | --- | --- | --- |
 | `gap` | JSX attributes | Phase 1 |
 | `className` | JSX attributes (compared to `"className"`, arrives as `"class-name"`) | Phase 2 |
 | `display` | `setAttribute` — so a stylesheet could set every grid property and still lay out as a block | Phase 3 |
+| `justify-content`, `align-items`, `border-width`, `border-color` | JSX attributes | closing this gap |
 
-All three are fixed. The hazard itself is structural and still there:
-`justify-content` and `align-items` remain reachable only through
-`style={{ ... }}`. A single shared property table, or a test that asserts both
-paths accept the same names, would close it for good.
+`parseAttributes` now calls `setAttribute` first and the special cases refine
+the result, so the two surfaces cannot drift: anything the element understands
+is reachable from JSX. Unknown names are ignored, so component props like `key`
+pass through harmlessly.
+
+`gallery/pdf_writer/test/attrs_test.rgr` is the guard — it sets each property as
+a JSX attribute and asserts it landed, so a refactor that reintroduces a
+whitelist fails there rather than in someone's print run.
+
+The examples show the cost of the old behaviour: `test_scandinavian`'s cover page
+authored `justifyContent="center" alignItems="center"` and was never centred, and
+`test_simple` authored a border that never drew.
 
 ### Phase 3 — Grid v1 ✅
 
@@ -516,11 +525,22 @@ Only `EvElementToEVG.rgr` (which depends on the interpreter's `EvalValue`) and
 `game_engine/v2/evg/`. **Layout changes belong in `gallery/evg/` only** — do not
 re-fork.
 
-The layout suite is the gate for this engine:
+### 11.2 Gates
 
 ```
-bash gallery/game_engine/v2/evg/run.sh
+npm run test:evg:all
 ```
+
+runs all three, or individually:
+
+| Script | Suite | Covers |
+| --- | --- | --- |
+| `test:evg` | `gallery/game_engine/v2/evg/run.sh` | layout engine: units, box model, flex, grid, stylesheet, text engine, baseline |
+| `test:evg:fonts` | `gallery/pdf_writer/test/run_fonts.sh` | advance-width goldens against the real TTFs, plus EVG-vs-Chromium box parity |
+| `test:evg:frontend` | `gallery/pdf_writer/test/run_print.sh` | UTF-8 decoding, WinAnsi reporting, page boxes, and the JSX attribute surface |
+
+The parity gate needs `playwright-core` (a declared devDependency); it reports a
+`SKIP` rather than failing if the package is absent.
 
 ## 12. Test plan (fonts first)
 

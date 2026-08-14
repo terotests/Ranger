@@ -88,6 +88,8 @@ class EVGTest {
         test.testRowSideBySide(t)
         test.testFlexGrowRow(t)
         test.testFlexGrowColumn(t)
+        test.testFlexBasis(t)
+        test.testFlexShorthand(t)
         test.testFlexShrink(t)
         test.testAutoHeightNoShrink(t)
         test.testJustifyDistribution(t)
@@ -462,6 +464,120 @@ class EVGTest {
     }
 
     ; ---- #8b: flex shrink — overflowing fixed children scale to fit ----------
+    ; ---- flex-basis and the `flex` shorthand ---------------------------------
+    ; An explicit width used to make `flex` a no-op, so a stylesheet could not
+    ; say `width: 100%; flex: 1` — the wart both bundled themes had to document.
+    fn testFlexBasis:void (t:RgTest) {
+        ; `flex: N` sets basis 0, so items share the line whatever width they
+        ; also carry.
+        def row (new EVGElement())
+        row.width = (EVGUnit.px(300.0))
+        row.height = (EVGUnit.px(50.0))
+        row.flexDirection = "row"
+        def a (new EVGElement())
+        a.setAttribute("flex" "1")
+        a.setAttribute("width" "100%")
+        def b (new EVGElement())
+        b.setAttribute("flex" "1")
+        b.setAttribute("width" "100%")
+        def c (new EVGElement())
+        c.setAttribute("flex" "1")
+        c.setAttribute("width" "100%")
+        row.addChild(a)
+        row.addChild(b)
+        row.addChild(c)
+        def lay (new EVGLayout())
+        lay.layout(row)
+        t.near("flex:1 with a width still shares the row" a.calculatedWidth 100.0)
+        t.near("second item is one third" b.calculatedWidth 100.0)
+        t.near("items sit side by side" b.calculatedX 100.0)
+        t.near("third item at two thirds" c.calculatedX 200.0)
+
+        ; Weighted growth.
+        def row2 (new EVGElement())
+        row2.width = (EVGUnit.px(300.0))
+        row2.height = (EVGUnit.px(50.0))
+        row2.flexDirection = "row"
+        def w2 (new EVGElement())
+        w2.setAttribute("flex" "2")
+        def w1 (new EVGElement())
+        w1.setAttribute("flex" "1")
+        row2.addChild(w2)
+        row2.addChild(w1)
+        def lay2 (new EVGLayout())
+        lay2.layout(row2)
+        t.near("flex:2 takes two thirds" w2.calculatedWidth 200.0)
+        t.near("flex:1 takes one third" w1.calculatedWidth 100.0)
+
+        ; A fixed sibling is respected: it keeps its width and flex takes the rest.
+        def row3 (new EVGElement())
+        row3.width = (EVGUnit.px(300.0))
+        row3.height = (EVGUnit.px(50.0))
+        row3.flexDirection = "row"
+        def fixed (new EVGElement())
+        fixed.width = (EVGUnit.px(60.0))
+        def grow (new EVGElement())
+        grow.setAttribute("flex" "1")
+        row3.addChild(fixed)
+        row3.addChild(grow)
+        def lay3 (new EVGLayout())
+        lay3.layout(row3)
+        t.near("fixed sibling keeps its width" fixed.calculatedWidth 60.0)
+        t.near("flex item takes the remainder" grow.calculatedWidth 240.0)
+
+        ; An explicit flex-basis is the starting size, and growth is added to it.
+        def row4 (new EVGElement())
+        row4.width = (EVGUnit.px(300.0))
+        row4.height = (EVGUnit.px(50.0))
+        row4.flexDirection = "row"
+        def basis (new EVGElement())
+        basis.setAttribute("flex-basis" "100px")
+        basis.setAttribute("flex" "1 1 100px")
+        def other (new EVGElement())
+        other.setAttribute("flex" "1 1 0px")
+        row4.addChild(basis)
+        row4.addChild(other)
+        def lay4 (new EVGLayout())
+        lay4.layout(row4)
+        ; 300 - 100 basis = 200 leftover, split evenly: 100 + 100, and 0 + 100.
+        t.near("basis plus its share" basis.calculatedWidth 200.0)
+        t.near("zero basis gets only its share" other.calculatedWidth 100.0)
+    }
+
+    ; ---- the `flex` shorthand parses the CSS forms ----------------------------
+    fn testFlexShorthand:void (t:RgTest) {
+        def one (new EVGElement())
+        one.setAttribute("flex" "1")
+        t.near("flex:1 grow" one.flex 1.0)
+        t.ok("flex:1 sets a basis" one.flexBasis.isSet)
+        t.near("flex:1 basis is zero" one.flexBasis.value 0.0)
+
+        def three (new EVGElement())
+        three.setAttribute("flex" "2 1 120px")
+        t.near("three-value grow" three.flex 2.0)
+        t.near("three-value basis" three.flexBasis.value 120.0)
+
+        def two (new EVGElement())
+        two.setAttribute("flex" "3 1")
+        t.near("two-value grow" two.flex 3.0)
+        t.near("two-value basis stays zero" two.flexBasis.value 0.0)
+
+        ; `flex: auto` and `flex: <length>` are a basis with default growth.
+        def auto (new EVGElement())
+        auto.setAttribute("flex" "auto")
+        t.near("flex:auto grows" auto.flex 1.0)
+
+        def len (new EVGElement())
+        len.setAttribute("flex" "150px")
+        t.near("flex:<length> grows" len.flex 1.0)
+        t.near("flex:<length> basis" len.flexBasis.value 150.0)
+
+        ; An element with no flex at all is untouched.
+        def none (new EVGElement())
+        t.near("default flex" none.flex 0.0)
+        t.no("default has no basis" none.flexBasis.isSet)
+    }
+
     fn testFlexShrink:void (t:RgTest) {
         ; row (nowrap): three fixed 200 in a 400 container -> 400/600 -> ~133.3 each
         def row (new EVGElement())

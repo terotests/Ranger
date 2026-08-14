@@ -21,9 +21,8 @@
   width: 100%;
 }
 
-/* No `width` here on purpose: EVG has no flex-basis yet, so a child with an
- * explicit width is treated as fixed and `flex` is ignored. Sizing the photos
- * with `flex` alone is what makes them share the row. */
+/* `flex: 1` gives each photo an equal share of the row. The shorthand sets
+ * flex-basis to 0, so this keeps working even if a width is added later. */
 .photo {
   object-fit: cover;
   height: 100%;

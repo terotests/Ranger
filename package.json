@@ -336,7 +336,11 @@
     "evg:tool": "npm run evg:tool:compile && npm run evg:tool:run",
     "font:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/src/tools/font_test.rgr -d=./gallery/pdf_writer/bin -o=font_test.js -nodecli",
     "font:run": "node ./gallery/pdf_writer/bin/font_test.js",
-    "font": "npm run font:compile && npm run font:run"
+    "font": "npm run font:compile && npm run font:run",
+    "test:evg": "bash gallery/game_engine/v2/evg/run.sh",
+    "test:evg:fonts": "bash gallery/pdf_writer/test/run_fonts.sh",
+    "test:evg:frontend": "bash gallery/pdf_writer/test/run_print.sh",
+    "test:evg:all": "npm run test:evg && npm run test:evg:fonts && npm run test:evg:frontend"
   },
   "repository": {
     "type": "git",
@@ -354,6 +358,7 @@
   "devDependencies": {
     "@types/node": "^22.19.2",
     "cross-env": "^10.1.0",
+    "playwright-core": "^1.62.1",
     "typescript": "^5.9.3",
     "vitest": "^3.2.7",
     "wabt": "^1.0.39"

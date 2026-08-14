@@ -475,6 +475,19 @@ class JSXToEVG {
                 ; overwrite it: inline wins the cascade.
                 element.markInline(attrName)
 
+                ; Every property EVGElement understands is reachable from JSX,
+                ; because the generic mapping runs first and the special cases
+                ; below refine it.
+                ;
+                ; This used to be a whitelist of its own, independent of
+                ; setAttribute's, and a property missing from either was dropped
+                ; silently on that path only. That cost one bug per phase: `gap`
+                ; (Phase 1), `className` (Phase 2, compared against "className"
+                ; when camelToKebab produces "class-name"), and `display`
+                ; (Phase 3). Unknown names are ignored by setAttribute, so the
+                ; fallthrough is safe for component props like `key`.
+                element.setAttribute(attrName attrValue)
+
                 ; Handle id
                 if (attrName == "id") {
                     element.id = attrValue

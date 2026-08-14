@@ -97,6 +97,11 @@ class EVGElement {
     ; CSS Flexbox properties
     def display:string "block"
     def flex:double 0.0
+    ; flex-basis: the main-axis size a flex item starts from, before grow or
+    ; shrink. Unset means "use width". The `flex: N` shorthand sets it to 0,
+    ; which is what makes `flex: 1` share space evenly even when the item also
+    ; carries a width — without it an explicit width made `flex` a no-op.
+    def flexBasis:EVGUnit
     def flexDirection:string "column"
     def justifyContent:string "flex-start"
     def alignItems:string "flex-start"
@@ -252,6 +257,7 @@ class EVGElement {
         x = (EVGUnit.unset())
         y = (EVGUnit.unset())
         gap = (EVGUnit.unset())
+        flexBasis = (EVGUnit.unset())
         rowGap = (EVGUnit.unset())
         columnGap = (EVGUnit.unset())
 
@@ -505,6 +511,7 @@ class EVGElement {
         ; Dimensions - width uses parentWidth, height uses parentHeight
         width.resolveWithHeight(parentWidth parentHeight fs)
         height.resolveForHeight(parentWidth parentHeight fs)
+        flexBasis.resolve(parentWidth fs)
         minWidth.resolve(parentWidth fs)
         minHeight.resolve(parentHeight fs)
         maxWidth.resolve(parentWidth fs)
@@ -568,6 +575,88 @@ class EVGElement {
             i = (i + 1)
         }
         return false
+    }
+
+    ; CSS `flex` shorthand: "1", "1 1 auto", "2 0 120px".
+    ;   one number      -> grow, and basis 0 (CSS uses 0%, not auto)
+    ;   number number   -> grow, shrink
+    ;   n n <length>    -> grow, shrink, basis
+    ; A single non-numeric value is treated as a basis, matching `flex: auto`
+    ; and `flex: 120px`.
+    fn setFlexShorthand:void (value:string) {
+        def parts:[string] (EVGElement.splitSpaces(value))
+        def n:int (array_length parts)
+        if (n == 0) {
+            return
+        }
+        def first:string (itemAt parts 0)
+        ; to_double("150px") happily returns 150, so a bare unit value would be
+        ; read as a grow factor. Only a token that is entirely numeric is one.
+        def growVal@(optional):double (to_double first)
+        if (EVGElement.isPlainNumber(first)) {
+            flex = (unwrap growVal)
+            ; A bare `flex: N` starts from zero, so items share the line in
+            ; proportion to N regardless of any width they also carry.
+            flexBasis = (EVGUnit.px(0.0))
+            if (n >= 3) {
+                flexBasis = (EVGUnit.parse((itemAt parts 2)))
+            }
+        } {
+            ; `flex: auto` / `flex: 120px` — a basis with default grow/shrink.
+            flexBasis = (EVGUnit.parse(first))
+            flex = 1.0
+        }
+    }
+
+    sfn isPlainNumber:boolean (s:string) {
+        def len:int (strlen s)
+        if (len == 0) {
+            return false
+        }
+        def digits:int 0
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt s i)
+            def isDigit:boolean ((c >= 48) && (c <= 57))
+            if isDigit {
+                digits = (digits + 1)
+            } {
+                ; '.', '-' and '+' may appear; anything else means a unit.
+                if (((c != 46) && (c != 45)) && (c != 43)) {
+                    return false
+                }
+            }
+            i = (i + 1)
+        }
+        return (digits > 0)
+    }
+
+    sfn splitSpaces:[string] (s:string) {
+        def out:[string]
+        def len:int (strlen s)
+        def start:int 0
+        def inTok:boolean false
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt s i)
+            def isSpace:boolean (((c == 32) || (c == 9)) || ((c == 10) || (c == 13)))
+            if isSpace {
+                if inTok {
+                    push out (substring s start i)
+                    inTok = false
+                }
+            } {
+                if (inTok == false) {
+                    start = i
+                    inTok = true
+                }
+            }
+            i = (i + 1)
+        }
+        if inTok {
+            push out (substring s start len)
+        }
+        return out
     }
 
     fn setAttribute:void (name:string value:string) {
@@ -839,11 +928,12 @@ class EVGElement {
             flexWrap = value
             return
         }
+        if ((name == "flex-basis") || (name == "flexBasis")) {
+            flexBasis = (EVGUnit.parse(value))
+            return
+        }
         if (name == "flex") {
-            def val@(optional):double (to_double value)
-            if val {
-                flex = (unwrap val)
-            }
+            this.setFlexShorthand(value)
             return
         }
         if (name == "gap") {

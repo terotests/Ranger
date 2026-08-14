@@ -368,16 +368,26 @@ class EVGLayout {
                 def c:EVGElement (parent.getChild(j))
                 c.inheritProperties(parent)
                 c.resolveUnits(innerWidth innerHeight)
-                if c.width.isSet {
-                    fixedWidth = fixedWidth + c.width.pixels + c.box.marginLeftPx + c.box.marginRightPx
+                ; A flex item's starting size is its flex-basis when set,
+                ; otherwise its width. `flex: 1` sets basis 0, which is what
+                ; lets an item share the line even though it also has a width —
+                ; previously any width made `flex` a no-op.
+                def hasBasis:boolean c.flexBasis.isSet
+                if ((c.flex > 0.0) && hasBasis) {
+                    totalFlex = totalFlex + c.flex
+                    fixedWidth = ((fixedWidth + c.flexBasis.pixels) + c.box.marginLeftPx) + c.box.marginRightPx
                 } {
-                    if (c.flex > 0.0) {
-                        totalFlex = totalFlex + c.flex
-                        fixedWidth = fixedWidth + c.box.marginLeftPx + c.box.marginRightPx
+                    if c.width.isSet {
+                        fixedWidth = fixedWidth + c.width.pixels + c.box.marginLeftPx + c.box.marginRightPx
                     } {
-                        def avail:double (innerWidth - c.box.marginLeftPx - c.box.marginRightPx)
-                        def estW:double (this.estimateChildWidth(c avail))
-                        fixedWidth = fixedWidth + estW + c.box.marginLeftPx + c.box.marginRightPx
+                        if (c.flex > 0.0) {
+                            totalFlex = totalFlex + c.flex
+                            fixedWidth = fixedWidth + c.box.marginLeftPx + c.box.marginRightPx
+                        } {
+                            def avail:double (innerWidth - c.box.marginLeftPx - c.box.marginRightPx)
+                            def estW:double (this.estimateChildWidth(c avail))
+                            fixedWidth = fixedWidth + estW + c.box.marginLeftPx + c.box.marginRightPx
+                        }
                     }
                 }
                 j = j + 1
@@ -393,14 +403,23 @@ class EVGLayout {
                 availableForFlex = 0.0
             }
             
-            ; Assign flex widths to children
+            ; Assign flex widths to children: basis plus a share of the leftover.
             if (totalFlex > 0.0) {
                 j = 0
                 while (j < childCount) {
                     def c:EVGElement (parent.getChild(j))
-                    if ((c.width.isSet == false) && (c.flex > 0.0)) {
-                        def flexWidth:double ((availableForFlex * c.flex) / totalFlex)
-                        c.calculatedFlexWidth = flexWidth
+                    if (c.flex > 0.0) {
+                        def share:double ((availableForFlex * c.flex) / totalFlex)
+                        if c.flexBasis.isSet {
+                            ; An explicit width no longer blocks growth — the
+                            ; basis replaces it as the starting size.
+                            c.calculatedFlexWidth = (c.flexBasis.pixels + share)
+                            c.width.isSet = false
+                        } {
+                            if (c.width.isSet == false) {
+                                c.calculatedFlexWidth = share
+                            }
+                        }
                     }
                     j = j + 1
                 }
