@@ -119,6 +119,15 @@ class RangerDartClassWriter {
         }
         return "dynamic"
       }
+      ; A systemclass names one type per target. Without this the Ranger name
+      ; reached the output and the Dart analyzer saw an undeclared type:
+      ; JSONDataObject instead of the Map that JSON.rgr declares for Dart.
+      if cc.is_system {
+        def sysName@(optional):string (get cc.systemNames "dart")
+        if (!null? sysName) {
+          return (unwrap sysName)
+        }
+      }
     }
     switch type_string {
       case "int" {
@@ -148,6 +157,12 @@ class RangerDartClassWriter {
       case "double" {
         return "double"
       }
+    }
+    ; An Enum value is an int on Dart, and the enum name is no Dart type. Only
+    ; the value_type == Enum path knew that, so an enum reaching this function
+    ; -- a return type, a collection element -- wrote its Ranger name.
+    if (ctx.isEnumDefined(type_string)) {
+      return "int"
     }
     return type_string
   }
@@ -224,6 +239,22 @@ class RangerDartClassWriter {
       v_type = node.eval_type
     }
     switch v_type {
+      ; `void Function(RangerAppFunctionDesc)` -- without this a local holding a
+      ; lambda was declared with an EMPTY type, so `def set_async (fn:void …)`
+      ; came out as a bare assignment to a name Dart had never seen.
+      case RangerNodeType.ExpressionType {
+        def rv:CodeNode (itemAt node.expression_value.children 0)
+        def sec:CodeNode (itemAt node.expression_value.children 1)
+        this.writeTypeDef( rv ctx wr)
+        wr.out(" Function(" false)
+        for sec.children arg:CodeNode i {
+          if( i > 0 ) {
+            wr.out(", " false)
+          }
+          this.writeTypeDef( arg ctx wr)
+        }
+        wr.out(")" false)
+      }
       case RangerNodeType.Enum {
         wr.out("int" false)
       }
@@ -352,6 +383,17 @@ class RangerDartClassWriter {
         if (i == 0) {
           if (p.nameNode.hasFlag("optional")) {
             wr.out("!" false)
+          }
+        } {
+          ; A segment in the MIDDLE of a path needs the same `!`. Dart promotes
+          ; a local after a null test but never a field, so `target.nameNode`
+          ; stays `CodeNode?` inside `if (!null? target.nameNode)` and reading
+          ; through it is an error. Only the last segment is left bare: there
+          ; the optional IS the value.
+          if (i < ((array_length node.nsp) - 1)) {
+            if (p.nameNode.hasFlag("optional")) {
+              wr.out("!" false)
+            }
           }
         }
       }
@@ -521,6 +563,36 @@ class RangerDartClassWriter {
     }
   }
 
+  ; A Dart closure with a body is `(a, b) { … }`. The inherited writer emits the
+  ; JavaScript arrow form `(a, b) => { … }`, and `=>` in Dart introduces a single
+  ; EXPRESSION, so every lambda with statements in it was a syntax error. No
+  ; Dart program in the tests had one, which is why nothing caught it until the
+  ; compiler itself was compiled for Dart -- 356 of them in one file.
+  fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def lambdaCtx (unwrap node.lambda_ctx)
+    def args:CodeNode (itemAt node.children 1)
+    def body:CodeNode (itemAt node.children 2)
+    wr.out("(" false)
+    for args.children arg:CodeNode i {
+      if (i > 0) {
+        wr.out(", " false)
+      }
+      if(arg.flow_done == false) {
+        this.compiler.parser.WalkNode( arg lambdaCtx wr)
+      }
+      this.WalkNode(arg lambdaCtx wr)
+    }
+    wr.out(")" false)
+    wr.out(" { " true)
+    wr.indent(1)
+    lambdaCtx.restartExpressionLevel()
+    for body.children item:CodeNode i {
+      this.WalkNode(item lambdaCtx wr)
+    }
+    wr.newline()
+    wr.indent(-1)
+    wr.out("}" true)
+  }
   fn writeFnCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasFnCall {
       ctx.setInExpr()
@@ -844,8 +916,16 @@ class RangerDartClassWriter {
     for cl.static_methods variant:RangerAppFunctionDesc i {
       if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {
         wr.out("" true)
+        ; Only main() can see the list Dart hands it. The shell_arg operators
+        ; read __g_args, so main copies it there first -- the same shape as
+        ; __g_argv on C++. Declared here rather than in the operator template:
+        ; main is written once, and a program that never reads an argument
+        ; would otherwise assign to a name that was never declared.
+        wr.out("List<String> __g_args = <String>[];" true)
+        wr.out("" true)
         wr.out("void main(List<String> args) {" true)
         wr.indent(1)
+        wr.out("__g_args = args;" true)
         wr.newline()
         def subCtx:RangerAppWriterContext (unwrap variant.fnCtx )
         subCtx.is_function = true

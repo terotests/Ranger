@@ -25,6 +25,45 @@ defn CreateFile (name data) (create_file (unwrap env.filesystem) name data)
 operators {
   normalize cmdArg:string ( arg:string ) {
       templates {
+          dart ( "rg_path_normalize(" (e 1) ")"
+          (create_polyfill "
+// Path helpers for the compiler's own file handling. package:path would do
+// this, but the generated program has to run with a plain `dart run` and no
+// pubspec, so these are string operations. The shape follows Node's
+// path.normalize / path.dirname, because that is what the JavaScript host of
+// the same Ranger source does.
+String rg_path_normalize(String p) {
+  final String s = p.replaceAll(String.fromCharCode(92), '/');
+  final bool absolute = s.startsWith('/');
+  final bool trailing = s.length > 1 && s.endsWith('/');
+  final List<String> parts = <String>[];
+  for (final String cur in s.split('/')) {
+    if (cur == '..') {
+      if (parts.isNotEmpty && parts[parts.length - 1] != '..') {
+        parts.removeLast();
+      } else if (absolute == false) {
+        parts.add(cur);
+      }
+    } else if (cur.isNotEmpty && cur != '.') {
+      parts.add(cur);
+    }
+  }
+  String out = parts.join('/');
+  if (absolute) { out = '/' + out; }
+  if (out.isEmpty) { return '.'; }
+  if (trailing && out != '/') { out = out + '/'; }
+  return out;
+}
+String rg_path_dirname(String p) {
+  String s = rg_path_normalize(p);
+  if (s.length > 1 && s.endsWith('/')) { s = s.substring(0, s.length - 1); }
+  final int pos = s.lastIndexOf('/');
+  if (pos < 0) { return '.'; }
+  if (pos == 0) { return '/'; }
+  return s.substring(0, pos);
+}
+")
+          )
           cpp ( "rg_path_normalize(" (e 1) ")"
           (create_polyfill "
 #include <string>
@@ -79,6 +118,45 @@ inline std::string rg_path_dirname(const std::string& p) {
   }  
   pathname _:string (path:string) {
       templates {
+          dart ( "rg_path_dirname(" (e 1) ")"
+          (create_polyfill "
+// Path helpers for the compiler's own file handling. package:path would do
+// this, but the generated program has to run with a plain `dart run` and no
+// pubspec, so these are string operations. The shape follows Node's
+// path.normalize / path.dirname, because that is what the JavaScript host of
+// the same Ranger source does.
+String rg_path_normalize(String p) {
+  final String s = p.replaceAll(String.fromCharCode(92), '/');
+  final bool absolute = s.startsWith('/');
+  final bool trailing = s.length > 1 && s.endsWith('/');
+  final List<String> parts = <String>[];
+  for (final String cur in s.split('/')) {
+    if (cur == '..') {
+      if (parts.isNotEmpty && parts[parts.length - 1] != '..') {
+        parts.removeLast();
+      } else if (absolute == false) {
+        parts.add(cur);
+      }
+    } else if (cur.isNotEmpty && cur != '.') {
+      parts.add(cur);
+    }
+  }
+  String out = parts.join('/');
+  if (absolute) { out = '/' + out; }
+  if (out.isEmpty) { return '.'; }
+  if (trailing && out != '/') { out = out + '/'; }
+  return out;
+}
+String rg_path_dirname(String p) {
+  String s = rg_path_normalize(p);
+  if (s.length > 1 && s.endsWith('/')) { s = s.substring(0, s.length - 1); }
+  final int pos = s.lastIndexOf('/');
+  if (pos < 0) { return '.'; }
+  if (pos == 0) { return '/'; }
+  return s.substring(0, pos);
+}
+")
+          )
           cpp ( "rg_path_dirname(" (e 1) ")"
           (create_polyfill "
 #include <string>

@@ -14,6 +14,12 @@ operators {
 
     case             _@(newcontext):void           ( arg@(union):T item2@(define):boolean code:block )  {
         templates {
+            dart (
+                (forkctx _ ) (def 2) "if( " (e 1) " is bool ) /* union case for boolean */ {" nl I
+                        "bool " (e 2) " = " (e 1) " as bool;" nl
+                        (block 3)
+                        nl i "}"
+            )
             cpp (
                 (forkctx _ ) (def 2) "if( std::holds_alternative<bool>(" (e 1) ") ) /* union case for boolean */ {" nl I
                         "bool " (e 2) " = std::get<bool>(" (e 1) ");" nl
@@ -48,6 +54,12 @@ operators {
     }
     case             _@(newcontext):void           ( arg@(union):T item2@(define):int code:block )  {
         templates {
+            dart (
+                (forkctx _ ) (def 2) "if( " (e 1) " is int ) /* union case for int */ {" nl I
+                        "int " (e 2) " = " (e 1) " as int;" nl
+                        (block 3)
+                        nl i "}"
+            )
             cpp (
                 (forkctx _ ) (def 2) "if( std::holds_alternative<int>(" (e 1) ") ) /* union case for int */ {" nl I
                         "int " (e 2) " = std::get<int>(" (e 1) ");" nl
@@ -88,6 +100,12 @@ operators {
     }
     case             _@(newcontext):void           ( arg@(union):T item2@(define):double code:block )  {
         templates {
+            dart (
+                (forkctx _ ) (def 2) "if( " (e 1) " is double ) /* union case for double */ {" nl I
+                        "double " (e 2) " = " (e 1) " as double;" nl
+                        (block 3)
+                        nl i "}"
+            )
             cpp (
                 (forkctx _ ) (def 2) "if( std::holds_alternative<double>(" (e 1) ") ) /* union case for double */ {" nl I
                         "double " (e 2) " = std::get<double>(" (e 1) ");" nl
@@ -129,6 +147,12 @@ operators {
 
     case             _@(newcontext):void           ( arg@(union):T item2@(define):string code:block )  {
         templates {
+            dart (
+                (forkctx _ ) (def 2) "if( " (e 1) " is String ) /* union case for string */ {" nl I
+                        "String " (e 2) " = " (e 1) " as String;" nl
+                        (block 3)
+                        nl i "}"
+            )
             cpp (
                 (forkctx _ ) (def 2) "if( std::holds_alternative<std::string>(" (e 1) ") ) /* union case for string */ {" nl I
                         "std::string " (e 2) " = std::get<std::string>(" (e 1) ");" nl

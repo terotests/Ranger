@@ -3,7 +3,13 @@ import { execSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
-import { compileRanger, compileAndRun } from "./helpers/compiler";
+import {
+  compileRanger,
+  compileAndRun,
+  compileRangerToDart,
+  isDartAvailable,
+  runCompiledDart,
+} from "./helpers/compiler";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -70,6 +76,73 @@ describe("self-hosting: the compiler compiles for C++", () => {
       stdio: ["pipe", "pipe", "pipe"],
       timeout: 600000,
     });
+  }, 900000);
+});
+
+// Dart reached the same place from 482 errors. JSON.rgr had no dart template
+// either, and after that the target's own gaps showed: a lambda with statements
+// in it came out as the JavaScript arrow form (`=>` takes one EXPRESSION in
+// Dart), an optional in the middle of a path had no `!`, a local holding a
+// lambda was declared with an empty type, and every library search path
+// collapsed to "./" because `normalize` fell through to the `*` fallback.
+describe("self-hosting: the compiler compiles for Dart", () => {
+  const OUT = path.join(ROOT, "tests", ".output-selfhost-dart");
+
+  it("generates Dart from the compiler's own sources", () => {
+    fs.mkdirSync(OUT, { recursive: true });
+
+    const result = compileRangerToDart("compiler/ng_Compiler.rgr", OUT, [], {
+      timeoutMs: 300000,
+    });
+    expect(
+      result.success,
+      `Dart codegen failed: ${result.error || result.output}`
+    ).toBe(true);
+
+    const generated = path.join(OUT, "ng_Compiler.dart");
+    expect(fs.existsSync(generated), `missing ${generated}`).toBe(true);
+
+    const code = fs.readFileSync(generated, "utf-8");
+    // the JSON shapes Dart already has in the language
+    expect(code).toContain("Map<String, dynamic>");
+    expect(code).toContain("jsonEncode");
+    // a systemclass reaches the output under its Dart name, so the Ranger name
+    // is never a declared type (it still appears inside string literals — the
+    // @serialize writer emits Ranger source)
+    expect(code).not.toMatch(/^\s*JSONDataObject[?]?\s+\w+/m);
+    // a lambda with a body is `(a, b) { … }`, not the JavaScript arrow form
+    // (`dart analyze` below is the real gate for that; a plain string search
+    // would also hit the writers that EMIT JavaScript as string literals)
+    expect(code).toContain(", (item, index) { ");
+  }, 300000);
+
+  const dartAvailable = isDartAvailable();
+  const dartIt = dartAvailable ? it : it.skip;
+
+  // ~25 s, and it is the step that catches a template producing Dart the
+  // analyzer rejects — which the string assertions above cannot see.
+  dartIt("the generated Dart passes `dart analyze`", () => {
+    const generated = path.join(OUT, "ng_Compiler.dart");
+    expect(
+      fs.existsSync(generated),
+      "run the codegen test first — no ng_Compiler.dart"
+    ).toBe(true);
+
+    // `dart analyze` exits non-zero on an error and prints the list, so the
+    // message is worth keeping when it fails.
+    try {
+      execSync(`dart analyze --no-fatal-warnings "${generated}"`, {
+        cwd: OUT,
+        stdio: ["pipe", "pipe", "pipe"],
+        timeout: 600000,
+      });
+    } catch (err: unknown) {
+      const e = err as { stdout?: string };
+      const errors = (e.stdout || "")
+        .split("\n")
+        .filter((l) => l.trim().startsWith("error"));
+      expect(errors, errors.slice(0, 10).join("\n")).toHaveLength(0);
+    }
   }, 900000);
 });
 

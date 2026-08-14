@@ -12136,7 +12136,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   const regExpr = CodeNode.fromList([CodeNode.vref1("def"), CodeNode.vref1(regName), argCopy]);
                   await this.WalkNode(regExpr, ctx, wr);
                   const regArg = regExpr.children[1];
-                  const realRegName = (((regExpr.children[1])).paramDesc).compiledName;
+                  const realRegName = ((regArg.paramDesc)).compiledName;
                   regArg.paramDesc.set_cnt = 1;
                   regArg.paramDesc.ref_cnt = 1;
                   const BlockOP = ctx.getLastBlockOp();
@@ -12474,7 +12474,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       };
                     }
                     const regArg = regExpr.children[1];
-                    const realRegName = (((regExpr.children[1])).paramDesc).compiledName;
+                    const realRegName = ((regArg.paramDesc)).compiledName;
                     regArg.paramDesc.set_cnt = 1;
                     regArg.paramDesc.ref_cnt = 1;
                     if ( use_delta ) {
@@ -12551,7 +12551,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               const regExpr_1 = CodeNode.fromList([CodeNode.vref1("def"), nameNode]);
               await this.WalkNode(regExpr_1, ctx, wr);
               const regArg_1 = regExpr_1.children[1];
-              const realRegName_1 = (((regExpr_1.children[1])).paramDesc).compiledName;
+              const realRegName_1 = ((regArg_1.paramDesc)).compiledName;
               regArg_1.paramDesc.set_cnt = 1;
               regArg_1.paramDesc.ref_cnt = 1;
               const BlockOP_2 = ctx.getLastBlockOp();
@@ -16888,7 +16888,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               callArgs.eval_type_name = lastRow.eval_type_name;
               const fnC = ctx.findFunctionCtx();
               await this.WalkNode(regExpr, fnC, wr);
-              const realRegName = (((regExpr.children[1])).paramDesc).compiledName;
+              const regArg = regExpr.children[1];
+              const realRegName = ((regArg.paramDesc)).compiledName;
               let then_regs = false;
               if ( (lastRow.register_name.length) > 0 ) {
                 const newLastRow = CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(regName), CodeNode.vref1(lastRow.register_name)]);
@@ -16965,10 +16966,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   const regExpr_1 = CodeNode.fromList([CodeNode.vref1("def"), CodeNode.vref1(regName_1), argCopy]);
                   ctx.lastBlockOp = callArgs;
                   await this.WalkNode(regExpr_1, ctx, wr);
-                  const realRegName_1 = (((regExpr_1.children[1])).paramDesc).compiledName;
-                  const regArg = regExpr_1.children[1];
-                  regArg.paramDesc.set_cnt = 1;
-                  regArg.paramDesc.ref_cnt = 1;
+                  const regArg_1 = regExpr_1.children[1];
+                  const realRegName_1 = ((regArg_1.paramDesc)).compiledName;
+                  regArg_1.paramDesc.set_cnt = 1;
+                  regArg_1.paramDesc.ref_cnt = 1;
                   const BlockOP_1 = ctx.getLastBlockOp();
                   BlockOP_1.register_expressions.push(regExpr_1);
                   realArg.register_name = regName_1;
@@ -17033,10 +17034,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         const argCopy_2 = realArg_1.copy();
                         const regExpr_2 = CodeNode.fromList([CodeNode.vref1("def"), CodeNode.vref1(regName_2), argCopy_2]);
                         await this.WalkNode(regExpr_2, ctx, wr);
-                        const regArg_1 = regExpr_2.children[1];
-                        const realRegName_2 = (((regExpr_2.children[1])).paramDesc).compiledName;
-                        regArg_1.paramDesc.set_cnt = 1;
-                        regArg_1.paramDesc.ref_cnt = 1;
+                        const regArg_2 = regExpr_2.children[1];
+                        const realRegName_2 = ((regArg_2.paramDesc)).compiledName;
+                        regArg_2.paramDesc.set_cnt = 1;
+                        regArg_2.paramDesc.ref_cnt = 1;
                         const BlockOP_2 = ctx.getLastBlockOp();
                         BlockOP_2.register_expressions.push(regExpr_2);
                         realArg_1.register_name = regName_2;
@@ -30474,6 +30475,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             return "dynamic";
                           }
+                          if ( cc.is_system ) {
+                            const sysName = ( Object.prototype.hasOwnProperty.call(cc.systemNames, "dart") ? cc.systemNames["dart"] : undefined );
+                            if ( (typeof(sysName) !== "undefined" && sysName != null )  ) {
+                              return sysName;
+                            }
+                          }
                         }
                         switch (type_string ) { 
                           case "int" : 
@@ -30495,6 +30502,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           case "double" : 
                             return "double";
                         };
+                        if ( ctx.isEnumDefined(type_string) ) {
+                          return "int";
+                        }
                         return type_string;
                       };
                       collectionTypeStringToDart (type_string, ctx) {
@@ -30555,6 +30565,20 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           v_type = node.eval_type;
                         }
                         switch (v_type ) { 
+                          case 20 : 
+                            const rv = node.expression_value.children[0];
+                            const sec = node.expression_value.children[1];
+                            await this.writeTypeDef(rv, ctx, wr);
+                            wr.out(" Function(", false);
+                            for ( let i = 0; i < sec.children.length; i++) {
+                              var arg = sec.children[i];
+                              if ( i > 0 ) {
+                                wr.out(", ", false);
+                              }
+                              await this.writeTypeDef(arg, ctx, wr);
+                            };
+                            wr.out(")", false);
+                            break;
                           case 13 : 
                             wr.out("int", false);
                             break;
@@ -30674,6 +30698,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             if ( i == 0 ) {
                               if ( p.nameNode.hasFlag("optional") ) {
                                 wr.out("!", false);
+                              }
+                            } else {
+                              if ( i < ((node.nsp.length) - 1) ) {
+                                if ( p.nameNode.hasFlag("optional") ) {
+                                  wr.out("!", false);
+                                }
                               }
                             }
                           };
@@ -30828,6 +30858,33 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             wr.out(";", true);
                           }
                         }
+                      };
+                      async CreateLambda (node, ctx, wr) {
+                        const lambdaCtx = node.lambda_ctx;
+                        const args = node.children[1];
+                        const body = node.children[2];
+                        wr.out("(", false);
+                        for ( let i = 0; i < args.children.length; i++) {
+                          var arg = args.children[i];
+                          if ( i > 0 ) {
+                            wr.out(", ", false);
+                          }
+                          if ( arg.flow_done == false ) {
+                            await this.compiler.parser.WalkNode(arg, lambdaCtx, wr);
+                          }
+                          await this.WalkNode(arg, lambdaCtx, wr);
+                        };
+                        wr.out(")", false);
+                        wr.out(" { ", true);
+                        wr.indent(1);
+                        lambdaCtx.restartExpressionLevel();
+                        for ( let i_1 = 0; i_1 < body.children.length; i_1++) {
+                          var item = body.children[i_1];
+                          await this.WalkNode(item, lambdaCtx, wr);
+                        };
+                        wr.newline();
+                        wr.indent(-1);
+                        wr.out("}", true);
                       };
                       async writeFnCall (node, ctx, wr) {
                         if ( node.hasFnCall ) {
@@ -31144,8 +31201,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           var variant_3 = cl.static_methods[i_7];
                           if ( variant_3.nameNode.hasFlag("main") && (variant_3.nameNode.code.filename == ctx.getRootFile()) ) {
                             wr.out("", true);
+                            wr.out("List<String> __g_args = <String>[];", true);
+                            wr.out("", true);
                             wr.out("void main(List<String> args) {", true);
                             wr.indent(1);
+                            wr.out("__g_args = args;", true);
                             wr.newline();
                             const subCtx_3 = variant_3.fnCtx;
                             subCtx_3.is_function = true;

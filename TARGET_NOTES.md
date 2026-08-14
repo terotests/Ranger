@@ -21,7 +21,7 @@ dropped the call. That form is how the engine writes a for-loop update. Go and
 Python failed to compile; C# compiled and ran with infinite loops until the
 interpreter guard stopped them. The writers now keep the statement live.
 
-## Cross-target gate: the compiler itself, on C++
+## Cross-target gate: the compiler itself, on C++ and Dart
 
 The compiler is self-hosting, but until now only its **JavaScript** output was
 exercised. Compiling the compiler for another target is a different question,
@@ -53,15 +53,36 @@ directory of `argv[0]`.
 The JavaScript the C++ build writes for the compiler is byte-identical to what
 the Node build writes, save for one line — see *32-bit `int`* below — and the
 compiler that comes out of it compiles the compiler again to a file that
-matches the Node build exactly. `npm test` runs the codegen and a `g++
--fsyntax-only` over the result (`tests/compiler-selfhost-cpp.test.ts`, ~20 s);
-the binary build and the two bootstrap rounds are a manual step.
+matches the Node build exactly.
 
-### What it took
+**Dart** goes the same way, and there is no build step — `dart run` takes the
+file:
+
+```bash
+npm run selfhost:check:dart    # generate the Dart and run `dart analyze`
+
+RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr" \
+  dart run ./tmp/selfhost-dart/ranger_compiler.dart \
+    -es6 ./compiler/ng_Compiler.rgr -nodecli -d=./tmp/self -o=output.js
+```
+
+The JavaScript the Dart build writes for the compiler is **byte-identical** to
+the Node build's, and the compiler that comes out of it reproduces that file
+exactly. `dart analyze` reports no errors (it does report ~2400 warnings, nearly
+all `unnecessary_non_null_assertion` — the writer adds `!` wherever the Ranger
+type is optional, and Dart's flow analysis can often prove the value is already
+non-null).
+
+`npm test` runs the codegen for both targets and checks the result — `g++
+-fsyntax-only` for C++, `dart analyze` for Dart (`tests/compiler-selfhost.test.ts`,
+~35 s together). The binary build and the bootstrap rounds are a manual step.
+
+### What C++ took
 
 Seven kinds of defect, and only one of them was in the C++ writer's own
 templates. The rest are the shape of the problem for **any** target that is not
-JavaScript:
+JavaScript — the Dart round hit the same JSON gap and the same two source-level
+ones, before adding five of its own:
 
 1. **A systemclass reached the output under its Ranger name.** The C++ writer
    fell through to `std::shared_ptr<JSONDataObject>`, which names no C++ type.
@@ -154,6 +175,45 @@ this note argues for, but it moves every scalar in the generated C++ and the
 engine tuning in `CPP_ENGINE_ANALYSIS.md` is measured against the current
 width, so it is not made here.
 
+### What Dart took
+
+Dart started at 482 errors — the same JSON gap as C++, and then five of its own,
+four of which are in the **writer**, not in a template:
+
+1. **A lambda with a body came out as `(a, b) => { … }`.** That is the
+   JavaScript arrow form; `=>` in Dart introduces a single *expression*. 356
+   syntax errors in one file. No Dart program in the tests had a
+   multi-statement lambda, which is why nothing caught it before.
+2. **An optional in the middle of a path had no `!`.** The writer added one for
+   the first segment only, so `target.nameNode.hasFlag(…)` was an error even
+   inside `if (!null? target.nameNode)` — Dart promotes a local after a null
+   test but never a field. 751 errors.
+3. **A local holding a lambda was declared with an empty type.** `writeTypeDef`
+   had no case for a function type, so `def set_async (fn:void (f:T) {…})` came
+   out as a bare assignment to a name Dart had never seen. Dart spells the type
+   `void Function(T)`.
+4. **An enum in a type position wrote its Ranger name.** Only the
+   `value_type == Enum` path knew an enum is an `int` on Dart; a return type or
+   a collection element went through `getObjectTypeString`, which did not.
+5. **Every library search path collapsed to `"./"`.** `normalize` has a `*`
+   fallback that returns the literal `"./"`, so the compiler looked for its
+   library in one place and found nothing. `normalize`, `path_dirname`,
+   `install_directory` and `current_directory` now have real Dart entries.
+
+Plus the operators only the compiler reaches: `create_dir`, `dir_exists`,
+`write_file`, `env_var`, `error_msg`, `sha256` (a polyfill — SHA-256 is not in
+the Dart SDK), `reverse`, `sort`, `trimEnd`, `remove_index`, `array_extract`,
+and the `charbuffer` overloads of `substring` / `charAt` / `to_string` /
+`to_charbuffer` (a `charbuffer` is `List<int>` on Dart, so the JavaScript
+`String` fallback did not apply). `shell_arg` read the `args` of `main`, which
+nothing but `main` can see; the writer now copies it into a `__g_args` global,
+the same shape as `__g_argv` on C++.
+
+Two source-level fixes were needed as well, both of the same kind as the C++
+ones: an optional handed to a lambda parameter that is not optional, and an
+optional read through a parenthesised receiver — `(at xs 1).paramDesc.name`,
+where the writer has no named path to hang the `!` on.
+
 ### The same self-compile on the other targets
 
 Measured with `node bin/output.js -l=<target> ./compiler/ng_Compiler.rgr
@@ -162,12 +222,12 @@ Measured with `node bin/output.js -l=<target> ./compiler/ng_Compiler.rgr
 | Target | Errors | First thing in the way |
 | --- | ---: | --- |
 | C++ | **0** | — builds and runs, see above |
+| Dart | **0** | — `dart analyze` clean, runs, see above |
 | Go | **0** | generates ~70k lines; `go build` then reports the three defects below |
 | Swift 6 | 12 | |
 | Rust | 16 | |
 | Kotlin | 19 | |
 | Python | 72 | |
-| Dart | 482 | |
 | C# | 499 | |
 
 Go reached zero the same way C++ did — `RangerCompilerPlugin` is a systemclass

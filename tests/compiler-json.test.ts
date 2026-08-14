@@ -5,10 +5,12 @@ import * as path from "path";
 import { fileURLToPath } from "url";
 import {
   compileAndRun,
+  compileAndRunDart,
   compileAndRunPython,
   compileAndRunRust,
   compileRanger,
   getGeneratedRustCode,
+  isDartAvailable,
   isPythonAvailable,
   isRustAvailable,
 } from "./helpers/compiler";
@@ -64,6 +66,25 @@ describe("JSON operators", () => {
     "round trips an object through text on Python",
     () => {
       const { compile, run } = compileAndRunPython(FIXTURE);
+
+      expect(
+        compile.success,
+        `Compile failed: ${compile.error || compile.output}`
+      ).toBe(true);
+      expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+      for (const line of EXPECTED) {
+        expect(run?.output).toContain(line);
+      }
+    }
+  );
+
+  // Dart already has the three shapes in the language -- Map, List and dynamic
+  // -- and dart:convert reads and writes the text, so the only polyfills are
+  // the getters, which check the type before they hand a value back.
+  it.skipIf(!isDartAvailable())(
+    "round trips an object through text on Dart",
+    () => {
+      const { compile, run } = compileAndRunDart(FIXTURE);
 
       expect(
         compile.success,

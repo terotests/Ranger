@@ -840,6 +840,78 @@ inline std::string rg_sha256_hex(const std::string& input) {
 ")
                 )
 ; fmt.Printf("sha256:\t%x\n", sha_256.Sum(nil))
+                ; SHA-256 is not in the Dart SDK (package:crypto is a
+                ; dependency), and the generated program has to run with plain
+                ; `dart run`. Same digest, same file.
+                dart ( "rg_sha256_hex(" (e 1) ")"
+                    (create_polyfill "String rg_sha256_hex(String input) {
+  const List<int> k = <int>[
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2];
+  final List<int> h = <int>[
+    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+  const int mask = 0xffffffff;
+  int rotr(int x, int n) => ((x >> n) | (x << (32 - n))) & mask;
+  final List<int> msg = <int>[];
+  for (final int c in input.runes) {
+    if (c < 0x80) {
+      msg.add(c);
+    } else if (c < 0x800) {
+      msg.add(0xc0 | (c >> 6));
+      msg.add(0x80 | (c & 63));
+    } else if (c < 0x10000) {
+      msg.add(0xe0 | (c >> 12));
+      msg.add(0x80 | ((c >> 6) & 63));
+      msg.add(0x80 | (c & 63));
+    } else {
+      msg.add(0xf0 | (c >> 18));
+      msg.add(0x80 | ((c >> 12) & 63));
+      msg.add(0x80 | ((c >> 6) & 63));
+      msg.add(0x80 | (c & 63));
+    }
+  }
+  final int bitlen = msg.length * 8;
+  msg.add(0x80);
+  while ((msg.length % 64) != 56) { msg.add(0); }
+  for (int i = 7; i >= 0; i--) { msg.add((bitlen >> (i * 8)) & 0xff); }
+  final List<int> w = List<int>.filled(64, 0);
+  for (int off = 0; off < msg.length; off += 64) {
+    for (int i = 0; i < 16; i++) {
+      w[i] = (msg[off + i * 4] << 24) | (msg[off + i * 4 + 1] << 16) |
+             (msg[off + i * 4 + 2] << 8) | msg[off + i * 4 + 3];
+    }
+    for (int i = 16; i < 64; i++) {
+      final int s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >> 3);
+      final int s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >> 10);
+      w[i] = (w[i - 16] + s0 + w[i - 7] + s1) & mask;
+    }
+    int a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7];
+    for (int i = 0; i < 64; i++) {
+      final int s1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+      final int ch = (e & f) ^ ((~e & mask) & g);
+      final int t1 = (hh + s1 + ch + k[i] + w[i]) & mask;
+      final int s0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+      final int mj = (a & b) ^ (a & c) ^ (b & c);
+      final int t2 = (s0 + mj) & mask;
+      hh = g; g = f; f = e; e = (d + t1) & mask; d = c; c = b; b = a; a = (t1 + t2) & mask;
+    }
+    h[0] = (h[0] + a) & mask; h[1] = (h[1] + b) & mask;
+    h[2] = (h[2] + c) & mask; h[3] = (h[3] + d) & mask;
+    h[4] = (h[4] + e) & mask; h[5] = (h[5] + f) & mask;
+    h[6] = (h[6] + g) & mask; h[7] = (h[7] + hh) & mask;
+  }
+  final StringBuffer out = StringBuffer();
+  for (final int v in h) { out.write(v.toRadixString(16).padLeft(8, '0')); }
+  return out.toString();
+}
+")
+                )
                 go ( "_r_sha256(" (e 1) ")" 
     (create_polyfill
 "
@@ -1075,6 +1147,7 @@ func r_io_get_env( name string) *GoNullable {
 ")
     )
                 es6 ("process.env[" (e 1) "]")
+                dart ( "Platform.environment[" (e 1) "]" (imp "dart:io") )
                 cpp ( "std::getenv(" (e 1) ".c_str()) ? std::string(std::getenv(" (e 1) ".c_str())) : std::string(\"\")" (imp "<cstdlib>") )
                 ; * ("/* environment variable reading not implemented */")
             }
@@ -1094,8 +1167,11 @@ func r_io_get_env( name string) *GoNullable {
                 es6 ( "process.argv[ 2 + " (e 1) "]")
                 rust ( "std::env::args().nth((" (e 1) " + 1) as usize).unwrap_or_default()")
                 kotlin ( "args[" (e 1) "]")
-                ; Dart main(List<String> args) — user args only, like Java.
-                dart ( "args[" (e 1) "]" )
+                ; Dart hands the list to main(List<String> args) and nothing
+                ; else can see it, so main copies it into __g_args (the writer
+                ; emits that line) and every read goes through the global -- the
+                ; same shape as __g_argv on C++.
+                dart ( "__g_args[" (e 1) "]" )
                 ; sys.argv[0] is the script, so the +1 matches every other
                 ; target that keeps the program name in the list.
                 python ( "sys.argv[" (e 1) " + 1]" (imp "sys") )
@@ -1116,7 +1192,7 @@ func r_io_get_env( name string) *GoNullable {
                 es6 ( "(process.argv.length - 2)" )
                 rust ( "(std::env::args().len() as i64 - 1)")
                 kotlin ( "args.size")
-                dart ( "args.length" )
+                dart ( "__g_args.length" )
                 python ( "(len(sys.argv) - 1)" (imp "sys") )
                 ranger ("( shell_arg_cnt )")
             }
@@ -1125,6 +1201,45 @@ func r_io_get_env( name string) *GoNullable {
         ; I/O
         normalize cmdArg:string ( arg:string ) {
             templates {
+                dart ( "rg_path_normalize(" (e 1) ")"
+                (create_polyfill "
+// Path helpers for the compiler's own file handling. package:path would do
+// this, but the generated program has to run with a plain `dart run` and no
+// pubspec, so these are string operations. The shape follows Node's
+// path.normalize / path.dirname, because that is what the JavaScript host of
+// the same Ranger source does.
+String rg_path_normalize(String p) {
+  final String s = p.replaceAll(String.fromCharCode(92), '/');
+  final bool absolute = s.startsWith('/');
+  final bool trailing = s.length > 1 && s.endsWith('/');
+  final List<String> parts = <String>[];
+  for (final String cur in s.split('/')) {
+    if (cur == '..') {
+      if (parts.isNotEmpty && parts[parts.length - 1] != '..') {
+        parts.removeLast();
+      } else if (absolute == false) {
+        parts.add(cur);
+      }
+    } else if (cur.isNotEmpty && cur != '.') {
+      parts.add(cur);
+    }
+  }
+  String out = parts.join('/');
+  if (absolute) { out = '/' + out; }
+  if (out.isEmpty) { return '.'; }
+  if (trailing && out != '/') { out = out + '/'; }
+  return out;
+}
+String rg_path_dirname(String p) {
+  String s = rg_path_normalize(p);
+  if (s.length > 1 && s.endsWith('/')) { s = s.substring(0, s.length - 1); }
+  final int pos = s.lastIndexOf('/');
+  if (pos < 0) { return '.'; }
+  if (pos == 0) { return '/'; }
+  return s.substring(0, pos);
+}
+")
+                )
                 cpp ( "rg_path_normalize(" (e 1) ")"
                 (create_polyfill "
 #include <string>
@@ -1180,6 +1295,45 @@ inline std::string rg_path_dirname(const std::string& p) {
 
         path_dirname cmdArg:string ( arg:string ) {
             templates {
+                dart ( "rg_path_dirname(" (e 1) ")"
+                (create_polyfill "
+// Path helpers for the compiler's own file handling. package:path would do
+// this, but the generated program has to run with a plain `dart run` and no
+// pubspec, so these are string operations. The shape follows Node's
+// path.normalize / path.dirname, because that is what the JavaScript host of
+// the same Ranger source does.
+String rg_path_normalize(String p) {
+  final String s = p.replaceAll(String.fromCharCode(92), '/');
+  final bool absolute = s.startsWith('/');
+  final bool trailing = s.length > 1 && s.endsWith('/');
+  final List<String> parts = <String>[];
+  for (final String cur in s.split('/')) {
+    if (cur == '..') {
+      if (parts.isNotEmpty && parts[parts.length - 1] != '..') {
+        parts.removeLast();
+      } else if (absolute == false) {
+        parts.add(cur);
+      }
+    } else if (cur.isNotEmpty && cur != '.') {
+      parts.add(cur);
+    }
+  }
+  String out = parts.join('/');
+  if (absolute) { out = '/' + out; }
+  if (out.isEmpty) { return '.'; }
+  if (trailing && out != '/') { out = out + '/'; }
+  return out;
+}
+String rg_path_dirname(String p) {
+  String s = rg_path_normalize(p);
+  if (s.length > 1 && s.endsWith('/')) { s = s.substring(0, s.length - 1); }
+  final int pos = s.lastIndexOf('/');
+  if (pos < 0) { return '.'; }
+  if (pos == 0) { return '/'; }
+  return s.substring(0, pos);
+}
+")
+                )
                 cpp ( "rg_path_dirname(" (e 1) ")"
                 (create_polyfill "
 #include <string>
@@ -1235,6 +1389,47 @@ inline std::string rg_path_dirname(const std::string& p) {
 
         install_directory         cmdArg:string () {
             templates {
+                ; the directory the program was started from -- Platform.script
+                ; under `dart run`, the executable under `dart compile exe`
+                dart ( "rg_path_dirname(Platform.script.toFilePath())" (imp "dart:io")
+                (create_polyfill "
+// Path helpers for the compiler's own file handling. package:path would do
+// this, but the generated program has to run with a plain `dart run` and no
+// pubspec, so these are string operations. The shape follows Node's
+// path.normalize / path.dirname, because that is what the JavaScript host of
+// the same Ranger source does.
+String rg_path_normalize(String p) {
+  final String s = p.replaceAll(String.fromCharCode(92), '/');
+  final bool absolute = s.startsWith('/');
+  final bool trailing = s.length > 1 && s.endsWith('/');
+  final List<String> parts = <String>[];
+  for (final String cur in s.split('/')) {
+    if (cur == '..') {
+      if (parts.isNotEmpty && parts[parts.length - 1] != '..') {
+        parts.removeLast();
+      } else if (absolute == false) {
+        parts.add(cur);
+      }
+    } else if (cur.isNotEmpty && cur != '.') {
+      parts.add(cur);
+    }
+  }
+  String out = parts.join('/');
+  if (absolute) { out = '/' + out; }
+  if (out.isEmpty) { return '.'; }
+  if (trailing && out != '/') { out = out + '/'; }
+  return out;
+}
+String rg_path_dirname(String p) {
+  String s = rg_path_normalize(p);
+  if (s.length > 1 && s.endsWith('/')) { s = s.substring(0, s.length - 1); }
+  final int pos = s.lastIndexOf('/');
+  if (pos < 0) { return '.'; }
+  if (pos == 0) { return '/'; }
+  return s.substring(0, pos);
+}
+")
+                )
                 cpp ( "rg_path_dirname(std::string(__g_argv[0]))"
                 (create_polyfill "
 #include <string>
@@ -1291,6 +1486,7 @@ inline std::string rg_path_dirname(const std::string& p) {
         current_directory         cmdArg:string () {
             templates {
                 es6 ( "process.cwd()" )
+                dart ( "Directory.current.path" (imp "dart:io") )
                 csharp( "Directory.GetCurrentDirectory()" (imp "System") (imp "System.IO"))
                 ranger ("( current_directory )")
                 cpp ( "__cpp_curr_dir()"
@@ -1398,6 +1594,7 @@ func r_file_exists(pathName string, fileName string) bool {
 
         dir_exists          cmdIsDir:boolean (path:string) {
             templates {
+                dart ( "Directory(" (e 1) ").existsSync()" (imp "dart:io") )
                 csharp ( "false /* dir_exists not implemented */ ")
                 python ( "os.path.isdir(" (e 1) ")" (imp "os") )
                 scala ( "false /* dir_exists not implemented */ ")
@@ -1598,6 +1795,7 @@ fn r_wall_clock_ms() -> f64 {
 
         create_dir          cmdCreateDir:void (path:string) {
             templates {
+                dart ( nl "Directory(" (e 1) ").createSync(recursive: true);" nl (imp "dart:io") )
                 scala ( "/* create_dir not implemented */ ")
                 csharp ( "/* create_dir not implemented */ ")
 
@@ -1637,6 +1835,7 @@ static void createDir(String path)
 ; try text.write(to: path, atomically: false, encoding: String.Encoding.utf8)
         write_file          cmdWriteFile:void (path:string file:string data:string) {
             templates {
+                dart ( nl "File(" (e 1) " + \"/\" + " (e 2) ").writeAsStringSync(" (e 3) ");" nl (imp "dart:io") )
                 scala ( "/* write_file not implemented */ ")
                 csharp ( "/* write_file not implemented */ ")
 
@@ -2152,6 +2351,8 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                     ; not concatenate an int onto a str.
                     python ( (e 1) " + str(" (e 2) ")" )
                     kotlin ( (e 1) " + " (e 2) ".toString()" )
+                    ; an enum is an int on Dart, and Dart has no String + int
+                    dart ( (e 1) " + " (e 2) ".toString()" )
                     java7 ( (e 1) " + String.valueOf(" (e 2) ")" )
                     csharp ( (e 1) " + " (e 2) ".ToString()" )
                     scala ( (e 1) " + " (e 2) ".toString" )
@@ -3212,6 +3413,9 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
                 php ( "( $e->getMessage())" )
                 java7 ( "( e.getMessage())" )
                 cpp ( " \"unspecified error\" " )
+                ; Dart has no `try` entry of its own and takes the `*` one, which
+                ; binds `e`.
+                dart ( "e.toString()" )
                 ; The name each target binds in its catch clause. See the `try`
                 ; operator: python binds `e`, swift binds the implicit `error`.
                 python ( "str(e)" )
@@ -3434,6 +3638,7 @@ inline std::string r_trim_right(const std::string& s) {
                 csharp ( (e 1) ".TrimEnd()" (imp "System"))
                 go ("strings.TrimRight(" (e 1) ", \" \\t\\n\\r\")" (imp "strings"))
                 kotlin ( (e 1) ".trimEnd()" )
+                dart ( (e 1) ".trimRight()" )
                 java7 ( (e 1) ".replaceAll(\"\\\\s+$\", \"\")" )
                 python ( (e 1) ".rstrip()" )
                 rust ( (e 1) ".trim_end().to_string()" )
@@ -3664,6 +3869,9 @@ static bool r_regex_test_i(string pattern, string s) {
                  (imp "fmt")
                 )
                 cpp ( "std::string( " (e 1) " + " (e 2) ", " (e 3) " - " (e 2) " )")
+                ; a charbuffer is List<int> on Dart, so the `*` fallback (the
+                ; JavaScript String.substring) does not apply to it
+                dart ( "String.fromCharCodes(" (e 1) ".sublist(" (e 2) ", " (e 3) "))" )
                 php ( "substr(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")") 
                 * ( (e 1) ".substring(" (e 2) ", " (e 3) " )")
             }
@@ -3673,6 +3881,7 @@ static bool r_regex_test_i(string pattern, string s) {
             templates {      
                 ranger ( "(to_string " (e 1) ")")
                 go ( "string(" (e 1) ")" )
+                dart ( "String.fromCharCodes(" (e 1) ")" )
                 * ( (e 1) )
             }
         }     
@@ -3680,6 +3889,7 @@ static bool r_regex_test_i(string pattern, string s) {
         toString   bufferToString:string       ( text:charbuffer ) { 
             templates {      
                 go ( "string(" (e 1) ")" )
+                dart ( "String.fromCharCodes(" (e 1) ")" )
                 * ( (e 1) )
             }
         }        
@@ -3694,6 +3904,7 @@ static bool r_regex_test_i(string pattern, string s) {
                 kotlin ( (e 1 ) ".toCharArray()" )
                 rust ( (e 1) ".into_bytes()")
                 cpp ( (e 1) ".c_str()")
+                dart ( (e 1) ".codeUnits" )
                 php ( (e 1) )
                 go("[]byte(" (e 1) ")")
                 * ( (e 1) )
@@ -4430,6 +4641,9 @@ std::vector<std::string> r_get_keys_of_map( const M & orig_map )  {
                 ; see the note on the string overload above: a charbuffer is a
                 ; const char* and indexing it gives a SIGNED char
                 cpp ( "((unsigned char)" (e 1) "[" (e 2) "])")
+                ; a charbuffer is List<int> on Dart: index it, do not call
+                ; codeUnitAt (which is the String overload's entry)
+                dart ( (e 1) "[" (e 2) "]" )
                 csharp ( (e 1) "[" (e 2) "]")
                 php ( "ord(" (e 1) "[" (e 2) "])")               
                 java7 ( (e 1) "[" (e 2) "]")  
@@ -4490,6 +4704,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 ; unsigned for the same reason as charAt: std::string::at
                 ; gives a SIGNED char, and every other target returns a code unit
                 cpp( "((unsigned char)" (e 1) ".at(0))")
+                dart ( (e 1) ".codeUnitAt(0)" )
                 php ( "ord(" (e 1) ")") 
                 java7 ( "((" (e 1) ".getBytes())[0])") 
                 swift3 ( "UInt8( (  NSString(string: " (e 1) " )     ).character( at: 0 ) )" (imp "Foundation"))
@@ -5532,6 +5747,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  scala ( (e 1) ".remove((" (e 2) ").toInt)" )
                  go ( (e 1) " = append(" (e 1) "[:" (e 2) "], " (e 1) "[" (e 2) "+1:]...)" )
                  python ( (e 1) ".pop(" (e 2) ")" )
+                 dart ( (e 1) ".removeAt(" (e 2) ");" )
                  * ( (e 1) ".splice(" (e 2) ", 1).pop();" )                                              
             }
         }
@@ -5801,6 +6017,9 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 rust ( "{ let mut __v = " (e 1) ".clone(); let __cb = " (e 2) "; __v.sort_by(|__a, __b| __cb(__a.clone(), __b.clone()).cmp(&0)); __v }" )
                 cpp ( "[&]() { auto __v = " (e 1) "; auto __cb = " (e 2) "; std::stable_sort(__v.begin(), __v.end(), [&](const auto& __a, const auto& __b) { return __cb(__a, __b) < 0; }); return __v; }()" (imp "<algorithm>") )
                 kotlin ( (e 1) ".sortedWith(Comparator { __a, __b -> (" (e 2) ")(__a, __b).toInt() })" )
+                ; `..sort` is a cascade, so the expression is the sorted COPY --
+                ; `sort` leaves its argument alone on every other target.
+                dart ( "(" (typeof 1) ".from(" (e 1) ")..sort((__a, __b) => (" (e 2) ")(__a, __b)))" )
                 scala ( (e 1) ".sortWith((__a, __b) => (" (e 2) ")(__a, __b) < 0)" )
                 swift3 ( (e 1) ".sorted(by: { (" (e 2) ")($0, $1) < 0 })" )
                 swift6 ( (e 1) ".sorted(by: { (" (e 2) ")($0, $1) < 0 })" )
@@ -5826,6 +6045,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 python ( "list(reversed(" (e 1) "))" )
                 php ( "array_reverse(" (e 1) ")" )
                 kotlin ( (e 1) ".reversed()" )
+                dart ( (e 1) ".reversed.toList()" )
                 scala ( (e 1) ".reverse" )
                 swift3 ( "Array(" (e 1) ".reversed())" )
                 swift6 ( "Array(" (e 1) ".reversed())" )
@@ -5912,6 +6132,7 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
                  
                  )
                  scala ( (e 1) ".remove(" (e 2) ")" )
+                 dart ( (e 1) ".removeAt(" (e 2) ")" )
                  * ( (e 1) ".splice(" (e 2) ", 1).pop()" )                                              
             }
         }
@@ -7049,6 +7270,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 swift3 ( (e 1) " != nil  && " (e 2) " != nil") 
                 swift6 ( (e 1) " != nil  && " (e 2) " != nil") 
                 go ( "" (e 1) ".has_value  && " "" (e 2) ".has_value")
+                dart ( (e 1) " != null  && " (e 2) " != null")
                 cpp ( "" (e 1) "!= NULL  && " "" (e 2) " != NULL") 
                 kotlin ( (e 1) " != null  && " (e 2) " != null") 
                 python ( '(' (e 1) " is not None and " (e 2) " is not None)")
@@ -7068,6 +7290,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 swift3 ( (e 1) " && " (e 2) " != nil") 
                 swift6 ( (e 1) " && " (e 2) " != nil") 
                 go ( (e 1) " && " "" (e 2) ".has_value") 
+                dart ( (e 1) " && " (e 2) " != null")
                 cpp ( (e 1) " && " "" (e 2) "!= NULL ") 
                 kotlin ( (e 1) " && " (e 2) " != null") 
                 python ( (e 1) " and " (e 2) " is not None") 
@@ -7087,6 +7310,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 swift3 ( ""(e 1) " != nil && " (e 2) ) 
                 swift6 ( ""(e 1) " != nil && " (e 2) ) 
                 go ( "" (e 1) ".has_value && " (e 2) ) 
+                dart ( (e 1) " != null && " (e 2) )
                 cpp ( "" (e 1) " != NULL && " (e 2) ) 
                 kotlin ( ""(e 1) " != null && " (e 2) ) 
                 python ( (e 1) " is not None and " (e 2) ) 

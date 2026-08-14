@@ -8,6 +8,7 @@ systemclass RangerCompilerPlugin {
     es6 any
     cpp "void*"
     go "interface{}"
+    dart "Object?"
 }
 
 operators {
@@ -16,6 +17,7 @@ operators {
             es6 ( 'require( ' (e 1) ' )' )
             cpp ( "((void*)nullptr)" )
             go ( "nil" )
+            dart ( "null" )
             * ()
         }
     }
@@ -25,6 +27,7 @@ operators {
             es6 ( '(new ' (e 1) '.Plugin () ).features()' )
             cpp ( "std::vector<std::string>()" (imp "<vector>") (imp "<string>") )
             go ( "[]string{}" )
+            dart ( "<String>[]" )
             * ()
         }
     }
@@ -34,6 +37,7 @@ operators {
             es6 ( '( (new ' (e 1) '.Plugin () )[' (e 2) '] )( ' (e 3) ', ' (e 4) ' , ' (e 5) ' )' )
             cpp ( "/* no plugin host on this target */" )
             go ( "/* no plugin host on this target */" )
+            dart ( "/* no plugin host on this target */" )
             * ()
         }
     }
@@ -44,6 +48,7 @@ operators {
             es6 ( '(new ' (e 1) '.Plugin () ).preprocess( ' (e 2) ', ' (e 3) ' , ' (e 4) ' )' )
             cpp ( "/* no plugin host on this target */" )
             go ( "/* no plugin host on this target */" )
+            dart ( "/* no plugin host on this target */" )
             * ()
         }
     }
@@ -52,6 +57,7 @@ operators {
             es6 ( '(new ' (e 1) '.Plugin () ).postprocess( ' (e 2) ', ' (e 3) ' , ' (e 4) ' )' )
             cpp ( "/* no plugin host on this target */" )
             go ( "/* no plugin host on this target */" )
+            dart ( "/* no plugin host on this target */" )
             * ()
         }
     }

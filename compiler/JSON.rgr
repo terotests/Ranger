@@ -27,6 +27,7 @@ systemclass JSONDataObject {
     python dict
     rust "std::collections::HashMap<String, RJson>"
     cpp "rg_json_obj"
+    dart "Map<String, dynamic>"
 }
 
 systemclass JSONArrayObject {
@@ -39,6 +40,7 @@ systemclass JSONArrayObject {
     python list
     rust "Vec<RJson>"
     cpp "rg_json_arr"
+    dart "List<dynamic>"
 }
 
 systemclass JSONKeyValue {
@@ -55,6 +57,7 @@ systemclass JSONValueUnion {
     python object
     rust RJson
     cpp "rg_json_val"
+    dart "dynamic"
 }
 
 systemunion JSONValueUnion ( JSONDataObject JSONArrayObject string int double boolean )
@@ -89,6 +92,7 @@ operators {
 
     print _:void (e:JSONDataObject) {
          templates {
+             dart ( "print(jsonEncode(" (e 1) "));" (imp "dart:convert") )
              cpp ( "std::cout << rg_json_obj_to_string(" (e 1) ") << std::endl;" (imp "<iostream>")
              (create_polyfill "
 #include <memory>
@@ -198,6 +202,43 @@ inline std::string rg_json_arr_to_string(const rg_json_arr& a) { std::string out
 
     getStr _@(optional):string (e:JSONDataObject key:string) {
          templates {
+             dart ( "rg_json_get_str(" (e 1) ", " (e 2) ")"
+             (create_polyfill "
+Map<String, dynamic>? rg_json_get_obj(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is Map<String, dynamic> ? v : null;
+}
+List<dynamic>? rg_json_get_arr(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is List<dynamic> ? v : null;
+}
+String? rg_json_get_str(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is String ? v : null;
+}
+bool? rg_json_get_bool(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is bool ? v : null;
+}
+// A JSON number is int or double and the two are distinct types in Dart, so
+// each getter accepts both and converts, the way the Python and Rust entries do.
+int? rg_json_get_int(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  if (v is int) { return v; }
+  if (v is double) { return v.toInt(); }
+  return null;
+}
+double? rg_json_get_double(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  if (v is double) { return v; }
+  if (v is int) { return v.toDouble(); }
+  return null;
+}
+List<dynamic>? rg_json_as_arr(dynamic v) {
+  return v is List<dynamic> ? v : null;
+}
+")
+             )
              cpp ( "rg_json_get_str(" (e 1) ", " (e 2) ")"
              (create_polyfill "
 #include <memory>
@@ -345,6 +386,43 @@ fn r_json_get_str(o: &std::collections::HashMap<String, RJson>, k: &str) -> Opti
 
     getInt _@(optional):int (e:JSONDataObject key:string) {
          templates {
+             dart ( "rg_json_get_int(" (e 1) ", " (e 2) ")"
+             (create_polyfill "
+Map<String, dynamic>? rg_json_get_obj(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is Map<String, dynamic> ? v : null;
+}
+List<dynamic>? rg_json_get_arr(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is List<dynamic> ? v : null;
+}
+String? rg_json_get_str(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is String ? v : null;
+}
+bool? rg_json_get_bool(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is bool ? v : null;
+}
+// A JSON number is int or double and the two are distinct types in Dart, so
+// each getter accepts both and converts, the way the Python and Rust entries do.
+int? rg_json_get_int(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  if (v is int) { return v; }
+  if (v is double) { return v.toInt(); }
+  return null;
+}
+double? rg_json_get_double(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  if (v is double) { return v; }
+  if (v is int) { return v.toDouble(); }
+  return null;
+}
+List<dynamic>? rg_json_as_arr(dynamic v) {
+  return v is List<dynamic> ? v : null;
+}
+")
+             )
              cpp ( "rg_json_get_int(" (e 1) ", " (e 2) ")"
              (create_polyfill "
 #include <memory>
@@ -498,6 +576,43 @@ fn r_json_get_int(o: &std::collections::HashMap<String, RJson>, k: &str) -> Opti
 
     getDouble _@(optional):double (e:JSONDataObject key:string) {
          templates {
+             dart ( "rg_json_get_double(" (e 1) ", " (e 2) ")"
+             (create_polyfill "
+Map<String, dynamic>? rg_json_get_obj(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is Map<String, dynamic> ? v : null;
+}
+List<dynamic>? rg_json_get_arr(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is List<dynamic> ? v : null;
+}
+String? rg_json_get_str(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is String ? v : null;
+}
+bool? rg_json_get_bool(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is bool ? v : null;
+}
+// A JSON number is int or double and the two are distinct types in Dart, so
+// each getter accepts both and converts, the way the Python and Rust entries do.
+int? rg_json_get_int(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  if (v is int) { return v; }
+  if (v is double) { return v.toInt(); }
+  return null;
+}
+double? rg_json_get_double(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  if (v is double) { return v; }
+  if (v is int) { return v.toDouble(); }
+  return null;
+}
+List<dynamic>? rg_json_as_arr(dynamic v) {
+  return v is List<dynamic> ? v : null;
+}
+")
+             )
              cpp ( "rg_json_get_double(" (e 1) ", " (e 2) ")"
              (create_polyfill "
 #include <memory>
@@ -651,6 +766,43 @@ fn r_json_get_double(o: &std::collections::HashMap<String, RJson>, k: &str) -> O
 
     getBoolean _@(optional):boolean (e:JSONDataObject key:string) {
          templates {
+             dart ( "rg_json_get_bool(" (e 1) ", " (e 2) ")"
+             (create_polyfill "
+Map<String, dynamic>? rg_json_get_obj(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is Map<String, dynamic> ? v : null;
+}
+List<dynamic>? rg_json_get_arr(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is List<dynamic> ? v : null;
+}
+String? rg_json_get_str(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is String ? v : null;
+}
+bool? rg_json_get_bool(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is bool ? v : null;
+}
+// A JSON number is int or double and the two are distinct types in Dart, so
+// each getter accepts both and converts, the way the Python and Rust entries do.
+int? rg_json_get_int(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  if (v is int) { return v; }
+  if (v is double) { return v.toInt(); }
+  return null;
+}
+double? rg_json_get_double(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  if (v is double) { return v; }
+  if (v is int) { return v.toDouble(); }
+  return null;
+}
+List<dynamic>? rg_json_as_arr(dynamic v) {
+  return v is List<dynamic> ? v : null;
+}
+")
+             )
              cpp ( "rg_json_get_bool(" (e 1) ", " (e 2) ")"
              (create_polyfill "
 #include <memory>
@@ -762,6 +914,43 @@ fn r_json_get_bool(o: &std::collections::HashMap<String, RJson>, k: &str) -> Opt
 
     getObject _@(optional):JSONDataObject (e:JSONDataObject key:string) {
          templates {
+             dart ( "rg_json_get_obj(" (e 1) ", " (e 2) ")"
+             (create_polyfill "
+Map<String, dynamic>? rg_json_get_obj(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is Map<String, dynamic> ? v : null;
+}
+List<dynamic>? rg_json_get_arr(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is List<dynamic> ? v : null;
+}
+String? rg_json_get_str(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is String ? v : null;
+}
+bool? rg_json_get_bool(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is bool ? v : null;
+}
+// A JSON number is int or double and the two are distinct types in Dart, so
+// each getter accepts both and converts, the way the Python and Rust entries do.
+int? rg_json_get_int(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  if (v is int) { return v; }
+  if (v is double) { return v.toInt(); }
+  return null;
+}
+double? rg_json_get_double(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  if (v is double) { return v; }
+  if (v is int) { return v.toDouble(); }
+  return null;
+}
+List<dynamic>? rg_json_as_arr(dynamic v) {
+  return v is List<dynamic> ? v : null;
+}
+")
+             )
              cpp ( "rg_json_get_obj(" (e 1) ", " (e 2) ")"
              (create_polyfill "
 #include <memory>
@@ -891,6 +1080,43 @@ fn r_json_get_obj(o: &std::collections::HashMap<String, RJson>, k: &str) -> Opti
     ; todo: proper array detection for optionals
     getArray _@(optional):JSONArrayObject (e:JSONDataObject key:string) {
          templates {
+             dart ( "rg_json_get_arr(" (e 1) ", " (e 2) ")"
+             (create_polyfill "
+Map<String, dynamic>? rg_json_get_obj(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is Map<String, dynamic> ? v : null;
+}
+List<dynamic>? rg_json_get_arr(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is List<dynamic> ? v : null;
+}
+String? rg_json_get_str(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is String ? v : null;
+}
+bool? rg_json_get_bool(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is bool ? v : null;
+}
+// A JSON number is int or double and the two are distinct types in Dart, so
+// each getter accepts both and converts, the way the Python and Rust entries do.
+int? rg_json_get_int(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  if (v is int) { return v; }
+  if (v is double) { return v.toInt(); }
+  return null;
+}
+double? rg_json_get_double(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  if (v is double) { return v; }
+  if (v is int) { return v.toDouble(); }
+  return null;
+}
+List<dynamic>? rg_json_as_arr(dynamic v) {
+  return v is List<dynamic> ? v : null;
+}
+")
+             )
              cpp ( "rg_json_get_arr(" (e 1) ", " (e 2) ")"
              (create_polyfill "
 #include <memory>
@@ -1002,6 +1228,7 @@ fn r_json_get_arr(o: &std::collections::HashMap<String, RJson>, k: &str) -> Opti
 
     keys _:[string] (e:JSONDataObject) {
         templates {
+            dart ( (e 1) ".keys.toList()" )
             cpp ( "rg_json_keys(" (e 1) ")"
             (create_polyfill "
 #include <memory>
@@ -1108,6 +1335,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     isArray _:boolean (e:JSONValueUnion) {
         templates {
+            dart ( "(" (e 1) " is List)" )
             cpp ( "std::holds_alternative<rg_json_arr>(" (e 1) ")"
             (create_polyfill "
 #include <memory>
@@ -1171,6 +1399,43 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     asArray _@(optional):JSONArrayObject (e:JSONValueUnion) {
         templates {
+            dart ( "rg_json_as_arr(" (e 1) ")"
+            (create_polyfill "
+Map<String, dynamic>? rg_json_get_obj(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is Map<String, dynamic> ? v : null;
+}
+List<dynamic>? rg_json_get_arr(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is List<dynamic> ? v : null;
+}
+String? rg_json_get_str(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is String ? v : null;
+}
+bool? rg_json_get_bool(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  return v is bool ? v : null;
+}
+// A JSON number is int or double and the two are distinct types in Dart, so
+// each getter accepts both and converts, the way the Python and Rust entries do.
+int? rg_json_get_int(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  if (v is int) { return v; }
+  if (v is double) { return v.toInt(); }
+  return null;
+}
+double? rg_json_get_double(Map<String, dynamic> o, String k) {
+  final v = o[k];
+  if (v is double) { return v; }
+  if (v is int) { return v.toDouble(); }
+  return null;
+}
+List<dynamic>? rg_json_as_arr(dynamic v) {
+  return v is List<dynamic> ? v : null;
+}
+")
+            )
             cpp ( "rg_json_as_arr(" (e 1) ")"
             (create_polyfill "
 #include <memory>
@@ -1227,6 +1492,7 @@ fn r_json_as_arr(v: &RJson) -> Option<Vec<RJson>> {
 
     getValue _:JSONValueUnion (e:JSONArrayObject index:int) {
         templates {
+            dart ( (e 1) "[" (e 2) "]" )
             cpp ( "rg_json_at(" (e 1) ", " (e 2) ")"
             (create_polyfill "
 #include <memory>
@@ -1308,6 +1574,7 @@ fn r_json_at(a: &Vec<RJson>, i: i64) -> RJson {
 
     array_length _:int (e:JSONArrayObject) {
         templates {
+            dart ( (e 1) ".length" )
             cpp ( "rg_json_len(" (e 1) ")"
             (create_polyfill "
 #include <memory>
@@ -1366,6 +1633,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     set _@(moves@( 3 1 ) ):void (e@(mutates):JSONDataObject key:string value:enum) {
         templates {
+            dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             cpp ( "rg_json_set(" (e 1) ", " (e 2) ", " (e 3) ");"
             (create_polyfill "
 #include <memory>
@@ -1449,6 +1717,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     set _@(moves@( 3 1 ) ):void (e@(mutates):JSONDataObject key:string value:string) {
         templates {
+            dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             cpp ( "rg_json_set(" (e 1) ", " (e 2) ", " (e 3) ");"
             (create_polyfill "
 #include <memory>
@@ -1532,6 +1801,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     set _@(moves@( 3 1 ) ):void (e@(mutates):JSONDataObject key:string value:int) {
         templates {
+            dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             cpp ( "rg_json_set(" (e 1) ", " (e 2) ", " (e 3) ");"
             (create_polyfill "
 #include <memory>
@@ -1615,6 +1885,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     set _@(moves@( 3 1 ) ):void (e@(mutates):JSONDataObject key:string value:double) {
         templates {
+            dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             cpp ( "rg_json_set(" (e 1) ", " (e 2) ", " (e 3) ");"
             (create_polyfill "
 #include <memory>
@@ -1698,6 +1969,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     set _@(moves@( 3 1 ) ):void (e@(mutates):JSONDataObject key:string value:boolean) {
         templates {
+            dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             cpp ( "rg_json_set(" (e 1) ", " (e 2) ", " (e 3) ");"
             (create_polyfill "
 #include <memory>
@@ -1781,6 +2053,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     set _@(moves@( 3 1 ) ):void (e@(mutates):JSONDataObject key:string value:JSONValueUnion) {
         templates {
+            dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             cpp ( "rg_json_set(" (e 1) ", " (e 2) ", " (e 3) ");"
             (create_polyfill "
 #include <memory>
@@ -1912,6 +2185,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
 
     from_string _@(throws):JSONDataObject (txt:string) {
          templates {
+             dart ( "(jsonDecode(" (e 1) ") as Map<String, dynamic>)" (imp "dart:convert") )
              cpp ( "rg_json_parse_obj(" (e 1) ")"
              (create_polyfill "
 #include <memory>
@@ -2198,6 +2472,7 @@ fn r_json_parse_obj(text: &str) -> std::collections::HashMap<String, RJson> {
 
     to_string _:string (e:JSONDataObject) {
          templates {
+             dart ( "jsonEncode(" (e 1) ")" (imp "dart:convert") )
              cpp ( "rg_json_obj_to_string(" (e 1) ")"
              (create_polyfill "
 #include <memory>
@@ -2389,6 +2664,7 @@ fn r_json_to_string(v: &RJson) -> String {
 
     to_string _:string (e:JSONArrayObject) {
          templates {
+             dart ( "jsonEncode(" (e 1) ")" (imp "dart:convert") )
              cpp ( "rg_json_arr_to_string(" (e 1) ")"
              (create_polyfill "
 #include <memory>
@@ -2568,6 +2844,7 @@ fn r_json_to_string(v: &RJson) -> String {
 
     push _@(moves@( 2 1 ) ):void ( e@(mutates):JSONArrayObject el:JSONArrayUnion) {
         templates {
+            dart ( (e 1) ".add(" (e 2) ");" )
             cpp ( "rg_json_push(" (e 1) ", " (e 2) ");"
             (create_polyfill "
 #include <memory>
@@ -2662,6 +2939,7 @@ impl RJsonValue for RJson { fn r_json_value(&self) -> RJson { self.clone() } }
     }
     json_array json@(expands):JSONArrayObject () {
         templates {
+            dart ( "<dynamic>[]" )
             cpp ( "rg_json_new_arr()"
             (create_polyfill "
 #include <memory>
@@ -2719,6 +2997,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
     }
     json_object json:JSONDataObject () {
         templates {
+            dart ( "<String, dynamic>{}" )
             cpp ( "rg_json_new_obj()"
             (create_polyfill "
 #include <memory>

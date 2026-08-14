@@ -129,8 +129,11 @@ class RangerAppFunctionDesc {
     cc.extends_classes.forEach({
       def otherClass (ctx.findClass(item))
       if(otherClass.hasMethod(f.name)) {
+        ; `cb` takes a non-optional, and hasMethod has just answered yes.
+        ; Handing the optional through works on JavaScript and is a type error
+        ; on a target with real optionals.
         def m (otherClass.findMethod(f.name))
-        cb( m )
+        cb( (unwrap m) )
       }
     })
     def root (ctx.getRoot())
@@ -138,7 +141,7 @@ class RangerAppFunctionDesc {
       if( (indexOf item.extends_classes f.container_class.name) >= 0 ) {
         if(item.hasMethod(f.name)) {
           def m (item.findMethod(f.name))
-          cb( m )                
+          cb( (unwrap m) )
         }
       }
     })
