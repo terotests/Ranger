@@ -23605,6 +23605,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               this.rust_writing_call_receiver = false;
               this.rust_call_receiver_mut = true;
               this.rust_receiver_written = false;
+              this.rust_in_trait_decl = false;
               this.thisName = "self";
               this.rustFnReturnsUnion = "";
               this.fileHeaderWritten = false;
@@ -23983,6 +23984,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 needs_refcell_wrap = false;
               }
               if ( is_weak ) {
+                if ( ((node.array_type.length) == 0) && ((node.key_type.length) == 0) ) {
+                  if ( this.rustTypeIsOwnHandle(node.type_name, ctx) ) {
+                    const wkInner = ("dyn " + node.type_name) + "Trait";
+                    if ( is_optional ) {
+                      wr.out(("Option<Weak<RefCell<" + wkInner) + ">>>", false);
+                    } else {
+                      wr.out(("Weak<RefCell<" + wkInner) + ">>", false);
+                    }
+                    return;
+                  }
+                }
                 if ( is_optional ) {
                   wr.out("Option<Weak<RefCell<", false);
                 } else {
@@ -24506,7 +24518,20 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( ((onn.array_type.length) > 0) || ((onn.key_type.length) > 0) ) {
                   return false;
                 }
-                return this.rustTypeIsOwnHandle(onn.type_name, ctx);
+                if ( this.rustTypeIsOwnHandle(onn.type_name, ctx) == false ) {
+                  return false;
+                }
+                const ownerCls = ctx.findClass(onn.type_name);
+                if ( typeof(ownerCls) === "undefined" ) {
+                  return false;
+                }
+                const oc = ownerCls;
+                const seg = node.nsp[idx];
+                const fv = oc.findVariable(seg.name);
+                if ( typeof(fv) === "undefined" ) {
+                  return false;
+                }
+                return true;
               };
               async writeStructField (node, ctx, wr) {
                 if ( node.hasParamDesc ) {
@@ -24520,11 +24545,57 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               rustFieldAccessorName (p) {
                 return "rgf_" + this.adjustType(p.compiledName);
               };
+              rustFieldIsCopyScalar (p, ctx) {
+                if ( p.rust_needs_rc_wrap ) {
+                  return false;
+                }
+                if ( p.is_optional ) {
+                  return false;
+                }
+                const nameN = p.nameNode;
+                if ( typeof(nameN) === "undefined" ) {
+                  return false;
+                }
+                const nn = nameN;
+                if ( ((nn.array_type.length) > 0) || ((nn.key_type.length) > 0) ) {
+                  return false;
+                }
+                if ( p.rust_static_str ) {
+                  return true;
+                }
+                let v_type = nn.value_type;
+                if ( ((v_type == 10) || (v_type == 11)) || (v_type == 0) ) {
+                  v_type = nn.typeNameAsType(ctx);
+                }
+                if ( nn.eval_type != 0 ) {
+                  v_type = nn.eval_type;
+                }
+                if ( v_type == 3 ) {
+                  return true;
+                }
+                if ( v_type == 2 ) {
+                  return true;
+                }
+                if ( v_type == 5 ) {
+                  return true;
+                }
+                if ( v_type == 14 ) {
+                  return true;
+                }
+                if ( v_type == 13 ) {
+                  return true;
+                }
+                return false;
+              };
               async writeTraitFieldAccessorDecls (cl, ctx, wr) {
                 for ( let i = 0; i < cl.variables.length; i++) {
                   var pvar = cl.variables[i];
                   const acc = this.rustFieldAccessorName(pvar);
-                  wr.out(("fn " + acc) + "(&self) -> &", false);
+                  if ( this.rustFieldIsCopyScalar(pvar, ctx) ) {
+                    wr.out(("fn " + acc) + "(&self) -> ", false);
+                  } else {
+                    wr.out(("fn " + acc) + "(&self) -> &", false);
+                  }
                   await this.writeStructFieldType(pvar, ctx, wr);
                   wr.out(";", true);
                   wr.out(("fn " + acc) + "_mut(&mut self) -> &mut ", false);
@@ -24537,9 +24608,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   var pvar = cl.variables[i];
                   const acc = this.rustFieldAccessorName(pvar);
                   const fld = this.adjustType(pvar.compiledName);
-                  wr.out(("fn " + acc) + "(&self) -> &", false);
-                  await this.writeStructFieldType(pvar, ctx, wr);
-                  wr.out((" { &self." + fld) + " }", true);
+                  if ( this.rustFieldIsCopyScalar(pvar, ctx) ) {
+                    wr.out(("fn " + acc) + "(&self) -> ", false);
+                    await this.writeStructFieldType(pvar, ctx, wr);
+                    wr.out((" { self." + fld) + " }", true);
+                  } else {
+                    wr.out(("fn " + acc) + "(&self) -> &", false);
+                    await this.writeStructFieldType(pvar, ctx, wr);
+                    wr.out((" { &self." + fld) + " }", true);
+                  }
                   wr.out(("fn " + acc) + "_mut(&mut self) -> &mut ", false);
                   await this.writeStructFieldType(pvar, ctx, wr);
                   wr.out((" { &mut self." + fld) + " }", true);
@@ -25188,6 +25265,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     }
                     const is_object = ((((((v_type == 10) || (v_type == 6)) || (v_type == 7)) || (v_type == 17)) || (v_type == 18)) || (v_type == 15)) || (v_type == 16);
                     const paramName = this.adjustType(arg.compiledName);
+                    let rust_mut_pfx = "mut ";
+                    if ( this.rust_in_trait_decl ) {
+                      rust_mut_pfx = "";
+                    }
                     let needsMutRef = false;
                     if ( arg.needs_cpp_reference ) {
                       needsMutRef = true;
@@ -25211,9 +25292,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         continue;
                       }
                       if ( argIsPlainClass ) {
-                        wr.out((("mut " + paramName) + " : ") + this.rustSharedTypeString(nameN.type_name, ctx), false);
+                        wr.out(((rust_mut_pfx + paramName) + " : ") + this.rustSharedTypeString(nameN.type_name, ctx), false);
                       } else {
-                        wr.out(("mut " + paramName) + " : Rc<RefCell<", false);
+                        wr.out((rust_mut_pfx + paramName) + " : Rc<RefCell<", false);
                         await this.writeTypeDef(nameN, ctx, wr);
                         wr.out(">>", false);
                       }
@@ -25221,7 +25302,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     }
                     const needsImmutableBorrow = arg.rust_borrow_type == 1;
                     if ( needsMutRef ) {
-                      wr.out(("mut " + paramName) + " : &mut ", false);
+                      wr.out((rust_mut_pfx + paramName) + " : &mut ", false);
                       await this.writeTypeDef(nameN, ctx, wr);
                     } else {
                       if ( needsImmutableBorrow ) {
@@ -25254,11 +25335,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         }
                       } else {
                         if ( is_object ) {
-                          wr.out(("mut " + paramName) + " : ", false);
+                          wr.out((rust_mut_pfx + paramName) + " : ", false);
                           await this.writeTypeDef(nameN, ctx, wr);
                         } else {
                           if ( arg.set_cnt > 0 ) {
-                            wr.out(("mut " + paramName) + " : ", false);
+                            wr.out((rust_mut_pfx + paramName) + " : ", false);
                           } else {
                             wr.out(paramName + " : ", false);
                           }
@@ -28073,7 +28154,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             var variant_3 = mVs_2.variants[i_10];
                             wr.out(("fn " + variant_3.name) + "(", false);
                             this.writeRustReceiver(true, wr);
+                            this.rust_in_trait_decl = true;
                             await this.writeArgsDef(variant_3, ctx, wr);
+                            this.rust_in_trait_decl = false;
                             await this.writeRustFnClose(variant_3, ctx, wr);
                             wr.out(";", true);
                           };

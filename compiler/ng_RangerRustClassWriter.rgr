@@ -25,6 +25,10 @@ class RangerRustClassWriter {
   ; writeArgsDef knows to lead with a comma — and only then, so an empty
   ; parameter list closes as `(&mut self)` and not `(&mut self, )`
   def rust_receiver_written:boolean false
+  ; a trait method signature has no body, and Rust allows no pattern in one:
+  ; `mut x : T` there is "patterns aren't allowed in functions without
+  ; bodies". The binding mode is the implementor's business anyway.
+  def rust_in_trait_decl:boolean false
 
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
@@ -451,6 +455,21 @@ class RangerRustClassWriter {
     
     ; Handle weak references - uses Weak<RefCell<T>> to break reference cycles
     if is_weak {
+      ; a class with subclasses is written as the whole Rc<RefCell<dyn …>>
+      ; handle, so letting the switch below fill the hole gave
+      ; Weak<RefCell<Rc<RefCell<dyn XTrait>>>> — the weak form of a handle,
+      ; not of the object. The trait object goes straight into the Weak.
+      if (((strlen node.array_type) == 0) && ((strlen node.key_type) == 0)) {
+        if (this.rustTypeIsOwnHandle(node.type_name ctx)) {
+          def wkInner:string (("dyn " + node.type_name) + "Trait")
+          if is_optional {
+            wr.out((("Option<Weak<RefCell<" + wkInner) + ">>>") false)
+          } {
+            wr.out((("Weak<RefCell<" + wkInner) + ">>") false)
+          }
+          return
+        }
+      }
       if is_optional {
         wr.out("Option<Weak<RefCell<" false)
       } {
@@ -1069,7 +1088,23 @@ class RangerRustClassWriter {
     if (((strlen onn.array_type) > 0) || ((strlen onn.key_type) > 0)) {
       return false
     }
-    return (this.rustTypeIsOwnHandle(onn.type_name ctx))
+    if ((this.rustTypeIsOwnHandle(onn.type_name ctx)) == false) {
+      return false
+    }
+    ; only a FIELD comes from an accessor. A method segment keeps its own
+    ; name — routing one through rgf_… produced `x.rgf_getStrength_mut()()`,
+    ; an accessor that does not exist called as if it returned a function.
+    def ownerCls@(optional):RangerAppClassDesc (ctx.findClass(onn.type_name))
+    if (null? ownerCls) {
+      return false
+    }
+    def oc:RangerAppClassDesc (unwrap ownerCls)
+    def seg:RangerAppParamDesc (itemAt node.nsp idx)
+    def fv@(optional):RangerAppParamDesc (oc.findVariable(seg.name))
+    if (null? fv) {
+      return false
+    }
+    return true
   }
 
   fn writeStructField (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -1092,10 +1127,61 @@ class RangerRustClassWriter {
     return ("rgf_" + (this.adjustType(p.compiledName)))
   }
 
+  ; Is this field a Copy scalar? Such a field is handed back by value, not by
+  ; reference: `&bool` where a `bool` is wanted is a type error at every
+  ; single read, and a copy of an i64 is what the reference would have been
+  ; dereferenced into anyway.
+  fn rustFieldIsCopyScalar:boolean (p:RangerAppParamDesc ctx:RangerAppWriterContext) {
+    if p.rust_needs_rc_wrap {
+      return false
+    }
+    if p.is_optional {
+      return false
+    }
+    def nameN@(optional):CodeNode p.nameNode
+    if (null? nameN) {
+      return false
+    }
+    def nn:CodeNode (unwrap nameN)
+    if (((strlen nn.array_type) > 0) || ((strlen nn.key_type) > 0)) {
+      return false
+    }
+    if p.rust_static_str {
+      return true
+    }
+    def v_type:RangerNodeType nn.value_type
+    if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
+      v_type = (nn.typeNameAsType(ctx))
+    }
+    if (nn.eval_type != RangerNodeType.NoType) {
+      v_type = nn.eval_type
+    }
+    if (v_type == RangerNodeType.Integer) {
+      return true
+    }
+    if (v_type == RangerNodeType.Double) {
+      return true
+    }
+    if (v_type == RangerNodeType.Boolean) {
+      return true
+    }
+    if (v_type == RangerNodeType.Char) {
+      return true
+    }
+    if (v_type == RangerNodeType.Enum) {
+      return true
+    }
+    return false
+  }
+
   fn writeTraitFieldAccessorDecls:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     for cl.variables pvar:RangerAppParamDesc i {
       def acc:string (this.rustFieldAccessorName(pvar))
-      wr.out((("fn " + acc) + "(&self) -> &") false)
+      if (this.rustFieldIsCopyScalar(pvar ctx)) {
+        wr.out((("fn " + acc) + "(&self) -> ") false)
+      } {
+        wr.out((("fn " + acc) + "(&self) -> &") false)
+      }
       this.writeStructFieldType(pvar ctx wr)
       wr.out(";" true)
       wr.out((("fn " + acc) + "_mut(&mut self) -> &mut ") false)
@@ -1108,9 +1194,15 @@ class RangerRustClassWriter {
     for cl.variables pvar:RangerAppParamDesc i {
       def acc:string (this.rustFieldAccessorName(pvar))
       def fld:string (this.adjustType(pvar.compiledName))
-      wr.out((("fn " + acc) + "(&self) -> &") false)
-      this.writeStructFieldType(pvar ctx wr)
-      wr.out(((" { &self." + fld) + " }") true)
+      if (this.rustFieldIsCopyScalar(pvar ctx)) {
+        wr.out((("fn " + acc) + "(&self) -> ") false)
+        this.writeStructFieldType(pvar ctx wr)
+        wr.out(((" { self." + fld) + " }") true)
+      } {
+        wr.out((("fn " + acc) + "(&self) -> &") false)
+        this.writeStructFieldType(pvar ctx wr)
+        wr.out(((" { &self." + fld) + " }") true)
+      }
       wr.out((("fn " + acc) + "_mut(&mut self) -> &mut ") false)
       this.writeStructFieldType(pvar ctx wr)
       wr.out(((" { &mut self." + fld) + " }") true)
@@ -1947,6 +2039,10 @@ class RangerRustClassWriter {
       def is_object:boolean ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.Array) || (v_type == RangerNodeType.Hash) || (v_type == RangerNodeType.IntBuffer) || (v_type == RangerNodeType.DoubleBuffer) || (v_type == RangerNodeType.CharBuffer) || (v_type == RangerNodeType.Buffer))
       ; Use compiledName to include any name transformations (e.g. len -> __len)
       def paramName:string (this.adjustType(arg.compiledName))
+      def rust_mut_pfx:string "mut "
+      if rust_in_trait_decl {
+        rust_mut_pfx = ""
+      }
       
       ; Check static analysis flags for mutable reference requirement
       ; rust_borrow_type: 0=owned, 1=borrow, 2=mut_borrow
@@ -1984,9 +2080,9 @@ class RangerRustClassWriter {
         }
         ; Parameter is assigned to weak field - needs Rc<RefCell<T>> type
         if argIsPlainClass {
-          wr.out(((("mut " + paramName) + " : ") + (this.rustSharedTypeString(nameN.type_name ctx))) false)
+          wr.out((((rust_mut_pfx + paramName) + " : ") + (this.rustSharedTypeString(nameN.type_name ctx))) false)
         } {
-          wr.out(("mut " + paramName + " : Rc<RefCell<") false)
+          wr.out((rust_mut_pfx + paramName + " : Rc<RefCell<") false)
           this.writeTypeDef(nameN ctx wr)
           wr.out(">>" false)
         }
@@ -2000,7 +2096,7 @@ class RangerRustClassWriter {
       ; Check if parameter is assigned - if so, make it mut
       if needsMutRef {
         ; Parameter is mutated - needs mut
-        wr.out(("mut " + paramName + " : &mut ") false)
+        wr.out((rust_mut_pfx + paramName + " : &mut ") false)
         this.writeTypeDef(nameN ctx wr)
       } {
         if needsImmutableBorrow {
@@ -2039,11 +2135,11 @@ class RangerRustClassWriter {
           }
         } {
           if is_object {
-            wr.out(("mut " + paramName + " : ") false)
+            wr.out((rust_mut_pfx + paramName + " : ") false)
             this.writeTypeDef(nameN ctx wr)
           } {
             if (arg.set_cnt > 0) {
-              wr.out(("mut " + paramName + " : ") false)
+              wr.out((rust_mut_pfx + paramName + " : ") false)
             } {
               wr.out((paramName + " : ") false)
             }
@@ -5275,7 +5371,9 @@ class RangerRustClassWriter {
           ; every forwarding body was an E0308.
           wr.out(("fn " + variant.name + "(") false)
           this.writeRustReceiver(true wr)
+          rust_in_trait_decl = true
           this.writeArgsDef(variant ctx wr)
+          rust_in_trait_decl = false
           this.writeRustFnClose(variant ctx wr)
           wr.out(";" true)
         }
