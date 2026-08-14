@@ -689,6 +689,21 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["assign-order-key", "var o={}; var k='x'; o[k] = (k='y', 5); return Object.keys(o).join(',');", "evalorder"],
   ["assign-order-chain", "var c=[10,20,30]; var m=0; var r = c[m] = c[++m]; return c.join(',') + '|' + r;", "evalorder"],
   ["assign-order-base", "var o1={v:1}, o2={v:2}; var t=o1; t.v = (t=o2, 9); return o1.v + ',' + o2.v;", "evalorder"],
+  // A radix-prefixed literal is a DOUBLE. It used to accumulate into an int,
+  // which is 32 bits on the C++ target, so 0xffffffff came out -1 -- and
+  // jsbn's `if (e > 0xffffffff || e < 1) return ONE` then made every RSA
+  // exponentiation answer 1, failing Octane Crypto on C++ alone.
+  ["hex-uint32-max", "return 0xffffffff;", "radixlit"],
+  ["hex-high-bit", "return 0x80000000;", "radixlit"],
+  ["hex-int32-max", "return 0x7fffffff;", "radixlit"],
+  ["hex-53-bit", "return 0x1fffffffffffff;", "radixlit"],
+  ["hex-cmp-uint32", "return String(65537 > 0xffffffff);", "radixlit"],
+  ["hex-small", "return 0xff;", "radixlit"],
+  ["binary-literal", "return 0b1111;", "radixlit"],
+  ["octal-literal", "return 0o777;", "radixlit"],
+  ["binary-wide", "return 0b100000000000000000000000000000000;", "radixlit"],
+  ["octal-wide", "return 0o40000000000;", "radixlit"],
+  ["hex-separators", "return 0xff_ff;", "radixlit"],
   // NOTE: an accessor-valued member target is read once too often on the WRITE
   // path -- `o.x = 5` invokes the getter (Node: 0 calls) and `o.x += 5` invokes
   // it twice (Node: 1). That is a separate pre-existing bug in
