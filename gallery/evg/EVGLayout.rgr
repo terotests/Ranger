@@ -16,6 +16,14 @@ class EVGLayout {
     def pageHeight:double 792.0
     def currentPage:int 0
     def debug:boolean false
+    ; Grid track lists and placements that the engine could not honour.
+    ;
+    ; These used to go to this.log(), which is a no-op unless `debug` is on, so
+    ; `fit-content()`, row `subgrid` and a mistyped template were silently
+    ; dropped in every normal run — the page just came out with the wrong
+    ; number of columns. They are collected here instead and reported by the
+    ; tools the same way font warnings are.
+    def warnings:[string]
     
     Constructor () {
         def m (new SimpleTextMeasurer())
@@ -56,6 +64,29 @@ class EVGLayout {
         if debug {
             print msg
         }
+    }
+
+    ; Record something the author asked for that the engine could not do.
+    ; Deduplicated: one bad template on a repeated component would otherwise
+    ; report once per instance and bury everything else.
+    fn warn:void (msg:string) {
+        def i:int 0
+        while (i < (array_length warnings)) {
+            if ((itemAt warnings i) == msg) {
+                return
+            }
+            i = (i + 1)
+        }
+        push warnings msg
+        this.log(("  " + msg))
+    }
+
+    fn warningCount:int () {
+        return (array_length warnings)
+    }
+
+    fn warningAt:string (i:int) {
+        return (itemAt warnings i)
     }
     
     fn layout:void (root:EVGElement) {
@@ -1418,7 +1449,7 @@ class EVGLayout {
                 }
                 colSpec = sgSpec
             } {
-                this.log("  Grid: subgrid requested with no enclosing grid track sizes")
+                this.warn("grid-template-columns: subgrid has no enclosing grid to inherit tracks from; falling back to 1fr")
                 colSpec = "1fr"
             }
         }
@@ -1428,7 +1459,7 @@ class EVGLayout {
         def hasAreas:boolean false
         if ((strlen parent.gridTemplateAreas) > 0) {
             if (areas.hadError) {
-                this.log(("  Grid: " + areas.errorText))
+                this.warn(("grid-template-areas: " + areas.errorText))
             } {
                 hasAreas = true
                 if ((strlen parent.gridTemplateColumns) == 0) {
@@ -1449,7 +1480,7 @@ class EVGLayout {
 
         def cols:EVGGridTemplate (EVGGridTemplate.parse(colSpec))
         if (cols.hadError) {
-            this.log(("  Grid: " + cols.errorText))
+            this.warn(("grid-template-columns: " + cols.errorText))
         }
         def colCount:int (cols.count())
         if (colCount < 1) {
@@ -1472,7 +1503,13 @@ class EVGLayout {
             c.resolveUnits(innerWidth innerHeight)
             if (c.isAbsolute == false) {
                 def cp:EVGGridPlacement (EVGGridPlacement.parse(c.gridColumn))
+                if (cp.hadError) {
+                    this.warn(("grid-column: " + cp.errorText))
+                }
                 def rp:EVGGridPlacement (EVGGridPlacement.parse(c.gridRow))
+                if (rp.hadError) {
+                    this.warn(("grid-row: " + rp.errorText))
+                }
                 ; grid-area names win over grid-column/grid-row: the picture is
                 ; the more specific statement of intent.
                 if hasAreas {
@@ -1484,7 +1521,7 @@ class EVGLayout {
                             rp.start = ((itemAt areas.rowStart at) + 1)
                             rp.span = (itemAt areas.rowSpan at)
                         } {
-                            this.log(("  Grid: no area named \"" + c.gridArea + "\""))
+                            this.warn(("grid-area: no area named \"" + c.gridArea + "\" in grid-template-areas"))
                         }
                     }
                 }
@@ -1628,7 +1665,7 @@ class EVGLayout {
             ; Explicit row tracks against a definite container height.
             def rows:EVGGridTemplate (EVGGridTemplate.parse(rowSpec))
             if (rows.hadError) {
-                this.log(("  Grid: " + rows.errorText))
+                this.warn(("grid-template-rows: " + rows.errorText))
             }
             rows.resolve((innerHeight - rowGapTotal))
             def r2:int 0

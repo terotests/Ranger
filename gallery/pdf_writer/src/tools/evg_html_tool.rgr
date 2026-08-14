@@ -234,6 +234,17 @@ class EVGHTMLTool {
         ; that silently fell back to guessed widths looks fine on screen and
         ; reflows in print, so it is reported every run and is fatal under
         ; -strict-fonts.
+        ; Layout could not honour everything the page asked for — an
+        ; unsupported grid track function, a named grid line, an area that does
+        ; not exist. These used to go only to the debug log, so a grid that
+        ; came out with the wrong number of columns gave no clue why.
+        def lay:EVGLayout (renderer.getLayout())
+        def li:int 0
+        while (li < (lay.warningCount())) {
+            print ("Layout warning: " + (lay.warningAt(li)))
+            li = (li + 1)
+        }
+
         def engine:EVGTextEngine (renderer.getTextEngine())
         def wi:int 0
         while (wi < (engine.warningCount())) {

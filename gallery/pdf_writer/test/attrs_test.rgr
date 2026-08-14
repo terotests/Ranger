@@ -31,6 +31,7 @@ class AttrsTest {
         test.testGridAttributes(t)
         test.testStyleAndTextAttributes(t)
         test.testUnknownAttributesAreHarmless(t)
+        test.testTextContentSpacing(t)
         t.summary()
     }
 
@@ -39,6 +40,14 @@ class AttrsTest {
         def src:string ("function render() { return (<View " + attrs + "></View>); }")
         def conv (new JSXToEVG())
         return (conv.parse(src))
+    }
+
+    ; Parse a Label and hand back the text that reached the element.
+    fn textOf:string (body:string) {
+        def src:string ("function render() { return (<Label>" + body + "</Label>); }")
+        def conv (new JSXToEVG())
+        def el:EVGElement (conv.parse(src))
+        return el.textContent
     }
 
     ; These four were reachable only through style={{ ... }} until the surfaces
@@ -151,5 +160,37 @@ class AttrsTest {
         t.eqStr("unknown props do not become the class" el.className "")
         t.eqStr("unknown props do not become the id" el.id "")
         t.eqStr("unknown props do not change display" el.display "block")
+    }
+
+    ; The parser hands JSX text back one token at a time, so "100% sure"
+    ; arrives as three fragments and something has to decide what goes between
+    ; them. That used to be a whitelist of characters allowed to follow a word
+    ; with no space (, . ! ? : ; - ) ]) — which got "Hello, world!" right and
+    ; mangled the rest: "100 % sure", "a / b", "a ( b) c", "Kämp- hotellissa",
+    ; and every curly quote as “ x ”. The tokens carry source offsets, so
+    ; adjacency is a fact to read rather than a guess.
+    fn testTextContentSpacing:void (t:RgTest) {
+        ; Punctuation held tight to its neighbours stays tight.
+        t.eqStr("a hyphenated word is not split" (this.textOf("half-buried")) "half-buried")
+        t.eqStr("a percentage keeps its number" (this.textOf("100% sure")) "100% sure")
+        t.eqStr("a slash binds both sides" (this.textOf("Crop/Zoom")) "Crop/Zoom")
+        t.eqStr("parentheses bind inwards" (this.textOf("Box 1 (30%)")) "Box 1 (30%)")
+        t.eqStr("a dotted name survives" (this.textOf("GPS_test.jpg")) "GPS_test.jpg")
+        t.eqStr("an empty call survives" (this.textOf("usePrintSettings()")) "usePrintSettings()")
+
+        ; Spaces the source does have are kept.
+        t.eqStr("ordinary words keep their spaces" (this.textOf("Hello, world!")) "Hello, world!")
+        t.eqStr("a spaced dash keeps its spaces" (this.textOf("Page 1 - Title")) "Page 1 - Title")
+        t.eqStr("runs of whitespace collapse to one" (this.textOf("a     b")) "a b")
+
+        ; The characters the WinAnsi fix made reachable, which are also the
+        ; ones the old whitelist knew nothing about.
+        def emDash:string (strfromcode 8212)
+        t.eqStr("a tight em dash stays tight" (this.textOf(("a" + emDash + "b"))) ("a" + emDash + "b"))
+        t.eqStr("a spaced em dash keeps its spaces" (this.textOf(("a " + emDash + " b"))) ("a " + emDash + " b"))
+
+        def openQ:string (strfromcode 8220)
+        def closeQ:string (strfromcode 8221)
+        t.eqStr("curly quotes hug their word" (this.textOf((openQ + "x" + closeQ))) (openQ + "x" + closeQ))
     }
 }

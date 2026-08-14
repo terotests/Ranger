@@ -132,11 +132,15 @@ this replaced.
    stored numbers still match a live Chromium.
 
 8. **Encoding honesty** ✅  
-   PDF WinAnsi limits remain. Source is decoded as UTF-8 so layout measures real
-   glyphs, and anything WinAnsi cannot encode is reported with its codepoint
-   (fatal under `-strict-fonts`) rather than silently substituted. Embedding a
-   subset with a `/ToUnicode` cmap, which would lift the limit rather than
-   report it, is still open.
+   Source is decoded as UTF-8 so layout measures real glyphs. The encoder now
+   uses the actual WinAnsi repertoire (CP1252) rather than Latin-1, so the
+   0x80–0x9F band — em and en dashes, curly quotes, ellipsis, bullet, euro —
+   reaches the page as the right byte instead of being refused; see Phase 4.2.
+   What WinAnsi genuinely cannot hold is reported with its codepoint (fatal
+   under `-strict-fonts`) rather than silently substituted. Embedding a subset
+   font, which would lift the repertoire limit rather than report it, is still
+   open. (A `/ToUnicode` cmap is already written, and now covers that band too,
+   so text extracts correctly — but it does not widen what can be encoded.)
 
 9. **Box model** ✅  
    Padding, margins, gaps, nesting and background colour are checked against
@@ -299,7 +303,8 @@ Target photo-book pages, not full CSS Grid Level 2.
 
 Still out of scope: **row `subgrid`** (row sizes are only known after the items
 are measured, so inheriting them needs a second pass the engine does not have),
-`fit-content()`, and named grid lines.
+`fit-content()`, and named grid lines. All three are now *reported* rather than
+dropped — see Phase 4.2.
 
 ## 8. Shared text engine API (contract)
 
@@ -599,6 +604,62 @@ covering `rem` against a root size that differs from the local one, `em` on
 and all five absolute units resolving to the same 96px. All 22 examples that
 render still produce byte-identical HTML.
 
+### Phase 4.2 — Saying so out loud ✅
+
+Three things the engine could not do, each of which it had been doing quietly.
+
+**WinAnsi is not Latin-1.** The encoder's repertoire check was `codepoint >
+255`, which is the Latin-1 boundary. WinAnsi is CP1252, and the band Latin-1
+leaves as control codes is exactly where CP1252 keeps the punctuation a book
+sets: `—` `–` `“” ‘’` `…` `•` `€` `†` `‰`. Every one of them was refused,
+written as `?`, and — under `-strict-fonts` — fatal, on text the format can
+carry perfectly well. `Utf8.toWinAnsi` / `fromWinAnsi` now hold the real
+mapping; the encoder uses it, the font's `/Widths` array looks each glyph up by
+its true codepoint instead of by the byte, and the `/ToUnicode` cmap gained the
+27 `bfchar` entries for the band so the text also extracts correctly.
+
+Fixing that exposed a second bug behind it. The JSX parser hands text back one
+token at a time, so `100% sure` arrives as three fragments and the joiner
+decides what goes between them. It was guessing from a whitelist of characters
+allowed to follow a word with no space — `, . ! ? : ; - ) ]` — which got
+`Hello, world!` right and mangled everything else: `100 % sure`, `a / b`,
+`a ( b) c`, `Kämp- hotellissa`, `Gallen- Kallelan`, `usePrintSettings ()`, and
+every curly quote as `“ x ”`. The tokens carry source offsets, so adjacency is
+a fact to read, not a guess: a space is written iff the next token starts past
+where the previous one ended. Twelve of the 22 rendering examples changed, all
+of them corrections.
+
+**Grid rejections were invisible.** `fit-content()`, row `subgrid`, a bent
+`grid-template-areas` and a missing `grid-area` name all set an error that was
+handed to `this.log()` — a no-op unless `debug` is on. In a normal run the page
+simply came out with the wrong number of columns. `EVGLayout` now collects
+these, deduplicated, and every tool prints them:
+
+```
+Layout warning: grid-template-columns: Unsupported track size: fit-content(100px)
+Layout warning: grid-template-rows: Unsupported track size: subgrid
+```
+
+**Named grid lines said nothing at all.** `grid-column: sidebar` went through
+`to_double`, came back 0, and 0 is auto — indistinguishable from not having
+written anything. `EVGGridPlacement` now rejects any token that is neither a
+positive line number nor `span N` (which also catches negative line numbers,
+CSS's count-from-the-end form, equally unsupported), keeps the auto placement,
+and reports it.
+
+The raster tool reported none of this before — not even font warnings — and now
+reports both.
+
+Verification: 12 new WinAnsi assertions plus a round-trip over all 27 assigned
+codes, 12 text-spacing assertions, and 12 grid-warning assertions covering the
+report, the dedup, and silence on a grid the engine fully understands.
+
+> **Compiling is not a passing build.** `node bin/output.js` prints
+> `Compilation FAILED` and still exits 0, so `npm run <tool>:compile && echo OK`
+> reports success on a broken tool. Grep the output for `Compilation FAILED`.
+> This cost a round here: a tool that had not rebuilt looked like a feature
+> that had not worked.
+
 ## 11. File / module impact (expected)
 
 | Area | Likely touch points |
@@ -638,7 +699,7 @@ runs all three, or individually:
 | `test:evg` | `gallery/game_engine/v2/evg/run.sh` | layout engine: units, box model, flex, grid, stylesheet, text engine, baseline |
 | `test:evg:fonts` | `gallery/pdf_writer/test/run_fonts.sh` | advance-width goldens against the real TTFs, plus EVG-vs-browser parity from a recorded snapshot |
 | `test:evg:layout` | `gallery/pdf_writer/test/run_layout.sh` | box-model parity against the browser: padding, margins, gaps, nesting, background colour |
-| `test:evg:frontend` | `gallery/pdf_writer/test/run_print.sh` | UTF-8 decoding, WinAnsi reporting, page boxes, and the JSX attribute surface |
+| `test:evg:frontend` | `gallery/pdf_writer/test/run_print.sh` | UTF-8 decoding, the WinAnsi repertoire, page boxes, JSX text spacing, and the JSX attribute surface |
 
 **None of these need a browser.** The browser-measured widths live in
 `gallery/pdf_writer/test/fixtures/browser_parity.snapshot`, so the parity gate

@@ -15,9 +15,9 @@
 ; §4.1 rule 8 is about.
 ;
 ; Decoding here means text content carries real codepoints, so measurement
-; counts real glyphs and characters genuinely outside WinAnsi (U+2014 and up)
-; can be reported honestly by the PDF encoder rather than hidden inside a byte
-; sequence that happens to fit.
+; counts real glyphs, characters WinAnsi does encode reach the page as the
+; right byte, and the ones it genuinely cannot are reported honestly by the
+; PDF encoder rather than hidden inside a byte sequence that happens to fit.
 ;
 ; Invalid sequences are passed through byte-for-byte rather than replaced: a
 ; file that is actually Latin-1 keeps working exactly as it did before.
@@ -106,12 +106,107 @@ class Utf8 {
         return ((b >= 128) && (b < 192))
     }
 
+    ; ---- WinAnsi (CP1252) -------------------------------------------------
+    ;
+    ; WinAnsi is not Latin-1. The two agree over 0x20-0x7E and 0xA0-0xFF, but
+    ; the band 0x80-0x9F — which Latin-1 leaves as control codes — is where
+    ; CP1252 keeps the characters a book actually sets: en and em dashes,
+    ; curly quotes, the ellipsis, the bullet, the euro sign. Treating "above
+    ; U+00FF" as "outside WinAnsi" refused precisely those, and under
+    ; -strict-fonts it refused them fatally, on text the format can carry.
+    ;
+    ; Five codes in that band (0x81, 0x8D, 0x8F, 0x90, 0x9D) are unassigned.
+
+    ; Unicode codepoint -> WinAnsi byte, or -1 when the font truly cannot
+    ; encode it. Codepoints below 0x20 are not a repertoire question — the
+    ; writer handles control characters separately — and are reported here as
+    ; unencodable so callers do not have to special-case them.
+    sfn toWinAnsi:int (cp:int) {
+        if ((cp >= 32) && (cp <= 126)) {
+            return cp
+        }
+        if ((cp >= 160) && (cp <= 255)) {
+            return cp
+        }
+        if (cp == 8364) {  return 128 }   ; euro sign
+        if (cp == 8218) {  return 130 }   ; single low-9 quote
+        if (cp == 402) {   return 131 }   ; florin
+        if (cp == 8222) {  return 132 }   ; double low-9 quote
+        if (cp == 8230) {  return 133 }   ; ellipsis
+        if (cp == 8224) {  return 134 }   ; dagger
+        if (cp == 8225) {  return 135 }   ; double dagger
+        if (cp == 710) {   return 136 }   ; circumflex
+        if (cp == 8240) {  return 137 }   ; per mille
+        if (cp == 352) {   return 138 }   ; S caron
+        if (cp == 8249) {  return 139 }   ; single left angle quote
+        if (cp == 338) {   return 140 }   ; OE ligature
+        if (cp == 381) {   return 142 }   ; Z caron
+        if (cp == 8216) {  return 145 }   ; left single quote
+        if (cp == 8217) {  return 146 }   ; right single quote
+        if (cp == 8220) {  return 147 }   ; left double quote
+        if (cp == 8221) {  return 148 }   ; right double quote
+        if (cp == 8226) {  return 149 }   ; bullet
+        if (cp == 8211) {  return 150 }   ; en dash
+        if (cp == 8212) {  return 151 }   ; em dash
+        if (cp == 732) {   return 152 }   ; small tilde
+        if (cp == 8482) {  return 153 }   ; trade mark
+        if (cp == 353) {   return 154 }   ; s caron
+        if (cp == 8250) {  return 155 }   ; single right angle quote
+        if (cp == 339) {   return 156 }   ; oe ligature
+        if (cp == 382) {   return 158 }   ; z caron
+        if (cp == 376) {   return 159 }   ; Y diaeresis
+        return (0 - 1)
+    }
+
+    ; WinAnsi byte -> Unicode codepoint, or -1 for the five unassigned codes.
+    ; The PDF font's /Widths array and /ToUnicode cmap are both indexed by
+    ; byte, so they need the inverse to look a glyph up by its real codepoint.
+    sfn fromWinAnsi:int (b:int) {
+        if ((b >= 32) && (b <= 126)) {
+            return b
+        }
+        if ((b >= 160) && (b <= 255)) {
+            return b
+        }
+        if (b == 128) { return 8364 }   ; euro sign
+        if (b == 130) { return 8218 }   ; single low-9 quote
+        if (b == 131) { return 402 }   ; florin
+        if (b == 132) { return 8222 }   ; double low-9 quote
+        if (b == 133) { return 8230 }   ; ellipsis
+        if (b == 134) { return 8224 }   ; dagger
+        if (b == 135) { return 8225 }   ; double dagger
+        if (b == 136) { return 710 }   ; circumflex
+        if (b == 137) { return 8240 }   ; per mille
+        if (b == 138) { return 352 }   ; S caron
+        if (b == 139) { return 8249 }   ; single left angle quote
+        if (b == 140) { return 338 }   ; OE ligature
+        if (b == 142) { return 381 }   ; Z caron
+        if (b == 145) { return 8216 }   ; left single quote
+        if (b == 146) { return 8217 }   ; right single quote
+        if (b == 147) { return 8220 }   ; left double quote
+        if (b == 148) { return 8221 }   ; right double quote
+        if (b == 149) { return 8226 }   ; bullet
+        if (b == 150) { return 8211 }   ; en dash
+        if (b == 151) { return 8212 }   ; em dash
+        if (b == 152) { return 732 }   ; small tilde
+        if (b == 153) { return 8482 }   ; trade mark
+        if (b == 154) { return 353 }   ; s caron
+        if (b == 155) { return 8250 }   ; single right angle quote
+        if (b == 156) { return 339 }   ; oe ligature
+        if (b == 158) { return 382 }   ; z caron
+        if (b == 159) { return 376 }   ; Y diaeresis
+        return (0 - 1)
+    }
+
     ; Does this string contain anything a WinAnsi PDF font cannot encode?
     sfn hasNonWinAnsi:boolean (s:string) {
         def i:int 0
         while (i < (strlen s)) {
-            if ((charAt s i) > 255) {
-                return true
+            def cp:int (charAt s i)
+            if (cp >= 32) {
+                if ((Utf8.toWinAnsi(cp)) < 0) {
+                    return true
+                }
             }
             i = (i + 1)
         }

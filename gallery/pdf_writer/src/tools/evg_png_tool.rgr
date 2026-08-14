@@ -205,7 +205,26 @@ class EVGPNGTool {
         layout.setPageSize(pageWidth pageHeight)
         layout.debug = true
         layout.layout(root)
-        
+
+        ; Anything layout could not honour — an unsupported grid track
+        ; function, a named grid line, an area that does not exist. The raster
+        ; target reported none of this before, so a grid that came out wrong
+        ; here looked like a raster bug rather than a rejected declaration.
+        def lwi:int 0
+        while (lwi < (layout.warningCount())) {
+            print ("Layout warning: " + (layout.warningAt(lwi)))
+            lwi = (lwi + 1)
+        }
+
+        ; The same for text the engine could not measure from the declared
+        ; face; a guessed advance reflows between this target and the PDF.
+        def tEngine:EVGTextEngine (layout.getTextEngine())
+        def twi:int 0
+        while (twi < (tEngine.warningCount())) {
+            print ("Font warning: " + (tEngine.warningAt(twi)))
+            twi = (twi + 1)
+        }
+
         print ("Root calculated: x=" + (to_string root.calculatedX) + " y=" + (to_string root.calculatedY) + " w=" + (to_string root.calculatedWidth) + " h=" + (to_string root.calculatedHeight))
         
         ; Check buffer before render

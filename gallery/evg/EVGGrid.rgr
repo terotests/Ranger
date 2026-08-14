@@ -11,9 +11,9 @@
 ;   grid-row:    (same forms)
 ;
 ; Explicitly NOT supported (see PLAN_CSS_LAYOUT_AND_FONTS.md §7.3): row
-; subgrid, fit-content(), and named lines. The first two set `hadError` with
-; a message; a named line in a *placement* is silently treated as auto, which
-; is a gap.
+; subgrid, fit-content(), and named lines. All three set `hadError` with a
+; message, which EVGLayout collects and the tools print — an unsupported
+; declaration changes the layout, so it must not be dropped in silence.
 ;
 ; `auto` in a track list is accepted and treated as `1fr`. Real CSS sizes an
 ; auto track to its content and only then distributes leftover space; doing
@@ -626,10 +626,19 @@ class EVGGridAreas {
 class EVGGridPlacement {
     def start:int 0
     def span:int 1
+    ; A placement this parser cannot honour. Named lines ("grid-column:
+    ; sidebar") are the case that matters: they used to fall through
+    ; lineNumber's `to_double` and come back as 0, which is indistinguishable
+    ; from auto-placement — the item quietly landed wherever the flow put it
+    ; and nothing said the name had been ignored.
+    def hadError:boolean false
+    def errorText:string ""
 
     Constructor () {
         start = 0
         span = 1
+        hadError = false
+        errorText = ""
     }
 
     ; "span 2" | "2" | "2 / 4" | "2 / span 3" | "" (auto)
@@ -658,6 +667,9 @@ class EVGGridPlacement {
                 p.span = (EVGGridPlacement.spanCount(s))
             } {
                 p.start = (EVGGridPlacement.lineNumber(s))
+                if (p.start == 0) {
+                    p.reject(s)
+                }
             }
             return p
         }
@@ -665,16 +677,33 @@ class EVGGridPlacement {
         def lhs:string (trim (substring s 0 slash))
         def rhs:string (trim (substring s (slash + 1) (strlen s)))
         p.start = (EVGGridPlacement.lineNumber(lhs))
+        if (p.start == 0) {
+            p.reject(lhs)
+        }
         if (EVGGridPlacement.isSpan(rhs)) {
             p.span = (EVGGridPlacement.spanCount(rhs))
         } {
             ; "2 / 4" covers the tracks between lines 2 and 4, i.e. two tracks.
             def endLine:int (EVGGridPlacement.lineNumber(rhs))
+            if (endLine == 0) {
+                p.reject(rhs)
+            }
             if (endLine > p.start) {
                 p.span = (endLine - p.start)
             }
         }
         return p
+    }
+
+    ; A token that is neither a positive line number nor "span N". Named lines
+    ; and negative line numbers both land here — neither is supported, and the
+    ; item stays auto-placed, which is now said out loud.
+    fn reject:void (token:string) {
+        if hadError {
+            return
+        }
+        hadError = true
+        errorText = ("unsupported line \"" + token + "\" (named lines and negative line numbers are not supported); the item was auto-placed")
     }
 
     sfn isSpan:boolean (s:string) {

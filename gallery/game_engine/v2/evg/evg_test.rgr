@@ -110,6 +110,7 @@ class EVGTest {
         test.testSubgrid(t)
         test.testGridTracks(t)
         test.testGridPlacement(t)
+        test.testLayoutWarnings(t)
         test.testGridLayout(t)
         test.testGridContentRows(t)
         test.testStyleSheetParse(t)
@@ -1780,6 +1781,81 @@ class EVGTest {
         def mixed:EVGGridPlacement (EVGGridPlacement.parse("2 / span 3"))
         t.eqInt("start with span end: start" mixed.start 2)
         t.eqInt("start with span end: span" mixed.span 3)
+
+        ; A named line is not supported. It used to fall through to_double and
+        ; come back as 0 — identical to auto-placement, with nothing to say the
+        ; name had been thrown away.
+        def named:EVGGridPlacement (EVGGridPlacement.parse("sidebar"))
+        t.ok("a named line is reported" named.hadError)
+        t.eqInt("a named line still auto-places" named.start 0)
+        t.eqInt("a named line still spans one" named.span 1)
+
+        def namedEnd:EVGGridPlacement (EVGGridPlacement.parse("2 / main"))
+        t.ok("a named end line is reported" namedEnd.hadError)
+        t.eqInt("the numeric side is still honoured" namedEnd.start 2)
+
+        ; Negative lines count from the end of the grid in CSS; unsupported
+        ; here, and reported for the same reason.
+        def neg:EVGGridPlacement (EVGGridPlacement.parse("-1"))
+        t.ok("a negative line is reported" neg.hadError)
+
+        def fine:EVGGridPlacement (EVGGridPlacement.parse("2 / span 3"))
+        t.no("a placement it understands is not an error" fine.hadError)
+    }
+
+    ; ---- layout: unsupported declarations are reported ------------------------
+    ; These all used to go to this.log(), which does nothing unless `debug` is
+    ; on. A grid came out with the wrong number of columns and said nothing.
+    fn testLayoutWarnings:void (t:RgTest) {
+        def root (new EVGElement())
+        root.setAttribute("width" "600px")
+        root.setAttribute("height" "400px")
+        root.setAttribute("display" "grid")
+        root.setAttribute("grid-template-columns" "fit-content(100px) 1fr")
+        root.setAttribute("grid-template-rows" "subgrid")
+
+        def a (new EVGElement())
+        a.setAttribute("grid-column" "sidebar")
+        root.addChild(a)
+
+        def b (new EVGElement())
+        b.setAttribute("grid-row" "1 / main")
+        root.addChild(b)
+
+        def lay (new EVGLayout())
+        lay.layout(root)
+
+        t.eqInt("every unsupported declaration is reported" (lay.warningCount()) 4)
+        t.ok("the message names the property" ((indexOf (lay.warningAt(0)) "grid-template-columns") >= 0))
+        t.ok("and what it could not do" ((indexOf (lay.warningAt(0)) "fit-content(100px)") >= 0))
+
+        ; A grid the engine fully understands stays quiet.
+        def ok (new EVGElement())
+        ok.setAttribute("width" "600px")
+        ok.setAttribute("height" "400px")
+        ok.setAttribute("display" "grid")
+        ok.setAttribute("grid-template-columns" "repeat(2, 1fr)")
+        def c1 (new EVGElement())
+        c1.setAttribute("grid-column" "span 2")
+        ok.addChild(c1)
+        def lay2 (new EVGLayout())
+        lay2.layout(ok)
+        t.eqInt("a grid it understands warns about nothing" (lay2.warningCount()) 0)
+
+        ; The same complaint from ten repeated cards is one line, not ten.
+        def dup (new EVGElement())
+        dup.setAttribute("width" "600px")
+        dup.setAttribute("height" "400px")
+        dup.setAttribute("display" "grid")
+        def d1 (new EVGElement())
+        d1.setAttribute("grid-column" "sidebar")
+        dup.addChild(d1)
+        def d2 (new EVGElement())
+        d2.setAttribute("grid-column" "sidebar")
+        dup.addChild(d2)
+        def lay3 (new EVGLayout())
+        lay3.layout(dup)
+        t.eqInt("a repeated complaint is reported once" (lay3.warningCount()) 1)
     }
 
     ; ---- grid: layout ---------------------------------------------------------
