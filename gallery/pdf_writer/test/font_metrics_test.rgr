@@ -43,7 +43,59 @@ class FontMetricsTest {
         test.testVerticalMetrics(t fm)
         test.testWrapAgreement(t fm)
         test.testLayoutMatchesMeasurer(t fm)
+        test.testRasterWrapMatchesLayout(t fm)
+        test.testKerning(t fm)
         t.summary()
+    }
+
+    ; Kerning, read from GPOS pair adjustments (or the legacy `kern` table on a
+    ; face with no GPOS at all).
+    fn testKerning:void (t:RgTest fm:FontManager) {
+        def cinzel:TrueTypeFont (fm.getFont("Cinzel"))
+        def openSans:TrueTypeFont (fm.getFont("Open Sans"))
+        def noto:TrueTypeFont (fm.getFont("Noto Sans"))
+
+        t.ok("Cinzel declares kerning" cinzel.hasKerning)
+        t.ok("Noto Sans declares kerning" noto.hasKerning)
+
+        ; Open Sans has a GPOS table with no `kern` feature AND 18694 legacy
+        ; kern pairs. OpenType says GPOS wins outright, and a browser agrees:
+        ; it renders Open Sans unkerned. Falling back to the legacy table made
+        ; EVG kern a run Chromium leaves alone.
+        t.no("Open Sans does not kern, despite a legacy kern table" openSans.hasKerning)
+        t.ok("...and it really does carry one" (((openSans.findTable("kern")).offset) > 0))
+        t.ok("...alongside a GPOS table" (((openSans.findTable("GPOS")).offset) > 0))
+
+        ; A pair that kerns, and one that does not.
+        def hiKern:int (cinzel.kernUnits(72 101))
+        t.ok("Cinzel kerns \"He\" tighter" (hiKern < 0))
+        t.eqInt("a pair with no adjustment is zero" (cinzel.kernUnits(72 72)) 0)
+        t.eqInt("a face that does not kern returns zero" (openSans.kernUnits(72 101)) 0)
+
+        ; Points scale linearly with size, like every other advance.
+        def at16:double (cinzel.kernPoints(72 101 16.0))
+        def at32:double (cinzel.kernPoints(72 101 32.0))
+        t.near("kerning scales with font size" (at32 / 2.0) at16)
+        t.ok("kerning is negative for a tightening pair" (at16 < 0.0))
+
+        ; measureText is the sum of the advances plus the kerning, which is
+        ; what makes the measured box match the painted ink.
+        def text:string "Helsinki, 2024"
+        def advances:double 0.0
+        def kerns:double 0.0
+        def i:int 0
+        while (i < (strlen text)) {
+            advances = (advances + (cinzel.getCharWidthPoints((charAt text i) 30.0)))
+            if (i > 0) {
+                kerns = (kerns + (cinzel.kernPoints((charAt text (i - 1)) (charAt text i) 30.0)))
+            }
+            i = (i + 1)
+        }
+        t.ok("this fixture actually kerns" (kerns < 0.0))
+        t.near("measureText = advances + kerning" (cinzel.measureText(text 30.0)) (advances + kerns))
+
+        ; The value the plan recorded as the worst unkerned error.
+        t.near("Cinzel 'Helsinki, 2024' @30 matches the browser" (cinzel.measureText(text 30.0)) 212.61)
     }
 
     ; getFont() always returns something, so hasFont is what tells a caller
@@ -65,10 +117,16 @@ class FontMetricsTest {
 
     ; Golden advance widths. If these move, glyph metrics or the measurement
     ; path changed and every laid-out page moves with them.
+    ;
+    ; These now include kerning, so they are what a browser shows rather than
+    ; the bare sum of hmtx advances. Open Sans is unchanged: it has a GPOS
+    ; table with no `kern` feature, so it does not kern — and its legacy `kern`
+    ; table is correctly ignored, exactly as a browser ignores it.
     fn testAdvanceWidths:void (t:RgTest fm:FontManager) {
         t.near("Open Sans 'Hamburgefonstiv' @16" (fm.measureText("Hamburgefonstiv" "Open Sans" 16.0)) 129.734375)
         t.near("Open Sans 'Helsinki, 2024' @30" (fm.measureText("Helsinki, 2024" "Open Sans" 30.0)) 193.9599609375)
-        t.near("Cinzel 'Hamburgefonstiv' @16" (fm.measureText("Hamburgefonstiv" "Cinzel" 16.0)) 154.464)
+        ; Cinzel kerns: 154.464 unkerned, 153.184 as Chromium lays it out.
+        t.near("Cinzel 'Hamburgefonstiv' @16" (fm.measureText("Hamburgefonstiv" "Cinzel" 16.0)) 153.184)
         ; Cross-checked against Chromium laying out the same string in the same
         ; file (see font_parity.js): the browser reports 192.69 too.
         t.near("Noto Sans 'Helsinki, 2024' @30" (fm.measureText("Helsinki, 2024" "Noto Sans" 30.0)) 192.685546875)
@@ -136,6 +194,68 @@ class FontMetricsTest {
         eng.setStrict(true)
         eng.breakLines(para "Open Sans" 13.0 200.0)
         t.no("loaded family is not fatal under strict fonts" eng.hadFatal)
+    }
+
+    ; The raster target paints glyph outlines from the same TTFs, so it has to
+    ; break lines where layout broke them. Both the PNG tool and the preview
+    ; server used to draw the whole textContent as ONE line while the layout
+    ; above them had reserved several — the caption simply ran out of its box.
+    ; They now call this engine, so pinning it here pins them.
+    fn testRasterWrapMatchesLayout:void (t:RgTest fm:FontManager) {
+        def measurer (new TTFTextMeasurer(fm))
+        def eng (new EVGTextEngine())
+        eng.setMeasurer(measurer)
+
+        def para:string "Twelve days along the shoreline, from the first thaw to the midsummer light over Kaivopuisto."
+
+        ; What layout reserves height for...
+        def lay (new EVGLayout())
+        lay.setMeasurer(measurer)
+        def root (new EVGElement())
+        root.width = (EVGUnit.px(400.0))
+        root.height = (EVGUnit.px(200.0))
+        def label (new EVGElement())
+        label.textContent = para
+        label.fontFamily = "Cinzel"
+        label.fontSize = (EVGUnit.px(14.0))
+        label.width = (EVGUnit.px(300.0))
+        root.addChild(label)
+        lay.layout(root)
+
+        ; ...must be the number of lines the raster will paint.
+        def lines:[EVGTextLine] (eng.breakLines(para "Cinzel" 14.0 300.0))
+        def painted:int (array_length lines)
+        t.ok("the caption actually wraps" (painted > 1))
+
+        def lineStep:double (14.0 * 1.2)
+        def reserved:double (lineStep * (to_double painted))
+        t.near("layout reserved exactly the painted lines" label.calculatedHeight reserved)
+
+        ; And every painted line fits the box, so nothing runs off the edge.
+        def i:int 0
+        def allFit:boolean true
+        while (i < painted) {
+            def ln:EVGTextLine (itemAt lines i)
+            if (ln.width > 300.0) {
+                allFit = false
+            }
+            i = (i + 1)
+        }
+        t.ok("no painted line overflows the box" allFit)
+
+        ; The face matters: the raster used to paint everything in Open Sans
+        ; whatever the document asked for, which would wrap differently.
+        def otherFace:[EVGTextLine] (eng.breakLines(para "Open Sans" 14.0 300.0))
+        def otherFirst:EVGTextLine (itemAt otherFace 0)
+        def cinzelFirst:EVGTextLine (itemAt lines 0)
+        def differs:boolean false
+        if ((array_length otherFace) != painted) {
+            differs = true
+        }
+        if (otherFirst.text != cinzelFirst.text) {
+            differs = true
+        }
+        t.ok("a different face is a different wrap" differs)
     }
 
     ; End to end: the width layout assigns to a shrink-wrapped label is the

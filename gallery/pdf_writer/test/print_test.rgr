@@ -65,11 +65,53 @@ class PrintTest {
         t.eqStr("empty input stays empty" (Utf8.decode("")) "")
     }
 
+    ; WinAnsi is CP1252, not Latin-1. This used to test the Latin-1 boundary
+    ; and assert that an em dash was unencodable — it is not; it lives at 0x97,
+    ; along with the rest of the punctuation a book actually sets.
     fn testWinAnsiDetection:void (t:RgTest) {
         t.no("ASCII fits WinAnsi" (Utf8.hasNonWinAnsi("Hello")))
-        ; U+00E4 has a WinAnsi slot; U+2014 does not.
         t.no("Latin-1 range fits WinAnsi" (Utf8.hasNonWinAnsi((strfromcode 228))))
-        t.ok("an em dash does not" (Utf8.hasNonWinAnsi((strfromcode 8212))))
+
+        ; The 0x80-0x9F band: where CP1252 and Latin-1 part company.
+        t.no("an em dash fits WinAnsi" (Utf8.hasNonWinAnsi((strfromcode 8212))))
+        t.no("an en dash fits WinAnsi" (Utf8.hasNonWinAnsi((strfromcode 8211))))
+        t.no("curly quotes fit WinAnsi" (Utf8.hasNonWinAnsi((strfromcode 8220))))
+        t.no("an ellipsis fits WinAnsi" (Utf8.hasNonWinAnsi((strfromcode 8230))))
+        t.no("a bullet fits WinAnsi" (Utf8.hasNonWinAnsi((strfromcode 8226))))
+        t.no("a euro sign fits WinAnsi" (Utf8.hasNonWinAnsi((strfromcode 8364))))
+
+        ; And what genuinely does not fit.
+        t.ok("CJK does not fit WinAnsi" (Utf8.hasNonWinAnsi((strfromcode 26085))))
+        t.ok("an emoji does not fit WinAnsi" (Utf8.hasNonWinAnsi((strfromcode 9731))))
+
+        ; The byte each one encodes to, which is what the PDF actually writes.
+        t.eqInt("em dash encodes to 0x97" (Utf8.toWinAnsi(8212)) 151)
+        t.eqInt("euro encodes to 0x80" (Utf8.toWinAnsi(8364)) 128)
+        t.eqInt("a-umlaut encodes to itself" (Utf8.toWinAnsi(228)) 228)
+        t.eqInt("ASCII encodes to itself" (Utf8.toWinAnsi(65)) 65)
+        t.eqInt("CJK has no WinAnsi byte" (Utf8.toWinAnsi(26085)) (0 - 1))
+
+        ; The inverse, which the /Widths array and /ToUnicode cmap need to look
+        ; a glyph up by its real codepoint.
+        t.eqInt("0x97 decodes to the em dash" (Utf8.fromWinAnsi(151)) 8212)
+        t.eqInt("0x80 decodes to the euro" (Utf8.fromWinAnsi(128)) 8364)
+        t.eqInt("0xE4 decodes to a-umlaut" (Utf8.fromWinAnsi(228)) 228)
+        t.eqInt("0x81 is unassigned" (Utf8.fromWinAnsi(129)) (0 - 1))
+        t.eqInt("0x9D is unassigned" (Utf8.fromWinAnsi(157)) (0 - 1))
+
+        ; Round-trip every assigned code in the band.
+        def b:int 128
+        def roundTripped:int 0
+        while (b < 160) {
+            def cp:int (Utf8.fromWinAnsi(b))
+            if (cp >= 0) {
+                if ((Utf8.toWinAnsi(cp)) == b) {
+                    roundTripped = (roundTripped + 1)
+                }
+            }
+            b = (b + 1)
+        }
+        t.eqInt("all 27 assigned codes round-trip" roundTripped 27)
     }
 
     ; Bleed grows the sheet and declares where the finished page is cut.

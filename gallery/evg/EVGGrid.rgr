@@ -2,27 +2,40 @@
 ;
 ; Targets photo-book pages, not CSS Grid Level 2. What is supported:
 ;
-;   grid-template-columns: 120px 1fr 40%
-;   grid-template-columns: repeat(3, 1fr)
+;   grid-template-columns: 120px 1fr 40% | repeat(3, 1fr) | minmax(40px, 1fr)
 ;   grid-template-rows:    1fr 1fr
+;   grid-template-areas:   "hero hero" "a b"
+;   grid-auto-flow:        row | row dense
+;   grid-template-columns: subgrid   |   grid-template-rows: subgrid
 ;   grid-column: span 2  |  2  |  2 / 4  |  2 / span 3
 ;   grid-row:    (same forms)
 ;
-; Explicitly NOT supported (see PLAN_CSS_LAYOUT_AND_FONTS.md §7.3):
-; grid-template-areas, dense packing, subgrid, minmax(), named lines.
+;   grid-template-columns: [full-start] 1fr [main] 2fr [main-end]
+;   grid-column: main / main-end   (named lines, resolved by EVGLayout)
 ;
-; `auto` in a track list is accepted and treated as `1fr`. Real CSS sizes an
-; auto track to its content and only then distributes leftover space; doing
-; that properly needs a content-measuring pass per track, which v1 does not
-; have. Equal-share is predictable and documented rather than subtly wrong.
+; A track list this subset cannot honour sets `hadError` with a message, which
+; EVGLayout collects and the tools print — an unsupported declaration changes
+; the layout, so it must not be dropped in silence.
+;
+; `auto` and `fit-content(limit)` size to the content of the items placed in
+; the track: EVGLayout measures each item's min- and max-content width and
+; hands the per-track maxima to resolveWithContent(). `auto` takes the
+; max-content size; `fit-content(limit)` clamps that to the limit but never
+; below min-content, so an item that cannot be made narrower still fits.
+; Leftover space then goes to the `fr` tracks as before.
 
 Import "EVGUnit.rgr"
 
 ; One column or row track.
-;   kind 0 = fixed pixels, 1 = percentage of the container, 2 = fr
+;   kind 0 = fixed pixels, 1 = percentage of the container, 2 = fr,
+;        3 = intrinsic (`auto`, or `fit-content(limit)` when hasFitLimit)
 class EVGGridTrack {
     def kind:int 0
     def value:double 0.0
+    ; fit-content(limit): the ceiling on the max-content side. Without it an
+    ; intrinsic track is a plain `auto`.
+    def hasFitLimit:boolean false
+    def fitLimit:EVGUnit
     ; Resolved extent in pixels, filled in by EVGGridTemplate.resolve.
     def sizePx:double 0.0
     ; minmax(min, max) bounds in pixels. Percentages are resolved against the
@@ -42,13 +55,21 @@ class EVGGridTrack {
         hasMin = false
         hasMax = false
         frozen = false
+        hasFitLimit = false
         minUnit = (EVGUnit.unset())
         maxUnit = (EVGUnit.unset())
+        fitLimit = (EVGUnit.unset())
     }
 }
 
 class EVGGridTemplate {
     def tracks:[EVGGridTrack]
+    ; Named grid lines: "[full-start] 1fr [main] 2fr [main-end]". Parallel
+    ; arrays of name and the 1-based line number it labels. One line may carry
+    ; several names ("[a b]") and one name may not label two lines — the first
+    ; wins, which is what CSS does for a duplicate custom-ident.
+    def lineNames:[string]
+    def lineNumbers:[int]
     ; Set when the spec named a track type this subset does not implement.
     def hadError:boolean false
     def errorText:string ""
@@ -56,6 +77,48 @@ class EVGGridTemplate {
     Constructor () {
         hadError = false
         errorText = ""
+    }
+
+    ; The 1-based line a name labels, or 0 when the template does not have it.
+    fn lineNumberNamed:int (name:string) {
+        def i:int 0
+        while (i < (array_length lineNames)) {
+            if ((itemAt lineNames i) == name) {
+                return (itemAt lineNumbers i)
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    ; A "[a b]" token labels the line that comes next — line 1 before the first
+    ; track, and one past the last track when it trails the list.
+    fn addLineNames:void (tok:string) {
+        def inner:string (trim (substring tok 1 ((strlen tok) - 1)))
+        def line:int ((array_length tracks) + 1)
+        def parts:[string] (EVGGridTemplate.tokenize(inner))
+        def i:int 0
+        while (i < (array_length parts)) {
+            def nm:string (itemAt parts i)
+            if ((strlen nm) > 0) {
+                if ((this.lineNumberNamed(nm)) == 0) {
+                    push lineNames nm
+                    push lineNumbers line
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn isLineNameToken:boolean (tok:string) {
+        def len:int (strlen tok)
+        if (len < 2) {
+            return false
+        }
+        if ((charAt tok 0) != 91) {
+            return false
+        }
+        return ((charAt tok (len - 1)) == 93)
     }
 
     fn count:int () {
@@ -73,6 +136,9 @@ class EVGGridTemplate {
         def i:int 0
         while (i < (array_length tokens)) {
             def tok:string (itemAt tokens i)
+            if (EVGGridTemplate.isLineNameToken(tok)) {
+                tpl.addLineNames(tok)
+            } {
             if (EVGGridTemplate.isRepeat(tok)) {
                 tpl.expandRepeat(tok)
             } {
@@ -81,6 +147,7 @@ class EVGGridTemplate {
                 } {
                     tpl.addTrack(tok)
                 }
+            }
             }
             i = (i + 1)
         }
@@ -98,10 +165,10 @@ class EVGGridTemplate {
         def i:int 0
         while (i < len) {
             def c:int (charAt spec i)
-            if (c == 40) {
+            if ((c == 40) || (c == 91)) {
                 depth = (depth + 1)
             }
-            if (c == 41) {
+            if ((c == 41) || (c == 93)) {
                 depth = (depth - 1)
             }
             def isSpace:boolean (((c == 32) || (c == 9)) || ((c == 10) || (c == 13)))
@@ -261,10 +328,26 @@ class EVGGridTemplate {
         }
         def track (new EVGGridTrack())
 
-        ; `auto` behaves as 1fr here — see the header note.
+        ; `auto` is an intrinsic track: sized to the content of whatever lands
+        ; in it. It used to be 1fr, which is predictable but not what CSS does.
         if (t == "auto") {
-            track.kind = 2
-            track.value = 1.0
+            track.kind = 3
+            push tracks track
+            return
+        }
+
+        ; fit-content(limit) — an intrinsic track with a ceiling.
+        if (EVGGridTemplate.isFitContent(t)) {
+            def inner:string (trim (substring t 12 (len - 1)))
+            def lim:EVGUnit (EVGUnit.parse(inner))
+            if (lim.isSet == false) {
+                hadError = true
+                errorText = ("Unsupported fit-content() limit: " + inner)
+                return
+            }
+            track.kind = 3
+            track.hasFitLimit = true
+            track.fitLimit = lim
             push tracks track
             return
         }
@@ -307,7 +390,42 @@ class EVGGridTemplate {
     ; Resolve every track to pixels inside `available`, which must already have
     ; the gaps subtracted. Fixed and percentage tracks take their size first;
     ; whatever is left is split between the fr tracks in proportion.
+    ; Does any track need to know what is in it?
+    fn hasIntrinsicTrack:boolean () {
+        def i:int 0
+        while (i < (array_length tracks)) {
+            def t:EVGGridTrack (itemAt tracks i)
+            if (t.kind == 3) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn isFitContent:boolean (tok:string) {
+        if ((strlen tok) < 14) {
+            return false
+        }
+        if ((substring tok 0 12) != "fit-content(") {
+            return false
+        }
+        return ((charAt tok ((strlen tok) - 1)) == 41)
+    }
+
+    ; Size the tracks with no content information — every intrinsic track ends
+    ; up at zero. Callers that know what is in the tracks use resolveWithContent.
     fn resolve:void (available:double) {
+        def empty:[double]
+        def empty2:[double]
+        this.resolveWithContent(available empty empty2)
+    }
+
+    ; `content` and `minContent` give each track's max-content and min-content
+    ; width by index — the widest item placed in it, and the narrowest that
+    ; item can be squeezed to. Shorter than the track list (or empty) means the
+    ; rest have no content.
+    fn resolveWithContent:void (available:double content:[double] minContent:[double]) {
         def n:int (array_length tracks)
         def used:double 0.0
         def totalFr:double 0.0
@@ -335,6 +453,39 @@ class EVGGridTemplate {
             }
             if (t.kind == 2) {
                 totalFr = (totalFr + t.value)
+            }
+            if (t.kind == 3) {
+                ; Intrinsic: the widest thing in the track, capped by a
+                ; fit-content() limit if there is one. CSS floors that clamp at
+                ; min-content, but an item that cannot wrap has min-content ==
+                ; max-content, and this engine only measures items that cannot
+                ; — so the floor is the measurement itself and clamping below
+                ; it would make the item overflow its own track.
+                def c:double 0.0
+                if (i < (array_length content)) {
+                    c = (itemAt content i)
+                }
+                if t.hasFitLimit {
+                    t.fitLimit.resolve(available 16.0)
+                    if (c > t.fitLimit.pixels) {
+                        c = t.fitLimit.pixels
+                    }
+                    ; The clamp is floored at min-content: an item that cannot
+                    ; be made narrower than the limit keeps its size and the
+                    ; track grows to hold it, rather than the item spilling out
+                    ; of its own cell. For an item with a definite width that
+                    ; floor IS its width, which is why fit-content(100px)
+                    ; around a 200px box measures 200 in a browser.
+                    if (i < (array_length minContent)) {
+                        def floorPx:double (itemAt minContent i)
+                        if (c < floorPx) {
+                            c = floorPx
+                        }
+                    }
+                }
+                t.sizePx = c
+                used = (used + c)
+                t.frozen = true
             }
             i = (i + 1)
         }
@@ -622,10 +773,34 @@ class EVGGridAreas {
 class EVGGridPlacement {
     def start:int 0
     def span:int 1
+    ; A placement this parser cannot honour. Named lines ("grid-column:
+    ; sidebar") are the case that matters: they used to fall through
+    ; lineNumber's `to_double` and come back as 0, which is indistinguishable
+    ; from auto-placement — the item quietly landed wherever the flow put it
+    ; and nothing said the name had been ignored.
+    def hadError:boolean false
+    def errorText:string ""
+    ; Line names, kept unresolved: a placement is parsed from the item, but the
+    ; names live on the container's template, which only the layout can see.
+    ; EVGLayout calls resolveNames() once it has both.
+    def startName:string ""
+    def endName:string ""
+    ; A numeric end line, so span can be recomputed if the start moves when a
+    ; name resolves. 0 = none.
+    def endLine:int 0
+    ; True when the span came from an explicit "span N", which outranks any
+    ; end line.
+    def spanExplicit:boolean false
 
     Constructor () {
         start = 0
         span = 1
+        hadError = false
+        errorText = ""
+        startName = ""
+        endName = ""
+        endLine = 0
+        spanExplicit = false
     }
 
     ; "span 2" | "2" | "2 / 4" | "2 / span 3" | "" (auto)
@@ -649,28 +824,121 @@ class EVGGridPlacement {
         }
 
         if (slash < 0) {
-            ; One side: either "span N" or a start line.
+            ; One side: "span N", a line number, or a line name.
             if (EVGGridPlacement.isSpan(s)) {
                 p.span = (EVGGridPlacement.spanCount(s))
+                p.spanExplicit = true
             } {
-                p.start = (EVGGridPlacement.lineNumber(s))
+                p.takeStart(s)
             }
             return p
         }
 
         def lhs:string (trim (substring s 0 slash))
         def rhs:string (trim (substring s (slash + 1) (strlen s)))
-        p.start = (EVGGridPlacement.lineNumber(lhs))
+        p.takeStart(lhs)
         if (EVGGridPlacement.isSpan(rhs)) {
             p.span = (EVGGridPlacement.spanCount(rhs))
+            p.spanExplicit = true
         } {
-            ; "2 / 4" covers the tracks between lines 2 and 4, i.e. two tracks.
-            def endLine:int (EVGGridPlacement.lineNumber(rhs))
-            if (endLine > p.start) {
-                p.span = (endLine - p.start)
+            p.takeEnd(rhs)
+        }
+        p.applyEndLine()
+        return p
+    }
+
+    ; A side is a line number, a line name, or nothing this subset can use.
+    ; Something that looks like a number but is not a usable one — 0, or a
+    ; negative line, CSS's count-from-the-end form — is rejected outright
+    ; rather than treated as a name it plainly is not.
+    fn takeStart:void (token:string) {
+        if (EVGGridPlacement.isNumericToken(token)) {
+            start = (EVGGridPlacement.lineNumber(token))
+            if (start == 0) {
+                this.reject(token)
+            }
+        } {
+            startName = token
+        }
+    }
+
+    fn takeEnd:void (token:string) {
+        if (EVGGridPlacement.isNumericToken(token)) {
+            endLine = (EVGGridPlacement.lineNumber(token))
+            if (endLine == 0) {
+                this.reject(token)
+            }
+        } {
+            endName = token
+        }
+    }
+
+    ; "2 / 4" covers the tracks between lines 2 and 4, i.e. two tracks.
+    fn applyEndLine:void () {
+        if spanExplicit {
+            return
+        }
+        if (start < 1) {
+            return
+        }
+        if (endLine > start) {
+            span = (endLine - start)
+        }
+    }
+
+    ; Point the named sides at real lines, now that the container's template is
+    ; known. A name the template does not define leaves the item auto-placed
+    ; and is reported, the same as any other declaration the engine cannot
+    ; honour.
+    fn resolveNames:void (tpl:EVGGridTemplate) {
+        if ((strlen startName) > 0) {
+            def n:int (tpl.lineNumberNamed(startName))
+            if (n > 0) {
+                start = n
+                startName = ""
+            } {
+                this.rejectName(startName)
             }
         }
-        return p
+        if ((strlen endName) > 0) {
+            def e:int (tpl.lineNumberNamed(endName))
+            if (e > 0) {
+                endLine = e
+                endName = ""
+            } {
+                this.rejectName(endName)
+            }
+        }
+        this.applyEndLine()
+    }
+
+    sfn isNumericToken:boolean (s:string) {
+        if ((strlen s) == 0) {
+            return false
+        }
+        def c:int (charAt s 0)
+        if ((c >= 48) && (c <= 57)) {
+            return true
+        }
+        return ((c == 45) || (c == 43))
+    }
+
+    fn rejectName:void (name:string) {
+        if hadError {
+            return
+        }
+        hadError = true
+        errorText = ("no line named \"" + name + "\"; the item was auto-placed")
+    }
+
+    ; A token that looks numeric but is not a line this engine can use: 0, or
+    ; a negative line, which CSS counts from the end of the grid.
+    fn reject:void (token:string) {
+        if hadError {
+            return
+        }
+        hadError = true
+        errorText = ("unsupported line \"" + token + "\" (negative line numbers are not supported); the item was auto-placed")
     }
 
     sfn isSpan:boolean (s:string) {

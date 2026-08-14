@@ -311,51 +311,65 @@ class JSXToEVG {
         return element
     }
     
-    ; Collect all text content from JSX children
+    ; Collect all text content from JSX children.
+    ;
+    ; The parser hands back one JSXText node per run of word characters, so
+    ; "100% sure" arrives as three fragments and the joiner decides what goes
+    ; between them. It used to guess from a whitelist of characters that may
+    ; not have a space before them (, . ! ? : ; - ) ]) — which got "Hello,
+    ; world!" right and mangled everything else: "100 % sure", "a / b",
+    ; "a ( b) c", and every curly quote as “ x ”.
+    ;
+    ; The tokens carry their source offsets, which is where the spacing
+    ; actually lives: two fragments are adjacent in the source exactly when the
+    ; next one starts where the previous one ended. The token values have
+    ; already had whitespace stripped, so the offsets are the only record left.
     fn collectTextContent:string (jsxNode:TSNode) {
         def result:string ""
+        ; Source offset just past the last fragment consumed; -1 before any.
+        def prevEnd:int (0 - 1)
         def i 0
         while (i < (array_length jsxNode.children)) {
             def child:TSNode (itemAt jsxNode.children i)
             
             if (child.nodeType == "JSXText") {
-                def text:string (this.trimText(child.value))
+                def raw:string child.value
+                def text:string (this.trimText(raw))
                 if ((strlen text) > 0) {
                     if ((strlen result) > 0) {
-                        ; Check if text starts with punctuation - no space before it
-                        def firstChar:int (charAt text 0)
-                        def isPunct:boolean ((firstChar == 44) || (firstChar == 46) || (firstChar == 33) || (firstChar == 63) || (firstChar == 58) || (firstChar == 59) || (firstChar == 45) || (firstChar == 41) || (firstChar == 93))
-                        ; 44=, 46=. 33=! 63=? 58=: 59=; 45=- 41=) 93=]
-                        if isPunct {
-                            result = result + text
-                        } {
-                            result = result + " " + text
+                        if (child.start > prevEnd) {
+                            result = result + " "
                         }
-                    } {
-                        result = text
                     }
+                    result = result + text
+                    prevEnd = (child.start + (strlen raw))
                 }
             }
             
             if (child.nodeType == "JSXExpressionContainer") {
                 if child.left {
+                    def handled:boolean false
+                    def text:string ""
                     if (child.left.nodeType == "StringLiteral") {
-                        def text:string (this.unquote(child.left.value))
-                        if ((strlen result) > 0) {
-                            result = result + " " + text
-                        } {
-                            result = text
-                        }
+                        text = (this.unquote(child.left.value))
+                        handled = true
                     }
                     if (child.left.nodeType == "TemplateLiteral") {
                         ; Template literals have children with TemplateElement nodes
                         def leftNode:TSNode (unwrap child.left)
-                        def text:string (this.extractTemplateLiteralText(leftNode))
+                        text = (this.extractTemplateLiteralText(leftNode))
+                        handled = true
+                    }
+                    if handled {
                         if ((strlen result) > 0) {
-                            result = result + " " + text
-                        } {
-                            result = text
+                            if (child.start > prevEnd) {
+                                result = result + " "
+                            }
                         }
+                        result = result + text
+                        ; The container's own extent is not recorded, so treat
+                        ; whatever follows as adjacent unless it says otherwise.
+                        prevEnd = child.start
                     }
                 }
             }

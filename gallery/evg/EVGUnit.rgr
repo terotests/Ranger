@@ -1,5 +1,13 @@
 ; EVGUnit.rgr - Unit parsing and resolution for EVG layout
-; Supports: px, %, em, hp (height percent), fill
+; Supports: px, %, em, rem, hp (height percent), fill, and the absolute print
+; units pt / pc / in / mm / cm, which are folded into px at parse time.
+;
+; Not supported, deliberately: vw/vh (a print page has no viewport), ch/ex
+; (they need font metrics the unit layer has no access to), and calc().
+; An unrecognised suffix leaves the unit UNSET — i.e. auto, the way a browser
+; drops a declaration it cannot parse. It must not fall through to the bare
+; number path, because to_double("10vw") is 10 and the length would silently
+; become 10px.
 
 ; Unit type constants
 ; 0 = PIXELS (default)
@@ -7,18 +15,50 @@
 ; 2 = EM (relative to font size)
 ; 3 = HEIGHT_PERCENT (% of parent height)
 ; 4 = FILL (expand to fill available space)
+; 5 = REM (relative to the ROOT font size)
 
 class EVGUnit {
     def value:double 0.0
     def unitType:int 0
     def isSet:boolean false
     def pixels:double 0.0
+    ; What `rem` resolves against. A unit has no way to reach the root of the
+    ; tree, so whoever resolves it (EVGElement/EVGBox.resolveUnits) sets this
+    ; first. Ignored by every other unit type.
+    def rootFontSize:double 14.0
     
     Constructor () {
         value = 0.0
         unitType = 0
         isSet = false
         pixels = 0.0
+    }
+
+    sfn isAlpha:boolean (c:int) {
+        if ((c >= 65) && (c <= 90)) {
+            return true
+        }
+        return ((c >= 97) && (c <= 122))
+    }
+
+    ; CSS defines the absolute units against the reference pixel: 1in = 96px.
+    sfn pxPerUnit:double (suffix:string) {
+        if (suffix == "pt") {
+            return (96.0 / 72.0)
+        }
+        if (suffix == "pc") {
+            return 16.0
+        }
+        if (suffix == "in") {
+            return 96.0
+        }
+        if (suffix == "mm") {
+            return (96.0 / 25.4)
+        }
+        if (suffix == "cm") {
+            return (96.0 / 2.54)
+        }
+        return 0.0
     }
     
     sfn create:EVGUnit (val:double uType:int) {
@@ -30,7 +70,12 @@ class EVGUnit {
     }
     
     sfn px:EVGUnit (val:double) {
-        return (EVGUnit.create(val 0))
+        def unit:EVGUnit (EVGUnit.create(val 0))
+        ; A pixel length is already in pixels. parse("14px") fills this in
+        ; eagerly and callers read .pixels without resolving first, so px()
+        ; has to as well.
+        unit.pixels = val
+        return unit
     }
     
     sfn percent:EVGUnit (val:double) {
@@ -39,6 +84,10 @@ class EVGUnit {
     
     sfn em:EVGUnit (val:double) {
         return (EVGUnit.create(val 2))
+    }
+    
+    sfn rem:EVGUnit (val:double) {
+        return (EVGUnit.create(val 5))
     }
     
     sfn heightPercent:EVGUnit (val:double) {
@@ -91,9 +140,40 @@ class EVGUnit {
             return unit
         }
         
+        ; "rem" has to be tested before "em", or a 3-character suffix gets
+        ; chopped to "2r" — which to_double happily reads as 2, so "2rem"
+        ; silently became "2em".
+        if (len >= 3) {
+            def suffix3:string (substring trimmed (len - 3) len)
+            if (suffix3 == "rem") {
+                def numStr3:string (substring trimmed 0 (len - 3))
+                def numVal3@(optional):double (to_double numStr3)
+                if numVal3 {
+                    unit.value = (unwrap numVal3)
+                    unit.unitType = 5
+                    unit.isSet = true
+                }
+                return unit
+            }
+        }
+        
         ; Check for "em"
         if (len >= 2) {
             def suffix:string (substring trimmed (len - 2) len)
+            ; Absolute print units. These have a fixed pixel value, so they are
+            ; folded to px here and never need resolving again.
+            def perUnit:double (EVGUnit.pxPerUnit(suffix))
+            if (perUnit > 0.0) {
+                def numStrA:string (substring trimmed 0 (len - 2))
+                def numValA@(optional):double (to_double numStrA)
+                if numValA {
+                    unit.value = ((unwrap numValA) * perUnit)
+                    unit.pixels = unit.value
+                    unit.unitType = 0
+                    unit.isSet = true
+                }
+                return unit
+            }
             if (suffix == "em") {
                 def numStr:string (substring trimmed 0 (len - 2))
                 def numVal@(optional):double (to_double numStr)
@@ -127,7 +207,13 @@ class EVGUnit {
             }
         }
         
-        ; Default: treat as pixels (only if it's a valid number)
+        ; Default: treat as pixels — but only for something that really is a
+        ; bare number. to_double stops at the first character it cannot use, so
+        ; without this guard every unit the parser does not know ("10vw",
+        ; "4ch") would quietly turn into that many pixels.
+        if ((EVGUnit.isAlpha(lastChar)) || (lastChar == 41)) {
+            return unit
+        }
         def numVal@(optional):double (to_double trimmed)
         if numVal {
             unit.value = (unwrap numVal)
@@ -160,6 +246,12 @@ class EVGUnit {
         ; EM
         if (unitType == 2) {
             pixels = (fontSize * value)
+            return
+        }
+        
+        ; REM - against the root font size, not this element's
+        if (unitType == 5) {
+            pixels = (rootFontSize * value)
             return
         }
         
@@ -230,6 +322,10 @@ class EVGUnit {
         return (unitType == 2)
     }
     
+    fn isRem:boolean () {
+        return (unitType == 5)
+    }
+    
     fn isHeightPercent:boolean () {
         return (unitType == 3)
     }
@@ -256,6 +352,9 @@ class EVGUnit {
         }
         if (unitType == 4) {
             return "fill"
+        }
+        if (unitType == 5) {
+            return ((to_string value) + "rem")
         }
         return (to_string value)
     }

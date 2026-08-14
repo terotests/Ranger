@@ -16,6 +16,14 @@ class EVGLayout {
     def pageHeight:double 792.0
     def currentPage:int 0
     def debug:boolean false
+    ; Grid track lists and placements that the engine could not honour.
+    ;
+    ; These used to go to this.log(), which is a no-op unless `debug` is on, so
+    ; `fit-content()`, row `subgrid` and a mistyped template were silently
+    ; dropped in every normal run — the page just came out with the wrong
+    ; number of columns. They are collected here instead and reported by the
+    ; tools the same way font warnings are.
+    def warnings:[string]
     
     Constructor () {
         def m (new SimpleTextMeasurer())
@@ -57,6 +65,29 @@ class EVGLayout {
             print msg
         }
     }
+
+    ; Record something the author asked for that the engine could not do.
+    ; Deduplicated: one bad template on a repeated component would otherwise
+    ; report once per instance and bury everything else.
+    fn warn:void (msg:string) {
+        def i:int 0
+        while (i < (array_length warnings)) {
+            if ((itemAt warnings i) == msg) {
+                return
+            }
+            i = (i + 1)
+        }
+        push warnings msg
+        this.log(("  " + msg))
+    }
+
+    fn warningCount:int () {
+        return (array_length warnings)
+    }
+
+    fn warningAt:string (i:int) {
+        return (itemAt warnings i)
+    }
     
     fn layout:void (root:EVGElement) {
         ; Layout the entire element tree
@@ -71,6 +102,13 @@ class EVGLayout {
             root.height = (EVGUnit.px(pageHeight))
         }
         
+        ; The root inherits from nothing, so its own font-size has to be folded
+        ; in here or it is silently dropped. `rem` on the root itself resolves
+        ; against the initial size, which is why rootFontSize is only published
+        ; afterwards.
+        root.applyOwnFontSize()
+        root.rootFontSize = root.inheritedFontSize
+
         ; Explicitly set root position to (0, 0)
         ; This is important when re-laying out a page that was previously 
         ; positioned elsewhere in a multi-page document
@@ -286,6 +324,18 @@ class EVGLayout {
             height = contentHeight + element.box.paddingTopPx + element.box.paddingBottomPx + (element.box.borderWidthPx * 2.0)
         }
         
+        ; A border box cannot be smaller than its own padding and border. CSS
+        ; grows the box in that case rather than producing a negative content
+        ; box; EVG used to keep the declared size and collapse the children.
+        def vChrome:double (element.box.getVerticalChrome())
+        if (height < vChrome) {
+            height = vChrome
+        }
+        def hChrome:double (element.box.getHorizontalChrome())
+        if (width < hChrome) {
+            width = hChrome
+        }
+
         ; Apply min/max height constraints
         if element.minHeight.isSet {
             if (height < element.minHeight.pixels) {
@@ -356,8 +406,10 @@ class EVGLayout {
         def gapPx:double 0.0
         if parent.gap.isSet {
             if isColumn {
+                parent.gap.rootFontSize = parent.rootFontSize
                 parent.gap.resolve(innerHeight parent.inheritedFontSize)
             } {
+                parent.gap.rootFontSize = parent.rootFontSize
                 parent.gap.resolve(innerWidth parent.inheritedFontSize)
             }
             gapPx = parent.gap.pixels
@@ -1343,6 +1395,54 @@ class EVGLayout {
     ; Auto-flow row placement over a fixed column count. Items may span columns
     ; and rows; an occupancy map keeps spans from overlapping. Returns the total
     ; content height, same contract as layoutChildren.
+    ; What a grid item contributes to an intrinsic track.
+    ;
+    ; A definite width is both the min- and max-content size, so it is the
+    ; whole answer. A text leaf contributes its longest unbroken line. Anything
+    ; else contributes nothing: sizing a container to its subtree needs a real
+    ; intrinsic pass, and reporting a made-up number would silently misplace
+    ; every neighbour rather than merely leave a track narrow.
+    fn intrinsicWidthOf:double (el:EVGElement) {
+        return (this.intrinsicWidth(el false))
+    }
+
+    ; The narrowest the item can be squeezed to — for text, its longest word.
+    fn minIntrinsicWidthOf:double (el:EVGElement) {
+        return (this.intrinsicWidth(el true))
+    }
+
+    fn intrinsicWidth:double (el:EVGElement wantMin:boolean) {
+        def outer:double 0.0
+        if el.width.isSet {
+            ; A definite width is both the min- and the max-content size.
+            outer = el.width.pixels
+        } {
+            def textContent:string el.textContent
+            if ((strlen textContent) > 0) {
+                if ((el.getChildCount()) == 0) {
+                    def fs:double el.inheritedFontSize
+                    if el.fontSize.isSet {
+                        fs = el.fontSize.pixels
+                    }
+                    if (fs <= 0.0) {
+                        fs = 14.0
+                    }
+                    def contentW:double 0.0
+                    if wantMin {
+                        contentW = (textEngine.minLineWidth(textContent el.fontFamily fs))
+                    } {
+                        contentW = (textEngine.maxLineWidth(textContent el.fontFamily fs))
+                    }
+                    outer = (contentW + (el.box.getHorizontalChrome()))
+                }
+            }
+        }
+        if (outer <= 0.0) {
+            return 0.0
+        }
+        return ((outer + el.box.marginLeftPx) + el.box.marginRightPx)
+    }
+
     fn layoutGrid:double (parent:EVGElement) {
         def innerWidth:double parent.calculatedInnerWidth
         def innerHeight:double parent.calculatedInnerHeight
@@ -1354,15 +1454,18 @@ class EVGLayout {
         def colGapPx:double 0.0
         def rowGapPx:double 0.0
         if parent.gap.isSet {
+            parent.gap.rootFontSize = parent.rootFontSize
             parent.gap.resolve(innerWidth parent.inheritedFontSize)
             colGapPx = parent.gap.pixels
             rowGapPx = parent.gap.pixels
         }
         if parent.columnGap.isSet {
+            parent.columnGap.rootFontSize = parent.rootFontSize
             parent.columnGap.resolve(innerWidth parent.inheritedFontSize)
             colGapPx = parent.columnGap.pixels
         }
         if parent.rowGap.isSet {
+            parent.rowGap.rootFontSize = parent.rootFontSize
             parent.rowGap.resolve(innerHeight parent.inheritedFontSize)
             rowGapPx = parent.rowGap.pixels
         }
@@ -1394,7 +1497,13 @@ class EVGLayout {
                 }
                 colSpec = sgSpec
             } {
-                this.log("  Grid: subgrid requested with no enclosing grid track sizes")
+                ; During an enclosing grid's content-measuring pass the sizes
+                ; do not exist yet, and falling back is correct rather than
+                ; wrong — subgridPending is what tells that apart from having
+                ; no enclosing grid at all.
+                if (parent.subgridPending == false) {
+                    this.warn("grid-template-columns: subgrid has no enclosing grid to inherit tracks from; falling back to 1fr")
+                }
                 colSpec = "1fr"
             }
         }
@@ -1404,7 +1513,7 @@ class EVGLayout {
         def hasAreas:boolean false
         if ((strlen parent.gridTemplateAreas) > 0) {
             if (areas.hadError) {
-                this.log(("  Grid: " + areas.errorText))
+                this.warn(("grid-template-areas: " + areas.errorText))
             } {
                 hasAreas = true
                 if ((strlen parent.gridTemplateColumns) == 0) {
@@ -1425,14 +1534,28 @@ class EVGLayout {
 
         def cols:EVGGridTemplate (EVGGridTemplate.parse(colSpec))
         if (cols.hadError) {
-            this.log(("  Grid: " + cols.errorText))
+            this.warn(("grid-template-columns: " + cols.errorText))
         }
         def colCount:int (cols.count())
         if (colCount < 1) {
             return 0.0
         }
         def colGapTotal:double ((to_double (colCount - 1)) * colGapPx)
-        cols.resolve((innerWidth - colGapTotal))
+        ; Column sizing is deferred until after placement: an `auto` or
+        ; `fit-content()` track is sized from the items that land in it, so
+        ; the tracks cannot be resolved until it is known which those are.
+        ; Nothing between here and there reads a track extent.
+
+        ; The row template is parsed here as well as where the rows are sized,
+        ; because a `grid-row` naming a line has to be resolved before
+        ; placement runs. With no row template it holds no names, and every
+        ; named row line is reported as unknown — which is the truth.
+        def rowTemplateSpec:string parent.gridTemplateRows
+        if (rowTemplateSpec == "subgrid") {
+            ; Inherited tracks carry no names of their own.
+            rowTemplateSpec = ""
+        }
+        def rowTemplate:EVGGridTemplate (EVGGridTemplate.parse(rowTemplateSpec))
 
         ; Collect the in-flow children and their placements.
         def items:[EVGElement]
@@ -1446,9 +1569,26 @@ class EVGLayout {
             def c:EVGElement (parent.getChild(i))
             c.inheritProperties(parent)
             c.resolveUnits(innerWidth innerHeight)
+            ; Claim it now: the tracks cannot be handed over until they are
+            ; sized, but the child needs to know an enclosing grid exists long
+            ; before that — it may be laid out during the measuring pass below.
+            if ((c.gridTemplateColumns == "subgrid") || (c.gridTemplateRows == "subgrid")) {
+                c.subgridPending = true
+            }
             if (c.isAbsolute == false) {
+                ; Named lines live on the container's template, so the
+                ; placement is parsed first and pointed at real lines here,
+                ; where both are in hand.
                 def cp:EVGGridPlacement (EVGGridPlacement.parse(c.gridColumn))
+                cp.resolveNames(cols)
+                if (cp.hadError) {
+                    this.warn(("grid-column: " + cp.errorText))
+                }
                 def rp:EVGGridPlacement (EVGGridPlacement.parse(c.gridRow))
+                rp.resolveNames(rowTemplate)
+                if (rp.hadError) {
+                    this.warn(("grid-row: " + rp.errorText))
+                }
                 ; grid-area names win over grid-column/grid-row: the picture is
                 ; the more specific statement of intent.
                 if hasAreas {
@@ -1460,7 +1600,7 @@ class EVGLayout {
                             rp.start = ((itemAt areas.rowStart at) + 1)
                             rp.span = (itemAt areas.rowSpan at)
                         } {
-                            this.log(("  Grid: no area named \"" + c.gridArea + "\""))
+                            this.warn(("grid-area: no area named \"" + c.gridArea + "\" in grid-template-areas"))
                         }
                     }
                 }
@@ -1585,6 +1725,41 @@ class EVGLayout {
             k = (k + 1)
         }
 
+        ; --- column sizing ---------------------------------------------------
+        ; Intrinsic tracks take the widest item placed in them. Only items that
+        ; occupy a single column contribute: an item spanning several has no
+        ; one track to charge, and CSS distributes it in a later step this
+        ; engine does not have — so it is left out rather than guessed at.
+        def colContent:[double]
+        def colMinContent:[double]
+        def ci:int 0
+        while (ci < colCount) {
+            push colContent 0.0
+            push colMinContent 0.0
+            ci = (ci + 1)
+        }
+        if (cols.hasIntrinsicTrack()) {
+            def ic:int 0
+            while (ic < (array_length items)) {
+                if ((itemAt colSpans ic) == 1) {
+                    def col2:int (itemAt placedCol ic)
+                    if (col2 < colCount) {
+                        def it:EVGElement (itemAt items ic)
+                        def w2:double (this.intrinsicWidthOf(it))
+                        if (w2 > (itemAt colContent col2)) {
+                            set colContent col2 w2
+                        }
+                        def m2:double (this.minIntrinsicWidthOf(it))
+                        if (m2 > (itemAt colMinContent col2)) {
+                            set colMinContent col2 m2
+                        }
+                    }
+                }
+                ic = (ic + 1)
+            }
+        }
+        cols.resolveWithContent((innerWidth - colGapTotal) colContent colMinContent)
+
         ; --- row sizing ------------------------------------------------------
         def rowSpec:string parent.gridTemplateRows
         def rowSizes:[double]
@@ -1593,9 +1768,41 @@ class EVGLayout {
             rowGapTotal = ((to_double (rowsUsed - 1)) * rowGapPx)
         }
 
+        ; grid-template-rows: subgrid — adopt the enclosing grid's row tracks
+        ; for the rows this element occupies, so the pieces of a card line up
+        ; with every other card's instead of each one dividing its own height.
+        ;
+        ; The rows are handed down at final placement, by which point the
+        ; parent has sized them either from its own template or from its
+        ; content pass. That is why this could wait until the rest of grid was
+        ; in place: it needs the parent's rows to be settled, and they are.
+        def usingRowSubgrid:boolean false
+        if (rowSpec == "subgrid") {
+            if ((array_length parent.subgridRowSizes) > 0) {
+                usingRowSubgrid = true
+                def sgrSpec:string ""
+                def sgr:int 0
+                while (sgr < (array_length parent.subgridRowSizes)) {
+                    if (sgr > 0) {
+                        sgrSpec = sgrSpec + " "
+                    }
+                    sgrSpec = sgrSpec + (to_string (itemAt parent.subgridRowSizes sgr)) + "px"
+                    sgr = (sgr + 1)
+                }
+                rowSpec = sgrSpec
+            } {
+                if (parent.subgridPending == false) {
+                    this.warn("grid-template-rows: subgrid has no enclosing grid to inherit tracks from; falling back to content-sized rows")
+                }
+                rowSpec = ""
+            }
+        }
+
         def haveTemplateRows:boolean false
         if ((strlen rowSpec) > 0) {
-            if (parent.hasDefiniteHeight) {
+            ; Inherited rows are already absolute pixels, so they do not need
+            ; the container's own height to resolve against.
+            if (parent.hasDefiniteHeight || usingRowSubgrid) {
                 haveTemplateRows = true
             }
         }
@@ -1604,7 +1811,7 @@ class EVGLayout {
             ; Explicit row tracks against a definite container height.
             def rows:EVGGridTemplate (EVGGridTemplate.parse(rowSpec))
             if (rows.hadError) {
-                this.log(("  Grid: " + rows.errorText))
+                this.warn(("grid-template-rows: " + rows.errorText))
             }
             rows.resolve((innerHeight - rowGapTotal))
             def r2:int 0
@@ -1634,17 +1841,38 @@ class EVGLayout {
             }
             def m:int 0
             while (m < itemCount) {
-                if ((itemAt rowSpans m) == 1) {
-                    def it:EVGElement (itemAt items m)
+                def it:EVGElement (itemAt items m)
+                def rspanM:int (itemAt rowSpans m)
+                def ri:int (itemAt placedRow m)
+                ; A row subgrid always spans several rows, so the span-1 rule
+                ; below would leave it out — and with only subgrid cards in the
+                ; grid every row would measure zero and the cards collapse.
+                ; With subgrid it is the grandchildren that size these rows, so
+                ; the card is measured on its own terms and the rows it worked
+                ; out are adopted one for one.
+                def isRowSubgrid:boolean (it.gridTemplateRows == "subgrid")
+                if ((rspanM == 1) || isRowSubgrid) {
                     def cw:double (cols.extentOf((itemAt placedCol m) (itemAt colSpans m) colGapPx))
                     def avail:double (cw - it.box.marginLeftPx - it.box.marginRightPx)
                     ; Measure with auto height: clear any inherited flex height.
                     it.calculatedFlexHeight = 0.0
                     this.layoutElement(it 0.0 0.0 avail 0.0)
-                    def h:double (it.calculatedHeight + it.box.marginTopPx + it.box.marginBottomPx)
-                    def ri:int (itemAt placedRow m)
-                    if (h > (itemAt rowSizes ri)) {
-                        set rowSizes ri h
+                    if isRowSubgrid {
+                        def sub:int 0
+                        while (sub < rspanM) {
+                            if (sub < (array_length it.computedRowSizes)) {
+                                def sh:double (itemAt it.computedRowSizes sub)
+                                if (sh > (itemAt rowSizes (ri + sub))) {
+                                    set rowSizes (ri + sub) sh
+                                }
+                            }
+                            sub = (sub + 1)
+                        }
+                    } {
+                        def h:double (it.calculatedHeight + it.box.marginTopPx + it.box.marginBottomPx)
+                        if (h > (itemAt rowSizes ri)) {
+                            set rowSizes ri h
+                        }
                     }
                 }
                 m = (m + 1)
@@ -1684,8 +1912,9 @@ class EVGLayout {
                 el.calculatedFlexHeight = boxH
             }
 
-            ; Hand this cell's column tracks down to a subgrid child before it
-            ; lays itself out.
+            ; Hand this cell's tracks down to a subgrid child before it lays
+            ; itself out. Both axes work the same way; the rows are simply
+            ; known later, which is the only reason columns landed first.
             if (el.gridTemplateColumns == "subgrid") {
                 clear el.subgridColumnSizes
                 def sgi:int 0
@@ -1695,9 +1924,32 @@ class EVGLayout {
                     sgi = (sgi + 1)
                 }
             }
+            if (el.gridTemplateRows == "subgrid") {
+                clear el.subgridRowSizes
+                def sgj:int 0
+                while (sgj < rSpan) {
+                    def rIdx2:int (rIdx + sgj)
+                    if (rIdx2 < (array_length rowSizes)) {
+                        push el.subgridRowSizes (itemAt rowSizes rIdx2)
+                    }
+                    sgj = (sgj + 1)
+                }
+                ; The child's own units were resolved before the rows existed;
+                ; let it resolve them again against the height it now has.
+                el.unitsResolved = false
+            }
 
             this.layoutElement(el el.calculatedX el.calculatedY boxW boxH)
             p = (p + 1)
+        }
+
+        ; Leave the rows behind for an enclosing grid that has to size its own
+        ; rows around this one.
+        clear parent.computedRowSizes
+        def cr:int 0
+        while (cr < rowsUsed) {
+            push parent.computedRowSizes (itemAt rowSizes cr)
+            cr = (cr + 1)
         }
 
         def total:double 0.0

@@ -87,6 +87,19 @@ class EVGElement {
     
     ; Typography (inherited)
     def fontSize:EVGUnit
+    ; fontSize starts UNSET: an element is born without one so that "the author
+    ; asked for this size" stays distinguishable from "nobody said". Layout
+    ; fills it in from the inherited size for every element that does not set
+    ; one, so by the time a renderer reads it, it is always set — and remembers
+    ; that it did so, or a re-layout would mistake its own fill-in for an
+    ; authored size and stop inheriting.
+    def fontSizeInherited:boolean false
+    ; The size inherited from the parent, kept apart from the resolved one so
+    ; that an `em` font-size resolved twice does not compound.
+    def fontSizeBase:double 14.0
+    ; The font-size of the tree's root, which is what `rem` resolves against.
+    ; Inherited unchanged all the way down.
+    def rootFontSize:double 14.0
     def fontFamily:string "Noto Sans"
     def fontWeight:string "normal"
     def lineHeight:double 1.2
@@ -129,11 +142,24 @@ class EVGElement {
     ; grid-template-areas: rows of names, e.g.
     ;   "hero hero" "left right"
     ; An item claims a region with grid-area.
-    ; Column track sizes handed down by an enclosing grid when this element
-    ; declares `grid-template-columns: subgrid`. Filled in by EVGLayout just
-    ; before the child is laid out, because the parent is the only thing that
-    ; knows its own tracks.
+    ; Track sizes handed down by an enclosing grid when this element declares
+    ; `grid-template-columns: subgrid` / `grid-template-rows: subgrid`. Filled
+    ; in by EVGLayout just before the child is laid out, because the parent is
+    ; the only thing that knows its own tracks.
     def subgridColumnSizes:[double]
+    def subgridRowSizes:[double]
+    ; The row heights this element's own grid worked out, left behind for an
+    ; enclosing grid to read. A row subgrid always spans several of its
+    ; parent's rows, and with subgrid it is the GRANDCHILDREN that have to size
+    ; those rows — so the parent measures the subgrid once and adopts the rows
+    ; it came up with, rather than trying to see through it.
+    def computedRowSizes:[double]
+    ; Set by the enclosing grid as soon as it has claimed this element, which
+    ; is well before it can size its tracks. It is what tells a subgrid child
+    ; laid out during the parent's content-measuring pass — where the sizes do
+    ; not exist yet — apart from one with no enclosing grid at all. Without it
+    ; the first kind reported "no enclosing grid", which was simply untrue.
+    def subgridPending:boolean false
     def gridTemplateAreas:string ""
     ; grid-auto-flow: "row" (default) or "row dense" — dense backfills earlier
     ; holes instead of only moving forward.
@@ -294,7 +320,7 @@ class EVGElement {
         backgroundColor = (EVGColor.noColor())
         color = (EVGColor.black())
         
-        fontSize = (EVGUnit.px(14.0))
+        fontSize = (EVGUnit.unset())
         
         shadowRadius = (EVGUnit.unset())
         shadowColor = (EVGColor.noColor())
@@ -518,10 +544,37 @@ class EVGElement {
         if (color.isSet == false) {
             color = parentEl.color
         }
-        inheritedFontSize = parentEl.inheritedFontSize
-        if fontSize.isSet {
-            fontSize.resolve(inheritedFontSize inheritedFontSize)
+        fontSizeBase = parentEl.inheritedFontSize
+        rootFontSize = parentEl.rootFontSize
+        this.applyOwnFontSize()
+    }
+
+    ; Settle this element's font-size against the one it inherits, and publish
+    ; the result as what its own `em` lengths and its descendants resolve
+    ; against.
+    ;
+    ; Two things were broken before this existed. A root has no parent, so
+    ; inheritProperties never ran on it and a font-size on a Page or Print was
+    ; dropped outright. And below the root, every element was constructed with
+    ; a 14px font-size, so an inherited size was immediately overwritten by
+    ; that default — font-size only ever applied to the element that carried it.
+    ; EVGLayout.layout calls this on the root; inheritProperties on the rest.
+    fn applyOwnFontSize:void () {
+        def authored:boolean fontSize.isSet
+        if fontSizeInherited {
+            authored = false
+        }
+        if authored {
+            ; `em` on font-size itself is relative to the *parent's* size,
+            ; which is why the base is kept rather than read back out of
+            ; inheritedFontSize.
+            fontSize.rootFontSize = rootFontSize
+            fontSize.resolve(fontSizeBase fontSizeBase)
             inheritedFontSize = fontSize.pixels
+        } {
+            inheritedFontSize = fontSizeBase
+            fontSize = (EVGUnit.px(fontSizeBase))
+            fontSizeInherited = true
         }
     }
     
@@ -534,6 +587,26 @@ class EVGElement {
         
         ; Resolve all unit values to pixels
         def fs:double inheritedFontSize
+        def rfs:double rootFontSize
+        
+        ; `rem` needs the root's font size, which a unit cannot reach on its
+        ; own — hand it over before anything is resolved.
+        width.rootFontSize = rfs
+        height.rootFontSize = rfs
+        flexBasis.rootFontSize = rfs
+        minWidth.rootFontSize = rfs
+        minHeight.rootFontSize = rfs
+        maxWidth.rootFontSize = rfs
+        maxHeight.rootFontSize = rfs
+        left.rootFontSize = rfs
+        top.rootFontSize = rfs
+        right.rootFontSize = rfs
+        bottom.rootFontSize = rfs
+        x.rootFontSize = rfs
+        y.rootFontSize = rfs
+        shadowRadius.rootFontSize = rfs
+        shadowOffsetX.rootFontSize = rfs
+        shadowOffsetY.rootFontSize = rfs
         
         ; Dimensions - width uses parentWidth, height uses parentHeight
         width.resolveWithHeight(parentWidth parentHeight fs)
@@ -553,7 +626,7 @@ class EVGElement {
         y.resolve(parentHeight fs)
         
         ; Box model
-        box.resolveUnits(parentWidth parentHeight fs)
+        box.resolveUnits(parentWidth parentHeight fs rfs)
         
         ; Shadow
         shadowRadius.resolve(parentWidth fs)
@@ -1036,6 +1109,7 @@ class EVGElement {
         ; Typography
         if ((name == "font-size") || (name == "fontSize")) {
             fontSize = (EVGUnit.parse(value))
+            fontSizeInherited = false
             return
         }
         if ((name == "font-family") || (name == "fontFamily")) {

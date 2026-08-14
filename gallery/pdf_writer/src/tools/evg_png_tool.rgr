@@ -14,6 +14,7 @@ Import "../../../evg/EVGLayout.rgr"
 Import "../fonts/TrueTypeFont.rgr"
 Import "../fonts/FontManager.rgr"
 Import "../fonts/EVGFontSetup.rgr"
+Import "../../../evg/EVGTextEngine.rgr"
 
 class EVGPNGTool {
     def inputFile:string ""
@@ -204,7 +205,26 @@ class EVGPNGTool {
         layout.setPageSize(pageWidth pageHeight)
         layout.debug = true
         layout.layout(root)
-        
+
+        ; Anything layout could not honour — an unsupported grid track
+        ; function, a named grid line, an area that does not exist. The raster
+        ; target reported none of this before, so a grid that came out wrong
+        ; here looked like a raster bug rather than a rejected declaration.
+        def lwi:int 0
+        while (lwi < (layout.warningCount())) {
+            print ("Layout warning: " + (layout.warningAt(lwi)))
+            lwi = (lwi + 1)
+        }
+
+        ; The same for text the engine could not measure from the declared
+        ; face; a guessed advance reflows between this target and the PDF.
+        def tEngine:EVGTextEngine (layout.getTextEngine())
+        def twi:int 0
+        while (twi < (tEngine.warningCount())) {
+            print ("Font warning: " + (tEngine.warningAt(twi)))
+            twi = (twi + 1)
+        }
+
         print ("Root calculated: x=" + (to_string root.calculatedX) + " y=" + (to_string root.calculatedY) + " w=" + (to_string root.calculatedWidth) + " h=" + (to_string root.calculatedHeight))
         
         ; Check buffer before render
@@ -403,7 +423,7 @@ class EVGPNGTool {
         
         ; Render text content (for Label elements)
         if (el.textContent != "") {
-            this.renderText(el x y w h padLeft padTop)
+            this.renderText(el x y w h padLeft padTop padRight)
         }
         
         ; Render children - they have their own absolute calculated positions
@@ -455,7 +475,7 @@ class EVGPNGTool {
         }
     }
     
-    fn renderText:void (el:EVGElement x:double y:double w:double h:double padLeft:double padTop:double) {
+    fn renderText:void (el:EVGElement x:double y:double w:double h:double padLeft:double padTop:double padRight:double) {
         ; Get text color
         def textR:int 0
         def textG:int 0
@@ -479,18 +499,20 @@ class EVGPNGTool {
             fontSize = 14.0 * scale
         }
         
-        ; Get font (try to match weight)
-        def fontName:string "Open Sans"
+        ; Paint with the element's OWN face. This used to ask for "Open Sans"
+        ; whatever the document said, so a page set in Cinzel was measured in
+        ; Cinzel and painted in Open Sans — measure and paint disagreeing on the
+        ; raster target in exactly the way §4.1 rule 1 forbids.
+        def faceName:string el.fontFamily
+        if ((strlen faceName) == 0) {
+            faceName = "Open Sans"
+        }
         if (el.fontWeight == "bold") {
-            def boldFont:TrueTypeFont (fontManager.getFont("Open Sans Bold"))
-            if (boldFont.unitsPerEm > 0) {
-                textRenderer.setFont(boldFont)
-            }
-        } {
-            def regularFont:TrueTypeFont (fontManager.getFont("Open Sans"))
-            if (regularFont.unitsPerEm > 0) {
-                textRenderer.setFont(regularFont)
-            }
+            faceName = (faceName + "-Bold")
+        }
+        def face:TrueTypeFont (fontManager.getFont(faceName))
+        if (face.unitsPerEm > 0) {
+            textRenderer.setFont(face)
         }
         
         ; Render text shadow if set
@@ -501,6 +523,31 @@ class EVGPNGTool {
             }
         }
         
+        ; Break the text exactly where layout did. Without this the raster
+        ; painted one long line while layout had reserved N lines of height, so
+        ; a wrapped caption ran straight out of its box.
+        def unscaledFont:double (fontSize / scale)
+        def availW:double (((w - padLeft) - padRight) / scale)
+        def engine:EVGTextEngine (layout.getTextEngine())
+        def lines:[EVGTextLine] (engine.breakLines(el.textContent faceName unscaledFont availW))
+
+        def lineHeightFactor:double el.lineHeight
+        if (lineHeightFactor <= 0.0) {
+            lineHeightFactor = 1.2
+        }
+        def lineStep:double (fontSize * lineHeightFactor)
+
+        def li:int 0
+        while (li < (array_length lines)) {
+            def ln:EVGTextLine (itemAt lines li)
+            def lineY:double ((y + padTop) + (lineStep * (to_double li)))
+            this.renderTextLine(el ln.text (x + padLeft) lineY fontSize textR textG textB textA hasShadow)
+            li = (li + 1)
+        }
+    }
+
+    ; One already-broken line of text, with the element's shadow if it has one.
+    fn renderTextLine:void (el:EVGElement text:string x:double y:double fontSize:double textR:int textG:int textB:int textA:int hasShadow:boolean) {
         if hasShadow {
             def shadowR:int (el.shadowColor.red())
             def shadowG:int (el.shadowColor.green())
@@ -528,8 +575,8 @@ class EVGPNGTool {
             
             textRenderer.renderTextWithShadow(
                 (renderer.getBuffer())
-                el.textContent
-                (x + padLeft) (y + padTop)
+                text
+                x y
                 fontSize
                 textR textG textB textA
                 shadowR shadowG shadowB shadowA
@@ -540,8 +587,8 @@ class EVGPNGTool {
             ; Render text without shadow
             textRenderer.renderText(
                 (renderer.getBuffer())
-                el.textContent
-                (x + padLeft) (y + padTop)
+                text
+                x y
                 fontSize
                 textR textG textB textA
             )

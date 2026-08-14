@@ -103,6 +103,12 @@ class EVGHTMLRenderer {
     }
 
     ; Warnings collected while measuring, so a caller can surface them.
+    ; A field with no initializer is optional in Ranger; the constructor
+    ; always sets this one.
+    fn getLayout:EVGLayout () {
+        return (unwrap layout)
+    }
+
     fn getTextEngine:EVGTextEngine () {
         return (layout.getTextEngine())
     }

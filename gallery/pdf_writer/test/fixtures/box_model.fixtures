@@ -1,0 +1,398 @@
+# Box-model parity fixtures — read by BOTH sides, so they cannot drift.
+#
+#   browser_box_snapshot.js  builds the equivalent HTML and records what
+#                            Chromium lays out
+#   box_model_test.rgr       builds the equivalent EVG tree and compares
+#
+# Format
+#   F <name>                       start a fixture
+#   N <id> <parent|-> k=v k=v ...  a node; '-' means the fixture root
+#
+# Keys
+#   w,h            width, height
+#   pad            padding on all sides    padT padR padB padL  per side
+#   mar            margin on all sides     marT marR marB marL  per side
+#   bg             background colour (no spaces: rgb(12,34,56), not rgb(12, 34, 56),
+#                  because the format is whitespace-delimited)
+#   fs             font-size (what `em` lengths resolve against)
+#   dir            row | column   (EVG default is column)
+#   gap            main-axis gap
+#
+# A bare number means px, exactly as it does in EVGUnit.parse; anything with a
+# suffix is passed through to both sides untouched, so %, em, rem, pt, pc, in,
+# mm and cm all work wherever a length does. NOTE that this does not hold
+# inside a grid track list, which goes to the browser as written — spell those
+# "100px", not "100".
+#
+# Grid keys: disp=grid, gtc/gtr (grid-template-columns/rows), gc/gr
+# (grid-column/row), flow (grid-auto-flow). Values needing spaces write them as
+# underscores, because this file is whitespace-delimited.
+#
+# EVG treats `w`/`h` as the border box with padding inside it, so the browser
+# side sets box-sizing: border-box. EVG's flow is flex, so the browser side uses
+# display:flex — block-flow margin collapsing would otherwise make the two
+# disagree for reasons that have nothing to do with EVG.
+
+F padding-simple
+N root -    w=200 h=100 pad=10 bg=#ff0000
+N a    root w=50  h=20  bg=#00ff00
+
+F padding-per-side
+N root -    w=200 h=120 padT=5 padR=10 padB=15 padL=20 bg=#eeeeee
+N a    root w=40  h=20  bg=#3366ff
+N b    root w=40  h=20  bg=#ff6633
+
+F margin-simple
+N root -    w=200 h=140 bg=#ffffff
+N a    root w=60  h=20  mar=10 bg=#111111
+N b    root w=60  h=20  mar=10 bg=#222222
+
+F margin-per-side
+N root -    w=200 h=160 bg=#ffffff
+N a    root w=50  h=20  marT=4 marR=8 marB=12 marL=16 bg=#aa0000
+N b    root w=50  h=20  marT=2 marL=30 bg=#00aa00
+
+F padding-and-margin
+N root -    w=240 h=160 pad=20 bg=#f0f0f0
+N a    root w=60  h=30  mar=5  bg=#0000aa
+N b    root w=60  h=30  mar=5  bg=#aa00aa
+
+F row-gap
+N root -    w=300 h=80 dir=row gap=12 bg=#fafafa
+N a    root w=60  h=40 bg=#ff0000
+N b    root w=60  h=40 bg=#00ff00
+N c    root w=60  h=40 bg=#0000ff
+
+F column-gap
+N root -    w=120 h=200 gap=8 bg=#fafafa
+N a    root w=60  h=30 bg=#ff0000
+N b    root w=60  h=30 bg=#00ff00
+N c    root w=60  h=30 bg=#0000ff
+
+F row-margins
+N root -    w=300 h=100 dir=row bg=#ffffff
+N a    root w=50  h=30 marL=10 marR=20 bg=#123456
+N b    root w=50  h=30 marL=5  bg=#654321
+
+F nested-padding
+N root  -     w=240 h=160 pad=10 bg=#dddddd
+N outer root  w=200 h=100 pad=15 bg=#bbbbbb
+N inner outer w=80  h=30  bg=#333333
+
+F percent-width
+N root -    w=200 h=100 pad=10 bg=#ffffff
+N a    root w=50% h=20  bg=#ff8800
+
+F background-formats
+N root -    w=200 h=120 bg=rgb(12,34,56)
+N a    root w=40  h=20  bg=#abc
+N b    root w=40  h=20  bg=rgba(255,0,0,1)
+
+F zero-padding-baseline
+N root -    w=160 h=80 bg=#ffffff
+N a    root w=160 h=40 bg=#00ffff
+
+# ---- harder cases: where EVG and CSS are most likely to part company --------
+
+# Percentages resolve against the CONTAINING BLOCK, so the node carrying them
+# has to be a child — a fixture root has no meaningful parent on either side.
+F percent-padding
+N root -   w=200 h=140 bg=#ffffff
+N box root w=100 h=100 pad=10% bg=#dddddd
+N a   box  w=20  h=20  bg=#ff0000
+
+F percent-height
+N root -   w=200 h=200 bg=#ffffff
+N box root w=100 h=100 bg=#dddddd
+N a   box  w=40  h=50% bg=#00ff00
+
+# Vertical percentage padding also resolves against the containing block's
+# WIDTH in CSS, not its height. This is the case that caught EVG doing the
+# intuitive-but-wrong thing.
+F percent-padding-vertical
+N root -   w=200 h=200 bg=#ffffff
+N box root w=120 h=60  padT=10% padB=10% bg=#dddddd
+N a   box  w=20  h=10  bg=#0000ff
+
+F margin-auto-centering
+N root -    w=200 h=100 dir=row bg=#ffffff
+N a    root w=60  h=40 marL=70 bg=#0000ff
+
+F padding-larger-than-box
+N root -    w=100 h=60 pad=40 bg=#ffffff
+N a    root w=10  h=10 bg=#ff00ff
+
+F row-with-padding-and-gap
+N root -    w=300 h=100 dir=row pad=15 gap=10 bg=#f5f5f5
+N a    root w=60  h=40 bg=#ff0000
+N b    root w=60  h=40 bg=#00ff00
+N c    root w=60  h=40 bg=#0000ff
+
+F deep-nesting
+N root -   w=300 h=200 pad=10 bg=#111111
+N l1  root w=260 h=160 pad=10 bg=#222222
+N l2  l1   w=220 h=120 pad=10 bg=#333333
+N l3  l2   w=180 h=80  pad=10 bg=#444444
+N l4  l3   w=140 h=40  bg=#555555
+
+F margin-between-siblings-column
+N root -    w=200 h=200 bg=#ffffff
+N a    root w=60 h=30 marB=20 bg=#aa0000
+N b    root w=60 h=30 marT=10 bg=#00aa00
+
+# ---- width units -----------------------------------------------------------
+# EVG's own `hp` (percent of height) and `fill` have no CSS equivalent and are
+# covered in evg_test instead; everything here is a unit CSS also has.
+
+F unit-px-fractional
+N root -   w=200 h=100 bg=#ffffff
+N a   root w=12.5  h=10 bg=#ff0000
+N b   root w=87.25 h=10 bg=#00ff00
+
+F unit-percent-of-parent
+N root -   w=400 h=120 bg=#ffffff
+N box root w=200 h=80 bg=#dddddd
+N a   box  w=50%  h=20 bg=#ff0000
+N b   box  w=25%  h=20 bg=#00ff00
+N c   box  w=100% h=20 bg=#0000ff
+
+# A percentage resolves against the parent's CONTENT box, so the padding is
+# excluded before the percentage is taken.
+F unit-percent-of-padded-parent
+N root -   w=400 h=140 bg=#ffffff
+N box root w=200 h=100 pad=20 bg=#dddddd
+N a   box  w=50%  h=20 bg=#ff0000
+N b   box  w=100% h=20 bg=#00ff00
+
+F unit-percent-fractional
+N root -   w=300 h=100 bg=#ffffff
+N box root w=300 h=60 bg=#dddddd
+N a   box  w=33.5% h=20 bg=#ff0000
+
+# `em` resolves against the element's OWN font-size when it sets one, and
+# against the inherited size when it does not.
+F unit-em-own-font-size
+N root -   w=300 h=120 bg=#ffffff
+N box root w=300 h=80 fs=16 bg=#dddddd
+N a   box  w=2em h=10 fs=10 bg=#ff0000
+N b   box  w=2em h=10 bg=#00ff00
+
+F unit-em-inherited
+N root -   w=300 h=120 fs=20 bg=#ffffff
+N box root w=300 h=80 bg=#dddddd
+N a   box  w=3em h=10 bg=#ff0000
+
+F unit-em-fractional
+N root -   w=300 h=100 fs=16 bg=#ffffff
+N a   root w=1.5em h=10 bg=#ff0000
+
+F unit-percent-height
+N root -   w=200 h=200 bg=#ffffff
+N box root w=100 h=120 bg=#dddddd
+N a   box  w=40 h=50%  bg=#ff0000
+N b   box  w=40 h=25%  bg=#00ff00
+
+F unit-mixed-siblings
+N root -   w=400 h=100 dir=row bg=#ffffff
+N box root w=300 h=60 dir=row bg=#dddddd
+N a   box  w=50    h=20 bg=#ff0000
+N b   box  w=25%   h=20 bg=#00ff00
+N c   box  w=2em   h=20 fs=20 bg=#0000ff
+
+# `rem` is against the ROOT font-size, no matter what is set in between.
+# Before this existed, "2rem" was chopped to "2r", which to_double reads as 2,
+# so it silently behaved as 2em.
+#
+# EVG's tree root is what plays the part of the browser's <html> element here,
+# so every rem fixture pins its root to 16px — the browser's initial size, and
+# the only value the two roots can be made to agree on inside one shared
+# document.
+F unit-rem
+N root -   w=300 h=120 fs=16 bg=#ffffff
+N box root w=300 h=80 fs=40 bg=#dddddd
+N a   box  w=2rem h=10 bg=#ff0000
+N b   box  w=2em  h=10 bg=#00ff00
+
+F unit-rem-fractional
+N root -   w=300 h=100 fs=16 bg=#ffffff
+N a   root w=1.5rem h=10 bg=#ff0000
+
+# The absolute print units, which matter more here than they do on the web.
+# CSS pins them all to the reference pixel: 1in = 96px.
+F unit-absolute
+N root -   w=400 h=200 bg=#ffffff
+N a   root w=72pt h=10 bg=#ff0000
+N b   root w=1in  h=10 bg=#00ff00
+N c   root w=25.4mm h=10 bg=#0000ff
+N d   root w=2.54cm h=10 bg=#ff00ff
+N e   root w=6pc  h=10 bg=#00ffff
+
+F unit-absolute-padding
+N root -   w=400 h=200 bg=#ffffff
+N box root w=300 h=100 pad=12pt bg=#dddddd
+N a   box  w=40 h=20 bg=#ff0000
+
+# Units apply to the box model, not just to width/height.
+F unit-em-box-model
+N root -   w=400 h=200 fs=16 bg=#ffffff
+N box root w=300 h=120 pad=1em bg=#dddddd
+N a   box  w=40 h=20 marL=0.5em bg=#ff0000
+N b   box  w=40 h=20 marT=2em bg=#00ff00
+
+F unit-rem-gap
+N root -   w=400 h=200 fs=16 bg=#ffffff
+N box root w=300 h=100 fs=32 dir=row gap=1rem bg=#dddddd
+N a   box  w=40 h=20 bg=#ff0000
+N b   box  w=40 h=20 bg=#00ff00
+N c   box  w=40 h=20 bg=#0000ff
+
+# A font-size in `em` is relative to the PARENT's size, and then everything
+# below it inherits the result.
+F unit-em-font-size-chain
+N root -   w=400 h=200 fs=16 bg=#ffffff
+N box root w=300 h=120 fs=2em bg=#dddddd
+N a   box  w=1em  h=20 bg=#ff0000
+N b   box  w=1rem h=20 bg=#00ff00
+
+# ---- grid ------------------------------------------------------------------
+# Values that need spaces carry underscores: the file is whitespace-delimited.
+#   disp=grid  gtc/gtr = grid-template-columns/rows   gc/gr = grid-column/row
+#   flow = grid-auto-flow
+#
+# The browser side sets align-items/justify-items:stretch and *-content:start
+# on a grid container, which are the CSS defaults — the flex-start it uses
+# elsewhere would shrink-wrap every item instead of filling its cell.
+
+F grid-fr-tracks
+N root -   w=300 h=100 disp=grid gtc=1fr_1fr_1fr gtr=100px bg=#ffffff
+N a   root h=100 bg=#ff0000
+N b   root h=100 bg=#00ff00
+N c   root h=100 bg=#0000ff
+
+F grid-mixed-tracks
+N root -   w=400 h=100 disp=grid gtc=100px_1fr_25% gtr=100px bg=#ffffff
+N a   root h=100 bg=#ff0000
+N b   root h=100 bg=#00ff00
+N c   root h=100 bg=#0000ff
+
+F grid-gap
+N root -   w=320 h=220 disp=grid gtc=1fr_1fr gtr=100px_100px gap=20 bg=#ffffff
+N a   root bg=#ff0000
+N b   root bg=#00ff00
+N c   root bg=#0000ff
+N d   root bg=#ffff00
+
+F grid-repeat
+N root -   w=300 h=60 disp=grid gtc=repeat(3,_1fr) gtr=60px bg=#ffffff
+N a   root bg=#ff0000
+N b   root bg=#00ff00
+N c   root bg=#0000ff
+
+F grid-span
+N root -   w=300 h=200 disp=grid gtc=1fr_1fr_1fr gtr=100px_100px gap=0 bg=#ffffff
+N a   root gc=span_2 bg=#ff0000
+N b   root bg=#00ff00
+N c   root gc=1_/_4 bg=#0000ff
+
+F grid-explicit-lines
+N root -   w=300 h=200 disp=grid gtc=1fr_1fr_1fr gtr=100px_100px bg=#ffffff
+N a   root gc=2_/_4 gr=1_/_2 bg=#ff0000
+N b   root gc=1_/_2 gr=2_/_3 bg=#00ff00
+
+F grid-named-lines
+N root -   w=300 h=200 disp=grid gtc=[full-start]_1fr_[main-start]_2fr_[main-end] gtr=[top]_100px_[mid]_100px_[bottom] bg=#ffffff
+N a   root gc=main-start_/_main-end gr=top_/_mid bg=#ff0000
+N b   root gc=full-start_/_main-start gr=mid_/_bottom bg=#00ff00
+
+F grid-minmax
+N root -   w=300 h=80 disp=grid gtc=minmax(40px,_1fr)_1fr gtr=80px bg=#ffffff
+N a   root bg=#ff0000
+N b   root bg=#00ff00
+
+F grid-minmax-clamped
+N root -   w=400 h=80 disp=grid gtc=minmax(0px,_60px)_1fr gtr=80px bg=#ffffff
+N a   root bg=#ff0000
+N b   root bg=#00ff00
+
+F grid-percent-tracks
+N root -   w=400 h=80 disp=grid gtc=25%_50%_25% gtr=80px bg=#ffffff
+N a   root bg=#ff0000
+N b   root bg=#00ff00
+N c   root bg=#0000ff
+
+F grid-padding
+N root -   w=340 h=140 pad=20 disp=grid gtc=1fr_1fr gtr=100px gap=20 bg=#ffffff
+N a   root bg=#ff0000
+N b   root bg=#00ff00
+
+# `auto` and `fit-content()` size to the CONTENT of the items in the track.
+# The items here carry definite widths, which is the part of intrinsic sizing
+# that does not need text measurement.
+F grid-auto-track
+N root -   w=300 h=80 disp=grid gtc=auto_1fr gtr=80px bg=#ffffff
+N a   root w=80 bg=#ff0000
+N b   root bg=#00ff00
+
+F grid-auto-two
+N root -   w=400 h=80 disp=grid gtc=auto_auto gtr=80px bg=#ffffff
+N a   root w=60  bg=#ff0000
+N b   root w=100 bg=#00ff00
+
+F grid-auto-widest-wins
+N root -   w=400 h=180 disp=grid gtc=auto_1fr gtr=80px_80px bg=#ffffff
+N a   root w=50  bg=#ff0000
+N b   root bg=#00ff00
+N c   root w=120 bg=#0000ff
+N d   root bg=#ffff00
+
+F grid-fit-content-clamps
+N root -   w=400 h=80 disp=grid gtc=fit-content(100px)_1fr gtr=80px bg=#ffffff
+N a   root w=200 bg=#ff0000
+N b   root bg=#00ff00
+
+F grid-fit-content-under-limit
+N root -   w=400 h=80 disp=grid gtc=fit-content(150px)_1fr gtr=80px bg=#ffffff
+N a   root w=70 bg=#ff0000
+N b   root bg=#00ff00
+
+# subgrid — a card adopts the enclosing grid's tracks for the span it occupies,
+# so the pieces of every card line up with each other instead of each card
+# dividing its own box. Chromium has supported this since 117.
+# The cards pin their own column axis with gtc=1fr. Leaving it off would make
+# the browser size that axis as a single `auto` column, which under this
+# harness's justify-content:start does not stretch and measures 0 — while EVG
+# defaults a template-less grid to 1fr. That difference is real and noted in
+# §7.3, but it is not what these fixtures are about.
+F grid-row-subgrid
+N root -    w=400 h=140 disp=grid gtc=1fr_1fr gtr=100px_40px bg=#ffffff
+N c1   root disp=grid gtc=1fr gtr=subgrid gr=1_/_3 bg=#dddddd
+N c1a  c1   bg=#ff0000
+N c1b  c1   bg=#00ff00
+N c2   root disp=grid gtc=1fr gtr=subgrid gr=1_/_3 bg=#cccccc
+N c2a  c2   bg=#0000ff
+N c2b  c2   bg=#ffff00
+
+# The rows the subgrid inherits are content-sized on the parent, not declared.
+F grid-row-subgrid-content-rows
+N root -    w=400 h=160 disp=grid gtc=1fr_1fr bg=#ffffff
+N c1   root disp=grid gtc=1fr gtr=subgrid gr=1_/_3 bg=#dddddd
+N c1a  c1   h=60 bg=#ff0000
+N c1b  c1   h=25 bg=#00ff00
+N c2   root disp=grid gtc=1fr gtr=subgrid gr=1_/_3 bg=#cccccc
+N c2a  c2   h=30 bg=#0000ff
+N c2b  c2   h=45 bg=#ffff00
+
+F grid-col-subgrid
+N root -    w=400 h=100 disp=grid gtc=100px_1fr_60px gtr=100px bg=#ffffff
+N c1   root disp=grid gtc=subgrid gc=1_/_4 bg=#dddddd
+N c1a  c1   bg=#ff0000
+N c1b  c1   bg=#00ff00
+N c1c  c1   bg=#0000ff
+
+F grid-both-subgrid
+N root -    w=300 h=140 disp=grid gtc=1fr_2fr gtr=100px_40px bg=#ffffff
+N c1   root disp=grid gtc=subgrid gtr=subgrid gc=1_/_3 gr=1_/_3 bg=#dddddd
+N a    c1   bg=#ff0000
+N b    c1   bg=#00ff00
+N c    c1   bg=#0000ff
+N d    c1   bg=#ffff00

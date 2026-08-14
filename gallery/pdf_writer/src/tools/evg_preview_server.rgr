@@ -44,6 +44,7 @@ Import "../core/ImageUtils.rgr"
 Import "../fonts/FontManager.rgr"
 Import "../../../evg/EVGElement.rgr"
 Import "../../../evg/EVGLayout.rgr"
+Import "../../../evg/EVGTextEngine.rgr"
 Import "../raster/EVGRasterRenderer.rgr"
 Import "../raster/RasterText.rgr"
 Import "../raster/RasterCompositing.rgr"
@@ -62,6 +63,8 @@ class EVGPreviewServer@(HttpServer) {
     def pageWidth:double 595.0
     def pageHeight:double 842.0
     def port:int 3000
+    ; The shared wrap, so the PNG preview breaks text exactly where layout did.
+    def textEngine:EVGTextEngine (new EVGTextEngine())
     def title:string "EVG Preview"
     def serverUrl:string ""
     
@@ -608,6 +611,10 @@ class EVGPreviewServer@(HttpServer) {
         fm.loadFont("Cinzel/Cinzel-Regular.ttf")
         fm.loadFont("Cinzel/Cinzel-Bold.ttf")
         
+        ; Same faces for measuring and painting on this target too.
+        def previewMeasurer (new TTFTextMeasurer(fm))
+        textEngine.setMeasurer(previewMeasurer)
+
         def textRenderer:RasterText (new RasterText())
         def defaultFont:TrueTypeFont (fm.getFont("Open Sans"))
         if (defaultFont.unitsPerEm > 0) {
@@ -806,34 +813,46 @@ class EVGPreviewServer@(HttpServer) {
                 }
             }
             
-            ; Calculate text position with alignment
-            def textX:double (x + padLeft)
-            def textY:double (y + padTop)
-            
-            ; Handle text alignment (center, right)
-            if ((el.textAlign == "center") || (el.textAlign == "right")) {
-                ; Measure text width to calculate offset
-                def textWidth:double (textRenderer.measureTextWidth(el.textContent fontSize))
-                if (el.textAlign == "center") {
-                    textX = x + padLeft + ((w - textWidth) / 2.0)
-                    print ("  Text align: center, offset: " + (to_string ((w - textWidth) / 2.0)))
-                }
-                if (el.textAlign == "right") {
-                    textX = x + w - textWidth - padLeft
-                    print ("  Text align: right")
-                }
+            ; Break the text where layout broke it. This preview used to draw
+            ; the whole textContent as one line, so a wrapped caption ran out of
+            ; its box while the layout above it had reserved several lines.
+            def unscaledFont:double (fontSize / scale)
+            def availW:double (((w - padLeft) - padLeft) / scale)
+            def lines:[EVGTextLine] (textEngine.breakLines(el.textContent fontFamily unscaledFont availW))
+
+            def lhFactor:double el.lineHeight
+            if (lhFactor <= 0.0) {
+                lhFactor = 1.2
             }
-            
-            print ("  Final text position: (" + (to_string textX) + "," + (to_string textY) + ")")
-            
-            textRenderer.renderText(
-                (renderer.getBuffer())
-                el.textContent
-                textX textY
-                fontSize
-                textR textG textB textA
-            )
-            print ("  Text rendered.")
+            def lineStep:double (fontSize * lhFactor)
+
+            def li:int 0
+            while (li < (array_length lines)) {
+                def ln:EVGTextLine (itemAt lines li)
+                def textX:double (x + padLeft)
+                def textY:double ((y + padTop) + (lineStep * (to_double li)))
+
+                ; Alignment is per line, using that line's own width.
+                if ((el.textAlign == "center") || (el.textAlign == "right")) {
+                    def textWidth:double (textRenderer.measureTextWidth(ln.text fontSize))
+                    if (el.textAlign == "center") {
+                        textX = x + padLeft + ((w - textWidth) / 2.0)
+                    }
+                    if (el.textAlign == "right") {
+                        textX = x + w - textWidth - padLeft
+                    }
+                }
+
+                textRenderer.renderText(
+                    (renderer.getBuffer())
+                    ln.text
+                    textX textY
+                    fontSize
+                    textR textG textB textA
+                )
+                li = (li + 1)
+            }
+            print ("  Text rendered in " + (to_string (array_length lines)) + " line(s).")
         }
         
         ; Render images

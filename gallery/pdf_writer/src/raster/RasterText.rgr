@@ -946,6 +946,14 @@ class RasterText {
                 if debug { print ("  First char: code=" + (to_string ch) + " glyphIdx=" + (to_string glyphIdx) + " numContours=" + (to_string (array_length outline.contours)) + " advanceWidth=" + (to_string outline.advanceWidth)) }
             }
             
+            ; Kern against the previous glyph before painting this one, so the
+            ; raster pen walks the same path layout measured. Without it the
+            ; raster drew a wider run than the box reserved — the same
+            ; disagreement the PDF side avoids with a TJ array.
+            if (i > 0) {
+                currX = (currX + (font.kernPoints((charAt text (i - 1)) ch fontSize)))
+            }
+
             this.renderGlyph(buf outline currX renderY r g b a)
             
             ; Advance

@@ -108,8 +108,12 @@ class EVGTest {
         test.testGridAreas(t)
         test.testGridDense(t)
         test.testSubgrid(t)
+        test.testRowSubgrid(t)
         test.testGridTracks(t)
         test.testGridPlacement(t)
+        test.testNamedGridLines(t)
+        test.testIntrinsicGridTracks(t)
+        test.testLayoutWarnings(t)
         test.testGridLayout(t)
         test.testGridContentRows(t)
         test.testStyleSheetParse(t)
@@ -151,6 +155,51 @@ class EVGTest {
 
         def u9:EVGUnit (EVGUnit.parse("auto"))
         t.no("auto is unset" u9.isSet)
+
+        ; rem — against the ROOT font size, not the element's own. The suffix
+        ; has to be tested before "em" or "2rem" gets chopped to "2r", which
+        ; to_double reads as 2, and it silently behaves as 2em.
+        def u10:EVGUnit (EVGUnit.parse("2rem"))
+        t.ok("2rem isRem" (u10.isRem()))
+        t.no("2rem is not em" (u10.isEm()))
+        t.near("2rem value" u10.value 2.0)
+        u10.rootFontSize = 16.0
+        u10.resolve(400.0 40.0)
+        t.near("2rem ignores the local font size" u10.pixels 32.0)
+
+        def u11:EVGUnit (EVGUnit.parse("1.5rem"))
+        u11.rootFontSize = 16.0
+        u11.resolve(400.0 14.0)
+        t.near("1.5rem at root 16 = 24px" u11.pixels 24.0)
+
+        ; The absolute print units, all pinned to CSS's reference pixel of
+        ; 1in = 96px, and folded to px at parse time.
+        def u12:EVGUnit (EVGUnit.parse("72pt"))
+        t.ok("72pt is px after parsing" (u12.isPixels()))
+        t.near("72pt = 96px" u12.value 96.0)
+
+        def u13:EVGUnit (EVGUnit.parse("1in"))
+        t.near("1in = 96px" u13.value 96.0)
+
+        def u14:EVGUnit (EVGUnit.parse("25.4mm"))
+        t.near("25.4mm = 96px" u14.value 96.0)
+
+        def u15:EVGUnit (EVGUnit.parse("2.54cm"))
+        t.near("2.54cm = 96px" u15.value 96.0)
+
+        def u16:EVGUnit (EVGUnit.parse("6pc"))
+        t.near("6pc = 96px" u16.value 96.0)
+
+        def u17:EVGUnit (EVGUnit.parse("12pt"))
+        u17.resolve(400.0 14.0)
+        t.near("an absolute unit needs no resolving" u17.pixels 16.0)
+
+        ; An unknown suffix must not be reinterpreted as some other unit.
+        def u18:EVGUnit (EVGUnit.parse("10vw"))
+        t.no("an unsupported unit does not become px" u18.isSet)
+
+        def u19:EVGUnit (EVGUnit.parse("calc(100% - 20px)"))
+        t.no("calc() is unset rather than misread" u19.isSet)
     }
 
     fn testColors:void (t:RgTest) {
@@ -203,7 +252,7 @@ class EVGTest {
         box.setMargin((EVGUnit.px(10.0)))
         box.setPadding((EVGUnit.px(20.0)))
         box.borderWidth = (EVGUnit.px(2.0))
-        box.resolveUnits(400.0 300.0 14.0)
+        box.resolveUnits(400.0 300.0 14.0 14.0)
 
         t.near("margin resolved to 10px" box.marginTopPx 10.0)
         t.near("padding resolved to 20px" box.paddingTopPx 20.0)
@@ -1708,9 +1757,25 @@ class EVGTest {
         def rp1:EVGGridTrack (rep.trackAt(1))
         t.near("repeated minmax tracks share evenly" rp1.sizePx 100.0)
 
+        ; fit-content() is a real track now: an intrinsic track with a ceiling.
+        def fc:EVGGridTemplate (EVGGridTemplate.parse("fit-content(100px) 1fr"))
+        t.no("fit-content() parses" fc.hadError)
+        t.eqInt("fit-content() is one track" (fc.count()) 2)
+        def fct:EVGGridTrack (fc.trackAt(0))
+        t.eqInt("fit-content() is an intrinsic track" fct.kind 3)
+        t.ok("...with a limit" fct.hasFitLimit)
+
+        ; `auto` is intrinsic too, and no longer a disguised 1fr.
+        def au:EVGGridTemplate (EVGGridTemplate.parse("auto 1fr"))
+        def aut:EVGGridTrack (au.trackAt(0))
+        t.eqInt("auto is an intrinsic track" aut.kind 3)
+        t.no("...with no limit" aut.hasFitLimit)
+
         ; Genuinely unsupported syntax is still reported.
-        def bad:EVGGridTemplate (EVGGridTemplate.parse("fit-content(10px)"))
+        def bad:EVGGridTemplate (EVGGridTemplate.parse("nonesuch(10px)"))
         t.ok("unknown track functions are reported" bad.hadError)
+        def badLimit:EVGGridTemplate (EVGGridTemplate.parse("fit-content(bogus)"))
+        t.ok("an unparseable fit-content limit is reported" badLimit.hadError)
     }
 
     ; ---- grid: placement parsing ----------------------------------------------
@@ -1735,6 +1800,280 @@ class EVGTest {
         def mixed:EVGGridPlacement (EVGGridPlacement.parse("2 / span 3"))
         t.eqInt("start with span end: start" mixed.start 2)
         t.eqInt("start with span end: span" mixed.span 3)
+
+        ; A name is carried unresolved out of parse — the lines it refers to
+        ; live on the container's template, which only the layout can see.
+        def named:EVGGridPlacement (EVGGridPlacement.parse("sidebar"))
+        t.no("a name is not an error on its own" named.hadError)
+        t.eqStr("the name is kept for the layout to resolve" named.startName "sidebar")
+
+        ; Negative lines count from the end of the grid in CSS; unsupported
+        ; here, and rejected at once rather than mistaken for a name.
+        def neg:EVGGridPlacement (EVGGridPlacement.parse("-1"))
+        t.ok("a negative line is reported" neg.hadError)
+        def zero:EVGGridPlacement (EVGGridPlacement.parse("0"))
+        t.ok("line 0 is reported" zero.hadError)
+
+        def fine:EVGGridPlacement (EVGGridPlacement.parse("2 / span 3"))
+        t.no("a placement it understands is not an error" fine.hadError)
+    }
+
+    ; ---- grid: named lines ----------------------------------------------------
+    ; "[full-start] 1fr [main] 2fr [main-end]" labels the lines BETWEEN tracks —
+    ; line 1 before the first track, one past the last when the name trails.
+    fn testNamedGridLines:void (t:RgTest) {
+        def tpl:EVGGridTemplate (EVGGridTemplate.parse("[full-start] 1fr [main] 2fr [main-end]"))
+        t.no("a template with names is not an error" tpl.hadError)
+        t.eqInt("names do not add tracks" (tpl.count()) 2)
+        t.eqInt("the leading name is line 1" (tpl.lineNumberNamed("full-start")) 1)
+        t.eqInt("a name between tracks is line 2" (tpl.lineNumberNamed("main")) 2)
+        t.eqInt("a trailing name is one past the last track" (tpl.lineNumberNamed("main-end")) 3)
+        t.eqInt("an unknown name is 0" (tpl.lineNumberNamed("nope")) 0)
+
+        ; One line may carry several names.
+        def multi:EVGGridTemplate (EVGGridTemplate.parse("[a b] 1fr [c]"))
+        t.eqInt("both names label the same line: a" (multi.lineNumberNamed("a")) 1)
+        t.eqInt("both names label the same line: b" (multi.lineNumberNamed("b")) 1)
+        t.eqInt("and the trailing one follows" (multi.lineNumberNamed("c")) 2)
+
+        ; Resolving a placement against that template.
+        def p1:EVGGridPlacement (EVGGridPlacement.parse("main"))
+        p1.resolveNames(tpl)
+        t.no("a name the template has is not an error" p1.hadError)
+        t.eqInt("the name became its line" p1.start 2)
+
+        def p2:EVGGridPlacement (EVGGridPlacement.parse("full-start / main-end"))
+        p2.resolveNames(tpl)
+        t.no("both ends resolve" p2.hadError)
+        t.eqInt("start line" p2.start 1)
+        t.eqInt("span is the distance between the two lines" p2.span 2)
+
+        ; A name on one side and a number on the other.
+        def p3:EVGGridPlacement (EVGGridPlacement.parse("main / 3"))
+        p3.resolveNames(tpl)
+        t.eqInt("named start, numeric end: start" p3.start 2)
+        t.eqInt("named start, numeric end: span" p3.span 1)
+
+        ; An explicit span outranks the end line, as in CSS.
+        def p4:EVGGridPlacement (EVGGridPlacement.parse("main / span 5"))
+        p4.resolveNames(tpl)
+        t.eqInt("an explicit span wins" p4.span 5)
+
+        ; A name the template does not define leaves the item auto-placed.
+        def p5:EVGGridPlacement (EVGGridPlacement.parse("nowhere"))
+        p5.resolveNames(tpl)
+        t.ok("an unknown name is reported" p5.hadError)
+        t.eqInt("and the item stays auto-placed" p5.start 0)
+
+        ; repeat() still expands, and names around it still land correctly.
+        def rep:EVGGridTemplate (EVGGridTemplate.parse("[left] repeat(3, 1fr) [right]"))
+        t.eqInt("repeat still expands beside names" (rep.count()) 3)
+        t.eqInt("a name before repeat is line 1" (rep.lineNumberNamed("left")) 1)
+        t.eqInt("a name after repeat is past the last track" (rep.lineNumberNamed("right")) 4)
+    }
+
+    ; ---- grid: row subgrid ----------------------------------------------------
+    ; The point of a row subgrid: two cards, each spanning the same rows, whose
+    ; internal pieces line up with each other because both adopt the OUTER
+    ; grid's rows instead of each dividing its own height.
+    fn testRowSubgrid:void (t:RgTest) {
+        def outer (new EVGElement())
+        outer.setAttribute("width" "400px")
+        outer.setAttribute("height" "140px")
+        outer.setAttribute("display" "grid")
+        outer.setAttribute("grid-template-columns" "1fr 1fr")
+        outer.setAttribute("grid-template-rows" "100px 40px")
+
+        def cardA (new EVGElement())
+        cardA.setAttribute("display" "grid")
+        cardA.setAttribute("grid-template-rows" "subgrid")
+        cardA.setAttribute("grid-row" "1 / 3")
+        def photoA (new EVGElement())
+        cardA.addChild(photoA)
+        def capA (new EVGElement())
+        cardA.addChild(capA)
+        outer.addChild(cardA)
+
+        def cardB (new EVGElement())
+        cardB.setAttribute("display" "grid")
+        cardB.setAttribute("grid-template-rows" "subgrid")
+        cardB.setAttribute("grid-row" "1 / 3")
+        def photoB (new EVGElement())
+        cardB.addChild(photoB)
+        def capB (new EVGElement())
+        cardB.addChild(capB)
+        outer.addChild(cardB)
+
+        def lay (new EVGLayout())
+        lay.layout(outer)
+
+        t.eqInt("a real enclosing grid is not reported as missing" (lay.warningCount()) 0)
+        t.near("the card spans both outer rows" cardA.calculatedHeight 140.0)
+        t.near("the photo takes the outer 100px row" photoA.calculatedHeight 100.0)
+        t.near("the caption takes the outer 40px row" capA.calculatedHeight 40.0)
+        t.near("and starts where that row does" capA.calculatedY 100.0)
+        ; The whole point: both cards agree, without either knowing about the
+        ; other.
+        t.near("the second card's caption lines up with the first" capB.calculatedY capA.calculatedY)
+        t.near("...and is the same height" capB.calculatedHeight capA.calculatedHeight)
+
+        ; Without an enclosing grid it falls back and says so.
+        def lone (new EVGElement())
+        lone.setAttribute("width" "200px")
+        lone.setAttribute("height" "100px")
+        lone.setAttribute("display" "grid")
+        lone.setAttribute("grid-template-rows" "subgrid")
+        def kid (new EVGElement())
+        kid.setAttribute("height" "30px")
+        lone.addChild(kid)
+        def lay2 (new EVGLayout())
+        lay2.layout(lone)
+        t.eqInt("a row subgrid with no enclosing grid is reported" (lay2.warningCount()) 1)
+        t.ok("and the message says which property" ((indexOf (lay2.warningAt(0)) "grid-template-rows") >= 0))
+        t.near("it still lays out, on content-sized rows" kid.calculatedHeight 30.0)
+    }
+
+    ; ---- grid: intrinsic tracks ----------------------------------------------
+    ; `auto` sizes to the content of the items in it; `fit-content(limit)` caps
+    ; that, but never below min-content. The browser box-model gate covers this
+    ; for items with definite widths (see fixtures/box_model.fixtures); the
+    ; limit only actually bites on text, which can be squeezed, and that is
+    ; what this covers.
+    ;
+    ; The suite's measurer gives every character a width of fontSize * 0.5, so
+    ; at 10px a character is 5px wide and the numbers below are exact.
+    fn testIntrinsicGridTracks:void (t:RgTest) {
+        ; "auto 1fr": the auto track takes the item's width, the fr the rest.
+        def root (new EVGElement())
+        root.setAttribute("width" "300px")
+        root.setAttribute("height" "100px")
+        root.setAttribute("display" "grid")
+        root.setAttribute("grid-template-columns" "auto 1fr")
+        def a (new EVGElement())
+        a.setAttribute("width" "80px")
+        root.addChild(a)
+        def b (new EVGElement())
+        root.addChild(b)
+        def lay (new EVGLayout())
+        def rec0 (new RecordingMeasurer())
+        lay.setMeasurer(rec0)
+        lay.layout(root)
+        t.near("auto track takes the item's width" a.calculatedWidth 80.0)
+        t.near("the fr track takes the rest" b.calculatedWidth 220.0)
+        t.near("and starts after it" b.calculatedX 80.0)
+
+        ; A text item: "auto" takes its longest unbroken line.
+        def r2 (new EVGElement())
+        r2.setAttribute("width" "400px")
+        r2.setAttribute("height" "100px")
+        r2.setAttribute("display" "grid")
+        r2.setAttribute("grid-template-columns" "auto 1fr")
+        def txt (new EVGElement())
+        txt.setAttribute("font-size" "10px")
+        txt.textContent = "abcd efg"
+        r2.addChild(txt)
+        def pad (new EVGElement())
+        r2.addChild(pad)
+        def lay2 (new EVGLayout())
+        def rec2 (new RecordingMeasurer())
+        lay2.setMeasurer(rec2)
+        lay2.layout(r2)
+        ; 8 characters at 5px = 40px of max-content.
+        t.near("auto sizes text to its longest line" txt.calculatedWidth 40.0)
+
+        ; fit-content(25px) on the same text: the limit is below max-content
+        ; (40px) but above min-content (the longest word, "abcd" = 20px), so
+        ; the limit is what wins.
+        def r3 (new EVGElement())
+        r3.setAttribute("width" "400px")
+        r3.setAttribute("height" "100px")
+        r3.setAttribute("display" "grid")
+        r3.setAttribute("grid-template-columns" "fit-content(25px) 1fr")
+        def txt3 (new EVGElement())
+        txt3.setAttribute("font-size" "10px")
+        txt3.textContent = "abcd efg"
+        r3.addChild(txt3)
+        def pad3 (new EVGElement())
+        r3.addChild(pad3)
+        def lay3 (new EVGLayout())
+        def rec3 (new RecordingMeasurer())
+        lay3.setMeasurer(rec3)
+        lay3.layout(r3)
+        t.near("fit-content clamps to its limit" txt3.calculatedWidth 25.0)
+
+        ; fit-content(10px): below min-content, so min-content wins and the
+        ; item keeps its longest word rather than spilling out of the track.
+        def r4 (new EVGElement())
+        r4.setAttribute("width" "400px")
+        r4.setAttribute("height" "100px")
+        r4.setAttribute("display" "grid")
+        r4.setAttribute("grid-template-columns" "fit-content(10px) 1fr")
+        def txt4 (new EVGElement())
+        txt4.setAttribute("font-size" "10px")
+        txt4.textContent = "abcd efg"
+        r4.addChild(txt4)
+        def pad4 (new EVGElement())
+        r4.addChild(pad4)
+        def lay4 (new EVGLayout())
+        def rec4 (new RecordingMeasurer())
+        lay4.setMeasurer(rec4)
+        lay4.layout(r4)
+        t.near("fit-content never goes below min-content" txt4.calculatedWidth 20.0)
+    }
+
+    ; ---- layout: unsupported declarations are reported ------------------------
+    ; These all used to go to this.log(), which does nothing unless `debug` is
+    ; on. A grid came out with the wrong number of columns and said nothing.
+    fn testLayoutWarnings:void (t:RgTest) {
+        def root (new EVGElement())
+        root.setAttribute("width" "600px")
+        root.setAttribute("height" "400px")
+        root.setAttribute("display" "grid")
+        root.setAttribute("grid-template-columns" "nonesuch(100px) 1fr")
+        root.setAttribute("grid-template-rows" "subgrid")
+
+        def a (new EVGElement())
+        a.setAttribute("grid-column" "sidebar")
+        root.addChild(a)
+
+        def b (new EVGElement())
+        b.setAttribute("grid-row" "1 / main")
+        root.addChild(b)
+
+        def lay (new EVGLayout())
+        lay.layout(root)
+
+        t.eqInt("every unsupported declaration is reported" (lay.warningCount()) 4)
+        t.ok("the message names the property" ((indexOf (lay.warningAt(0)) "grid-template-columns") >= 0))
+        t.ok("and what it could not do" ((indexOf (lay.warningAt(0)) "nonesuch(100px)") >= 0))
+
+        ; A grid the engine fully understands stays quiet.
+        def ok (new EVGElement())
+        ok.setAttribute("width" "600px")
+        ok.setAttribute("height" "400px")
+        ok.setAttribute("display" "grid")
+        ok.setAttribute("grid-template-columns" "repeat(2, 1fr)")
+        def c1 (new EVGElement())
+        c1.setAttribute("grid-column" "span 2")
+        ok.addChild(c1)
+        def lay2 (new EVGLayout())
+        lay2.layout(ok)
+        t.eqInt("a grid it understands warns about nothing" (lay2.warningCount()) 0)
+
+        ; The same complaint from ten repeated cards is one line, not ten.
+        def dup (new EVGElement())
+        dup.setAttribute("width" "600px")
+        dup.setAttribute("height" "400px")
+        dup.setAttribute("display" "grid")
+        def d1 (new EVGElement())
+        d1.setAttribute("grid-column" "sidebar")
+        dup.addChild(d1)
+        def d2 (new EVGElement())
+        d2.setAttribute("grid-column" "sidebar")
+        dup.addChild(d2)
+        def lay3 (new EVGLayout())
+        lay3.layout(dup)
+        t.eqInt("a repeated complaint is reported once" (lay3.warningCount()) 1)
     }
 
     ; ---- grid: layout ---------------------------------------------------------

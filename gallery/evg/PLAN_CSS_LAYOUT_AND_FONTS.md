@@ -33,12 +33,14 @@ Without that, flex/grid improvements will still look wrong in print.
 
 | Area | Today | Gap |
 | --- | --- | --- |
+| Lengths | `px`, `%`, `em`, `rem`, and the absolute print units `pt` / `pc` / `in` / `mm` / `cm`, plus EVG's own `hp` and `fill` | `vw` / `vh`, `ch` / `ex`, `calc()` — all rejected rather than misread |
+| Kerning | GPOS pair adjustments (formats 1 and 2, incl. Extension lookups) and the legacy `kern` table, in measurement and in paint | Ligatures and other GPOS features |
 | Flex | Grow, per-item `flex-shrink`, `flex-basis`, `flex` shorthand, min/max resolved inside the distribution | — |
 | `gap` | Main axis, row + column | No separate `row-gap` / `column-gap` |
 | `flex-wrap` | `wrap` (default) / `nowrap` / `wrap-reverse`, with the full `align-content` set including `stretch` | — |
 | Alignment | `justifyContent`, `alignItems` (incl. `stretch` and `baseline`), plus legacy `align` / `verticalAlign` | Naming overlap between the CSS and legacy names |
 | Text intrinsic size | Shrink-wraps to content measured from the real face | — |
-| Grid | `display: grid` with fr/px/%/repeat/`minmax()` tracks, gaps, spans, `grid-template-areas`, `grid-auto-flow: dense`, column `subgrid` | Row `subgrid`; `fit-content()` |
+| Grid | `display: grid` with fr/px/%/`auto`/`fit-content()`/repeat/`minmax()` tracks, gaps, spans, `grid-template-areas`, `grid-auto-flow: dense`, `subgrid` on both axes, named lines. 20 fixtures checked against Chromium | Intrinsic sizing of a container item (only definite widths and text leaves contribute) |
 | Styles | Mostly inline JSX attributes | No class/theme stylesheet layer |
 
 `min-width` / `max-width` / `min-height` / `max-height` already parse and clamp;
@@ -123,15 +125,39 @@ this replaced.
 6. **Weight / style mapping**  
    `font-weight: 700` / `bold` resolves to a loaded face (e.g. `"Open Sans Bold"`), not a synthetic stroke in layout. If bold face is missing → warning + regular face (measurable), never “pretend bold” for width.
 
-7. **HTML parity**  
-   Preview must load the **same TTF/OTF files** through `@font-face` (preview server already has font endpoints). Add a debug overlay: measured box vs DOM box for golden strings.
+7. **HTML parity** ✅  
+   Preview loads the same TTF files through `@font-face`, and the widths a
+   browser measures for a set of golden strings are recorded into
+   `test/fixtures/browser_parity.snapshot` so the check runs **without a
+   browser**. `--update-snapshot` re-records; `--verify-snapshot` confirms the
+   stored numbers still match a live Chromium.
 
 8. **Encoding honesty** ✅  
-   PDF WinAnsi limits remain. Source is decoded as UTF-8 so layout measures real
-   glyphs, and anything WinAnsi cannot encode is reported with its codepoint
-   (fatal under `-strict-fonts`) rather than silently substituted. Embedding a
-   subset with a `/ToUnicode` cmap, which would lift the limit rather than
-   report it, is still open.
+   Source is decoded as UTF-8 so layout measures real glyphs. The encoder now
+   uses the actual WinAnsi repertoire (CP1252) rather than Latin-1, so the
+   0x80–0x9F band — em and en dashes, curly quotes, ellipsis, bullet, euro —
+   reaches the page as the right byte instead of being refused; see Phase 4.2.
+   What WinAnsi genuinely cannot hold is reported with its codepoint (fatal
+   under `-strict-fonts`) rather than silently substituted. Embedding a subset
+   font, which would lift the repertoire limit rather than report it, is still
+   open. (A `/ToUnicode` cmap is already written, and now covers that band too,
+   so text extracts correctly — but it does not widen what can be encoded.)
+
+9. **Box model** ✅  
+   Padding, margins, gaps, nesting and background colour are checked against
+   recorded browser geometry. Building it found two real divergences:
+   percentage padding/margin on the vertical axis resolved against the
+   containing block's *height* (CSS uses its **width** on all four sides — the
+   rule behind the padding-bottom aspect-ratio trick), and a box whose padding
+   exceeded its declared size kept that size and gave its children a negative
+   content box, where CSS grows the box instead. Both are fixed.
+
+10. **Kerning** ✅  
+   EVG reads GPOS pair adjustments — and the legacy `kern` table on a face with
+   no GPOS — and applies them in measurement AND in paint. The parity snapshot
+   now targets the browser's **kerned** width: worst delta **0.015px** across
+   24 fixtures, and **0.006px** against a live Chromium page. Before this, the
+   worst was 1.94px on "Helsinki, 2024" in Cinzel at 30px. See Phase 4.3.
 
 ## 5. Style layer (quick theme changes)
 
@@ -267,14 +293,27 @@ Target photo-book pages, not full CSS Grid Level 2.
 - **`grid-auto-flow: row dense`** restarts the scan from the top for each item,
   so a later small item backfills a hole a wider one left behind. The default
   only moves forward, which keeps source order but can leave gaps.
-- **Column `subgrid`** — `grid-template-columns: subgrid` adopts the enclosing
-  grid's tracks for the span the element occupies, so nested cards line their
-  columns up with each other instead of each splitting its own width. Declared
-  with nothing to inherit from, it falls back to one full-width column.
+- **`subgrid`, both axes** — `grid-template-columns: subgrid` and
+  `grid-template-rows: subgrid` adopt the enclosing grid's tracks for the span
+  the element occupies, so nested cards line their columns *and* their internal
+  rows up with each other instead of each dividing its own box. Declared with
+  nothing to inherit from, either falls back — one full-width column, or
+  content-sized rows — and says so. See Phase 4.5.
 
-Still out of scope: **row `subgrid`** (row sizes are only known after the items
-are measured, so inheriting them needs a second pass the engine does not have),
-`fit-content()`, and named grid lines.
+- **Named grid lines** — `[full-start] 1fr [main] 2fr [main-end]` labels the
+  lines between tracks, and `grid-column: main-start / main-end` places against
+  them. One line may carry several names (`[a b]`); a name is resolved against
+  the container's template, so the placement is parsed from the item and
+  pointed at real lines by the layout, which is the only place that sees both.
+  A name the template does not define leaves the item auto-placed and is
+  reported.
+
+- **Intrinsic tracks** — `auto` sizes to the content of the items placed in it,
+  and `fit-content(limit)` caps that without ever going below min-content. See
+  Phase 4.4.
+
+Still out of scope: the intrinsic size of a **container** item, which needs a
+recursive pass — see the end of Phase 4.4.
 
 ## 8. Shared text engine API (contract)
 
@@ -533,6 +572,221 @@ Verification: `bash gallery/pdf_writer/test/run_print.sh` (23 assertions coverin
 UTF-8 decoding, WinAnsi detection and page boxes at both orientations), plus the
 baseline cases in `evg_test`.
 
+### Phase 4.1 — CSS length units ✅
+
+Checking the units against a browser turned up three things that were wrong in
+ways nothing would have complained about.
+
+**`font-size` never inherited.** Every element was constructed carrying a 14px
+font-size, so `inheritProperties` copied the parent's size in and the default
+immediately overwrote it — a `font-size` only ever applied to the element that
+declared it, never to anything below. The root had the opposite problem: it has
+no parent, so `inheritProperties` never ran on it at all and a size set on a
+`Page` or `Print` was dropped outright. `fontSize` now starts *unset*, layout
+fills it in from the inherited size (remembering that it did, so a re-layout
+does not mistake its own fill-in for an authored value), and `EVGLayout.layout`
+applies the root's own size before anything descends. This is what `em` needs,
+and it fixes inherited text size at the same time.
+
+**`2rem` silently meant `2em`.** The parser tested the two-character suffix
+first, so `rem` was chopped to `"2r"` — and `to_double` stops at the first
+character it cannot use, so that reads as 2. `rem` is now a unit of its own,
+resolved against the root's font size, which is threaded down the tree
+alongside the inherited one (a unit cannot reach the root on its own, so
+whoever resolves it hands the value over).
+
+**Any unknown unit became pixels.** The same `to_double` behaviour meant `10vw`
+resolved to 10px and `calc(100% - 20px)` to 100px. An unrecognised suffix now
+leaves the length unset — i.e. `auto`, which is what a browser does with a
+declaration it cannot parse. `vw`/`vh` (a print page has no viewport), `ch`/`ex`
+(they need font metrics the unit layer cannot reach) and `calc()` stay out of
+scope, but they now stay out loudly.
+
+The absolute print units — `pt`, `pc`, `in`, `mm`, `cm` — landed in the same
+pass. They are pinned to CSS's reference pixel (`1in = 96px`) and folded to px
+at parse time, so nothing downstream has to know about them. `12pt` used to
+measure 12px.
+
+Verification: 12 unit fixtures in the box-model gate (121 boxes, up from 60),
+covering `rem` against a root size that differs from the local one, `em` on
+`font-size` itself chaining down a tree, the box model in `em`, gaps in `rem`,
+and all five absolute units resolving to the same 96px. All 22 examples that
+render still produce byte-identical HTML.
+
+### Phase 4.2 — Saying so out loud ✅
+
+Three things the engine could not do, each of which it had been doing quietly.
+
+**WinAnsi is not Latin-1.** The encoder's repertoire check was `codepoint >
+255`, which is the Latin-1 boundary. WinAnsi is CP1252, and the band Latin-1
+leaves as control codes is exactly where CP1252 keeps the punctuation a book
+sets: `—` `–` `“” ‘’` `…` `•` `€` `†` `‰`. Every one of them was refused,
+written as `?`, and — under `-strict-fonts` — fatal, on text the format can
+carry perfectly well. `Utf8.toWinAnsi` / `fromWinAnsi` now hold the real
+mapping; the encoder uses it, the font's `/Widths` array looks each glyph up by
+its true codepoint instead of by the byte, and the `/ToUnicode` cmap gained the
+27 `bfchar` entries for the band so the text also extracts correctly.
+
+Fixing that exposed a second bug behind it. The JSX parser hands text back one
+token at a time, so `100% sure` arrives as three fragments and the joiner
+decides what goes between them. It was guessing from a whitelist of characters
+allowed to follow a word with no space — `, . ! ? : ; - ) ]` — which got
+`Hello, world!` right and mangled everything else: `100 % sure`, `a / b`,
+`a ( b) c`, `Kämp- hotellissa`, `Gallen- Kallelan`, `usePrintSettings ()`, and
+every curly quote as `“ x ”`. The tokens carry source offsets, so adjacency is
+a fact to read, not a guess: a space is written iff the next token starts past
+where the previous one ended. Twelve of the 22 rendering examples changed, all
+of them corrections.
+
+**Grid rejections were invisible.** `fit-content()`, row `subgrid`, a bent
+`grid-template-areas` and a missing `grid-area` name all set an error that was
+handed to `this.log()` — a no-op unless `debug` is on. In a normal run the page
+simply came out with the wrong number of columns. `EVGLayout` now collects
+these, deduplicated, and every tool prints them:
+
+```
+Layout warning: grid-template-columns: Unsupported track size: fit-content(100px)
+Layout warning: grid-template-rows: Unsupported track size: subgrid
+```
+
+**Named grid lines said nothing at all.** `grid-column: sidebar` went through
+`to_double`, came back 0, and 0 is auto — indistinguishable from not having
+written anything. `EVGGridPlacement` now rejects any token that is neither a
+positive line number nor `span N` (which also catches negative line numbers,
+CSS's count-from-the-end form, equally unsupported), keeps the auto placement,
+and reports it.
+
+The raster tool reported none of this before — not even font warnings — and now
+reports both.
+
+Verification: 12 new WinAnsi assertions plus a round-trip over all 27 assigned
+codes, 12 text-spacing assertions, and 12 grid-warning assertions covering the
+report, the dedup, and silence on a grid the engine fully understands.
+
+> **Compiling is not a passing build.** `node bin/output.js` prints
+> `Compilation FAILED` and still exits 0, so `npm run <tool>:compile && echo OK`
+> reports success on a broken tool. Grep the output for `Compilation FAILED`.
+> This cost a round here: a tool that had not rebuilt looked like a feature
+> that had not worked.
+
+### Phase 4.3 — Kerning ✅
+
+The last open rule in §4.1, and the one that needed the most care to not make
+things worse.
+
+**Reading it.** `TrueTypeFont` walks GPOS: FeatureList for a `kern` feature,
+its lookups, and the pair-adjustment subtables underneath — including
+LookupType 9 (Extension), which large faces use to reach past the 64K offset
+limit, so skipping it would have missed kerning in exactly the fonts that need
+it most. Both PairPos formats are read: format 1 (per-glyph pair sets, binary
+searched) and format 2 (class pairs). Coverage and ClassDef tables are binary
+searched rather than expanded — a class subtable is a few hundred bytes that
+expands to tens of thousands of pairs, almost none of which a given page uses.
+
+Two things the browser snapshot caught that reading the spec alone did not:
+
+- **Subtables within one lookup are first-match-wins**, not additive. Summing
+  every subtable double-counted any pair listed in more than one, which made
+  Noto Sans measure narrower than Chromium draws it. Separate lookups still
+  accumulate.
+- **A face with GPOS is positioned by GPOS alone.** Open Sans has a GPOS table
+  with no `kern` feature *and* 18694 legacy `kern` pairs. Falling back to those
+  made EVG kern a run a browser leaves alone. OpenType says GPOS wins outright;
+  the fallback now only applies when there is no GPOS table at all.
+
+**Painting it.** Measuring kerned while painting unkerned would have been worse
+than not kerning: the box right and the ink wrong. A PDF viewer advances by the
+`/Widths` entry and kerns nothing itself, so the renderer emits a `TJ` array
+instead of `Tj` when the face kerns — `[(H) 15 (e) 10 (lsinki, 20) 25 (2) 15
+(4)] TJ`, which is 65/1000 em at 30px, exactly the 1.95px the measurement
+moved. A run that does not kern still emits a plain `Tj`. The raster pen kerns
+between glyphs the same way; A/B-ing the PNG shows the right edge of that
+Cinzel line moving 2px left with the left edge unchanged, which is kerning
+between glyphs and not a shifted origin.
+
+Results:
+
+| | before | after |
+| --- | --- | --- |
+| worst vs browser (24 snapshot fixtures) | 1.94px | **0.015px** |
+| worst vs live Chromium page | 0.375px | **0.006px** |
+
+All 19 rendering examples that contain text moved, every diff a width or a
+position — no text and no structure changed.
+
+### Phase 4.4 — Grid, against a browser ✅
+
+The box-model parity gate learned `display: grid`, so the grid work stopped
+being checked against hand-computed expectations and started being checked
+against Chromium. Sixteen fixtures: fr tracks, mixed px/fr/%, gaps, `repeat()`,
+spans, explicit lines, named lines, `minmax()` both clamped and not, percentage
+tracks, and a padded container. The gate is now **894 assertions over 161
+boxes**, and it needs no browser to run.
+
+The existing grid passed all of it on the first recording. That is the useful
+kind of result — it says the earlier phases were right, and it is what made the
+two genuine gaps stand out.
+
+**`auto` was a disguised `1fr`.** Predictable, documented, and not what CSS
+does: an `auto` track sizes to the content of the items in it, and only then is
+leftover space handed to the `fr` tracks. Column sizing is now deferred until
+after placement — the tracks cannot be sized until it is known what lands in
+them — and each intrinsic track takes the widest item placed in it.
+
+**`fit-content(limit)`** is the same track with a ceiling on the max-content
+side, floored at min-content. That floor is the whole subtlety: Chromium
+measures `fit-content(100px)` around a 200px box as **200**, because a box with
+a definite width cannot be squeezed and the clamp would push it out of its own
+cell. The limit only bites on something that *can* be squeezed — text — which
+is why `EVGTextEngine` gained `minLineWidth` (break at every opportunity, take
+the widest line: CSS's min-content) to sit beside `maxLineWidth`.
+
+What contributes to an intrinsic track is deliberately narrow: an item with a
+definite width (which is both its min- and max-content size) and a text leaf.
+A container item contributes nothing rather than a guess — sizing one to its
+subtree needs a real recursive intrinsic pass, and a made-up number would
+silently misplace every neighbour instead of merely leaving a track narrow.
+Items spanning several tracks are left out for the same reason: there is no one
+track to charge them to.
+
+### Phase 4.5 — Row subgrid ✅
+
+Columns landed in §7.3; rows were left out because "row sizes are only known
+after the items are measured". True, but the conclusion was wrong: the tracks
+are handed to a subgrid child at *final placement*, and by then the parent's
+rows are settled — whether they came from its own template or from its content
+pass. The handoff is the same code as columns, one axis over.
+
+What actually made rows harder is that a row subgrid **always spans** several
+of its parent's rows, and spanning items are excluded from content-based row
+sizing (there is no one row to charge them to). With only subgrid cards in a
+grid, every row measured zero and the cards collapsed. The fix is the thing
+that defines subgrid: it is the *grandchildren* that size those rows. Rather
+than see through the card, the parent measures it once — a subgrid with nothing
+inherited falls back to content-sized rows, which is exactly the measurement
+wanted — and adopts the rows it came up with, one for one, via
+`computedRowSizes`.
+
+Fixing this also turned up a bug in what column subgrid had been reporting. A
+subgrid child is laid out during its parent's content-measuring pass, before
+any tracks can exist, and it was announcing "subgrid has no enclosing grid to
+inherit tracks from" every time — which was simply untrue. The enclosing grid
+now claims the child (`subgridPending`) as soon as it collects it, well before
+it can size anything, so a child that is merely early is told apart from one
+that really is orphaned.
+
+Verification: four subgrid fixtures against Chromium — rows over an explicit
+parent template, rows over content-sized parent rows, columns, and both axes at
+once — plus 10 assertions on the case subgrid exists for: two cards, spanning
+the same rows, whose captions line up without either card knowing about the
+other. The box-model gate is now **1019 assertions over 203 boxes**.
+
+One harness note recorded in the fixtures: a card that subgrids only its rows
+has a template-less column axis, which CSS sizes as a single `auto` track. EVG
+defaults that to `1fr`. Under this harness's `justify-content: start` an auto
+track does not stretch, so the two disagree; with the CSS default of `normal`
+they coincide. The fixtures pin the column axis rather than paper over it.
+
 ## 11. File / module impact (expected)
 
 | Area | Likely touch points |
@@ -570,11 +824,34 @@ runs all three, or individually:
 | Script | Suite | Covers |
 | --- | --- | --- |
 | `test:evg` | `gallery/game_engine/v2/evg/run.sh` | layout engine: units, box model, flex, grid, stylesheet, text engine, baseline |
-| `test:evg:fonts` | `gallery/pdf_writer/test/run_fonts.sh` | advance-width goldens against the real TTFs, plus EVG-vs-Chromium box parity |
-| `test:evg:frontend` | `gallery/pdf_writer/test/run_print.sh` | UTF-8 decoding, WinAnsi reporting, page boxes, and the JSX attribute surface |
+| `test:evg:fonts` | `gallery/pdf_writer/test/run_fonts.sh` | advance-width goldens against the real TTFs, plus EVG-vs-browser parity from a recorded snapshot |
+| `test:evg:layout` | `gallery/pdf_writer/test/run_layout.sh` | box-model parity against the browser: padding, margins, gaps, nesting, background colour |
+| `test:evg:frontend` | `gallery/pdf_writer/test/run_print.sh` | UTF-8 decoding, the WinAnsi repertoire, page boxes, JSX text spacing, and the JSX attribute surface |
 
-The parity gate needs `playwright-core` (a declared devDependency); it reports a
-`SKIP` rather than failing if the package is absent.
+**None of these need a browser.** The browser-measured widths live in
+`gallery/pdf_writer/test/fixtures/browser_parity.snapshot`, so the parity gate
+runs anywhere. Chromium is only needed to change that file:
+
+```
+bash gallery/pdf_writer/test/run_fonts.sh  --verify-snapshot   # still matches a live browser?
+bash gallery/pdf_writer/test/run_fonts.sh  --update-snapshot   # re-record it
+bash gallery/pdf_writer/test/run_fonts.sh  --page-parity       # measure a whole rendered page
+bash gallery/pdf_writer/test/run_layout.sh --verify-snapshot   # same, for the box model
+bash gallery/pdf_writer/test/run_layout.sh --update-snapshot
+```
+
+The box-model gate compares padding, per-side padding, margins, per-side
+margins, row and column gaps, nesting, background colour, and every supported
+length unit across 121 boxes. Both sides build their tree from the same
+`fixtures/box_model.fixtures`, and the browser side is configured to EVG's model
+rather than CSS defaults — `box-sizing: border-box` because EVG's width includes
+padding, and `display: flex` because EVG's flow is flex (block flow would
+collapse adjacent vertical margins and the two would disagree for a reason that
+has nothing to do with EVG).
+
+Re-record only when the font files change. A snapshot diff with unchanged fonts
+means the browser disagreed with itself, which is worth reading before
+committing.
 
 ## 12. Test plan (fonts first)
 
