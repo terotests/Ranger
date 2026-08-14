@@ -7,9 +7,13 @@ import {
   compileAndRunDart,
   compileAndRunGo,
   compileAndRunKotlin,
+  compileAndRunPhp,
+  compileAndRunPython,
   isDartAvailable,
   isGoAvailable,
   isKotlinAvailable,
+  isPhpAvailable,
+  isPythonAvailable,
 } from "./helpers/compiler";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -111,6 +115,24 @@ describe("Cross-target conformance suite (Track 1)", () => {
       it(`should match expected output for ${caseName}`, () => {
         const program = `tests/conformance/${caseName}/program.rgr`;
         assertConformance("Dart", caseName, compileAndRunDart(program));
+      });
+    }
+  });
+
+  describe.skipIf(!isPythonAvailable())("Python target", () => {
+    for (const caseName of cases) {
+      it(`should match expected output for ${caseName}`, () => {
+        const program = `tests/conformance/${caseName}/program.rgr`;
+        assertConformance("Python", caseName, compileAndRunPython(program));
+      });
+    }
+  });
+
+  describe.skipIf(!isPhpAvailable())("PHP target", () => {
+    for (const caseName of cases) {
+      it(`should match expected output for ${caseName}`, () => {
+        const program = `tests/conformance/${caseName}/program.rgr`;
+        assertConformance("PHP", caseName, compileAndRunPhp(program));
       });
     }
   });

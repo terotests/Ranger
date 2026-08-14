@@ -123,17 +123,119 @@ program has to know.
 Cross-target semantic fixtures live in `tests/conformance/`. Run `npx vitest run tests/compiler-conformance.test.ts`.
 Regenerate the fixture list with `node scripts/generate-conformance-table.mjs`.
 
+The suite runs a fixture on every target whose toolchain is installed and skips
+the rest, so what it actually covers depends on the machine. These fixtures have
+been run end to end on **ES6, Python, PHP, Go, Java, C++, Rust, Kotlin, Dart and
+Scala**; only Go still fails one (`array_param_mutate`, Issue #58 — a Go slice
+parameter is a copy, so a callee that appends to it grows nothing the caller can
+see). **Swift and C# are not verified** — no toolchain was available — and the
+Scala and Java runs were manual, since the harness has no helper for them yet.
+
+These fixtures are small programs. Passing them says the target handles the
+constructs they use, **not** that it can carry a large program: the JavaScript
+interpreter in `gallery/game_engine/v2/interp` builds only on ES6, C++ and Rust.
+See *How far the other targets get on the interpreter* below.
+
 <!-- BEGIN CONFORMANCE_TABLE -->
 | Fixture | Topic | Targets |
 | --- | --- | --- |
-| `array_param_mutate` | array parameters use reference semantics (Issue #58; Go known gap) | ES6, Go, Kotlin, Dart (when toolchain present) |
-| `clear_then_push` | clear resets slice without nil, push refills (Issue #59) | ES6, Go, Kotlin, Dart (when toolchain present) |
-| `int_division_to_double` | Conformance: integer division promoted to double (Issue #4) | ES6, Go, Kotlin, Dart (when toolchain present) |
-| `lf_line_endings` | LF-only source (Issue #12 class must not break operator spacing) | ES6, Go, Kotlin, Dart (when toolchain present) |
-| `math_ops` | Conformance: arithmetic and comparisons | ES6, Go, Kotlin, Dart (when toolchain present) |
-| `string_codepoint_index` | Conformance: Unicode code-point string indexing (Issue #57) | ES6, Go, Kotlin, Dart (when toolchain present) |
-| `while_loop` | Conformance: while loop control flow | ES6, Go, Kotlin, Dart (when toolchain present) |
+| `array_param_mutate` | array parameters use reference semantics (Issue #58; Go known gap) | ES6, Go, Python, PHP, Kotlin, Dart (when toolchain present) |
+| `clear_then_push` | clear resets slice without nil, push refills (Issue #59) | ES6, Go, Python, PHP, Kotlin, Dart (when toolchain present) |
+| `int_division_to_double` | Conformance: integer division promoted to double (Issue #4) | ES6, Go, Python, PHP, Kotlin, Dart (when toolchain present) |
+| `lf_line_endings` | LF-only source (Issue #12 class must not break operator spacing) | ES6, Go, Python, PHP, Kotlin, Dart (when toolchain present) |
+| `math_ops` | Conformance: arithmetic and comparisons | ES6, Go, Python, PHP, Kotlin, Dart (when toolchain present) |
+| `string_ascii_and_reserve` | Conformance: string-inspection and array-sizing ops agree on every target | ES6, Go, Python, PHP, Kotlin, Dart (when toolchain present) |
+| `string_codepoint_index` | Conformance: Unicode code-point string indexing (Issue #57) | ES6, Go, Python, PHP, Kotlin, Dart (when toolchain present) |
+| `while_loop` | Conformance: while loop control flow | ES6, Go, Python, PHP, Kotlin, Dart (when toolchain present) |
 <!-- END CONFORMANCE_TABLE -->
+
+### Language-feature matrix
+
+```bash
+node scripts/feature-matrix.mjs                # the matrix
+node scripts/feature-matrix.mjs --markdown     # ...as this table
+node scripts/feature-matrix.mjs --check        # fail if a cell regressed
+FEATURES=union_case TARGETS=rust node scripts/feature-matrix.mjs
+```
+
+"Does target X work" is not a yes/no question, and the two things this repo had
+were both the wrong grain: the conformance fixtures above are whole programs
+that say a target basically functions, and the interpreter is 65,000 lines that
+says nothing at all when it fails except "somewhere". A target carries a real
+program only if it carries the FEATURES that program is built from, so each
+probe in `tests/features/` isolates one and the matrix says which target has it.
+
+A cell is `ok`, or one of three distinct kinds of work: **GEN** (the Ranger
+stage refused to emit code — a missing template), **BUILD** (the target's own
+compiler rejected what was emitted — a writer bug), **RUN** (it built and then
+disagreed — a semantic difference). `–` means no toolchain on this machine.
+
+<!-- BEGIN FEATURE_MATRIX -->
+| Feature | es6 | python | php | go | cpp | rust | java | kotlin | dart | scala |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `class_inherit` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `double_to_string` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `lambda_capture` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `map_iteration` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `optional_unwrap` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `shape_match` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `singleton` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `union_case` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `union_positions` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+<!-- END FEATURE_MATRIX -->
+
+`tests/features/baseline.json` records this, and `--check` fails only where a
+cell that *was* `ok` no longer is — so the matrix is a gate against regression
+without pretending the gaps are fixed.
+
+**All ten targets carry all nine features.** The matrix started at 56 of 80.
+
+What each column cost is in the commit history. The ones that took real work:
+
+- **Rust closures** — a closure that is stored, passed and called more than
+  once needs an owning type, so a function type is `Rc<dyn Fn(A) -> R>` and a
+  lambda is `Rc::new(move |x: T| -> R { … })`. Calling it needs `(f)(x)`: an
+  `Rc` is not itself callable and Rust does not auto-deref the callee of a
+  call.
+- **Rust inheritance** (`RUST_ISSUES.md:567`, long-standing) — the writer
+  flattens inheritance, emitting the parent's methods on the child struct, but
+  never copied the parent's FIELDS across, so every one of those methods named
+  a field that did not exist. A local declared as an extended class is also
+  typed as a trait object, and neither its initializer nor its calls followed;
+  they do now.
+- **Go map order** — Go's `map[K]V` iterates in an order that differs per RUN.
+  Go maps are now `*RgMap[K, V]`, an ordered map carrying its keys beside the
+  data. One generic type serves every key/value pair, so nothing is generated
+  per map type and the per-type `r_get_…`/`r_has_key_…` helpers are gone.
+
+### How far the other targets get on the interpreter
+
+The fixtures above are a few dozen lines each. The ComponentEngine interpreter
+is 65,000 lines of generated code and uses the whole language, so it is the
+real measure of a target. It builds on **ES6, C++ and Rust**. Scala was
+measured rather than assumed:
+
+| stage | result |
+|---|---|
+| Ranger → Scala source | **works** (after adding Scala spellings for `shell_arg`, `shell_arg_cnt`, `buffer_read_file` and `buffer_to_string`, which the JVM targets already had) |
+| `scalac` parse | **works** (after the two writer fixes below) |
+| `scalac` typecheck | **fails**, 220 errors |
+
+The two parse-level bugs were generic, not engine-specific, and are fixed:
+Scala keywords were emitted bare as member names (`EvalValue` declares
+`sfn null` and `sfn object`, so the output contained `def null()`), and a
+for-loop walked its collection expression at statement level, so
+`for (this.keyAtoms())` produced `0 until this.keyAtoms();` with a stray
+`.length ) {` on the next line.
+
+What remains is not a bug list but a missing feature. Almost every one of the
+220 errors is a union variant class or a singleton that was never emitted —
+`not found: type EvalValue_Null`, `value __singleton is not a member of object
+EvGcHeap`. The Scala writer maps a union to `Any` and stops there; C++ gets a
+`std::variant` and Rust gets an enum with a generated `RgIdentical` trait, and
+each of those was real work. Bringing Scala (or Kotlin, Dart, PHP, Python —
+none of which have it either) up to running the interpreter means implementing
+`shape`/union lowering and `@singleton` for that writer, not adding templates.
 
 ## Quick start
 

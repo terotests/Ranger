@@ -1,0 +1,43 @@
+; FEATURE: a union in every position that is not a plain local -- an array
+; element, an optional field and a return type. Each reaches the type name by a
+; different path in the writers, which is where per-target union support tends
+; to be incomplete.
+class UpNumber { def value:double 0.0 }
+class UpText   { def value:string "" }
+
+union UpValue (UpNumber UpText)
+
+class UpBox {
+    def items:[UpValue]
+    def one@(optional):UpValue
+
+    fn add:void (v:UpValue) {
+        push items v
+    }
+    fn first:UpValue () {
+        return (itemAt items 0)
+    }
+    fn tags:string () {
+        def out:string ""
+        for items it:UpValue i {
+            case it n:UpNumber { out = (out + "n") }
+            case it s:UpText   { out = (out + "s") }
+        }
+        return out
+    }
+    sfn m@(main):void () {
+        def b:UpBox (new UpBox())
+        def n:UpNumber (new UpNumber())
+        def t:UpText (new UpText())
+        b.add(n)
+        b.add(t)
+        print (b.tags())
+        def f:UpValue (b.first())
+        case f fn2:UpNumber { print "first number" }
+        b.one = t
+        if b.one {
+            def got:UpValue (unwrap b.one)
+            case got s2:UpText { print "optional text" }
+        }
+    }
+}

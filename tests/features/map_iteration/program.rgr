@@ -1,0 +1,22 @@
+; FEATURE: a string-keyed map -- set, get, has, and iteration in INSERTION
+; order, which the interpreter relies on for property enumeration.
+class MapFeature {
+    sfn m@(main):void () {
+        def m:[string:int]
+        set m "b" 2
+        set m "a" 1
+        set m "c" 3
+        def a@(optional):int (get m "a")
+        if a {
+            print (to_string (unwrap a))
+        }
+        if (has m "b") { print "has b" }
+        if (false == (has m "z")) { print "no z" }
+        def order:string ""
+        def ks:[string] (keys m)
+        for ks k:string i {
+            order = (order + k)
+        }
+        print order
+    }
+}

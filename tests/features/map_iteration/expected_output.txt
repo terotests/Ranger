@@ -1,0 +1,4 @@
+1
+has b
+no z
+bac

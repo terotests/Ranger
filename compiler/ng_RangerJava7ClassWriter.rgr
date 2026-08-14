@@ -211,7 +211,10 @@ class RangerJava7ClassWriter {
           wr.out("byte[]" false)
         }
         case RangerNodeType.Hash {
-          wr.out( (((("HashMap<" + (this.getObjectTypeString2(k_name ctx wr))) + ",") + (this.getObjectTypeString2(a_name ctx wr))) + ">") , false)
+          ; Ranger maps iterate in INSERTION order -- ES6, Python, PHP, C++,
+          ; Rust and Dart all do, and the interpreter depends on it for
+          ; property enumeration. java.util.HashMap does not.
+          wr.out( (((("LinkedHashMap<" + (this.getObjectTypeString2(k_name ctx wr))) + ",") + (this.getObjectTypeString2(a_name ctx wr))) + ">") , false)
           wr.addImport("java.util.*")
         }
         case RangerNodeType.Array {
@@ -311,7 +314,7 @@ class RangerJava7ClassWriter {
           wr.out("Boolean" false)
         }
         case RangerNodeType.Hash {
-          wr.out((((("HashMap<" + (this.getObjectTypeString2(k_name ctx wr))) + ",") + (this.getObjectTypeString2(a_name ctx wr)))) + ">" , false)
+          wr.out((((("LinkedHashMap<" + (this.getObjectTypeString2(k_name ctx wr))) + ",") + (this.getObjectTypeString2(a_name ctx wr)))) + ">" , false)
           wr.addImport("java.util.*")
         }
         case RangerNodeType.Array {
@@ -899,6 +902,39 @@ class RangerJava7ClassWriter {
       subCtx.is_function = true
       this.WalkNode( (unwrap constr.fnBody) subCtx wr)
       wr.newline()
+      wr.indent(-1)
+      wr.out("}" true)
+    }
+    ; @singleton(true): the one instance, reached through __singleton(). Every
+    ; call site writes `C.__singleton()`, so a target that does not emit it
+    ; produces code that names a method nothing declares -- which is what Java
+    ; did for every singleton in the program.
+    if (cl.isSingletonClass()) {
+      wr.out("" true)
+      wr.out(((("private static " + cl.name) + " __singleton_instance = null;")) true)
+      wr.out((("public static " + cl.name) + " __singleton(") false)
+      if cl.has_constructor {
+        def sConstr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
+        this.writeArgsDef(sConstr ctx wr)
+      }
+      wr.out(") {" true)
+      wr.indent(1)
+      wr.out("if (__singleton_instance == null) {" true)
+      wr.indent(1)
+      wr.out((("__singleton_instance = new " + cl.name) + "(") false)
+      if cl.has_constructor {
+        def sConstr2:RangerAppFunctionDesc (unwrap cl.constructor_fn)
+        for sConstr2.params arg:RangerAppParamDesc i {
+          if (i > 0) {
+            wr.out(", " false)
+          }
+          wr.out(arg.compiledName false)
+        }
+      }
+      wr.out(");" true)
+      wr.indent(-1)
+      wr.out("}" true)
+      wr.out("return __singleton_instance;" true)
       wr.indent(-1)
       wr.out("}" true)
     }

@@ -454,6 +454,45 @@ resume point and `rg_u16_seek`'s — and they carry the same hazard for the same
 reason. No probe has caught them yet, which is not evidence that they are safe.
 The real fix for all three is the one below.
 
+### What it took to get Rust building again
+
+`TARGETS=rust npm run jsengine:build` had stopped compiling, and the binary in
+`bin/rust/` predated the hidden-class work — so `jsengine:conformance` was
+reporting a Rust score for source that no longer existed. Three code-generation
+gaps and one engine-side one:
+
+- **A map parameter was written as a slice.** A map carries an `array_type` too
+  — its *value* type — so a borrowed `[string:boolean]` parameter took the
+  "borrowed collection of scalars is a slice" branch and came out `&[bool]`,
+  the values with the keys thrown away. The key type is what tells the two
+  apart.
+- **`set_at` moved out of a borrow.** The Rust template wrote `a[i] = v` bare,
+  so storing a borrowed parameter into a `Vec` did not compile. It now goes
+  through the same ownership handling `push` already had (Rc wrap / clone /
+  take as-is), which is the only reason `push slotValues v` worked and
+  `set_at slotValues ix v` did not.
+- **Ops with no Rust spelling returned `""` where a `String` was required.**
+  `byte_substring` and `utf16_slice` fell through to the `*` template. Rust
+  strings *are* UTF-8 bytes, so `byte_substring` is now real there — guarded on
+  `is_char_boundary`, because a cut inside a character panics rather than
+  returning nonsense — and the JSON fast path works on Rust as well.
+  `utf16_slice` stays unreachable and just types correctly.
+- **A receiver's borrow was held across its arguments.** This is the one that
+  mattered: `g.setMember("prototype", &self.builtinPrototype(ns))` evaluates
+  `g.borrow_mut()` first, so the nested call runs *inside* that borrow — and in
+  a re-entrant interpreter it comes back to the same object. Every program
+  aborted with "already mutably borrowed" before its first line. The writer
+  already hoisted such arguments into temporaries, but only when the receiver
+  was `this`; the receiver's identity never mattered. It now hoists for any
+  receiver (and passes the callee's own `Rc` along, which the extraction path
+  had been leaving out).
+
+One engine-side change went with them: `EvShape.transition` climbed the parent
+chain to record the new depth, and the first parent is `this` — which the
+caller is already inside (`shape.borrow_mut().transition(...)`). It now writes
+its own field directly and starts the climb one link further up. Same shapes,
+same depths, by a route that cannot alias.
+
 ### The next thing to fix: the receiver is copied per call
 
 `s.charCodeAt(i)` in a loop is superlinear even with everything above fixed
@@ -559,13 +598,8 @@ to be checked too — which is why this is written down rather than done here.
   receiver. `str_is_ascii` had the same cache and it demonstrably returned
   other strings' answers; these two have not been caught doing it, which is not
   the same as being safe. See *A memo keyed on a pointer is not a memo* above.
-- **The Rust target does not build.** `TARGETS=rust npm run jsengine:build`
-  fails with eight type errors in generated code, all in the hidden-class work
-  (`slotValues` assignment, `setSuppressed` taking `&[bool]` where the map is
-  `RgOrderedMap<String, bool>`) plus a `byteSlice` returning `"".clone()`.
-  These are code-generation gaps in the Rust writer, not engine logic; the
-  binary in `bin/rust/` predates the shape work, so `jsengine:conformance`
-  reports a rust score that no longer corresponds to the source.
+- The Rust target builds and scores the same 2076/2079 as C++ again. It had
+  stopped doing both; see *What it took to get Rust building again* below.
 - `print` is not defined (QuickJS has it); use `console.log`.
 
 ## Continuing this work

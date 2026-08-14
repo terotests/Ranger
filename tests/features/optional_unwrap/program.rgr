@@ -1,0 +1,42 @@
+; FEATURE: @(optional) values -- the absent case, `unwrap`, an optional FIELD
+; holding a class, and a method whose RETURN is optional.
+class OpItem { def name:string "" }
+
+class OptionalFeature {
+    def held@(optional):OpItem
+
+    fn nameOr:string (fallback:string) {
+        if held {
+            def h:OpItem (unwrap held)
+            return h.name
+        }
+        return fallback
+    }
+    fn find@(optional):OpItem (wanted:boolean) {
+        if wanted {
+            def made:OpItem (new OpItem())
+            made.name = "found"
+            def some@(optional):OpItem made
+            return some
+        }
+        def missing@(optional):OpItem
+        return missing
+    }
+    sfn m@(main):void () {
+        def f:OptionalFeature (new OptionalFeature())
+        print (f.nameOr("empty"))
+        def held2:OpItem (new OpItem())
+        held2.name = "held"
+        f.held = held2
+        print (f.nameOr("empty"))
+        def hit@(optional):OpItem (f.find(true))
+        if hit {
+            def got:OpItem (unwrap hit)
+            print got.name
+        }
+        def miss@(optional):OpItem (f.find(false))
+        if (null? miss) {
+            print "absent"
+        }
+    }
+}

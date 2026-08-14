@@ -201,6 +201,48 @@ class RangerKotlinClassWriter {
     }
     return type_string
   }
+  ; A lambda whose body contains `return`. Kotlin's `{ x -> ... }` treats a
+  ; bare `return` as a return from the ENCLOSING function, so a Ranger lambda
+  ; lowered to it either changes meaning or fails to compile. An anonymous
+  ; function does not: `fun(x: Int): Int { return ... }` is an expression whose
+  ; `return` belongs to it. The generic writer emits JavaScript arrow syntax
+  ; here, which is not Kotlin at all.
+  fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def lambdaCtx (unwrap node.lambda_ctx)
+    def fnDef:CodeNode (itemAt node.children 0)
+    def args:CodeNode (itemAt node.children 1)
+    def body:CodeNode (itemAt node.children 2)
+    lambdaCtx.is_lambda = true
+    wr.out("fun(" false)
+    for args.children arg:CodeNode i {
+      if (i > 0) {
+        wr.out(", " false)
+      }
+      if (arg.flow_done == false) {
+        this.compiler.parser.WalkNode(arg lambdaCtx wr)
+      }
+      this.WalkNode(arg lambdaCtx wr)
+      wr.out(" : " false)
+      this.writeTypeDef(arg ctx wr)
+    }
+    wr.out(")" false)
+    if ((fnDef.type_name == "void") || (fnDef.eval_type_name == "void")) {
+      wr.out(" : Unit" false)
+    } {
+      wr.out(" : " false)
+      this.writeTypeDef(fnDef ctx wr)
+    }
+    wr.out(" { " true)
+    wr.indent(1)
+    lambdaCtx.restartExpressionLevel()
+    for body.children item:CodeNode i {
+      this.WalkNode(item lambdaCtx wr)
+    }
+    wr.newline()
+    wr.indent(-1)
+    wr.out("}" false)
+  }
+
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def v_type:RangerNodeType node.value_type
     if (node.eval_type != RangerNodeType.NoType) {
@@ -221,6 +263,30 @@ class RangerKotlinClassWriter {
       }
       case RangerNodeType.CharBuffer {
         wr.out("CharArray" false)
+      }
+      ; A function TYPE: Kotlin spells it (A, B) -> R, with Unit for void.
+      ; Without this case the type rendered EMPTY, so a lambda-typed parameter
+      ; came out as `f : ,` and a lambda-typed local as `val add :   =`.
+      case RangerNodeType.ExpressionType {
+        def rv:CodeNode (itemAt node.expression_value.children 0)
+        def sec:CodeNode (itemAt node.expression_value.children 1)
+        def is_void:boolean false
+        if ((rv.type_name == "void") || (rv.eval_type_name == "void")) {
+          is_void = true
+        }
+        wr.out("(" false)
+        for sec.children arg:CodeNode i {
+          if (i > 0) {
+            wr.out(", " false)
+          }
+          this.writeTypeDef(arg ctx wr)
+        }
+        wr.out(") -> " false)
+        if is_void {
+          wr.out("Unit" false)
+        } {
+          this.writeTypeDef(rv ctx wr)
+        }
       }
       case RangerNodeType.Buffer {
         wr.out("ByteArray" false)
@@ -518,7 +584,9 @@ class RangerKotlinClassWriter {
             wr.out(" = arrayListOf()" false)
           }
           if (nn.value_type == RangerNodeType.Hash) {
-            wr.out(" = hashMapOf()" false)
+            ; insertion order, as every other target has: hashMapOf() does
+            ; not keep it and property enumeration depends on it
+            wr.out(" = LinkedHashMap()" false)
           }
         }
       }

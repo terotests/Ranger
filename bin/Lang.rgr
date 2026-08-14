@@ -1002,6 +1002,9 @@ func r_io_get_env( name string) *GoNullable {
                 cpp ( "std::string(__g_argv[" (e 1) " + 1])")
                 php ( "$argv[" (e 1) " + 1]" )
                 java7 ( "args[" (e 1) "]")
+                ; The generated entry point is `object App… extends App`, so
+                ; `args` is in scope exactly as it is in a Java main.
+                scala ( "args(" (e 1) ")")
                 csharp ('Environment.GetCommandLineArgs()[' (e 1) ' + 1]' (imp "System"))
                 go ( "os.Args[" (e 1) " + 1]"  (imp "os"))
                 swift3 ("CommandLine.arguments[" (e 1) " + 1]")
@@ -1027,6 +1030,7 @@ func r_io_get_env( name string) *GoNullable {
                 csharp ('Environment.GetCommandLineArgs().Length - 1' (imp "System"))                
                 php ( "(count($argv) - 1)" )
                 java7 ( "args.length")
+                scala ( "args.length")
                 go ( "int64( len( os.Args) - 1 )"  (imp "os"))
                 es6 ( "(process.argv.length - 2)" )
                 rust ( "(std::env::args().len() as i64 - 1)")
@@ -1650,7 +1654,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 scala ( nl (e 1) " = Some(" (e 2) ")" nl )  
                 swift ( nl (e 1) " = Optional(" (e 2) ");" nl )   
                 java7 ( nl (e 1) " = " (e 2) ";" nl )   
-                go ( nl (goset 1) ".value = " (e 2) ";" nl nl (goset 1) ".has_value = true; /* detected as non-optional */" nl )  
+                go ( nl (goset 1) ".value = " (asgval 1 2) ";" nl nl (goset 1) ".has_value = true; /* detected as non-optional */" nl )  
                 cpp ( nl ( e 1) "  = " (e 2) ";" nl )
                 rust ( (custom _) )
                 * ( nl (e 1) " = " (e 2) ";" nl ) 
@@ -1673,11 +1677,14 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
 
         empty       cmdEmpty@(optional):T        ( node@(ignore):T ) {
             templates {
-                scala ( "Option.empty[(" (e 1) ")" )
+                ; `None` fits any Option, and the bracketed form named the
+                ; DECLARED type -- which a union does not have on Scala. It was
+                ; also missing its closing bracket.
+                scala ( "None" )
                 swift3 (  "nil" )
                 csharp ( "(" (typeof 1) "?)" (e 1)  )
                 cpp ( (e 1) )
-                java7 ( "Optional.of(" (e 1 ) ")")
+                java7 ( "null" )
                 go ( (e 1 ) )
                 swift6 ( "nil" )
                 kotlin ( "null" )
@@ -1959,6 +1966,15 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                     cpp ( (e 1 ) " + " "r_double_to_string(" (e 2) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>") (imp "<cstdlib>")
 (create_polyfill "
 inline std::string r_double_to_string(double v) {
+  /* An integral value prints WITHOUT a decimal point and without an
+     exponent, which is what every other target does: the shortest
+     round-trip form of 1000000.0 under the general format is \"1e+06\",
+     so the same program printed a different number here than on ES6,
+     Python, Go or Rust. 1e15 is where a double still names every
+     integer exactly. */
+  if (v == v && v > -1e15 && v < 1e15 && v == (double)(long long) v) {
+    return std::to_string((long long) v);
+  }
     for (int p = 1; p < 18; p++) {
         std::ostringstream s;
         s << std::setprecision(p) << v;
@@ -2153,6 +2169,15 @@ inline std::string r_double_to_string(double v) {
                     cpp ( "r_double_to_string(" (e 1) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>") (imp "<cstdlib>")
 (create_polyfill "
 inline std::string r_double_to_string(double v) {
+  /* An integral value prints WITHOUT a decimal point and without an
+     exponent, which is what every other target does: the shortest
+     round-trip form of 1000000.0 under the general format is \"1e+06\",
+     so the same program printed a different number here than on ES6,
+     Python, Go or Rust. 1e15 is where a double still names every
+     integer exactly. */
+  if (v == v && v > -1e15 && v < 1e15 && v == (double)(long long) v) {
+    return std::to_string((long long) v);
+  }
     for (int p = 1; p < 18; p++) {
         std::ostringstream s;
         s << std::setprecision(p) << v;
@@ -2521,6 +2546,11 @@ def r_div_f64(a, b):
             }
         }
 
+        ; JAVA OPTIONALS ARE NULLABLE REFERENCES. The writer declares an
+        ; optional as the bare type (writeTypeDef leaves the Optional<> wrapper
+        ; commented out), `unwrap` is identity and `null?` is `== null` -- but the
+        ; truth tests here called .isPresent() on it, which does not exist on the
+        ; declared type. Every Java program with an optional failed to compile.
         if              cmdIf:void              ( condition@(optional):int then_block:block )  {
             templates {
                 cpp ( "if ( " (e 1) ".has_value ) {" nl I (block 2) i nl "}" nl )
@@ -2529,7 +2559,7 @@ def r_div_f64(a, b):
                 swift3 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 swift6 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 kotlin ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
-                java7 ( "if ( " (e 1) ".isPresent()) {" nl I (block 2) i nl "}" nl )
+                java7 ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 csharp ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 php ( "if ( isset( " (e 1) " ) ) {" nl I (block 2) i nl "}" nl )
                 go ( "if ( " (e 1) ".has_value) {" nl I (block 2) i nl "}" nl )
@@ -2548,7 +2578,7 @@ def r_div_f64(a, b):
                 swift3 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 swift6 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 kotlin ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
-                java7 ( "if ( " (e 1) ".isPresent()) {" nl I (block 2) i nl "}" nl )
+                java7 ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 csharp ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 php ( "if ( isset( " (e 1) " ) ) {" nl I (block 2) i nl "}" nl )
                 go ( "if ( " (e 1) ".has_value) {" nl I (block 2) i nl "}" nl )
@@ -2568,7 +2598,7 @@ def r_div_f64(a, b):
                 ranger ( "if ( " (e 1) " ) {" I nl (block 2) i nl "} {" nl I (block 3) i "}" nl)
                 php ( "if ( isset(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 scala ( "if ( " (e 1) ".isDefined ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
-                java7 ( "if ( " (e 1) ".isPresent() ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                java7 ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 csharp ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 kotlin ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 rust ( "if " (e 1) ".is_some() {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
@@ -2587,7 +2617,7 @@ def r_div_f64(a, b):
                 ranger ( "if ( " (e 1) " ) {" I nl (block 2) i nl "} {" nl I (block 3) i "}" nl)
                 php ( "if ( isset(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 scala ( "if ( " (e 1) ".isDefined ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
-                java7 ( "if ( " (e 1) ".isPresent() ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                java7 ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 csharp ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 kotlin ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 rust ( "if " (e 1) ".is_some() {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
@@ -2608,7 +2638,7 @@ def r_div_f64(a, b):
                 swift6 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 kotlin ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
                 dart ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
-                java7 ( "if ( " (e 1) ".isPresent()) {" nl I (block 2) i nl "}" nl )
+                java7 ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 csharp ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 ; go ( "" (e 1 ) " == nil " ) 
                 ; is_some
@@ -2627,7 +2657,7 @@ def r_div_f64(a, b):
                 ranger ( "if ( " (e 1) " ) {" I nl (block 2) i nl "} {" nl I (block 3) i "}" nl)
                 php ( "if ( isset(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 scala ( "if ( " (e 1) ".isDefined ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
-                java7 ( "if ( " (e 1) ".isPresent() ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                java7 ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 csharp ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 kotlin ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 dart ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl )
@@ -3109,7 +3139,9 @@ case class customException(smth:String)  extends Exception
                 dart ( (forkctx _ ) (def 2) (def 3) "for ( var " (e 3) " in " (e 1) ".keys ) {" nl I "var " (e 2) " = " (e 1) "[" (e 3) "]!; " nl (block 4) nl i "}" )
                 ; Go rejects a declared and unused loop variable, so both names
                 ; are read once before the block.
-                go ( (forkctx _ ) (def 2) (def 3) "for " (e 3) ", " (e 2) " := range " (e 1) " {" nl I "_ = " (e 3) nl "_ = " (e 2) nl (block 4) nl i "}" )
+                ; over the ordered map's key list, not the map itself: ranging
+                ; a Go map visits keys in a random order that changes per run
+                go ( (forkctx _ ) (def 2) (def 3) "for _, " (e 3) " := range " (e 1) ".Keys() {" nl I (e 2) ", _ := " (e 1) ".Get(" (e 3) ")" nl "_ = " (e 3) nl "_ = " (e 2) nl (block 4) nl i "}" )
                 python ( (forkctx _ ) (def 2) (def 3) "for " (e 3) ", " (e 2) " in " (e 1) ".items():" nl I (block 4) nl i )
                 php ( (forkctx _ ) (def 2) (def 3) "foreach ( " (e 1) " as " (e 3) " => " (e 2) " ) {" nl I (block 4) nl i "}" )
                 kotlin ( (forkctx _ ) (def 2) (def 3) "for ( (" (e 3) ", " (e 2) ") in " (e 1) " ) {" nl I (block 4) nl i "}" )
@@ -3133,7 +3165,7 @@ case class customException(smth:String)  extends Exception
                         nl i "} " nl i "}"
                      )
                 dart ( (forkctx _ ) (def 2) "for ( var " (e 2) " in " (e 1) ".keys ) {" nl I (block 3) nl i "}" )
-                go ( (forkctx _ ) (def 2) "for " (e 2) " := range " (e 1) " {" nl I "_ = " (e 2) nl (block 3) nl i "}" )
+                go ( (forkctx _ ) (def 2) "for _, " (e 2) " := range " (e 1) ".Keys() {" nl I "_ = " (e 2) nl (block 3) nl i "}" )
                 python ( (forkctx _ ) (def 2) "for " (e 2) " in " (e 1) ":" nl I (block 3) nl i )
                 php ( (forkctx _ ) (def 2) "foreach ( array_keys(" (e 1) ") as " (e 2) " ) {" nl I (block 3) nl i "}" )
                 kotlin ( (forkctx _ ) (def 2) "for ( " (e 2) " in " (e 1) ".keys ) {" nl I (block 3) nl i "}" )
@@ -3564,6 +3596,7 @@ static bool r_regex_test_i(string pattern, string s) {
                 rust ( "String::from_utf8_lossy(&" (e 1) ").to_string()" )
                 cpp ( "std::string(" (e 1) ".begin(), " (e 1) ".end())" )
                 java7 ( "new String(" (e 1) ", java.nio.charset.StandardCharsets.UTF_8)" )
+                scala ( "new String(" (e 1) ", java.nio.charset.StandardCharsets.UTF_8)" )
                 python ( (e 1) ".decode('utf-8')" )
                 dart ( (imp "dart:convert") "utf8.decode(" (e 1) ")" )
                 swift6 ( "String(bytes: " (e 1) ", encoding: .utf8) ?? \"\"" )
@@ -3648,6 +3681,9 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
 ")
                 )
                 java7 ( "java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(" (e 1) " + \"/\" + " (e 2) "))" )
+                ; Scala maps `buffer` to Array[Byte] exactly as Java does,
+                ; so the JVM spelling carries over unchanged.
+                scala ( "java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(" (e 1) " + \"/\" + " (e 2) "))" )
                 python ( "bytearray(open(" (e 1) " + '/' + " (e 2) ", 'rb').read())" )
                 swift6 ( "(try? Data(contentsOf: URL(fileURLWithPath: " (e 1) " + \"/\" + " (e 2) "))).map { Array($0) } ?? []" (imp "Foundation") )
                 csharp ( "System.IO.File.ReadAllBytes(" (e 1) " + \"/\" + " (e 2) ")" )
@@ -4158,6 +4194,10 @@ std::string r_utf16_slice(const std::string& s, int a, int b)
 }
 ")
                 )
+                ; Unreachable on Rust -- utf16_byte_of answers -2 there, so the
+                ; caller keeps its own loop -- but it still has to TYPE as the
+                ; String this returns everywhere else.
+                rust ( "String::new()" )
                 * ( "\"\"" )
             }
         }
@@ -4190,6 +4230,7 @@ bool r_mem_trim() { return false; }
 #endif
 ")
                 )
+                python ( "False" )
                 * ( "false" )
             }
         }
@@ -4215,6 +4256,13 @@ std::string r_byte_substr(const std::string& s, int a, int b)
 }
 ")
                 )
+                ; Rust strings ARE UTF-8 bytes, so the slice is the range --
+                ; but only on character boundaries, and a cut that lands
+                ; mid-character panics rather than returning nonsense. The
+                ; boundary check turns that into the empty answer, which is
+                ; what the caller already handles. Written inline because the
+                ; Rust writer emits no polyfills.
+                rust ( "{ let __bs: &str = &(" (e 1) "); let __b0: i64 = (" (e 2) "); let __b1: i64 = (" (e 3) "); let __bn = __bs.len(); let __ba = if __b0 < 0 { 0usize } else if (__b0 as usize) > __bn { __bn } else { __b0 as usize }; let __bb = if __b1 < 0 { 0usize } else if (__b1 as usize) > __bn { __bn } else { __b1 as usize }; if __bb <= __ba || !__bs.is_char_boundary(__ba) || !__bs.is_char_boundary(__bb) { String::new() } else { __bs[__ba..__bb].to_string() } }" )
                 * ( "\"\"" )
             }
         }
@@ -4226,6 +4274,10 @@ std::string r_byte_substr(const std::string& s, int a, int b)
             templates {
                 ranger ( "(has_byte_substring)")
                 cpp ( "true" )
+                rust ( "true" )
+                ; Python spells its booleans with a capital, and a template is
+                ; raw text -- the writer never sees a boolean to translate.
+                python ( "False" )
                 * ( "false" )
             }
         }
@@ -4239,6 +4291,12 @@ std::string r_byte_substr(const std::string& s, int a, int b)
                 ranger ( "(array_reserve " (e 1) " " (e 2) ")")
                 cpp ( (e 1) ".reserve((size_t)(" (e 2) "))" )
                 rust ( (e 1) ".reserve(" (e 2) " as usize)" )
+                ; `pass`, not a comment: this is a whole statement, and where
+                ; it is the ONLY statement in a block a comment leaves the
+                ; block empty. A C-style comment is not Python syntax at all,
+                ; which turned every generated file that pre-sized an array
+                ; into a SyntaxError.
+                python ( "pass" )
                 * ( "/* array_reserve: not needed on this target */" )
             }
         }
@@ -4250,19 +4308,30 @@ std::string r_byte_substr(const std::string& s, int a, int b)
 (create_polyfill "
 bool r_str_is_ascii(const std::string& s)
 {
-    struct Ent { const char* data; size_t len; bool val; };
-    static thread_local Ent cache[8] = {};
+    // NO cross-call memo. The only key a polyfill has for a std::string is its
+    // buffer ADDRESS, and an address is not an identity: a caller that hands
+    // this a fresh copy per call -- which the interpreter does, every string
+    // built-in materialises its receiver -- frees each copy before making the
+    // next, so the next one lands on the SAME address with the SAME length and
+    // inherits the previous string's answer. A pointer-keyed table made
+    // 'Straße'.localeCompare('Strasse') answer 1 or -1 depending only on what
+    // ran before it, so Array#sort put the same two strings in different
+    // orders depending on which came first. Eight bytes per iteration keeps an
+    // honest scan cheap: the high bit of every byte in a word at once.
     const char* d = s.data();
     size_t n = s.length();
-    size_t slot = ((size_t) d / 16 + n) & 7;
-    Ent& e = cache[slot];
-    if (e.data == d && e.len == n) return e.val;
-    bool a = true;
-    for (size_t i = 0; i < n; i++) {
-        if ((unsigned char) s[i] > 127) { a = false; break; }
+    size_t i = 0;
+    while (i < n) {
+        // OR a block together and test the high bits once: no branch per byte,
+        // so the block loop vectorises. Blocked rather than whole-string so a
+        // non-ASCII byte early in a long string still stops early.
+        size_t end = i + 4096;
+        if (end > n) { end = n; }
+        unsigned char m = 0;
+        for (; i < end; i++) { m = (unsigned char)(m | (unsigned char) d[i]); }
+        if (m & 0x80) { return false; }
     }
-    e.data = d; e.len = n; e.val = a;
-    return a;
+    return true;
 }
 ")
                 )
@@ -4274,7 +4343,21 @@ bool r_str_is_ascii(const std::string& s)
                 go ( "r_go_is_ascii(" (e 1) ")"
 (macro ("func r_go_is_ascii(s string) bool { for i := 0; i < len(s); i++ { if s[i] > 127 { return false } }; return true }"))
                 )
-                * ( "true" )
+                ; PHP strings are byte strings, so this is literally "no byte
+                ; has the high bit set". preg_match rather than mb_* because
+                ; mbstring is an optional extension and this is not.
+                php ( "(preg_match('/[\\x80-\\xFF]/', " (e 1) ") === 0)" )
+                kotlin ( (e 1) ".all { it.code < 128 }" )
+                swift6 ( (e 1) ".unicodeScalars.allSatisfy { $0.value < 128 }" )
+                swift3 ( (e 1) ".unicodeScalars.filter { $0.value > 127 }.isEmpty" )
+                dart ( (e 1) ".codeUnits.every((c) => c < 128)" )
+                scala ( (e 1) ".forall(_ < 128)" )
+                ; A target with no answer says NO. The callers use this to take
+                ; a byte-indexing shortcut, so a wrong "yes" reads the wrong
+                ; characters while a wrong "no" only takes the slower path that
+                ; was always correct. The default used to be "true", which made
+                ; every string on PHP, Kotlin, Swift and Dart claim to be ASCII.
+                * ( "false" )
             }
         }
 
@@ -4359,7 +4442,11 @@ std::string r_utf8_char_at(const std::string& str, int pos_i)
                 kotlin ( (e 1) ".substring(" (e 2) ", " (e 2) " + 1)")
                 ; Dart `s[i]` is a code unit (int), not a one-character string.
                 dart ( (e 1) ".substring(" (e 2) ", " (e 2) " + 1)")
-                scala ( (e 1) "(" (e 2) ")")    
+                ; `text(i)` is a Char, and `at` is specified to answer a
+                ; one-character STRING -- so every use of it failed to compile
+                ; with "type mismatch". `.toString` costs nothing and evaluates
+                ; the index once, unlike the substring form the JVM targets use.
+                scala ( (e 1) "(" (e 2) ").toString")
                 go ( "string([]rune(" (e 1) ")[" (e 2) "])")  
 
                 swift3 ( (imp 'Foundation') (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) " + 1)]" )
@@ -4404,7 +4491,11 @@ std::string r_utf8_char_at(const std::string& str, int pos_i)
                 dart ( (e 1) ".keys.toList()" )
                 swift3 ("Array(" (e 1) ".keys)")
                 swift6 ("Array(" (e 1) ".keys)")
-                scala ( (e 1) ".keys.to[collection.mutable.ArrayBuffer]")
+                ; `.to[C]` wants a HIGHER-KINDED name and was given the bare
+                ; class, which scalac rejects ("takes type parameters").
+                ; Building the buffer from the iterator says the element type
+                ; without naming a constructor at all.
+                scala ( "(collection.mutable.ArrayBuffer() ++= " (e 1) ".keys)")
                 php ("array_keys(" (e 1) ")")
                 es6 ( "Object.keys(" (e 1) ")")
                 csharp ( "new List<String>(" (e 1) ".Keys)")
@@ -4425,13 +4516,10 @@ std::vector<std::string> r_get_keys_of_map( const M & orig_map )  {
                     
 
                 )
-                go ("(func() []string {" nl I
-                        "keys := reflect.ValueOf(" (e 1) ").MapKeys()" nl
-                        "strkeys := make([]string, len(keys))" nl
-                        "for i := 0; i < len(keys); i++ {" nl I
-                          "strkeys[i] = keys[i].String()" nl i "}" nl
-                        "return strkeys" nl i "})()"
-                    (imp "reflect"))
+                ; the ordered map already holds its keys in insertion order --
+                ; reflect.MapKeys gives Go's RANDOM order, which differed from
+                ; every other target and from one run to the next
+                go ( (e 1) ".Keys()" )
             }
         } 
 
@@ -4598,6 +4686,15 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 cpp ( "r_double_to_string(" (e 1) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>") (imp "<cstdlib>")
 (create_polyfill "
 inline std::string r_double_to_string(double v) {
+  /* An integral value prints WITHOUT a decimal point and without an
+     exponent, which is what every other target does: the shortest
+     round-trip form of 1000000.0 under the general format is \"1e+06\",
+     so the same program printed a different number here than on ES6,
+     Python, Go or Rust. 1e15 is where a double still names every
+     integer exactly. */
+  if (v == v && v > -1e15 && v < 1e15 && v == (double)(long long) v) {
+    return std::to_string((long long) v);
+  }
     for (int p = 1; p < 18; p++) {
         std::ostringstream s;
         s << std::setprecision(p) << v;
@@ -4614,14 +4711,30 @@ inline std::string r_double_to_string(double v) {
     return s.str();
 }
 ") )
-                java7 ( "String.valueOf(" (e 1) " )")
+                ; An integral double prints without the trailing ".0" that
+                ; String.valueOf gives it, so the same program prints "4" here
+                ; as it does on ES6, Python, Go, Rust and C++ rather than "4.0".
+                java7 ( "r_double_to_string(" (e 1) ")"
+(create_polyfill "
+static String r_double_to_string(double v) {
+  if (!Double.isNaN(v) && !Double.isInfinite(v) && v > -1e15 && v < 1e15 && v == Math.floor(v)) {
+    return String.valueOf((long) v);
+  }
+  return String.valueOf(v);
+}
+")
+                )
                 php ( "strval(" (e 1) ")")
-                scala ( "(" (e 1) ".toString)")
+                ; Same rule as everywhere else; a block, so the value is
+                ; evaluated once even when it is a call.
+                scala ( "{ val __d: Double = " (e 1) "; if (!__d.isNaN && !__d.isInfinite && __d > -1e15 && __d < 1e15 && __d == Math.floor(__d)) __d.toLong.toString else __d.toString }" )
                 go ("strconv.FormatFloat(" (e 1) ",'f', -1, 64)" (imp "strconv"))
                 swift3 ("String(" (e 1) ")")
                 swift6 ("String(" (e 1) ")")
                 python ( "str(" (e 1) ")" )
                 rust ( (e 1) ".to_string()" )
+                kotlin ( "(" (e 1) ").let { __d -> if (!__d.isNaN() && !__d.isInfinite() && __d > -1e15 && __d < 1e15 && __d == Math.floor(__d)) __d.toLong().toString() else __d.toString() }" )
+                dart ( "((double __d) => (__d.isFinite && __d > -1e15 && __d < 1e15 && __d == __d.roundToDouble()) ? __d.toInt().toString() : __d.toString())(" (e 1) ")" )
                 * ( "(" (e 1) ".toString())")
             }
         }
@@ -4632,6 +4745,15 @@ inline std::string r_double_to_string(double v) {
                 cpp ( "r_double_to_string(" (e 1) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>") (imp "<cstdlib>")
 (create_polyfill "
 inline std::string r_double_to_string(double v) {
+  /* An integral value prints WITHOUT a decimal point and without an
+     exponent, which is what every other target does: the shortest
+     round-trip form of 1000000.0 under the general format is \"1e+06\",
+     so the same program printed a different number here than on ES6,
+     Python, Go or Rust. 1e15 is where a double still names every
+     integer exactly. */
+  if (v == v && v > -1e15 && v < 1e15 && v == (double)(long long) v) {
+    return std::to_string((long long) v);
+  }
     for (int p = 1; p < 18; p++) {
         std::ostringstream s;
         s << std::setprecision(p) << v;
@@ -4648,9 +4770,23 @@ inline std::string r_double_to_string(double v) {
     return s.str();
 }
 ") )
-                java7 ( "String.valueOf(" (e 1) " )")
+                ; An integral double prints without the trailing ".0" that
+                ; String.valueOf gives it, so the same program prints "4" here
+                ; as it does on ES6, Python, Go, Rust and C++ rather than "4.0".
+                java7 ( "r_double_to_string(" (e 1) ")"
+(create_polyfill "
+static String r_double_to_string(double v) {
+  if (!Double.isNaN(v) && !Double.isInfinite(v) && v > -1e15 && v < 1e15 && v == Math.floor(v)) {
+    return String.valueOf((long) v);
+  }
+  return String.valueOf(v);
+}
+")
+                )
                 php ( "strval(" (e 1) ")")
-                scala ( "(" (e 1) ".toString)")
+                ; Same rule as everywhere else; a block, so the value is
+                ; evaluated once even when it is a call.
+                scala ( "{ val __d: Double = " (e 1) "; if (!__d.isNaN && !__d.isInfinite && __d > -1e15 && __d < 1e15 && __d == Math.floor(__d)) __d.toLong.toString else __d.toString }" )
                 go ("strconv.FormatFloat(" (e 1) ",'f', -1, 64)" (imp "strconv"))
                 swift3 ("String(" (e 1) ")")
                 swift6 ("String(" (e 1) ")")
@@ -4661,6 +4797,8 @@ inline std::string r_double_to_string(double v) {
                 ; writes. The invariant culture is not optional: the default
                 ; one puts a comma where the rest of the world expects a point.
                 csharp ( "(" (e 1) ").ToString(\"R\", System.Globalization.CultureInfo.InvariantCulture)" )
+                kotlin ( "(" (e 1) ").let { __d -> if (!__d.isNaN() && !__d.isInfinite() && __d > -1e15 && __d < 1e15 && __d == Math.floor(__d)) __d.toLong().toString() else __d.toString() }" )
+                dart ( "((double __d) => (__d.isFinite && __d > -1e15 && __d < 1e15 && __d == __d.roundToDouble()) ? __d.toInt().toString() : __d.toString())(" (e 1) ")" )
                 * ( "(" (e 1) ".toString())")
             }
         }
@@ -5013,13 +5151,7 @@ std::string join(const T& v, const std::string& delim) {
                 kotlin ( (e 1) ".containsKey(" (e 2) ")" )
                 dart ( (e 1) ".containsKey(" (e 2) ")" )
                 python ( (e 2) " in " (e 1) )
-                go ( 
-
-(macro (nl "func r_has_key_" (r_ktype 1)  "_" (r_atype_fname 1) "( a "  (typeof 1) ", key " (r_ktype 1) " ) bool { " nl I 
-    "_, ok := a[key]" nl "return ok" nl i "
-}" nl ))                   
-                    "r_has_key_" (r_ktype 1)  "_" (r_atype_fname 1) "(" (e 1) ", " (e 2) ")"
-                )
+                go ( (e 1) ".Has(" (e 2) ")" )
                 rust ( (e 1 ) ".contains_key(" (kref 2) ")")
                 csharp ( (e 1) ".ContainsKey(" (e 2) ")" )
                 scala ( (e 1) ".contains(" (e 2) ")" )
@@ -5182,13 +5314,12 @@ typename r_map_result<typename M::mapped_type>::type r_map_get_val( const M & m 
 
                 ; scala ( (e 1) ".get(" (e 2) ").asInstanceOf[" (atype 1) "]" )
 
-                go ( 
-
-(macro (nl "func r_get_" (r_ktype 1)  "_" (r_atype_fname 1) "( a " (typeof 1) ", key " (r_ktype 1) " ) *GoNullable  { " nl I 
-    "res := new(GoNullable)" nl  
-    "v, ok := a[key]" nl 
+                go (
+(macro (nl "func r_map_get[K comparable, V any]( a *RgMap[K, V], key K ) *GoNullable  { " nl I
+    "res := new(GoNullable)" nl
+    "v, ok := a.Get(key)" nl
     "if ok { " nl
-        I 
+        I
           "res.has_value = true" nl
           "res.value = v" nl
           "return res" nl
@@ -5196,8 +5327,8 @@ typename r_map_result<typename M::mapped_type>::type r_map_get_val( const M & m 
     "}" nl
     "res.has_value = false" nl
     "return res" nl
-i "}" nl ))                   
-                    "r_get_" (r_ktype 1)  "_" (r_atype_fname 1) "(" (e 1) ", " (e 2) ")"
+i "}" nl ))
+                    "r_map_get(" (e 1) ", " (e 2) ")"
                 )
                 es6 ( "( Object.prototype.hasOwnProperty.call(" (e 1) ", " (e 2) ") ? " (e 1) "[" (e 2) "] : undefined )" )
                 python ( (e 1) ".get(" (e 2) ")" )
@@ -5231,6 +5362,8 @@ i "}" nl ))
                 kotlin ( (e 1) ".set(" (e 2) ", " (e 3) ")" )
                 php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
                 cpp ( (e 1) "[" (ckey 2) "] = " (e 3) ";" )
+                ; the ordered map records a new key's position here
+                go ( (e 1) ".Set(" (e 2) ", " (e 3) ");" )
                 * ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             }            
         }                 
@@ -5590,6 +5723,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
                  csharp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
                  scala ( (e 1) "(" (e 2) ") = " (e 3) )
+                 rust ( (custom _) )
                  rust ( (e 1) "[" (idx 2) "] = " (e 3) ";" )
                  * ( (e 1) "[" (e 2) "] = " (e 3) ";" )
             }
@@ -5723,6 +5857,11 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  scala ( (e 1) ".clear()" )
                  go ( (e 1) " = " (e 1) "[:0]" )
                  rust ( (custom _) )
+                 ; A Python list has no `.length`, so the JavaScript-shaped
+                 ; default was an AttributeError at the first `clear` in any
+                 ; generated program. map_clear already had this; the array
+                 ; form did not.
+                 python ( (e 1) ".clear()" )
                  * ( (e 1) ".length = 0;" nl )
             }
         }
@@ -5742,7 +5881,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  kotlin ( (e 1) ".clear()" )
                  dart ( (e 1) ".clear();" )
                  scala ( (e 1) ".clear()" )
-                 go ( "for __mck := range " (e 1) " { delete(" (e 1) ", __mck) }" )
+                 go ( (e 1) ".Clear()" )
                  python ( (e 1) ".clear()" )
                  rust ( (e 1) ".clear();" )
                  * ( (e 1) ".clear();" )
@@ -7088,7 +7227,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 csharp ( (e 1) " != null  && " (e 2) " != null") 
 
                 php ( "isset("(e 1) ") && isset(" (e 2) ")") 
-                java7 ( (e 1) ".isPresent()  && " (e 2) ".isPresent()") 
+                java7 ( (e 1) " != null  && " (e 2) " != null") 
                 rust ( (e 1) ".is_some()  && " (e 2) ".is_some()") 
                 swift3 ( (e 1) " != nil  && " (e 2) " != nil") 
                 swift6 ( (e 1) " != nil  && " (e 2) " != nil") 
@@ -7105,7 +7244,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 ranger ( "(" (e 1) " && " (e 2) ")" ) 
                 php ( (e 1) " && isset(" (e 2) ")") 
                 scala ( (e 1) " && " (e 2) ".isDefined") 
-                java7 ( (e 1) " && " (e 2) ".isPresent()") 
+                java7 ( (e 1) " && " (e 2) " != null") 
                 csharp ( (e 1) " && " (e 2) " != null") 
 
                 rust ( (e 1) " && " (e 2) ".is_some()") 
@@ -7124,7 +7263,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 ranger ( "(" (e 1) " && " (e 2) ")" ) 
                 php ( "isset("(e 1) ") && " (e 2) ) 
                 scala ( ""(e 1) ".isDefined && " (e 2) ) 
-                java7 ( ""(e 1) ".isPresent() && " (e 2) ) 
+                java7 ( ""(e 1) " != null && " (e 2) ) 
                 csharp ( ""(e 1) " != null && " (e 2) ) 
 
                 rust ( ""(e 1) ".is_some() && " (e 2) ) 

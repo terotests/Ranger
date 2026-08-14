@@ -1,0 +1,6 @@
+ascii yes
+wide no
+Hello
+2
+trim probed
+Done

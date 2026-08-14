@@ -21,7 +21,7 @@ const rows = cases.map((name) => {
   const topicPath = path.join(conformanceDir, name, "program.rgr");
   const firstLine = fs.readFileSync(topicPath, "utf8").split("\n")[0] ?? "";
   const topic = firstLine.replace(/^;\s*Conformance:\s*/i, "").trim() || name;
-  return `| \`${name}\` | ${topic} | ES6, Go, Kotlin, Dart (when toolchain present) |`;
+  return `| \`${name}\` | ${topic} | ES6, Go, Python, PHP, Kotlin, Dart (when toolchain present) |`;
 });
 
 const table = [
