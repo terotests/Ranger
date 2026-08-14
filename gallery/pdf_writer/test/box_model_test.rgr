@@ -217,6 +217,10 @@ class BoxModelTest {
         if (n.has("gap")) {
             el.setAttribute("gap" (n.get("gap")))
         }
+        ; font-size is what `em` lengths resolve against.
+        if (n.has("fs")) {
+            el.setAttribute("font-size" (n.get("fs")))
+        }
     }
 
     fn findNode:int (fixture:string id:string) {

@@ -123,7 +123,7 @@ class EVGTest {
         box.borderWidth = (EVGUnit.px(2.0))
         
         ; Resolve units
-        box.resolveUnits(400.0 300.0 14.0)
+        box.resolveUnits(400.0 300.0 14.0 14.0)
         
         print ("  Box: " + (box.toString()))
         print ("  Inner width of 200: " + (to_string (box.getInnerWidth(200.0))))

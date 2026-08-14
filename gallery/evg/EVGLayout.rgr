@@ -71,6 +71,13 @@ class EVGLayout {
             root.height = (EVGUnit.px(pageHeight))
         }
         
+        ; The root inherits from nothing, so its own font-size has to be folded
+        ; in here or it is silently dropped. `rem` on the root itself resolves
+        ; against the initial size, which is why rootFontSize is only published
+        ; afterwards.
+        root.applyOwnFontSize()
+        root.rootFontSize = root.inheritedFontSize
+
         ; Explicitly set root position to (0, 0)
         ; This is important when re-laying out a page that was previously 
         ; positioned elsewhere in a multi-page document
@@ -368,8 +375,10 @@ class EVGLayout {
         def gapPx:double 0.0
         if parent.gap.isSet {
             if isColumn {
+                parent.gap.rootFontSize = parent.rootFontSize
                 parent.gap.resolve(innerHeight parent.inheritedFontSize)
             } {
+                parent.gap.rootFontSize = parent.rootFontSize
                 parent.gap.resolve(innerWidth parent.inheritedFontSize)
             }
             gapPx = parent.gap.pixels
@@ -1366,15 +1375,18 @@ class EVGLayout {
         def colGapPx:double 0.0
         def rowGapPx:double 0.0
         if parent.gap.isSet {
+            parent.gap.rootFontSize = parent.rootFontSize
             parent.gap.resolve(innerWidth parent.inheritedFontSize)
             colGapPx = parent.gap.pixels
             rowGapPx = parent.gap.pixels
         }
         if parent.columnGap.isSet {
+            parent.columnGap.rootFontSize = parent.rootFontSize
             parent.columnGap.resolve(innerWidth parent.inheritedFontSize)
             colGapPx = parent.columnGap.pixels
         }
         if parent.rowGap.isSet {
+            parent.rowGap.rootFontSize = parent.rootFontSize
             parent.rowGap.resolve(innerHeight parent.inheritedFontSize)
             rowGapPx = parent.rowGap.pixels
         }

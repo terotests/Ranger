@@ -65,7 +65,10 @@ function parseFixtures(text) {
   return out;
 }
 
-const LEN = (v) => (v.endsWith("%") ? v : v + "px");
+// A bare number means px, as it does in EVGUnit.parse. Anything that already
+// carries a unit is passed through — appending "px" to "2em" produced "2empx",
+// which the browser silently dropped and measured as auto.
+const LEN = (v) => (/^[-+]?[0-9]*\.?[0-9]+$/.test(v) ? v + "px" : v);
 
 function styleFor(p) {
   const s = [
@@ -88,6 +91,8 @@ function styleFor(p) {
     if (p[k]) s.push(`${css}:${LEN(p[k])}`);
   if (p.bg) s.push(`background:${p.bg}`);
   if (p.gap) s.push(`gap:${LEN(p.gap)}`);
+  // font-size matters even with no text: `em` lengths resolve against it.
+  if (p.fs) s.push(`font-size:${LEN(p.fs)}`);
   return s.join(";");
 }
 
@@ -119,7 +124,10 @@ async function measure(fixtures) {
       )
       .join("");
     await page.setContent(
-      `<style>*{margin:0;padding:0;border:0;font-size:0;line-height:0}</style><body>${body}</body>`
+      // No global font-size:0 — that would make every `em` length collapse.
+      // html's size is what `rem` resolves against; it is pinned rather than
+      // left to the browser default so the fixtures can state it.
+      `<style>*{margin:0;padding:0;border:0;line-height:0}html,body{font-size:16px}</style><body>${body}</body>`
     );
 
     return await page.evaluate(() => {

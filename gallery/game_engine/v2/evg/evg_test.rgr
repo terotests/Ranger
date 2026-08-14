@@ -151,6 +151,51 @@ class EVGTest {
 
         def u9:EVGUnit (EVGUnit.parse("auto"))
         t.no("auto is unset" u9.isSet)
+
+        ; rem — against the ROOT font size, not the element's own. The suffix
+        ; has to be tested before "em" or "2rem" gets chopped to "2r", which
+        ; to_double reads as 2, and it silently behaves as 2em.
+        def u10:EVGUnit (EVGUnit.parse("2rem"))
+        t.ok("2rem isRem" (u10.isRem()))
+        t.no("2rem is not em" (u10.isEm()))
+        t.near("2rem value" u10.value 2.0)
+        u10.rootFontSize = 16.0
+        u10.resolve(400.0 40.0)
+        t.near("2rem ignores the local font size" u10.pixels 32.0)
+
+        def u11:EVGUnit (EVGUnit.parse("1.5rem"))
+        u11.rootFontSize = 16.0
+        u11.resolve(400.0 14.0)
+        t.near("1.5rem at root 16 = 24px" u11.pixels 24.0)
+
+        ; The absolute print units, all pinned to CSS's reference pixel of
+        ; 1in = 96px, and folded to px at parse time.
+        def u12:EVGUnit (EVGUnit.parse("72pt"))
+        t.ok("72pt is px after parsing" (u12.isPixels()))
+        t.near("72pt = 96px" u12.value 96.0)
+
+        def u13:EVGUnit (EVGUnit.parse("1in"))
+        t.near("1in = 96px" u13.value 96.0)
+
+        def u14:EVGUnit (EVGUnit.parse("25.4mm"))
+        t.near("25.4mm = 96px" u14.value 96.0)
+
+        def u15:EVGUnit (EVGUnit.parse("2.54cm"))
+        t.near("2.54cm = 96px" u15.value 96.0)
+
+        def u16:EVGUnit (EVGUnit.parse("6pc"))
+        t.near("6pc = 96px" u16.value 96.0)
+
+        def u17:EVGUnit (EVGUnit.parse("12pt"))
+        u17.resolve(400.0 14.0)
+        t.near("an absolute unit needs no resolving" u17.pixels 16.0)
+
+        ; An unknown suffix must not be reinterpreted as some other unit.
+        def u18:EVGUnit (EVGUnit.parse("10vw"))
+        t.no("an unsupported unit does not become px" u18.isSet)
+
+        def u19:EVGUnit (EVGUnit.parse("calc(100% - 20px)"))
+        t.no("calc() is unset rather than misread" u19.isSet)
     }
 
     fn testColors:void (t:RgTest) {
@@ -203,7 +248,7 @@ class EVGTest {
         box.setMargin((EVGUnit.px(10.0)))
         box.setPadding((EVGUnit.px(20.0)))
         box.borderWidth = (EVGUnit.px(2.0))
-        box.resolveUnits(400.0 300.0 14.0)
+        box.resolveUnits(400.0 300.0 14.0 14.0)
 
         t.near("margin resolved to 10px" box.marginTopPx 10.0)
         t.near("padding resolved to 20px" box.paddingTopPx 20.0)

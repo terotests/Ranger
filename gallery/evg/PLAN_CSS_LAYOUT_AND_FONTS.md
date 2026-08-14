@@ -33,6 +33,7 @@ Without that, flex/grid improvements will still look wrong in print.
 
 | Area | Today | Gap |
 | --- | --- | --- |
+| Lengths | `px`, `%`, `em`, `rem`, and the absolute print units `pt` / `pc` / `in` / `mm` / `cm`, plus EVG's own `hp` and `fill` | `vw` / `vh`, `ch` / `ex`, `calc()` — all rejected rather than misread |
 | Flex | Grow, per-item `flex-shrink`, `flex-basis`, `flex` shorthand, min/max resolved inside the distribution | — |
 | `gap` | Main axis, row + column | No separate `row-gap` / `column-gap` |
 | `flex-wrap` | `wrap` (default) / `nowrap` / `wrap-reverse`, with the full `align-content` set including `stretch` | — |
@@ -557,6 +558,47 @@ Verification: `bash gallery/pdf_writer/test/run_print.sh` (23 assertions coverin
 UTF-8 decoding, WinAnsi detection and page boxes at both orientations), plus the
 baseline cases in `evg_test`.
 
+### Phase 4.1 — CSS length units ✅
+
+Checking the units against a browser turned up three things that were wrong in
+ways nothing would have complained about.
+
+**`font-size` never inherited.** Every element was constructed carrying a 14px
+font-size, so `inheritProperties` copied the parent's size in and the default
+immediately overwrote it — a `font-size` only ever applied to the element that
+declared it, never to anything below. The root had the opposite problem: it has
+no parent, so `inheritProperties` never ran on it at all and a size set on a
+`Page` or `Print` was dropped outright. `fontSize` now starts *unset*, layout
+fills it in from the inherited size (remembering that it did, so a re-layout
+does not mistake its own fill-in for an authored value), and `EVGLayout.layout`
+applies the root's own size before anything descends. This is what `em` needs,
+and it fixes inherited text size at the same time.
+
+**`2rem` silently meant `2em`.** The parser tested the two-character suffix
+first, so `rem` was chopped to `"2r"` — and `to_double` stops at the first
+character it cannot use, so that reads as 2. `rem` is now a unit of its own,
+resolved against the root's font size, which is threaded down the tree
+alongside the inherited one (a unit cannot reach the root on its own, so
+whoever resolves it hands the value over).
+
+**Any unknown unit became pixels.** The same `to_double` behaviour meant `10vw`
+resolved to 10px and `calc(100% - 20px)` to 100px. An unrecognised suffix now
+leaves the length unset — i.e. `auto`, which is what a browser does with a
+declaration it cannot parse. `vw`/`vh` (a print page has no viewport), `ch`/`ex`
+(they need font metrics the unit layer cannot reach) and `calc()` stay out of
+scope, but they now stay out loudly.
+
+The absolute print units — `pt`, `pc`, `in`, `mm`, `cm` — landed in the same
+pass. They are pinned to CSS's reference pixel (`1in = 96px`) and folded to px
+at parse time, so nothing downstream has to know about them. `12pt` used to
+measure 12px.
+
+Verification: 12 unit fixtures in the box-model gate (121 boxes, up from 60),
+covering `rem` against a root size that differs from the local one, `em` on
+`font-size` itself chaining down a tree, the box model in `em`, gaps in `rem`,
+and all five absolute units resolving to the same 96px. All 22 examples that
+render still produce byte-identical HTML.
+
 ## 11. File / module impact (expected)
 
 | Area | Likely touch points |
@@ -611,8 +653,8 @@ bash gallery/pdf_writer/test/run_layout.sh --update-snapshot
 ```
 
 The box-model gate compares padding, per-side padding, margins, per-side
-margins, row and column gaps, nesting, percentage sizes and background colour
-across 60 boxes. Both sides build their tree from the same
+margins, row and column gaps, nesting, background colour, and every supported
+length unit across 121 boxes. Both sides build their tree from the same
 `fixtures/box_model.fixtures`, and the browser side is configured to EVG's model
 rather than CSS defaults — `box-sizing: border-box` because EVG's width includes
 padding, and `display: flex` because EVG's flow is flex (block flow would
