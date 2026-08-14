@@ -176,41 +176,41 @@ disagreed — a semantic difference). `–` means no toolchain on this machine.
 | `class_inherit` | ✅ | ✅ | ✅ | ✅ | ✅ | **BUILD** | ✅ | ✅ | ✅ | ✅ |
 | `double_to_string` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `lambda_capture` | ✅ | ✅ | ✅ | ✅ | ✅ | **BUILD** | ✅ | ✅ | ✅ | ✅ |
-| `map_iteration` | ✅ | ✅ | ✅ | **RUN** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `optional_unwrap` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **RUN** |
-| `shape_match` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **RUN** |
+| `map_iteration` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `optional_unwrap` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `shape_match` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `singleton` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `union_case` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `union_positions` | ✅ | ✅ | ✅ | **RUN** | ✅ | **BUILD** | ✅ | ✅ | ✅ | **RUN** |
+| `union_positions` | ✅ | ✅ | ✅ | **RUN** | ✅ | **BUILD** | ✅ | ✅ | ✅ | ✅ |
 <!-- END FEATURE_MATRIX -->
 
 `tests/features/baseline.json` records this, and `--check` fails only where a
 cell that *was* `ok` no longer is — so the matrix is a gate against regression
 without pretending the gaps are fixed.
 
-The gaps are real work, in rough order of what they cost:
+Every target except Rust carries all nine features. What is left:
 
 - **Rust closures** (`lambda_capture`) — the function TYPE renders empty and
-  the body comes out as a JavaScript arrow. Rust is the hard one of the four
+  the body comes out as a JavaScript arrow. Rust is the hard one of the five
   that had this: a closure needs an owning representation (`Rc<dyn Fn(..)>`)
-  and the call sites need to clone it, where Kotlin, Dart and Python each
+  and the call sites need to clone it, where Kotlin, Dart, Python and PHP each
   needed only their own spelling.
-- **`union_positions`** on Go, Rust and Scala — a union survives being a local
-  but not being an array element or an optional field.
-- **Scala has no union or shape lowering at all** (`shape_match`,
-  `union_positions`), which is what stops it carrying the interpreter.
+- **`class_inherit` on Rust** — a subclass does not receive the parent's fields
+  (`RUST_ISSUES.md:567`); known and long-standing.
+- **`union_positions` on Rust** — a union survives being a local but not being
+  an array element.
 - **`map_iteration` on Go** — Go randomizes map iteration *per run*, so this
   cell is not merely failing, it is nondeterministic: an early run of the
   matrix passed it by luck. Ranger maps are ordered everywhere else and the
   interpreter depends on it, so Go needs a real ordered-map type rather than a
   `map[K]V`.
-- **`class_inherit` on Rust** — a subclass does not receive the parent's fields
-  (`RUST_ISSUES.md:567`); this one is known and long-standing.
 
-What has been closed so far, and what it took, is in the commit history: three
-targets gained `@singleton`, three gained insertion-ordered maps, four gained
-working closures, Java's optionals became internally consistent, and all ten
-now agree on how a double prints.
+What has been closed, and what each took, is in the commit history: three
+targets gained `@singleton`, four gained insertion-ordered maps, four gained
+working closures, Java's optionals became internally consistent, all ten now
+agree on how a double prints, and Scala went from four of nine to all nine —
+fieldless classes, constructor parameters that shadowed their own fields,
+`Some(...)` for a present optional, and `None` for an absent one.
 
 ### How far the other targets get on the interpreter
 

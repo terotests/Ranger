@@ -1677,7 +1677,10 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
 
         empty       cmdEmpty@(optional):T        ( node@(ignore):T ) {
             templates {
-                scala ( "Option.empty[(" (e 1) ")" )
+                ; `None` fits any Option, and the bracketed form named the
+                ; DECLARED type -- which a union does not have on Scala. It was
+                ; also missing its closing bracket.
+                scala ( "None" )
                 swift3 (  "nil" )
                 csharp ( "(" (typeof 1) "?)" (e 1)  )
                 cpp ( (e 1) )

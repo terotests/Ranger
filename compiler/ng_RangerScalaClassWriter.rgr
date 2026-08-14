@@ -381,7 +381,31 @@
         wr.out("= " false)
         ctx.setInExpr()
         def value:CodeNode (node.getThird())
+        ; An Option holds Some(x), not x. `def some@(optional):T made` was
+        ; written `val some : Option[T] = made`, which is a type mismatch --
+        ; the language's way of MAKING an optional from a present value could
+        ; not be compiled at all. An initializer that is itself optional (an
+        ; optional-returning call, a map get) is already an Option and passes
+        ; through.
+        def needsSome:boolean false
+        if (p.nameNode.hasFlag("optional")) {
+          needsSome = true
+          if (value.hasFlag("optional")) {
+            needsSome = false
+          }
+          if (value.eval_type == RangerNodeType.NoType) {
+            if (value.value_type == RangerNodeType.NoType) {
+              needsSome = false
+            }
+          }
+        }
+        if needsSome {
+          wr.out("Some(" false)
+        }
         this.WalkNode(value ctx wr)
+        if needsSome {
+          wr.out(")" false)
+        }
         ctx.unsetInExpr()
       } {
         def b_inited:boolean false
@@ -394,9 +418,11 @@
           wr.out("= new collection.mutable.LinkedHashMap()" false)
         }
         if (p.nameNode.hasFlag("optional")) {
-          wr.out(" = Option.empty[" false)
-          this.writeTypeDefNoOption( ( unwrap p.nameNode ) ctx wr)
-          wr.out("]" false)
+          ; `None` rather than `Option.empty[T]`: writeTypeDefNoOption writes
+          ; the DECLARED name, and a union has no Scala type of its own -- the
+          ; field is typed Option[Any] while the initializer named the union,
+          ; which scalac rejects as "not found: type". None fits any Option.
+          wr.out(" = None" false)
         } {
           if (b_inited == false) {
             wr.out("= _" false)
@@ -710,7 +736,12 @@
       wr.createTag("beginning")
     }
     def importFork:CodeWriter (wr.getTag("imports"))
-    def b_class_has_content ( cl.has_constructor || ( has cl.variables) || (has cl.defined_variants) || (has cl.extends_classes) )
+    ; A class with no fields, no methods and no parent is still a CLASS. A
+    ; fieldless shape case -- `case Nothing` -- is exactly that, and the ops
+    ; class and every `match` arm name its type, so emitting nothing for it
+    ; left `SmPayload_Nothing` undeclared and scalac stopped at "not found:
+    ; type". No other writer has this gate; Scala had it alone.
+    def b_class_has_content:boolean true
     if b_class_has_content {
 
 
@@ -749,7 +780,14 @@
             wr.out(", " false)
           }
           written = written + 1
-          wr.out((arg.name + " : ") false)
+          ; A Scala class PARAMETER and a member of the same name collide: the
+          ; generated `class C (value : Int) { var value : Int = 0; this.value
+          ; = value }` assigned the member to ITSELF, so every record and every
+          ; shape case came out holding its field's default -- `new Num(4)`
+          ; answered 0. Renaming the parameter separates them, and the
+          ; constructor body follows because it writes compiledName.
+          arg.compiledName = ("__ctor_" + arg.name)
+          wr.out((arg.compiledName + " : ") false)
           this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
         }
         wr.out(")" false)

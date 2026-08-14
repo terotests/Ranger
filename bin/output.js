@@ -32326,7 +32326,25 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             wr.out("= ", false);
                             ctx.setInExpr();
                             const value = node.getThird();
+                            let needsSome = false;
+                            if ( p.nameNode.hasFlag("optional") ) {
+                              needsSome = true;
+                              if ( value.hasFlag("optional") ) {
+                                needsSome = false;
+                              }
+                              if ( value.eval_type == 0 ) {
+                                if ( value.value_type == 0 ) {
+                                  needsSome = false;
+                                }
+                              }
+                            }
+                            if ( needsSome ) {
+                              wr.out("Some(", false);
+                            }
                             await this.WalkNode(value, ctx, wr);
+                            if ( needsSome ) {
+                              wr.out(")", false);
+                            }
                             ctx.unsetInExpr();
                           } else {
                             let b_inited = false;
@@ -32339,9 +32357,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               wr.out("= new collection.mutable.LinkedHashMap()", false);
                             }
                             if ( p.nameNode.hasFlag("optional") ) {
-                              wr.out(" = Option.empty[", false);
-                              await this.writeTypeDefNoOption(p.nameNode, ctx, wr);
-                              wr.out("]", false);
+                              wr.out(" = None", false);
                             } else {
                               if ( b_inited == false ) {
                                 wr.out("= _", false);
@@ -32614,7 +32630,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           wr.createTag("beginning");
                         }
                         const importFork = wr.getTag("imports");
-                        const b_class_has_content = ((cl.has_constructor || ((cl.variables.length) > 0)) || ((cl.defined_variants.length) > 0)) || ((cl.extends_classes.length) > 0);
+                        const b_class_has_content = true;
                         if ( b_class_has_content ) {
                           if ( (cl.extends_classes.length) > 0 ) {
                             for ( let i = 0; i < cl.extends_classes.length; i++) {
@@ -32644,7 +32660,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 wr.out(", ", false);
                               }
                               written = written + 1;
-                              wr.out(arg.name + " : ", false);
+                              arg.compiledName = "__ctor_" + arg.name;
+                              wr.out(arg.compiledName + " : ", false);
                               await this.writeTypeDef(arg.nameNode, ctx, wr);
                             };
                             wr.out(")", false);

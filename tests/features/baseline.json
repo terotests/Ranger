@@ -32,7 +32,7 @@
   "es6/map_iteration": "ok",
   "python/map_iteration": "ok",
   "php/map_iteration": "ok",
-  "go/map_iteration": "RUN",
+  "go/map_iteration": "ok",
   "cpp/map_iteration": "ok",
   "rust/map_iteration": "ok",
   "java/map_iteration": "ok",
@@ -48,7 +48,7 @@
   "java/optional_unwrap": "ok",
   "kotlin/optional_unwrap": "ok",
   "dart/optional_unwrap": "ok",
-  "scala/optional_unwrap": "RUN",
+  "scala/optional_unwrap": "ok",
   "es6/shape_match": "ok",
   "python/shape_match": "ok",
   "php/shape_match": "ok",
@@ -58,7 +58,7 @@
   "java/shape_match": "ok",
   "kotlin/shape_match": "ok",
   "dart/shape_match": "ok",
-  "scala/shape_match": "RUN",
+  "scala/shape_match": "ok",
   "es6/singleton": "ok",
   "python/singleton": "ok",
   "php/singleton": "ok",
@@ -88,5 +88,5 @@
   "java/union_positions": "ok",
   "kotlin/union_positions": "ok",
   "dart/union_positions": "ok",
-  "scala/union_positions": "RUN"
+  "scala/union_positions": "ok"
 }
