@@ -4597,7 +4597,11 @@ class RangerRustClassWriter {
             if (!null? sn) {
               def snVal:CodeNode (unwrap sn)
               if ((strlen snVal.rust_use_tmpvar) == 0) {
-                if (((sarg.rust_borrow_type == 0) && (sarg.needs_cpp_reference == false)) && (this.rustNodeContainsCall(snVal))) {
+                ; a closure literal stays in the call that takes it — the
+                ; calls INSIDE its body are what rustNodeContainsCall sees,
+                ; and hoisting it leaves it with no expected type to infer
+                ; its own parameters from
+                if (((((sarg.rust_borrow_type == 0) && (sarg.needs_cpp_reference == false)) && (this.rustNodeContainsCall(snVal))) && ((this.rustNodeIsLambda(snVal)) == false))) {
                   def stdTmp:string (ctx.rustGetTempVar())
                   wr.out((("let " + stdTmp) + " = ") false)
                   ctx.setInExpr()

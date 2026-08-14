@@ -27405,7 +27405,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( (typeof(sn) !== "undefined" && sn != null )  ) {
                             const snVal = sn;
                             if ( (snVal.rust_use_tmpvar.length) == 0 ) {
-                              if ( ((sarg.rust_borrow_type == 0) && (sarg.needs_cpp_reference == false)) && this.rustNodeContainsCall(snVal) ) {
+                              if ( (((sarg.rust_borrow_type == 0) && (sarg.needs_cpp_reference == false)) && this.rustNodeContainsCall(snVal)) && (this.rustNodeIsLambda(snVal) == false) ) {
                                 const stdTmp = ctx.rustGetTempVar();
                                 wr.out(("let " + stdTmp) + " = ", false);
                                 ctx.setInExpr();
