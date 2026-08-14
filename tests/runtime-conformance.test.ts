@@ -704,7 +704,34 @@ const PROBES: Array<[name: string, body: string, group: string]> = [
   ["binary-wide", "return 0b100000000000000000000000000000000;", "radixlit"],
   ["octal-wide", "return 0o40000000000;", "radixlit"],
   ["hex-separators", "return 0xff_ff;", "radixlit"],
-  // An accessor member target must be read only by a COMPOUND assignment. The
+  // Module detection must not fire on the WORD `export` inside a comment or a
+  // string. It used to substring-search the whole source, so Octane's
+  // earley-boyer -- which carries 274 `((export #t))` comment markers -- parsed
+  // as module code, became implicitly strict, and its legacy-octal string keys
+  // turned into early errors before a line of it ran.
+  ["module-word-in-comment", "/*** META ((export #t)) */ var o = {'\\000': 'a'}; return o['\\000'];", "modules"],
+  ["module-word-in-string", "var s = 'export default x'; var o = {'\\007': 'b'}; return s.length + o['\\007'];", "modules"],
+  ["module-word-as-identifier", "var exported = 1; var o = {'\\011': 'c'}; return exported + o['\\011'];", "modules"],
+  // A function that explicitly RETURNS NULL must answer null, not undefined.
+  // scriptReturnValue's "nothing returned yet" state is also null, so the two
+  // were indistinguishable and callResultOf turned both into undefined. Only
+  // the WALKER was affected -- the bytecode tier returns null correctly -- so
+  // it surfaced only in functions the compiler rejects (ones using `new`,
+  // `arguments`, `delete`, or a function expression). That is what broke
+  // Octane earley-boyer: its Scheme lists terminate in null, so every list
+  // tail became undefined and the walk ran off the end into `.car`.
+  ["return-null-plain", "function g(){ return null; } return String(g());", "returnnull"],
+  ["return-null-is-null", "function g(){ return null; } return g() === null;", "returnnull"],
+  ["return-null-guarded", "function g(l){ if (l === null) return null; return 1; } return g(null) === null;", "returnnull"],
+  ["return-null-via-new", "function P(a,b){this.car=a;this.cdr=b;} function rec(l){ return (l === null) ? null : new P(1, rec(null)); } return rec('a').cdr === null;", "returnnull"],
+  ["return-null-hoisted-new", "function P(a,b){this.car=a;this.cdr=b;} function r3(l){ if (l === null) return null; var t = r3(null); return new P(1, t); } return r3('a').cdr === null;", "returnnull"],
+  ["return-null-with-arguments", "function b(l){ if (l===null) return null; var t=b(null); if(l==='zz'){var n=arguments.length;} return t === null; } return b('a');", "returnnull"],
+  ["return-null-with-delete", "function b(l){ if (l===null) return null; var t=b(null); if(l==='zz'){var o={x:1}; delete o.x;} return t === null; } return b('a');", "returnnull"],
+  ["return-null-mutual", "function x(l){ if (l===null) return null; return y(); } function y(){ return x(null); } return y() === null;", "returnnull"],
+  ["return-bare-is-undefined", "function g(){ return; } return String(g());", "returnnull"],
+  ["return-none-is-undefined", "function g(){ var a = 1; } return String(g());", "returnnull"],
+  ["arrow-returns-null", "var f = function(){ return null; }; return f() === null;", "returnnull"],
+  ["return-null-in-list", "function mk(n){ if (n === 0) return null; return {v:n, next: mk(n-1)}; } var l = mk(3), c = 0, p = l; while (p !== null) { c++; p = p.next; } return c;", "returnnull"],
   // walker called the getter unconditionally to build the old value, so
   // `o.x = 5` ran it once (spec: not at all) and `o.x += 5` twice (spec: once,
   // and the caller had already read it into preCurrent). The bytecode tier was

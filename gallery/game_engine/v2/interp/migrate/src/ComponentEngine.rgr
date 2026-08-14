@@ -1260,6 +1260,13 @@ class ComponentEngine {
     ; function body so nested calls are reentrancy-safe.
     def scriptDidReturn:boolean false
     def scriptReturnValue:EvHandle (EvValueBridge.taggedNull())
+    ; Did the body evaluateFunctionBodyValue just finished actually EXECUTE a
+    ; `return <value>`? `scriptReturnValue` starts as null to mean "nothing
+    ; returned", so a body that explicitly returns null is indistinguishable
+    ; from one that fell off the end -- and callResultOf turned both into
+    ; undefined. Set on the way out of the body, read by callResultOf, which
+    ; is only ever called on that function's result.
+    def bodyDidReturn:boolean false
     def loopBreak:boolean false
     def loopContinue:boolean false
     ; D-LABELS: `break label` / `continue label` name a statement further out
@@ -2486,12 +2493,48 @@ class ComponentEngine {
     ; parameters, assignment to an undeclared variable. Those failed at PARSE
     ; time, so the engine never got to run them and the failure looked like a
     ; missing feature rather than a mode mismatch.
+    ; Is this source MODULE code? The answer decides strictness, because a
+    ; module is strict whether or not it says so.
+    ;
+    ; The old test searched the whole text for "import "/"export " -- which
+    ; matches inside COMMENTS and STRINGS. Octane's earley-boyer carries 274
+    ; `/*** META ((export #t)) */` markers, so it parsed as a module, became
+    ; implicitly strict, and its `"\000"` string keys turned into early errors
+    ; ("a leading-zero numeric key is not allowed in strict mode"). The whole
+    ; suite failed to parse on every target.
+    ;
+    ; Real module syntax OPENS A STATEMENT, so only a line whose first
+    ; non-blank text is the keyword counts. That leaves the marker in a
+    ; comment alone -- `/*** META ...` starts with `/`, ` * META ...` with `*`.
     fn sourceIsModule:boolean (src:string) {
-        if ((indexOf src "import ") >= 0) { return true }
-        if ((indexOf src "import(") >= 0) { return true }
-        if ((indexOf src "export ") >= 0) { return true }
-        if ((indexOf src "export{") >= 0) { return true }
-        if ((indexOf src "export default") >= 0) { return true }
+        def lines:[string] (strsplit src "\n")
+        for lines raw:string i {
+            def ln:string (trim raw)
+            if (this.startsModuleDecl(ln "import")) { return true }
+            if (this.startsModuleDecl(ln "export")) { return true }
+        }
+        return false
+    }
+
+    ; `ln` opens with `kw` used as a KEYWORD -- the next character must not be
+    ; an identifier character, or `exported`/`imports` would count.
+    fn startsModuleDecl:boolean (ln:string kw:string) {
+        def n:int (strlen kw)
+        if ((strlen ln) <= n) {
+            return false
+        }
+        if ((substring ln 0 n) != kw) {
+            return false
+        }
+        def c:int (charAt ln n)
+        ; space / tab
+        if ((c == 32) || (c == 9)) { return true }
+        ; `export{a}`, `import*`, `import(`, `import"m"`, `import'm'`
+        if (c == 123) { return true }
+        if (c == 42) { return true }
+        if (c == 40) { return true }
+        if (c == 34) { return true }
+        if (c == 39) { return true }
         return false
     }
 
@@ -5259,8 +5302,20 @@ class ComponentEngine {
     ; "no return statement ran" as null, and letting that escape made
     ; `String(f())` answer "null" and every `=== undefined` check on a
     ; procedure's result fail.
+    ; A body that never returned answers undefined; one that RETURNED null
+    ; answers null. The two arrive here as the same value -- scriptReturnValue's
+    ; "nothing yet" state is null -- so they are told apart by bodyDidReturn.
+    ; Without it `function g(){ return null; }` answered undefined on the
+    ; walker, which is what broke Octane earley-boyer: its Scheme lists end in
+    ; null, so every list tail became undefined and the walk ran off the end.
+    ; (The bytecode tier returns null correctly, which is why this only showed
+    ; in functions the compiler rejects -- ones using `new`, `arguments`,
+    ; `delete` or a function expression.)
     fn callResultOf:EvHandle (v:EvHandle) {
         if (v.isNull()) {
+            if bodyDidReturn {
+                return v
+            }
             return (EvValueBridge.taggedUndefined())
         }
         return v
@@ -5293,6 +5348,9 @@ class ComponentEngine {
             exprSlotBase = savedSlotBase
             exprSlotNext = savedSlotNext
             def blockOut:EvHandle scriptReturnValue
+            ; Captured BEFORE the restore: this is whether THIS body returned,
+            ; which is the question callResultOf needs answered.
+            bodyDidReturn = scriptDidReturn
             scriptDidReturn = savedDidReturn
             scriptReturnValue = savedReturnValue
             return blockOut
@@ -5343,8 +5401,12 @@ class ComponentEngine {
             if ((this.nodeKindOf(stmt)) == 35) {
                 if stmt.left {
                     def returnExpr:TSNode (unwrap stmt.left)
+                    bodyDidReturn = true
                     return (this.evaluateExpr(returnExpr))
                 }
+                ; A bare `return;` yields undefined, so it is NOT a value
+                ; return as far as callResultOf is concerned.
+                bodyDidReturn = false
                 return (EvValueBridge.taggedNull())
             }
             
@@ -5359,9 +5421,14 @@ class ComponentEngine {
         
         ; If body is a simple expression
         if (((this.nodeKindOf(body)) != 34) && (body.nodeType != "")) {
+            ; An arrow's expression body IS its value -- `() => null` answers
+            ; null, not undefined.
+            bodyDidReturn = true
             return (this.evaluateExpr(body))
         }
-        
+
+        ; Fell off the end: undefined.
+        bodyDidReturn = false
         return (EvValueBridge.taggedNull())
     }
     
@@ -6807,7 +6874,12 @@ class ComponentEngine {
             if stmt.left {
                 scriptReturnValue = (this.evaluateExpr((unwrap stmt.left)))
             } {
-                scriptReturnValue = (EvValueBridge.taggedNull())
+                ; A bare `return;` yields UNDEFINED, stored explicitly rather
+                ; than left as the null "nothing returned" sentinel -- the two
+                ; are now told apart (see callResultOf/bodyDidReturn), so a
+                ; value-less return has to say what it means. ASI makes this
+                ; reachable from ordinary code: `return\n{ a: 1 }` is one.
+                scriptReturnValue = (EvValueBridge.taggedUndefined())
             }
             ; D-THROW: if evaluating the returned expression threw, the function
             ; did NOT return — it is unwinding. Setting scriptDidReturn here as
@@ -9992,6 +10064,9 @@ class ComponentEngine {
     ; The parameter name index `key` of `obj` is mapped onto, or "" when the
     ; value is not a mapped arguments object or the index is not mapped.
     fn argMapName:string (obj:EvHandle key:string) {
+        if (obj.plainMarkerFreeObject()) {
+            return ""
+        }
         if (false == (obj.isObject())) {
             return ""
         }
@@ -13552,7 +13627,10 @@ class ComponentEngine {
                     def oh31:EvHandle (itemAt bcStack (sp - 2))
                     if (oh31.chainAccessorFreeAt()) {
                         def vf31:EvHandle (this.bcSlotBox((sp - 1)))
-                        oh31.setMember((itemAt prog.atoms a) vf31)
+                        ; the atom is already in the pool -- the load op has
+                        ; used it since the fused member ops landed, while the
+                        ; store re-hashed the name on every write
+                        oh31.setMemberAtom((itemAt prog.atomIds a) (itemAt prog.atoms a) vf31)
                         sp = (sp - 2)
                         continue
                     }
@@ -21883,6 +21961,7 @@ class ComponentEngine {
     }
 
     fn isArrayBufferValue:boolean (v:EvHandle) {
+        if (v.plainMarkerFreeObject()) { return false }
         if (false == (this.isDescriptorObject(v))) { return false }
         return (v.hasOwnData("__abbytes__"))
     }
@@ -21993,6 +22072,7 @@ class ComponentEngine {
     }
 
     fn isDataViewValue:boolean (v:EvHandle) {
+        if (v.plainMarkerFreeObject()) { return false }
         if (false == (this.isDescriptorObject(v))) { return false }
         return (v.hasOwnData("__dvbuffer__"))
     }
@@ -26332,6 +26412,15 @@ class ComponentEngine {
     }
 
     fn receiverKind:string (v:EvHandle) {
+        ; PERF: an ordinary object -- one that has never been branded with a
+        ; `__…__` marker -- is none of the special kinds below, so all ten
+        ; hasOwnData probes are guaranteed to miss. Each of those builds a
+        ; std::string and hashes it, and this function was 16.5% of
+        ; instructions on the object_props shape, almost entirely here.
+        ; The flag is monotone, so a false answer is always safe.
+        if (v.plainMarkerFreeObject()) {
+            return "object"
+        }
         ; D-WRAPPER: a boxed primitive dispatches as its primitive kind, which
         ; is what makes `new String('a').toUpperCase()` reach String.prototype.
         if (v.isObject()) {
@@ -33724,6 +33813,10 @@ class ComponentEngine {
     ; one of them funnels through the same handful of primitives.
     ; --------------------------------------------------------------------------
     fn isProxyValue:boolean (v:EvHandle) {
+        ; PERF: the marker cannot be there if no `__…__` key ever was. Same
+        ; monotone bit receiverKind uses; this probe alone was 2.0% of
+        ; instructions on the object_props shape.
+        if (v.plainMarkerFreeObject()) { return false }
         if (false == (v.isObject())) { return false }
         return (v.hasOwnData("__proxytarget__"))
     }
