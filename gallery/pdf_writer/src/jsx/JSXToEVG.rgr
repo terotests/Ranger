@@ -641,6 +641,19 @@ class JSXToEVG {
                 if (attrName == "flex-wrap") {
                     element.flexWrap = attrValue
                 }
+                ; Grid subset. `display` matters here too: without it a
+                ; grid-template-* attribute would parse but never be consulted,
+                ; since layoutChildren only branches on display == "grid".
+                if (attrName == "display") {
+                    element.display = attrValue
+                }
+                if (((attrName == "grid-template-columns") || (attrName == "grid-template-rows"))
+                    || ((attrName == "grid-column") || (attrName == "grid-row"))) {
+                    element.setAttribute(attrName attrValue)
+                }
+                if ((attrName == "row-gap") || (attrName == "column-gap")) {
+                    element.setAttribute(attrName attrValue)
+                }
                 if (attrName == "align") {
                     element.align = attrValue
                 }
@@ -880,6 +893,16 @@ class JSXToEVG {
         }
         if (name == "flexWrap") {
             element.flexWrap = value
+        }
+        if (name == "display") {
+            element.display = value
+        }
+        if (((name == "gridTemplateColumns") || (name == "gridTemplateRows"))
+            || ((name == "gridColumn") || (name == "gridRow"))) {
+            element.setAttribute(name value)
+        }
+        if ((name == "rowGap") || (name == "columnGap")) {
+            element.setAttribute(name value)
         }
         if (name == "flex") {
             element.flex = (this.parseNumberValue(value))

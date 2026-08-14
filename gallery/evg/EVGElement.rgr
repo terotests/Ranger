@@ -104,6 +104,16 @@ class EVGElement {
     ; (CSS default; children never wrap, they overflow / shrink instead).
     def flexWrap:string "wrap"
     def gap:EVGUnit
+    ; Axis-specific gaps. When unset, `gap` applies to both axes.
+    def rowGap:EVGUnit
+    def columnGap:EVGUnit
+    ; CSS Grid subset (see EVGGrid.rgr). Empty means "not a grid track spec";
+    ; a grid container with no column template gets a single 1fr column.
+    def gridTemplateColumns:string ""
+    def gridTemplateRows:string ""
+    ; Per-item placement, e.g. "span 2" or "2 / 4". Empty means auto-flow.
+    def gridColumn:string ""
+    def gridRow:string ""
     def position:string "relative"
     
     ; CSS Margin/Padding (shorthand expansion handled at parse time)
@@ -234,6 +244,8 @@ class EVGElement {
         x = (EVGUnit.unset())
         y = (EVGUnit.unset())
         gap = (EVGUnit.unset())
+        rowGap = (EVGUnit.unset())
+        columnGap = (EVGUnit.unset())
 
         def newBox (new EVGBox())
         box = newBox
@@ -801,6 +813,13 @@ class EVGElement {
         }
         
         ; Flexbox
+        ; `display` had no case here, so a stylesheet could set every grid
+        ; property and still lay out as a block — the container is only treated
+        ; as a grid when display == "grid".
+        if (name == "display") {
+            display = value
+            return
+        }
         if ((name == "flex-direction") || (name == "flexDirection")) {
             flexDirection = value
             return
@@ -818,6 +837,30 @@ class EVGElement {
         }
         if (name == "gap") {
             gap = (EVGUnit.parse(value))
+            return
+        }
+        if ((name == "row-gap") || (name == "rowGap")) {
+            rowGap = (EVGUnit.parse(value))
+            return
+        }
+        if ((name == "column-gap") || (name == "columnGap")) {
+            columnGap = (EVGUnit.parse(value))
+            return
+        }
+        if ((name == "grid-template-columns") || (name == "gridTemplateColumns")) {
+            gridTemplateColumns = value
+            return
+        }
+        if ((name == "grid-template-rows") || (name == "gridTemplateRows")) {
+            gridTemplateRows = value
+            return
+        }
+        if ((name == "grid-column") || (name == "gridColumn")) {
+            gridColumn = value
+            return
+        }
+        if ((name == "grid-row") || (name == "gridRow")) {
+            gridRow = value
             return
         }
         if ((name == "justify-content") || (name == "justifyContent")) {

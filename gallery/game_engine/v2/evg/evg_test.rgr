@@ -24,6 +24,7 @@ Import "../../../evg/EVGText.rgr"
 Import "../../../evg/EVGLayout.rgr"
 Import "../../../evg/SVGPathParser.rgr"
 Import "../../../evg/EVGStyleSheet.rgr"
+Import "../../../evg/EVGGrid.rgr"
 Import "../tests/harness/RgTest.rgr"
 
 class EVGTest {
@@ -50,6 +51,10 @@ class EVGTest {
         test.testFlexWrap(t)
         test.testTextIntrinsicWidth(t)
         test.testSvgPath(t)
+        test.testGridTracks(t)
+        test.testGridPlacement(t)
+        test.testGridLayout(t)
+        test.testGridContentRows(t)
         test.testStyleSheetParse(t)
         test.testStyleSheetCascade(t)
         t.summary()
@@ -717,6 +722,204 @@ class EVGTest {
         root.addChild(mid)
         treeSheet.applyTree(root "")
         t.near("applyTree reaches nested children" leaf.width.pixels 7.0)
+    }
+
+    ; ---- grid: track lists ----------------------------------------------------
+    fn testGridTracks:void (t:RgTest) {
+        def a:EVGGridTemplate (EVGGridTemplate.parse("1fr 1fr"))
+        t.eqInt("two fr tracks" (a.count()) 2)
+        a.resolve(100.0)
+        def a0:EVGGridTrack (a.trackAt(0))
+        t.near("equal fr split" a0.sizePx 50.0)
+
+        ; repeat() survives the space after its comma (paren-aware tokenizing).
+        def r:EVGGridTemplate (EVGGridTemplate.parse("repeat(3, 1fr)"))
+        t.eqInt("repeat(3, 1fr) expands to 3" (r.count()) 3)
+        r.resolve(90.0)
+        def r2:EVGGridTrack (r.trackAt(2))
+        t.near("repeat track size" r2.sizePx 30.0)
+
+        ; Fixed and percentage tracks take their size first; fr splits the rest.
+        def mix:EVGGridTemplate (EVGGridTemplate.parse("120px 20% 1fr"))
+        t.eqInt("mixed track count" (mix.count()) 3)
+        mix.resolve(400.0)
+        def m0:EVGGridTrack (mix.trackAt(0))
+        def m1:EVGGridTrack (mix.trackAt(1))
+        def m2:EVGGridTrack (mix.trackAt(2))
+        t.near("fixed track keeps px" m0.sizePx 120.0)
+        t.near("percent track of 400" m1.sizePx 80.0)
+        t.near("fr track takes the remainder" m2.sizePx 200.0)
+
+        ; Weighted fr.
+        def w:EVGGridTemplate (EVGGridTemplate.parse("2fr 1fr"))
+        w.resolve(300.0)
+        def w0:EVGGridTrack (w.trackAt(0))
+        def w1:EVGGridTrack (w.trackAt(1))
+        t.near("2fr gets two thirds" w0.sizePx 200.0)
+        t.near("1fr gets one third" w1.sizePx 100.0)
+
+        ; Offsets and extents account for gaps between tracks but not outside.
+        def g:EVGGridTemplate (EVGGridTemplate.parse("repeat(3, 1fr)"))
+        g.resolve(300.0)
+        t.near("offset of first track is 0" (g.offsetOf(0 10.0)) 0.0)
+        t.near("offset of third track" (g.offsetOf(2 10.0)) 220.0)
+        t.near("extent of one track" (g.extentOf(0 1 10.0)) 100.0)
+        t.near("extent of two tracks includes inner gap" (g.extentOf(0 2 10.0)) 210.0)
+
+        ; Out-of-subset track sizes are flagged, not silently sized to zero.
+        def bad:EVGGridTemplate (EVGGridTemplate.parse("minmax(10px, 1fr)"))
+        t.ok("minmax() is reported as unsupported" bad.hadError)
+    }
+
+    ; ---- grid: placement parsing ----------------------------------------------
+    fn testGridPlacement:void (t:RgTest) {
+        def auto:EVGGridPlacement (EVGGridPlacement.parse(""))
+        t.eqInt("empty placement is auto" auto.start 0)
+        t.eqInt("empty placement spans one" auto.span 1)
+
+        def sp:EVGGridPlacement (EVGGridPlacement.parse("span 2"))
+        t.eqInt("span 2 stays auto-placed" sp.start 0)
+        t.eqInt("span 2 spans two" sp.span 2)
+
+        def line:EVGGridPlacement (EVGGridPlacement.parse("3"))
+        t.eqInt("bare line number is a start" line.start 3)
+        t.eqInt("bare line number spans one" line.span 1)
+
+        ; "2 / 4" covers the tracks BETWEEN lines 2 and 4 — two tracks, not four.
+        def range:EVGGridPlacement (EVGGridPlacement.parse("2 / 4"))
+        t.eqInt("line range start" range.start 2)
+        t.eqInt("line range span is the difference" range.span 2)
+
+        def mixed:EVGGridPlacement (EVGGridPlacement.parse("2 / span 3"))
+        t.eqInt("start with span end: start" mixed.start 2)
+        t.eqInt("start with span end: span" mixed.span 3)
+    }
+
+    ; ---- grid: layout ---------------------------------------------------------
+    fn testGridLayout:void (t:RgTest) {
+        ; 2x2 with a gap, plus a third item spanning both columns on row 2.
+        def root (new EVGElement())
+        root.width = (EVGUnit.px(400.0))
+        root.height = (EVGUnit.px(400.0))
+        root.display = "grid"
+        root.gridTemplateColumns = "repeat(2, 1fr)"
+        root.gridTemplateRows = "1fr 1fr"
+        root.gap = (EVGUnit.parse("20px"))
+
+        def a (new EVGElement())
+        def b (new EVGElement())
+        def c (new EVGElement())
+        c.gridColumn = "span 2"
+        root.addChild(a)
+        root.addChild(b)
+        root.addChild(c)
+
+        def lay (new EVGLayout())
+        lay.layout(root)
+
+        ; columns: (400 - 20) / 2 = 190 ; rows: (400 - 20) / 2 = 190
+        t.near("grid col width" a.calculatedWidth 190.0)
+        t.near("grid row height" a.calculatedHeight 190.0)
+        t.near("first cell at origin" a.calculatedX 0.0)
+        t.near("second cell after gap" b.calculatedX 210.0)
+        t.near("second cell same row" b.calculatedY 0.0)
+        t.near("spanning item is full width" c.calculatedWidth 400.0)
+        t.near("spanning item wrapped to row 2" c.calculatedY 210.0)
+        t.near("spanning item back at column 1" c.calculatedX 0.0)
+
+        ; row-gap / column-gap override the shorthand per axis.
+        def g2 (new EVGElement())
+        g2.width = (EVGUnit.px(400.0))
+        g2.height = (EVGUnit.px(400.0))
+        g2.display = "grid"
+        g2.gridTemplateColumns = "1fr 1fr"
+        g2.gridTemplateRows = "1fr 1fr"
+        g2.gap = (EVGUnit.parse("20px"))
+        g2.columnGap = (EVGUnit.parse("40px"))
+        def p1 (new EVGElement())
+        def p2 (new EVGElement())
+        def p3 (new EVGElement())
+        g2.addChild(p1)
+        g2.addChild(p2)
+        g2.addChild(p3)
+        def lay2 (new EVGLayout())
+        lay2.layout(g2)
+        t.near("column-gap overrides gap" p2.calculatedX 220.0)
+        t.near("row-gap still from shorthand" p3.calculatedY 210.0)
+
+        ; A row span reserves its cells so later items flow around it.
+        def g3 (new EVGElement())
+        g3.width = (EVGUnit.px(300.0))
+        g3.height = (EVGUnit.px(300.0))
+        g3.display = "grid"
+        g3.gridTemplateColumns = "1fr 1fr"
+        g3.gridTemplateRows = "1fr 1fr"
+        def tall (new EVGElement())
+        tall.gridRow = "span 2"
+        def s1 (new EVGElement())
+        def s2 (new EVGElement())
+        g3.addChild(tall)
+        g3.addChild(s1)
+        g3.addChild(s2)
+        def lay3 (new EVGLayout())
+        lay3.layout(g3)
+        t.near("row-spanning item covers both rows" tall.calculatedHeight 300.0)
+        t.near("next item sits beside it" s1.calculatedX 150.0)
+        t.near("next item on row 1" s1.calculatedY 0.0)
+        ; column 1 of row 2 is taken by the span, so this lands in column 2.
+        t.near("third item skips the occupied cell" s2.calculatedX 150.0)
+        t.near("third item drops to row 2" s2.calculatedY 150.0)
+
+        ; Without a column template a grid is one full-width column.
+        def g4 (new EVGElement())
+        g4.width = (EVGUnit.px(200.0))
+        g4.height = (EVGUnit.px(200.0))
+        g4.display = "grid"
+        def only (new EVGElement())
+        g4.addChild(only)
+        def lay4 (new EVGLayout())
+        lay4.layout(g4)
+        t.near("default grid is a single full-width column" only.calculatedWidth 200.0)
+    }
+
+    ; ---- grid: content-sized rows ---------------------------------------------
+    ; With no grid-template-rows (or an auto-height container) rows size to the
+    ; tallest item in them, the same principle as the flex auto-height rule.
+    fn testGridContentRows:void (t:RgTest) {
+        def root (new EVGElement())
+        root.width = (EVGUnit.px(400.0))
+        root.height = (EVGUnit.px(400.0))
+
+        def grid (new EVGElement())
+        grid.display = "grid"
+        grid.gridTemplateColumns = "1fr 1fr"
+        grid.gap = (EVGUnit.parse("10px"))
+        root.addChild(grid)
+
+        def short (new EVGElement())
+        short.height = (EVGUnit.px(30.0))
+        def tall (new EVGElement())
+        tall.height = (EVGUnit.px(80.0))
+        def next (new EVGElement())
+        next.height = (EVGUnit.px(25.0))
+        ; No height: stretches to whatever row 2 turns out to be.
+        def stretchy (new EVGElement())
+        grid.addChild(short)
+        grid.addChild(tall)
+        grid.addChild(next)
+        grid.addChild(stretchy)
+
+        def lay (new EVGLayout())
+        lay.layout(root)
+
+        ; An explicit height is kept — grid stretch only fills auto-height items,
+        ; so row 1 is 80 tall while `short` stays 30.
+        t.near("explicit height is not stretched" short.calculatedHeight 30.0)
+        t.near("tallest item defines the row" tall.calculatedHeight 80.0)
+        ; Row 2 starting at 90 is what proves row 1 measured 80 (+10 gap).
+        t.near("second row starts below row 1 + gap" next.calculatedY 90.0)
+        t.near("auto-height item stretches to its row" stretchy.calculatedHeight 25.0)
+        t.near("grid container grows to its rows" grid.calculatedHeight 115.0)
     }
 
     fn testSvgPath:void (t:RgTest) {

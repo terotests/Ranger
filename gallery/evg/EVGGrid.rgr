@@ -1,0 +1,381 @@
+; EVGGrid.rgr - Track lists and item placement for EVG's CSS Grid subset
+;
+; Targets photo-book pages, not CSS Grid Level 2. What is supported:
+;
+;   grid-template-columns: 120px 1fr 40%
+;   grid-template-columns: repeat(3, 1fr)
+;   grid-template-rows:    1fr 1fr
+;   grid-column: span 2  |  2  |  2 / 4  |  2 / span 3
+;   grid-row:    (same forms)
+;
+; Explicitly NOT supported (see PLAN_CSS_LAYOUT_AND_FONTS.md §7.3):
+; grid-template-areas, dense packing, subgrid, minmax(), named lines.
+;
+; `auto` in a track list is accepted and treated as `1fr`. Real CSS sizes an
+; auto track to its content and only then distributes leftover space; doing
+; that properly needs a content-measuring pass per track, which v1 does not
+; have. Equal-share is predictable and documented rather than subtly wrong.
+
+Import "EVGUnit.rgr"
+
+; One column or row track.
+;   kind 0 = fixed pixels, 1 = percentage of the container, 2 = fr
+class EVGGridTrack {
+    def kind:int 0
+    def value:double 0.0
+    ; Resolved extent in pixels, filled in by EVGGridTemplate.resolve.
+    def sizePx:double 0.0
+
+    Constructor () {
+        kind = 0
+        value = 0.0
+        sizePx = 0.0
+    }
+}
+
+class EVGGridTemplate {
+    def tracks:[EVGGridTrack]
+    ; Set when the spec named a track type this subset does not implement.
+    def hadError:boolean false
+    def errorText:string ""
+
+    Constructor () {
+        hadError = false
+        errorText = ""
+    }
+
+    fn count:int () {
+        return (array_length tracks)
+    }
+
+    fn trackAt:EVGGridTrack (i:int) {
+        return (itemAt tracks i)
+    }
+
+    ; "1fr 1fr", "repeat(3, 1fr)", "120px 40% 1fr"
+    sfn parse:EVGGridTemplate (spec:string) {
+        def tpl (new EVGGridTemplate())
+        def tokens:[string] (EVGGridTemplate.tokenize(spec))
+        def i:int 0
+        while (i < (array_length tokens)) {
+            def tok:string (itemAt tokens i)
+            if (EVGGridTemplate.isRepeat(tok)) {
+                tpl.expandRepeat(tok)
+            } {
+                tpl.addTrack(tok)
+            }
+            i = (i + 1)
+        }
+        return tpl
+    }
+
+    ; Split on whitespace, but only at paren depth 0 so "repeat(3, 1fr)"
+    ; survives as a single token despite the space after its comma.
+    sfn tokenize:[string] (spec:string) {
+        def out:[string]
+        def len:int (strlen spec)
+        def depth:int 0
+        def start:int 0
+        def inTok:boolean false
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt spec i)
+            if (c == 40) {
+                depth = (depth + 1)
+            }
+            if (c == 41) {
+                depth = (depth - 1)
+            }
+            def isSpace:boolean (((c == 32) || (c == 9)) || ((c == 10) || (c == 13)))
+            if (isSpace && (depth == 0)) {
+                if inTok {
+                    push out (substring spec start i)
+                    inTok = false
+                }
+            } {
+                if (inTok == false) {
+                    start = i
+                    inTok = true
+                }
+            }
+            i = (i + 1)
+        }
+        if inTok {
+            push out (substring spec start len)
+        }
+        return out
+    }
+
+    sfn isRepeat:boolean (tok:string) {
+        if ((strlen tok) < 8) {
+            return false
+        }
+        return ((substring tok 0 7) == "repeat(")
+    }
+
+    ; repeat(N, <track list>) -> the track list N times.
+    fn expandRepeat:void (tok:string) {
+        def len:int (strlen tok)
+        def close:int (len - 1)
+        if ((charAt tok close) != 41) {
+            hadError = true
+            errorText = ("Malformed repeat(): " + tok)
+            return
+        }
+        def inner:string (substring tok 7 close)
+        def comma:int 0 - 1
+        def j:int 0
+        while (j < (strlen inner)) {
+            if ((charAt inner j) == 44) {
+                comma = j
+                j = (strlen inner)
+            } {
+                j = (j + 1)
+            }
+        }
+        if (comma < 0) {
+            hadError = true
+            errorText = ("repeat() needs a count and a track list: " + tok)
+            return
+        }
+        def countStr:string (trim (substring inner 0 comma))
+        def listStr:string (trim (substring inner (comma + 1) (strlen inner)))
+        def countVal@(optional):double (to_double countStr)
+        def n:int 0
+        if countVal {
+            n = (to_int (unwrap countVal))
+        } {
+            hadError = true
+            errorText = ("repeat() count is not a number: " + tok)
+            return
+        }
+        if (n < 1) {
+            hadError = true
+            errorText = ("repeat() count must be at least 1: " + tok)
+            return
+        }
+        def inner2:[string] (EVGGridTemplate.tokenize(listStr))
+        def r:int 0
+        while (r < n) {
+            def k:int 0
+            while (k < (array_length inner2)) {
+                ; Nested repeat() is out of scope; treat the inner tokens as plain tracks.
+                this.addTrack((itemAt inner2 k))
+                k = (k + 1)
+            }
+            r = (r + 1)
+        }
+    }
+
+    fn addTrack:void (tok:string) {
+        def t:string (trim tok)
+        def len:int (strlen t)
+        if (len == 0) {
+            return
+        }
+        def track (new EVGGridTrack())
+
+        ; `auto` behaves as 1fr here — see the header note.
+        if (t == "auto") {
+            track.kind = 2
+            track.value = 1.0
+            push tracks track
+            return
+        }
+
+        if (len > 2) {
+            if ((substring t (len - 2) len) == "fr") {
+                def numStr:string (substring t 0 (len - 2))
+                def frVal@(optional):double (to_double numStr)
+                if frVal {
+                    track.kind = 2
+                    track.value = (unwrap frVal)
+                    push tracks track
+                    return
+                }
+            }
+        }
+        if (t == "fr") {
+            track.kind = 2
+            track.value = 1.0
+            push tracks track
+            return
+        }
+
+        def unit:EVGUnit (EVGUnit.parse(t))
+        if (unit.isSet == false) {
+            hadError = true
+            errorText = ("Unsupported track size: " + t)
+            return
+        }
+        if (unit.unitType == 1) {
+            track.kind = 1
+            track.value = unit.value
+        } {
+            track.kind = 0
+            track.value = unit.value
+        }
+        push tracks track
+    }
+
+    ; Resolve every track to pixels inside `available`, which must already have
+    ; the gaps subtracted. Fixed and percentage tracks take their size first;
+    ; whatever is left is split between the fr tracks in proportion.
+    fn resolve:void (available:double) {
+        def used:double 0.0
+        def totalFr:double 0.0
+        def i:int 0
+        def n:int (array_length tracks)
+        while (i < n) {
+            def t:EVGGridTrack (itemAt tracks i)
+            if (t.kind == 0) {
+                t.sizePx = t.value
+                used = (used + t.sizePx)
+            }
+            if (t.kind == 1) {
+                t.sizePx = ((available * t.value) / 100.0)
+                used = (used + t.sizePx)
+            }
+            if (t.kind == 2) {
+                totalFr = (totalFr + t.value)
+            }
+            i = (i + 1)
+        }
+        def leftover:double (available - used)
+        if (leftover < 0.0) {
+            leftover = 0.0
+        }
+        def j:int 0
+        while (j < n) {
+            def t2:EVGGridTrack (itemAt tracks j)
+            if (t2.kind == 2) {
+                if (totalFr > 0.0) {
+                    t2.sizePx = ((leftover * t2.value) / totalFr)
+                } {
+                    t2.sizePx = 0.0
+                }
+            }
+            j = (j + 1)
+        }
+    }
+
+    ; Extent of `span` tracks starting at index `from`, including the gaps
+    ; between them (but not the gaps on either outer edge).
+    fn extentOf:double (from:int span:int gap:double) {
+        def total:double 0.0
+        def n:int (array_length tracks)
+        def i:int from
+        def placed:int 0
+        while ((i < n) && (placed < span)) {
+            def tk:EVGGridTrack (itemAt tracks i)
+            total = (total + tk.sizePx)
+            placed = (placed + 1)
+            i = (i + 1)
+        }
+        if (placed > 1) {
+            total = (total + ((to_double (placed - 1)) * gap))
+        }
+        return total
+    }
+
+    ; Distance from the container's content edge to the start of track `index`.
+    fn offsetOf:double (index:int gap:double) {
+        def total:double 0.0
+        def i:int 0
+        while (i < index) {
+            def tk:EVGGridTrack (itemAt tracks i)
+            total = (total + tk.sizePx)
+            total = (total + gap)
+            i = (i + 1)
+        }
+        return total
+    }
+}
+
+; A `grid-column` / `grid-row` value.
+;   start: 1-based grid line, or 0 for "wherever auto-flow puts it"
+;   span : number of tracks covered, at least 1
+class EVGGridPlacement {
+    def start:int 0
+    def span:int 1
+
+    Constructor () {
+        start = 0
+        span = 1
+    }
+
+    ; "span 2" | "2" | "2 / 4" | "2 / span 3" | "" (auto)
+    sfn parse:EVGGridPlacement (spec:string) {
+        def p (new EVGGridPlacement())
+        def s:string (trim spec)
+        if ((strlen s) == 0) {
+            return p
+        }
+
+        ; Split on '/' into at most two sides.
+        def slash:int 0 - 1
+        def i:int 0
+        while (i < (strlen s)) {
+            if ((charAt s i) == 47) {
+                slash = i
+                i = (strlen s)
+            } {
+                i = (i + 1)
+            }
+        }
+
+        if (slash < 0) {
+            ; One side: either "span N" or a start line.
+            if (EVGGridPlacement.isSpan(s)) {
+                p.span = (EVGGridPlacement.spanCount(s))
+            } {
+                p.start = (EVGGridPlacement.lineNumber(s))
+            }
+            return p
+        }
+
+        def lhs:string (trim (substring s 0 slash))
+        def rhs:string (trim (substring s (slash + 1) (strlen s)))
+        p.start = (EVGGridPlacement.lineNumber(lhs))
+        if (EVGGridPlacement.isSpan(rhs)) {
+            p.span = (EVGGridPlacement.spanCount(rhs))
+        } {
+            ; "2 / 4" covers the tracks between lines 2 and 4, i.e. two tracks.
+            def endLine:int (EVGGridPlacement.lineNumber(rhs))
+            if (endLine > p.start) {
+                p.span = (endLine - p.start)
+            }
+        }
+        return p
+    }
+
+    sfn isSpan:boolean (s:string) {
+        if ((strlen s) < 4) {
+            return false
+        }
+        return ((substring s 0 4) == "span")
+    }
+
+    sfn spanCount:int (s:string) {
+        def rest:string (trim (substring s 4 (strlen s)))
+        def v@(optional):double (to_double rest)
+        if v {
+            def n:int (to_int (unwrap v))
+            if (n >= 1) {
+                return n
+            }
+        }
+        return 1
+    }
+
+    sfn lineNumber:int (s:string) {
+        def v@(optional):double (to_double s)
+        if v {
+            def n:int (to_int (unwrap v))
+            if (n >= 1) {
+                return n
+            }
+        }
+        return 0
+    }
+}

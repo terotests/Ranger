@@ -38,7 +38,7 @@ Without that, flex/grid improvements will still look wrong in print.
 | `flex-wrap` | `wrap` (default) / `nowrap` | No `wrap-reverse`; no `align-content` for wrapped lines |
 | Alignment | `justifyContent`, `alignItems` (incl. `stretch`), plus legacy `align` / `verticalAlign` | Naming overlap; no `baseline` |
 | Text intrinsic size | Shrink-wraps to measured content | Measurement still heuristic unless a TTF measurer is installed |
-| Grid | Emulated with nested flex HOC components | No real grid algorithm |
+| Grid | `display: grid` with fr/px/%/repeat tracks, gaps, spans | No `grid-template-areas`, dense packing, subgrid, `minmax()` |
 | Styles | Mostly inline JSX attributes | No class/theme stylesheet layer |
 
 `min-width` / `max-width` / `min-height` / `max-height` already parse and clamp;
@@ -338,19 +338,63 @@ Not in this subset: element/ID selectors, multi-level descendants, pseudo-classe
 
 ### Phase 2.5 — Attribute surface (carried over)
 
-The style layer exposed that the JSX front-end drops properties it does not
-list. `parseAttributes` in `JSXToEVG.rgr` is a whitelist, and `camelToKebab`
-rewrites the incoming name first, so `className` was compared against
-`"className"` when it arrives as `"class-name"` — meaning `className` never
-reached an element, the same way `gap` never did. Both are fixed; the general
-hazard remains, and `justify-content` / `align-items` are still reachable only
-through `style={{ ... }}`.
+Every phase so far has turned up a property that parses but never reaches the
+engine, because there are **two** independent whitelists a property must appear
+in — `parseAttributes` in `JSXToEVG.rgr` for JSX attributes, and
+`EVGElement.setAttribute` for the stylesheet and `ComponentEngine` paths. A
+property missing from either is silently dropped on that path only:
 
-### Phase 3 — Grid v1
+| Property | Was dropped from | Found during |
+| --- | --- | --- |
+| `gap` | JSX attributes | Phase 1 |
+| `className` | JSX attributes (compared to `"className"`, arrives as `"class-name"`) | Phase 2 |
+| `display` | `setAttribute` — so a stylesheet could set every grid property and still lay out as a block | Phase 3 |
 
-- template columns/rows, gap, span
-- Migrate `FourPhotoGrid` / feature layouts to classed grids
-- Print fixtures at A4 and one landscape album size
+All three are fixed. The hazard itself is structural and still there:
+`justify-content` and `align-items` remain reachable only through
+`style={{ ... }}`. A single shared property table, or a test that asserts both
+paths accept the same names, would close it for good.
+
+### Phase 3 — Grid v1 ✅
+
+Landed in `EVGGrid.rgr` (track lists + placement parsing) and
+`EVGLayout.layoutGrid` (auto-flow placement). `layoutChildren` branches to it on
+`display: grid`, keeping the same "returns content height" contract, so a grid
+nests inside flex and vice versa.
+
+- `grid-template-columns` / `grid-template-rows`: fixed px, `%`, `fr`,
+  `repeat(n, …)`. Fixed and percentage tracks are taken first, `fr` splits the
+  remainder in proportion
+- `gap`, plus `row-gap` / `column-gap` overriding it per axis
+- `grid-column` / `grid-row` accepting `span N`, `N`, `N / M`, `N / span M`
+- Auto-flow row placement over an occupancy map, so column *and* row spans
+  reserve their cells and later items flow around them
+- Items stretch to their cell by default (§7.1); an explicit `height` still wins,
+  because `layoutElement` only consults the stretch height when `height.isSet`
+  is false
+- Row sizing mirrors the Phase 1 auto-height rule: `grid-template-rows` is only
+  used when the container's height is definite. Otherwise rows are
+  content-sized from a measuring pass, so a grid in normal document flow grows
+  to its content instead of being squeezed into a stale inner height
+- A grid with no column template is a single full-width column, rather than
+  collapsing to zero
+
+`components/PhotoLayouts.tsx` `FourPhotoGrid` is now a real 2×2 grid. The old
+version faked it with `48%` widths and `4%` margins, which made the horizontal
+and vertical gutters different sizes; one `gap` value now drives both axes.
+
+`examples/themes/album.css` + `examples/test_album_grid.tsx` are the print
+fixtures — one tree, three compositions:
+
+```
+evg-html test_album_grid.tsx a4.html      -css themes/album.css -theme album   -w 595 -h 842
+evg-html test_album_grid.tsx land.html    -css themes/album.css -theme album   -w 842 -h 595
+evg-html test_album_grid.tsx contact.html -css themes/album.css -theme contact -w 595 -h 842
+```
+
+Still out of scope (§7.3): `grid-template-areas`, dense packing, subgrid,
+`minmax()`, named lines. `auto` in a track list is accepted but behaves as
+`1fr` — sizing it properly needs per-track content measurement.
 
 ### Phase 4 — Baseline + polish
 
@@ -362,7 +406,7 @@ through `style={{ ... }}`.
 
 | Area | Likely touch points |
 | --- | --- |
-| Layout | `gallery/evg/EVGLayout.rgr`, `EVGElement.rgr`, `EVGText.rgr` |
+| Layout | `gallery/evg/EVGLayout.rgr`, `EVGElement.rgr`, `EVGText.rgr`, `EVGGrid.rgr` |
 | Fonts | `pdf_writer/src/fonts/FontManager.rgr`, `TrueTypeFont.rgr`, shared shaper module |
 | JSX bridge | `pdf_writer/src/jsx/JSXToEVG.rgr`, component engine |
 | Style | `gallery/evg/EVGStyleSheet.rgr` (parse/resolve), `pdf_writer/src/core/EVGStyleLoader.rgr` (CLI wiring) |
@@ -405,7 +449,7 @@ bash gallery/game_engine/v2/evg/run.sh
    CSS subset parser** (`EVGStyleSheet.rgr`), see Phase 2  
 2. HTML preview strategy: precomputed frames (parity) vs native CSS (speed) + CI diffs  
 3. Default `line-height` policy when property omitted (font `lineGap` vs `1.2`)  
-4. Whether Grid v1 lands before or after theme CSS (recommend: flex+fonts → themes → grid)
+4. ~~Whether Grid v1 lands before or after theme CSS~~ — **done in that order**: flex → themes → grid
 
 ## 14. Summary
 
