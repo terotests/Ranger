@@ -4690,6 +4690,10 @@ static bool r_regex_test_i(string pattern, string s) {
                 ; ...and a str on Python, where the slice is the substring
                 python ( (e 1) "[" (e 2) ":" (e 3) "]" )
                 php ( "substr(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")") 
+                ; a charbuffer is Vec<u8> on Rust: slice the bytes and read
+                ; them back as UTF-8. The `*` fallback is JavaScript's String
+                ; method and a Vec has nothing of the sort.
+                rust ( "String::from_utf8_lossy(&" (e 1) "[(" (e 2) ") as usize..(" (e 3) ") as usize]).to_string()" )
                 * ( (e 1) ".substring(" (e 2) ", " (e 3) " )")
             }
         }
@@ -5477,6 +5481,9 @@ std::vector<std::string> r_get_keys_of_map( const M & orig_map )  {
                 scala ( (e 1) "(" (e 2) ")")    
                 go ( (e 1) "[" (e 2) "]")  
                 swift3 ( (e 1) "[" (e 2) "]")    
+                ; Vec<u8> on Rust, so index the byte; `char` is an integer
+                ; code unit here as on every other target
+                rust ( (e 1) "[(" (e 2) ") as usize] as i64" )
                 * ( (e 1) ".charCodeAt(" (e 2) " )")
             }
         }

@@ -298,6 +298,17 @@ class RangerRustClassWriter {
     return (("Rc<RefCell<" + (this.getObjectTypeString(type_name ctx))) + ">>")
   }
 
+  ; The same handle in its non-owning form. A `@(weak)` name holds a Weak,
+  ; is written into with Rc::downgrade and read back with upgrade(), so
+  ; declaring it as the Rc form left every such name disagreeing with both
+  ; its own stores and its own loads.
+  fn rustSharedWeakTypeString:string (type_name:string ctx:RangerAppWriterContext) {
+    if (this.rustTypeIsOwnHandle(type_name ctx)) {
+      return ((("Weak<RefCell<dyn " + type_name) + "Trait") + ">>")
+    }
+    return (("Weak<RefCell<" + (this.getObjectTypeString(type_name ctx))) + ">>")
+  }
+
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
     switch type_string {
       case "int" {
@@ -393,6 +404,15 @@ class RangerRustClassWriter {
     }
     def is_optional:boolean (node.hasFlag("optional"))
     def is_weak:boolean (node.hasFlag("weak"))
+    ; `@(weak)` on a COLLECTION is about what the elements own, not the
+    ; container: the Vec or the map itself belongs to the field. Wrapping it
+    ; in a Weak handed back something with no len, push, get or insert on it
+    ; at all, and every use of such a field was an error.
+    if is_weak {
+      if (((strlen node.array_type) > 0) || ((strlen node.key_type) > 0)) {
+        is_weak = false
+      }
+    }
     def is_self_referential:boolean false
     
     ; Check if this is a self-referential type (field type == current class)
@@ -1026,6 +1046,11 @@ class RangerRustClassWriter {
   fn rustAllStructVars:[RangerAppParamDesc] (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
     def res:[RangerAppParamDesc]
     def seen:[string:boolean]
+    ; The class's own declarations go in first and win: where a subclass
+    ; restates a parent's field the restatement is what its own methods are
+    ; written against. (RangerAppParamDesc declares `nameNode` strong and
+    ; RangerAppFunctionDesc restates it `@(weak)`; letting the parent win
+    ; there costs more than it saves.)
     for cl.variables pvar:RangerAppParamDesc i {
       set seen pvar.name true
       push res pvar
@@ -1349,11 +1374,17 @@ class RangerRustClassWriter {
         ; non-optional local writes the bare class type: writeTypeDef reads
         ; the node's optional flag, which an initializer that was unwrapped
         ; from an optional field leaks onto the def.
+        ; a `@(weak)` local is stored into with Rc::downgrade and read back
+        ; with upgrade(), so it holds the Weak, not the Rc
+        def localSharedT:string (this.rustSharedTypeString(nameN.type_name ctx))
+        if (nameN.hasFlag("weak")) {
+          localSharedT = (this.rustSharedWeakTypeString(nameN.type_name ctx))
+        }
         if (eff_optional && (((strlen nameN.array_type) == 0) && ((strlen nameN.key_type) == 0))) {
-          wr.out((("Option<" + (this.rustSharedTypeString(nameN.type_name ctx))) + ">") false)
+          wr.out((("Option<" + localSharedT) + ">") false)
         } {
           if ((((strlen nameN.type_name) > 0) && ((strlen nameN.array_type) == 0)) && ((strlen nameN.key_type) == 0)) {
-            wr.out((this.rustSharedTypeString(nameN.type_name ctx)) false)
+            wr.out(localSharedT false)
           } {
             wr.out("Rc<RefCell<" false)
             this.writeTypeDef(nameN ctx wr)

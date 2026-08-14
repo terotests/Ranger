@@ -23866,6 +23866,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
               return ("Rc<RefCell<" + this.getObjectTypeString(type_name, ctx)) + ">>";
             };
+            rustSharedWeakTypeString (type_name, ctx) {
+              if ( this.rustTypeIsOwnHandle(type_name, ctx) ) {
+                return (("Weak<RefCell<dyn " + type_name) + "Trait") + ">>";
+              }
+              return ("Weak<RefCell<" + this.getObjectTypeString(type_name, ctx)) + ">>";
+            };
             getObjectTypeString (type_string, ctx) {
               switch (type_string ) { 
                 case "int" : 
@@ -23935,7 +23941,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
               }
               const is_optional = node.hasFlag("optional");
-              const is_weak = node.hasFlag("weak");
+              let is_weak = node.hasFlag("weak");
+              if ( is_weak ) {
+                if ( ((node.array_type.length) > 0) || ((node.key_type.length) > 0) ) {
+                  is_weak = false;
+                }
+              }
               let is_self_referential = false;
               const uc = ctx.getCurrentClass();
               let class_is_trait_related = false;
@@ -24721,11 +24732,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     }
                   }
                   if ( local_needs_rc_wrap ) {
+                    let localSharedT = this.rustSharedTypeString(nameN.type_name, ctx);
+                    if ( nameN.hasFlag("weak") ) {
+                      localSharedT = this.rustSharedWeakTypeString(nameN.type_name, ctx);
+                    }
                     if ( eff_optional && (((nameN.array_type.length) == 0) && ((nameN.key_type.length) == 0)) ) {
-                      wr.out(("Option<" + this.rustSharedTypeString(nameN.type_name, ctx)) + ">", false);
+                      wr.out(("Option<" + localSharedT) + ">", false);
                     } else {
                       if ( (((nameN.type_name.length) > 0) && ((nameN.array_type.length) == 0)) && ((nameN.key_type.length) == 0) ) {
-                        wr.out(this.rustSharedTypeString(nameN.type_name, ctx), false);
+                        wr.out(localSharedT, false);
                       } else {
                         wr.out("Rc<RefCell<", false);
                         await this.writeTypeDef(nameN, ctx, wr);
