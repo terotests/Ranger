@@ -391,7 +391,10 @@ class CodeWriter {
     fn createTag@(weak):CodeWriter (name:string) {
         def new_writer:CodeWriter (new CodeWriter ())
         def new_slice:CodeSlice (new CodeSlice ())
-        set tags name (array_length slices)
+        ; the count first: writing one own field while reading another in the
+        ; same statement is a mutable and a shared borrow of one cell in Rust
+        def tagIndex:int (array_length slices)
+        set tags name tagIndex
         push slices new_slice
         new_slice.writer = new_writer
         new_writer.indentAmount = indentAmount

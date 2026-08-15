@@ -3222,18 +3222,12 @@ class RangerRustClassWriter {
       ; the hidden argument is typed `dyn XTrait`, and a method the trait
       ; does not declare cannot be called through it.
       if ((strlen (this.rustSelfRcTraitName(useCtx))) == 0) {
-        ; …and only where dropping the receiver BUYS something. It costs
-        ; something too: without one, every self-call goes through the
-        ; handle, and a caller that holds the cell then panics. The gain is
-        ; for a body that fetches another handle OF ITS OWN CLASS —
-        ; `this.getRoot()`, `this.fork()` — because that handle may be this
-        ; very object, and writing through it while the cell is borrowed is
-        ; exactly what cannot be done.
-        if (this.rustBodyGetsOwnClassHandle(body useCtx ctx)) {
-          if ((this.fnBodyUsesThisStruct(body useCtx)) == false) {
-            return false
-          }
-        }
+        ; …and then ALWAYS. A method that carries its own handle hands it to
+        ; something that will reach back through it, and a `&self` receiver is
+        ; a borrow of the cell held for the whole call: the caller's borrow is
+        ; still live when the callee takes its own. Reaching every field
+        ; through the handle instead borrows for one statement at a time.
+        return false
       }
     }
     return true
@@ -4885,7 +4879,7 @@ class RangerRustClassWriter {
           def fnContainerClass@(optional):RangerAppClassDesc fnD.container_class
           if (!null? fnContainerClass) {
             def containerClass:RangerAppClassDesc (unwrap fnContainerClass)
-            def methodName:string (itemAt fc.ns 1)
+            def methodName:string (itemAt fc.ns ((array_length fc.ns) - 1))
             wr.out(((containerClass.name + "::") + methodName) false)
           } {
             ; Fallback to WriteVRef
@@ -5293,7 +5287,7 @@ class RangerRustClassWriter {
         if (!null? fnContainerClass) {
           def containerClass:RangerAppClassDesc (unwrap fnContainerClass)
           ; Get method name from fc.ns (e.g., ["this", "buildHuffmanCodes"])
-          def methodName:string (itemAt fc.ns 1)
+          def methodName:string (itemAt fc.ns ((array_length fc.ns) - 1))
           wr.out(((containerClass.name + "::") + methodName) false)
           wr.out("(" false)
           ; a receiverless method still takes the hidden receiver handle
@@ -5367,11 +5361,26 @@ class RangerRustClassWriter {
                   if ((this.rustArgIsAlreadyRef(nVal)) == false) {
                     wr.out("&" false)
                   }
+                  ; a borrowed SHARED parameter is `&Rc<RefCell<T>>`, so a raw
+                  ; value handed to one takes its cell here — the same wrap the
+                  ; pre-evaluated argument path applies
+                  def stRcWrap:boolean false
+                  if arg.rust_needs_rc_wrap {
+                    if ((this.rustInitRcState(nVal ctx)) == 0) {
+                      stRcWrap = true
+                    }
+                  }
+                  if stRcWrap {
+                    wr.out("Rc::new(RefCell::new(" false)
+                  }
                   ctx.setInExpr()
                   wr.suppress_expr_parens = true
                   this.WalkNode(nVal ctx wr)
                   wr.suppress_expr_parens = false
                   ctx.unsetInExpr()
+                  if stRcWrap {
+                    wr.out("))" false)
+                  }
                 }
               } {
                 ctx.setInExpr()
@@ -5484,7 +5493,24 @@ class RangerRustClassWriter {
             if arg.needs_cpp_reference { needsMutRef3 = true }
             if (arg.rust_borrow_type == 2) { needsMutRef3 = true }
             def needsImmutableBorrow3:boolean (arg.rust_borrow_type == 1)
-            
+
+            ; a pre-extracted argument substitutes its temporary. Without this
+            ; the hoisted `let` is written and then IGNORED, and the argument
+            ; borrows the cell a second time inside the call it was hoisted
+            ; out of — which is the panic the hoisting exists to prevent.
+            if ((strlen nVal.rust_use_tmpvar) > 0) {
+              if needsMutRef3 {
+                wr.out("&mut " false)
+              } {
+                if needsImmutableBorrow3 {
+                  wr.out("&" false)
+                }
+              }
+              wr.out(nVal.rust_use_tmpvar false)
+              nVal.rust_use_tmpvar = ""
+              continue _
+            }
+
             if needsMutRef3 {
               if ((this.rustArgIsAlreadyMutRef(nVal)) == false) {
                 wr.out("&mut " false)
@@ -7608,16 +7634,19 @@ class RangerRustClassWriter {
           }
         }
       }
-    } {
-      ; the resolved shape: `(fnRef args)` with the receiver at the head of
-      ; the reference's path
+    }
+    ; the resolved shape: `(fnRef args)` with the receiver at the head of the
+    ; reference's path. Tried whenever the shape above produced no argument
+    ; list — a node can carry has_call and still be spelled this way, and then
+    ; no argument was ever examined.
+    if (null? rcvArgsOpt) {
       if real.hasFnCall {
         if ((array_length real.children) >= 2) {
           def rcvFc:CodeNode (real.getFirst())
           if ((array_length rcvFc.ns) >= 2) {
             rcvName = (itemAt rcvFc.ns 0)
-            rcvArgsOpt = (real.getSecond())
           }
+          rcvArgsOpt = (real.getSecond())
         }
       }
     }

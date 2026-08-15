@@ -919,7 +919,10 @@ class RangerAppWriterContext {
     ; `word transform` pair does not parse. C# and Dart both need them
     ; renamed -- the TypeScript engine declares a static method called `null`,
     ; and neither language can spell that as an identifier.
-    if (((this.getTargetLangName()) == "csharp") || ((this.getTargetLangName()) == "dart")) {
+    ; one call, one local: two calls through the same handle in one expression
+    ; are two live borrows of the same cell in Rust
+    def twLang:string (this.getTargetLangName())
+    if ((twLang == "csharp") || (twLang == "dart")) {
       if (input_word == "null") {
         return "_null"
       }

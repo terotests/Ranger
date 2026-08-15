@@ -23,6 +23,13 @@ if [ ! -x tmp/selfhost-rust/ranger_dbg ]; then
   exit 1
 fi
 
+# the binary resolves library imports relative to its own directory, so the
+# libraries have to sit next to it -- same copy that npm run selfhost:copylibs does
+cp ./compiler/Lang.rgr ./tmp/selfhost-rust/Lang.rgr
+cp ./lib/stdops.rgr ./tmp/selfhost-rust/stdops.rgr
+mkdir -p ./tmp/selfhost-rust/lib
+cp ./lib/*.rgr ./tmp/selfhost-rust/lib/
+
 RUST_BACKTRACE=1 RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr" \
   ./tmp/selfhost-rust/ranger_dbg -l=es6 "$SRC" \
     -d=./tmp/selfhost-rust/out -o=out.js -nodecli 2>&1 | tail -40

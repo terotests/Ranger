@@ -2590,7 +2590,10 @@ class CodeNode  {
     return true;
   };
   cloneWithType (match, changeVref) {
-    const newNode = new CodeNode(this.code, this.sp, this.ep);
+    const myCode = this.code;
+    const mySp = this.sp;
+    const myEp = this.ep;
+    const newNode = new CodeNode(myCode, mySp, myEp);
     if ( ( typeof(match.nodes[this.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(match.nodes, this.vref) ) ) {
       const ast = (( Object.prototype.hasOwnProperty.call(match.nodes, this.vref) ? match.nodes[this.vref] : undefined ));
       return ast.rebuildWithType(match, true);
@@ -2676,7 +2679,10 @@ class CodeNode  {
     return newNode;
   };
   rebuildWithType (match, changeVref) {
-    const newNode = new CodeNode(this.code, this.sp, this.ep);
+    const myCode = this.code;
+    const mySp = this.sp;
+    const myEp = this.ep;
+    const newNode = new CodeNode(myCode, mySp, myEp);
     if ( ( typeof(match.nodes[this.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(match.nodes, this.vref) ) ) {
       const ast = (( Object.prototype.hasOwnProperty.call(match.nodes, this.vref) ? match.nodes[this.vref] : undefined ));
       if ( ast == this ) {
@@ -2691,7 +2697,10 @@ class CodeNode  {
       if ( ( typeof(match.nodes[(this.ns[0])] ) != "undefined" && Object.prototype.hasOwnProperty.call(match.nodes, (this.ns[0])) ) ) {
         const rootAst = (( Object.prototype.hasOwnProperty.call(match.nodes, (this.ns[0])) ? match.nodes[(this.ns[0])] : undefined ));
         if ( ((((rootAst.children.length) == 0) && ((rootAst.ns.length) < 2)) && ((rootAst.vref.length) > 0)) && (rootAst.expression == false) ) {
-          const nsNode = new CodeNode(this.code, this.sp, this.ep);
+          const nsCode = this.code;
+          const nsSp = this.sp;
+          const nsEp = this.ep;
+          const nsNode = new CodeNode(nsCode, nsSp, nsEp);
           nsNode.value_type = this.value_type;
           nsNode.expression = this.expression;
           for ( let i = 0; i < this.ns.length; i++) {
@@ -2946,52 +2955,100 @@ class CodeNode  {
     if ( (node.value_type == 20) || (node.eval_type == 20) ) {
       return;
     }
-    const regType = TTypes.nameToValue(this.type_name);
+    const myTypeName = this.type_name;
+    const myArrayType = this.array_type;
+    const myKeyType = this.key_type;
+    const myValueType = this.value_type;
+    const myExpression = this.expression;
+    const regType = TTypes.nameToValue(myTypeName);
     if ( regType != 0 ) {
       node.value_type = regType;
       node.eval_type = regType;
-      node.eval_type_name = this.type_name;
+      node.eval_type_name = myTypeName;
       return;
     }
-    switch (this.type_name ) { 
+    switch (myTypeName ) { 
       default: 
-        if ( true == this.expression ) {
+        if ( true == myExpression ) {
           node.value_type = 20;
           node.eval_type = 20;
           node.expression = true;
         }
-        if ( this.value_type == 6 ) {
+        if ( myValueType == 6 ) {
           node.value_type = 6;
           node.eval_type = 6;
-          node.eval_type_name = this.type_name;
-          node.eval_array_type = this.array_type;
+          node.eval_type_name = myTypeName;
+          node.eval_array_type = myArrayType;
         }
-        if ( this.value_type == 7 ) {
+        if ( myValueType == 7 ) {
           node.value_type = 7;
           node.eval_type = 7;
-          node.eval_type_name = this.type_name;
-          node.eval_array_type = this.array_type;
-          node.key_type = this.key_type;
+          node.eval_type_name = myTypeName;
+          node.eval_array_type = myArrayType;
+          node.key_type = myKeyType;
         }
-        if ( this.value_type == 13 ) {
+        if ( myValueType == 13 ) {
           node.value_type = 13;
           node.eval_type = 13;
-          node.eval_type_name = this.type_name;
+          node.eval_type_name = myTypeName;
         }
-        if ( this.value_type == 11 ) {
-          if ( ctx.isEnumDefined(this.type_name) ) {
+        if ( myValueType == 11 ) {
+          if ( ctx.isEnumDefined(myTypeName) ) {
             node.value_type = 13;
             node.eval_type = 13;
-            node.eval_type_name = this.type_name;
+            node.eval_type_name = myTypeName;
           }
-          if ( ctx.isDefinedClass(this.type_name) ) {
+          if ( ctx.isDefinedClass(myTypeName) ) {
             node.value_type = 10;
             node.eval_type = 10;
-            node.eval_type_name = this.type_name;
+            node.eval_type_name = myTypeName;
           }
         }
         break;
     };
+  };
+  defineNodeTypeToSelf (ctx) {
+    if ( (this.value_type == 20) || (this.eval_type == 20) ) {
+      return;
+    }
+    const myTypeName = this.type_name;
+    const regType = TTypes.nameToValue(myTypeName);
+    if ( regType != 0 ) {
+      this.value_type = regType;
+      this.eval_type = regType;
+      this.eval_type_name = myTypeName;
+      return;
+    }
+    if ( true == this.expression ) {
+      this.value_type = 20;
+      this.eval_type = 20;
+    }
+    if ( this.value_type == 6 ) {
+      this.eval_type = 6;
+      this.eval_type_name = myTypeName;
+      this.eval_array_type = this.array_type;
+    }
+    if ( this.value_type == 7 ) {
+      this.eval_type = 7;
+      this.eval_type_name = myTypeName;
+      this.eval_array_type = this.array_type;
+    }
+    if ( this.value_type == 13 ) {
+      this.eval_type = 13;
+      this.eval_type_name = myTypeName;
+    }
+    if ( this.value_type == 11 ) {
+      if ( ctx.isEnumDefined(myTypeName) ) {
+        this.value_type = 13;
+        this.eval_type = 13;
+        this.eval_type_name = myTypeName;
+      }
+      if ( ctx.isDefinedClass(myTypeName) ) {
+        this.value_type = 10;
+        this.eval_type = 10;
+        this.eval_type_name = myTypeName;
+      }
+    }
   };
   ifNoTypeSetToVoid () {
     if ( (((this.type_name.length) == 0) && ((this.key_type.length) == 0)) && ((this.array_type.length) == 0) ) {
@@ -4091,7 +4148,8 @@ class RangerAppWriterContext  {
       default: 
         break;
     };
-    if ( (this.getTargetLangName() == "csharp") || (this.getTargetLangName() == "dart") ) {
+    const twLang = this.getTargetLangName();
+    if ( (twLang == "csharp") || (twLang == "dart") ) {
       if ( input_word == "null" ) {
         return "_null";
       }
@@ -5667,7 +5725,8 @@ class CodeWriter  {
   createTag (name) {
     const new_writer = new CodeWriter();
     const new_slice = new CodeSlice();
-    this.tags[name] = this.slices.length;
+    const tagIndex = this.slices.length;
+    this.tags[name] = tagIndex;
     this.slices.push(new_slice);
     new_slice.writer = new_writer;
     new_writer.indentAmount = this.indentAmount;
@@ -26159,11 +26218,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   }
                   if ( this.rustNeedsSelfRc(fnD, ctx) ) {
                     if ( (this.rustSelfRcTraitName(useCtx).length) == 0 ) {
-                      if ( this.rustBodyGetsOwnClassHandle(body, useCtx, ctx) ) {
-                        if ( this.fnBodyUsesThisStruct(body, useCtx) == false ) {
-                          return false;
-                        }
-                      }
+                      return false;
                     }
                   }
                   return true;
@@ -27574,7 +27629,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         const fnContainerClass = fnD_3.container_class;
                         if ( (typeof(fnContainerClass) !== "undefined" && fnContainerClass != null )  ) {
                           const containerClass = fnContainerClass;
-                          const methodName_1 = fc.ns[1];
+                          const methodName_1 = fc.ns[((fc.ns.length) - 1)];
                           wr.out((containerClass.name + "::") + methodName_1, false);
                         } else {
                           this.rust_call_receiver_mut = this.rustReceiverMutFor(node, fc, ctx);
@@ -27934,7 +27989,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       const fnContainerClass_1 = fnD_5.container_class;
                       if ( (typeof(fnContainerClass_1) !== "undefined" && fnContainerClass_1 != null )  ) {
                         const containerClass_1 = fnContainerClass_1;
-                        const methodName_2 = fc.ns[1];
+                        const methodName_2 = fc.ns[((fc.ns.length) - 1)];
                         wr.out((containerClass_1.name + "::") + methodName_2, false);
                         wr.out("(", false);
                         const selfCallSelfRc = this.writeSelfRcReceiverArg(node, fc, ctx, wr);
@@ -27997,11 +28052,23 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 if ( this.rustArgIsAlreadyRef(nVal_2) == false ) {
                                   wr.out("&", false);
                                 }
+                                let stRcWrap = false;
+                                if ( arg_2.rust_needs_rc_wrap ) {
+                                  if ( this.rustInitRcState(nVal_2, ctx) == 0 ) {
+                                    stRcWrap = true;
+                                  }
+                                }
+                                if ( stRcWrap ) {
+                                  wr.out("Rc::new(RefCell::new(", false);
+                                }
                                 ctx.setInExpr();
                                 wr.suppress_expr_parens = true;
                                 await this.WalkNode(nVal_2, ctx, wr);
                                 wr.suppress_expr_parens = false;
                                 ctx.unsetInExpr();
+                                if ( stRcWrap ) {
+                                  wr.out("))", false);
+                                }
                               }
                             } else {
                               ctx.setInExpr();
@@ -28109,6 +28176,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             needsMutRef3 = true;
                           }
                           const needsImmutableBorrow3 = arg_3.rust_borrow_type == 1;
+                          if ( (nVal_3.rust_use_tmpvar.length) > 0 ) {
+                            if ( needsMutRef3 ) {
+                              wr.out("&mut ", false);
+                            } else {
+                              if ( needsImmutableBorrow3 ) {
+                                wr.out("&", false);
+                              }
+                            }
+                            wr.out(nVal_3.rust_use_tmpvar, false);
+                            nVal_3.rust_use_tmpvar = "";
+                            continue;
+                          }
                           if ( needsMutRef3 ) {
                             if ( this.rustArgIsAlreadyMutRef(nVal_3) == false ) {
                               wr.out("&mut ", false);
@@ -29896,14 +29975,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 }
                               }
                             }
-                          } else {
+                          }
+                          if ( typeof(rcvArgsOpt) === "undefined" ) {
                             if ( real.hasFnCall ) {
                               if ( (real.children.length) >= 2 ) {
                                 const rcvFc = real.getFirst();
                                 if ( (rcvFc.ns.length) >= 2 ) {
                                   rcvName = rcvFc.ns[0];
-                                  rcvArgsOpt = real.getSecond();
                                 }
+                                rcvArgsOpt = real.getSecond();
                               }
                             }
                           }
@@ -57077,7 +57157,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               }
                                                             }
                                                             ctx.hadValidType(cn);
-                                                            cn.defineNodeTypeTo(cn, ctx);
+                                                            cn.defineNodeTypeToSelf(ctx);
                                                             p.name = cn.vref;
                                                             if ( p.value_type == 0 ) {
                                                               if ( (0 == (cn.type_name.length)) && ((typeof(defaultArg) !== "undefined" && defaultArg != null ) ) ) {
@@ -57286,7 +57366,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               }
                                                             }
                                                             ctx.hadValidType(cn_2);
-                                                            cn_2.defineNodeTypeTo(cn_2, ctx);
+                                                            cn_2.defineNodeTypeToSelf(ctx);
                                                             p_1.name = cn_2.vref;
                                                             if ( p_1.value_type == 0 ) {
                                                               if ( (0 == (cn_2.type_name.length)) && ((typeof(defaultArg_1) !== "undefined" && defaultArg_1 != null ) ) ) {

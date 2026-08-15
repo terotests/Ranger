@@ -4010,7 +4010,10 @@ def r_div_f64(a, b):
                 ; a `default` already wrote one this arm is unreachable, which is
                 ; a warning, while its absence is an error at every switch
                 ; without one.
-                rust ( nl "match " (e 1) " {" I (block 2) nl "_ => {}" i nl "}" nl )
+                ; The subject lands in a `let` first. A `match x.borrow().f {}`
+                ; keeps the Ref alive for the whole match -- every arm that
+                ; touches the same cell then panics at run time.
+                rust ( nl "let __sw = " (e 1) ";" nl "match __sw {" I (block 2) nl "_ => {}" i nl "}" nl )
             }
         }
 
@@ -4031,7 +4034,10 @@ def r_div_f64(a, b):
                 ; a `default` already wrote one this arm is unreachable, which is
                 ; a warning, while its absence is an error at every switch
                 ; without one.
-                rust ( nl "match " (e 1) " {" I (block 2) nl "_ => {}" i nl "}" nl )
+                ; The subject lands in a `let` first. A `match x.borrow().f {}`
+                ; keeps the Ref alive for the whole match -- every arm that
+                ; touches the same cell then panics at run time.
+                rust ( nl "let __sw = " (e 1) ";" nl "match __sw {" I (block 2) nl "_ => {}" i nl "}" nl )
                 * ( "switch (" (e 1) " ) { " I (block 2) i "}" )
             }
         }
@@ -4103,7 +4109,10 @@ def r_div_f64(a, b):
                 ; a `default` already wrote one this arm is unreachable, which is
                 ; a warning, while its absence is an error at every switch
                 ; without one.
-                rust ( nl "match " (e 1) " {" I (block 2) nl "_ => {}" i nl "}" nl )
+                ; The subject lands in a `let` first. A `match x.borrow().f {}`
+                ; keeps the Ref alive for the whole match -- every arm that
+                ; touches the same cell then panics at run time.
+                rust ( nl "let __sw = " (e 1) ";" nl "match __sw {" I (block 2) nl "_ => {}" i nl "}" nl )
                 * ( "switch (" (e 1) " ) { " I (block 2) i "}" )
             }
         }       

@@ -5,7 +5,7 @@ class Greeter {
   }
 }
 class Main {
-  fn main:void @(main) () {
+  sfn m@(main):void () {
     def g:Greeter (new Greeter)
     print (g.greet())
   }
