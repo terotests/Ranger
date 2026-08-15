@@ -2780,17 +2780,24 @@ class StaticAnalyzer {
     def root:RangerAppWriterContext ((unwrap ctx).getRoot())
     ; NOTE: a class that is extended by children is written as
     ; Rc<RefCell<dyn XTrait>> whatever the ownership analysis made of it,
-    ; so in principle it should carry reference semantics too -- and then
-    ; `this` inside one is the receiver Rc, which is what lets it be
-    ; passed to a trait-typed parameter instead of the panic! the writer
-    ; emits today. Marking it (plus its subclasses, which share the
-    ; slots) was measured at 155 -> 159 rustc errors: it fixes 16 sites
-    ; and uncovers a signature disagreement between a trait method and
-    ; the inherent method each impl forwards to. Aligning those needs
-    ; was tried in both directions and moved nothing (parent to child) or
-    ; made it worse (159 -> 166, both ways), because the descriptors the
-    ; writer emits from are not the ones cl.methods holds. Left as it is
-    ; until the emit path and the analysis agree on one descriptor.
+    ; so it SHOULD carry reference semantics -- and then `this` inside one
+    ; is the receiver Rc, which is what lets it be passed to a trait-typed
+    ; parameter instead of the panic! the writer emits today. Marking it,
+    ; with its subclasses (they share the slots), makes the smallest
+    ; program that shows the shape -- a base class handing `this` to a
+    ; method that takes the base type, plus one subclass -- compile
+    ; cleanly, where it cannot today.
+    ;
+    ; On the compiler itself it measures 143 -> 147, and the residue is
+    ; one thing: the hidden __self_rc is typed as the CONTAINER class, so
+    ; a trait method declares `&Rc<RefCell<Parent>>` while the inherent
+    ; method each impl forwards to wants `&Rc<RefCell<Child>>`. Aligning
+    ; which methods TAKE the argument is not enough and was tried: through
+    ; cl.methods it changes nothing (those are not the descriptors the
+    ; writer emits from), and through cl.method_variants it trades the 15
+    ; argument-count errors for 7 type errors of the same origin. The
+    ; hidden argument has to be typed as the trait object for a trait
+    ; method, and that is the change to make before this marking pays.
     for root.definedClasses cl:RangerAppClassDesc ci {
       for cl.variables cv:RangerAppParamDesc vi {
         this.markDescRcWrap(cv)
