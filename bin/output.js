@@ -29959,7 +29959,24 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 };
                                 if ( tempIdx > 0 ) {
                                   wr.out("return ", false);
-                                  await this.WriteVRef(retFc, ctx, wr);
+                                  let retStatic = false;
+                                  let retStaticName = "";
+                                  if ( (typeof(retVal.fnDesc) !== "undefined" && retVal.fnDesc != null )  ) {
+                                    const retFnD = retVal.fnDesc;
+                                    if ( retFnD.rust_can_be_static ) {
+                                      const retCC = retFnD.container_class;
+                                      if ( (typeof(retCC) !== "undefined" && retCC != null )  ) {
+                                        const retCCD = retCC;
+                                        retStatic = true;
+                                        retStaticName = retCCD.name;
+                                      }
+                                    }
+                                  }
+                                  if ( retStatic ) {
+                                    wr.out((retStaticName + "::") + (retFc.ns[((retFc.ns.length) - 1)]), false);
+                                  } else {
+                                    await this.WriteVRef(retFc, ctx, wr);
+                                  }
                                   wr.out("(", false);
                                   for ( let i_1 = 0; i_1 < retVal.fnDesc.params.length; i_1++) {
                                     var arg_2 = retVal.fnDesc.params[i_1];

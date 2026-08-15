@@ -7642,7 +7642,29 @@ class RangerRustClassWriter {
             ; Now emit the return with temp vars substituted
             if (tempIdx > 0) {
               wr.out("return " false)
-              this.WriteVRef(retFc ctx wr)
+              ; This branch writes the call itself rather than going through
+              ; writeFnCall, so it has to make the same static-or-method
+              ; choice: a callee whose body never touches `this` is emitted
+              ; with no receiver, and `self.m(…)` for one is "an associated
+              ; function, not a method".
+              def retStatic:boolean false
+              def retStaticName:string ""
+              if (!null? retVal.fnDesc) {
+                def retFnD:RangerAppFunctionDesc (unwrap retVal.fnDesc)
+                if retFnD.rust_can_be_static {
+                  def retCC@(optional):RangerAppClassDesc retFnD.container_class
+                  if (!null? retCC) {
+                    def retCCD:RangerAppClassDesc (unwrap retCC)
+                    retStatic = true
+                    retStaticName = retCCD.name
+                  }
+                }
+              }
+              if retStatic {
+                wr.out(((retStaticName + "::") + (itemAt retFc.ns ((array_length retFc.ns) - 1))) false)
+              } {
+                this.WriteVRef(retFc ctx wr)
+              }
               wr.out("(" false)
               for retVal.fnDesc.params arg:RangerAppParamDesc i {
                 if (i > 0) {
