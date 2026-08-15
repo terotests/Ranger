@@ -25680,7 +25680,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         continue;
                       }
                       if ( argIsPlainClass ) {
-                        wr.out(((rust_mut_pfx + paramName) + " : ") + this.rustSharedTypeString(nameN.type_name, ctx), false);
+                        if ( nameN.hasFlag("optional") ) {
+                          wr.out((((rust_mut_pfx + paramName) + " : Option<") + this.rustSharedTypeString(nameN.type_name, ctx)) + ">", false);
+                        } else {
+                          wr.out(((rust_mut_pfx + paramName) + " : ") + this.rustSharedTypeString(nameN.type_name, ctx), false);
+                        }
                       } else {
                         wr.out((rust_mut_pfx + paramName) + " : Rc<RefCell<", false);
                         await this.writeTypeDef(nameN, ctx, wr);
@@ -25722,16 +25726,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                         }
                       } else {
+                        const argOptional = nameN.hasFlag("optional");
                         if ( is_object ) {
                           wr.out((rust_mut_pfx + paramName) + " : ", false);
-                          await this.writeTypeDef(nameN, ctx, wr);
                         } else {
                           if ( arg.set_cnt > 0 ) {
                             wr.out((rust_mut_pfx + paramName) + " : ", false);
                           } else {
                             wr.out(paramName + " : ", false);
                           }
-                          await this.writeTypeDef(nameN, ctx, wr);
+                        }
+                        if ( argOptional ) {
+                          wr.out("Option<", false);
+                        }
+                        await this.writeTypeDef(nameN, ctx, wr);
+                        if ( argOptional ) {
+                          wr.out(">", false);
                         }
                       }
                     }

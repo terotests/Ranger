@@ -608,7 +608,7 @@ class RangerZigClassWriter {
     def cmd:string fc.vref
 
     if (cmd == "return") {
-      def cnt:int (node.children.length())
+      def cnt:int (array_length node.children)
       if (cnt > 1) {
         def retVal:CodeNode (node.getSecond())
         wr.out("return " false)

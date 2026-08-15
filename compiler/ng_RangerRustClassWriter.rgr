@@ -2654,7 +2654,13 @@ class RangerRustClassWriter {
         }
         ; Parameter is assigned to weak field - needs Rc<RefCell<T>> type
         if argIsPlainClass {
-          wr.out((((rust_mut_pfx + paramName) + " : ") + (this.rustSharedTypeString(nameN.type_name ctx))) false)
+          ; an @(optional) parameter is Option<…>: the body asks it
+          ; `is_none()` and unwraps it, and a caller may have nothing to pass
+          if (nameN.hasFlag("optional")) {
+            wr.out((((((rust_mut_pfx + paramName) + " : Option<") + (this.rustSharedTypeString(nameN.type_name ctx))) + ">")) false)
+          } {
+            wr.out((((rust_mut_pfx + paramName) + " : ") + (this.rustSharedTypeString(nameN.type_name ctx))) false)
+          }
         } {
           wr.out((rust_mut_pfx + paramName + " : Rc<RefCell<") false)
           this.writeTypeDef(nameN ctx wr)
@@ -2712,16 +2718,22 @@ class RangerRustClassWriter {
             }
           }
         } {
+          def argOptional:boolean (nameN.hasFlag("optional"))
           if is_object {
             wr.out((rust_mut_pfx + paramName + " : ") false)
-            this.writeTypeDef(nameN ctx wr)
           } {
             if (arg.set_cnt > 0) {
               wr.out((rust_mut_pfx + paramName + " : ") false)
             } {
               wr.out((paramName + " : ") false)
             }
-            this.writeTypeDef(nameN ctx wr)
+          }
+          if argOptional {
+            wr.out("Option<" false)
+          }
+          this.writeTypeDef(nameN ctx wr)
+          if argOptional {
+            wr.out(">" false)
           }
         }
       }
@@ -7990,7 +8002,7 @@ class RangerRustClassWriter {
     }
 
     if (cmd == "return") {
-      def cnt:int (node.children.length())
+      def cnt:int (array_length node.children)
       if (cnt > 1) {
         def retVal:CodeNode (node.getSecond())
         
