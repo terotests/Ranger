@@ -24942,6 +24942,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       ctx.setInExpr();
                       await this.WalkNode(value_1, ctx, wr);
                       ctx.unsetInExpr();
+                      const thisInit = this.rustUnwrapParens(value_1);
+                      if ( thisInit.vref == "this" ) {
+                        const tiCls = ctx.getCurrentClass();
+                        if ( (typeof(tiCls) !== "undefined" && tiCls != null )  ) {
+                          const tiC = tiCls;
+                          if ( this.rustClassIsShared(tiC.name, ctx) ) {
+                            wr.out(".clone()", false);
+                          }
+                        }
+                      }
                     }
                     if ( local_needs_rc_wrap && (optInitPassthrough == false) ) {
                       if ( init_rc_state == 0 ) {

@@ -1680,6 +1680,21 @@ class RangerRustClassWriter {
           ctx.setInExpr()
           this.WalkNode(value ctx wr)
           ctx.unsetInExpr()
+          ; `this` in a value position is `__self_rc`, which is a REFERENCE
+          ; to the receiver's Rc — an owned local takes a clone of it. The
+          ; rc-state machine calls it "already an Rc" and so writes neither
+          ; the wrap nor a clone, which is right for the wrap and one short
+          ; for the binding.
+          def thisInit:CodeNode (this.rustUnwrapParens(value))
+          if (thisInit.vref == "this") {
+            def tiCls@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+            if (!null? tiCls) {
+              def tiC:RangerAppClassDesc (unwrap tiCls)
+              if (this.rustClassIsShared(tiC.name ctx)) {
+                wr.out(".clone()" false)
+              }
+            }
+          }
         }
 
         ; Close Rc::new(RefCell::new(...)) if we opened it
