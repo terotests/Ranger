@@ -79,6 +79,14 @@ const PAGES = [
     themes: ["editorial", "studio", "autumn"],
   },
   {
+    id: "more",
+    title: "More chart types",
+    blurb:
+      "The chart types the runtime learned most recently, which are also the ones that exercise the most of it: a continuous colour ramp with the gradient key it earns, a series that is a faceted group of its own, a stack centred on a common line, a calendar on an axis, and a box plot whose quartiles are computed rather than approximated.",
+    shows: ["colour ramps", "gradient legends", "faceted series", "time scales", "computed quartiles"],
+    themes: ["editorial", "studio", "autumn"],
+  },
+  {
     id: "flex",
     title: "Flex",
     blurb:
@@ -125,6 +133,7 @@ const PAGE_CSS = {
   // draws the chart the spec described.
   charts: [path.join(HERE, "themes/charts-default.css")],
   plots: [path.join(HERE, "themes/plots-default.css")],
+  more: [path.join(HERE, "themes/more-default.css")],
 };
 
 function sh(cmd, args, opts = {}) {

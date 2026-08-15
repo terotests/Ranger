@@ -10,11 +10,11 @@ of the Vega JavaScript sources and not affiliated with the Vega project. See
 
 **Status:** it draws. Marks, scales, transforms, signals, expressions, axes,
 legends and layout produce a scene that matches the reference implementation
-item for item on **550 of 550 marks** across 14 chart types at three sizes, and
-the EVG backend renders that scene to **PDF, PNG and HTML** — fourteen charts on
-two pages of the project's
-[EVG showcase](https://terotests.github.io/Ranger/evg/). Time scales and faceted
-layout are the largest remaining pieces; see
+item for item on **906 of 906 marks** across 22 chart types at three sizes, and
+the EVG backend renders that scene to **PDF, PNG and HTML** — twenty-two charts
+on three pages of the project's
+[EVG showcase](https://terotests.github.io/Ranger/evg/). Trellis faceting is the
+largest remaining piece; see
 [What is not there yet](#what-is-not-there-yet).
 
 ```
@@ -175,14 +175,22 @@ Measured by `tests/run.sh`: does the mark geometry match the reference?
 | bubble (size) | `bubble.vg.json` | ✓ |
 | coloured scatter | `scatter_colored.vg.json` | ✓ |
 | log scale | `scatter_log.vg.json` | ✓ |
+| multi-series line | `line_coloured.vg.json` | ✓ (a faceted group per series) |
+| streamgraph | `streamgraph.vg.json` | ✓ |
+| time axis | `line_temporal.vg.json` | ✓ |
+| heat map | `heatmap.vg.json` | ✓ (colour ramp + gradient key) |
+| box plot | `boxplot.vg.json` | ✓ |
+| donut | `donut.vg.json` | ✓ |
+| normalized stack | `bar_normalized.vg.json` | ✓ |
+| labelled bar | `bar_labelled.vg.json` | ✓ |
 | tick | `tick.vg.json` | ✓ |
 | text labels | `text_labels.vg.json` | ✓ |
 | pie / arc | `pie.vg.json` | ✓ |
 | layered | `layered.vg.json` | ✓ (both layers) |
 
-**550 / 550 marks**, against Vega 6.4 and Vega-Lite 6.4 — data marks, every axis
+**906 / 906 marks**, against Vega 6.4 and Vega-Lite 6.4 — data marks, every axis
 grid, tick, label, domain line and title, every legend symbol, key and title,
-and the groups that place all of them, in all fourteen charts, at the parity
+and the groups that place all of them, in all twenty-two charts, at the parity
 size and at both of the sizes the showcase draws them.
 
 The groups are the newer half of that number. A group carries the coordinates
@@ -193,15 +201,15 @@ which is also what pins the legend's own size and position.
 
 | Area | State |
 | --- | --- |
-| Marks | rect, rule, symbol, text, line, area, arc, path, image — encoded; group marks are not nested yet |
-| Scales | band, point, linear, log, ordinal · `nice`, `zero`, `clamp`, `round`, `base`, step ranges, colour schemes |
-| Transforms | filter, formula, stack (with sort), aggregate, bin, extent, impute, project, collect (unsorted) |
+| Marks | rect, rule, symbol, text, line, area, arc, path, image · group marks, with data faceted per series and axes of their own |
+| Scales | band, point, linear, log, pow, sqrt, time, ordinal · `nice`, `zero`, `clamp`, `round`, `base`, `exponent`, step ranges, colour schemes and ramps |
+| Transforms | filter, formula, stack (zero, center, normalize), aggregate, joinaggregate, bin, extent, impute, project, collect (unsorted) · count, valid, missing, distinct, sum, mean, min, max, median, q1, q3, variance, stdev, stderr |
 | Expressions | the documented expression profile: operators, member access, calls, array and object literals |
 | Signals | literal values and `update` expressions, settled against the scales |
 | Data | inline `values` and `source`; a `url` is refused rather than fetched |
 | Axes | ticks, grid, labels, domain, title · `tickCount`, `tickRound`, `labelAngle`, `labelFlush`, `labelOverlap`, band and binned ticks |
-| Legends | symbol legends for fill, stroke, size, shape and opacity · title, per-row layout from the drawn bounds, and the spec's own `encode` blocks. Gradient legends for continuous colour are not built; `orient` other than `right` is drawn but not placed |
-| Layout | axis extents, view size and plot origin (`autosize: pad`); no group or facet layout |
+| Legends | symbol legends for fill, stroke, size, shape and opacity, and gradient legends for continuous colour · title, per-row layout from the drawn bounds, and the spec's own `encode` blocks. `orient` other than `right` is drawn but not placed |
+| Layout | axis extents, view size and plot origin (`autosize: pad`) · several plots side by side (`layout`), placed by their full bounds. Trellis faceting — headers, footers and titles around a grid of cells — is not built |
 | Rendering | **EVG backend**: PDF, PNG and HTML, via `PathBuilder` path data — rect, rule, symbol, text, line, area, arc |
 | Theming | colours from the spec, or from a stylesheet by class; `config.axis` and `config.style` are read |
 | Dataflow | **batch only** — no pulses, no changesets, no incremental re-run |
@@ -347,27 +355,32 @@ reporting `ok`, `DIFF`, `PARTIAL` or `FAILED` with the reason.
 node gallery/vela/tools/reference/triage.mjs
 ```
 
-Nine of twenty-two candidates already match the reference item for item:
-horizontal and negative bars, ranged (Gantt) bars, a labelled bar chart, a step
-line, a line with point markers, a strip plot, a donut, and a scatter with a
-mean rule across it. Any of those could go on a showcase page today.
+**Twenty of twenty-two** candidates match the reference item for item. When the
+triage was first run it was nine, and the thirteen it named as missing were
+built rather than listed:
 
-What stops the rest, in the order that would unlock the most:
-
-| Missing | Charts it blocks |
+| Was missing | What it unlocked |
 | --- | --- |
-| **Group marks** — a series becomes a faceted sub-group | a coloured multi-series line or area, streamgraph, faceting, concatenation: 5 of the 22 |
-| **Scale range schemes** beyond `category` — `heatmap` for continuous colour, `symbol` for shapes | heatmaps, tables, shape-encoded scatter |
-| **`joinaggregate`** | boxplot, and anything comparing a row to its group |
-| **Power scales** | radial charts, whose radius is a `sqrt` scale |
-| **Time scales** | every chart with a date on an axis |
-| **Format specifiers** beyond `.Nf` — `%`, `s`, `,` | a normalized stacked bar's percentage axis |
+| Group marks with faceted data | a coloured multi-series line, a stacked area, a streamgraph |
+| Plots side by side (`layout`) | horizontal concatenation |
+| Continuous colour ramps, and the gradient legend one earns | heat maps, with and without labels |
+| The `symbol` shape range | a shape-encoded scatter |
+| `joinaggregate`, and quantile aggregates | box plots |
+| Power and `sqrt` scales | radial charts |
+| Time scales and a calendar | every chart with a date on an axis |
+| Format specifiers past `.Nf` | a normalized stack's percentage axis |
+| `stderr` | error bars |
 
-Three smaller things the triage found were fixed rather than listed: a formatted
-number's minus sign is the typographic one (U+2212), a formatter with no
-specifier prints twelve significant digits rather than six decimals, and
-`{"field": {"group": "width"}}` reads a property of the enclosing group — which
-is how a rule with one axis encoded is told to span the plot.
+Four smaller things it found were fixed the same way: a formatted number's minus
+sign is the typographic one (U+2212), a formatter with no specifier prints
+twelve significant digits rather than six decimals, `{"field": {"group":
+"width"}}` reads a property of the enclosing group — which is how a rule with
+one axis encoded is told to span the plot — and a `scope` group's own reach is
+what a legend is anchored past, so a series drawn with a wide stroke pushes its
+key further out than the plot rectangle would.
+
+What is left is **trellis faceting**: a grid of cells with headers, footers and
+titles laid out around it, which is a layout engine rather than a chart type.
 
 ## What is not there yet
 

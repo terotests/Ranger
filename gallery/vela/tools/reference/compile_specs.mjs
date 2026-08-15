@@ -143,6 +143,69 @@ const SPECS = {
       color: { field: 'g', type: 'nominal' },
     },
   },
+  // Charts the triage found reachable, graduated into the parity set: a
+  // candidate that matches the reference is not a candidate any more.
+  bar_labelled: {
+    data: { values },
+    layer: [
+      { mark: 'bar', encoding: { x: { field: 'a', type: 'nominal' }, y: { field: 'b', type: 'quantitative' } } },
+      { mark: { type: 'text', dy: -6 }, encoding: { x: { field: 'a', type: 'nominal' }, y: { field: 'b', type: 'quantitative' }, text: { field: 'b', type: 'quantitative' } } },
+    ],
+  },
+  bar_normalized: {
+    data: { values },
+    mark: 'bar',
+    encoding: {
+      x: { field: 'g', type: 'nominal' },
+      y: { field: 'b', type: 'quantitative', aggregate: 'sum', stack: 'normalize' },
+      color: { field: 'a', type: 'nominal' },
+    },
+  },
+  line_coloured: {
+    data: { values },
+    mark: 'line',
+    encoding: {
+      x: { field: 'c', type: 'quantitative' },
+      y: { field: 'b', type: 'quantitative' },
+      color: { field: 'g', type: 'nominal' },
+    },
+  },
+  line_temporal: {
+    data: { values: values.map((d, i) => ({ ...d, t: `2024-0${(i % 9) + 1}-01` })) },
+    mark: 'line',
+    encoding: {
+      x: { field: 't', type: 'temporal' },
+      y: { field: 'b', type: 'quantitative' },
+    },
+  },
+  streamgraph: {
+    data: { values },
+    mark: 'area',
+    encoding: {
+      x: { field: 'c', type: 'quantitative' },
+      y: { field: 'b', type: 'quantitative', stack: 'center' },
+      color: { field: 'g', type: 'nominal' },
+    },
+  },
+  heatmap: {
+    data: { values },
+    mark: 'rect',
+    encoding: {
+      x: { field: 'a', type: 'nominal' },
+      y: { field: 'g', type: 'nominal' },
+      color: { field: 'b', type: 'quantitative' },
+    },
+  },
+  boxplot: {
+    data: { values },
+    mark: 'boxplot',
+    encoding: { x: { field: 'g', type: 'nominal' }, y: { field: 'b', type: 'quantitative' } },
+  },
+  donut: {
+    data: { values },
+    mark: { type: 'arc', innerRadius: 30 },
+    encoding: { theta: { field: 'b', type: 'quantitative' }, color: { field: 'a', type: 'nominal' } },
+  },
   scatter_log: {
     data: { values },
     mark: 'point',
@@ -194,6 +257,16 @@ const SHOWCASE = {
 // heights, a stroke legend, a log axis that labels only some of its ticks, two
 // marks in one plot, and a text mark. Eight charts to a page rather than six,
 // so each one is smaller.
+// A third generated page: the chart types the runtime learned most recently,
+// which are also the ones that exercise the most of it — a colour ramp with a
+// gradient key, a series that is a faceted group, a stack centred on a common
+// line, a calendar on an axis.
+const MORE = {
+  width: 150,
+  height: 78,
+  charts: ['heatmap', 'boxplot', 'line_coloured', 'streamgraph', 'line_temporal', 'donut', 'bar_normalized', 'bar_labelled'],
+};
+
 const PLOTS = {
   width: 150,
   height: 78,
@@ -212,6 +285,8 @@ const SHOWCASE_DIR = path.join(SPEC_DIR, 'showcase');
 fs.mkdirSync(SHOWCASE_DIR, { recursive: true });
 const PLOTS_DIR = path.join(SPEC_DIR, 'plots');
 fs.mkdirSync(PLOTS_DIR, { recursive: true });
+const MORE_DIR = path.join(SPEC_DIR, 'more');
+fs.mkdirSync(MORE_DIR, { recursive: true });
 
 for (const [name, spec] of Object.entries(SPECS)) {
   fs.writeFileSync(path.join(SPEC_DIR, `${name}.vl.json`), JSON.stringify(spec, null, 2) + '\n');
@@ -240,6 +315,17 @@ for (const name of PLOTS.charts) {
   const compiled = vl.compile(spec).spec;
   fs.writeFileSync(path.join(PLOTS_DIR, `${name}.vg.json`), JSON.stringify(compiled, null, 2) + '\n');
   console.log(`plots/${name}.vg.json`);
+}
+
+for (const name of MORE.charts) {
+  const spec = { ...SPECS[name], width: MORE.width, height: MORE.height, config: PLOTS.config };
+  // A heat map is a grid of cells, so it needs a row per category rather than
+  // a fixed height, and a donut is square.
+  if (name === 'donut') { spec.width = 110; spec.height = 110; }
+  spec.background = null;
+  const compiled = vl.compile(spec).spec;
+  fs.writeFileSync(path.join(MORE_DIR, `${name}.vg.json`), JSON.stringify(compiled, null, 2) + '\n');
+  console.log(`more/${name}.vg.json`);
 }
 
 console.log(`\n${Object.keys(SPECS).length} specs + ${SHOWCASE.charts.length} showcase + ${PLOTS.charts.length} plot specs written to ${path.relative(process.cwd(), SPEC_DIR)}`);

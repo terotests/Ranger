@@ -27,6 +27,18 @@ Import "VlConfig.rgr"
 Import "VlAxis.rgr"
 Import "VlLegend.rgr"
 
+; A group that is a plot in its own right: its own size, and the room its own
+; axes take outside it. A concatenated or faceted view is a row of these.
+class VlGroupBox {
+    def item:VlSceneItem (new VlSceneItem())
+    def width:double 0.0
+    def height:double 0.0
+    def left:double 0.0
+    def right:double 0.0
+    def top:double 0.0
+    def bottom:double 0.0
+}
+
 class VlRuntime {
     def spec:VlJson (new VlJson)
     def scope:VlExprScope (new VlExprScope())
@@ -44,6 +56,9 @@ class VlRuntime {
     def extentRight:double 0.0
     def extentTop:double 0.0
     def extentBottom:double 0.0
+    ; The top-level groups a concatenated or faceted view holds, with the room
+    ; each one's own axes need around it. The layout step places them.
+    def groupBoxes:[VlGroupBox]
     def chartWidth:double 200.0
     def chartHeight:double 200.0
     def padding:double 5.0
@@ -765,7 +780,7 @@ class VlRuntime {
 
         ; Axes first: the reference draws them under the data marks, and a grid
         ; line has to be behind the bar it crosses.
-        this.encodeAxes(rootItem)
+        this.encodeAxes(rootItem (spec.get("axes")))
 
         def marks:VlJson (spec.get("marks"))
         if (marks.isArray()) {
@@ -777,6 +792,10 @@ class VlRuntime {
                 k = (k + 1)
             }
         }
+
+        ; Several plots side by side are placed once they all exist, because
+        ; each one's position depends on how much room the one before it took.
+        this.layoutGroups(rootItem)
 
         ; Legends last, and outside the plot: they are placed against the right
         ; edge of everything the axes claimed, so they have to be built after
@@ -794,12 +813,11 @@ class VlRuntime {
     }
 
     ; ------------------------------------------------------------------ axes ---
-    fn encodeAxes:void (rootItem:VlSceneItem) {
+    fn encodeAxes:void (rootItem:VlSceneItem axes:VlJson) {
         extentLeft = 0.0
         extentRight = 0.0
         extentTop = 0.0
         extentBottom = 0.0
-        def axes:VlJson (spec.get("axes"))
         if (! (axes.isArray())) {
             return
         }
@@ -907,7 +925,17 @@ class VlRuntime {
         if (! (legends.isArray())) {
             return
         }
-        def anchorX:double ((VlBounds.ceilTo((chartWidth + extentRight))) + 18.0)
+        ; The edge a legend is placed beyond is the plot's — unless a group of
+        ; marks reaches past it. The reference unions a `scope` group's bounds
+        ; into the same measurement it anchors legends against, so a series
+        ; whose line is drawn with a wide stroke pushes the key further out
+        ; than the plot rectangle alone would.
+        def edge:double (chartWidth + extentRight)
+        def reach0:double (this.scopeRightEdge(rootItem))
+        if (reach0 > edge) {
+            edge = reach0
+        }
+        def anchorX:double ((VlBounds.ceilTo(edge)) + 18.0)
         def stackY:double 0.0
         def reach:double 0.0
         def total:int (legends.count())
@@ -951,6 +979,56 @@ class VlRuntime {
         if (reach > chartWidth) {
             this.growExtent("right" (reach - chartWidth))
         }
+    }
+
+    ; How far right the marks inside a group of marks actually reach. A stroked
+    ; path is allowed the miter overhang the reference allows it — four half
+    ; widths — which is why a two-pixel line reaches four pixels past its last
+    ; point.
+    fn scopeRightEdge:double (rootItem:VlSceneItem) {
+        def out:double 0.0
+        for rootItem.marks child:VlSceneMark ci {
+            if (child.markType == "group") {
+                if (child.role == "scope") {
+                    for child.items groupItem:VlSceneItem gi {
+                        def base:double (groupItem.number("x"))
+                        for groupItem.marks inner:VlSceneMark ii {
+                            def reach:double (base + (VlRuntime.markRightEdge(inner)))
+                            if (reach > out) {
+                                out = reach
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    sfn markRightEdge:double (mark:VlSceneMark) {
+        def out:double 0.0
+        for mark.items item:VlSceneItem idx {
+            def at:double (item.number("x"))
+            if (item.has("x2")) {
+                if ((item.number("x2")) > at) {
+                    at = (item.number("x2"))
+                }
+            }
+            if (item.has("width")) {
+                at = (at + (item.number("width")))
+            }
+            if (item.has("stroke")) {
+                def sw:double 1.0
+                if (item.has("strokeWidth")) {
+                    sw = (item.number("strokeWidth"))
+                }
+                at = (at + (2.0 * sw))
+            }
+            if (at > out) {
+                out = at
+            }
+        }
+        return out
     }
 
     ; A guide's own properties may be signals rather than literals — a legend's
@@ -1106,12 +1184,17 @@ class VlRuntime {
         def update:VlJson (encode.get("update"))
 
         if (! (facet.isObject())) {
-            ; A group with no facet is drawn once, holding whatever it holds.
+            ; A group with no facet is drawn once, holding whatever it holds —
+            ; and when it carries its own axes it is a PLOT in its own right,
+            ; which is what a concatenated or faceted view is made of.
             def item:VlSceneItem (mark.addItem())
             def empty:VlJson (VlJson.objectValue())
+            def styles:[string] (VlConfig.styleNames((mdef.get("style"))))
+            def noEncoded:[string:int]
+            this.applyDefaults(item "group" "scope" styles noEncoded)
             this.encodeChannels(item enter empty)
             this.encodeChannels(item update empty)
-            this.encodeChildMarks(item children)
+            this.encodePlotGroup(item (mdef.get("axes")) children)
             return
         }
 
@@ -1152,6 +1235,149 @@ class VlRuntime {
             this.encodeChannels(item enter datum)
             this.encodeChannels(item update datum)
             this.encodeChildMarks(item children)
+        }
+    }
+
+
+    ; A group that is its own plot: its axes are built against ITS size rather
+    ; than the chart's, and the room they need is recorded so the layout step
+    ; can place the group without overlapping its neighbour's labels.
+    ;
+    ; The chart-level size and extents are swapped out for the duration. The
+    ; axis builder reads them from here, and giving it a second set of fields to
+    ; read would be the same state under another name.
+    fn encodePlotGroup:void (item:VlSceneItem axes:VlJson children:VlJson) {
+        if (! (axes.isArray())) {
+            this.encodeChildMarks(item children)
+            return
+        }
+        def savedWidth:double chartWidth
+        def savedHeight:double chartHeight
+        def savedLeft:double extentLeft
+        def savedRight:double extentRight
+        def savedTop:double extentTop
+        def savedBottom:double extentBottom
+
+        chartWidth = (item.number("width"))
+        chartHeight = (item.number("height"))
+        this.encodeAxes(item axes)
+        this.encodeChildMarks(item children)
+
+        def box (new VlGroupBox())
+        box.item = item
+        box.width = chartWidth
+        box.height = chartHeight
+        box.left = extentLeft
+        box.right = extentRight
+        box.top = extentTop
+        box.bottom = extentBottom
+        ; A plot with a frame is half a stroke wider than its plotting area on
+        ; every side, and the layout is measured from the ink. Half a pixel
+        ; sounds like nothing until it is the difference between a plot and its
+        ; neighbour's axis labels.
+        if (item.has("stroke")) {
+            def half:double 0.5
+            if (item.has("strokeWidth")) {
+                half = ((item.number("strokeWidth")) / 2.0)
+            }
+            box.left = (box.left + half)
+            box.right = (box.right + half)
+            box.top = (box.top + half)
+            box.bottom = (box.bottom + half)
+        }
+        push groupBoxes box
+
+        chartWidth = savedWidth
+        chartHeight = savedHeight
+        extentLeft = savedLeft
+        extentRight = savedRight
+        extentTop = savedTop
+        extentBottom = savedBottom
+    }
+
+    ; Several plots side by side. The reference lays them out on a grid whose
+    ; cells are the FULL bounds of each plot — axes included — so a plot with a
+    ; wide axis is pushed clear of its neighbour rather than printed over it.
+    ; With one row, which is what a horizontal concatenation is, that reduces to
+    ; a running sum: each plot starts a padding and its own left extent past the
+    ; right edge of the one before.
+    fn layoutGroups:void (rootItem:VlSceneItem) {
+        if ((array_length groupBoxes) == 0) {
+            return
+        }
+        def layoutDef:VlJson (spec.get("layout"))
+        def gap:double (layoutDef.doubleOr("padding" 0.0))
+        def columns:int (layoutDef.intOr("columns" (array_length groupBoxes)))
+        if (columns < 1) {
+            columns = 1
+        }
+
+        def x:double 0.0
+        def y:double 0.0
+        def rowTop:double 0.0
+        def rowHeight:double 0.0
+        def minX:double 0.0
+        def maxX:double 0.0
+        def minY:double 0.0
+        def maxY:double 0.0
+        def first:boolean true
+        for groupBoxes box:VlGroupBox idx {
+            def column:int (idx % columns)
+            if (column == 0) {
+                x = 0.0
+                if (idx > 0) {
+                    rowTop = (rowTop + rowHeight + gap)
+                    rowHeight = 0.0
+                }
+                y = rowTop
+            } {
+                x = (x + gap + (VlBounds.ceilTo(box.left)))
+            }
+            box.item.setNumber("x" x)
+            box.item.setNumber("y" y)
+            def right:double (x + box.width + box.right)
+            def bottom:double (y + box.height + box.bottom)
+            if first {
+                minX = (x - box.left)
+                maxX = right
+                minY = (y - box.top)
+                maxY = bottom
+                first = false
+            } {
+                if ((x - box.left) < minX) {
+                    minX = (x - box.left)
+                }
+                if (right > maxX) {
+                    maxX = right
+                }
+                if ((y - box.top) < minY) {
+                    minY = (y - box.top)
+                }
+                if (bottom > maxY) {
+                    maxY = bottom
+                }
+            }
+            if ((box.height + box.bottom + box.top) > rowHeight) {
+                rowHeight = (box.height + box.bottom + box.top)
+            }
+            x = (VlBounds.ceilTo((x + box.width + box.right)))
+        }
+
+        ; The view is what the placed plots cover, and the chart's own size is
+        ; not part of it — a concatenated view has none of its own.
+        ; A concatenated view has no plotting area of its own: what it covers is
+        ; what its plots cover.
+        if (! (spec.has("width"))) {
+            chartWidth = 0.0
+            rootItem.setNumber("width" 0.0)
+        }
+        chartHeight = (rootItem.number("height"))
+        extentLeft = (0.0 - minX)
+        extentRight = maxX
+        extentTop = (0.0 - minY)
+        extentBottom = (maxY - chartHeight)
+        if (extentBottom < 0.0) {
+            extentBottom = 0.0
         }
     }
 

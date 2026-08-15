@@ -13,21 +13,25 @@ Each page is rendered under **two themes** — the generated chart pages under
 print target), PNG (the raster preview) and HTML (the debug view) — from one
 source tree and one stylesheet.
 
-### Two pages are generated
+### Three pages are generated
 
-`pages/charts.tsx` and `pages/plots.tsx` are written by a tool, not by hand:
-`npm run vela:showcase` runs a set of Vega specifications through the
-[Vela](../../vela/README.md) runtime and emits the paths and labels they
-produce, together with `themes/charts-default.css` and
-`themes/plots-default.css`.
+`pages/charts.tsx`, `pages/plots.tsx` and `pages/more.tsx` are written by a
+tool, not by hand: `npm run vela:showcase` runs a set of Vega specifications
+through the [Vela](../../vela/README.md) runtime and emits the paths and labels
+they produce, together with a stylesheet each.
 
 **Charts** is the six chart types most people mean by the word. **Chart types**
 is the rest, and the features only some charts have — a size legend whose rows
 are all different heights, a stroke legend, a log axis that labels only some of
-the ticks it draws, two marks sharing one plot, and text as a mark. It exists to
-be varied rather than pretty, and it earned its keep: four defects in the
-runtime were sitting in charts that differ from the tested ones only by being
-smaller.
+the ticks it draws, two marks sharing one plot, and text as a mark. **More chart
+types** is what the runtime learned most recently, and exercises the most of it:
+a continuous colour ramp with a gradient key, a series that is a faceted group,
+a stack centred on a common line, a calendar on an axis, and a box plot whose
+quartiles are computed.
+
+They exist to be varied rather than pretty, and they earn their keep: four
+defects in the runtime were sitting in charts that differ from the tested ones
+only by being smaller.
 
 It follows the same rule as the hand-written pages. A chart's series are
 numbered in the order it draws them — `chartFill0`, `chartStroke0` — and the
