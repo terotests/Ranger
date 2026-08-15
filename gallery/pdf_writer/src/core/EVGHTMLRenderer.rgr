@@ -63,6 +63,16 @@ class EVGHTMLRenderer {
     def indentLevel:int 0
     def indentString:string "  "
     def usedFontFamilies:[string]
+    ; The face that covers codepoints the document's own faces do not — emoji,
+    ; in practice. Empty unless the caller found the document actually needs
+    ; one: an emoji face is close to a megabyte once base64'd, and a page with
+    ; no emoji in it should not carry that.
+    ;
+    ; It matters for more than looks. Left out, the browser substitutes its own
+    ; emoji font, whose advances are not the ones EVG measured with — so a line
+    ; wraps here that did not wrap in the PDF, and the absolutely positioned
+    ; boxes below it land on top of each other.
+    def fallbackFamily:string ""
     def fontBasePath:string "./fonts/"
     ; Real file paths for the faces that were actually loaded, registered by
     ; the tool. fontFamilyToFileName below is a hand-maintained guess at where
@@ -253,6 +263,9 @@ class EVGHTMLRenderer {
             css = css + (this.generateFontFace(fontFamily))
             i = i + 1
         }
+        if ((strlen fallbackFamily) > 0) {
+            css = css + (this.generateFontFace(fallbackFamily))
+        }
         
         ; Page container - visualizes actual page boundaries
         css = css + "    .evg-page-container {\n"
@@ -284,6 +297,22 @@ class EVGHTMLRenderer {
         return css
     }
     
+    fn setFallbackFamily:void (f:string) {
+        fallbackFamily = f
+    }
+
+    ; The font-family stack for an element: the declared face, then the
+    ; fallback face when the document needs one, then a generic.
+    fn fontStack:string (family:string) {
+        def out:string ("'" + family + "'")
+        if ((strlen fallbackFamily) > 0) {
+            if (fallbackFamily != family) {
+                out = out + ", '" + fallbackFamily + "'"
+            }
+        }
+        return (out + ", sans-serif")
+    }
+
     ; Tell the renderer where a face really is. Overrides the name mapping.
     fn addFontFile:void (family:string path:string) {
         def i:int 0
@@ -836,7 +865,7 @@ class EVGHTMLRenderer {
         
         ; Font properties
         if ((strlen el.fontFamily) > 0) {
-            css = css + "font-family: '" + el.fontFamily + "', sans-serif; "
+            css = css + "font-family: " + (this.fontStack(el.fontFamily)) + "; "
         }
         
         if el.fontSize.isSet {

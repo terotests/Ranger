@@ -833,6 +833,73 @@ Known limit the gallery shows rather than hides: the raster target's JPEG
 decode has visible block artefacts, and the PDF path — which embeds the
 original file untouched — does not. Both are on the page, side by side.
 
+### Phase 4.7 — Codepoints, and emoji that actually print ✅
+
+**Text is stepped by codepoint.** `charAt` returns a UTF-16 code *unit*, so
+everything outside the BMP — emoji, CJK extensions, most maths symbols — was
+seen as two characters, and neither half is a real codepoint. On a page
+containing `a😀b`:
+
+| | before |
+| --- | --- |
+| measured width | 47.53px — the emoji was charged **two** `.notdef` advances |
+| JSON display list | `ed a0 bd ed b8 80`, CESU-8 surrogate halves; a strict UTF-8 parser refuses the file |
+| PDF | two encoding warnings, at U+D83D and U+DE00, which are not characters |
+
+`EVGCodepoint` is now the one place that knows how to walk a string —
+`codeAt`, `unitsAt`, `count`, `toArray`, `toStr`, `encodeUtf8` — and it is
+threaded through every site that looks up a glyph or writes bytes.
+
+**Emoji reach the page.** Three things had to be true at once, and each was
+false:
+
+- **A face that has the glyphs.** `Noto_Emoji/NotoEmoji-Regular.ttf` is loaded
+  last, so it is never picked as a substitute for a missing *text* face. It is
+  the monochrome `glyf` cut on purpose: the colour formats are bitmaps
+  (CBDT/sbix) or layered vectors (COLR/CPAL), and neither the outline
+  rasterizer nor the PDF font path can read those. Ordinary outlines mean the
+  same file works on all three targets with no new machinery.
+- **A cmap that reaches past the BMP.** Format 4 is 16-bit and cannot address
+  U+1F600 at all. `TrueTypeFont` now prefers a format 12 subtable — `(3,10)`
+  or `(0,4)`/`(0,6)` — and binary-searches its groups.
+- **A run that can cross faces.** A text face has no emoji and an emoji face
+  has no letters, so `Ready 🎉` cannot be measured or drawn from one file.
+  `FontManager.faceForCodepoint` resolves per codepoint, the primary family
+  winning whatever it can draw, so ordinary text takes exactly the same path it
+  did before. Kerning is applied only between two codepoints from the same
+  face — a pair spanning the boundary has no kern pair by definition.
+
+Each target then does the one thing it has to:
+
+- **PNG** — `RasterText` swaps face mid-run for a missing glyph and keeps the
+  primary face's baseline, so the line does not step where the face changes.
+- **PDF** — WinAnsi is one byte wide and has no room for U+1F389 at any price,
+  so a fallback span is drawn through a **Type0 / Identity-H** resource
+  (`/E1..`, alongside the WinAnsi `/F1..`) whose strings are glyph ids, with a
+  `/W` array and a `/ToUnicode` cmap built from what was actually drawn. The
+  existing fonts are untouched: converting everything to Identity-H would
+  change the encoding, `/Widths` and cmap of text that is currently correct in
+  order to fix text that currently cannot be written at all.
+- **HTML** — the fallback face is named in the `font-family` stack and
+  `@font-face`d, but *only when the document needs it*: without that the
+  browser substitutes its own emoji font, whose advances are not the ones EVG
+  measured with, and the line wraps where the PDF did not.
+
+Emoji in a rendered PDF now extract as their real codepoints (`U+1F389`,
+`U+1F600`, …) rather than as `?`.
+
+One bug this surfaced, in code written the same afternoon: `unitsPerEm` is born
+`1000`, so a *blank* `TrueTypeFont` — the "no face has this codepoint" answer —
+passed a `unitsPerEm > 0` test and was used as if it were a font. `✓` (U+2713,
+which nothing bundled actually has) came out as `.notdef` drawn from a face
+that had never been opened, with no warning. `TrueTypeFont.isLoaded()` is the
+test now, and the unencodable character is reported again.
+
+Known limits, all narrow and none silent: no colour (COLR/CPAL is the tractable
+next step); no grapheme clustering, so a ZWJ sequence or a skin-tone modifier
+comes out as its parts; and the PDF embeds the whole face rather than a subset,
+so one emoji on a page costs 858 KB.
+
 ## 11. File / module impact (expected)
 
 | Area | Likely touch points |

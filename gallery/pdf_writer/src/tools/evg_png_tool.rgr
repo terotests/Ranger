@@ -219,6 +219,9 @@ class EVGPNGTool {
         
         ; Initialize text renderer
         textRenderer = (new RasterText())
+        ; So a codepoint the declared face lacks — an emoji, most often — is
+        ; drawn from a face that has it instead of coming out as an empty box.
+        textRenderer.setFallbackManager(fm)
         def defaultFont:TrueTypeFont (fontManager.getFont("Open Sans"))
         if (defaultFont.unitsPerEm > 0) {
             textRenderer.setFont(defaultFont)

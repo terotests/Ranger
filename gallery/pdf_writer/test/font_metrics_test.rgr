@@ -46,6 +46,7 @@ class FontMetricsTest {
         test.testRasterWrapMatchesLayout(t fm)
         test.testKerning(t fm)
         test.testBoldIsMeasured(t fm)
+        test.testEmojiFallback(t fm)
         t.summary()
     }
 
@@ -327,4 +328,56 @@ class FontMetricsTest {
         t.near("laid-out label width equals the measured advance" label.calculatedWidth expected)
         t.ok("and it is not the heuristic width" ((label.calculatedWidth - (14.0 * 30.0 * 0.55)) != 0.0))
     }
+
+    ; Emoji reach the page at all.
+    ;
+    ; A text face has no emoji and an emoji face has no letters, so a run that
+    ; mixes them cannot be measured or drawn from one file. Before the fallback
+    ; existed, "Ready" plus a party popper measured as if the emoji were a
+    ; .notdef box and painted as nothing, and the PDF encoder called it
+    ; unencodable — because
+    ; WinAnsi is one byte wide and U+1F389 does not fit in one byte at any
+    ; price. This locks the pieces that make it work.
+    fn testEmojiFallback:void (t:RgTest fm:FontManager) {
+        def grin:int 128512          ; U+1F600
+        def party:int 127881         ; U+1F389
+
+        ; The face has to be loaded by default, or nothing below can happen.
+        def emoji:TrueTypeFont (fm.getFont("Noto Emoji"))
+        t.ok("the emoji face is loaded" (emoji.isLoaded()))
+
+        ; Reaching an astral codepoint at all needs cmap format 12: format 4
+        ; is 16-bit and cannot address past the BMP.
+        t.eqInt("the emoji face is read through a format 12 cmap" emoji.cmapFormat 12)
+        t.ok("and U+1F600 resolves to a real glyph" ((emoji.getGlyphIndex(grin)) > 0))
+
+        ; The text face does NOT have it — which is the whole reason a fallback
+        ; is needed, and worth asserting so this test cannot pass vacuously.
+        def sans:TrueTypeFont (fm.getFont("Noto Sans"))
+        t.ok("the text face does not" ((sans.getGlyphIndex(grin)) == 0))
+
+        ; The lookup picks the face that has the glyph...
+        def picked:TrueTypeFont (fm.faceForCodepoint("Noto Sans" party))
+        t.eqStr("the fallback lookup finds the emoji face" picked.fontFamily "Noto Emoji")
+        def forA:TrueTypeFont (fm.faceForCodepoint("Noto Sans" 65))
+        t.eqStr("a letter still comes from the text face" forA.fontFamily "Noto Sans")
+
+        ; ...and reports nothing when no loaded face has the codepoint. This
+        ; used to answer with a blank TrueTypeFont that LOOKED loaded, because
+        ; unitsPerEm is born 1000 — so an uncovered character was drawn as
+        ; .notdef out of a font that had never been opened.
+        def none:TrueTypeFont (fm.fallbackFace(1000000))
+        t.ok("an uncovered codepoint has no fallback face" ((none.isLoaded()) == false))
+
+        ; Measurement crosses the boundary: one emoji, not two half-glyphs.
+        ; Built from the codepoint rather than written literally, so the test
+        ; cannot be broken by the source file's own encoding.
+        def grinStr:string (EVGCodepoint.toStr(grin))
+        def mixed:double (fm.measureText(("a" + grinStr + "b") "Noto Sans" 20.0))
+        def plain:double (fm.measureText("ab" "Noto Sans" 20.0))
+        def oneEmoji:double (emoji.measureText(grinStr 20.0))
+        t.near("a mixed run measures as its parts" mixed (plain + oneEmoji))
+        t.ok("and the emoji contributes a real advance" (oneEmoji > 0.0))
+    }
+
 }

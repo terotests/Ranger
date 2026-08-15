@@ -92,6 +92,12 @@ class EVGFontSetup {
         this.tryFace("Josefin_Sans/JosefinSans-Regular.ttf")
         this.tryFace("Josefin_Sans/JosefinSans-Bold.ttf")
         this.tryFace("Great_Vibes/GreatVibes-Regular.ttf")
+        ; Emoji last, so it is never picked as a substitute for a missing text
+        ; face — it is only reached through the per-codepoint fallback, for
+        ; codepoints no text face has. Noto Emoji is the monochrome `glyf`
+        ; cut: ordinary outlines, so every target that can draw a letter can
+        ; draw these, and the PDF can embed them like any other face.
+        this.tryFace("Noto_Emoji/NotoEmoji-Regular.ttf")
     }
 
     fn tryFace:void (relativePath:string) {

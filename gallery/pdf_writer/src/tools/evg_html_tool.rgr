@@ -239,6 +239,17 @@ class EVGHTMLTool {
             fi = (fi + 1)
         }
 
+        ; If any text in the document needs a face the declared one does not
+        ; have — an emoji, in practice — name it so the browser resolves the
+        ; same file EVG measured with instead of substituting its own. Only
+        ; when the document actually needs it: the face is embedded base64 and
+        ; would otherwise bloat every page that has no emoji on it.
+        def fbFamily:string (this.findFallbackFamily(root fmForFaces))
+        if ((strlen fbFamily) > 0) {
+            renderer.setFallbackFamily(fbFamily)
+            print ("Fallback face: " + fbFamily)
+        }
+
         ; Same faces as the PDF path: measurement now comes from the TTF files
         ; rather than fontSize * 0.55.
         def ttfMeasurer (new TTFTextMeasurer((fontSetup.getManager())))
@@ -349,4 +360,38 @@ class EVGHTMLTool {
             this.printTree(child (depth + 1))
         }
     }
+
+    ; The first face needed for a codepoint the declared face cannot draw, or
+    ; "" when every character in the document is covered.
+    fn findFallbackFamily:string (el:EVGElement fm:FontManager) {
+        if ((strlen el.textContent) > 0) {
+            def fam:string (el.effectiveFontFamily())
+            def primary:TrueTypeFont (fm.getFont(fam))
+            if (primary.isLoaded()) {
+                def i:int 0
+                while (i < (strlen el.textContent)) {
+                    def cp:int (EVGCodepoint.codeAt(el.textContent i))
+                    def step:int (EVGCodepoint.unitsAt(el.textContent i))
+                    if ((primary.getGlyphIndex(cp)) == 0) {
+                        def fb:TrueTypeFont (fm.fallbackFace(cp))
+                        if (fb.isLoaded()) {
+                            return fb.fontFamily
+                        }
+                    }
+                    i = (i + step)
+                }
+            }
+        }
+        def j:int 0
+        while (j < (el.getChildCount())) {
+            def kid:EVGElement (el.getChild(j))
+            def found:string (this.findFallbackFamily(kid fm))
+            if ((strlen found) > 0) {
+                return found
+            }
+            j = (j + 1)
+        }
+        return ""
+    }
+
 }

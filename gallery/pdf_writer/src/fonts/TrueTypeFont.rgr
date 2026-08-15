@@ -264,6 +264,7 @@ class TrueTypeFont {
         ; or platformID=0 for Unicode
         def i:int 0
         def subtableOffset:int 0
+        def wideFound:boolean false
         
         while (i < numSubtables) {
             def recordOff:int (off + 4 + (i * 8))
@@ -271,12 +272,33 @@ class TrueTypeFont {
             def encodingID:int (this.readUInt16(recordOff + 2))
             def subOff:int (this.readUInt32(recordOff + 4))
             
-            ; Prefer Windows Unicode BMP (3,1) or Unicode (0,3)
-            if ((platformID == 3) && (encodingID == 1)) {
-                subtableOffset = subOff
+            ; A format-4 subtable is BMP-only: it cannot map anything above
+            ; U+FFFF, so a face selected through it can never reach an emoji
+            ; however correct the rest of the pipeline is. Prefer the UCS-4
+            ; subtables — Windows (3,10) or Unicode (0,4) — which carry format
+            ; 12, and keep the BMP ones as the fallback for older faces.
+            def fmt:int (this.readUInt16(off + subOff))
+            def wideCandidate:boolean false
+            if ((platformID == 3) && (encodingID == 10)) {
+                wideCandidate = true
             }
-            if ((platformID == 0) && (subtableOffset == 0)) {
+            if ((platformID == 0) && (encodingID == 4)) {
+                wideCandidate = true
+            }
+            if ((platformID == 0) && (encodingID == 6)) {
+                wideCandidate = true
+            }
+            if (wideCandidate && (fmt == 12)) {
                 subtableOffset = subOff
+                wideFound = true
+            }
+            if (wideFound == false) {
+                if ((platformID == 3) && (encodingID == 1)) {
+                    subtableOffset = subOff
+                }
+                if ((platformID == 0) && (subtableOffset == 0)) {
+                    subtableOffset = subOff
+                }
             }
             
             i = i + 1
@@ -356,10 +378,29 @@ class TrueTypeFont {
         }
     }
     
+    ; Is this a real, parsed face?
+    ;
+    ; NOT `unitsPerEm > 0`: that field is born 1000 and only a face that
+    ; parsed and read a broken `head` ever drops it to zero, so an untouched
+    ; TrueTypeFont — the "nothing found" answer from a lookup — passes that
+    ; test and is then used as if it were a font. It is what made a missing
+    ; glyph come out as .notdef drawn from a fallback that was never loaded.
+    fn isLoaded:boolean () {
+        if (numGlyphs <= 0) {
+            return false
+        }
+        return (cmapOffset > 0)
+    }
+
     fn getGlyphIndex:int (charCode:int) {
         ; Get glyph index for a character code using cmap
         if (cmapOffset == 0) {
             return 0
+        }
+        
+        ; Format 12: the only one that reaches past the BMP.
+        if (cmapFormat == 12) {
+            return (this.getGlyphIndexFormat12(charCode))
         }
         
         ; Format 4: Segment mapping to delta values (most common for Unicode BMP)
@@ -386,6 +427,33 @@ class TrueTypeFont {
         return 0  ; .notdef glyph
     }
     
+    ; Format 12: sorted groups of (startCharCode, endCharCode, startGlyphID),
+    ; 12 bytes each. This is the only cmap kind that reaches past the BMP, so
+    ; it is what an emoji lookup actually goes through.
+    fn getGlyphIndexFormat12:int (charCode:int) {
+        def off:int cmapOffset
+        def nGroups:int (this.readUInt32(off + 12))
+        def lo:int 0
+        def hi:int (nGroups - 1)
+        while (lo <= hi) {
+            def mid:int (to_int ((lo + hi) / 2))
+            def g:int (off + 16 + (mid * 12))
+            def startChar:int (this.readUInt32(g))
+            def endChar:int (this.readUInt32(g + 4))
+            if (charCode < startChar) {
+                hi = (mid - 1)
+            } {
+                if (charCode > endChar) {
+                    lo = (mid + 1)
+                } {
+                    def startGlyph:int (this.readUInt32(g + 8))
+                    return (startGlyph + (charCode - startChar))
+                }
+            }
+        }
+        return 0
+    }
+
     fn getGlyphIndexFormat4:int (charCode:int) {
         ; Format 4 is segment-based mapping
         def off:int cmapOffset

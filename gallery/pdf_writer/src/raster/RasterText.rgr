@@ -132,6 +132,15 @@ class RasterText {
     ; themselves be composite.
     def compositeDepth:int 0
 
+    ; Where to look when the current face has no glyph for a codepoint.
+    ;
+    ; One face cannot cover a run that mixes scripts: a text face carries no
+    ; emoji and an emoji face carries no letters, so "Ready 🎉" is two faces or
+    ; it is a blank box. Optional — with no manager set the rasterizer behaves
+    ; exactly as before and draws .notdef.
+    def fallbackManager:FontManager
+    def hasFallbackManager:boolean false
+
     ; Edges buffer for glyph rendering (reused to avoid slice issues in Go)
     def currentEdges:[GlyphEdge]
     
@@ -146,6 +155,11 @@ class RasterText {
     fn setFont:void (ttf:TrueTypeFont) {
         font = ttf
         this.findTableOffsets()
+    }
+
+    fn setFallbackManager:void (fm:FontManager) {
+        fallbackManager = fm
+        hasFallbackManager = true
     }
     
     ; Measure text width using the current font
@@ -1065,28 +1079,52 @@ class RasterText {
             def ch:int (EVGCodepoint.codeAt(text i))
             def cpStep:int (EVGCodepoint.unitsAt(text i))
             def glyphIdx:int (font.getGlyphIndex(ch))
-            
-            def outline:GlyphOutline (this.parseGlyph(glyphIdx fontSize))
-            
-            ; Debug first character
-            if (i == 0) {
-                if debug { print ("  First char: code=" + (to_string ch) + " glyphIdx=" + (to_string glyphIdx) + " numContours=" + (to_string (array_length outline.contours)) + " advanceWidth=" + (to_string outline.advanceWidth)) }
-            }
-            
-            ; Kern against the previous glyph before painting this one, so the
-            ; raster pen walks the same path layout measured. Without it the
-            ; raster drew a wider run than the box reserved — the same
-            ; disagreement the PDF side avoids with a TJ array.
-            if (firstCp == false) {
-                currX = (currX + (font.kernPoints(prevCp ch fontSize)))
-            }
-            prevCp = ch
-            firstCp = false
 
-            this.renderGlyph(buf outline currX renderY r g b a)
-            
-            ; Advance
-            currX = currX + outline.advanceWidth
+            ; Missing from this face — borrow the glyph from one that has it.
+            ; The baseline stays the primary face's, so a run with an emoji in
+            ; it sits on one line rather than stepping where the face changes.
+            def drewFallback:boolean false
+            if (glyphIdx == 0) {
+                if hasFallbackManager {
+                    def fb:TrueTypeFont (fallbackManager.fallbackFace(ch))
+                    if (fb.isLoaded()) {
+                        def keep:TrueTypeFont font
+                        this.setFont(fb)
+                        def fbOutline:GlyphOutline (this.parseGlyph((fb.getGlyphIndex(ch)) fontSize))
+                        this.renderGlyph(buf fbOutline currX renderY r g b a)
+                        currX = (currX + fbOutline.advanceWidth)
+                        this.setFont((unwrap keep))
+                        drewFallback = true
+                    }
+                }
+            }
+
+            if (drewFallback == false) {
+                def outline:GlyphOutline (this.parseGlyph(glyphIdx fontSize))
+
+                ; Debug first character
+                if (i == 0) {
+                    if debug { print ("  First char: code=" + (to_string ch) + " glyphIdx=" + (to_string glyphIdx) + " numContours=" + (to_string (array_length outline.contours)) + " advanceWidth=" + (to_string outline.advanceWidth)) }
+                }
+
+                ; Kern against the previous glyph before painting this one, so
+                ; the raster pen walks the same path layout measured. Without it
+                ; the raster drew a wider run than the box reserved — the same
+                ; disagreement the PDF side avoids with a TJ array. A pair that
+                ; spans a fallback boundary is skipped: the two glyphs come from
+                ; different files and no kern pair exists for them.
+                if (firstCp == false) {
+                    currX = (currX + (font.kernPoints(prevCp ch fontSize)))
+                }
+
+                this.renderGlyph(buf outline currX renderY r g b a)
+
+                ; Advance
+                currX = currX + outline.advanceWidth
+            }
+
+            prevCp = ch
+            firstCp = drewFallback
             i = (i + cpStep)
         }
     }

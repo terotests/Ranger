@@ -1,3 +1,4 @@
+Import "../../../evg/EVGCodepoint.rgr"
 ; FontManager.rgr - Manage loaded fonts and provide text measurement
 ;
 ; Usage:
@@ -246,13 +247,96 @@ class FontManager {
         return ((font.fontFamily == searchFamily) || (font.fontFamily == fontFamily))
     }
 
+    ; The face that actually has a glyph for this codepoint.
+    ;
+    ; A text face carries no emoji and an emoji face carries no letters, so a
+    ; run mixing them cannot be measured or drawn from one file. The primary
+    ; family wins whenever it has the glyph; only what it lacks is looked for
+    ; elsewhere, so this costs nothing on ordinary text.
+    fn faceForCodepoint:TrueTypeFont (fontFamily:string cp:int) {
+        def primary:TrueTypeFont (this.getFont(fontFamily))
+        if (primary.isLoaded()) {
+            if ((primary.getGlyphIndex(cp)) > 0) {
+                return primary
+            }
+        }
+        def i:int 0
+        while (i < (array_length fonts)) {
+            def f:TrueTypeFont (itemAt fonts i)
+            if (f.isLoaded()) {
+                if ((f.getGlyphIndex(cp)) > 0) {
+                    return f
+                }
+            }
+            i = (i + 1)
+        }
+        return primary
+    }
+
+    ; Any loaded face that has this codepoint, without a family to start from.
+    ;
+    ; The rasterizer holds one face at a time and knows the glyph is missing
+    ; before it knows what to do about it, so it asks this rather than
+    ; re-deriving the family name it was set up with. Returns a face with
+    ; unitsPerEm == 0 when nothing loaded has the glyph, which the caller must
+    ; check — drawing .notdef from the primary is better than drawing nothing.
+    fn fallbackFace:TrueTypeFont (cp:int) {
+        def i:int 0
+        while (i < (array_length fonts)) {
+            def f:TrueTypeFont (itemAt fonts i)
+            if (f.isLoaded()) {
+                if ((f.getGlyphIndex(cp)) > 0) {
+                    return f
+                }
+            }
+            i = (i + 1)
+        }
+        def none (new TrueTypeFont())
+        return none
+    }
+
+    ; True when the codepoint is drawn from some face other than the primary.
+    fn needsFallback:boolean (fontFamily:string cp:int) {
+        def primary:TrueTypeFont (this.getFont(fontFamily))
+        if ((primary.isLoaded()) == false) {
+            return false
+        }
+        return ((primary.getGlyphIndex(cp)) == 0)
+    }
+
     fn measureText:double (text:string fontFamily:string fontSize:double) {
         def font:TrueTypeFont (this.getFont(fontFamily))
-        if (font.unitsPerEm > 0) {
-            return (font.measureText(text fontSize))
+        if (font.unitsPerEm <= 0) {
+            ; No real metrics at all — the caller is on the estimate path.
+            return ((to_double (strlen text)) * fontSize * 0.5)
         }
-        ; Fallback to estimate
-        return ((to_double (strlen text)) * fontSize * 0.5)
+
+        ; Measured per codepoint so a run can cross faces. Kerning is only
+        ; applied between two codepoints drawn from the SAME face: a pair
+        ; spanning a fallback boundary has no kern pair by definition, and
+        ; asking one face about the other's glyph would be meaningless.
+        def width:double 0.0
+        def i:int 0
+        def prev:int 0
+        def prevWasPrimary:boolean false
+        def first:boolean true
+        while (i < (strlen text)) {
+            def cp:int (EVGCodepoint.codeAt(text i))
+            def step:int (EVGCodepoint.unitsAt(text i))
+            def face:TrueTypeFont (this.faceForCodepoint(fontFamily cp))
+            def isPrimary:boolean (face.fontPath == font.fontPath)
+            width = (width + (face.getCharWidthPoints(cp fontSize)))
+            if (first == false) {
+                if (isPrimary && prevWasPrimary) {
+                    width = (width + (face.kernPoints(prev cp fontSize)))
+                }
+            }
+            prev = cp
+            prevWasPrimary = isPrimary
+            first = false
+            i = (i + step)
+        }
+        return width
     }
     
     fn getLineHeight:double (fontFamily:string fontSize:double) {
