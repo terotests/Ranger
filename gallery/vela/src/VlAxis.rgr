@@ -19,6 +19,7 @@ Import "VlScene.rgr"
 Import "VlText.rgr"
 Import "VlBounds.rgr"
 Import "VlFormat.rgr"
+Import "VlTime.rgr"
 
 class VlAxisTickValue {
     def value:VlJson (new VlJson)
@@ -247,6 +248,17 @@ class VlAxis {
         def labels:[string] (VlAxis.labelSet(values format))
         if (sc.isLog()) {
             labels = (sc.logLabels(values tickCount))
+        }
+        ; A date is named, not numbered: the finest unit an instant is not
+        ; already on decides what to call it, which is why a January tick reads
+        ; as its year while its neighbours read as their months.
+        if (sc.isTime()) {
+            if ((strlen format) == 0) {
+                clear labels
+                for values v:double vi {
+                    push labels (VlTime.multiFormat(v))
+                }
+            }
         }
         for values v:double idx {
             def tv (new VlAxisTickValue())

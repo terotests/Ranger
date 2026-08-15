@@ -11,14 +11,16 @@
 ; data in Vega (it is a JSON object with a `type` field), the set is closed, and
 ; a single class keeps the cross-target output free of dispatch differences.
 ;
-; Numbers only: no time scale yet (it needs the date/time layer), and no power
-; scale. `log` is here — it maps, nices and ticks like d3's, and its labels
-; follow the same rule the reference applies, which is that a log axis prints
-; only the ticks near the front of each decade and leaves the rest blank.
+; The awkward ones are here too. `log` maps, nices and ticks like d3's, and its
+; labels follow the reference's rule that a log axis prints only the ticks near
+; the front of each decade. `pow` raises the magnitude and keeps the sign.
+; `time` maps like a linear scale — an instant is a number — and hands its ticks
+; to the calendar in VlTime, because months are not all the same length.
 ; ==============================================================================
 
 Import "VlJson.rgr"
 Import "VlMath.rgr"
+Import "VlTime.rgr"
 
 class VlScaleTick {
     def value:double 0.0
@@ -26,7 +28,7 @@ class VlScaleTick {
 }
 
 class VlScale {
-    ; "band" | "point" | "linear" | "log" | "pow" | "sqrt" | "ordinal"
+    ; "band" | "point" | "linear" | "log" | "pow" | "sqrt" | "time" | "ordinal"
     def scaleType:string "linear"
     def name:string ""
     ; A log scale's base. Ten unless the spec says otherwise; the tick algorithm
@@ -193,6 +195,13 @@ class VlScale {
         return ((scaleType == "pow") || (scaleType == "sqrt"))
     }
 
+    ; A time scale maps like a linear one — an instant is a number of
+    ; milliseconds — and differs only in where its ticks fall and what they are
+    ; called, because months and years are not a fixed number of milliseconds.
+    fn isTime:boolean () {
+        return ((scaleType == "time") || (scaleType == "utc"))
+    }
+
     ; A power scale's own exponent: `sqrt` names one rather than stating it.
     fn exponent:double () {
         if (scaleType == "sqrt") {
@@ -352,6 +361,19 @@ class VlScale {
         ; A log domain is extended to whole powers of the base — [19, 91]
         ; becomes [10, 100] — rather than to a tick step, because its ticks are
         ; not evenly spaced and there is no step to round to.
+        ; A time domain nices to the boundary of whatever unit its ticks step
+        ; by: a monthly axis starts on the first of a month, not on whatever
+        ; day the data happened to begin.
+        if (this.isTime()) {
+            def unit:string (VlTime.unitOfTicks((this.timeTicks(count))))
+            domainMin = (VlTime.floorTo(start unit))
+            def end:double (VlTime.floorTo(stop unit))
+            if (end < stop) {
+                end = (VlTime.addUnit(end unit))
+            }
+            domainMax = end
+            return
+        }
         if (this.isLog()) {
             if (start > 0.0) {
                 domainMin = (VlMath.pow(logBase (to_double (floor (this.logOf(start))))))
@@ -398,7 +420,24 @@ class VlScale {
         if (this.isLog()) {
             return (this.logTicks(count))
         }
+        if (this.isTime()) {
+            return (this.timeTicks(count))
+        }
         return (VlScale.linearTicks(domainMin domainMax count))
+    }
+
+    ; The calendar decides these, not arithmetic. The two ends of its interval
+    ; table — finer than a second, longer than a year — fall back on the linear
+    ; tick algorithm, which is computed here and handed over so that the date
+    ; layer knows about the calendar and nothing else.
+    fn timeTicks:[double] (count:int) {
+        def n:int count
+        if (n < 1) {
+            n = 1
+        }
+        def msStep:double (VlScale.tickIncrement(domainMin domainMax n))
+        def yearStep:double (VlScale.tickIncrement((domainMin / (VlTime.msPerYear())) (domainMax / (VlTime.msPerYear())) n))
+        return (VlTime.ticks(domainMin domainMax n msStep yearStep))
     }
 
     ; The ticks a LOG scale asks for, which are not evenly spaced: every whole

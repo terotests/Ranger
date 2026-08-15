@@ -15,6 +15,7 @@
 
 Import "VlJson.rgr"
 Import "VlFormat.rgr"
+Import "VlTime.rgr"
 Import "VlExpr.rgr"
 Import "VlScale.rgr"
 
@@ -345,6 +346,57 @@ class VlExprEval {
         }
         if (argc > 2) {
             a2 = (VlExprEval.eval((itemAt node.children 2) scope))
+        }
+
+        ; --- dates ---
+        ; An instant is a number of milliseconds. `toDate` is what a
+        ; specification calls on a temporal field before anything scales it, and
+        ; a chart's dates arrive as ISO strings.
+        if (name == "toDate") {
+            if (a0.isNumber()) {
+                return a0
+            }
+            if (a0.isString()) {
+                return (VlJson.numberValue((VlTime.parseIso((a0.asString())))))
+            }
+            return (VlJson.nullValue())
+        }
+        if (name == "datetime") {
+            def dp (new VlTimeParts())
+            dp.year = (a0.asInt())
+            dp.month = ((a1.asInt()) + 1)
+            dp.day = 1
+            if (a2.isNumber()) {
+                dp.day = (a2.asInt())
+            }
+            return (VlJson.numberValue((VlTime.msOf(dp))))
+        }
+        if (name == "timeFormat") {
+            return (VlJson.stringValue((VlTime.format((a0.asDouble()) (a1.asString())))))
+        }
+        if (name == "utcFormat") {
+            return (VlJson.stringValue((VlTime.format((a0.asDouble()) (a1.asString())))))
+        }
+        if (name == "year") {
+            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()))).year)))
+        }
+        if (name == "month") {
+            return (VlJson.intValue((((VlTime.partsOf((a0.asDouble()))).month) - 1)))
+        }
+        if (name == "date") {
+            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()))).day)))
+        }
+        if (name == "hours") {
+            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()))).hours)))
+        }
+        if (name == "minutes") {
+            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()))).minutes)))
+        }
+        if (name == "seconds") {
+            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()))).seconds)))
+        }
+        if (name == "day") {
+            return (VlJson.intValue(((VlTime.partsOf((a0.asDouble()))).weekday)))
         }
 
         ; --- type tests ---

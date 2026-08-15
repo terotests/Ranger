@@ -173,6 +173,31 @@ class VlScaleTest {
         this.check("log decade ticks" (this.ticksText(lg3 5)) "0.1,1,10,100,1000,10000")
         this.check("log map 0.5" (this.num((lg3.mapNumber(0.5)))) "172.0412")
 
+        ; --- time ---
+        ; The expected values are what d3-time and d3-time-format answer for
+        ; the same instants, under UTC.
+        def jan:double (VlTime.parseIso("2024-01-01"))
+        def sep:double (VlTime.parseIso("2024-09-01"))
+        this.check("date is milliseconds" (this.num(jan)) "1704067200000")
+        this.check("date round trips" (VlTime.format(jan "%Y-%m-%d")) "2024-01-01")
+        this.check("leap day" (VlTime.format((VlTime.parseIso("2024-02-29")) "%A %e %B %Y")) "Thursday 29 February 2024")
+        this.check("epoch is a Thursday" (VlTime.format(0.0 "%A")) "Thursday")
+        this.check("before the epoch" (VlTime.format((VlTime.parseIso("1900-03-01")) "%A %Y-%m-%d")) "Thursday 1900-03-01")
+        this.check("clock time" (VlTime.format((VlTime.parseIso("2024-01-01T13:05:09")) "%I:%M %p")) "01:05 PM")
+
+        ; A monthly axis: nine ticks over eight months, and the January one is
+        ; named for its year rather than its month.
+        def tsc (new VlScale())
+        tsc.scaleType = "time"
+        tsc.setNumericDomain(jan sep)
+        tsc.setNumericRange(0.0 200.0)
+        def tticks:[double] (tsc.ticks(5))
+        this.check("time tick count" (this.num((to_double (array_length tticks)))) "9")
+        this.check("first tick is January" (VlTime.multiFormat((itemAt tticks 0))) "2024")
+        this.check("second tick is February" (VlTime.multiFormat((itemAt tticks 1))) "February")
+        this.check("last tick is September" (VlTime.multiFormat((itemAt tticks 8))) "September")
+        this.check("time maps like a linear scale" (this.num((tsc.mapNumber(sep)))) "200")
+
         ; --- ordinal ---
         def ord (new VlScale())
         ord.scaleType = "ordinal"

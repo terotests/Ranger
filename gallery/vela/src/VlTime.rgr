@@ -1,0 +1,597 @@
+; ==============================================================================
+; VlTime.rgr — dates, without a date type.
+; ==============================================================================
+; A time axis is the one axis whose ticks are not arithmetic. Months are not the
+; same length, years are not the same length, and "one tick per month" is not a
+; step in milliseconds. So a chart with a date on an axis needs a calendar:
+; where a month begins, which day of the week that is, and what to call it.
+;
+; An instant is a double holding milliseconds since 1970 — a double, not an int,
+; because the count passed two thousand million a long time ago and every target
+; this compiles to narrows an int somewhere. Day numbers are ints; those stay
+; small.
+;
+; The calendar conversions are Howard Hinnant's `days_from_civil` and
+; `civil_from_days`, which are exact for every proleptic Gregorian date and need
+; no tables, no leap-year special cases and no loops.
+;
+; UTC, deliberately. The reference implementation reads a `time` scale in LOCAL
+; time, and agreeing with it means agreeing about the machine's time zone, which
+; this cannot know without a zone database. Under UTC — which is what a build
+; machine and this project's tests run in — the two are the same thing. A local
+; time scale is a further step and is named as one rather than half-done.
+; ==============================================================================
+
+Import "VlJson.rgr"
+
+class VlTimeParts {
+    def year:int 1970
+    def month:int 1
+    def day:int 1
+    def hours:int 0
+    def minutes:int 0
+    def seconds:int 0
+    def millis:int 0
+    ; 0 is Sunday, which is what the reference's week interval starts on.
+    def weekday:int 4
+}
+
+class VlTime {
+    sfn msPerSecond:double () {
+        return 1000.0
+    }
+    sfn msPerMinute:double () {
+        return 60000.0
+    }
+    sfn msPerHour:double () {
+        return 3600000.0
+    }
+    sfn msPerDay:double () {
+        return 86400000.0
+    }
+    sfn msPerWeek:double () {
+        return 604800000.0
+    }
+    ; The reference's own averages, used only to CHOOSE a tick interval — never
+    ; to step by one.
+    sfn msPerMonth:double () {
+        return 2592000000.0
+    }
+    sfn msPerYear:double () {
+        return 31536000000.0
+    }
+
+    ; ------------------------------------------------------------- calendar ---
+    ; Days since 1970-01-01 for a civil date. Exact for any Gregorian date.
+    sfn daysFromCivil:int (year:int month:int day:int) {
+        def y:int year
+        if (month <= 2) {
+            y = (y - 1)
+        }
+        def era:int (VlTime.floorDiv(y 400))
+        def yoe:int (y - (era * 400))
+        def mp:int (month + 9)
+        if (month > 2) {
+            mp = (month - 3)
+        }
+        def doy:int ((VlTime.floorDiv(((153 * mp) + 2) 5)) + (day - 1))
+        def doe:int (((((yoe * 365) + (VlTime.floorDiv(yoe 4))) - (VlTime.floorDiv(yoe 100))) + doy))
+        return (((era * 146097) + doe) - 719468)
+    }
+
+    ; The inverse: a day number back to a civil date.
+    sfn civilFromDays:VlTimeParts (z0:int) {
+        def out (new VlTimeParts())
+        def z:int (z0 + 719468)
+        def era:int (VlTime.floorDiv(z 146097))
+        def doe:int (z - (era * 146097))
+        def yoe:int (VlTime.floorDiv(((((doe - (VlTime.floorDiv(doe 1460))) + (VlTime.floorDiv(doe 36524))) - (VlTime.floorDiv(doe 146096)))) 365))
+        def y:int (yoe + (era * 400))
+        def doy:int (doe - ((((365 * yoe) + (VlTime.floorDiv(yoe 4))) - (VlTime.floorDiv(yoe 100)))))
+        def mp:int (VlTime.floorDiv(((5 * doy) + 2) 153))
+        def d:int ((doy - (VlTime.floorDiv(((153 * mp) + 2) 5))) + 1)
+        def m:int (mp - 9)
+        if (mp < 10) {
+            m = (mp + 3)
+        }
+        if (m <= 2) {
+            y = (y + 1)
+        }
+        out.year = y
+        out.month = m
+        out.day = d
+        ; 1970-01-01 was a Thursday, and the week starts on Sunday.
+        out.weekday = (VlTime.floorMod((z0 + 4) 7))
+        return out
+    }
+
+    ; Integer division that rounds DOWN rather than toward zero, which is what
+    ; the calendar algorithm assumes and what a negative year depends on.
+    sfn floorDiv:int (a:int b:int) {
+        ; Integer division in this language answers a double, and truncates
+        ; toward zero once narrowed; the calendar algorithm needs it to round
+        ; DOWN, which is a different number for every negative year.
+        def q:int (floor ((to_double a) / (to_double b)))
+        return q
+    }
+
+    sfn floorMod:int (a:int b:int) {
+        def m:int (a - ((VlTime.floorDiv(a b)) * b))
+        return m
+    }
+
+    sfn partsOf:VlTimeParts (ms:double) {
+        def dayNumber:int (floor (ms / (VlTime.msPerDay())))
+        def out:VlTimeParts (VlTime.civilFromDays(dayNumber))
+        def rest:double (ms - ((to_double dayNumber) * (VlTime.msPerDay())))
+        def h:int (floor (rest / (VlTime.msPerHour())))
+        rest = (rest - ((to_double h) * (VlTime.msPerHour())))
+        def mi:int (floor (rest / (VlTime.msPerMinute())))
+        rest = (rest - ((to_double mi) * (VlTime.msPerMinute())))
+        def se:int (floor (rest / 1000.0))
+        rest = (rest - ((to_double se) * 1000.0))
+        out.hours = h
+        out.minutes = mi
+        out.seconds = se
+        out.millis = (floor rest)
+        return out
+    }
+
+    sfn msOf:double (p:VlTimeParts) {
+        def days:int (VlTime.daysFromCivil(p.year p.month p.day))
+        def out:double ((to_double days) * (VlTime.msPerDay()))
+        out = (out + ((to_double p.hours) * (VlTime.msPerHour())))
+        out = (out + ((to_double p.minutes) * (VlTime.msPerMinute())))
+        out = (out + ((to_double p.seconds) * 1000.0))
+        return (out + (to_double p.millis))
+    }
+
+    ; ---------------------------------------------------------------- parse ---
+    ; The forms a specification's data actually carries: an ISO date, with or
+    ; without a time, with or without a zone marker. Anything else answers zero
+    ; rather than guessing, and a caller that cares can tell because a real date
+    ; in 1970 is not what a chart plots.
+    sfn parseIso:double (text:string) {
+        def n:int (strlen text)
+        if (n < 10) {
+            return 0.0
+        }
+        def p (new VlTimeParts())
+        p.year = (VlTime.numberAt(text 0 4))
+        p.month = (VlTime.numberAt(text 5 7))
+        p.day = (VlTime.numberAt(text 8 10))
+        if (n >= 16) {
+            p.hours = (VlTime.numberAt(text 11 13))
+            p.minutes = (VlTime.numberAt(text 14 16))
+        }
+        if (n >= 19) {
+            p.seconds = (VlTime.numberAt(text 17 19))
+        }
+        if (n >= 23) {
+            if ((substring text 19 20) == ".") {
+                p.millis = (VlTime.numberAt(text 20 23))
+            }
+        }
+        return (VlTime.msOf(p))
+    }
+
+    sfn numberAt:int (text:string from:int to:int) {
+        def out:int 0
+        def i:int from
+        while (i < to) {
+            def c:int (charAt text i)
+            if ((c >= 48) && (c <= 57)) {
+                out = ((out * 10) + (c - 48))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; --------------------------------------------------------------- floors ---
+    ; The start of the unit an instant falls in. A month or a year floor goes
+    ; through the calendar; the rest are exact divisions, because a day, an hour
+    ; and a minute all have a fixed length in UTC.
+    sfn floorTo:double (ms:double unit:string) {
+        if (unit == "millisecond") {
+            return ms
+        }
+        if (unit == "second") {
+            return (VlTime.floorBy(ms 1000.0))
+        }
+        if (unit == "minute") {
+            return (VlTime.floorBy(ms (VlTime.msPerMinute())))
+        }
+        if (unit == "hour") {
+            return (VlTime.floorBy(ms (VlTime.msPerHour())))
+        }
+        if (unit == "day") {
+            return (VlTime.floorBy(ms (VlTime.msPerDay())))
+        }
+        if (unit == "week") {
+            ; The week starts on Sunday, and 1970-01-01 was a Thursday, so the
+            ; day grid is four days out of step with the week grid.
+            def days:double (VlTime.floorBy(ms (VlTime.msPerDay())))
+            def dayNumber:int (floor (days / (VlTime.msPerDay())))
+            def weekday:int (VlTime.floorMod((dayNumber + 4) 7))
+            return (days - ((to_double weekday) * (VlTime.msPerDay())))
+        }
+        def p:VlTimeParts (VlTime.partsOf(ms))
+        p.hours = 0
+        p.minutes = 0
+        p.seconds = 0
+        p.millis = 0
+        p.day = 1
+        if (unit == "month") {
+            return (VlTime.msOf(p))
+        }
+        p.month = 1
+        return (VlTime.msOf(p))
+    }
+
+    sfn floorBy:double (ms:double size:double) {
+        return ((to_double (floor (ms / size))) * size)
+    }
+
+    ; One step of a unit forward from an instant that is already on a boundary.
+    sfn addUnit:double (ms:double unit:string) {
+        if (unit == "second") {
+            return (ms + 1000.0)
+        }
+        if (unit == "minute") {
+            return (ms + (VlTime.msPerMinute()))
+        }
+        if (unit == "hour") {
+            return (ms + (VlTime.msPerHour()))
+        }
+        if (unit == "day") {
+            return (ms + (VlTime.msPerDay()))
+        }
+        if (unit == "week") {
+            return (ms + (VlTime.msPerWeek()))
+        }
+        def p:VlTimeParts (VlTime.partsOf(ms))
+        if (unit == "month") {
+            p.month = (p.month + 1)
+            if (p.month > 12) {
+                p.month = 1
+                p.year = (p.year + 1)
+            }
+            return (VlTime.msOf(p))
+        }
+        p.year = (p.year + 1)
+        return (VlTime.msOf(p))
+    }
+
+    ; The value a `every(step)` filter tests: an instant belongs to the filtered
+    ; interval when its own field divides by the step. That is why three-month
+    ; ticks land on January, April, July and October rather than wherever the
+    ; first one happened to fall.
+    sfn fieldOf:int (ms:double unit:string) {
+        def p:VlTimeParts (VlTime.partsOf(ms))
+        if (unit == "second") {
+            return p.seconds
+        }
+        if (unit == "minute") {
+            return p.minutes
+        }
+        if (unit == "hour") {
+            return p.hours
+        }
+        if (unit == "day") {
+            return (p.day - 1)
+        }
+        if (unit == "month") {
+            return (p.month - 1)
+        }
+        if (unit == "year") {
+            return p.year
+        }
+        return 0
+    }
+
+    ; ---------------------------------------------------------------- ticks ---
+    ; The reference's own interval table, in milliseconds, and its own choice
+    ; between the two nearest: whichever is closer in RATIO to the span the
+    ; caller asked to be divided.
+    ; `msStep` and `yearStep` are the linear tick algorithm's answer for the two
+    ; ends of the table — finer than a second, and longer than a year. They are
+    ; passed in rather than computed here so that this file knows about the
+    ; calendar and nothing else.
+    sfn ticks:[double] (start:double stop:double count:int msStep:double yearStep:double) {
+        def out:[double]
+        def lo:double start
+        def hi:double stop
+        if (hi < lo) {
+            lo = stop
+            hi = start
+        }
+        def n:int count
+        if (n < 1) {
+            n = 1
+        }
+        def target:double ((hi - lo) / (to_double n))
+
+        def units:[string]
+        def steps:[int]
+        def spans:[double]
+        VlTime.pushInterval(units steps spans "second" 1 1000.0)
+        VlTime.pushInterval(units steps spans "second" 5 5000.0)
+        VlTime.pushInterval(units steps spans "second" 15 15000.0)
+        VlTime.pushInterval(units steps spans "second" 30 30000.0)
+        VlTime.pushInterval(units steps spans "minute" 1 60000.0)
+        VlTime.pushInterval(units steps spans "minute" 5 300000.0)
+        VlTime.pushInterval(units steps spans "minute" 15 900000.0)
+        VlTime.pushInterval(units steps spans "minute" 30 1800000.0)
+        VlTime.pushInterval(units steps spans "hour" 1 3600000.0)
+        VlTime.pushInterval(units steps spans "hour" 3 10800000.0)
+        VlTime.pushInterval(units steps spans "hour" 6 21600000.0)
+        VlTime.pushInterval(units steps spans "hour" 12 43200000.0)
+        VlTime.pushInterval(units steps spans "day" 1 86400000.0)
+        VlTime.pushInterval(units steps spans "day" 2 172800000.0)
+        VlTime.pushInterval(units steps spans "week" 1 604800000.0)
+        VlTime.pushInterval(units steps spans "month" 1 2592000000.0)
+        VlTime.pushInterval(units steps spans "month" 3 7776000000.0)
+        VlTime.pushInterval(units steps spans "year" 1 31536000000.0)
+
+        def total:int (array_length spans)
+        def i:int 0
+        while ((i < total) && ((itemAt spans i) <= target)) {
+            i = (i + 1)
+        }
+        if (i == total) {
+            ; Longer than a year: the step is a plain number of years, chosen by
+            ; the same algorithm a linear axis uses.
+            def years:int (floor (yearStep + 0.5))
+            if (years < 1) {
+                years = 1
+            }
+            return (VlTime.rangeOf(lo hi "year" years))
+        }
+        if (i == 0) {
+            ; Finer than a second: milliseconds, stepped like any other number.
+            def step:double msStep
+            if (step <= 0.0) {
+                step = 1.0
+            }
+            def at:double ((to_double (ceil (lo / step))) * step)
+            def guard:int 0
+            while ((at <= hi) && (guard < 10000)) {
+                push out at
+                at = (at + step)
+                guard = (guard + 1)
+            }
+            return out
+        }
+        def pick:int i
+        def below:double (itemAt spans (i - 1))
+        def above:double (itemAt spans i)
+        if ((target / below) < (above / target)) {
+            pick = (i - 1)
+        }
+        return (VlTime.rangeOf(lo hi (itemAt units pick) (itemAt steps pick)))
+    }
+
+    sfn pushInterval:void (units:[string] steps:[int] spans:[double] unit:string step:int span:double) {
+        push units unit
+        push steps step
+        push spans span
+    }
+
+    ; Every instant of the unit between the ends, keeping those whose own field
+    ; divides by the step. Walking the base unit rather than multiplying by it
+    ; is what keeps three-month ticks on the quarter and two-day ticks on the
+    ; odd days of each month, the way the reference's filtered intervals do.
+    sfn rangeOf:[double] (start:double stop:double unit:string step:int) {
+        def out:[double]
+        def at:double (VlTime.floorTo(start unit))
+        def guard:int 0
+        while ((at <= stop) && (guard < 10000)) {
+            if (at >= start) {
+                if ((VlTime.floorMod((VlTime.fieldOf(at unit)) step)) == 0) {
+                    push out at
+                }
+            }
+            at = (VlTime.addUnit(at unit))
+            guard = (guard + 1)
+        }
+        return out
+    }
+
+    ; The unit a tick set steps by, read back from the ticks themselves — which
+    ; is what a `nice` domain rounds to.
+    sfn unitOfTicks:string (values:[double]) {
+        if ((array_length values) < 2) {
+            return "year"
+        }
+        def gap:double ((itemAt values 1) - (itemAt values 0))
+        if (gap < 1000.0) {
+            return "millisecond"
+        }
+        if (gap < 60000.0) {
+            return "second"
+        }
+        if (gap < 3600000.0) {
+            return "minute"
+        }
+        if (gap < 86400000.0) {
+            return "hour"
+        }
+        if (gap < 604800000.0) {
+            return "day"
+        }
+        if (gap < 2419200000.0) {
+            return "week"
+        }
+        if (gap < 31104000000.0) {
+            return "month"
+        }
+        return "year"
+    }
+
+    ; --------------------------------------------------------------- format ---
+    ; What to call a tick when the specification does not say. The reference
+    ; picks the format by the FINEST unit the instant is not already on: an
+    ; instant at the start of a year is the year, one at the start of a month is
+    ; the month's name, and one in the middle of a day is a clock time. That is
+    ; why a January tick on a monthly axis reads "2024" while its neighbours
+    ; read "February" and "March".
+    sfn multiFormat:string (ms:double) {
+        if ((VlTime.floorTo(ms "second")) < ms) {
+            return (VlTime.format(ms ".%L"))
+        }
+        if ((VlTime.floorTo(ms "minute")) < ms) {
+            return (VlTime.format(ms ":%S"))
+        }
+        if ((VlTime.floorTo(ms "hour")) < ms) {
+            return (VlTime.format(ms "%I:%M"))
+        }
+        if ((VlTime.floorTo(ms "day")) < ms) {
+            return (VlTime.format(ms "%I %p"))
+        }
+        if ((VlTime.floorTo(ms "month")) < ms) {
+            if ((VlTime.floorTo(ms "week")) < ms) {
+                return (VlTime.format(ms "%a %d"))
+            }
+            return (VlTime.format(ms "%b %d"))
+        }
+        if ((VlTime.floorTo(ms "year")) < ms) {
+            return (VlTime.format(ms "%B"))
+        }
+        return (VlTime.format(ms "%Y"))
+    }
+
+    ; The directives a chart's own format strings use.
+    sfn format:string (ms:double spec:string) {
+        def p:VlTimeParts (VlTime.partsOf(ms))
+        def out:string ""
+        def n:int (strlen spec)
+        def i:int 0
+        while (i < n) {
+            def c:string (substring spec i (i + 1))
+            if ((c == "%") && ((i + 1) < n)) {
+                def d:string (substring spec (i + 1) (i + 2))
+                out = (out + (VlTime.directive(p d)))
+                i = (i + 2)
+            } {
+                out = (out + c)
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    sfn directive:string (p:VlTimeParts d:string) {
+        if (d == "Y") {
+            return (VlJson.intToText(p.year))
+        }
+        if (d == "y") {
+            return (VlTime.pad2((VlTime.floorMod(p.year 100))))
+        }
+        if (d == "m") {
+            return (VlTime.pad2(p.month))
+        }
+        if (d == "B") {
+            return (VlTime.monthName(p.month))
+        }
+        if (d == "b") {
+            return (substring (VlTime.monthName(p.month)) 0 3)
+        }
+        if (d == "d") {
+            return (VlTime.pad2(p.day))
+        }
+        if (d == "e") {
+            if (p.day < 10) {
+                return (" " + (VlJson.intToText(p.day)))
+            }
+            return (VlJson.intToText(p.day))
+        }
+        if (d == "A") {
+            return (VlTime.weekdayName(p.weekday))
+        }
+        if (d == "a") {
+            return (substring (VlTime.weekdayName(p.weekday)) 0 3)
+        }
+        if (d == "H") {
+            return (VlTime.pad2(p.hours))
+        }
+        if (d == "I") {
+            def h:int (VlTime.floorMod(p.hours 12))
+            if (h == 0) {
+                h = 12
+            }
+            return (VlTime.pad2(h))
+        }
+        if (d == "p") {
+            if (p.hours < 12) {
+                return "AM"
+            }
+            return "PM"
+        }
+        if (d == "M") {
+            return (VlTime.pad2(p.minutes))
+        }
+        if (d == "S") {
+            return (VlTime.pad2(p.seconds))
+        }
+        if (d == "L") {
+            return (VlTime.pad3(p.millis))
+        }
+        if (d == "%") {
+            return "%"
+        }
+        return d
+    }
+
+    sfn pad2:string (v:int) {
+        if (v < 10) {
+            return ("0" + (VlJson.intToText(v)))
+        }
+        return (VlJson.intToText(v))
+    }
+
+    sfn pad3:string (v:int) {
+        if (v < 10) {
+            return ("00" + (VlJson.intToText(v)))
+        }
+        if (v < 100) {
+            return ("0" + (VlJson.intToText(v)))
+        }
+        return (VlJson.intToText(v))
+    }
+
+    sfn monthName:string (m:int) {
+        def names:[string]
+        push names "January"
+        push names "February"
+        push names "March"
+        push names "April"
+        push names "May"
+        push names "June"
+        push names "July"
+        push names "August"
+        push names "September"
+        push names "October"
+        push names "November"
+        push names "December"
+        if ((m < 1) || (m > 12)) {
+            return ""
+        }
+        return (itemAt names (m - 1))
+    }
+
+    sfn weekdayName:string (w:int) {
+        def names:[string]
+        push names "Sunday"
+        push names "Monday"
+        push names "Tuesday"
+        push names "Wednesday"
+        push names "Thursday"
+        push names "Friday"
+        push names "Saturday"
+        if ((w < 0) || (w > 6)) {
+            return ""
+        }
+        return (itemAt names w)
+    }
+}
