@@ -1866,6 +1866,22 @@ class RangerRustClassWriter {
               }
             }
           }
+          ; …and so does a BORROWED parameter bound to an owned name: the
+          ; parameter is `&Rc<RefCell<T>>` and the local declares the Rc
+          ; itself. The rc-wrap path writes its own clone, so this only
+          ; covers the untyped `def ctx (in_ctx)` shape it never sees.
+          if (local_needs_rc_wrap == false) {
+            if (thisInit.value_type == RangerNodeType.VRef) {
+              if ((array_length thisInit.ns) == 1) {
+                if thisInit.hasParamDesc {
+                  def biP:RangerAppParamDesc thisInit.paramDesc
+                  if ((biP.rust_borrow_type == 1) && biP.rust_needs_rc_wrap) {
+                    wr.out(".clone()" false)
+                  }
+                }
+              }
+            }
+          }
         }
 
         ; Close Rc::new(RefCell::new(...)) if we opened it
@@ -2334,7 +2350,10 @@ class RangerRustClassWriter {
     ; a macro expansion can wrap its result in an extra pair of parens
     if ((array_length value.children) == 1) {
       def only:CodeNode (value.getFirst())
-      if only.expression {
+      ; …and a bare NAME in parens is still that name — `def ctx (in_ctx)`
+      ; answered from the parens' evaluated type instead, which says "an
+      ; owned Rc" and drops the clone the aliasing binding needs
+      if (only.expression || (only.value_type == RangerNodeType.VRef)) {
         return (this.rustInitRcState(only ctx))
       }
     }
@@ -5102,11 +5121,26 @@ class RangerRustClassWriter {
               if ((this.rustArgIsAlreadyRef(nVal)) == false) {
                 wr.out("&" false)
               }
+              ; a BORROWED shared parameter is `&Rc<RefCell<T>>`, so a raw
+              ; value handed to one — `(new CodeWriter)` — takes its cell
+              ; here: `&CodeWriter::new()` is a reference to the struct.
+              def borrowNeedsRcWrap:boolean false
+              if arg.rust_needs_rc_wrap {
+                if ((this.rustInitRcState(nVal ctx)) == 0) {
+                  borrowNeedsRcWrap = true
+                }
+              }
+              if borrowNeedsRcWrap {
+                wr.out("Rc::new(RefCell::new(" false)
+              }
               ctx.setInExpr()
               wr.suppress_expr_parens = true
               this.WalkNode(nVal ctx wr)
               wr.suppress_expr_parens = false
               ctx.unsetInExpr()
+              if borrowNeedsRcWrap {
+                wr.out("))" false)
+              }
               ; a SELF FIELD borrowed into a &mut-self call overlaps the
               ; receiver borrow (E0502) — hand a reference to a clone instead.
               ; A static-string field copies its &str out by value: no borrow

@@ -25080,6 +25080,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                         }
                       }
+                      if ( local_needs_rc_wrap == false ) {
+                        if ( thisInit.value_type == 11 ) {
+                          if ( (thisInit.ns.length) == 1 ) {
+                            if ( thisInit.hasParamDesc ) {
+                              const biP = thisInit.paramDesc;
+                              if ( (biP.rust_borrow_type == 1) && biP.rust_needs_rc_wrap ) {
+                                wr.out(".clone()", false);
+                              }
+                            }
+                          }
+                        }
+                      }
                     }
                     if ( local_needs_rc_wrap && (optInitPassthrough == false) ) {
                       if ( init_rc_state == 0 ) {
@@ -25427,7 +25439,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   }
                   if ( (value.children.length) == 1 ) {
                     const only = value.getFirst();
-                    if ( only.expression ) {
+                    if ( only.expression || (only.value_type == 11) ) {
                       return this.rustInitRcState(only, ctx);
                     }
                   }
@@ -27788,11 +27800,23 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             if ( this.rustArgIsAlreadyRef(nVal_4) == false ) {
                               wr.out("&", false);
                             }
+                            let borrowNeedsRcWrap = false;
+                            if ( arg_4.rust_needs_rc_wrap ) {
+                              if ( this.rustInitRcState(nVal_4, ctx) == 0 ) {
+                                borrowNeedsRcWrap = true;
+                              }
+                            }
+                            if ( borrowNeedsRcWrap ) {
+                              wr.out("Rc::new(RefCell::new(", false);
+                            }
                             ctx.setInExpr();
                             wr.suppress_expr_parens = true;
                             await this.WalkNode(nVal_4, ctx, wr);
                             wr.suppress_expr_parens = false;
                             ctx.unsetInExpr();
+                            if ( borrowNeedsRcWrap ) {
+                              wr.out("))", false);
+                            }
                             if ( is_self_call && this.containsSelfReference(nVal_4) ) {
                               if ( this.rustStaticStrRead(nVal_4) == false ) {
                                 wr.out(".clone()", false);
