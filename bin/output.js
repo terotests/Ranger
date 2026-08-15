@@ -469,6 +469,7 @@ class RangerAppParamDesc  {
     this.needs_cpp_reference = false;
     this.rust_borrow_type = 0;
     this.rust_static_str = false;
+    this.rust_interior_cell = false;
     this.rust_assigned_to_weak = false;
     this.rust_needs_rc_wrap = false;
     this.rust_assigned_to_field = false;
@@ -24798,6 +24799,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( (node.nsp.length) > 0 ) {
                   let had_static = false;
                   const nsp_len = node.nsp.length;
+                  let cellPathTmp = "";
+                  const cellPathLast = node.nsp[(nsp_len - 1)];
+                  if ( cellPathLast.rust_interior_cell ) {
+                    if ( ctx.in_lhs_of_assignment == false ) {
+                      if ( this.rustCellIsCopy(cellPathLast) == false ) {
+                        cellPathTmp = ctx.rustGetTempVar();
+                        wr.out(("{ let " + cellPathTmp) + " = ", false);
+                      }
+                    }
+                  }
                   const lastSegThroughTrait = this.rustSegThroughTrait(node, (nsp_len - 1), ctx);
                   let lastWantsMutAccessor = false;
                   if ( lastSegThroughTrait ) {
@@ -25032,11 +25043,32 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     if ( p.isClass() ) {
                       had_static = true;
                     }
+                    if ( i == (nsp_len - 1) ) {
+                      if ( p.rust_interior_cell ) {
+                        if ( ctx.in_lhs_of_assignment == false ) {
+                          if ( this.rustCellIsCopy(p) ) {
+                            wr.out(".get()", false);
+                          } else {
+                            wr.out((".borrow().clone(); " + cellPathTmp) + " }", false);
+                          }
+                        }
+                      }
+                    }
                   };
                   return;
                 }
                 if ( node.hasParamDesc ) {
                   const part_2 = node.ns[0];
+                  const p_1 = node.paramDesc;
+                  let cellRdTmp = "";
+                  if ( p_1.rust_interior_cell ) {
+                    if ( ctx.in_lhs_of_assignment == false ) {
+                      if ( this.rustCellIsCopy(p_1) == false ) {
+                        cellRdTmp = ctx.rustGetTempVar();
+                        wr.out(("{ let " + cellRdTmp) + " = ", false);
+                      }
+                    }
+                  }
                   if ( (part_2 != "this") && ctx.isMemberVariable(part_2) ) {
                     const uc_1 = ctx.getCurrentClass();
                     const currC_1 = uc_1;
@@ -25047,7 +25079,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       }
                     }
                   }
-                  const p_1 = node.paramDesc;
+                  if ( p_1.rust_interior_cell ) {
+                    wr.out(this.adjustType(p_1.compiledName), false);
+                    if ( ctx.in_lhs_of_assignment ) {
+                      return;
+                    }
+                    if ( this.rustCellIsCopy(p_1) ) {
+                      wr.out(".get()", false);
+                    } else {
+                      wr.out((".borrow().clone(); " + cellRdTmp) + " }", false);
+                    }
+                    return;
+                  }
                   wr.out(this.adjustType(p_1.compiledName), false);
                   const pWeakTail = node.paramDesc;
                   this.writeRustWeakVRefTail(node, pWeakTail, ctx, wr);
@@ -25177,6 +25220,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 this.rust_writing_field_type = false;
               };
               async writeStructFieldTypeInner (p, ctx, wr) {
+                if ( p.rust_interior_cell ) {
+                  const cellNameN = p.nameNode;
+                  if ( this.rustCellIsCopy(p) ) {
+                    wr.out("Cell<", false);
+                    await this.writeTypeDef(cellNameN, ctx, wr);
+                    wr.out(">", false);
+                  } else {
+                    wr.out("RefCell<String>", false);
+                  }
+                  return;
+                }
                 const nameN = p.nameNode;
                 let shared_field = false;
                 if ( p.rust_needs_rc_wrap ) {
@@ -26550,24 +26604,30 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         if ( (left.ns.length) <= 1 ) {
                           const pp = left.paramDesc;
                           if ( pp.is_class_variable ) {
-                            return true;
+                            if ( pp.rust_interior_cell == false ) {
+                              return true;
+                            }
                           }
                         }
                       }
                       if ( (left.ns.length) > 0 ) {
                         if ( (left.ns.length) > 0 ) {
                           const firstPart_1 = left.ns[0];
-                          if ( firstPart_1 == "this" ) {
-                            return true;
-                          }
-                          if ( ctx.isMemberVariable(firstPart_1) ) {
-                            return true;
+                          if ( this.rustNodeIsCellField(left) == false ) {
+                            if ( firstPart_1 == "this" ) {
+                              return true;
+                            }
+                            if ( ctx.isMemberVariable(firstPart_1) ) {
+                              return true;
+                            }
                           }
                         }
                       }
                       if ( (left.vref.length) > 0 ) {
                         if ( ctx.isMemberVariable(left.vref) ) {
-                          return true;
+                          if ( this.rustNodeIsCellField(left) == false ) {
+                            return true;
+                          }
                         }
                       }
                     }
@@ -26843,6 +26903,101 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   };
                   return res;
                 };
+                rustFieldCanBeCell (p, ctx) {
+                  if ( p.is_optional ) {
+                    return false;
+                  }
+                  if ( p.rust_static_str ) {
+                    return false;
+                  }
+                  if ( p.rust_needs_rc_wrap ) {
+                    return false;
+                  }
+                  const cellNNO = p.nameNode;
+                  if ( typeof(cellNNO) === "undefined" ) {
+                    return false;
+                  }
+                  const cellNN = cellNNO;
+                  if ( (cellNN.array_type.length) > 0 ) {
+                    return false;
+                  }
+                  if ( (cellNN.key_type.length) > 0 ) {
+                    return false;
+                  }
+                  const cellT = cellNN.type_name;
+                  if ( cellT == "boolean" ) {
+                    return true;
+                  }
+                  if ( cellT == "int" ) {
+                    return true;
+                  }
+                  if ( cellT == "double" ) {
+                    return true;
+                  }
+                  if ( cellT == "string" ) {
+                    return true;
+                  }
+                  return false;
+                };
+                rustCellIsCopy (p) {
+                  const ciNNO = p.nameNode;
+                  if ( typeof(ciNNO) === "undefined" ) {
+                    return true;
+                  }
+                  const ciNN = ciNNO;
+                  return ciNN.type_name != "string";
+                };
+                rustCellFieldDesc (node) {
+                  let cfRes;
+                  const cfNsp = node.nsp.length;
+                  if ( cfNsp > 0 ) {
+                    const cfLast = node.nsp[(cfNsp - 1)];
+                    if ( cfLast.rust_interior_cell ) {
+                      cfRes = cfLast;
+                    }
+                    return cfRes;
+                  }
+                  if ( node.hasParamDesc == false ) {
+                    return cfRes;
+                  }
+                  if ( (node.ns.length) > 2 ) {
+                    return cfRes;
+                  }
+                  if ( (node.ns.length) == 2 ) {
+                    if ( (node.ns[0]) != "this" ) {
+                      return cfRes;
+                    }
+                  }
+                  const cfP = node.paramDesc;
+                  if ( cfP.is_class_variable == false ) {
+                    return cfRes;
+                  }
+                  if ( cfP.rust_interior_cell ) {
+                    cfRes = cfP;
+                  }
+                  return cfRes;
+                };
+                rustNodeIsCellField (node) {
+                  const cfD = this.rustCellFieldDesc(node);
+                  return (typeof(cfD) !== "undefined" && cfD != null ) ;
+                };
+                rustMarkInteriorCells (cl, ctx) {
+                  const cellRootO = this.rustTraitRootOf(cl, ctx);
+                  if ( typeof(cellRootO) === "undefined" ) {
+                    return;
+                  }
+                  const cellRoot = cellRootO;
+                  for ( let cellPi = 0; cellPi < cl.variables.length; cellPi++) {
+                    var cellP = cl.variables[cellPi];
+                    const inRoot = cellRoot.findVariable(cellP.name);
+                    if ( (typeof(inRoot) !== "undefined" && inRoot != null )  ) {
+                      continue;
+                    }
+                    if ( this.rustFieldCanBeCell(cellP, ctx) ) {
+                      cellP.rust_interior_cell = true;
+                    }
+                  };
+                };
                 rustFillTraitMutations (root, ctx) {
                   if ( root.rust_trait_mut_ready ) {
                     return;
@@ -26856,6 +27011,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                       const chC = ctx.findClass(chName);
                       family.push(chC);
                     }
+                  };
+                  for ( let cellFamI = 0; cellFamI < family.length; cellFamI++) {
+                    var cellFam = family[cellFamI];
+                    this.rustMarkInteriorCells(cellFam, ctx);
                   };
                   let famDirect = {};
                   let famGraph = {};
@@ -28939,6 +29098,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         header.out("use std::rc::Weak;", true);
                       }
                       header.out("use std::cell::RefCell;", true);
+                      header.out("use std::cell::Cell;", true);
                       header.out("", true);
                       const unionNames = this.sealableUnionNames(ctx);
                       for ( let uni = 0; uni < unionNames.length; uni++) {
@@ -29367,6 +29527,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             if ( (node_1.children.length) > 2 ) {
                               const valueNode = node_1.children[2];
                               wr.out(this.adjustType(pvar_2.compiledName) + ":", false);
+                              if ( pvar_2.rust_interior_cell ) {
+                                if ( this.rustCellIsCopy(pvar_2) ) {
+                                  wr.out("Cell::new(", false);
+                                } else {
+                                  wr.out("RefCell::new(", false);
+                                }
+                              }
                               let init_rc_wrap = false;
                               let fldRcState = 0;
                               if ( pvar_2.rust_needs_rc_wrap ) {
@@ -29414,6 +29581,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                               if ( fldRcState == 1 ) {
                                 wr.out(".clone()", false);
+                              }
+                              if ( pvar_2.rust_interior_cell ) {
+                                if ( this.rustCellIsCopy(pvar_2) ) {
+                                  wr.out(")", false);
+                                } else {
+                                  wr.out(".to_string())", false);
+                                }
                               }
                               wr.out(", ", true);
                             } else {
@@ -30318,6 +30492,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( this.rustPlainScalarPath(firstOperand) == false ) {
                             return false;
                           }
+                          if ( this.rustNodeIsCellField(left) ) {
+                            return false;
+                          }
                           if ( (firstOperand.ns.length) != (left.ns.length) ) {
                             return false;
                           }
@@ -30650,6 +30827,30 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( cmd == "=" ) {
                             const left = node.getSecond();
                             const right = node.getThird();
+                            if ( this.rustNodeIsCellField(left) ) {
+                              const cellLP = this.rustCellFieldDesc(left);
+                              const cellCopy = this.rustCellIsCopy(cellLP);
+                              const cellTmp = ctx.rustGetTempVar();
+                              wr.out(("{ let " + cellTmp) + " = ", false);
+                              ctx.setInExpr();
+                              wr.suppress_expr_parens = true;
+                              await this.WalkNode(right, ctx, wr);
+                              wr.suppress_expr_parens = false;
+                              ctx.unsetInExpr();
+                              if ( cellCopy == false ) {
+                                wr.out(".to_string()", false);
+                              }
+                              wr.out("; ", false);
+                              ctx.setInLhs();
+                              await this.WriteVRef(left, ctx, wr);
+                              ctx.unsetInLhs();
+                              if ( cellCopy ) {
+                                wr.out((".set(" + cellTmp) + "); }", true);
+                              } else {
+                                wr.out((".replace(" + cellTmp) + "); }", true);
+                              }
+                              return;
+                            }
                             if ( await this.rustTryCompoundAssign(left, right, ctx, wr) ) {
                               return;
                             }

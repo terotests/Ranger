@@ -1331,6 +1331,18 @@ class RangerRustClassWriter {
     if ((array_length node.nsp) > 0) {
       def had_static:boolean false
       def nsp_len:int (array_length node.nsp)
+      ; a path ending in a STRING cell is read inside a block, so the Ref it
+      ; makes is dropped before the rest of the statement runs
+      def cellPathTmp:string ""
+      def cellPathLast:RangerAppParamDesc (itemAt node.nsp (nsp_len - 1))
+      if cellPathLast.rust_interior_cell {
+        if (ctx.in_lhs_of_assignment == false) {
+          if ((this.rustCellIsCopy(cellPathLast)) == false) {
+            cellPathTmp = (ctx.rustGetTempVar())
+            wr.out((("{ let " + cellPathTmp) + " = ") false)
+          }
+        }
+      }
       ; A field reached through a parent-typed reference comes from the
       ; trait's accessor. Writing to one means writing through the `&mut`
       ; it hands back, so the whole path is dereferenced: the `*` has to go
@@ -1636,12 +1648,40 @@ class RangerRustClassWriter {
         if (p.isClass()) {
           had_static = true
         }
+        ; the LAST segment of a path that names a cell field is read out of
+        ; its cell — the field is a Cell wherever it is reached from, not only
+        ; inside its own class
+        if (i == (nsp_len - 1)) {
+          if p.rust_interior_cell {
+            if (ctx.in_lhs_of_assignment == false) {
+              if (this.rustCellIsCopy(p)) {
+                wr.out(".get()" false)
+              } {
+                wr.out((((".borrow().clone(); " + cellPathTmp) + " }")) false)
+              }
+            }
+          }
+        }
       }
       return
     }
 
     if node.hasParamDesc {
       def part:string (itemAt node.ns 0)
+      def p:RangerAppParamDesc (unwrap node.paramDesc)
+      ; a cell field is READ out of its cell; the write side is the
+      ; assignment, which calls set() instead. A STRING cell is read inside a
+      ; block so the Ref is dropped before the statement continues — and the
+      ; block has to open before the `self.` the prefix below writes.
+      def cellRdTmp:string ""
+      if p.rust_interior_cell {
+        if (ctx.in_lhs_of_assignment == false) {
+          if ((this.rustCellIsCopy(p)) == false) {
+            cellRdTmp = (ctx.rustGetTempVar())
+            wr.out((("{ let " + cellRdTmp) + " = ") false)
+          }
+        }
+      }
       if ((part != "this") && (ctx.isMemberVariable(part))) {
         def uc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
         def currC:RangerAppClassDesc (unwrap uc)
@@ -1652,7 +1692,18 @@ class RangerRustClassWriter {
           }
         }
       }
-      def p:RangerAppParamDesc node.paramDesc
+      if p.rust_interior_cell {
+        wr.out((this.adjustType(p.compiledName)) false)
+        if ctx.in_lhs_of_assignment {
+          return
+        }
+        if (this.rustCellIsCopy(p)) {
+          wr.out(".get()" false)
+        } {
+          wr.out(((".borrow().clone(); " + cellRdTmp) + " }") false)
+        }
+        return
+      }
       wr.out((this.adjustType(p.compiledName)) false)
       ; A bare name that resolves to a weak FIELD is read here, not in the
       ; nsp walk above — `def non:ClassDesc currentClass` has one segment
@@ -1827,6 +1878,17 @@ class RangerRustClassWriter {
   }
 
   fn writeStructFieldTypeInner:void (p:RangerAppParamDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    if p.rust_interior_cell {
+      def cellNameN:CodeNode (unwrap p.nameNode)
+      if (this.rustCellIsCopy(p)) {
+        wr.out("Cell<" false)
+        this.writeTypeDef(cellNameN ctx wr)
+        wr.out(">" false)
+      } {
+        wr.out("RefCell<String>" false)
+      }
+      return
+    }
     def nameN:CodeNode (unwrap p.nameNode)
     ; A field of a shared class holds the Rc (PLAN_RUST_OWNERSHIP 2b). A
     ; weak field keeps its Weak form, and a collection wraps its element
@@ -3634,7 +3696,11 @@ class RangerRustClassWriter {
           if ((array_length left.ns) <= 1) {
             def pp:RangerAppParamDesc left.paramDesc
             if pp.is_class_variable {
-              return true
+              ; …but a CELL field is written through its own cell, which is
+              ; the whole point of putting it there: the method stays &self
+              if (pp.rust_interior_cell == false) {
+                return true
+              }
             }
           }
         }
@@ -3642,18 +3708,22 @@ class RangerRustClassWriter {
         if (has left.ns) {
           if ((array_length left.ns) > 0) {
             def firstPart:string (itemAt left.ns 0)
-            if (firstPart == "this") {
-              return true
-            }
-            if (ctx.isMemberVariable(firstPart)) {
-              return true
+            if ((this.rustNodeIsCellField(left)) == false) {
+              if (firstPart == "this") {
+                return true
+              }
+              if (ctx.isMemberVariable(firstPart)) {
+                return true
+              }
             }
           }
         }
         ; Check if left vref is a class member variable
         if ((strlen left.vref) > 0) {
           if (ctx.isMemberVariable(left.vref)) {
-            return true
+            if ((this.rustNodeIsCellField(left)) == false) {
+              return true
+            }
           }
         }
       }
@@ -3912,6 +3982,119 @@ class RangerRustClassWriter {
     return res
   }
 
+  ; Can this field live behind a Cell? A scalar only: a collection is mutated
+  ; in place through the field, a shared class already has a cell of its own,
+  ; and an Option needs the field itself to be reseated.
+  fn rustFieldCanBeCell:boolean (p:RangerAppParamDesc ctx:RangerAppWriterContext) {
+    if p.is_optional {
+      return false
+    }
+    if p.rust_static_str {
+      return false
+    }
+    if p.rust_needs_rc_wrap {
+      return false
+    }
+    def cellNNO@(optional):CodeNode p.nameNode
+    if (null? cellNNO) {
+      return false
+    }
+    def cellNN:CodeNode (unwrap cellNNO)
+    if ((strlen cellNN.array_type) > 0) {
+      return false
+    }
+    if ((strlen cellNN.key_type) > 0) {
+      return false
+    }
+    def cellT:string cellNN.type_name
+    if (cellT == "boolean") {
+      return true
+    }
+    if (cellT == "int") {
+      return true
+    }
+    if (cellT == "double") {
+      return true
+    }
+    ; A string uses a RefCell, and its read is wrapped in a block so the Ref
+    ; is dropped before the statement it sits in continues — a bare
+    ; `.borrow().clone()` handed to a `&mut self` method is E0502, the very
+    ; conflict the cell exists to remove.
+    if (cellT == "string") {
+      return true
+    }
+    return false
+  }
+
+  ; A Copy scalar goes in a Cell, which never borrows at all. A String has to
+  ; use a RefCell, and the borrow lasts one statement.
+  fn rustCellIsCopy:boolean (p:RangerAppParamDesc) {
+    def ciNNO@(optional):CodeNode p.nameNode
+    if (null? ciNNO) {
+      return true
+    }
+    def ciNN:CodeNode (unwrap ciNNO)
+    return (ciNN.type_name != "string")
+  }
+
+  ; Does this node name a cell field — as a bare name, as `this.f`, or at the
+  ; end of a path through another object?
+  fn rustCellFieldDesc@(optional):RangerAppParamDesc (node:CodeNode) {
+    def cfRes@(optional):RangerAppParamDesc
+    def cfNsp:int (array_length node.nsp)
+    if (cfNsp > 0) {
+      def cfLast:RangerAppParamDesc (itemAt node.nsp (cfNsp - 1))
+      if cfLast.rust_interior_cell {
+        cfRes = cfLast
+      }
+      return cfRes
+    }
+    if (node.hasParamDesc == false) {
+      return cfRes
+    }
+    if ((array_length node.ns) > 2) {
+      return cfRes
+    }
+    if ((array_length node.ns) == 2) {
+      if ((itemAt node.ns 0) != "this") {
+        return cfRes
+      }
+    }
+    def cfP:RangerAppParamDesc (unwrap node.paramDesc)
+    if (cfP.is_class_variable == false) {
+      return cfRes
+    }
+    if cfP.rust_interior_cell {
+      cfRes = cfP
+    }
+    return cfRes
+  }
+
+  fn rustNodeIsCellField:boolean (node:CodeNode) {
+    def cfD@(optional):RangerAppParamDesc (this.rustCellFieldDesc(node))
+    return (!null? cfD)
+  }
+
+  ; Every scalar field of a class in a trait family that the trait does not
+  ; expose through an accessor. The root's own fields are left alone: their
+  ; accessors hand out references, which a cell cannot serve.
+  fn rustMarkInteriorCells:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    def cellRootO@(optional):RangerAppClassDesc (this.rustTraitRootOf(cl ctx))
+    if (null? cellRootO) {
+      return
+    }
+    def cellRoot:RangerAppClassDesc (unwrap cellRootO)
+    for cl.variables cellP:RangerAppParamDesc cellPi {
+      def inRoot@(optional):RangerAppParamDesc (cellRoot.findVariable(cellP.name))
+      if (!null? inRoot) {
+        continue
+      }
+      if (this.rustFieldCanBeCell(cellP ctx)) {
+        cellP.rust_interior_cell = true
+      }
+    }
+  }
+
   ; One answer per trait method for the whole family, computed once and cached
   ; on the root. A trait method is `&mut self` if ANY implementation of it
   ; mutates its own object — the declaration and every impl share one
@@ -3931,6 +4114,11 @@ class RangerRustClassWriter {
         def chC:RangerAppClassDesc (ctx.findClass(chName))
         push family chC
       }
+    }
+    ; the cells go in FIRST: a write to one is not a mutation of the struct,
+    ; and that is exactly what the analysis below is about to measure
+    for family cellFam:RangerAppClassDesc cellFamI {
+      this.rustMarkInteriorCells(cellFam ctx)
     }
     ; ONE graph for the whole family. Analysing each member on its own gets
     ; the transitive step wrong: `WriteEnum` calls `WriteVRef`, `WriteVRef`
@@ -6403,6 +6591,7 @@ class RangerRustClassWriter {
         header.out("use std::rc::Weak;" true)
       }
       header.out("use std::cell::RefCell;" true)
+      header.out("use std::cell::Cell;" true)
       header.out("" true)
       ; D-UNION (PLAN_SHAPES.md S5): a union is a real Rust enum, one variant
       ; per member, each holding that member's cell. A `case` narrowing is then
@@ -6906,6 +7095,13 @@ class RangerRustClassWriter {
         if ((array_length node.children) > 2) {
           def valueNode:CodeNode (itemAt node.children 2)
           wr.out(((this.adjustType(pvar.compiledName)) + ":") false)
+          if pvar.rust_interior_cell {
+            if (this.rustCellIsCopy(pvar)) {
+              wr.out("Cell::new(" false)
+            } {
+              wr.out("RefCell::new(" false)
+            }
+          }
           ; a strong field of a shared class holds the Rc: wrap the initializer
           def init_rc_wrap:boolean false
           def fldRcState:int 0
@@ -6960,6 +7156,13 @@ class RangerRustClassWriter {
           }
           if (fldRcState == 1) {
             wr.out(".clone()" false)
+          }
+          if pvar.rust_interior_cell {
+            if (this.rustCellIsCopy(pvar)) {
+              wr.out(")" false)
+            } {
+              wr.out(".to_string())" false)
+            }
           }
           wr.out(", " true)
         } {
@@ -8041,6 +8244,10 @@ class RangerRustClassWriter {
     if ((this.rustPlainScalarPath(firstOperand)) == false) {
       return false
     }
+    ; a cell field has no place to put the `+=`
+    if (this.rustNodeIsCellField(left)) {
+      return false
+    }
     if ((array_length firstOperand.ns) != (array_length left.ns)) {
       return false
     }
@@ -8422,6 +8629,38 @@ class RangerRustClassWriter {
     if (cmd == "=") {
       def left:CodeNode (node.getSecond())
       def right:CodeNode (node.getThird())
+
+      ; a CELL field is written through the cell, so the whole statement
+      ; changes shape: `f.set(v)` rather than `f = v`. The right side is
+      ; walked as an ordinary expression — a read of another cell field
+      ; picks up its own `.get()` on the way.
+      if (this.rustNodeIsCellField(left)) {
+        def cellLP:RangerAppParamDesc (unwrap (this.rustCellFieldDesc(left)))
+        def cellCopy:boolean (this.rustCellIsCopy(cellLP))
+        ; the VALUE first, into a temporary. Naming the field as the receiver
+        ; borrows the object for the whole statement, and the value beside it
+        ; is often a call on the same object (E0502).
+        def cellTmp:string (ctx.rustGetTempVar())
+        wr.out((("{ let " + cellTmp) + " = ") false)
+        ctx.setInExpr()
+        wr.suppress_expr_parens = true
+        this.WalkNode(right ctx wr)
+        wr.suppress_expr_parens = false
+        ctx.unsetInExpr()
+        if (cellCopy == false) {
+          wr.out(".to_string()" false)
+        }
+        wr.out("; " false)
+        ctx.setInLhs()
+        this.WriteVRef(left ctx wr)
+        ctx.unsetInLhs()
+        if cellCopy {
+          wr.out(((".set(" + cellTmp) + "); }") true)
+        } {
+          wr.out(((".replace(" + cellTmp) + "); }") true)
+        }
+        return
+      }
 
       ; `pos = pos + 1` is `pos += 1` when the target is a plain scalar
       ; path — no cell, no optional, no weak segment — and the right side

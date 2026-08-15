@@ -890,22 +890,33 @@ one analysis over the whole family, on one merged mutation graph, cached on the
 family's root and read by every emission site. **848 methods now take `&self`
 where all of them used to take `&mut self`.**
 
-That is not yet enough for the writers, and the measurement says exactly why.
-Forcing the family answer to "never mutates" leaves 302 rustc errors, and they
-are concentrated in the per-emission scratch state the target writers keep on
-themselves — `rust_writing_call_receiver`, `rust_receiver_shared_known`,
-`thisName`, `wrote_header`, `rustFnReturnsUnion` and their Go and Swift
-equivalents. 18 such fields on the Rust writer, 7 on Go, 6 on JavaScript, 3 on
-Swift. One sibling's scratch flag makes `WalkNode` mutable for the whole
-family, which is why the JavaScript writer — which mutates nothing on the hot
-path — still takes `&mut self`.
+That is not yet enough for the writers, and the reason is the per-emission
+scratch state the target writers keep on themselves. So a scalar field of a
+trait-family class now goes into the struct behind **interior mutability** —
+`Cell<T>` for a Copy scalar, `RefCell<String>` for a string — read as
+`.get()` or, for a string, inside a block so the `Ref` is dropped before the
+statement continues, and written with `set()` / `replace()` after the value has
+been computed into a temporary. Writing one is then not a mutation of the
+struct, and the method keeps `&self`. 88 fields are emitted that way, and the
+root causes drop from 302 to 223.
 
-So the next step is bounded and specific: a field of a trait-family class that
-a trait method mutates goes into the struct as `RefCell<T>`, read as
-`self.field.borrow()` and written as `*self.field.borrow_mut() = v`. Interior
-mutability on those ~34 fields lets every trait method take `&self`, the outer
-cell is then only ever shared-borrowed, and the writer/compiler recursion
-stops conflicting. Nothing else about the representation has to change.
+What is left is a named handful. Forcing the family answer to "never mutates"
+now leaves exactly ten direct writes, and every remaining error is a caller of
+one of them:
+
+- `RangerRustClassWriter.rustFnReturnNameNode` — an OPTIONAL object field, the
+  one shape a cell cannot take here. It is reached through paths from other
+  classes as `x.field.as_ref().unwrap()`, and the cell read has to go on the
+  end of the path while the `Option` handling has already been written in
+  front of it. Wrapping it was measured: 84 errors, all of that shape.
+- `RangerAppParamDesc.has_events` and `.eMap` — fields of a trait ROOT. The
+  root's fields are the ones the trait exposes through accessors that hand out
+  references, and a cell cannot serve that signature without changing the
+  accessor to return a value and every write site to call `set()`.
+
+Both are tractable and neither is architectural. The optional case needs the
+cell read emitted around the whole path rather than appended to it; the root
+case needs generated accessors that read and write through the cell.
 
 Everything before code generation runs: the parser, the flow analyser, the type
 checker and the whole descriptor machinery execute in Rust and reach the same
