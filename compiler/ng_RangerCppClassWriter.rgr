@@ -1197,8 +1197,14 @@ class RangerCppClassWriter {
       def vD (lambdaCtx.getVariableDef( cname ) )
 
       if( vD.varType == RangerContextVarType.FunctionParameter ) {
+        ; the capture default is already `&`, and a simple-capture may not
+        ; repeat it -- `[&, &x]` does not compile. Leaving the parameter out
+        ; of the list IS capturing it by reference.
+        if (this.cppCaptureByReference(vD ctx)) {
+          continue
+        }
         wr.out(', ' false)
-        wr.out( (vD.compiledName) false)     
+        wr.out( (vD.compiledName) false)
       }
 
       ; is function parameter ?
@@ -1614,6 +1620,46 @@ class RangerCppClassWriter {
       }
       wr.out(((" " + arg.compiledName) + " ") false)
     }
+  }
+  ; A lambda captures the enclosing function's parameters by value, so that a
+  ; callback stored for later still holds its own handle. For a parameter the
+  ; signature passes as a NON-const reference that is wrong: the parameter is
+  ; an alias for the caller's collection, and on every other target a Ranger
+  ; array or map is a reference too. Capturing it by value hands the lambda a
+  ; private copy, so a write inside the lambda is lost to the caller.
+  ;
+  ; markAsyncFromVariant is the case that made it visible. It guards its own
+  ; recursion with a `visited` list and recurses from inside a forEach, so
+  ; every branch got a copy of the list taken before the branch started, saw
+  ; none of what its siblings had marked, and re-walked the call graph -- with
+  ; a full vector copy at each capture. JavaScript passes the array by
+  ; reference and terminates in seconds; the C++ build had not finished
+  ; compiling the compiler after twelve minutes.
+  ;
+  ; Objects stay by value: they are shared_ptr, the copy is a refcount, and
+  ; keeping the referent alive is the point.
+  fn cppCaptureByReference:boolean (vD:RangerAppParamDesc ctx:RangerAppWriterContext) {
+    if (null? vD.nameNode) {
+      return false
+    }
+    def typeNode:CodeNode (unwrap vD.nameNode)
+    def tn:string typeNode.type_name
+    if (((tn == "buffer") || (tn == "int_buffer")) || (tn == "double_buffer")) {
+      return true
+    }
+    if (vD.needs_cpp_reference == false) {
+      return false
+    }
+    def v_type:RangerNodeType typeNode.value_type
+    if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef)) {
+      return false
+    }
+    if ((strlen tn) > 0) {
+      if (ctx.isDefinedClass(tn)) {
+        return false
+      }
+    }
+    return true
   }
   ; True when writeArgsDef gives this parameter a NON-const C++ reference, so a
   ; call site knows the argument has to be an lvalue. Mirrors the decisions the

@@ -1125,24 +1125,20 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
       var cname = this.extends_classes[i];
       const cDesc = this.ctx.findClass(cname);
       if ( cDesc.hasMethod(m_name) ) {
-        return cDesc.hasMethod(m_name);
+        return true;
       }
     };
     return false;
   };
   findMethod (f_name) {
     let res;
-    const vNames = Object.keys(this.method_variants);
-    for ( let i = 0; i < vNames.length; i++) {
-      var mname = vNames[i];
-      if ( mname == f_name ) {
-        const list = (( Object.prototype.hasOwnProperty.call(this.method_variants, mname) ? this.method_variants[mname] : undefined ));
-        res = list.variants[0];
-        return res;
-      }
-    };
-    for ( let i_1 = 0; i_1 < this.extends_classes.length; i_1++) {
-      var cname = this.extends_classes[i_1];
+    if ( ( typeof(this.method_variants[f_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.method_variants, f_name) ) ) {
+      const list = (( Object.prototype.hasOwnProperty.call(this.method_variants, f_name) ? this.method_variants[f_name] : undefined ));
+      res = list.variants[0];
+      return res;
+    }
+    for ( let i = 0; i < this.extends_classes.length; i++) {
+      var cname = this.extends_classes[i];
       const cDesc = this.ctx.findClass(cname);
       if ( cDesc.hasMethod(f_name) ) {
         return cDesc.findMethod(f_name);
@@ -9721,7 +9717,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
     };
     async WalkNode (node, ctx, wr) {
-      const line_index = node.getLine();
       if ( node.flow_done ) {
         return true;
       }
@@ -16689,7 +16684,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         ctx.removeOpNs(added_ns);
         ctx.addOpNs(fc.vref);
         added_ns = fc.vref;
-        const line_index = callArgs.getLine();
         const callerArgCnt = call_arg_cnt - 1;
         const fnArgCnt = args.children.length;
         let has_eval_ctx = false;
@@ -22522,6 +22516,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               var cname = lambdaCtx.captured_variables[i];
               const vD = lambdaCtx.getVariableDef(cname);
               if ( vD.varType == 4 ) {
+                if ( this.cppCaptureByReference(vD, ctx) ) {
+                  continue;
+                }
                 wr.out(", ", false);
                 wr.out(vD.compiledName, false);
               }
@@ -22860,6 +22857,29 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
                 wr.out((" " + arg.compiledName) + " ", false);
               };
+            };
+            cppCaptureByReference (vD, ctx) {
+              if ( typeof(vD.nameNode) === "undefined" ) {
+                return false;
+              }
+              const typeNode = vD.nameNode;
+              const tn = typeNode.type_name;
+              if ( ((tn == "buffer") || (tn == "int_buffer")) || (tn == "double_buffer") ) {
+                return true;
+              }
+              if ( vD.needs_cpp_reference == false ) {
+                return false;
+              }
+              const v_type = typeNode.value_type;
+              if ( (v_type == 10) || (v_type == 11) ) {
+                return false;
+              }
+              if ( (tn.length) > 0 ) {
+                if ( ctx.isDefinedClass(tn) ) {
+                  return false;
+                }
+              }
+              return true;
             };
             cppMutableRefParam (fnDesc, arg, ctx) {
               if ( this.cppReadonlyValueParam(arg) ) {

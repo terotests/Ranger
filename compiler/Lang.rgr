@@ -5425,9 +5425,51 @@ std::vector<std::string> r_get_keys_of_map( const M & orig_map )  {
         substring   cmdSubstring:string       ( text:string start:int end:int ) { 
             templates {
                 ranger ( '(substring ' (e 1) ' ' (e 2) ' ' (e 3) ')')
-                cpp.old ( '' (e 1) '.substr(' (e 2) ', ' (e 3) ' - ' (e 2) ')' )
-                cpp ( 'r_utf8_substr('(e 1) ', ' (e 2) ', ' (e 3) ' - ' (e 2) ')'
+                ; An index means the same thing to all three of strlen, charAt
+                ; and substring, or a scan followed by a slice lands in the
+                ; wrong place. On C++ strlen is s.length() and charAt is
+                ; s.at(i) -- both bytes -- so substring counts bytes too.
+                ; It used to call r_utf8_substr and count CODE POINTS, and a
+                ; scanner that found a character with charAt and sliced it out
+                ; with substring got an empty string the moment the text left
+                ; ASCII: `(substring "—b" 3 4)` is the byte 'b', but as code
+                ; points index 3 is past the end of a two character string.
+                ; Slicing bytes still round-trips UTF-8 -- the pieces of a
+                ; multi byte character concatenate back to the character --
+                ; which is what the compiler's own string parser relies on.
+                ; `utf8_substring` below is the code point version, for text
+                ; that is being counted in characters rather than scanned.
+                cpp ( '' (e 1) '.substr(' (e 2) ', ' (e 3) ' - ' (e 2) ')' )
+                csharp ( (e 1) ".Substring(" (e 2) ", " (e 3) " - " (e 2) " )")
+                php ( "substr(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")")    
+                go ( "string([]rune(" (e 1) ")[" (e 2) ":" (e 3) "])")               
+                swift3 ( (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")]" )
+                swift6 ( "String(" (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")])" )
+                python ( (e 1) "[" (e 2) ":" (e 3) "]" )
+                rust ( (custom _) )
+                * ( (e 1) ".substring(" (e 2) ", " (e 3) " )")
+            }
+        }
+
+        ; The code point slice. `substring` counts whatever unit its target's
+        ; strlen and charAt count, so that scanning and slicing agree; this one
+        ; always counts characters, for text being measured rather than
+        ; scanned -- truncating a label to twenty characters, say, without
+        ; cutting a multi byte character in half.
+        ;
+        ; Targets whose strings are UTF-16 (Java, Kotlin, Scala, C#, and the
+        ; JavaScript family) count code points here, except that a character
+        ; outside the basic plane still occupies two units in the `*`
+        ; fallback -- Array.from is the code point split, so the fallback
+        ; below uses it.
+        utf8_substring   cmdUtf8Substring:string   ( text:string start:int end:int ) {
+            templates {
+                ranger ( '(utf8_substring ' (e 1) ' ' (e 2) ' ' (e 3) ')')
+                cpp ( 'r_utf8_substr(' (e 1) ', ' (e 2) ', ' (e 3) ' - ' (e 2) ')'
 (create_polyfill '
+// The pos-th to (pos+len)-th CODE POINT of str, counting code points and not
+// bytes. Returns "" for a range that starts past the end, and for invalid
+// UTF-8.
 std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
 {
     size_t start = (size_t)start_i;
@@ -5449,17 +5491,51 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
     if (min==std::string::npos || max==std::string::npos) { return ""; }
     return str.substr(min, max - min);
 }
-')                
-                
-                )    
-                csharp ( (e 1) ".Substring(" (e 2) ", " (e 3) " - " (e 2) " )")
-                php ( "substr(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")")    
-                go ( "string([]rune(" (e 1) ")[" (e 2) ":" (e 3) "])")               
+')
+                )
+                ; a Python str is a sequence of code points already
+                python ( (e 1) "[" (e 2) ":" (e 3) "]" )
+                ; a Go string is bytes, and []rune is the code point view
+                go ( "string([]rune(" (e 1) ")[" (e 2) ":" (e 3) "])" )
+                rust ( (e 1) ".chars().skip((" (e 2) ") as usize).take(((" (e 3) ") - (" (e 2) ")) as usize).collect::<String>()" )
+                ; offsetByCodePoints turns a code point index into the UTF-16
+                ; index String.substring wants
+                java7 ( (e 1) ".substring(" (e 1) ".offsetByCodePoints(0, " (e 2) "), " (e 1) ".offsetByCodePoints(0, " (e 3) "))" )
+                kotlin ( (e 1) ".substring(" (e 1) ".offsetByCodePoints(0, " (e 2) "), " (e 1) ".offsetByCodePoints(0, " (e 3) "))" )
+                scala ( (e 1) ".substring(" (e 1) ".offsetByCodePoints(0, " (e 2) "), " (e 1) ".offsetByCodePoints(0, " (e 3) "))" )
+                ; a C# string is UTF-16, so a code point outside the basic
+                ; plane is two chars. Char.IsHighSurrogate finds the pairs and
+                ; the walk stays LINQ free, so this builds on Mono too.
+                csharp ( "RgUtf8.Substr(" (e 1) ", " (e 2) ", " (e 3) ")"
+                    (create_polyfill "
+public static class RgUtf8 {
+  // Slice by CODE POINT: start and end count characters, not UTF-16 units,
+  // so a surrogate pair counts once and is never cut in half.
+  public static string Substr(string s, int start, int end) {
+    if (s == null || end <= start) { return \"\"; }
+    int i = 0, cp = 0, from = -1;
+    while (i < s.Length) {
+      if (cp == start) { from = i; }
+      if (cp == end) { break; }
+      i += (System.Char.IsHighSurrogate(s[i]) && (i + 1) < s.Length) ? 2 : 1;
+      cp++;
+    }
+    if (cp == start) { from = i; }
+    if (from < 0) { return \"\"; }
+    return s.Substring(from, i - from);
+  }
+}
+")
+                )
+                ; runes is Dart's code point view
+                dart ( "String.fromCharCodes(" (e 1) ".runes.toList().sublist(" (e 2) ", " (e 3) "))" )
+                php ( "mb_substr(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")" )
+                ; a Swift Character is a grapheme cluster, which is the closest
+                ; thing the language offers and matches its own substring
                 swift3 ( (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")]" )
                 swift6 ( "String(" (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")])" )
-                python ( (e 1) "[" (e 2) ":" (e 3) "]" )
-                rust ( (custom _) )
-                * ( (e 1) ".substring(" (e 2) ", " (e 3) " )")
+                ; Array.from splits on code points, not on UTF-16 units
+                * ( "Array.from(" (e 1) ").slice(" (e 2) ", " (e 3) ").join('')" )
             }
         }
 

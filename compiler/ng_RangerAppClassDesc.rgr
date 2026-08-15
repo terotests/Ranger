@@ -307,21 +307,24 @@ Tests if the `class name` is either
     }
     for extends_classes cname:string i {
       def cDesc:RangerAppClassDesc (ctx.findClass(cname))
+      ; asking the parent twice doubles the work at every hop, so a chain
+      ; of depth d cost 2^d lookups. The answer is already in hand.
       if (cDesc.hasMethod(m_name)) {
-        return (cDesc.hasMethod(m_name))
+        return true
       }
     }
     return false
   }
   fn findMethod@(optional weak):RangerAppFunctionDesc (f_name:string) {
     def res@(weak lives):RangerAppFunctionDesc    
-    def vNames (keys method_variants)
-    for vNames mname:string i {
-      if(mname == f_name) {
-        def list (unwrap (get method_variants mname))
-        res = (itemAt list.variants 0)
-        return res
-      }
+    ; a map lookup, not a scan over a materialized key list: `keys` copies
+    ; every key of every class on every call, and this is called once per
+    ; class per function by the async pass. On the compiler's own sources
+    ; that scan is most of a native build's running time.
+    if (has method_variants f_name) {
+      def list (unwrap (get method_variants f_name))
+      res = (itemAt list.variants 0)
+      return res
     }
     for extends_classes cname:string i {
       def cDesc:RangerAppClassDesc (ctx.findClass(cname))

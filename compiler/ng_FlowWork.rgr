@@ -365,7 +365,9 @@ class RangerFlowParser {
       ctx.addOpNs( fc.vref )
       added_ns = fc.vref
 
-      def line_index:int (callArgs.getLine())
+      ; the source line was computed here and never read. getLine sums the
+      ; length of every line from the start of the file, so this cost one pass
+      ; over the whole source per operator match.
       ; def callerArgCnt:int (((array_length callArgs.children) - 1))
       def callerArgCnt (call_arg_cnt - 1)
       def fnArgCnt:int (array_length args.children)
@@ -2514,7 +2516,9 @@ class RangerFlowParser {
     }
   }
   fn WalkNode:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    def line_index:int (node.getLine())
+    ; nothing here reads the source line. Asking for it cost a walk over
+    ; every line of the file -- getLine sums line lengths from the start --
+    ; once per node, which is the whole tree against the whole file.
     if node.flow_done {
       return true
     }
