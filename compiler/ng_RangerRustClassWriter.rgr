@@ -2030,7 +2030,9 @@ class RangerRustClassWriter {
           def should_clone_vardef:boolean false
           ; a static-string read into an owned String local always converts —
           ; the &'static str cannot move into a String slot (E0308)
-          def vardef_src_ref_str:boolean (this.rustStaticStrRead(valueInner))
+          ; …and so does a borrowed &str parameter: rustStrRefRead answers for
+          ; both, and unwraps a parenthesised name on the way
+          def vardef_src_ref_str:boolean (this.rustStrRefRead(valueInner))
           if (nameN.type_name == "string") {
             if vardef_src_ref_str {
               should_clone_vardef = true

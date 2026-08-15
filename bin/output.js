@@ -25202,7 +25202,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     }
                     if ( vardef_is_name_read ) {
                       let should_clone_vardef = false;
-                      let vardef_src_ref_str = this.rustStaticStrRead(valueInner);
+                      let vardef_src_ref_str = this.rustStrRefRead(valueInner);
                       if ( nameN.type_name == "string" ) {
                         if ( vardef_src_ref_str ) {
                           should_clone_vardef = true;
@@ -50780,9 +50780,46 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 const idx_14 = cmdArg.int_value;
                                 if ( (node.children.length) > idx_14 ) {
                                   const arg_14 = node.children[idx_14];
+                                  let mvRcWrap = false;
+                                  if ( arg_14.hasNewOper ) {
+                                    const mvCont = node.children[1];
+                                    let mvElem = "";
+                                    const mvNsp = mvCont.nsp.length;
+                                    if ( mvNsp > 0 ) {
+                                      const mvLast = mvCont.nsp[(mvNsp - 1)];
+                                      const mvLNN = mvLast.nameNode;
+                                      if ( (typeof(mvLNN) !== "undefined" && mvLNN != null )  ) {
+                                        const mvLN = mvLNN;
+                                        mvElem = mvLN.array_type;
+                                      }
+                                    } else {
+                                      if ( mvCont.hasParamDesc ) {
+                                        const mvP = mvCont.paramDesc;
+                                        const mvPNN = mvP.nameNode;
+                                        if ( (typeof(mvPNN) !== "undefined" && mvPNN != null )  ) {
+                                          const mvPN = mvPNN;
+                                          mvElem = mvPN.array_type;
+                                        }
+                                      }
+                                    }
+                                    if ( (mvElem.length) > 0 ) {
+                                      if ( ctx.isDefinedClass(mvElem) ) {
+                                        const mvCl = ctx.findClass(mvElem);
+                                        if ( mvCl.rust_needs_ref_semantics ) {
+                                          mvRcWrap = true;
+                                        }
+                                      }
+                                    }
+                                  }
+                                  if ( mvRcWrap ) {
+                                    wr.out("Rc::new(RefCell::new(", false);
+                                  }
                                   ctx.setInExpr();
                                   await this.WalkNode(arg_14, ctx, wr);
                                   ctx.unsetInExpr();
+                                  if ( mvRcWrap ) {
+                                    wr.out("))", false);
+                                  }
                                   let barg = arg_14;
                                   while (barg.expression && ((barg.children.length) == 1)) {
                                     barg = barg.getFirst();
