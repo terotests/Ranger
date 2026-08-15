@@ -1,0 +1,40 @@
+; ==============================================================================
+; VlText.rgr — how wide a string is, without a font.
+; ==============================================================================
+; An axis needs one number this runtime cannot know exactly: how much room its
+; labels take. That decides where the title goes and how far the plot has to be
+; pushed in from the edge.
+;
+; The reference implementation asks a canvas when it has one and ESTIMATES when
+; it does not — `~~(0.8 * length * fontSize)`, a flat 0.8 em per character. The
+; same estimate is used here, deliberately, because it is what the reference
+; produces in the same headless situation, so an axis built here lands where the
+; reference's does and the comparison means something.
+;
+; It is an estimate, and it is wrong for proportional text: "III" and "WWW"
+; measure the same. When a renderer backend arrives with real font metrics it
+; should supply them here — the layout reads a width from this one place so
+; that swap is local.
+; ==============================================================================
+
+class VlText {
+    ; The reference's canvas-free estimate, truncated toward zero exactly as its
+    ; `~~` does.
+    sfn estimateWidth:double (text:string fontSize:double) {
+        def chars:int (strlen text)
+        def w:double ((0.8 * (to_double chars)) * fontSize)
+        return (to_double (floor w))
+    }
+
+    ; The widest of a list of labels, which is the number an axis extent needs.
+    sfn widestLabel:double (labels:[string] fontSize:double) {
+        def widest:double 0.0
+        for labels label:string idx {
+            def w:double (VlText.estimateWidth(label fontSize))
+            if (w > widest) {
+                widest = w
+            }
+        }
+        return widest
+    }
+}

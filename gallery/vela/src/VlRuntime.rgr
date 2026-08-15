@@ -24,6 +24,7 @@ Import "VlExprEval.rgr"
 Import "VlTransform.rgr"
 Import "VlScene.rgr"
 Import "VlConfig.rgr"
+Import "VlAxis.rgr"
 
 class VlRuntime {
     def spec:VlJson (new VlJson)
@@ -35,6 +36,13 @@ class VlRuntime {
     def warnings:[string]
 
     def config:VlConfig (new VlConfig())
+    ; What the axes need outside the plotting rectangle, filled in while they
+    ; are built. A renderer sizes its canvas with these and translates the plot
+    ; group by (padding + leftExtent, padding + topExtent).
+    def extentLeft:double 0.0
+    def extentRight:double 0.0
+    def extentTop:double 0.0
+    def extentBottom:double 0.0
     def chartWidth:double 200.0
     def chartHeight:double 200.0
     def padding:double 5.0
@@ -407,6 +415,7 @@ class VlRuntime {
         sc.round = (sdef.boolOr("round" false))
         sc.clamp = (sdef.boolOr("clamp" false))
 
+        this.readBins(sc (sdef.get("bins")))
         this.readDomain(sc (sdef.get("domain")) sdef)
         this.readRange(sc (sdef.get("range")))
 
@@ -430,6 +439,46 @@ class VlRuntime {
             push scaleOrder name
         }
         scope.setScale(name sc)
+    }
+
+    ; `"bins"` names the plan a bin transform produced, so an axis over this
+    ; scale can label the bin boundaries rather than invent its own ticks.
+    fn readBins:void (sc:VlScale b:VlJson) {
+        clear sc.binValues
+        def plan:VlJson (b)
+        if (b.isObject()) {
+            if (b.has("signal")) {
+                plan = (this.evalExpr((b.stringOr("signal" ""))))
+            }
+        }
+        if (plan.isArray()) {
+            def total:int (plan.count())
+            def k:int 0
+            while (k < total) {
+                push sc.binValues (plan.at(k).asDouble())
+                k = (k + 1)
+            }
+            return
+        }
+        if (! (plan.isObject())) {
+            return
+        }
+        if (! (plan.has("step"))) {
+            return
+        }
+        def start:double (plan.doubleOr("start" 0.0))
+        def stop:double (plan.doubleOr("stop" 0.0))
+        def step:double (plan.doubleOr("step" 0.0))
+        if (step <= 0.0) {
+            return
+        }
+        def v:double start
+        def guard:int 0
+        while ((v < (stop + (step / 2.0))) && (guard < 1000)) {
+            push sc.binValues v
+            v = (v + step)
+            guard = (guard + 1)
+        }
     }
 
     fn readDomain:void (sc:VlScale d:VlJson sdef:VlJson) {
@@ -701,6 +750,10 @@ class VlRuntime {
             rootItem.setString("background" background)
         }
 
+        ; Axes first: the reference draws them under the data marks, and a grid
+        ; line has to be behind the bar it crosses.
+        this.encodeAxes(rootItem)
+
         def marks:VlJson (spec.get("marks"))
         if (marks.isArray()) {
             def total:int (marks.count())
@@ -711,7 +764,154 @@ class VlRuntime {
                 k = (k + 1)
             }
         }
+
+        ; The drawing surface, now that the axes have said how much room they
+        ; need. A renderer reads these four and needs no idea what an axis is:
+        ; make a canvas this big, translate by the origin, draw the commands.
+        rootItem.setNumber("viewWidth" (this.viewWidth()))
+        rootItem.setNumber("viewHeight" (this.viewHeight()))
+        rootItem.setNumber("originX" (this.plotOriginX()))
+        rootItem.setNumber("originY" (this.plotOriginY()))
         return root
+    }
+
+    ; ------------------------------------------------------------------ axes ---
+    fn encodeAxes:void (rootItem:VlSceneItem) {
+        extentLeft = 0.0
+        extentRight = 0.0
+        extentTop = 0.0
+        extentBottom = 0.0
+        def axes:VlJson (spec.get("axes"))
+        if (! (axes.isArray())) {
+            return
+        }
+        def total:int (axes.count())
+        def k:int 0
+        while (k < total) {
+            def adef:VlJson (axes.at(k))
+            def scaleName:string (adef.stringOr("scale" ""))
+            if (! (scope.hasScale(scaleName))) {
+                this.fail(("axis refers to scale '" + scaleName) + "' which the spec does not define")
+            } {
+                def sc:VlScale (scope.scale(scaleName))
+                def axis (new VlAxis())
+                axis.readConfig(adef)
+                def tickCount:int (this.axisTickCount(adef))
+                def ticks:[VlAxisTickValue] (VlAxis.tickValues(sc tickCount (axis.bandPosition)))
+                def gridEnds:[double] (this.gridEndsFor(adef))
+                push rootItem.marks (axis.build(adef sc ticks (itemAt gridEnds 0) (itemAt gridEnds 1) chartWidth chartHeight))
+                def orient:string (adef.stringOr("orient" "left"))
+                this.growExtent(orient (axis.totalExtent))
+                ; A vertical axis' labels are centred on their tick, so the one
+                ; at the top of the scale hangs half a line above the plot and
+                ; the drawing has to make room for it.
+                if ((orient == "left") || (orient == "right")) {
+                    if (adef.boolOr("labels" true)) {
+                        def overhang:double (axis.labelFontSize / 2.0)
+                        this.growExtent("top" overhang)
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; `tickCount` is a number, or a signal such as `ceil(height/40)` — the
+    ; reference's way of asking for one tick per 40 pixels.
+    fn axisTickCount:int (adef:VlJson) {
+        def v:VlJson (adef.get("tickCount"))
+        if (v.isNumber()) {
+            return (to_int v.num)
+        }
+        if (v.isObject()) {
+            if (v.has("signal")) {
+                def out:VlJson (this.evalExpr((v.stringOr("signal" ""))))
+                return (to_int (out.asDouble()))
+            }
+        }
+        return 10
+    }
+
+    ; Where a grid line starts and ends: the crossing scale's range, expressed
+    ; in the axis group's own coordinates. A bottom axis' group sits at the
+    ; plot's foot, so a line reaching up into the plot has negative
+    ; coordinates there.
+    fn gridEndsFor:[double] (adef:VlJson) {
+        def out:[double]
+        def gridScaleName:string (adef.stringOr("gridScale" ""))
+        def orient:string (adef.stringOr("orient" "left"))
+        def vertical:boolean ((orient == "left") || (orient == "right"))
+
+        def from:double 0.0
+        def to:double chartWidth
+        if (! vertical) {
+            from = 0.0
+            to = (0.0 - chartHeight)
+        }
+        if (scope.hasScale(gridScaleName)) {
+            def other:VlScale (scope.scale(gridScaleName))
+            def lo:double other.rangeMin
+            def hi:double other.rangeMax
+            if ((other.scaleType == "band") || (other.scaleType == "point")) {
+                lo = 0.0
+                hi = chartWidth
+                if vertical {
+                    hi = chartWidth
+                } {
+                    hi = chartHeight
+                }
+            }
+            if vertical {
+                from = lo
+                to = hi
+            } {
+                ; The group is translated to the foot of the plot.
+                from = (hi - chartHeight)
+                to = (lo - chartHeight)
+            }
+        }
+        push out from
+        push out to
+        return out
+    }
+
+    fn growExtent:void (orient:string extent:double) {
+        if (orient == "left") {
+            if (extent > extentLeft) {
+                extentLeft = extent
+            }
+        }
+        if (orient == "right") {
+            if (extent > extentRight) {
+                extentRight = extent
+            }
+        }
+        if (orient == "top") {
+            if (extent > extentTop) {
+                extentTop = extent
+            }
+        }
+        if (orient == "bottom") {
+            if (extent > extentBottom) {
+                extentBottom = extent
+            }
+        }
+    }
+
+    ; The whole drawing, including what the axes need around the plot. This is
+    ; the reference's `autosize: pad`: the plot keeps the size the spec asked
+    ; for and the view grows to fit the guides around it.
+    fn viewWidth:double () {
+        return (((chartWidth + extentLeft) + extentRight) + (padding * 2.0))
+    }
+    fn viewHeight:double () {
+        return (((chartHeight + extentTop) + extentBottom) + (padding * 2.0))
+    }
+    fn plotOriginX:double () {
+        return (padding + extentLeft)
+    }
+    fn plotOriginY:double () {
+        return (padding + extentTop)
     }
 
     fn encodeMark:VlSceneMark (mdef:VlJson) {

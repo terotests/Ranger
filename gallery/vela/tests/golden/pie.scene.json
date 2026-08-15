@@ -9,6 +9,10 @@
       "width": 300,
       "height": 300,
       "background": "white",
+      "viewWidth": 310,
+      "viewHeight": 310,
+      "originX": 5,
+      "originY": 5,
       "items": [
         {
           "marktype": "arc",

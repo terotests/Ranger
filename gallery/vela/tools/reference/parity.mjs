@@ -78,8 +78,8 @@ for (const specPath of specs) {
   const velaMarks = collectMarks(JSON.parse(velaOut));
 
   for (const [markName, refMark] of refMarks) {
-    // Guides are not built yet; they are counted, not diffed.
-    if ((refMark.role || '').startsWith('axis') || (refMark.role || '').startsWith('legend')) continue;
+    // Legends are not built yet; they are counted, not diffed.
+    if ((refMark.role || '').startsWith('legend')) continue;
     total++;
     const velaMark = velaMarks.get(markName);
     if (!velaMark) {
@@ -133,16 +133,26 @@ function dumpItem(it) {
 
 // --- comparison --------------------------------------------------------------
 
-/** Every non-group mark in the scene, keyed by name (or by role+index). */
+/**
+ * Every non-group mark in the scene, keyed by its path through the tree.
+ * A chart has several axes and they all carry the same roles, so the key
+ * includes each group's index — without it the axes overwrite each other in
+ * the map and only the last one is ever compared.
+ */
 function collectMarks(mark, out = new Map(), trail = []) {
   if (mark.marktype !== 'group') {
-    const key = mark.name || `${trail.join('/')}#${mark.role || mark.marktype}`;
+    let key = mark.name || `${trail.join('/')}#${mark.role || mark.marktype}`;
+    if (!mark.name && out.has(key)) {
+      let n = 2;
+      while (out.has(`${key}~${n}`)) n++;
+      key = `${key}~${n}`;
+    }
     out.set(key, mark);
     return out;
   }
-  for (const item of mark.items || []) {
+  for (const [i, item] of (mark.items || []).entries()) {
     for (const child of item.items || []) {
-      collectMarks(child, out, trail.concat(mark.name || mark.role || 'group'));
+      collectMarks(child, out, trail.concat(`${mark.name || mark.role || 'group'}${i > 0 ? i : ''}`));
     }
   }
   return out;

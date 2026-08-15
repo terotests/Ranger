@@ -8,10 +8,11 @@ It is an independent implementation of the Vega grammar's semantics, not a port
 of the Vega JavaScript sources and not affiliated with the Vega project. See
 [Attribution and licensing](#attribution-and-licensing).
 
-**Status:** the core runs. Marks, scales, transforms, signals and expressions
-produce a scene that matches the reference implementation item for item on
-14 of 14 marks across 13 chart types. **Axes, legends and rendering are not
-built yet** — see [What is not there yet](#what-is-not-there-yet).
+**Status:** the core runs, and so do the axes. Marks, scales, transforms,
+signals, expressions, axes and the surrounding layout produce a scene that
+matches the reference implementation item for item on **129 of 129 marks**
+across 13 chart types. **Legends and rendering are not built yet** — see
+[What a demo still needs](#what-a-demo-still-needs).
 
 ```
                    Vega-Lite JSON
@@ -28,6 +29,7 @@ built yet** — see [What is not there yet](#what-is-not-there-yet).
    │  VlScale     band point linear ordinal     │
    │  VlRuntime   signals → data → scales →     │
    │              encode                        │
+   │  VlAxis      ticks, labels, grid, title    │
    │  VlScene     mark / item tree              │
    │  VlCommand   flat draw commands            │
    └─────────────────────┬──────────────────────┘
@@ -41,7 +43,8 @@ built yet** — see [What is not there yet](#what-is-not-there-yet).
 
 Rendering is deliberately last. The command layer is the seam a backend plugs
 into; the EVG backend waits on richer SVG-path support in EVG, and until then
-the commands are checked as text.
+the commands are checked as text. A bar chart needs no paths at all, so that
+one is drawable today — see [What a demo still needs](#what-a-demo-still-needs).
 
 ## Try it
 
@@ -60,12 +63,24 @@ node gallery/vela/bin/vela_commands.js gallery/vela/tests/specs/bar.vg.json
 ```
 rect x=0 y=0 w=180 h=300 stroke=#ddd strokeWidth=1
 group-begin
-rect x=1 y=216 w=18 h=84 fill=#4c78a8
+group-begin
+line x=0.5 y=300.5 x2=180.5 y2=300.5 stroke=#ddd strokeWidth=1     ← grid
+…
+line x=10.5 y=300.5 x2=10.5 y2=305.5 stroke=#888 strokeWidth=1     ← tick
+text x=9.5 y=307.5 size=10 align=center text=A                     ← label
+line x=0.5 y=300.5 x2=180.5 y2=300.5 stroke=#888 strokeWidth=1     ← domain
+text x=90.5 y=321.5 size=11 align=center text=a                    ← title
+group-end
+rect x=1 y=216 w=18 h=84 fill=#4c78a8                              ← the bars
 rect x=21 y=135 w=18 h=165 fill=#4c78a8
-rect x=41 y=171 w=18 h=129 fill=#4c78a8
 …
 group-end
 ```
+
+The scene's root item also carries `viewWidth`, `viewHeight`, `originX` and
+`originY`: how big a canvas to make and where to put the plot inside it, once
+the axes have said how much room their labels and titles need. A backend reads
+those four numbers and never has to know what an axis is.
 
 ## How correctness is established
 
@@ -114,6 +129,12 @@ Each of these was found by the harness, not by reading the spec:
 | A histogram's bars were mirrored | a rect written from its far corner is normalised so its size is never negative |
 | A grouped bar's columns overlapped | a channel's `offset` may itself be a whole scaled channel |
 | Filling in a default colour broke a stroked mark | a mark that encodes *either* fill or stroke gets *neither* default |
+| Tick marks sat on fractional pixels | tick positions are rounded (`tickRound`); label positions are not |
+| Axis labels drifted half a pixel | the axis group is offset half a pixel so its rules stay crisp, and a label on a discrete scale takes that half pixel back |
+| Grid lines ran the wrong way | a grid line follows the *crossing* scale's range, so an inverted y range and an ascending band range draw in opposite directions |
+| Every second y-axis label vanished | the overlap test compared one-sidedly, and a y axis runs downward |
+| An axis read 0, 0.5, 1 | a tick *set* shares one precision, chosen from its step: 0.0, 0.5, 1.0 |
+| A binned histogram invented its own ticks | a binned scale is labelled at its bin boundaries |
 
 ## Compatibility
 
@@ -135,7 +156,8 @@ Measured by `tests/run.sh`: does the mark geometry match the reference?
 | pie / arc | `pie.vg.json` | ✓ |
 | layered | `layered.vg.json` | ✓ (both layers) |
 
-**14 / 14 marks**, against Vega 6.4 and Vega-Lite 6.4.
+**129 / 129 marks**, against Vega 6.4 and Vega-Lite 6.4 — data marks and every
+axis grid, tick, label, domain line and title in all thirteen charts.
 
 | Area | State |
 | --- | --- |
@@ -145,20 +167,49 @@ Measured by `tests/run.sh`: does the mark geometry match the reference?
 | Expressions | the documented expression profile: operators, member access, calls, array and object literals |
 | Signals | literal values and `update` expressions, settled against the scales |
 | Data | inline `values` and `source`; a `url` is refused rather than fetched |
-| Guides | **not built** — axes and legends produce nothing |
-| Layout | **not built** — no autosize, padding or group layout |
+| Axes | ticks, grid, labels, domain, title · `tickCount`, `tickRound`, `labelAngle`, `labelFlush`, `labelOverlap`, band and binned ticks |
+| Legends | **not built** |
+| Layout | axis extents, view size and plot origin (`autosize: pad`); no group or facet layout |
 | Dataflow | **batch only** — no pulses, no changesets, no incremental re-run |
 | Rendering | **not built** — the command layer exists, the backends do not |
 | Interaction | **not built** |
 
+## What a demo still needs
+
+For a chart on an HTML page through the EVG renderer interface, this is what is
+required and what is not:
+
+| Piece | Needed for the demo? | State |
+| --- | --- | --- |
+| **Axes** | **yes** — a chart without them is unreadable | **done**, and matching the reference |
+| **Layout** | **yes** — the plot has to be moved in to make room for the labels | **done**: `viewWidth`/`viewHeight`/`originX`/`originY` on the scene root |
+| **Rendering backend** | **yes** — it is the demo | **not built**; the command layer it consumes is |
+| Legends | only if the demo encodes colour or size | not built — leave them out of the first demo, or accept a chart with no key |
+| Time scales | no | not built |
+| Log scales | no | not built (`VlMath` has the `ln`/`exp`/`pow` they need) |
+| Incremental dataflow | no — a static chart recomputes once | not built |
+| Ranger Vega-Lite compiler | no — the specs are compiled ahead of time | not built |
+
+**The backend does not have to wait for EVG's SVG paths.** A bar chart's whole
+command list is `rect`, `line` and `text`, which EVG draws today — grid lines,
+tick marks, labels, the domain line, the title and the bars themselves. What
+needs the path work is `symbol` (scatter, bubble), `polyline` (line), `polygon`
+(area) and `arc` (pie). So the first HTML demo can be a bar chart or a
+histogram now, and gains the other chart types when paths land.
+
 ## What is not there yet
 
-* **Axes and legends.** The reference builds them as ordinary marks inside axis
-  groups; Vela skips them. The parity harness counts them separately so this is
-  visible rather than flattering: what it reports as matching is the data marks.
-* **Rendering.** Waiting on EVG's SVG-path work. `VlCommand` is the interface a
-  backend will consume, and it is built and tested now so that the backend is a
-  small step rather than a design.
+* **Legends.** The reference builds them as marks inside legend groups, the
+  same way it builds axes. The parity harness counts them separately, so what
+  it reports as matching does not include them.
+* **Rendering.** `VlCommand` is the interface a backend will consume, built and
+  tested first so the backend is a small step rather than a design.
+* **Bounds-based layout.** The view is sized from what the axes ask for, which
+  agrees with the reference exactly on the charts whose marks stay inside the
+  plot (a bar chart is 236×347 with the plot at 51,10 in both). The reference
+  measures the true bounds of everything drawn, so a chart with a symbol or a
+  label hanging over the plot edge can differ by a few pixels — a backend
+  should not clip to the plot rectangle.
 * **Time scales and the date/time layer.** No temporal axis.
 * **Log and power scales.** `VlMath` has the `ln`/`exp`/`pow` they need; the
   scale types are not wired up.
@@ -175,6 +226,8 @@ gallery/vela/
 ├── src/
 │   ├── VlJson.rgr        value model, parser, canonical writer
 │   ├── VlMath.rgr        ln / exp / pow, which Ranger's operators lack
+│   ├── VlText.rgr        label width estimate, for axis extents
+│   ├── VlAxis.rgr        an axis spec becomes rules and text
 │   ├── VlExpr.rgr        expression parser (AST)
 │   ├── VlExprEval.rgr    expression evaluator + scope
 │   ├── VlScale.rgr       band / point / linear / ordinal, ticks, nice
