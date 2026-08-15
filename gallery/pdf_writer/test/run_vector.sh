@@ -60,6 +60,21 @@ if ! echo "$pp_out" | grep -q "ALL PASS"; then
 fi
 
 echo
+echo "### pdf_writer/vector_raster (contours, fill rules, holes)"
+if ! node bin/output.js -es6 gallery/pdf_writer/test/vector_raster_test.rgr \
+      -d="$OUT" -o=vector_raster_test.js >"$OUT/raster.log" 2>&1; then
+  echo "  COMPILE FAIL vector_raster_test"
+  tail -25 "$OUT/raster.log"
+  exit 1
+fi
+
+vr_out="$(node "$OUT/vector_raster_test.js" 2>&1)"
+echo "$vr_out" | grep -E "FAIL |passed="
+if ! echo "$vr_out" | grep -q "ALL PASS"; then
+  status=1
+fi
+
+echo
 echo "### pdf_writer/vector_viewbox (offline, spec + browser snapshot)"
 if ! node bin/output.js -es6 gallery/pdf_writer/test/vector_viewbox_test.rgr \
       -d="$OUT" -o=vector_viewbox_test.js >"$OUT/viewbox.log" 2>&1; then
@@ -86,7 +101,7 @@ echo "### pdf_writer/vector_renderers (end to end)"
 
 FIXTURE="gallery/pdf_writer/test/fixtures/vector_paths.tsx"
 
-for tool in pdf html; do
+for tool in pdf html png; do
   if ! node bin/output.js -es6 -nodecli "gallery/pdf_writer/src/tools/evg_${tool}_tool.rgr" \
         -d="$OUT" -o="${tool}_tool.js" >"$OUT/${tool}.log" 2>&1; then
     echo "  COMPILE FAIL evg_${tool}_tool"
@@ -97,6 +112,7 @@ done
 
 node "$OUT/pdf_tool.js" "$FIXTURE" "$OUT/vector.pdf" >"$OUT/pdf_run.log" 2>&1
 node "$OUT/html_tool.js" "$FIXTURE" "$OUT/vector.html" >"$OUT/html_run.log" 2>&1
+node "$OUT/png_tool.js" "$FIXTURE" "$OUT/vector.png" >"$OUT/png_run.log" 2>&1
 
 check() {
   local label="$1" file="$2" needle="$3"
@@ -140,6 +156,21 @@ else
   check "HTML: star carries the synthesised viewBox" "$OUT/vector.html" 'viewBox="10 10 30 30"'
   check "HTML: quad carries the synthesised viewBox" "$OUT/vector.html" 'viewBox="0 0 50 50"'
   check "HTML: explicit viewBox is passed through" "$OUT/vector.html" 'viewBox="0 0 24 24"'
+fi
+
+# The raster target used to have no path support at all: a <Path> that
+# appeared in PDF and HTML was simply absent from the PNG (TODO_EVG "PNG 0.9").
+if [ ! -s "$OUT/vector.png" ]; then
+  echo "  FAIL the PNG was not produced"
+  tail -15 "$OUT/png_run.log"
+  status=1
+else
+  if grep -q "Render: path" "$OUT/png_run.log"; then
+    echo "  PASS PNG: paths reach the raster renderer"
+  else
+    echo "  FAIL PNG: no path was rendered"
+    status=1
+  fi
 fi
 
 echo "=============================================================="

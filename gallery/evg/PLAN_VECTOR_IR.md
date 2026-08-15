@@ -244,7 +244,7 @@ Both moved toward each other, and toward what the documents were clearly asking
 for. Verified end to end: on the same fixture, PDF emits `2 0 0 2 -20 -20 cm`
 where HTML emits `viewBox="10 10 30 30"` — the same transform expressed twice.
 
-### Stage 1 — Path completeness
+### Stage 1 — Path completeness — **DONE**
 
 1. `S/s`, `T/t` (smooth cubic/quad, reflected control point).
 2. Implicit command repetition in the parse loop.
@@ -256,24 +256,41 @@ where HTML emits `viewBox="10 10 30 30"` — the same transform expressed twice.
    implementation. (The PDF renderer currently has no `"A"` branch at all, so an
    arc would vanish silently.)
 
-### Stage 2 — Contours and the shared rasterizer
+### Stage 2 — Contours and the shared rasterizer — **DONE**
 
-1. `flatten()` returns **rings**, not one flat list (§2.4), plus a fill rule.
-2. Extract `VectorRasterizer` from `RasterText` (§3): `Contour`, `Edge`,
-   `fillAA(rule)`; add even-odd.
-3. `RasterText` feeds glyph contours into it — glyph output must be pixel-identical
-   before and after; this is the regression gate for the refactor.
-4. Raster `<Path>` support → closes **PNG 0.9**.
-5. Point `UIContext.fillPolygon` at the same code — gains AA and holes.
+1. ✅ `flattenRings` returns **rings** and applies the transform while
+   flattening, so curves are subdivided at the size they are drawn.
+   `PathRing` is the unit; `flatten()` is kept for its existing callers and
+   documented as unable to express more than one contour.
+2. ✅ `VectorRasterizer` extracted from `RasterText`: `VectorEdge`, `addRing`,
+   `fillAA(rule)`, with even-odd alongside non-zero.
+3. ✅ `RasterText` feeds glyph contours into it. Verified by rendering a text
+   page before and after the refactor: **byte-identical PNG**. The duplicate
+   non-AA fill path in `RasterText` (`renderGlyphFast`, `scanlineFill` and
+   their helpers, all unreachable) went with it — leaving it would have left
+   two fills to drift apart, which is what the stage exists to prevent.
+4. ✅ Raster `<Path>` support, fill and stroke → closes **PNG 0.9**.
+5. ❌ `UIContext.fillPolygon` — see the note below.
 
-Note on scope: **fill is nearly free, stroke is not.** Stroking arbitrary paths
-in raster needs offset-curve geometry with joins (miter/round/bevel) and caps —
-that is a genuine algorithm, not an extraction, and it is the part the original
-sketch under-estimated. Suggested v1: fill exactly; approximate stroke by
-emitting quads per flattened segment plus round joins. PDF and HTML get real
-strokes natively, so only raster carries the approximation.
+Note on scope: **fill was nearly free, stroke was not.** As predicted, fill came
+out of the extraction almost unchanged, while stroking needed its own answer.
+Shipped as the approximation described above: one quad per flattened segment
+plus a disc at each joint, merged by the non-zero rule, giving round joins and
+butt caps. It is indistinguishable from a real stroke at icon weights and
+visibly an approximation for very thick strokes with sharp corners, where a
+mitre would run to a point. PDF and HTML stroke natively, so only raster carries
+it. Real offset curves remain the eventual answer.
 
-### Stage 3 — Shape normalisation
+**What did not land: the WASM UI still has its own fill.** `UIContext` paints
+into `SoftCanvas` (`game_engine/v2/framebuffer.rgr`) while the rasterizer works
+on `RasterBuffer` (`pdf_writer/src/raster`). Sharing the code needs either a
+buffer abstraction or a cross-gallery dependency, and that is a design decision
+worth making deliberately rather than as a side effect of this stage. The
+shapes `WasmUiSelect` draws today are single-ring chevrons and check marks, so
+it has no live defect from the missing hole support — but it does still lack
+anti-aliasing, and `flatten()` is still what it calls.
+
+### Stage 3 — Shape normalisation — next
 
 `rect` / `rounded rect` / `circle` / `ellipse` / `line` / `polyline` / `polygon`
 → `PathCommand[]`. Pure functions, no renderer changes, fully unit-testable.
