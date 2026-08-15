@@ -1,0 +1,630 @@
+; ==============================================================================
+; VlExprEval.rgr — evaluating a parsed Vega expression.
+; ==============================================================================
+; The scope an expression sees is small and explicit: the current datum, the
+; named signals, and the scales (so `bandwidth('x')` and `domain('x').length`
+; answer). Everything else is a function from the standard set.
+;
+; Values are VlJson throughout rather than a second value type. An expression
+; reads data that arrived as JSON and writes values that go back into a datum
+; or a scene item, so a separate value union would only add two conversions per
+; node. `null` doubles as "undefined" — Vega's own expression language treats
+; the two the same in every test that matters here (`isValid` is the one place
+; the distinction would show, and it checks for both).
+; ==============================================================================
+
+Import "VlJson.rgr"
+Import "VlExpr.rgr"
+Import "VlScale.rgr"
+
+class VlExprScope {
+    def datum:VlJson (new VlJson)
+    def hasDatum:boolean false
+    def signals:[string:VlJson]
+    def scales:[string:VlScale]
+    ; Set when a function the profile does not have is called, so a spec that
+    ; needs more than this evaluator has fails loudly instead of drawing
+    ; something subtly wrong.
+    def missing:[string]
+
+    fn setDatum:void (row:VlJson) {
+        datum = row
+        hasDatum = true
+    }
+    fn setSignal:void (name:string value:VlJson) {
+        set signals name value
+    }
+    fn signal:VlJson (name:string) {
+        if (has signals name) {
+            return (unwrap (get signals name))
+        }
+        return (VlJson.nullValue())
+    }
+    fn hasSignal:boolean (name:string) {
+        return (has signals name)
+    }
+    fn setScale:void (name:string sc:VlScale) {
+        set scales name sc
+    }
+    fn scale:VlScale (name:string) {
+        if (has scales name) {
+            return (unwrap (get scales name))
+        }
+        def empty (new VlScale())
+        return empty
+    }
+    fn hasScale:boolean (name:string) {
+        return (has scales name)
+    }
+    fn noteMissing:void (name:string) {
+        push missing name
+    }
+}
+
+class VlExprEval {
+
+    ; ------------------------------------------------------------ truthiness --
+    sfn truthy:boolean (v:VlJson) {
+        if (v.kind == 0) {
+            return false
+        }
+        if (v.kind == 1) {
+            return v.b
+        }
+        if (v.kind == 2) {
+            return (v.num != 0.0)
+        }
+        if (v.kind == 3) {
+            return ((strlen v.str) > 0)
+        }
+        return true
+    }
+
+    sfn looseEquals:boolean (a:VlJson b:VlJson) {
+        if ((a.kind == 0) || (b.kind == 0)) {
+            return ((a.kind == 0) && (b.kind == 0))
+        }
+        if ((a.kind == 3) && (b.kind == 3)) {
+            return (a.str == b.str)
+        }
+        if ((a.kind == 1) || (b.kind == 1)) {
+            return ((VlExprEval.truthy(a)) == (VlExprEval.truthy(b)))
+        }
+        if ((a.kind == 3) || (b.kind == 3)) {
+            ; JavaScript compares a string against a number by coercing the
+            ; string, which is what a `datum.x == 5` in a spec expects.
+            if ((a.kind == 2) || (b.kind == 2)) {
+                return ((a.asDouble()) == (b.asDouble()))
+            }
+            return ((a.asString()) == (b.asString()))
+        }
+        return ((a.asDouble()) == (b.asDouble()))
+    }
+
+    ; --------------------------------------------------------------- eval ----
+    sfn eval:VlJson (node:VlExprNode scope:VlExprScope) {
+        if (node.kind == 0) {
+            return node.value
+        }
+        if (node.kind == 1) {
+            return (VlExprEval.evalIdentifier(node scope))
+        }
+        if (node.kind == 2) {
+            return (VlExprEval.evalMember(node scope))
+        }
+        if (node.kind == 3) {
+            return (VlExprEval.evalCall(node scope))
+        }
+        if (node.kind == 4) {
+            return (VlExprEval.evalUnary(node scope))
+        }
+        if (node.kind == 5) {
+            return (VlExprEval.evalBinary(node scope))
+        }
+        if (node.kind == 6) {
+            return (VlExprEval.evalLogical(node scope))
+        }
+        if (node.kind == 7) {
+            def cond:VlJson (VlExprEval.eval((itemAt node.children 0) scope))
+            if (VlExprEval.truthy(cond)) {
+                return (VlExprEval.eval((itemAt node.children 1) scope))
+            }
+            return (VlExprEval.eval((itemAt node.children 2) scope))
+        }
+        if (node.kind == 8) {
+            def arr:VlJson (VlJson.arrayValue())
+            for node.children child:VlExprNode idx {
+                push arr.arr (VlExprEval.eval(child scope))
+            }
+            return arr
+        }
+        if (node.kind == 9) {
+            def obj:VlJson (VlJson.objectValue())
+            def total:int (array_length node.children)
+            def k:int 0
+            while (k < total) {
+                def key:string (itemAt node.keys k)
+                def child:VlExprNode (itemAt node.children k)
+                obj.setMember(key (VlExprEval.eval(child scope)))
+                k = (k + 1)
+            }
+            return obj
+        }
+        return (VlJson.nullValue())
+    }
+
+    sfn evalIdentifier:VlJson (node:VlExprNode scope:VlExprScope) {
+        if (node.name == "datum") {
+            if scope.hasDatum {
+                return scope.datum
+            }
+            return (VlJson.nullValue())
+        }
+        if (node.name == "PI") {
+            return (VlJson.numberValue(3.141592653589793))
+        }
+        if (node.name == "E") {
+            return (VlJson.numberValue(2.718281828459045))
+        }
+        if (scope.hasSignal((node.name))) {
+            return (scope.signal((node.name)))
+        }
+        return (VlJson.nullValue())
+    }
+
+    sfn evalMember:VlJson (node:VlExprNode scope:VlExprScope) {
+        def target:VlJson (VlExprEval.eval((itemAt node.children 0) scope))
+        def key:string ""
+        if node.computed {
+            def keyVal:VlJson (VlExprEval.eval((itemAt node.children 1) scope))
+            if (target.kind == 4) {
+                def idx:int (to_int (keyVal.asDouble()))
+                return (target.at(idx))
+            }
+            key = (keyVal.asString())
+        } {
+            key = node.name
+        }
+        if (key == "length") {
+            if (target.kind == 4) {
+                return (VlJson.intValue((target.count())))
+            }
+            if (target.kind == 3) {
+                return (VlJson.intValue((strlen target.str)))
+            }
+        }
+        if (target.kind == 5) {
+            return (target.get(key))
+        }
+        return (VlJson.nullValue())
+    }
+
+    sfn evalUnary:VlJson (node:VlExprNode scope:VlExprScope) {
+        def v:VlJson (VlExprEval.eval((itemAt node.children 0) scope))
+        if (node.op == "!") {
+            return (VlJson.boolValue((! (VlExprEval.truthy(v)))))
+        }
+        if (node.op == "-") {
+            return (VlJson.numberValue((0.0 - (v.asDouble()))))
+        }
+        return (VlJson.numberValue((v.asDouble())))
+    }
+
+    sfn evalLogical:VlJson (node:VlExprNode scope:VlExprScope) {
+        def left:VlJson (VlExprEval.eval((itemAt node.children 0) scope))
+        if (node.op == "&&") {
+            def leftTruthy:boolean (VlExprEval.truthy(left))
+            if (! leftTruthy) {
+                return left
+            }
+            return (VlExprEval.eval((itemAt node.children 1) scope))
+        }
+        if (VlExprEval.truthy(left)) {
+            return left
+        }
+        return (VlExprEval.eval((itemAt node.children 1) scope))
+    }
+
+    sfn evalBinary:VlJson (node:VlExprNode scope:VlExprScope) {
+        def a:VlJson (VlExprEval.eval((itemAt node.children 0) scope))
+        def b:VlJson (VlExprEval.eval((itemAt node.children 1) scope))
+        def op:string node.op
+
+        if (op == "+") {
+            ; `+` concatenates when either side is a string, which is how every
+            ; generated `description` signal builds its text.
+            if ((a.kind == 3) || (b.kind == 3)) {
+                return (VlJson.stringValue(((a.asString()) + (b.asString()))))
+            }
+            return (VlJson.numberValue(((a.asDouble()) + (b.asDouble()))))
+        }
+        if (op == "-") {
+            return (VlJson.numberValue(((a.asDouble()) - (b.asDouble()))))
+        }
+        if (op == "*") {
+            return (VlJson.numberValue(((a.asDouble()) * (b.asDouble()))))
+        }
+        if (op == "/") {
+            return (VlJson.numberValue(((a.asDouble()) / (b.asDouble()))))
+        }
+        if (op == "%") {
+            def x:double (a.asDouble())
+            def y:double (b.asDouble())
+            if (y == 0.0) {
+                return (VlJson.numberValue(0.0))
+            }
+            def q:double (to_double (to_int (x / y)))
+            return (VlJson.numberValue((x - (q * y))))
+        }
+        if ((op == "==") || (op == "===")) {
+            if (op == "===") {
+                if (a.kind != b.kind) {
+                    return (VlJson.boolValue(false))
+                }
+            }
+            return (VlJson.boolValue((VlExprEval.looseEquals(a b))))
+        }
+        if ((op == "!=") || (op == "!==")) {
+            if (op == "!==") {
+                if (a.kind != b.kind) {
+                    return (VlJson.boolValue(true))
+                }
+            }
+            return (VlJson.boolValue((! (VlExprEval.looseEquals(a b)))))
+        }
+        ; Relational operators compare strings as strings and everything else
+        ; as numbers, matching the JavaScript rule the spec authors write to.
+        if ((a.kind == 3) && (b.kind == 3)) {
+            def cmp:int (VlExprEval.compareStrings((a.str) (b.str)))
+            if (op == "<") {
+                return (VlJson.boolValue((cmp < 0)))
+            }
+            if (op == "<=") {
+                return (VlJson.boolValue((cmp <= 0)))
+            }
+            if (op == ">") {
+                return (VlJson.boolValue((cmp > 0)))
+            }
+            return (VlJson.boolValue((cmp >= 0)))
+        }
+        def x:double (a.asDouble())
+        def y:double (b.asDouble())
+        if (op == "<") {
+            return (VlJson.boolValue((x < y)))
+        }
+        if (op == "<=") {
+            return (VlJson.boolValue((x <= y)))
+        }
+        if (op == ">") {
+            return (VlJson.boolValue((x > y)))
+        }
+        return (VlJson.boolValue((x >= y)))
+    }
+
+    sfn compareStrings:int (a:string b:string) {
+        def la:int (strlen a)
+        def lb:int (strlen b)
+        def limit:int la
+        if (lb < limit) {
+            limit = lb
+        }
+        def k:int 0
+        while (k < limit) {
+            def ca:int (charAt a k)
+            def cb:int (charAt b k)
+            if (ca < cb) {
+                return -1
+            }
+            if (ca > cb) {
+                return 1
+            }
+            k = (k + 1)
+        }
+        if (la < lb) {
+            return -1
+        }
+        if (la > lb) {
+            return 1
+        }
+        return 0
+    }
+
+    ; --------------------------------------------------------------- calls ----
+    sfn evalCall:VlJson (node:VlExprNode scope:VlExprScope) {
+        def name:string node.name
+        def argc:int (array_length node.children)
+        def a0:VlJson (VlJson.nullValue())
+        def a1:VlJson (VlJson.nullValue())
+        def a2:VlJson (VlJson.nullValue())
+        if (argc > 0) {
+            a0 = (VlExprEval.eval((itemAt node.children 0) scope))
+        }
+        if (argc > 1) {
+            a1 = (VlExprEval.eval((itemAt node.children 1) scope))
+        }
+        if (argc > 2) {
+            a2 = (VlExprEval.eval((itemAt node.children 2) scope))
+        }
+
+        ; --- type tests ---
+        if (name == "isValid") {
+            if (a0.kind == 0) {
+                return (VlJson.boolValue(false))
+            }
+            if (a0.kind == 2) {
+                return (VlJson.boolValue((! (VlExprEval.isNaN((a0.num))))))
+            }
+            return (VlJson.boolValue(true))
+        }
+        if (name == "isFinite") {
+            return (VlJson.boolValue((VlExprEval.isFiniteNumber((a0.asDouble())))))
+        }
+        if (name == "isNaN") {
+            return (VlJson.boolValue((VlExprEval.isNaN((a0.asDouble())))))
+        }
+        if (name == "isArray") {
+            return (VlJson.boolValue((a0.kind == 4)))
+        }
+        if (name == "isBoolean") {
+            return (VlJson.boolValue((a0.kind == 1)))
+        }
+        if (name == "isNumber") {
+            return (VlJson.boolValue((a0.kind == 2)))
+        }
+        if (name == "isString") {
+            return (VlJson.boolValue((a0.kind == 3)))
+        }
+        if (name == "isObject") {
+            return (VlJson.boolValue((a0.kind == 5)))
+        }
+        if (name == "isDefined") {
+            return (VlJson.boolValue((a0.kind != 0)))
+        }
+
+        ; --- math ---
+        if (name == "abs") {
+            def v:double (a0.asDouble())
+            if (v < 0.0) {
+                v = (0.0 - v)
+            }
+            return (VlJson.numberValue(v))
+        }
+        if (name == "ceil") {
+            return (VlJson.numberValue((to_double (ceil (a0.asDouble())))))
+        }
+        if (name == "floor") {
+            return (VlJson.numberValue((to_double (floor (a0.asDouble())))))
+        }
+        if (name == "round") {
+            return (VlJson.numberValue((to_double (floor ((a0.asDouble()) + 0.5)))))
+        }
+        if (name == "sqrt") {
+            return (VlJson.numberValue((sqrt (a0.asDouble()))))
+        }
+        if (name == "max") {
+            return (VlExprEval.extremum(node scope true))
+        }
+        if (name == "min") {
+            return (VlExprEval.extremum(node scope false))
+        }
+        if (name == "clamp") {
+            def v:double (a0.asDouble())
+            def lo:double (a1.asDouble())
+            def hi:double (a2.asDouble())
+            if (v < lo) {
+                v = lo
+            }
+            if (v > hi) {
+                v = hi
+            }
+            return (VlJson.numberValue(v))
+        }
+        if (name == "span") {
+            if (a0.kind == 4) {
+                def cnt:int (a0.count())
+                if (cnt < 2) {
+                    return (VlJson.numberValue(0.0))
+                }
+                return (VlJson.numberValue(((a0.at((cnt - 1)).asDouble()) - (a0.at(0).asDouble()))))
+            }
+            return (VlJson.numberValue(0.0))
+        }
+
+        ; --- strings and arrays ---
+        if (name == "length") {
+            if (a0.kind == 4) {
+                return (VlJson.intValue((a0.count())))
+            }
+            return (VlJson.intValue((strlen (a0.asString()))))
+        }
+        if (name == "join") {
+            def sep:string ","
+            if (argc > 1) {
+                sep = (a1.asString())
+            }
+            def out:string ""
+            def cnt:int (a0.count())
+            def k:int 0
+            while (k < cnt) {
+                if (k > 0) {
+                    out = (out + sep)
+                }
+                out = (out + (a0.at(k).asString()))
+                k = (k + 1)
+            }
+            return (VlJson.stringValue(out))
+        }
+        if (name == "toString") {
+            return (VlJson.stringValue((a0.asString())))
+        }
+        if (name == "toNumber") {
+            if (a0.kind == 0) {
+                return (VlJson.nullValue())
+            }
+            return (VlJson.numberValue((a0.asDouble())))
+        }
+        if (name == "toBoolean") {
+            if (a0.kind == 0) {
+                return (VlJson.nullValue())
+            }
+            return (VlJson.boolValue((VlExprEval.truthy(a0))))
+        }
+        if (name == "format") {
+            return (VlJson.stringValue((VlExprEval.formatNumber((a0.asDouble()) (a1.asString())))))
+        }
+
+        ; --- scale-aware ---
+        if (name == "bandwidth") {
+            def sc:VlScale (scope.scale((a0.asString())))
+            return (VlJson.numberValue((sc.bandwidth())))
+        }
+        if (name == "domain") {
+            def sc:VlScale (scope.scale((a0.asString())))
+            def out:VlJson (VlJson.arrayValue())
+            if ((sc.scaleType == "band") || ((sc.scaleType == "point") || (sc.scaleType == "ordinal"))) {
+                for sc.domainValues dv:string dvi {
+                    push out.arr (VlJson.stringValue(dv))
+                }
+            } {
+                push out.arr (VlJson.numberValue((sc.domainMin)))
+                push out.arr (VlJson.numberValue((sc.domainMax)))
+            }
+            return out
+        }
+        if (name == "range") {
+            def sc:VlScale (scope.scale((a0.asString())))
+            def out:VlJson (VlJson.arrayValue())
+            push out.arr (VlJson.numberValue((sc.rangeMin)))
+            push out.arr (VlJson.numberValue((sc.rangeMax)))
+            return out
+        }
+        if (name == "scale") {
+            def sc:VlScale (scope.scale((a0.asString())))
+            return (VlJson.numberValue((sc.mapValue(a1))))
+        }
+        if (name == "bandspace") {
+            ; bandspace(count, paddingInner, paddingOuter)
+            def cnt:double (a0.asDouble())
+            def inner:double (a1.asDouble())
+            def outer:double (a2.asDouble())
+            def slots:double ((cnt - inner) + (outer * 2.0))
+            if (slots < 1.0) {
+                slots = 1.0
+            }
+            return (VlJson.numberValue(slots))
+        }
+        if (name == "if") {
+            if (VlExprEval.truthy(a0)) {
+                return a1
+            }
+            return a2
+        }
+
+        scope.noteMissing(name)
+        return (VlJson.nullValue())
+    }
+
+    sfn extremum:VlJson (node:VlExprNode scope:VlExprScope wantMax:boolean) {
+        def total:int (array_length node.children)
+        def best:double 0.0
+        def have:boolean false
+        def k:int 0
+        while (k < total) {
+            def v:VlJson (VlExprEval.eval((itemAt node.children k) scope))
+            def d:double (v.asDouble())
+            if (! have) {
+                best = d
+                have = true
+            } {
+                if wantMax {
+                    if (d > best) {
+                        best = d
+                    }
+                } {
+                    if (d < best) {
+                        best = d
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        if (! have) {
+            return (VlJson.nullValue())
+        }
+        return (VlJson.numberValue(best))
+    }
+
+    ; A double is NaN when it does not equal itself, and finite when zeroing it
+    ; gives zero — an infinity times zero is NaN, which fails the comparison.
+    ; The Ranger operator set has no isnan/isfinite, and both identities hold on
+    ; every target that uses IEEE doubles.
+    sfn isNaN:boolean (v:double) {
+        return (v != v)
+    }
+
+    sfn isFiniteNumber:boolean (v:double) {
+        def zeroed:double (v * 0.0)
+        return (zeroed == 0.0)
+    }
+
+    ; d3-format, only as far as the specs here need: an empty specifier prints
+    ; the shortest decimal, and `.<n>f` fixes the decimals. Anything else falls
+    ; back to the empty behaviour rather than pretending to support it.
+    sfn formatNumber:string (value:double spec:string) {
+        def n:int (strlen spec)
+        if (n == 0) {
+            return (VlJson.formatNumber(value 6))
+        }
+        if ((substring spec (n - 1) n) == "f") {
+            def dot:int -1
+            def k:int 0
+            while (k < n) {
+                if ((substring spec k (k + 1)) == ".") {
+                    dot = k
+                }
+                k = (k + 1)
+            }
+            if (dot >= 0) {
+                def digitsText:string (substring spec (dot + 1) (n - 1))
+                def d@(optional):int (str2int digitsText)
+                if d {
+                    return (VlExprEval.fixedDecimals(value (unwrap d)))
+                }
+            }
+        }
+        return (VlJson.formatNumber(value 6))
+    }
+
+    sfn fixedDecimals:string (value:double digits:int) {
+        def text:string (VlJson.formatNumber(value digits))
+        if (digits <= 0) {
+            return text
+        }
+        def dot:int -1
+        def n:int (strlen text)
+        def k:int 0
+        while (k < n) {
+            if ((substring text k (k + 1)) == ".") {
+                dot = k
+            }
+            k = (k + 1)
+        }
+        if (dot < 0) {
+            def pad:string "."
+            def p:int 0
+            while (p < digits) {
+                pad = (pad + "0")
+                p = (p + 1)
+            }
+            return (text + pad)
+        }
+        def have:int ((n - dot) - 1)
+        def out:string text
+        def q:int have
+        while (q < digits) {
+            out = (out + "0")
+            q = (q + 1)
+        }
+        return out
+    }
+}

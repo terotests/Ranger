@@ -1,0 +1,48 @@
+rect x=0 y=0 w=40 h=300 stroke=#ddd strokeWidth=1
+group-begin
+group-begin
+line x=0.5 y=300.5 x2=40.5 y2=300.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=250.5 x2=40.5 y2=250.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=200.5 x2=40.5 y2=200.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=150.5 x2=40.5 y2=150.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=100.5 x2=40.5 y2=100.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=50.5 x2=40.5 y2=50.5 stroke=#ddd strokeWidth=1
+line x=0.5 y=0.5 x2=40.5 y2=0.5 stroke=#ddd strokeWidth=1
+group-end
+group-begin
+line x=10.5 y=300.5 x2=10.5 y2=305.5 stroke=#888 strokeWidth=1
+line x=30.5 y=300.5 x2=30.5 y2=305.5 stroke=#888 strokeWidth=1
+text x=10 y=307.5 size=10 align=right text=x fill=#000
+text x=30 y=307.5 size=10 align=right text=y fill=#000
+line x=0.5 y=300.5 x2=40.5 y2=300.5 stroke=#888 strokeWidth=1
+text x=20.5 y=319.5 size=11 align=center text=g fill=#000
+group-end
+group-begin
+line x=0.5 y=300.5 x2=-4.5 y2=300.5 stroke=#888 strokeWidth=1
+line x=0.5 y=250.5 x2=-4.5 y2=250.5 stroke=#888 strokeWidth=1
+line x=0.5 y=200.5 x2=-4.5 y2=200.5 stroke=#888 strokeWidth=1
+line x=0.5 y=150.5 x2=-4.5 y2=150.5 stroke=#888 strokeWidth=1
+line x=0.5 y=100.5 x2=-4.5 y2=100.5 stroke=#888 strokeWidth=1
+line x=0.5 y=50.5 x2=-4.5 y2=50.5 stroke=#888 strokeWidth=1
+line x=0.5 y=0.5 x2=-4.5 y2=0.5 stroke=#888 strokeWidth=1
+text x=-6.5 y=300.5 size=10 align=right text=0 fill=#000
+text x=-6.5 y=250.5 size=10 align=right text=50 fill=#000
+text x=-6.5 y=200.5 size=10 align=right text=100 fill=#000
+text x=-6.5 y=150.5 size=10 align=right text=150 fill=#000
+text x=-6.5 y=100.5 size=10 align=right text=200 fill=#000
+text x=-6.5 y=50.5 size=10 align=right text=250 fill=#000
+text x=-6.5 y=0.5 size=10 align=right text=300 fill=#000
+line x=0.5 y=300.5 x2=0.5 y2=0.5 stroke=#888 strokeWidth=1
+text x=-34.5 y=150.5 size=11 align=center text=Sum of b fill=#000
+group-end
+rect x=1 y=77 w=18 h=28 fill=#4c78a8
+rect x=21 y=14 w=18 h=55 fill=#f58518
+rect x=1 y=105 w=18 h=43 fill=#e45756
+rect x=21 y=69 w=18 h=91 fill=#72b7b2
+rect x=1 y=148 w=18 h=81 fill=#54a24b
+rect x=21 y=160 w=18 h=53 fill=#eeca3b
+rect x=1 y=229 w=18 h=19 fill=#b279a2
+rect x=21 y=213 w=18 h=87 fill=#ff9da6
+rect x=1 y=248 w=18 h=52 fill=#9d755d
+group-end
+

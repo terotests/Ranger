@@ -1001,7 +1001,21 @@ class EVGHTMLRenderer {
         }
         css = css + "left: " + (this.formatPx(px)) + "; "
         css = css + "top: " + (this.formatPx(py)) + "; "
-        
+
+        ; The box the label was laid out in. Without it the span is as wide as
+        ; its own text, so `text-align` has nothing to align within and a
+        ; rotation turns about a different centre than the other two targets
+        ; use — both of which showed up as labels landing in the wrong place.
+        if el.width.isSet {
+            css = css + "width: " + (this.formatPx(el.calculatedWidth)) + "; "
+        }
+
+        ; Rotation, which this target was not applying to labels at all while
+        ; the PDF and raster targets both were.
+        if ((el.rotate == 0.0) == false) {
+            css = css + "transform: rotate(" + (to_string el.rotate) + "deg); "
+        }
+
         ; Font properties
         if ((strlen el.fontFamily) > 0) {
             css = css + "font-family: " + (this.fontStack(el.fontFamily)) + "; "

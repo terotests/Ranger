@@ -7,9 +7,26 @@ published to `/evg/` on the project's GitHub Pages site.
 npm run showcase          # -> gallery/evg/showcase/dist/index.html
 ```
 
-Each page is rendered under **two themes** and to **three targets** — PDF (the
+Each page is rendered under **two themes** — the generated `charts` page under
+**three**, adding `autumn` — and to **three targets** — PDF (the
 print target), PNG (the raster preview) and HTML (the debug view) — from one
 source tree and one stylesheet.
+
+### One page is generated
+
+`pages/charts.tsx` is written by a tool, not by hand: `npm run vela:showcase`
+runs a set of Vega specifications through the [Vela](../../vela/README.md)
+runtime and emits the paths and labels they produce, together with
+`themes/charts-default.css`.
+
+It follows the same rule as the hand-written pages. A chart's series are
+numbered in the order it draws them — `chartFill0`, `chartStroke0` — and the
+stylesheet paints them, so the same charts come out in every palette. The
+generated stylesheet carries the colours the specifications asked for as
+*unscoped* rules, which makes them the default: a theme's scoped rules override
+them, and a build with no chart theme still draws the chart the spec described.
+
+The charts have no background of their own; the page shows through.
 
 ## The rule the gallery follows
 
@@ -38,6 +55,7 @@ unscoped < theme-scoped < attributes authored in the TSX.
 | `flex` | `flex` shorthand, `flex-shrink: 0`, `justify-content`, `flex-wrap` |
 | `emoji` | grapheme clusters, GSUB ligatures, Type0/Identity-H embedding, `emoji-color` |
 | `boxmodel` | padding, per-side padding, borders, nesting, margins |
+| `charts` | **generated** — Vega specs run by [`gallery/vela`](../../vela/README.md) and drawn as path data; series colours come from the theme, in three palettes |
 
 `units` is the one worth reading twice: five bars declared in five different
 units come out exactly the same length, because CSS defines them all against

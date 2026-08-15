@@ -1,0 +1,258 @@
+; ==============================================================================
+; VlConfig.rgr — the style defaults a mark inherits before its own encode runs.
+; ==============================================================================
+; A compiled Vega-Lite spec does not spell out every property it draws with. A
+; point mark carries `"style": ["point"]` and nothing else about its size, and
+; the reference fills in 30 from its default configuration. Without this table a
+; scatter plot's symbols come out the wrong size and nothing in the spec says
+; why — the value is in the renderer's defaults, not in the document.
+;
+; The values below are the reference implementation's own defaults (vega-parser's
+; config), restricted to the styles the specs here use. A spec's own `config`
+; block is merged over them, so an explicit setting always wins.
+; ==============================================================================
+
+Import "VlJson.rgr"
+
+class VlConfig {
+    def styles:[string:VlJson]
+    ; Per-mark-type defaults: `config.rect`, `config.line`, `config.symbol`, …
+    ; These are applied before the styles and are what give a line its width and
+    ; a symbol its default fill.
+    def markTypes:[string:VlJson]
+    ; `config.mark` applies to every mark type; empty by default.
+    def markAll:VlJson (VlJson.objectValue())
+    ; `config.axis`: what every axis starts from before its own spec is read.
+    ; A spec that wants its guides in a different colour says so once here
+    ; rather than on each of its axes, and the reference reads it the same way.
+    def axisAll:VlJson (VlJson.objectValue())
+
+    ; --- the built-in table ---------------------------------------------------
+    fn loadDefaults:void () {
+        this.loadMarkTypeDefaults()
+        def cell:VlJson (VlJson.objectValue())
+        cell.setMember("fill" (VlJson.stringValue("transparent")))
+        cell.setMember("stroke" (VlJson.stringValue("#ddd")))
+        set styles "cell" cell
+
+        def point:VlJson (VlJson.objectValue())
+        point.setMember("size" (VlJson.intValue(30)))
+        point.setMember("strokeWidth" (VlJson.intValue(2)))
+        point.setMember("shape" (VlJson.stringValue("circle")))
+        set styles "point" point
+
+        def circle:VlJson (VlJson.objectValue())
+        circle.setMember("size" (VlJson.intValue(30)))
+        circle.setMember("shape" (VlJson.stringValue("circle")))
+        set styles "circle" circle
+
+        def square:VlJson (VlJson.objectValue())
+        square.setMember("size" (VlJson.intValue(30)))
+        square.setMember("shape" (VlJson.stringValue("square")))
+        set styles "square" square
+
+        def guideLabel:VlJson (VlJson.objectValue())
+        guideLabel.setMember("fill" (VlJson.stringValue("#000")))
+        guideLabel.setMember("font" (VlJson.stringValue("sans-serif")))
+        guideLabel.setMember("fontSize" (VlJson.intValue(10)))
+        set styles "guide-label" guideLabel
+
+        def guideTitle:VlJson (VlJson.objectValue())
+        guideTitle.setMember("fill" (VlJson.stringValue("#000")))
+        guideTitle.setMember("font" (VlJson.stringValue("sans-serif")))
+        guideTitle.setMember("fontSize" (VlJson.intValue(11)))
+        guideTitle.setMember("fontWeight" (VlJson.stringValue("bold")))
+        set styles "guide-title" guideTitle
+
+        def groupTitle:VlJson (VlJson.objectValue())
+        groupTitle.setMember("fill" (VlJson.stringValue("#000")))
+        groupTitle.setMember("font" (VlJson.stringValue("sans-serif")))
+        groupTitle.setMember("fontSize" (VlJson.intValue(13)))
+        groupTitle.setMember("fontWeight" (VlJson.stringValue("bold")))
+        set styles "group-title" groupTitle
+    }
+
+    ; The reference's per-mark-type defaults, with its own constants:
+    ; #4c78a8 as the default colour, 2 as the default stroke width, 30 as the
+    ; default symbol size (64 for a bare symbol mark), #000 for text.
+    fn loadMarkTypeDefaults:void () {
+        def arc:VlJson (VlJson.objectValue())
+        arc.setMember("fill" (VlJson.stringValue("#4c78a8")))
+        set markTypes "arc" arc
+
+        def area:VlJson (VlJson.objectValue())
+        area.setMember("fill" (VlJson.stringValue("#4c78a8")))
+        set markTypes "area" area
+
+        def line:VlJson (VlJson.objectValue())
+        line.setMember("stroke" (VlJson.stringValue("#4c78a8")))
+        line.setMember("strokeWidth" (VlJson.intValue(2)))
+        set markTypes "line" line
+
+        def pathMark:VlJson (VlJson.objectValue())
+        pathMark.setMember("stroke" (VlJson.stringValue("#4c78a8")))
+        set markTypes "path" pathMark
+
+        def rect:VlJson (VlJson.objectValue())
+        rect.setMember("fill" (VlJson.stringValue("#4c78a8")))
+        set markTypes "rect" rect
+
+        def rule:VlJson (VlJson.objectValue())
+        rule.setMember("stroke" (VlJson.stringValue("#000")))
+        set markTypes "rule" rule
+
+        def shape:VlJson (VlJson.objectValue())
+        shape.setMember("stroke" (VlJson.stringValue("#4c78a8")))
+        set markTypes "shape" shape
+
+        def symbol:VlJson (VlJson.objectValue())
+        symbol.setMember("fill" (VlJson.stringValue("#4c78a8")))
+        symbol.setMember("size" (VlJson.intValue(64)))
+        set markTypes "symbol" symbol
+
+        def textMark:VlJson (VlJson.objectValue())
+        textMark.setMember("fill" (VlJson.stringValue("#000")))
+        textMark.setMember("font" (VlJson.stringValue("sans-serif")))
+        textMark.setMember("fontSize" (VlJson.intValue(11)))
+        set markTypes "text" textMark
+
+        def trail:VlJson (VlJson.objectValue())
+        trail.setMember("fill" (VlJson.stringValue("#4c78a8")))
+        trail.setMember("size" (VlJson.intValue(2)))
+        set markTypes "trail" trail
+    }
+
+    fn markTypeDefaults:VlJson (markType:string) {
+        if (has markTypes markType) {
+            return (unwrap (get markTypes markType))
+        }
+        return (VlJson.objectValue())
+    }
+
+    ; --- a spec's own config --------------------------------------------------
+    fn mergeSpecConfig:void (config:VlJson) {
+        if (! (config.isObject())) {
+            return
+        }
+        if (config.get("mark").isObject()) {
+            markAll = (config.get("mark"))
+        }
+        if (config.get("axis").isObject()) {
+            axisAll = (config.get("axis"))
+        }
+        for config.keys name:string ci {
+            if (has markTypes name) {
+                def incomingMark:VlJson (config.get(name))
+                if (incomingMark.isObject()) {
+                    def base:VlJson (unwrap (get markTypes name))
+                    def mergedMark:VlJson (VlJson.objectValue())
+                    for base.keys key:string bi {
+                        mergedMark.setMember(key (base.get(key)))
+                    }
+                    for incomingMark.keys key:string ii {
+                        mergedMark.setMember(key (incomingMark.get(key)))
+                    }
+                    set markTypes name mergedMark
+                }
+            }
+        }
+        def styleBlock:VlJson (config.get("style"))
+        if (! (styleBlock.isObject())) {
+            return
+        }
+        for styleBlock.keys name:string ki {
+            def incoming:VlJson (styleBlock.get(name))
+            if (incoming.isObject()) {
+                def merged:VlJson (VlJson.objectValue())
+                if (has styles name) {
+                    def existing:VlJson (unwrap (get styles name))
+                    for existing.keys key:string ei {
+                        merged.setMember(key (existing.get(key)))
+                    }
+                }
+                for incoming.keys key:string ii {
+                    merged.setMember(key (incoming.get(key)))
+                }
+                set styles name merged
+            }
+        }
+    }
+
+    ; One axis' settings: the config's defaults with the axis' own on top.
+    fn mergedAxis:VlJson (adef:VlJson) {
+        if ((array_length axisAll.keys) == 0) {
+            return adef
+        }
+        def out:VlJson (VlJson.objectValue())
+        for axisAll.keys key:string ai {
+            out.setMember(key (axisAll.get(key)))
+        }
+        for adef.keys key:string di {
+            out.setMember(key (adef.get(key)))
+        }
+        return out
+    }
+
+    fn hasStyle:boolean (name:string) {
+        return (has styles name)
+    }
+
+    fn style:VlJson (name:string) {
+        if (has styles name) {
+            return (unwrap (get styles name))
+        }
+        return (VlJson.objectValue())
+    }
+
+    ; The categorical colour schemes, by the names a spec uses. `category` is
+    ; the configured default for a nominal colour scale and resolves to
+    ; tableau10, which is where a chart's first bar gets #4c78a8 from.
+    sfn schemeColors:[string] (name:string) {
+        def out:[string]
+        if ((name == "category") || ((name == "tableau10") || (name == "ordinal"))) {
+            push out "#4c78a8"
+            push out "#f58518"
+            push out "#e45756"
+            push out "#72b7b2"
+            push out "#54a24b"
+            push out "#eeca3b"
+            push out "#b279a2"
+            push out "#ff9da6"
+            push out "#9d755d"
+            push out "#bab0ac"
+            return out
+        }
+        if (name == "category10") {
+            push out "#1f77b4"
+            push out "#ff7f0e"
+            push out "#2ca02c"
+            push out "#d62728"
+            push out "#9467bd"
+            push out "#8c564b"
+            push out "#e377c2"
+            push out "#7f7f7f"
+            push out "#bcbd22"
+            push out "#17becf"
+            return out
+        }
+        return out
+    }
+
+    ; A mark's `style` is a name or a list of them, applied in order.
+    sfn styleNames:[string] (v:VlJson) {
+        def out:[string]
+        if (v.isString()) {
+            push out v.str
+            return out
+        }
+        if (v.isArray()) {
+            def total:int (v.count())
+            def k:int 0
+            while (k < total) {
+                push out (v.at(k).asString())
+                k = (k + 1)
+            }
+        }
+        return out
+    }
+}

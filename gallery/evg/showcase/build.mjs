@@ -63,6 +63,14 @@ const PAGES = [
     shows: ["viewBox scaling", "fill-rule holes", "cubic + quadratic", "smooth S/T", "elliptical arcs"],
   },
   {
+    id: "charts",
+    title: "Charts",
+    blurb:
+      "Unmodified Vega specifications, compiled from Vega-Lite examples and run by the Vela runtime in this repository: every gridline, bar, wedge and label is geometry Ranger computed and the EVG vector layer drew. The page is generated, and its colours are not in it — the series are numbered and the stylesheet paints them, so the same charts come out in three palettes.",
+    shows: ["generated path data", "series colours from CSS", "one path per paint", "arcs and symbols"],
+    themes: ["editorial", "studio", "autumn"],
+  },
+  {
     id: "flex",
     title: "Flex",
     blurb:
@@ -90,7 +98,25 @@ const THEMES = [
   { id: "studio", label: "Studio", note: "dark, geometric sans" },
 ];
 
+/** Themes beyond the two every page gets. A page names them in `themes`. */
+const EXTRA_THEMES = {
+  autumn: { id: "autumn", label: "Autumn", note: "muted ochre, rust and olive" },
+};
+
+/** The themes one page is rendered under. */
+function themesFor(page) {
+  if (!page.themes) return THEMES;
+  return page.themes.map((id) => THEMES.find((t) => t.id === id) || EXTRA_THEMES[id]);
+}
+
 const CSS = path.join(HERE, "themes/showcase.css");
+/** Stylesheets a page needs beyond the gallery's own, in cascade order. */
+const PAGE_CSS = {
+  // The colours the chart specifications asked for. Unscoped, so a theme's
+  // scoped chart rules override them and a build with no chart theme still
+  // draws the chart the spec described.
+  charts: [path.join(HERE, "themes/charts-default.css")],
+};
 
 function sh(cmd, args, opts = {}) {
   return execFileSync(cmd, args, {
@@ -118,12 +144,12 @@ function compile(src, outFile) {
 }
 
 function render(tool, page, theme, outFile, extra = []) {
+  const sheets = [...(PAGE_CSS[page] || []), CSS];
   const args = [
     path.join(TOOLS, tool),
     path.join(HERE, "pages", `${page}.tsx`),
     outFile,
-    "-css",
-    CSS,
+    ...sheets.flatMap((sheet) => ["-css", sheet]),
     "-theme",
     theme,
     ...extra,
@@ -207,7 +233,7 @@ const esc = (s) =>
 
 function indexHtml(entries, warnings) {
   const cards = PAGES.map((p) => {
-    const shots = THEMES.map((t) => {
+    const shots = themesFor(p).map((t) => {
       const e = entries.find((x) => x.page === p.id && x.theme === t.id);
       return `
         <figure class="shot">
@@ -370,7 +396,7 @@ const entries = [];
 const allWarnings = [];
 
 for (const page of PAGES) {
-  for (const theme of THEMES) {
+  for (const theme of themesFor(page)) {
     const stem = `${page.id}-${theme.id}`;
     process.stdout.write(`  ${stem}\n`);
     const png = `${stem}.png`;

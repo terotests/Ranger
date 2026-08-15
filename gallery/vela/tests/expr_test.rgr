@@ -1,0 +1,120 @@
+; Expression parser + evaluator checks. Every expected value here is what the
+; reference implementation answers for the same source; tools/reference/ has the
+; script that reproduces them.
+Import "../src/VlExprEval.rgr"
+
+class VlExprTest {
+    def failures:int 0
+
+    fn check:void (name:string got:string want:string) {
+        if (got == want) {
+            print ("ok   " + name)
+        } {
+            failures = (failures + 1)
+            print ((((("FAIL " + name) + ": got ") + got) + " want ") + want)
+        }
+    }
+
+    fn evalText:string (src:string scope:VlExprScope) {
+        def p (new VlExprParser())
+        def node:VlExprNode (p.parse(src))
+        if (! p.ok) {
+            return ("PARSE ERROR: " + p.err)
+        }
+        def v:VlJson (VlExprEval.eval(node scope))
+        def w (new VlJsonWriter())
+        return (w.write(v))
+    }
+
+    fn run:void () {
+        def scope (new VlExprScope())
+
+        def jp (new VlJsonParser())
+        def row:VlJson (jp.parse("{\"a\":\"A\",\"b\":28,\"n\":null,\"list\":[1,2,3]}"))
+        scope.setDatum(row)
+        scope.setSignal("height" (VlJson.numberValue(300.0)))
+        scope.setSignal("x_step" (VlJson.numberValue(20.0)))
+
+        def xs (new VlScale())
+        xs.scaleType = "band"
+        xs.name = "x"
+        xs.addDomainValue("A")
+        xs.addDomainValue("B")
+        xs.addDomainValue("C")
+        xs.paddingInner = 0.1
+        xs.paddingOuter = 0.05
+        xs.stepSet = true
+        xs.stepValue = 20.0
+        xs.setNumericRange(0.0 0.0)
+        xs.layout()
+        scope.setScale("x" xs)
+
+        ; --- arithmetic and precedence ---
+        this.check("add" (this.evalText("1 + 2" scope)) "3")
+        this.check("precedence" (this.evalText("1 + 2 * 3" scope)) "7")
+        this.check("parens" (this.evalText("(1 + 2) * 3" scope)) "9")
+        this.check("unary" (this.evalText("-2 + 5" scope)) "3")
+        this.check("modulo" (this.evalText("7 % 3" scope)) "1")
+        this.check("divide" (this.evalText("3 / 4" scope)) "0.75")
+
+        ; --- comparison and logic ---
+        this.check("lt" (this.evalText("1 < 2" scope)) "true")
+        this.check("and" (this.evalText("1 < 2 && 2 < 1" scope)) "false")
+        this.check("or short circuit" (this.evalText("true || nope()" scope)) "true")
+        this.check("ternary" (this.evalText("1 < 2 ? 'yes' : 'no'" scope)) "\"yes\"")
+        this.check("not" (this.evalText("!false" scope)) "true")
+
+        ; --- datum access ---
+        this.check("datum dot" (this.evalText("datum.b" scope)) "28")
+        this.check("datum index" (this.evalText("datum[\"b\"]" scope)) "28")
+        this.check("datum string" (this.evalText("datum.a" scope)) "\"A\"")
+        this.check("datum missing" (this.evalText("datum.zzz" scope)) "null")
+        this.check("array index" (this.evalText("datum.list[1]" scope)) "2")
+        this.check("array length" (this.evalText("datum.list.length" scope)) "3")
+
+        ; --- functions ---
+        this.check("isValid true" (this.evalText("isValid(datum[\"b\"])" scope)) "true")
+        this.check("isValid null" (this.evalText("isValid(datum[\"n\"])" scope)) "false")
+        this.check("isFinite" (this.evalText("isFinite(+datum[\"b\"])" scope)) "true")
+        this.check("isArray" (this.evalText("isArray(datum.list)" scope)) "true")
+        this.check("join" (this.evalText("join(datum.list, ' ')" scope)) "\"1 2 3\"")
+        this.check("max" (this.evalText("max(0.25, 3)" scope)) "3")
+        this.check("min" (this.evalText("min(0.25, 3)" scope)) "0.25")
+        this.check("ceil signal" (this.evalText("ceil(height/40)" scope)) "8")
+        this.check("format" (this.evalText("format(datum[\"b\"], \"\")" scope)) "\"28\"")
+        this.check("format fixed" (this.evalText("format(1.5, '.2f')" scope)) "\"1.50\"")
+
+        ; --- the two expressions the compiled bar spec actually carries ---
+        this.check("bandwidth"
+            (this.evalText("max(0.25, bandwidth('x'))" scope)) "18")
+        this.check("width signal"
+            (this.evalText("bandspace(domain('x').length, 0.1, 0.05) * x_step" scope)) "60")
+        this.check("filter expr"
+            (this.evalText("isValid(datum[\"b\"]) && isFinite(+datum[\"b\"])" scope)) "true")
+        this.check("description"
+            (this.evalText("\"a: \" + (isValid(datum[\"a\"]) ? isArray(datum[\"a\"]) ? join(datum[\"a\"], ' ') : datum[\"a\"] : \"\"+datum[\"a\"]) + \"; b: \" + (format(datum[\"b\"], \"\"))" scope))
+            "\"a: A; b: 28\"")
+
+        ; --- a function outside the profile is reported, not guessed at ---
+        def missingScope (new VlExprScope())
+        def unknown:string (this.evalText("luminance('red')" missingScope))
+        this.check("missing value" unknown "null")
+        this.check("missing noted" (to_string (array_length missingScope.missing)) "1")
+
+        ; --- a malformed expression fails to parse ---
+        def bad (new VlExprParser())
+        bad.parse("1 +")
+        this.check("parse error" (? bad.ok "ok" "error") "error")
+
+        if (failures > 0) {
+            print ("FAILURES: " + (to_string failures))
+        } {
+            print "all expression tests passed"
+        }
+    }
+
+    sfn main:void () {
+        def t (new VlExprTest())
+        t.run()
+    }
+}

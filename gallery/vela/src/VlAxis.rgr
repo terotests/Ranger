@@ -1,0 +1,541 @@
+; ==============================================================================
+; VlAxis.rgr — an axis specification becomes ordinary marks.
+; ==============================================================================
+; There is no axis primitive in a scene. An axis is a group holding rules and
+; text: grid lines, tick marks, labels, the domain line and a title. That is how
+; the reference builds one, and following it exactly is what lets a renderer
+; stay a renderer — it draws rules and text and never learns what a tick is.
+;
+; None of it needs path support, which is why axes land before any drawing
+; backend: a bar chart with axes is rectangles, straight lines and text.
+;
+; The numbers below (tick size 5, label padding 2, title padding 4, the greys)
+; are the reference's axis defaults. A spec that states its own wins.
+; ==============================================================================
+
+Import "VlJson.rgr"
+Import "VlScale.rgr"
+Import "VlScene.rgr"
+Import "VlText.rgr"
+
+class VlAxisTickValue {
+    def value:VlJson (new VlJson)
+    def position:double 0.0
+    ; Where the LABEL goes, which is not always where the tick goes. The axis
+    ; group is translated by half a pixel so that its one-pixel rules land on a
+    ; device pixel instead of straddling two; a text label wants the true
+    ; position instead, so on a discrete scale it takes that half pixel back.
+    ; The reference does the same, and only for band and point scales — a
+    ; continuous axis puts both at the same place.
+    def labelPosition:double 0.0
+    def label:string ""
+}
+
+class VlAxis {
+    ; Defaults, overridable per axis by the spec.
+    def tickSize:double 5.0
+    def tickWidth:double 1.0
+    def tickColor:string "#888"
+    def labelPadding:double 2.0
+    def labelFontSize:double 10.0
+    def labelFont:string "sans-serif"
+    def labelColor:string "#000"
+    def labelLimit:double 180.0
+    def domainColor:string "#888"
+    def domainWidth:double 1.0
+    def gridColor:string "#ddd"
+    def gridWidth:double 1.0
+    def gridOpacity:double 1.0
+    def titlePadding:double 4.0
+    def titleFontSize:double 11.0
+    def titleColor:string "#000"
+    def titleFontWeight:string "bold"
+    def bandPosition:double 0.5
+    ; A tick is a one-pixel line, so its position is rounded — the reference's
+    ; `tickRound`, on by default. Labels are not rounded: text has no pixel
+    ; grid to align to.
+    def tickRound:boolean true
+    ; The first and last label of a continuous axis are pulled inside the plot
+    ; instead of hanging over its edge (`labelFlush`), and labels that would
+    ; collide are hidden rather than overprinted (`labelOverlap`).
+    def labelFlush:boolean false
+    def labelOverlap:boolean false
+    ; A spec may turn the labels and say how they should then sit. Vega-Lite
+    ; emits all three together when it rotates labels to fit.
+    def labelAngle:double 0.0
+    def labelAlign:string ""
+    def labelBaseline:string ""
+    def minExtent:double 0.0
+    def maxExtent:double 200.0
+
+    ; Filled in by build(), read by the layout step.
+    def labelExtent:double 0.0
+    def totalExtent:double 0.0
+
+    fn readConfig:void (adef:VlJson) {
+        tickSize = (adef.doubleOr("tickSize" tickSize))
+        labelPadding = (adef.doubleOr("labelPadding" labelPadding))
+        labelFontSize = (adef.doubleOr("labelFontSize" labelFontSize))
+        titlePadding = (adef.doubleOr("titlePadding" titlePadding))
+        titleFontSize = (adef.doubleOr("titleFontSize" titleFontSize))
+        bandPosition = (adef.doubleOr("bandPosition" bandPosition))
+        minExtent = (adef.doubleOr("minExtent" minExtent))
+        maxExtent = (adef.doubleOr("maxExtent" maxExtent))
+        tickColor = (adef.stringOr("tickColor" tickColor))
+        labelColor = (adef.stringOr("labelColor" labelColor))
+        labelFont = (adef.stringOr("labelFont" labelFont))
+        domainColor = (adef.stringOr("domainColor" domainColor))
+        gridColor = (adef.stringOr("gridColor" gridColor))
+        titleColor = (adef.stringOr("titleColor" titleColor))
+        titleFontWeight = (adef.stringOr("titleFontWeight" titleFontWeight))
+        tickWidth = (adef.doubleOr("tickWidth" tickWidth))
+        domainWidth = (adef.doubleOr("domainWidth" domainWidth))
+        gridWidth = (adef.doubleOr("gridWidth" gridWidth))
+        gridOpacity = (adef.doubleOr("gridOpacity" gridOpacity))
+        tickRound = (adef.boolOr("tickRound" tickRound))
+        labelFlush = (adef.boolOr("labelFlush" labelFlush))
+        labelOverlap = (adef.boolOr("labelOverlap" labelOverlap))
+        labelAngle = (adef.doubleOr("labelAngle" labelAngle))
+        labelAlign = (adef.stringOr("labelAlign" labelAlign))
+        labelBaseline = (adef.stringOr("labelBaseline" labelBaseline))
+    }
+
+    ; Labels turned on their side take their WIDTH out of the axis' extent
+    ; rather than their height, which is what pushes a rotated-label axis
+    ; further from the plot and moves its title with it.
+    fn labelsAreTurned:boolean () {
+        def a:double labelAngle
+        if (a < 0.0) {
+            a = (0.0 - a)
+        }
+        if (a == 0.0) {
+            return false
+        }
+        if (a == 180.0) {
+            return false
+        }
+        return true
+    }
+
+    sfn roundTo:double (v:double) {
+        return (to_double (floor (v + 0.5)))
+    }
+
+    ; --------------------------------------------------------------- ticks ----
+    ; A band or point scale is labelled by its domain; a quantitative one by the
+    ; tick algorithm. `bandPosition` centres a band's label under its band.
+    sfn tickValues:[VlAxisTickValue] (sc:VlScale tickCount:int bandPosition:double) {
+        def out:[VlAxisTickValue]
+        ; A binned scale is labelled at its bin boundaries. Asking the tick
+        ; algorithm instead gives a tick count that has nothing to do with the
+        ; bins the data was actually put in.
+        if ((array_length sc.binValues) > 0) {
+            def labels:[string] (VlScale.tickLabels(sc.binValues))
+            for sc.binValues v:double idx {
+                def tvb (new VlAxisTickValue())
+                tvb.value = (VlJson.numberValue(v))
+                tvb.position = (sc.mapNumber(v))
+                tvb.labelPosition = tvb.position
+                tvb.label = (itemAt labels idx)
+                push out tvb
+            }
+            return out
+        }
+        if ((sc.scaleType == "band") || ((sc.scaleType == "point") || (sc.scaleType == "ordinal"))) {
+            for sc.domainValues name:string idx {
+                def tv (new VlAxisTickValue())
+                tv.value = (VlJson.stringValue(name))
+                tv.position = ((sc.mapIndex(idx)) + ((sc.bandwidth()) * bandPosition))
+                tv.labelPosition = (tv.position - 0.5)
+                tv.label = name
+                push out tv
+            }
+            return out
+        }
+        def values:[double] (sc.ticks(tickCount))
+        def labels:[string] (VlScale.tickLabels(values))
+        for values v:double idx {
+            def tv (new VlAxisTickValue())
+            tv.value = (VlJson.numberValue(v))
+            tv.position = (sc.mapNumber(v))
+            tv.labelPosition = tv.position
+            tv.label = (itemAt labels idx)
+            push out tv
+        }
+        return out
+    }
+
+    ; --------------------------------------------------------------- build ----
+    ; `gridRange` is how far a grid line reaches — the extent of the OTHER axis'
+    ; scale, which is why a spec names a `gridScale`.
+    fn build:VlSceneMark (adef:VlJson sc:VlScale ticks:[VlAxisTickValue] gridFrom:double gridTo:double chartWidth:double chartHeight:double) {
+        this.readConfig(adef)
+
+        def orient:string (adef.stringOr("orient" "left"))
+        def vertical:boolean ((orient == "left") || (orient == "right"))
+        def range:double chartHeight
+        if (! vertical) {
+            range = chartWidth
+        }
+
+        def mark (new VlSceneMark())
+        mark.markType = "group"
+        mark.role = "axis"
+        def group:VlSceneItem (mark.addItem())
+        group.setString("orient" orient)
+        group.setNumber("offset" 0.0)
+        group.setNumber("position" 0.0)
+        group.setNumber("titlePadding" titlePadding)
+        group.setNumber("minExtent" minExtent)
+        group.setNumber("maxExtent" maxExtent)
+        group.setNumber("range" range)
+
+        ; Half-pixel translate: a one-pixel line drawn on an integer coordinate
+        ; straddles two device pixels and comes out grey. The reference offsets
+        ; the whole axis group by 0.5 for the same reason.
+        def gx:double 0.5
+        def gy:double 0.5
+        if (orient == "bottom") {
+            gy = (chartHeight + 0.5)
+        }
+        if (orient == "right") {
+            gx = (chartWidth + 0.5)
+        }
+        group.setNumber("x" gx)
+        group.setNumber("y" gy)
+
+        def wantGrid:boolean (adef.boolOr("grid" false))
+        def wantTicks:boolean (adef.boolOr("ticks" true))
+        def wantLabels:boolean (adef.boolOr("labels" true))
+        def wantDomain:boolean (adef.boolOr("domain" true))
+        def title:string (adef.stringOr("title" ""))
+
+        if wantGrid {
+            push group.marks (this.buildGrid(ticks vertical gridFrom gridTo))
+        }
+        if wantTicks {
+            push group.marks (this.buildTicks(ticks orient vertical))
+        }
+
+        ; The labels decide the axis' extent, so their width is measured even
+        ; when the marks are not built.
+        def labels:[string]
+        for ticks tv:VlAxisTickValue ti {
+            push labels tv.label
+        }
+        def widest:double (VlText.widestLabel(labels labelFontSize))
+        labelExtent = 0.0
+        if wantLabels {
+            push group.marks (this.buildLabels(ticks orient vertical))
+            def turned:boolean (this.labelsAreTurned())
+            if vertical {
+                def alongV:double widest
+                if turned {
+                    alongV = labelFontSize
+                }
+                labelExtent = ((tickSize + labelPadding) + alongV)
+            } {
+                def alongH:double labelFontSize
+                if turned {
+                    alongH = widest
+                }
+                labelExtent = ((tickSize + labelPadding) + alongH)
+            }
+        } {
+            if wantTicks {
+                labelExtent = tickSize
+            }
+        }
+
+        if wantDomain {
+            def domainFrom:double 0.0
+            def domainTo:double range
+            if ((sc.scaleType == "band") || (sc.scaleType == "point")) {
+                domainFrom = 0.0
+                domainTo = range
+            } {
+                domainFrom = sc.rangeMin
+                domainTo = sc.rangeMax
+            }
+            push group.marks (this.buildDomain(orient vertical domainFrom domainTo))
+        }
+        totalExtent = labelExtent
+        if ((strlen title) > 0) {
+            push group.marks (this.buildTitle(title orient vertical range))
+            totalExtent = ((labelExtent + titlePadding) + titleFontSize)
+        }
+        return mark
+    }
+
+    ; A grid line crosses the plot from one end of the OTHER scale's range to
+    ; the other. Which end is which is not a convention to pick: it follows the
+    ; crossing scale's own range, so an inverted y range and an ascending band
+    ; range draw their grid lines in opposite directions — and the reference
+    ; records that difference.
+    fn buildGrid:VlSceneMark (ticks:[VlAxisTickValue] vertical:boolean gridFrom:double gridTo:double) {
+        def mark (new VlSceneMark())
+        mark.markType = "rule"
+        mark.role = "axis-grid"
+        for ticks tv:VlAxisTickValue idx {
+            def item:VlSceneItem (mark.addItem())
+            item.setNumber("opacity" gridOpacity)
+            item.setString("stroke" gridColor)
+            item.setNumber("strokeWidth" gridWidth)
+            def at:double tv.position
+            if tickRound {
+                at = (VlAxis.roundTo(at))
+            }
+            if vertical {
+                item.setNumber("x" gridFrom)
+                item.setNumber("y" at)
+                item.setNumber("x2" gridTo)
+            } {
+                item.setNumber("x" at)
+                item.setNumber("y" gridFrom)
+                item.setNumber("y2" gridTo)
+            }
+        }
+        return mark
+    }
+
+    fn buildTicks:VlSceneMark (ticks:[VlAxisTickValue] orient:string vertical:boolean) {
+        def mark (new VlSceneMark())
+        mark.markType = "rule"
+        mark.role = "axis-tick"
+        def sign:double 1.0
+        if ((orient == "left") || (orient == "top")) {
+            sign = -1.0
+        }
+        for ticks tv:VlAxisTickValue idx {
+            def item:VlSceneItem (mark.addItem())
+            item.setNumber("opacity" 1.0)
+            item.setString("stroke" tickColor)
+            item.setNumber("strokeWidth" tickWidth)
+            def at:double tv.position
+            if tickRound {
+                at = (VlAxis.roundTo(at))
+            }
+            if vertical {
+                item.setNumber("y" at)
+                item.setNumber("x" 0.0)
+                item.setNumber("x2" (sign * tickSize))
+            } {
+                item.setNumber("y" 0.0)
+                item.setNumber("y2" (sign * tickSize))
+                item.setNumber("x" at)
+            }
+
+        }
+        return mark
+    }
+
+    fn buildLabels:VlSceneMark (ticks:[VlAxisTickValue] orient:string vertical:boolean) {
+        def mark (new VlSceneMark())
+        mark.markType = "text"
+        mark.role = "axis-label"
+        def away:double (tickSize + labelPadding)
+        def last:int ((array_length ticks) - 1)
+        for ticks tv:VlAxisTickValue idx {
+            def item:VlSceneItem (mark.addItem())
+            item.setString("fill" labelColor)
+            item.setString("font" labelFont)
+            item.setNumber("fontSize" labelFontSize)
+            item.setNumber("opacity" 1.0)
+            item.setNumber("angle" labelAngle)
+            item.setNumber("limit" labelLimit)
+            item.setString("text" tv.label)
+            if vertical {
+                item.setNumber("y" tv.labelPosition)
+                if (orient == "left") {
+                    item.setNumber("x" (0.0 - away))
+                    item.setString("align" "right")
+                } {
+                    item.setNumber("x" away)
+                    item.setString("align" "left")
+                }
+                item.setString("baseline" "middle")
+                if ((strlen labelAlign) > 0) {
+                    item.setString("align" labelAlign)
+                }
+                if ((strlen labelBaseline) > 0) {
+                    item.setString("baseline" labelBaseline)
+                }
+            } {
+                item.setNumber("x" tv.labelPosition)
+                if (orient == "bottom") {
+                    item.setNumber("y" away)
+                    item.setString("baseline" "top")
+                } {
+                    item.setNumber("y" (0.0 - away))
+                    item.setString("baseline" "bottom")
+                }
+                def align:string "center"
+                if labelFlush {
+                    if (idx == 0) {
+                        align = "left"
+                    }
+                    if (idx == last) {
+                        align = "right"
+                    }
+                }
+                item.setString("align" align)
+                if ((strlen labelAlign) > 0) {
+                    item.setString("align" labelAlign)
+                }
+                if ((strlen labelBaseline) > 0) {
+                    item.setString("baseline" labelBaseline)
+                }
+            }
+        }
+        if labelOverlap {
+            this.hideOverlappingLabels(mark vertical)
+        }
+        return mark
+    }
+
+    ; Labels that would print on top of each other are thinned by halving:
+    ; hide every second one, look again, repeat. That is the reference's
+    ; `parity` strategy — it keeps the axis readable and, because it always
+    ; keeps the first, keeps the labels evenly spaced.
+    ;
+    ; The flush alignment has already moved the end labels inward by then, and
+    ; it has to: pulling the last label back over the axis is often what makes
+    ; it collide with its neighbour in the first place.
+    fn hideOverlappingLabels:void (mark:VlSceneMark vertical:boolean) {
+        def visible:[int]
+        for mark.items item:VlSceneItem idx {
+            push visible idx
+        }
+        def go:boolean true
+        def guard:int 0
+        while (go && (guard < 16)) {
+            guard = (guard + 1)
+            if ((array_length visible) < 3) {
+                go = false
+            } {
+                if (this.labelsOverlap(mark visible vertical)) {
+                    def kept:[int]
+                    for visible index:int position {
+                        if (((position % 2) == 0)) {
+                            push kept index
+                        } {
+                            def hidden:VlSceneItem (itemAt mark.items index)
+                            hidden.setNumber("opacity" 0.0)
+                        }
+                    }
+                    visible = kept
+                } {
+                    go = false
+                }
+            }
+        }
+    }
+
+    fn labelsOverlap:boolean (mark:VlSceneMark visible:[int] vertical:boolean) {
+        def previousStart:double 0.0
+        def previousEnd:double 0.0
+        def havePrevious:boolean false
+        for visible index:int position {
+            def item:VlSceneItem (itemAt mark.items index)
+            def start:double 0.0
+            def end:double 0.0
+            if vertical {
+                def half:double (labelFontSize / 2.0)
+                start = ((item.number("y")) - half)
+                end = ((item.number("y")) + half)
+            } {
+                def width:double (VlText.estimateWidth((item.text("text")) labelFontSize))
+                def at:double (item.number("x"))
+                def align:string (item.text("align"))
+                start = (at - (width / 2.0))
+                end = (at + (width / 2.0))
+                if (align == "left") {
+                    start = at
+                    end = (at + width)
+                }
+                if (align == "right") {
+                    start = (at - width)
+                    end = at
+                }
+            }
+            if havePrevious {
+                ; A real intersection, tested in both directions: an axis whose
+                ; values run downward (every y axis) has each label BEFORE the
+                ; previous one, and a one-sided test calls that an overlap.
+                if ((start < previousEnd) && (previousStart < end)) {
+                    return true
+                }
+            }
+            previousStart = start
+            previousEnd = end
+            havePrevious = true
+        }
+        return false
+    }
+
+    ; The domain line spans the scale's RANGE, in the direction the range runs.
+    ; A y axis over [300, 0] draws from 300 to 0; a band axis over [0, 180]
+    ; draws the other way, and the reference records the difference.
+    fn buildDomain:VlSceneMark (orient:string vertical:boolean rangeFrom:double rangeTo:double) {
+        def mark (new VlSceneMark())
+        mark.markType = "rule"
+        mark.role = "axis-domain"
+        def item:VlSceneItem (mark.addItem())
+        item.setNumber("opacity" 1.0)
+        item.setString("stroke" domainColor)
+        item.setNumber("strokeWidth" domainWidth)
+        if vertical {
+            item.setNumber("x" 0.0)
+            item.setNumber("y" rangeFrom)
+            item.setNumber("y2" rangeTo)
+        } {
+            item.setNumber("x" rangeFrom)
+            item.setNumber("x2" rangeTo)
+            item.setNumber("y" 0.0)
+        }
+        return mark
+    }
+
+    ; The title sits beyond the labels, and on a vertical axis it is turned on
+    ; its side — which is the one place the label WIDTH, not just its height,
+    ; changes where something is drawn.
+    fn buildTitle:VlSceneMark (title:string orient:string vertical:boolean range:double) {
+        def mark (new VlSceneMark())
+        mark.markType = "text"
+        mark.role = "axis-title"
+        def item:VlSceneItem (mark.addItem())
+        item.setString("fill" titleColor)
+        item.setString("font" labelFont)
+        item.setNumber("fontSize" titleFontSize)
+        item.setString("fontWeight" titleFontWeight)
+        item.setNumber("opacity" 1.0)
+        item.setString("align" "center")
+        ; `auto` marks a title the runtime placed itself rather than one the
+        ; spec positioned, which is what the reference records here.
+        item.setValue("auto" (VlJson.boolValue(true)))
+        item.setString("text" title)
+        def away:double (labelExtent + titlePadding)
+        if vertical {
+            item.setNumber("y" (range / 2.0))
+            if (orient == "left") {
+                item.setNumber("x" (0.0 - away))
+                item.setNumber("angle" -90.0)
+            } {
+                item.setNumber("x" away)
+                item.setNumber("angle" 90.0)
+            }
+            item.setString("baseline" "bottom")
+        } {
+            item.setNumber("x" (range / 2.0))
+            item.setNumber("angle" 0.0)
+            if (orient == "bottom") {
+                item.setNumber("y" away)
+                item.setString("baseline" "top")
+            } {
+                item.setNumber("y" (0.0 - away))
+                item.setString("baseline" "bottom")
+            }
+        }
+        return mark
+    }
+}

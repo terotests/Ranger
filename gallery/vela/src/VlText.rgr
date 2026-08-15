@@ -1,0 +1,94 @@
+; ==============================================================================
+; VlText.rgr — how wide a string is, without a font.
+; ==============================================================================
+; An axis needs one number this runtime cannot know exactly: how much room its
+; labels take. That decides where the title goes and how far the plot has to be
+; pushed in from the edge.
+;
+; The reference implementation asks a canvas when it has one and ESTIMATES when
+; it does not — `~~(0.8 * length * fontSize)`, a flat 0.8 em per character. The
+; same estimate is used here, deliberately, because it is what the reference
+; produces in the same headless situation, so an axis built here lands where the
+; reference's does and the comparison means something.
+;
+; It is an estimate, and it is wrong for proportional text: "III" and "WWW"
+; measure the same. When a renderer backend arrives with real font metrics it
+; should supply them here — the layout reads a width from this one place so
+; that swap is local.
+; ==============================================================================
+
+class VlText {
+    ; The reference's canvas-free estimate, truncated toward zero exactly as its
+    ; `~~` does.
+    sfn estimateWidth:double (text:string fontSize:double) {
+        def chars:int (strlen text)
+        def w:double ((0.8 * (to_double chars)) * fontSize)
+        return (to_double (floor w))
+    }
+
+    ; How wide the string will actually be DRAWN, which is a different question
+    ; from how much room the layout reserves for it.
+    ;
+    ; `estimateWidth` above is the reference implementation's canvas-free
+    ; fallback — a flat 0.8 em per character — and the axis extents have to keep
+    ; using it, because matching the reference's layout is the whole point of
+    ; comparing against it. But 0.8 em is far wider than real text: measured
+    ; from the faces this repository ships (Noto Sans, Josefin Sans, Cinzel) a
+    ; digit is about 0.53 em, a capital 0.65, a lowercase letter 0.52 and a
+    ; space 0.25. Placing a label with the 0.8 figure puts a centred string
+    ; visibly left of its tick and a rotated axis title tens of pixels away from
+    ; where it belongs, because a renderer turns the label about the box its own
+    ; metrics measured, not about the one this estimate imagined.
+    ;
+    ; So: the layout reserves with the reference's number, and the drawing
+    ; places with this one. The three faces agree closely enough per character
+    ; class that one table serves all of them; a backend with real metrics
+    ; should replace this call and nothing else.
+    sfn drawWidth:double (text:string fontSize:double) {
+        def total:double 0.0
+        def n:int (strlen text)
+        def k:int 0
+        while (k < n) {
+            def c:int (charAt text k)
+            total = (total + (VlText.advanceEm(c)))
+            k = (k + 1)
+        }
+        return (total * fontSize)
+    }
+
+    sfn advanceEm:double (c:int) {
+        if (c == 32) {
+            return 0.25
+        }
+        if ((c >= 48) && (c <= 57)) {
+            return 0.53
+        }
+        if ((c >= 65) && (c <= 90)) {
+            return 0.65
+        }
+        if ((c >= 97) && (c <= 122)) {
+            return 0.52
+        }
+        ; Punctuation and everything else: narrow, and rare enough in a label
+        ; that a closer figure would be false precision.
+        return 0.30
+    }
+
+    ; What a line of text occupies vertically. EVG lays a label out at 1.2 times
+    ; its font size, and a rotated label turns about the centre of THAT box.
+    sfn lineHeight:double (fontSize:double) {
+        return (fontSize * 1.2)
+    }
+
+    ; The widest of a list of labels, which is the number an axis extent needs.
+    sfn widestLabel:double (labels:[string] fontSize:double) {
+        def widest:double 0.0
+        for labels label:string idx {
+            def w:double (VlText.estimateWidth(label fontSize))
+            if (w > widest) {
+                widest = w
+            }
+        }
+        return widest
+    }
+}

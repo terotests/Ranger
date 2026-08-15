@@ -1,0 +1,146 @@
+; Scale checks. The expected values are what d3-scale / d3-array answer for the
+; same inputs — the reference implementation delegates to them, so a difference
+; here is a difference in every axis and every bar position.
+Import "../src/VlScale.rgr"
+
+class VlScaleTest {
+    def failures:int 0
+
+    fn check:void (name:string got:string want:string) {
+        if (got == want) {
+            print ("ok   " + name)
+        } {
+            failures = (failures + 1)
+            print ((((("FAIL " + name) + ": got ") + got) + " want ") + want)
+        }
+    }
+
+    fn num:string (v:double) {
+        return (VlJson.formatNumber(v 6))
+    }
+
+    fn ticksText:string (sc:VlScale count:int) {
+        def out:string ""
+        def values:[double] (sc.ticks(count))
+        for values v:double idx {
+            if (idx > 0) {
+                out = (out + ",")
+            }
+            out = (out + (VlJson.formatNumber(v 6)))
+        }
+        return out
+    }
+
+    fn run:void () {
+        ; --- linear ---
+        def lin (new VlScale())
+        lin.scaleType = "linear"
+        lin.setNumericDomain(0.0 100.0)
+        lin.setNumericRange(0.0 300.0)
+        this.check("linear mid" (this.num((lin.mapNumber(50.0)))) "150")
+        this.check("linear end" (this.num((lin.mapNumber(100.0)))) "300")
+        this.check("linear out" (this.num((lin.mapNumber(150.0)))) "450")
+        lin.clamp = true
+        this.check("linear clamped" (this.num((lin.mapNumber(150.0)))) "300")
+
+        ; An inverted range is how every y axis is written.
+        def y (new VlScale())
+        y.setNumericDomain(0.0 100.0)
+        y.setNumericRange(300.0 0.0)
+        this.check("linear inverted" (this.num((y.mapNumber(25.0)))) "225")
+
+        ; --- nice ---
+        def nice1 (new VlScale())
+        nice1.setNumericDomain(0.0 91.0)
+        nice1.niceDomain(10)
+        this.check("nice 0..91" ((this.num((nice1.domainMin))) + ".." + (this.num((nice1.domainMax)))) "0..100")
+
+        def nice2 (new VlScale())
+        nice2.setNumericDomain(1.0 9.0)
+        nice2.niceDomain(10)
+        this.check("nice 1..9" ((this.num((nice2.domainMin))) + ".." + (this.num((nice2.domainMax)))) "1..9")
+
+        def nice3 (new VlScale())
+        nice3.setNumericDomain(0.13 0.87)
+        nice3.niceDomain(10)
+        this.check("nice 0.13..0.87" ((this.num((nice3.domainMin))) + ".." + (this.num((nice3.domainMax)))) "0.1..0.9")
+
+        ; --- ticks ---
+        def t1 (new VlScale())
+        t1.setNumericDomain(0.0 100.0)
+        this.check("ticks 0..100 /10" (this.ticksText(t1 10)) "0,10,20,30,40,50,60,70,80,90,100")
+        this.check("ticks 0..100 /5" (this.ticksText(t1 5)) "0,20,40,60,80,100")
+        def t2 (new VlScale())
+        t2.setNumericDomain(0.0 1.0)
+        this.check("ticks 0..1 /5" (this.ticksText(t2 5)) "0,0.2,0.4,0.6,0.8,1")
+        def t3 (new VlScale())
+        t3.setNumericDomain(-5.0 5.0)
+        ; d3.ticks(-5, 5, 5) is five steps of 2, not eleven of 1 — the count is
+        ; a hint and the step is chosen from the 1/2/5 family.
+        this.check("ticks -5..5 /5" (this.ticksText(t3 5)) "-4,-2,0,2,4")
+
+        ; --- band ---
+        ; The compiled bar chart's x scale: nine categories, step 20, padding
+        ; 0.1 inner and 0.05 outer, which puts the first bar at 1 and makes it
+        ; 18 wide.
+        def band (new VlScale())
+        band.scaleType = "band"
+        band.paddingInner = 0.1
+        band.paddingOuter = 0.05
+        band.stepSet = true
+        band.stepValue = 20.0
+        band.addDomainValue("A")
+        band.addDomainValue("B")
+        band.addDomainValue("C")
+        band.layout()
+        this.check("band step" (this.num((band.step()))) "20")
+        this.check("band width" (this.num((band.bandwidth()))) "18")
+        this.check("band A" (this.num((band.mapDiscrete("A")))) "1")
+        this.check("band B" (this.num((band.mapDiscrete("B")))) "21")
+        this.check("band space" (this.num((band.bandSpace()))) "3")
+
+        ; A band over a fixed range divides it instead.
+        def band2 (new VlScale())
+        band2.scaleType = "band"
+        band2.addDomainValue("A")
+        band2.addDomainValue("B")
+        band2.addDomainValue("C")
+        band2.addDomainValue("D")
+        band2.setNumericRange(0.0 400.0)
+        band2.layout()
+        this.check("band range width" (this.num((band2.bandwidth()))) "100")
+        this.check("band range C" (this.num((band2.mapDiscrete("C")))) "200")
+
+        ; --- point ---
+        def pt (new VlScale())
+        pt.scaleType = "point"
+        pt.addDomainValue("A")
+        pt.addDomainValue("B")
+        pt.addDomainValue("C")
+        pt.setNumericRange(0.0 100.0)
+        pt.layout()
+        this.check("point width" (this.num((pt.bandwidth()))) "0")
+        this.check("point B" (this.num((pt.mapDiscrete("B")))) "50")
+
+        ; --- ordinal ---
+        def ord (new VlScale())
+        ord.scaleType = "ordinal"
+        ord.addDomainValue("x")
+        ord.addDomainValue("y")
+        push ord.rangeValues "#4c78a8"
+        push ord.rangeValues "#f58518"
+        this.check("ordinal x" (ord.mapOrdinal((VlJson.stringValue("x")))) "#4c78a8")
+        this.check("ordinal y" (ord.mapOrdinal((VlJson.stringValue("y")))) "#f58518")
+
+        if (failures > 0) {
+            print ("FAILURES: " + (to_string failures))
+        } {
+            print "all scale tests passed"
+        }
+    }
+
+    sfn main:void () {
+        def t (new VlScaleTest())
+        t.run()
+    }
+}

@@ -1,0 +1,631 @@
+; ==============================================================================
+; VlExpr.rgr — the Vega expression language: parse to an AST, evaluate it.
+; ==============================================================================
+; Vega specs carry code as strings: a filter is `isValid(datum["b"])`, a bar's
+; width is `max(0.25, bandwidth('x'))`, a chart's width is
+; `bandspace(domain('x').length, 0.1, 0.05) * x_step`. Nothing runs without an
+; evaluator for them, which is why this lands before any drawing.
+;
+; The language is NOT JavaScript. It is a single expression with no statements,
+; no assignment, no function definitions and no property writes — the subset
+; documented at vega.github.io/vega/docs/expressions. That is small enough to
+; parse directly here rather than routing through the repo's JS parser: this way
+; the runtime carries no dependency on the interpreter realm, and an expression
+; that is not in the profile is a parse error rather than something that quietly
+; runs.
+;
+; Precedence follows JavaScript, which is what the reference implementation
+; inherits from its own parser:
+;   ?:  ||  &&  |  ^  &  == !=  < <= > >=  + -  * / %  unary  call/member
+; ==============================================================================
+
+Import "VlJson.rgr"
+
+; --- node kinds ---------------------------------------------------------------
+;   0 literal        1 identifier     2 member        3 call
+;   4 unary          5 binary         6 logical       7 conditional
+;   8 array literal  9 object literal
+class VlExprNode {
+    def kind:int 0
+    def value:VlJson (new VlJson)
+    def name:string ""
+    def op:string ""
+    def children:[VlExprNode]
+    ; member access: computed is `a[b]`, plain is `a.b`
+    def computed:boolean false
+    ; object literal keys, parallel to children
+    def keys:[string]
+}
+
+class VlExprParser {
+    def s:string ""
+    def i:int 0
+    def n:int 0
+    def ok:boolean true
+    def err:string ""
+
+    fn parse:VlExprNode (text:string) {
+        s = text
+        i = 0
+        n = (strlen text)
+        ok = true
+        err = ""
+        def node:VlExprNode (this.parseConditional())
+        this.skipWs()
+        if (i < n) {
+            this.fail("unexpected trailing input at " + (VlJson.intToText(i)))
+        }
+        return node
+    }
+
+    fn fail:void (msg:string) {
+        if ok {
+            ok = false
+            err = msg
+        }
+    }
+
+    fn emptyNode:VlExprNode () {
+        def node (new VlExprNode())
+        node.value = (VlJson.nullValue())
+        return node
+    }
+
+    ; ------------------------------------------------------------- lexing ----
+    fn skipWs:void () {
+        def go:boolean true
+        while go {
+            if (i >= n) {
+                go = false
+            } {
+                def c:int (charAt s i)
+                if ((c == 32) || ((c == 9) || ((c == 10) || (c == 13)))) {
+                    i = (i + 1)
+                } {
+                    go = false
+                }
+            }
+        }
+    }
+
+    fn peekChar:int () {
+        if (i >= n) {
+            return 0
+        }
+        return (charAt s i)
+    }
+
+    fn startsWith:boolean (text:string) {
+        def len:int (strlen text)
+        if ((i + len) > n) {
+            return false
+        }
+        return ((substring s i (i + len)) == text)
+    }
+
+    ; Consumes `text` when it is next (after whitespace) and answers whether it
+    ; was there.
+    fn eat:boolean (text:string) {
+        this.skipWs()
+        if (this.startsWith(text)) {
+            i = (i + (strlen text))
+            return true
+        }
+        return false
+    }
+
+    fn expect:void (text:string) {
+        def took:boolean (this.eat(text))
+        if (! took) {
+            this.fail((("expected '" + text) + "' at ") + (VlJson.intToText(i)))
+        }
+    }
+
+    fn isDigit:boolean (c:int) {
+        if (c < 48) {
+            return false
+        }
+        return (c <= 57)
+    }
+
+    fn isIdentStart:boolean (c:int) {
+        if ((c >= 97) && (c <= 122)) {
+            return true
+        }
+        if ((c >= 65) && (c <= 90)) {
+            return true
+        }
+        if (c == 95) {
+            return true
+        }
+        if (c == 36) {
+            return true
+        }
+        return false
+    }
+
+    fn isIdentChar:boolean (c:int) {
+        if (this.isIdentStart(c)) {
+            return true
+        }
+        return (this.isDigit(c))
+    }
+
+    ; ---------------------------------------------------------- precedence ----
+    fn parseConditional:VlExprNode () {
+        def cond:VlExprNode (this.parseLogicalOr())
+        this.skipWs()
+        if (this.eat("?")) {
+            def thenNode:VlExprNode (this.parseConditional())
+            this.expect(":")
+            def elseNode:VlExprNode (this.parseConditional())
+            def node (new VlExprNode())
+            node.kind = 7
+            node.value = (VlJson.nullValue())
+            push node.children cond
+            push node.children thenNode
+            push node.children elseNode
+            return node
+        }
+        return cond
+    }
+
+    fn parseLogicalOr:VlExprNode () {
+        def left:VlExprNode (this.parseLogicalAnd())
+        def go:boolean true
+        while (go && ok) {
+            this.skipWs()
+            if (this.startsWith("||")) {
+                i = (i + 2)
+                def right:VlExprNode (this.parseLogicalAnd())
+                left = (this.makeBinary(6 "||" left right))
+            } {
+                go = false
+            }
+        }
+        return left
+    }
+
+    fn parseLogicalAnd:VlExprNode () {
+        def left:VlExprNode (this.parseEquality())
+        def go:boolean true
+        while (go && ok) {
+            this.skipWs()
+            if (this.startsWith("&&")) {
+                i = (i + 2)
+                def right:VlExprNode (this.parseEquality())
+                left = (this.makeBinary(6 "&&" left right))
+            } {
+                go = false
+            }
+        }
+        return left
+    }
+
+    fn parseEquality:VlExprNode () {
+        def left:VlExprNode (this.parseRelational())
+        def go:boolean true
+        while (go && ok) {
+            this.skipWs()
+            def op:string ""
+            if (this.startsWith("===")) {
+                op = "==="
+            } {
+                if (this.startsWith("!==")) {
+                    op = "!=="
+                } {
+                    if (this.startsWith("==")) {
+                        op = "=="
+                    } {
+                        if (this.startsWith("!=")) {
+                            op = "!="
+                        }
+                    }
+                }
+            }
+            if ((strlen op) > 0) {
+                i = (i + (strlen op))
+                def right:VlExprNode (this.parseRelational())
+                left = (this.makeBinary(5 op left right))
+            } {
+                go = false
+            }
+        }
+        return left
+    }
+
+    fn parseRelational:VlExprNode () {
+        def left:VlExprNode (this.parseAdditive())
+        def go:boolean true
+        while (go && ok) {
+            this.skipWs()
+            def op:string ""
+            if (this.startsWith("<=")) {
+                op = "<="
+            } {
+                if (this.startsWith(">=")) {
+                    op = ">="
+                } {
+                    if (this.startsWith("<")) {
+                        op = "<"
+                    } {
+                        if (this.startsWith(">")) {
+                            op = ">"
+                        }
+                    }
+                }
+            }
+            if ((strlen op) > 0) {
+                i = (i + (strlen op))
+                def right:VlExprNode (this.parseAdditive())
+                left = (this.makeBinary(5 op left right))
+            } {
+                go = false
+            }
+        }
+        return left
+    }
+
+    fn parseAdditive:VlExprNode () {
+        def left:VlExprNode (this.parseMultiplicative())
+        def go:boolean true
+        while (go && ok) {
+            this.skipWs()
+            def c:int (this.peekChar())
+            if ((c == 43) || (c == 45)) {
+                def op:string (substring s i (i + 1))
+                i = (i + 1)
+                def right:VlExprNode (this.parseMultiplicative())
+                left = (this.makeBinary(5 op left right))
+            } {
+                go = false
+            }
+        }
+        return left
+    }
+
+    fn parseMultiplicative:VlExprNode () {
+        def left:VlExprNode (this.parseUnary())
+        def go:boolean true
+        while (go && ok) {
+            this.skipWs()
+            def c:int (this.peekChar())
+            if ((c == 42) || ((c == 47) || (c == 37))) {
+                def op:string (substring s i (i + 1))
+                i = (i + 1)
+                def right:VlExprNode (this.parseUnary())
+                left = (this.makeBinary(5 op left right))
+            } {
+                go = false
+            }
+        }
+        return left
+    }
+
+    fn parseUnary:VlExprNode () {
+        this.skipWs()
+        def c:int (this.peekChar())
+        if ((c == 33) || ((c == 45) || (c == 43))) {
+            def op:string (substring s i (i + 1))
+            i = (i + 1)
+            def operand:VlExprNode (this.parseUnary())
+            def node (new VlExprNode())
+            node.kind = 4
+            node.op = op
+            node.value = (VlJson.nullValue())
+            push node.children operand
+            return node
+        }
+        return (this.parsePostfix())
+    }
+
+    ; Member access and calls bind tighter than any operator, and chain:
+    ; `domain('x').length`, `datum["b"]`, `format(datum.b, "")`.
+    fn parsePostfix:VlExprNode () {
+        def node:VlExprNode (this.parsePrimary())
+        def go:boolean true
+        while (go && ok) {
+            this.skipWs()
+            def c:int (this.peekChar())
+            if (c == 46) {
+                i = (i + 1)
+                this.skipWs()
+                def name:string (this.readIdent())
+                if ((strlen name) == 0) {
+                    this.fail("expected a property name after '.'")
+                    go = false
+                } {
+                    def member (new VlExprNode())
+                    member.kind = 2
+                    member.computed = false
+                    member.name = name
+                    member.value = (VlJson.nullValue())
+                    push member.children node
+                    node = member
+                }
+            } {
+                if (c == 91) {
+                    i = (i + 1)
+                    def keyNode:VlExprNode (this.parseConditional())
+                    this.expect("]")
+                    def member (new VlExprNode())
+                    member.kind = 2
+                    member.computed = true
+                    member.value = (VlJson.nullValue())
+                    push member.children node
+                    push member.children keyNode
+                    node = member
+                } {
+                    if (c == 40) {
+                        if (node.kind != 1) {
+                            this.fail("only a named function may be called")
+                            go = false
+                        } {
+                            i = (i + 1)
+                            def call (new VlExprNode())
+                            call.kind = 3
+                            call.name = node.name
+                            call.value = (VlJson.nullValue())
+                            this.skipWs()
+                            if (this.eat(")")) {
+                                node = call
+                            } {
+                                def more:boolean true
+                                while (more && ok) {
+                                    def arg:VlExprNode (this.parseConditional())
+                                    push call.children arg
+                                    def sawComma:boolean (this.eat(","))
+                                    if (! sawComma) {
+                                        this.expect(")")
+                                        more = false
+                                    }
+                                }
+                                node = call
+                            }
+                        }
+                    } {
+                        go = false
+                    }
+                }
+            }
+        }
+        return node
+    }
+
+    fn readIdent:string () {
+        def start:int i
+        if (i >= n) {
+            return ""
+        }
+        def startOk:boolean (this.isIdentStart((charAt s i)))
+        if (! startOk) {
+            return ""
+        }
+        i = (i + 1)
+        def go:boolean true
+        while (go && (i < n)) {
+            if (this.isIdentChar((charAt s i))) {
+                i = (i + 1)
+            } {
+                go = false
+            }
+        }
+        return (substring s start i)
+    }
+
+    fn parsePrimary:VlExprNode () {
+        this.skipWs()
+        if (i >= n) {
+            this.fail("unexpected end of expression")
+            return (this.emptyNode())
+        }
+        def c:int (this.peekChar())
+
+        if (c == 40) {
+            i = (i + 1)
+            def inner:VlExprNode (this.parseConditional())
+            this.expect(")")
+            return inner
+        }
+        if (c == 91) {
+            return (this.parseArrayLiteral())
+        }
+        if (c == 123) {
+            return (this.parseObjectLiteral())
+        }
+        if ((c == 34) || (c == 39)) {
+            def node (new VlExprNode())
+            node.kind = 0
+            node.value = (VlJson.stringValue((this.readString(c))))
+            return node
+        }
+        if (this.isDigit(c)) {
+            return (this.parseNumber())
+        }
+        if (c == 46) {
+            return (this.parseNumber())
+        }
+        if (this.isIdentStart(c)) {
+            def name:string (this.readIdent())
+            if (name == "true") {
+                def t (new VlExprNode())
+                t.kind = 0
+                t.value = (VlJson.boolValue(true))
+                return t
+            }
+            if (name == "false") {
+                def f (new VlExprNode())
+                f.kind = 0
+                f.value = (VlJson.boolValue(false))
+                return f
+            }
+            if (name == "null") {
+                def z (new VlExprNode())
+                z.kind = 0
+                z.value = (VlJson.nullValue())
+                return z
+            }
+            def node (new VlExprNode())
+            node.kind = 1
+            node.name = name
+            node.value = (VlJson.nullValue())
+            return node
+        }
+        this.fail((("unexpected character '" + (substring s i (i + 1))) + "' at ") + (VlJson.intToText(i)))
+        return (this.emptyNode())
+    }
+
+    fn parseNumber:VlExprNode () {
+        def start:int i
+        def go:boolean true
+        while (go && (i < n)) {
+            def c:int (charAt s i)
+            if (this.isDigit(c)) {
+                i = (i + 1)
+            } {
+                if (c == 46) {
+                    i = (i + 1)
+                } {
+                    if ((c == 101) || (c == 69)) {
+                        i = (i + 1)
+                        if (i < n) {
+                            def sign:int (charAt s i)
+                            if ((sign == 43) || (sign == 45)) {
+                                i = (i + 1)
+                            }
+                        }
+                    } {
+                        go = false
+                    }
+                }
+            }
+        }
+        def text:string (substring s start i)
+        def node (new VlExprNode())
+        node.kind = 0
+        def d@(optional):double (str2double text)
+        if d {
+            node.value = (VlJson.numberValue((unwrap d)))
+        } {
+            this.fail("invalid number: " + text)
+            node.value = (VlJson.nullValue())
+        }
+        return node
+    }
+
+    fn readString:string (quote:int) {
+        i = (i + 1)
+        def out:string ""
+        def go:boolean true
+        while go {
+            if (i >= n) {
+                this.fail("unterminated string")
+                go = false
+            } {
+                def c:int (charAt s i)
+                if (c == quote) {
+                    i = (i + 1)
+                    go = false
+                } {
+                    if (c == 92) {
+                        i = (i + 1)
+                        if (i >= n) {
+                            this.fail("unterminated escape")
+                            go = false
+                        } {
+                            def e:int (charAt s i)
+                            out = (out + (this.decodeEscape(e)))
+                            i = (i + 1)
+                        }
+                    } {
+                        out = (out + (substring s i (i + 1)))
+                        i = (i + 1)
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    fn decodeEscape:string (e:int) {
+        if (e == 110) {
+            return (strfromcode 10)
+        }
+        if (e == 114) {
+            return (strfromcode 13)
+        }
+        if (e == 116) {
+            return (strfromcode 9)
+        }
+        return (strfromcode e)
+    }
+
+    fn parseArrayLiteral:VlExprNode () {
+        def node (new VlExprNode())
+        node.kind = 8
+        node.value = (VlJson.nullValue())
+        i = (i + 1)
+        this.skipWs()
+        if (this.eat("]")) {
+            return node
+        }
+        def more:boolean true
+        while (more && ok) {
+            def item:VlExprNode (this.parseConditional())
+            push node.children item
+            def sawComma:boolean (this.eat(","))
+            if (! sawComma) {
+                this.expect("]")
+                more = false
+            }
+        }
+        return node
+    }
+
+    fn parseObjectLiteral:VlExprNode () {
+        def node (new VlExprNode())
+        node.kind = 9
+        node.value = (VlJson.nullValue())
+        i = (i + 1)
+        this.skipWs()
+        if (this.eat("}")) {
+            return node
+        }
+        def more:boolean true
+        while (more && ok) {
+            this.skipWs()
+            def key:string ""
+            def c:int (this.peekChar())
+            if ((c == 34) || (c == 39)) {
+                key = (this.readString(c))
+            } {
+                key = (this.readIdent())
+            }
+            if ((strlen key) == 0) {
+                this.fail("expected a key in an object literal")
+                more = false
+            } {
+                this.expect(":")
+                def val:VlExprNode (this.parseConditional())
+                push node.keys key
+                push node.children val
+                def sawComma:boolean (this.eat(","))
+                if (! sawComma) {
+                    this.expect("}")
+                    more = false
+                }
+            }
+        }
+        return node
+    }
+
+    fn makeBinary:VlExprNode (kind:int op:string left:VlExprNode right:VlExprNode) {
+        def node (new VlExprNode())
+        node.kind = kind
+        node.op = op
+        node.value = (VlJson.nullValue())
+        push node.children left
+        push node.children right
+        return node
+    }
+}

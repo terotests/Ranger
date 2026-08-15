@@ -1,0 +1,619 @@
+; ==============================================================================
+; VlEvg.rgr — the EVG backend: draw commands become an EVG document.
+; ==============================================================================
+; This is the first renderer behind the command layer, and it exists now
+; because the EVG vector layer landed: `PathBuilder` turns computed geometry
+; into path data, and every target — PDF, PNG and HTML — reads that same data
+; through one parser. A chart is geometry computed from data, so that is
+; exactly the shape it needs.
+;
+; Two decisions worth stating:
+;
+; ONE PATH PER RUN OF THE SAME PAINT. A chart's eleven grid lines share a
+; colour and a width, so they become one `<Path>` with one `d`, not eleven
+; elements. Only CONSECUTIVE commands merge, so the drawing order the scene
+; asked for survives — grid under bars under labels.
+;
+; TEXT IS PLACED BY A BOX AND AN ALIGNMENT, not by a measured offset. The label
+; is given a box wide enough for the string and told which edge of it the
+; anchor is; the renderer's own font metrics then decide where inside that box
+; the glyphs sit. Nothing here has to guess the width of the text — only an
+; upper bound for the box, and a box that is too wide costs layout room rather
+; than correctness.
+;
+; This is also what makes a turned label land where it should: all three
+; targets rotate about the element's box centre, so a box whose centre is the
+; anchor puts the string there whatever the face measures.
+; ==============================================================================
+
+Import "VlJson.rgr"
+Import "VlCommand.rgr"
+Import "VlText.rgr"
+Import "../../evg/PathBuilder.rgr"
+
+class VlEvgWriter {
+    def indentText:string "        "
+
+    ; Where a chart's colours come from.
+    ;
+    ; false — from the specification, written as fill/stroke attributes. What a
+    ;         chart drawn on its own wants: it carries its own colours.
+    ; true  — from the stylesheet, as class names the theme paints. What the
+    ;         showcase wants, and what lets one generated page be rendered in
+    ;         several palettes without regenerating it.
+    ;
+    ; Only COLOUR moves: stroke widths, opacities and every coordinate stay
+    ; attributes, because they were computed from the data and are not a
+    ; matter of taste.
+    def useClasses:boolean false
+    ; Colour → palette slot, in first-seen order, so the first series a chart
+    ; draws is `chartFill0` whatever the specification called it.
+    def slots:[string:int]
+    def slotOrder:[string]
+    ; What each chrome class was painted with in the specification. Written out
+    ; as unscoped CSS so a page with no theme still looks like the chart the
+    ; specification described — the theme's rules are scoped and win over these,
+    ; which is the cascade the stylesheet layer already defines.
+    def chromeColour:[string:string]
+    def chromeOrder:[string]
+
+    ; ------------------------------------------------------------------ page ---
+    ; The chart as a fragment of EVG TSX: one absolutely positioned box with the
+    ; paths and labels inside it.
+    fn writeChart:string (list:VlCommandList viewWidth:double viewHeight:double originX:double originY:double) {
+        ; The layout sized the view from what the axes asked for, which is an
+        ; axis' own extent and not the box its text ends up in — a long rotated
+        ; title is wider than the extent that made room for it. Anything that
+        ; would land at a negative offset is clamped by the container, which
+        ; moves it rather than clipping it, so the drawing is shifted right and
+        ; the view widened to hold it instead.
+        def oy:double originY
+        def height:double viewHeight
+
+        def spill:double (this.leftSpill(list originX))
+        def ox:double (originX + spill)
+        def width:double (viewWidth + spill)
+        def right:double (this.rightEdge(list ox))
+        if (right > width) {
+            width = right
+        }
+
+        ; A chart is exactly as wide as the drawing needs, which is narrower
+        ; than the column it sits in whenever it has no axis to make room for —
+        ; a pie is the obvious case. The wrapper is what a stylesheet can centre
+        ; it in; the chart itself keeps its own size, because that size is the
+        ; drawing's and not the page's.
+        def out:string ""
+        out = (((out + indentText) + "<View className=\"chartBox\">") + (strfromcode 10))
+        out = (((((out + indentText) + "  <View className=\"chart\" position=\"relative\" width=\"") + (VlEvgWriter.px(width))) + "\" height=\"") + (VlEvgWriter.px(height)))
+        out = ((out + "\">") + (strfromcode 10))
+
+        def total:int (array_length list.commands)
+        def index:int 0
+        while (index < total) {
+            def cmd:VlDrawCommand (itemAt list.commands index)
+            if (cmd.op == "text") {
+                out = (out + (this.textElement(cmd ox oy width height)))
+                index = (index + 1)
+            } {
+                if (VlEvgWriter.isGeometry(cmd)) {
+                    ; How far the run of same-paint geometry reaches.
+                    def last:int index
+                    def scan:int (index + 1)
+                    def scanning:boolean true
+                    while (scanning && (scan < total)) {
+                        def next:VlDrawCommand (itemAt list.commands scan)
+                        if (VlEvgWriter.isGeometry(next)) {
+                            if (VlEvgWriter.samePaint(cmd next)) {
+                                last = scan
+                                scan = (scan + 1)
+                            } {
+                                scanning = false
+                            }
+                        } {
+                            scanning = false
+                        }
+                    }
+                    out = (out + (this.pathElement(list index last ox oy width height)))
+                    index = (last + 1)
+                } {
+                    ; group-begin / group-end: the command layer already put
+                    ; every coordinate in page space, so there is nothing left
+                    ; for them to do here.
+                    index = (index + 1)
+                }
+            }
+        }
+
+        out = (((out + indentText) + "  </View>") + (strfromcode 10))
+        out = (((out + indentText) + "</View>") + (strfromcode 10))
+        return out
+    }
+
+    ; The box a label is drawn in. Wider than the string — by enough that no
+    ; face this is rendered with can overflow it and wrap onto a second line —
+    ; because the alignment inside the box is what positions the text, and a
+    ; box that is too wide only costs room.
+    sfn textBox:double (cmd:VlDrawCommand) {
+        def w:double (VlText.drawWidth(cmd.text cmd.fontSize))
+        return ((w * 1.25) + 6.0)
+    }
+
+    ; How far left of the view any label reaches, as a positive number.
+    fn leftSpill:double (list:VlCommandList originX:double) {
+        def spill:double 0.0
+        for list.commands cmd:VlDrawCommand idx {
+            if (cmd.op == "text") {
+                if (cmd.opacity > 0.0) {
+                    def left:double (this.textLeft(cmd originX))
+                    if (left < (0.0 - spill)) {
+                        spill = (0.0 - left)
+                    }
+                }
+            }
+        }
+        return spill
+    }
+
+    fn rightEdge:double (list:VlCommandList originX:double) {
+        def right:double 0.0
+        for list.commands cmd:VlDrawCommand idx {
+            if (cmd.op == "text") {
+                if (cmd.opacity > 0.0) {
+                    def edge:double ((this.textLeft(cmd originX)) + (VlEvgWriter.textBox(cmd)))
+                    if (edge > right) {
+                        right = edge
+                    }
+                }
+            }
+        }
+        return right
+    }
+
+    ; Where the label's box starts. One definition, used both to place the
+    ; element and to work out how much room the drawing really needs.
+    fn textLeft:double (cmd:VlDrawCommand originX:double) {
+        def x:double (cmd.x + originX)
+        def box:double (VlEvgWriter.textBox(cmd))
+        ; A turned label is centred on its anchor, because that is the point
+        ; every target rotates about — but its BASELINE is what the anchor
+        ; names, and on a y-axis title the baseline faces the plot. So the ink
+        ; lies to one side of the anchor rather than across it, which is what
+        ; keeps a title clear of the labels it sits beside.
+        if (cmd.angle != 0.0) {
+            def half:double ((VlText.lineHeight(cmd.fontSize)) / 2.0)
+            if (cmd.baseline == "bottom") {
+                return ((x - half) - (box / 2.0))
+            }
+            if (cmd.baseline == "top") {
+                return ((x + half) - (box / 2.0))
+            }
+            return (x - (box / 2.0))
+        }
+        if (cmd.align == "center") {
+            return (x - (box / 2.0))
+        }
+        if (cmd.align == "right") {
+            return (x - box)
+        }
+        return x
+    }
+
+    sfn isGeometry:boolean (cmd:VlDrawCommand) {
+        if (cmd.op == "rect") {
+            return true
+        }
+        if (cmd.op == "line") {
+            return true
+        }
+        if (cmd.op == "symbol") {
+            return true
+        }
+        if (cmd.op == "polyline") {
+            return true
+        }
+        if (cmd.op == "polygon") {
+            return true
+        }
+        if (cmd.op == "arc") {
+            return true
+        }
+        if (cmd.op == "path") {
+            return true
+        }
+        return false
+    }
+
+    ; Two commands share a paint when they would produce the same `<Path>`
+    ; attributes. A stroked run and a filled run cannot merge even if they are
+    ; adjacent, because one path element carries one of each.
+    sfn samePaint:boolean (a:VlDrawCommand b:VlDrawCommand) {
+        if (a.hasFill != b.hasFill) {
+            return false
+        }
+        if (a.hasStroke != b.hasStroke) {
+            return false
+        }
+        if (a.fill != b.fill) {
+            return false
+        }
+        if (a.stroke != b.stroke) {
+            return false
+        }
+        if (a.strokeWidth != b.strokeWidth) {
+            return false
+        }
+        if (a.opacity != b.opacity) {
+            return false
+        }
+        ; A stroked polyline and a filled polygon are different shapes even
+        ; when they are painted alike.
+        if ((a.op == "polyline") != (b.op == "polyline")) {
+            return false
+        }
+        return true
+    }
+
+    ; The slot a data mark's colour occupies. A chart names its series by
+    ; colour, so this is the only stable handle the scene offers.
+    fn slotOf:int (colour:string) {
+        if (has slots colour) {
+            return (unwrap (get slots colour))
+        }
+        def next:int (array_length slotOrder)
+        set slots colour next
+        push slotOrder colour
+        return next
+    }
+
+    ; The classes an element carries: what it is, and — for a data mark —
+    ; which palette slot it paints with.
+    fn classesFor:string (cmd:VlDrawCommand) {
+        def role:string cmd.role
+        if (role == "axis-grid") {
+            this.noteChrome("chartGrid" "stroke" cmd.stroke)
+            return "chartGrid"
+        }
+        if (role == "axis-tick") {
+            this.noteChrome("chartTick" "stroke" cmd.stroke)
+            return "chartTick"
+        }
+        if (role == "axis-domain") {
+            this.noteChrome("chartDomain" "stroke" cmd.stroke)
+            return "chartDomain"
+        }
+        if (role == "axis-label") {
+            this.noteChrome("chartLabel" "color" cmd.fill)
+            return "chartLabel"
+        }
+        if (role == "axis-title") {
+            this.noteChrome("chartTitle" "color" cmd.fill)
+            return "chartTitle"
+        }
+        if (role == "frame") {
+            this.noteChrome("chartFrame" "stroke" cmd.stroke)
+            return "chartFrame"
+        }
+        def out:string ""
+        if cmd.hasFill {
+            out = ("chartFill" + (VlJson.intToText((this.slotOf(cmd.fill)))))
+        }
+        if cmd.hasStroke {
+            if ((strlen out) > 0) {
+                out = (out + " ")
+            }
+            out = ((out + "chartStroke") + (VlJson.intToText((this.slotOf(cmd.stroke)))))
+        }
+        return out
+    }
+
+    fn noteChrome:void (className:string property:string colour:string) {
+        if ((strlen colour) == 0) {
+            return
+        }
+        def key:string ((className + " ") + property)
+        if (! (has chromeColour key)) {
+            push chromeOrder key
+            set chromeColour key colour
+        }
+    }
+
+    ; The specification's own colours, as unscoped rules. A theme that says
+    ; nothing about charts gets the chart the spec asked for; one that does
+    ; overrides these, because a theme-scoped rule outranks an unscoped one.
+    fn defaultCss:string () {
+        def nl:string (strfromcode 10)
+        def out:string ""
+        out = ((out + "/* GENERATED by gallery/vela/tools/vela_evg.rgr — do not edit by hand. */") + nl)
+        out = ((out + "/* The colours the Vega specifications asked for, as the DEFAULT layer:") + nl)
+        out = ((out + "   a theme's own chart rules are scoped and override these, and a build") + nl)
+        out = ((out + "   with no chart theme still draws the chart the spec described. */") + nl)
+        out = (out + nl)
+        for chromeOrder key:string ci {
+            def space:int (indexOf key " ")
+            def className:string (substring key 0 space)
+            def property:string (substring key (space + 1) (strlen key))
+            def colour:string (unwrap (get chromeColour key))
+            out = ((((((((out + ".") + className) + " { ") + property) + ": ") + colour) + "; }") + nl)
+        }
+        for slotOrder colour:string idx {
+            def slot:string (VlJson.intToText(idx))
+            out = ((((((out + ".chartFill") + slot) + " { fill: ") + colour) + "; }") + nl)
+            out = ((((((out + ".chartStroke") + slot) + " { stroke: ") + colour) + "; }") + nl)
+        }
+        return out
+    }
+
+    ; ------------------------------------------------------------------ path ---
+    fn pathElement:string (list:VlCommandList from:int to:int originX:double originY:double viewWidth:double viewHeight:double) {
+        def builder (new PathBuilder())
+        def k:int from
+        while (k <= to) {
+            def cmd:VlDrawCommand (itemAt list.commands k)
+            this.appendGeometry(builder cmd originX originY)
+            k = (k + 1)
+        }
+        def data:string (builder.asPathData())
+        if ((strlen data) == 0) {
+            return ""
+        }
+
+        def head:VlDrawCommand (itemAt list.commands from)
+        def out:string ((indentText + "    ") + "<Path")
+        if useClasses {
+            def classes:string (this.classesFor(head))
+            if ((strlen classes) > 0) {
+                out = ((((out + " className=\"") + classes) + "\""))
+            }
+        }
+        out = (out + " position=\"absolute\" left=\"0px\" top=\"0px\"")
+        out = ((((out + " width=\"") + (VlEvgWriter.px(viewWidth))) + "\" height=\"") + (VlEvgWriter.px(viewHeight)))
+        out = ((((((out + "\" viewBox=\"0 0 ") + (VlJson.formatNumber(viewWidth 3))) + " ") + (VlJson.formatNumber(viewHeight 3))) + "\""))
+        if (! useClasses) {
+            if head.hasFill {
+                out = ((((out + " fill=\"") + head.fill) + "\""))
+            }
+            if head.hasStroke {
+                out = ((((out + " stroke=\"") + head.stroke) + "\""))
+            }
+        }
+        if head.hasStroke {
+            out = ((((out + " strokeWidth=\"") + (VlJson.formatNumber(head.strokeWidth 3))) + "\""))
+        }
+        if (head.opacity != 1.0) {
+            out = ((((out + " opacity=\"") + (VlJson.formatNumber(head.opacity 3))) + "\""))
+        }
+        out = ((((out + " d=\"") + data) + "\" />") + (strfromcode 10))
+        return out
+    }
+
+    fn appendGeometry:void (builder:PathBuilder cmd:VlDrawCommand originX:double originY:double) {
+        def ox:double originX
+        def oy:double originY
+
+        if (cmd.op == "rect") {
+            builder.addRect((cmd.x + ox) (cmd.y + oy) cmd.width cmd.height)
+            return
+        }
+        if (cmd.op == "line") {
+            builder.addLine((cmd.x + ox) (cmd.y + oy) (cmd.x2 + ox) (cmd.y2 + oy))
+            return
+        }
+        if (cmd.op == "symbol") {
+            this.appendSymbol(builder cmd ox oy)
+            return
+        }
+        if ((cmd.op == "polyline") || (cmd.op == "polygon")) {
+            def pts:[double]
+            def total:int (array_length cmd.points)
+            def k:int 0
+            while (k < total) {
+                def v:double (itemAt cmd.points k)
+                if ((k % 2) == 0) {
+                    push pts (v + ox)
+                } {
+                    push pts (v + oy)
+                }
+                k = (k + 1)
+            }
+            if (cmd.op == "polyline") {
+                builder.addPolyline(pts)
+            } {
+                builder.addPolygon(pts)
+            }
+            return
+        }
+        if (cmd.op == "arc") {
+            this.appendArc(builder cmd ox oy)
+            return
+        }
+        if (cmd.op == "path") {
+            builder.addPathData(cmd.pathData)
+        }
+    }
+
+    ; A symbol's `size` is an AREA, which is what makes two symbols of size 30
+    ; and 120 read as twice as big rather than four times.
+    fn appendSymbol:void (builder:PathBuilder cmd:VlDrawCommand ox:double oy:double) {
+        def area:double cmd.size
+        if (area < 0.0) {
+            area = 0.0
+        }
+        def cx:double (cmd.x + ox)
+        def cy:double (cmd.y + oy)
+        if (cmd.shape == "square") {
+            def side:double (sqrt area)
+            builder.addRect((cx - (side / 2.0)) (cy - (side / 2.0)) side side)
+            return
+        }
+        def r:double (sqrt (area / 3.141592653589793))
+        builder.addCircle(cx cy r)
+    }
+
+    ; A wedge: out along the start angle, round the outer radius, back down the
+    ; end angle and round the inner one. The reference's angles are measured
+    ; from UP and run clockwise, so x is sin and y is -cos.
+    fn appendArc:void (builder:PathBuilder cmd:VlDrawCommand ox:double oy:double) {
+        def cx:double (cmd.x + ox)
+        def cy:double (cmd.y + oy)
+        def a0:double cmd.startAngle
+        def a1:double cmd.endAngle
+        if (a1 < a0) {
+            def swap:double a0
+            a0 = a1
+            a1 = swap
+        }
+        def outer:double cmd.outerRadius
+        def inner:double cmd.innerRadius
+        if (outer <= 0.0) {
+            return
+        }
+
+        ; Flattened into short segments rather than emitted as elliptical arcs:
+        ; a wedge is a closed shape whose two straight edges have to meet the
+        ; curve exactly, and a chain of small lines is exact enough at chart
+        ; sizes and has no sweep-flag to get wrong.
+        def span:double (a1 - a0)
+        def steps:int (to_int ((span / 0.1) + 1.0))
+        if (steps < 2) {
+            steps = 2
+        }
+        if (steps > 240) {
+            steps = 240
+        }
+
+        def k:int 0
+        while (k <= steps) {
+            def t:double ((to_double k) / (to_double steps))
+            def a:double (a0 + (span * t))
+            def x:double (cx + ((sin a) * outer))
+            def y:double (cy - ((cos a) * outer))
+            if (k == 0) {
+                builder.moveTo(x y)
+            } {
+                builder.lineTo(x y)
+            }
+            k = (k + 1)
+        }
+        if (inner > 0.0) {
+            def j:int steps
+            while (j >= 0) {
+                def t2:double ((to_double j) / (to_double steps))
+                def a2:double (a0 + (span * t2))
+                builder.lineTo((cx + ((sin a2) * inner)) (cy - ((cos a2) * inner)))
+                j = (j - 1)
+            }
+        } {
+            builder.lineTo(cx cy)
+        }
+        builder.close()
+    }
+
+    ; ------------------------------------------------------------------ text ---
+    ; The label is given a box and an alignment; the renderer's own metrics
+    ; decide where inside it the glyphs sit. `left` places the box so that the
+    ; alignment puts the string's anchor at the command's x.
+    fn textElement:string (cmd:VlDrawCommand originX:double originY:double viewWidth:double viewHeight:double) {
+        ; A label the overlap pass hid is not drawn at all. Emitting it with
+        ; zero opacity would leave it in the document for a target that ignores
+        ; the attribute to paint anyway, which is how a crowded axis ends up
+        ; with its labels printed on top of each other.
+        if (cmd.opacity <= 0.0) {
+            return ""
+        }
+        def x:double (cmd.x + originX)
+        def y:double (cmd.y + originY)
+        def align:string cmd.align
+
+        def box:double (VlEvgWriter.textBox(cmd))
+        def left:double (this.textLeft(cmd originX))
+        def textAlign:string "left"
+        if (align == "center") {
+            textAlign = "center"
+        }
+        if (align == "right") {
+            textAlign = "right"
+        }
+
+        ; The vertical anchor: EVG places a label by the top of its line box.
+        def top:double y
+        if (cmd.baseline == "middle") {
+            top = (y - (cmd.fontSize / 2.0))
+        }
+        if (cmd.baseline == "bottom") {
+            top = (y - cmd.fontSize)
+        }
+        if (cmd.baseline == "alphabetic") {
+            top = (y - (cmd.fontSize * 0.8))
+        }
+
+        ; A turned label sits centred on its anchor in both directions: the
+        ; box centre is the point it rotates about, and the alignment centres
+        ; the string in the box.
+        if (cmd.angle != 0.0) {
+            top = (y - ((VlText.lineHeight(cmd.fontSize)) / 2.0))
+            textAlign = "center"
+        }
+
+        def out:string ((indentText + "    ") + "<Label")
+        if useClasses {
+            def classes:string (this.classesFor(cmd))
+            if ((strlen classes) > 0) {
+                out = ((((out + " className=\"") + classes) + "\""))
+            }
+        }
+        out = (out + " position=\"absolute\"")
+        out = ((((out + " left=\"") + (VlEvgWriter.px(left))) + "\" top=\"") + (VlEvgWriter.px(top)))
+        out = ((((out + "\" width=\"") + (VlEvgWriter.px(box))) + "\" textAlign=\"") + textAlign)
+        out = ((((out + "\" fontSize=\"") + (VlEvgWriter.px(cmd.fontSize))) + "\""))
+        if ((strlen cmd.fontWeight) > 0) {
+            out = ((((out + " fontWeight=\"") + cmd.fontWeight) + "\""))
+        }
+        if (! useClasses) {
+            if cmd.hasFill {
+                out = ((((out + " color=\"") + cmd.fill) + "\""))
+            }
+        }
+        if (cmd.angle != 0.0) {
+            out = ((((out + " rotate=\"") + (VlJson.formatNumber(cmd.angle 3))) + "\""))
+        }
+
+        out = ((((out + ">") + (VlEvgWriter.escapeText(cmd.text))) + "</Label>") + (strfromcode 10))
+        return out
+    }
+
+    ; ---------------------------------------------------------------- helpers ---
+    sfn px:string (v:double) {
+        return ((VlJson.formatNumber(v 3)) + "px")
+    }
+
+    ; TSX text content: the three characters that would end the element or open
+    ; an expression.
+    sfn escapeText:string (text:string) {
+        def out:string ""
+        def total:int (strlen text)
+        def k:int 0
+        while (k < total) {
+            def c:string (substring text k (k + 1))
+            if (c == "<") {
+                out = (out + "&lt;")
+            } {
+                if (c == ">") {
+                    out = (out + "&gt;")
+                } {
+                    if (c == "{") {
+                        out = (out + "&#123;")
+                    } {
+                        if (c == "}") {
+                            out = (out + "&#125;")
+                        } {
+                            out = (out + c)
+                        }
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+}

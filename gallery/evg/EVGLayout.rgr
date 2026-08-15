@@ -715,13 +715,20 @@ class EVGLayout {
                     child.calculatedX = child.calculatedX + parent.calculatedX
                     child.calculatedY = child.calculatedY + parent.calculatedY
                 } {
-                    this.layoutAbsolute(child innerWidth innerHeight)
-                    child.calculatedX = child.calculatedX + startX
-                    child.calculatedY = child.calculatedY + startY
-                }
-                ; Recurse for children of absolute element
-                if ((child.getChildCount()) > 0) {
-                    this.layoutChildren(child)
+                    ; An absolutely positioned element is still an element: it
+                    ; has a size. Nothing computed one — this branch called
+                    ; layoutAbsolute, which sets x and y and nothing else — so
+                    ; calculatedWidth stayed 0 for every one of them. A label
+                    ; then had no box for text-align to align in, a rotation
+                    ; "about its centre" turned about its left edge instead,
+                    ; and a background painted nothing.
+                    ;
+                    ; So lay it out the way any other element is laid out, and
+                    ; move the finished subtree into place afterwards: the
+                    ; positions inside it are relative to the element, so one
+                    ; translation carries all of them.
+                    this.layoutElement(child 0.0 0.0 innerWidth innerHeight)
+                    this.translateSubtree(child startX startY)
                 }
                 i = i + 1
                 continue
@@ -1326,6 +1333,18 @@ class EVGLayout {
         }
     }
     
+    ; Move a finished subtree, keeping everything inside it in step.
+    fn translateSubtree:void (element:EVGElement dx:double dy:double) {
+        element.calculatedX = (element.calculatedX + dx)
+        element.calculatedY = (element.calculatedY + dy)
+        def count:int (element.getChildCount())
+        def i:int 0
+        while (i < count) {
+            this.translateSubtree((element.getChild(i)) dx dy)
+            i = (i + 1)
+        }
+    }
+
     fn layoutAbsolute:void (element:EVGElement parentWidth:double parentHeight:double) {
         ; Position absolutely positioned element
         

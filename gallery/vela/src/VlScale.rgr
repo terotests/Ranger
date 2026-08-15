@@ -1,0 +1,458 @@
+; ==============================================================================
+; VlScale.rgr — the scale family: band, point, linear, ordinal.
+; ==============================================================================
+; A scale maps a data value to a visual one. Vega delegates this to d3-scale
+; through vega-scale; this is an independent implementation of the same
+; behaviour, written so the numbers agree — the tick algorithm in particular is
+; d3's `tickIncrement`, which is what decides whether an axis reads 0,20,40,60,80
+; or 0,25,50,75,100, and any difference there shows up in every chart.
+;
+; One class holds every scale type rather than a type per subclass: a scale is
+; data in Vega (it is a JSON object with a `type` field), the set is closed, and
+; a single class keeps the cross-target output free of dispatch differences.
+;
+; Numbers only: no time scale yet (it needs the date/time layer), no log/pow
+; (they need a real `log`, which the Ranger operator set does not have — the
+; integer-exponent helpers below are deliberately not a substitute).
+; ==============================================================================
+
+Import "VlJson.rgr"
+
+class VlScaleTick {
+    def value:double 0.0
+    def label:string ""
+}
+
+class VlScale {
+    ; "band" | "point" | "linear" | "ordinal"
+    def scaleType:string "linear"
+    def name:string ""
+
+    ; Quantitative domain / range.
+    def domainMin:double 0.0
+    def domainMax:double 1.0
+    def rangeMin:double 0.0
+    def rangeMax:double 1.0
+    def clamp:boolean false
+
+    ; Discrete domain (band, point, ordinal) and its lookup.
+    def domainValues:[string]
+    def domainIndex:[string:int]
+
+    ; Ordinal output values.
+    def rangeValues:[string]
+
+    ; Bin boundaries, when the scale was built for binned data. An axis over a
+    ; binned scale labels the bins, not an arbitrary tick count.
+    def binValues:[double]
+
+    ; Band/point layout.
+    def paddingInner:double 0.0
+    def paddingOuter:double 0.0
+    def align:double 0.5
+    def round:boolean false
+    ; When stepSet the range is derived from a step size rather than the other
+    ; way round — `"range": {"step": …}`, which is how Vega-Lite sizes a chart
+    ; from its data instead of the other way round.
+    def stepSet:boolean false
+    def stepValue:double 20.0
+
+    ; Computed by layout().
+    def bandStart:double 0.0
+    def bandStep:double 0.0
+    def bandWidth:double 0.0
+
+    ; ---------------------------------------------------------------- domain --
+    fn setNumericDomain:void (lo:double hi:double) {
+        domainMin = lo
+        domainMax = hi
+    }
+
+    fn setNumericRange:void (lo:double hi:double) {
+        rangeMin = lo
+        rangeMax = hi
+    }
+
+    fn addDomainValue:void (value:string) {
+        if (! (has domainIndex value)) {
+            set domainIndex value (array_length domainValues)
+            push domainValues value
+        }
+    }
+
+    fn domainCount:int () {
+        return (array_length domainValues)
+    }
+
+    fn indexOfValue:int (value:string) {
+        if (has domainIndex value) {
+            return (unwrap (get domainIndex value))
+        }
+        return -1
+    }
+
+    ; --------------------------------------------------------- band / point --
+    ; d3-scale's band layout, which vega-scale uses unchanged. `point` is a band
+    ; with no inner width, so it shares every line of this.
+    fn layout:void () {
+        def n:int (array_length domainValues)
+        def inner:double paddingInner
+        if (scaleType == "point") {
+            inner = 1.0
+        }
+        def start:double rangeMin
+        def stop:double rangeMax
+        def reverse:boolean (stop < start)
+        if reverse {
+            def swap:double start
+            start = stop
+            stop = swap
+        }
+        def slots:double (((to_double n) - inner) + (paddingOuter * 2.0))
+        if (slots < 1.0) {
+            slots = 1.0
+        }
+        def step:double 0.0
+        if stepSet {
+            step = stepValue
+            stop = (start + (step * slots))
+        } {
+            step = ((stop - start) / slots)
+        }
+        if round {
+            step = (to_double (floor step))
+        }
+        def used:double (step * ((to_double n) - inner))
+        start = (start + (((stop - start) - used) * align))
+        def width:double (step * (1.0 - inner))
+        if round {
+            start = (to_double (floor (start + 0.5)))
+            width = (to_double (floor (width + 0.5)))
+        }
+        bandStart = start
+        bandStep = step
+        bandWidth = width
+        if reverse {
+            ; d3 lays the bands out low-to-high and then reverses the values, so
+            ; the first domain entry sits at the far end and the walk runs back.
+            bandStart = (start + (step * ((to_double n) - 1.0)))
+            bandStep = (0.0 - step)
+        }
+    }
+
+    ; The full extent a band scale occupies with the current step — what
+    ; `bandspace() * step` computes in a Vega signal.
+    fn bandSpace:double () {
+        def n:int (array_length domainValues)
+        def inner:double paddingInner
+        if (scaleType == "point") {
+            inner = 1.0
+        }
+        def slots:double (((to_double n) - inner) + (paddingOuter * 2.0))
+        if (slots < 1.0) {
+            slots = 1.0
+        }
+        return slots
+    }
+
+    fn bandwidth:double () {
+        return bandWidth
+    }
+
+    fn step:double () {
+        return bandStep
+    }
+
+    ; ---------------------------------------------------------------- mapping --
+    fn mapIndex:double (index:int) {
+        return (bandStart + (bandStep * (to_double index)))
+    }
+
+    fn mapDiscrete:double (value:string) {
+        def idx:int (this.indexOfValue(value))
+        if (idx < 0) {
+            return 0.0
+        }
+        return (this.mapIndex(idx))
+    }
+
+    fn mapNumber:double (value:double) {
+        def span:double (domainMax - domainMin)
+        def t:double 0.0
+        if (span != 0.0) {
+            t = ((value - domainMin) / span)
+        }
+        if clamp {
+            if (t < 0.0) {
+                t = 0.0
+            }
+            if (t > 1.0) {
+                t = 1.0
+            }
+        }
+        return (rangeMin + (t * (rangeMax - rangeMin)))
+    }
+
+    ; The one entry point the encoder uses: a scale takes whatever the datum
+    ; holds and answers a number.
+    fn mapValue:double (v:VlJson) {
+        if ((scaleType == "band") || (scaleType == "point")) {
+            return (this.mapDiscrete((v.asString())))
+        }
+        return (this.mapNumber((v.asDouble())))
+    }
+
+    fn mapOrdinal:string (v:VlJson) {
+        def total:int (array_length rangeValues)
+        if (total == 0) {
+            return ""
+        }
+        def idx:int (this.indexOfValue((v.asString())))
+        if (idx < 0) {
+            idx = 0
+        }
+        return (itemAt rangeValues (idx % total))
+    }
+
+    ; ------------------------------------------------------------------ nice --
+    ; d3's nice: extend the domain outward to the tick step, repeating until the
+    ; step stops changing. Vega applies it whenever a spec says `"nice": true`,
+    ; which Vega-Lite emits for every quantitative scale.
+    fn niceDomain:void (count:int) {
+        def start:double domainMin
+        def stop:double domainMax
+        if (start == stop) {
+            return
+        }
+        def prestep:double 0.0
+        def go:boolean true
+        def guard:int 0
+        while (go && (guard < 12)) {
+            guard = (guard + 1)
+            def step:double (VlScale.tickIncrement(start stop count))
+            if (step == prestep) {
+                go = false
+            } {
+                if (step == 0.0) {
+                    go = false
+                } {
+                    if (step > 0.0) {
+                        start = ((to_double (floor (start / step))) * step)
+                        stop = ((to_double (ceil (stop / step))) * step)
+                    } {
+                        start = ((to_double (ceil (start * step))) / step)
+                        stop = ((to_double (floor (stop * step))) / step)
+                    }
+                    prestep = step
+                }
+            }
+        }
+        domainMin = start
+        domainMax = stop
+    }
+
+    ; ----------------------------------------------------------------- ticks --
+    fn ticks:[double] (count:int) {
+        def out:[double]
+        def start:double domainMin
+        def stop:double domainMax
+        if (start == stop) {
+            push out start
+            return out
+        }
+        def reverse:boolean (stop < start)
+        if reverse {
+            def swap:double start
+            start = stop
+            stop = swap
+        }
+        def step:double (VlScale.tickIncrement(start stop count))
+        if (step == 0.0) {
+            return out
+        }
+        if (step > 0.0) {
+            def i0:int (ceil (start / step))
+            def i1:int (floor (stop / step))
+            def i:int i0
+            while (i <= i1) {
+                push out ((to_double i) * step)
+                i = (i + 1)
+            }
+        } {
+            def i0:int (floor (start * step))
+            def i1:int (ceil (stop * step))
+            def i:int i0
+            while (i >= i1) {
+                push out ((to_double i) / step)
+                i = (i - 1)
+            }
+        }
+        if reverse {
+            def rev:[double]
+            def k:int ((array_length out) - 1)
+            while (k >= 0) {
+                push rev (itemAt out k)
+                k = (k - 1)
+            }
+            return rev
+        }
+        return out
+    }
+
+    ; d3-array's tickIncrement, with the two constants it compares against
+    ; (sqrt(50) and sqrt(10)) written out because the operator set has no `pow`.
+    ; A negative answer means "the step is 1/-answer", which is how d3 keeps the
+    ; sub-1 steps exact instead of accumulating 0.1 error.
+    sfn tickIncrement:double (start:double stop:double count:int) {
+        def n:int count
+        if (n < 1) {
+            n = 1
+        }
+        def step:double ((stop - start) / (to_double n))
+        if (step <= 0.0) {
+            return 0.0
+        }
+        def power:int (VlScale.floorLog10(step))
+        def error:double (step / (VlScale.pow10(power)))
+        def factor:double 1.0
+        if (error >= 7.0710678118654755) {
+            factor = 10.0
+        } {
+            if (error >= 3.1622776601683795) {
+                factor = 5.0
+            } {
+                if (error >= 1.4142135623730951) {
+                    factor = 2.0
+                }
+            }
+        }
+        if (power >= 0) {
+            return (factor * (VlScale.pow10(power)))
+        }
+        return (0.0 - ((VlScale.pow10((0 - power))) / factor))
+    }
+
+    ; floor(log10(x)) for x > 0 by repeated scaling: the operator set has no
+    ; `log`, and an integer exponent is all the tick algorithm ever needs.
+    sfn floorLog10:int (x:double) {
+        if (x <= 0.0) {
+            return 0
+        }
+        def v:double x
+        def p:int 0
+        while (v >= 10.0) {
+            v = (v / 10.0)
+            p = (p + 1)
+        }
+        while (v < 1.0) {
+            v = (v * 10.0)
+            p = (p - 1)
+        }
+        return p
+    }
+
+    sfn pow10:double (n:int) {
+        def out:double 1.0
+        def k:int 0
+        if (n >= 0) {
+            while (k < n) {
+                out = (out * 10.0)
+                k = (k + 1)
+            }
+            return out
+        }
+        def m:int (0 - n)
+        while (k < m) {
+            out = (out / 10.0)
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; The label Vega prints for a tick with no explicit format: the shortest
+    ; decimal that still names the value.
+    sfn tickLabel:string (value:double) {
+        return (VlJson.formatNumber(value 6))
+    }
+
+    ; A tick SET is formatted to one shared precision, chosen from the step —
+    ; which is why an axis stepping by 0.5 reads 0.0, 0.5, 1.0 and not 0, 0.5,
+    ; 1. Formatting each value on its own gives a ragged axis and disagrees
+    ; with the reference.
+    sfn tickLabels:[string] (values:[double]) {
+        def out:[string]
+        def decimals:int (VlScale.tickDecimals(values))
+        for values v:double idx {
+            out = (VlScale.appendLabel(out v decimals))
+        }
+        return out
+    }
+
+    sfn appendLabel:[string] (out:[string] value:double decimals:int) {
+        def text:string (VlJson.formatNumber(value decimals))
+        if (decimals > 0) {
+            text = (VlScale.padDecimals(text decimals))
+        }
+        push out text
+        return out
+    }
+
+    ; The decimals the smallest gap in the set needs: a step of 0.5 needs one,
+    ; a step of 10 needs none.
+    sfn tickDecimals:int (values:[double]) {
+        def total:int (array_length values)
+        if (total < 2) {
+            return 0
+        }
+        def step:double 0.0
+        def k:int 1
+        while (k < total) {
+            def gap:double ((itemAt values k) - (itemAt values (k - 1)))
+            if (gap < 0.0) {
+                gap = (0.0 - gap)
+            }
+            if (gap > 0.0) {
+                if ((step == 0.0) || (gap < step)) {
+                    step = gap
+                }
+            }
+            k = (k + 1)
+        }
+        if (step == 0.0) {
+            return 0
+        }
+        def decimals:int 0
+        def scaled:double step
+        while ((scaled < 1.0) && (decimals < 10)) {
+            scaled = (scaled * 10.0)
+            decimals = (decimals + 1)
+        }
+        return decimals
+    }
+
+    ; Zero-fills so every label in the set shows the same number of decimals.
+    sfn padDecimals:string (text:string decimals:int) {
+        def dot:int -1
+        def n:int (strlen text)
+        def k:int 0
+        while (k < n) {
+            if ((substring text k (k + 1)) == ".") {
+                dot = k
+            }
+            k = (k + 1)
+        }
+        def out:string text
+        def have:int 0
+        if (dot < 0) {
+            out = (out + ".")
+        } {
+            have = ((n - dot) - 1)
+        }
+        def pad:int have
+        while (pad < decimals) {
+            out = (out + "0")
+            pad = (pad + 1)
+        }
+        return out
+    }
+}
