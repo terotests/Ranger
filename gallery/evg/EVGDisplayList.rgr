@@ -1,0 +1,243 @@
+; EVGDisplayList.rgr — one traversal, a flat list of draw commands
+;
+; EVG computes geometry and stops there; something else has to paint it. Today
+; five painters each walk the laid-out tree themselves and each decide again
+; what a box means:
+;
+;   EVGPDFRenderer          -> PDF operators
+;   evg_png_tool + raster   -> CPU pixels
+;   EVGHTMLRenderer         -> absolutely positioned <div>s
+;   v2 ui/UIContext         -> framebuffer fillRect
+;   game_engine/ui/UILayer  -> interactive HUD on the same framebuffer
+;
+; Five copies of the same walk is how border-radius came to work in PDF and
+; silently not in PNG: one painter read `el.box.borderRadius` and the other
+; read a stale `el.borderRadius` that nothing wrote. A sixth backend (GL,
+; WebGL, SDL2) should not be a sixth copy.
+;
+; So: walk once, emit commands, and let a backend consume them. A command is
+; deliberately dumb — absolute pixels, resolved colours, no tree, no units —
+; because that is what a GPU backend wants: quads it can batch, glyph runs it
+; can look up in an atlas, and clip rectangles it can push and pop.
+;
+; This module is pure. It reads a laid-out tree and allocates no device
+; resources, so it compiles to every target Ranger has, which is what lets the
+; same list drive WebGL in a browser and SDL2 on a Raspberry Pi.
+
+Import "EVGElement.rgr"
+Import "EVGColor.rgr"
+
+; Command kinds. Kept as ints so a backend can switch on them cheaply.
+;   0 RECT   filled box, possibly rounded
+;   1 BORDER stroked outline, possibly rounded
+;   2 IMAGE  textured quad, src names the file
+;   3 TEXT   one run on one line, already positioned at its baseline
+;   4 PUSH_CLIP / 5 POP_CLIP  scissor rectangle
+class EVGDrawCmd {
+    def kind:int 0
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def radius:double 0.0
+    def thickness:double 0.0
+    ; Colour, pre-resolved to 0-255 + alpha 0-1 so a backend needs no EVGColor.
+    def r:int 0
+    def g:int 0
+    def b:int 0
+    def a:double 1.0
+    ; TEXT
+    def text:string ""
+    def fontFamily:string ""
+    def fontSize:double 0.0
+    ; IMAGE
+    def src:string ""
+
+    Constructor () {
+    }
+
+    fn kindName:string () {
+        if (kind == 0) {
+            return "RECT"
+        }
+        if (kind == 1) {
+            return "BORDER"
+        }
+        if (kind == 2) {
+            return "IMAGE"
+        }
+        if (kind == 3) {
+            return "TEXT"
+        }
+        if (kind == 4) {
+            return "PUSH_CLIP"
+        }
+        return "POP_CLIP"
+    }
+}
+
+class EVGDisplayList {
+    def cmds:[EVGDrawCmd]
+
+    Constructor () {
+    }
+
+    fn count:int () {
+        return (array_length cmds)
+    }
+
+    fn at:EVGDrawCmd (i:int) {
+        return (itemAt cmds i)
+    }
+
+    ; Walk a LAID-OUT tree. Call after EVGLayout.layout(root).
+    fn build:void (root:EVGElement) {
+        clear cmds
+        this.walk(root)
+    }
+
+    fn walk:void (el:EVGElement) {
+        def x:double el.calculatedX
+        def y:double el.calculatedY
+        def w:double el.calculatedWidth
+        def h:double el.calculatedHeight
+
+        def radius:double el.box.borderRadiusPx
+
+        ; Background
+        if el.backgroundColor {
+            def bg:EVGColor (unwrap el.backgroundColor)
+            if bg.isSet {
+                def c (new EVGDrawCmd())
+                c.kind = 0
+                c.x = x
+                c.y = y
+                c.w = w
+                c.h = h
+                c.radius = radius
+                c.r = (bg.red())
+                c.g = (bg.green())
+                c.b = (bg.blue())
+                c.a = (bg.alpha())
+                push cmds c
+            }
+        }
+
+        ; Border
+        if (el.box.borderWidthPx > 0.0) {
+            if el.borderColor {
+                def bc:EVGColor (unwrap el.borderColor)
+                if bc.isSet {
+                    def c2 (new EVGDrawCmd())
+                    c2.kind = 1
+                    c2.x = x
+                    c2.y = y
+                    c2.w = w
+                    c2.h = h
+                    c2.radius = radius
+                    c2.thickness = el.box.borderWidthPx
+                    c2.r = (bc.red())
+                    c2.g = (bc.green())
+                    c2.b = (bc.blue())
+                    c2.a = (bc.alpha())
+                    push cmds c2
+                }
+            }
+        }
+
+        ; Image
+        if ((strlen el.src) > 0) {
+            def c3 (new EVGDrawCmd())
+            c3.kind = 2
+            c3.x = x
+            c3.y = y
+            c3.w = w
+            c3.h = h
+            c3.radius = radius
+            c3.src = el.src
+            push cmds c3
+        }
+
+        ; Text. One command per element; a backend that shapes lines itself can
+        ; re-break, and one that does not can ask EVGTextEngine for the same
+        ; lines layout used.
+        if ((strlen el.textContent) > 0) {
+            def c4 (new EVGDrawCmd())
+            c4.kind = 3
+            c4.x = (x + el.box.paddingLeftPx)
+            c4.y = (y + el.box.paddingTopPx)
+            c4.w = w
+            c4.h = h
+            c4.text = el.textContent
+            c4.fontFamily = (el.effectiveFontFamily())
+            c4.fontSize = el.inheritedFontSize
+            if el.fontSize.isSet {
+                c4.fontSize = el.fontSize.pixels
+            }
+            if el.color {
+                def tc:EVGColor (unwrap el.color)
+                c4.r = (tc.red())
+                c4.g = (tc.green())
+                c4.b = (tc.blue())
+                c4.a = (tc.alpha())
+            }
+            push cmds c4
+        }
+
+        ; Children, clipped when the element says so.
+        def clips:boolean (el.overflow == "hidden")
+        if clips {
+            def cp (new EVGDrawCmd())
+            cp.kind = 4
+            cp.x = x
+            cp.y = y
+            cp.w = w
+            cp.h = h
+            push cmds cp
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            def kid:EVGElement (el.getChild(i))
+            this.walk(kid)
+            i = (i + 1)
+        }
+        if clips {
+            def pp (new EVGDrawCmd())
+            pp.kind = 5
+            push cmds pp
+        }
+    }
+
+    ; A backend-shaped summary: how many quads, how many text runs, how deep
+    ; the clip stack goes. Useful for sizing a vertex buffer up front.
+    fn summary:string () {
+        def rects:int 0
+        def borders:int 0
+        def images:int 0
+        def texts:int 0
+        def clips:int 0
+        def i:int 0
+        while (i < (array_length cmds)) {
+            def c:EVGDrawCmd (itemAt cmds i)
+            if (c.kind == 0) {
+                rects = (rects + 1)
+            }
+            if (c.kind == 1) {
+                borders = (borders + 1)
+            }
+            if (c.kind == 2) {
+                images = (images + 1)
+            }
+            if (c.kind == 3) {
+                texts = (texts + 1)
+            }
+            if (c.kind == 4) {
+                clips = (clips + 1)
+            }
+            i = (i + 1)
+        }
+        return ((((("rects=" + (to_string rects)) + " borders=" + (to_string borders))
+            + " images=" + (to_string images)) + " text=" + (to_string texts))
+            + " clips=" + (to_string clips))
+    }
+}
