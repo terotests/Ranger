@@ -33,6 +33,12 @@ class RangerRustClassWriter {
   ; the upgrade of a weak field itself, so the path writer must not add a
   ; second one for the same read.
   def rust_in_weak_unwrap:boolean false
+  ; set while an in-place COLLECTION operator writes its target — push,
+  ; clear, remove_index, array_extract. The target is written through, so a
+  ; trait accessor on its path hands back `&mut`, but the operator calls a
+  ; method on that reference rather than assigning to it: the `*` a real
+  ; assignment target needs would be dereferencing the method's own result.
+  def rust_lhs_is_receiver:boolean false
   ; set while a STRUCT FIELD's type is written. A borrowed closure needs a
   ; lifetime to sit in a struct, and the struct has none; an owned one does
   ; not. A parameter keeps the borrow, which is what call sites pass.
@@ -944,7 +950,9 @@ class RangerRustClassWriter {
       if lastSegThroughTrait {
         if ctx.in_lhs_of_assignment {
           lastWantsMutAccessor = true
-          wr.out("*" false)
+          if (rust_lhs_is_receiver == false) {
+            wr.out("*" false)
+          }
         } {
           ; a receiver that is about to take a `&mut self` method needs the
           ; mutable form too, but a method call derefs on its own
@@ -3172,6 +3180,36 @@ class RangerRustClassWriter {
   ; already says this for methods only the parent declares; a class that
   ; OVERRIDES a trait method had its own (possibly non-mutating) answer
   ; recorded first, and the override is emitted `&mut self` all the same.
+  ; A trait method and the inherent method each impl forwards to share one
+  ; signature, and the forwarding body is written from the PARENT's variant.
+  ; Either side wanting the hidden __self_rc argument therefore commits both
+  ; to it, or the forwarding call is an argument off in one direction or the
+  ; other. These are the descriptors the writer emits from — cl.methods holds
+  ; different ones, which is why aligning through those changed nothing.
+  fn alignTraitSelfRcNeeds:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    for cl.extends_classes parentName:string pi {
+      if (ctx.isDefinedClass(parentName)) {
+        def pc:RangerAppClassDesc (ctx.findClass(parentName))
+        if pc.is_extended_by_children {
+          for pc.defined_variants pvName:string pvi {
+            if (has cl.method_variants pvName) {
+              def pMVs:RangerAppMethodVariants (get pc.method_variants pvName)
+              def cMVs:RangerAppMethodVariants (get cl.method_variants pvName)
+              for pMVs.variants pV:RangerAppFunctionDesc pvj {
+                for cMVs.variants cV:RangerAppFunctionDesc cvj {
+                  if (pV.rust_needs_self_rc || cV.rust_needs_self_rc) {
+                    pV.rust_needs_self_rc = true
+                    cV.rust_needs_self_rc = true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
   fn markTraitIfaceMutations:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext directMutations:[string:boolean]) {
     if cl.is_extended_by_children {
       for cl.defined_variants fnVar:string i {
@@ -5458,7 +5496,7 @@ class RangerRustClassWriter {
       ; the trait is written for every program: `identical` on a plain shared
       ; class goes through it too, so one spelling serves both
       header.out("pub trait RgIdentical { fn rg_identical(&self, other: &Self) -> bool; }" true)
-      header.out("impl<T> RgIdentical for Rc<RefCell<T>> {" true)
+      header.out("impl<T: ?Sized> RgIdentical for Rc<RefCell<T>> {" true)
       header.out("    fn rg_identical(&self, other: &Self) -> bool { Rc::ptr_eq(self, other) }" true)
       header.out("}" true)
       if ((array_length unionNames) > 0) {
@@ -5704,9 +5742,16 @@ class RangerRustClassWriter {
                 if (has mcl.method_variants pvName) {
                   def pMVs:RangerAppMethodVariants (get mclPC.method_variants pvName)
                   def cMVs:RangerAppMethodVariants (get mcl.method_variants pvName)
+                  ; …and the other way too: a CHILD that takes the hidden
+                  ; argument is forwarded to from a signature the parent's
+                  ; variant shaped, so a parent that does not take one leaves
+                  ; the call an argument short. Both directions run over
+                  ; every class twice, so a parent lit by a later child still
+                  ; reaches the children settled before it.
                   for pMVs.variants pV:RangerAppFunctionDesc pvj {
                     for cMVs.variants cV:RangerAppFunctionDesc cvj {
-                      if pV.rust_needs_self_rc {
+                      if (pV.rust_needs_self_rc || cV.rust_needs_self_rc) {
+                        pV.rust_needs_self_rc = true
                         cV.rust_needs_self_rc = true
                       }
                     }
@@ -5727,6 +5772,11 @@ class RangerRustClassWriter {
             scm.rust_can_be_static = ((this.fnBodyUsesThis((unwrap scmB) scmCtx)) == false)
           }
         }
+      }
+      ; A second sweep, so the flag a late child raised on its parent reaches
+      ; the siblings whose turn had already passed.
+      for hdrRoot.definedClasses aCl:RangerAppClassDesc aCi {
+        this.alignTraitSelfRcNeeds(aCl ctx)
       }
       fileHeaderWritten = true
     }
@@ -7042,6 +7092,30 @@ class RangerRustClassWriter {
           return
         }
       }
+      ; two handles of a shared class compare by IDENTITY — that is what
+      ; `==` on an object means in every other target, where the handle is a
+      ; pointer, a reference or a shared_ptr. Rust will not compare two Rcs
+      ; at all (E0369), so the comparison goes through Rc::ptr_eq.
+      def cmpShared:boolean false
+      if (this.rustClassIsShared((this.rustArgValueTypeName(cmpL)) ctx)) {
+        cmpShared = true
+      }
+      if (this.rustClassIsShared((this.rustArgValueTypeName(cmpR)) ctx)) {
+        cmpShared = true
+      }
+      if cmpShared {
+        if (cmd == "!=") {
+          wr.out("!(" false)
+        }
+        this.rustWriteCmpOperand(cmpL ctx wr)
+        wr.out(".rg_identical(&" false)
+        this.rustWriteCmpOperand(cmpR ctx wr)
+        wr.out(")" false)
+        if (cmd == "!=") {
+          wr.out(")" false)
+        }
+        return
+      }
       this.rustWriteCmpOperand(cmpL ctx wr)
       wr.out((((" " + cmd) + " ")) false)
       this.rustWriteCmpOperand(cmpR ctx wr)
@@ -8233,7 +8307,9 @@ class RangerRustClassWriter {
         ; an Rc<RefCell> segment on its path borrows mutably.
         ctx.setInExpr()
         ctx.setInLhs()
+        rust_lhs_is_receiver = true
         this.WalkNode(target ctx wr)
+        rust_lhs_is_receiver = false
         ctx.unsetInLhs()
         wr.out(".clear();" true)
         ctx.unsetInExpr()
@@ -8291,7 +8367,9 @@ class RangerRustClassWriter {
       def rmIndex:CodeNode (node.getThird())
       ctx.setInExpr()
       ctx.setInLhs()
+      rust_lhs_is_receiver = true
       this.WalkNode(rmTarget ctx wr)
+      rust_lhs_is_receiver = false
       ctx.unsetInLhs()
       wr.out(".remove((" false)
       this.WalkNode(rmIndex ctx wr)
@@ -8334,7 +8412,9 @@ class RangerRustClassWriter {
       ; Rc<RefCell> segment on its path must borrow mutably.
       ctx.setInExpr()
       ctx.setInLhs()
+      rust_lhs_is_receiver = true
       this.WalkNode(left ctx wr)
+      rust_lhs_is_receiver = false
       ctx.unsetInLhs()
       wr.out(".push(" false)
       ; an element of a shared class is an Rc: wrap a raw value, clone a
