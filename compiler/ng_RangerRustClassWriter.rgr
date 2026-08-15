@@ -2261,6 +2261,26 @@ class RangerRustClassWriter {
       if segOptional {
         path = (path + ".as_ref().unwrap()")
       }
+      ; a WEAK segment holds a Weak, and the hidden argument has to be a
+      ; live Rc — `&self.compiler…parser.as_ref().unwrap()` was a `&&Weak`.
+      ; The upgraded Rc is a temporary that lives to the end of the
+      ; statement, which is as long as the call it is an argument to.
+      if haveSegD {
+        def segWkD:RangerAppParamDesc (itemAt fc.nsp segIdx)
+        def segWkNN@(optional):CodeNode segWkD.nameNode
+        if (!null? segWkNN) {
+          def segWkN:CodeNode (unwrap segWkNN)
+          if (segWkN.hasFlag("weak")) {
+            ; only a FIELD holds a Weak — the same rule the path writer and
+            ; the assignment side follow
+            if segWkD.is_class_variable {
+              if (((strlen segWkN.array_type) == 0) && ((strlen segWkN.key_type) == 0)) {
+                path = (path + ".upgrade().unwrap()")
+              }
+            }
+          }
+        }
+      }
       ; a segment that holds an Rc has to be borrowed before the next field
       ; is read out of it — the handle has no fields of its own. The Ref this
       ; makes lives to the end of the statement, which is exactly as long as

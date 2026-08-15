@@ -25390,6 +25390,20 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     if ( segOptional ) {
                       path = path + ".as_ref().unwrap()";
                     }
+                    if ( haveSegD ) {
+                      const segWkD = fc.nsp[segIdx];
+                      const segWkNN = segWkD.nameNode;
+                      if ( (typeof(segWkNN) !== "undefined" && segWkNN != null )  ) {
+                        const segWkN = segWkNN;
+                        if ( segWkN.hasFlag("weak") ) {
+                          if ( segWkD.is_class_variable ) {
+                            if ( ((segWkN.array_type.length) == 0) && ((segWkN.key_type.length) == 0) ) {
+                              path = path + ".upgrade().unwrap()";
+                            }
+                          }
+                        }
+                      }
+                    }
                     if ( segIdx < (nsLen - 2) ) {
                       if ( haveSegD ) {
                         const segRcD = fc.nsp[segIdx];
