@@ -7214,6 +7214,15 @@ class RangerRustClassWriter {
       
       ; Check if RHS is already a Rc<dyn Trait> (parameter with trait object type)
       def rhs_is_already_boxed_trait:boolean false
+      ; `this` as a value is __self_rc, the receiver's own handle — wrapping
+      ; it gave Rc<RefCell<Rc<RefCell<T>>>> at every field that stores the
+      ; writer back into something it owns.
+      def rhsThisInner:CodeNode (this.rustUnwrapParens(right))
+      if (rhsThisInner.vref == "this") {
+        if ((this.rustInitRcState(right ctx)) == 2) {
+          rhs_is_already_boxed_trait = true
+        }
+      }
       ; A CALL that returns a class with children already hands back the
       ; whole Rc<RefCell<dyn XTrait>> handle — only a name was checked here,
       ; so `f = ctx.getVariableDef(n)` was wrapped a second time and the

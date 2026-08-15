@@ -29615,6 +29615,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                           }
                           let rhs_is_already_boxed_trait = false;
+                          const rhsThisInner = this.rustUnwrapParens(right);
+                          if ( rhsThisInner.vref == "this" ) {
+                            if ( this.rustInitRcState(right, ctx) == 2 ) {
+                              rhs_is_already_boxed_trait = true;
+                            }
+                          }
                           if ( (typeof(right.fnDesc) !== "undefined" && right.fnDesc != null )  ) {
                             const rhsFn = right.fnDesc;
                             const rhsFnNN = rhsFn.nameNode;
