@@ -25265,6 +25265,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 };
                 rustInitRcState (value, ctx) {
                   if ( value.expression == false ) {
+                    if ( value.vref == "this" ) {
+                      const trCls = ctx.getCurrentClass();
+                      if ( (typeof(trCls) !== "undefined" && trCls != null )  ) {
+                        const trC = trCls;
+                        if ( this.rustClassIsShared(trC.name, ctx) ) {
+                          return 2;
+                        }
+                      }
+                    }
                     if ( value.hasParamDesc ) {
                       const ip = value.paramDesc;
                       if ( ip.rust_needs_rc_wrap ) {

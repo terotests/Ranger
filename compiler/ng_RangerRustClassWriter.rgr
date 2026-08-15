@@ -2114,6 +2114,18 @@ class RangerRustClassWriter {
   ; produces an owned Rc (the upgrade of a weak field).
   fn rustInitRcState:int (value:CodeNode ctx:RangerAppWriterContext) {
     if (value.expression == false) {
+      ; `this` as a VALUE is written as __self_rc, which IS the owned Rc —
+      ; wrapping it gave Rc<RefCell<Rc<RefCell<T>>>> at every site that
+      ; passes or stores the receiver
+      if (value.vref == "this") {
+        def trCls@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+        if (!null? trCls) {
+          def trC:RangerAppClassDesc (unwrap trCls)
+          if (this.rustClassIsShared(trC.name ctx)) {
+            return 2
+          }
+        }
+      }
       if value.hasParamDesc {
         def ip:RangerAppParamDesc value.paramDesc
         if ip.rust_needs_rc_wrap {
