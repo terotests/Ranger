@@ -22,8 +22,13 @@ Import "VlScale.rgr"
 class VlExprScope {
     def datum:VlJson (new VlJson)
     def hasDatum:boolean false
+    def parent:VlJson (new VlJson)
+    def hasParent:boolean false
     def signals:[string:VlJson]
     def scales:[string:VlScale]
+    ; The data sets by name, so an expression can ask how many rows one has —
+    ; which is how a faceted view says how many columns it has.
+    def dataSets:[string:VlJson]
     ; Set when a function the profile does not have is called, so a spec that
     ; needs more than this evaluator has fails loudly instead of drawing
     ; something subtly wrong.
@@ -32,6 +37,25 @@ class VlExprScope {
     fn setDatum:void (row:VlJson) {
         datum = row
         hasDatum = true
+    }
+    ; `parent` is the datum of the GROUP an expression is being evaluated
+    ; inside, which is how a faceted column's header names the value its column
+    ; stands for.
+    fn setData:void (name:string rows:VlJson) {
+        set dataSets name rows
+    }
+    fn dataOf:VlJson (name:string) {
+        if (has dataSets name) {
+            return (unwrap (get dataSets name))
+        }
+        return (VlJson.arrayValue())
+    }
+    fn setParent:void (row:VlJson) {
+        parent = row
+        hasParent = true
+    }
+    fn clearParent:void () {
+        hasParent = false
     }
     fn setSignal:void (name:string value:VlJson) {
         set signals name value
@@ -159,6 +183,12 @@ class VlExprEval {
         if (node.name == "datum") {
             if scope.hasDatum {
                 return scope.datum
+            }
+            return (VlJson.nullValue())
+        }
+        if (node.name == "parent") {
+            if scope.hasParent {
+                return scope.parent
             }
             return (VlJson.nullValue())
         }
@@ -484,6 +514,9 @@ class VlExprEval {
         }
 
         ; --- strings and arrays ---
+        if (name == "data") {
+            return (scope.dataOf((a0.asString())))
+        }
         if (name == "length") {
             if (a0.kind == 4) {
                 return (VlJson.intValue((a0.count())))

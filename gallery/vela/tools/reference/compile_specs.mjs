@@ -206,6 +206,22 @@ const SPECS = {
     mark: { type: 'arc', innerRadius: 30 },
     encoding: { theta: { field: 'b', type: 'quantitative' }, color: { field: 'a', type: 'nominal' } },
   },
+  facet_columns: {
+    data: { values },
+    mark: 'bar',
+    encoding: {
+      x: { field: 'a', type: 'nominal' },
+      y: { field: 'b', type: 'quantitative' },
+      column: { field: 'g', type: 'nominal' },
+    },
+  },
+  concat_two: {
+    data: { values },
+    hconcat: [
+      { mark: 'bar', encoding: { x: { field: 'a', type: 'nominal' }, y: { field: 'b', type: 'quantitative' } } },
+      { mark: 'point', encoding: { x: { field: 'c', type: 'quantitative' }, y: { field: 'b', type: 'quantitative' } } },
+    ],
+  },
   scatter_log: {
     data: { values },
     mark: 'point',

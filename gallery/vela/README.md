@@ -10,12 +10,12 @@ of the Vega JavaScript sources and not affiliated with the Vega project. See
 
 **Status:** it draws. Marks, scales, transforms, signals, expressions, axes,
 legends and layout produce a scene that matches the reference implementation
-item for item on **906 of 906 marks** across 22 chart types at three sizes, and
+item for item on **970 of 970 marks** across 24 chart types at three sizes, and
 the EVG backend renders that scene to **PDF, PNG and HTML** — twenty-two charts
 on three pages of the project's
-[EVG showcase](https://terotests.github.io/Ranger/evg/). Trellis faceting is the
-largest remaining piece; see
-[What is not there yet](#what-is-not-there-yet).
+[EVG showcase](https://terotests.github.io/Ranger/evg/). Every chart type the
+triage asked for is built; see
+[What is not there yet](#what-is-not-there-yet) for what remains.
 
 ```
                    Vega-Lite JSON
@@ -183,14 +183,16 @@ Measured by `tests/run.sh`: does the mark geometry match the reference?
 | donut | `donut.vg.json` | ✓ |
 | normalized stack | `bar_normalized.vg.json` | ✓ |
 | labelled bar | `bar_labelled.vg.json` | ✓ |
+| faceted columns | `facet_columns.vg.json` | ✓ (trellis: headers, footers, titles) |
+| concatenation | `concat_two.vg.json` | ✓ (two plots, laid out) |
 | tick | `tick.vg.json` | ✓ |
 | text labels | `text_labels.vg.json` | ✓ |
 | pie / arc | `pie.vg.json` | ✓ |
 | layered | `layered.vg.json` | ✓ (both layers) |
 
-**906 / 906 marks**, against Vega 6.4 and Vega-Lite 6.4 — data marks, every axis
+**970 / 970 marks**, against Vega 6.4 and Vega-Lite 6.4 — data marks, every axis
 grid, tick, label, domain line and title, every legend symbol, key and title,
-and the groups that place all of them, in all twenty-two charts, at the parity
+and the groups that place all of them, in all twenty-four charts, at the parity
 size and at both of the sizes the showcase draws them.
 
 The groups are the newer half of that number. A group carries the coordinates
@@ -209,7 +211,7 @@ which is also what pins the legend's own size and position.
 | Data | inline `values` and `source`; a `url` is refused rather than fetched |
 | Axes | ticks, grid, labels, domain, title · `tickCount`, `tickRound`, `labelAngle`, `labelFlush`, `labelOverlap`, band and binned ticks |
 | Legends | symbol legends for fill, stroke, size, shape and opacity, and gradient legends for continuous colour · title, per-row layout from the drawn bounds, and the spec's own `encode` blocks. `orient` other than `right` is drawn but not placed |
-| Layout | axis extents, view size and plot origin (`autosize: pad`) · several plots side by side (`layout`), placed by their full bounds. Trellis faceting — headers, footers and titles around a grid of cells — is not built |
+| Layout | axis extents, view size and plot origin (`autosize: pad`) · several plots side by side, and a trellis of them with column headers, footers and a title, placed by their full bounds (`layout`) |
 | Rendering | **EVG backend**: PDF, PNG and HTML, via `PathBuilder` path data — rect, rule, symbol, text, line, area, arc |
 | Theming | colours from the spec, or from a stylesheet by class; `config.axis` and `config.style` are read |
 | Dataflow | **batch only** — no pulses, no changesets, no incremental re-run |
@@ -355,9 +357,9 @@ reporting `ok`, `DIFF`, `PARTIAL` or `FAILED` with the reason.
 node gallery/vela/tools/reference/triage.mjs
 ```
 
-**Twenty of twenty-two** candidates match the reference item for item. When the
-triage was first run it was nine, and the thirteen it named as missing were
-built rather than listed:
+**All twenty-two** candidates match the reference item for item. When the triage
+was first run it was nine, and the thirteen it named as missing were built
+rather than listed:
 
 | Was missing | What it unlocked |
 | --- | --- |
@@ -370,6 +372,7 @@ built rather than listed:
 | Time scales and a calendar | every chart with a date on an axis |
 | Format specifiers past `.Nf` | a normalized stack's percentage axis |
 | `stderr` | error bars |
+| Trellis layout — headers, footers and titles around a grid | column faceting |
 
 Four smaller things it found were fixed the same way: a formatted number's minus
 sign is the typographic one (U+2212), a formatter with no specifier prints
@@ -379,8 +382,9 @@ one axis encoded is told to span the plot — and a `scope` group's own reach is
 what a legend is anchored past, so a series drawn with a wide stroke pushes its
 key further out than the plot rectangle would.
 
-What is left is **trellis faceting**: a grid of cells with headers, footers and
-titles laid out around it, which is a layout engine rather than a chart type.
+Re-run it after any change: a candidate that stops matching is a regression the
+committed specs might not cover, and a new candidate is a feature request with
+evidence attached.
 
 ## What is not there yet
 
@@ -388,6 +392,10 @@ titles laid out around it, which is a layout engine rather than a chart type.
   bar with labels down its side, which is a different mark and a different
   layout from the symbol legend built here. A spec that asks for one is
   reported rather than drawn wrong.
+* **Row faceting and wrapped grids.** A trellis of columns is laid out —
+  headers above, footers below, a row header to the left, a title over the lot.
+  Rows, and a grid that wraps onto several of them, follow the same rules and
+  are not built.
 * **Legends anywhere but the right.** `orient` is carried into the scene and a
   legend is drawn correctly whatever it says, but only the right-hand edge is
   placed. The reference resolves the other seven anchors against the view
