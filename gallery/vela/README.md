@@ -10,8 +10,9 @@ of the Vega JavaScript sources and not affiliated with the Vega project. See
 
 **Status:** it draws. Marks, scales, transforms, signals, expressions, axes,
 legends and layout produce a scene that matches the reference implementation
-item for item on **267 of 267 marks** across 14 chart types, and the EVG backend
-renders that scene to **PDF, PNG and HTML** — six charts are on the project's
+item for item on **550 of 550 marks** across 14 chart types at three sizes, and
+the EVG backend renders that scene to **PDF, PNG and HTML** — fourteen charts on
+two pages of the project's
 [EVG showcase](https://terotests.github.io/Ranger/evg/). Time scales and faceted
 layout are the largest remaining pieces; see
 [What is not there yet](#what-is-not-there-yet).
@@ -115,6 +116,14 @@ channel of every item. `tools/reference/compile_specs.mjs` generates the specs
 themselves with the official compiler, so the inputs cannot drift into
 something convenient either.
 
+Every spec under `tests/specs` is compared, **including the smaller copies the
+showcase draws**. Those are the same charts at the size a printed page needs,
+and size is what the awkward parts of an axis depend on: which labels collide,
+which tick lands on a half pixel, whether the last label is close enough to the
+end of the scale to be pulled inside it. Four of the defects in the table below
+were sitting in specs the comparison did not reach until the showcase pages
+brought them in.
+
 The reference is an **optional** dev dependency. Without it the parity step says
 that nothing was compared and the rest of the suite still runs — a silent skip
 would read as a pass.
@@ -145,6 +154,10 @@ Each of these was found by the harness, not by reading the spec:
 | Every symbol was drawn an eighth too big | `size` is an area, but the circle vega draws in it has radius `sqrt(size)/2`, not `sqrt(size/PI)` |
 | A pie came out inside a box | a chart with no plotting frame carries `style: "view"` — transparent, and *not* the `cell` style's border |
 | A legend could have been drawn in the wrong corner and still "matched" | the harness walked through group marks instead of comparing them, and a group is what holds the coordinates |
+| A grid line drawn at `gridOpacity` faded the whole line | the opacity of a *stroke* is `strokeOpacity`; `opacity` stays at 1 |
+| A log axis printed ten labels on top of each other | `labelOverlap` is `"greedy"` there, not `true` — hide each label that runs into the last one KEPT, since halving drops the readable ticks and keeps the crowded ones |
+| The last label of an axis was pulled inside the plot when it did not need to be | `labelFlush` is a threshold in PIXELS, and `true` means one pixel — not "the first and last label" |
+| A band tick sat one pixel right of its own label | ticks and labels share the axis group's half-pixel offset; only the label was taking it |
 
 ## Compatibility
 
@@ -167,9 +180,10 @@ Measured by `tests/run.sh`: does the mark geometry match the reference?
 | pie / arc | `pie.vg.json` | ✓ |
 | layered | `layered.vg.json` | ✓ (both layers) |
 
-**267 / 267 marks**, against Vega 6.4 and Vega-Lite 6.4 — data marks, every axis
+**550 / 550 marks**, against Vega 6.4 and Vega-Lite 6.4 — data marks, every axis
 grid, tick, label, domain line and title, every legend symbol, key and title,
-and the groups that place all of them, in all fourteen charts.
+and the groups that place all of them, in all fourteen charts, at the parity
+size and at both of the sizes the showcase draws them.
 
 The groups are the newer half of that number. A group carries the coordinates
 that *place* what is inside it, and the harness used to walk straight through
@@ -264,7 +278,9 @@ chart carries its own colours, written as `fill` and `stroke` attributes — the
 specification decided them and a chart drawn on its own should look like the
 chart it describes. In class mode (`useClasses`) the writer emits class names
 instead: `chartFill0`, `chartStroke0`, `chartGrid`, `chartLabel`, `chartTitle`
-and so on, with series numbered in the order the chart draws them. The
+and so on, with series numbered in the order the chart draws them. A data mark
+that is TEXT gets `chartText0` and a `color` rule rather than a `fill` one,
+because `fill` styles a shape and a label is not one. The
 specification's colours are then written out as an unscoped stylesheet, so they
 remain the default, and a theme's scoped rules override them. That is how the
 showcase renders one generated page in three palettes without regenerating it.
@@ -296,18 +312,28 @@ with no fill was emitted as `fill="currentColor"` — the inherited text colour 
 which filled each plot frame and gridline solid black. `run_vector.sh` now
 checks both on a fixture built for them.
 
-The chart page on the showcase is generated:
+Two pages of the showcase are generated: **Charts**, the six types most people
+mean by the word, and **Chart types**, the rest — and the features only some
+charts have, which is what makes it worth having as a page of its own. A size
+legend whose rows are all different heights, a stroke legend, a log axis that
+labels only some of the ticks it draws, two marks sharing one plot, and text as
+a mark.
 
 ```bash
-npm run vela:showcase     # -> pages/charts.tsx + themes/charts-default.css
+npm run vela:showcase     # -> pages/charts.tsx, pages/plots.tsx + their CSS
 npm run showcase          # -> PDF, PNG and HTML in three palettes
 ```
 
-Both files are committed, so the Pages build renders them like any other page
-and does not need the Vela toolchain. The page follows the gallery's own rule —
-the tree says what is drawn, the stylesheet says how it looks — so the same six
-charts come out in **Editorial**, **Studio** and **Autumn**, and with no chart
-theme at all they come out in the colours their specifications asked for.
+Both pages are committed with their stylesheets, so the Pages build renders them
+like any other page and does not need the Vela toolchain. They follow the
+gallery's own rule — the tree says what is drawn, the stylesheet says how it
+looks — so the same fourteen charts come out in **Editorial**, **Studio** and
+**Autumn**, and with no chart theme at all they come out in the colours their
+specifications asked for.
+
+The second page paid for itself before it was finished: four defects had been
+sitting in charts that only differ from the parity specs by being smaller, and
+they are the four at the end of the table above.
 
 ## What is not there yet
 

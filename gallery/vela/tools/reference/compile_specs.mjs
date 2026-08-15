@@ -188,9 +188,30 @@ const SHOWCASE = {
   },
 };
 
+// The showcase's SECOND chart page, which exists to be varied rather than
+// pretty: the chart types the first page does not show, and the features that
+// only appear on some of them — a size legend whose rows are all different
+// heights, a stroke legend, a log axis that labels only some of its ticks, two
+// marks in one plot, and a text mark. Eight charts to a page rather than six,
+// so each one is smaller.
+const PLOTS = {
+  width: 150,
+  height: 78,
+  charts: ['bar_grouped', 'area', 'bubble', 'scatter_colored', 'scatter_log', 'layered', 'text_labels', 'tick'],
+  config: {
+    ...SHOWCASE.config,
+    // A text mark is the one data mark whose default colour is black, which
+    // disappears on the dark theme the same way the guides would. Same reason,
+    // same answer: the chart states a colour that reads on both.
+    text: { color: '#8a8f98' },
+  },
+};
+
 fs.mkdirSync(SPEC_DIR, { recursive: true });
 const SHOWCASE_DIR = path.join(SPEC_DIR, 'showcase');
 fs.mkdirSync(SHOWCASE_DIR, { recursive: true });
+const PLOTS_DIR = path.join(SPEC_DIR, 'plots');
+fs.mkdirSync(PLOTS_DIR, { recursive: true });
 
 for (const [name, spec] of Object.entries(SPECS)) {
   fs.writeFileSync(path.join(SPEC_DIR, `${name}.vl.json`), JSON.stringify(spec, null, 2) + '\n');
@@ -210,4 +231,15 @@ for (const name of SHOWCASE.charts) {
   console.log(`showcase/${name}.vg.json`);
 }
 
-console.log(`\n${Object.keys(SPECS).length} specs + ${SHOWCASE.charts.length} showcase specs written to ${path.relative(process.cwd(), SPEC_DIR)}`);
+for (const name of PLOTS.charts) {
+  const spec = { ...SPECS[name], width: PLOTS.width, height: PLOTS.height, config: PLOTS.config };
+  // A tick chart's y axis is one band per category, so it needs room per row
+  // rather than a fixed height; nine of them at 78px would overprint.
+  if (name === 'tick') { spec.height = 108; }
+  spec.background = null;
+  const compiled = vl.compile(spec).spec;
+  fs.writeFileSync(path.join(PLOTS_DIR, `${name}.vg.json`), JSON.stringify(compiled, null, 2) + '\n');
+  console.log(`plots/${name}.vg.json`);
+}
+
+console.log(`\n${Object.keys(SPECS).length} specs + ${SHOWCASE.charts.length} showcase + ${PLOTS.charts.length} plot specs written to ${path.relative(process.cwd(), SPEC_DIR)}`);

@@ -51,16 +51,33 @@ if (!fs.existsSync(SCENE_TOOL)) {
   process.exit(1);
 }
 
-const specs = process.argv.length > 2
-  ? process.argv.slice(2)
-  : fs.readdirSync(SPEC_DIR).filter((f) => f.endsWith('.vg.json')).sort().map((f) => path.join(SPEC_DIR, f));
+// Every spec under tests/specs, including the subdirectories that hold the
+// showcase's own charts at the size a printed page needs. Those are the same
+// charts at a different size, and size is exactly what the awkward parts of an
+// axis depend on: which labels collide, which tick lands on a half pixel,
+// whether the last label is close enough to the end of the scale to be pulled
+// inside it. Four real defects were sitting in specs the comparison did not
+// reach until they were on a page.
+function specsUnder(dir) {
+  const out = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name < b.name ? -1 : 1)) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...specsUnder(full));
+    else if (entry.name.endsWith('.vg.json')) out.push(full);
+  }
+  return out;
+}
+
+const specs = process.argv.length > 2 ? process.argv.slice(2) : specsUnder(SPEC_DIR);
 
 let total = 0;
 let matched = 0;
 const report = [];
 
 for (const specPath of specs) {
-  const name = path.basename(specPath).replace(/\.vg\.json$/, '');
+  // Named by its path under tests/specs, so the three sizes of the same chart
+  // are told apart in the report.
+  const name = path.relative(SPEC_DIR, specPath).replace(/\.vg\.json$/, '').replace(/\\/g, '/');
   const spec = JSON.parse(fs.readFileSync(specPath, 'utf8'));
 
   let refMarks;

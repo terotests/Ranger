@@ -305,6 +305,19 @@ class VlEvgWriter {
             this.noteChrome("chartFrame" "stroke" cmd.stroke)
             return "chartFrame"
         }
+        ; A data mark that is TEXT — a value printed beside its point — is
+        ; painted by `color`, not by `fill`: `fill` styles a shape, and a label
+        ; is not one. It still takes a palette slot, so a chart that labels its
+        ; series keeps them apart, but the rule the slot writes is the one that
+        ; reaches a label in all three targets.
+        if (cmd.op == "text") {
+            if cmd.hasFill {
+                def slot:string (VlJson.intToText((this.slotOf(cmd.fill))))
+                this.noteChrome(("chartText" + slot) "color" cmd.fill)
+                return ("chartText" + slot)
+            }
+            return ""
+        }
         def out:string ""
         if cmd.hasFill {
             out = ("chartFill" + (VlJson.intToText((this.slotOf(cmd.fill)))))

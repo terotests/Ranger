@@ -8,17 +8,26 @@ npm run showcase          # -> gallery/evg/showcase/dist/index.html
 npm run showcase:gl       # check the WebGL viewer actually drew the pages
 ```
 
-Each page is rendered under **two themes** — the generated `charts` page under
+Each page is rendered under **two themes** — the generated chart pages under
 **three**, adding `autumn` — and to **three targets** — PDF (the
 print target), PNG (the raster preview) and HTML (the debug view) — from one
 source tree and one stylesheet.
 
-### One page is generated
+### Two pages are generated
 
-`pages/charts.tsx` is written by a tool, not by hand: `npm run vela:showcase`
-runs a set of Vega specifications through the [Vela](../../vela/README.md)
-runtime and emits the paths and labels they produce, together with
-`themes/charts-default.css`.
+`pages/charts.tsx` and `pages/plots.tsx` are written by a tool, not by hand:
+`npm run vela:showcase` runs a set of Vega specifications through the
+[Vela](../../vela/README.md) runtime and emits the paths and labels they
+produce, together with `themes/charts-default.css` and
+`themes/plots-default.css`.
+
+**Charts** is the six chart types most people mean by the word. **Chart types**
+is the rest, and the features only some charts have — a size legend whose rows
+are all different heights, a stroke legend, a log axis that labels only some of
+the ticks it draws, two marks sharing one plot, and text as a mark. It exists to
+be varied rather than pretty, and it earned its keep: four defects in the
+runtime were sitting in charts that differ from the tested ones only by being
+smaller.
 
 It follows the same rule as the hand-written pages. A chart's series are
 numbered in the order it draws them — `chartFill0`, `chartStroke0` — and the

@@ -71,6 +71,14 @@ const PAGES = [
     themes: ["editorial", "studio", "autumn"],
   },
   {
+    id: "plots",
+    title: "Chart types",
+    blurb:
+      "The rest of the runtime's chart types, and the features only some charts have: a size legend whose rows are all different heights, a stroke legend, a log axis that labels only some of the ticks it draws, two marks sharing one plot, and text as a mark. Generated from the same specifications the parity harness compares against official Vega.",
+    shows: ["size and colour legends", "log scale", "layered marks", "text marks", "grouped bands"],
+    themes: ["editorial", "studio", "autumn"],
+  },
+  {
     id: "flex",
     title: "Flex",
     blurb:
@@ -116,6 +124,7 @@ const PAGE_CSS = {
   // scoped chart rules override them and a build with no chart theme still
   // draws the chart the spec described.
   charts: [path.join(HERE, "themes/charts-default.css")],
+  plots: [path.join(HERE, "themes/plots-default.css")],
 };
 
 function sh(cmd, args, opts = {}) {
