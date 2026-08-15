@@ -1108,6 +1108,23 @@ class VlRuntime {
         return (VlJson.numberValue(out))
     }
 
+    ; What the enclosing group knows about itself. Nothing here nests yet, so
+    ; the enclosing group is always the plotting frame; a runtime with group
+    ; marks would read this from the group being encoded.
+    fn groupProperty:VlJson (name:string) {
+        if (name == "width") {
+            return (VlJson.numberValue(chartWidth))
+        }
+        if (name == "height") {
+            return (VlJson.numberValue(chartHeight))
+        }
+        if (name == "padding") {
+            return (VlJson.numberValue(padding))
+        }
+        this.warn(("encode reads group property '" + name) + "', which this runtime does not know")
+        return (VlJson.nullValue())
+    }
+
     fn channelOffset:double (odef:VlJson row:VlJson) {
         if (odef.isNumber()) {
             return odef.num
@@ -1201,6 +1218,7 @@ class VlRuntime {
     ;   {"scale": s, "field": f}          the field through a scale
     ;   {"scale": s, "value": v}          a constant through a scale
     ;   {"scale": s, "band": n}           n band widths
+    ;   {"field": {"group": p}}           a property of the enclosing group
     ;   [{"test": expr, …}, …]            the first passing branch
     fn encodeChannel:VlJson (key:string cdef:VlJson row:VlJson) {
         if (cdef.isArray()) {
@@ -1235,6 +1253,15 @@ class VlRuntime {
                 return (this.applyMultOffset((cdef.get("value")) cdef row))
             }
             if (cdef.has("field")) {
+                def fieldRef:VlJson (cdef.get("field"))
+                ; `{"field": {"group": "width"}}` reads a property of the group
+                ; the mark is drawn in, not of the datum. It is how a rule with
+                ; only one axis encoded — a mean line, a threshold — is told to
+                ; span the plot, and reading it as a datum field silently
+                ; dropped the channel and left the rule with no length.
+                if (fieldRef.isObject()) {
+                    return (this.applyMultOffset((this.groupProperty((fieldRef.stringOr("group" "")))) cdef row))
+                }
                 return (this.applyMultOffset((row.get((cdef.stringOr("field" "")))) cdef row))
             }
             return (VlJson.nullValue())

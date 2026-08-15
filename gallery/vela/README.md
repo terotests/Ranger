@@ -335,6 +335,40 @@ The second page paid for itself before it was finished: four defects had been
 sitting in charts that only differ from the parity specs by being smaller, and
 they are the four at the end of the table above.
 
+## What else the example gallery would need
+
+The Vega-Lite example gallery has a hundred-odd charts. `tools/reference/triage.mjs`
+answers the only useful question about any of them — does this runtime already
+produce it, and if not, what is missing — by compiling a list of candidates
+written over this project's own data, running both implementations, and
+reporting `ok`, `DIFF`, `PARTIAL` or `FAILED` with the reason.
+
+```bash
+node gallery/vela/tools/reference/triage.mjs
+```
+
+Nine of twenty-two candidates already match the reference item for item:
+horizontal and negative bars, ranged (Gantt) bars, a labelled bar chart, a step
+line, a line with point markers, a strip plot, a donut, and a scatter with a
+mean rule across it. Any of those could go on a showcase page today.
+
+What stops the rest, in the order that would unlock the most:
+
+| Missing | Charts it blocks |
+| --- | --- |
+| **Group marks** — a series becomes a faceted sub-group | a coloured multi-series line or area, streamgraph, faceting, concatenation: 5 of the 22 |
+| **Scale range schemes** beyond `category` — `heatmap` for continuous colour, `symbol` for shapes | heatmaps, tables, shape-encoded scatter |
+| **`joinaggregate`** | boxplot, and anything comparing a row to its group |
+| **Power scales** | radial charts, whose radius is a `sqrt` scale |
+| **Time scales** | every chart with a date on an axis |
+| **Format specifiers** beyond `.Nf` — `%`, `s`, `,` | a normalized stacked bar's percentage axis |
+
+Three smaller things the triage found were fixed rather than listed: a formatted
+number's minus sign is the typographic one (U+2212), a formatter with no
+specifier prints twelve significant digits rather than six decimals, and
+`{"field": {"group": "width"}}` reads a property of the enclosing group — which
+is how a rule with one axis encoded is told to span the plot.
+
 ## What is not there yet
 
 * **Gradient legends.** A legend over a *continuous* colour scale is a gradient

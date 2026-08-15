@@ -498,7 +498,7 @@ class VlScale {
     ; The label Vega prints for a tick with no explicit format: the shortest
     ; decimal that still names the value.
     sfn tickLabel:string (value:double) {
-        return (VlJson.formatNumber(value 6))
+        return (VlJson.withMinusSign((VlJson.formatNumber(value 6))))
     }
 
     ; A log axis does not label every tick it draws. With ten ticks to a decade
@@ -550,7 +550,7 @@ class VlScale {
     ; A number with its integer digits grouped in threes, which is what the
     ; reference prints on a log axis.
     sfn groupedLabel:string (value:double) {
-        def text:string (VlJson.formatNumber(value 12))
+        def text:string (VlJson.formatSignificant(value 12))
         def sign:string ""
         def body:string text
         if ((strlen text) > 0) {
@@ -587,7 +587,8 @@ class VlScale {
             grouped = (grouped + (substring whole i (i + 1)))
             i = (i + 1)
         }
-        return ((sign + grouped) + rest)
+        def out:string ((sign + grouped) + rest)
+        return (VlJson.withMinusSign(out))
     }
 
     ; A tick SET is formatted to one shared precision, chosen from the step —
@@ -608,7 +609,7 @@ class VlScale {
         if (decimals > 0) {
             text = (VlScale.padDecimals(text decimals))
         }
-        push out text
+        push out (VlJson.withMinusSign(text))
         return out
     }
 

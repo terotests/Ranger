@@ -215,6 +215,42 @@ class VlJson {
         return (VlJson.formatNumber(value 6))
     }
 
+    ; The same number to a count of SIGNIFICANT digits rather than decimals,
+    ; which is what a formatter with no specifier does: the reference prints a
+    ; mean of 56.5555555555556 as "56.5555555556" — twelve digits in all, not
+    ; twelve after the point.
+    sfn formatSignificant:string (value:double digits:int) {
+        def m:double value
+        if (m < 0.0) {
+            m = (0.0 - m)
+        }
+        def whole:int 1
+        while (m >= 10.0) {
+            m = (m / 10.0)
+            whole = (whole + 1)
+        }
+        def decimals:int (digits - whole)
+        if (decimals < 0) {
+            decimals = 0
+        }
+        return (VlJson.formatNumber(value decimals))
+    }
+
+    ; A number a PERSON reads is written with the typographic minus sign
+    ; (U+2212), not the hyphen: that is what d3's number formatting emits and
+    ; what the reference's axis labels carry. A number a MACHINE reads — JSON,
+    ; path data, a stylesheet — must keep the hyphen, so this is applied at the
+    ; label boundary and nowhere else.
+    sfn withMinusSign:string (text:string) {
+        if ((strlen text) == 0) {
+            return text
+        }
+        if ((substring text 0 1) == "-") {
+            return ((strfromcode 8722) + (substring text 1 (strlen text)))
+        }
+        return text
+    }
+
     ; The whole part goes through `floor`, which every target narrows to its own
     ; int, so a magnitude past what an int holds everywhere falls back to the
     ; target's own formatting rather than printing a wrapped number. Chart
