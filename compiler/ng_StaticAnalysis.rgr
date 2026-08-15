@@ -949,7 +949,12 @@ class StaticAnalyzer {
                   def typeName:string typeNode.type_name
                   def isBufferOrArray:boolean false
                   ; Buffer types - these are safe for immutable borrow
-                  if ((typeName == "int_buffer") || (typeName == "double_buffer") || (typeName == "buffer")) {
+                  ; charbuffer belongs here too, and its absence was expensive:
+                  ; the lisp parser hands its source buffer down through every
+                  ; scanning helper, and by value that is a full copy per call
+                  ; -- on a 384KB library, with one call per character, it put
+                  ; 98.8% of the Rust build's instructions in memcpy.
+                  if ((((typeName == "int_buffer") || (typeName == "double_buffer")) || (typeName == "buffer")) || (typeName == "charbuffer")) {
                     isBufferOrArray = true
                   }
                   ; Array types (has array_type set) - safe for immutable borrow if not mutated

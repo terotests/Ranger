@@ -5941,8 +5941,7 @@ class RangerLispParser  {
     }
     return new CodeNode(this.code, sp, ep);
   };
-  skip_space (is_block_parent) {
-    const s = this.buff;
+  skip_space (s, is_block_parent) {
     let did_break = false;
     if ( this.i >= this.__len ) {
       return true;
@@ -6007,11 +6006,10 @@ class RangerLispParser  {
     this.curr_node.infix_operator = false;
     return true;
   };
-  getOperator (disabled) {
+  getOperator (s, disabled) {
     if ( disabled ) {
       return 0;
     }
-    const s = this.buff;
     if ( (this.i + 2) >= this.__len ) {
       return 0;
     }
@@ -6077,11 +6075,10 @@ class RangerLispParser  {
     };
     return 0;
   };
-  isOperator (disabled) {
+  isOperator (s, disabled) {
     if ( disabled ) {
       return 0;
     }
-    const s = this.buff;
     if ( (this.i - 2) > this.__len ) {
       return 0;
     }
@@ -6246,8 +6243,7 @@ class RangerLispParser  {
     }
     push_target.children.push(p_node);
   };
-  parse_attributes () {
-    const s = this.buff;
+  parse_attributes (s) {
     let last_i = 0;
     const do_break = false;
     const attr_name = "";
@@ -6345,8 +6341,7 @@ class RangerLispParser  {
     };
     return do_break;
   };
-  parseXML () {
-    const s = this.buff;
+  parseXML (s) {
     let c = 0;
     const next_c = 0;
     const fc = 0;
@@ -6448,7 +6443,7 @@ class RangerLispParser  {
           this.parents.push(new_node_2);
           this.curr_node = new_node_2;
         }
-        if ( this.parse_attributes() ) {
+        if ( this.parse_attributes(s) ) {
           this.parents.pop();
           const p_cnt_2 = this.parents.length;
           const last_parent_2 = this.parents[(p_cnt_2 - 1)];
@@ -6485,7 +6480,10 @@ class RangerLispParser  {
     };
   };
   parse (disable_ops) {
-    const s = this.buff;
+    const srcBuf = this.buff;
+    this.parseBuf(srcBuf, disable_ops);
+  };
+  parseBuf (s, disable_ops) {
     let c = s.charCodeAt(0 );
     const next_c = 0;
     let fc = 0;
@@ -6522,7 +6520,7 @@ class RangerLispParser  {
           }
         }
       }
-      if ( this.skip_space(is_block_parent) ) {
+      if ( this.skip_space(s, is_block_parent) ) {
         break;
       }
       had_lf = false;
@@ -6534,7 +6532,7 @@ class RangerLispParser  {
             const next_c_2 = s.charCodeAt((this.i + 1) );
             if ( ((65) < next_c_2) && ((122) > next_c_2) ) {
               const spos = this.i;
-              this.parseXML();
+              this.parseXML(s);
               this.i = this.i + 1;
               continue;
             }
@@ -6580,7 +6578,7 @@ class RangerLispParser  {
               this.curr_node.is_block_node = true;
             }
             this.i = 1 + this.i;
-            this.parse(disable_ops_set);
+            this.parseBuf(s, disable_ops_set);
             continue;
           }
         }
@@ -6747,7 +6745,7 @@ class RangerLispParser  {
             this.parents.push(a_node2);
             this.i = this.i + 1;
             this.paren_cnt = this.paren_cnt + 1;
-            this.parse(disable_ops_set);
+            this.parseBuf(s, disable_ops_set);
             let use_first = false;
             if ( 1 == (a_node2.children.length) ) {
               const ch1 = a_node2.children[0];
@@ -6790,18 +6788,18 @@ class RangerLispParser  {
             this.curr_node = new_expr_node;
             this.parents.push(new_expr_node);
             this.paren_cnt = 1 + this.paren_cnt;
-            this.parse(disable_ops_set);
+            this.parseBuf(s, disable_ops_set);
             continue;
           }
         }
         let op_c = 0;
-        op_c = this.getOperator(disable_ops_set);
+        op_c = this.getOperator(s, disable_ops_set);
         let last_was_newline = false;
         if ( op_c > 0 ) {
         } else {
           while ((((((this.i < this.__len) && ((s.charCodeAt(this.i )) > 32)) && (c != 58)) && (c != 40)) && (c != 41)) && (c != (125))) {
             if ( this.i > sp ) {
-              const is_opchar = this.isOperator(disable_ops_set);
+              const is_opchar = this.isOperator(s, disable_ops_set);
               if ( is_opchar > 0 ) {
                 break;
               }
@@ -54216,7 +54214,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                         const typeNode = param.nameNode;
                                         const typeName = typeNode.type_name;
                                         let isBufferOrArray = false;
-                                        if ( ((typeName == "int_buffer") || (typeName == "double_buffer")) || (typeName == "buffer") ) {
+                                        if ( (((typeName == "int_buffer") || (typeName == "double_buffer")) || (typeName == "buffer")) || (typeName == "charbuffer") ) {
                                           isBufferOrArray = true;
                                         }
                                         if ( (typeNode.array_type.length) > 0 ) {

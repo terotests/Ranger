@@ -85,8 +85,13 @@ class RangerLispParser {
     return (new CodeNode(( unwrap code) sp ep))
   }
   
-  fn skip_space:boolean ( is_block_parent@(lives):boolean) {
-    def s:charbuffer ( unwrap buff)
+  fn skip_space:boolean ( s:charbuffer is_block_parent@(lives):boolean) {
+    ; The buffer arrives as a parameter rather than being read out of the
+    ; field. `def s:charbuffer (unwrap buff)` copies the whole source on a
+    ; value-model target: C++ binds `const char*`, but Rust cloned all 384KB
+    ; of Lang.rgr on every call -- and these run once per character, inside a
+    ; parser that also recurses per nested expression. callgrind put 98.8% of
+    ; the program's instructions in memcpy because of it.
     def did_break:boolean false
     if (i >= len) {
       return true
@@ -157,11 +162,10 @@ class RangerLispParser {
     return true
   }
   
-  fn getOperator:int ( disabled:boolean ) {
+  fn getOperator:int ( s:charbuffer disabled:boolean ) {
     if disabled {
       return 0
     }
-    def s:charbuffer ( unwrap buff)
     if ((i + 2) >= len) {
       return 0
     }
@@ -239,11 +243,10 @@ class RangerLispParser {
     return 0
   }
   
-  fn isOperator:int ( disabled:boolean ) {
+  fn isOperator:int ( s:charbuffer disabled:boolean ) {
     if disabled {
       return 0
     }
-    def s:charbuffer ( unwrap buff)
     if ((i - 2) > len) {
       return 0
     }
@@ -441,8 +444,7 @@ class RangerLispParser {
     push push_target.children p_node
   }
 
-  fn parse_attributes:boolean () {
-    def s:charbuffer (unwrap buff)
+  fn parse_attributes:boolean (s:charbuffer) {
     def last_i:int 0
     def do_break:boolean false
     def attr_name:string ""
@@ -550,9 +552,8 @@ class RangerLispParser {
     return do_break
   }
 
-  fn parseXML:void () {
+  fn parseXML:void (s:charbuffer) {
 
-    def s:charbuffer (unwrap buff)
     def c:char 0
     def next_c:char 0
     def fc:char 0
@@ -659,7 +660,7 @@ class RangerLispParser {
           push parents new_node
           curr_node = new_node
         }        
-        if (this.parse_attributes()) {
+        if (this.parse_attributes(s)) {
           removeLast parents
           def p_cnt:int (array_length parents)
           def last_parent@(lives):CodeNode (itemAt parents (p_cnt - 1))
@@ -697,8 +698,12 @@ class RangerLispParser {
   }
   
   
+  ; The public entry: reads the buffer ONCE and hands the borrow down.
   fn parse:void ( disable_ops:boolean ) {
-    def s:charbuffer ( unwrap buff)
+    def srcBuf:charbuffer ( unwrap buff)
+    this.parseBuf(srcBuf disable_ops)
+  }
+  fn parseBuf:void ( s:charbuffer disable_ops:boolean ) {
     def c:char (charAt s 0)
     def next_c:char 0
     def fc:char 0
@@ -739,7 +744,7 @@ class RangerLispParser {
           }
         }
       }
-      if ((this.skip_space(is_block_parent))) {
+      if ((this.skip_space(s is_block_parent))) {
         break
       }
       had_lf = false
@@ -754,7 +759,7 @@ class RangerLispParser {
               ; print "XML start found"
               def spos i
 ;              i = i + 1
-              this.parseXML()
+              this.parseXML(s)
               ; print "XML parsed at index " + i + " the leng was " + len 
               ; print "XML was " + (substring s spos i)
               i = i + 1
@@ -808,7 +813,7 @@ class RangerLispParser {
               curr_node.is_block_node = true
             }
             i = 1 + i
-            this.parse( disable_ops_set )
+            this.parseBuf(s disable_ops_set)
             continue 
           }
         }
@@ -990,7 +995,7 @@ class RangerLispParser {
             push parents a_node2
             i = i + 1
             paren_cnt = paren_cnt + 1
-            this.parse(disable_ops_set)
+            this.parseBuf(s disable_ops_set)
             def use_first:boolean false
             if (1 == ((array_length a_node2.children))) {
               def ch1:CodeNode (itemAt a_node2.children 0)
@@ -1046,13 +1051,13 @@ class RangerLispParser {
             curr_node = new_expr_node
             push parents new_expr_node
             paren_cnt = 1 + paren_cnt
-            this.parse(disable_ops_set)
+            this.parseBuf(s disable_ops_set)
             continue 
           }
         }
         def op_c:int 0
         ; if (((array_length curr_node.children)) >= 0) {
-          op_c = (this.getOperator(disable_ops_set))
+          op_c = (this.getOperator(s disable_ops_set))
         ; }
         def last_was_newline:boolean false
         if (op_c > 0 ) {
@@ -1060,7 +1065,7 @@ class RangerLispParser {
 
           while ((i < len) && (((charAt s i)) > 32) && (c != 58) && (c != 40) && (c != 41) && (c != ((ccode "}"))) ) {
             if (i > sp) {
-              def is_opchar:int (this.isOperator(disable_ops_set))
+              def is_opchar:int (this.isOperator(s disable_ops_set))
               if (is_opchar > 0) {
                 break
               }
