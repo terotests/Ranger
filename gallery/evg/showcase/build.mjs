@@ -63,6 +63,13 @@ const PAGES = [
     shows: ["viewBox scaling", "fill-rule holes", "cubic + quadratic", "smooth S/T", "elliptical arcs"],
   },
   {
+    id: "charts",
+    title: "Charts",
+    blurb:
+      "Unmodified Vega specifications, compiled from Vega-Lite examples and run by the Vela runtime in this repository: every gridline, bar, wedge and label is geometry Ranger computed and the EVG vector layer drew.",
+    shows: ["generated path data", "one path per paint", "axes as rules and text", "arcs and symbols"],
+  },
+  {
     id: "flex",
     title: "Flex",
     blurb:

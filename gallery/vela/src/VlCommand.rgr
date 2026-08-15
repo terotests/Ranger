@@ -64,6 +64,14 @@ class VlDrawCommand {
     ; it into path syntax is the backend's decision, not this layer's.
     def points:[double]
     def interpolate:string "linear"
+
+    ; An arc is a wedge: a centre, two angles and two radii. Angles are the
+    ; reference's — radians, clockwise, zero pointing UP — and a backend has to
+    ; turn them into whatever its own drawing model wants.
+    def startAngle:double 0.0
+    def endAngle:double 0.0
+    def innerRadius:double 0.0
+    def outerRadius:double 0.0
 }
 
 class VlCommandList {
@@ -107,6 +115,10 @@ class VlCommandList {
         }
         if ((cmd.op == "polyline") || (cmd.op == "polygon")) {
             out = ((out + " points=") + (VlCommandList.pointsText(cmd)))
+        }
+        if (cmd.op == "arc") {
+            out = ((((((out + " x=") + (VlJson.formatNumber(cmd.x 3))) + " y=") + (VlJson.formatNumber(cmd.y 3))) + " r=") + (VlJson.formatNumber(cmd.innerRadius 3)))
+            out = ((((((out + "..") + (VlJson.formatNumber(cmd.outerRadius 3))) + " a=") + (VlJson.formatNumber(cmd.startAngle 4))) + "..") + (VlJson.formatNumber(cmd.endAngle 4)))
         }
         if (cmd.hasFill) {
             out = ((out + " fill=") + cmd.fill)
@@ -341,6 +353,15 @@ class VlSceneCommands {
             cmd.x = (offsetX + (item.number("x")))
             cmd.y = (offsetY + (item.number("y")))
             cmd.pathData = (item.text("path"))
+        }
+        if (mark.markType == "arc") {
+            cmd.op = "arc"
+            cmd.x = (offsetX + (item.number("x")))
+            cmd.y = (offsetY + (item.number("y")))
+            cmd.startAngle = (item.number("startAngle"))
+            cmd.endAngle = (item.number("endAngle"))
+            cmd.innerRadius = (item.number("innerRadius"))
+            cmd.outerRadius = (item.number("outerRadius"))
         }
         if (mark.markType == "image") {
             cmd.op = "image"

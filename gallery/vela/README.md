@@ -8,11 +8,12 @@ It is an independent implementation of the Vega grammar's semantics, not a port
 of the Vega JavaScript sources and not affiliated with the Vega project. See
 [Attribution and licensing](#attribution-and-licensing).
 
-**Status:** the core runs, and so do the axes. Marks, scales, transforms,
-signals, expressions, axes and the surrounding layout produce a scene that
-matches the reference implementation item for item on **129 of 129 marks**
-across 13 chart types. **Legends and rendering are not built yet** — see
-[What a demo still needs](#what-a-demo-still-needs).
+**Status:** it draws. Marks, scales, transforms, signals, expressions, axes and
+layout produce a scene that matches the reference implementation item for item
+on **129 of 129 marks** across 13 chart types, and the EVG backend renders that
+scene to **PDF, PNG and HTML** — six charts are on the project's
+[EVG showcase](https://terotests.github.io/Ranger/evg/). Legends are the
+remaining piece; see [What is not there yet](#what-is-not-there-yet).
 
 ```
                    Vega-Lite JSON
@@ -32,19 +33,19 @@ across 13 chart types. **Legends and rendering are not built yet** — see
    │  VlAxis      ticks, labels, grid, title    │
    │  VlScene     mark / item tree              │
    │  VlCommand   flat draw commands            │
+   │  VlEvg       commands → EVG path data      │
    └─────────────────────┬──────────────────────┘
                          │
-                  ┌──────┴───────┐
-                  ▼              ▼
-             scene JSON     draw commands
-          (compared against  (what a renderer
-           the reference)     will consume)
+              ┌──────────┼──────────┐
+              ▼          ▼          ▼
+        scene JSON    commands    EVG page
+       (compared to   (text, in   → PDF · PNG · HTML
+        the reference) a golden)
 ```
 
-Rendering is deliberately last. The command layer is the seam a backend plugs
-into; the EVG backend waits on richer SVG-path support in EVG, and until then
-the commands are checked as text. A bar chart needs no paths at all, so that
-one is drawable today — see [What a demo still needs](#what-a-demo-still-needs).
+The command layer is the seam: it knows nothing about EVG, and the EVG backend
+knows nothing about Vega. Both are tested on their own — the commands as text
+against a golden, the scene against the reference implementation.
 
 ## Try it
 
@@ -58,6 +59,9 @@ node gallery/vela/bin/vela_scene.js gallery/vela/tests/specs/bar.vg.json
 
 # the same chart as drawing commands
 node gallery/vela/bin/vela_commands.js gallery/vela/tests/specs/bar.vg.json
+
+# and as a drawn page: regenerate the showcase's charts, then render them
+npm run vela:showcase && npm run showcase
 ```
 
 ```
@@ -170,40 +174,56 @@ axis grid, tick, label, domain line and title in all thirteen charts.
 | Axes | ticks, grid, labels, domain, title · `tickCount`, `tickRound`, `labelAngle`, `labelFlush`, `labelOverlap`, band and binned ticks |
 | Legends | **not built** |
 | Layout | axis extents, view size and plot origin (`autosize: pad`); no group or facet layout |
+| Rendering | **EVG backend**: PDF, PNG and HTML, via `PathBuilder` path data — rect, rule, symbol, text, line, area, arc |
 | Dataflow | **batch only** — no pulses, no changesets, no incremental re-run |
 | Rendering | **not built** — the command layer exists, the backends do not |
 | Interaction | **not built** |
 
-## What a demo still needs
+## Drawing: the EVG backend
 
-For a chart on an HTML page through the EVG renderer interface, this is what is
-required and what is not:
+`VlEvg` turns the command list into an EVG document, which the existing tools
+render to PDF, PNG and HTML. It became possible when EVG's vector layer landed:
+`PathBuilder` takes computed geometry and produces path data that one parser
+reads on every target, which is exactly what a chart is.
 
-| Piece | Needed for the demo? | State |
-| --- | --- | --- |
-| **Axes** | **yes** — a chart without them is unreadable | **done**, and matching the reference |
-| **Layout** | **yes** — the plot has to be moved in to make room for the labels | **done**: `viewWidth`/`viewHeight`/`originX`/`originY` on the scene root |
-| **Rendering backend** | **yes** — it is the demo | **not built**; the command layer it consumes is |
-| Legends | only if the demo encodes colour or size | not built — leave them out of the first demo, or accept a chart with no key |
-| Time scales | no | not built |
-| Log scales | no | not built (`VlMath` has the `ln`/`exp`/`pow` they need) |
-| Incremental dataflow | no — a static chart recomputes once | not built |
-| Ranger Vega-Lite compiler | no — the specs are compiled ahead of time | not built |
+Two decisions are worth knowing about:
 
-**The backend does not have to wait for EVG's SVG paths.** A bar chart's whole
-command list is `rect`, `line` and `text`, which EVG draws today — grid lines,
-tick marks, labels, the domain line, the title and the bars themselves. What
-needs the path work is `symbol` (scatter, bubble), `polyline` (line), `polygon`
-(area) and `arc` (pie). So the first HTML demo can be a bar chart or a
-histogram now, and gains the other chart types when paths land.
+**One path per run of the same paint.** A chart's eleven grid lines share a
+colour and a width, so they become one `<Path>` with one `d`, not eleven
+elements. Only *consecutive* commands merge, so the drawing order survives —
+grid under bars under labels. A bar chart with axes comes out as six paths and
+twenty-two labels.
+
+**Text is placed by measurement, not by alignment.** The first attempt gave each
+label a box and a `textAlign` and let the renderer's own font metrics centre the
+string in it. That is the better design and it does not work: EVG's label
+styling does not carry a width out to the target, so the box is auto-width, the
+alignment has nothing to align within, and every label lands at its box's left
+edge — which put a bar chart's category labels progressively further right than
+their ticks. The anchor is resolved here instead, with the same width estimate
+the axis extents use. A proportional face differs from that estimate by a pixel
+or two; the alternative was labels tens of pixels out.
+
+The chart page on the showcase is generated:
+
+```bash
+npm run vela:showcase     # -> gallery/evg/showcase/pages/charts.tsx
+npm run showcase          # -> PDF, PNG and HTML in two themes
+```
+
+The page is committed, so the Pages build renders it like any other page and
+does not need the Vela toolchain. It is also the one showcase page that carries
+visual attributes: a chart's colours and geometry come from its specification,
+so the theme styles the frame and not the drawing.
 
 ## What is not there yet
 
 * **Legends.** The reference builds them as marks inside legend groups, the
   same way it builds axes. The parity harness counts them separately, so what
-  it reports as matching does not include them.
-* **Rendering.** `VlCommand` is the interface a backend will consume, built and
-  tested first so the backend is a small step rather than a design.
+  it reports as matching does not include them. A chart that encodes colour is
+  drawn correctly and has no key.
+* **Time and log scales**, and a Ranger Vega-Lite compiler — none of which a
+  static chart needs, and all of which are named in the table below.
 * **Bounds-based layout.** The view is sized from what the axes ask for, which
   agrees with the reference exactly on the charts whose marks stay inside the
   plot (a bar chart is 236×347 with the plot at 51,10 in both). The reference
@@ -228,6 +248,7 @@ gallery/vela/
 │   ├── VlMath.rgr        ln / exp / pow, which Ranger's operators lack
 │   ├── VlText.rgr        label width estimate, for axis extents
 │   ├── VlAxis.rgr        an axis spec becomes rules and text
+│   ├── VlEvg.rgr         the EVG backend: commands → path data
 │   ├── VlExpr.rgr        expression parser (AST)
 │   ├── VlExprEval.rgr    expression evaluator + scope
 │   ├── VlScale.rgr       band / point / linear / ordinal, ticks, nice
@@ -239,6 +260,7 @@ gallery/vela/
 ├── tools/
 │   ├── vela_scene.rgr    CLI: spec → scene JSON
 │   ├── vela_commands.rgr CLI: spec → draw commands
+│   ├── vela_evg.rgr      CLI: specs → an EVG showcase page
 │   └── reference/        the harness that compares against official Vega
 ├── tests/
 │   ├── *_test.rgr        unit tests (JSON, expressions, scales)

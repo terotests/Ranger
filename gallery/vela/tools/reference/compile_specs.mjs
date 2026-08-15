@@ -152,11 +152,35 @@ const SPECS = {
   },
 };
 
+// The showcase draws several charts on one printed page, so it uses the same
+// specs at a size that fits. They are compiled the same way — a Vega-Lite spec
+// with a width and a height is still a Vega-Lite spec — and kept apart from the
+// parity specs so that shrinking a chart for the page cannot change what the
+// comparison measures.
+const SHOWCASE = {
+  width: 170,
+  height: 100,
+  charts: ['bar', 'bar_stacked', 'line', 'area', 'scatter', 'histogram', 'pie'],
+};
+
 fs.mkdirSync(SPEC_DIR, { recursive: true });
+const SHOWCASE_DIR = path.join(SPEC_DIR, 'showcase');
+fs.mkdirSync(SHOWCASE_DIR, { recursive: true });
+
 for (const [name, spec] of Object.entries(SPECS)) {
   fs.writeFileSync(path.join(SPEC_DIR, `${name}.vl.json`), JSON.stringify(spec, null, 2) + '\n');
   const compiled = vl.compile(spec).spec;
   fs.writeFileSync(path.join(SPEC_DIR, `${name}.vg.json`), JSON.stringify(compiled, null, 2) + '\n');
   console.log(`${name}.vg.json`);
 }
-console.log(`\n${Object.keys(SPECS).length} specs written to ${path.relative(process.cwd(), SPEC_DIR)}`);
+
+for (const name of SHOWCASE.charts) {
+  const spec = { ...SPECS[name], width: SHOWCASE.width, height: SHOWCASE.height };
+  // An arc chart is square: its radius is min(width, height) / 2.
+  if (name === 'pie') { spec.width = 130; spec.height = 130; }
+  const compiled = vl.compile(spec).spec;
+  fs.writeFileSync(path.join(SHOWCASE_DIR, `${name}.vg.json`), JSON.stringify(compiled, null, 2) + '\n');
+  console.log(`showcase/${name}.vg.json`);
+}
+
+console.log(`\n${Object.keys(SPECS).length} specs + ${SHOWCASE.charts.length} showcase specs written to ${path.relative(process.cwd(), SPEC_DIR)}`);

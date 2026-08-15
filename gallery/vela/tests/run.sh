@@ -48,7 +48,7 @@ for t in json_test expr_test scale_test; do
 done
 
 say "golden scenes and commands"
-for spec in $VELA/tests/specs/*.vg.json; do
+for spec in $VELA/tests/specs/*.vg.json; do   # showcase/ is a subdirectory and is skipped
   name=$(basename "$spec" .vg.json)
   scene="$VELA/tests/golden/$name.scene.json"
   cmds="$VELA/tests/golden/$name.commands.txt"

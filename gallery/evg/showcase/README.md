@@ -11,6 +11,14 @@ Each page is rendered under **two themes** and to **three targets** — PDF (the
 print target), PNG (the raster preview) and HTML (the debug view) — from one
 source tree and one stylesheet.
 
+### One page is generated
+
+`pages/charts.tsx` is written by a tool, not by hand: `npm run vela:showcase`
+runs a set of Vega specifications through the Vela runtime and emits the paths
+and labels they produce. It is also the one page that carries visual
+attributes — a chart's colours and geometry come from its specification, so the
+theme styles the frame around it rather than the drawing itself.
+
 ## The rule the gallery follows
 
 Nothing in `pages/*.tsx` carries a visual attribute. No colours, no sizes, no
@@ -38,6 +46,7 @@ unscoped < theme-scoped < attributes authored in the TSX.
 | `flex` | `flex` shorthand, `flex-shrink: 0`, `justify-content`, `flex-wrap` |
 | `emoji` | grapheme clusters, GSUB ligatures, Type0/Identity-H embedding, `emoji-color` |
 | `boxmodel` | padding, per-side padding, borders, nesting, margins |
+| `charts` | **generated** — Vega specs run by [`gallery/vela`](../../vela/README.md) and drawn as path data, one path per paint |
 
 `units` is the one worth reading twice: five bars declared in five different
 units come out exactly the same length, because CSS defines them all against

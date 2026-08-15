@@ -110,6 +110,13 @@
 .shape   { }
 .evenodd { fill-rule: evenodd; }
 
+/* ---- charts: the page frames them, the data paints them ---------------- */
+/* A chart's own colours come from its Vega specification, so unlike every
+   other page here the theme styles the frame and not the drawing. */
+.chart     { }
+.chartRow  { align-items: flex-start; }
+.chartCell { flex: 1; }
+
 /* ==== theme: editorial — warm paper, serif display ====================== */
 
 .theme-editorial .page {
@@ -152,6 +159,7 @@
 .theme-editorial .iconMd { width: 52px;  height: 52px; }
 .theme-editorial .iconLg { width: 84px;  height: 84px; }
 .theme-editorial .shape  { width: 76px; height: 76px; fill: #3b2f2a; }
+.theme-editorial .chart  { margin-top: 8px; margin-bottom: 4px; background-color: #fffdf7; }
 
 .theme-editorial .spread { gap: 16px; margin-top: 24px; }
 .theme-editorial .cell   { border-radius: 10px; }
@@ -244,6 +252,7 @@
 .theme-studio .iconMd { width: 56px;  height: 56px; }
 .theme-studio .iconLg { width: 92px;  height: 92px; }
 .theme-studio .shape  { width: 80px; height: 80px; fill: #e8e8ea; }
+.theme-studio .chart  { margin-top: 8px; margin-bottom: 4px; background-color: #ffffff; }
 
 .theme-studio .cell   { border-radius: 2px; }
 .theme-studio .deck   { gap: 10px; margin-top: 18px; }

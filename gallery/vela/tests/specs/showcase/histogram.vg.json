@@ -1,0 +1,236 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v6.json",
+  "background": "white",
+  "padding": 5,
+  "width": 170,
+  "height": 100,
+  "style": "cell",
+  "data": [
+    {
+      "name": "source_0",
+      "values": [
+        {
+          "a": "A",
+          "b": 28,
+          "c": 5,
+          "g": "x"
+        },
+        {
+          "a": "B",
+          "b": 55,
+          "c": 9,
+          "g": "y"
+        },
+        {
+          "a": "C",
+          "b": 43,
+          "c": 2,
+          "g": "x"
+        },
+        {
+          "a": "D",
+          "b": 91,
+          "c": 7,
+          "g": "y"
+        },
+        {
+          "a": "E",
+          "b": 81,
+          "c": 4,
+          "g": "x"
+        },
+        {
+          "a": "F",
+          "b": 53,
+          "c": 6,
+          "g": "y"
+        },
+        {
+          "a": "G",
+          "b": 19,
+          "c": 8,
+          "g": "x"
+        },
+        {
+          "a": "H",
+          "b": 87,
+          "c": 1,
+          "g": "y"
+        },
+        {
+          "a": "I",
+          "b": 52,
+          "c": 3,
+          "g": "x"
+        }
+      ]
+    },
+    {
+      "name": "data_0",
+      "source": "source_0",
+      "transform": [
+        {
+          "type": "extent",
+          "field": "b",
+          "signal": "bin_maxbins_10_b_extent"
+        },
+        {
+          "type": "bin",
+          "field": "b",
+          "as": [
+            "bin_maxbins_10_b",
+            "bin_maxbins_10_b_end"
+          ],
+          "signal": "bin_maxbins_10_b_bins",
+          "extent": {
+            "signal": "bin_maxbins_10_b_extent"
+          },
+          "maxbins": 10
+        },
+        {
+          "type": "aggregate",
+          "groupby": [
+            "bin_maxbins_10_b",
+            "bin_maxbins_10_b_end"
+          ],
+          "ops": [
+            "count"
+          ],
+          "fields": [
+            null
+          ],
+          "as": [
+            "__count"
+          ]
+        },
+        {
+          "type": "filter",
+          "expr": "isValid(datum[\"bin_maxbins_10_b\"]) && isFinite(+datum[\"bin_maxbins_10_b\"])"
+        }
+      ]
+    }
+  ],
+  "marks": [
+    {
+      "name": "marks",
+      "type": "rect",
+      "style": [
+        "bar"
+      ],
+      "from": {
+        "data": "data_0"
+      },
+      "encode": {
+        "update": {
+          "fill": {
+            "value": "#4c78a8"
+          },
+          "ariaRoleDescription": {
+            "value": "bar"
+          },
+          "description": {
+            "signal": "\"b (binned): \" + (!isValid(datum[\"bin_maxbins_10_b\"]) || !isFinite(+datum[\"bin_maxbins_10_b\"]) ? \"null\" : format(datum[\"bin_maxbins_10_b\"], \"\") + \" – \" + format(datum[\"bin_maxbins_10_b_end\"], \"\")) + \"; Count of Records: \" + (format(datum[\"__count\"], \"\"))"
+          },
+          "x2": {
+            "scale": "x",
+            "field": "bin_maxbins_10_b",
+            "offset": {
+              "signal": "0.5 + (abs(scale(\"x\", datum[\"bin_maxbins_10_b_end\"]) - scale(\"x\", datum[\"bin_maxbins_10_b\"])) < 0.25 ? -0.5 * (0.25 - (abs(scale(\"x\", datum[\"bin_maxbins_10_b_end\"]) - scale(\"x\", datum[\"bin_maxbins_10_b\"])))) : 0.5)"
+            }
+          },
+          "x": {
+            "scale": "x",
+            "field": "bin_maxbins_10_b_end",
+            "offset": {
+              "signal": "0.5 + (abs(scale(\"x\", datum[\"bin_maxbins_10_b_end\"]) - scale(\"x\", datum[\"bin_maxbins_10_b\"])) < 0.25 ? 0.5 * (0.25 - (abs(scale(\"x\", datum[\"bin_maxbins_10_b_end\"]) - scale(\"x\", datum[\"bin_maxbins_10_b\"])))) : -0.5)"
+            }
+          },
+          "y": {
+            "scale": "y",
+            "field": "__count"
+          },
+          "y2": {
+            "scale": "y",
+            "value": 0
+          }
+        }
+      }
+    }
+  ],
+  "scales": [
+    {
+      "name": "x",
+      "type": "linear",
+      "domain": {
+        "signal": "[bin_maxbins_10_b_bins.start, bin_maxbins_10_b_bins.stop]"
+      },
+      "range": [
+        0,
+        {
+          "signal": "width"
+        }
+      ],
+      "bins": {
+        "signal": "bin_maxbins_10_b_bins"
+      },
+      "zero": false
+    },
+    {
+      "name": "y",
+      "type": "linear",
+      "domain": {
+        "data": "data_0",
+        "field": "__count"
+      },
+      "range": [
+        {
+          "signal": "height"
+        },
+        0
+      ],
+      "nice": true,
+      "zero": true
+    }
+  ],
+  "axes": [
+    {
+      "scale": "y",
+      "orient": "left",
+      "gridScale": "x",
+      "grid": true,
+      "tickCount": {
+        "signal": "ceil(height/40)"
+      },
+      "domain": false,
+      "labels": false,
+      "aria": false,
+      "maxExtent": 0,
+      "minExtent": 0,
+      "ticks": false,
+      "zindex": 0
+    },
+    {
+      "scale": "x",
+      "orient": "bottom",
+      "grid": false,
+      "title": "b (binned)",
+      "labelFlush": true,
+      "labelOverlap": true,
+      "tickCount": {
+        "signal": "ceil(width/10)"
+      },
+      "zindex": 0
+    },
+    {
+      "scale": "y",
+      "orient": "left",
+      "grid": false,
+      "title": "Count of Records",
+      "labelOverlap": true,
+      "tickCount": {
+        "signal": "ceil(height/40)"
+      },
+      "zindex": 0
+    }
+  ]
+}
