@@ -79,11 +79,20 @@ function compileNative() {
   return require(resolve(TMP, "bench.js"));
 }
 
+// Best of N: one timing of a few milliseconds says more about what else the
+// machine was doing than about the engine.
+const REPS = 7;
+
 function time(run) {
-  const t0 = process.hrtime.bigint();
-  const value = run();
-  const t1 = process.hrtime.bigint();
-  return { ms: Number(t1 - t0) / 1e6, value };
+  let ms = Infinity;
+  let value;
+  for (let i = 0; i < REPS; i++) {
+    const t0 = process.hrtime.bigint();
+    value = run();
+    const t1 = process.hrtime.bigint();
+    ms = Math.min(ms, Number(t1 - t0) / 1e6);
+  }
+  return { ms, value };
 }
 
 function pad(s, n) {

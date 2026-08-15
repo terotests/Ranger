@@ -56,7 +56,7 @@ frontend: 225 ms   lowering: 2 ms   interpreted steps: 1133
 | `tools/rg_dump.rgr` | prints the analyzed tree the pass lowers from | yes |
 
 The split is the interesting part. `RgBytecode` + `RgVM` + `RgJsJit` compile to
-**29 KB** of JavaScript; the same engine with the frontend linked in is **2.9
+**33 KB** of JavaScript; the same engine with the frontend linked in is **2.9
 MB**. A program whose bytecode was produced ahead of time needs only the first
 number.
 
@@ -85,55 +85,77 @@ an operator whose template is per target:
 ```ranger
 rg_jit_compile _:RgHostFn ( src:string ) {
   templates {
-    es6 ( "(new Function('vm', " (e 1) "))" )
+    es6 ( "(new Function(" (e 1) ")())" )
     * ( "null" )
   }
 }
 ```
 
-Generated code for `fib`, verbatim (one `case` per instruction, fall-through
-for sequential flow, `pc` for jumps):
+Generated code for `fib`, verbatim — one `case` per instruction, fall-through
+for sequential flow, `pc` for jumps, and self-recursion as an ordinary call:
 
 ```javascript
-var n0 = 0; var n1 = 0; var n2 = 0; var n3 = 0; var n4 = 0;
-n0 = vm.argNums[0];
-vm.argNums = [];
+var direct = function(vm, n0) {
+var pc = 0; var n1 = 0; var n2 = 0; var n3 = 0; var n4 = 0;
 rgl: for(;;) { switch(pc) {
 case 0:  n1 = 2;
 case 1:  n2 = (n0 < n1) ? 1 : 0;
 case 2:  if (n2 === 0) { pc = 4; continue rgl; }
-case 3:  vm.retNum = n0; return;
+case 3:  return n0;
 case 4:  n1 = 1;
 case 5:  n2 = n0 - n1;
-case 6:  vm.argNums.push(n2);
-case 7:  vm.callFunction(2); if (vm.failed) { return; } n3 = vm.retNum;
+case 6:  ;
+case 7:  n3 = direct(vm, n2); if (vm.failed) { return 0; }
 …
+};
+var entry = function(vm) { var A = vm.argNums; vm.argNums = []; vm.retNum = direct(vm, A[0]); };
+entry.direct = direct;
+return entry;
 ```
 
 On a host with no way to compile source, `rg_jit_available` is false and every
 function keeps running as bytecode; nothing else changes.
 
-### What it buys (Node 22, `npm run engine:bench`)
+### What it buys (Node 22, `npm run engine:bench`, best of 7)
 
-| case | tier 1 | tier 2 | compiled `.js` | tier1/tier2 |
-| --- | --- | --- | --- | --- |
-| `fib(24)` | 32.6 ms | 5.9 ms | 0.5 ms | 5.6× |
-| `loopChunks(8, 50000)` | 29.9 ms | 1.6 ms | 0.6 ms | 18.4× |
-| `collatzMax(3000)` | 29.1 ms | 3.3 ms | 0.8 ms | 8.8× |
+| case | tier 1 | tier 2 | compiled `.js` | tier1/tier2 | tier2 vs compiled |
+| --- | --- | --- | --- | --- | --- |
+| `fib(24)` | 15.2 ms | 0.5 ms | 0.4 ms | 29× | **1.3×** |
+| `loopChunks(8, 50000)` | 23.5 ms | 1.3 ms | 0.6 ms | 19× | 2.2× |
+| `collatzMax(3000)` | 22.3 ms | 2.6 ms | 0.5 ms | 8.7× | 5.6× |
 
 Loading is a separate cost, paid once: ~220 ms of frontend (parse + analyze +
 typecheck of the file *and* `Lang.rgr`) and ~2 ms of lowering.
 
-Two honest gaps in those numbers:
+Getting there meant measuring which half of the generated code was slow, and
+the answer was not the half that looks slow. Four hand-written variants of
+`fib`, each adding one piece of the machinery:
 
-- **Calls still go through the VM.** A compiled function reaches another one
-  via `vm.callFunction`, which pushes arguments through the VM's buffers. That
-  is most of the remaining distance to the compiled column on `fib`, which is
-  almost all call. Direct linking between compiled functions is the next win.
-- **Promotion happens between calls, never inside one.** A function that is
-  entered once and loops ten million times stays interpreted for the whole
-  run — there is no on-stack replacement. `loopChunks` in the benchmark exists
-  to make that visible: it calls the loop repeatedly, so promotion can happen.
+| variant | time | vs plain |
+| --- | --- | --- |
+| plain JavaScript, what the compiler emits | 8.2 ms | 1.0× |
+| the `pc` dispatch loop, direct recursion | 10.2 ms | **1.3×** |
+| plain control flow, calls through the VM | 92.3 ms | **11.3×** |
+| both | 97.1 ms | 11.9× |
+
+The odd-looking `switch(pc)` shape costs about 30%. The calling convention cost
+an order of magnitude — so that is what changed: a compiled body is generated
+as `direct(vm, a0, …)` taking its arguments as parameters and returning its
+result, plus a thin `entry(vm)` for calls that arrive from the interpreter.
+Self-recursion is a plain JavaScript call. A call to another function links
+itself the first time it finds that one compiled, and falls back to the
+argument buffer until then.
+
+The remaining gap is the dispatch loop plus the guards the engine keeps
+(division by zero fails the program rather than producing `Infinity`, as the
+interpreter does). Straight-line arithmetic in a tight loop is where it shows
+most: `collatzMax` is nine instructions per iteration and none of them are
+calls.
+
+**Promotion still happens between calls, never inside one.** A function entered
+once that loops ten million times stays interpreted for the whole run — there
+is no on-stack replacement. `loopChunks` in the benchmark exists to make that
+visible.
 
 ## What lowers today
 

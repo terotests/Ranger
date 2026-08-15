@@ -29,24 +29,33 @@ mkdir -p "$OUT"
 export RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr"
 RGRC="node --max-old-space-size=8192 bin/output.js"
 
+# The compiler reports failure on stdout and still exits 0, so a build that
+# silently kept yesterday's output is a real hazard: check the text.
+build() {
+  local label="$1"; shift
+  echo "building $label"
+  local log
+  if ! log="$("$@" 2>&1)" || grep -q "\[FAIL\]" <<< "$log"; then
+    echo "$log" >&2
+    echo "engine build failed: $label" >&2
+    exit 1
+  fi
+}
+
 if wants api; then
-  echo "building rg_api.js  (engine as a Node module)"
-  $RGRC -es6 -nodemodule gallery/ranger_engine/tools/rg_api.rgr -d="./$OUT" -o=rg_api.js > /dev/null
+  build "rg_api.js  (engine as a Node module)" $RGRC -es6 -nodemodule gallery/ranger_engine/tools/rg_api.rgr -d="./$OUT" -o=rg_api.js
 fi
 
 if wants run; then
-  echo "building rg_run.js  (command line)"
-  $RGRC -es6 -nodecli gallery/ranger_engine/tools/rg_run.rgr -d="./$OUT" -o=rg_run.js > /dev/null
+  build "rg_run.js  (command line)" $RGRC -es6 -nodecli gallery/ranger_engine/tools/rg_run.rgr -d="./$OUT" -o=rg_run.js
 fi
 
 if wants dump; then
-  echo "building rg_dump.js (analyzed-tree dumper)"
-  $RGRC -es6 -nodecli gallery/ranger_engine/tools/rg_dump.rgr -d="./$OUT" -o=rg_dump.js > /dev/null
+  build "rg_dump.js (analyzed-tree dumper)" $RGRC -es6 -nodecli gallery/ranger_engine/tools/rg_dump.rgr -d="./$OUT" -o=rg_dump.js
 fi
 
 if wants vm; then
-  echo "building rg_vm.js   (VM + JIT, no compiler)"
-  $RGRC -es6 -nodemodule gallery/ranger_engine/tools/rg_vm_only.rgr -d="./$OUT" -o=rg_vm.js > /dev/null
+  build "rg_vm.js   (VM + JIT, no compiler)" $RGRC -es6 -nodemodule gallery/ranger_engine/tools/rg_vm_only.rgr -d="./$OUT" -o=rg_vm.js
 fi
 
 echo ""

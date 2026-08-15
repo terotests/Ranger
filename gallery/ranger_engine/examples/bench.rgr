@@ -67,6 +67,14 @@ class Bench {
     return best
   }
 
+  ; Negative operands, where truncation and flooring part ways. Both tiers
+  ; have to answer what the compiled program answers, not merely each other.
+  sfn signedMath:int (a:int b:int) {
+    def q:int (idiv a b)
+    def r:int (a % b)
+    return ((q * 1000) + r)
+  }
+
   sfn main:void () {
     print "fib(24)          = " + (Bench.fib(24))
     print "loopChunks(8,50000) = " + (Bench.loopChunks(8 50000))

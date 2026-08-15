@@ -359,9 +359,13 @@ class RgVM {
             this.fail("modulo by zero in " + f.name)
             return
           }
-          def lv:double (itemAt numStack (nbase + b))
-          def times:double (this.truncToward0((lv / mv)))
-          set_at numStack (nbase + a) (lv - (times * mv))
+          ; Ranger's own `%` is an int operator, so both operands are whole
+          ; numbers here; going through it keeps the interpreter and the
+          ; compiled form on exactly the same remainder instead of on two
+          ; formulas that agree until floating-point rounding says otherwise.
+          def lv:int (to_int (itemAt numStack (nbase + b)))
+          def rv:int (to_int mv)
+          set_at numStack (nbase + a) (to_double (lv % rv))
         }
         case RgOp.NEG {
           set_at numStack (nbase + a) (0.0 - (itemAt numStack (nbase + b)))

@@ -25,21 +25,22 @@ do not depend on each other:
 
 | Half | What it is | Built size (ES6) |
 | --- | --- | --- |
-| runtime | `RgBytecode` + `RgVM` + `RgJsJit` | **29 KB** |
+| runtime | `RgBytecode` + `RgVM` + `RgJsJit` | **33 KB** |
 | build-time | the compiler frontend + `RgLower` | **2.9 MB** |
 
 The compiler is only large because it parses, analyzes and typechecks Ranger and
 emits twelve target languages. None of that has to be present to *run* code. If
-bytecode is produced ahead of time, a program ships the 29 KB half; if the host
+bytecode is produced ahead of time, a program ships the 33 KB half; if the host
 is Node, where the compiler is just another module, both halves load and the
 engine takes source directly.
 
-On the second doubt: interpreting is 3–18× slower than compiled JavaScript
-output on the benchmark, and the JIT tier recovers most of that gap without the
-engine containing a code generator of its own — it writes JavaScript and lets
-the host compile it. So "not necessarily faster than running JavaScript on
-Node" is right for the *ceiling*, and the interesting result is how cheaply the
-tiering machinery gets close to it.
+On the second doubt: the interpreter is 8–29× slower than compiled JavaScript
+output, and the JIT tier closes most of that without the engine containing a
+code generator of its own — it writes JavaScript and lets the host compile it.
+Call-heavy code lands **1.3×** off compiled output, loops 2–6×. So "not
+necessarily faster than JavaScript on Node" is right about the ceiling; the
+result worth having is how close the tiering gets to it, and what the remaining
+distance is made of.
 
 ## Shape
 
@@ -85,35 +86,65 @@ without runtime compilation the operator's `*` template makes
 the JIT lives behind a hook class (`RgJitHook`) that the VM-only build still
 satisfies.
 
-## Measurements (Node 22, `npm run engine:bench`)
+## Measurements (Node 22, `npm run engine:bench`, best of 7)
 
-| case | tier 1 | tier 2 | compiled `.js` | tier1/tier2 |
-| --- | --- | --- | --- | --- |
-| `fib(24)` | 32.6 ms | 5.9 ms | 0.5 ms | 5.6× |
-| `loopChunks(8, 50000)` | 29.9 ms | 1.6 ms | 0.6 ms | 18.4× |
-| `collatzMax(3000)` | 29.1 ms | 3.3 ms | 0.8 ms | 8.8× |
+| case | tier 1 | tier 2 | compiled `.js` | tier1/tier2 | tier2 vs compiled |
+| --- | --- | --- | --- | --- | --- |
+| `fib(24)` | 15.2 ms | 0.5 ms | 0.4 ms | 29× | **1.3×** |
+| `loopChunks(8, 50000)` | 23.5 ms | 1.3 ms | 0.6 ms | 19× | 2.2× |
+| `collatzMax(3000)` | 22.3 ms | 2.6 ms | 0.5 ms | 8.7× | 5.6× |
 
 Load cost, once per program: ~220 ms frontend, ~2 ms lowering. Almost all of the
 frontend time is parsing and analyzing `Lang.rgr` — the operator library — not
 the program.
 
-Correctness is gated differentially: `tests/ranger-engine.test.ts` runs
-`examples/demo.rgr` through the engine and through the ordinary compiler and
-requires the two to print the same lines.
+### Where the gap was, measured rather than guessed
+
+The first version of tier 2 was 15× off compiled output on `fib`, and the
+obvious suspect was the generated shape: a `switch(pc)` dispatch loop with one
+`case` per instruction does not look like code an optimiser will love. Four
+hand-written variants of `fib`, each adding one piece of the machinery,
+say otherwise:
+
+| variant | time | vs plain |
+| --- | --- | --- |
+| plain JavaScript, what the compiler emits | 8.2 ms | 1.0× |
+| the `pc` dispatch loop, direct recursion | 10.2 ms | 1.3× |
+| plain control flow, calls through the VM | 92.3 ms | **11.3×** |
+| both | 97.1 ms | 11.9× |
+
+The dispatch shape costs 30%. The calling convention cost an order of
+magnitude — an argument array, a tier test and a return slot per call — and it
+was invisible until it was separated from the thing that looked slow.
+
+So compiled bodies are now generated in two forms: `direct(vm, a0, …)`, which
+takes its arguments as parameters and returns its result, and a thin
+`entry(vm)` for calls arriving from the interpreter. Self-recursion is a plain
+call. A call to another function links itself the first time it finds that one
+compiled — an inline cache in the factory's scope — and uses the buffer until
+then, because a callee is often promoted after its caller.
+
+`fib` went from 6.5 ms to 0.5 ms on that change alone. What is left is the
+dispatch loop and the guards the engine keeps for semantics (division by zero
+fails the program instead of producing `Infinity`), which is why a tight
+arithmetic loop like `collatzMax` is further off than a call-heavy recursion.
+
+Correctness is gated differentially: `tests/ranger-engine.test.ts` runs three
+example programs through the engine and through the ordinary compiler and
+requires the same output from both, and pins signed `idiv` / `%` against the
+host's own semantics in both tiers.
 
 ## What is missing, in the order it should be added
 
-### 1. Direct linking between compiled functions
+### 1. Structured control flow instead of the `pc` loop
 
-A compiled function calls another one through `vm.callFunction`, which pushes
-arguments into the VM's buffers and re-enters the dispatch. On `fib`, which is
-almost pure call, this is most of the remaining distance to the compiled column.
-
-The fix is a calling convention for compiled bodies: generate
-`function(vm, a0, a1, …)`, keep the handles in an array the generated code can
-index, and emit a direct call when the callee is already compiled — with a
-guard, because the callee may be promoted later. Once a call is direct, V8 can
-inline it, which is where the rest of the gap lives.
+Worth 20–30% on straight-line code, and more on a tight loop, where re-entering
+the dispatch once per iteration is a bigger share of the work. The bytecode has
+arbitrary jumps; recovering `while` and `if` from them is the relooper problem,
+but the lowering pass *knows* the structure — it produced the jumps from a
+`while` in the first place. Recording loop and branch boundaries in the module
+would let the JavaScript backend (and the WebAssembly one, which cannot do
+arbitrary jumps at all) emit structured code without recovering anything.
 
 ### 2. On-stack replacement, or loop-level promotion
 

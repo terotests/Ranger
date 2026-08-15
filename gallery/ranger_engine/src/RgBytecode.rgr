@@ -150,6 +150,16 @@ class RgFunction {
   def jitSlot:int (0 - 1)
 
   fn addOp:int (op:RgOp a:int b:int c:int) {
+    ; A move onto its own register is what a `def` whose initialiser already
+    ; landed in the right place lowers to; it is dead in every tier and it
+    ; costs the JIT a line of source. Nothing addresses an instruction except
+    ; a jump, and a jump target is read back from `here()` after the fact, so
+    ; dropping one here cannot dangle.
+    if ((op == RgOp.MOVN) || (op == RgOp.MOVR)) {
+      if (a == b) {
+        return (array_length ops)
+      }
+    }
     def at:int (array_length ops)
     push ops op
     push ra a

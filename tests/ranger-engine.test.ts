@@ -134,14 +134,57 @@ describe("Ranger engine", () => {
     expect(tierOf(jit, "Bench.collatzSteps")).toBe("jit");
   });
 
+  it("truncates and takes remainders the way the host does, in both tiers", async () => {
+    const interp = await load("bench.rgr");
+    const jit = await load("bench.rgr", 1);
+    const pairs = [
+      [7, 2], [-7, 2], [7, -2], [-7, -2], [1, 3], [-1, 3], [1000003, 7], [-1000003, 7],
+    ];
+    for (const [a, b] of pairs) {
+      const expected = Math.trunc(a / b) * 1000 + (a % b);
+      expect(interp.callNum("Bench.signedMath", [a, b]), `bytecode ${a} ${b}`).toBe(expected);
+      jit.callNum("Bench.signedMath", [a, b]);
+      expect(jit.callNum("Bench.signedMath", [a, b]), `jit ${a} ${b}`).toBe(expected);
+    }
+  });
+
   it("generates JavaScript whose registers are plain locals", async () => {
     const jit = await load("bench.rgr", 1);
     jit.callNum("Bench.fib", [10]);
     jit.callNum("Bench.fib", [10]);
     const fib = jit.module.functions.find((f: any) => f.name === "Bench.fib");
-    expect(fib.jitSource).toContain("var n0 = 0;");
-    expect(fib.jitSource).toContain("vm.retNum");
+    // Parameters are parameters, registers are locals, and the body returns a
+    // value rather than parking one on the VM.
+    expect(fib.jitSource).toContain("var direct = function(vm, n0)");
+    expect(fib.jitSource).toContain("entry.direct = direct;");
     expect(fib.jitSource).not.toContain("itemAt");
+  });
+
+  it("recurses into itself directly instead of through the VM", async () => {
+    // The calling convention was the whole gap to compiled output: reaching
+    // another compiled function through vm.callFunction measured ~11x on this
+    // shape, against ~1.3x for the dispatch loop itself.
+    const jit = await load("bench.rgr", 1);
+    jit.callNum("Bench.fib", [10]);
+    jit.callNum("Bench.fib", [10]);
+    const fib = jit.module.functions.find((f: any) => f.name === "Bench.fib");
+    expect(fib.jitSource).toContain("direct(vm, n");
+    expect(fib.jitSource).not.toContain("vm.callFunction");
+    expect(jit.callNum("Bench.fib", [20])).toBe(6765);
+  });
+
+  it("links a call to another function once that one is compiled too", async () => {
+    const jit = await load("bench.rgr", 1);
+    // loopChunks calls loopSum; both get hot, and the call site upgrades
+    // itself from the argument-buffer path to a direct call.
+    for (let i = 0; i < 4; i++) jit.callNum("Bench.loopChunks", [2, 100]);
+    const chunks = jit.module.functions.find((f: any) => f.name === "Bench.loopChunks");
+    expect(tierOf(jit, "Bench.loopSum")).toBe("jit");
+    expect(chunks.jitSource).toContain("hd.direct");
+    expect(jit.callNum("Bench.loopChunks", [2, 100])).toBe(
+      // same answer as the interpreter gives
+      (await load("bench.rgr")).callNum("Bench.loopChunks", [2, 100]),
+    );
   });
 
   it("marks what it cannot lower and still runs the rest", async () => {
