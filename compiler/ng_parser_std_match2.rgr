@@ -929,7 +929,16 @@ extension RangerFlowParser {
             if cA.hasParamDesc {
               def pp:RangerAppParamDesc cA.paramDesc
               def pp2:RangerAppParamDesc cA2.paramDesc
-              pp.moveRefTo(callArgs (unwrap pp2) ctx)
+              ; `@(move 0 1)` on a call whose two arguments are the same
+              ; variable names one descriptor on both sides, and moving a
+              ; reference to itself says nothing. Rust cannot read an object
+              ; while holding it for the write.
+              def ppSelf:RangerAppParamDesc (unwrap cA.paramDesc)
+              def ppTarget:RangerAppParamDesc (unwrap cA2.paramDesc)
+              def ppSame:boolean (ppSelf == ppTarget)
+              if (ppSame == false) {
+                pp.moveRefTo(callArgs ppTarget ctx)
+              }
             }
           }
           if (nameNode.hasFlag("returns")) {

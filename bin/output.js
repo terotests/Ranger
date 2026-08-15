@@ -17449,7 +17449,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               if ( cA.hasParamDesc ) {
                 const pp = cA.paramDesc;
                 const pp2 = cA2.paramDesc;
-                pp.moveRefTo(callArgs, pp2, ctx);
+                const ppSelf = cA.paramDesc;
+                const ppTarget = cA2.paramDesc;
+                const ppSame = ppSelf == ppTarget;
+                if ( ppSame == false ) {
+                  pp.moveRefTo(callArgs, ppTarget, ctx);
+                }
               }
             }
             if ( nameNode.hasFlag("returns") ) {
