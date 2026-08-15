@@ -1051,8 +1051,14 @@ class VlRuntime {
         mark.name = (mdef.stringOr("name" ""))
         mark.role = (mdef.stringOr("role" "mark"))
 
+        ; A group mark holds other marks. The one Vega-Lite emits for a series
+        ; — a line coloured by a field, a stacked area — is a FACET: the data is
+        ; partitioned by a field and the group is drawn once per partition, so
+        ; that each series becomes its own line rather than one line zig-zagging
+        ; between them.
         if (mark.markType == "group") {
-            this.fail("group marks are not implemented yet")
+            mark.role = (mdef.stringOr("role" "scope"))
+            this.encodeGroupMark(mark mdef)
             return mark
         }
 
@@ -1084,6 +1090,81 @@ class VlRuntime {
         }
         this.sortMarkItems(mark (mdef.get("sort")))
         return mark
+    }
+
+
+    ; One group item per partition of the faceted data, each holding the marks
+    ; the group declares. The partitions come out in the order their key was
+    ; first seen, which is the order the reference produces and therefore the
+    ; order the series are coloured in.
+    fn encodeGroupMark:void (mark:VlSceneMark mdef:VlJson) {
+        def from:VlJson (mdef.get("from"))
+        def facet:VlJson (from.get("facet"))
+        def children:VlJson (mdef.get("marks"))
+        def encode:VlJson (mdef.get("encode"))
+        def enter:VlJson (encode.get("enter"))
+        def update:VlJson (encode.get("update"))
+
+        if (! (facet.isObject())) {
+            ; A group with no facet is drawn once, holding whatever it holds.
+            def item:VlSceneItem (mark.addItem())
+            def empty:VlJson (VlJson.objectValue())
+            this.encodeChannels(item enter empty)
+            this.encodeChannels(item update empty)
+            this.encodeChildMarks(item children)
+            return
+        }
+
+        def facetName:string (facet.stringOr("name" ""))
+        def sourceName:string (facet.stringOr("data" ""))
+        def groupby:[string] (VlRuntime.stringList((facet.get("groupby"))))
+        def rows:[VlJson] (this.dataRows(sourceName))
+
+        def keys:[string]
+        def partitions:[string:VlDataSet]
+        for rows row:VlJson idx {
+            def key:string (VlTransform.groupKey(row groupby))
+            if (! (has partitions key)) {
+                push keys key
+                def fresh:VlDataSet (new VlDataSet())
+                fresh.name = facetName
+                set partitions key fresh
+            }
+            def part:VlDataSet (unwrap (get partitions key))
+            push part.rows row
+        }
+
+        for keys key:string ki {
+            def part:VlDataSet (unwrap (get partitions key))
+            ; The facet's rows are published under its own name for the duration
+            ; of this group, which is how the marks inside it find their data.
+            set dataSets facetName part
+            def item:VlSceneItem (mark.addItem())
+            def datum:VlJson (VlJson.objectValue())
+            if ((array_length part.rows) > 0) {
+                def firstRow:VlJson (itemAt part.rows 0)
+                for groupby field:string gi {
+                    datum.setMember(field (firstRow.get(field)))
+                }
+            }
+            item.datum = datum
+            item.hasDatum = true
+            this.encodeChannels(item enter datum)
+            this.encodeChannels(item update datum)
+            this.encodeChildMarks(item children)
+        }
+    }
+
+    fn encodeChildMarks:void (item:VlSceneItem children:VlJson) {
+        if (! (children.isArray())) {
+            return
+        }
+        def total:int (children.count())
+        def k:int 0
+        while (k < total) {
+            push item.marks (this.encodeMark((children.at(k))))
+            k = (k + 1)
+        }
     }
 
     ; The defaults land BEFORE the encode blocks, so anything the spec states

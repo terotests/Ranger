@@ -167,18 +167,33 @@ class VlTransform {
         }
 
         ; Group totals first: normalize and center both need the sum before any
-        ; row can be given its place.
+        ; row can be given its place, and center needs the LARGEST of them —
+        ; every group is centred on the same line, which is what turns a stack
+        ; into a stream.
+        ;
+        ; Those two totals are of the MAGNITUDES: a negative value adds to the
+        ; height of a normalized or centred stack rather than cancelling out.
+        ; Only the plain zero offset keeps the sign, and it runs positives up
+        ; from the baseline and negatives down.
         def groupSum:[string:double]
         def groupRun:[string:double]
+        def widest:double 0.0
         for rows row:VlJson idx {
             def key:string (VlTransform.groupKey(row groupby))
             def v:double (VlTransform.stackValue(row field))
+            if (v < 0.0) {
+                v = (0.0 - v)
+            }
             def sum:double 0.0
             if (has groupSum key) {
                 sum = (unwrap (get groupSum key))
             }
-            set groupSum key (sum + v)
+            def grown:double (sum + v)
+            set groupSum key grown
             set groupRun key 0.0
+            if (grown > widest) {
+                widest = grown
+            }
         }
 
         ; The accumulation order is the SORT order, but the rows come out in the
@@ -204,20 +219,32 @@ class VlTransform {
             if (has groupSum key) {
                 total = (unwrap (get groupSum key))
             }
+            def magnitude:double v
+            if (magnitude < 0.0) {
+                magnitude = (0.0 - magnitude)
+            }
             def lo:double run
             def hi:double (run + v)
-            set groupRun key hi
 
             if (offset == "normalize") {
+                lo = run
+                hi = (run + magnitude)
+                set groupRun key hi
                 if (total != 0.0) {
                     lo = (lo / total)
                     hi = (hi / total)
                 }
-            }
-            if (offset == "center") {
-                def shift:double (total / 2.0)
-                lo = (lo - shift)
-                hi = (hi - shift)
+            } {
+                if (offset == "center") {
+                    ; Each group starts half its own shortfall below the widest
+                    ; one, so all of them share a centre line.
+                    def start:double ((widest - total) / 2.0)
+                    lo = (start + run)
+                    hi = (lo + magnitude)
+                    set groupRun key (run + magnitude)
+                } {
+                    set groupRun key hi
+                }
             }
             set_at starts rowIndex lo
             set_at ends rowIndex hi

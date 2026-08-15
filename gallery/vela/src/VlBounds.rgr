@@ -161,18 +161,26 @@ class VlBounds {
 
     ; A symbol's `size` is an area, but the shape that draws it is not a disc of
     ; that area: vega's circle and square are both `sqrt(size)` across, so their
-    ; boxes are identical and this one formula covers the shapes a legend uses.
-    ; A triangle or a cross fills its box differently; until one appears in a
-    ; legend, treating them as the same square is a stated approximation rather
-    ; than a silent one.
-    sfn ofSymbol:VlBounds (x:double y:double size:double strokeWidth:double stroked:boolean) {
+    ; boxes are identical and one formula covers both. A triangle or a cross
+    ; fills that box differently; treating them as the same square is a stated
+    ; approximation rather than a silent one.
+    sfn ofSymbol:VlBounds (x:double y:double size:double strokeWidth:double stroked:boolean shape:string) {
         def area:double size
         if (area < 0.0) {
             area = 0.0
         }
         def r:double ((sqrt area) / 2.0)
         def out (new VlBounds())
-        out.set((x - r) (y - r) (x + r) (y + r))
+        ; `stroke` is not a shape with an inside: it is a horizontal line, which
+        ; is what a line chart's key looks like. Its box has no height of its
+        ; own, so the row it sits in is as tall as the stroke makes it and not a
+        ; symbol taller — the difference between a key that lines up with its
+        ; label and one that does not.
+        if (shape == "stroke") {
+            out.set((x - r) y (x + r) y)
+        } {
+            out.set((x - r) (y - r) (x + r) (y + r))
+        }
         ; A stroke is centred on the path, but the reference expands by the
         ; MITER allowance — miterLimit (4) times half the stroke width — because
         ; a generic path may have a spike at a vertex. A circle has no vertices

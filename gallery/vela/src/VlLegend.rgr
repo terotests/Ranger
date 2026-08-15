@@ -296,7 +296,7 @@ class VlLegend {
             push row.marks symbolMark
             push row.marks labelMark
 
-            def box:VlBounds (VlBounds.ofSymbol(sx sy (e.item.number("size")) (e.item.number("strokeWidth")) (e.item.has("stroke"))))
+            def box:VlBounds (VlBounds.ofSymbol(sx sy (e.item.number("size")) (e.item.number("strokeWidth")) (e.item.has("stroke")) (e.item.text("shape"))))
             box.union((VlBounds.ofText((e.labelItem.text("text")) (e.labelItem.number("fontSize")) (e.labelItem.text("align")) (e.labelItem.text("baseline")) (e.labelItem.number("x")) sy)))
             push boxes box
         }
@@ -414,7 +414,6 @@ class VlLegend {
         labelMark.markType = "text"
         labelMark.role = "legend-label"
         def boxes (new VlBounds())
-        boxes.union((VlBounds.ofSymbol((gradientThickness / 2.0) (gradientLength / 2.0) 0.0 0.0 false)))
         boxes.set(0.0 0.0 gradientThickness gradientLength)
         for values v:double idx {
             def item:VlSceneItem (labelMark.addItem())

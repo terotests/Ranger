@@ -404,7 +404,7 @@ function dumpItem(it) {
 
 function collectMarks(mark, out = new Map(), trail = []) {
   let key = mark.name || `${trail.join('/')}#${mark.role || mark.marktype}`;
-  if (!mark.name && out.has(key)) {
+  if (out.has(key)) {
     let n = 2;
     while (out.has(`${key}~${n}`)) n++;
     key = `${key}~${n}`;
