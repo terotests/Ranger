@@ -6,11 +6,20 @@ Import "ng_RangerActiveOperators.rgr"
 
 extension RangerAppWriterContext {
   def rootFile:string "--not-defined--"
+  ; the root may be THIS context, and reaching it through the handle would
+  ; borrow a cell the call is already inside
   fn getRootFile:string () {
+    if (null? parent) {
+      return rootFile
+    }
     def root:RangerAppWriterContext (this.getRoot())
     return root.rootFile
   }   
   fn setRootFile:void (file_name:string) {
+    if (null? parent) {
+      rootFile = file_name
+      return
+    }
     def root:RangerAppWriterContext (this.getRoot())
     root.rootFile = file_name
   }    

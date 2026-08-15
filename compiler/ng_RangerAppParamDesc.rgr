@@ -162,6 +162,15 @@ class RangerAppParamDesc {
     }
     eMap.addEvent(name e)
   }  
+  ; The same change, recording THIS descriptor's own name node as the
+  ; changer. Written as a method because `p.changeStrength(a b (unwrap
+  ; p.nameNode))` reads the receiver's cell inside its own call — on Rust
+  ; that is `p.borrow_mut().changeStrength(…, p.borrow()…)`, one cell
+  ; borrowed two ways in one expression.
+  fn changeStrengthSelf:void (newStrength:int lifeTime:int) {
+    this.changeStrength(newStrength lifeTime (unwrap nameNode))
+  }
+
   fn changeStrength:void (newStrength:int lifeTime:int changer:CodeNode) {
     def entry:RangerRefForce (new RangerRefForce ())
     entry.strength = newStrength

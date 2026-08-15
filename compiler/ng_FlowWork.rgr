@@ -2036,10 +2036,10 @@ class RangerFlowParser {
         arg.eval_type = arg.value_type
         arg.eval_type_name = arg.type_name 
         if (arg.hasFlag("strong")) {
-          p2.changeStrength(1 1 (unwrap p2.nameNode))
+          p2.changeStrengthSelf(1 1)
         } {
           arg.setFlag("lives")
-          p2.changeStrength(0 1 (unwrap p2.nameNode))
+          p2.changeStrengthSelf(0 1)
         }           
         ; subCtx.hadValidType(p2.nameNode)
         subCtx.defineVariable(p2.name p2)
@@ -2911,10 +2911,10 @@ class RangerFlowParser {
       arg.eval_type = arg.value_type
       arg.eval_type_name = arg.type_name
       if (arg.hasFlag("strong")) {
-        p.changeStrength(1 1 (unwrap p.nameNode))
+        p.changeStrengthSelf(1 1)
       } {
         arg.setFlag("lives")
-        p.changeStrength(0 1 (unwrap p.nameNode))
+        p.changeStrengthSelf(0 1)
       }               
   }
 
@@ -3336,9 +3336,9 @@ class RangerFlowParser {
       node.paramDesc = p
 
       if (vDef.hasFlag("weak")) {
-          p.changeStrength(0 2 (unwrap p.nameNode))
+          p.changeStrengthSelf(0 2)
       } {
-          p.changeStrength(2 2 (unwrap p.nameNode))
+          p.changeStrengthSelf(2 2)
       }    
 
       if ((array_length node.children) > 2) {
@@ -3597,10 +3597,10 @@ class RangerFlowParser {
         arg.eval_type = arg.value_type
         arg.eval_type_name = arg.type_name 
         if (arg.hasFlag("strong")) {
-          p2.changeStrength(1 1 (unwrap p2.nameNode))
+          p2.changeStrengthSelf(1 1)
         } {
           arg.setFlag("lives")
-          p2.changeStrength(0 1 (unwrap p2.nameNode))
+          p2.changeStrengthSelf(0 1)
         }           
         ; subCtx.hadValidType(p2.nameNode)
         subCtx.defineVariable(p2.name p2)

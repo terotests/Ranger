@@ -551,9 +551,9 @@ Tests if the `class name` is either
       node.paramDesc = p
 
       if (vDef.hasFlag("weak")) {
-          p.changeStrength(0 2 (unwrap p.nameNode))
+          p.changeStrengthSelf(0 2)
       } {
-          p.changeStrength(2 2 (unwrap p.nameNode))
+          p.changeStrengthSelf(2 2)
       }    
 
       if ((array_length node.children) > 2) {
