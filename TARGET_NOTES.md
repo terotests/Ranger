@@ -546,7 +546,7 @@ Measured with `node bin/output.js -l=<target> ./compiler/ng_Compiler.rgr
 | Kotlin | **0** | — `kotlinc` clean, runs, see above |
 | PHP | **0** | not built or run |
 | Swift 6 | 12 | |
-| Rust | **0** | `rustc` down from 4981 errors to 536 — see below |
+| Rust | **0** | `rustc` down from 4981 errors to 155 — see below |
 | Java 7 | 16 | |
 | Scala | 467 | no JSON templates, the same wall C++, Dart and C# started at |
 
@@ -706,7 +706,7 @@ of the trait-defining class out by reference, `rgf_x()` to read and
 when the segment before it is a class with children.
 
 Everything after that has been ordinary codegen work, measured one shape at a
-time. `rustc` on the 67k-line output is down from **4981 errors to 536**. The
+time. `rustc` on the 67k-line output is down from **4981 errors to 155**. The
 shapes that carried real defects, rather than Rust-specific plumbing:
 
 - `indexOf` over an array compiled to `.position(…).unwrap()`, which **panics on
@@ -720,6 +720,17 @@ shapes that carried real defects, rather than Rust-specific plumbing:
   unwrapped it and wrote the operator's *name* as if it were a value.
 - The mutation graph that picks `&self` vs `&mut self` never looked at inherited
   or trait methods, so a `&self` method could call a `&mut self` one.
+- The compiler-plugin operators had no Rust entry at all, so they still had the
+  bug this file's own plugin section describes: an empty template writing
+  `plugin = ;`, a syntax error that stopped `rustc` reading the region around
+  it. Six other targets had been given entries; Rust had been missed.
+- Ranger writes an initializer parenthesised — `def p (h.payload)` — and the
+  move/clone analysis was inspecting the *wrapper* rather than the name inside
+  it, so every test in it answered "no" and a non-`Copy` field was moved out of
+  a borrowed struct at 45 sites.
+- A no-argument operator call is an expression holding one bare name, the same
+  shape as a parenthesised variable, so the concat collector unwrapped it and
+  wrote the operator's *name* as if it were a value.
 
 What remains is a long flat tail: no single shape accounts for more than about
 a dozen errors. The measurements that mattered, including three changes that
