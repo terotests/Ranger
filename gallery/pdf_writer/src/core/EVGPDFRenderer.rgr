@@ -1,3 +1,4 @@
+Import "../../../evg/EVGCodepoint.rgr"
 ; EVGPDFRenderer.rgr - Render EVG elements to PDF
 ; 
 ; Takes EVG element tree with calculated positions and renders to PDF using PDFWriter.
@@ -2261,10 +2262,13 @@ class EVGPDFRenderer {
         def seg:string ""
         def kerns:int 0
         def i:int 0
+        def prevCp:int 0
+        def firstCp:boolean true
         while (i < len) {
-            def ch:int (charAt line i)
-            if (i > 0) {
-                def k:int (font.kernUnits((charAt line (i - 1)) ch))
+            def ch:int (EVGCodepoint.codeAt(line i))
+            def cpStep:int (EVGCodepoint.unitsAt(line i))
+            if (firstCp == false) {
+                def k:int (font.kernUnits(prevCp ch))
                 if (k != 0) {
                     out = out + "(" + (this.escapeText(seg)) + ")"
                     seg = ""
@@ -2273,8 +2277,10 @@ class EVGPDFRenderer {
                     kerns = (kerns + 1)
                 }
             }
-            seg = seg + (strfromcode ch)
-            i = (i + 1)
+            prevCp = ch
+            firstCp = false
+            seg = seg + (EVGCodepoint.toStr(ch))
+            i = (i + cpStep)
         }
         if (kerns == 0) {
             return plain
@@ -2466,11 +2472,15 @@ class EVGPDFRenderer {
         ; Also handle Unicode characters outside WinAnsi range
         ; For high-byte characters (128-255), use PDF octal escape \NNN
         ; because Go strings are UTF-8 and can't represent raw bytes 128-255 directly
+        ; By codepoint: a surrogate half is not a character, and reporting one
+        ; as "U+D83D is outside WinAnsi" tells the author nothing they can act
+        ; on. An emoji is now reported once, at its real codepoint.
         def result:string ""
         def len:int (strlen text)
         def i 0
         while (i < len) {
-            def ch:int (charAt text i)
+            def ch:int (EVGCodepoint.codeAt(text i))
+            def cpStep:int (EVGCodepoint.unitsAt(text i))
             if (ch == 40) {  ; (
                 result = result + "\\("
             } {
@@ -2514,7 +2524,7 @@ class EVGPDFRenderer {
                     }
                 }
             }
-            i = i + 1
+            i = (i + cpStep)
         }
         return result
     }

@@ -1,3 +1,4 @@
+Import "../../../evg/EVGCodepoint.rgr"
 ; TrueTypeFont.rgr - Parse TrueType font files for metrics and embedding
 ;
 ; TrueType file structure:
@@ -470,17 +471,25 @@ class TrueTypeFont {
         ; for. Without it every run came out slightly wide — and the error is
         ; not a rounding artefact: it shifts the whole line for centred and
         ; right-aligned text, and display faces kern hardest.
+        ; Stepped by CODEPOINT. Iterating UTF-16 units charged an emoji two
+        ; .notdef advances instead of one glyph, so "a😀b" measured 47.53px
+        ; where it should have measured about 25.
         def width:double 0.0
         def len:int (strlen text)
         def i:int 0
+        def prev:int 0
+        def first:boolean true
         
         while (i < len) {
-            def ch:int (charAt text i)
+            def ch:int (EVGCodepoint.codeAt(text i))
+            def step:int (EVGCodepoint.unitsAt(text i))
             width = width + (this.getCharWidthPoints(ch fontSize))
-            if (i > 0) {
-                width = (width + (this.kernPoints((charAt text (i - 1)) ch fontSize)))
+            if (first == false) {
+                width = (width + (this.kernPoints(prev ch fontSize)))
             }
-            i = i + 1
+            prev = ch
+            first = false
+            i = (i + step)
         }
         
         return width

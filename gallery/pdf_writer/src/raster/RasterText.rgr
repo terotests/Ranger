@@ -1,3 +1,4 @@
+Import "../../../evg/EVGCodepoint.rgr"
 ; RasterText.rgr - Text rendering for raster buffers
 ; Uses the existing TrueTypeFont class for font loading and metrics,
 ; adds glyph outline parsing for rasterization.
@@ -1056,8 +1057,13 @@ class RasterText {
         if debug { print ("RasterText.renderText: text='" + text + "' pos=(" + (to_string x) + "," + (to_string y) + ") fontSize=" + (to_string fontSize) + " baseline=" + (to_string baseline) + " renderY=" + (to_string renderY)) }
         if debug { print ("RasterText.renderText: color=RGB(" + (to_string r) + "," + (to_string g) + "," + (to_string b) + ") alpha=" + (to_string a) + " bufSize=" + (to_string buf.width) + "x" + (to_string buf.height)) }
         
+        def prevCp:int 0
+        def firstCp:boolean true
         while (i < len) {
-            def ch:int (charAt text i)
+            ; By codepoint: a surrogate half is not a character and has no
+            ; glyph, so stepping in UTF-16 units drew two blanks per emoji.
+            def ch:int (EVGCodepoint.codeAt(text i))
+            def cpStep:int (EVGCodepoint.unitsAt(text i))
             def glyphIdx:int (font.getGlyphIndex(ch))
             
             def outline:GlyphOutline (this.parseGlyph(glyphIdx fontSize))
@@ -1071,15 +1077,17 @@ class RasterText {
             ; raster pen walks the same path layout measured. Without it the
             ; raster drew a wider run than the box reserved — the same
             ; disagreement the PDF side avoids with a TJ array.
-            if (i > 0) {
-                currX = (currX + (font.kernPoints((charAt text (i - 1)) ch fontSize)))
+            if (firstCp == false) {
+                currX = (currX + (font.kernPoints(prevCp ch fontSize)))
             }
+            prevCp = ch
+            firstCp = false
 
             this.renderGlyph(buf outline currX renderY r g b a)
             
             ; Advance
             currX = currX + outline.advanceWidth
-            i = i + 1
+            i = (i + cpStep)
         }
     }
     
