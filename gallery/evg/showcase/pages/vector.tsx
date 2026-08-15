@@ -44,24 +44,25 @@ function render() {
         <Path
           className="shape evenodd"
           viewBox="0 0 100 100"
-          d="M10,10 L90,10 L90,90 L10,90 Z M30,30 L30,70 L70,70 L70,30 Z"
+          d="M10,10 L90,10 L90,90 L10,90 Z M30,30 L70,30 L70,70 L30,70 Z"
         />
       </View>
       <Label className="caption">
-        Kaksi ensimmäistä ovat vastakkain kierrettyjä renkaita, joten nollasta poikkeava sääntö jättää reiän.
-        Kolmannessa molemmat renkaat kiertävät samaan suuntaan — reikä syntyy vain fill-rule: evenodd -säännöllä.
+        Ensimmäisessä renkaat kiertävät vastakkain, joten nollasta poikkeava sääntö jättää reiän.
+        Kaksi jälkimmäistä ovat täsmälleen sama polku, jossa molemmat renkaat kiertävät samaan suuntaan:
+        nollasta poikkeava sääntö täyttää sen umpeen, evenodd puhkaisee reiän.
       </Label>
 
       <Label className="subhead">Käyrät ja kaaret</Label>
       <View className="row vecRow">
-        <Path className="shape" viewBox="0 0 100 100" d="M10,80 C10,20 90,20 90,80 Z" />
-        <Path className="shape" viewBox="0 0 100 100" d="M10,80 Q50,10 90,80 Z" />
+        <Path className="shape" viewBox="5 15 90 70" d="M10,80 C10,20 90,20 90,80 Z" />
+        <Path className="shape" viewBox="5 15 90 70" d="M10,80 Q50,10 90,80 Z" />
         <Path
           className="shape"
-          viewBox="0 0 100 100"
+          viewBox="0 0 50 50"
           d="M50,25 C50,11.2 38.8,0 25,0 S0,11.2 0,25 S11.2,50 25,50 S50,38.8 50,25 Z"
         />
-        <Path className="shape" viewBox="0 0 100 100" d="M20,80 A30 30 0 0 1 80,80 L65,80 A15 15 0 0 0 35,80 Z" />
+        <Path className="shape" viewBox="15 45 70 40" d="M20,80 A30 30 0 0 1 80,80 L65,80 A15 15 0 0 0 35,80 Z" />
       </View>
       <Label className="caption">
         Kuutio- ja neliökäyrä, S-komennoilla kirjoitettu ympyrä ja elliptinen kaari. Peilatut ohjauspisteet ja
