@@ -63,6 +63,13 @@ const PAGES = [
     shows: ["flex shorthand", "flex-shrink: 0", "justify-content", "flex-wrap"],
   },
   {
+    id: "emoji",
+    title: "Emoji",
+    blurb:
+      "Each specimen is several codepoints and one glyph, and only becomes that glyph if the whole cluster reaches the shaper together. The tinted rows use emoji-color, which exists because there are no inline spans to hang a second colour on.",
+    shows: ["grapheme clusters", "GSUB ligatures", "Type0 / Identity-H", "emoji-color"],
+  },
+  {
     id: "boxmodel",
     title: "Box model",
     blurb:
@@ -154,7 +161,7 @@ function viewerHtml(faceCss) {
      Rounded corners come from a distance field in the fragment shader.</p>
   <p id="err"></p>
 <script type="module">
-import { renderDisplayList } from "./evg-webgl.js";
+import { renderDisplayList, loadImages } from "./evg-webgl.js";
 const list = new URLSearchParams(location.search).get("list") || "album-editorial.json";
 const err = document.getElementById("err");
 try {
@@ -170,9 +177,13 @@ try {
   // A face nothing has used yet is not fetched until asked for by size.
   await Promise.all(doc.list.cmds.filter(x => x.text)
     .map(x => document.fonts.load(\`\${x.size}px "\${x.font}"\`).catch(() => {})));
-  const s = renderDisplayList(gl, doc, { dpr });
+  // Photos have to be in the GPU before the first draw, or the page paints
+  // once with holes where they go.
+  const images = await loadImages(doc);
+  const s = renderDisplayList(gl, doc, { dpr, images });
   document.getElementById("stats").textContent =
-    \`\${s.drawn} quads · \${s.textRuns} text runs\` + (s.skippedImages ? \` · \${s.skippedImages} images not yet drawn\` : "");
+    \`\${s.drawn} quads · \${s.textRuns} text runs · \${s.images} images\`
+    + (s.missingImages ? \` · \${s.missingImages} could not be loaded\` : "");
   window.__evgStats = s;
 } catch (e) {
   err.textContent = String((e && e.stack) || e);
@@ -307,6 +318,47 @@ compile("./gallery/pdf_writer/src/tools/evg_png_tool.rgr", "evg_png_tool.js");
 compile("./gallery/pdf_writer/src/tools/evg_html_tool.rgr", "evg_html_tool.js");
 compile("./gallery/pdf_writer/src/tools/evg_displaylist_tool.rgr", "evg_displaylist_tool.js");
 
+
+/**
+ * Copy the photos a display list refers to next to the viewer, and rewrite the
+ * list to point at the copies.
+ *
+ * The `src` in a display list is the path the AUTHOR wrote, relative to the
+ * page source — `../../../pdf_writer/assets/images/…`. That resolves in the
+ * repository and nowhere else, so the published viewer fetched four 404s and
+ * drew a page with holes in it. The PDF and PNG targets never hit this: they
+ * read the file at render time and embed the pixels.
+ */
+function publishImages(jsonPath) {
+  const doc = JSON.parse(fs.readFileSync(jsonPath, "utf8"));
+  const dir = path.join(OUT, "gl", "images");
+  let changed = false;
+  for (const cmd of doc.list.cmds) {
+    if (cmd.k !== 2 || !cmd.src) continue;
+    const abs = path.resolve(HERE, "pages", cmd.src);
+    if (!fs.existsSync(abs)) {
+      // Left pointing at the original, so the viewer reports it as missing
+      // rather than silently drawing nothing.
+      continue;
+    }
+    fs.mkdirSync(dir, { recursive: true });
+    // Keyed by full path, so two different photos with the same basename do
+    // not overwrite each other.
+    let name = imageNames.get(abs);
+    if (!name) {
+      const base = path.basename(abs);
+      name = imageNames.has(base) ? `${imageNames.size}-${base}` : base;
+      imageNames.set(abs, name);
+      imageNames.set(base, true);
+      fs.copyFileSync(abs, path.join(dir, name));
+    }
+    cmd.src = `images/${name}`;
+    changed = true;
+  }
+  if (changed) fs.writeFileSync(jsonPath, JSON.stringify(doc), "utf8");
+}
+const imageNames = new Map();
+
 const entries = [];
 const allWarnings = [];
 
@@ -322,6 +374,7 @@ for (const page of PAGES) {
     allWarnings.push(...render("evg_pdf_tool.js", page.id, theme.id, path.join(OUT, pdf)));
     // The same page as draw commands, for the WebGL viewer.
     allWarnings.push(...render("evg_displaylist_tool.js", page.id, theme.id, path.join(OUT, "gl", json)));
+    publishImages(path.join(OUT, "gl", json));
     // -embed inlines the TTFs as data URIs. Without it the page references
     // font files by path, which resolves on the build machine and nowhere
     // else — the browser then falls back to a system face, wraps text where

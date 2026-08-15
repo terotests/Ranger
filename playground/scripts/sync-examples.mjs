@@ -8,7 +8,18 @@ const rangerRoot = path.resolve(__dirname, "../..");
 const fixtures = path.join(rangerRoot, "tests/fixtures");
 const outDir = path.join(rangerRoot, "playground/public/examples");
 
-/** @type {{ id: string, title: string, file: string, description: string, needsProcess?: boolean }[]} */
+/**
+ * `unsupported` lists targets the compiler cannot build this example for, with
+ * the reason shown in the UI. The playground disables those targets instead of
+ * dropping a wall of compiler errors into the output pane.
+ *
+ * @type {{ id: string, title: string, file: string, description: string,
+ *          needsProcess?: boolean, unsupported?: Record<string, string> }[]}
+ */
+const NO_SCALA_PROCESS = {
+  scala: "Scala output cannot compile RangerProcess.rgr (for-loop with continue)",
+};
+
 export const EXAMPLES = [
   {
     id: "hello",
@@ -29,11 +40,40 @@ export const EXAMPLES = [
     description: "Optionals and unwrap patterns.",
   },
   {
+    id: "shape-value",
+    title: "Shape: closed variant family",
+    file: "shape_value.rgr",
+    description:
+      "shape / case / group: one type, four variants, each carrying only its own fields. Every target picks its own representation — a tagged object on JS and Python, a native enum on Rust and Swift, an interface on Kotlin and C#, a variant on C++.",
+  },
+  {
+    id: "shape-match",
+    title: "Shape: exhaustive match",
+    file: "shape_match.rgr",
+    description:
+      "match over a closed family with the compiler checking that every case is handled exactly once. Delete an arm and it names the case you dropped.",
+  },
+  {
+    id: "shape-methods",
+    title: "Shape: methods on a family",
+    file: "shape_methods.rgr",
+    description:
+      "Methods declared on the shape itself lower to a generated ops class — `self` is the value the method acts on, and no target needs dispatch through the union.",
+  },
+  {
+    id: "shape-group-methods",
+    title: "Shape: group capabilities",
+    file: "shape_group_methods.rgr",
+    description:
+      "A bodyless group method is a required capability each member case implements. Calls are statically qualified and dispatch exhaustively — no wrappers, no vtables.",
+  },
+  {
     id: "process-tick",
     title: "Process tick child",
     file: "process_tick_child.rgr",
     description: "@process child spawn; proc_send to typed handler methods.",
     needsProcess: true,
+    unsupported: NO_SCALA_PROCESS,
   },
   {
     id: "process-lifecycle",
@@ -41,6 +81,7 @@ export const EXAMPLES = [
     file: "process_page_lifecycle.rgr",
     description: "Screen/page/timer process tree and STOP order.",
     needsProcess: true,
+    unsupported: NO_SCALA_PROCESS,
   },
   {
     id: "process-named",
@@ -48,6 +89,7 @@ export const EXAMPLES = [
     file: "process_named_paths.rgr",
     description: "@name paths and find_process.",
     needsProcess: true,
+    unsupported: NO_SCALA_PROCESS,
   },
   {
     id: "process-send",
@@ -55,6 +97,7 @@ export const EXAMPLES = [
     file: "process_proc_send.rgr",
     description: "proc_send by path and reference; inbox logging on both pages.",
     needsProcess: true,
+    unsupported: NO_SCALA_PROCESS,
   },
   {
     id: "process-nesting",
@@ -62,6 +105,7 @@ export const EXAMPLES = [
     file: "process_nesting.rgr",
     description: "parentIdOf and registry introspection.",
     needsProcess: true,
+    unsupported: NO_SCALA_PROCESS,
   },
 ];
 
@@ -139,12 +183,13 @@ for (const ex of EXAMPLES) {
 fs.writeFileSync(
   path.join(outDir, "manifest.json"),
   JSON.stringify(
-    EXAMPLES.map(({ id, title, file, description, needsProcess }) => ({
+    EXAMPLES.map(({ id, title, file, description, needsProcess, unsupported }) => ({
       id,
       title,
       file,
       description,
       needsProcess: !!needsProcess,
+      unsupported: unsupported ?? {},
     })),
     null,
     2,

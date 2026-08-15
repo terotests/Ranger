@@ -1,9 +1,19 @@
 import "./ranger/nodeShim.js";
 import { EditorView, keymap, lineNumbers, highlightActiveLine } from "@codemirror/view";
-import { EditorState, Compartment } from "@codemirror/state";
+import { EditorState, Compartment, type Extension } from "@codemirror/state";
 import { defaultKeymap, history as cmHistory, historyKeymap } from "@codemirror/commands";
 import { javascript } from "@codemirror/lang-javascript";
-import { syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language";
+import {
+  syntaxHighlighting,
+  defaultHighlightStyle,
+  StreamLanguage,
+} from "@codemirror/language";
+import { cpp, csharp, dart, java, kotlin, scala } from "@codemirror/legacy-modes/mode/clike";
+import { php } from "@codemirror/lang-php";
+import { go } from "@codemirror/legacy-modes/mode/go";
+import { python } from "@codemirror/legacy-modes/mode/python";
+import { rust } from "@codemirror/legacy-modes/mode/rust";
+import { swift } from "@codemirror/legacy-modes/mode/swift";
 import {
   compileRanger,
   type CompileResponse,
@@ -18,13 +28,41 @@ interface ExampleMeta {
   file: string;
   description: string;
   needsProcess?: boolean;
+  /** target -> why the compiler cannot build this example for it */
+  unsupported?: Record<string, string>;
 }
 
-const LANGUAGE_OPTIONS: { value: TargetLanguage; label: string }[] = [
-  { value: "es6", label: "JavaScript" },
-  { value: "kotlin", label: "Kotlin" },
-  { value: "swift6", label: "Swift 6" },
+/**
+ * Every target the browser compiler bundle can write, with the highlighter used
+ * for its output. JavaScript, TypeScript and PHP have a real grammar; the rest
+ * use a legacy stream mode, which is close enough for reading generated code.
+ */
+const LANGUAGE_OPTIONS: {
+  value: TargetLanguage;
+  label: string;
+  highlight: () => Extension;
+}[] = [
+  { value: "es6", label: "JavaScript", highlight: () => javascript() },
+  { value: "python", label: "Python", highlight: () => StreamLanguage.define(python) },
+  { value: "go", label: "Go", highlight: () => StreamLanguage.define(go) },
+  { value: "rust", label: "Rust", highlight: () => StreamLanguage.define(rust) },
+  { value: "cpp", label: "C++", highlight: () => StreamLanguage.define(cpp) },
+  { value: "csharp", label: "C#", highlight: () => StreamLanguage.define(csharp) },
+  { value: "java7", label: "Java", highlight: () => StreamLanguage.define(java) },
+  { value: "kotlin", label: "Kotlin", highlight: () => StreamLanguage.define(kotlin) },
+  { value: "swift6", label: "Swift 6", highlight: () => StreamLanguage.define(swift) },
+  { value: "dart", label: "Dart", highlight: () => StreamLanguage.define(dart) },
+  { value: "php", label: "PHP", highlight: () => php() },
+  { value: "scala", label: "Scala", highlight: () => StreamLanguage.define(scala) },
 ];
+
+function outputLanguageFor(language: TargetLanguage, typescript: boolean): Extension {
+  if (language === "es6") {
+    return javascript({ typescript });
+  }
+  const opt = LANGUAGE_OPTIONS.find((o) => o.value === language);
+  return opt ? opt.highlight() : javascript();
+}
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
@@ -75,11 +113,32 @@ const runBtn = document.querySelector<HTMLButtonElement>("#run-btn")!;
 const statusEl = document.querySelector<HTMLSpanElement>("#status")!;
 const exampleDesc = document.querySelector<HTMLParagraphElement>("#example-desc")!;
 
+const langOptionEls = new Map<TargetLanguage, HTMLOptionElement>();
 for (const opt of LANGUAGE_OPTIONS) {
   const o = document.createElement("option");
   o.value = opt.value;
   o.textContent = opt.label;
   langSelect.appendChild(o);
+  langOptionEls.set(opt.value, o);
+}
+
+/**
+ * Grey out the targets this example cannot be built for and say why, instead of
+ * letting the user pick one and read a page of compiler errors.
+ */
+function syncTargetsForExample(ex: ExampleMeta) {
+  const unsupported = ex.unsupported ?? {};
+  for (const opt of LANGUAGE_OPTIONS) {
+    const el = langOptionEls.get(opt.value)!;
+    const reason = unsupported[opt.value];
+    el.disabled = !!reason;
+    el.textContent = reason ? `${opt.label} — unsupported` : opt.label;
+    el.title = reason ?? "";
+  }
+  if (unsupported[langSelect.value]) {
+    langSelect.value = "es6";
+    syncToolbarForLanguage();
+  }
 }
 
 function syncToolbarForLanguage() {
@@ -172,6 +231,11 @@ async function loadExamples(): Promise<void> {
     exampleSelect.appendChild(o);
   }
   const params = new URLSearchParams(location.search);
+  const lang = params.get("lang");
+  if (lang && langOptionEls.has(lang as TargetLanguage)) {
+    langSelect.value = lang;
+    syncToolbarForLanguage();
+  }
   const initial = params.get("example") ?? examples[0]?.id;
   if (initial) {
     exampleSelect.value = initial;
@@ -179,18 +243,24 @@ async function loadExamples(): Promise<void> {
   }
 }
 
+function updateUrl(exampleId: string) {
+  const url = new URL(location.href);
+  url.searchParams.set("example", exampleId);
+  url.searchParams.set("lang", langSelect.value);
+  history.replaceState(null, "", url);
+}
+
 async function pickExample(id: string): Promise<void> {
   const ex = examples.find((e) => e.id === id);
   if (!ex) return;
   exampleDesc.textContent = ex.description;
+  syncTargetsForExample(ex);
   const res = await fetch(`${import.meta.env.BASE_URL}examples/${ex.file}`);
   const text = await res.text();
   sourceEditor.dispatch({
     changes: { from: 0, to: sourceEditor.state.doc.length, insert: text },
   });
-  const url = new URL(location.href);
-  url.searchParams.set("example", id);
-  history.replaceState(null, "", url);
+  updateUrl(id);
   scheduleCompile();
 }
 
@@ -209,9 +279,10 @@ async function doCompile(): Promise<CompileResponse | null> {
     if (result.ok) {
       setOutput(result.output);
       setStatus(`OK · ${result.elapsedMs} ms`, "ok");
-      const highlightTs = language === "es6" && tsFlag.checked;
       outputEditor.dispatch({
-        effects: outputLang.reconfigure(javascript({ typescript: highlightTs })),
+        effects: outputLang.reconfigure(
+          outputLanguageFor(language, language === "es6" && tsFlag.checked),
+        ),
       });
     } else {
       setOutput(result.errors);
@@ -234,6 +305,7 @@ exampleSelect.addEventListener("change", () => {
 });
 langSelect.addEventListener("change", () => {
   syncToolbarForLanguage();
+  updateUrl(exampleSelect.value);
   scheduleCompile();
 });
 tsFlag.addEventListener("change", scheduleCompile);

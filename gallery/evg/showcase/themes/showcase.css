@@ -97,6 +97,10 @@
 .nest     { padding: 12px; width: 100%; }
 .l4       { height: 24px; }
 
+/* ---- emoji: cluster specimens and a tint of their own ------------------ */
+.seqRow  { flex-direction: row; width: 100%; }
+.seqText { flex: 1; }
+
 /* ==== theme: editorial — warm paper, serif display ====================== */
 
 .theme-editorial .page {
@@ -166,6 +170,17 @@
 .theme-editorial .baseline  { flex-direction: row; align-items: baseline; margin-top: 10px; }
 .theme-editorial .big       { font-size: 30px; font-family: Cinzel; color: #3b2f2a; }
 .theme-editorial .small     { font-size: 13px; color: #6b5b52; margin-left: 10px; }
+
+.theme-editorial .seqRow    { margin-top: 14px; gap: 16px; }
+.theme-editorial .seqGlyph  { font-size: 34px; color: #3b2f2a; width: 56px; }
+.theme-editorial .seqName   { font-size: 13px; font-family: Josefin Sans; color: #3b2f2a; }
+.theme-editorial .seqNote   { font-size: 12px; color: #6b5b52; line-height: 1.4; margin-top: 3px; }
+.theme-editorial .tintRose,
+.theme-editorial .tintBlue,
+.theme-editorial .tintGreen { font-size: 20px; color: #3b2f2a; margin-top: 8px; }
+.theme-editorial .tintRose  { emoji-color: #c0392b; }
+.theme-editorial .tintBlue  { emoji-color: #2f6f9f; }
+.theme-editorial .tintGreen { emoji-color: #4f7a4a; }
 
 /* ==== theme: studio — dark, geometric sans ============================== */
 
@@ -239,3 +254,14 @@
 .theme-studio .baseline  { flex-direction: row; align-items: baseline; margin-top: 10px; }
 .theme-studio .big       { font-size: 28px; font-family: Josefin Sans; color: #4ea3ff; }
 .theme-studio .small     { font-size: 12px; color: #9aa7b6; margin-left: 10px; }
+
+.theme-studio .seqRow    { margin-top: 12px; gap: 14px; }
+.theme-studio .seqGlyph  { font-size: 32px; color: #f2f5f8; width: 52px; }
+.theme-studio .seqName   { font-size: 12px; font-family: Noto Sans; color: #f2f5f8; }
+.theme-studio .seqNote   { font-size: 11px; color: #9aa7b6; line-height: 1.45; margin-top: 3px; }
+.theme-studio .tintRose,
+.theme-studio .tintBlue,
+.theme-studio .tintGreen { font-size: 19px; color: #f2f5f8; margin-top: 8px; }
+.theme-studio .tintRose  { emoji-color: #ff6b6b; }
+.theme-studio .tintBlue  { emoji-color: #4ea3ff; }
+.theme-studio .tintGreen { emoji-color: #5fd08a; }

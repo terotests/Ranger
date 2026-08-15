@@ -219,6 +219,9 @@ class EVGPNGTool {
         
         ; Initialize text renderer
         textRenderer = (new RasterText())
+        ; So a codepoint the declared face lacks — an emoji, most often — is
+        ; drawn from a face that has it instead of coming out as an empty box.
+        textRenderer.setFallbackManager(fm)
         def defaultFont:TrueTypeFont (fontManager.getFont("Open Sans"))
         if (defaultFont.unitsPerEm > 0) {
             textRenderer.setFont(defaultFont)
@@ -431,27 +434,50 @@ class EVGPNGTool {
             }
         }
         
-        ; Render border
-        if el.borderWidth {
-            if el.borderWidth.isSet {
-                if el.borderColor {
-                    if el.borderColor.isSet {
-                        def bw:int (to_int (el.borderWidth.pixels * scale))
-                        def br:int (el.borderColor.red())
-                        def bg:int (el.borderColor.green())
-                        def bb:int (el.borderColor.blue())
-                        def ba:int (to_int ((el.borderColor.alpha()) * 255.0))
-                        
-                        if (w > 0.0) {
-                            if (h > 0.0) {
-                                ; Draw border as outline
-                                if (radius > 0) {
-                                    renderer.drawRoundedRect((to_int x) (to_int y) (to_int w) (to_int h) radius br bg bb ba)
+        ; Render border.
+        ;
+        ; Through the element's accessor: this read the element-level fields,
+        ; which only the camelCase style-object path writes, so a border
+        ; declared in CSS printed in the PDF and was missing from the image.
+        def bwPx:double (el.effectiveBorderWidthPx())
+        if (bwPx > 0.0) {
+            def ebc:EVGColor (el.effectiveBorderColor())
+            if (w > 0.0) {
+                if (h > 0.0) {
+                    def br:int (ebc.red())
+                    def bg:int (ebc.green())
+                    def bb:int (ebc.blue())
+                    def ba:int (to_int ((ebc.alpha()) * 255.0))
+                    ; The primitives draw a ONE PIXEL outline, so a 3px
+                    ; border came out hairline here while the PDF and the GPU
+                    ; backend drew it at its declared width. Nesting the
+                    ; outline inwards gives the band its thickness — and the
+                    ; radius has to shrink with it, or the corners of the
+                    ; inner rings bulge outside the outer one.
+                    def bwInt:int (to_int (bwPx * scale))
+                    if (bwInt < 1) {
+                        bwInt = 1
+                    }
+                    def ring:int 0
+                    while (ring < bwInt) {
+                        def rx:int (to_int (x + (to_double ring)))
+                        def ry:int (to_int (y + (to_double ring)))
+                        def rw:int (to_int (w - (to_double (ring * 2))))
+                        def rh:int (to_int (h - (to_double (ring * 2))))
+                        if (rw > 0) {
+                            if (rh > 0) {
+                                def rr:int (radius - ring)
+                                if (rr < 0) {
+                                    rr = 0
+                                }
+                                if (rr > 0) {
+                                    renderer.drawRoundedRect(rx ry rw rh rr br bg bb ba)
                                 } {
-                                    renderer.drawRect((to_int x) (to_int y) (to_int w) (to_int h) br bg bb ba)
+                                    renderer.drawRect(rx ry rw rh br bg bb ba)
                                 }
                             }
                         }
+                        ring = (ring + 1)
                     }
                 }
             }
@@ -734,6 +760,12 @@ class EVGPNGTool {
 
     ; One already-broken line of text, with the element's shadow if it has one.
     fn renderTextLine:void (el:EVGElement text:string x:double y:double fontSize:double textR:int textG:int textB:int textA:int hasShadow:boolean) {
+        ; Glyphs borrowed from a fallback face may be filled with their own
+        ; colour: the face is monochrome outlines, so it takes whatever it is
+        ; given, and `emoji-color` is how a caption asks for one that differs
+        ; from the sentence it sits in.
+        def ec:EVGColor (el.effectiveEmojiColor())
+        textRenderer.setFallbackColor((ec.red()) (ec.green()) (ec.blue()))
         if hasShadow {
             def shadowR:int (el.shadowColor.red())
             def shadowG:int (el.shadowColor.green())

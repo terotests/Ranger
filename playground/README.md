@@ -2,7 +2,18 @@
 
 In-browser Ranger compiler for [https://terotests.github.io/Ranger/](https://terotests.github.io/Ranger/).
 
-Targets: **JavaScript** (optional TypeScript annotations), **Kotlin**, and **Swift 6**. Uses the current `VirtualCompiler` (same pipeline as `rgrc`) with examples from `tests/fixtures/`.
+Targets: **JavaScript** (optional TypeScript annotations), **Python**, **Go**, **Rust**,
+**C++**, **C#**, **Java**, **Kotlin**, **Swift 6**, **Dart**, **PHP** and **Scala** — every
+writer the `VirtualCompiler` bundle carries except LLVM (no lowering for shapes) and
+Swift 3 (superseded by the Swift 6 writer). Same pipeline as `rgrc`, with examples from
+`tests/fixtures/`.
+
+The examples cover hello/infix/optionals, the `shape` / `case` / `group` closed variant
+families, and the `@process` runtime. A target that genuinely cannot build an example is
+disabled in the picker with the reason on hover, rather than dropping compiler errors in
+the output pane — Scala, for instance, cannot compile `RangerProcess.rgr`.
+
+The picker state is in the URL: `?example=shape-value&lang=rust`.
 
 ## Local development
 

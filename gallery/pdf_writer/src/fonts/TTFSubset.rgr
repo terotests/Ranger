@@ -1,0 +1,409 @@
+; TTFSubset.rgr — embed the glyphs a page uses, not the whole face
+;
+; An emoji face is 858 KB and a colour one is 25 MB, essentially all of it
+; `glyf`. Embedding the file whole made one 🎉 on a page cost more than every
+; other byte of the PDF put together — and a photo book with an emoji in the
+; caption of each spread paid it once per face, not once per glyph.
+;
+; The subset here deliberately KEEPS GLYPH IDS. A conventional subsetter
+; renumbers glyphs densely and rewrites cmap to match; that would break the
+; PDF side, where the CID font is written `/CIDToGIDMap /Identity` and the
+; bytes in the content stream ARE glyph ids. Renumbering would mean either
+; emitting a CIDToGIDMap stream or rewriting every string already produced.
+; Holding the numbering still costs one empty `loca` entry (4 bytes) per
+; unused glyph below the highest used one, and nothing else:
+;
+;   Noto Emoji, one emoji on the page:  878 928  ->  ~15 000 bytes
+;
+; What is kept is the minimum an embedded CIDFontType2 needs to be drawn:
+; head, hhea, maxp, hmtx, loca, glyf. Everything else goes — `cmap` included,
+; because a Type0/Identity-H font never consults it (the CID is the glyph id),
+; and that alone drops GSUB, post, name, vmtx and the rest.
+;
+; Composite glyphs pull their components in transitively: an emoji built from
+; parts whose parts are themselves composite would otherwise embed a reference
+; to a glyph that is no longer there, and readers draw that as nothing.
+
+Import "TrueTypeFont.rgr"
+Import "../core/Buffer.rgr"
+
+class TTFSubset {
+
+    ; The bytes of a font containing only `usedGids` (plus their components),
+    ; with glyph ids unchanged. Returns an empty buffer when the face cannot be
+    ; subset — a caller that gets one should embed the original rather than
+    ; produce a PDF with no font in it.
+    sfn build:buffer (font:TrueTypeFont usedGids:[int]) {
+        def sub (new TTFSubset())
+        return (sub.run(font usedGids))
+    }
+
+    def font:TrueTypeFont
+    def glyfOffset:int 0
+    def glyfLength:int 0
+    def locaOffset:int 0
+    def locaLongFormat:boolean false
+    ; keep[gid] — sized to the original numGlyphs, so a composite component can
+    ; be marked no matter where it sits.
+    def keep:[boolean]
+
+    Constructor () {
+    }
+
+    fn run:buffer (f:TrueTypeFont usedGids:[int]) {
+        font = f
+        def empty:buffer (buffer_alloc 0)
+        if ((f.isLoaded()) == false) {
+            return empty
+        }
+
+        def glyfTab:TTFTableRecord (f.findTable("glyf"))
+        def locaTab:TTFTableRecord (f.findTable("loca"))
+        def headTab:TTFTableRecord (f.findTable("head"))
+        def hheaTab:TTFTableRecord (f.findTable("hhea"))
+        def maxpTab:TTFTableRecord (f.findTable("maxp"))
+        def hmtxTab:TTFTableRecord (f.findTable("hmtx"))
+        ; A CFF face has no `glyf` at all and cannot be subset this way.
+        if (glyfTab.offset == 0) {
+            return empty
+        }
+        if (locaTab.offset == 0) {
+            return empty
+        }
+        if (headTab.offset == 0) {
+            return empty
+        }
+        if (hheaTab.offset == 0) {
+            return empty
+        }
+        if (maxpTab.offset == 0) {
+            return empty
+        }
+        if (hmtxTab.offset == 0) {
+            return empty
+        }
+
+        glyfOffset = glyfTab.offset
+        glyfLength = glyfTab.length
+        locaOffset = locaTab.offset
+        locaLongFormat = (f.indexToLocFormat == 1)
+
+        def total:int f.numGlyphs
+        if (total <= 0) {
+            return empty
+        }
+
+        clear keep
+        def i:int 0
+        while (i < total) {
+            push keep false
+            i = (i + 1)
+        }
+        ; .notdef is always present: a reader that needs a missing glyph draws
+        ; it, and an empty glyph 0 is what "missing" should look like.
+        this.mark(0 0)
+
+        def u:int 0
+        while (u < (array_length usedGids)) {
+            this.mark((itemAt usedGids u) 0)
+            u = (u + 1)
+        }
+
+        ; Everything above the highest kept glyph can simply not exist, which
+        ; is where most of the loca table goes.
+        def maxGid:int 0
+        def k:int 0
+        while (k < total) {
+            if (itemAt keep k) {
+                maxGid = k
+            }
+            k = (k + 1)
+        }
+        def newNumGlyphs:int (maxGid + 1)
+
+        ; ---- glyf + loca -------------------------------------------------
+        def newGlyf (new GrowableBuffer())
+        def offsets:[int]
+        def g:int 0
+        while (g < newNumGlyphs) {
+            push offsets (newGlyf.size())
+            if (itemAt keep g) {
+                def start:int (this.glyphStart(g))
+                def end:int (this.glyphEnd(g))
+                if (end > start) {
+                    newGlyf.writeBytes(font.fontData (glyfOffset + start) (end - start))
+                    ; Glyph data is padded to a 4-byte boundary so the long
+                    ; loca offsets stay word-aligned, which some rasterizers
+                    ; assume even though the spec only asks for 2.
+                    while (((newGlyf.size()) % 4) != 0) {
+                        newGlyf.writeByte(0)
+                    }
+                }
+            }
+            g = (g + 1)
+        }
+        push offsets (newGlyf.size())
+
+        def newLoca (new GrowableBuffer())
+        def li:int 0
+        while (li < (array_length offsets)) {
+            ; Always long format: a short loca stores offset/2 and cannot
+            ; address a glyf table over 128 KB, and deciding per font is a
+            ; branch with nothing to gain.
+            newLoca.writeInt32BE((itemAt offsets li))
+            li = (li + 1)
+        }
+
+        ; ---- head, with the loca format corrected ------------------------
+        def newHead (new GrowableBuffer())
+        newHead.writeBytes(font.fontData headTab.offset headTab.length)
+        def headBuf:buffer (newHead.toBuffer())
+        ; checkSumAdjustment (offset 8) is zeroed: it is a checksum over the
+        ; whole assembled file, and no reader that matters verifies it.
+        buffer_set headBuf 8 0
+        buffer_set headBuf 9 0
+        buffer_set headBuf 10 0
+        buffer_set headBuf 11 0
+        ; indexToLocFormat (offset 50) = 1, long.
+        buffer_set headBuf 50 0
+        buffer_set headBuf 51 1
+
+        ; ---- hmtx, one full metric per surviving glyph --------------------
+        ;
+        ; The original packs trailing glyphs as bearings only, indexed off
+        ; numberOfHMetrics. Writing every glyph in long form costs 4 bytes a
+        ; glyph and removes the whole class of off-by-one that packing invites.
+        def newHmtx (new GrowableBuffer())
+        def origMetrics:int font.numberOfHMetrics
+        def m:int 0
+        while (m < newNumGlyphs) {
+            def src:int m
+            if (src >= origMetrics) {
+                src = (origMetrics - 1)
+            }
+            if (src < 0) {
+                src = 0
+            }
+            def adv:int (font.readUInt16(hmtxTab.offset + (src * 4)))
+            def lsb:int 0
+            if (m < origMetrics) {
+                lsb = (font.readInt16(hmtxTab.offset + (m * 4) + 2))
+            } {
+                def tailOff:int (hmtxTab.offset + (origMetrics * 4) + ((m - origMetrics) * 2))
+                if ((tailOff + 2) <= (hmtxTab.offset + hmtxTab.length)) {
+                    lsb = (font.readInt16(tailOff))
+                }
+            }
+            newHmtx.writeInt16BE(adv)
+            newHmtx.writeInt16BE(lsb)
+            m = (m + 1)
+        }
+
+        def newHhea (new GrowableBuffer())
+        newHhea.writeBytes(font.fontData hheaTab.offset hheaTab.length)
+        def hheaBuf:buffer (newHhea.toBuffer())
+        ; numberOfHMetrics (offset 34) now equals the glyph count.
+        buffer_set hheaBuf 34 (to_int (newNumGlyphs / 256))
+        buffer_set hheaBuf 35 (newNumGlyphs % 256)
+
+        def newMaxp (new GrowableBuffer())
+        newMaxp.writeBytes(font.fontData maxpTab.offset maxpTab.length)
+        def maxpBuf:buffer (newMaxp.toBuffer())
+        ; numGlyphs (offset 4)
+        buffer_set maxpBuf 4 (to_int (newNumGlyphs / 256))
+        buffer_set maxpBuf 5 (newNumGlyphs % 256)
+
+        ; ---- assemble ----------------------------------------------------
+        ; The directory has to be ordered by tag; these are pushed that way —
+        ; glyf, head, hhea, hmtx, loca, maxp is already alphabetical — rather
+        ; than sorted afterwards, so there is nothing to keep in step.
+        def tags:[string]
+        def datas:[buffer]
+        push tags "glyf"
+        push datas (newGlyf.toBuffer())
+        push tags "head"
+        push datas headBuf
+        push tags "hhea"
+        push datas hheaBuf
+        push tags "hmtx"
+        push datas (newHmtx.toBuffer())
+        push tags "loca"
+        push datas (newLoca.toBuffer())
+        push tags "maxp"
+        push datas maxpBuf
+
+        return (this.writeSfnt(tags datas))
+    }
+
+    ; Mark a glyph and, when it is composite, everything it is built from.
+    ;
+    ; `depth` guards against a font whose components form a cycle. A real face
+    ; never does, but a subsetter that loops on a malformed one hangs the build
+    ; rather than producing a bad PDF, which is worse.
+    fn mark:void (gid:int depth:int) {
+        if (depth > 8) {
+            return
+        }
+        if (gid < 0) {
+            return
+        }
+        if (gid >= (array_length keep)) {
+            return
+        }
+        if (itemAt keep gid) {
+            return
+        }
+        set keep gid true
+
+        def start:int (this.glyphStart(gid))
+        def end:int (this.glyphEnd(gid))
+        if ((end - start) < 10) {
+            return
+        }
+        def off:int (glyfOffset + start)
+        def numberOfContours:int (font.readInt16(off))
+        if (numberOfContours >= 0) {
+            return
+        }
+
+        ; Composite: a run of component records, each with its own flags.
+        def p:int (off + 10)
+        def more:boolean true
+        while more {
+            def flags:int (font.readUInt16(p))
+            def compGid:int (font.readUInt16(p + 2))
+            this.mark(compGid (depth + 1))
+            p = (p + 4)
+            ; ARG_1_AND_2_ARE_WORDS
+            if ((flags % 2) == 1) {
+                p = (p + 4)
+            } {
+                p = (p + 2)
+            }
+            ; WE_HAVE_A_SCALE (8) / WE_HAVE_AN_X_AND_Y_SCALE (64) /
+            ; WE_HAVE_A_TWO_BY_TWO (128) — mutually exclusive.
+            if ((this.bit(flags 3)) == 1) {
+                p = (p + 2)
+            }
+            if ((this.bit(flags 6)) == 1) {
+                p = (p + 4)
+            }
+            if ((this.bit(flags 7)) == 1) {
+                p = (p + 8)
+            }
+            ; MORE_COMPONENTS
+            more = ((this.bit(flags 5)) == 1)
+            if (p >= (glyfOffset + glyfLength)) {
+                more = false
+            }
+        }
+    }
+
+    fn bit:int (value:int n:int) {
+        def shifted:int value
+        def i:int 0
+        while (i < n) {
+            shifted = (to_int (shifted / 2))
+            i = (i + 1)
+        }
+        return (shifted % 2)
+    }
+
+    fn glyphStart:int (gid:int) {
+        if locaLongFormat {
+            return (font.readUInt32(locaOffset + (gid * 4)))
+        }
+        return ((font.readUInt16(locaOffset + (gid * 2))) * 2)
+    }
+
+    fn glyphEnd:int (gid:int) {
+        return (this.glyphStart(gid + 1))
+    }
+
+    fn writeSfnt:buffer (tags:[string] datas:[buffer]) {
+        def n:int (array_length tags)
+        def out (new GrowableBuffer())
+
+        ; Offset table. searchRange/entrySelector/rangeShift describe a binary
+        ; search over the directory; they are derived from n, and a reader that
+        ; uses them will read past the end if they disagree.
+        def entrySelector:int 0
+        def pow:int 1
+        while ((pow * 2) <= n) {
+            pow = (pow * 2)
+            entrySelector = (entrySelector + 1)
+        }
+        def searchRange:int (pow * 16)
+
+        out.writeInt32BE(65536)          ; sfntVersion 1.0
+        out.writeInt16BE(n)
+        out.writeInt16BE(searchRange)
+        out.writeInt16BE(entrySelector)
+        out.writeInt16BE((n * 16) - searchRange)
+
+        ; Directory entries come first, so every table offset is known before
+        ; a byte of table data is written.
+        def dataStart:int (12 + (n * 16))
+        def offsets:[int]
+        def cursor:int dataStart
+        def i:int 0
+        while (i < n) {
+            push offsets cursor
+            def len:int (buffer_length (itemAt datas i))
+            cursor = (cursor + len)
+            while ((cursor % 4) != 0) {
+                cursor = (cursor + 1)
+            }
+            i = (i + 1)
+        }
+
+        i = 0
+        while (i < n) {
+            def d:buffer (itemAt datas i)
+            out.writeString((itemAt tags i))
+            out.writeInt32BE((TTFSubset.checksum(d)))
+            out.writeInt32BE((itemAt offsets i))
+            out.writeInt32BE((buffer_length d))
+            i = (i + 1)
+        }
+
+        i = 0
+        while (i < n) {
+            def d2:buffer (itemAt datas i)
+            out.writeBuffer(d2)
+            while (((out.size()) % 4) != 0) {
+                out.writeByte(0)
+            }
+            i = (i + 1)
+        }
+        return (out.toBuffer())
+    }
+
+    ; The sum of the table's 32-bit big-endian words, padded with zeros.
+    ; Written because the directory has a field for it; nothing here depends
+    ; on the value being right, but a validator will say so if it is not.
+    sfn checksum:int (data:buffer) {
+        def sum:int 0
+        def len:int (buffer_length data)
+        def i:int 0
+        while (i < len) {
+            def b0:int (buffer_get data i)
+            def b1:int 0
+            def b2:int 0
+            def b3:int 0
+            if ((i + 1) < len) {
+                b1 = (buffer_get data (i + 1))
+            }
+            if ((i + 2) < len) {
+                b2 = (buffer_get data (i + 2))
+            }
+            if ((i + 3) < len) {
+                b3 = (buffer_get data (i + 3))
+            }
+            def word:int ((((b0 * 16777216) + (b1 * 65536)) + (b2 * 256)) + b3)
+            sum = ((sum + word) % 4294967296)
+            i = (i + 4)
+        }
+        return sum
+    }
+}

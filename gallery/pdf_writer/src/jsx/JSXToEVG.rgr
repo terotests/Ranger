@@ -878,10 +878,10 @@ class JSXToEVG {
             element.box.borderWidth = (EVGUnit.parse(value))
         }
         if (name == "borderWidth") {
-            element.borderWidth = (EVGUnit.parse(value))
+            element.box.borderWidth = (EVGUnit.parse(value))
         }
         if (name == "borderColor") {
-            element.borderColor = (EVGColor.parse(value))
+            element.box.borderColor = (EVGColor.parse(value))
         }
         if (name == "borderTop") {
             element.borderTopWidth = (EVGUnit.parse(value))
@@ -974,6 +974,9 @@ class JSXToEVG {
         }
         if (name == "color") {
             element.color = (EVGColor.parse(value))
+        }
+        if (name == "emojiColor") {
+            element.emojiColor = (EVGColor.parse(value))
         }
         if (name == "opacity") {
             element.opacity = (this.parseNumberValue(value))

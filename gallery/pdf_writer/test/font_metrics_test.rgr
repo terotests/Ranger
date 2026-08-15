@@ -14,6 +14,7 @@
 
 Import "../src/fonts/FontManager.rgr"
 Import "../src/fonts/EVGFontSetup.rgr"
+Import "../src/fonts/TTFSubset.rgr"
 Import "../../evg/EVGTextEngine.rgr"
 Import "../../evg/EVGTextMeasurer.rgr"
 Import "../../evg/EVGElement.rgr"
@@ -46,6 +47,9 @@ class FontMetricsTest {
         test.testRasterWrapMatchesLayout(t fm)
         test.testKerning(t fm)
         test.testBoldIsMeasured(t fm)
+        test.testEmojiFallback(t fm)
+        test.testSubset(t fm)
+        test.testShaping(t fm)
         t.summary()
     }
 
@@ -327,4 +331,200 @@ class FontMetricsTest {
         t.near("laid-out label width equals the measured advance" label.calculatedWidth expected)
         t.ok("and it is not the heuristic width" ((label.calculatedWidth - (14.0 * 30.0 * 0.55)) != 0.0))
     }
+
+    ; Emoji reach the page at all.
+    ;
+    ; A text face has no emoji and an emoji face has no letters, so a run that
+    ; mixes them cannot be measured or drawn from one file. Before the fallback
+    ; existed, "Ready" plus a party popper measured as if the emoji were a
+    ; .notdef box and painted as nothing, and the PDF encoder called it
+    ; unencodable — because
+    ; WinAnsi is one byte wide and U+1F389 does not fit in one byte at any
+    ; price. This locks the pieces that make it work.
+    fn testEmojiFallback:void (t:RgTest fm:FontManager) {
+        def grin:int 128512          ; U+1F600
+        def party:int 127881         ; U+1F389
+
+        ; The face has to be loaded by default, or nothing below can happen.
+        def emoji:TrueTypeFont (fm.getFont("Noto Emoji"))
+        t.ok("the emoji face is loaded" (emoji.isLoaded()))
+
+        ; Reaching an astral codepoint at all needs cmap format 12: format 4
+        ; is 16-bit and cannot address past the BMP.
+        t.eqInt("the emoji face is read through a format 12 cmap" emoji.cmapFormat 12)
+        t.ok("and U+1F600 resolves to a real glyph" ((emoji.getGlyphIndex(grin)) > 0))
+
+        ; The text face does NOT have it — which is the whole reason a fallback
+        ; is needed, and worth asserting so this test cannot pass vacuously.
+        def sans:TrueTypeFont (fm.getFont("Noto Sans"))
+        t.ok("the text face does not" ((sans.getGlyphIndex(grin)) == 0))
+
+        ; The lookup picks the face that has the glyph...
+        def picked:TrueTypeFont (fm.faceForCodepoint("Noto Sans" party))
+        t.eqStr("the fallback lookup finds the emoji face" picked.fontFamily "Noto Emoji")
+        def forA:TrueTypeFont (fm.faceForCodepoint("Noto Sans" 65))
+        t.eqStr("a letter still comes from the text face" forA.fontFamily "Noto Sans")
+
+        ; ...and reports nothing when no loaded face has the codepoint. This
+        ; used to answer with a blank TrueTypeFont that LOOKED loaded, because
+        ; unitsPerEm is born 1000 — so an uncovered character was drawn as
+        ; .notdef out of a font that had never been opened.
+        def none:TrueTypeFont (fm.fallbackFace(1000000))
+        t.ok("an uncovered codepoint has no fallback face" ((none.isLoaded()) == false))
+
+        ; Measurement crosses the boundary: one emoji, not two half-glyphs.
+        ; Built from the codepoint rather than written literally, so the test
+        ; cannot be broken by the source file's own encoding.
+        def grinStr:string (EVGCodepoint.toStr(grin))
+        def mixed:double (fm.measureText(("a" + grinStr + "b") "Noto Sans" 20.0))
+        def plain:double (fm.measureText("ab" "Noto Sans" 20.0))
+        def oneEmoji:double (emoji.measureText(grinStr 20.0))
+        t.near("a mixed run measures as its parts" mixed (plain + oneEmoji))
+        t.ok("and the emoji contributes a real advance" (oneEmoji > 0.0))
+    }
+
+
+    ; The embedded font carries the glyphs the page used, not the face.
+    ;
+    ; 858 KB for one 🎉 was more than the rest of the PDF put together. The
+    ; subset keeps glyph IDS — a dense renumbering would invalidate every
+    ; string already written, since Identity-H puts glyph ids in the content
+    ; stream — so the saving comes from `glyf` and from dropping every table a
+    ; CIDFontType2 never consults.
+    fn testSubset:void (t:RgTest fm:FontManager) {
+        def emoji:TrueTypeFont (fm.getFont("Noto Emoji"))
+        if ((emoji.isLoaded()) == false) {
+            t.ok("emoji face present for the subset test" false)
+            return
+        }
+        def wanted:[int]
+        push wanted (emoji.getGlyphIndex(128512))
+        def sub:buffer (TTFSubset.build(emoji wanted))
+        def subLen:int (buffer_length sub)
+        def fullLen:int (buffer_length (emoji.getFontData()))
+
+        t.ok("the subset is not empty" (subLen > 0))
+        t.ok("and is a small fraction of the face" (subLen < (to_int (fullLen / 20))))
+
+        ; A valid sfnt: version 1.0 and the six tables a CIDFontType2 needs.
+        def v0:int (buffer_get sub 0)
+        def v1:int (buffer_get sub 1)
+        def v2:int (buffer_get sub 2)
+        def v3:int (buffer_get sub 3)
+        t.ok("it starts with sfnt version 1.0"
+             ((((v0 == 0) && (v1 == 1)) && (v2 == 0)) && (v3 == 0)))
+        def numTables:int (((buffer_get sub 4) * 256) + (buffer_get sub 5))
+        t.eqInt("with the six tables a CIDFontType2 needs" numTables 6)
+
+        ; numGlyphs must still reach the glyph that was asked for, because the
+        ; PDF names glyphs by their ORIGINAL id.
+        def wantGid:int (itemAt wanted 0)
+        def maxpNum:int (this.tableNumGlyphs(sub))
+        t.ok("and numGlyphs still covers the requested glyph id" (maxpNum > wantGid))
+
+        ; A face nothing asked for still subsets — to .notdef alone, not to
+        ; nothing, so a reader always has a glyph 0 to fall back on.
+        def none:[int]
+        def bare:buffer (TTFSubset.build(emoji none))
+        t.ok("an empty request still produces a font" ((buffer_length bare) > 0))
+    }
+
+    ; numGlyphs out of the subset's own maxp, found through its table directory.
+    fn tableNumGlyphs:int (sub:buffer) {
+        def n:int (((buffer_get sub 4) * 256) + (buffer_get sub 5))
+        def i:int 0
+        while (i < n) {
+            def rec:int (12 + (i * 16))
+            def tag:string ""
+            def c:int 0
+            while (c < 4) {
+                tag = tag + (strfromcode (buffer_get sub (rec + c)))
+                c = (c + 1)
+            }
+            if (tag == "maxp") {
+                def off:int 0
+                def b:int 0
+                while (b < 4) {
+                    off = ((off * 256) + (buffer_get sub ((rec + 8) + b)))
+                    b = (b + 1)
+                }
+                return (((buffer_get sub (off + 4)) * 256) + (buffer_get sub (off + 5)))
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+
+    ; A sequence becomes the glyph it is supposed to be.
+    ;
+    ; Without GSUB ligature substitution, 👨‍👩‍👧 is three people and two
+    ; invisible joiners, 👍🏽 is a thumb followed by a colour swatch, and 🇫🇮 is
+    ; two letters in boxes. The face has one glyph for each of them; the
+    ; shaper is what finds it.
+    fn testShaping:void (t:RgTest fm:FontManager) {
+        def emoji:TrueTypeFont (fm.getFont("Noto Emoji"))
+        if ((emoji.isLoaded()) == false) {
+            t.ok("emoji face present for the shaping test" false)
+            return
+        }
+        t.ok("the emoji face carries ligature lookups" emoji.hasShaping)
+
+        ; U+1F468 U+200D U+1F469 U+200D U+1F467
+        def family:[int]
+        push family 128104
+        push family 8205
+        push family 128105
+        push family 8205
+        push family 128103
+        def famRun:TTFShapedRun (emoji.shape(family))
+        t.eqInt("a joined family shapes to one glyph" (famRun.count()) 1)
+        t.eqInt("and that glyph stands for all five codepoints"
+                ((itemAt famRun.clusterEnd 0) - (itemAt famRun.clusterStart 0)) 5)
+
+        ; U+1F1EB U+1F1EE
+        def flag:[int]
+        push flag 127467
+        push flag 127470
+        t.eqInt("a flag shapes to one glyph" ((emoji.shape(flag)).count()) 1)
+
+        ; U+0031 U+FE0F U+20E3 — and the selector must not block the match.
+        def keycap:[int]
+        push keycap 49
+        push keycap 65039
+        push keycap 8419
+        def keyRun:TTFShapedRun (emoji.shape(keycap))
+        t.eqInt("a keycap shapes to one glyph" (keyRun.count()) 1)
+        t.eqInt("with the variation selector inside its cluster"
+                ((itemAt keyRun.clusterEnd 0) - (itemAt keyRun.clusterStart 0)) 3)
+
+        ; The keycap's BASE is a digit, which the text face has. Choosing a
+        ; face per codepoint therefore kept the "1" in the text face and sent
+        ; only the tail to the emoji face, and the ligature never saw all
+        ; three parts.
+        def picked:TrueTypeFont (fm.faceForCluster("Noto Sans" keycap 0 3))
+        t.eqStr("a keycap is drawn entirely from the emoji face"
+                picked.fontFamily "Noto Emoji")
+        def one:[int]
+        push one 49
+        def digit:TrueTypeFont (fm.faceForCluster("Noto Sans" one 0 1))
+        t.eqStr("but a bare digit still comes from the text face"
+                digit.fontFamily "Noto Sans")
+
+        ; Width follows: one glyph, one advance. Measured through the manager
+        ; — the path layout actually uses — against the face's own shaped
+        ; measurement.
+        def famStr:string ""
+        def i:int 0
+        while (i < (array_length family)) {
+            famStr = famStr + (EVGCodepoint.toStr((itemAt family i)))
+            i = (i + 1)
+        }
+        def viaManager:double (fm.measureText(famStr "Noto Sans" 20.0))
+        def viaFace:double (emoji.measureShapedText(famStr 20.0))
+        t.near("a family measures as the one glyph it becomes" viaManager viaFace)
+        t.ok("and that is far less than its parts would be"
+             (viaManager < (viaFace * 2.0)))
+    }
+
 }

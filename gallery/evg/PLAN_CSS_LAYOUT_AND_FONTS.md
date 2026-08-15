@@ -833,6 +833,173 @@ Known limit the gallery shows rather than hides: the raster target's JPEG
 decode has visible block artefacts, and the PDF path — which embeds the
 original file untouched — does not. Both are on the page, side by side.
 
+### Phase 4.7 — Codepoints, and emoji that actually print ✅
+
+**Text is stepped by codepoint.** `charAt` returns a UTF-16 code *unit*, so
+everything outside the BMP — emoji, CJK extensions, most maths symbols — was
+seen as two characters, and neither half is a real codepoint. On a page
+containing `a😀b`:
+
+| | before |
+| --- | --- |
+| measured width | 47.53px — the emoji was charged **two** `.notdef` advances |
+| JSON display list | `ed a0 bd ed b8 80`, CESU-8 surrogate halves; a strict UTF-8 parser refuses the file |
+| PDF | two encoding warnings, at U+D83D and U+DE00, which are not characters |
+
+`EVGCodepoint` is now the one place that knows how to walk a string —
+`codeAt`, `unitsAt`, `count`, `toArray`, `toStr`, `encodeUtf8` — and it is
+threaded through every site that looks up a glyph or writes bytes.
+
+**Emoji reach the page.** Three things had to be true at once, and each was
+false:
+
+- **A face that has the glyphs.** `Noto_Emoji/NotoEmoji-Regular.ttf` is loaded
+  last, so it is never picked as a substitute for a missing *text* face. It is
+  the monochrome `glyf` cut on purpose: the colour formats are bitmaps
+  (CBDT/sbix) or layered vectors (COLR/CPAL), and neither the outline
+  rasterizer nor the PDF font path can read those. Ordinary outlines mean the
+  same file works on all three targets with no new machinery.
+- **A cmap that reaches past the BMP.** Format 4 is 16-bit and cannot address
+  U+1F600 at all. `TrueTypeFont` now prefers a format 12 subtable — `(3,10)`
+  or `(0,4)`/`(0,6)` — and binary-searches its groups.
+- **A run that can cross faces.** A text face has no emoji and an emoji face
+  has no letters, so `Ready 🎉` cannot be measured or drawn from one file.
+  `FontManager.faceForCodepoint` resolves per codepoint, the primary family
+  winning whatever it can draw, so ordinary text takes exactly the same path it
+  did before. Kerning is applied only between two codepoints from the same
+  face — a pair spanning the boundary has no kern pair by definition.
+
+Each target then does the one thing it has to:
+
+- **PNG** — `RasterText` swaps face mid-run for a missing glyph and keeps the
+  primary face's baseline, so the line does not step where the face changes.
+- **PDF** — WinAnsi is one byte wide and has no room for U+1F389 at any price,
+  so a fallback span is drawn through a **Type0 / Identity-H** resource
+  (`/E1..`, alongside the WinAnsi `/F1..`) whose strings are glyph ids, with a
+  `/W` array and a `/ToUnicode` cmap built from what was actually drawn. The
+  existing fonts are untouched: converting everything to Identity-H would
+  change the encoding, `/Widths` and cmap of text that is currently correct in
+  order to fix text that currently cannot be written at all.
+- **HTML** — the fallback face is named in the `font-family` stack and
+  `@font-face`d, but *only when the document needs it*: without that the
+  browser substitutes its own emoji font, whose advances are not the ones EVG
+  measured with, and the line wraps where the PDF did not.
+
+Emoji in a rendered PDF now extract as their real codepoints (`U+1F389`,
+`U+1F600`, …) rather than as `?`.
+
+One bug this surfaced, in code written the same afternoon: `unitsPerEm` is born
+`1000`, so a *blank* `TrueTypeFont` — the "no face has this codepoint" answer —
+passed a `unitsPerEm > 0` test and was used as if it were a font. `✓` (U+2713,
+which nothing bundled actually has) came out as `.notdef` drawn from a face
+that had never been opened, with no warning. `TrueTypeFont.isLoaded()` is the
+test now, and the unencodable character is reported again.
+
+### Phase 4.8 — Clusters, ligatures, and a font that is only as big as the page ✅
+
+Two of Phase 4.7's three known limits, closed.
+
+**The embedded font carries the glyphs the page used.** `TTFSubset` keeps head,
+hhea, maxp, hmtx, loca and glyf, and drops everything else — `cmap` included,
+because a Type0/Identity-H font never consults it, which takes GSUB, post,
+name and vmtx with it. It deliberately **keeps glyph ids**: a dense
+renumbering would invalidate every string already written, since Identity-H
+puts glyph ids in the content stream. Composite glyphs pull their components
+in transitively.
+
+| | before | after |
+| --- | --- | --- |
+| a page with three emoji | 1 298 067 | 429 332 |
+| `test_for_loop_simple` | 1 717 604 | 840 059 |
+
+The remainder in each is the WinAnsi text face, which is **not** subset: a
+simple TrueType font is read through its cmap, so that path needs a different
+set of tables kept.
+
+**Text is stepped by grapheme cluster.** A codepoint is not what a reader calls
+a character: 🇫🇮 is two, 👍🏽 is two, 1️⃣ is three, 👨‍👩‍👧 is five, and each is one
+glyph, one advance, and one place a line may not break. Stepping by codepoint
+cost three separate things — the face was chosen per codepoint, so a keycap put
+its digit in the text face and its box in the emoji face and the ligature never
+saw all three parts; the width was the sum of the parts, so a family measured
+four advances wide and drew one; and the `/ToUnicode` entry named one codepoint
+for a glyph made of five.
+
+`EVGGrapheme` is the cluster rule — a deliberate subset of UAX #29: the
+emoji-relevant rules and the combining marks, not the full property tables.
+`TrueTypeFont.shape()` is the shaper: drop the variation selectors, then take
+the longest GSUB **LookupType 4** ligature, with the Extension (type 7) wrapper
+unwrapped. That is not a general OpenType shaper — no contextual lookups, no
+reordering — but it is exactly what emoji sequences need, and it runs only on a
+run already known to belong to one face, so it can never disturb ordinary text.
+Measured on Noto Emoji, it resolves every case that matters:
+
+```
+👨‍👩‍👧  5 codepoints -> 1 glyph      🇫🇮  2 -> 1        1️⃣  3 -> 1
+👍🏽  2 -> 1                          🏳️‍🌈  4 -> 1
+```
+
+A cluster the primary face draws is measured and painted exactly as before —
+per codepoint, with kerning — because those two must not part company. Only a
+cluster handed to a fallback face goes through the shaper. All 28 example PDFs
+re-render **byte-identical** across this change.
+
+One bug it turned up in its own first draft: a fallback segment was *measured*
+through the ordinary per-codepoint path and *drawn* shaped, so a joined family
+was charged five advances and drew one, pushing everything after it on the line
+to the right. A segment's width now comes from the same walk that draws it.
+
+HTML needed one more thing. Chromium treats U+FE0F as an instruction to use its
+own colour emoji font whatever the `font-family` stack says, so keycaps and the
+rainbow flag came out of the system font, in colour, at advances that were not
+the ones EVG measured with. The HTML renderer now writes the text as the engine
+shaped it — selectors dropped — because the engine has already chosen the
+presentation by choosing the face. All three targets agree glyph for glyph.
+
+### Phase 4.9 — `emoji-color` ✅
+
+A monochrome emoji face is outlines, so it takes whatever colour it is filled
+with. Every target already tinted emoji with the element's `color` — the one
+thing the engine could not do was give them a **different** colour from the
+sentence they sit in, because EVG has no inline spans to hang a second colour
+on.
+
+```css
+.caption { color: #1f2937; emoji-color: #e11d48 }
+```
+
+Inherited like `color`, so a deck sets it once. Unset it is the text colour and
+every existing document is byte-identical — all 28 example PDFs confirm that.
+
+- **PDF** — the fill colour is chosen per segment, and a fallback segment is
+  already its own `BT`/`ET` block, so this is one `rg` operator.
+- **PNG** — the raster pen carries a second colour for fallback clusters.
+- **HTML** — fallback runs are wrapped in a `<span>` with their own colour,
+  which is also the first thing in this engine that needs the renderer to know
+  the faces rather than just their filenames.
+
+### Multi-colour emoji — sized, deliberately not built
+
+Noto Color Emoji is **COLRv1 with no v0 layer records at all**, so there is no
+simple layered-glyph path to take. Measured on the v40 face:
+
+| | |
+| --- | --- |
+| file | 25 MB, of which the `SVG ` table is 19 MB |
+| base colour glyphs | 3 993 |
+| using a gradient | **2 278 (57%)** |
+| deepest glyph | 230 layers |
+| paint formats | `PaintGlyph` 64 637, `PaintSolid` 51 493, transforms 29 107, gradients 8 630, `PaintComposite` 314 |
+
+Two facts decide it. Gradients are not a rounding error — flattening them to a
+single stop would visibly degrade more than half the set — and PDF has no COLR
+support at all, so colour glyphs must become vector artwork with invisible text
+behind them for extraction. That is a paint-graph interpreter, a glyph
+outline → PDF path converter, axial and radial shading patterns on both the PDF
+and the raster side, and a subsetter that follows COLR layer references. It is
+tractable and it is scoped here; it is not a variation on what `emoji-color`
+does.
+
 ## 11. File / module impact (expected)
 
 | Area | Likely touch points |
