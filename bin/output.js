@@ -31075,53 +31075,23 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             return;
                           }
                           if ( cmd == "substring" ) {
+                            wr.out("rg_substr(&", false);
                             ctx.setInExpr();
+                            wr.suppress_expr_parens = true;
                             await this.WalkNode(node.getSecond(), ctx, wr);
+                            wr.suppress_expr_parens = false;
+                            wr.out(", ", false);
                             const subStart = this.rustUnwrapParens(node.getThird());
                             const subEnd = this.rustUnwrapParens((node.children[3]));
-                            let startIsZero = false;
-                            if ( subStart.value_type == 3 ) {
-                              if ( subStart.int_value == 0 ) {
-                                startIsZero = true;
-                              }
-                            }
-                            wr.out(".chars()", false);
-                            if ( startIsZero == false ) {
-                              wr.out(".skip(", false);
-                              if ( subStart.value_type == 3 ) {
-                                wr.out("" + subStart.int_value, false);
-                              } else {
-                                wr.out("(", false);
-                                wr.suppress_expr_parens = true;
-                                await this.WalkNode(subStart, ctx, wr);
-                                wr.suppress_expr_parens = false;
-                                wr.out(") as usize", false);
-                              }
-                              wr.out(")", false);
-                            }
-                            wr.out(".take(", false);
-                            if ( startIsZero ) {
-                              if ( subEnd.value_type == 3 ) {
-                                wr.out("" + subEnd.int_value, false);
-                              } else {
-                                wr.out("(", false);
-                                wr.suppress_expr_parens = true;
-                                await this.WalkNode(subEnd, ctx, wr);
-                                wr.suppress_expr_parens = false;
-                                wr.out(") as usize", false);
-                              }
-                            } else {
-                              wr.out("((", false);
-                              wr.suppress_expr_parens = true;
-                              await this.WalkNode(subEnd, ctx, wr);
-                              wr.suppress_expr_parens = false;
-                              wr.out(") - (", false);
-                              wr.suppress_expr_parens = true;
-                              await this.WalkNode(subStart, ctx, wr);
-                              wr.suppress_expr_parens = false;
-                              wr.out(")) as usize", false);
-                            }
-                            wr.out(").collect::<String>()", false);
+                            wr.out("(", false);
+                            wr.suppress_expr_parens = true;
+                            await this.WalkNode(subStart, ctx, wr);
+                            wr.suppress_expr_parens = false;
+                            wr.out("), (", false);
+                            wr.suppress_expr_parens = true;
+                            await this.WalkNode(subEnd, ctx, wr);
+                            wr.suppress_expr_parens = false;
+                            wr.out("))", false);
                             ctx.unsetInExpr();
                             return;
                           }

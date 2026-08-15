@@ -8931,63 +8931,30 @@ class RangerRustClassWriter {
     ; substring: skip/take — the take count drops a literal-zero start
     ; instead of emitting `x - 0`
     if (cmd == "substring") {
+      ; Byte slicing, the same indexing charAt uses. `chars().skip(a).take(b-a)`
+      ; walks the string from the start every time, so a substring taken inside
+      ; a scan made the scan quadratic; rg_substr clamps to char boundaries so a
+      ; byte index landing inside a UTF-8 sequence cannot panic.
+      wr.out("rg_substr(&" false)
       ctx.setInExpr()
+      wr.suppress_expr_parens = true
       this.WalkNode((node.getSecond()) ctx wr)
+      wr.suppress_expr_parens = false
+      wr.out(", " false)
       def subStart:CodeNode (this.rustUnwrapParens((node.getThird())))
       def subEnd:CodeNode (this.rustUnwrapParens((itemAt node.children 3)))
-      def startIsZero:boolean false
-      if (subStart.value_type == RangerNodeType.Integer) {
-        if (subStart.int_value == 0) {
-          startIsZero = true
-        }
-      }
-      wr.out(".chars()" false)
-      if (startIsZero == false) {
-        wr.out(".skip(" false)
-        if (subStart.value_type == RangerNodeType.Integer) {
-          wr.out(("" + subStart.int_value) false)
-        } {
-          wr.out("(" false)
-          wr.suppress_expr_parens = true
-          this.WalkNode(subStart ctx wr)
-          wr.suppress_expr_parens = false
-          wr.out(") as usize" false)
-        }
-        wr.out(")" false)
-      }
-      wr.out(".take(" false)
-      if startIsZero {
-        if (subEnd.value_type == RangerNodeType.Integer) {
-          wr.out(("" + subEnd.int_value) false)
-        } {
-          wr.out("(" false)
-          wr.suppress_expr_parens = true
-          this.WalkNode(subEnd ctx wr)
-          wr.suppress_expr_parens = false
-          wr.out(") as usize" false)
-        }
-      } {
-        ; Each side gets its OWN parens: with the outer parens suppressed,
-        ; an additive operand pair like end=(i + 2) start=(i + 1) printed as
-        ; `i + 2 - i + 1`, which is 3, not 1 — $& in a replace template was
-        ; read as a 3-char slice and never matched.
-        wr.out("((" false)
-        wr.suppress_expr_parens = true
-        this.WalkNode(subEnd ctx wr)
-        wr.suppress_expr_parens = false
-        wr.out(") - (" false)
-        wr.suppress_expr_parens = true
-        this.WalkNode(subStart ctx wr)
-        wr.suppress_expr_parens = false
-        wr.out(")) as usize" false)
-      }
-      wr.out(").collect::<String>()" false)
+      wr.out("(" false)
+      wr.suppress_expr_parens = true
+      this.WalkNode(subStart ctx wr)
+      wr.suppress_expr_parens = false
+      wr.out("), (" false)
+      wr.suppress_expr_parens = true
+      this.WalkNode(subEnd ctx wr)
+      wr.suppress_expr_parens = false
+      wr.out("))" false)
       ctx.unsetInExpr()
       return
     }
-
-    ; strfromcode: a char is Display — inside a format! argument the
-    ; .to_string() is dropped
     if (cmd == "strfromcode") {
       def sfcInFmt:boolean wr.in_format_args
       wr.out("char::from_u32(" false)
