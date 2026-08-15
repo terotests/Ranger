@@ -655,7 +655,11 @@ Tests if the `class name` is either
         nn.has_vref_annotation = true
         nn.vref_annotation = vAnn
       } 
-      push nn.vref_annotation.children  (nn.vref_annotation.newVRefNode("main"))
+      ; the new node first: pushing INTO the annotation while reading it for
+      ; the value borrows one object two ways in a single statement
+      def mainAnn:CodeNode nn.vref_annotation
+      def mainRef:CodeNode (mainAnn.newVRefNode("main"))
+      push mainAnn.children mainRef
 
     }
   }

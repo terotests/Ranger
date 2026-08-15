@@ -2218,7 +2218,14 @@ class RangerFlowParser {
             def fnArg:RangerAppParamDesc (at vFnDef.params i)
             def callArgP:RangerAppParamDesc arg.paramDesc
             if (!null? callArgP) {
-              callArgP.moveRefTo(node fnArg ctx)
+              ; a descriptor passed to its own parameter slot is the same
+              ; object on both sides, and moving a reference to itself says
+              ; nothing. Rust cannot read it while holding it for the write.
+              def callArgD:RangerAppParamDesc (unwrap arg.paramDesc)
+              def sameSlot:boolean (fnArg == callArgD)
+              if (sameSlot == false) {
+                callArgP.moveRefTo(node fnArg ctx)
+              }
             }
           }
         }

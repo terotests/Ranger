@@ -1430,7 +1430,9 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
         nn.has_vref_annotation = true;
         nn.vref_annotation = vAnn;
       }
-      nn.vref_annotation.children.push(nn.vref_annotation.newVRefNode("main"));
+      const mainAnn = nn.vref_annotation;
+      const mainRef = mainAnn.newVRefNode("main");
+      mainAnn.children.push(mainRef);
     }
   };
 }
@@ -11449,7 +11451,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               const fnArg = vFnDef.params[i_1];
               const callArgP = arg.paramDesc;
               if ( (typeof(callArgP) !== "undefined" && callArgP != null )  ) {
-                callArgP.moveRefTo(node, fnArg, ctx);
+                const callArgD = arg.paramDesc;
+                const sameSlot = fnArg == callArgD;
+                if ( sameSlot == false ) {
+                  callArgP.moveRefTo(node, fnArg, ctx);
+                }
               }
             }
           };
@@ -23747,6 +23753,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               this.rustFnReturnsUnion = "";
               this.fileHeaderWritten = false;
               this.rust_in_cell_assign = false;
+              this.rust_last_recv_tmp = "";
               this.rust_computing_family_mut = false;
             }
             lineEnding () {
@@ -24805,6 +24812,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     }
                   }
                   wr.out("." + this.adjustType(rvName), false);
+                  this.rust_last_recv_tmp = node.rust_use_tmpvar;
                   node.rust_use_tmpvar = "";
                   return;
                 }
@@ -26185,10 +26193,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 };
                 writeSelfRcReceiverArg (node, fc, ctx, wr) {
                   if ( typeof(node.fnDesc) === "undefined" ) {
+                    this.rust_last_recv_tmp = "";
                     return false;
                   }
                   if ( this.rustNeedsSelfRc((node.fnDesc), ctx) == false ) {
+                    this.rust_last_recv_tmp = "";
                     return false;
+                  }
+                  if ( (this.rust_last_recv_tmp.length) > 0 ) {
+                    wr.out("&" + this.rust_last_recv_tmp, false);
+                    this.rust_last_recv_tmp = "";
+                    return true;
                   }
                   const nsLen = fc.ns.length;
                   if ( nsLen < 2 ) {

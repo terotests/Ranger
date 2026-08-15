@@ -76,6 +76,10 @@ class RangerRustClassWriter {
   ; writing the TARGET of a cell assignment: the whole collection is being
   ; replaced, so the path names the RefCell itself rather than borrowing it
   def rust_in_cell_assign:boolean false
+  ; the local a call receiver was hoisted into, for the hidden __self_rc
+  ; argument that follows it: reading the field a second time to build that
+  ; argument puts the borrow back that the hoist just took away
+  def rust_last_recv_tmp:string ""
   ; computing the family's mutation answer. The inherited-graph walk otherwise
   ; marks every trait method as mutating on principle — which is the blanket
   ; this analysis exists to replace, and feeding it back in makes the answer
@@ -1338,6 +1342,7 @@ class RangerRustClassWriter {
           }
         }
         wr.out(("." + (this.adjustType(rvName))) false)
+        rust_last_recv_tmp = node.rust_use_tmpvar
         node.rust_use_tmpvar = ""
         return
       }
@@ -3125,10 +3130,18 @@ class RangerRustClassWriter {
 
   fn writeSelfRcReceiverArg:boolean (node:CodeNode fc:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (null? node.fnDesc) {
+      rust_last_recv_tmp = ""
       return false
     }
     if ((this.rustNeedsSelfRc((unwrap node.fnDesc) ctx)) == false) {
+      rust_last_recv_tmp = ""
       return false
+    }
+    ; the receiver was hoisted a moment ago: the same local IS the handle
+    if ((strlen rust_last_recv_tmp) > 0) {
+      wr.out(("&" + rust_last_recv_tmp) false)
+      rust_last_recv_tmp = ""
+      return true
     }
     def nsLen:int (array_length fc.ns)
     if (nsLen < 2) {
