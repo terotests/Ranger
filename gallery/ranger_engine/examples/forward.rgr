@@ -1,0 +1,24 @@
+; A call that runs ahead of its callee: `Front.total` is lowered before `Back`
+; exists as anything but a name, so the engine has to know the callee's
+; signature from the declaration pass rather than from its body.
+
+class Front {
+  sfn total:int (n:int) {
+    def v:int (Back.doubled(n))
+    return (v + 1)
+  }
+
+  sfn label:string (n:int) {
+    return ("total = " + (Front.total(n)))
+  }
+
+  sfn main:void () {
+    print (Front.label(5))
+  }
+}
+
+class Back {
+  sfn doubled:int (n:int) {
+    return (n * 2)
+  }
+}

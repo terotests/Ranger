@@ -161,39 +161,56 @@ describe("Ranger engine", () => {
     expect(engine.vm.errorText).toContain("Partial.tally");
   });
 
-  it("prints exactly what the compiled program prints", async () => {
-    // The differential gate: the same file, once through the engine and once
-    // through the ordinary compiler, has to produce the same output. Anything
-    // the lowering pass gets subtly wrong shows up here rather than in a
-    // hand-written expectation that was copied from the engine itself.
-    const outDir = path.join(ROOT, "tmp/ranger-engine-test");
-    fs.mkdirSync(outDir, { recursive: true });
-    execFileSync(
-      "node",
-      [
-        "bin/output.js",
-        "-es6",
-        path.join(ENGINE, "examples/demo.rgr"),
-        "-d=./tmp/ranger-engine-test",
-        "-o=demo.js",
-      ],
-      {
+  // The differential gate: the same file, once through the engine and once
+  // through the ordinary compiler, has to print the same lines. Anything the
+  // lowering pass gets subtly wrong shows up here rather than in a
+  // hand-written expectation that was copied from the engine itself.
+  for (const [program, entry] of [
+    ["demo.rgr", "Demo"],
+    ["forward.rgr", "Front"],
+    ["partial.rgr", "Partial"],
+  ]) {
+    it(`prints exactly what compiled ${program} prints`, async () => {
+      const outDir = path.join(ROOT, "tmp/ranger-engine-test");
+      fs.mkdirSync(outDir, { recursive: true });
+      const js = `${program.replace(".rgr", "")}.js`;
+      execFileSync(
+        "node",
+        [
+          "bin/output.js",
+          "-es6",
+          path.join(ENGINE, "examples", program),
+          "-d=./tmp/ranger-engine-test",
+          `-o=${js}`,
+        ],
+        {
+          cwd: ROOT,
+          env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" },
+          stdio: "pipe",
+        },
+      );
+      const compiled = execFileSync("node", [path.join(outDir, js)], {
         cwd: ROOT,
-        env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" },
-        stdio: "pipe",
-      },
-    );
-    const compiled = execFileSync("node", [path.join(outDir, "demo.js")], {
-      cwd: ROOT,
-      encoding: "utf8",
-    })
-      .trimEnd()
-      .split("\n");
+        encoding: "utf8",
+      })
+        .trimEnd()
+        .split("\n");
 
-    const engine = await load("demo.rgr");
-    expect(engine.runMain("Demo"), engine.errorText).toBe(true);
-    expect(engine.vm.output).toEqual(compiled);
-  }, 60000);
+      const engine = await load(program);
+      expect(engine.runMain(entry), engine.errorText).toBe(true);
+      expect(engine.vm.output).toEqual(compiled);
+    }, 60000);
+  }
+
+  it("knows a callee's signature before the callee is lowered", async () => {
+    // forward.rgr calls a static of a class declared after it. Signatures are
+    // settled in their own pass for exactly this: with the return kind still
+    // defaulting to void, the call compiled to "call and drop the result" and
+    // the destination register kept whatever happened to be in it.
+    const engine = await load("forward.rgr");
+    expect(engine.callNum("Front.total", [5])).toBe(11);
+    expect(engine.callText("Front.label", [5])).toBe("total = 11");
+  });
 
   it("builds a runtime half that carries none of the compiler", () => {
     const vmOnly = fs.readFileSync(VM_ONLY, "utf8");

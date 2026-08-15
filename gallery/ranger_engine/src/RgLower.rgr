@@ -332,6 +332,13 @@ class RgLower {
     return (className + "." + methodName)
   }
 
+  ; Pass 2 settles every SIGNATURE — parameter banks and return bank — before
+  ; pass 3 lowers a single body. A call site reads the callee's signature to
+  ; decide CALLN / CALLR / CALLV and which bank each argument goes in, and a
+  ; program is under no obligation to define a function before it calls it: a
+  ; return kind still defaulting to void when the caller lowers turned
+  ; `def v:int (Back.doubled(n))` into a call whose result was dropped, with the
+  ; destination register left holding whatever was in it.
   fn declareFunction:void (cl:RangerAppClassDesc fnDesc:RangerAppFunctionDesc isStatic:boolean) {
     def key:string (this.functionKey(cl.name fnDesc.name))
     if ((this.module.findFunction(key)) >= 0) {
@@ -344,6 +351,43 @@ class RgLower {
     f.className = cl.name
     f.methodName = fnDesc.name
     f.isStatic = isStatic
+    if (false == isStatic) {
+      ; `this` is the first reference parameter; the VM's MCALL puts the
+      ; receiver there before the declared arguments.
+      push f.paramKinds RgKind.Ref
+    }
+    for fnDesc.params p:RangerAppParamDesc pi {
+      if (null? p.nameNode) {
+        f.tier = RgTier.Unsupported
+        f.bailReason = "a parameter without a name node"
+        push f.paramKinds RgKind.Num
+        continue
+      }
+      def pn (unwrap p.nameNode)
+      def pkind:RgKind (this.nameNodeKind(pn))
+      if (pn.value_type == RangerNodeType.Hash) {
+        f.tier = RgTier.Unsupported
+        f.bailReason = "map parameters are not supported yet"
+      }
+      if (pkind == RgKind.Void) {
+        f.tier = RgTier.Unsupported
+        f.bailReason = ("parameter " + pn.vref + " has an unsupported type")
+        pkind = RgKind.Num
+      }
+      push f.paramKinds pkind
+    }
+    if (fnDesc.name == "Constructor") {
+      f.retKind = RgKind.Void
+    } {
+      if (!null? fnDesc.nameNode) {
+        def rn (unwrap fnDesc.nameNode)
+        if (rn.value_type == RangerNodeType.Array) {
+          f.retKind = RgKind.Ref
+        } {
+          f.retKind = (this.kindOfTypeName(rn.type_name))
+        }
+      }
+    }
     def fnId:int (this.module.addFunction(f))
     if (fnDesc.name == "Constructor") {
       def clDef:RgClassDef (itemAt this.module.classes (this.module.findClass(cl.name)))
@@ -364,15 +408,17 @@ class RgLower {
     if ((array_length f.ops) > 0) {
       return
     }
+    if (f.tier == RgTier.Unsupported) {
+      ; The signature pass already refused it.
+      push this.bails (f.name + ": " + f.bailReason)
+      return
+    }
     def c:RgFnCtx (new RgFnCtx())
     c.out = f
     c.className = cl.name
     c.isInstance = (false == isStatic)
     if c.isInstance {
-      ; `this` is the first reference parameter; the VM's MCALL puts the
-      ; receiver there before the declared arguments.
       def selfLocal:RgLocal (c.declare("this" RgKind.Ref cl.name ""))
-      push f.paramKinds RgKind.Ref
     }
     ; Fields of the enclosing class are visible under their bare names.
     def clDefIdx:int (this.module.findClass(cl.name))
@@ -402,40 +448,16 @@ class RgLower {
         set c.locals vn.vref fl
       }
     }
+    ; The banks were settled in the declaration pass; here the parameters only
+    ; need registers, in the same order.
     for fnDesc.params p:RangerAppParamDesc pi {
-      if (null? p.nameNode) {
-        this.bail(c "a parameter without a name node")
-        continue
-      }
       def pn (unwrap p.nameNode)
       def pkind:RgKind (this.nameNodeKind(pn))
-      if (pkind == RgKind.Void) {
-        this.bail(c ("parameter " + pn.vref + " has an unsupported type"))
-        continue
-      }
-      if (pn.value_type == RangerNodeType.Hash) {
-        this.bail(c "map parameters are not supported yet")
-        continue
-      }
       def elem:string ""
       if (pn.value_type == RangerNodeType.Array) {
         elem = pn.array_type
       }
       def pl:RgLocal (c.declare(pn.vref pkind pn.type_name elem))
-      push f.paramKinds pkind
-    }
-    ; Return kind, from the declared return type on the function's name node.
-    if (fnDesc.name == "Constructor") {
-      f.retKind = RgKind.Void
-    } {
-      if (!null? fnDesc.nameNode) {
-        def rn (unwrap fnDesc.nameNode)
-        if (rn.value_type == RangerNodeType.Array) {
-          f.retKind = RgKind.Ref
-        } {
-          f.retKind = (this.kindOfTypeName(rn.type_name))
-        }
-      }
     }
     if (null? fnDesc.fnBody) {
       this.bail(c "no body")
