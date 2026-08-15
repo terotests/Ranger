@@ -94,6 +94,7 @@
     "selfhost:build:rust": "npm run selfhost:check:rust && rustc -O --edition 2021 tmp/selfhost-rust/ranger_compiler.rs -o tmp/selfhost-rust/ranger_rust && npm run selfhost:copylibs:rust",
     "selfhost:copylibs:rust": "cp ./compiler/Lang.rgr ./tmp/selfhost-rust/Lang.rgr && cp ./lib/stdops.rgr ./tmp/selfhost-rust/stdops.rgr && mkdir -p ./tmp/selfhost-rust/lib && cp ./lib/*.rgr ./tmp/selfhost-rust/lib/",
     "selfhost:run:rust": "bash scripts/rust-selfhost-run.sh",
+    "selfhost:parity:rust": "bash scripts/rust-selfhost-parity.sh",
     "test:llvm": "vitest run --config tests/vitest.llvm.config.ts",
     "test:syntaxapp": "vitest run --config tests/vitest.syntaxapp.config.ts",
     "test:tsengine": "vitest run --config tests/vitest.tsengine.config.ts",

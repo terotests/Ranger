@@ -3558,6 +3558,25 @@ class RangerRustClassWriter {
   ; A method that reaches itself only THROUGH its handle does not — see
   ; fnBodyUsesThisStruct — but only when it actually carries the handle.
   fn rustMethodNeedsReceiver:boolean (fnD:RangerAppFunctionDesc body:CodeNode useCtx:RangerAppWriterContext ctx:RangerAppWriterContext) {
+    ; A method the TRAIT declares always keeps its receiver, whatever its body
+    ; does. Without one the call site writes `Parent::m(…)`, which is the
+    ; parent's own implementation — the override never runs. That is how
+    ; `lineEnding` came back as the generic writer's "" instead of the
+    ; JavaScript writer's ";", and the difference reached the emitted code.
+    def mnrClsO@(optional):RangerAppClassDesc (useCtx.getCurrentClass())
+    if (!null? mnrClsO) {
+      def mnrCls:RangerAppClassDesc (unwrap mnrClsO)
+      def mnrRootO@(optional):RangerAppClassDesc (this.rustTraitRootOf(mnrCls ctx))
+      if (!null? mnrRootO) {
+        def mnrRoot:RangerAppClassDesc (unwrap mnrRootO)
+        if (has mnrRoot.method_variants fnD.name) {
+          return true
+        }
+        if (has mnrRoot.defined_methods fnD.name) {
+          return true
+        }
+      }
+    }
     if ((this.fnBodyUsesThis(body useCtx)) == false) {
       return false
     }

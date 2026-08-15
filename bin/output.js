@@ -26518,6 +26518,20 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   return (typeof(tsM) !== "undefined" && tsM != null ) ;
                 };
                 rustMethodNeedsReceiver (fnD, body, useCtx, ctx) {
+                  const mnrClsO = useCtx.getCurrentClass();
+                  if ( (typeof(mnrClsO) !== "undefined" && mnrClsO != null )  ) {
+                    const mnrCls = mnrClsO;
+                    const mnrRootO = this.rustTraitRootOf(mnrCls, ctx);
+                    if ( (typeof(mnrRootO) !== "undefined" && mnrRootO != null )  ) {
+                      const mnrRoot = mnrRootO;
+                      if ( ( typeof(mnrRoot.method_variants[fnD.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(mnrRoot.method_variants, fnD.name) ) ) {
+                        return true;
+                      }
+                      if ( ( typeof(mnrRoot.defined_methods[fnD.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(mnrRoot.defined_methods, fnD.name) ) ) {
+                        return true;
+                      }
+                    }
+                  }
                   if ( this.fnBodyUsesThis(body, useCtx) == false ) {
                     return false;
                   }

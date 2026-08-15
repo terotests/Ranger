@@ -546,7 +546,7 @@ Measured with `node bin/output.js -l=<target> ./compiler/ng_Compiler.rgr
 | Kotlin | **0** | — `kotlinc` clean, runs, see above |
 | PHP | **0** | not built or run |
 | Swift 6 | 12 | |
-| Rust | **0** | `rustc` clean; the binary compiles programs end to end |
+| Rust | **0** | `rustc` clean; the binary compiles the compiler, byte-identical |
 | Java 7 | 16 | |
 | Scala | 467 | no JSON templates, the same wall C++, Dart and C# started at |
 
@@ -860,7 +860,26 @@ another in a single statement:
 - `changeStrengthSelf`, `getTargetLangName`, `getRootFile`, `setRootFile`,
   `addError`, `addParserError` and `transformWord` from the earlier pass.
 
-### It runs
+### It self-hosts
+
+The Rust rendering of the compiler compiles **the compiler's own sources**, and
+the JavaScript it produces is **byte-identical** to what the JavaScript build
+produces from the same input — same md5. The compiler that comes out of it runs
+and compiles programs.
+
+```
+$ npm run selfhost:parity:rust
+[1/4] generating the Rust rendering
+[2/4] building it
+[3/4] the Rust binary compiles the compiler
+[4/4] comparing with the JavaScript build
+OK: byte-identical
+```
+
+That makes Rust the seventh target to build the compiler, alongside C++, Dart,
+Python, C#, Go and Kotlin.
+
+### How it got there
 
 ```
 [1/5] Collecting methods...
@@ -929,10 +948,23 @@ one, and `RangerAppParamDesc`'s aliasing cases from the earlier passes.
 **2379 methods now take `&self`** where 848 did before this pass, and the
 writer trait declares exactly two `&mut self` methods, both field accessors.
 
-Simple programs compile correctly. Larger fixtures still panic — the same
-class of borrow re-entrancy, in paths this program does not reach — so the
-Rust backend is not yet at parity with the six targets that build the compiler
-itself. `tests/fixtures` is the place to continue.
+Two more defects showed up only at full scale, and both were real:
+
+- **A weak optional field reads with `and_then`, not `map` then `unwrap`.** A
+  weak reference whose referent is gone means NULL, which is what `@(weak)`
+  means on every other target; unwrapping the upgrade turned it into a panic.
+  `RangerCompilerMessage.node` also became owning: a diagnostic outlives the
+  tree it points at, and the error printer is the one place that must not fail.
+- **A trait-interface method always keeps its receiver.** Without one the call
+  site writes `Parent::m(…)`, which is the parent's own implementation — the
+  override never runs. `lineEnding` came back as the generic writer's `""`
+  instead of the JavaScript writer's `";"`, and the difference reached the
+  emitted code. This was the last thing between the two builds and byte
+  equality.
+
+Of the 189 programs in `tests/fixtures`, the Rust binary compiles 136 cleanly
+and reports diagnostics on the rest; a handful still panic on shape and process
+fixtures, which is where to continue.
 
 One conflict is worth naming because no codegen change can settle it:
 `RangerAppParamDesc` declares `node`, `nameNode` and `fnBody` as owning and
