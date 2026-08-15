@@ -55,18 +55,20 @@ function render() {
 
       <Label className="subhead">Käyrät ja kaaret</Label>
       <View className="row vecRow">
-        <Path className="shape" viewBox="5 15 90 70" d="M10,80 C10,20 90,20 90,80 Z" />
-        <Path className="shape" viewBox="5 15 90 70" d="M10,80 Q50,10 90,80 Z" />
+        <Path className="shape" viewBox="5 5 90 80" d="M10,80 C10,10 55,10 90,80 Z" />
+        <Path className="shape" viewBox="5 5 90 80" d="M10,80 Q50,10 90,80 Z" />
         <Path
           className="shape"
           viewBox="0 0 50 50"
           d="M50,25 C50,11.2 38.8,0 25,0 S0,11.2 0,25 S11.2,50 25,50 S50,38.8 50,25 Z"
         />
-        <Path className="shape" viewBox="15 45 70 40" d="M20,80 A30 30 0 0 1 80,80 L65,80 A15 15 0 0 0 35,80 Z" />
+        <Path className="shape" viewBox="15 45 70 40" d="M20,80 A30 18 0 0 1 80,80 L65,80 A15 9 0 0 0 35,80 Z" />
       </View>
       <Label className="caption">
-        Kuutio- ja neliökäyrä, S-komennoilla kirjoitettu ympyrä ja elliptinen kaari. Peilatut ohjauspisteet ja
-        kaaret puretaan kerran polkukerroksessa, joten jokainen kohde saa ne samanlaisina.
+        Kuutiollinen ja toisen asteen Bézier-käyrä: kaksi ohjauspistettä yhden sijaan, mikä sallii epäsymmetrian
+        jota yksi ohjauspiste ei pysty tuottamaan. Kolmas on S-komennoilla kirjoitettu ympyrä ja neljäs elliptinen
+        kaari, jonka säteet eroavat toisistaan. Peilatut ohjauspisteet ja kaaret puretaan kerran polkukerroksessa,
+        joten jokainen kohde saa ne samanlaisina.
       </Label>
     </View>
   );
