@@ -975,6 +975,9 @@ class JSXToEVG {
         if (name == "color") {
             element.color = (EVGColor.parse(value))
         }
+        if (name == "emojiColor") {
+            element.emojiColor = (EVGColor.parse(value))
+        }
         if (name == "opacity") {
             element.opacity = (this.parseNumberValue(value))
         }

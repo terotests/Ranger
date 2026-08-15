@@ -1,0 +1,188 @@
+; EVGGrapheme.rgr — the unit a reader calls "one character"
+;
+; A codepoint is not it. 🇫🇮 is two, 👍🏽 is two, 1️⃣ is three, 👨‍👩‍👧 is five, and
+; every one of them is one thing on the page: one glyph, one advance, one
+; position a cursor can sit at, and one place a line may not break.
+;
+; Stepping by codepoint instead cost three separate things:
+;
+;   the FACE was chosen per codepoint, so 1️⃣ put the "1" in the text face and
+;       the keycap in the emoji face — two runs, and the ligature that makes
+;       the keycap never got the chance to fire;
+;   the WIDTH was the sum of the parts, so a family of four measured four
+;       advances wide and drew one;
+;   the /ToUnicode entry named a single codepoint for a glyph made of five,
+;       so copying the emoji out of a PDF returned a fragment.
+;
+; This is a deliberate subset of UAX #29 — the emoji-relevant rules and the
+; combining marks, not the full property tables, which would mean shipping
+; Unicode data this engine has no other use for. What it does not model, it
+; leaves as separate clusters, which is the same behaviour as before rather
+; than a new kind of wrong.
+
+Import "EVGCodepoint.rgr"
+
+class EVGGrapheme {
+
+    ; U+200D ZERO WIDTH JOINER — the glue in 👨‍👩‍👧.
+    sfn isZWJ:boolean (cp:int) {
+        return (cp == 8205)
+    }
+
+    ; Regional indicators, U+1F1E6..U+1F1FF. A flag is exactly two of them,
+    ; and the pairing is why a run of four is two flags rather than one long
+    ; cluster.
+    sfn isRegionalIndicator:boolean (cp:int) {
+        if (cp < 127462) {
+            return false
+        }
+        return (cp <= 127487)
+    }
+
+    ; Skin tone modifiers, U+1F3FB..U+1F3FF.
+    sfn isEmojiModifier:boolean (cp:int) {
+        if (cp < 127995) {
+            return false
+        }
+        return (cp <= 127999)
+    }
+
+    ; Tag characters, U+E0020..U+E007F — the subdivision flags (🏴󠁧󠁢󠁳󠁣󠁴󠁿) spell
+    ; a region code out of these.
+    sfn isTag:boolean (cp:int) {
+        if (cp < 917536) {
+            return false
+        }
+        return (cp <= 917631)
+    }
+
+    ; Anything that attaches to the character before it: combining marks,
+    ; variation selectors, the enclosing keycap, skin tones, tags.
+    ;
+    ; The ranges are the ones that actually occur in text this engine sets;
+    ; a codepoint outside them starts a new cluster, which is the conservative
+    ; answer.
+    sfn isExtend:boolean (cp:int) {
+        ; Combining diacritical marks and their supplements/extensions.
+        if ((cp >= 768) && (cp <= 879)) {
+            return true
+        }
+        if ((cp >= 6832) && (cp <= 6911)) {
+            return true
+        }
+        if ((cp >= 7616) && (cp <= 7679)) {
+            return true
+        }
+        ; Combining marks for symbols, U+20D0..U+20FF — U+20E3 KEYCAP is here.
+        if ((cp >= 8400) && (cp <= 8447)) {
+            return true
+        }
+        ; Variation selectors VS1..VS16.
+        if ((cp >= 65024) && (cp <= 65039)) {
+            return true
+        }
+        ; Combining half marks.
+        if ((cp >= 65056) && (cp <= 65071)) {
+            return true
+        }
+        if (EVGGrapheme.isEmojiModifier(cp)) {
+            return true
+        }
+        return (EVGGrapheme.isTag(cp))
+    }
+
+    ; Index one past the cluster starting at `start`.
+    ;
+    ; Always advances by at least one, so a caller looping on this terminates
+    ; even on input the rules below say nothing about.
+    sfn clusterEnd:int (cps:[int] start:int) {
+        def n:int (array_length cps)
+        if (start >= n) {
+            return n
+        }
+        def i:int (start + 1)
+
+        ; A flag is a PAIR of regional indicators and no more. Without the
+        ; limit, 🇫🇮🇸🇪 would be one four-part cluster and neither flag would
+        ; find its ligature.
+        if (EVGGrapheme.isRegionalIndicator((itemAt cps start))) {
+            if (i < n) {
+                if (EVGGrapheme.isRegionalIndicator((itemAt cps i))) {
+                    i = (i + 1)
+                }
+            }
+            return i
+        }
+
+        def more:boolean true
+        while more {
+            more = false
+            if (i < n) {
+                def cp:int (itemAt cps i)
+                if (EVGGrapheme.isExtend(cp)) {
+                    i = (i + 1)
+                    more = true
+                } {
+                    ; A joiner takes the character after it into the cluster —
+                    ; and a trailing joiner with nothing after it does not,
+                    ; because there is nothing to join to.
+                    if (EVGGrapheme.isZWJ(cp)) {
+                        if ((i + 1) < n) {
+                            i = (i + 2)
+                            more = true
+                        }
+                    }
+                }
+            }
+        }
+        return i
+    }
+
+    ; Cluster boundaries as codepoint indices, ending with the length.
+    ; `starts[k]`..`starts[k+1]` is cluster k.
+    sfn boundaries:[int] (cps:[int]) {
+        def out:[int]
+        def i:int 0
+        def n:int (array_length cps)
+        while (i < n) {
+            push out i
+            i = (EVGGrapheme.clusterEnd(cps i))
+        }
+        push out n
+        return out
+    }
+
+    ; How many clusters — "how long is this text" as a reader would answer it.
+    ; (`count` is taken by the language, hence the name.)
+    sfn clusterCount:int (s:string) {
+        def cps:[int] (EVGCodepoint.toArray(s))
+        def n:int 0
+        def i:int 0
+        while (i < (array_length cps)) {
+            i = (EVGGrapheme.clusterEnd(cps i))
+            n = (n + 1)
+        }
+        return n
+    }
+
+    ; The cluster starting at UTF-16 index `i`, as a string. Convenient where
+    ; a caller works in strings rather than codepoint arrays.
+    sfn clusterAt:string (s:string i:int) {
+        def cps:[int] (EVGCodepoint.toArray(s))
+        ; Map the UTF-16 index to a codepoint index.
+        def cpIdx:int 0
+        def u:int 0
+        while (u < i) {
+            u = (u + (EVGCodepoint.unitsAt(s u)))
+            cpIdx = (cpIdx + 1)
+        }
+        def end:int (EVGGrapheme.clusterEnd(cps cpIdx))
+        def out:string ""
+        def k:int cpIdx
+        while (k < end) {
+            out = out + (EVGCodepoint.toStr((itemAt cps k)))
+            k = (k + 1)
+        }
+        return out
+    }
+}

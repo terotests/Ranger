@@ -1,0 +1,138 @@
+; EVGCodepoint.rgr — iterate text by codepoint, not by UTF-16 code unit
+;
+; `charAt` returns a UTF-16 code unit. Everything outside the Basic
+; Multilingual Plane — emoji, CJK extensions, historic scripts, most maths
+; symbols — is stored as a SURROGATE PAIR of two units, so a loop written with
+; `charAt` sees one character as two, and neither half is a real codepoint.
+;
+; What that cost before this module existed:
+;
+;   "a😀b"  measured 47.53px instead of ~25px, because the emoji contributed
+;           two .notdef advances rather than one glyph;
+;   the JSON display list came out as CESU-8 (ed a0 bd ed b8 80) rather than
+;           UTF-8 (f0 9f 98 80), which is not valid UTF-8 and no strict parser
+;           will read;
+;   the PDF encoder reported two unencodable characters at U+D83D and U+DE00,
+;           which are not characters at all — they are halves.
+;
+; So: one place that knows how to step through a string properly, used by
+; measurement, line breaking, the rasterizer and the encoders alike.
+;
+; Note this is about STORAGE, not about what a reader perceives as a character.
+; A grapheme cluster — a flag, a skin-toned emoji, a ZWJ family — is several
+; codepoints and still needs clustering on top of this. This module is the
+; layer below that, and the layer everything else was missing.
+
+class EVGCodepoint {
+
+    sfn isHighSurrogate:boolean (u:int) {
+        return ((u >= 55296) && (u <= 56319))
+    }
+
+    sfn isLowSurrogate:boolean (u:int) {
+        return ((u >= 56320) && (u <= 57343))
+    }
+
+    ; The codepoint starting at UTF-16 index `i`.
+    ;
+    ; An unpaired surrogate is returned as-is rather than replaced: text that
+    ; is already damaged should stay recognisable instead of turning into a
+    ; different kind of damage.
+    sfn codeAt:int (s:string i:int) {
+        def u:int (charAt s i)
+        if (EVGCodepoint.isHighSurrogate(u)) {
+            if ((i + 1) < (strlen s)) {
+                def lo:int (charAt s (i + 1))
+                if (EVGCodepoint.isLowSurrogate(lo)) {
+                    return ((((u - 55296) * 1024) + (lo - 56320)) + 65536)
+                }
+            }
+        }
+        return u
+    }
+
+    ; How many UTF-16 units the codepoint at `i` occupies: 1, or 2 for a pair.
+    sfn unitsAt:int (s:string i:int) {
+        def u:int (charAt s i)
+        if (EVGCodepoint.isHighSurrogate(u)) {
+            if ((i + 1) < (strlen s)) {
+                if (EVGCodepoint.isLowSurrogate((charAt s (i + 1)))) {
+                    return 2
+                }
+            }
+        }
+        return 1
+    }
+
+    ; Number of codepoints, which is what "how long is this text" should mean
+    ; anywhere a glyph is about to be looked up.
+    sfn count:int (s:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (strlen s)) {
+            i = (i + (EVGCodepoint.unitsAt(s i)))
+            n = (n + 1)
+        }
+        return n
+    }
+
+    ; The string as a codepoint array — convenient where a loop wants random
+    ; access, e.g. a kerning pass that needs the previous codepoint.
+    sfn toArray:[int] (s:string) {
+        def out:[int]
+        def i:int 0
+        while (i < (strlen s)) {
+            push out (EVGCodepoint.codeAt(s i))
+            i = (i + (EVGCodepoint.unitsAt(s i)))
+        }
+        return out
+    }
+
+    ; A single codepoint back to a string, re-splitting into a surrogate pair
+    ; when it is above the BMP.
+    sfn toStr:string (cp:int) {
+        if (cp < 65536) {
+            return (strfromcode cp)
+        }
+        def rel:int (cp - 65536)
+        def hi:int (55296 + (to_int (rel / 1024)))
+        def lo:int (56320 + (rel % 1024))
+        return ((strfromcode hi) + (strfromcode lo))
+    }
+
+    ; Encode to UTF-8 BYTES, one byte per character of the returned string.
+    ;
+    ; This is what has to be written to a file: `buffer_from_string` stores one
+    ; byte per character, so anything else lands on disk mis-encoded. Astral
+    ; codepoints become the proper four-byte form rather than two three-byte
+    ; sequences (CESU-8), which is the bug this replaced.
+    sfn encodeUtf8:string (s:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen s)) {
+            def cp:int (EVGCodepoint.codeAt(s i))
+            i = (i + (EVGCodepoint.unitsAt(s i)))
+            if (cp < 128) {
+                out = out + (strfromcode cp)
+            } {
+                if (cp < 2048) {
+                    out = out + (strfromcode (192 + (to_int (cp / 64))))
+                    out = out + (strfromcode (128 + (cp % 64)))
+                } {
+                    if (cp < 65536) {
+                        out = out + (strfromcode (224 + (to_int (cp / 4096))))
+                        out = out + (strfromcode (128 + ((to_int (cp / 64)) % 64)))
+                        out = out + (strfromcode (128 + (cp % 64)))
+                    } {
+                        out = out + (strfromcode (240 + (to_int (cp / 262144))))
+                        out = out + (strfromcode (128 + ((to_int (cp / 4096)) % 64)))
+                        out = out + (strfromcode (128 + ((to_int (cp / 64)) % 64)))
+                        out = out + (strfromcode (128 + (cp % 64)))
+                    }
+                }
+            }
+            continue
+        }
+        return out
+    }
+}

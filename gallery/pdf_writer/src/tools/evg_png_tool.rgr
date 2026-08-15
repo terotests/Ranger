@@ -219,6 +219,9 @@ class EVGPNGTool {
         
         ; Initialize text renderer
         textRenderer = (new RasterText())
+        ; So a codepoint the declared face lacks — an emoji, most often — is
+        ; drawn from a face that has it instead of coming out as an empty box.
+        textRenderer.setFallbackManager(fm)
         def defaultFont:TrueTypeFont (fontManager.getFont("Open Sans"))
         if (defaultFont.unitsPerEm > 0) {
             textRenderer.setFont(defaultFont)
@@ -734,6 +737,12 @@ class EVGPNGTool {
 
     ; One already-broken line of text, with the element's shadow if it has one.
     fn renderTextLine:void (el:EVGElement text:string x:double y:double fontSize:double textR:int textG:int textB:int textA:int hasShadow:boolean) {
+        ; Glyphs borrowed from a fallback face may be filled with their own
+        ; colour: the face is monochrome outlines, so it takes whatever it is
+        ; given, and `emoji-color` is how a caption asks for one that differs
+        ; from the sentence it sits in.
+        def ec:EVGColor (el.effectiveEmojiColor())
+        textRenderer.setFallbackColor((ec.red()) (ec.green()) (ec.blue()))
         if hasShadow {
             def shadowR:int (el.shadowColor.red())
             def shadowG:int (el.shadowColor.green())

@@ -1,3 +1,4 @@
+Import "../../../evg/EVGCodepoint.rgr"
 ; EVGPDFRenderer.rgr - Render EVG elements to PDF
 ; 
 ; Takes EVG element tree with calculated positions and renders to PDF using PDFWriter.
@@ -14,6 +15,8 @@ Import "../../../evg/SVGPathParser.rgr"
 Import "Buffer.rgr"
 Import "Utf8.rgr"
 Import "../fonts/FontManager.rgr"
+Import "../fonts/TTFSubset.rgr"
+Import "../../../evg/EVGGrapheme.rgr"
 Import "../jpeg/JPEGReader.rgr"
 Import "../jpeg/JPEGMetadata.rgr"
 Import "../jpeg/JPEGDecoder.rgr"
@@ -77,6 +80,27 @@ class PDFImageMeasurer {
     }
 }
 
+; One stretch of a line drawn from a single face.
+;
+; A line like "Ready 🎉" cannot be one show operator: the text face has no
+; emoji and the emoji face has no letters, and the two are reached through
+; different PDF font resources with different encodings — WinAnsi for the text,
+; Identity-H for the emoji, because WinAnsi is single-byte and has no room for
+; U+1F389 at all. So the line is cut at every face change and each piece is
+; positioned on its own.
+class PDFTextSegment {
+    def text:string ""
+    def family:string ""
+    ; True when this piece is drawn from a fallback face through a Type0/CID
+    ; resource rather than the document's own WinAnsi one.
+    def isCid:boolean false
+    ; Absolute x, accumulated from the measured width of the pieces before it.
+    def x:double 0.0
+
+    Constructor () {
+    }
+}
+
 class EVGPDFRenderer {
     ; Note: No longer extends EVGImageMeasurer - uses composition instead
     def imageMeasurer@(optional):PDFImageMeasurer
@@ -102,6 +126,23 @@ class EVGPDFRenderer {
     def fontManager:FontManager (new FontManager())
     def embeddedFonts:[EmbeddedFont]
     def usedFontNames:[string]
+    ; Fallback faces reached through a Type0/Identity-H resource, named /E1..
+    ; alongside the WinAnsi /F1.. ones. Kept separate rather than converting
+    ; every font to Identity-H: that would change the byte encoding, the
+    ; /Widths shape and the ToUnicode cmap of text that is currently correct,
+    ; to fix text that currently cannot be written at all.
+    def usedCidFonts:[string]
+    def cidFontObjNums:[int]
+    ; Every glyph actually drawn from a CID face, as three parallel arrays.
+    ; Identity-H writes GLYPH IDS into the content stream, so the /W array and
+    ; the ToUnicode cmap have to be built from what was drawn — there is no
+    ; character range to enumerate the way WinAnsi's 32..255 gives one.
+    def cidUsedFont:[int]
+    def cidUsedGid:[int]
+    ; The TEXT each glyph came from, not a single codepoint: one glyph can be
+    ; five codepoints (a joined family), and a /ToUnicode entry naming only the
+    ; first would hand a reader a fragment when the emoji is copied out.
+    def cidUsedText:[string]
     def embeddedImages:[EmbeddedImage]
     def jpegReader:JPEGReader (new JPEGReader())
     def jpegDecoder:JPEGDecoder (new JPEGDecoder())
@@ -350,7 +391,162 @@ class EVGPDFRenderer {
         push usedFontNames fontFamily
         return ("/F" + (to_string (array_length usedFontNames)))
     }
-    
+
+    ; The /E1.. resource for a fallback face, registering it on first use.
+    fn getCidFontName:string (fontFamily:string) {
+        return ("/E" + (to_string ((this.cidFontIndex(fontFamily)) + 1)))
+    }
+
+    fn cidFontIndex:int (fontFamily:string) {
+        def i:int 0
+        while (i < (array_length usedCidFonts)) {
+            if ((itemAt usedCidFonts i) == fontFamily) {
+                return i
+            }
+            i = i + 1
+        }
+        push usedCidFonts fontFamily
+        return ((array_length usedCidFonts) - 1)
+    }
+
+    fn noteCidGlyphCluster:void (fontIdx:int gid:int cps:[int] start:int end:int) {
+        def i:int 0
+        while (i < (array_length cidUsedGid)) {
+            if ((itemAt cidUsedFont i) == fontIdx) {
+                if ((itemAt cidUsedGid i) == gid) {
+                    return
+                }
+            }
+            i = i + 1
+        }
+        def text:string ""
+        def c:int start
+        while (c < end) {
+            text = text + (EVGCodepoint.toStr((itemAt cps c)))
+            c = (c + 1)
+        }
+        push cidUsedFont fontIdx
+        push cidUsedGid gid
+        push cidUsedText text
+    }
+
+    ; Cut a line wherever the face has to change.
+    ;
+    ; The primary family wins for everything it can draw, so ordinary text
+    ; comes back as exactly one segment and the output is unchanged. Only
+    ; codepoints the primary lacks — and that some other loaded face has — are
+    ; split out. A codepoint nothing has stays with the primary, where the
+    ; WinAnsi encoder reports it as before instead of silently vanishing.
+    fn splitLine:[PDFTextSegment] (line:string fontFamily:string fontSize:double startX:double) {
+        def segs:[PDFTextSegment]
+        def primary:TrueTypeFont (fontManager.getFont(fontFamily))
+        def cps:[int] (EVGCodepoint.toArray(line))
+        def n:int (array_length cps)
+        def curText:string ""
+        def curFamily:string fontFamily
+        def curIsCid:boolean false
+        def haveCur:boolean false
+        def x:double startX
+        def i:int 0
+        while (i < n) {
+            ; Cut at cluster boundaries, never inside one. Deciding per
+            ; codepoint split a keycap between the text face and the emoji
+            ; face, and the ligature that makes it never saw all three parts.
+            def cEnd:int (EVGGrapheme.clusterEnd(cps i))
+
+            def useFamily:string fontFamily
+            def useCid:boolean false
+            if (primary.isLoaded()) {
+                def face:TrueTypeFont (fontManager.faceForClusterFrom(primary cps i cEnd))
+                if (face.isLoaded()) {
+                    if ((face.fontPath == primary.fontPath) == false) {
+                        useFamily = face.fontFamily
+                        useCid = true
+                    }
+                }
+            }
+
+
+            def sameRun:boolean false
+            if haveCur {
+                if (useCid == curIsCid) {
+                    if (useFamily == curFamily) {
+                        sameRun = true
+                    }
+                }
+            }
+            if (sameRun == false) {
+                if haveCur {
+                    def done (new PDFTextSegment())
+                    done.text = curText
+                    done.family = curFamily
+                    done.isCid = curIsCid
+                    done.x = x
+                    push segs done
+                    x = (x + (this.segmentWidth(done fontSize)))
+                }
+                curText = ""
+                curFamily = useFamily
+                curIsCid = useCid
+                haveCur = true
+            }
+            def c:int i
+            while (c < cEnd) {
+                curText = curText + (EVGCodepoint.toStr((itemAt cps c)))
+                c = (c + 1)
+            }
+            i = cEnd
+        }
+        if haveCur {
+            def last (new PDFTextSegment())
+            last.text = curText
+            last.family = curFamily
+            last.isCid = curIsCid
+            last.x = x
+            push segs last
+        }
+        return segs
+    }
+
+    ; A CID segment as a hex string of glyph ids.
+    ;
+    ; /Encoding /Identity-H means each two bytes of the string ARE a CID, and
+    ; /CIDToGIDMap /Identity means the CID is the glyph id — so this writes
+    ; glyph numbers, not characters, and there is no encoding table to run out
+    ; of. That is the whole reason emoji can go in a PDF this way.
+    fn cidShowOperator:string (segment:string fontFamily:string) {
+        def font:TrueTypeFont (fontManager.getFont(fontFamily))
+        def fontIdx:int (this.cidFontIndex(fontFamily))
+        def cps:[int] (EVGCodepoint.toArray(segment))
+        def n:int (array_length cps)
+        def out:string "<"
+        def i:int 0
+        while (i < n) {
+            ; Shaped one cluster at a time — the same unit the width was
+            ; measured in, so what is drawn and what was reserved cannot
+            ; disagree, and so a ligature can never reach across a boundary
+            ; the cluster rules drew.
+            def cEnd:int (EVGGrapheme.clusterEnd(cps i))
+            def run:TTFShapedRun (font.shapeRange(cps i cEnd))
+            def gi:int 0
+            while (gi < (array_length run.glyphs)) {
+                def gid:int (itemAt run.glyphs gi)
+                ; The shaper's cluster indices are relative to the slice it
+                ; was handed, so shift them back into the segment.
+                def cs:int (i + (itemAt run.clusterStart gi))
+                def ce:int (i + (itemAt run.clusterEnd gi))
+                if (ce > cEnd) {
+                    ce = cEnd
+                }
+                this.noteCidGlyphCluster(fontIdx gid cps cs ce)
+                out = out + (this.toHex4(gid))
+                gi = (gi + 1)
+            }
+            i = cEnd
+        }
+        return (out + "> Tj")
+    }
+
     fn render:buffer (root:EVGElement) {
         ; Check if this is a multi-page document (print element)
         if (root.tagName == "print") {
@@ -423,6 +619,11 @@ class EVGPDFRenderer {
         nextObjNum = 1
         clear contentObjNums
         clear usedFontNames
+        clear usedCidFonts
+        clear cidFontObjNums
+        clear cidUsedFont
+        clear cidUsedGid
+        clear cidUsedText
         clear embeddedFonts
         clear embeddedImages
         
@@ -658,6 +859,11 @@ class EVGPDFRenderer {
             fi = fi + 1
         }
         
+        ; Fallback faces, as Type0/Identity-H. Written after the /F fonts so
+        ; the object numbers stay contiguous, and after the content streams so
+        ; the used glyph set is known.
+        this.writeCidFontObjects(pdf objectOffsets)
+
         ; Ensure at least one font exists
         if ((array_length fontObjNums) == 0) {
             push objectOffsets (pdf.size())
@@ -829,6 +1035,12 @@ class EVGPDFRenderer {
                 pdf.writeString(" /F" + (to_string (ffi + 1)) + " " + (to_string fontObjN) + " 0 R")
                 ffi = ffi + 1
             }
+            def efi:int 0
+            while (efi < (array_length cidFontObjNums)) {
+                def cidObjN:int (itemAt cidFontObjNums efi)
+                pdf.writeString(" /E" + (to_string (efi + 1)) + " " + (to_string cidObjN) + " 0 R")
+                efi = efi + 1
+            }
             pdf.writeString(" >>")
             if ((array_length embeddedImages) > 0) {
                 pdf.writeString(" /XObject <<")
@@ -904,6 +1116,11 @@ class EVGPDFRenderer {
         nextObjNum = 1
         clear contentObjNums
         clear usedFontNames
+        clear usedCidFonts
+        clear cidFontObjNums
+        clear cidUsedFont
+        clear cidUsedGid
+        clear cidUsedText
         clear embeddedFonts
         clear embeddedImages
         
@@ -1030,6 +1247,11 @@ class EVGPDFRenderer {
             i = i + 1
         }
         
+        ; Fallback faces, as Type0/Identity-H. Written after the /F fonts so
+        ; the object numbers stay contiguous, and after the content streams so
+        ; the used glyph set is known.
+        this.writeCidFontObjects(pdf objectOffsets)
+
         ; Ensure at least one font exists
         if ((array_length fontObjNums) == 0) {
             push objectOffsets (pdf.size())
@@ -1198,6 +1420,12 @@ class EVGPDFRenderer {
             def fontObjN:int (itemAt fontObjNums fi)
             pdf.writeString(" /F" + (to_string (fi + 1)) + " " + (to_string fontObjN) + " 0 R")
             fi = fi + 1
+        }
+        def efi:int 0
+        while (efi < (array_length cidFontObjNums)) {
+            def cidObjN:int (itemAt cidFontObjNums efi)
+            pdf.writeString(" /E" + (to_string (efi + 1)) + " " + (to_string cidObjN) + " 0 R")
+            efi = efi + 1
         }
         pdf.writeString(" >>")
         ; Add image XObject references
@@ -2198,34 +2426,58 @@ class EVGPDFRenderer {
                     def sg:double (((shadowColor.g / 255.0) * shadowAlpha) + (1.0 * blendFactor))
                     def sb:double (((shadowColor.b / 255.0) * shadowAlpha) + (1.0 * blendFactor))
                     
-                    streamBuffer.writeString("BT\n")
-                    streamBuffer.writeString(fontName + " " + (this.formatNum(fontSize)) + " Tf\n")
-                    streamBuffer.writeString((this.formatNum(sr)) + " " + (this.formatNum(sg)) + " " + (this.formatNum(sb)) + " rg\n")
-                    
                     def shadowX:double (textX + shadowOffsetX + blurOffset)
                     def shadowY:double (lineY + shadowOffsetY - blurOffset)
-                    streamBuffer.writeString((this.formatNum(shadowX)) + " " + (this.formatNum(shadowY)) + " Td\n")
-                    streamBuffer.writeString((this.textShowOperator(line fontFamily)) + "\n")
-                    streamBuffer.writeString("ET\n")
-                    
+                    def shSegs:[PDFTextSegment] (this.splitLine(line fontFamily fontSize shadowX))
+                    def shi:int 0
+                    while (shi < (array_length shSegs)) {
+                        def shSeg:PDFTextSegment (itemAt shSegs shi)
+                        streamBuffer.writeString("BT\n")
+                        streamBuffer.writeString((this.segmentFontName(shSeg)) + " " + (this.formatNum(fontSize)) + " Tf\n")
+                        streamBuffer.writeString((this.formatNum(sr)) + " " + (this.formatNum(sg)) + " " + (this.formatNum(sb)) + " rg\n")
+                        streamBuffer.writeString((this.formatNum(shSeg.x)) + " " + (this.formatNum(shadowY)) + " Td\n")
+                        streamBuffer.writeString((this.segmentShowOperator(shSeg)) + "\n")
+                        streamBuffer.writeString("ET\n")
+                        shi = shi + 1
+                    }
+
                     pass = pass + 1
                 }
             }
             
             ; Render actual text
-            streamBuffer.writeString("BT\n")
-            streamBuffer.writeString(fontName + " " + (this.formatNum(fontSize)) + " Tf\n")
-            
-            ; Set text color
             def r:double (color.r / 255.0)
             def g:double (color.g / 255.0)
             def b:double (color.b / 255.0)
-            streamBuffer.writeString((this.formatNum(r)) + " " + (this.formatNum(g)) + " " + (this.formatNum(b)) + " rg\n")
-            
-            streamBuffer.writeString((this.formatNum(textX)) + " " + (this.formatNum(lineY)) + " Td\n")
-            streamBuffer.writeString((this.textShowOperator(line fontFamily)) + "\n")
-            streamBuffer.writeString("ET\n")
-            
+            ; A fallback face is monochrome outlines and takes whatever colour
+            ; it is filled with, so `emoji-color` can hand it a different one
+            ; from the sentence it sits in. Unset, this is the text colour and
+            ; the output is unchanged.
+            def ec:EVGColor (el.effectiveEmojiColor())
+            def er:double (ec.r / 255.0)
+            def eg:double (ec.g / 255.0)
+            def eb:double (ec.b / 255.0)
+            def segs:[PDFTextSegment] (this.splitLine(line fontFamily fontSize textX))
+            def sgi:int 0
+            while (sgi < (array_length segs)) {
+                def seg:PDFTextSegment (itemAt segs sgi)
+                def sr:double r
+                def sg:double g
+                def sb:double b
+                if seg.isCid {
+                    sr = er
+                    sg = eg
+                    sb = eb
+                }
+                streamBuffer.writeString("BT\n")
+                streamBuffer.writeString((this.segmentFontName(seg)) + " " + (this.formatNum(fontSize)) + " Tf\n")
+                streamBuffer.writeString((this.formatNum(sr)) + " " + (this.formatNum(sg)) + " " + (this.formatNum(sb)) + " rg\n")
+                streamBuffer.writeString((this.formatNum(seg.x)) + " " + (this.formatNum(lineY)) + " Td\n")
+                streamBuffer.writeString((this.segmentShowOperator(seg)) + "\n")
+                streamBuffer.writeString("ET\n")
+                sgi = sgi + 1
+            }
+
             lineY = lineY - lineSpacing
             i = i + 1
         }
@@ -2243,6 +2495,234 @@ class EVGPDFRenderer {
     ; TJ numbers are thousandths of a text-space unit and move the pen LEFT,
     ; and /Widths is written scaled to 1000 units per em regardless of the
     ; face's own unitsPerEm — so a kern of k font units becomes -1000k/upem.
+    ; Emit a Type0/Identity-H font for every fallback face the content stream
+    ; used, filling cidFontObjNums so the page resource dicts can reference
+    ; them as /E1..
+    ;
+    ; Must run AFTER the content streams are built: Identity-H writes glyph ids
+    ; into the stream, so which glyphs exist is only known once the text has
+    ; been laid down. The whole face is embedded rather than subsetted — a
+    ; subsetter has to rewrite loca/glyf and renumber composite components, and
+    ; that is a separate piece of work.
+    fn writeCidFontObjects:void (pdf:GrowableBuffer objectOffsets:[int]) {
+        clear cidFontObjNums
+        def fi:int 0
+        while (fi < (array_length usedCidFonts)) {
+            def family:string (itemAt usedCidFonts fi)
+            def ttf:TrueTypeFont (fontManager.getFont(family))
+            if (ttf.isLoaded()) {
+                ; Only the glyphs this document drew. An emoji face is 858 KB
+                ; and a colour one 25 MB, essentially all of it `glyf`, so
+                ; embedding the file whole made one 🎉 cost more than the rest
+                ; of the PDF together. The subset keeps glyph ids, which is
+                ; what lets /CIDToGIDMap stay /Identity and the strings
+                ; already written stay valid.
+                def subsetGids:[int]
+                def gi:int 0
+                while (gi < (array_length cidUsedGid)) {
+                    if ((itemAt cidUsedFont gi) == fi) {
+                        push subsetGids (itemAt cidUsedGid gi)
+                    }
+                    gi = gi + 1
+                }
+                def fontFileData:buffer (TTFSubset.build(ttf subsetGids))
+                if ((buffer_length fontFileData) == 0) {
+                    ; A face the subsetter cannot handle — a CFF outline font,
+                    ; say. Embed it whole rather than emit a font with no
+                    ; glyphs in it.
+                    fontFileData = (ttf.getFontData())
+                }
+                def fontFileLen:int (buffer_length fontFileData)
+
+                push objectOffsets (pdf.size())
+                pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+                pdf.writeString("<< /Length " + (to_string fontFileLen) + " /Length1 " + (to_string fontFileLen) + " >>\n")
+                pdf.writeString("stream\n")
+                pdf.writeBuffer(fontFileData)
+                pdf.writeString("\nendstream\n")
+                pdf.writeString("endobj\n\n")
+                def fontFileObjNum:int nextObjNum
+                nextObjNum = nextObjNum + 1
+
+                def psName:string (this.sanitizeFontName(ttf.fontFamily))
+
+                push objectOffsets (pdf.size())
+                pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+                pdf.writeString("<< /Type /FontDescriptor")
+                pdf.writeString(" /FontName /" + psName)
+                ; Flag 4 = symbolic. An emoji face has no Latin alphabet and
+                ; declaring it nonsymbolic makes readers try to apply a
+                ; standard encoding to it.
+                pdf.writeString(" /Flags 4")
+                pdf.writeString(" /FontBBox [0 " + (to_string ttf.descender) + " 1000 " + (to_string ttf.ascender) + "]")
+                pdf.writeString(" /ItalicAngle 0")
+                pdf.writeString(" /Ascent " + (to_string ttf.ascender))
+                pdf.writeString(" /Descent " + (to_string ttf.descender))
+                pdf.writeString(" /CapHeight " + (to_string ttf.ascender))
+                pdf.writeString(" /StemV 80")
+                pdf.writeString(" /FontFile2 " + (to_string fontFileObjNum) + " 0 R")
+                pdf.writeString(" >>\n")
+                pdf.writeString("endobj\n\n")
+                def descObjNum:int nextObjNum
+                nextObjNum = nextObjNum + 1
+
+                push objectOffsets (pdf.size())
+                pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+                def cidToUni:string (this.cidToUnicodeCMap(fi))
+                pdf.writeString("<< /Length " + (to_string (strlen cidToUni)) + " >>\n")
+                pdf.writeString("stream\n")
+                pdf.writeString(cidToUni)
+                pdf.writeString("\nendstream\n")
+                pdf.writeString("endobj\n\n")
+                def toUniObjNum:int nextObjNum
+                nextObjNum = nextObjNum + 1
+
+                push objectOffsets (pdf.size())
+                pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+                pdf.writeString("<< /Type /Font /Subtype /CIDFontType2")
+                pdf.writeString(" /BaseFont /" + psName)
+                pdf.writeString(" /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>")
+                pdf.writeString(" /FontDescriptor " + (to_string descObjNum) + " 0 R")
+                pdf.writeString(" /DW 1000")
+                pdf.writeString(" /W [")
+                def wi:int 0
+                while (wi < (array_length cidUsedGid)) {
+                    if ((itemAt cidUsedFont wi) == fi) {
+                        def gid:int (itemAt cidUsedGid wi)
+                        ; By GLYPH id. Looking the width up by codepoint was
+                        ; wrong the moment a glyph could be a ligature of
+                        ; several — a joined family would have been charged
+                        ; the width of its first member alone.
+                        def wUnits:int (ttf.getGlyphWidth(gid))
+                        def scaled:int (to_int (((to_double wUnits) * 1000.0) / (to_double ttf.unitsPerEm)))
+                        pdf.writeString(" " + (to_string gid) + " [" + (to_string scaled) + "]")
+                    }
+                    wi = wi + 1
+                }
+                pdf.writeString(" ]")
+                ; The CID written into the stream IS the glyph id.
+                pdf.writeString(" /CIDToGIDMap /Identity")
+                pdf.writeString(" >>\n")
+                pdf.writeString("endobj\n\n")
+                def cidFontObjNum:int nextObjNum
+                nextObjNum = nextObjNum + 1
+
+                push objectOffsets (pdf.size())
+                pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+                pdf.writeString("<< /Type /Font /Subtype /Type0")
+                pdf.writeString(" /BaseFont /" + psName)
+                pdf.writeString(" /Encoding /Identity-H")
+                pdf.writeString(" /DescendantFonts [" + (to_string cidFontObjNum) + " 0 R]")
+                pdf.writeString(" /ToUnicode " + (to_string toUniObjNum) + " 0 R")
+                pdf.writeString(" >>\n")
+                pdf.writeString("endobj\n\n")
+                push cidFontObjNums nextObjNum
+                nextObjNum = nextObjNum + 1
+            } {
+                ; The face vanished between drawing and embedding, which should
+                ; not happen — but a resource must still exist or the page is
+                ; malformed.
+                push objectOffsets (pdf.size())
+                pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+                pdf.writeString("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\n")
+                pdf.writeString("endobj\n\n")
+                push cidFontObjNums nextObjNum
+                nextObjNum = nextObjNum + 1
+            }
+            fi = fi + 1
+        }
+    }
+
+    ; Glyph id -> Unicode, so the emoji can be selected and copied out of the
+    ; page rather than being an anonymous picture. Identity-H strings carry no
+    ; character information at all, so without this a reader has nothing.
+    fn cidToUnicodeCMap:string (fontIdx:int) {
+        def entries:[string]
+        def i:int 0
+        while (i < (array_length cidUsedGid)) {
+            if ((itemAt cidUsedFont i) == fontIdx) {
+                def gid:int (itemAt cidUsedGid i)
+                def text:string (itemAt cidUsedText i)
+                ; The destination is every codepoint the glyph stands for, in
+                ; UTF-16BE. A bfchar destination may hold a whole sequence,
+                ; which is what makes a joined emoji copy out as itself.
+                def dst:string ""
+                def ci:int 0
+                while (ci < (strlen text)) {
+                    dst = dst + (this.utf16BeHex((EVGCodepoint.codeAt(text ci))))
+                    ci = (ci + (EVGCodepoint.unitsAt(text ci)))
+                }
+                push entries ("<" + (this.toHex4(gid)) + "> <" + dst + ">")
+            }
+            i = i + 1
+        }
+        def cmap:string "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n"
+        cmap = cmap + "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n"
+        cmap = cmap + "/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n"
+        cmap = cmap + "1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n"
+        ; A bfchar block holds at most 100 entries, so long runs are chunked.
+        def n:int (array_length entries)
+        def start:int 0
+        while (start < n) {
+            def end:int (start + 100)
+            if (end > n) {
+                end = n
+            }
+            cmap = cmap + (to_string (end - start)) + " beginbfchar\n"
+            def j:int start
+            while (j < end) {
+                cmap = cmap + (itemAt entries j) + "\n"
+                j = j + 1
+            }
+            cmap = cmap + "endbfchar\n"
+            start = end
+        }
+        cmap = cmap + "endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend"
+        return cmap
+    }
+
+    ; A codepoint as UTF-16BE hex — a surrogate PAIR above the BMP, which is
+    ; what a bfchar destination has to be.
+    fn utf16BeHex:string (cp:int) {
+        if (cp < 65536) {
+            return (this.toHex4(cp))
+        }
+        def rel:int (cp - 65536)
+        def hi:int (55296 + (to_int (rel / 1024)))
+        def lo:int (56320 + (rel % 1024))
+        return ((this.toHex4(hi)) + (this.toHex4(lo)))
+    }
+
+    ; How far a segment moves the pen — measured the way that segment is
+    ; DRAWN, which for a fallback span means shaped.
+    ;
+    ; Measuring it through the ordinary measurer charged a joined family one
+    ; advance per codepoint and drew one glyph, so every segment after it on
+    ; the line started too far right.
+    fn segmentWidth:double (seg:PDFTextSegment fontSize:double) {
+        if seg.isCid {
+            def face:TrueTypeFont (fontManager.getFont(seg.family))
+            if (face.isLoaded()) {
+                return (face.measureShapedText(seg.text fontSize))
+            }
+        }
+        return (measurer.measureTextWidth(seg.text seg.family fontSize))
+    }
+
+    fn segmentFontName:string (seg:PDFTextSegment) {
+        if seg.isCid {
+            return (this.getCidFontName(seg.family))
+        }
+        return (this.getPdfFontName(seg.family))
+    }
+
+    fn segmentShowOperator:string (seg:PDFTextSegment) {
+        if seg.isCid {
+            return (this.cidShowOperator(seg.text seg.family))
+        }
+        return (this.textShowOperator(seg.text seg.family))
+    }
+
     fn textShowOperator:string (line:string fontFamily:string) {
         def font:TrueTypeFont (fontManager.getFont(fontFamily))
         def plain:string ("(" + (this.escapeText(line)) + ") Tj")
@@ -2261,10 +2741,13 @@ class EVGPDFRenderer {
         def seg:string ""
         def kerns:int 0
         def i:int 0
+        def prevCp:int 0
+        def firstCp:boolean true
         while (i < len) {
-            def ch:int (charAt line i)
-            if (i > 0) {
-                def k:int (font.kernUnits((charAt line (i - 1)) ch))
+            def ch:int (EVGCodepoint.codeAt(line i))
+            def cpStep:int (EVGCodepoint.unitsAt(line i))
+            if (firstCp == false) {
+                def k:int (font.kernUnits(prevCp ch))
                 if (k != 0) {
                     out = out + "(" + (this.escapeText(seg)) + ")"
                     seg = ""
@@ -2273,8 +2756,10 @@ class EVGPDFRenderer {
                     kerns = (kerns + 1)
                 }
             }
-            seg = seg + (strfromcode ch)
-            i = (i + 1)
+            prevCp = ch
+            firstCp = false
+            seg = seg + (EVGCodepoint.toStr(ch))
+            i = (i + cpStep)
         }
         if (kerns == 0) {
             return plain
@@ -2466,11 +2951,15 @@ class EVGPDFRenderer {
         ; Also handle Unicode characters outside WinAnsi range
         ; For high-byte characters (128-255), use PDF octal escape \NNN
         ; because Go strings are UTF-8 and can't represent raw bytes 128-255 directly
+        ; By codepoint: a surrogate half is not a character, and reporting one
+        ; as "U+D83D is outside WinAnsi" tells the author nothing they can act
+        ; on. An emoji is now reported once, at its real codepoint.
         def result:string ""
         def len:int (strlen text)
         def i 0
         while (i < len) {
-            def ch:int (charAt text i)
+            def ch:int (EVGCodepoint.codeAt(text i))
+            def cpStep:int (EVGCodepoint.unitsAt(text i))
             if (ch == 40) {  ; (
                 result = result + "\\("
             } {
@@ -2514,7 +3003,7 @@ class EVGPDFRenderer {
                     }
                 }
             }
-            i = i + 1
+            i = (i + cpStep)
         }
         return result
     }

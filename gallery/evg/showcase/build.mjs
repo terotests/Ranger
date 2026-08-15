@@ -63,6 +63,13 @@ const PAGES = [
     shows: ["flex shorthand", "flex-shrink: 0", "justify-content", "flex-wrap"],
   },
   {
+    id: "emoji",
+    title: "Emoji",
+    blurb:
+      "Each specimen is several codepoints and one glyph, and only becomes that glyph if the whole cluster reaches the shaper together. The tinted rows use emoji-color, which exists because there are no inline spans to hang a second colour on.",
+    shows: ["grapheme clusters", "GSUB ligatures", "Type0 / Identity-H", "emoji-color"],
+  },
+  {
     id: "boxmodel",
     title: "Box model",
     blurb:

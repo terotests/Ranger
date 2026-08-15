@@ -1,3 +1,5 @@
+Import "../fonts/FontManager.rgr"
+Import "../../../evg/EVGCodepoint.rgr"
 ; EVGHTMLRenderer.rgr - Render EVG elements to HTML/CSS
 ; 
 ; Takes EVG element tree with calculated positions and renders to HTML.
@@ -63,6 +65,21 @@ class EVGHTMLRenderer {
     def indentLevel:int 0
     def indentString:string "  "
     def usedFontFamilies:[string]
+    ; The face that covers codepoints the document's own faces do not — emoji,
+    ; in practice. Empty unless the caller found the document actually needs
+    ; one: an emoji face is close to a megabyte once base64'd, and a page with
+    ; no emoji in it should not carry that.
+    ;
+    ; It matters for more than looks. Left out, the browser substitutes its own
+    ; emoji font, whose advances are not the ones EVG measured with — so a line
+    ; wraps here that did not wrap in the PDF, and the absolutely positioned
+    ; boxes below it land on top of each other.
+    def fallbackFamily:string ""
+    ; The faces, so an emoji run can be found and wrapped in its own colour.
+    ; Optional: with no manager the renderer writes the text in one piece,
+    ; exactly as it did.
+    def fontManager:FontManager
+    def hasFontManager:boolean false
     def fontBasePath:string "./fonts/"
     ; Real file paths for the faces that were actually loaded, registered by
     ; the tool. fontFamilyToFileName below is a hand-maintained guess at where
@@ -253,6 +270,9 @@ class EVGHTMLRenderer {
             css = css + (this.generateFontFace(fontFamily))
             i = i + 1
         }
+        if ((strlen fallbackFamily) > 0) {
+            css = css + (this.generateFontFace(fallbackFamily))
+        }
         
         ; Page container - visualizes actual page boundaries
         css = css + "    .evg-page-container {\n"
@@ -284,6 +304,147 @@ class EVGHTMLRenderer {
         return css
     }
     
+    ; Did the engine fit this label's text on a single line?
+    ;
+    ; Asked of the same measurer layout used, so the answer is layout's answer
+    ; and not a second opinion.
+    fn fitsOneLine:boolean (el:EVGElement) {
+        if ((strlen el.textContent) == 0) {
+            return false
+        }
+        if (el.calculatedWidth <= 0.0) {
+            return false
+        }
+        def fs:double el.inheritedFontSize
+        if el.fontSize.isSet {
+            fs = el.fontSize.pixels
+        }
+        if (fs <= 0.0) {
+            return false
+        }
+        def avail:double (el.box.getInnerWidth(el.calculatedWidth))
+        if (avail <= 0.0) {
+            return false
+        }
+        def w:double (measurer.measureTextWidth((this.presentationText(el.textContent)) (el.effectiveFontFamily()) fs))
+        ; A hair of slack, so a label whose text measures exactly its own box
+        ; still counts as fitting — that is the shrink-wrapped case, and it is
+        ; the one that wraps.
+        return (w <= (avail + 0.5))
+    }
+
+    ; The element's text as markup: one piece normally, and a wrapped <span>
+    ; around each fallback run when `emoji-color` asks for one.
+    ;
+    ; There are no inline spans in EVG, so an author has no other way to say
+    ; "this emoji is not the colour of the sentence it is in" — and a
+    ; monochrome emoji face will take any colour it is filled with, which is
+    ; the whole reason the property is worth having.
+    fn textMarkup:string (el:EVGElement) {
+        def text:string (this.presentationText(el.textContent))
+        if (el.emojiColor.isSet == false) {
+            return (this.escapeHtml(text))
+        }
+        if (hasFontManager == false) {
+            return (this.escapeHtml(text))
+        }
+        def primary:TrueTypeFont (fontManager.getFont((el.effectiveFontFamily())))
+        if ((primary.isLoaded()) == false) {
+            return (this.escapeHtml(text))
+        }
+        def tint:string (el.emojiColor.toCSSString())
+
+        def cps:[int] (EVGCodepoint.toArray(text))
+        def out:string ""
+        def buf:string ""
+        def bufIsEmoji:boolean false
+        def have:boolean false
+        def i:int 0
+        while (i < (array_length cps)) {
+            def end:int (EVGGrapheme.clusterEnd(cps i))
+            def face:TrueTypeFont (fontManager.faceForClusterFrom(primary cps i end))
+            def isEmoji:boolean false
+            if (face.isLoaded()) {
+                isEmoji = ((face.fontPath == primary.fontPath) == false)
+            }
+            if have {
+                if (isEmoji != bufIsEmoji) {
+                    out = out + (this.wrapRun(buf bufIsEmoji tint))
+                    buf = ""
+                }
+            }
+            bufIsEmoji = isEmoji
+            have = true
+            def c:int i
+            while (c < end) {
+                buf = buf + (EVGCodepoint.toStr((itemAt cps c)))
+                c = (c + 1)
+            }
+            i = end
+        }
+        if have {
+            out = out + (this.wrapRun(buf bufIsEmoji tint))
+        }
+        return out
+    }
+
+    fn wrapRun:string (text:string isEmoji:boolean tint:string) {
+        if (isEmoji == false) {
+            return (this.escapeHtml(text))
+        }
+        return ("<span style=\"color: " + tint + "\">" + (this.escapeHtml(text)) + "</span>")
+    }
+
+    ; The text as this engine SHAPED it, for a browser to set.
+    ;
+    ; Variation selectors are dropped once a fallback face is in play, and the
+    ; reason is not tidiness. Chromium treats U+FE0F as an instruction to use
+    ; its OWN colour emoji font, whatever the font-family stack says — so a
+    ; keycap and a rainbow flag came out of the system font, in colour, at
+    ; advances that are not the ones EVG measured with, while everything
+    ; without a selector came correctly out of the declared face. The engine
+    ; has already chosen the presentation by choosing the face; the selector
+    ; has nothing left to ask for.
+    ;
+    ; Documents with no fallback face are left exactly as they were.
+    fn presentationText:string (text:string) {
+        if ((strlen fallbackFamily) == 0) {
+            return text
+        }
+        def out:string ""
+        def i:int 0
+        while (i < (strlen text)) {
+            def cp:int (EVGCodepoint.codeAt(text i))
+            def step:int (EVGCodepoint.unitsAt(text i))
+            if ((cp < 65038) || (cp > 65039)) {
+                out = out + (EVGCodepoint.toStr(cp))
+            }
+            i = (i + step)
+        }
+        return out
+    }
+
+    fn setFontManager:void (fm:FontManager) {
+        fontManager = fm
+        hasFontManager = true
+    }
+
+    fn setFallbackFamily:void (f:string) {
+        fallbackFamily = f
+    }
+
+    ; The font-family stack for an element: the declared face, then the
+    ; fallback face when the document needs one, then a generic.
+    fn fontStack:string (family:string) {
+        def out:string ("'" + family + "'")
+        if ((strlen fallbackFamily) > 0) {
+            if (fallbackFamily != family) {
+                out = out + ", '" + fallbackFamily + "'"
+            }
+        }
+        return (out + ", sans-serif")
+    }
+
     ; Tell the renderer where a face really is. Overrides the name mapping.
     fn addFontFile:void (family:string path:string) {
         def i:int 0
@@ -798,7 +959,7 @@ class EVGHTMLRenderer {
         html = html + ">"
         
         ; Add text content (escape HTML)
-        html = html + (this.escapeHtml(el.textContent))
+        html = html + (this.textMarkup(el))
         
         ; Render any children (nested text)
         def i:int 0
@@ -836,7 +997,7 @@ class EVGHTMLRenderer {
         
         ; Font properties
         if ((strlen el.fontFamily) > 0) {
-            css = css + "font-family: '" + el.fontFamily + "', sans-serif; "
+            css = css + "font-family: " + (this.fontStack(el.fontFamily)) + "; "
         }
         
         if el.fontSize.isSet {
@@ -865,6 +1026,20 @@ class EVGHTMLRenderer {
         ; Dimensions (if set)
         if (el.calculatedWidth > 0.0) {
             css = css + "width: " + (this.formatPx(el.calculatedWidth)) + "; "
+        }
+
+        ; When EVG put the whole label on ONE line, say so, and let the browser
+        ; overflow rather than re-break it.
+        ;
+        ; The box carries EVG's own measurement, printed to a few decimals, and
+        ; a browser summing the same advances can land a hundredth of a pixel
+        ; over it — measured: 288.719 against a declared 288.701. That is
+        ; enough to wrap the last word onto a second line, which then pushes
+        ; every absolutely-positioned box below it out of place. EVG has
+        ; already decided where this text breaks; the browser deciding again is
+        ; exactly the disagreement this engine exists to prevent.
+        if (this.fitsOneLine(el)) {
+            css = css + "white-space: nowrap; "
         }
         
         ; Text shadow

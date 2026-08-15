@@ -25,6 +25,7 @@ Import "../../../evg/EVGLayout.rgr"
 Import "../../../evg/SVGPathParser.rgr"
 Import "../../../evg/EVGStyleSheet.rgr"
 Import "../../../evg/EVGGrid.rgr"
+Import "../../../evg/EVGGrapheme.rgr"
 Import "../../../evg/EVGTextEngine.rgr"
 Import "../tests/harness/RgTest.rgr"
 
@@ -118,6 +119,8 @@ class EVGTest {
         test.testGridContentRows(t)
         test.testStyleSheetParse(t)
         test.testStyleSheetCascade(t)
+        test.testGraphemeClusters(t)
+        test.testEmojiColor(t)
         t.summary()
     }
 
@@ -2216,4 +2219,111 @@ class EVGTest {
         t.near("path bounds minX" bounds.minX 0.0)
         t.near("path bounds maxX" bounds.maxX 100.0)
     }
+
+    ; What a reader calls one character, and what the engine must therefore
+    ; treat as one glyph, one advance and one unbreakable unit.
+    ;
+    ; Stepping by codepoint charged a joined family five advances and drew
+    ; one, split a keycap across two font files so its ligature never fired,
+    ; and named a single codepoint in the PDF's /ToUnicode entry for a glyph
+    ; made of five.
+    fn testGraphemeClusters:void (t:RgTest) {
+        ; A lone character is a cluster of one.
+        def plain:[int]
+        push plain 65
+        push plain 66
+        t.eqInt("a letter is one cluster" (EVGGrapheme.clusterEnd(plain 0)) 1)
+
+        ; U+1F44D U+1F3FD — thumbs up with a skin tone modifier.
+        def skin:[int]
+        push skin 128077
+        push skin 127997
+        t.eqInt("a skin tone joins the emoji before it" (EVGGrapheme.clusterEnd(skin 0)) 2)
+
+        ; U+0031 U+FE0F U+20E3 — the keycap. The base is a DIGIT, which every
+        ; text face has; that is exactly why choosing a face per codepoint
+        ; broke it.
+        def keycap:[int]
+        push keycap 49
+        push keycap 65039
+        push keycap 8419
+        t.eqInt("a keycap is one cluster of three" (EVGGrapheme.clusterEnd(keycap 0)) 3)
+
+        ; U+1F468 U+200D U+1F469 U+200D U+1F467 — a joined family.
+        def family:[int]
+        push family 128104
+        push family 8205
+        push family 128105
+        push family 8205
+        push family 128103
+        t.eqInt("a ZWJ sequence is one cluster" (EVGGrapheme.clusterEnd(family 0)) 5)
+
+        ; Two flags in a row are two clusters, not one long one: a flag is a
+        ; PAIR of regional indicators and the pairing has to stop there or
+        ; neither flag finds its ligature.
+        def flags:[int]
+        push flags 127467
+        push flags 127470
+        push flags 127480
+        push flags 127466
+        t.eqInt("a flag is exactly two regional indicators" (EVGGrapheme.clusterEnd(flags 0)) 2)
+        t.eqInt("and the next pair starts a new cluster" (EVGGrapheme.clusterEnd(flags 2)) 4)
+
+        ; A joiner with nothing after it joins nothing — the loop must still
+        ; terminate rather than reading past the end.
+        def dangling:[int]
+        push dangling 128104
+        push dangling 8205
+        t.eqInt("a trailing joiner does not run off the end" (EVGGrapheme.clusterEnd(dangling 0)) 1)
+
+        ; Counting, as a reader would.
+        t.eqInt("a plain string counts its letters" (EVGGrapheme.clusterCount("abc")) 3)
+
+        ; Boundaries cover the whole array and end with its length.
+        def bounds:[int] (EVGGrapheme.boundaries(family))
+        t.eqInt("one cluster yields two boundaries" (array_length bounds) 2)
+        t.eqInt("and the last one is the length" (itemAt bounds 1) 5)
+    }
+
+
+    ; `emoji-color` — a second colour for glyphs that came from a fallback
+    ; face.
+    ;
+    ; A monochrome emoji face takes whatever colour it is filled with, and the
+    ; one thing the engine could not do was fill it with a DIFFERENT one from
+    ; the sentence it sits in: there are no inline spans here to hang a second
+    ; colour on. Unset it must behave exactly as before, or every existing
+    ; document changes.
+    fn testEmojiColor:void (t:RgTest) {
+        def plain (new EVGElement())
+        plain.setAttribute("color" "#112233")
+        t.ok("unset, emoji take the text colour"
+             (((plain.effectiveEmojiColor()).red()) == 17))
+        t.eqBool("and the property itself stays unset" plain.emojiColor.isSet false)
+
+        def tinted (new EVGElement())
+        tinted.setAttribute("color" "#112233")
+        tinted.setAttribute("emoji-color" "#e11d48")
+        def ec:EVGColor (tinted.effectiveEmojiColor())
+        t.eqInt("set, emoji take their own colour" (ec.red()) 225)
+        t.eqInt("green channel" (ec.green()) 29)
+        t.eqInt("blue channel" (ec.blue()) 72)
+        t.eqInt("and the text colour is untouched" ((unwrap tinted.color).red()) 17)
+
+        ; Inherited like `color`, so a deck can set it once.
+        def parent (new EVGElement())
+        parent.setAttribute("emoji-color" "#16a34a")
+        def kid (new EVGElement())
+        parent.addChild(kid)
+        kid.inheritProperties(parent)
+        t.eqInt("it inherits from the parent" ((kid.effectiveEmojiColor()).red()) 22)
+
+        ; A child that declares its own keeps it.
+        def kid2 (new EVGElement())
+        kid2.setAttribute("emoji-color" "#2563eb")
+        parent.addChild(kid2)
+        kid2.inheritProperties(parent)
+        t.eqInt("but its own declaration wins" ((kid2.effectiveEmojiColor()).blue()) 235)
+    }
+
 }

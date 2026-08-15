@@ -105,6 +105,15 @@ class EVGElement {
     def lineHeight:double 1.2
     def textAlign:string "left"
     def color:EVGColor
+    ; What to paint glyphs that came from a FALLBACK face — emoji, in
+    ; practice — when they should not be the colour of the text around them.
+    ;
+    ; Unset by default, which means "the same as `color`", so nothing changes
+    ; for a document that does not ask. It exists because a monochrome emoji
+    ; face can be filled with any colour at all, and the one thing the engine
+    ; could not do was fill it with a DIFFERENT one from the sentence it sits
+    ; in — there are no inline spans here to hang a second colour on.
+    def emojiColor:EVGColor
     def textContent:string ""
     
     ; CSS Flexbox properties
@@ -322,6 +331,7 @@ class EVGElement {
         
         backgroundColor = (EVGColor.noColor())
         color = (EVGColor.black())
+        emojiColor = (EVGColor.noColor())
         
         fontSize = (EVGUnit.unset())
         
@@ -553,6 +563,16 @@ class EVGElement {
         return fontFamily
     }
 
+    ; The colour fallback glyphs are painted in: the explicit one when set,
+    ; otherwise the text colour, so an undeclared document looks exactly as it
+    ; did.
+    fn effectiveEmojiColor:EVGColor () {
+        if emojiColor.isSet {
+            return (unwrap emojiColor)
+        }
+        return (unwrap color)
+    }
+
     fn inheritProperties:void (parentEl:EVGElement) {
         ; Inherit properties from parent
         if (fontFamily == "Noto Sans") {
@@ -560,6 +580,11 @@ class EVGElement {
         }
         if (color.isSet == false) {
             color = parentEl.color
+        }
+        ; Inherited like `color`: a deck sets it once and every caption in it
+        ; picks it up.
+        if (emojiColor.isSet == false) {
+            emojiColor = parentEl.emojiColor
         }
         fontSizeBase = parentEl.inheritedFontSize
         rootFontSize = parentEl.rootFontSize
@@ -987,6 +1012,10 @@ class EVGElement {
         }
         if (name == "color") {
             color = (EVGColor.parse(value))
+            return
+        }
+        if (name == "emoji-color") {
+            emojiColor = (EVGColor.parse(value))
             return
         }
         if (name == "opacity") {

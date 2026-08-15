@@ -1,3 +1,4 @@
+Import "../../../evg/EVGCodepoint.rgr"
 ; FontManager.rgr - Manage loaded fonts and provide text measurement
 ;
 ; Usage:
@@ -8,6 +9,7 @@
 
 Import "TrueTypeFont.rgr"
 Import "../../../evg/EVGTextMeasurer.rgr"
+Import "../../../evg/EVGGrapheme.rgr"
 
 class FontManager {
     def fonts:[TrueTypeFont]
@@ -246,13 +248,185 @@ class FontManager {
         return ((font.fontFamily == searchFamily) || (font.fontFamily == fontFamily))
     }
 
+    ; The face that actually has a glyph for this codepoint.
+    ;
+    ; A text face carries no emoji and an emoji face carries no letters, so a
+    ; run mixing them cannot be measured or drawn from one file. The primary
+    ; family wins whenever it has the glyph; only what it lacks is looked for
+    ; elsewhere, so this costs nothing on ordinary text.
+    fn faceForCodepoint:TrueTypeFont (fontFamily:string cp:int) {
+        def primary:TrueTypeFont (this.getFont(fontFamily))
+        if (primary.isLoaded()) {
+            if ((primary.getGlyphIndex(cp)) > 0) {
+                return primary
+            }
+        }
+        def i:int 0
+        while (i < (array_length fonts)) {
+            def f:TrueTypeFont (itemAt fonts i)
+            if (f.isLoaded()) {
+                if ((f.getGlyphIndex(cp)) > 0) {
+                    return f
+                }
+            }
+            i = (i + 1)
+        }
+        return primary
+    }
+
+    ; Any loaded face that has this codepoint, without a family to start from.
+    ;
+    ; The rasterizer holds one face at a time and knows the glyph is missing
+    ; before it knows what to do about it, so it asks this rather than
+    ; re-deriving the family name it was set up with. Returns a face with
+    ; unitsPerEm == 0 when nothing loaded has the glyph, which the caller must
+    ; check — drawing .notdef from the primary is better than drawing nothing.
+    fn fallbackFace:TrueTypeFont (cp:int) {
+        def i:int 0
+        while (i < (array_length fonts)) {
+            def f:TrueTypeFont (itemAt fonts i)
+            if (f.isLoaded()) {
+                if ((f.getGlyphIndex(cp)) > 0) {
+                    return f
+                }
+            }
+            i = (i + 1)
+        }
+        def none (new TrueTypeFont())
+        return none
+    }
+
+    ; Can this face draw every codepoint of a cluster?
+    ;
+    ; Variation selectors and the joiner are skipped: they are instructions,
+    ; not characters, the shaper drops them before any glyph is looked up, and
+    ; a face that ligates the sequence perfectly well may still not list them.
+    sfn coversCluster:boolean (f:TrueTypeFont cps:[int] start:int end:int) {
+        def i:int start
+        while (i < end) {
+            def cp:int (itemAt cps i)
+            def skip:boolean (EVGGrapheme.isZWJ(cp))
+            if ((cp >= 65024) && (cp <= 65039)) {
+                skip = true
+            }
+            if (skip == false) {
+                if ((f.getGlyphIndex(cp)) == 0) {
+                    return false
+                }
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; The face that should draw a whole grapheme cluster.
+    ;
+    ; Choosing per CODEPOINT is what broke 1️⃣: the "1" is in the text face and
+    ; the keycap is not, so the cluster was split across two faces and the
+    ; ligature that turns the three of them into one glyph never had all three
+    ; in front of it. A cluster of more than one codepoint therefore asks for a
+    ; face that has ALL of them, primary first; only a cluster nobody covers
+    ; falls back to matching on its base character alone.
+    fn faceForClusterFrom:TrueTypeFont (primary:TrueTypeFont cps:[int] start:int end:int) {
+        def base:int (itemAt cps start)
+        if ((end - start) <= 1) {
+            if (primary.isLoaded()) {
+                if ((primary.getGlyphIndex(base)) > 0) {
+                    return primary
+                }
+            }
+            return (this.fallbackFace(base))
+        }
+
+        if (primary.isLoaded()) {
+            if (FontManager.coversCluster(primary cps start end)) {
+                return primary
+            }
+        }
+        def i:int 0
+        while (i < (array_length fonts)) {
+            def f:TrueTypeFont (itemAt fonts i)
+            if (f.isLoaded()) {
+                if (FontManager.coversCluster(f cps start end)) {
+                    return f
+                }
+            }
+            i = (i + 1)
+        }
+        ; Nothing has the whole cluster. Fall back on the base character, so
+        ; at least the thing the cluster is ABOUT gets drawn.
+        if (primary.isLoaded()) {
+            if ((primary.getGlyphIndex(base)) > 0) {
+                return primary
+            }
+        }
+        return (this.fallbackFace(base))
+    }
+
+    fn faceForCluster:TrueTypeFont (fontFamily:string cps:[int] start:int end:int) {
+        return (this.faceForClusterFrom((this.getFont(fontFamily)) cps start end))
+    }
+
+    ; True when the codepoint is drawn from some face other than the primary.
+    fn needsFallback:boolean (fontFamily:string cp:int) {
+        def primary:TrueTypeFont (this.getFont(fontFamily))
+        if ((primary.isLoaded()) == false) {
+            return false
+        }
+        return ((primary.getGlyphIndex(cp)) == 0)
+    }
+
     fn measureText:double (text:string fontFamily:string fontSize:double) {
         def font:TrueTypeFont (this.getFont(fontFamily))
-        if (font.unitsPerEm > 0) {
-            return (font.measureText(text fontSize))
+        if ((font.isLoaded()) == false) {
+            ; No real metrics at all — the caller is on the estimate path.
+            return ((to_double (strlen text)) * fontSize * 0.5)
         }
-        ; Fallback to estimate
-        return ((to_double (strlen text)) * fontSize * 0.5)
+
+        ; Measured per GRAPHEME CLUSTER so a run can cross faces and a
+        ; sequence is charged the width of the one glyph it becomes.
+        ;
+        ; A cluster the primary face draws is measured exactly the way it
+        ; always was — per codepoint, with kerning — because that is also how
+        ; it is painted, and the two must not part company. Only a cluster
+        ; handed to a fallback face goes through the shaper, which is the only
+        ; path where a sequence collapses to a single glyph.
+        def cps:[int] (EVGCodepoint.toArray(text))
+        def n:int (array_length cps)
+        def width:double 0.0
+        def i:int 0
+        def prev:int 0
+        def prevWasPrimary:boolean false
+        def first:boolean true
+        while (i < n) {
+            def end:int (EVGGrapheme.clusterEnd(cps i))
+            def face:TrueTypeFont (this.faceForClusterFrom(font cps i end))
+            def isPrimary:boolean (face.fontPath == font.fontPath)
+
+            if isPrimary {
+                def c:int i
+                while (c < end) {
+                    def cp:int (itemAt cps c)
+                    width = (width + (face.getCharWidthPoints(cp fontSize)))
+                    if (first == false) {
+                        if prevWasPrimary {
+                            width = (width + (face.kernPoints(prev cp fontSize)))
+                        }
+                    }
+                    prev = cp
+                    prevWasPrimary = true
+                    first = false
+                    c = (c + 1)
+                }
+            } {
+                width = (width + (face.measureShapedRange(cps i end fontSize)))
+                prev = (itemAt cps i)
+                prevWasPrimary = false
+                first = false
+            }
+            i = end
+        }
+        return width
     }
     
     fn getLineHeight:double (fontFamily:string fontSize:double) {

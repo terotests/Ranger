@@ -1,3 +1,4 @@
+Import "../../../evg/EVGCodepoint.rgr"
 ; TrueTypeFont.rgr - Parse TrueType font files for metrics and embedding
 ;
 ; TrueType file structure:
@@ -12,6 +13,7 @@
 ; - head: font header (units per em)
 
 Import "../core/Buffer.rgr"
+Import "../../../evg/EVGGrapheme.rgr"
 
 class TTFTableRecord {
     def tag:string ""
@@ -23,6 +25,27 @@ class TTFTableRecord {
 class TTFGlyphMetrics {
     def advanceWidth:int 0
     def leftSideBearing:int 0
+}
+
+; What a shaping pass produced: the glyphs to draw, and which codepoints of
+; the input each one came from.
+;
+; The cluster range is not bookkeeping — it is the only way back to text. A
+; ZWJ family is one glyph made from five codepoints, and the PDF's /ToUnicode
+; entry for that glyph has to name all five or the emoji cannot be copied out
+; of the page as what it was.
+class TTFShapedRun {
+    def glyphs:[int]
+    ; Half-open [start, end) into the codepoint array that was shaped.
+    def clusterStart:[int]
+    def clusterEnd:[int]
+
+    Constructor () {
+    }
+
+    fn count:int () {
+        return (array_length glyphs)
+    }
 }
 
 class TrueTypeFont {
@@ -86,6 +109,17 @@ class TrueTypeFont {
     def pairMatched:boolean false
     ; Legacy `kern` table, format 0. Some older faces carry this instead of
     ; GPOS; a few carry both, in which case GPOS wins as OpenType requires.
+    ; ---- Shaping -----------------------------------------------------------
+    ; GSUB LookupType 4 (ligature substitution) subtables reachable from the
+    ; features that compose characters: `ccmp`, plus `liga`/`rlig` for faces
+    ; that file the same thing differently.
+    ;
+    ; This is what turns a sequence into a glyph. Without it 👨‍👩‍👧 is five
+    ; codepoints and comes out as three people and two invisible joiners, and
+    ; 👍🏽 is a thumb followed by a colour swatch.
+    def ligatureSubtables:[int]
+    def hasShaping:boolean false
+
     def legacyKernOffset:int 0
     def legacyKernPairs:int 0
     def hasKerning:boolean false
@@ -101,6 +135,8 @@ class TrueTypeFont {
         kernSubtables = ks
         def ksl:[int]
         kernSubtableLookups = ksl
+        def ls:[int]
+        ligatureSubtables = ls
     }
     
     fn loadFromFile:boolean (path:string) {
@@ -150,6 +186,7 @@ class TrueTypeFont {
         this.parseHmtxTable()
         this.parseNameTable()
         this.parseKerning()
+        this.parseGsubLigatures()
         
         ; Build character width cache
         this.buildCharWidthCache()
@@ -263,6 +300,7 @@ class TrueTypeFont {
         ; or platformID=0 for Unicode
         def i:int 0
         def subtableOffset:int 0
+        def wideFound:boolean false
         
         while (i < numSubtables) {
             def recordOff:int (off + 4 + (i * 8))
@@ -270,12 +308,33 @@ class TrueTypeFont {
             def encodingID:int (this.readUInt16(recordOff + 2))
             def subOff:int (this.readUInt32(recordOff + 4))
             
-            ; Prefer Windows Unicode BMP (3,1) or Unicode (0,3)
-            if ((platformID == 3) && (encodingID == 1)) {
-                subtableOffset = subOff
+            ; A format-4 subtable is BMP-only: it cannot map anything above
+            ; U+FFFF, so a face selected through it can never reach an emoji
+            ; however correct the rest of the pipeline is. Prefer the UCS-4
+            ; subtables — Windows (3,10) or Unicode (0,4) — which carry format
+            ; 12, and keep the BMP ones as the fallback for older faces.
+            def fmt:int (this.readUInt16(off + subOff))
+            def wideCandidate:boolean false
+            if ((platformID == 3) && (encodingID == 10)) {
+                wideCandidate = true
             }
-            if ((platformID == 0) && (subtableOffset == 0)) {
+            if ((platformID == 0) && (encodingID == 4)) {
+                wideCandidate = true
+            }
+            if ((platformID == 0) && (encodingID == 6)) {
+                wideCandidate = true
+            }
+            if (wideCandidate && (fmt == 12)) {
                 subtableOffset = subOff
+                wideFound = true
+            }
+            if (wideFound == false) {
+                if ((platformID == 3) && (encodingID == 1)) {
+                    subtableOffset = subOff
+                }
+                if ((platformID == 0) && (subtableOffset == 0)) {
+                    subtableOffset = subOff
+                }
             }
             
             i = i + 1
@@ -355,10 +414,29 @@ class TrueTypeFont {
         }
     }
     
+    ; Is this a real, parsed face?
+    ;
+    ; NOT `unitsPerEm > 0`: that field is born 1000 and only a face that
+    ; parsed and read a broken `head` ever drops it to zero, so an untouched
+    ; TrueTypeFont — the "nothing found" answer from a lookup — passes that
+    ; test and is then used as if it were a font. It is what made a missing
+    ; glyph come out as .notdef drawn from a fallback that was never loaded.
+    fn isLoaded:boolean () {
+        if (numGlyphs <= 0) {
+            return false
+        }
+        return (cmapOffset > 0)
+    }
+
     fn getGlyphIndex:int (charCode:int) {
         ; Get glyph index for a character code using cmap
         if (cmapOffset == 0) {
             return 0
+        }
+        
+        ; Format 12: the only one that reaches past the BMP.
+        if (cmapFormat == 12) {
+            return (this.getGlyphIndexFormat12(charCode))
         }
         
         ; Format 4: Segment mapping to delta values (most common for Unicode BMP)
@@ -385,6 +463,33 @@ class TrueTypeFont {
         return 0  ; .notdef glyph
     }
     
+    ; Format 12: sorted groups of (startCharCode, endCharCode, startGlyphID),
+    ; 12 bytes each. This is the only cmap kind that reaches past the BMP, so
+    ; it is what an emoji lookup actually goes through.
+    fn getGlyphIndexFormat12:int (charCode:int) {
+        def off:int cmapOffset
+        def nGroups:int (this.readUInt32(off + 12))
+        def lo:int 0
+        def hi:int (nGroups - 1)
+        while (lo <= hi) {
+            def mid:int (to_int ((lo + hi) / 2))
+            def g:int (off + 16 + (mid * 12))
+            def startChar:int (this.readUInt32(g))
+            def endChar:int (this.readUInt32(g + 4))
+            if (charCode < startChar) {
+                hi = (mid - 1)
+            } {
+                if (charCode > endChar) {
+                    lo = (mid + 1)
+                } {
+                    def startGlyph:int (this.readUInt32(g + 8))
+                    return (startGlyph + (charCode - startChar))
+                }
+            }
+        }
+        return 0
+    }
+
     fn getGlyphIndexFormat4:int (charCode:int) {
         ; Format 4 is segment-based mapping
         def off:int cmapOffset
@@ -470,17 +575,25 @@ class TrueTypeFont {
         ; for. Without it every run came out slightly wide — and the error is
         ; not a rounding artefact: it shifts the whole line for centred and
         ; right-aligned text, and display faces kern hardest.
+        ; Stepped by CODEPOINT. Iterating UTF-16 units charged an emoji two
+        ; .notdef advances instead of one glyph, so "a😀b" measured 47.53px
+        ; where it should have measured about 25.
         def width:double 0.0
         def len:int (strlen text)
         def i:int 0
+        def prev:int 0
+        def first:boolean true
         
         while (i < len) {
-            def ch:int (charAt text i)
+            def ch:int (EVGCodepoint.codeAt(text i))
+            def step:int (EVGCodepoint.unitsAt(text i))
             width = width + (this.getCharWidthPoints(ch fontSize))
-            if (i > 0) {
-                width = (width + (this.kernPoints((charAt text (i - 1)) ch fontSize)))
+            if (first == false) {
+                width = (width + (this.kernPoints(prev ch fontSize)))
             }
-            i = i + 1
+            prev = ch
+            first = false
+            i = (i + step)
         }
         
         return width
@@ -615,6 +728,270 @@ class TrueTypeFont {
             }
             i = (i + 1)
         }
+    }
+
+    ; ---- Shaping ----------------------------------------------------------
+    ;
+    ; Collect the GSUB ligature subtables that turn a sequence of codepoints
+    ; into one glyph. Only LookupType 4, and only from the composing features:
+    ; that is what emoji sequences are filed under, and it keeps this from
+    ; quietly applying discretionary Latin ligatures nobody asked for.
+    fn parseGsubLigatures:void () {
+        def table:TTFTableRecord (this.findTable("GSUB"))
+        if (table.offset == 0) {
+            return
+        }
+        def gsubOff:int table.offset
+        def featureListOff:int (gsubOff + (this.readUInt16(gsubOff + 6)))
+        def lookupListOff:int (gsubOff + (this.readUInt16(gsubOff + 8)))
+        def featureCount:int (this.readUInt16(featureListOff))
+        def lookupCount:int (this.readUInt16(lookupListOff))
+
+        def f:int 0
+        while (f < featureCount) {
+            def recOff:int (featureListOff + 2 + (f * 6))
+            def tag:string (this.readTag(recOff))
+            def wanted:boolean false
+            if (tag == "ccmp") {
+                wanted = true
+            }
+            if (tag == "liga") {
+                wanted = true
+            }
+            if (tag == "rlig") {
+                wanted = true
+            }
+            if wanted {
+                def featOff:int (featureListOff + (this.readUInt16(recOff + 4)))
+                def idxCount:int (this.readUInt16(featOff + 2))
+                def li:int 0
+                while (li < idxCount) {
+                    def lookupIndex:int (this.readUInt16(featOff + 4 + (li * 2)))
+                    if (lookupIndex < lookupCount) {
+                        def lookupOff:int (lookupListOff + (this.readUInt16(lookupListOff + 2 + (lookupIndex * 2))))
+                        this.collectLigatureLookup(lookupOff)
+                    }
+                    li = (li + 1)
+                }
+            }
+            f = (f + 1)
+        }
+        if ((array_length ligatureSubtables) > 0) {
+            hasShaping = true
+        }
+    }
+
+    ; LookupType 4 is ligature substitution. Type 7 is an Extension wrapper,
+    ; used by any face large enough to run out of 16-bit offsets — which an
+    ; emoji face certainly is, so unwrapping it is not an edge case here.
+    fn collectLigatureLookup:void (lookupOff:int) {
+        def lookupType:int (this.readUInt16(lookupOff))
+        def subCount:int (this.readUInt16(lookupOff + 4))
+        def i:int 0
+        while (i < subCount) {
+            def subOff:int (lookupOff + (this.readUInt16(lookupOff + 6 + (i * 2))))
+            if (lookupType == 4) {
+                push ligatureSubtables subOff
+            }
+            if (lookupType == 7) {
+                def extType:int (this.readUInt16(subOff + 2))
+                if (extType == 4) {
+                    push ligatureSubtables (subOff + (this.readUInt32(subOff + 4)))
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Is this codepoint a variation selector — VS15 (text) or VS16 (emoji)?
+    ;
+    ; They carry no glyph and exist only to pick a presentation. Left in the
+    ; stream they break every ligature they sit inside: the rainbow flag is
+    ; U+1F3F3 U+FE0F U+200D U+1F308, and the ligature is filed WITHOUT the
+    ; selector, so a shaper that keeps it matches nothing and draws a white
+    ; flag next to a rainbow.
+    sfn isVariationSelector:boolean (cp:int) {
+        if (cp == 65038) {
+            return true
+        }
+        return (cp == 65039)
+    }
+
+    ; The longest ligature starting at `start`, or 0 when there is none.
+    ; `matchedLength` is left in `ligatureMatched` because Ranger has no
+    ; multiple return; a caller reads it immediately after.
+    def ligatureMatched:int 0
+
+    fn ligatureAt:int (gids:[int] start:int) {
+        ligatureMatched = 0
+        def best:int 0
+        def bestLen:int 0
+        def first:int (itemAt gids start)
+        def remaining:int ((array_length gids) - start)
+
+        def s:int 0
+        while (s < (array_length ligatureSubtables)) {
+            def sub:int (itemAt ligatureSubtables s)
+            def cov:int (sub + (this.readUInt16(sub + 2)))
+            def ci:int (this.coverageIndex(cov first))
+            if (ci >= 0) {
+                def setCount:int (this.readUInt16(sub + 4))
+                if (ci < setCount) {
+                    def setOff:int (sub + (this.readUInt16(sub + 6 + (ci * 2))))
+                    def ligCount:int (this.readUInt16(setOff))
+                    def l:int 0
+                    while (l < ligCount) {
+                        def lig:int (setOff + (this.readUInt16(setOff + 2 + (l * 2))))
+                        def ligGlyph:int (this.readUInt16(lig))
+                        def compCount:int (this.readUInt16(lig + 2))
+                        if (compCount <= remaining) {
+                            def ok:boolean true
+                            def c:int 1
+                            while (c < compCount) {
+                                if ((this.readUInt16(lig + 2 + (c * 2))) != (itemAt gids (start + c))) {
+                                    ok = false
+                                    c = compCount
+                                } {
+                                    c = (c + 1)
+                                }
+                            }
+                            if ok {
+                                if (compCount > bestLen) {
+                                    best = ligGlyph
+                                    bestLen = compCount
+                                }
+                            }
+                        }
+                        l = (l + 1)
+                    }
+                }
+            }
+            s = (s + 1)
+        }
+        ligatureMatched = bestLen
+        return best
+    }
+
+    ; Codepoints in, glyphs out, with each glyph remembering which codepoints
+    ; it came from.
+    ;
+    ; Two passes and no more: drop the variation selectors, then repeatedly
+    ; take the longest ligature. That is not a general OpenType shaper — it
+    ; runs no contextual lookups and does no reordering — but it is exactly
+    ; what emoji sequences need, and it is applied only to a run already known
+    ; to belong to one face, so it can never disturb ordinary text.
+    fn shape:TTFShapedRun (cps:[int]) {
+        def run (new TTFShapedRun())
+
+        ; Filtered codepoints, and where each came from in the input.
+        def kept:[int]
+        def keptIndex:[int]
+        def i:int 0
+        while (i < (array_length cps)) {
+            def cp:int (itemAt cps i)
+            if ((TrueTypeFont.isVariationSelector(cp)) == false) {
+                push kept cp
+                push keptIndex i
+            }
+            i = (i + 1)
+        }
+
+        def gids:[int]
+        def k:int 0
+        while (k < (array_length kept)) {
+            push gids (this.getGlyphIndex((itemAt kept k)))
+            k = (k + 1)
+        }
+
+        def n:int (array_length gids)
+        def p:int 0
+        while (p < n) {
+            def glyph:int (itemAt gids p)
+            def consumed:int 1
+            if hasShaping {
+                def lig:int (this.ligatureAt(gids p))
+                if (ligatureMatched > 1) {
+                    glyph = lig
+                    consumed = ligatureMatched
+                }
+            }
+            push run.glyphs glyph
+            ; The cluster runs to the start of the NEXT kept codepoint, so a
+            ; variation selector swallowed by the filter still belongs to the
+            ; cluster it was written inside.
+            push run.clusterStart (itemAt keptIndex p)
+            def endIdx:int (array_length cps)
+            if ((p + consumed) < n) {
+                endIdx = (itemAt keptIndex (p + consumed))
+            }
+            push run.clusterEnd endIdx
+            p = (p + consumed)
+        }
+        return run
+    }
+
+    ; Same, straight from a string.
+    fn shapeString:TTFShapedRun (text:string) {
+        return (this.shape((EVGCodepoint.toArray(text))))
+    }
+
+    ; Shape one slice of a codepoint array — a single grapheme cluster, in
+    ; practice, so a ligature can never reach across the boundary the cluster
+    ; rules drew.
+    fn shapeRange:TTFShapedRun (cps:[int] start:int end:int) {
+        def slice:[int]
+        def i:int start
+        while (i < end) {
+            push slice (itemAt cps i)
+            i = (i + 1)
+        }
+        return (this.shape(slice))
+    }
+
+    ; The width of a whole string as this face will SHAPE it, cluster by
+    ; cluster — the same walk the encoder does, so what a segment measures and
+    ; what it draws cannot part company.
+    ;
+    ; Measuring an emoji segment through the ordinary per-codepoint path
+    ; charged a joined family five advances and drew one, which pushed
+    ; everything after it on the line to the right.
+    fn measureShapedText:double (text:string fontSize:double) {
+        def cps:[int] (EVGCodepoint.toArray(text))
+        def n:int (array_length cps)
+        def total:double 0.0
+        def i:int 0
+        while (i < n) {
+            def end:int (EVGGrapheme.clusterEnd(cps i))
+            total = (total + (this.measureShapedRange(cps i end fontSize)))
+            i = end
+        }
+        return total
+    }
+
+    fn measureShapedRange:double (cps:[int] start:int end:int fontSize:double) {
+        def run:TTFShapedRun (this.shapeRange(cps start end))
+        def scale:double (fontSize / (to_double unitsPerEm))
+        def total:double 0.0
+        def i:int 0
+        while (i < (array_length run.glyphs)) {
+            total = (total + ((to_double (this.getGlyphWidth((itemAt run.glyphs i)))) * scale))
+            i = (i + 1)
+        }
+        return total
+    }
+
+    ; The advance of a shaped run, in points. One glyph per cluster means a
+    ; five-codepoint family is charged one width, not five.
+    fn measureShaped:double (text:string fontSize:double) {
+        def run:TTFShapedRun (this.shapeString(text))
+        def scale:double (fontSize / (to_double unitsPerEm))
+        def total:double 0.0
+        def i:int 0
+        while (i < (array_length run.glyphs)) {
+            total = (total + ((to_double (this.getGlyphWidth((itemAt run.glyphs i)))) * scale))
+            i = (i + 1)
+        }
+        return total
     }
 
     fn parseLegacyKern:void (kernOff:int) {

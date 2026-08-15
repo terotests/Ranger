@@ -36,6 +36,7 @@ unscoped < theme-scoped < attributes authored in the TSX.
 | `typography` | real TTF metrics, GPOS kerning, `align-items: baseline`, UTF-8 → WinAnsi |
 | `units` | `px % em rem`, and `pt pc in mm cm` all pinned to the reference pixel |
 | `flex` | `flex` shorthand, `flex-shrink: 0`, `justify-content`, `flex-wrap` |
+| `emoji` | grapheme clusters, GSUB ligatures, Type0/Identity-H embedding, `emoji-color` |
 | `boxmodel` | padding, per-side padding, borders, nesting, margins |
 
 `units` is the one worth reading twice: five bars declared in five different
@@ -86,5 +87,12 @@ silent:
 - **An explicit `grid-template-rows` was dropped** when the container had no
   declared height, so `170px auto` on an auto-height deck sized every row from
   content and the fixed band disappeared.
+- **The browser re-broke a line EVG had already fitted.** The `emoji` page's
+  tinted rows are shrink-wrapped, so the box carries EVG's own measurement to a
+  few decimals — and Chromium, summing the same advances, landed 288.719 against
+  a declared 288.701. A hundredth of a pixel wrapped the last glyph onto a
+  second line and pushed every absolutely-positioned box below it out of place.
+  A label the engine fitted on one line now says `white-space: nowrap`, so the
+  browser overflows rather than deciding the break again.
 
 Each is now covered by the browser-parity gates in `gallery/pdf_writer/test/`.
