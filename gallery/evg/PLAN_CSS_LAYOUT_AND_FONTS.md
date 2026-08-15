@@ -787,6 +787,52 @@ defaults that to `1fr`. Under this harness's `justify-content: start` an auto
 track does not stretch, so the two disagree; with the CSS default of `normal`
 they coincide. The fixtures pin the column axis rather than paper over it.
 
+### Phase 4.6 — The showcase, and the five bugs it found ✅
+
+`gallery/evg/showcase/` renders six example pages under two themes and to three
+targets, and publishes them to `/evg/` on the project's Pages site
+(`npm run showcase`). Nothing in `pages/*.tsx` carries a visual attribute:
+the pages say what is on the page, one stylesheet says how it looks, and
+swapping `-theme editorial` for `-theme studio` re-skins all six.
+
+Rendering real pages found five bugs that every gate had missed, because each
+one was silent:
+
+- **Composite glyphs were never drawn.** `ä`, `ö`, `å`, `é` are a base letter
+  plus a diacritic, and the raster path skipped that entire glyph kind while
+  still reserving its advance — *päivää* rendered as *piv*. `RasterText` now
+  reads the component table, applies each component's 2×2 transform and offset,
+  and recurses for components that are themselves composite.
+- **Bold was measured in the regular cut.** The renderers append `-Bold` at
+  paint time; layout never did, so a bold heading was measured narrow and drawn
+  wide, wrapping a line later than its box. Chromium lays "A Mysterious
+  Discovery" out at 18px as 196.02 regular and **209.25** bold; EVG reported
+  196.00 for both. `EVGElement.effectiveFontFamily()` is now the one resolver
+  layout, the PDF renderer and the raster pen all go through — which also means
+  `font-weight` finally does something in a PDF, since the bold face is now
+  embedded rather than silently replaced by the regular one.
+- **A grid item resolved percentages against the grid, not its cell.** Every
+  `width: 100%` item in a spread was laid out at the full grid width and they
+  overlapped. A grid item's containing block is its grid area.
+- **The raster target had no image support at all**, so a photo book rendered
+  to PNG came out with the text and none of the pictures. It draws them now,
+  with `object-fit: cover`, a decode cache, and the progressive-JPEG decoder
+  for files the baseline one rejects — `Example.jpg` is progressive, and used
+  to fail with nothing but a line in the log.
+- **An explicit `grid-template-rows` was dropped** when the container had no
+  declared height, so `170px auto` on an auto-height deck sized every row from
+  content. Tracks that need no container height to resolve are applied now;
+  `%` and `fr` genuinely do need one and stay content-sized.
+
+Each is covered by the gates: three new browser-verified fixtures (percentage
+items in a cell, with and without padding; an explicit row template on an
+auto-height container) and six assertions pinning the bold face to the width a
+browser actually draws.
+
+Known limit the gallery shows rather than hides: the raster target's JPEG
+decode has visible block artefacts, and the PDF path — which embeds the
+original file untouched — does not. Both are on the page, side by side.
+
 ## 11. File / module impact (expected)
 
 | Area | Likely touch points |

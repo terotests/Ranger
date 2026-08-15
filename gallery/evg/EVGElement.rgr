@@ -536,6 +536,20 @@ class EVGElement {
         pageHeight = h
     }
     
+    ; The face this element is actually set in, weight included.
+    ;
+    ; The renderers pick a bold face by appending "-Bold" to the family at
+    ; PAINT time, while layout measured the plain family — so a bold heading
+    ; was measured in the regular cut and drawn in the wider bold one, and
+    ; wrapped a line later than the box it had been given. Both sides go
+    ; through here now, which is §4.1 rule 1: one face, one measurement.
+    fn effectiveFontFamily:string () {
+        if (fontWeight == "bold") {
+            return (fontFamily + "-Bold")
+        }
+        return fontFamily
+    }
+
     fn inheritProperties:void (parentEl:EVGElement) {
         ; Inherit properties from parent
         if (fontFamily == "Noto Sans") {

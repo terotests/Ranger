@@ -15,6 +15,9 @@ Import "../fonts/TrueTypeFont.rgr"
 Import "../fonts/FontManager.rgr"
 Import "../fonts/EVGFontSetup.rgr"
 Import "../../../evg/EVGTextEngine.rgr"
+Import "../core/EVGStyleLoader.rgr"
+Import "../jpeg/JPEGDecoder.rgr"
+Import "../jpeg/ProgressiveJPEGDecoder.rgr"
 
 class EVGPNGTool {
     def inputFile:string ""
@@ -29,6 +32,11 @@ class EVGPNGTool {
     def fontManager:FontManager
     def layout:EVGLayout
     def baseDir:string ""
+    ; The raster target had no stylesheet path at all, so the same TSX rendered
+    ; with -css produced a themed PDF and an unthemed image.
+    def styles:EVGStyleLoader
+    def imageCache:[ImageBuffer]
+    def imageCacheKeys:[string]
     
     sfn m@(main):void () {
         def tool (new EVGPNGTool())
@@ -36,6 +44,8 @@ class EVGPNGTool {
     }
     
     fn run:void () {
+        def sl (new EVGStyleLoader())
+        styles = sl
         def argCount:int (shell_arg_cnt)
         
         if (argCount < 2) {
@@ -85,6 +95,20 @@ class EVGPNGTool {
                 }
             }
             
+            if (arg == "-css") {
+                if ((i + 1) < argCount) {
+                    i = i + 1
+                    styles.addFile((shell_arg i))
+                }
+            }
+
+            if (arg == "-theme") {
+                if ((i + 1) < argCount) {
+                    i = i + 1
+                    styles.setTheme((shell_arg i))
+                }
+            }
+
             if (arg == "-debug") {
                 debug = true
             }
@@ -153,6 +177,14 @@ class EVGPNGTool {
             return
         }
         
+        ; Stylesheets are applied to the parsed tree before layout, exactly as
+        ; the PDF and HTML tools do, so one -css/-theme pair drives every
+        ; target the same way.
+        def usedTheme:string (styles.applyTo(root))
+        if (styles.hasFiles()) {
+            styles.report(usedTheme)
+        }
+
         print ("Found root element: <" + root.tagName + ">")
         print ("Children: " + (to_string (root.getChildCount())))
         
@@ -421,6 +453,13 @@ class EVGPNGTool {
             }
         }
         
+        ; Photographs. The raster target used to skip images entirely — a
+        ; photo book rendered to PNG came out with the text and none of the
+        ; pictures, silently.
+        if ((strlen el.src) > 0) {
+            this.renderImage(el x y w h)
+        }
+
         ; Render text content (for Label elements)
         if (el.textContent != "") {
             this.renderText(el x y w h padLeft padTop padRight)
@@ -475,6 +514,152 @@ class EVGPNGTool {
         }
     }
     
+    ; Draw a photo into its box.
+    ;
+    ; `object-fit: cover` is the default a photo book wants: fill the box and
+    ; crop the overflow rather than squash the picture. `fill` stretches.
+    ; Sampling is nearest-neighbour, which is honest for a layout preview —
+    ; the PDF path embeds the original file and the printer resamples it.
+    fn renderImage:void (el:EVGElement x:double y:double w:double h:double) {
+        def dstW:int (to_int w)
+        def dstH:int (to_int h)
+        if ((dstW < 1) || (dstH < 1)) {
+            return
+        }
+
+        def img:ImageBuffer (this.loadImage(el.src))
+        if ((img.width < 1) || (img.height < 1)) {
+            print ("Image warning: could not read " + el.src)
+            return
+        }
+
+        ; Map each destination pixel back into the source.
+        def srcW:double (to_double img.width)
+        def srcH:double (to_double img.height)
+        def scaleX:double ((to_double dstW) / srcW)
+        def scaleY:double ((to_double dstH) / srcH)
+        def useScale:double scaleX
+        if (el.objectFit == "fill") {
+            useScale = 0.0
+        } {
+            ; cover: the larger scale, so neither axis is left short.
+            if (scaleY > scaleX) {
+                useScale = scaleY
+            }
+        }
+
+        def buf:RasterBuffer (renderer.getBuffer())
+        def ox:int (to_int x)
+        def oy:int (to_int y)
+        def dy:int 0
+        while (dy < dstH) {
+            def py:int (oy + dy)
+            if ((py >= 0) && (py < buf.height)) {
+                def dx:int 0
+                while (dx < dstW) {
+                    def px:int (ox + dx)
+                    if ((px >= 0) && (px < buf.width)) {
+                        def sx:int 0
+                        def sy:int 0
+                        if (useScale > 0.0) {
+                            ; Centre the crop on both axes.
+                            def coverW:double (srcW * useScale)
+                            def coverH:double (srcH * useScale)
+                            def offX:double (((to_double dstW) - coverW) / 2.0)
+                            def offY:double (((to_double dstH) - coverH) / 2.0)
+                            sx = (to_int (((to_double dx) - offX) / useScale))
+                            sy = (to_int (((to_double dy) - offY) / useScale))
+                        } {
+                            sx = (to_int (((to_double dx) * srcW) / (to_double dstW)))
+                            sy = (to_int (((to_double dy) * srcH) / (to_double dstH)))
+                        }
+                        if (sx < 0) {
+                            sx = 0
+                        }
+                        if (sy < 0) {
+                            sy = 0
+                        }
+                        if (sx >= img.width) {
+                            sx = (img.width - 1)
+                        }
+                        if (sy >= img.height) {
+                            sy = (img.height - 1)
+                        }
+                        def c:Color (img.getPixel(sx sy))
+                        buf.setPixel(px py c.r c.g c.b 255)
+                    }
+                    dx = (dx + 1)
+                }
+            }
+            dy = (dy + 1)
+        }
+    }
+
+    ; Decode once per distinct source; a spread repeats the same file.
+    fn loadImage:ImageBuffer (src:string) {
+        def i:int 0
+        while (i < (array_length imageCacheKeys)) {
+            if ((itemAt imageCacheKeys i) == src) {
+                return (itemAt imageCache i)
+            }
+            i = (i + 1)
+        }
+
+        def path:string (baseDir + src)
+        def slash:int (0 - 1)
+        def j:int 0
+        while (j < (strlen path)) {
+            if ((charAt path j) == 47) {
+                slash = j
+            }
+            j = (j + 1)
+        }
+        def dir:string "."
+        def name:string path
+        if (slash >= 0) {
+            dir = (substring path 0 slash)
+            name = (substring path (slash + 1) (strlen path))
+        }
+
+        ; A progressive JPEG needs the other decoder. Baseline is by far the
+        ; common case, but "some of the photos are simply missing" is a poor
+        ; way to find out which kind you have.
+        def img:ImageBuffer (this.decodeAnyJpeg(dir name))
+        push imageCacheKeys src
+        push imageCache img
+        return img
+    }
+
+    ; Pick the decoder from the SOF marker, the way jpeg_scaler does.
+    fn decodeAnyJpeg:ImageBuffer (dir:string name:string) {
+        def data:buffer (buffer_read_file dir name)
+        def dataLen:int (buffer_length data)
+        def isProgressive:boolean false
+        def i:int 0
+        while (i < (dataLen - 1)) {
+            if ((buffer_get data i) == 255) {
+                def marker:int (buffer_get data (i + 1))
+                if (marker == 194) {
+                    ; SOF2
+                    isProgressive = true
+                    i = dataLen
+                }
+                if (marker == 192) {
+                    ; SOF0
+                    isProgressive = false
+                    i = dataLen
+                }
+            }
+            i = (i + 1)
+        }
+        if isProgressive {
+            def pdec (new ProgressiveJPEGDecoder())
+            return (pdec.decode(dir name))
+        }
+        def dec (new JPEGDecoder())
+        return (dec.decode(dir name))
+    }
+
     fn renderText:void (el:EVGElement x:double y:double w:double h:double padLeft:double padTop:double padRight:double) {
         ; Get text color
         def textR:int 0
@@ -503,12 +688,9 @@ class EVGPNGTool {
         ; whatever the document said, so a page set in Cinzel was measured in
         ; Cinzel and painted in Open Sans — measure and paint disagreeing on the
         ; raster target in exactly the way §4.1 rule 1 forbids.
-        def faceName:string el.fontFamily
+        def faceName:string (el.effectiveFontFamily())
         if ((strlen faceName) == 0) {
             faceName = "Open Sans"
-        }
-        if (el.fontWeight == "bold") {
-            faceName = (faceName + "-Bold")
         }
         def face:TrueTypeFont (fontManager.getFont(faceName))
         if (face.unitsPerEm > 0) {

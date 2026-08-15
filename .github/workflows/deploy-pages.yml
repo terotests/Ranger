@@ -5,6 +5,9 @@
 #                car game + a GPU 3D demo are the next entries).
 #   /games/v2/ -> v2 interpreter live demos (staged ComponentEngine +
 #                RgRegistryBridge / RgGameHost — ylos2 2D + live 3D guests).
+#   /evg/     -> the EVG showcase: the layout engine's own example pages, each
+#                rendered under two themes and to PDF, PNG and HTML from one
+#                source tree and one stylesheet.
 #   /docs/    -> the language documentation. The operator reference is generated
 #                from compiler/Lang.rgr and lib/*.rgr by docs/tools, and the
 #                examples on it are compiled by the compiler built in this job,
@@ -40,6 +43,8 @@ on:
       - "compiler/**"
       - "lib/**"
       - "docs/**"
+      - "gallery/evg/**"
+      - "gallery/pdf_writer/src/**"
       - ".github/workflows/deploy-pages.yml"
   # A published release republishes the site, so the documentation on
   # /docs/ always describes the released compiler.
@@ -130,6 +135,13 @@ jobs:
         run: |
           mkdir -p "$GITHUB_WORKSPACE/_site/docs"
           cp -r docs/site/dist/. "$GITHUB_WORKSPACE/_site/docs/"
+
+      # ---- EVG showcase at /evg/ -----------------------------------------
+      # Renders the layout engine's own example pages with the tools built
+      # from this checkout, so the gallery always shows what the engine in
+      # this commit actually does.
+      - name: Build the EVG showcase
+        run: node gallery/evg/showcase/build.mjs --out "$GITHUB_WORKSPACE/_site/evg"
 
       # ---- Playground at the site root -----------------------------------
       - name: Install playground dependencies

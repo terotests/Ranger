@@ -143,7 +143,7 @@ class EVGLayout {
                     if (fontSize <= 0.0) {
                         fontSize = 14.0
                     }
-                    def contentW:double (textEngine.maxLineWidth(textContent element.fontFamily fontSize))
+                    def contentW:double (textEngine.maxLineWidth(textContent (element.effectiveFontFamily()) fontSize))
                     def measuredW:double (contentW + element.box.paddingLeftPx + element.box.paddingRightPx + (element.box.borderWidthPx * 2.0))
                     if (measuredW < parentWidth) {
                         width = measuredW
@@ -300,14 +300,14 @@ class EVGLayout {
                 ; Line count comes from the shared wrap, not a second estimate,
                 ; so the height reserved here matches the lines paint will draw.
                 def availableWidth:double (width - element.box.paddingLeftPx - element.box.paddingRightPx)
-                def lineCount:int (textEngine.lineCount(textContent element.fontFamily fontSize availableWidth))
+                def lineCount:int (textEngine.lineCount(textContent (element.effectiveFontFamily()) fontSize availableWidth))
 
                 contentHeight = (lineSpacing * (to_double lineCount))
 
                 ; Baseline of the FIRST line, measured from this element's top
                 ; border edge, for align-items: baseline. The glyphs sit inside
                 ; the line box, so half the leading is above the ascent.
-                def metrics:EVGTextMetrics (textEngine.measureRun(textContent element.fontFamily fontSize))
+                def metrics:EVGTextMetrics (textEngine.measureRun(textContent (element.effectiveFontFamily()) fontSize))
                 def leading:double ((lineSpacing - (metrics.ascent + metrics.descent)) / 2.0)
                 if (leading < 0.0) {
                     leading = 0.0
@@ -1429,9 +1429,9 @@ class EVGLayout {
                     }
                     def contentW:double 0.0
                     if wantMin {
-                        contentW = (textEngine.minLineWidth(textContent el.fontFamily fs))
+                        contentW = (textEngine.minLineWidth(textContent (el.effectiveFontFamily()) fs))
                     } {
-                        contentW = (textEngine.maxLineWidth(textContent el.fontFamily fs))
+                        contentW = (textEngine.maxLineWidth(textContent (el.effectiveFontFamily()) fs))
                     }
                     outer = (contentW + (el.box.getHorizontalChrome()))
                 }
@@ -1877,6 +1877,29 @@ class EVGLayout {
                 }
                 m = (m + 1)
             }
+
+            ; An explicit row template on a container with no definite height
+            ; used to be dropped whole, so `grid-template-rows: 170px auto` on
+            ; an auto-height deck sized every row from content and the fixed
+            ; band vanished. A track that needs no container height to resolve
+            ; is applied here; a `%` or `fr` row genuinely does need one and is
+            ; left content-sized.
+            if ((strlen rowSpec) > 0) {
+                def declared:EVGGridTemplate (EVGGridTemplate.parse(rowSpec))
+                if (declared.hadError) {
+                    this.warn(("grid-template-rows: " + declared.errorText))
+                }
+                def dr:int 0
+                while (dr < rowsUsed) {
+                    if (dr < (declared.count())) {
+                        def dt:EVGGridTrack (declared.trackAt(dr))
+                        if (dt.kind == 0) {
+                            set rowSizes dr dt.value
+                        }
+                    }
+                    dr = (dr + 1)
+                }
+            }
         }
 
         ; --- final placement -------------------------------------------------
@@ -1934,10 +1957,16 @@ class EVGLayout {
                     }
                     sgj = (sgj + 1)
                 }
-                ; The child's own units were resolved before the rows existed;
-                ; let it resolve them again against the height it now has.
-                el.unitsResolved = false
             }
+
+            ; A grid item's containing block is its CELL, not the grid's
+            ; content box. Its units were resolved against the container before
+            ; the tracks were sized, so `width: 100%` on a cell came out as the
+            ; whole grid's width — every item in the album spread was laid out
+            ; at full size and simply overlapped. Resolve them again now that
+            ; the cell is known.
+            el.unitsResolved = false
+            el.resolveUnits(boxW boxH)
 
             this.layoutElement(el el.calculatedX el.calculatedY boxW boxH)
             p = (p + 1)
@@ -2028,7 +2057,7 @@ class EVGLayout {
                 if (fontSize <= 0.0) {
                     fontSize = 14.0
                 }
-                def contentW:double (textEngine.maxLineWidth(textContent child.fontFamily fontSize))
+                def contentW:double (textEngine.maxLineWidth(textContent (child.effectiveFontFamily()) fontSize))
                 def measuredW:double (contentW + child.box.paddingLeftPx + child.box.paddingRightPx + (child.box.borderWidthPx * 2.0))
                 if (measuredW < maxInnerWidth) {
                     return measuredW
