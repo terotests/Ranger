@@ -1,0 +1,361 @@
+; EVGDisplayList.rgr — one traversal, a flat list of draw commands
+;
+; EVG computes geometry and stops there; something else has to paint it. Today
+; five painters each walk the laid-out tree themselves and each decide again
+; what a box means:
+;
+;   EVGPDFRenderer          -> PDF operators
+;   evg_png_tool + raster   -> CPU pixels
+;   EVGHTMLRenderer         -> absolutely positioned <div>s
+;   v2 ui/UIContext         -> framebuffer fillRect
+;   game_engine/ui/UILayer  -> interactive HUD on the same framebuffer
+;
+; Five copies of the same walk is how border-radius came to work in PDF and
+; silently not in PNG: one painter read `el.box.borderRadius` and the other
+; read a stale `el.borderRadius` that nothing wrote. A sixth backend (GL,
+; WebGL, SDL2) should not be a sixth copy.
+;
+; So: walk once, emit commands, and let a backend consume them. A command is
+; deliberately dumb — absolute pixels, resolved colours, no tree, no units —
+; because that is what a GPU backend wants: quads it can batch, glyph runs it
+; can look up in an atlas, and clip rectangles it can push and pop.
+;
+; This module is pure. It reads a laid-out tree and allocates no device
+; resources, so it compiles to every target Ranger has, which is what lets the
+; same list drive WebGL in a browser and SDL2 on a Raspberry Pi.
+
+Import "EVGElement.rgr"
+Import "EVGColor.rgr"
+Import "EVGTextEngine.rgr"
+
+; Command kinds. Kept as ints so a backend can switch on them cheaply.
+;   0 RECT   filled box, possibly rounded
+;   1 BORDER stroked outline, possibly rounded
+;   2 IMAGE  textured quad, src names the file
+;   3 TEXT   one run on one line, already positioned at its baseline
+;   4 PUSH_CLIP / 5 POP_CLIP  scissor rectangle
+class EVGDrawCmd {
+    def kind:int 0
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def radius:double 0.0
+    def thickness:double 0.0
+    ; Colour, pre-resolved to 0-255 + alpha 0-1 so a backend needs no EVGColor.
+    def r:int 0
+    def g:int 0
+    def b:int 0
+    def a:double 1.0
+    ; TEXT
+    def text:string ""
+    def fontFamily:string ""
+    def fontSize:double 0.0
+    ; IMAGE
+    def src:string ""
+
+    Constructor () {
+    }
+
+    fn kindName:string () {
+        if (kind == 0) {
+            return "RECT"
+        }
+        if (kind == 1) {
+            return "BORDER"
+        }
+        if (kind == 2) {
+            return "IMAGE"
+        }
+        if (kind == 3) {
+            return "TEXT"
+        }
+        if (kind == 4) {
+            return "PUSH_CLIP"
+        }
+        return "POP_CLIP"
+    }
+}
+
+class EVGDisplayList {
+    def cmds:[EVGDrawCmd]
+    ; The same engine layout measured with. A paragraph is emitted one command
+    ; per LINE, broken exactly where layout broke it — a backend that got the
+    ; whole string would draw one long run straight out of its box, which is
+    ; the disagreement between measure and paint this engine exists to avoid.
+    def textEngine:EVGTextEngine (new EVGTextEngine())
+
+    Constructor () {
+    }
+
+    fn setTextEngine:void (e:EVGTextEngine) {
+        textEngine = e
+    }
+
+    fn count:int () {
+        return (array_length cmds)
+    }
+
+    fn at:EVGDrawCmd (i:int) {
+        return (itemAt cmds i)
+    }
+
+    ; Walk a LAID-OUT tree. Call after EVGLayout.layout(root).
+    fn build:void (root:EVGElement) {
+        clear cmds
+        this.walk(root)
+    }
+
+    fn walk:void (el:EVGElement) {
+        def x:double el.calculatedX
+        def y:double el.calculatedY
+        def w:double el.calculatedWidth
+        def h:double el.calculatedHeight
+
+        def radius:double el.box.borderRadiusPx
+
+        ; Background
+        if el.backgroundColor {
+            def bg:EVGColor (unwrap el.backgroundColor)
+            if bg.isSet {
+                def c (new EVGDrawCmd())
+                c.kind = 0
+                c.x = x
+                c.y = y
+                c.w = w
+                c.h = h
+                c.radius = radius
+                c.r = (bg.red())
+                c.g = (bg.green())
+                c.b = (bg.blue())
+                c.a = (bg.alpha())
+                push cmds c
+            }
+        }
+
+        ; Border
+        if (el.box.borderWidthPx > 0.0) {
+            if el.borderColor {
+                def bc:EVGColor (unwrap el.borderColor)
+                if bc.isSet {
+                    def c2 (new EVGDrawCmd())
+                    c2.kind = 1
+                    c2.x = x
+                    c2.y = y
+                    c2.w = w
+                    c2.h = h
+                    c2.radius = radius
+                    c2.thickness = el.box.borderWidthPx
+                    c2.r = (bc.red())
+                    c2.g = (bc.green())
+                    c2.b = (bc.blue())
+                    c2.a = (bc.alpha())
+                    push cmds c2
+                }
+            }
+        }
+
+        ; Image
+        if ((strlen el.src) > 0) {
+            def c3 (new EVGDrawCmd())
+            c3.kind = 2
+            c3.x = x
+            c3.y = y
+            c3.w = w
+            c3.h = h
+            c3.radius = radius
+            c3.src = el.src
+            push cmds c3
+        }
+
+        ; Text. One command per element; a backend that shapes lines itself can
+        ; re-break, and one that does not can ask EVGTextEngine for the same
+        ; lines layout used.
+        if ((strlen el.textContent) > 0) {
+            def face:string (el.effectiveFontFamily())
+            def fs:double el.inheritedFontSize
+            if el.fontSize.isSet {
+                fs = el.fontSize.pixels
+            }
+            if (fs <= 0.0) {
+                fs = 14.0
+            }
+            def lh:double el.lineHeight
+            if (lh <= 0.0) {
+                lh = 1.2
+            }
+            def avail:double (el.box.getInnerWidth(w))
+            def lines:[string] (textEngine.breakToStrings(el.textContent face fs avail))
+            def tr:int 0
+            def tg:int 0
+            def tb:int 0
+            def ta:double 1.0
+            if el.color {
+                def tc:EVGColor (unwrap el.color)
+                tr = (tc.red())
+                tg = (tc.green())
+                tb = (tc.blue())
+                ta = (tc.alpha())
+            }
+            def li:int 0
+            while (li < (array_length lines)) {
+                def c4 (new EVGDrawCmd())
+                c4.kind = 3
+                c4.x = (x + el.box.paddingLeftPx)
+                c4.y = ((y + el.box.paddingTopPx) + ((to_double li) * (fs * lh)))
+                c4.w = avail
+                c4.h = (fs * lh)
+                c4.text = (itemAt lines li)
+                c4.fontFamily = face
+                c4.fontSize = fs
+                c4.r = tr
+                c4.g = tg
+                c4.b = tb
+                c4.a = ta
+                push cmds c4
+                li = (li + 1)
+            }
+        }
+
+        ; Children, clipped when the element says so.
+        def clips:boolean (el.overflow == "hidden")
+        if clips {
+            def cp (new EVGDrawCmd())
+            cp.kind = 4
+            cp.x = x
+            cp.y = y
+            cp.w = w
+            cp.h = h
+            push cmds cp
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            def kid:EVGElement (el.getChild(i))
+            this.walk(kid)
+            i = (i + 1)
+        }
+        if clips {
+            def pp (new EVGDrawCmd())
+            pp.kind = 5
+            push cmds pp
+        }
+    }
+
+    ; Serialize to JSON — the wire format between the engine and a backend.
+    ;
+    ; One flat array of commands. A backend needs no Ranger runtime to consume
+    ; it, which is what lets the WebGL renderer be plain JavaScript while the
+    ; SDL2 one is the same list decoded in C++.
+    fn toJson:string () {
+        def out:string "{\"cmds\":["
+        def i:int 0
+        while (i < (array_length cmds)) {
+            def c:EVGDrawCmd (itemAt cmds i)
+            if (i > 0) {
+                out = out + ","
+            }
+            out = out + "{\"k\":" + (to_string c.kind)
+            out = out + ",\"x\":" + (EVGDisplayList.num(c.x))
+            out = out + ",\"y\":" + (EVGDisplayList.num(c.y))
+            out = out + ",\"w\":" + (EVGDisplayList.num(c.w))
+            out = out + ",\"h\":" + (EVGDisplayList.num(c.h))
+            if (c.radius > 0.0) {
+                out = out + ",\"r\":" + (EVGDisplayList.num(c.radius))
+            }
+            if (c.thickness > 0.0) {
+                out = out + ",\"t\":" + (EVGDisplayList.num(c.thickness))
+            }
+            out = out + ",\"c\":[" + (to_string c.r) + "," + (to_string c.g)
+            out = out + "," + (to_string c.b) + "," + (EVGDisplayList.num(c.a)) + "]"
+            if ((strlen c.text) > 0) {
+                out = out + ",\"text\":" + (EVGDisplayList.jsonString(c.text))
+                out = out + ",\"font\":" + (EVGDisplayList.jsonString(c.fontFamily))
+                out = out + ",\"size\":" + (EVGDisplayList.num(c.fontSize))
+            }
+            if ((strlen c.src) > 0) {
+                out = out + ",\"src\":" + (EVGDisplayList.jsonString(c.src))
+            }
+            out = out + "}"
+            i = (i + 1)
+        }
+        out = out + "]}"
+        return out
+    }
+
+    ; Two decimals is plenty for a pixel and keeps the payload small.
+    sfn num:string (v:double) {
+        def scaled:int (to_int ((v * 100.0) + 0.5))
+        if (v < 0.0) {
+            scaled = (to_int ((v * 100.0) - 0.5))
+        }
+        def whole:int (to_int (scaled / 100))
+        def frac:int (scaled - (whole * 100))
+        if (frac < 0) {
+            frac = (0 - frac)
+        }
+        def fs:string (to_string frac)
+        if (frac < 10) {
+            fs = "0" + fs
+        }
+        return ((to_string whole) + "." + fs)
+    }
+
+    sfn jsonString:string (v:string) {
+        def out:string "\""
+        def i:int 0
+        while (i < (strlen v)) {
+            def c:int (charAt v i)
+            if (c == 34) {
+                out = out + "\\\""
+            } {
+                if (c == 92) {
+                    out = out + "\\\\"
+                } {
+                    if (c < 32) {
+                        out = out + " "
+                    } {
+                        out = out + (strfromcode c)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (out + "\"")
+    }
+
+    ; A backend-shaped summary: how many quads, how many text runs, how deep
+    ; the clip stack goes. Useful for sizing a vertex buffer up front.
+    fn summary:string () {
+        def rects:int 0
+        def borders:int 0
+        def images:int 0
+        def texts:int 0
+        def clips:int 0
+        def i:int 0
+        while (i < (array_length cmds)) {
+            def c:EVGDrawCmd (itemAt cmds i)
+            if (c.kind == 0) {
+                rects = (rects + 1)
+            }
+            if (c.kind == 1) {
+                borders = (borders + 1)
+            }
+            if (c.kind == 2) {
+                images = (images + 1)
+            }
+            if (c.kind == 3) {
+                texts = (texts + 1)
+            }
+            if (c.kind == 4) {
+                clips = (clips + 1)
+            }
+            i = (i + 1)
+        }
+        def s:string ("rects=" + (to_string rects))
+        s = s + " borders=" + (to_string borders)
+        s = s + " images=" + (to_string images)
+        s = s + " text=" + (to_string texts)
+        s = s + " clips=" + (to_string clips)
+        return s
+    }
+}

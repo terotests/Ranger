@@ -122,6 +122,68 @@ function render(tool, page, theme, outFile, extra = []) {
   return warnings;
 }
 
+/** The WebGL viewer page. One canvas, one display list, the real faces. */
+function viewerHtml(faceCss) {
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EVG on WebGL</title>
+<style>
+  ${faceCss}
+  :root { color-scheme: light dark; }
+  body { margin:0; background:#8b8f94; display:flex; flex-direction:column;
+         align-items:center; gap:14px; padding:24px;
+         font:14px/1.5 ui-sans-serif, system-ui, sans-serif; color:#fff }
+  canvas { background:#fff; box-shadow:0 3px 22px rgba(0,0,0,.4); max-width:100%; height:auto }
+  .bar { display:flex; gap:14px; align-items:baseline; flex-wrap:wrap; justify-content:center }
+  a { color:#cfe4ff }
+  code { background:rgba(0,0,0,.25); padding:1px 5px; border-radius:4px }
+  #err { color:#ffd0d0; font:12px/1.4 monospace; white-space:pre-wrap; max-width:70ch }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <strong>EVG on WebGL</strong>
+    <span id="stats" class="muted">loading…</span>
+    <a href="../index.html">back to the gallery</a>
+  </div>
+  <canvas id="c"></canvas>
+  <p class="bar">Same layout as the PDF — flex, grid, TTF metrics and kerning — drawn as GPU quads.
+     Rounded corners come from a distance field in the fragment shader.</p>
+  <p id="err"></p>
+<script type="module">
+import { renderDisplayList } from "./evg-webgl.js";
+const list = new URLSearchParams(location.search).get("list") || "album-editorial.json";
+const err = document.getElementById("err");
+try {
+  const doc = await (await fetch(list)).json();
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const c = document.getElementById("c");
+  c.style.width = doc.width + "px";
+  c.width = Math.round(doc.width * dpr);
+  c.height = Math.round(doc.height * dpr);
+  const gl = c.getContext("webgl2", { antialias: true, premultipliedAlpha: false });
+  if (!gl) throw new Error("This browser has no WebGL 2.");
+  await document.fonts.ready;
+  // A face nothing has used yet is not fetched until asked for by size.
+  await Promise.all(doc.list.cmds.filter(x => x.text)
+    .map(x => document.fonts.load(\`\${x.size}px "\${x.font}"\`).catch(() => {})));
+  const s = renderDisplayList(gl, doc, { dpr });
+  document.getElementById("stats").textContent =
+    \`\${s.drawn} quads · \${s.textRuns} text runs\` + (s.skippedImages ? \` · \${s.skippedImages} images not yet drawn\` : "");
+  window.__evgStats = s;
+} catch (e) {
+  err.textContent = String((e && e.stack) || e);
+  window.__evgStats = { error: String(e) };
+}
+</script>
+</body>
+</html>
+`;
+}
+
 const esc = (s) =>
   String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -136,6 +198,7 @@ function indexHtml(entries, warnings) {
             <strong>${esc(t.label)}</strong> <span class="muted">${esc(t.note)}</span>
             <a class="dl" href="${e.pdf}">PDF</a>
             <a class="dl" href="${e.html}">HTML</a>
+            <a class="dl" href="${e.gl}">WebGL</a>
           </figcaption>
         </figure>`;
     }).join("");
@@ -235,12 +298,14 @@ function indexHtml(entries, warnings) {
 
 fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(path.join(OUT, "pages"), { recursive: true });
+fs.mkdirSync(path.join(OUT, "gl", "fonts"), { recursive: true });
 fs.mkdirSync(TOOLS, { recursive: true });
 
 process.stdout.write("Compiling EVG tools...\n");
 compile("./gallery/pdf_writer/src/tools/evg_pdf_tool.rgr", "evg_pdf_tool.js");
 compile("./gallery/pdf_writer/src/tools/evg_png_tool.rgr", "evg_png_tool.js");
 compile("./gallery/pdf_writer/src/tools/evg_html_tool.rgr", "evg_html_tool.js");
+compile("./gallery/pdf_writer/src/tools/evg_displaylist_tool.rgr", "evg_displaylist_tool.js");
 
 const entries = [];
 const allWarnings = [];
@@ -250,16 +315,19 @@ for (const page of PAGES) {
     const stem = `${page.id}-${theme.id}`;
     process.stdout.write(`  ${stem}\n`);
     const png = `${stem}.png`;
+    const json = `${stem}.json`;
     const pdf = `${stem}.pdf`;
     const html = `${stem}.html`;
     allWarnings.push(...render("evg_png_tool.js", page.id, theme.id, path.join(OUT, png)));
     allWarnings.push(...render("evg_pdf_tool.js", page.id, theme.id, path.join(OUT, pdf)));
+    // The same page as draw commands, for the WebGL viewer.
+    allWarnings.push(...render("evg_displaylist_tool.js", page.id, theme.id, path.join(OUT, "gl", json)));
     // -embed inlines the TTFs as data URIs. Without it the page references
     // font files by path, which resolves on the build machine and nowhere
     // else — the browser then falls back to a system face, wraps text where
     // EVG did not, and the absolutely-positioned boxes land on the headings.
     allWarnings.push(...render("evg_html_tool.js", page.id, theme.id, path.join(OUT, html), ["-embed"]));
-    entries.push({ page: page.id, theme: theme.id, png, pdf, html });
+    entries.push({ page: page.id, theme: theme.id, png, pdf, html, gl: `gl/view.html?list=${json}` });
   }
   // Source, served as text so the gallery can link to what produced the page.
   fs.copyFileSync(
@@ -268,6 +336,31 @@ for (const page of PAGES) {
   );
 }
 fs.copyFileSync(CSS, path.join(OUT, "showcase.css.txt"));
+
+// ---- WebGL viewer ---------------------------------------------------------
+// The renderer itself, the faces it needs, and a page to put them together.
+// Fonts are copied rather than linked: the published site has no access to the
+// repository tree, and the whole point is that these are the same TTFs the
+// layout was measured with.
+fs.copyFileSync(path.join(ROOT, "gallery/evg/gl/evg-webgl.js"), path.join(OUT, "gl", "evg-webgl.js"));
+const FONTS = path.join(ROOT, "gallery/pdf_writer/assets/fonts");
+const FACES = [
+  ["Cinzel", "Cinzel/Cinzel-Regular.ttf"],
+  ["Cinzel-Bold", "Cinzel/Cinzel-Bold.ttf"],
+  ["Noto Sans", "Noto_Sans/NotoSans-Regular.ttf"],
+  ["Noto Sans-Bold", "Noto_Sans/NotoSans-Bold.ttf"],
+  ["Josefin Sans", "Josefin_Sans/JosefinSans-Regular.ttf"],
+  ["Josefin Sans-Bold", "Josefin_Sans/JosefinSans-Bold.ttf"],
+];
+const faceCss = [];
+for (const [family, rel] of FACES) {
+  const src = path.join(FONTS, rel);
+  if (!fs.existsSync(src)) continue;
+  const base = "fonts/" + path.basename(rel);
+  fs.copyFileSync(src, path.join(OUT, "gl", base));
+  faceCss.push(`@font-face{font-family:"${family}";src:url("${base}")}`);
+}
+fs.writeFileSync(path.join(OUT, "gl", "view.html"), viewerHtml(faceCss.join("\n  ")), "utf8");
 
 const unique = [...new Set(allWarnings)];
 fs.writeFileSync(path.join(OUT, "index.html"), indexHtml(entries, unique), "utf8");

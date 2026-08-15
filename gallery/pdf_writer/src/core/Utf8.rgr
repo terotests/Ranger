@@ -106,6 +106,37 @@ class Utf8 {
         return ((b >= 128) && (b < 192))
     }
 
+    ; The inverse of decode: real codepoints -> a string of BYTES, so that
+    ; writing it out produces UTF-8 rather than Latin-1.
+    ;
+    ; buffer_from_string is the mirror of buffer_to_string and writes one byte
+    ; per character, so a string holding U+00E4 lands on disk as the single
+    ; byte 0xE4 — Latin-1, not UTF-8. A JSON file written that way is not valid
+    ; UTF-8 and every "ä" reaches the consumer as a replacement character.
+    sfn encode:string (s:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen s)) {
+            def cp:int (charAt s i)
+            if (cp < 128) {
+                out = out + (strfromcode cp)
+            } {
+                if (cp < 2048) {
+                    out = out + (strfromcode (192 + (to_int (cp / 64))))
+                    out = out + (strfromcode (128 + (cp % 64)))
+                } {
+                    ; Surrogate halves are emitted as-is (CESU-8); the sources
+                    ; here are BMP text and no consumer has needed more.
+                    out = out + (strfromcode (224 + (to_int (cp / 4096))))
+                    out = out + (strfromcode (128 + ((to_int (cp / 64)) % 64)))
+                    out = out + (strfromcode (128 + (cp % 64)))
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
     ; ---- WinAnsi (CP1252) -------------------------------------------------
     ;
     ; WinAnsi is not Latin-1. The two agree over 0x20-0x7E and 0xA0-0xFF, but
